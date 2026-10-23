@@ -19,6 +19,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
 import type { Attachment } from '@conclave/core/client';
+import type { CyberProgram } from '@conclave/core/providers/access-programs';
 import type { Session } from '@conclave/core/types';
 import { ACCEPT_FILES, MAX_ATTACHMENTS } from '@conclave/core/attachments/limits';
 import { askBtw, useHub } from '@/store/store';
@@ -52,6 +53,7 @@ interface Switches {
   webSearch: boolean;
   memory: boolean;
   thinking?: Thinking;
+  cyber?: CyberProgram;
 }
 
 type FileItem = Attachment & { size: number; preview?: string };
@@ -80,6 +82,9 @@ export interface ComposerTarget {
   follow?: EffortFollow;
   onModel: (ref: string) => void;
   onEffort: (effort: EffortSetting | undefined) => void;
+  /** Cyber access for a ChatGPT plan model (session.chat.cyber at the start); offered where the model takes one. */
+  cyber?: CyberProgram;
+  onCyber?: (v: CyberProgram | undefined) => void;
   /** "+" after Attach files: agent, device, folder, repository, Ultra. */
   plus?: MenuItem[];
   /** Phones: the options button and its sheet, in place of the chat's. */
@@ -123,7 +128,7 @@ function useSwitches(session: Session | undefined): [Switches, (p: Partial<Switc
     return () => window.removeEventListener(DEFAULTS_EVENT, reread);
   }, []);
   const current: Switches = session
-    ? { model: session.model, webSearch: session.chat?.webSearch !== false, memory: session.chat?.memory !== false, thinking: session.chat?.thinking }
+    ? { model: session.model, webSearch: session.chat?.webSearch !== false, memory: session.chat?.memory !== false, thinking: session.chat?.thinking, cyber: session.chat?.cyber }
     : { ...local, model: local.model ?? hubModel };
   const change = (patch: Partial<Switches>) => {
     // another model keeps the Effort level when it has it, else takes the nearest one it has
@@ -142,6 +147,7 @@ function useSwitches(session: Session | undefined): [Switches, (p: Partial<Switc
     if (p.webSearch !== undefined) chat.webSearch = p.webSearch;
     if (p.memory !== undefined) chat.memory = p.memory;
     if ('thinking' in p) chat.thinking = p.thinking ?? null;
+    if ('cyber' in p) chat.cyber = p.cyber ?? null;
     if (Object.keys(chat).length) void patchChat(session.id, { chat });
   };
   return [current, change];
@@ -295,7 +301,7 @@ export function ChatComposer({
       ? await target.send(out)
       : session
         ? await sendTo(session, out)
-        : await startChat(out, { model: sw.model, chat: { webSearch: sw.webSearch, memory: sw.memory, ...(sw.thinking ? { thinking: sw.thinking } : {}) } }, navigate);
+        : await startChat(out, { model: sw.model, chat: { webSearch: sw.webSearch, memory: sw.memory, ...(sw.thinking ? { thinking: sw.thinking } : {}), ...(sw.cyber ? { cyber: sw.cyber } : {}) } }, navigate);
     if (!ok) {
       if (alive.current) {
         setText(out.text);
@@ -460,7 +466,7 @@ export function ChatComposer({
             field={field(PHONE_FIELD)}
             add={<AddButton onFiles={(list) => void addFiles(list)} accept={ACCEPT} />}
             options={target ? target.phoneOptions : <OptionsButton label="Options: web and memory" onClick={() => setSheet(true)} />}
-            model={target ? <PhoneModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} harnesses={target.harnesses} /> : <PhoneModelEffort model={sw.model} value={sw.thinking} onModel={(m) => change({ model: m })} onEffort={(v) => change({ thinking: v })} />}
+            model={target ? <PhoneModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} cyber={target.cyber} onCyber={target.onCyber} harnesses={target.harnesses} /> : <PhoneModelEffort model={sw.model} value={sw.thinking} onModel={(m) => change({ model: m })} onEffort={(v) => change({ thinking: v })} cyber={sw.cyber} onCyber={(v) => change({ cyber: v })} />}
             mic={canDictate() && <DictateButton onText={(t) => setText((x) => (x.trim() ? `${x.trimEnd()} ${t}` : t))} />}
             send={<PhoneSend running={running} ready={hasText} label={sendLabel} onSend={send} onStop={stop} keepFocus={() => document.activeElement === box.current} />}
           />
@@ -489,9 +495,9 @@ export function ChatComposer({
         { label: 'Use memory', detail: MEMORY_HELP, checked: sw.memory, keep: true, onSelect: () => change({ memory: !sw.memory }) },
       ];
   const modelEffort = target ? (
-    <ModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} harnesses={target.harnesses} />
+    <ModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} cyber={target.cyber} onCyber={target.onCyber} harnesses={target.harnesses} />
   ) : (
-    <ModelEffort model={sw.model} value={sw.thinking} onModel={(m) => change({ model: m })} onEffort={(v) => change({ thinking: v })} />
+    <ModelEffort model={sw.model} value={sw.thinking} onModel={(m) => change({ model: m })} onEffort={(v) => change({ thinking: v })} cyber={sw.cyber} onCyber={(v) => change({ cyber: v })} />
   );
 
   return (

@@ -1,5 +1,6 @@
 import type { ContentBlock, JsonSchema, StopReason, Usage, LimitWindow } from '../types';
 import type { Effort, ModelEffort } from './effort';
+import type { CyberProgram } from './access-programs';
 
 /**
  * Model capabilities and prices. Prices are USD per million tokens.
@@ -34,6 +35,8 @@ export interface ModelInfo {
    * resolved models; absent when the model has no effort control.
    */
   effort?: ModelEffort;
+  /** Cyber access programs a ChatGPT plan model takes (providers/access-programs.ts); absent where there is no choice. */
+  cyber?: CyberProgram[];
 }
 
 export interface SystemBlock {
@@ -83,6 +86,8 @@ export interface ChatRequest {
   cacheTtl?: '5m' | '1h';
   /** Stop generating at any of these strings (not sent by the Responses API). */
   stopSequences?: string[];
+  /** Access programs for a ChatGPT plan model (providers/access-programs.ts), sent as access_programs on the Responses wire. */
+  accessPrograms?: { cyber: CyberProgram };
 }
 
 export type StreamEvent =
@@ -92,7 +97,7 @@ export type StreamEvent =
   | { type: 'tool_use_start'; index: number; id: string; name: string }
   | { type: 'tool_use_delta'; index: number; partialJson: string }
   | { type: 'rate_limit'; windows: LimitWindow[] }
-  | { type: 'done'; content: ContentBlock[]; stopReason: StopReason; usage: Usage };
+  | { type: 'done'; content: ContentBlock[]; stopReason: StopReason; usage: Usage; accessPrograms?: Record<string, string> };
 
 export interface Provider {
   readonly id: string;

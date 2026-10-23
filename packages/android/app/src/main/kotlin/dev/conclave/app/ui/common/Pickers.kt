@@ -1,5 +1,11 @@
 package dev.conclave.app.ui.common
 
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -81,7 +87,8 @@ fun ModelPickerSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var query by remember { mutableStateOf("") }
     val makers = remember(groups) { ModelPicks.groups(groups) }
-    val shown = remember(groups, current) { ModelPicks.shown(groups, current) }
+    // a saved ref on a plan's prefix or an effort variant checks the row it folds into
+    val shown = remember(groups, current) { ModelPicks.shownRow(makers, groups, current) }
     // opens on the current model's maker; with none, on the makers
     var open by remember { mutableStateOf(ModelPicks.groupOf(makers, shown)) }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
@@ -156,7 +163,7 @@ fun ModelPickerSheet(
                             val g = makers.firstOrNull { it.key == shownLevel }
                             if (g != null) {
                                 item(key = "back") { BackRow(g) { open = null } }
-                                items(g.rows, key = { "m:" + it.ref }) { r -> ModelRow(r, selected = r.ref == shown) { onPick(r.ref) } }
+                                items(g.rows, key = { "m:" + it.ref }) { r -> ModelRow(r, selected = r.ref == shown, current = current, onRoute = onPick) { onPick(r.ref) } }
                             }
                         }
                     }
@@ -223,17 +230,34 @@ private fun MakerMark(g: ModelPicks.Group) {
 
 /** A model: its name, its route or ref under it (after its maker while searching), context and price, a check on the current one. */
 @Composable
-private fun ModelRow(r: ModelPicks.Row, selected: Boolean, maker: String? = null, onClick: () -> Unit) {
-    val sub = r.via ?: r.ref
+private fun ModelRow(r: ModelPicks.Row, selected: Boolean, maker: String? = null, current: String? = null, onRoute: (String) -> Unit = {}, onClick: () -> Unit) {
+    // the row is the model's name; a route picked by hand ("via neu") says so, the ref only for a coding agent
+    val picked = r.routes.firstOrNull { !it.first && it.ref == current }
+    val sub = picked?.let { "via ${it.label}" } ?: r.via ?: if (r.harness) r.ref else null
     PickerRow(
         ref = r.ref,
         label = r.label,
-        sub = if (maker != null && !r.harness) "$maker, $sub" else sub,
+        sub = if (maker != null && !r.harness) listOfNotNull(maker, sub).joinToString(", ") else sub,
         detail = modelDetail(r.model),
         selected = selected,
         vision = r.model.vision,
         onClick = onClick,
     )
+    // the other ways to the same model, behind the current row: a plan's prefix, another provider, an effort variant
+    if (selected && r.routes.size > 1) {
+        val c = Conclave.colors
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 20.dp, end = 12.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            r.routes.forEach { rt ->
+                val on = rt.ref == current || (rt.first && picked == null)
+                Text(
+                    if (rt.first) "Default, ${rt.label}" else "via ${rt.label}",
+                    style = ConclaveType.meta,
+                    color = if (on) c.fg else c.fg3,
+                    modifier = Modifier.clip(RoundedCornerShape(16.dp)).clickable(role = Role.Button) { onRoute(rt.ref) }.padding(horizontal = 10.dp, vertical = 8.dp),
+                )
+            }
+        }
+    }
 }
 
 /** Context and price per million tokens: "200K, $3 / $15". */
@@ -263,7 +287,7 @@ private fun trim(v: Double): String =
 private fun PickerRow(
     ref: String?,
     label: String,
-    sub: String,
+    sub: String?,
     detail: String?,
     selected: Boolean,
     vision: Boolean = false,
@@ -281,7 +305,7 @@ private fun PickerRow(
         }
         Column(Modifier.weight(1f)) {
             Text(label, style = ConclaveType.rowTitle, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(sub, style = ConclaveType.meta, color = c.fg3, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (sub != null) Text(sub, style = ConclaveType.meta, color = c.fg3, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (vision) {
             Icon(Icons.Outlined.Visibility, contentDescription = "Reads images", modifier = Modifier.size(16.dp), tint = c.fg3)

@@ -124,7 +124,7 @@ export async function runHarnessTurn(engine: Engine, runner: SessionRunner, sess
           engine.noteHarnessEffort(`${harness}/${model}`, ev.levels);
           break;
         case 'models':
-          // the models its account offers ("daybreak" on a Codex account): the picker lists them next to the built-in ones
+          // the models its account offers (a new model on a Codex account): the picker lists them next to the built-in ones
           engine.noteHarnessModels(harness, ev.models);
           break;
         case 'text_delta': {

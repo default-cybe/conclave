@@ -141,5 +141,5 @@ export function effortOf(thinking: ChatRequest['thinking']): Effort | undefined 
 export function budgetOf(thinking: ChatRequest['thinking']): number | undefined {
   if (!thinking || thinking.off) return undefined;
   if (thinking.budgetTokens !== undefined) return thinking.budgetTokens;
-  return { low: 4096, medium: 12_000, high: 32_000, xhigh: 48_000, max: 64_000 }[thinking.effort ?? 'medium'];
+  return { low: 4096, medium: 12_000, high: 32_000, xhigh: 48_000, max: 64_000, ultra: 64_000 }[thinking.effort ?? 'medium'];
 }

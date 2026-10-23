@@ -108,6 +108,7 @@ class ResponsesStream {
   private next = 0;
   private usage: Usage = { inputTokens: 0, outputTokens: 0 };
   private stop?: StopReason;
+  private accessPrograms?: Record<string, string>;
   private started = false;
 
   constructor(
@@ -241,6 +242,8 @@ class ResponsesStream {
       case 'response.incomplete': {
         const r = data.response ?? {};
         if (r.usage) this.usage = openaiUsage(r.usage);
+        // the access program that served the answer (a ChatGPT plan asked for Daybreak Blue may be served standard)
+        if (r.access_programs && typeof r.access_programs === 'object') this.accessPrograms = r.access_programs;
         if (type === 'response.incomplete' && this.stop !== 'refusal') {
           this.stop = r.incomplete_details?.reason === 'content_filter' ? 'refusal' : 'max_tokens';
         }
@@ -258,7 +261,7 @@ class ResponsesStream {
       content.push(b);
     }
     const stopReason = this.stop ?? (content.some((b) => b.type === 'tool_use') ? 'tool_use' : 'end_turn');
-    out.push({ type: 'done', content, stopReason, usage: this.usage });
+    out.push({ type: 'done', content, stopReason, usage: this.usage, ...(this.accessPrograms ? { accessPrograms: this.accessPrograms } : {}) });
     return out;
   }
 }
@@ -305,6 +308,7 @@ export class OpenAIResponsesProvider extends BaseProvider {
     if (wantsThinking(req.thinking) && info.thinking) body.reasoning = { effort: effortOf(req.thinking), summary: 'auto' };
     if (req.cacheKey && this.official) body.prompt_cache_key = req.cacheKey;
     if (req.responseSchema) body.text = { format: { type: 'json_schema', name: 'response', schema: req.responseSchema, strict: false } };
+    if (req.accessPrograms) body.access_programs = { cyber: req.accessPrograms.cyber };
     return body;
   }
 

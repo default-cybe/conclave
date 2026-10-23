@@ -12,7 +12,8 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { ModelEntry, ModelGroup } from '@conclave/core/client';
 import type { Session } from '@conclave/core/types';
-import { buildPicker, groupNote, groupOf, makerRank, pickerItems, type Picker, type PickerInput } from '../src/components/pickers/ModelPicker';
+import { buildPicker, compareModels, familyHead, groupNote, groupOf, makerRank, pickerItems, routeLabel, rowName, type Picker, type PickerInput } from '../src/components/pickers/ModelPicker';
+import { registerModelNames } from '../src/lib/models';
 
 function model(provider: string, id: string, name: string, extra: Partial<ModelEntry> = {}): ModelEntry {
   return { id, ref: `${provider}/${id}`, provider, name, contextWindow: 200_000, maxOutput: 64_000, vision: true, tools: true, thinking: true, caching: 'explicit', inputPrice: 1, outputPrice: 5, cacheReadPrice: 0.1, cacheWritePrice: 1.25, ...extra } as ModelEntry;
@@ -52,10 +53,11 @@ describe('the first level', () => {
     expect(makerRank('cliproxy')).toBeLessThan(makerRank('harness'));
   });
 
-  test('each model sits under its maker, whatever route reaches it; a merged copy shows once; an off harness is not offered', () => {
+  test('each model sits under its maker, whatever route reaches it, newest first; a merged copy shows once; an off harness is not offered', () => {
     const zai = p.groups.find((g) => g.key === 'zai')!;
-    expect(zai.rows.map((r) => r.ref)).toEqual(['zai/glm-5', 'zai/glm-4.7', 'openrouter/z-ai/glm-5.3']);
-    expect(zai.rows[2].model?.via).toBe('OpenRouter');
+    expect(zai.rows.map((r) => r.ref)).toEqual(['openrouter/z-ai/glm-5.3', 'zai/glm-5', 'zai/glm-4.7']);
+    // the row is the model's name, not the route
+    expect(rowName(zai.rows[0])).toBe('GLM-5.3');
     // fed by another provider, the maker says no account word; one of its own does
     expect(zai.word).toBeUndefined();
     expect(p.groups.find((g) => g.key === 'deepseek')!.word).toBe('rejected');
@@ -120,6 +122,87 @@ describe('inside a maker, and searching', () => {
   });
 });
 
+// The hub's list as core merges it (providers/merge.ts): Claude through the plans first, the key and a plan's prefix hidden
+// behind the row; effort variants, image and review models and Meta's Muse as the live CLIProxyAPI list has them
+const plan = (id: string, name: string, extra: Partial<ModelEntry> = {}) => model('cliproxy', id, name, { inputPrice: 0, outputPrice: 0, ...extra });
+const HUB: ModelGroup[] = [
+  group('anthropic', [
+    model('anthropic', 'claude-opus-5-5', 'Claude Opus 5.5', { sameAs: 'cliproxy/claude-opus-5-5' }),
+    model('anthropic', 'claude-haiku-5-5', 'Claude Haiku 5.5', { via: 'API key' }),
+    model('anthropic', 'claude-opus-4-5-20251101', 'Claude Opus 4.5'),
+  ]),
+  group('openai', [model('openai', 'gpt-6.1-sol', 'GPT-6.1 Sol', { sameAs: 'cliproxy/gpt-6.1-sol' })]),
+  group('cliproxy', [
+    plan('claude-sonnet-5-5', 'Claude Sonnet 5.5', { via: 'your Claude plans' }),
+    plan('claude-opus-5-5', 'Claude Opus 5.5', {
+      via: 'your Claude plans, then API key',
+      refs: ['cliproxy/claude-opus-5-5', 'anthropic/claude-opus-5-5', 'cliproxy/neu-claude/claude-opus-5-5', 'openrouter/anthropic/claude-opus-5.5'],
+      choices: ['cliproxy/neu-claude/claude-opus-5-5', 'openrouter/anthropic/claude-opus-5.5'],
+    }),
+    plan('gpt-6.1-sol', 'GPT-6.1 Sol', { via: 'your ChatGPT plan, then API key', refs: ['cliproxy/gpt-6.1-sol', 'openai/gpt-6.1-sol', 'cliproxy/neu/gpt-6.1-sol'], choices: ['cliproxy/neu/gpt-6.1-sol'] }),
+    plan('claude-opus-5-5-high', 'claude-opus-5-5-high'),
+    plan('claude-opus-4-6-thinking', 'claude-opus-4-6-thinking'),
+    plan('gpt-image-2', 'gpt-image-2'),
+    plan('codex-auto-review', 'codex-auto-review'),
+    plan('muse-spark-1', 'muse-spark-1'),
+    plan('neu-claude/claude-opus-5-5', 'Claude Opus 5.5, neu-claude', { sameAs: 'cliproxy/claude-opus-5-5' }),
+    plan('neu/gpt-6.1-sol', 'GPT-6.1 Sol, neu', { sameAs: 'cliproxy/gpt-6.1-sol' }),
+    plan('neu/gpt-6-astra', 'GPT-6 Astra, neu'),
+  ]),
+  group('openrouter', [model('openrouter', 'anthropic/claude-opus-5.5', 'Claude Opus 5.5', { sameAs: 'cliproxy/claude-opus-5-5' })]),
+  group('codex', [model('codex', 'default', 'Codex'), model('codex', 'gpt-6.1-sol', 'GPT-6.1 Sol')], { type: 'acp' }),
+];
+
+describe('one row per model, by its name, the routes behind it', () => {
+  registerModelNames(HUB.flatMap((g) => g.models.map((m) => ({ ref: m.ref, name: m.name }))));
+  const p = buildPicker({ models: HUB, sessions: {}, devices: {}, limits: {}, harnesses: true });
+  const rows = (key: string) => p.groups.find((g) => g.key === key)!.rows;
+
+  test('no repeats: every copy of a model is one row, under its maker, by family and newest first', () => {
+    expect(rows('anthropic').map((r) => r.ref)).toEqual(['cliproxy/claude-opus-5-5', 'cliproxy/claude-opus-4-6-thinking', 'anthropic/claude-opus-4-5-20251101', 'cliproxy/claude-sonnet-5-5', 'anthropic/claude-haiku-5-5']);
+    // a dated snapshot reads without its date; a variant alone stands as its model
+    expect(rows('anthropic').map(rowName)).toEqual(['Opus 5.5', 'Opus 4.6', 'Opus 4.5', 'Sonnet 5.5', 'Haiku 5.5']);
+    expect(rows('anthropic').map((_, i) => familyHead(rows('anthropic'), i))).toEqual(['Opus', null, null, 'Sonnet', 'Haiku']);
+    const all = p.groups.flatMap((g) => g.rows.map((r) => r.ref));
+    expect(all.length).toBe(new Set(all).size);
+    expect(p.groups.map((g) => g.key)).toEqual(['anthropic', 'openai', 'meta', 'harness']);
+  });
+
+  test('an effort variant folds behind its model; image and review models are not chat models', () => {
+    expect(rows('anthropic')[0].routes?.map((r) => r.label)).toEqual(['Main accounts', 'neu-claude', 'OpenRouter', 'High']);
+    expect(rows('anthropic')[1].routes).toEqual([{ ref: 'cliproxy/claude-opus-4-6-thinking', label: 'Thinking', first: true }]);
+    expect(rows('openai').map((r) => r.ref)).toEqual(['cliproxy/gpt-6.1-sol', 'cliproxy/neu/gpt-6-astra']);
+    expect(rows('meta').map((r) => r.ref)).toEqual(['cliproxy/muse-spark-1']);
+    expect(pickerItems(p, 'image', null).filter((it) => it.kind === 'model')).toEqual([]);
+  });
+
+  test('a row names no provider or plan; the other routes are a choice under it, the owner\'s first route first', () => {
+    const opus = rows('anthropic')[0];
+    expect(opus.routes).toEqual([
+      { ref: 'cliproxy/claude-opus-5-5', label: 'Main accounts', first: true },
+      { ref: 'cliproxy/neu-claude/claude-opus-5-5', label: 'neu-claude' },
+      { ref: 'openrouter/anthropic/claude-opus-5.5', label: 'OpenRouter' },
+      { ref: 'cliproxy/claude-opus-5-5-high', label: 'High' },
+    ]);
+    expect(rows('anthropic')[2].routes).toBeUndefined();
+    const items = pickerItems(p, '', 'anthropic', 'anthropic:cliproxy/claude-opus-5-5');
+    expect(items.slice(1, 5).map((it) => it.kind + ':' + (it.kind === 'route' ? it.route.ref : it.kind === 'model' ? it.row.ref : ''))).toEqual([
+      'model:cliproxy/claude-opus-5-5',
+      'route:cliproxy/claude-opus-5-5',
+      'route:cliproxy/neu-claude/claude-opus-5-5',
+      'route:openrouter/anthropic/claude-opus-5.5',
+    ]);
+    expect(routeLabel('anthropic/claude-opus-5-5')).toBe('Anthropic');
+  });
+
+  test('versions sort newest first, a plain id before its variants and snapshots', () => {
+    const ids = ['gpt-5.5-mini', 'o4', 'gpt-6.1-sol', 'gpt-5.5', 'codex-mini', 'gpt-6'];
+    expect([...ids].sort(compareModels)).toEqual(['gpt-6.1-sol', 'gpt-6', 'gpt-5.5', 'gpt-5.5-mini', 'o4', 'codex-mini']);
+    expect(['claude-opus-4-5-20251101', 'claude-opus-4-5'].sort(compareModels)).toEqual(['claude-opus-4-5', 'claude-opus-4-5-20251101']);
+    expect(['gemini-3-flash', 'gemini-3-pro', 'gemini-2.5-pro'].sort(compareModels)).toEqual(['gemini-3-pro', 'gemini-2.5-pro', 'gemini-3-flash']);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // The list on a page: clicks and keys
 // ---------------------------------------------------------------------------
@@ -173,14 +256,14 @@ afterAll(async () => {
   }
 });
 
-async function mount(props: { value?: string; values?: string[] }) {
+async function mount(props: { value?: string; values?: string[]; models?: ModelGroup[] }) {
   const { act } = await import('react');
   const { createRoot } = await import('react-dom/client');
   const { Router } = await import('wouter');
   const { memoryLocation } = await import('wouter/memory-location');
   const { useHub } = await import('../src/store/store');
   const { ModelList } = await import('../src/components/pickers/ModelPicker');
-  useHub.setState({ models: MODELS, sessions: SESSIONS, devices: {}, limits: {} });
+  useHub.setState({ models: props.models ?? MODELS, sessions: props.models ? {} : SESSIONS, devices: {}, limits: {} });
   const picks: string[] = [];
   const host = document.createElement('div');
   document.body.appendChild(host);
@@ -303,6 +386,8 @@ describe('the list, clicked and keyed', () => {
     try {
       expect(v.highlighted()?.textContent).toContain('GLM-5');
       await v.key('ArrowUp');
+      expect(v.highlighted()?.textContent).toContain('GLM-5.3');
+      await v.key('ArrowUp');
       expect(v.highlighted()?.getAttribute('aria-label')).toBe('Back from Z.ai');
       await v.key('Enter');
       expect(v.host.textContent).toContain('Recent');
@@ -315,6 +400,35 @@ describe('the list, clicked and keyed', () => {
       expect(v.highlighted()?.getAttribute('aria-label')).toBe('Back from DeepSeek');
     } finally {
       await v.unmount();
+    }
+  });
+
+  test('the via button opens the routes; picking one stores its own ref, and the row then says which', async () => {
+    const v = await mount({ value: 'cliproxy/claude-opus-5-5', models: HUB });
+    try {
+      expect(v.texts()[0]).toBe('Back from Anthropic');
+      expect(v.texts().some((t) => /neu|cliproxy|OpenRouter/.test(t))).toBe(false);
+      const via = v.host.querySelector('[aria-label="Choose a route"]')!;
+      await v.click(via);
+      expect(v.texts().slice(1, 5)).toEqual([expect.stringContaining('Opus 5.5'), 'Main accounts, the first route', 'via neu-claude', 'via OpenRouter']);
+      await v.click(v.options().find((o) => o.getAttribute('aria-label') === 'via neu-claude')!);
+      expect(v.picks).toEqual(['cliproxy/neu-claude/claude-opus-5-5']);
+    } finally {
+      await v.unmount();
+    }
+    // a saved ref on the plan's prefix checks the one row, and says the plan
+    const w = await mount({ value: 'cliproxy/neu-claude/claude-opus-5-5', models: HUB });
+    try {
+      const checked = w.options().filter((o) => o.getAttribute('aria-selected') === 'true');
+      expect(checked.map((o) => o.textContent)).toEqual([expect.stringContaining('Opus 5.5via neu-claude')]);
+      // Right opens the routes from the keys, Left closes them
+      await w.key('ArrowRight');
+      expect(w.texts()).toContain('via OpenRouter');
+      await w.key('ArrowLeft');
+      expect(w.texts()).not.toContain('via OpenRouter');
+      expect(w.texts()[0]).toBe('Back from Anthropic');
+    } finally {
+      await w.unmount();
     }
   });
 

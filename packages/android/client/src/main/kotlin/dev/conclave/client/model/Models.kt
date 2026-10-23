@@ -192,6 +192,8 @@ enum class ThinkingLevel(val wire: String, val label: String) {
     @SerialName("high") HIGH("high", "High"),
     @SerialName("xhigh") XHIGH("xhigh", "Extra high"),
     @SerialName("max") MAX("max", "Max"),
+    /** A ChatGPT plan's top level (its own model list names it). */
+    @SerialName("ultra") ULTRA("ultra", "Ultra"),
     ;
 
     companion object {
@@ -210,6 +212,8 @@ data class ChatSettings(
     /** Read memory and let the model save and forget notes. Off leaves no trace in memory. */
     val memory: Boolean = true,
     val thinking: ThinkingLevel? = null,
+    /** Cyber access program for a ChatGPT plan model (standard, daybreak_blue, daybreak_red); null sends nothing. */
+    val cyber: String? = null,
 )
 
 // ---------------------------------------------------------------------------

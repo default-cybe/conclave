@@ -316,6 +316,10 @@ class ChatViewModel(hub: HubRepository, val sessionId: String) : HubViewModel(hu
     fun setEffort(level: ThinkingLevel?) =
         patch(SessionPatch(chat = if (level == null) ChatSettingsPatch(agentThinking = true) else ChatSettingsPatch(thinking = level)))
 
+    /** Cyber access for this session (chat.cyber); null goes back to Default, which sends nothing. */
+    fun setCyber(program: String?) =
+        patch(SessionPatch(chat = if (program == null) ChatSettingsPatch(defaultCyber = true) else ChatSettingsPatch(cyber = program)))
+
     /** Ultra: the agent plans and runs workflows for real tasks (docs/WORKFLOWS.md). The hub refuses it on chats. */
     fun setUltra(on: Boolean) = patch(SessionPatch(ultra = on))
     fun togglePin() = patch(SessionPatch(pinned = !(_session.value?.pinned ?: false)))

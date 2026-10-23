@@ -333,7 +333,7 @@ export interface SwitchInput {
   brief?: boolean;
 }
 
-export type ChatSettingsPatch = Partial<Omit<ChatSettings, 'thinking'>> & { thinking?: ChatSettings['thinking'] | null };
+export type ChatSettingsPatch = Partial<Omit<ChatSettings, 'thinking' | 'cyber'>> & { thinking?: ChatSettings['thinking'] | null; cyber?: ChatSettings['cyber'] | null };
 
 export interface Attachment {
   /** image/png, application/pdf, text/plain... */
@@ -405,6 +405,10 @@ export interface ModelEntry extends ModelInfo {
   via?: string;
   /** On the entry pickers show: every ref that names this model, its own first. Old sessions and agents may name any of them. */
   refs?: string[];
+  /** On the entry pickers show: the other refs that name a route of their own (one plan's prefix, a provider outside the owner's order), for a "via" choice. */
+  choices?: string[];
+  /** The vendor of a model whose id no catalog or name tells (a new model only a plan lists): the vendor of a plan that lists it. Pickers file it under that maker. */
+  vendor?: string;
 }
 
 export interface ToolInfo {

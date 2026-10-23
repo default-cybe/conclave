@@ -45,8 +45,8 @@ const MODES: Array<{ value: SessionMode; label: string; help: string }> = [
   { value: 'plan', label: 'Plan', help: 'Reads and proposes a plan, changes nothing.' },
 ];
 
-// every level: a session sends the nearest one its model has (lib/effort.ts)
-const EFFORT: Array<{ value: NonNullable<AgentDef['thinking']>; label: string }> = EFFORT_SETTINGS.map((v) => ({ value: v, label: effortLabel(v) }));
+// every level an agent can name: a session sends the nearest one its model has (lib/effort.ts). Ultra is a ChatGPT plan's, set per session
+const EFFORT: Array<{ value: NonNullable<AgentDef['thinking']>; label: string }> = EFFORT_SETTINGS.filter((v): v is NonNullable<AgentDef['thinking']> => v !== 'ultra').map((v) => ({ value: v, label: effortLabel(v) }));
 
 const MEMORY: Array<{ value: 'global' | 'agent' | 'none'; label: string; help: string }> = [
   { value: 'global', label: 'Shared', help: 'Reads and writes your global and project notes.' },

@@ -101,6 +101,10 @@ class ComposerModel(
     val follow: EffortFollow? = null,
     /** Null goes back to [follow]'s level. */
     val onEffort: (ThinkingLevel?) -> Unit = {},
+    /** Cyber access for a ChatGPT plan model: Default (null) then the model's programs; empty hides the row. */
+    val cyberChoices: List<String?> = emptyList(),
+    val cyberValue: String? = null,
+    val onCyber: (String?) -> Unit = {},
     /** A chat's switches, for the note under the box when memory is off. Null for an agent session. */
     val switches: ChatSettings? = null,
     /** The light on the composer's edge: live while a reply runs, amber while it waits on you (CHAT-AND-MOTION 1.3). */
@@ -318,8 +322,11 @@ fun ChatComposer(
     if (picking) {
         // the Effort row on top: the levels this model has; a model without Effort shows none
         val e = m.effort?.takeIf { Effort.choices(it).isNotEmpty() }
-        val header: (@Composable () -> Unit)? = if (e != null) {
-            { EffortPicker(e, m.effortValue, m.follow, m.onEffort) }
+        val header: (@Composable () -> Unit)? = if (e != null || m.cyberChoices.isNotEmpty()) {
+            {
+                if (e != null) EffortPicker(e, m.effortValue, m.follow, m.onEffort)
+                CyberPicker(m.cyberChoices, m.cyberValue, m.onCyber)
+            }
         } else {
             null
         }

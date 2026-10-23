@@ -13,7 +13,8 @@ import {
   type ModelFamily,
 } from './catalog';
 import type { ProviderOptions } from './common';
-import { modelEffort, type Effort, type EffortWire } from './effort';
+import { EFFORTS, modelEffort, type Effort, type EffortWire } from './effort';
+import { retiredAlias } from './access-programs';
 import { GeminiProvider } from './gemini';
 import { hostOf, type FetchFn } from './http';
 import { OpenAIProvider } from './openai';
@@ -196,7 +197,15 @@ export class ProviderRegistry {
       return levels?.length ? { ...info, effort: { levels, off: false } } : info;
     }
     // an account prefix ("neu/claude-opus-5-5") is the same model
-    const effort = modelEffort(splitAccount(info.id).model, info.thinking, effortWire(cfg, info.id));
+    const bare = splitAccount(info.id).model;
+    // a plan that names the levels it takes (a ChatGPT plan's model list, up to ultra) wins over the rules
+    const meta = cfg.modelMeta?.[bare];
+    const levels = (meta?.efforts ?? []).filter((l): l is Effort => (EFFORTS as readonly string[]).includes(l));
+    if (levels.length) {
+      const def = meta?.defaultEffort && (levels as string[]).includes(meta.defaultEffort) ? (meta.defaultEffort as Effort) : undefined;
+      return { ...info, thinking: true, effort: { levels, off: false, ...(def ? { default: def } : {}) } };
+    }
+    const effort = modelEffort(bare, info.thinking, effortWire(cfg, info.id));
     return effort ? { ...info, effort } : info;
   }
 
@@ -314,7 +323,16 @@ export class ProviderRegistry {
       case 'haiku':
         return this.claudeAlias(ref);
     }
-    const { provider, model } = parseModelRef(ref);
+    const parsed = parseModelRef(ref);
+    const { provider } = parsed;
+    let { model } = parsed;
+    // a retiring Daybreak alias runs on its named model; the engine adds the access program (engine.accessProgramsFor)
+    const alias = retiredAlias(model);
+    if (alias) {
+      const i = model.lastIndexOf('/');
+      model = `${i < 0 ? '' : model.slice(0, i + 1)}${alias.model}`;
+      if (!provider) return this.searchBare(model);
+    }
     if (provider && this.providerConfigs()[provider]) return this.make(this.routed(model, provider) ?? provider, model);
     return this.searchBare(ref);
   }

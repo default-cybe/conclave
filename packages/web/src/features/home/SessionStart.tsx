@@ -45,6 +45,7 @@ import { useIsMobile } from '@/lib/hooks';
 import { Button } from '@/components/ui/Button';
 import { Input, Segmented } from '@/components/ui/Field';
 import { effortOf, useModelEffort, type EffortSetting } from '@/lib/effort';
+import type { CyberProgram } from '@conclave/core/providers/access-programs';
 import { Sheet, type MenuItem } from '@/components/ui/Overlay';
 import { SelectMenu } from '@/components/ui/Select';
 import { LiveStatus } from '@/components/motion';
@@ -123,7 +124,7 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
     savePicks(p);
   };
   // the default coding agent is no pick: a custom one is kept, and brings its own model and device
-  const pickAgent = (agent: string) => update({ permissionMode: picks.permissionMode, thinking: picks.thinking, ultra: picks.ultra, assistantModel: picks.assistantModel, ...(agent !== CODE_AGENT ? { agent } : {}) });
+  const pickAgent = (agent: string) => update({ permissionMode: picks.permissionMode, thinking: picks.thinking, cyber: picks.cyber, ultra: picks.ultra, assistantModel: picks.assistantModel, ...(agent !== CODE_AGENT ? { agent } : {}) });
   // another model keeps the Effort level when it has it, else the nearest one it has
   const pickModel = (model: string) => {
     const thinking = startEffort(picks.thinking, effortOf(modelGroups, model));
@@ -131,6 +132,7 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
   };
   // unset goes back to the agent's level (Code runs at medium unless told, engine.ts CODING_AGENTS)
   const pickEffort = (v: EffortSetting | undefined) => update({ ...picks, thinking: v });
+  const pickCyber = (v: CyberProgram | undefined) => update({ ...picks, cyber: v });
   // a device picked by hand is kept for this browser (start.ts startDevice); a folder keeps the device it is on
   const pickDevice = (device: string) => update({ ...picks, device, cwd: undefined, cwdDevice: undefined });
   const pickCwd = (cwd: string) => update({ ...picks, cwd, cwdDevice: setup.device, repo: undefined, base: undefined });
@@ -165,7 +167,7 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
         device: setup.device,
         prompt: command || files ? undefined : out.text || undefined,
         ...(picks.permissionMode ? { permissionMode: picks.permissionMode } : {}),
-        ...(thinking ? { chat: { thinking } } : {}),
+        ...(thinking || picks.cyber ? { chat: { ...(thinking ? { thinking } : {}), ...(picks.cyber ? { cyber: picks.cyber } : {}) } } : {}),
       };
       const s = await attempt(() => (repo ? api().createRepoSession({ ...common, repo: repo.repo, ...(repo.base ? { base: repo.base } : {}) }) : api().createSession({ ...common, cwd: setup.cwd })));
       if (!s) return false;
@@ -260,6 +262,8 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
     follow,
     onModel: pickModel,
     onEffort: pickEffort,
+    cyber: picks.cyber,
+    onCyber: pickCyber,
     plus,
     phoneOptions: (
       <>
