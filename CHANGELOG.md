@@ -7,6 +7,11 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [0.4.19] - 2026-10-23
+
+### Changed
+- When a site blocks the hub (a block page, a login wall, a bot check, a Cloudflare challenge), WebFetch, WebSearch and the browser retry once through the proxy in Settings > Browser, in the hub's own country, and say so in one line. Without a proxy they say plainly that the site blocked the hub. A member's request never uses the owner's proxy.
+
 ## [0.4.18] - 2026-10-23
 
 ### What's new
