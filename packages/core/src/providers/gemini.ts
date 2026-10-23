@@ -1,6 +1,6 @@
 import type { ContentBlock, JsonSchema, StopReason, Usage } from '../types';
 import { normalizeModelId } from './catalog';
-import { BaseProvider, budgetOf, decodeBase64Text, effortOf, isTextMediaType, toolResultImages, toolResultText, wantsThinking } from './common';
+import { BaseProvider, budgetOf, documentsForWire, effortOf, toolResultImages, toolResultText, wantsThinking } from './common';
 import { classifyStreamError } from './errors';
 import { getJson, openStream, postJson, trimSlash } from './http';
 import { ownSignature, tagSignature } from './signatures';
@@ -220,7 +220,7 @@ function modelParts(m: ProviderMessage, names: ToolNameMap, model: string, gemin
 function userParts(m: ProviderMessage, toolNames: Map<string, string>): Part[] {
   const responses: Part[] = [];
   const parts: Part[] = [];
-  for (const b of m.content) {
+  for (const b of documentsForWire(m.content, true)) {
     switch (b.type) {
       case 'text':
         if (b.text) parts.push({ text: b.text });
@@ -231,11 +231,9 @@ function userParts(m: ProviderMessage, toolNames: Map<string, string>): Part[] {
         break;
       }
       case 'document': {
-        if (b.data && isTextMediaType(b.mediaType)) parts.push({ text: `${b.title ? `Document: ${b.title}\n` : ''}${decodeBase64Text(b.data)}` });
-        else {
-          const p = mediaPart(b.mediaType, b.data, b.url);
-          if (p) parts.push(p);
-        }
+        // only PDFs are left as documents
+        const p = mediaPart(b.mediaType, b.data, b.url);
+        if (p) parts.push(p);
         break;
       }
       case 'tool_result': {

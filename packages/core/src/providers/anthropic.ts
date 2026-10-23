@@ -2,7 +2,7 @@ import type { ContentBlock, StopReason, Usage } from '../types';
 import type { ProviderConfig } from '../config/schema';
 import { sanitizeToolId } from '../util/ids';
 import { normalizeModelId } from './catalog';
-import { BaseProvider, budgetOf, decodeBase64Text, effortOf, isTextMediaType, parseToolInput } from './common';
+import { BaseProvider, budgetOf, documentsForWire, effortOf, parseToolInput } from './common';
 import { clampEffort, claudeEffort, claudeThinkingOff, type Effort } from './effort';
 import { classifyStreamError, parseRateLimitHeaders } from './errors';
 import { getJson, hostOf, openStream, postJson, trimSlash } from './http';
@@ -120,9 +120,6 @@ function mapBlock(b: ContentBlock, names: ToolNameMap): Wire | undefined {
       if (b.data && b.mediaType === 'application/pdf') {
         return { type: 'document', source: { type: 'base64', media_type: b.mediaType, data: b.data }, ...title };
       }
-      if (b.data && isTextMediaType(b.mediaType)) {
-        return { type: 'document', source: { type: 'text', media_type: 'text/plain', data: decodeBase64Text(b.data) }, ...title };
-      }
       if (b.url) return { type: 'document', source: { type: 'url', url: b.url }, ...title };
       return { type: 'text', text: `[Attached ${b.mediaType} document${b.title ? ` "${b.title}"` : ''} could not be sent to this model]` };
     }
@@ -153,7 +150,9 @@ function lastCacheable(blocks: Wire[]): Wire | undefined {
 function mapMessages(msgs: ProviderMessage[], names: ToolNameMap, breakpoints: Wire[]): Wire[] {
   const out: Wire[] = [];
   for (const m of msgs) {
-    let blocks = m.content.map((b) => mapBlock(b, names)).filter((x): x is Wire => !!x);
+    // text documents as text: Anthropic-compatible endpoints (Z.ai) drop a text-source document
+    const content = m.role === 'user' ? documentsForWire(m.content, true) : m.content;
+    let blocks = content.map((b) => mapBlock(b, names)).filter((x): x is Wire => !!x);
     // Tool results must lead the user turn.
     if (m.role === 'user') blocks = [...blocks.filter((b) => b.type === 'tool_result'), ...blocks.filter((b) => b.type !== 'tool_result')];
     if (!blocks.length) continue;
