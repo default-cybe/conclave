@@ -102,6 +102,18 @@ class NextModelTest {
     }
 
     @Test
+    fun providerRetryNamesModelAndBoundaryWithoutSendingPromptOrRewind() = runBlocking {
+        val client = ConclaveClient(server.url("/").toString(), "t")
+        server.enqueue(MockResponse(body = """{"model":"zai/glm-5.3","label":"GLM-5.3"}"""))
+        val result = client.retryProvider("s_fw", "error1", "zai/glm-5.3")
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/api/sessions/s_fw/retry-provider", request.url.encodedPath)
+        assertEquals("""{"messageId":"error1","model":"zai/glm-5.3"}""", request.body?.utf8())
+        assertEquals("GLM-5.3", result.label)
+    }
+
+    @Test
     fun theHubsRefusalReadsAsItsOwnWords() = runBlocking {
         val client = ConclaveClient(server.url("/").toString(), "t")
         server.enqueue(MockResponse(code = 409, body = """{"error":"No model is left in Refusal fallback."}"""))
@@ -174,6 +186,18 @@ class NextModelTest {
     }
 
     // ----------------------------------------------------------------- when the button shows
+
+    @Test
+    fun providerFailureSurvivesSwitchAndIncidentalNoticesAndExpiryButNotNewTurns() {
+        val failure = notice("error", 7, "Error", buildJsonObject { put("type", "provider_error"); put("canRetry", true) })
+        val switched = notice("switch", 8, "Switched model", buildJsonObject { put("type", "handoff") })
+        val incidental = notice("info", 9, "Status update", buildJsonObject { put("level", "info") })
+        assertEquals(failure, NextModel.providerFailure(transcript + failure + switched + incidental))
+        val expired = failure.copy(meta = buildJsonObject { put("type", "provider_error"); put("canRetry", false); put("retryExpired", true) })
+        assertEquals(expired, NextModel.providerFailure(transcript + expired + switched))
+        assertNull(NextModel.providerFailure(transcript + failure + switched + msg("u3", 10, Role.USER, TextBlock("New request"))))
+        assertNull(NextModel.providerFailure(transcript + failure + reply1.copy(seq = 10)))
+    }
 
     @Test
     fun offersOnlyOnARefusalNoticeThatSaysSo() {

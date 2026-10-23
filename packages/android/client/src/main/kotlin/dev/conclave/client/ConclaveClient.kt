@@ -529,6 +529,13 @@ class ConclaveClient(
         NextModelResult.serializer(),
     )
 
+    /** Retry only the failed inference; the hub preserves completed tools and the user's message. */
+    suspend fun retryProvider(id: String, messageId: String, model: String): NextModelResult = sendJson(
+        "POST", p("api", "sessions", id, "retry-provider"),
+        buildJsonObject { put("messageId", messageId); put("model", model) },
+        NextModelResult.serializer(),
+    )
+
     /** What switching to [model] would cost, against staying. */
     suspend fun switchEstimate(id: String, model: String): SwitchEstimate =
         get(p("api", "sessions", id, "switch-estimate"), SwitchEstimate.serializer(), mapOf("model" to model))
