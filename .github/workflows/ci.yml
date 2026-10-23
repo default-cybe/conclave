@@ -1,8 +1,7 @@
 name: CI
 
-# The repo is private, so every minute counts against the plan's quota: pushes
-# run CI on main only. Check a branch with `gh workflow run CI --ref <branch>`
-# or a pull request. Docs-only changes run nothing.
+# Pushes run CI on main only; a branch is checked by its pull request or with
+# `gh workflow run CI --ref <branch>`. Docs-only changes run nothing.
 on:
   push:
     branches: [main]
