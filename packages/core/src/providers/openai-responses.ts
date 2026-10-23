@@ -1,5 +1,5 @@
 import type { ContentBlock, ImageBlock, StopReason, Usage } from '../types';
-import { BaseProvider, dataUrl, documentAsText, effortOf, parseToolInput, toolResultImages, toolResultString, wantsThinking } from './common';
+import { BaseProvider, dataUrl, documentsForWire, effortOf, parseToolInput, toolResultImages, toolResultString, wantsThinking } from './common';
 import { classifyStreamError, parseRateLimitHeaders } from './errors';
 import { hostOf, openStream, trimSlash } from './http';
 import { OPENAI_DEFAULT_BASE, listOpenAIModels, openaiEmbed, openaiHeaders, openaiUsage } from './openai-shared';
@@ -42,13 +42,10 @@ function userPart(b: ContentBlock): Wire | undefined {
       return b.text ? { type: 'input_text', text: b.text } : undefined;
     case 'image':
       return imagePart(b);
-    case 'document': {
-      if (b.data && b.mediaType === 'application/pdf') {
-        return { type: 'input_file', filename: b.title ?? 'document.pdf', file_data: dataUrl(b.mediaType, b.data) };
-      }
-      const text = documentAsText(b);
-      return text ? { type: 'input_text', text } : undefined;
-    }
+    case 'document':
+      // only PDFs are left as documents (documentsForWire)
+      if (b.data) return { type: 'input_file', filename: b.title ?? 'document.pdf', file_data: dataUrl(b.mediaType, b.data) };
+      return b.url ? { type: 'input_file', file_url: b.url } : undefined;
     default:
       return undefined;
   }
@@ -83,7 +80,7 @@ export function responsesInput(req: ChatRequest, names: ToolNameMap): Wire[] {
     }
 
     const parts: Wire[] = [];
-    for (const b of m.content) {
+    for (const b of documentsForWire(m.content, true)) {
       if (b.type === 'tool_result') {
         items.push({ type: 'function_call_output', call_id: b.toolUseId, output: toolResultString(b) });
         const imgs = toolResultImages(b)

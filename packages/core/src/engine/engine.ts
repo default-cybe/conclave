@@ -142,6 +142,7 @@ import { join } from 'node:path';
 import { SqliteMemory } from '../memory/store';
 import { MemoryConnections, MemoryConnectionService } from '../memory/connections';
 import { prepareAttachments, type ZipHost } from '../attachments/prepare';
+import { mediaTypeFor } from '../attachments/limits';
 
 const log = logger('engine');
 /** The turn after which an auto title is revised once, when the topic is clearer. */
@@ -2242,9 +2243,10 @@ export class Engine implements EngineApi {
       }
     }
     if (!data) return undefined;
-    if (a.mediaType.startsWith('image/')) return { type: 'image', mediaType: a.mediaType, data } as ImageBlock;
-    if (a.mediaType === 'application/pdf' || a.mediaType.startsWith('text/')) return { type: 'document', mediaType: a.mediaType, data, title: a.name };
-    return { type: 'document', mediaType: a.mediaType, data, title: a.name };
+    // a client that gave no type (or octet-stream): the name says what it is
+    const mediaType = mediaTypeFor(a.mediaType, a.name ?? a.path);
+    if (mediaType.startsWith('image/')) return { type: 'image', mediaType, data } as ImageBlock;
+    return { type: 'document', mediaType, data, title: a.name };
   }
 
   // harness helpers --------------------------------------------------------
