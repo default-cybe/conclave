@@ -9,7 +9,7 @@ import { guardTranscript } from './pairing';
 import { OWNER_ID, currentAccount, isMember } from '../people/context';
 import { AccessError } from '../people/access';
 import { catalogCost } from '../usage/value';
-import { servedNotice } from '../providers/access-programs';
+import { servedNotice, type CyberProgram } from '../providers/access-programs';
 
 /** "session asked served" pairs already told: a served program the plan cannot change is said once. */
 const servedNoted = new Set<string>();
@@ -30,6 +30,8 @@ export interface Served {
   provider: string;
   model: string;
   account?: string;
+  /** The Cyber access program the call asked for: a refusal retries on the same plan with Daybreak only when it was not asked already. */
+  cyber?: CyberProgram;
 }
 
 /**
@@ -247,7 +249,7 @@ async function streamCall(
       // the row counts now: the estimate goes
       held.release?.();
       held.release = undefined;
-      final.served = { provider: resolved.provider, model: resolved.model, ...(account ? { account } : {}) };
+      final.served = { provider: resolved.provider, model: resolved.model, ...(account ? { account } : {}), ...(req.accessPrograms?.cyber ? { cyber: req.accessPrograms.cyber } : {}) };
       return final;
     } catch (err) {
       const e = err instanceof ProviderError ? err : new ProviderError('network', (err as Error)?.message ?? String(err));

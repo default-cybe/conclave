@@ -15,6 +15,7 @@ import { ProviderRegistry } from '../../src/providers/registry';
 import { accessProgramError, cyberChoices, retiredAlias, servedNotice } from '../../src/providers/access-programs';
 import { classifyHttpError } from '../../src/providers/errors';
 import { mergeChatSettings } from '../../src/session/chat';
+import { Engine } from '../../src/engine/engine';
 import { jsonResponse, mockServer, sseResponse } from './mock';
 
 const server = mockServer((req) => {
@@ -83,11 +84,27 @@ describe('cyber access', () => {
   });
 
   test('a saved ref to a retiring alias runs on its named model; the session setting is checked', () => {
-    expect(retiredAlias('gpt-daybreak-blue-latest')).toEqual({ model: 'gpt-5.6-sol', cyber: 'daybreak_blue' });
+    expect(retiredAlias('gpt-daybreak-blue-latest')).toEqual({ model: 'gpt-6-sol', cyber: 'daybreak_blue' });
     expect(registry.resolve('cliproxy/gpt-daybreak-red-latest')).toMatchObject({ provider: 'cliproxy', model: 'gpt-5.6-cyber' });
-    expect(registry.resolve('cliproxy/gpt-daybreak-blue-latest')).toMatchObject({ model: 'gpt-5.6-sol' });
+    expect(registry.resolve('cliproxy/gpt-daybreak-blue-latest')).toMatchObject({ model: 'gpt-6-sol' });
     expect(mergeChatSettings(undefined, { cyber: 'daybreak_blue' }).cyber).toBe('daybreak_blue');
     expect(mergeChatSettings({ webSearch: true, memory: true, cyber: 'standard' }, { cyber: null }).cyber).toBeUndefined();
     expect(() => mergeChatSettings(undefined, { cyber: 'daybreak' })).toThrow('chat.cyber must be');
+  });
+
+  test('the Daybreak Blue row: named "Daybreak Blue", runs gpt-6-sol on its plan with daybreak_blue, never the alias, whatever the session chose', async () => {
+    // the row as the picker gets it: the plan's prefix, the program's name
+    expect(registry.get('cliproxy')!.model('kai/gpt-daybreak-blue-latest').name).toBe('Daybreak Blue, kai');
+    const r = registry.resolve('cliproxy/kai/gpt-daybreak-blue-latest');
+    expect(r).toMatchObject({ provider: 'cliproxy', model: 'kai/gpt-6-sol' });
+    const programs = (session: object) => Engine.prototype.accessProgramsFor.call(undefined as never, r.info, session as never);
+    expect(programs({ model: 'cliproxy/kai/gpt-daybreak-blue-latest' })).toEqual({ cyber: 'daybreak_blue' });
+    // the row wins over a Cyber access the session kept from before; on a GPT-6 row the session's choice stays
+    expect(programs({ model: 'cliproxy/kai/gpt-daybreak-blue-latest', chat: { cyber: 'standard' } })).toEqual({ cyber: 'daybreak_blue' });
+    expect(programs({ model: 'cliproxy/gpt-6-sol', chat: { cyber: 'standard' } })).toEqual({ cyber: 'standard' });
+    // on the wire: gpt-6-sol with the program, not the alias
+    server.requests.length = 0;
+    for await (const _ of registry.get('cliproxy')!.stream(req(r.model, programs({ model: 'cliproxy/kai/gpt-daybreak-blue-latest' })))) void _;
+    expect(server.requests.at(-1)!.body).toMatchObject({ model: 'kai/gpt-6-sol', access_programs: { cyber: 'daybreak_blue' } });
   });
 });

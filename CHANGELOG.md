@@ -11,6 +11,16 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Changed
 - When a site blocks the hub (a block page, a login wall, a bot check, a Cloudflare challenge), WebFetch, WebSearch and the browser retry once through the proxy in Settings > Browser, in the hub's own country, and say so in one line. Without a proxy they say plainly that the site blocked the hub. A member's request never uses the owner's proxy.
+## [0.4.20] - 2026-10-23
+
+### What's new
+- Daybreak Blue in the model picker: a ChatGPT plan whose own model list has Daybreak (as Codex shows it) gets a "Daybreak Blue" row under OpenAI. It runs GPT-6-Sol on that plan with Daybreak Blue and never sends the retiring alias. Daybreak Red runs gpt-5.6-cyber. The Cyber access choice on GPT-6 rows stays.
+- Refusal retries with Daybreak: a ChatGPT plan marked "Use when a model refuses" and approved for Daybreak retries a refused GPT turn with Daybreak Blue. It keeps the same model when that model takes Blue, else uses GPT-6-Sol, and it can retry on the plan that refused. A refused Claude turn goes to that plan on GPT-6-Sol with Daybreak Blue. The notice names it ("Answered by GPT-6-Sol, Daybreak Blue"), and the session's own Cyber access stays as it was.
+
+### Fixed
+- A ChatGPT plan's own model list was read but never applied to its account, so on hubs like the owner's the Accounts page kept CLIProxyAPI's names ("GPT 6.0 Astra") and models the plan hides (Codex Auto Review). It now shows the plan's names and leaves the hidden models out. A failed read of the list is now logged as a warning instead of a debug line.
+- A workbench session lost its Cyber access setting when saved or changed (for example on a title update). It now keeps it.
+- A saved `gpt-daybreak-blue-latest` ref now runs GPT-6-Sol, which takes Daybreak Blue. Before, it ran gpt-5.6-sol, which does not, so Blue was never sent.
 
 ## [0.4.18] - 2026-10-23
 

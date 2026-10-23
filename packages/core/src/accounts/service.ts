@@ -35,6 +35,7 @@ import { assess, bareModel, orderIds, pickAccount, priorities, reaches, routeFor
 import { credentialVendor, vendorName, vendorOfModel } from './vendors';
 import { DEFAULT_END, DEFAULT_START, type StarterFacts } from './starter';
 import { annotateWindow, limitKey, mergeWindows, windowOrder } from './windows';
+import type { CyberProgram } from '../providers/access-programs';
 
 /** One CLIProxyAPI credential as the cliproxy manager reads it. No tokens. */
 export interface CliproxyCredentialFacts {
@@ -58,6 +59,8 @@ export interface CliproxyCredentialFacts {
   cooldowns: Array<{ model?: string; reason: string; until: number }>;
   /** Undefined until read. */
   models?: Array<{ id: string; name?: string }>;
+  /** A ChatGPT plan approved for Daybreak: the programs whose alias its own model list has. */
+  daybreak?: CyberProgram[];
   observedAt?: number;
 }
 

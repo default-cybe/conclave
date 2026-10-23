@@ -24,6 +24,14 @@
  * limit or resting (AccountsService.refusalAccounts). Then the list runs as
  * before.
  *
+ * A marked ChatGPT plan approved for Daybreak (its own model list has a
+ * Daybreak alias) retries with access_programs {cyber: daybreak_blue}: a
+ * refused GPT turn on the same model when it takes Blue, else on GPT-6-Sol,
+ * also on the plan that refused when it was not asked with Blue; a refused
+ * model of another maker (Claude) on GPT-6-Sol, after that maker's marked
+ * plans. A list entry on such a plan whose model takes Blue asks for it too.
+ * Only the attempt carries it: the session's own Cyber access is untouched.
+ *
  * This module is the list and the walk; runner.ts runs it.
  */
 import type { Engine } from '../engine/engine';
@@ -36,6 +44,9 @@ import { lookupModel } from '../providers/catalog';
 import { parseModelRef } from '../providers/types';
 import { parseRefusalEntries } from './refusal-entries';
 import type { Served, StreamPin } from './stream';
+import { DAYBREAK_BLUE_MODEL, cyberChoices, cyberLabel, type CyberProgram } from '../providers/access-programs';
+import { vendorOfModel } from '../accounts/vendors';
+import type { AccountDto } from '../client/accounts';
 
 /** The list that applies to a session, and how. */
 export interface RefusalPlan {
@@ -92,6 +103,32 @@ export interface FallbackTarget {
   loose?: boolean;
   /** A plan or key marked "Use when a model refuses" (index -1), not a list entry. */
   tagged?: boolean;
+  /** Sent on this attempt only (a Daybreak approved plan), in place of the session's Cyber access. */
+  accessPrograms?: { cyber: CyberProgram };
+}
+
+/** Whether a plan is marked "Use when a model refuses" and approved for Daybreak Blue (its own list has the alias). */
+function daybreakPlan(engine: Engine, id: string | undefined): boolean {
+  if (!id) return false;
+  const accounts = accountsOf(engine);
+  try {
+    return !!accounts?.account(id)?.refusal && !!accounts.credentialOf(id)?.daybreak?.includes('daybreak_blue');
+  } catch {
+    return false;
+  }
+}
+
+/** "GPT-6-Sol, Daybreak Blue (Kai)": a Daybreak attempt says its program, and its model by the plan's own name. */
+function withProgram(engine: Engine, provider: string, model: string, cyber: CyberProgram | undefined, acct: string): string {
+  let name = modelWords(provider, model);
+  if (cyber) {
+    try {
+      name = shortModelName(engine.providers.resolveAt(provider, model).info.name);
+    } catch {
+      /* no such provider: the catalog's words */
+    }
+  }
+  return `${name}${cyber ? `, ${cyberLabel(cyber)}` : ''} (${acct})`;
 }
 
 /** "Claude Opus 5.5" -> "Opus 5.5": the name the owner reads in notices. */
@@ -149,7 +186,10 @@ export function targetFor(engine: Engine, entry: RefusalFallbackEntry, index: nu
   }
   if (!acct) return undefined;
   const bare = bareModel(model || provider);
-  const label = `${modelWords(acct.provider ?? provider, bare)} (${acct.label})`;
+  // a marked plan approved for Daybreak asks for Blue on a model that takes it
+  const cyber: CyberProgram | undefined = acct.kind === 'subscription' && daybreakPlan(engine, acct.id) && cyberChoices(bare).includes('daybreak_blue') ? 'daybreak_blue' : undefined;
+  const label = withProgram(engine, acct.provider ?? provider, bare, cyber, acct.label);
+  const programs = cyber ? { accessPrograms: { cyber } } : {};
   if (acct.kind === 'api') {
     const p = acct.provider ?? provider;
     return { index, entry, ref: `${p}/${bare}`, pin: { provider: p, model: bare, account: acct.id }, label };
@@ -157,9 +197,9 @@ export function targetFor(engine: Engine, entry: RefusalFallbackEntry, index: nu
   const gw = accounts?.gateway ?? 'cliproxy';
   if (acct.prefix) {
     const wire = `${acct.prefix}/${bare}`;
-    return { index, entry, ref: `${gw}/${wire}`, pin: { provider: gw, model: wire, account: acct.id }, label };
+    return { index, entry, ref: `${gw}/${wire}`, pin: { provider: gw, model: wire, account: acct.id }, label, ...programs };
   }
-  return { index, entry, ref: `${gw}/${bare}`, pin: { provider: gw, model: bare }, label, loose: true };
+  return { index, entry, ref: `${gw}/${bare}`, pin: { provider: gw, model: bare }, label, loose: true, ...programs };
 }
 
 /**
@@ -174,27 +214,34 @@ function taggedTargets(engine: Engine, plan: RefusalPlan, origin: Served, from: 
   const accounts = accountsOf(engine);
   if (!accounts) return [];
   const bare = bareModel(origin.model);
-  let list;
+  // a GPT model (it has Cyber choices) moves to Blue on a Daybreak plan: the same model when it takes Blue, else GPT-6-Sol
+  const gpt = cyberChoices(bare).length > 0;
+  const blue = cyberChoices(bare).includes('daybreak_blue') ? bare : DAYBREAK_BLUE_MODEL;
+  let list: Array<{ a: AccountDto; model: string; cyber?: CyberProgram }>;
   try {
-    list = accounts.refusalAccounts(bare);
+    list = accounts.refusalAccounts(bare).map((a) => (gpt && a.kind === 'subscription' && daybreakPlan(engine, a.id) ? { a, model: blue, cyber: 'daybreak_blue' as const } : { a, model: bare }));
+    // another maker's model (Claude): the Daybreak plans run GPT-6-Sol with Blue, after that maker's marked plans
+    if (vendorOfModel(bare) !== 'openai') {
+      for (const a of accounts.refusalAccounts(DAYBREAK_BLUE_MODEL)) if (a.kind === 'subscription' && daybreakPlan(engine, a.id)) list.push({ a, model: DAYBREAK_BLUE_MODEL, cyber: 'daybreak_blue' });
+    }
   } catch {
     return [];
   }
   if (from === 'tagged') {
-    const at = list.findIndex((a) => a.id === origin.account);
+    const at = list.findIndex((x) => x.a.id === origin.account && x.model === bare);
     if (at >= 0) list = list.slice(at + 1);
-  } else list = list.filter((a) => a.id !== origin.account);
+  } else list = list.filter((x) => x.a.id !== origin.account || (x.cyber && x.cyber !== origin.cyber));
   const gw = accounts.gateway ?? 'cliproxy';
   const out: FallbackTarget[] = [];
-  for (const a of list) {
+  for (const { a, model, cyber } of list) {
     if (a.kind === 'api') {
       if (!a.provider) continue;
-      const ref = `${a.provider}/${bare}`;
-      out.push({ index: -1, tagged: true, entry: { model: ref, account: a.id }, ref, pin: { provider: a.provider, model: bare, account: a.id }, label: `${modelWords(a.provider, bare)} (${a.label})` });
+      const ref = `${a.provider}/${model}`;
+      out.push({ index: -1, tagged: true, entry: { model: ref, account: a.id }, ref, pin: { provider: a.provider, model, account: a.id }, label: withProgram(engine, a.provider, model, undefined, a.label) });
     } else if (a.prefix) {
-      const wire = `${a.prefix}/${bare}`;
+      const wire = `${a.prefix}/${model}`;
       const ref = `${gw}/${wire}`;
-      out.push({ index: -1, tagged: true, entry: { model: ref, account: a.id }, ref, pin: { provider: gw, model: wire, account: a.id }, label: `${modelWords(gw, bare)} (${a.label})` });
+      out.push({ index: -1, tagged: true, entry: { model: ref, account: a.id }, ref, pin: { provider: gw, model: wire, account: a.id }, label: withProgram(engine, gw, model, cyber, a.label), ...(cyber ? { accessPrograms: { cyber } } : {}) });
     }
   }
   return out;
@@ -215,6 +262,8 @@ export function stepOfTarget(t: FallbackTarget | undefined): RefusalStep | undef
 function matches(engine: Engine, t: FallbackTarget, served: Served): boolean {
   if (t.pin) {
     if (t.pin.provider !== served.provider || bareModel(t.pin.model) !== bareModel(served.model)) return false;
+    // a Daybreak attempt is another try than the same model asked without Blue
+    if (t.accessPrograms && t.accessPrograms.cyber !== served.cyber) return false;
     // the entry's account against the one that answered, when the hub knows it (a plan without a prefix is inferred)
     const want = t.entry.account;
     return !want || !served.account || want === served.account;
@@ -286,7 +335,7 @@ export class RefusalWalk {
     while (this.markedPos + 1 < this.marked.length) {
       const t = this.marked[++this.markedPos];
       const pin = t.pin!;
-      if (this.tried.some((s) => s.account === pin.account && bareModel(s.model) === bareModel(pin.model))) continue;
+      if (this.tried.some((s) => s.account === pin.account && bareModel(s.model) === bareModel(pin.model) && (!t.accessPrograms || s.cyber === t.accessPrograms.cyber))) continue;
       if (!usable(this.engine, this.session, t)) continue;
       this.current = t;
       return t;
