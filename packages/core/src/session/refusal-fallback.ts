@@ -43,6 +43,7 @@ import { bareModel } from '../accounts/policy';
 import { lookupModel } from '../providers/catalog';
 import { parseModelRef } from '../providers/types';
 import { parseRefusalEntries } from './refusal-entries';
+import { isHiddenModel } from '../config/hidden';
 import type { Served, StreamPin } from './stream';
 import { DAYBREAK_BLUE_MODEL, cyberChoices, cyberLabel, type CyberProgram } from '../providers/access-programs';
 import { vendorOfModel } from '../accounts/vendors';
@@ -283,6 +284,7 @@ function alreadyTried(engine: Engine, t: FallbackTarget, tried: Served[]): boole
 
 /** Whether the hub can call an entry at all now: its provider on and set up, its account on. */
 function usable(engine: Engine, session: Pick<Session, 'accountId'>, t: FallbackTarget): boolean {
+  if (isHiddenModel(engine.config.get(), t.ref) || isHiddenModel(engine.config.get(), t.entry.model)) return false;
   try {
     const reg = engine.registryFor(session);
     if (t.pin) {
