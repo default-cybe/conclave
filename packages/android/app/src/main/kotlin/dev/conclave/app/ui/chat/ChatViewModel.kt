@@ -342,12 +342,14 @@ class ChatViewModel(hub: HubRepository, val sessionId: String) : HubViewModel(hu
 
     /** Retry the last turn: the hub drops it, and your last message goes again. */
     fun retryLast() = action {
+        check(dev.conclave.client.logic.NextModel.providerFailure(transcript.value.messages) == null) { "Use Retry with another model. Replaying this turn could repeat completed operations." }
         val user = transcript.value.messages.lastOrNull { it.role == Role.USER && it.kind == MessageKind.NORMAL && !ChatItems.isToolResultsOnly(it) } ?: return@action
         retryFrom(user)
     }
 
     /** Retry under an earlier turn: the message it answers goes again, and the turns after it leave. [first]: the turn's first message. */
     fun retryBefore(first: Message) = action {
+        check(dev.conclave.client.logic.NextModel.providerFailure(transcript.value.messages) == null) { "Use Retry with another model. Replaying this turn could repeat completed operations." }
         val user = transcript.value.messages.lastOrNull { it.seq < first.seq && it.role == Role.USER && it.kind == MessageKind.NORMAL && !ChatItems.isToolResultsOnly(it) } ?: return@action
         retryFrom(user)
     }

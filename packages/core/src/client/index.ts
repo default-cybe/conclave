@@ -1760,6 +1760,8 @@ export class ConclaveClient {
   handoff = (id: string, model: string, opts: { brief?: boolean } = {}) => this.request<Session>('POST', `/api/sessions/${id}/handoff`, { model, ...(opts.brief ? { brief: true } : {}) } satisfies SwitchInput);
   /** "Try the next model" on a refused reply: the turn runs again on the next model of Refusal fallback. Says which one. */
   tryNextModel = (id: string, messageId?: string) => this.request<NextModelResult>('POST', `/api/sessions/${id}/next-model`, messageId ? { messageId } : {});
+  /** Resume a failed provider inference with the full stored transcript, without replaying tools. */
+  retryProvider = (id: string, messageId: string, model: string) => this.request<NextModelResult>('POST', `/api/sessions/${id}/retry-provider`, { messageId, model });
   /** What switching to a model would cost, against staying, with and without a short handover. */
   switchEstimate = (id: string, model: string) => this.request<SwitchEstimate>('GET', `/api/sessions/${id}/switch-estimate?model=${encodeURIComponent(model)}`);
   /** instructions: what the summary must keep (/compact <instructions>). compacted is false when there was too little to summarize (older hubs leave it out). */

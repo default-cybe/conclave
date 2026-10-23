@@ -176,6 +176,7 @@ export interface EngineApi {
   handoff(id: string, model: string, opts?: { brief?: boolean }): Promise<Session>;
   /** "Try the next model" on a refused reply (session/refusal-fallback.ts). */
   tryNextModel(id: string, messageId?: string): Promise<{ model: string; label: string }>;
+  retryProvider(id: string, messageId: string, model: string): Promise<{ model: string; label: string }>;
   /** What a switch would cost, against staying (modes/switch-cost.ts). */
   switchEstimate(id: string, model: string): import('../client').SwitchEstimate;
   compact(id: string, instructions?: string): Promise<boolean>;

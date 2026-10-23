@@ -406,6 +406,11 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
       sessionOr404(id);
       return { model: 'mock/next', label: 'Next' };
     },
+    async retryProvider(id, messageId, model) {
+      rec('retryProvider', id, messageId, model);
+      sessionOr404(id);
+      return { model, label: model };
+    },
     switchEstimate(id, model) {
       rec('switchEstimate', id, model);
       sessionOr404(id);

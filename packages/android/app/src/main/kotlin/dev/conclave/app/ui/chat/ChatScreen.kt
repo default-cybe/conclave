@@ -271,6 +271,7 @@ fun ChatScreen(
                 session?.repo?.let { RepoRow(it, live = repoLive, busy = repoBusy, onAction = repoAction) }
                 session?.let { s -> LocationBanner(s, locVm, devices, onPickDevice = { pickDevice = true }) }
                 RunningTasksLine(tasks, work, live.toolResults)
+                RetryProvider(session, live.messages, models)
                 val s = session
                 val info = hub.modelInfo(s?.model)
                 val coding = s != null && Start.modeOf(s) == StartMode.CODE
@@ -410,9 +411,8 @@ fun ChatScreen(
                                                     TurnFoot(
                                                         text = item.messages.filter { it.role == Role.ASSISTANT }.joinToString("\n\n") { it.content.plainText() }.trim(),
                                                         // the last turn goes again at once; an earlier one asks first, as what follows it goes
-                                                        onRetry = {
-                                                            if (last) vm.retryLast()
-                                                            if (!last) retryFor = item.messages.first()
+                                                        onRetry = if (NextModel.providerFailure(live.messages) != null) null else {
+                                                            { if (last) vm.retryLast() else retryFor = item.messages.first() }
                                                         },
                                                         onMore = { actionsFor = item.messages.last() },
                                                         quiet = !last,
@@ -656,7 +656,7 @@ private fun copyToClipboard(context: Context, text: String) {
  * ("Try the next model" on a refused turn).
  */
 @Composable
-private fun TurnFoot(text: String, onRetry: () -> Unit, onMore: () -> Unit, quiet: Boolean = false, extra: (@Composable () -> Unit)? = null) {
+private fun TurnFoot(text: String, onRetry: (() -> Unit)?, onMore: () -> Unit, quiet: Boolean = false, extra: (@Composable () -> Unit)? = null) {
     val c = Conclave.colors
     val tint = if (quiet) c.fg4 else c.fg3
     val context = LocalContext.current
@@ -676,7 +676,7 @@ private fun TurnFoot(text: String, onRetry: () -> Unit, onMore: () -> Unit, quie
                 }
             }
         }
-        IconButton(onClick = onRetry, modifier = Modifier.size(48.dp)) {
+        if (onRetry != null) IconButton(onClick = onRetry, modifier = Modifier.size(48.dp)) {
             Icon(Icons.Outlined.Refresh, contentDescription = "Retry", modifier = Modifier.size(18.dp), tint = tint)
         }
         extra?.invoke()

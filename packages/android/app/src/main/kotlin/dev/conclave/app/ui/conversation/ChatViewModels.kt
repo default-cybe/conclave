@@ -526,6 +526,10 @@ class ChatThreadViewModel(
 
     /** Retry a reply: send the message that asked for it again, optionally with another model. */
     fun retry(reply: ChatUnit.Reply, model: String? = null) {
+        if (dev.conclave.client.logic.NextModel.providerFailure(transcript.value.messages) != null) {
+            say("Use Retry with another model. Replaying this turn could repeat completed operations.")
+            return
+        }
         val user = reply.user ?: return
         viewModelScope.launch {
             if (model != null && model != _session.value?.model) {
@@ -544,6 +548,10 @@ class ChatThreadViewModel(
 
     /** Retry after a failure: send your last message again. */
     fun retryLast() {
+        if (dev.conclave.client.logic.NextModel.providerFailure(transcript.value.messages) != null) {
+            say("Use Retry with another model. Replaying this turn could repeat completed operations.")
+            return
+        }
         val user = transcript.value.messages.lastOrNull { it.role == Role.USER && it.kind == MessageKind.NORMAL && !ChatItems.isToolResultsOnly(it) } ?: return
         replaceFrom(user, user.content.visibleText(), attachmentsOf(user))
     }

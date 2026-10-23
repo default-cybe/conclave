@@ -19,7 +19,7 @@ import { windowLabel } from '@/components/ui/Meter';
 import { LogRow } from './Log';
 import { Markdown } from './Markdown';
 import { fallbackModel, msgText } from './util';
-import { TryNextModel } from './TryNextModel';
+import { providerFailureNotice, TryNextModel } from './TryNextModel';
 import { AgentResultNotice } from './AgentResultRow';
 import { noticeResult } from './agentResult';
 
@@ -172,14 +172,16 @@ export function ErrorBody({ session, lastPrompt, enter }: { session: Session; la
   const pickRef = useRef<HTMLButtonElement>(null);
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const providerFailure = useHub((s) => providerFailureNotice(s.messages[session.id] ?? []));
   const reason = (session.error ?? 'The run stopped with an error.').replace(/\.?$/, '.');
   return (
     <div className={cn('min-w-0', enter && 'anim-fade')} role="alert">
       <p className="max-w-[72ch] text-[14px] leading-[1.45] text-fg-2 phone:text-[15px]">
         <span className="font-medium text-fault">Failed.</span> {reason}
       </p>
+      {providerFailure?.meta?.retryExpired === true && <p>Alternate-model retry expired when the hub restarted. Nothing was rerun.</p>}
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
-        {lastPrompt && (
+        {lastPrompt && !providerFailure && (
           <Button
             variant="outline"
             busy={busy === 'retry' ? 'Retrying' : false}
