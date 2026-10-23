@@ -64,6 +64,7 @@ import { Repos } from '../storage/repos';
 import type { Db } from '../storage/db';
 import { ConfigStore } from '../config';
 import type { ConclaveConfig, HookEvent, HooksConfig, McpServerConfig } from '../config/schema';
+import { hiddenWords, isHiddenModel } from '../config/hidden';
 import { EventBus } from '../util/bus';
 import { newId } from '../util/ids';
 import { oneLine } from '../util/text';
@@ -554,8 +555,9 @@ export class Engine implements EngineApi {
     return session;
   }
 
-  /** Words for a model on a harness that is off (acp/harness-off.ts), else undefined. */
+  /** Words for a model on a harness that is off (acp/harness-off.ts), or one the owner hid (models.hidden), else undefined. */
   harnessOff(model: string): string | undefined {
+    if (isHiddenModel(this.config.get(), model)) return hiddenWords(model);
     const i = model.indexOf('/');
     if (i < 0) return undefined;
     const provider = model.slice(0, i);
@@ -1150,7 +1152,8 @@ export class Engine implements EngineApi {
    * list has their own providers and the routes they may use.
    */
   async listModels(accountId?: string): Promise<ModelGroup[]> {
-    const groups = await this.providersFor(accountId).groups();
+    const cfg = this.config.get();
+    const groups = (await this.providersFor(accountId).groups()).map((g) => ({ ...g, models: g.models.filter((m) => !isHiddenModel(cfg, m.ref)) }));
     const accounts = accountsOf(this);
     // a model a member's own plan lists goes to that plan: the owner's order does not speak for it
     const routeOf = (m: string) => (accountId && this.access.ownPlan(accountId, PLAN_PROVIDER, m) ? undefined : accounts?.routeOf(m));
@@ -2189,6 +2192,7 @@ export class Engine implements EngineApi {
   // providers helpers ------------------------------------------------------
   /** A model the account can call now (the owner's when left out). */
   isUsable(ref: string, accountId?: string): boolean {
+    if (isHiddenModel(this.config.get(), ref)) return false;
     try {
       const reg = this.providersFor(accountId);
       const r = reg.resolve(ref);

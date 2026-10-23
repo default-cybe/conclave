@@ -7,6 +7,11 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### What's new
+- Hidden models: list model refs or patterns like `cliproxy/glm-*` in Settings > Models > Defaults (`models.hidden`). Pickers leave them out, no tier, fallback, agent, workflow or task uses them, and a chat saved on one says so instead of switching.
+
 ## [0.4.18] - 2026-10-23
 
 ### What's new
