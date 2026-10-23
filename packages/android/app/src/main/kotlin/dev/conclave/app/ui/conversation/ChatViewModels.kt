@@ -631,6 +631,10 @@ class ChatThreadViewModel(
         rememberDefaults(patchNow(SessionPatch(chat = patch)))
     }
 
+    fun setCyber(program: String?) = action {
+        patchNow(SessionPatch(chat = if (program == null) ChatSettingsPatch(defaultCyber = true) else ChatSettingsPatch(cyber = program)))
+    }
+
     fun setWeb(on: Boolean) = action { rememberDefaults(patchNow(SessionPatch(chat = ChatSettingsPatch(webSearch = on)))) }
     fun setMemory(on: Boolean) = action { rememberDefaults(patchNow(SessionPatch(chat = ChatSettingsPatch(memory = on)))) }
 

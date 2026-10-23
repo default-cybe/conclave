@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import type { ChatSettings } from '@conclave/core/types';
 import { isEffortSetting } from '@conclave/core/providers/effort';
+import { isCyberProgram, type CyberProgram } from '@conclave/core/providers/access-programs';
 
 export type Thinking = NonNullable<ChatSettings['thinking']>;
 
@@ -176,6 +177,8 @@ export interface ChatDefaults {
   webSearch: boolean;
   memory: boolean;
   thinking?: Thinking;
+  /** Cyber access for a ChatGPT plan model (core providers/access-programs.ts); unset sends nothing. */
+  cyber?: CyberProgram;
 }
 
 export function readDefaults(): ChatDefaults {
@@ -186,6 +189,7 @@ export function readDefaults(): ChatDefaults {
       webSearch: raw.webSearch !== false,
       memory: raw.memory !== false,
       thinking: isEffortSetting(raw.thinking) ? raw.thinking : undefined,
+      cyber: isCyberProgram(raw.cyber) ? raw.cyber : undefined,
     };
   } catch {
     return { webSearch: true, memory: true };

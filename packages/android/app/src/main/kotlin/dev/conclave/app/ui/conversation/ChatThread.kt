@@ -82,6 +82,7 @@ import dev.conclave.app.ui.motion.rememberToasts
 import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
 import dev.conclave.app.ui.theme.chatDensity
+import dev.conclave.client.logic.CyberAccess
 import dev.conclave.client.logic.Asks
 import dev.conclave.client.logic.ChatList
 import dev.conclave.client.logic.ChatLive
@@ -435,6 +436,9 @@ fun ChatThreadScreen(
                 effort = info?.effort,
                 effortValue = sw.thinking,
                 onEffort = vm::setThinking,
+                cyberChoices = CyberAccess.choices(info),
+                cyberValue = s?.chat?.cyber,
+                onCyber = vm::setCyber,
                 switches = sw,
                 // the quiet row: no device or folder in a chat, the model with its effort and the ring at the right
                 context = ContextUse.of(live.messages, s, info),

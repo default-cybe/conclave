@@ -4,7 +4,7 @@
  * from its own catalog only (models.json, by plan: codex-free, codex-plus,
  * codex-pro, codex-team), which it takes from router-for-me/models every 3
  * hours. A request for any other model ends with "unknown provider for
- * model daybreak" (400, model_not_found), before ChatGPT is asked. An alias
+ * model gpt-6.2-nova" (400, model_not_found), before ChatGPT is asked. An alias
  * cannot help: it only renames a model the catalog has.
  *
  * Its config takes a catalog of our own (models.catalog, an absolute path),

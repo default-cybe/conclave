@@ -9,6 +9,7 @@ import { create } from 'zustand';
 import type { Device, PermissionMode, Session } from '@conclave/core/types';
 import { underParent } from '@conclave/core/session/delegated';
 import { clampEffort, isEffortSetting, type EffortSetting, type ModelEffort } from '@conclave/core/providers/effort';
+import { isCyberProgram, type CyberProgram } from '@conclave/core/providers/access-programs';
 
 export type StartMode = 'chat' | 'assistant' | 'code';
 
@@ -84,6 +85,8 @@ export interface Picks {
   permissionMode?: PermissionMode;
   /** Unset follows the agent (Code runs at medium unless told); off is kept. */
   thinking?: EffortSetting;
+  /** Cyber access for a ChatGPT plan model, sent as chat.cyber where the model takes it; unset sends nothing. */
+  cyber?: CyberProgram;
   ultra?: boolean;
   /** Code from GitHub (docs/DESIGN.md 30): owner/name, and the branch to start from (unset: the default branch). */
   repo?: string;
@@ -106,7 +109,7 @@ export function readPicks(): Picks {
     const old = raw.v !== PICKS_VERSION;
     const device = old ? (cwd === undefined ? str(raw.device) : undefined) : str(raw.device);
     const cwdDevice = old ? (cwd !== undefined ? str(raw.device) : undefined) : str(raw.cwdDevice);
-    return { agent: str(raw.agent), model: str(raw.model), assistantModel: str(raw.assistantModel), device, cwd, cwdDevice, permissionMode: mode, thinking, ultra: raw.ultra === true || undefined, repo: str(raw.repo), base: str(raw.base) };
+    return { agent: str(raw.agent), model: str(raw.model), assistantModel: str(raw.assistantModel), device, cwd, cwdDevice, permissionMode: mode, thinking, cyber: isCyberProgram(raw.cyber) ? raw.cyber : undefined, ultra: raw.ultra === true || undefined, repo: str(raw.repo), base: str(raw.base) };
   } catch {
     return {};
   }

@@ -22,6 +22,8 @@ import { Stat, StatGroup } from '@/components/ui/Stat';
 import { ModelName } from '@/components/logo';
 import { ModelList } from '@/components/pickers/ModelPicker';
 import { EffortSegments } from '@/features/conversation/ChatComposer';
+import { CyberAccess } from '@/features/conversation/ComposerParts';
+import { cyberLabel } from '@conclave/core/providers/access-programs';
 import { effortLabel, shownEffort, useModelEffort } from '@/lib/effort';
 import { HooksTab } from '@/features/extensions/Hooks';
 import { SkillsTab } from '@/features/extensions/Skills';
@@ -261,6 +263,10 @@ function ModelSheet({ session, onClose }: { session: Session; onClose: () => voi
           <p className="m-0 mt-1.5 text-[12px] text-fg-3 phone:text-[13px]">How hard it thinks before it answers{effort.default ? `. The model's default is ${effortLabel(effort.default, effort).toLowerCase()}` : ''}. Agent uses what the {session.agent} agent sets.</p>
         </section>
       )}
+      {/* Cyber access, where the model takes a program (session.chat.cyber) */}
+      <div className="-mx-3">
+        <CyberAccess model={session.model} value={session.chat?.cyber} onChange={(v) => void patch(session, { chat: { cyber: v ?? null } }, v ? `Cyber access ${cyberLabel(v)} for this session.` : 'Cyber access back to Default.')} />
+      </div>
       <section>
         <SectionHeading as="h3">Model</SectionHeading>
         <div className="-mx-1 mt-1">

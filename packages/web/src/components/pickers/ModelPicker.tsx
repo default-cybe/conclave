@@ -16,10 +16,15 @@
  * back, Esc closes. multiple: checkboxes and a "4 selected" footer for jury
  * and debate members.
  *
- * One row per model (core providers/merge.ts): a model the owner's order of
- * plans and keys reaches through several providers shows once, under its
- * maker, with the route as a quiet hint ("your Claude plan, then API key").
- * A session or agent that names another route's ref finds its row.
+ * One row per model (core providers/merge.ts): a model reached through
+ * several providers or plans (CLIProxyAPI's main accounts, a plan's prefix
+ * such as neu/, the API key, OpenRouter) shows once, under its maker, by its
+ * name only. The row picks the route the owner's order in Settings puts
+ * first. The other routes are a choice behind the row's "via" button (one
+ * account, one key); a row picked that way says "via neu". A session or
+ * agent that names another route's ref finds its row. Inside a maker the
+ * models go by family (Opus, Sonnet, Haiku; GPT, o-series, Codex; Gemini
+ * Pro, Flash), newest version first.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
@@ -47,7 +52,17 @@ const HARNESS_CLI: Record<string, string> = {
   openhands: 'openhands',
 };
 
+/** One way to reach a row's model: the owner's first route, or one account or provider. */
+export interface Route {
+  ref: string;
+  label: string;
+  /** The row's own ref: the route the owner's order picks. */
+  first?: boolean;
+}
+
 export interface Row {
+  /** The name the row shows when it is not the model's own (a variant standing in for its model). */
+  label?: string;
   ref: string;
   model?: ModelEntry;
   group: string;
@@ -55,6 +70,10 @@ export interface Row {
   harness?: boolean;
   disabled?: boolean;
   where?: string;
+  /** The family inside its maker ("Opus", "GPT", "Gemini Flash"). */
+  family?: string;
+  /** Every way to reach the model, the row's own first, when there is more than one. */
+  routes?: Route[];
 }
 
 /** A row of the first level: a maker (or "Coding agents") and its models. */
@@ -78,6 +97,7 @@ const MAKER: Array<[RegExp, string]> = [
   [/gpt|(^|\/)o\d|codex/, 'openai'],
   [/gemini|gemma/, 'google'],
   [/glm/, 'zai'],
+  [/muse/, 'meta'],
   [/deepseek/, 'deepseek'],
   [/kimi|moonshot/, 'moonshot'],
   [/qwen/, 'qwen'],
@@ -87,6 +107,71 @@ const MAKER: Array<[RegExp, string]> = [
 
 export function makerOf(id: string): string | undefined {
   return MAKER.find(([re]) => re.test(id.toLowerCase()))?.[1];
+}
+
+/** The hub's vendor ids (ModelEntry.vendor) as makers. */
+const VENDOR_MAKER: Record<string, string> = { gemini: 'google' };
+
+/** The maker of an entry: from its id, else the vendor of the plan that lists it ("daybreak" on a ChatGPT plan). */
+export function entryMaker(m: Pick<ModelEntry, 'id' | 'vendor'>): string | undefined {
+  return makerOf(m.id) ?? (m.vendor ? (VENDOR_MAKER[m.vendor] ?? m.vendor) : undefined);
+}
+
+/** The gateway whose ids carry a plan's short name ("neu/claude-opus-5-5"). Elsewhere a prefix is the vendor (OpenRouter's "anthropic/"). */
+const PLAN_GATEWAY = 'cliproxy';
+
+/** A route in words: "Main accounts" or a plan's short name on CLIProxyAPI, else the provider ("Anthropic", "OpenRouter"). */
+export function routeLabel(ref: string): string {
+  const i = ref.indexOf('/');
+  const provider = i < 0 ? ref : ref.slice(0, i);
+  const id = i < 0 ? '' : ref.slice(i + 1);
+  if (provider === PLAN_GATEWAY) {
+    const j = id.lastIndexOf('/');
+    return j < 0 ? 'Main accounts' : id.slice(0, j);
+  }
+  return providerName(provider);
+}
+
+/**
+ * A model's family inside its maker, its place among the families, and its
+ * version: Opus, Sonnet, Haiku; GPT, o-series, Codex; Gemini Pro, Flash,
+ * Flash-Lite, Gemma. A maker with no known families has one, its own.
+ */
+export function familyOf(id: string): { family: string; rank: number; version: number[]; dated: number } {
+  let m = id.toLowerCase();
+  if (m.includes('/')) m = m.slice(m.lastIndexOf('/') + 1);
+  const date = /-(\d{8})$/.exec(m);
+  const base = m.replace(/-\d{8}$/, '');
+  const version = (base.match(/\d+/g) ?? []).map(Number);
+  const dated = date ? Number(date[1]) : 0;
+  const fam = (family: string, rank: number) => ({ family, rank, version, dated });
+  for (const [i, f] of ['opus', 'sonnet', 'haiku'].entries()) if (base.includes(f)) return fam(f[0].toUpperCase() + f.slice(1), i);
+  if (/^gpt/.test(base)) return fam('GPT', 0);
+  if (/^o\d/.test(base)) return fam('o-series', 1);
+  if (/codex/.test(base)) return fam('Codex', 2);
+  if (/^gemini/.test(base)) {
+    if (/flash-lite/.test(base)) return fam('Gemini Flash-Lite', 2);
+    if (/flash/.test(base)) return fam('Gemini Flash', 1);
+    if (/pro/.test(base)) return fam('Gemini Pro', 0);
+    return fam('Gemini', 3);
+  }
+  if (/^gemma/.test(base)) return fam('Gemma', 4);
+  return fam('', 9);
+}
+
+/** Inside a maker: by family, newest version first, a plain id before its variants ("GPT-5.5" before "GPT-5.5 mini"), undated before dated, newest date first. */
+export function compareModels(a: string, b: string): number {
+  const x = familyOf(a);
+  const y = familyOf(b);
+  if (x.rank !== y.rank) return x.rank - y.rank;
+  if (x.family !== y.family) return x.family.localeCompare(y.family);
+  for (let i = 0; i < Math.max(x.version.length, y.version.length); i++) {
+    const d = (y.version[i] ?? -1) - (x.version[i] ?? -1);
+    if (d) return d;
+  }
+  if (!!x.dated !== !!y.dated) return x.dated ? 1 : -1;
+  if (x.dated !== y.dated) return y.dated - x.dated;
+  return a.length - b.length || a.localeCompare(b);
 }
 
 /** The first level's order: Anthropic, OpenAI, Google, Z.ai, then the others as Settings lists providers, coding agents last. */
@@ -124,9 +209,53 @@ function accountWord(g: ModelGroup, secrets: string[] | undefined, limits: Recor
   return 'not set';
 }
 
-/** A row's name: "Opus 5.5"; a harness "Claude Code", or "Claude Code, Opus" for one of its models. */
-export function rowName(r: Pick<Row, 'ref' | 'harness'>): string {
-  if (!r.harness) return modelName(r.ref);
+/** A row's name: "Opus 5.5", never the plan's short name the hub adds ("Opus 5.5, neu"); a harness "Claude Code", or "Claude Code, Opus" for one of its models. */
+/** Ids that are not chat models: image generators, review models. */
+export const NON_CHAT = /(^|\/)(gpt-image|codex-auto-review|dall-e|whisper|tts-)|-image(-|$)|embedding/i;
+/** An effort or thinking variant of one model ("claude-opus-5-5-high", "claude-opus-4-6-thinking"). */
+const VARIANT = /-(minimal|low|medium|high|xhigh|thinking)$/i;
+const bareId = (r: Row) => (r.model?.id ?? r.ref.slice(r.ref.indexOf('/') + 1)).replace(/^.*\//, '').toLowerCase();
+
+/**
+ * Effort and thinking variants fold under their model's row, as choices
+ * behind it ("High", "Thinking"), not rows of their own. A variant whose
+ * model is not listed becomes the row, named as the model.
+ */
+export function foldVariants(rows: Row[]): Row[] {
+  const base = new Map<string, Row>();
+  for (const r of rows) if (!r.harness && !VARIANT.test(bareId(r))) base.set(bareId(r), r);
+  const out: Row[] = [];
+  for (const r of rows) {
+    const m = VARIANT.exec(bareId(r));
+    if (r.harness || !m) {
+      out.push(r);
+      continue;
+    }
+    const word = m[1].toLowerCase() === 'xhigh' ? 'Extra high' : m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+    const key = bareId(r).slice(0, -m[0].length);
+    const host = base.get(key);
+    if (host) {
+      host.routes = [...(host.routes ?? [{ ref: host.ref, label: host.label ?? 'Default', first: true }]), { ref: r.ref, label: word }];
+      continue;
+    }
+    // only the variant is listed: it is the row, under the model's name
+    const own = rowName(r);
+    base.set(key, { ...r, label: own.replace(new RegExp(`[\\s-]${m[1]}$`, 'i'), ''), routes: [{ ref: r.ref, label: word, first: true }] });
+    out.push(base.get(key)!);
+  }
+  return out;
+}
+
+export function rowName(r: Pick<Row, 'ref' | 'harness' | 'label'>): string {
+  if (r.label) return r.label;
+  if (!r.harness) {
+    // a dated snapshot reads as its model ("Claude Opus 4.5")
+    const name = modelName(r.ref).replace(/[\s-]\(?\d{8}\)?$/, '');
+    const id = r.ref.slice(r.ref.indexOf('/') + 1);
+    const j = id.lastIndexOf('/');
+    const account = j < 0 ? '' : id.slice(0, j);
+    return account && name.endsWith(`, ${account}`) ? name.slice(0, -account.length - 2) : name;
+  }
   const label = HARNESSES[r.ref.split('/')[0]]?.label ?? modelName(r.ref);
   return r.ref.endsWith('/default') ? label : `${label}, ${modelName(r.ref)}`;
 }
@@ -155,29 +284,25 @@ export function buildPicker({ models, sessions, devices, secrets, limits, harnes
     if (ref && !refs.includes(ref) && (includeHarness || !harness) && !(harness && off.has(ref.split('/')[0]))) refs.push(ref);
     if (refs.length >= 5) break;
   }
-  const recent: Row[] = refs.map((ref) => ({
-    ref,
-    model: byRef.get(ref),
-    group: 'Recent',
-    groupKey: 'recent',
-    harness: !!HARNESSES[ref.split('/')[0]],
-    disabled: off.has(ref.split('/')[0]),
-  }));
   const ordered = [...models].sort((a, b) => makerRank(a.provider) - makerRank(b.provider));
-  // every row goes under its maker (Anthropic, OpenAI, Z.ai, Google): the owner's provider order picks the route, so
-  // the maker is what tells models apart. A maker group fed by other providers says no account word: each row says its route
+  // every row goes under its maker (Anthropic, OpenAI, Z.ai, Google): the owner's order picks the route, so
+  // the maker is what tells models apart. A maker group fed by other providers says no account word
   const byMaker = new Map<string, Row[]>();
   const merged = new Set<string>();
+  const rowOf = new Map<string, Row>();
   for (const g of ordered) {
     if (HARNESSES[g.provider]) continue;
     for (const m of g.models) {
-      if (m.sameAs) continue;
-      const maker = makerOf(m.id) ?? g.provider;
-      if (m.via || maker !== g.provider) merged.add(maker);
-      // a model reached through another provider (GLM through OpenRouter) names that route, as a merged row does
-      const model = m.via || maker === g.provider ? m : { ...m, via: providerName(g.provider) };
+      // an image or review model is not a chat model: the chat picker has no place for it
+      if (m.sameAs || NON_CHAT.test(m.id)) continue;
+      const maker = entryMaker(m) ?? g.provider;
+      if (m.via || m.refs || maker !== g.provider) merged.add(maker);
       const list = byMaker.get(maker) ?? [];
-      list.push({ ref: m.ref, model, group: providerName(maker), groupKey: maker, disabled: !g.enabled });
+      // the other ways to the same model: a choice behind the row, never rows of their own
+      const routes = m.choices?.length ? [{ ref: m.ref, label: routeLabel(m.ref), first: true }, ...m.choices.map((ref): Route => ({ ref, label: routeLabel(ref) }))] : undefined;
+      const row: Row = { ref: m.ref, model: m, group: providerName(maker), groupKey: maker, disabled: !g.enabled, family: familyOf(m.id).family || undefined, ...(routes ? { routes } : {}) };
+      list.push(row);
+      rowOf.set(m.ref, row);
       byMaker.set(maker, list);
     }
   }
@@ -185,8 +310,21 @@ export function buildPicker({ models, sessions, devices, secrets, limits, harnes
     .sort((a, b) => makerRank(a) - makerRank(b))
     .map((key) => {
       const g = ordered.find((x) => x.provider === key);
-      return { key, name: providerName(key), word: merged.has(key) || !g ? undefined : accountWord(g, secrets, limits), rows: byMaker.get(key)! };
+      const rows = foldVariants(byMaker.get(key)!).sort((a, b) => compareModels(a.model?.id ?? a.ref, b.model?.id ?? b.ref));
+      return { key, name: providerName(key), word: merged.has(key) || !g ? undefined : accountWord(g, secrets, limits), rows };
     });
+  const recent: Row[] = refs.map((ref) => {
+    const row = rowOf.get(ref);
+    return {
+      ref,
+      model: byRef.get(ref),
+      group: 'Recent',
+      groupKey: 'recent',
+      harness: !!HARNESSES[ref.split('/')[0]],
+      disabled: off.has(ref.split('/')[0]),
+      ...(row?.routes ? { routes: row.routes } : {}),
+    };
+  });
   if (includeHarness) {
     const rows: Row[] = [];
     for (const g of ordered) {
@@ -214,25 +352,44 @@ function usePicker(includeHarness: boolean): Picker {
   return useMemo(() => buildPicker({ models, sessions, devices, secrets, limits, harnesses: includeHarness }), [models, sessions, devices, secrets, limits, includeHarness]);
 }
 
-/** One line of the list: the back row, a maker's row, or a model. */
-export type PickerItem = { kind: 'back'; group: PickerGroup } | { kind: 'group'; group: PickerGroup } | { kind: 'model'; row: Row };
+/** One line of the list: the back row, a maker's row, a model, or one route to a model under its row. */
+export type PickerItem = { kind: 'back'; group: PickerGroup } | { kind: 'group'; group: PickerGroup } | { kind: 'model'; row: Row } | { kind: 'route'; row: Row; route: Route };
+
+/** A model's line, then its routes when the owner opened them (`expanded` is the row's key). */
+function withRoutes(rows: Row[], expanded: string | null | undefined): PickerItem[] {
+  return rows.flatMap((row): PickerItem[] => [{ kind: 'model', row }, ...(expanded === rowKey(row) && row.routes ? row.routes.map((route): PickerItem => ({ kind: 'route', row, route })) : [])]);
+}
+
+/** A row's key in the list: its ref in its section, so Recent's copy opens on its own. */
+export const rowKey = (r: Row) => `${r.groupKey}:${r.ref}`;
 
 /**
  * What the list shows. A search: every model that matches, as one flat
  * list (Recent left out, its rows are there already). Inside a maker: the
- * back row, then its models. Else Recent, then a row per maker.
+ * back row, then its models. Else Recent, then a row per maker. A model
+ * whose routes are open has them under it.
  */
-export function pickerItems(p: Picker, q: string, open: string | null): PickerItem[] {
+export function pickerItems(p: Picker, q: string, open: string | null, expanded?: string | null): PickerItem[] {
   if (q.trim())
-    return p.groups
-      .flatMap((g) => g.rows)
-      .map((r) => ({ r, s: fuzzy(q, `${modelName(r.ref)} ${r.model?.name ?? ''} ${r.ref} ${r.group}`) }))
-      .filter((x) => x.s >= 0)
-      .sort((a, b) => b.s - a.s)
-      .map((x) => ({ kind: 'model', row: x.r }));
+    return withRoutes(
+      p.groups
+        .flatMap((g) => g.rows)
+        .map((r) => ({ r, s: fuzzy(q, `${rowName(r)} ${r.model?.name ?? ''} ${r.ref} ${r.group}`) }))
+        .filter((x) => x.s >= 0)
+        .sort((a, b) => b.s - a.s)
+        .map((x) => x.r),
+      expanded,
+    );
   const g = open ? p.groups.find((x) => x.key === open) : undefined;
-  if (g) return [{ kind: 'back', group: g }, ...g.rows.map((row): PickerItem => ({ kind: 'model', row }))];
-  return [...p.recent.map((row): PickerItem => ({ kind: 'model', row })), ...p.groups.map((group): PickerItem => ({ kind: 'group', group }))];
+  if (g) return [{ kind: 'back', group: g }, ...withRoutes(g.rows, expanded)];
+  return [...withRoutes(p.recent, expanded), ...p.groups.map((group): PickerItem => ({ kind: 'group', group }))];
+}
+
+/** The family heading over a row inside a maker: where the family changes, in a maker with more than one. */
+export function familyHead(rows: Row[], i: number): string | null {
+  const r = rows[i];
+  if (!r.family || new Set(rows.map((x) => x.family ?? '')).size < 2) return null;
+  return i === 0 || rows[i - 1].family !== r.family ? r.family : null;
 }
 
 /** The maker that holds a model: where the picker opens. None for no model, or one no maker offers. */
@@ -253,7 +410,7 @@ export function groupNote(g: PickerGroup, current: string | undefined, picked?: 
   return cur ? rowName(cur) : String(g.rows.length);
 }
 
-const canPick = (it: PickerItem | undefined) => !!it && (it.kind !== 'model' || !it.row.disabled);
+const canPick = (it: PickerItem | undefined) => !!it && ((it.kind !== 'model' && it.kind !== 'route') || !it.row.disabled);
 
 /** Where the highlight starts: the maker just left, else the current model, else the first line that is not the back row. */
 function startAt(items: PickerItem[], current: string | undefined, from: string | null): number {
@@ -277,9 +434,11 @@ function startAt(items: PickerItem[], current: string | undefined, from: string 
  */
 export function listHeight(p: Picker, phone: boolean): number {
   const row = phone ? 44 : 34;
-  const rows = (rs: Row[]) => rs.reduce((n, r) => n + (r.model?.via && !phone ? 37 : row), 0);
+  const rows = (rs: Row[]) => rs.length * row;
+  // a family heading is 24px
+  const heads = (rs: Row[]) => rs.filter((_, i) => familyHead(rs, i)).length * 24;
   const top = (p.recent.length ? 30 + rows(p.recent) + 9 : 0) + p.groups.length * row;
-  const inner = Math.max(0, ...p.groups.map((g) => row + 2 + rows(g.rows)));
+  const inner = Math.max(0, ...p.groups.map((g) => row + 2 + rows(g.rows) + heads(g.rows)));
   return Math.max(80, 8 + Math.max(top, inner));
 }
 
@@ -330,7 +489,9 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
     if (known && !moved.current && !multiple && !open) setOpen(groupOf(picker.groups, current));
   }, [known]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const items = useMemo(() => pickerItems(picker, q, open), [picker, q, open]);
+  // the model whose routes are open under it (rowKey), if any
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const items = useMemo(() => pickerItems(picker, q, open, multiple ? null : expanded), [picker, q, open, expanded, multiple]);
   const enabled = items.map((it, i) => (canPick(it) ? i : -1)).filter((i) => i >= 0);
   const level = q.trim() ? 'search' : (items[0]?.kind === 'back' && open) || 'top';
   const size = picker.recent.length + picker.groups.reduce((n, g) => n + g.rows.length + 1, 0);
@@ -355,7 +516,17 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
     moved.current = true;
     if (key === null) left.current = open;
     setDir(key ? 'in' : 'back');
+    setExpanded(null);
     setOpen(key);
+  };
+
+  /** Open or close a model's routes, keeping the highlight on its row. */
+  const toggleRoutes = (r: Row) => {
+    if (!r.routes || multiple) return;
+    const k = rowKey(r);
+    setExpanded((x) => (x === k ? null : k));
+    const i = items.findIndex((it) => it.kind === 'model' && rowKey(it.row) === k);
+    if (i >= 0) setSel(i);
   };
 
   const pick = (r: Row) => {
@@ -373,7 +544,12 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
     if (!it) return;
     if (it.kind === 'group') go(it.group.key);
     else if (it.kind === 'back') go(null);
-    else pick(it.row);
+    else if (it.kind === 'route') {
+      if (it.row.disabled) return;
+      // one account or provider, as the owner asked: its own ref is stored
+      onChange(it.route.ref);
+      onDone?.();
+    } else pick(it.row);
   };
 
   const onKey = (e: React.KeyboardEvent) => {
@@ -392,6 +568,19 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
     } else if (e.key === 'ArrowRight' && q === '' && items[sel]?.kind === 'group') {
       e.preventDefault();
       choose(items[sel]);
+    } else if (e.key === 'ArrowRight' && (q === '' || (e.target as HTMLInputElement).selectionStart === q.length) && items[sel]?.kind === 'model') {
+      // a model with several routes opens them
+      const it = items[sel] as Extract<PickerItem, { kind: 'model' }>;
+      if (it.row.routes && !multiple && expanded !== rowKey(it.row)) {
+        e.preventDefault();
+        toggleRoutes(it.row);
+      }
+    } else if (e.key === 'ArrowLeft' && expanded && (items[sel]?.kind === 'route' || (items[sel]?.kind === 'model' && rowKey((items[sel] as Extract<PickerItem, { kind: 'model' }>).row) === expanded))) {
+      // closes the routes first, back on their model
+      e.preventDefault();
+      const i = items.findIndex((it) => it.kind === 'model' && rowKey(it.row) === expanded);
+      setExpanded(null);
+      if (i >= 0) setSel(i);
     } else if ((e.key === 'ArrowLeft' || e.key === 'Backspace') && q === '' && open && level !== 'top') {
       e.preventDefault();
       go(null);
@@ -467,17 +656,47 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
               );
             }
             const r = it.row;
+            if (it.kind === 'route') {
+              const rt = it.route;
+              // the stored ref is this route: a pick of one account or provider; the row's own ref is the owner's order
+              const here = !multiple && value === rt.ref;
+              return (
+                <div
+                  key={`route:${rowKey(r)}:${rt.ref}`}
+                  role="option"
+                  aria-selected={here}
+                  aria-disabled={r.disabled || undefined}
+                  aria-label={rt.first ? `${rt.label}, the first route` : `via ${rt.label}`}
+                  {...hover(i, it)}
+                  onClick={() => choose(it)}
+                  className={cn(ROW, 'min-h-[28px] pl-9 text-[12.5px] phone:min-h-10 phone:text-[14px]', on && !r.disabled && 'bg-hover', r.disabled ? 'text-fg-3' : 'text-fg-2')}
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {rt.first ? 'Default' : `via ${rt.label}`}
+                    <span className="ml-2 text-fg-3">{rt.first ? (r.model?.via ?? rt.label) : ''}</span>
+                  </span>
+                  <Check className={cn('size-3.5 shrink-0', !here && 'invisible')} strokeWidth={1.75} aria-hidden />
+                </div>
+              );
+            }
             const head = level === 'top' && i === 0 ? 'Recent' : null;
+            const inMaker = level !== 'top' && level !== 'search' ? picker.groups.find((g) => g.key === open) : undefined;
+            const family = inMaker ? familyHead(inMaker.rows, inMaker.rows.indexOf(r)) : null;
             const checked = multiple ? picked.includes(r.ref) : r.ref === current;
+            // picked through one account or provider: the row says which
+            const through = !multiple && checked && value && value !== r.ref && r.routes?.some((x) => !x.first && x.ref === value) ? routeLabel(value) : undefined;
+            const routesOpen = expanded === rowKey(r);
             return (
               <div key={`${r.groupKey}:${r.ref}`}>
                 {head && <div className="px-2 pt-1.5 pb-1 text-[13px] font-semibold text-fg">{head}</div>}
+                {family && <div className="px-2 pt-1.5 pb-0.5 text-[11.5px] font-medium text-fg-3 phone:text-[13px]">{family}</div>}
                 <div
                   role="option"
                   aria-selected={checked}
                   aria-disabled={r.disabled || undefined}
                   {...hover(i, it)}
                   onClick={() => pick(r)}
+                  title={r.model?.via}
                   className={cn(ROW, on && !r.disabled && 'bg-hover', r.disabled ? 'text-fg-3' : 'text-fg')}
                 >
                   {multiple && (
@@ -489,8 +708,23 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
                   <span className="min-w-0 flex-1 truncate font-medium">
                     {rowName(r)}
                     {level === 'search' && r.groupKey !== 'harness' && <span className="ml-2 text-[12px] font-normal text-fg-3">{r.group}</span>}
-                    {r.model?.via && <span className="block truncate text-[11.5px] font-normal text-fg-3 phone:text-[13px]">{r.model.via}</span>}
+                    {through && <span className="ml-2 text-[12px] font-normal text-fg-3">via {through}</span>}
                   </span>
+                  {r.routes && !multiple && !r.disabled && (
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      aria-label={routesOpen ? 'Hide routes' : 'Choose a route'}
+                      aria-expanded={routesOpen}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleRoutes(r);
+                      }}
+                      className={cn('shrink-0 rounded-[var(--r-1)] px-1 text-[11.5px] text-fg-3 hover:text-fg phone:text-[13px]', routesOpen && 'text-fg')}
+                    >
+                      via
+                    </button>
+                  )}
                   {r.disabled && !r.harness ? (
                     <Button
                       variant="quiet"

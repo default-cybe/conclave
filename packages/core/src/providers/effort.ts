@@ -20,10 +20,15 @@
  * (OpenAI, OpenRouter), thinkingLevel or thinkingBudget (Gemini), a token
  * budget (Anthropic-compatible gateways, DashScope), or one switch (Z.ai and
  * DeepSeek on Chat Completions).
+ *
+ * A ChatGPT plan names each model's levels itself (its Codex model list, read
+ * by the hub's CLIProxyAPI manager into ProviderConfig.modelMeta): GPT-6 and
+ * GPT-5.6 Sol take low to ultra, "ultra" being maximum reasoning with
+ * automatic task delegation. Those lists win over the rules here.
  */
 import { normalizeModelId } from './model-id';
 
-export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
 export type Effort = (typeof EFFORTS)[number];
 /** A stored setting: a level, or thinking off. */
 export type EffortSetting = 'off' | Effort;
@@ -51,7 +56,8 @@ export function isEffortSetting(v: unknown): v is EffortSetting {
   return typeof v === 'string' && (EFFORT_SETTINGS as readonly string[]).includes(v);
 }
 
-const ALL: Effort[] = [...EFFORTS];
+/** Claude's five levels (ultra is a ChatGPT plan's). */
+const ALL: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 const BASIC: Effort[] = ['low', 'medium', 'high'];
 
 /** A Claude model's levels, or undefined for models without effort control (Haiku 4.5 and older). */
@@ -145,7 +151,7 @@ export function effortChoices(e: ModelEffort | undefined): EffortSetting[] {
   return [...(e.off ? (['off'] as const) : []), ...e.levels];
 }
 
-const LABELS: Record<EffortSetting, string> = { off: 'Off', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' };
+const LABELS: Record<EffortSetting, string> = { off: 'Off', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max', ultra: 'Ultra' };
 
 /** The word for a setting. A model with one level calls it On. */
 export function effortLabel(setting: EffortSetting, e?: ModelEffort): string {

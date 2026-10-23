@@ -105,6 +105,7 @@ import { isUntrusted } from '../session/untrusted';
 import { friendShareOf, narrowsTools } from '../session/friend-share';
 import { takesEffort } from '../providers/anthropic';
 import { clampEffort, type Effort, type EffortSetting } from '../providers/effort';
+import { retiredAlias } from '../providers/access-programs';
 import { activeMessages, isReminder, renderTranscript } from '../session/transcript';
 import { exportSession as exportShared, type ExportResult } from '../session/share';
 import { readPastSession, searchPastSessions, type PastRead, type PastSessionHit, type PastSessionQuery } from '../session/search';
@@ -499,7 +500,7 @@ export class Engine implements EngineApi {
       if (isChat) chat = mergeChatSettings(undefined, input.chat);
       else if (input.chat !== undefined) {
         const merged = mergeChatSettings(undefined, input.chat);
-        chat = merged.thinking || !merged.memory ? merged : undefined;
+        chat = merged.thinking || merged.cyber || !merged.memory ? merged : undefined;
       }
     } catch (err) {
       throw new EngineError(400, (err as Error).message);
@@ -1153,7 +1154,7 @@ export class Engine implements EngineApi {
     const accounts = accountsOf(this);
     // a model a member's own plan lists goes to that plan: the owner's order does not speak for it
     const routeOf = (m: string) => (accountId && this.access.ownPlan(accountId, PLAN_PROVIDER, m) ? undefined : accounts?.routeOf(m));
-    return mergeModelGroups(groups, routeOf, { member: isMember(accountId) });
+    return mergeModelGroups(groups, routeOf, { member: isMember(accountId), vendorOf: (m) => accounts?.listedVendor(m) });
   }
 
   testProvider(id: string): Promise<{ ok: boolean; detail: string; latencyMs?: number }> {
@@ -2026,6 +2027,16 @@ export class Engine implements EngineApi {
     if (!info.thinking || !level) return undefined;
     if (level === 'off') return info.effort?.off ? { off: true } : undefined;
     return { effort: level };
+  }
+
+  /**
+   * The Cyber access program a turn sends (providers/access-programs.ts): the
+   * session's choice, else the one a retiring Daybreak alias in its model ref
+   * stands for. Only on a model that takes it (ModelInfo.cyber); none else.
+   */
+  accessProgramsFor(info: ModelInfo, session?: Session): ChatRequest['accessPrograms'] {
+    const asked = session?.chat?.cyber ?? (session?.model ? retiredAlias(session.model)?.cyber : undefined);
+    return asked && info.cyber?.includes(asked) ? { cyber: asked } : undefined;
   }
 
   /**

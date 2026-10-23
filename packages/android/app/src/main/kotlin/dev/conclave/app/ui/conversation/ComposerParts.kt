@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.sp
 import dev.conclave.app.ui.theme.CodeStyle
 import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
+import dev.conclave.client.logic.CyberAccess
 import dev.conclave.client.logic.Attach
 import dev.conclave.client.logic.ContextUse
 import dev.conclave.client.logic.Effort
@@ -248,6 +249,19 @@ fun EffortPicker(effort: ModelEffort, value: ThinkingLevel?, follow: EffortFollo
                 color = c.fg3,
                 modifier = Modifier.padding(top = 6.dp, bottom = 4.dp),
             )
+        }
+    }
+}
+
+/** Cyber access under Effort: Default (sends nothing), then the programs the model takes (core providers/access-programs.ts). */
+@Composable
+fun CyberPicker(choices: List<String?>, value: String?, onCyber: (String?) -> Unit) {
+    if (choices.isEmpty()) return
+    val c = Conclave.colors
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
+        Text("Cyber access", style = ConclaveType.meta, color = c.fg3, modifier = Modifier.heightIn(min = 40.dp).padding(top = 12.dp))
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            choices.forEach { p -> EffortChip(CyberAccess.label(p), selected = p == value, onClick = { onCyber(p) }) }
         }
     }
 }

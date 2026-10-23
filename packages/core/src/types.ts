@@ -218,7 +218,13 @@ export interface ChatSettings {
    * uses the agent's setting, then the model's default. A level the model lacks
    * is sent as the nearest one it has.
    */
-  thinking?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  thinking?: 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
+  /**
+   * Cyber access program for ChatGPT plan models (providers/access-programs.ts):
+   * sent as access_programs.cyber. Unset sends nothing and ChatGPT picks one
+   * from the account's access. A program the model does not take is not sent.
+   */
+  cyber?: 'standard' | 'daybreak_blue' | 'daybreak_red';
 }
 
 export interface SessionStats {

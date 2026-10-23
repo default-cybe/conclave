@@ -279,21 +279,21 @@ describe('accounts on the hub', () => {
     expect(limits.filter((l) => l.provider === 'cliproxy').map((l) => l.account).sort()).toEqual(['claude-one@example.test', 'claude-two@example.test', 'codex-me@example.test']);
   });
 
-  test('a model only the ChatGPT plan itself lists ("daybreak") stays out with an external CLIProxyAPI: it would refuse it', async () => {
+  test('a model only the ChatGPT plan itself lists ("gpt-6.2-nova") stays out with an external CLIProxyAPI: it would refuse it', async () => {
     // CLIProxyAPI lists a ChatGPT plan's models from its catalog only; the plan's own list (ChatGPT's Codex models address) has more
-    write('codex-me@example.test.json', { ...read('codex-me@example.test.json'), codex_models: ['gpt-6-astra', 'gpt-6.1-sol', 'daybreak'] });
+    write('codex-me@example.test.json', { ...read('codex-me@example.test.json'), codex_models: ['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.2-nova'] });
     const r = await api('/api/models/refresh', { method: 'POST' });
     expect(r.status).toBe(200);
     expect(r.body.failed).toEqual([]);
     // the hub read the plan's own list, through api-call with the placeholder only
     const call = mgmtCalls().filter((c) => c.path === 'api-call' && c.url.includes('codex/models')).at(-1);
     expect(call).toMatchObject({ name: 'codex-me@example.test.json', method: 'GET', authorization: 'Bearer $TOKEN$' });
-    // this CLIProxyAPI is the owner's: the hub leaves its catalog alone, so daybreak is not offered where it cannot answer
+    // this CLIProxyAPI is the owner's: the hub leaves its catalog alone, so gpt-6.2-nova is not offered where it cannot answer
     expect(mgmtCalls().some((c) => c.path === 'catalog')).toBe(false);
-    expect(hub.engine.config.get().providers.cliproxy.models).not.toContain('daybreak');
-    expect((await status()).accounts.find((a) => a.id === 'codex-me@example.test')!.models.map((m) => m.id)).not.toContain('daybreak');
+    expect(hub.engine.config.get().providers.cliproxy.models).not.toContain('gpt-6.2-nova');
+    expect((await status()).accounts.find((a) => a.id === 'codex-me@example.test')!.models.map((m) => m.id)).not.toContain('gpt-6.2-nova');
     // as the real one: a model no account lists ends before any provider is asked
-    const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, { method: 'POST', headers: { authorization: 'Bearer ext-client-key', 'content-type': 'application/json' }, body: JSON.stringify({ model: 'daybreak', messages: [] }) });
+    const res = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, { method: 'POST', headers: { authorization: 'Bearer ext-client-key', 'content-type': 'application/json' }, body: JSON.stringify({ model: 'gpt-6.2-nova', messages: [] }) });
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe('model_not_found');
     write('codex-me@example.test.json', { ...read('codex-me@example.test.json'), codex_models: undefined });
@@ -613,7 +613,7 @@ describe('builtin: a ChatGPT plan\'s own models reach CLIProxyAPI through its ca
     chmodSync(wrapper, 0o755);
     hub = startHub({ cliproxy: { catalogUrls: [`http://127.0.0.1:${catalogServer.port}/nothing.json`, `http://127.0.0.1:${catalogServer.port}/models.json`], credentialsMs: 200, usageMs: [60_000, 60_000], random: () => 0, readyTimeoutMs: 15_000 } }, { models: { cliproxy: { mode: 'builtin', binary: wrapper } } } as any);
     await until(async () => ((await (await hub.api('/api/subscriptions')).json()) as SubscriptionsStatus).state === 'on', 15_000, 'the hub to run the fake');
-    write('codex-me@example.test.json', { type: 'codex', email: 'me@example.test', plan_type: 'plus', codex_models: ['gpt-6-astra', 'gpt-6.1-sol', 'daybreak', { slug: 'codex-auto-review', display_name: 'Review', visibility: 'hide' }] });
+    write('codex-me@example.test.json', { type: 'codex', email: 'me@example.test', plan_type: 'plus', codex_models: ['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.2-nova', { slug: 'codex-auto-review', display_name: 'Review', visibility: 'hide' }] });
     write('codex-you@example.test.json', { type: 'codex', email: 'you@example.test', plan_type: 'pro' });
     await until(async () => ((await (await hub.api('/api/accounts')).json()) as AccountsStatus).accounts.length === 2, 8000, 'both plans');
   }, 30_000);
@@ -623,8 +623,8 @@ describe('builtin: a ChatGPT plan\'s own models reach CLIProxyAPI through its ca
     catalogServer?.stop(true);
   });
 
-  test('Refresh models: the plan\'s own list adds daybreak to its catalog section, CLIProxyAPI lists and routes it', async () => {
-    expect(hub.engine.config.get().providers.cliproxy.models ?? []).not.toContain('daybreak');
+  test('Refresh models: the plan\'s own list adds gpt-6.2-nova to its catalog section, CLIProxyAPI lists and routes it', async () => {
+    expect(hub.engine.config.get().providers.cliproxy.models ?? []).not.toContain('gpt-6.2-nova');
     const r = await hub.api('/api/models/refresh', { method: 'POST' });
     expect(r.status).toBe(200);
     // CLIProxyAPI was pointed at a catalog the hub wrote in its own folder
@@ -632,21 +632,21 @@ describe('builtin: a ChatGPT plan\'s own models reach CLIProxyAPI through its ca
     expect(set.catalog.startsWith(join(hub.engine.home, 'cliproxy', 'catalog-'))).toBe(true);
     const written = JSON.parse(readFileSync(set.catalog, 'utf8'));
     // in the plus plan's section only, with that section's capabilities; a hidden model stays out
-    expect(written['codex-plus'].map((m: { id: string }) => m.id)).toEqual(['gpt-6-astra', 'daybreak']);
-    expect(written['codex-plus'][1]).toMatchObject({ id: 'daybreak', display_name: 'daybreak', context_length: 272000, thinking: { levels: ['low', 'high'] } });
+    expect(written['codex-plus'].map((m: { id: string }) => m.id)).toEqual(['gpt-6-astra', 'gpt-6.2-nova']);
+    expect(written['codex-plus'][1]).toMatchObject({ id: 'gpt-6.2-nova', display_name: 'gpt-6.2-nova', context_length: 272000, thinking: { levels: ['low', 'high'] } });
     expect(written['codex-pro'].map((m: { id: string }) => m.id)).toEqual(['gpt-6-astra']);
     expect(written.claude).toEqual(official.claude);
     expect(catalogReads).toBe(1);
     // the picker and the plan have it; the pro plan does not
-    await until(() => (hub.engine.config.get().providers.cliproxy.models ?? []).includes('daybreak'), 8000, 'daybreak in the model list');
-    expect(await accountModels('codex-me@example.test')).toContain('daybreak');
-    expect(await accountModels('codex-you@example.test')).not.toContain('daybreak');
+    await until(() => (hub.engine.config.get().providers.cliproxy.models ?? []).includes('gpt-6.2-nova'), 8000, 'gpt-6.2-nova in the model list');
+    expect(await accountModels('codex-me@example.test')).toContain('gpt-6.2-nova');
+    expect(await accountModels('codex-you@example.test')).not.toContain('gpt-6.2-nova');
     // a request for it reaches CLIProxyAPI's router and is served
     const reg = new ProviderRegistry(hub.engine.config);
     let text = '';
-    for await (const ev of reg.get('cliproxy')!.stream({ model: 'daybreak', system: [], messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }], maxTokens: 8 })) if (ev.type === 'text_delta') text += ev.text;
+    for await (const ev of reg.get('cliproxy')!.stream({ model: 'gpt-6.2-nova', system: [], messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }], maxTokens: 8 })) if (ev.type === 'text_delta') text += ev.text;
     reg.dispose();
-    expect(text).toBe('Hello from daybreak over chat');
+    expect(text).toBe('Hello from gpt-6.2-nova over chat');
     // the same lists again change nothing: no new file, no new call
     const before = mgmtCalls().filter((c) => c.path === 'catalog').length;
     await hub.api('/api/models/refresh', { method: 'POST' });
@@ -667,12 +667,37 @@ describe('builtin: a ChatGPT plan\'s own models reach CLIProxyAPI through its ca
     expect((hub.engine.config.getUser() as any).models.accounts.find((a: { id: string }) => a.id === id)).toMatchObject({ label: 'ChatGPT Pro', credential: 'codex-you@example.test.json' });
   }, 20_000);
 
+  test("the plan's own list names its models and their Effort levels, hides what it hides, and drops the Daybreak aliases; read again with its entity tag", async () => {
+    const plan = [
+      { slug: 'gpt-6.1-sol', display_name: 'GPT-6.1-Sol', visibility: 'list', supported_reasoning_levels: [{ effort: 'low' }, { effort: 'medium' }, { effort: 'high' }, { effort: 'xhigh' }, { effort: 'ultra' }], default_reasoning_level: 'medium' },
+      { slug: 'gpt-6-astra', display_name: 'GPT-6-Astra', visibility: 'list', supported_reasoning_levels: ['low', 'medium', 'high'] },
+      { slug: 'gpt-daybreak-blue-latest', display_name: 'Daybreak Blue', visibility: 'list' },
+      { slug: 'gpt-reserve', display_name: 'Reserve', visibility: 'hide' },
+      { slug: 'codex-auto-review', display_name: 'Review', visibility: 'hide' },
+    ];
+    write('codex-me@example.test.json', { type: 'codex', email: 'me@example.test', plan_type: 'plus', codex_models: plan, codex_models_etag: '"v1"' });
+    await hub.api('/api/models/refresh', { method: 'POST' });
+    const p = () => hub.engine.config.get().providers.cliproxy;
+    await until(() => p().modelMeta?.['gpt-6.1-sol'], 8000, 'the plan meta');
+    expect(p().modelMeta).toMatchObject({ 'gpt-6.1-sol': { name: 'GPT-6.1-Sol', efforts: ['low', 'medium', 'high', 'xhigh', 'ultra'], defaultEffort: 'medium' }, 'gpt-6-astra': { name: 'GPT-6-Astra', efforts: ['low', 'medium', 'high'] } });
+    for (const id of ['gpt-reserve', 'codex-auto-review', 'gpt-daybreak-blue-latest']) expect(p().models).not.toContain(id);
+    // the picker gets the plan's name and levels, ultra included
+    const reg = new ProviderRegistry(hub.engine.config);
+    expect(reg.resolveAt('cliproxy', 'gpt-6.1-sol').info).toMatchObject({ name: 'GPT-6.1-Sol', effort: { levels: ['low', 'medium', 'high', 'xhigh', 'ultra'], default: 'medium' }, cyber: ['standard', 'daybreak_blue'] });
+    reg.dispose();
+    // Refresh models again: the tag goes back, the 304 keeps the list
+    await hub.api('/api/models/refresh', { method: 'POST' });
+    const last = mgmtCalls().filter((c) => c.path === 'api-call' && c.url.includes('codex/models') && c.name === 'codex-me@example.test.json').at(-1);
+    expect(last.headers).toContain('If-None-Match');
+    expect(p().modelMeta?.['gpt-6.1-sol']?.name).toBe('GPT-6.1-Sol');
+  }, 20_000);
+
   test('once no plan lists a model CLIProxyAPI lacks, it goes back to its own catalog', async () => {
     write('codex-me@example.test.json', { type: 'codex', email: 'me@example.test', plan_type: 'plus', codex_models: ['gpt-6-astra', 'gpt-6.1-sol'] });
     await hub.api('/api/models/refresh', { method: 'POST' });
     await until(() => mgmtCalls().filter((c) => c.path === 'catalog').at(-1)?.catalog === null, 8000, 'the catalog cleared');
     expect(readdirSync(join(hub.engine.home, 'cliproxy')).filter((n) => n.startsWith('catalog-'))).toEqual([]);
-    await until(() => !(hub.engine.config.get().providers.cliproxy.models ?? []).includes('daybreak'), 8000, 'daybreak gone');
+    await until(() => !(hub.engine.config.get().providers.cliproxy.models ?? []).includes('gpt-6.2-nova'), 8000, 'gpt-6.2-nova gone');
   }, 20_000);
 });
 

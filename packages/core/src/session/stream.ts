@@ -9,6 +9,10 @@ import { guardTranscript } from './pairing';
 import { OWNER_ID, currentAccount, isMember } from '../people/context';
 import { AccessError } from '../people/access';
 import { catalogCost } from '../usage/value';
+import { servedNotice } from '../providers/access-programs';
+
+/** "session asked served" pairs already told: a served program the plan cannot change is said once. */
+const servedNoted = new Set<string>();
 
 const log = logger('stream');
 
@@ -199,7 +203,16 @@ async function streamCall(
             engine.usage.setLimit({ provider: resolved.provider, label: engine.providerLabel(resolved.provider), windows: ev.windows, updatedAt: Date.now(), source: 'headers' });
           }
         }
-        if (ev.type === 'done') final = { content: ev.content, stopReason: ev.stopReason, usage: ev.usage, latencyMs: Date.now() - started };
+        if (ev.type === 'done') {
+          final = { content: ev.content, stopReason: ev.stopReason, usage: ev.usage, latencyMs: Date.now() - started };
+          // asked for a Cyber access program and served another (no approval on this plan): one notice per session and pair
+          const asked = req.accessPrograms?.cyber;
+          const served = ev.accessPrograms?.cyber;
+          if (asked && served && served !== asked && target.sessionId && !servedNoted.has(`${target.sessionId} ${asked} ${served}`)) {
+            servedNoted.add(`${target.sessionId} ${asked} ${served}`);
+            engine.notice(target.sessionId, servedNotice(asked, served), 'info');
+          }
+        }
       }
       if (!final) throw new ProviderError('network', 'Stream ended without a final event');
       timeThinking(final.content, blockStart, started);

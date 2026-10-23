@@ -36,7 +36,7 @@ describe('chat switches', () => {
     // Effort keeps the old values and takes Claude's two levels above high
     expect(mergeChatSettings(a, { thinking: 'xhigh' }).thinking).toBe('xhigh');
     expect(mergeChatSettings(a, { thinking: 'max' }).thinking).toBe('max');
-    expect(() => mergeChatSettings(a, { thinking: 'ultra' })).toThrow('chat.thinking must be off, low, medium, high, xhigh or max');
+    expect(() => mergeChatSettings(a, { thinking: 'extreme' })).toThrow('chat.thinking must be off, low, medium, high, xhigh, max or ultra');
     expect(chatAllowsTool({ webSearch: false, memory: true }, 'WebFetch')).toBe(false);
     expect(chatAllowsTool({ webSearch: true, memory: false }, 'MemorySave')).toBe(false);
     expect(chatAllowsTool(undefined, 'Bash')).toBe(true);
@@ -65,7 +65,7 @@ describe('chat sessions in the engine', () => {
     expect(engine.listSessions({ kind: 'agent' }).map((s) => s.id)).toEqual([old.id]);
     expect(engine.listSessions({}).length).toBe(2);
 
-    await expect(engine.createSession({ kind: 'chat', chat: { thinking: 'ultra' as never } })).rejects.toThrow('chat.thinking');
+    await expect(engine.createSession({ kind: 'chat', chat: { thinking: 'extreme' as never } })).rejects.toThrow('chat.thinking');
   });
 
   test('patching switches merges them; Continue as a session clears kind and switches', async () => {

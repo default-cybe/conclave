@@ -58,7 +58,8 @@ import { isLoopbackHost } from '../oauth/checks';
 import { PidFile, processMatches } from '../remote/pids';
 import { catchRedirect, type Catcher, type CatchOptions } from './catcher';
 import { cliproxyEnv, cliproxyFiles, ensurePrivateDirs, writeConfig, type CliproxyFiles } from './config';
-import { Management, ManagementError, codexModels, listModels, splitPrefixed, type RawCredential } from './management';
+import { Management, ManagementError, codexModels, listModels, splitPrefixed, type CodexModel, type RawCredential } from './management';
+import { RETIRED_ALIASES } from '@conclave/core/providers/access-programs.ts';
 import { CATALOG_MS, codexSection, dropCatalogs, fetchCatalog, withExtras, writeCatalog, type Catalog, type CatalogExtra } from './catalog';
 import {
   CLIPROXY_REPO,
@@ -128,6 +129,8 @@ export interface CliproxyOptions {
   usageMs?: [number, number];
   /** How often each account's model list is read. Default 10 minutes. */
   modelsMs?: number;
+  /** How often a ChatGPT plan's own model list is read (with its entity tag). Default 1 hour; Refresh models reads it now. */
+  ownModelsMs?: number;
   /** Jitter source (tests pin it). */
   random?: () => number;
   /** Listens for the provider's localhost redirect (tests pass their own). */
@@ -173,8 +176,11 @@ interface CredState {
    * says (8.0.32 keeps it in the auth file only).
    */
   prefix?: string;
-  /** A ChatGPT plan's own model list (the Codex app's, catalog.ts). */
-  own?: Array<{ id: string; name?: string }>;
+  /** A ChatGPT plan's own model list (the Codex app's, catalog.ts), hidden ones marked. */
+  own?: CodexModel[];
+  /** When the plan's own list was last read, and its entity tag (a 304 keeps the list). */
+  ownAt?: number;
+  ownEtag?: string;
   /** Next usage read. */
   usageNext: number;
   /** Wait after the last 429 from the usage endpoint; doubles up to an hour. */
@@ -315,7 +321,7 @@ export class CliproxyManager {
   /**
    * Read the models again now: /v1/models, then each signed in account's own
    * list (credentials/models), so a model an account offers before
-   * CLIProxyAPI's shared list has it ("daybreak" on a ChatGPT plan) shows in
+   * CLIProxyAPI's shared list has it (a new model on a ChatGPT plan) shows in
    * the picker. Nothing when CLIProxyAPI is off or not answering: the last
    * lists stay.
    */
@@ -797,6 +803,7 @@ export class CliproxyManager {
       baseUrl: `${this.root}/v1`,
       enabled: true,
       models: this.allModels().map((m) => m.id),
+      ...(Object.keys(this.planMeta()).length ? { modelMeta: this.planMeta() } : {}),
       anthropicWire: { baseUrl: this.root, models: ANTHROPIC_MODELS },
       responsesApi: false,
       // signed in plans: no per-token price, limits grouped under one id
@@ -815,16 +822,34 @@ export class CliproxyManager {
    * offer a model before CLIProxyAPI's shared list knows it.
    */
   private allModels(): Array<{ id: string; ownedBy?: string }> {
-    const out = [...this.modelIds];
+    // what a ChatGPT plan hides from the Codex app (gpt-reserve, codex-auto-review) and the retiring Daybreak aliases are not offered
+    const hidden = new Set<string>(Object.keys(RETIRED_ALIASES));
+    for (const s of this.creds.values()) for (const m of s.own ?? []) if (m.hidden) hidden.add(m.id);
+    const out = this.modelIds.filter((m) => !hidden.has(splitAccount(m.id).model));
     const seen = new Set(out.map((m) => m.id));
     for (const c of this.raw) {
       if (c.disabled) continue;
       const prefix = this.prefixOf(c);
       for (const m of this.creds.get(c.name)?.models ?? []) {
+        if (hidden.has(splitAccount(m.id).model)) continue;
         const id = prefix && !m.id.includes('/') ? `${prefix}/${m.id}` : m.id;
         if (seen.has(id)) continue;
         seen.add(id);
         out.push({ id });
+      }
+    }
+    return out;
+  }
+
+  /** What the ChatGPT plans say of their models (ProviderConfig.modelMeta): name, Effort levels, default. The first plan that lists one speaks for it. */
+  private planMeta(): NonNullable<ProviderConfig['modelMeta']> {
+    const out: NonNullable<ProviderConfig['modelMeta']> = {};
+    for (const c of this.raw) {
+      if (c.disabled) continue;
+      for (const m of this.creds.get(c.name)?.own ?? []) {
+        if (m.hidden || out[m.id]) continue;
+        const meta = { ...(m.name ? { name: m.name } : {}), ...(m.efforts ? { efforts: m.efforts } : {}), ...(m.defaultEffort ? { defaultEffort: m.defaultEffort } : {}) };
+        if (Object.keys(meta).length) out[m.id] = meta;
       }
     }
     return out;
@@ -1089,11 +1114,14 @@ export class CliproxyManager {
         log.debug(`models of one account: ${(err as Error).message}`);
       }
       // a ChatGPT plan's own list, as the Codex app reads it: CLIProxyAPI lists only what its catalog has for the plan
-      if (USAGE_KIND[c.provider] === 'codex-usage' && c.authIndex && !c.disabled) {
+      // read once an hour (Refresh models reads it now), with its entity tag: a 304 keeps the list
+      if (USAGE_KIND[c.provider] === 'codex-usage' && c.authIndex && !c.disabled && (force || !s.ownAt || Date.now() - s.ownAt >= (this.opts.ownModelsMs ?? 60 * 60_000))) {
+        s.ownAt = Date.now();
         try {
-          const r = await mgmt.usageCall('codex-models', c.authIndex, { chatgptAccountId: c.chatgptAccountId });
+          const r = await mgmt.usageCall('codex-models', c.authIndex, { chatgptAccountId: c.chatgptAccountId, ...(s.own && s.ownEtag ? { etag: s.ownEtag } : {}) });
           if (r.status >= 200 && r.status < 300) {
             const list = codexModels(r.json);
+            s.ownEtag = r.etag;
             if (JSON.stringify(list) !== JSON.stringify(s.own)) {
               s.own = list;
               own = true;
@@ -1104,9 +1132,9 @@ export class CliproxyManager {
         }
       }
     }
-    if (changed) {
+    if (changed || own) {
       this.feedAccounts();
-      // a model only an account's own list has joins the provider's list (allModels)
+      // a model only an account's own list has joins the provider's list (allModels); a plan's names and levels go with it
       this.applyProvider();
     }
     if (catalog && (own || changed)) await this.syncCatalog();
@@ -1124,7 +1152,11 @@ export class CliproxyManager {
       if (!s?.own?.length || c.disabled) continue;
       const section = codexSection(c.planType);
       const listed = new Set((s.models ?? []).map((m) => m.id).filter((id) => !this.catalog.added.has(`${section} ${id}`)));
-      for (const m of s.own) if (!listed.has(m.id) && !out.some((e) => e.section === section && e.id === m.id)) out.push({ section, id: m.id, ...(m.name ? { name: m.name } : {}) });
+      for (const m of s.own) {
+        // a hidden model and a retiring Daybreak alias (a saved ref runs on its named model) are not added
+        if (m.hidden || RETIRED_ALIASES[m.id]) continue;
+        if (!listed.has(m.id) && !out.some((e) => e.section === section && e.id === m.id)) out.push({ section, id: m.id, ...(m.name ? { name: m.name } : {}) });
+      }
     }
     return out.sort((a, b) => a.section.localeCompare(b.section) || a.id.localeCompare(b.id));
   }

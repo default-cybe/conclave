@@ -93,7 +93,7 @@ export type UsageCallKind = 'claude-usage' | 'claude-profile' | 'codex-usage' | 
  * models. ChatGPT leaves out models that need a newer client, so this sits
  * at or above the newest version CLIProxyAPI's own Codex catalog names.
  */
-export const CODEX_CLIENT_VERSION = '0.160.0';
+export const CODEX_CLIENT_VERSION = '0.164.0';
 
 const CLAUDE_HEADERS = { Authorization: 'Bearer $TOKEN$', 'anthropic-beta': 'oauth-2025-04-20', Accept: 'application/json' };
 
@@ -107,7 +107,8 @@ export const USAGE_CALLS: Record<UsageCallKind, { method: 'GET'; url: string; he
   'claude-profile': { method: 'GET', url: 'https://api.anthropic.com/api/oauth/profile', header: CLAUDE_HEADERS },
   'codex-usage': { method: 'GET', url: 'https://chatgpt.com/backend-api/wham/usage', header: { Authorization: 'Bearer $TOKEN$', Accept: 'application/json' } },
   // the plan's own model list, as the Codex app reads it: CLIProxyAPI lists a ChatGPT plan's models from its own catalog only
-  'codex-models': { method: 'GET', url: `https://chatgpt.com/backend-api/codex/models?client_version=${CODEX_CLIENT_VERSION}`, header: { Authorization: 'Bearer $TOKEN$', Accept: 'application/json' } },
+  // as Codex CLI asks: the token, the account id (added per call) and its originator
+  'codex-models': { method: 'GET', url: `https://chatgpt.com/backend-api/codex/models?client_version=${CODEX_CLIENT_VERSION}`, header: { Authorization: 'Bearer $TOKEN$', Accept: 'application/json', originator: 'codex_cli_rs' } },
 };
 
 /** Throws unless the call is exactly one of USAGE_CALLS. */
@@ -371,13 +372,15 @@ export class Management {
    * and the parsed JSON body; nothing of the request or the headers is kept
    * or logged, except Retry-After on a 429.
    */
-  async usageCall(kind: UsageCallKind, authIndex: string, opts: { chatgptAccountId?: string } = {}): Promise<{ status: number; json?: unknown; retryAfterMs?: number }> {
+  async usageCall(kind: UsageCallKind, authIndex: string, opts: { chatgptAccountId?: string; etag?: string } = {}): Promise<{ status: number; json?: unknown; retryAfterMs?: number; etag?: string }> {
     const call = USAGE_CALLS[kind];
     if (!call) throw new ManagementError(`The hub does not send that call through CLIProxyAPI.`, 400);
     assertAllowedCall(call);
     if (!AUTH_INDEX.test(authIndex)) throw new ManagementError('That account has no index CLIProxyAPI knows.', 400);
     const header: Record<string, string> = { ...call.header };
     if ((kind === 'codex-usage' || kind === 'codex-models') && opts.chatgptAccountId && /^[\w-]{1,80}$/.test(opts.chatgptAccountId)) header['Chatgpt-Account-Id'] = opts.chatgptAccountId;
+    // the plan's model list again: a 304 when nothing changed
+    if (kind === 'codex-models' && opts.etag && ETAG.test(opts.etag)) header['If-None-Match'] = opts.etag;
     const api = await this.detect();
     if (api !== 'v8') throw new ManagementError('This CLIProxyAPI cannot read plan usage. Update it to version 8 or newer.', 404);
     const r = await this.call<Record<string, unknown>>('POST', '/v8/management/requests/api-call', { auth_index: authIndex, method: call.method, url: call.url, header });
@@ -392,15 +395,18 @@ export class Management {
       }
     } else if (r.data.body && typeof r.data.body === 'object') json = r.data.body;
     let retryAfterMs: number | undefined;
-    if (status === 429 && r.data.header && typeof r.data.header === 'object') {
+    let etag: string | undefined;
+    if (r.data.header && typeof r.data.header === 'object') {
       for (const [k, v] of Object.entries(r.data.header as Record<string, unknown>)) {
-        if (k.toLowerCase() !== 'retry-after') continue;
         const raw = Array.isArray(v) ? v[0] : v;
-        const n = Number(raw);
-        if (Number.isFinite(n) && n >= 0) retryAfterMs = n * 1000;
+        if (status === 429 && k.toLowerCase() === 'retry-after') {
+          const n = Number(raw);
+          if (Number.isFinite(n) && n >= 0) retryAfterMs = n * 1000;
+        }
+        if (kind === 'codex-models' && k.toLowerCase() === 'etag' && typeof raw === 'string' && ETAG.test(raw)) etag = raw;
       }
     }
-    return { status, ...(json !== undefined ? { json } : {}), ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) };
+    return { status, ...(json !== undefined ? { json } : {}), ...(retryAfterMs !== undefined ? { retryAfterMs } : {}), ...(etag ? { etag } : {}) };
   }
 
   async remove(name: string): Promise<void> {
@@ -454,20 +460,44 @@ export function splitPrefixed<T extends { id: string }>(models: T[]): { prefix?:
   return { ...(prefix ? { prefix } : {}), models: out };
 }
 
-/** The models a ChatGPT plan offers, from its Codex models answer: the ones the Codex app lists, each once. */
-export function codexModels(json: unknown): Array<{ id: string; name?: string }> {
+/** A quoted entity tag, as ChatGPT sends it. */
+const ETAG = /^(W\/)?"[\w.:+/=-]{1,200}"$/;
+
+/** One model of a ChatGPT plan's own list. */
+export interface CodexModel {
+  id: string;
+  name?: string;
+  /** The Effort levels it takes, lowest first ("low" to "ultra"). */
+  efforts?: string[];
+  defaultEffort?: string;
+  /** visibility "hide": kept out of the Codex app's picker (review models, reserve models). */
+  hidden?: true;
+}
+
+const LEVEL = /^[a-z]{2,12}$/;
+
+/**
+ * The models a ChatGPT plan offers, from its Codex models answer, each once:
+ * its name, the Effort levels it takes and its default. A model the plan
+ * hides from the Codex app (visibility "hide") or keeps from the API comes
+ * back marked hidden.
+ */
+export function codexModels(json: unknown): CodexModel[] {
   const list = (json as { models?: unknown })?.models;
   if (!Array.isArray(list)) return [];
-  const out: Array<{ id: string; name?: string }> = [];
+  const out: CodexModel[] = [];
   for (const m of list) {
     if (!m || typeof m !== 'object') continue;
     const r = m as Record<string, unknown>;
     const id = str(r.slug) ?? str(r.id);
     if (!id || !/^[\w.:-]{1,80}$/.test(id) || out.some((x) => x.id === id)) continue;
-    // "hide" is how ChatGPT keeps a model out of the Codex app's picker (review models and the like)
-    if (str(r.visibility) === 'hide' || r.supported_in_api === false) continue;
     const name = str(r.display_name);
-    out.push({ id, ...(name && name.length <= 80 ? { name } : {}) });
+    // Codex's shape: supported_reasoning_levels [{effort, description}] or plain words, default_reasoning_level
+    const raw = Array.isArray(r.supported_reasoning_levels) ? r.supported_reasoning_levels : Array.isArray(r.supported_reasoning_efforts) ? r.supported_reasoning_efforts : [];
+    const efforts = raw.map((l) => (typeof l === 'string' ? l : str((l as Record<string, unknown>)?.effort))).filter((l): l is string => !!l && LEVEL.test(l));
+    const def = str(r.default_reasoning_level) ?? str(r.default_reasoning_effort);
+    const hidden = ['hide', 'hidden'].includes(str(r.visibility) ?? '') || r.supported_in_api === false;
+    out.push({ id, ...(name && name.length <= 80 ? { name } : {}), ...(efforts.length ? { efforts: [...new Set(efforts)] } : {}), ...(def && LEVEL.test(def) ? { defaultEffort: def } : {}), ...(hidden ? { hidden: true as const } : {}) });
   }
   return out;
 }

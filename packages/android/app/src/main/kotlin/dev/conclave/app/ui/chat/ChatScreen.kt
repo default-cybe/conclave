@@ -94,6 +94,7 @@ import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
 import dev.conclave.app.ui.theme.chatDensity
 import dev.conclave.client.ConnectionState
+import dev.conclave.client.logic.CyberAccess
 import dev.conclave.client.logic.Asks
 import dev.conclave.client.logic.ChatItem
 import dev.conclave.client.logic.ChatItems
@@ -296,6 +297,9 @@ fun ChatScreen(
                         effortValue = s?.chat?.thinking,
                         follow = s?.let { ss -> Effort.follow(ss.agent, agents.firstOrNull { it.name == ss.agent }?.thinking, ss.model) },
                         onEffort = vm::setEffort,
+                        cyberChoices = CyberAccess.choices(info),
+                        cyberValue = s?.chat?.cyber,
+                        onCyber = vm::setCyber,
                         context = ContextUse.of(live.messages, s, info),
                         onUsage = onOpenUsage,
                         left = {
