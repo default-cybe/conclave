@@ -128,6 +128,25 @@ export interface Message {
 }
 
 /**
+ * A background task that ended and reported to its session: a Task or
+ * Delegate subagent (id: its session) or a workflow run (id: the run). The
+ * notice line that says so carries it as meta.agentResult with meta.kind
+ * 'agent-result'; the user message that hands the report to the model
+ * carries every one it holds in meta.agentResults (and meta.kind
+ * 'agent-result' when it holds nothing else the owner wrote). The apps draw
+ * one compact row for it ("Message from subagent ...") instead of a bubble.
+ */
+export interface AgentResultRef {
+  type: 'subagent' | 'workflow';
+  id: string;
+  /** The task's description or the workflow's name. */
+  label: string;
+  /** The subagent's agent type. */
+  agent?: string;
+  state: 'completed' | 'failed' | 'stopped';
+}
+
+/**
  * A message the owner sent while the session was busy, before it joins the
  * transcript (docs/design/CHAT-AND-MOTION.md 2.11). queue: it runs as its own
  * turn after the running one. steer: it joins the running turn at its next

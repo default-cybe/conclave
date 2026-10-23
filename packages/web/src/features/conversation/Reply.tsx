@@ -36,6 +36,8 @@ import { MapsCards, MapsLine } from '@/features/maps/MapsCard';
 import { WatchCards, WatchLine } from '@/features/watches/WatchCards';
 import { mapsWorkingWords } from '@/features/maps/words';
 import { DelegateCallLine } from '@/features/chat/delegated';
+import { AgentResultNotice } from '@/features/chat/AgentResultRow';
+import { noticeResult } from '@/features/chat/agentResult';
 import { useModelThinks } from './ChatComposer';
 import { branchChat, forgetNote, patchChat, retryFrom } from './actions';
 import { openContinue, setAsking, useChatUi } from './state';
@@ -800,6 +802,13 @@ export function isErrorNotice(message: Message): boolean {
 }
 
 export const NoticeView = memo(function NoticeView({ message }: { message: Message }) {
+  // a background task that reported back: one row that opens to its report
+  if (noticeResult(message))
+    return (
+      <div id={`cm-${message.id}`} className="anim-fade">
+        <AgentResultNotice message={message} />
+      </div>
+    );
   const words = noticeWords(noticeText(message));
   const error = isErrorNotice(message);
   const shown = error && !/^failed\b/i.test(words) ? `Failed. ${words.replace(/^error:?\s*/i, '')}` : words;

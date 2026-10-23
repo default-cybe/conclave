@@ -434,6 +434,7 @@ fun ChatScreen(
                                         onSwitchModel = { pickFor = PickFor.SWITCH to null },
                                         onTryNext = nextModel?.takeIf { it.notice.id == item.message.id }?.let { o -> { vm.tryNextModel(o.reply) } },
                                         tryingNext = tryingNext,
+                                        result = item.result,
                                     )
                                     is ChatItem.Summary -> SummaryLine(item.message)
                                 }

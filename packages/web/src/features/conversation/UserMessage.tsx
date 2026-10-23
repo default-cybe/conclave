@@ -77,9 +77,11 @@ export const UserMessage = memo(function UserMessage({ message, session, after, 
   if (queued)
     return (
       <div id={`cm-${message.id}`} className="flex flex-col items-end">
-        <div className={cn(BUBBLE.replace('text-fg', 'text-fg-2'), 'max-w-[min(85%,520px)] phone:max-w-[85%]')}>
-          <PlainText>{text}</PlainText>
-        </div>
+        {text && (
+          <div className={cn(BUBBLE.replace('text-fg', 'text-fg-2'), 'max-w-[min(85%,520px)] phone:max-w-[85%]')}>
+            <PlainText>{text}</PlainText>
+          </div>
+        )}
       </div>
     );
 

@@ -62,7 +62,8 @@ sealed class ChatUnit {
         override val key get() = message.id
     }
 
-    data class Notice(val message: Message) : ChatUnit() {
+    /** [result]: a background task that reported back; drawn as its compact row that opens to the report. */
+    data class Notice(val message: Message, val result: AgentResult? = null) : ChatUnit() {
         override val key get() = message.id
     }
 
@@ -110,14 +111,15 @@ object ChatUnits {
             if (m.kind == MessageKind.NOTICE || m.kind == MessageKind.SUMMARY) {
                 // "Second opinion from ... added." and other confirmations repeat what the page already shows
                 if ((m.meta?.get("level") as? JsonPrimitive)?.contentOrNull == "success") continue
-                units.add(ChatUnit.Notice(m))
+                units.add(ChatUnit.Notice(m, AgentResults.forNotice(messages, m)))
                 continue
             }
             if (m.kind == MessageKind.ASIDE) {
                 units.add(ChatUnit.Aside(m, pending = true))
                 continue
             }
-            if (m.role == Role.USER && ChatItems.isToolResultsOnly(m)) {
+            // tool results, and hub context alone (a task's report, hook feedback): part of the reply, never an empty bubble
+            if (m.role == Role.USER && (ChatItems.isToolResultsOnly(m) || AgentResults.isContextOnly(m))) {
                 curMessages?.add(m)
                 continue
             }
