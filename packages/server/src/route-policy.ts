@@ -114,6 +114,8 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/sessions/:id/checkpoints/:checkpointId/restore': SESSION,
   'GET /api/sessions/:id/diff': SESSION,
   'GET /api/sessions/:id/export': SESSION,
+  // a file a ShareFile call shared: the owner, or a member on their own session
+  'GET /api/sessions/:id/files/:toolUseId': SESSION,
   'GET /api/sessions/:id/bundle': SESSION,
   'GET /api/sessions/:id/repo': SESSION,
   'POST /api/sessions/:id/repo/push': SESSION,

@@ -267,6 +267,8 @@ export interface EngineApi {
   // devices and files
   browse(device: string, path: string): Promise<FileEntryDto[]>;
   readDeviceFile(device: string, path: string): Promise<{ content: string; truncated: boolean }>;
+  /** A file a ShareFile call in the session shared, checked again (files/share.ts); 404 when there is none. */
+  sharedFile(sessionId: string, toolUseId: string): Promise<{ bytes: Uint8Array; name: string; mediaType: string; size: number }>;
   externalSessions(device: string): Promise<ExternalSessionInfo[]>;
   importSession(source: ExternalSessionInfo['source'], id: string, device: string): Promise<Session>;
 

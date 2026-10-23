@@ -38,6 +38,8 @@ import { Markdown } from './Markdown';
 import { hostOf, resultText } from './util';
 import { WorkflowRow } from '../workflows/WorkflowCard';
 import { MapsCard } from '../maps/MapsCard';
+import { FileCard } from '../files/FileCard';
+import { fileCardOf } from '../files/words';
 import { isMapsTool, mapsCardOf, mapsDoneWords, mapsRowTarget } from '../maps/words';
 import { WatchCard } from '../watches/WatchCards';
 import { WATCH_TOOLS, watchCardOf, watchDoneWords } from '../watches/words';
@@ -534,6 +536,7 @@ export function ToolRow({ item, sessionId, depth = 0 }: { item: ToolItem; sessio
   const longBash = info.kind === 'bash' && status !== 'running' && lines > 12 && !expanded;
   const sources = tool.name === 'WebSearch' ? webResults(res) : [];
   const mapsCard = isMapsTool(tool.name) ? mapsCardOf(res) : undefined;
+  const fileCard = tool.name === 'ShareFile' ? fileCardOf(res) : undefined;
   const watchCard = WATCH_TOOLS.has(tool.name) ? watchCardOf(res) : undefined;
   // a done maps row names what it found, not the ids it was given
   if (mapsCard) info.target = mapsRowTarget(mapsCard, tool.input) ?? info.target;
@@ -629,6 +632,7 @@ export function ToolRow({ item, sessionId, depth = 0 }: { item: ToolItem; sessio
       )}
 
       {mapsCard && <MapsCard card={mapsCard} className="mb-2.5 ml-[76px]" />}
+      {fileCard && <FileCard card={fileCard} sessionId={sessionId} className="mb-2.5 ml-[76px] phone:ml-0" />}
       {watchCard && <WatchCard card={watchCard} sessionId={sessionId} className="mb-2.5 ml-[76px] phone:ml-0" />}
     </div>
   );

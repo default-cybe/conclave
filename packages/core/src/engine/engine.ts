@@ -139,7 +139,10 @@ import { eventAccount } from '../people/events';
 import { RefusedMachine, MachineRefused, HUB_REFUSED, DEVICE_REFUSED, CODE_NEEDS_DEVICE } from '../people/guard';
 import { accountConfigView } from '../people/config-view';
 import { memberFetch, memberMcpClientFactory } from '../people/memory';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
+import { constants as fsConstants } from 'node:fs';
+import { open as fsOpen } from 'node:fs/promises';
+import { checkShareable, expandHome, outputsDir, usesOutputs, SHARE_MAX_BYTES, type ShareRoot, type SharedFileMeta } from '../files/share';
 import { SqliteMemory } from '../memory/store';
 import { MemoryConnections, MemoryConnectionService } from '../memory/connections';
 import { prepareAttachments, type ZipHost } from '../attachments/prepare';
@@ -1473,6 +1476,83 @@ export class Engine implements EngineApi {
     const text = await machine.readText(path);
     return text.length > 200_000 ? { content: text.slice(0, 200_000), truncated: true } : { content: text, truncated: false };
   }
+
+  /** Where a session may share files from (files/share.ts): its outputs folder on the hub, its folder, and the folders of the sessions it started. */
+  shareRoots(session: Session): ShareRoot[] {
+    // the hub's disk through the session's guard: a member gets a RefusedMachine (people/guard.ts)
+    const hub = this.machineFor({ ...session, device: 'local' });
+    const roots: ShareRoot[] = [{ device: 'local', dir: outputsDir(this.config.paths.home, session.id), machine: hub, outputs: true }];
+    const add = (s: Session) => {
+      // a chat, or a session in the hub user's home, has no folder of its own: its outputs folder stands in (never the whole home)
+      if (usesOutputs(s)) {
+        if (s.id !== session.id) roots.push({ device: 'local', dir: outputsDir(this.config.paths.home, s.id), machine: hub, outputs: true });
+        return;
+      }
+      const device = s.device || 'local';
+      const dir = device === 'local' && s.cwd ? expandHome(s.cwd) : s.cwd;
+      if (dir && isAbsolute(dir)) roots.push({ device, dir, machine: this.machineFor(s) });
+    };
+    add(session);
+    const walk = (id: string, depth: number) => {
+      if (depth > 8) return;
+      for (const child of this.repos.sessions.list({ parentId: id, limit: 1000 })) {
+        add(child);
+        walk(child.id, depth + 1);
+      }
+    };
+    walk(session.id, 0);
+    return roots;
+  }
+
+  /** The bytes of a file a ShareFile call in this session shared, checked again now (GET /api/sessions/:id/files/:toolUseId). */
+  async sharedFile(sessionId: string, toolUseId: string): Promise<{ bytes: Uint8Array; name: string; mediaType: string; size: number }> {
+    const s = this.requireSession(sessionId);
+    const gone = () => new EngineError(404, `unknown session ${sessionId}`);
+    let shareCall = false;
+    let meta: SharedFileMeta | undefined;
+    for (const m of this.repos.messages.list(sessionId)) {
+      for (const b of m.content) {
+        if (b.type === 'tool_use' && b.id === toolUseId) shareCall = b.name === 'ShareFile';
+        if (b.type === 'tool_result' && b.toolUseId === toolUseId && !b.isError) meta = b.meta?.file as SharedFileMeta | undefined;
+      }
+    }
+    if (!shareCall || !meta || typeof meta.path !== 'string' || typeof meta.device !== 'string') throw gone();
+    const check = await checkShareable(meta.path, this.shareRoots(s).filter((r) => r.device === meta!.device), this.config.paths.home);
+    if (!check.ok) throw check.code === 'missing' ? gone() : new EngineError(check.code === 'too_big' ? 413 : 403, check.message);
+    const tooBig = () => new EngineError(413, 'That file is now over 30 MB.');
+    let bytes: Uint8Array;
+    if (check.file.device === 'local') {
+      // read the file that was checked: no symlink swapped in, same dev and ino, one link, the cap on the handle
+      if (check.machine !== this.deps.localMachine || !check.ident) throw gone();
+      const fh = await fsOpen(check.file.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW).catch(() => undefined);
+      if (!fh) throw gone();
+      try {
+        const st = await fh.stat();
+        if (!st.isFile() || st.dev !== check.ident.dev || st.ino !== check.ident.ino || st.nlink > 1) throw new EngineError(403, 'Refused: the file changed after it was checked.');
+        if (st.size > SHARE_MAX_BYTES) throw tooBig();
+        const buf = new Uint8Array(st.size + 1);
+        let n = 0;
+        while (n < buf.byteLength) {
+          const { bytesRead } = await fh.read(buf, n, buf.byteLength - n, n);
+          if (!bytesRead) break;
+          n += bytesRead;
+        }
+        // one byte past the stat size means it grew while read
+        if (n > st.size) throw tooBig();
+        bytes = buf.subarray(0, n);
+      } finally {
+        await fh.close();
+      }
+    } else {
+      try {
+        bytes = await check.machine.readFile(check.file.path);
+      } catch {
+        throw gone();
+      }
+      if (bytes.byteLength > SHARE_MAX_BYTES) throw tooBig();
+    }
+    return { bytes, name: meta.name || check.file.name, mediaType: check.file.mediaType, size: bytes.byteLength };
+  }
   // chat import: the import service (import/service.ts) owns the ledger, so a session is never imported twice
   async externalSessions(device: string): Promise<ExternalSessionInfo[]> {
     this.machineById(device);
@@ -2011,6 +2091,8 @@ export class Engine implements EngineApi {
       subagents: this.subagents(session),
       date: new Date().toISOString().slice(0, 10),
       ...(conclave ? { conclave } : {}),
+      // a session on the hub without a project folder saves the owner's files here (files/share.ts)
+      ...(toolNames.includes('ShareFile') && (toolNames.includes('Write') || toolNames.includes('Bash')) && usesOutputs(session) ? { outputsDir: outputsDir(this.config.paths.home, session.id) } : {}),
     };
   }
 

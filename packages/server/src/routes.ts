@@ -23,6 +23,7 @@ import type { MemoryInput } from '@conclave/core/memory/types.ts';
 import { deepMerge } from '@conclave/core/config/index.ts';
 import { browserConfigProblems } from '@conclave/core/browser/engine.ts';
 import { buildBundle } from '@conclave/core/session/share.ts';
+import { INLINE_TYPES } from '@conclave/core/files/share.ts';
 import { MAX_ATTACHMENTS, TOO_MANY_FILES } from '@conclave/core/attachments/limits.ts';
 import type { ShareOptions } from '@conclave/core/client/share.ts';
 import type { HonoEnv, ServerContext } from './context';
@@ -526,6 +527,28 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     if (raw && (c.get('auth')?.kind !== 'owner' || engine.sessionAccount(id) !== OWNER_ID)) throw new HttpError(403, 'Only the owner token can export the raw transcript. Leave out raw for a shareable copy.');
     if (raw) audit(c, 'session.export.raw', id, { sessionId: id });
     return c.json(engine.exportSession(id, format, { ...shareOptions(c), raw }));
+  });
+
+  // a file a ShareFile call shared (core files/share.ts): found by its tool call in this session and checked again; no path comes from the request
+  app.get('/api/sessions/:id/files/:toolUseId', async (c) => {
+    const id = sid(c);
+    const toolUseId = c.req.param('toolUseId');
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(toolUseId)) throw notFound(`unknown session ${id}`);
+    const f = await engine.sharedFile(id, toolUseId);
+    const inline = qBool(c.req.query('inline')) === true && INLINE_TYPES.has(f.mediaType);
+    const ascii = f.name.replace(/[^A-Za-z0-9._ -]/g, '_');
+    audit(c, 'session.file.download', `${f.name} (${f.size} bytes)`, { sessionId: id });
+    return new Response(f.bytes as unknown as BodyInit, {
+      headers: {
+        'content-type': f.mediaType,
+        'content-length': String(f.bytes.byteLength),
+        'content-disposition': `${inline ? 'inline' : 'attachment'}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(f.name)}`,
+        'x-content-type-options': 'nosniff',
+        // an SVG or HTML file a model wrote never runs as the hub's page
+        'content-security-policy': "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+        'cache-control': 'private, no-store',
+      },
+    });
   });
 
   // the session and its subagents, sanitized and signed with the hub key, for another Conclave
