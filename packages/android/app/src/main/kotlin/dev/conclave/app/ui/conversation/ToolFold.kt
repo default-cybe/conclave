@@ -127,6 +127,8 @@ fun TurnWork(
         }
         // places and routes sit under the stretch, open or not (MapsCards.kt)
         MapsCardsView(calls, results)
+        // files a ShareFile call handed the owner, the same way (FileCards.kt)
+        FileCardsView(calls, results)
     }
 }
 

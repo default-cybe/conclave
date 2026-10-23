@@ -105,6 +105,10 @@ export interface ToolHost {
   tasks?: import('./background-tasks').TaskHost;
   /** Hand a job to a Code or Assistant session on a device and wait for its answer (engine/delegate.ts), for Delegate. */
   delegate?(req: import('./delegate').DelegateRequest): Promise<import('./delegate').DelegateOutcome>;
+  /** Check that an absolute path may be shared with the owner (files/share.ts checkShareable over engine.shareRoots), for ShareFile. */
+  shareCheck?(path: string): Promise<import('../files/share').ShareCheck>;
+  /** The session's outputs folder on the hub (<home>/outputs/<sessionId>), made on first use. */
+  outputsDir?(): string;
 }
 
 export interface ToolContext {

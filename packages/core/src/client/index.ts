@@ -2042,6 +2042,23 @@ export class ConclaveClient {
     }
     return res.blob();
   };
+
+  /** A file a ShareFile call shared (GET /api/sessions/:id/files/:toolUseId), as a Blob of its bytes. */
+  sessionFile = async (id: string, toolUseId: string, inline = false): Promise<Blob> => {
+    const check = this.guard();
+    if (check) await check;
+    const res = await this.f(`${this.baseUrl}/api/sessions/${encodeURIComponent(id)}/files/${encodeURIComponent(toolUseId)}${inline ? '?inline=1' : ''}`, { headers: this.token ? { authorization: `Bearer ${this.token}` } : {} });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try {
+        msg = ((await res.json()) as { error?: string }).error ?? msg;
+      } catch {
+        /* not JSON */
+      }
+      throw new ApiError(res.status, msg);
+    }
+    return res.blob();
+  };
   // ----- calendar and mail, docs/DESIGN.md "Calendar and mail" -----
   pimSettings = () => this.request<PimSettingsDto>('GET', '/api/pim');
   addCaldav = (input: { preset?: CaldavPreset; serverUrl: string; username: string; password: string; label?: string }) => this.request<PimAccountDto>('POST', '/api/pim/accounts/caldav', input);

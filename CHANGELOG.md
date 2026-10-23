@@ -7,7 +7,21 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
-## [Unreleased]
+## [0.4.21] - 2026-10-23
+
+### Added
+- Sessions can hand you files. The new ShareFile tool turns a file a session made (a PDF, an image, a spreadsheet, a zip) into a file card in the chat, with a preview for images, PDFs and plain text, and a Download button. Chat gets it for files a delegated job made; the assistant and Code get it with their other tools.
+- Sessions on the hub with no project folder (Chat, the assistant) save files for you under `<home>/outputs/<session>`, and the prompt says so.
+- The Outputs card in the session panel now lists shared files too, so a file made with Bash shows up.
+- Android: a file a session shared shows as a card under the turn's work, with its name, type and size, Open (copied to the app's `shared/` cache and opened in the app for its type) and Save (the system's save picker).
+- Shared files come only from `GET /api/sessions/:id/files/:toolUseId`. The hub finds the ShareFile result in that session's own messages and checks the path again on every download. No path comes from the request.
+- A shared file must be in the session's folder, its outputs folder, or the folder of a session it started. On the hub, symlinks are resolved first, the hub's private files are refused, and nothing else under the hub home is served. Under the hub user's home only a real subfolder counts: a session in `~`, `~/`, `/home` or `/` never shares `~/.ssh`. Regular files with one link only (a hard link could name a private file), 30 MB at most.
+- A download opens the checked file with `O_NOFOLLOW` and sends it only when its device and inode match the check, so a file swapped in between is refused. It makes no folders, and a member's download goes through the same guard as her tools.
+- The web shows a file card only for a ShareFile call's result, never for `meta.file` on another tool's.
+- Downloads are attachments with `nosniff` and a `sandbox` CSP. Only PDF, PNG, JPEG, GIF and WebP may open inline, so SVG and HTML never run as the hub's page. Each download is in the audit log. Untrusted agents never get ShareFile.
+
+### Changed
+- Provider config: `responsesWire: { models }` and `geminiWire: { baseUrl, models }` next to `anthropicWire` send matching models over the Responses or Gemini wire on one provider id.
 
 ### Fixed
 - GLM on the Z.ai Coding Plan sees every tool again. `zai` now uses Chat Completions at `https://api.z.ai/api/coding/paas/v4`, as opencode does, instead of the Anthropic shim at `/api/anthropic`, which kept only the last tool (ToolSearch) of a long tool list and added its own MCP tools. A config that pinned the old address moves to the new one when the hub loads it, once: the entry gets `migrated: "paas-v4"`, so a later switch back in Settings or `conclave config set` survives restarts; another `/anthropic` address keeps the Anthropic wire, and an address with a `${...}` placeholder is left alone. The model gateway still sends Anthropic-format calls for `zai` (`/gw/anthropic`, `/gw/p/zai/v1/messages`, aliases like `zai/glm-5`) to `https://api.z.ai/api/anthropic`, named by the new `anthropicBaseUrl` provider setting.
@@ -15,9 +29,6 @@ like `## [0.4.16] - 2026-10-24`.
 - Structured output on Z.ai: its Chat Completions take `response_format` `json_object` only, so the schema goes in the system prompt.
 - GPT models on a signed in ChatGPT plan (CLIProxyAPI) go over the Responses wire, so an image a tool returns stays inside that tool's result instead of a later user message.
 - Gemini models on a signed in Google plan (CLIProxyAPI) go over the native Gemini wire, so tool results pair with their calls by name and thought signatures survive.
-
-### Changed
-- Provider config: `responsesWire: { models }` and `geminiWire: { baseUrl, models }` next to `anthropicWire` send matching models over the Responses or Gemini wire on one provider id.
 
 ## [0.4.20] - 2026-10-23
 

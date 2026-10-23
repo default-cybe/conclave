@@ -21,6 +21,8 @@ import { LearnedSkills } from '../extensions/learned';
 import { runDelegate } from './delegate';
 import type { DelegateRequest } from '../tools/delegate';
 import { savedSearchKey } from '../tools/search-settings';
+import { checkShareable, outputsDir } from '../files/share';
+import { mkdirSync } from 'node:fs';
 
 /** ToolHost bound to one running session. Tools call this, never the engine directly. */
 export class EngineToolHost implements ToolHost {
@@ -205,5 +207,16 @@ export class EngineToolHost implements ToolHost {
   /** A Code or Assistant session on a device does the job and answers this one (engine/delegate.ts). */
   delegate(req: DelegateRequest) {
     return runDelegate(this.engine, this.runner.id, req);
+  }
+
+  /** ShareFile: the path checked against this session's folders now (files/share.ts). */
+  shareCheck(path: string) {
+    return checkShareable(path, this.engine.shareRoots(this.session), this.engine.config.paths.home);
+  }
+
+  outputsDir() {
+    const dir = outputsDir(this.engine.config.paths.home, this.session.id);
+    mkdirSync(dir, { recursive: true });
+    return dir;
   }
 }
