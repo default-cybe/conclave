@@ -67,6 +67,9 @@ export function guardTranscript(input: ProviderMessage[]): GuardResult {
     const kept: ContentBlock[] = [];
     const uses: ToolUseBlock[] = [];
     const moved: TextBlock[] = [];
+    const firstCall = m.content.findIndex((b) => b.type === 'tool_use');
+    // Interleaved signed thinking binds the surrounding block sequence too.
+    const interleaved = firstCall >= 0 && m.content.slice(firstCall + 1).some((b) => b.type === 'thinking' || b.type === 'redacted_thinking');
     let firstUse = -1;
     for (const b of m.content) {
       if (b.type === 'tool_use') {
@@ -77,7 +80,7 @@ export function guardTranscript(input: ProviderMessage[]): GuardResult {
         seen.add(b.id);
         uses.push(b);
         if (firstUse < 0) firstUse = kept.length;
-      } else if (firstUse >= 0 && b.type === 'text') {
+      } else if (!interleaved && firstUse >= 0 && b.type === 'text') {
         moved.push(b);
         continue;
       }
