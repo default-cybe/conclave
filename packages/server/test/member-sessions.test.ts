@@ -29,7 +29,7 @@ async function call(token: string, method: string, path: string, json?: unknown)
 }
 
 beforeAll(async () => {
-  t = await startTestEngine({ script: [[{ text: 'ok' }]] });
+  t = await startTestEngine({ script: [[{ text: 'ok' }]], extraProviders: { private: ['claude-sonnet-5-5'] } });
   t.engine.config.update({ server: { ...t.engine.config.get().server, token: OWNER } });
   running = startServer(t.engine, { host: '127.0.0.1', port: 0 });
   const made = await call(OWNER, 'POST', '/api/people', { name: 'alice', password: PASSWORD, providers: { mock: { monthlyUsd: 5 } } });
@@ -44,6 +44,21 @@ afterAll(async () => {
 });
 
 const sessionsOf = (accountId: string) => t.engine.listSessions({ accountId }).length;
+
+describe('provider retry authorization', () => {
+  test('a member cannot retry another account session', async () => {
+    const ownerSession = await t.engine.createSession({ kind: 'chat', title: 'private', model: 'mock/claude-sonnet-5-5' });
+    const r = await call(alice.token, 'POST', `/api/sessions/${ownerSession.id}/retry-provider`, { messageId: 'notice', model: 'mock/claude-sonnet-5-5' });
+    expect(r.status).toBe(404);
+  });
+
+  test('a member cannot retry through an ungranted owner provider', async () => {
+    const session = await t.engine.createSession({ kind: 'chat', title: 'member' }, alice.id);
+    const r = await call(alice.token, 'POST', `/api/sessions/${session.id}/retry-provider`, { messageId: 'notice', model: 'private/claude-sonnet-5-5' });
+    expect(r.status).toBeGreaterThanOrEqual(400);
+    expect(t.engine.requireSession(session.id).status).toBe('idle');
+  });
+});
 
 describe("a member's code session on the hub", () => {
   test('a coding agent, a harness, a task and a repo session are refused before they start, with the line', async () => {

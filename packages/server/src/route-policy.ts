@@ -105,6 +105,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/sessions/:id/handoff': SESSION,
   // "Try the next model" on a refused reply (Refusal fallback)
   'POST /api/sessions/:id/next-model': SESSION,
+  'POST /api/sessions/:id/retry-provider': SESSION,
   'GET /api/sessions/:id/switch-estimate': SESSION,
   'POST /api/sessions/:id/compact': SESSION,
   'GET /api/sessions/:id/context': SESSION,

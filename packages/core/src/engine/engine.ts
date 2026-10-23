@@ -335,6 +335,12 @@ export class Engine implements EngineApi {
         this.repos.sessions.update({ ...s, status: 'idle', updatedAt: Date.now() });
       }
     }
+    // Failed-inference boundaries live only in runners; never advertise replay after a restart.
+    const retryNotices = this.repos.db.query("SELECT id FROM messages WHERE kind = 'notice' AND json_extract(meta, '$.type') = 'provider_error' AND json_extract(meta, '$.canRetry') = 1").all() as { id: string }[];
+    for (const { id } of retryNotices) {
+      const notice = this.repos.messages.get(id)!;
+      this.repos.messages.update({ ...notice, meta: { ...notice.meta, canRetry: false, retryExpired: true }, content: [...notice.content, { type: 'text', text: 'Alternate-model retry expired when the hub restarted. Nothing was rerun. Send a new instruction without repeating completed operations.' }] });
+    }
     this.backgroundTasks.markLost(active);
   }
 
@@ -901,6 +907,22 @@ export class Engine implements EngineApi {
     for (const m of after) if (notRun(m)) this.removeMessage(m.id);
     runner.retryRefusal(served, reply);
     return { model: next.ref, label: next.label };
+  }
+
+  /** Retry a failed native inference in place; never rewind or resubmit its user message. */
+  async retryProvider(id: string, messageId: string, model: string): Promise<{ model: string; label: string }> {
+    const s = this.requireSession(id);
+    if (!this.isUsable(model, s.accountId)) throw new EngineError(400, this.harnessOff(model) ?? `Model ${model} is not available`);
+    const resolved = this.registryFor(s).resolve(model);
+    if (!this.registryFor(s).isEnabled(resolved.provider)) throw new EngineError(400, `Provider ${resolved.provider} is disabled`);
+    if (resolved.acp || this.isAgentRef(model)) throw new EngineError(400, 'Retry needs a model API, not an agent harness.');
+    if (isMember(s.accountId)) this.access.check(s.accountId!, resolved.provider, resolved.model);
+    try {
+      this.runnerFor(id).retryProvider(messageId, model);
+    } catch (err) {
+      throw new EngineError(409, (err as Error).message);
+    }
+    return { model, label: this.displayModel(model) };
   }
 
   /** What switching the session to a model would cost, against staying (modes/switch-cost.ts). */

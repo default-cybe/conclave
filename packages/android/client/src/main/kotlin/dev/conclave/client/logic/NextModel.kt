@@ -26,6 +26,15 @@ object NextModel {
     /** What the button is for: the notice that offers it and the refused reply it drops. */
     data class Offer(val notice: Message, val reply: Message)
 
+    /** Failed inference remains unresolved through switch and incidental notices, even after expiry. */
+    fun providerFailure(messages: List<Message>): Message? {
+        for (message in messages.asReversed()) {
+            if (message.kind != MessageKind.NOTICE) return null
+            if (message.meta?.string("type") == "provider_error") return message
+        }
+        return null
+    }
+
     /** A refusal notice that offers the next model. */
     fun offers(m: Message): Boolean {
         val meta = m.meta ?: return false
