@@ -11,6 +11,9 @@
  *   tie), else claude-code/opus when that harness is set up, else the
  *   session's model.
  * - "provider/model" and ACP refs pass through when usable.
+ * - A model that answered 404 model not found (engine/subagent.ts
+ *   modelFallback) is skipped by the deep pick and by fast's smallModel for
+ *   6 h. A model the owner set in models.tiers is always used as is.
  */
 import type { ConclaveConfig } from '../config/schema';
 import { catalogEntries, familyForProvider, findCatalogEntry } from '../providers/catalog';
@@ -33,6 +36,31 @@ function usable(host: ModelHost, ref: string): boolean {
   return true;
 }
 
+/** How long a model that answered "model not found" stays out of tier picks. */
+const DEAD_MS = 6 * 60 * 60 * 1000;
+/** Per host (engine): provider/model ref to when it answered 404 model not found. */
+const deadModels = new WeakMap<object, Map<string, number>>();
+
+/** Remember that `ref` answered a 404 naming the model, so tier picks skip it for DEAD_MS. */
+export function markModelDead(host: object, ref: string, at = Date.now()): void {
+  let m = deadModels.get(host);
+  if (!m) deadModels.set(host, (m = new Map()));
+  m.set(ref, at);
+}
+
+export function isModelDead(host: object, ref: string | undefined): boolean {
+  const at = ref ? deadModels.get(host)?.get(ref) : undefined;
+  if (at === undefined) return false;
+  if (Date.now() - at < DEAD_MS) return true;
+  deadModels.get(host)!.delete(ref!);
+  return false;
+}
+
+/** A model a tier may pick on its own: usable and not remembered dead. Never applied to models.tiers the owner set. */
+function pickable(host: ModelHost, ref: string): boolean {
+  return usable(host, ref) && !isModelDead(host, ref);
+}
+
 function providerOf(ref: string | undefined): string | undefined {
   if (!ref) return undefined;
   const i = ref.indexOf('/');
@@ -53,7 +81,7 @@ export function deepTierModel(host: ModelHost, sessionModel: string): string | u
     if (!p || p.type === 'acp' || p.enabled === false) continue;
     // a provider that lists its models: the first listed deep one
     const listed = (p.models ?? []).filter((m) => findCatalogEntry(m)?.tier === 'deep');
-    for (const m of listed) if (usable(host, `${id}/${m}`)) return `${id}/${m}`;
+    for (const m of listed) if (pickable(host, `${id}/${m}`)) return `${id}/${m}`;
     if (p.models?.length) continue;
     const fam = familyForProvider(p.type, p.baseUrl);
     if (!fam || fam === 'any') continue;
@@ -62,7 +90,7 @@ export function deepTierModel(host: ModelHost, sessionModel: string): string | u
     // the cheapest deep model; catalog order is newest first, so a tie keeps the newer one
     const pick = deep.reduce((best, e) => (e.outputPrice < best.outputPrice ? e : best), deep[0]);
     const ref = `${id}/${pick.id}`;
-    if (usable(host, ref)) return ref;
+    if (pickable(host, ref)) return ref;
   }
   return undefined;
 }
@@ -77,6 +105,11 @@ export function agentModelRef(host: ModelHost, ref: string | undefined, sessionM
       const deep = deepTierModel(host, sessionModel);
       if (deep) return { model: deep, tier: 'deep' };
     }
+  }
+  // fast without a usable configured tier is smallModel: skip it while it is remembered dead
+  if (tierOf(ref) === 'fast') {
+    const set = config.models?.tiers?.fast;
+    if (!(set && usable(host, set)) && isModelDead(host, config.smallModel)) return { model: sessionModel, tier: 'fast' };
   }
   return resolveModelRef(ref, { config, sessionModel, isUsable: (r) => usable(host, r) });
 }
