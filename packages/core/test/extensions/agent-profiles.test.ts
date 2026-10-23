@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { defaultModelMapper, hooksField, loadAgentsFromDir } from '../../src/extensions/loader';
 import { parseAgentMarkdown } from '../../src/extensions/builtin-agents';
-import { agentModelRef, deepTierModel, subagentModel, type ModelHost } from '../../src/extensions/agent-model';
+import { agentModelRef, deepTierModel, isModelDead, markModelDead, subagentModel, type ModelHost } from '../../src/extensions/agent-model';
 import { agentHookConfig, agentHooksAllowed, ensureRecipeScript, parseRecipeRef, recipeGroups, wantsVerifyGate } from '../../src/extensions/agent-hooks';
 import type { AgentDef } from '../../src/extensions/types';
 import type { ConclaveConfig } from '../../src/config/schema';
@@ -137,6 +137,30 @@ describe('model tiers resolve per session', () => {
     const r = agentModelRef(none, 'deep', 's/m');
     expect(r.model).toBe('s/m');
     expect(r.note).toContain('deep tier');
+  });
+
+  test('a deep candidate that answered model not found is skipped for 6 h; an owner-set tier is not', () => {
+    const proxy = { cliproxy: { type: 'anthropic', apiKey: 'k', models: ['claude-fable-5-1', 'claude-opus-5-5'] } } as never;
+    const h = host({ providers: proxy, defaultModel: 'cliproxy/claude-sonnet-5-5' });
+    expect(deepTierModel(h, 'cliproxy/claude-sonnet-5-5')).toBe('cliproxy/claude-fable-5-1');
+    markModelDead(h, 'cliproxy/claude-fable-5-1');
+    expect(agentModelRef(h, 'deep', 'cliproxy/claude-sonnet-5-5').model).toBe('cliproxy/claude-opus-5-5');
+    markModelDead(h, 'cliproxy/claude-opus-5-5');
+    expect(agentModelRef(h, 'deep', 'cliproxy/claude-sonnet-5-5').model).toBe('cliproxy/claude-sonnet-5-5');
+    // older than 6 h: tried again
+    markModelDead(h, 'cliproxy/claude-fable-5-1', Date.now() - 7 * 60 * 60 * 1000);
+    expect(isModelDead(h, 'cliproxy/claude-fable-5-1')).toBe(false);
+    expect(deepTierModel(h, 'cliproxy/claude-sonnet-5-5')).toBe('cliproxy/claude-fable-5-1');
+    // the owner pinned it: used as is (the subagent's 404 fallback still applies)
+    const pinned = host({ providers: proxy, models: { tiers: { deep: 'cliproxy/claude-fable-5-1', fast: 'cliproxy/claude-haiku-5-5' } } });
+    markModelDead(pinned, 'cliproxy/claude-fable-5-1');
+    markModelDead(pinned, 'cliproxy/claude-haiku-5-5');
+    expect(agentModelRef(pinned, 'deep', 's/m').model).toBe('cliproxy/claude-fable-5-1');
+    expect(agentModelRef(pinned, 'fast', 's/m').model).toBe('cliproxy/claude-haiku-5-5');
+    // fast without a tier is smallModel, skipped while dead
+    const small = host({ providers: proxy });
+    markModelDead(small, 'anthropic/claude-haiku-5-5');
+    expect(agentModelRef(small, 'fast', 's/m')).toEqual({ model: 's/m', tier: 'fast' });
   });
 
   test('a subagent: a usable override wins, else the profile tier, else the parent', () => {
