@@ -82,11 +82,14 @@ export function AccountsSection() {
         </p>
         <div className="flex flex-wrap gap-2">
           <ButtonLink href="/settings/subscriptions" variant="outline">
-            Sign in to a plan
+            {memberNow() ? 'Open Subscriptions' : 'Sign in to a plan'}
           </ButtonLink>
-          <ButtonLink href="/settings/providers" variant="quiet">
-            Add an API key
-          </ButtonLink>
+          {/* a member's Accounts lists only their own plans: an API key of theirs never shows here */}
+          {!memberNow() && (
+            <ButtonLink href="/settings/providers" variant="quiet">
+              Add an API key
+            </ButtonLink>
+          )}
         </div>
       </div>
     );

@@ -595,7 +595,7 @@ export class LocalMachine implements Machine {
     if (!st || st.type !== 'dir') return fail(`Working directory does not exist: ${cwd}`);
     // the Bash tool hands its command over in __CONCLAVE_CMD (tools/bash.ts): that text counts as the command
     const named = `${command}\n${opts.env?.__CONCLAVE_CMD ?? ''}`;
-    if (commandTouchesHubPrivate(named) || hubPrivateDirs().some((d) => cwd === d || cwd.startsWith(d + nodePath.sep))) return fail(privateRefusal(named));
+    if (commandTouchesHubPrivate(named, cwd) || hubPrivateDirs().some((d) => cwd === d || cwd.startsWith(d + nodePath.sep))) return fail(privateRefusal(named));
     if (opts.signal?.aborted) return { ...fail('Aborted before start'), exitCode: null, aborted: true };
 
     const shell = this.shell();
@@ -702,7 +702,7 @@ export class LocalMachine implements Machine {
     const cwd = this.resolve(opts.cwd || '.', os.homedir());
     // a background shell (tools/shells.ts) names its command in the arguments
     const named = [command, ...args].join(' ');
-    if (commandTouchesHubPrivate(named) || hubPrivateDirs().some((d) => cwd === d || cwd.startsWith(d + nodePath.sep))) throw Object.assign(new Error(privateRefusal(named)), { code: 'EACCES' });
+    if (commandTouchesHubPrivate(named, cwd) || hubPrivateDirs().some((d) => cwd === d || cwd.startsWith(d + nodePath.sep))) throw Object.assign(new Error(privateRefusal(named)), { code: 'EACCES' });
     const proc = Bun.spawn([command, ...args], {
       cwd,
       env: this.env(opts.env),

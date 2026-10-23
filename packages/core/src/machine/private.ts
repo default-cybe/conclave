@@ -122,13 +122,24 @@ export function assertNotHubPrivate(path: string): void {
   if (isHubPrivatePath(path)) throw Object.assign(new Error(privateRefusal(path)), { code: 'EACCES' });
 }
 
-/** True when a shell command names a private folder by its path, ~ form or CONCLAVE_HOME form. */
-export function commandTouchesHubPrivate(command: string): boolean {
+/**
+ * True when a shell command names a private folder or file: by its path, its
+ * ~/.conclave, $HOME or $CONCLAVE_HOME form (quoted or not), with globs in any
+ * segment, or relative to the hub home when the command's cwd is in it or the
+ * command names the home (cd $CONCLAVE_HOME && cat accounts/x/secrets.json).
+ */
+export function commandTouchesHubPrivate(command: string, cwd?: string): boolean {
+  // the shell drops quotes and backslashes before it reads a path: so does this check
+  const cmd = command
+    .replace(/\\(.)/g, '$1')
+    .replace(/["']/g, '')
+    .replace(/\$\{(CONCLAVE_HOME|HOME)\}/g, '$$$1')
+    .replace(/\$HOME\//g, '~/');
   const home = clean(conclaveHome());
   const needles = new Set<string>();
   for (const d of hubPrivateDirs()) {
     needles.add(d);
-    if (d.startsWith(home + sep)) needles.add(`$CONCLAVE_HOME${d.slice(home.length)}`).add(`\${CONCLAVE_HOME}${d.slice(home.length)}`);
+    if (d.startsWith(home + sep)) needles.add(`$CONCLAVE_HOME${d.slice(home.length)}`);
   }
   needles.add('.conclave/cliproxy');
   needles.add('cliproxy/auth');
@@ -136,16 +147,75 @@ export function commandTouchesHubPrivate(command: string): boolean {
   needles.add('.conclave/secrets.json');
   // saved browser logins: their list and the key that opens their passwords (browser/logins.ts)
   needles.add('.conclave/browser-logins');
-  if ([...needles].some((n) => command.includes(n))) return true;
-  // each account's own CLIProxyAPI and secrets file, by any home form, a glob for the id included
-  return accountNamed(command);
+  needles.add('.conclave/accounts');
+  if ([...needles].some((n) => cmd.includes(n))) return true;
+  return globNamed(cmd, cwd);
 }
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-/** A command that names <home>/accounts/<anything>/cliproxy or .../secrets.json, or the accounts folder of ~/.conclave. */
-function accountNamed(command: string): boolean {
-  if (command.includes('.conclave/accounts')) return true;
-  const roots = ['\\$\\{?CONCLAVE_HOME\\}?', ...hubHomes().map(esc)];
-  return roots.some((r) => new RegExp(`${r}/accounts/[^\\s/]*/(?:cliproxy|secrets\\.json)`).test(command));
+/** Private names under a hub home, by segment ('' is any account id). */
+const PRIVATE_REL = [['cliproxy'], ['secrets.json'], ['browser-logins.json'], ['browser-logins.key'], ['accounts', '', 'cliproxy'], ['accounts', '', 'secrets.json']];
+
+/** True when one path segment, maybe a glob (* ? [..] {a,b}), can be `name`. As in the shell, only a segment that starts with a dot matches a dot name. */
+function segMatches(seg: string, name: string): boolean {
+  if (!name) return !!seg;
+  if (name.startsWith('.') && !seg.startsWith('.')) return false;
+  if (!/[*?[{]/.test(seg)) return seg === name;
+  let re = '';
+  for (let i = 0; i < seg.length; i++) {
+    const c = seg[i];
+    const close = c === '[' ? seg.indexOf(']', i + 2) : c === '{' ? seg.indexOf('}', i) : -1;
+    if (c === '*') re += '.*';
+    else if (c === '?') re += '.';
+    else if (c === '[' && close > 0) re += `[${seg.slice(i + 1, close).replace(/^!/, '^').replace(/\\/g, '\\\\')}]`;
+    else if (c === '{' && close > 0) re += `(?:${seg.slice(i + 1, close).split(',').map(esc).join('|')})`;
+    else re += esc(c);
+    if (close > 0 && (c === '[' || c === '{')) i = close;
+  }
+  try {
+    return new RegExp(`^${re}$`).test(name);
+  } catch {
+    return seg === name;
+  }
+}
+
+/** Segments under a hub home that reach a private name (or into one). */
+function hitsPrivate(rel: string[]): boolean {
+  return PRIVATE_REL.some((c) => rel.length >= c.length && c.every((name, i) => segMatches(rel[i], name)));
+}
+
+/** Segments under a hub home that lead toward a private name: the home itself, accounts, accounts/<id>. */
+function leadsToPrivate(rel: string[]): boolean {
+  return PRIVATE_REL.some((c) => rel.length < c.length && rel.every((s, i) => segMatches(s, c[i])));
+}
+
+/** The segments of a word under a hub home ($CONCLAVE_HOME, a hub home's path, a .conclave folder), or undefined. */
+function underHome(segs: string[], homes: string[][]): string[] | undefined {
+  if (segs[0] === '$CONCLAVE_HOME') return segs.slice(1);
+  for (const h of homes) if (segs.length >= h.length && h.every((s, i) => (s ? segMatches(segs[i], s) : segs[i] === s))) return segs.slice(h.length);
+  const i = segs.findIndex((s) => segMatches(s, '.conclave'));
+  return i >= 0 ? segs.slice(i + 1) : undefined;
+}
+
+/** A command whose words, read as paths (globs included), reach a private name under a hub home, also relative to the cwd or a home folder it names. */
+function globNamed(cmd: string, cwd?: string): boolean {
+  const homes = hubHomes().map((h) => h.split(sep));
+  const words = cmd.split(/[\s;|&<>()=`]+/).filter(Boolean);
+  const bases: string[][] = [];
+  if (cwd) {
+    const c = clean(cwd);
+    for (const h of hubHomes()) if (c === h || c.startsWith(h + sep)) bases.push(c.slice(h.length + 1).split(sep).filter(Boolean));
+  }
+  const relative: string[][] = [];
+  for (const w of words) {
+    const segs = w.split('/').filter((s, i) => (i === 0 || s) && s !== '.');
+    if (!/^[/~$]/.test(w)) relative.push(segs);
+    const rel = underHome(segs, homes);
+    if (!rel) continue;
+    if (hitsPrivate(rel)) return true;
+    // cd $CONCLAVE_HOME, cd ~/.conclave/accounts: the command's relative paths may start there
+    if (leadsToPrivate(rel)) bases.push(rel);
+  }
+  return bases.some((b) => relative.some((r) => hitsPrivate([...b, ...r])));
 }
