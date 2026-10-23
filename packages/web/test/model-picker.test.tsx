@@ -195,6 +195,15 @@ describe('one row per model, by its name, the routes behind it', () => {
     expect(routeLabel('anthropic/claude-opus-5-5')).toBe('Anthropic');
   });
 
+  test('a plan approved for Daybreak: a "Daybreak Blue" row under OpenAI, beside the GPT-6 rows', () => {
+    const blue = plan('kai/gpt-daybreak-blue-latest', 'Daybreak Blue, kai');
+    const models = HUB.map((g) => (g.provider === 'cliproxy' ? { ...g, models: [...g.models, blue] } : g));
+    registerModelNames([{ ref: blue.ref, name: blue.name }]);
+    const openai = buildPicker({ models, sessions: {}, devices: {}, limits: {}, harnesses: false }).groups.find((g) => g.key === 'openai')!.rows;
+    expect(openai.map((r) => [r.ref, rowName(r)])).toContainEqual(['cliproxy/kai/gpt-daybreak-blue-latest', 'Daybreak Blue']);
+    expect(openai.map((r) => r.ref)).toContain('cliproxy/gpt-6.1-sol');
+  });
+
   test('versions sort newest first, a plain id before its variants and snapshots', () => {
     const ids = ['gpt-5.5-mini', 'o4', 'gpt-6.1-sol', 'gpt-5.5', 'codex-mini', 'gpt-6'];
     expect([...ids].sort(compareModels)).toEqual(['gpt-6.1-sol', 'gpt-6', 'gpt-5.5', 'gpt-5.5-mini', 'o4', 'codex-mini']);

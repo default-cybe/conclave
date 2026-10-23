@@ -1027,7 +1027,8 @@ export class SessionRunner {
             messages,
             tools: toolSpecs.length ? toolSpecs : undefined,
             thinking: engine.thinkingFor(agent, info, session),
-            accessPrograms: engine.accessProgramsFor(info, session),
+            // a refusal retry on a Daybreak plan carries its own program; the session's Cyber access stays as it is
+            accessPrograms: walk?.current?.accessPrograms ?? engine.accessProgramsFor(info, session),
             temperature: agent.temperature,
             cacheKey: cfg.context.promptCaching ? `conclave-${this.id}` : undefined,
             cacheTtl: cfg.context.promptCaching ? cacheTtlFor(cfg.cache?.ttl, isHeadless(session, mode, this.depth)) : undefined,
@@ -1070,7 +1071,7 @@ export class SessionRunner {
             stepNotice = undefined;
           }
           engine.notice(this.id, refusalWords.failed(failed.label, why), 'warning', undefined, { type: 'refusal', outcome: 'failed', to: failed.label });
-          const t = walk.next({ provider: resolved.provider, model: resolved.model, ...(failed.pin?.account ? { account: failed.pin.account } : {}) });
+          const t = walk.next({ provider: resolved.provider, model: resolved.model, ...(failed.pin?.account ? { account: failed.pin.account } : {}), ...(failed.accessPrograms ? { cyber: failed.accessPrograms.cyber } : {}) });
           if (t) {
             step(undefined, t);
             continue;
