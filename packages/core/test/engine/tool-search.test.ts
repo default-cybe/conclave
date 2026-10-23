@@ -50,6 +50,31 @@ describe('ToolSearch ranker', () => {
     const none = await ToolSearchTool.run({ query: 'select:nope' }, ctx);
     expect(none.isError).toBe(true);
   });
+
+  test('a search for a Conclave tool the agent lacks says it is not available and lists the tools it has', async () => {
+    const ctx = { ...makeCtx({ cwd: '/', host: fakeHost(), depth: 1 }), toolNames: ['Read', 'Bash', 'ToolSearch'] };
+    const out = await ToolSearchTool.run({ query: 'select:Delegate,Task' }, ctx);
+    const text = String(out.content);
+    expect(text).toContain('No deferred tools in this session');
+    expect(text).toContain('Task, Delegate are not available to this agent: subagents and workflow agents cannot delegate');
+    expect(text).toContain('Your tools: Read, Bash, ToolSearch. Tools not listed are not available in this session; do not search again.');
+    expect(out.meta?.toolSearchMiss).toBe(true);
+    const has = await ToolSearchTool.run({ query: 'bash' }, ctx);
+    expect(String(has.content)).toContain('Bash is already in your tool list: call it directly.');
+    expect(String(has.content)).not.toContain('not available to this agent');
+  });
+
+  test('a query that matches no deferred tool names a known tool the agent lacks; a hit is unchanged', async () => {
+    const ctx = { ...makeCtx({ cwd: '/', host: fakeHost({ deferredTools: () => tools }) }), toolNames: ['Read', 'ToolSearch'] };
+    const out = await ToolSearchTool.run({ query: 'delegate' }, ctx);
+    expect(out.isError).toBeFalsy();
+    expect(String(out.content)).toContain('No deferred tool matches "delegate"');
+    expect(String(out.content)).toContain('Delegate is not available to this agent. Do the step another way');
+    expect(out.meta?.toolSearchMiss).toBe(true);
+    const hit = await ToolSearchTool.run({ query: 'create github issue' }, ctx);
+    expect(hit.meta?.toolSearchMiss).toBeUndefined();
+    expect(hit.meta?.promoted).toContain('mcp__gh__create_issue');
+  });
 });
 
 describe('deferred MCP schemas in requests', () => {
