@@ -1,0 +1,239 @@
+# Finishes each release in this repo (default-cybe/conclave), the home of
+# releases, and, for now, copies it to the old public repo
+# default-cybe/conclave-releases.
+#
+# TRANSITION: installs made before 0.4.16 still look for updates on
+# conclave-releases, so every release is still copied there, with its own
+# signed manifest and the install scripts on that repo's main. Retire the copy
+# (the steps marked "conclave-releases") once those installs have moved to this
+# repo; then archive conclave-releases. Its old releases stay downloadable.
+#
+# In this repo it signs what is still unsigned (the Android APK, which its own
+# workflow builds), writes the update manifests every updater reads:
+# conclave-update.json, and latest.json for the desktop app's Tauri updater
+# (docs/DESIGN.md, Updates), and adds them to the release with the install
+# scripts (install.sh, the LXC setup.sh, the Proxmox script),
+# docker-compose.yml and copies of the installers under names without the
+# version. They are reached at
+# https://github.com/default-cybe/conclave/releases/latest/download/<file>.
+# Signing needs TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
+# without them the manifest says signed: false and updaters install nothing.
+#
+# It runs when Release or Android finishes for a v* tag (each adds files, and
+# --clobber makes the second copy harmless), or by hand with a tag.
+#
+# The copy to conclave-releases needs the secret RELEASES_TOKEN: a fine-grained
+# token with Contents read and write on default-cybe/conclave-releases only.
+# Without it only this repo's release is finished. The Docker image stays
+# ghcr.io/default-cybe/conclave; its package visibility is set to public once,
+# in the package settings.
+name: Publish public
+
+on:
+  workflow_run:
+    workflows: [Release, Android]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to finish and copy, like v0.2.0
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-public
+  cancel-in-progress: false
+
+env:
+  PUBLIC_REPO: default-cybe/conclave-releases
+
+jobs:
+  publish:
+    name: Finish the release and copy it to conclave-releases
+    # workflow_run also fires for PR runs (forks included) of Android: only a successful tag push in this repo counts
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
+    runs-on: ubuntu-latest
+    permissions:
+      # uploads the manifests, signatures and scripts to this repo's release
+      contents: write
+    steps:
+      - id: check
+        env:
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_branch }}
+          HAS_TOKEN: ${{ secrets.RELEASES_TOKEN != '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "Not a release tag: $TAG"
+            exit 1
+          fi
+          # A draft is still being built: the run that publishes it comes back here.
+          draft=$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || echo missing)
+          if [ "$draft" != false ]; then
+            echo "Release $TAG is not published yet ($draft); the next run finishes it."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$HAS_TOKEN" != true ]; then
+            echo "::notice::No RELEASES_TOKEN secret, so nothing is copied to $PUBLIC_REPO."
+          fi
+          echo "go=true" >> "$GITHUB_OUTPUT"
+          echo "public=$HAS_TOKEN" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - if: steps.check.outputs.go == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.check.outputs.tag }}
+          # the job token can write releases: keep it out of .git/config, where install scripts could read it
+          persist-credentials: false
+
+      - name: Gather the files
+        if: steps.check.outputs.go == 'true'
+        env:
+          TAG: ${{ steps.check.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/dist" "$RUNNER_TEMP/files"
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP/dist"
+          # what the release has already, so only new files go back up
+          ls "$RUNNER_TEMP/dist" > "$RUNNER_TEMP/had.txt"
+          # the public compose file pulls the image; there is no source to build from
+          sed '/^    build: \.$/d' docker-compose.yml > "$RUNNER_TEMP/files/docker-compose.yml"
+          cp scripts/install.sh scripts/lxc/setup.sh scripts/proxmox/conclave-lxc.sh "$RUNNER_TEMP/files/"
+          cp "$RUNNER_TEMP"/files/* "$RUNNER_TEMP/dist/"
+          # copies under names without the version, so .../releases/latest/download/<name> on the site always works
+          cd "$RUNNER_TEMP/dist"
+          stable() { for f in $1; do [ -f "$f" ] && cp "$f" "$2" && return; done; echo "no $1 in this release"; }
+          stable 'Conclave_*_x64-setup.exe' Conclave-windows-x64-setup.exe
+          stable 'Conclave_*_x64_en-US.msi' Conclave-windows-x64.msi
+          stable 'Conclave_*_aarch64.dmg' Conclave-mac-apple-silicon.dmg
+          stable 'Conclave_*_x64.dmg' Conclave-mac-intel.dmg
+          stable 'Conclave_*_amd64.AppImage' Conclave-linux-x64.AppImage
+          stable 'Conclave_*_amd64.deb' Conclave-linux-amd64.deb
+          stable 'Conclave-*.x86_64.rpm' Conclave-linux-x86_64.rpm
+          # the signed APK when the release has one, else the debug build
+          stable "conclave-$TAG.apk conclave-$TAG-debug.apk" conclave-android.apk
+          ls -la "$RUNNER_TEMP/dist"
+
+      - if: steps.check.outputs.go == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+
+      # apart from the signing step, so install scripts never see the signing key
+      - name: Install
+        if: steps.check.outputs.go == 'true' && hashFiles('scripts/releases/updates.ts') != ''
+        run: bun install --frozen-lockfile
+
+      # what Release and Android left unsigned (the APK), then the manifests from the
+      # signatures. The signatures cover the files, not their URLs, so a manifest
+      # can name either repo's copy.
+      - name: Sign and write the update manifests
+        id: manifest
+        if: steps.check.outputs.go == 'true'
+        env:
+          TAG: ${{ steps.check.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          # the body is the CHANGELOG.md section Release put there; it becomes the manifest's notes
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json body --jq .body > "$RUNNER_TEMP/body.md" || true
+          # a tag from before updates has no manifest: it stays unsigned, and updaters never see it
+          if [ ! -f scripts/releases/updates.ts ]; then
+            echo "::notice::$TAG is older than updates: no manifest."
+            exit 0
+          fi
+          bun scripts/releases/updates.ts sign "$RUNNER_TEMP/dist" --tag "$TAG"
+          bun scripts/releases/updates.ts manifest "$RUNNER_TEMP/dist" --tag "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/body.md"
+
+      - name: Add the files to this repo's release
+        if: steps.check.outputs.go == 'true'
+        env:
+          TAG: ${{ steps.check.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$RUNNER_TEMP/dist"
+          set --
+          for f in *; do
+            case "$f" in
+              # remade each run (the APK copy changes when the signed APK comes in)
+              conclave-update.json | latest.json | conclave-android.apk) ;;
+              *) grep -qxF -- "$f" "$RUNNER_TEMP/had.txt" && continue ;;
+            esac
+            set -- "$@" "$f"
+          done
+          if [ $# -eq 0 ]; then
+            echo "The release has every file already."
+            exit 0
+          fi
+          gh release upload "$TAG" "$@" -R "$GITHUB_REPOSITORY" --clobber
+
+      # conclave-releases (transition): its own manifest, with URLs on its own copy of the files
+      - name: Write the manifests for conclave-releases
+        if: steps.check.outputs.go == 'true' && steps.check.outputs.public == 'true'
+        env:
+          TAG: ${{ steps.check.outputs.tag }}
+        run: |
+          if [ ! -f scripts/releases/updates.ts ]; then exit 0; fi
+          bun scripts/releases/updates.ts manifest "$RUNNER_TEMP/dist" --tag "$TAG" --repo "$PUBLIC_REPO" --notes-file "$RUNNER_TEMP/body.md"
+
+      # conclave-releases (transition): first, so a new tag (made from main) carries the scripts setup.sh fetches by tag
+      - name: Update the scripts on main
+        if: steps.check.outputs.go == 'true' && steps.check.outputs.public == 'true' && !contains(steps.check.outputs.tag, '-')
+        env:
+          TAG: ${{ steps.check.outputs.tag }}
+          TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          dir="$RUNNER_TEMP/public"
+          git clone -q --depth 1 "https://x-access-token:${TOKEN}@github.com/${PUBLIC_REPO}.git" "$dir"
+          mkdir -p "$dir/scripts/lxc" "$dir/scripts/proxmox"
+          cp scripts/install.sh "$dir/scripts/install.sh"
+          cp scripts/lxc/setup.sh "$dir/scripts/lxc/setup.sh"
+          cp scripts/proxmox/conclave-lxc.sh "$dir/scripts/proxmox/conclave-lxc.sh"
+          cp "$RUNNER_TEMP/files/docker-compose.yml" "$dir/docker-compose.yml"
+          cp scripts/releases/README.md "$dir/README.md"
+          cd "$dir"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Scripts already match $TAG."
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -q -m "Scripts and compose file from $TAG"
+          git push -q origin HEAD:main
+
+      # conclave-releases (transition): every file, with the same notes as this repo's release
+      - name: Copy the release to conclave-releases
+        if: steps.check.outputs.go == 'true' && steps.check.outputs.public == 'true'
+        env:
+          TAG: ${{ steps.check.outputs.tag }}
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          SIGNED: ${{ steps.manifest.outputs.signed }}
+        run: |
+          if gh release view "$TAG" -R "$PUBLIC_REPO" > /dev/null 2>&1; then
+            gh release upload "$TAG" "$RUNNER_TEMP"/dist/* -R "$PUBLIC_REPO" --clobber
+          else
+            cp "$RUNNER_TEMP/body.md" "$RUNNER_TEMP/notes.md"
+            if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+              echo "Install guide: https://conclave.dymnitguys.com/#download" > "$RUNNER_TEMP/notes.md"
+            fi
+            title="Conclave ${TAG#v}"
+            if [ "$SIGNED" != true ]; then
+              title="$title (unsigned)"
+              printf '\nThis release is unsigned: the apps and the hub do not install it as an update. Install it by hand.\n' >> "$RUNNER_TEMP/notes.md"
+            fi
+            pre=""
+            case "$TAG" in *-*) pre="--prerelease" ;; esac
+            # $pre is empty or one flag
+            # shellcheck disable=SC2086
+            gh release create "$TAG" "$RUNNER_TEMP"/dist/* -R "$PUBLIC_REPO" --title "$title" --notes-file "$RUNNER_TEMP/notes.md" --target main $pre
+          fi

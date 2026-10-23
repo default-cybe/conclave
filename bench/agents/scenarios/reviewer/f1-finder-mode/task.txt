@@ -1,0 +1,1 @@
+Finder mode. Review the uncommitted change to ct-export.sh (git diff). A separate verifier checks each candidate, so report every candidate you find.

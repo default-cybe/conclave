@@ -1,0 +1,57 @@
+/*
+  Chat page styles that utilities cannot reach. The reply's size, leading,
+  measure and heading scale are the shared reading tokens in styles/index.css
+  (.md, --read-size), so a chat reply and a session's answer read the same.
+  Plus the 120ms fade out before an edit or a retry.
+  docs/design/CHAT-AND-MOTION.md 1.4, 2.6 and 6.
+*/
+
+/* the code box sets its own spacing; .md pre margins would double it */
+.md.md-chat .cv-code pre {
+  margin: 0;
+}
+.md.md-chat > .cv-code:first-child {
+  margin-top: 0;
+}
+.md.md-chat > .cv-code:last-child {
+  margin-bottom: 0;
+}
+
+/* a reply or message about to be replaced fades out, nothing moves */
+.cv-leave {
+  opacity: 0;
+  transition: opacity var(--dur-1) var(--ease-in);
+}
+
+/* words that wait 400ms before they show (a fast first token never shows "Thinking") */
+.cv-late,
+.cv-thought-late > .cv-fold-row {
+  animation: fade-in var(--dur-2) var(--ease) 400ms both;
+}
+/* a thought row before its first words: just the word, no empty rule under it */
+.cv-thought .cv-fold-body:has(> .cv-ink:empty) {
+  display: none;
+}
+/* the 400ms wait is timing, not motion: it holds under reduced motion too (the word then lands at once) */
+@media (prefers-reduced-motion: reduce) {
+  .cv-late,
+  .cv-thought-late > .cv-fold-row {
+    animation-delay: 400ms !important;
+  }
+}
+:root[data-motion='reduce'] .cv-late,
+:root[data-motion='reduce'] .cv-thought-late > .cv-fold-row {
+  animation-delay: 400ms !important;
+}
+
+/* a second opinion reads one step quieter than the reply it answers */
+.cv-aside .md.md-chat {
+  color: var(--fg-2);
+}
+
+/* a preview panel growing out of its code block, or shrinking back into it, reads as that block */
+.cv-preview[data-moving] {
+  background: var(--bg-sunk);
+  box-shadow: inset 0 0 0 1px var(--rule-2);
+  border-radius: var(--r-2);
+}

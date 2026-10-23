@@ -1,0 +1,65 @@
+{
+  "id": "bug-ts-cents",
+  "title": "Report total one cent short",
+  "kind": "bug",
+  "lang": "typescript",
+  "difficulty": "medium",
+  "time_limit_s": 900,
+  "smoke": false,
+  "requires": [
+    "bun"
+  ],
+  "source": {
+    "type": "fixture",
+    "base": "ledgerkit",
+    "overlay": "overlay/"
+  },
+  "visible_test_cmd": "bun test",
+  "hidden": {
+    "files": {
+      "hidden/tests/cents.test.ts": "tests/hidden/cents.test.ts"
+    },
+    "clear": [
+      "tests/hidden/"
+    ],
+    "runs": [
+      {
+        "cmd": "bun test ./tests/hidden/",
+        "format": "bun",
+        "env": {
+          "TZ": "UTC"
+        }
+      }
+    ],
+    "timeout_s": 120,
+    "expected_total": 24,
+    "restore": [
+      "package.json",
+      "bunfig.toml"
+    ],
+    "move_aside": []
+  },
+  "protected": [
+    "test/**",
+    "tests/**",
+    "package.json",
+    "bunfig.toml"
+  ],
+  "artifacts": [
+    "node_modules/",
+    "target/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".bench-moved/",
+    "*.pyc",
+    "tasksd.db",
+    ".DS_Store"
+  ],
+  "reference": "hidden/reference/",
+  "naive": "hidden/naive/",
+  "license": {
+    "name": "written for this kit",
+    "holder": null,
+    "file": null
+  }
+}

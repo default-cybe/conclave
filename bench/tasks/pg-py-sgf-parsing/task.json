@@ -1,0 +1,56 @@
+{
+  "id": "pg-py-sgf-parsing",
+  "title": "SGF parsing",
+  "kind": "polyglot",
+  "lang": "python",
+  "difficulty": "hard",
+  "time_limit_s": 1200,
+  "smoke": false,
+  "requires": [
+    "python3"
+  ],
+  "source": {
+    "type": "polyglot",
+    "repo": "https://github.com/Aider-AI/polyglot-benchmark",
+    "commit": "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+    "exercise": "python/sgf-parsing"
+  },
+  "visible_test_cmd": null,
+  "hidden": {
+    "files": {
+      "hidden/tests/sgf_parsing_test.py": "sgf_parsing_test.py"
+    },
+    "clear": [],
+    "runs": [
+      {
+        "cmd": "python3 {bench}/runners/unittest_json.py sgf_parsing_test.py",
+        "format": "unittest-json",
+        "env": {}
+      }
+    ],
+    "timeout_s": 120,
+    "expected_total": 23,
+    "restore": [],
+    "move_aside": []
+  },
+  "protected": [
+    "*_test.py"
+  ],
+  "artifacts": [
+    "node_modules/",
+    "target/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".bench-moved/",
+    "*.pyc",
+    "tasksd.db",
+    ".DS_Store"
+  ],
+  "reference": "hidden/reference/",
+  "naive": null,
+  "license": {
+    "name": "MIT",
+    "holder": "Exercism",
+    "file": "NOTICE"
+  }
+}

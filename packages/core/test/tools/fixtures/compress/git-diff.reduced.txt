@@ -1,0 +1,388 @@
+diff --git a/packages/core/src/session/compaction.ts b/packages/core/src/session/compaction.ts
+index de0a64e..8ec9628 100644
+--- a/packages/core/src/session/compaction.ts
++++ b/packages/core/src/session/compaction.ts
+@@ -1,9 +1,9 @@
+ import type { ProviderMessage, SystemBlock, ToolSpec } from '../providers/types';
+-import type { Message, TextBlock } from '../types';
++import type { Message, TextBlock, ToolResultBlock } from '../types';
+ import type { Engine } from '../engine/engine';
+-import { activeMessages, buildProviderMessages, isReminder, renderTranscript } from './transcript';
+-import { COMPACT_PROMPT } from './prompt';
+-import { estimateTokens, truncateMiddle } from '../util/text';
++import { activeMessages, buildProviderMessages, isReminder } from './transcript';
++import { COMPACT_PROMPT, COMPACT_UPDATE_RULES, SUMMARY_HEADINGS } from './prompt';
++import { estimateTokens, oneLine, truncateMiddle } from '../util/text';
+ import { streamCompletion } from './stream';
+ import { logger } from '../util/log';
+ import { projectsOf } from '../projects/attached';
+@@ -26,6 +26,34 @@ export function estimateRequestTokens(system: SystemBlock[], messages: ProviderM
+   return Math.ceil(chars / 4);
+ }
+ 
++/** What the last provider call of a runner reported, to anchor the next estimate on (HARNESS-REVIEW item 8). */
++export interface TokenMeter {
++  model: string;
++  systemHash: string;
++  toolsHash: string;
++  /** Input (uncached, cache reads and cache writes) plus output tokens of the last call. */
++  baseTokens: number;
++  /** Seq of the reply that call wrote; messages after it are counted by chars. */
++  throughSeq: number;
++}
++
++/** A stable hash of a request part (system blocks, tool specs) for the meter. */
++export function partHash(v: unknown): string {
++  return Bun.hash(JSON.stringify(v)).toString(36);
++}
++
++/**
++ * Request size anchored on the last real usage: what the provider counted
++ * for the last request and its reply, plus chars/4 of the messages stored
++ * after that reply. Undefined when the meter does not apply: another model,
++ * system prompt or tool set, or no usage reported.
++ */
++export function meteredTokens(meter: TokenMeter | undefined, now: Pick<TokenMeter, 'model' | 'systemHash' | 'toolsHash'>, stored: Message[]): number | undefined {
++  if (!meter || meter.baseTokens <= 0) return undefined;
++  if (meter.model !== now.model || meter.systemHash !== now.systemHash || meter.toolsHash !== now.toolsHash) return undefined;
++  return meter.baseTokens + regionTokens(activeMessages(stored).filter((m) => m.seq > meter.throughSeq));
++}
++
+ /** Verbatim user messages kept with every summary: total and per-message caps, in chars. */
+ export const VERBATIM_TOTAL_CHARS = 24_000;
+ export const VERBATIM_MESSAGE_CHARS = 4_000;
+@@ -49,6 +77,8 @@ export interface SummaryMeta {
+   /** The summary was written without the model (fallback) or failed a check. */
+   qualityDegraded?: boolean;
+   fallback?: 'no_llm';
++  /** What the audit found missing in the model summary that was kept (after one retry). */
++  audit?: string[];
+   /** Real user messages quoted in the verbatim section. */
+   userMessages: number;
+   /** The quoted messages and touched files, carried into the next compaction. */
+@@ -137,6 +167,163 @@ export function filesTouched(region: Message[], carried: string[] = [], roots: s
+   return out.slice(0, FILES_TOUCHED_MAX);
+ }
+ 
++/** Summarizer input budget in chars (about 30k tokens, within any small model's window). */
++export const SUMMARY_INPUT_CHARS = 120_000;
++/** One entry (a message) is cut to this many chars before the budget is filled. */
++const ENTRY_MAX_CHARS = 12_000;
++/** Kept tail: this share of the window, clamped, in tokens (Hermes). */
++const TAIL_SHARE = 0.025;
++const TAIL_MIN_TOKENS = 10_000;
++const TAIL_MAX_TOKENS = 25_000;
++
++function resultText(r: ToolResultBlock): string {
++  if (typeof r.content === 'string') return r.content;
++  return r.content.map((c) => (c.type === 'text' ? c.text : `[${c.type}]`)).join('\n');
++}
++
++function inputLine(input: Record<string, unknown>): string {
++  for (const k of ['command', 'file_path', 'path', 'pattern', 'url', 'query', 'description', 'prompt']) if (typeof input[k] === 'string') return oneLine(input[k] as string, 200);
++  return oneLine(JSON.stringify(input), 200);
++}
++
++/** One message as summarizer text, or '' when it carries nothing to read (a tool-results-only message). */
++function renderEntry(m: Message, results: Map<string, ToolResultBlock>): string {
++  const who = m.kind === 'aside' ? `${m.author ?? 'Aside'} (${m.model ?? 'unknown'})` : m.role === 'user' ? 'User' : `Assistant (${m.model ?? 'unknown'})`;
++  const parts: string[] = [];
++  for (const b of m.content) {
++    if (b.type === 'text' && !isReminder(b)) parts.push(b.text);
++    else if (b.type === 'image') parts.push('[image]');
++    else if (b.type === 'tool_use') {
++      const r = results.get(b.id);
++      parts.push(`[tool ${b.name}: ${inputLine(b.input)}]${r ? `\n[result${r.isError ? ' (error)' : ''}: ${truncateMiddle(resultText(r), 800, 'omitted').text}]` : ''}`);
++    }
++  }
++  const text = parts.join('\n\n').trim();
++  return text ? truncateMiddle(`### ${who}\n\n${text}`, ENTRY_MAX_CHARS, 'of this message omitted').text : '';
++}
++
++/**
++ * The region as summarizer input, filled by priority instead of cut in the
++ * middle (OpenClaw): the newest entries up to half the budget, older user
++ * messages a quarter, the oldest entries a tenth, and the rest in 8 runs
++ * spread over what is left. Entries stay in source order, with a marker
++ * that counts each gap.
++ */
++export function summarizerInput(region: Message[], budget = SUMMARY_INPUT_CHARS): string {
++  const results = new Map<string, ToolResultBlock>();
++  for (const m of region) for (const b of m.content) if (b.type === 'tool_result') results.set(b.toolUseId, b);
++  const entries = region.map((m) => ({ m, text: renderEntry(m, results) })).filter((e) => e.text);
++  const total = entries.reduce((n, e) => n + e.text.length + 2, 0);
++  if (total <= budget) return entries.map((e) => e.text).join('\n\n');
++
++  const picked = new Set<number>();
++  const take = (indices: number[], share: number) => {
++    let used = 0;
++    for (const i of indices) {
++      if (picked.has(i)) continue;
++      const len = entries[i].text.length + 2;
++      if (used + len > share) {
++        if (used === 0) continue;
++        break;
++      }
++      picked.add(i);
++      used += len;
++    }
++  };
++  const all = entries.map((_, i) => i);
++  take([...all].reverse(), budget * 0.5);
++  take(all.filter((i) => entries[i].m.role === 'user' && entries[i].m.kind === 'normal').reverse(), budget * 0.25);
++  take(all, budget * 0.1);
++  // 8 runs spread evenly over the entries not picked yet
++  const rest = all.filter((i) => !picked.has(i));
++  const runs = 8;
++  for (let r = 0; r < runs && rest.length; r++) take(rest.slice(Math.floor((r * rest.length) / runs)), (budget * 0.15) / runs);
++
++  const out: string[] = [];
++  let gap = 0;
++  let gapUsers = 0;
++  const marker = () => `[... ${gap} messages omitted here, ${gapUsers} of them from the user ...]`;
++  for (let i = 0; i < entries.length; i++) {
++    if (!picked.has(i)) {
++      gap++;
++      if (entries[i].m.role === 'user') gapUsers++;
++      continue;
++    }
++    if (gap) out.push(marker());
++    gap = 0;
++    gapUsers = 0;
++    out.push(entries[i].text);
++  }
++  if (gap) out.push(marker());
++  return out.join('\n\n');
++}
++
++/** Identifier kinds the anchor index keeps, with a cap per kind. */
++const ANCHOR_KINDS: Array<{ kind: string; cap: number; re: RegExp; ok?: (s: string) => boolean }> = [
++  { kind: 'issues and PRs', cap: 10, re: /(?:^|[\s(])(#\d{1,6})\b|\/(?:pull|issues)\/(\d{1,6})\b/g },
++  { kind: 'commits', cap: 10, re: /\b([0-9a-f]{7,40})\b/g, ok: (s) => /\d/.test(s) && /[a-f]/.test(s) },
++  { kind: 'branches', cap: 8, re: /(?:\bbranch\s+|\bcheckout\s+-b\s+|\bswitch\s+-c\s+|\borigin\/)(\w[\w./-]*\w)/g },
++  { kind: 'urls', cap: 10, re: /(https?:\/\/[^\s)'"<>\]`]+)/g },
++  { kind: 'paths', cap: 20, re: /(?:^|[\s'"`(=])((?:~|\.{1,2})?\/[\w.@-]+(?:\/[\w.@-]+)+)/g },
++  { kind: 'errors', cap: 10, re: /\b([A-Z][A-Za-z]+(?:Error|Exception)|E[A-Z]{3,9})\b/g },
++];
++
++function messageTexts(m: Message, withResults: boolean): string[] {
++  const out: string[] = [];
++  for (const b of m.content) {
++    if (b.type === 'text' && !isReminder(b)) out.push(b.text);
++    else if (b.type === 'tool_use') out.push(Object.values(b.input ?? {}).filter((v): v is string => typeof v === 'string').join(' '));
++    else if (b.type === 'tool_result' && withResults) out.push(resultText(b).slice(0, 20_000));
++  }
++  return out;
++}
++
++/**
++ * Exact identifiers in a region, newest first, capped per kind (Hermes):
++ * issue and PR numbers, commit SHAs, branches, URLs, paths, error names.
++ * withResults: also scan tool output (the index does; the audit does not).
++ */
++export function anchorIndex(region: Message[], withResults = true): Record<string, string[]> {
++  const out: Record<string, string[]> = {};
++  for (const { kind } of ANCHOR_KINDS) out[kind] = [];
++  for (let i = region.length - 1; i >= 0; i--) {
++    for (const text of messageTexts(region[i], withResults)) {
++      for (const { kind, cap, re, ok } of ANCHOR_KINDS) {
++        const list = out[kind];
++        if (list.length >= cap) continue;
++        for (const m of text.matchAll(re)) {
++          const v = (m[1] ?? (m[2] ? `#${m[2]}` : '')).replace(/[.,:;]+$/, '');
++          if (!v || (ok && !ok(v)) || list.includes(v)) continue;
++          list.push(v);
++          if (list.length >= cap) break;
++        }
++      }
++    }
++  }
++  for (const k of Object.keys(out)) if (!out[k].length) delete out[k];
++  return out;
++}
++
++/**
++ * What a model summary misses (OpenClaw audit): a template heading, or one
++ * of up to 12 identifiers from the region's last 10 messages (said or sent,
++ * not tool output). Empty when it passes.
++ */
++export function auditSummary(summary: string, region: Message[]): string[] {
++  const problems: string[] = [];
++  const lower = summary.toLowerCase();
++  for (const h of SUMMARY_HEADINGS) if (!lower.includes(`## ${h.toLowerCase()}`)) problems.push(`missing heading "## ${h}"`);
++  const ids = Object.values(anchorIndex(region.slice(-10), false)).flat().slice(0, 12);
++  for (const id of ids) if (!summary.includes(id)) problems.push(`missing identifier ${id}`);
++  return problems;
++}
++
++/** The anchor index as a summary section. */
++export function anchorSection(index: Record<string, string[]>): string {
++  const lines = Object.entries(index).map(([kind, list]) => `- ${kind}: ${list.join(', ')}`);
++  return lines.length ? `## Anchor index (exact identifiers in the compacted messages)\n\n${lines.join('\n')}` : '';
++}
++
+ /** The sections every summary ends with, built without the model. root: the project folder relative paths start at. */
+ export function deterministicSections(quoted: string[], omitted: number, files: string[], root?: string): string {
+   const parts: string[] = [];
+@@ -150,7 +337,7 @@ export function deterministicSections(quoted: string[], omitted: number, files:
+ }
+ 
+ /** Rough size of stored messages in tokens, counted like a request. */
+-function regionTokens(msgs: Message[]): number {
++export function regionTokens(msgs: Message[]): number {
+   let chars = 0;
+   for (const m of msgs) {
+     for (const b of m.content) {
+@@ -210,8 +397,14 @@ async function compact(engine: Engine, sessionId: string, modelRef: string, sign
+   }
+ 
+   const lastSeq = all[all.length - 1]?.seq ?? 0;
+-  // keep the most recent turns verbatim, summarize the rest
+-  const keep = recentToKeep(active);
++  // keep the most recent turns verbatim, sized from the window, summarize the rest
++  let window = 200_000;
++  try {
++    window = engine.providers.resolve(modelRef).info.contextWindow || window;
++  } catch {
++    /* an unknown model keeps the default */
++  }
++  const keep = recentToKeep(active, window);
+   const toSummarize = active.filter((m) => !keep.includes(m));
+   if (toSummarize.length < 2) return false;
+ 
+@@ -226,7 +419,7 @@ async function compact(engine: Engine, sessionId: string, modelRef: string, sign
+   // once the session has a project, files are listed relative to it (projects/service.ts)
+   const roots = projectsOf(engine)?.projectRoots(session) ?? [];
+   const files = filesTouched(region, Array.isArray(prevMeta?.files) ? prevMeta.files : [], roots);
+-  const sections = deterministicSections(quoted, omitted, files, roots[0]);
++  const sections = [deterministicSections(quoted, omitted, files, roots[0]), anchorSection(anchorIndex(region))].filter(Boolean).join('\n\n');
+ 
+   const cfg = engine.config.get();
+   const summaryModel = engine.isUsable(cfg.smallModel) ? cfg.smallModel : modelRef;
+@@ -236,26 +429,52 @@ async function compact(engine: Engine, sessionId: string, modelRef: string, sign
+ 
+   let summary: string | undefined;
+   let failure: string | undefined;
++  /** What the audit found missing in the summary that was kept. */
++  let audited: string[] = [];
+   if (latched) {
+     failure = 'the summary model failed recently';
+   } else {
+-    const transcript = renderTranscript(toSummarize, { maxChars: 120_000, includeTools: true, includeThinking: false });
+     const extra = hook.additionalContext.join('\n');
+-    try {
++    // update mode: the earlier summary is merged, not summarized again as transcript
++    const earlier = previous ? carriedSummary(previous) : '';
++    const anchor = lastAssistantText(keep);
++    const request = [
++      earlier ? `<previous-summary>\n${earlier}\n</previous-summary>\n\n${COMPACT_UPDATE_RULES}` : '',
++      `Conversation to summarize:\n\n${summarizerInput(region)}`,
++      anchor ? `<recent-state-anchor>\n${truncateMiddle(anchor, 4_000, 'omitted').text}\n</recent-state-anchor>\nThis is the latest state of the work; it stays in context after the summary. Make the Next step agree with it.` : '',
++    ].filter(Boolean).join('\n\n');
++    const ask = async (problems?: string[]): Promise<string> => {
++      const retry = problems?.length ? `\n\nYour last summary missed: ${problems.join('; ')}. Write the whole summary again with every heading and these identifiers.` : '';
+       const res = await streamCompletion(
+         engine,
+         summaryModel,
+         {
+           system: [{ text: COMPACT_PROMPT + (extra ? `\n\nAlso keep these details:\n${extra}` : '') }],
+-          messages: [{ role: 'user', content: [{ type: 'text', text: `Conversation to summarize:\n\n${transcript}` }] }],
++          messages: [{ role: 'user', content: [{ type: 'text', text: request + retry }] }],
+           maxTokens: 4000,
+           signal: AbortSignal.any([signal, AbortSignal.timeout(COMPACTION_TIMEOUT_MS)]),
+         },
+         { sessionId, purpose: 'compaction' },
+       );
+-      summary = res.content.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('').trim();
++      return res.content.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('').trim();
++    };
++    const tooBig = (text: string) => estimateTokens(text) >= beforeTokens;
++    try {
++      summary = await ask();
+       if (!summary) failure = 'the summary model returned nothing';
+-      else if (estimateTokens(summary) >= beforeTokens) failure = `the summary (~${estimateTokens(summary)} tokens) was not smaller than what it replaces (~${beforeTokens} tokens)`;
++      else if (tooBig(summary)) failure = `the summary (~${estimateTokens(summary)} tokens) was not smaller than what it replaces (~${beforeTokens} tokens)`;
++      else {
++        // the audit: one retry that lists what is missing, then the better of the two is kept
++        audited = auditSummary(summary, region);
++        if (audited.length) {
++          const again = await ask(audited).catch(() => '');
++          const problems = again && !tooBig(again) ? auditSummary(again, region) : undefined;
++          if (problems && problems.length < audited.length) {
++            summary = again;
++            audited = problems;
++          }
++        }
++      }
+     } catch (err) {
+       if (signal.aborted) return false;
+       failure = `the summary model failed: ${(err as Error)?.message ?? String(err)}`;
+@@ -291,6 +510,7 @@ async function compact(engine: Engine, sessionId: string, modelRef: string, sign
+     files,
+     ...(proper ? { summaryRange: [lead.length, lead.length + proper.length] as [number, number] } : {}),
+     ...(degraded ? { qualityDegraded: true, fallback: 'no_llm' as const } : {}),
++    ...(!degraded && audited.length ? { qualityDegraded: true, audit: audited } : {}),
+   };
+   engine.addMessage(sessionId, {
+     role: 'user',
+@@ -300,7 +520,7 @@ async function compact(engine: Engine, sessionId: string, modelRef: string, sign
+     meta: meta as unknown as Record<string, unknown>,
+   });
+   const afterTokens = estimateTokens(body);
+-  engine.audit(sessionId, 'compaction:end', `${degraded ? 'fallback' : 'summary'} seq ${firstSeq}..${coversThroughSeq}, ~${beforeTokens} -> ~${afterTokens} tokens${failure ? ` (${failure})` : ''}`);
++  engine.audit(sessionId, 'compaction:end', `${degraded ? 'fallback' : 'summary'} seq ${firstSeq}..${coversThroughSeq}, ~${beforeTokens} -> ~${afterTokens} tokens${failure ? ` (${failure})` : audited.length ? ` (audit: ${oneLine(audited.join('; '), 300)})` : ''}`);
+   if (degraded) {
+     engine.notice(sessionId, `Compacted ${toSummarize.length} messages without a summary (${truncateMiddle(failure!, 200).text}). Earlier messages are excluded from context but kept in the session.`, 'warning');
+   } else {
+@@ -327,21 +547,38 @@ function carriedSummary(m: Message): string {
+   return text.trim();
+ }
+ 
+-/** Keep the last turns (up to ~25% of the window estimate) verbatim. */
+-function recentToKeep(active: ReturnType<typeof activeMessages>) {
+-  const keep: typeof active = [];
++/**
++ * The newest messages kept as they are: 2.5 percent of the window, clamped
++ * to 10k..25k tokens (Hermes). The cut lands on a real user message, so a
++ * tool call and its result are never split; a long tool loop with no user
++ * message in that span is cut before an assistant message instead.
++ */
++export function recentToKeep(active: Message[], contextWindow: number): Message[] {
++  const budget = Math.min(TAIL_MAX_TOKENS, Math.max(TAIL_MIN_TOKENS, Math.floor(contextWindow * TAIL_SHARE))) * 4;
++  let start = active.length;
+   let chars = 0;
+-  const budget = 40_000;
+   for (let i = active.length - 1; i >= 0; i--) {
+-    const m = active[i];
+-    const size = JSON.stringify(m.content).length;
+-    if (chars + size > budget && keep.length >= 2) break;
+-    keep.unshift(m);
++    const size = JSON.stringify(active[i].content).length;
++    if (chars + size > budget && active.length - i > 2) break;
++    start = i;
+     chars += size;
+   }
+-  // do not keep a leading assistant/tool-result pair without its user turn
+-  while (keep.length && keep[0].role === 'user' && keep[0].content.every((b) => b.type === 'tool_result')) keep.shift();
+-  return keep;
++  const realUser = (m: Message) => m.role === 'user' && m.kind === 'normal' && m.content.some((b) => b.type === 'text' && !isReminder(b));
++  let cut = active.findIndex((m, i) => i >= start && realUser(m));
++  if (cut < 0) cut = active.findIndex((m, i) => i >= start && m.role === 'assistant' && m.kind !== 'summary');
++  if (cut < 0) return [];
++  return active.slice(cut).filter((m) => m.kind !== 'summary');
++}
++
++/** The newest assistant text in a list of messages. */
++function lastAssistantText(msgs: Message[]): string {
++  for (let i = msgs.length - 1; i >= 0; i--) {
++    const m = msgs[i];
++    if (m.role !== 'assistant' || m.kind !== 'normal') continue;
++    const text = m.content.filter((b): b is TextBlock => b.type === 'text').map((b) => b.text).join('\n').trim();
++    if (text) return text;
++  }
++  return '';
+ }
+ 
+ export { buildProviderMessages };
+
+[... 1 more changed file not shown: packages/core/src/session/transcript.ts ...]

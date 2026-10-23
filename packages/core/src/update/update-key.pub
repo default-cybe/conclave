@@ -1,0 +1,13 @@
+# Conclave update key: the PUBLIC half of the minisign key that signs every
+# update (the Tauri updater format). The hub, the device daemons (TypeScript
+# and Rust), the desktop app and the Android app all read this one file and
+# refuse any update it did not sign. See docs/DESIGN.md, Updates.
+#
+# The key: minisign key id E7C55DB954A18353, made on the owner's Mac. The
+# private half is in the repository secrets TAURI_SIGNING_PRIVATE_KEY and
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD, with a backup in the owner's password
+# manager. Never commit the private key.
+#
+# The key is the last line that is not a comment. A raw minisign key line
+# (RWQ...) works too.
+dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU3QzU1REI5NTRBMTgzNTMKUldSVGc2RlV1VjNGNStiQXVIV3FGVEZ6eEFmVnFqM3ZoaXljL1QwUi9nSHNGVUdJa3E1dExFUkoK

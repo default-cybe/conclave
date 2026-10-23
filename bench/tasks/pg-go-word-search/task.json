@@ -1,0 +1,62 @@
+{
+  "id": "pg-go-word-search",
+  "title": "Word search",
+  "kind": "polyglot",
+  "lang": "go",
+  "difficulty": "medium",
+  "time_limit_s": 900,
+  "smoke": false,
+  "requires": [
+    "go"
+  ],
+  "source": {
+    "type": "polyglot",
+    "repo": "https://github.com/Aider-AI/polyglot-benchmark",
+    "commit": "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+    "exercise": "go/word-search"
+  },
+  "visible_test_cmd": null,
+  "hidden": {
+    "files": {
+      "hidden/tests/word_search_test.go": "word_search_test.go"
+    },
+    "clear": [],
+    "runs": [
+      {
+        "cmd": "go test -json ./...",
+        "format": "go-json",
+        "env": {}
+      }
+    ],
+    "timeout_s": 300,
+    "expected_total": 24,
+    "restore": [
+      "go.mod",
+      "cases_test.go"
+    ],
+    "move_aside": [
+      "*_test.go"
+    ]
+  },
+  "protected": [
+    "*_test.go",
+    "go.mod"
+  ],
+  "artifacts": [
+    "node_modules/",
+    "target/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".bench-moved/",
+    "*.pyc",
+    "tasksd.db",
+    ".DS_Store"
+  ],
+  "reference": "hidden/reference/",
+  "naive": null,
+  "license": {
+    "name": "MIT",
+    "holder": "Exercism",
+    "file": "NOTICE"
+  }
+}

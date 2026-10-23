@@ -1,0 +1,21 @@
+{
+  "name": "@conclave/server",
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": { ".": "./src/index.ts", "./*": "./src/*" },
+  "scripts": {
+    "dev": "bun --watch src/main.ts",
+    "start": "bun src/main.ts"
+  },
+  "dependencies": {
+    "@conclave/core": "workspace:*",
+    "hono": "^4.13.13",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@types/qrcode": "^1.5.5"
+  }
+}

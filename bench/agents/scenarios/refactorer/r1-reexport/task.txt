@@ -1,0 +1,1 @@
+Rename toCelsius to fahrenheitToCelsius everywhere in this repo.

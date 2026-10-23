@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-17",
+  "currency": "USD",
+  "unit": "per million tokens",
+  "source": "Anthropic first-party API list prices, as listed in the Claude API reference bundled with Claude Code 2.1.302 (price table cached 2026-10-06).",
+  "notes": [
+    "Input and output prices are from that table.",
+    "cache_read uses the price the table states where it states one (Opus 5.5 0.20, Sonnet 5.5 0.20, Fable 5.1 0.25). Elsewhere it is 0.1 times input.",
+    "cache_write is 1.25 times input (the 5 minute cache write rate). The table does not list it.",
+    "Both arms bill a subscription through CLIProxyAPI, so these dollars are notional. The same formula is used for every arm.",
+    "A model id prefixed with a proxy account (for example neu/claude-sonnet-5-5) uses the price of the id without the prefix."
+  ],
+  "models": {
+    "claude-fable-5-1": { "input": 10.0, "output": 50.0, "cache_read": 0.25, "cache_write": 12.5 },
+    "claude-fable-5": { "input": 10.0, "output": 50.0, "cache_read": 1.0, "cache_write": 12.5 },
+    "claude-opus-5-5": { "input": 4.0, "output": 20.0, "cache_read": 0.2, "cache_write": 5.0 },
+    "claude-opus-5": { "input": 5.0, "output": 25.0, "cache_read": 0.5, "cache_write": 6.25 },
+    "claude-opus-4-8": { "input": 5.0, "output": 25.0, "cache_read": 0.5, "cache_write": 6.25 },
+    "claude-opus-4-7": { "input": 5.0, "output": 25.0, "cache_read": 0.5, "cache_write": 6.25 },
+    "claude-opus-4-6": { "input": 5.0, "output": 25.0, "cache_read": 0.5, "cache_write": 6.25 },
+    "claude-sonnet-5-5": { "input": 2.0, "output": 10.0, "cache_read": 0.2, "cache_write": 2.5 },
+    "claude-sonnet-5": { "input": 2.0, "output": 10.0, "cache_read": 0.2, "cache_write": 2.5 },
+    "claude-sonnet-4-6": { "input": 3.0, "output": 15.0, "cache_read": 0.3, "cache_write": 3.75 },
+    "claude-haiku-5-5": { "input": 0.1, "output": 0.5, "cache_read": 0.01, "cache_write": 0.125 },
+    "claude-haiku-4-5": { "input": 1.0, "output": 5.0, "cache_read": 0.1, "cache_write": 1.25 }
+  }
+}

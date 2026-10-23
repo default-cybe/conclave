@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#141417" />
+<title>Conclave offline</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+<style>
+  :root { color-scheme: dark light; --bg: oklch(0.163 0.005 286); --fg: oklch(0.945 0.004 286); --fg-2: oklch(0.765 0.008 286); --fg-3: oklch(0.61 0.01 286); --rule: oklch(0.262 0.007 286); --signal: oklch(0.775 0.125 303); --fault: oklch(0.705 0.155 26); }
+  @media (prefers-color-scheme: light) { :root { --bg: oklch(0.982 0.002 286); --fg: oklch(0.205 0.01 286); --fg-2: oklch(0.405 0.012 286); --fg-3: oklch(0.52 0.012 286); --rule: oklch(0.905 0.005 286); --signal: oklch(0.52 0.17 300); --fault: oklch(0.56 0.19 27); } }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 'Mona Sans Variable', ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  body { display: grid; place-items: center; padding: 24px; box-sizing: border-box; }
+  main { max-width: 420px; width: 100%; }
+  svg { display: block; color: var(--fg); }
+  h1 { font-size: 20px; line-height: 1.25; margin: 20px 0 6px; font-weight: 600; letter-spacing: -0.012em; }
+  p { color: var(--fg-2); margin: 0 0 20px; }
+  .state { color: var(--fault); }
+  button { font: inherit; font-weight: 500; font-size: 13px; color: var(--bg); background: var(--fg); border: 1px solid var(--fg); border-radius: 3px; height: 30px; padding: 0 12px; cursor: default; }
+  button:hover { filter: brightness(0.94); }
+  button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main>
+  <svg viewBox="0 0 30 18" width="47" height="28" fill="currentColor" aria-hidden="true"><circle cx="3" cy="7.17" r="1.9"/><circle cx="7" cy="2.95" r="1.9" fill="var(--signal)"/><circle cx="11" cy="4.79" r="1.9"/><circle cx="15" cy="10.83" r="1.9"/><circle cx="19" cy="15.05" r="1.9"/><circle cx="23" cy="13.21" r="1.9"/><circle cx="27" cy="7.17" r="1.9"/></svg>
+  <h1>The hub is <span class="state">offline</span></h1>
+  <p>Conclave loads from your hub. Check that the hub is running and that this device can reach it, then try again. A quick tunnel address changes when the hub restarts, so you may need its new address.</p>
+  <button onclick="location.reload()">Try again</button>
+</main>
+</body>
+</html>

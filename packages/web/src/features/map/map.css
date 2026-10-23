@@ -1,0 +1,269 @@
+/*
+  The Map (docs/DESIGN.md 28). Marks and labels are DOM over a canvas that
+  draws the links and the streams. Color means one thing: violet for live
+  work, amber for what waits on you, the fault color for a failure. Idle
+  and done are quiet. No glows: a ring is a ring.
+*/
+
+.map-surface {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: grab;
+}
+.map-surface[data-dragging] {
+  cursor: grabbing;
+}
+
+.map-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+/* a node: positioned at its point; the mark is centered there, the label sits where the layout put it */
+.map-node {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transition: transform 450ms var(--ease);
+}
+.map-node[data-new] {
+  animation: fade-in var(--dur-3) var(--ease) both;
+}
+button.map-node {
+  cursor: pointer;
+}
+button.map-node:focus-visible {
+  outline: none;
+}
+button.map-node:focus-visible .map-mark {
+  box-shadow:
+    0 0 0 3px var(--bg),
+    0 0 0 4.5px var(--signal);
+}
+
+.map-mark {
+  position: absolute;
+  border-radius: 9999px;
+  transition:
+    background-color var(--dur-3) var(--ease),
+    border-color var(--dur-3) var(--ease);
+}
+/* a finger needs more than a 12px dot */
+button.map-node .map-mark::after {
+  content: '';
+  position: absolute;
+  inset: -12px;
+  border-radius: 9999px;
+}
+
+/* agents: a filled dot by state */
+.map-dot[data-state='running'] {
+  background: var(--signal);
+}
+.map-dot[data-state='waiting'] {
+  background: var(--warn);
+}
+.map-dot[data-state='failed'] {
+  background: var(--fault);
+}
+.map-dot[data-state='idle'] {
+  background: var(--fg-4);
+}
+.map-dot[data-state='done'] {
+  background: var(--bg);
+  border: 1.5px solid var(--fg-4);
+}
+.map-dot[data-state='paused'] {
+  background: var(--bg);
+  border: 1.5px solid var(--fg-3);
+}
+/* a ring a few pixels out on the ones that work or wait: still, not a glow */
+.map-dot[data-state='running']::before,
+.map-dot[data-state='waiting']::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 9999px;
+  border: 1px solid currentColor;
+  opacity: 0.4;
+}
+.map-dot[data-state='running'] {
+  color: var(--signal);
+}
+.map-dot[data-state='waiting'] {
+  color: var(--warn);
+}
+
+/* a workflow run: a diamond around a small one */
+.map-run {
+  border-radius: 2px;
+  transform: rotate(45deg);
+  background: var(--bg);
+  border: 1.5px solid var(--fg-4);
+}
+.map-run::before {
+  content: '';
+  position: absolute;
+  inset: 2.5px;
+  border-radius: 1px;
+  background: var(--fg-4);
+}
+.map-run[data-state='running'] {
+  border-color: var(--signal);
+}
+.map-run[data-state='running']::before {
+  background: var(--signal);
+}
+.map-run[data-state='failed'] {
+  border-color: var(--fault);
+}
+.map-run[data-state='failed']::before {
+  background: var(--fault);
+}
+.map-run[data-state='paused']::before {
+  background: transparent;
+}
+
+/* a project or folder: a ring with its state in the middle */
+.map-group {
+  background: var(--bg);
+  border: 1.5px solid var(--edge);
+}
+.map-group::before {
+  content: '';
+  position: absolute;
+  inset: 4.5px;
+  border-radius: 9999px;
+  background: var(--fg-4);
+  transition: background-color var(--dur-3) var(--ease);
+}
+.map-group[data-state='running']::before {
+  background: var(--signal);
+}
+.map-group[data-state='waiting']::before {
+  background: var(--warn);
+}
+
+/* a device: a small square, like a machine */
+.map-device {
+  border-radius: 3px;
+  background: var(--bg);
+  border: 1.5px solid var(--fg-3);
+}
+.map-device[data-online='false'] {
+  border-color: var(--fg-4);
+  border-style: dashed;
+}
+
+.map-selected {
+  box-shadow:
+    0 0 0 3px var(--bg),
+    0 0 0 4.5px var(--fg);
+}
+
+/* stuck: a dotted amber ring (the stuck agent alert fills stuckSince) */
+.map-stuck::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  border: 1.5px dotted var(--warn);
+}
+
+/* labels: a soft plate of the background so text reads over the streams */
+.map-label {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 2px;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.map-label > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 3px;
+}
+.map-label[data-align='end'] {
+  align-items: flex-end;
+  text-align: right;
+}
+.map-label[data-align='center'] {
+  align-items: center;
+  text-align: center;
+}
+/* a name above its node has room on both sides: it never cuts its words */
+.map-label[data-align='center'] > span {
+  overflow: visible;
+}
+.map-label .map-title,
+.map-label .map-meta {
+  max-width: 100%;
+  padding: 0 3px;
+  background: color-mix(in oklab, var(--bg) 82%, transparent);
+}
+.map-title {
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.map-title[data-quiet] {
+  color: var(--fg-2);
+}
+.map-name {
+  font-size: 14px;
+  line-height: 17px;
+  font-weight: 600;
+  font-stretch: 104%;
+  letter-spacing: -0.005em;
+  color: var(--fg);
+}
+.map-meta {
+  font-size: 12px;
+  line-height: 15px;
+  color: var(--fg-3);
+  font-variant-numeric: tabular-nums;
+}
+.map-id {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-4);
+  margin-right: 6px;
+  letter-spacing: -0.01em;
+}
+/* a phone opens at zoom 1 (view.ts READ_K): every word of a label at 12px or more */
+.map-phone .map-id,
+.map-phone .map-conflict {
+  font-size: 12px;
+}
+
+.map-conflict {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid color-mix(in oklab, var(--fault) 60%, transparent);
+  background: var(--bg);
+  color: var(--fault);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+/* overlays on the map: they let the drag through where they have nothing */
+.map-overlay {
+  pointer-events: none;
+}
+.map-overlay > * {
+  pointer-events: auto;
+}

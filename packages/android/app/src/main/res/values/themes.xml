@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Window theme only. Compose draws everything else. AppCompat parent because
+      BiometricPrompt shows an AppCompat dialog on Android 8.x fingerprint devices.
+    -->
+    <style name="Theme.Conclave" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/ink</item>
+        <item name="android:colorBackground">@color/ink</item>
+        <item name="colorAccent">@color/violet</item>
+        <item name="colorPrimary">@color/violet</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

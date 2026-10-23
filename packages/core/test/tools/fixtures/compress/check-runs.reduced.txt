@@ -1,0 +1,57 @@
+{
+  "total_count": 60,
+  "check_runs": [
+    [... 60 items in this array, keys id, name, status, conclusion, started_at, html_url; shown: the first 2, the last 2 and the error items ...],
+    {
+      "id": 9000,
+      "name": "job-0",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-17T12:00:00Z",
+      "html_url": "https://ci.example.com/runs/9000"
+    },
+    {
+      "id": 9001,
+      "name": "job-1",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-17T12:01:00Z",
+      "html_url": "https://ci.example.com/runs/9001"
+    },
+    [... 15 items left out ...],
+    {
+      "id": 9017,
+      "name": "job-17",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-10-17T12:17:00Z",
+      "html_url": "https://ci.example.com/runs/9017"
+    },
+    [... 24 items left out ...],
+    {
+      "id": 9042,
+      "name": "job-42",
+      "status": "completed",
+      "conclusion": "failure",
+      "started_at": "2026-10-17T12:42:00Z",
+      "html_url": "https://ci.example.com/runs/9042"
+    },
+    [... 15 items left out ...],
+    {
+      "id": 9058,
+      "name": "job-58",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-17T12:58:00Z",
+      "html_url": "https://ci.example.com/runs/9058"
+    },
+    {
+      "id": 9059,
+      "name": "job-59",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-17T12:59:00Z",
+      "html_url": "https://ci.example.com/runs/9059"
+    }
+  ]
+}

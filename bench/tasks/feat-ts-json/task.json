@@ -1,0 +1,65 @@
+{
+  "id": "feat-ts-json",
+  "title": "report --format json",
+  "kind": "feature",
+  "lang": "typescript",
+  "difficulty": "easy",
+  "time_limit_s": 600,
+  "smoke": false,
+  "requires": [
+    "bun"
+  ],
+  "source": {
+    "type": "fixture",
+    "base": "ledgerkit",
+    "overlay": null
+  },
+  "visible_test_cmd": "bun test",
+  "hidden": {
+    "files": {
+      "hidden/tests/json.test.ts": "tests/hidden/json.test.ts"
+    },
+    "clear": [
+      "tests/hidden/"
+    ],
+    "runs": [
+      {
+        "cmd": "bun test ./tests/hidden/",
+        "format": "bun",
+        "env": {
+          "TZ": "UTC"
+        }
+      }
+    ],
+    "timeout_s": 120,
+    "expected_total": 9,
+    "restore": [
+      "package.json",
+      "bunfig.toml"
+    ],
+    "move_aside": []
+  },
+  "protected": [
+    "test/**",
+    "tests/**",
+    "package.json",
+    "bunfig.toml"
+  ],
+  "artifacts": [
+    "node_modules/",
+    "target/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".bench-moved/",
+    "*.pyc",
+    "tasksd.db",
+    ".DS_Store"
+  ],
+  "reference": "hidden/reference/",
+  "naive": null,
+  "license": {
+    "name": "written for this kit",
+    "holder": null,
+    "file": null
+  }
+}

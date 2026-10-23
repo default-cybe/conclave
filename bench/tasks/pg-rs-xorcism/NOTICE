@@ -1,0 +1,10 @@
+This task is the Exercism exercise "xorcism" from the rust track,
+as collected in the Aider polyglot benchmark (https://github.com/Aider-AI/polyglot-benchmark),
+commit 7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f, folder rust/exercises/practice/xorcism.
+
+Exercise content is copyright (c) Exercism and is used under the MIT license.
+See bench/third_party/EXERCISM-LICENSE.md for the license text.
+
+Changes for this benchmark: the test files moved to hidden/tests, the example
+solution moved to hidden/reference, the prompt is built from .docs, and for
+JavaScript the package.json is replaced and xtest is changed to test.

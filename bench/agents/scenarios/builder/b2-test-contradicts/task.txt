@@ -1,0 +1,4 @@
+Plan step 1 of 2: make slugify in src/slug.ts follow the README.
+
+Files you own: src/slug.ts and src/slug.test.ts.
+Check: bun test

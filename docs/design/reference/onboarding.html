@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set up Conclave</title>
+<link rel="stylesheet" href="lab.css">
+<script src="logos.js"></script>
+<script src="wave.js"></script>
+<script src="common.js"></script>
+<style>
+  body { display: grid; grid-template-rows: 56px minmax(0, 1fr) auto auto; min-height: 100vh; overflow: hidden; }
+  .bar { display: flex; align-items: center; padding: 0 40px; gap: 16px; font-size: var(--t-13); color: var(--fg-3); }
+  .bar .brand { color: var(--fg); }
+  .bar .right { margin-left: auto; display: flex; gap: 20px; }
+  .hero { position: relative; min-height: 0; }
+  .hero canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .hero .scale { position: absolute; left: 40px; right: 40px; bottom: 10px; display: flex; justify-content: space-between; font: 450 10.5px/1 var(--mono); color: var(--fg-4); pointer-events: none; }
+  .intro { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; padding: 34px 40px 38px; border-top: 1px solid var(--rule); align-items: end; }
+  .word { font-size: 92px; line-height: 0.9; font-weight: 600; letter-spacing: -0.045em; font-stretch: 118%; margin: 0; }
+  .lead { font-size: 17px; line-height: 1.5; color: var(--fg-2); max-width: 520px; margin: 0 0 22px; }
+  .lead b { color: var(--fg); font-weight: 520; }
+  .cta { display: flex; gap: 10px; align-items: center; }
+  .cta .dim { font-size: var(--t-13); margin-left: 8px; }
+  .proc { display: grid; grid-template-columns: repeat(10, 1fr); border-top: 1px solid var(--rule); }
+  .proc div { padding: 14px 0 18px 14px; border-left: 1px solid var(--rule); font-size: var(--t-13); color: var(--fg-2); }
+  .proc div:first-child { border-left: 0; padding-left: 40px; }
+  .proc .n { display: block; font: 450 11px/1 var(--mono); color: var(--fg-4); margin-bottom: 7px; }
+  .proc .t { font-weight: 520; color: var(--fg); }
+  .proc .d { display: block; font-size: var(--t-12); color: var(--fg-3); margin-top: 2px; }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <div class="brand"><span data-mark="13"></span>Conclave</div>
+    <span>Setup</span>
+    <div class="right"><span>Version <span class="num">0.9.0</span></span><a class="link" href="#">Restore from a backup</a></div>
+  </div>
+
+  <div class="hero">
+    <canvas data-wave="hero" data-gap="8" data-radius="1.6" aria-hidden="true"></canvas>
+  </div>
+
+  <div class="intro">
+    <h1 class="word">Conclave</h1>
+    <div>
+      <p class="lead">Your models, agents, routines and usage limits in one place, served from <b>a hub you run</b>. Setup takes about five minutes and every choice can be changed later.</p>
+      <div class="cta">
+        <a class="btn solid lg" href="onboarding-keys.html">Start setup</a>
+        <button class="btn lg">I already have a hub</button>
+        <span class="dim">Press <kbd>↵</kbd> to start</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="proc" aria-label="Setup steps">
+    <div><span class="n">01</span><span class="t">Hub</span><span class="d">Connect or create</span></div>
+    <div><span class="n">02</span><span class="t">Providers</span><span class="d">Keys and plans</span></div>
+    <div><span class="n">03</span><span class="t">Harnesses</span><span class="d">Claude Code, Codex</span></div>
+    <div><span class="n">04</span><span class="t">Defaults</span><span class="d">Models per agent</span></div>
+    <div><span class="n">05</span><span class="t">Memory</span><span class="d">Basic Memory vault</span></div>
+    <div><span class="n">06</span><span class="t">Import</span><span class="d">Past sessions</span></div>
+    <div><span class="n">07</span><span class="t">Devices</span><span class="d">Computer and phone</span></div>
+    <div><span class="n">08</span><span class="t">Alerts</span><span class="d">What reaches you</span></div>
+    <div><span class="n">09</span><span class="t">Routines</span><span class="d">Starter set</span></div>
+    <div><span class="n">10</span><span class="t">Done</span><span class="d">Open Home</span></div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window background before Compose draws: the dark bg token from the web app. -->
+    <color name="ink">#FF0E0E10</color>
+    <!-- The dark signal token (violet). -->
+    <color name="violet">#FFC6A2F7</color>
+</resources>

@@ -1,0 +1,23 @@
+{
+ "_note": "Synthetic headers in the shape GitHub documents (the connector does not return headers).",
+ "ok": {
+  "etag": "W/\"a1b2c3\"",
+  "x-ratelimit-limit": "10",
+  "x-ratelimit-remaining": "9",
+  "x-ratelimit-reset": "1792238460",
+  "x-ratelimit-resource": "search"
+ },
+ "limited": {
+  "x-ratelimit-limit": "10",
+  "x-ratelimit-remaining": "0",
+  "x-ratelimit-reset": "1792245900",
+  "x-ratelimit-resource": "search"
+ },
+ "coreOk": {
+  "etag": "W/\"d4e5f6\"",
+  "x-ratelimit-limit": "60",
+  "x-ratelimit-remaining": "58",
+  "x-ratelimit-reset": "1792241400",
+  "x-ratelimit-resource": "core"
+ }
+}

@@ -1,0 +1,1 @@
+Write tests for pageCount and pageSlice in src/paginate.ts and run them. Report what fails.

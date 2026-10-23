@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-local-hub-retry"
+description = "Enables the local_hub_retry command without any pre-configured scope."
+commands.allow = ["local_hub_retry"]
+
+[[permission]]
+identifier = "deny-local-hub-retry"
+description = "Denies the local_hub_retry command without any pre-configured scope."
+commands.deny = ["local_hub_retry"]

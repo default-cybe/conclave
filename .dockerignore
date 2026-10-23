@@ -1,0 +1,24 @@
+# Keep the build context small. Dependencies are installed inside the image.
+**/node_modules
+**/dist
+**/*.log
+**/.DS_Store
+**/*.tsbuildinfo
+.git
+.github
+.env
+.env.*
+coverage
+.conclave-dev
+
+# Not part of the hub image, except the docs' text: ConclaveHelp reads it (Dockerfile, COPY docs docs).
+docs/**
+!docs/**/*.md
+scripts
+packages/android
+packages/desktop/src-tauri
+packages/mobile/ios
+packages/mobile/android
+Dockerfile
+docker-compose.yml
+.dockerignore

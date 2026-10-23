@@ -1,0 +1,36 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The bundled connection page. The hub's own page gets a separate, notification-only capability at runtime (see grant_hub_ipc in src/main.rs).",
+  "windows": [
+    "main"
+  ],
+  "local": true,
+  "permissions": [
+    "core:default",
+    "allow-get-settings",
+    "allow-connect",
+    "allow-open-hub",
+    "allow-set-autostart",
+    "allow-computer-status",
+    "allow-computer-enable",
+    "allow-computer-disable",
+    "allow-open-settings",
+    "allow-local-hub-status",
+    "allow-local-hub-set",
+    "allow-local-hub-retry",
+    "allow-local-hub-lan",
+    "allow-local-hub-logs",
+    "allow-pair-phone",
+    "allow-open-remote-access",
+    "allow-update-status",
+    "allow-update-install",
+    "allow-terminal-status",
+    "allow-terminal-install",
+    "allow-terminal-remove",
+    "allow-hub-people",
+    "allow-login",
+    "allow-login-confirm",
+    "allow-login-cancel"
+  ]
+}
