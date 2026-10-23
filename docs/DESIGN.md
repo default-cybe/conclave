@@ -82,7 +82,7 @@ Limit sources: response headers, error bodies, Claude Code and Codex local logs,
 
 ## 7. Providers and the model layer
 
-Four provider wire types cover everything: Anthropic Messages (also Z.ai `/api/anthropic`, MiniMax, CLIProxyAPI `/v1/messages`), OpenAI Chat Completions (OpenRouter, DeepSeek, Groq, local), OpenAI Responses (GPT-5.x and Codex models), and Gemini. Internally everything is Anthropic-style blocks; each provider translates at the edge.
+Four provider wire types cover everything: Anthropic Messages (also MiniMax, CLIProxyAPI `/v1/messages`), OpenAI Chat Completions (Z.ai `/api/coding/paas/v4`, OpenRouter, DeepSeek, Groq, local), OpenAI Responses (GPT-5.x and Codex models), and Gemini. Internally everything is Anthropic-style blocks; each provider translates at the edge. Z.ai moved off its `/api/anthropic` shim: with a long tool list the shim keeps only the last tool and adds its own MCP tools. On CLIProxyAPI one provider id splits by model (`providers/split.ts`): Claude over Messages, GPT over Responses, Gemini over the native Gemini wire, the rest over Chat Completions, so the gateway never has to translate tool results, images or thought signatures between wires.
 
 Decisions and sharp edges found while building:
 

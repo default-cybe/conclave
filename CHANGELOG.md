@@ -7,6 +7,18 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+- GLM on the Z.ai Coding Plan sees every tool again. `zai` now uses Chat Completions at `https://api.z.ai/api/coding/paas/v4`, as opencode does, instead of the Anthropic shim at `/api/anthropic`, which kept only the last tool (ToolSearch) of a long tool list and added its own MCP tools. A config that pinned the old address moves to the new one when the hub loads it, once: the entry gets `migrated: "paas-v4"`, so a later switch back in Settings or `conclave config set` survives restarts; another `/anthropic` address keeps the Anthropic wire, and an address with a `${...}` placeholder is left alone. The model gateway still sends Anthropic-format calls for `zai` (`/gw/anthropic`, `/gw/p/zai/v1/messages`, aliases like `zai/glm-5`) to `https://api.z.ai/api/anthropic`, named by the new `anthropicBaseUrl` provider setting.
+- GLM thinking on Z.ai: Effort off now sends `thinking: { type: "disabled" }` (Z.ai thinks unless told not to), and so do calls that set no effort (titles, memory, small model); on sends `clear_thinking: false`, so GLM keeps its reasoning across a tool loop.
+- Structured output on Z.ai: its Chat Completions take `response_format` `json_object` only, so the schema goes in the system prompt.
+- GPT models on a signed in ChatGPT plan (CLIProxyAPI) go over the Responses wire, so an image a tool returns stays inside that tool's result instead of a later user message.
+- Gemini models on a signed in Google plan (CLIProxyAPI) go over the native Gemini wire, so tool results pair with their calls by name and thought signatures survive.
+
+### Changed
+- Provider config: `responsesWire: { models }` and `geminiWire: { baseUrl, models }` next to `anthropicWire` send matching models over the Responses or Gemini wire on one provider id.
+
 ## [0.4.20] - 2026-10-23
 
 ### What's new

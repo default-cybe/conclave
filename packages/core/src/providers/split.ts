@@ -1,9 +1,13 @@
 /**
- * One provider id over two wires. A gateway such as CLIProxyAPI serves Claude
- * models on the Anthropic Messages wire (/v1/messages) and everything else on
- * Chat Completions; config.anthropicWire names which models take which. The
- * session sees one provider: "cliproxy/claude-opus-5-5" and
- * "cliproxy/gpt-6-astra" both resolve here.
+ * One provider id over several wires. A gateway such as CLIProxyAPI serves
+ * Claude models on the Anthropic Messages wire (/v1/messages), GPT models on
+ * the Responses wire (/v1/responses), Gemini models on the native Gemini wire
+ * (/v1beta/models/...:streamGenerateContent) and everything else on Chat
+ * Completions. config.anthropicWire, geminiWire and responsesWire name which
+ * models take which, checked in that order. Each model then reaches the
+ * gateway on its vendor's own wire, so the gateway does not have to translate
+ * tool results, images or thought signatures. The session sees one provider:
+ * "cliproxy/claude-opus-5-5" and "cliproxy/gpt-6-astra" both resolve here.
  *
  * Account prefixes ("neu/claude-opus-5-5" is the same model from a second
  * account) keep their prefix on the wire; the catalog lookup ignores it, and
@@ -11,11 +15,12 @@
  *
  * A request with a Cyber access program (ChatRequest.accessPrograms, a
  * ChatGPT plan's GPT model) goes over the Responses wire, the one that
- * carries access_programs; without one it stays on Chat Completions.
+ * carries access_programs, whatever responsesWire says.
  */
 import type { ProviderConfig } from '../config/schema';
 import { AnthropicProvider } from './anthropic';
 import type { ProviderOptions } from './common';
+import { GeminiProvider } from './gemini';
 import { OpenAIProvider } from './openai';
 import { OpenAIResponsesProvider } from './openai-responses';
 import type { ChatRequest, ModelInfo, Provider, StreamEvent } from './types';
@@ -41,19 +46,24 @@ export class SplitWireProvider implements Provider {
   readonly type = 'openai' as const;
   readonly id: string;
   private readonly openai: Provider;
-  private readonly anthropic: AnthropicProvider;
-  /** The Responses wire, for requests with an access program. */
+  private readonly anthropic?: AnthropicProvider;
+  private readonly gemini?: GeminiProvider;
+  /** The Responses wire, for responsesWire models and requests with an access program. */
   private responses?: Provider;
   private readonly patterns: RegExp[];
+  private readonly geminiPatterns: RegExp[];
+  private readonly responsesPatterns: RegExp[];
 
   constructor(private readonly opts: ProviderOptions) {
     this.id = opts.id;
     const cfg = opts.config;
-    const wire = cfg.anthropicWire!;
-    this.patterns = wire.models.map(wirePattern);
-    const openaiCfg: ProviderConfig = { ...cfg, anthropicWire: undefined };
-    this.openai = cfg.responsesApi ? new OpenAIResponsesProvider({ ...opts, config: openaiCfg }) : new OpenAIProvider({ ...opts, config: openaiCfg });
-    this.anthropic = new AnthropicProvider({ ...opts, config: { ...cfg, type: 'anthropic', baseUrl: wire.baseUrl, anthropicWire: undefined, responsesApi: undefined } });
+    const plain: ProviderConfig = { ...cfg, anthropicWire: undefined, geminiWire: undefined, responsesWire: undefined };
+    this.patterns = (cfg.anthropicWire?.models ?? []).map(wirePattern);
+    this.geminiPatterns = (cfg.geminiWire?.models ?? []).map(wirePattern);
+    this.responsesPatterns = (cfg.responsesWire?.models ?? []).map(wirePattern);
+    this.openai = cfg.responsesApi ? new OpenAIResponsesProvider({ ...opts, config: plain }) : new OpenAIProvider({ ...opts, config: plain });
+    if (cfg.anthropicWire) this.anthropic = new AnthropicProvider({ ...opts, config: { ...plain, type: 'anthropic', baseUrl: cfg.anthropicWire.baseUrl, responsesApi: undefined } });
+    if (cfg.geminiWire) this.gemini = new GeminiProvider({ ...opts, config: { ...plain, type: 'gemini', baseUrl: cfg.geminiWire.baseUrl, responsesApi: undefined } });
   }
 
   /** True when this model goes over the Anthropic wire. */
@@ -61,16 +71,25 @@ export class SplitWireProvider implements Provider {
     return this.patterns.some((re) => re.test(model));
   }
 
-  private pick(model: string): Provider {
-    return this.anthropicFor(model) ? this.anthropic : this.openai;
+  private geminiFor(model: string): boolean {
+    return !this.anthropicFor(model) && this.geminiPatterns.some((re) => re.test(model));
+  }
+
+  private responsesWire(): Provider {
+    if (this.openai instanceof OpenAIResponsesProvider) return this.openai;
+    this.responses ??= new OpenAIResponsesProvider({ ...this.opts, config: { ...this.opts.config, anthropicWire: undefined, geminiWire: undefined, responsesWire: undefined, responsesApi: true } });
+    return this.responses;
+  }
+
+  private pick(model: string, accessPrograms?: unknown): Provider {
+    if (this.anthropicFor(model)) return this.anthropic!;
+    if (this.geminiFor(model)) return this.gemini!;
+    if (accessPrograms || this.responsesPatterns.some((re) => re.test(model))) return this.responsesWire();
+    return this.openai;
   }
 
   stream(req: ChatRequest): AsyncIterable<StreamEvent> {
-    if (req.accessPrograms && !this.anthropicFor(req.model) && !(this.openai instanceof OpenAIResponsesProvider)) {
-      this.responses ??= new OpenAIResponsesProvider({ ...this.opts, config: { ...this.opts.config, anthropicWire: undefined, responsesApi: true } });
-      return this.responses.stream(req);
-    }
-    const p = this.pick(req.model);
+    const p = this.pick(req.model, req.accessPrograms);
     // only the Responses wire carries access_programs
     return p.stream(req.accessPrograms && !(p instanceof OpenAIResponsesProvider) ? { ...req, accessPrograms: undefined } : req);
   }
@@ -109,7 +128,7 @@ export class SplitWireProvider implements Provider {
   }
 
   countTokens(req: ChatRequest): Promise<number> {
-    const p = this.pick(req.model);
+    const p = this.pick(req.model, req.accessPrograms);
     if (!p.countTokens) return Promise.reject(new Error('token counting is not available for this model'));
     return p.countTokens(req);
   }

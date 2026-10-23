@@ -6,6 +6,8 @@
  *
  * notifications.ntfy and notifications.telegram: notifications now stay
  * inside Conclave (in-app, Web Push, the desktop app and the Android app).
+ *
+ * providers.zai pinned to the old Anthropic shim default: see migrateZaiWire.
  */
 
 const RETIRED: Array<[section: string, key: string]> = [
@@ -49,4 +51,53 @@ export function dropRetiredKeys(config: Record<string, unknown>): { dropped: str
   const rest = refs.size ? JSON.stringify(config) : '';
   const secrets = [...refs].filter((name) => !rest.includes(`\${secret:${name}}`));
   return { dropped, secrets };
+}
+
+/** The zai default before 0.4.21: Z.ai's Anthropic shim, which drops tools from long tool lists. */
+const OLD_ZAI_BASE = 'https://api.z.ai/api/anthropic';
+/** providers.zai.migrated once the entry is on (or was chosen after) the /api/coding/paas/v4 move. */
+const ZAI_WIRE_MARK = 'paas-v4';
+
+/**
+ * providers.zai moved from the Anthropic shim to Chat Completions at
+ * /api/coding/paas/v4. A file that pinned the old default URL drops it (and
+ * type "anthropic") so the new default applies; any other /anthropic URL
+ * without a type gets type "anthropic" pinned, so a custom shim keeps its
+ * wire. Runs on load only (ConfigStore constructor) and records
+ * `migrated: "paas-v4"` on the entry it moves; an entry with that mark is
+ * never moved again, so an explicit change back survives restarts. Returns
+ * true when it changed the config.
+ */
+export function migrateZaiWire(config: Record<string, unknown>): boolean {
+  const providers = config.providers;
+  if (!isObject(providers) || !isObject(providers.zai)) return false;
+  const zai = providers.zai;
+  if (zai.migrated === ZAI_WIRE_MARK) return false;
+  // a ${env:...} or ${secret:...} placeholder: the real address is unknown here, so leave it
+  if (typeof zai.baseUrl === 'string' && zai.baseUrl.includes('${')) return false;
+  const url = typeof zai.baseUrl === 'string' ? zai.baseUrl.trim().replace(/\/+$/, '') : undefined;
+  // type "anthropic" with no URL also meant the old default shim; on the new default URL it would break
+  if (url === OLD_ZAI_BASE || (url === undefined && zai.type === 'anthropic')) {
+    delete zai.baseUrl;
+    if (zai.type === 'anthropic') delete zai.type;
+    zai.migrated = ZAI_WIRE_MARK;
+    return true;
+  }
+  if (url?.includes('/anthropic') && zai.type === undefined) {
+    zai.type = 'anthropic';
+    zai.migrated = ZAI_WIRE_MARK;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Marks a providers.zai entry changed after load (Settings, `conclave config
+ * set`) as chosen on the new wire, so the next load does not move it.
+ * `before` is the entry as JSON before the change.
+ */
+export function markZaiWire(config: Record<string, unknown>, before: string | undefined): void {
+  const providers = config.providers;
+  if (!isObject(providers) || !isObject(providers.zai) || JSON.stringify(providers.zai) === before) return;
+  providers.zai.migrated ??= ZAI_WIRE_MARK;
 }

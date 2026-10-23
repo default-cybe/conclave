@@ -477,7 +477,7 @@ export class GeminiProvider extends BaseProvider {
   async *stream(req: ChatRequest): AsyncGenerator<StreamEvent> {
     const names = new ToolNameMap(GEMINI_TOOL_NAME_RULES);
     const body = this.buildBody(req, names);
-    const res = await openStream(`${this.modelPath(req.model)}:streamGenerateContent?alt=sse`, this.headers(), body, this.http(req.signal));
+    const res = await openStream(`${this.modelPath(req.model)}:streamGenerateContent?alt=sse`, { ...this.headers(), ...this.sessionHeaders(req) }, body, this.http(req.signal));
     const state = new GeminiStream(this.id, req.model, names);
     for await (const msg of parseSse(res, { signal: req.signal, idleTimeoutMs: this.idleTimeoutMs, provider: this.id })) {
       for (const data of parseSseJson(msg.data)) yield* state.handle(data);
