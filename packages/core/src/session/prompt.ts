@@ -31,6 +31,8 @@ export interface PromptParts {
    * so a device coming online changes the end of the prompt only.
    */
   conclave?: { card: string; live?: string };
+  /** The outputs folder (files/share.ts), set for a session on the hub without a project folder that has ShareFile. */
+  outputsDir?: string;
 }
 
 /**
@@ -111,6 +113,7 @@ export function buildSystemPrompt(p: PromptParts): SystemBlock[] {
     ...(p.testCommand ? [`- Test command: ${p.testCommand}`] : []),
     ...(p.workspace?.python3Only ? ['- Python: use python3; this device has no python command'] : []),
     ...(p.workspace?.stopCheck ? [`- Check run when you stop: ${p.workspace.stopCheck}`] : []),
+    ...(p.outputsDir ? [`- Files for the owner: save under ${p.outputsDir} and share them with ShareFile`] : []),
     `- Today's date: ${p.date}`,
     `- Your model: ${p.modelRef}`,
   ].join('\n');

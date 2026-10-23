@@ -1,8 +1,10 @@
 /**
  * A fake CLIProxyAPI for tests and local checks. It answers what the hub
  * uses: `-h` (the version line), `-config <file>` (the v8 YAML the hub
- * writes), /healthz, /v1/models, /v1/messages and /v1/chat/completions
- * (canned streams), and the management API: oauth/auth-url, status,
+ * writes), /healthz, /v1/models, /v1/messages, /v1/chat/completions,
+ * /v1/responses and /v1beta/models/<model>:streamGenerateContent (canned
+ * streams; the Gemini route takes the key as x-goog-api-key or ?key=), and
+ * the management API: oauth/auth-url, status,
  * callback, session, credentials (list, delete, refresh) and plugins.
  * It never reaches a real provider.
  *
@@ -201,7 +203,7 @@ async function mgmtAuthorized(req: Request): Promise<boolean> {
 
 function clientAuthorized(req: Request): boolean {
   const h = req.headers.get('authorization') ?? '';
-  const key = h.toLowerCase().startsWith('bearer ') ? h.slice(7) : (req.headers.get('x-api-key') ?? '');
+  const key = h.toLowerCase().startsWith('bearer ') ? h.slice(7) : (req.headers.get('x-api-key') ?? req.headers.get('x-goog-api-key') ?? new URL(req.url).searchParams.get('key') ?? '');
   return clientKeys.includes(key);
 }
 
@@ -421,13 +423,21 @@ const server = Bun.serve({
       if (!local && !cfg.management?.['allow-remote']) return json({ error: 'remote management disabled' }, 403);
       return management(req, url, api);
     }
+    const gemini = /^\/v1beta\/models\/([^/:]+):streamGenerateContent$/.exec(path);
+    if (gemini) {
+      if (!clientAuthorized(req)) return json({ error: { code: 401, message: 'Missing API key', status: 'UNAUTHENTICATED' } }, 401);
+      const model = decodeURIComponent(gemini[1]);
+      if (!servedIds().some(([id]) => id === model)) return json({ error: { code: 400, message: `unknown provider for model ${model}`, status: 'INVALID_ARGUMENT' } }, 400);
+      logCall(path, model, req.headers.get('x-session-id'));
+      return sse([{ data: { candidates: [{ content: { role: 'model', parts: [{ text: `Hello from ${model} over gemini` }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 6, totalTokenCount: 11 } } }]);
+    }
     if (path.startsWith('/v1/')) {
       if (!clientAuthorized(req)) return json({ error: { message: 'Missing API key', type: 'invalid_request_error' } }, 401);
       if (path === '/v1/models') return json({ object: 'list', data: servedIds().map(([id, owner]) => ({ id, object: 'model', created: 1760000000, owned_by: owner })) });
       const body = (await req.json().catch(() => ({}))) as { model?: string; stream?: boolean };
       const model = body.model ?? 'unknown';
       // the router knows only what the accounts list: anything else ends here, before a provider is asked
-      if ((path === '/v1/messages' || path === '/v1/chat/completions') && !servedIds().some(([id]) => id === model)) {
+      if ((path === '/v1/messages' || path === '/v1/chat/completions' || path === '/v1/responses') && !servedIds().some(([id]) => id === model)) {
         return json({ error: { message: `unknown provider for model ${model}`, type: 'invalid_request_error', code: 'model_not_found', param: 'model' } }, 400);
       }
       if (path === '/v1/messages') {
@@ -454,6 +464,18 @@ const server = Bun.serve({
           ],
           'data: [DONE]\n\n',
         );
+      }
+      if (path === '/v1/responses') {
+        logCall(path, model, req.headers.get('x-session-id'));
+        const text = `Hello from ${model} over responses`;
+        const ev = (type: string, data: Record<string, unknown>) => ({ event: type, data: { type, ...data } });
+        return sse([
+          ev('response.created', { response: { id: 'resp_fake', model } }),
+          ev('response.output_item.added', { output_index: 0, item: { type: 'message', id: 'msg_fake', role: 'assistant', content: [] } }),
+          ev('response.output_text.delta', { item_id: 'msg_fake', output_index: 0, content_index: 0, delta: text }),
+          ev('response.output_item.done', { output_index: 0, item: { type: 'message', id: 'msg_fake', content: [{ type: 'output_text', text }] } }),
+          ev('response.completed', { response: { status: 'completed', usage: { input_tokens: 5, output_tokens: 6 } } }),
+        ]);
       }
     }
     return json({ error: 'not found' }, 404);

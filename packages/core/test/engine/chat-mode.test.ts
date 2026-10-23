@@ -13,12 +13,12 @@ afterEach(async () => {
 const toolNames = (body: string) => ((JSON.parse(body) as { tools?: Array<{ name: string }> }).tools ?? []).map((x) => x.name).sort();
 
 describe('the chat agent', () => {
-  test('ships with only the web, maps, memory, Delegate and ConclaveHelp tools, global memory, in the picker', () => {
+  test('ships with only the web, maps, memory, Delegate, ConclaveHelp and ShareFile tools, global memory, in the picker', () => {
     const chat = BUILTIN_AGENTS.find((a) => a.name === 'chat')!;
     expect(chat).toBeDefined();
     expect(chat.primary).toBe(true);
     expect(chat.memory).toBe('global');
-    expect([...(chat.tools ?? [])].sort()).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'SessionRead', 'SessionSearch', 'WebFetch', 'WebSearch']);
+    expect([...(chat.tools ?? [])].sort()).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch']);
     expect(chat.prompt).toContain('Continue as a session');
     expect(chat.prompt).not.toMatch(/[\u2013\u2014]/);
   });
@@ -99,22 +99,22 @@ describe('chat sessions in the engine', () => {
     const { engine } = t;
     const chat = await engine.createSession({ kind: 'chat', cwd: t.cwd });
     await t.run(chat.id, 'what listens on 8080 on madx?');
-    expect(toolNames(t.requests[0])).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'SessionRead', 'SessionSearch', 'WebFetch', 'WebSearch']);
+    expect(toolNames(t.requests[0])).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch']);
     expect(engine.checkpoints(chat.id)).toEqual([]);
     // the chore model answers "ok"; the title is set after the first reply
     expect(await until(() => engine.getSession(chat.id)?.title !== 'New chat')).toBe(true);
 
     engine.updateSession(chat.id, { chat: { webSearch: false } });
     await t.run(chat.id, 'and on pve?');
-    expect(toolNames(t.requests[1])).toEqual(['ConclaveHelp', 'Delegate', 'MemoryForget', 'MemorySave', 'MemorySearch', 'SessionRead', 'SessionSearch']);
+    expect(toolNames(t.requests[1])).toEqual(['ConclaveHelp', 'Delegate', 'MemoryForget', 'MemorySave', 'MemorySearch', 'SessionRead', 'SessionSearch', 'ShareFile']);
 
-    // memory off and web off: only Delegate, which reaches the owner's own devices, and the shipped docs
+    // memory off and web off: only Delegate, which reaches the owner's own devices, the shipped docs, and ShareFile for a file a delegated job made
     engine.updateSession(chat.id, { chat: { memory: false } });
     const agent = engine.agentFor(engine.getSession(chat.id)!);
-    expect(engine.toolsFor(engine.getSession(chat.id)!, agent, 'agent', 0).map((x) => x.name)).toEqual(['Delegate', 'ConclaveHelp']);
+    expect(engine.toolsFor(engine.getSession(chat.id)!, agent, 'agent', 0).map((x) => x.name)).toEqual(['Delegate', 'ConclaveHelp', 'ShareFile']);
 
     const plain = await engine.createSession({ agent: 'chat', cwd: t.cwd });
-    expect(engine.toolsFor(plain, agent, 'agent', 0).map((x) => x.name).sort()).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'SessionRead', 'SessionSearch', 'WebFetch', 'WebSearch']);
+    expect(engine.toolsFor(plain, agent, 'agent', 0).map((x) => x.name).sort()).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch']);
   });
 
   test("a chat's thinking switch wins over the agent", async () => {
@@ -152,7 +152,7 @@ describe('memory off leaves no trace', () => {
     const without = t.requests[1];
     expect(without).not.toContain('The owner runs Proxmox on madx.');
     expect(without).not.toContain('Paperless runs in CT 112');
-    expect(toolNames(without)).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'PlaceDetails', 'PlaceSearch', 'WebFetch', 'WebSearch']);
+    expect(toolNames(without)).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'PlaceDetails', 'PlaceSearch', 'ShareFile', 'WebFetch', 'WebSearch']);
   });
 });
 

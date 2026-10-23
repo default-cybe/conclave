@@ -700,6 +700,10 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
     async readDeviceFile(device, path) {
       return { content: await registry.get(device)!.readText(path), truncated: false };
     },
+    // shared files are served by the real engine (session-files-routes.test.ts)
+    async sharedFile(sessionId) {
+      throw new EngineError(404, `unknown session ${sessionId}`);
+    },
     externalSessions: async () => [],
     async importSession(source, id, device) {
       rec('importSession', source, id, device);

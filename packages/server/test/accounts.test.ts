@@ -310,7 +310,7 @@ describe('accounts on the hub', () => {
     const calls = readFileSync(callLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
     expect(calls.slice(-2)).toEqual([
       { path: '/v1/messages', model: 'claude-opus-5-5', session: 'ses_abc' },
-      { path: '/v1/chat/completions', model: 'gpt-6-astra', session: 'ses_abc' },
+      { path: '/v1/responses', model: 'gpt-6-astra', session: 'ses_abc' },
     ]);
   });
 
@@ -422,7 +422,7 @@ describe('accounts on the hub', () => {
 
       await starter.run(id);
       const sent = readFileSync(callLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1);
-      expect(sent).toMatchObject({ path: '/v1/chat/completions', model: 'gpt-6.1-sol' });
+      expect(sent).toMatchObject({ path: '/v1/responses', model: 'gpt-6.1-sol' });
       expect(rows).toEqual([expect.objectContaining({ source: 'starter', purpose: 'starter', provider: 'cliproxy', model: 'gpt-6.1-sol', account: id, inputTokens: 5, outputTokens: 6 })]);
       // the checks after it: the credentials first, then the plan usage of this account only
       const before = mgmtCalls().length;
@@ -646,7 +646,7 @@ describe('builtin: a ChatGPT plan\'s own models reach CLIProxyAPI through its ca
     let text = '';
     for await (const ev of reg.get('cliproxy')!.stream({ model: 'gpt-6.2-nova', system: [], messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }], maxTokens: 8 })) if (ev.type === 'text_delta') text += ev.text;
     reg.dispose();
-    expect(text).toBe('Hello from gpt-6.2-nova over chat');
+    expect(text).toBe('Hello from gpt-6.2-nova over responses');
     // the same lists again change nothing: no new file, no new call
     const before = mgmtCalls().filter((c) => c.path === 'catalog').length;
     await hub.api('/api/models/refresh', { method: 'POST' });

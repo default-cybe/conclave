@@ -83,6 +83,22 @@ interface Target {
   id: string;
   cfg: ProviderConfig;
   type: WireType;
+  /** Upstream for this wire when it is not cfg.baseUrl (anthropicBaseUrl). */
+  baseUrl?: string;
+}
+
+/** Anthropic Messages paths, for /gw/p/<id> on a provider that has an anthropicBaseUrl. */
+const MESSAGES_PATH = /^\/(v1\/)?messages(\/|$)/;
+
+/**
+ * Where a provider takes Anthropic-format requests. The zai default names
+ * api.z.ai; a baseUrl on bigmodel.cn (Z.ai's mainland site) gets its own shim
+ * instead of inheriting that. `baseUrl` is the expanded cfg.baseUrl.
+ */
+export function anthropicBase(cfg: ProviderConfig, baseUrl = cfg.baseUrl): string | undefined {
+  if (!cfg.anthropicBaseUrl) return undefined;
+  if (/^https:\/\/api\.z\.ai\//.test(cfg.anthropicBaseUrl) && /^https?:\/\/([^/]+\.)?bigmodel\.cn(:\d+)?(\/|$)/.test(baseUrl ?? '')) return 'https://open.bigmodel.cn/api/anthropic';
+  return cfg.anthropicBaseUrl;
 }
 
 class GatewayError extends Error {
@@ -198,6 +214,9 @@ export class Gateway {
     const asTarget = (id: string): Target | undefined => {
       const cfg = providers[id];
       if (!cfg || cfg.type === 'acp') return undefined;
+      // Anthropic-format requests to a provider with an Anthropic upstream next to its own wire (Z.ai)
+      const anthropic = cfg.type !== 'anthropic' && cfg.anthropicBaseUrl && (route.type ? route.type === 'anthropic' : MESSAGES_PATH.test(route.path));
+      if (anthropic) return { id, cfg, type: 'anthropic', baseUrl: anthropicBase(cfg, cfg.baseUrl && this.engine.config.expand(cfg.baseUrl)) };
       return { id, cfg, type: cfg.type as WireType };
     };
     if (wanted) {
@@ -318,7 +337,8 @@ export class Gateway {
     }
 
     // --- upstream request ---
-    const base = target.cfg.baseUrl ? this.engine.config.expand(target.cfg.baseUrl) : DEFAULT_BASE_URLS[type];
+    const raw = target.baseUrl ?? target.cfg.baseUrl;
+    const base = raw ? this.engine.config.expand(raw) : DEFAULT_BASE_URLS[type];
     const upstream = new URL(joinUpstream(base, path));
     url.searchParams.forEach((v, k) => {
       if (k === 'key' && (isOurs(v) || !relayMode)) return;

@@ -99,14 +99,21 @@ export function chatMessages(req: ChatRequest, names: ToolNameMap, pdf = true, v
   return out;
 }
 
+/** Z.ai and its mainland twin (open.bigmodel.cn). */
+const ZAI_HOST = /(^|\.)z\.ai$|bigmodel\.cn$/;
+
 /** Reasoning switches differ per vendor behind the same wire format. */
 function reasoningParams(host: string, req: ChatRequest, info: ModelInfo): Wire {
+  // Z.ai thinks unless told not to, so off (or unset, as on titles and memory calls) is sent; clear_thinking false keeps GLM's reasoning across a tool loop
+  if (info.thinking && ZAI_HOST.test(host)) {
+    return req.thinking && wantsThinking(req.thinking) ? { thinking: { type: 'enabled', clear_thinking: false } } : { thinking: { type: 'disabled' } };
+  }
   if (!req.thinking || !wantsThinking(req.thinking) || !info.thinking) return {};
   const effort = effortOf(req.thinking);
   if (host.endsWith('openrouter.ai')) {
     return { reasoning: req.thinking.budgetTokens ? { max_tokens: req.thinking.budgetTokens } : { effort } };
   }
-  if (/(^|\.)z\.ai$|bigmodel\.cn$|deepseek\.com$/.test(host)) return { thinking: { type: 'enabled' } };
+  if (/deepseek\.com$/.test(host)) return { thinking: { type: 'enabled' } };
   if (/dashscope|aliyuncs\.com$/.test(host)) return { enable_thinking: true, thinking_budget: budgetOf(req.thinking) };
   return { reasoning_effort: effort };
 }
@@ -312,8 +319,11 @@ export class OpenAIProvider extends BaseProvider {
 
   buildBody(req: ChatRequest, names = new ToolNameMap()): Wire {
     const info = this.model(req.model);
+    // Z.ai's response_format takes only text or json_object, so the schema goes in the system prompt
+    const zaiJson = !!req.responseSchema && ZAI_HOST.test(this.host);
+    const msgReq = zaiJson ? { ...req, system: [...req.system, { text: `Reply with only JSON that matches this schema:\n${JSON.stringify(req.responseSchema)}` }] } : req;
     // a file part only for a model that reads more than text; others get a note per PDF
-    const body: Wire = { model: req.model, messages: chatMessages(req, names, info.vision, this.seesImages(req.model, info)) };
+    const body: Wire = { model: req.model, messages: chatMessages(msgReq, names, info.vision, this.seesImages(req.model, info)) };
     if (req.tools?.length) {
       body.tools = req.tools.map((t) => ({
         type: 'function',
@@ -328,7 +338,8 @@ export class OpenAIProvider extends BaseProvider {
     if (req.stopSequences?.length) body.stop = req.stopSequences;
     Object.assign(body, reasoningParams(this.host, req, info));
     if (req.cacheKey && this.official) body.prompt_cache_key = req.cacheKey;
-    if (req.responseSchema) {
+    if (zaiJson) body.response_format = { type: 'json_object' };
+    else if (req.responseSchema) {
       body.response_format = { type: 'json_schema', json_schema: { name: 'response', schema: req.responseSchema, strict: false } };
     }
     return body;

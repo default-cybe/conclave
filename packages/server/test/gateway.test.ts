@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import type { Server } from 'bun';
 import type { ConclaveConfig } from '@conclave/core/config/index.ts';
 import type { UsageRecord } from '@conclave/core/types.ts';
-import { UsageTap, joinUpstream, limitFromHeaders } from '../src/gateway';
+import { UsageTap, anthropicBase, joinUpstream, limitFromHeaders } from '../src/gateway';
 import { UpstreamLimiter } from '../src/gateway/limiter';
 import { startHub, type TestHub } from './helpers';
 
@@ -122,7 +122,8 @@ beforeAll(async () => {
     openai: { type: 'openai', baseUrl: `${base}/v1`, apiKey: 'sk-upstream-openai' },
     google: { type: 'gemini', baseUrl: base, apiKey: 'g-upstream' },
     relay: { type: 'anthropic', baseUrl: `${base}/relay`, name: 'Relay' },
-    zai: { type: 'anthropic', baseUrl: `${base}/zai`, apiKey: 'zai-key', subscription: 'zai-coding' },
+    // as the zai default: Chat Completions for sessions, the Anthropic shim for the gateway's Anthropic route
+    zai: { type: 'openai', baseUrl: `${base}/zai/api/coding/paas/v4`, anthropicBaseUrl: `${base}/zai/api/anthropic`, apiKey: 'zai-key', subscription: 'zai-coding' },
     slow: { type: 'anthropic', baseUrl: `${base}/slow`, apiKey: 'k' },
     limited: { type: 'anthropic', baseUrl: `${base}/limited`, apiKey: 'k' },
   };
@@ -308,7 +309,7 @@ describe('gateway passthrough', () => {
     await post('/gw/anthropic/v1/messages', 'deep');
     expect(JSON.parse(last().body).model).toBe('claude-opus-test');
     await post('/gw/anthropic/v1/messages', 'glm');
-    expect(last().path).toBe('/zai/v1/messages');
+    expect(last().path).toBe('/zai/api/anthropic/v1/messages');
     expect(last().headers['x-api-key']).toBe('zai-key');
     expect(JSON.parse(last().body).model).toBe('glm-5');
     await post('/gw/openai/v1/chat/completions', 'mini');
@@ -316,6 +317,31 @@ describe('gateway passthrough', () => {
     // unknown names pass through byte for byte
     await post('/gw/anthropic/v1/messages', 'claude-other');
     expect(last().body).toBe(JSON.stringify({ model: 'claude-other', max_tokens: 1, messages: [] }));
+  });
+
+  test('a Chat Completions provider with anthropicBaseUrl (Z.ai) takes Anthropic requests at that upstream', async () => {
+    usage.length = 0;
+    const post = (path: string, headers: Record<string, string> = {}) =>
+      fetch(`${hub.url}${path}`, { method: 'POST', headers: { 'x-api-key': keyA, authorization: `Bearer ${keyA}`, 'content-type': 'application/json', ...headers }, body: JSON.stringify({ model: 'glm-5', max_tokens: 1, messages: [] }) });
+    // /gw/anthropic picked by header
+    expect((await post('/gw/anthropic/v1/messages', { 'x-conclave-provider': 'zai' })).status).toBe(200);
+    expect(last().path).toBe('/zai/api/anthropic/v1/messages');
+    expect(last().headers['x-api-key']).toBe('zai-key');
+    expect(last().headers.authorization).toBeUndefined();
+    expect(usage[0]).toMatchObject({ provider: 'zai', inputTokens: 11, outputTokens: 22 });
+    // /gw/p/zai: Messages paths go to the shim, the rest to the provider's own base
+    expect((await post('/gw/p/zai/v1/messages')).status).toBe(200);
+    expect(last().path).toBe('/zai/api/anthropic/v1/messages');
+    await post('/gw/p/zai/v1/messages/count_tokens');
+    expect(last().path).toBe('/zai/api/anthropic/v1/messages/count_tokens');
+    await post('/gw/p/zai/chat/completions');
+    expect(last().path).toBe('/zai/api/coding/paas/v4/chat/completions');
+    expect(last().headers.authorization).toBe('Bearer zai-key');
+    // /gw/openai keeps the provider's own wire
+    await post('/gw/openai/chat/completions', { 'x-conclave-provider': 'zai' });
+    expect(last().path).toBe('/zai/api/coding/paas/v4/chat/completions');
+    // a provider without anthropicBaseUrl is still refused on the Anthropic route
+    expect((await post('/gw/anthropic/v1/messages', { 'x-conclave-provider': 'openai' })).status).toBe(400);
   });
 
   test('per-upstream concurrency limit queues requests', async () => {
@@ -374,6 +400,15 @@ describe('gateway helpers', () => {
     await Bun.sleep(5);
     expect(second).toBe(false);
     a();
+  });
+
+  test('anthropicBase: a bigmodel.cn baseUrl does not inherit the api.z.ai shim', () => {
+    const zai = { type: 'openai' as const, baseUrl: 'https://api.z.ai/api/coding/paas/v4', anthropicBaseUrl: 'https://api.z.ai/api/anthropic' };
+    expect(anthropicBase(zai)).toBe('https://api.z.ai/api/anthropic');
+    expect(anthropicBase({ ...zai, baseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4' })).toBe('https://open.bigmodel.cn/api/anthropic');
+    // an anthropicBaseUrl the owner set elsewhere stays
+    expect(anthropicBase({ ...zai, baseUrl: 'https://open.bigmodel.cn/api/paas/v4', anthropicBaseUrl: 'https://proxy.example/anthropic' })).toBe('https://proxy.example/anthropic');
+    expect(anthropicBase({ type: 'openai', baseUrl: 'https://open.bigmodel.cn/api/paas/v4' })).toBeUndefined();
   });
 
   test('joinUpstream drops a repeated version segment', () => {
