@@ -1,6 +1,6 @@
 import type { ContentBlock, ImageBlock, StopReason, Usage } from '../types';
 import { findCatalogEntry } from './catalog';
-import { BaseProvider, budgetOf, dataUrl, documentsForWire, effortOf, parseToolInput, toolResultImages, toolResultString, wantsThinking } from './common';
+import { BaseProvider, budgetOf, dataUrl, documentsForWire, effortOf, parseToolInput, toolResultMedia, toolResultString, wantsThinking } from './common';
 import { classifyStreamError, parseRateLimitHeaders } from './errors';
 import { hostOf, openStream, trimSlash } from './http';
 import { OpenAIResponsesProvider } from './openai-responses';
@@ -66,7 +66,7 @@ function assistantMessage(m: ProviderMessage, names: ToolNameMap, model: string)
  * messages are text only, so images from tool results go into the next user
  * message.
  */
-export function chatMessages(req: ChatRequest, names: ToolNameMap, pdf = true): Wire[] {
+export function chatMessages(req: ChatRequest, names: ToolNameMap, pdf = true, vision = true): Wire[] {
   const out: Wire[] = [];
   const system = req.system
     .map((s) => s.text)
@@ -81,11 +81,11 @@ export function chatMessages(req: ChatRequest, names: ToolNameMap, pdf = true): 
     }
     const tools: Wire[] = [];
     const parts: Wire[] = [];
-    for (const b of documentsForWire(m.content, pdf)) {
+    for (const b of documentsForWire(m.content, pdf, vision)) {
       if (b.type === 'tool_result') {
         tools.push({ role: 'tool', tool_call_id: b.toolUseId, content: toolResultString(b) });
-        const imgs = toolResultImages(b)
-          .map(imagePart)
+        const imgs = toolResultMedia(b)
+          .map(userPart)
           .filter((x): x is Wire => !!x);
         if (imgs.length) parts.push({ type: 'text', text: `Images returned by tool call ${b.toolUseId}:` }, ...imgs);
       } else {
@@ -313,7 +313,7 @@ export class OpenAIProvider extends BaseProvider {
   buildBody(req: ChatRequest, names = new ToolNameMap()): Wire {
     const info = this.model(req.model);
     // a file part only for a model that reads more than text; others get a note per PDF
-    const body: Wire = { model: req.model, messages: chatMessages(req, names, info.vision) };
+    const body: Wire = { model: req.model, messages: chatMessages(req, names, info.vision, this.seesImages(req.model, info)) };
     if (req.tools?.length) {
       body.tools = req.tools.map((t) => ({
         type: 'function',

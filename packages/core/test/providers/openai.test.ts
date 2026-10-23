@@ -165,7 +165,8 @@ describe('OpenAIProvider streaming', () => {
 
 describe('OpenAIProvider request mapping', () => {
   test('tool results become tool messages; images follow in a user message', () => {
-    const body = compat().buildBody({
+    // set to see images: the catalog has DeepSeek V4 Pro as text only
+    const body = compat({ modelOverrides: { 'deepseek-v4-pro': { vision: true } } }).buildBody({
       model: 'deepseek-v4-pro',
       system: [],
       messages: [

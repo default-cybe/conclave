@@ -133,13 +133,19 @@ describe('OpenAIResponsesProvider', () => {
       'function_call',
       'function_call_output',
       'function_call_output',
-      'message',
     ]);
     expect(same.input[1]).toEqual({ type: 'reasoning', summary: [{ type: 'summary_text', text: 'Plan the steps.\n\nThen act.' }], encrypted_content: 'ENC123' });
     expect(same.input[3]).toEqual({ type: 'function_call', call_id: 'call_1', name: 'Read', arguments: '{"path":"a.ts"}' });
     expect(same.input[5]).toEqual({ type: 'function_call_output', call_id: 'call_1', output: 'file body' });
-    expect(same.input[6]).toEqual({ type: 'function_call_output', call_id: 'call_2', output: 'Error: (image output follows)' });
-    expect(same.input[7].content[1]).toEqual({ type: 'input_image', image_url: 'data:image/png;base64,QQ==', detail: 'auto' });
+    // the image rides in its call's output, not a later user message the model may read as unrelated
+    expect(same.input[6]).toEqual({
+      type: 'function_call_output',
+      call_id: 'call_2',
+      output: [
+        { type: 'input_text', text: 'Error: (image output follows)' },
+        { type: 'input_image', image_url: 'data:image/png;base64,QQ==', detail: 'auto' },
+      ],
+    });
 
     const other = provider().buildBody(history('gpt-5.4')) as any;
     expect(other.input.some((i: any) => i.type === 'reasoning')).toBe(false);
