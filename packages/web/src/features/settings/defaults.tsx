@@ -87,6 +87,7 @@ export function DefaultsSection() {
   const defaultAgent = config?.defaultAgent as string | undefined;
   const defaultDevice = config?.defaultDevice as string | undefined;
   const reviewer = (config?.modes as { reviewer?: string } | undefined)?.reviewer;
+  const hidden = (config?.models as { hidden?: string[] } | undefined)?.hidden ?? [];
   const limits = (config?.limits ?? {}) as {
     autoResume?: boolean;
     resumePrompt?: string;
@@ -129,6 +130,10 @@ export function DefaultsSection() {
         <SettingRow label="Second opinions" help="The model that reviews an answer when you ask for one.">
           <ModelPicker look="field" label="Second opinion model" value={reviewer} onChange={(m) => void save({ modes: { reviewer: m } })} harnesses={false} className="md:max-w-[300px]" />
         </SettingRow>
+      </Group>
+
+      <Group title="Hidden models">
+        <HiddenModels value={hidden} />
       </Group>
 
       <Group title="When a plan runs out">
@@ -313,6 +318,43 @@ function DigestRow({ memOn, mobile }: { memOn: boolean; mobile: boolean }) {
         </div>
         <OnOff label="Daily digest" checked={!!s?.enabled} disabled={!memOn || busy || !s} onChange={(v) => void set({ enabled: v, ...(time ? { time } : {}) })} size={mobile ? 'touch' : 'sm'} />
       </div>
+    </SettingRow>
+  );
+}
+
+/** One model ref or glob per line, blanks and repeats dropped. */
+export function hiddenList(text: string): string[] {
+  return [...new Set(text.split('\n').map((l) => l.trim()).filter(Boolean))];
+}
+
+/** models.hidden (core config/hidden.ts): models no picker shows and nothing runs on, across the hub. */
+export function HiddenModels({ value }: { value: string[] }) {
+  const saved = value.join('\n');
+  const [text, setText] = useState(saved);
+  const [busy, setBusy] = useState(false);
+  const dirty = hiddenList(text).join('\n') !== saved;
+  return (
+    <SettingRow label="Hidden models" help="One model or pattern per line, * matches anything (cliproxy/glm-*). Pickers leave them out and no tier, fallback, agent or workflow uses them." stack>
+      <Textarea value={text} minRows={2} maxRows={8} placeholder="cliproxy/glm-*" onChange={(e) => setText(e.target.value)} aria-label="Hidden models" />
+      {dirty && (
+        <div className="mt-2 flex gap-2 anim-fade">
+          <Button
+            size="sm"
+            variant="solid"
+            busy={busy ? 'Saving' : false}
+            onClick={async () => {
+              setBusy(true);
+              if (await save({ models: { hidden: hiddenList(text) } })) toast({ title: 'Hidden models saved.' });
+              setBusy(false);
+            }}
+          >
+            Save
+          </Button>
+          <Button size="sm" variant="quiet" onClick={() => setText(saved)}>
+            Undo changes
+          </Button>
+        </div>
+      )}
     </SettingRow>
   );
 }
