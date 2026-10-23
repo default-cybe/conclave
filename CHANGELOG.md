@@ -7,6 +7,23 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### What's new
+
+- Sessions can hand you files. The new ShareFile tool turns a file a session made (a PDF, an image, a spreadsheet, a zip) into a file card in the chat, with a preview for images, PDFs and plain text, and a Download button. Chat gets it for files a delegated job made; the assistant and Code get it with their other tools.
+- Sessions on the hub with no project folder (Chat, the assistant) save files for you under `<home>/outputs/<session>`, and the prompt says so.
+- The Outputs card in the session panel now lists shared files too, so a file made with Bash shows up.
+- Android: a file a session shared shows as a card under the turn's work, with its name, type and size, Open (copied to the app's `shared/` cache and opened in the app for its type) and Save (the system's save picker).
+
+### Security
+
+- Shared files come only from `GET /api/sessions/:id/files/:toolUseId`. The hub finds the ShareFile result in that session's own messages and checks the path again on every download. No path comes from the request.
+- A file must be in the session's folder, its outputs folder, or the folder of a session it started. On the hub, symlinks are resolved first, the hub's private files are refused, and nothing else under the hub home is served. Under the hub user's home only a real subfolder counts: a session in `~`, `~/`, `/home` or `/` never shares `~/.ssh`. Regular files with one link only (a hard link could name a private file), 30 MB at most.
+- A download opens the checked file with `O_NOFOLLOW` and sends it only when its device and inode match the check, so a file swapped in between is refused. It makes no folders, and a member's download goes through the same guard as her tools.
+- The web shows a file card only for a ShareFile call's result, never for `meta.file` on another tool's.
+- Downloads are attachments with `nosniff` and a `sandbox` CSP. Only PDF, PNG, JPEG, GIF and WebP may open inline, so SVG and HTML never run as the hub's page. Each download is in the audit log. Untrusted agents never get ShareFile.
+
 ## [0.4.20] - 2026-10-23
 
 ### What's new

@@ -117,6 +117,8 @@ data class ToolResultMeta(
     val memoryId: String? = null,
     /** PlaceSearch, PlaceDetails, Directions, MapImage: the card the app draws (Maps.kt). */
     val maps: MapsCardData? = null,
+    /** ShareFile: the file it shared (name, mediaType, size, title), read by FileCards.kt; a JsonObject so a bad one never breaks the message. */
+    val file: JsonObject? = null,
 )
 
 /** One web search result in [ToolResultMeta.results]. */
