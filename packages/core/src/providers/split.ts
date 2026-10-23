@@ -19,7 +19,7 @@ import type { ProviderOptions } from './common';
 import { OpenAIProvider } from './openai';
 import { OpenAIResponsesProvider } from './openai-responses';
 import type { ChatRequest, ModelInfo, Provider, StreamEvent } from './types';
-import { cyberChoices } from './access-programs';
+import { cyberChoices, cyberLabel, retiredAlias } from './access-programs';
 
 /** "claude-*" style pattern to a test: * is any run of characters, the rest is literal. Case-insensitive. */
 export function wirePattern(glob: string): RegExp {
@@ -81,6 +81,9 @@ export class SplitWireProvider implements Provider {
     // the plan's own name for it ("GPT-6.1-Sol"), before the account's short name goes on
     const meta = this.opts.config.modelMeta?.[model];
     if (meta?.name) info.name = meta.name;
+    // a Daybreak alias is the picker's Daybreak row: named for its program, as the Codex app names it
+    const alias = retiredAlias(model);
+    if (alias) info.name = cyberLabel(alias.cyber);
     if (this.opts.config.subscription && !this.anthropicFor(id)) {
       const cyber = cyberChoices(model);
       if (cyber.length) info.cyber = cyber;

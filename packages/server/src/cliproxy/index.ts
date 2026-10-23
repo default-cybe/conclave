@@ -59,7 +59,7 @@ import { PidFile, processMatches } from '../remote/pids';
 import { catchRedirect, type Catcher, type CatchOptions } from './catcher';
 import { cliproxyEnv, cliproxyFiles, ensurePrivateDirs, writeConfig, type CliproxyFiles } from './config';
 import { Management, ManagementError, codexModels, listModels, splitPrefixed, type CodexModel, type RawCredential } from './management';
-import { RETIRED_ALIASES } from '@conclave/core/providers/access-programs.ts';
+import { RETIRED_ALIASES, type CyberProgram } from '@conclave/core/providers/access-programs.ts';
 import { CATALOG_MS, codexSection, dropCatalogs, fetchCatalog, withExtras, writeCatalog, type Catalog, type CatalogExtra } from './catalog';
 import {
   CLIPROXY_REPO,
@@ -186,6 +186,24 @@ interface CredState {
   /** Wait after the last 429 from the usage endpoint; doubles up to an hour. */
   backoff: number;
   usageError?: string;
+}
+
+/**
+ * An account's models as the Accounts page and the routing read them:
+ * CLIProxyAPI's list (its catalog's names, "GPT 6.0 Astra") with the plan's
+ * own names ("GPT-6-Astra"), without what the plan hides (codex-auto-review)
+ * or a retiring Daybreak alias.
+ */
+function planModels(s: CredState): Array<{ id: string; name?: string }> | undefined {
+  const own = new Map((s.own ?? []).map((m) => [m.id, m]));
+  return s.models
+    ?.filter((m) => !own.get(m.id)?.hidden && !RETIRED_ALIASES[m.id])
+    .map((m) => (own.get(m.id)?.name ? { ...m, name: own.get(m.id)!.name } : m));
+}
+
+/** The Daybreak programs a plan is approved for: its own list has their alias. */
+function daybreakOf(s: CredState | undefined): CyberProgram[] {
+  return [...new Set((s?.own ?? []).filter((m) => !m.hidden && RETIRED_ALIASES[m.id]).map((m) => RETIRED_ALIASES[m.id].cyber))];
 }
 
 /** The plan's usage endpoint per credential type. */
@@ -837,6 +855,13 @@ export class CliproxyManager {
         seen.add(id);
         out.push({ id });
       }
+      // a plan approved for Daybreak lists its alias: a "Daybreak Blue" row on that plan, which runs a named model with the program (registry.resolve)
+      // shortcut: a plan without a prefix gets the bare alias, so CLIProxyAPI may pick another plan; marking it "Use when a model refuses" names it
+      for (const m of this.creds.get(c.name)?.own ?? []) {
+        if (m.hidden || !RETIRED_ALIASES[m.id]) continue;
+        const id = prefix ? `${prefix}/${m.id}` : m.id;
+        if (!seen.has(id)) (seen.add(id), out.push({ id }));
+      }
     }
     return out;
   }
@@ -975,7 +1000,8 @@ export class CliproxyManager {
         ...(error ? { error } : {}),
         windows: mergeWindows(this.signalWindows(c), s?.windows ?? []),
         cooldowns,
-        ...(s?.models ? { models: s.models } : {}),
+        ...(s?.models ? { models: planModels(s) } : {}),
+        ...(daybreakOf(s).length ? { daybreak: daybreakOf(s) } : {}),
         ...(c.signalsAt || s?.windows.length ? { observedAt: Math.max(c.signalsAt ?? 0, ...(s?.windows ?? []).map((w) => w.observedAt ?? 0)) } : {}),
       };
     });
@@ -1126,9 +1152,10 @@ export class CliproxyManager {
               s.own = list;
               own = true;
             }
-          }
+          } else if (r.status !== 304) log.warn(`a ChatGPT plan's own model list answered ${r.status}; its names and hidden models stay unapplied`);
         } catch (err) {
-          log.debug(`a ChatGPT plan's own models: ${(err as Error).message}`);
+          // once an hour per plan at most: a failed read leaves the Accounts page on CLIProxyAPI's names
+          log.warn(`a ChatGPT plan's own models: ${(err as Error).message}`);
         }
       }
     }

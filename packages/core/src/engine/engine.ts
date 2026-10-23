@@ -638,8 +638,8 @@ export class Engine implements EngineApi {
     if (kind === 'chat') Object.assign(next, { kind: 'chat', chat });
     else {
       delete next.kind;
-      // a workbench session keeps its effort and memory switches; Continue as a session drops the chat's switches
-      const keep = (patch.chat !== undefined || s.kind !== 'chat') && (!!chat?.thinking || chat?.memory === false);
+      // a workbench session keeps its effort, Cyber access and memory switches; Continue as a session drops the chat's switches
+      const keep = (patch.chat !== undefined || s.kind !== 'chat') && (!!chat?.thinking || !!chat?.cyber || chat?.memory === false);
       if (keep) next.chat = chat;
       else delete next.chat;
     }
@@ -2031,11 +2031,12 @@ export class Engine implements EngineApi {
 
   /**
    * The Cyber access program a turn sends (providers/access-programs.ts): the
-   * session's choice, else the one a retiring Daybreak alias in its model ref
-   * stands for. Only on a model that takes it (ModelInfo.cyber); none else.
+   * one a Daybreak alias in its model ref stands for (the picker's Daybreak
+   * row), else the session's choice. Only on a model that takes it
+   * (ModelInfo.cyber); none else.
    */
   accessProgramsFor(info: ModelInfo, session?: Session): ChatRequest['accessPrograms'] {
-    const asked = session?.chat?.cyber ?? (session?.model ? retiredAlias(session.model)?.cyber : undefined);
+    const asked = (session?.model ? retiredAlias(session.model)?.cyber : undefined) ?? session?.chat?.cyber;
     return asked && info.cyber?.includes(asked) ? { cyber: asked } : undefined;
   }
 

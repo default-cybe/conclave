@@ -115,6 +115,8 @@ interface Account {
   /** codex: the plan's own model list as ChatGPT's Codex models address gives it (slugs, or full entries). */
   codex_models?: Array<string | Record<string, unknown>>;
   codex_models_etag?: string;
+  /** More models CLIProxyAPI registers for it (as the real one lists codex-auto-review and GPT Image for a ChatGPT plan). */
+  extra_models?: string[];
 }
 
 const USAGE_URLS = {
@@ -156,7 +158,7 @@ function codexSection(plan: string | undefined): string {
 
 /** An account's models as CLIProxyAPI registers them: the built-in list for its type, plus a ChatGPT plan's catalog section. */
 function modelsOf(acct: Account): Array<[string, string]> {
-  const out = [...(MODELS[acct.type] ?? [])];
+  const out = [...(MODELS[acct.type] ?? []), ...(acct.extra_models ?? []).map((id): [string, string] => [id, 'openai'])];
   if (acct.type === 'codex' && catalogPath && existsSync(catalogPath)) {
     const section = (JSON.parse(readFileSync(catalogPath, 'utf8')) as Record<string, Array<{ id: string }>>)[codexSection(acct.plan_type)] ?? [];
     for (const m of section) if (!out.some(([id]) => id === m.id)) out.push([m.id, 'openai']);
