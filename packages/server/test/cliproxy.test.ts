@@ -1005,6 +1005,28 @@ describe("two members' own plans", () => {
     expect(hub.engine.access.plans!.entry(bob.id)).toBeDefined();
   });
 
+  test('alice cannot set bob’s plan short name', async () => {
+    const prefixOf = async () => (await as(bob, '/api/accounts')).body.accounts.find((a: { id: string }) => a.id === bob.account).prefix;
+    const before = await prefixOf();
+    const r = await as(alice, `/api/accounts/${encodeURIComponent(bob.account)}/prefix`, { method: 'PUT', json: { prefix: 'stolen' } });
+    expect(r.status).toBe(404);
+    expect(r.text).not.toContain(bob.email);
+    expect(await prefixOf()).toBe(before);
+  });
+
+  test("a member's CLIProxyAPI sees none of the hub's config but its own parts", () => {
+    const hubCfg = hub.engine.config.get();
+    const token = hubCfg.server?.token;
+    expect(token).toBeTruthy();
+    for (const w of [alice, bob]) {
+      const view = (hub.engine.access.plans as unknown as { manager(id: string): { opts: { engine: { config: { get(): Record<string, any> } } } } }).manager(w.id).opts.engine.config.get();
+      expect(Object.keys(view).sort()).toEqual(['models', 'providers']);
+      expect(Object.keys(view.models ?? {}).sort()).toEqual(['accounts', 'cliproxy', 'routes']);
+      expect(JSON.stringify(view)).not.toContain(token!);
+      expect(view.providers.mock).toBeUndefined();
+    }
+  });
+
   test('their engine entries are apart: own ports, own keys, own models', () => {
     const plans = hub.engine.access.plans!;
     const a = plans.entry(alice.id)!;
