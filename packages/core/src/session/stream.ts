@@ -6,6 +6,7 @@ import { accountsOf } from '../accounts/attached';
 import { sleep } from '../util/text';
 import { logger } from '../util/log';
 import { guardTranscript } from './pairing';
+import { hiddenWords, isHiddenModel } from '../config/hidden';
 import { OWNER_ID, currentAccount, isMember } from '../people/context';
 import { AccessError } from '../people/access';
 import { catalogCost } from '../usage/value';
@@ -94,6 +95,8 @@ async function streamCall(
   const accountId = target.accountId ?? session?.accountId ?? currentAccount() ?? OWNER_ID;
   const member = isMember(accountId);
   const registry = engine.providersFor(accountId);
+  // a session saved on a model the owner hid since says so, never switches on its own
+  if (isHiddenModel(engine.config.get(), modelRef)) throw new ProviderError('bad_request', hiddenWords(modelRef));
   // a pinned call skips the owner's account order: the entry names its provider and account
   let resolved = target.pin ? registry.resolveAt(target.pin.provider, target.pin.model) : registry.resolve(modelRef);
   if (resolved.acp) throw new ProviderError('bad_request', `${modelRef} is an agent harness, not a model API`);
