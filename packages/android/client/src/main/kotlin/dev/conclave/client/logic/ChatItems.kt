@@ -27,7 +27,8 @@ sealed class ChatItem {
         override val key get() = "group:$group"
     }
 
-    data class Notice(val message: Message) : ChatItem() {
+    /** [result]: a background task that reported back; drawn as its compact row that opens to the report. */
+    data class Notice(val message: Message, val result: AgentResult? = null) : ChatItem() {
         override val key get() = message.id
     }
 
@@ -70,11 +71,12 @@ object ChatItems {
                 }
             }
             when (m.kind) {
-                MessageKind.NOTICE -> out.add(ChatItem.Notice(m))
+                MessageKind.NOTICE -> out.add(ChatItem.Notice(m, AgentResults.forNotice(messages, m)))
                 MessageKind.SUMMARY -> out.add(ChatItem.Summary(m))
                 MessageKind.ASIDE -> out.add(ChatItem.Aside(m))
                 MessageKind.NORMAL -> when (m.role) {
-                    Role.USER -> if (!isToolResultsOnly(m)) out.add(ChatItem.User(m))
+                    // tool results show in their cards; hub context alone (a task's report, hook feedback) draws no empty bubble
+                    Role.USER -> if (!isToolResultsOnly(m) && !AgentResults.isContextOnly(m)) out.add(ChatItem.User(m))
                     Role.ASSISTANT -> out.add(ChatItem.Assistant(m))
                 }
             }

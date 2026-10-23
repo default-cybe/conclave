@@ -1,4 +1,4 @@
-import type { ContentBlock, Message, Session } from '../types';
+import type { AgentResultRef, ContentBlock, Message, Session } from '../types';
 import type { Engine } from './engine';
 import type { AgentDef } from '../extensions/types';
 import type { SessionRunner } from '../session/runner';
@@ -215,8 +215,10 @@ export function deliverSubagentResult(engine: Engine, parentId: string, childId:
   const parent = engine.getSession(parentId);
   if (!parent || parent.archived || !child) return;
   const runner = engine.runnerFor(parentId);
-  runner.deliver({ block: subagentResultBlock(child, state, text), source: childId, wake: !parent.meta?.subagent });
-  engine.notice(parentId, `Background task ${state === 'completed' ? 'finished' : 'failed'}: ${child.title}`, state === 'completed' ? 'info' : 'warning');
+  // the apps draw one row for the notice and the report ("Message from subagent ..."), not a notice and an empty bubble
+  const result: AgentResultRef = { type: 'subagent', id: childId, label: child.title, agent: child.agent, state: state === 'completed' ? 'completed' : 'failed' };
+  runner.deliver({ block: subagentResultBlock(child, state, text), source: childId, wake: !parent.meta?.subagent, result });
+  engine.notice(parentId, `Background task ${state === 'completed' ? 'finished' : 'failed'}: ${child.title}`, state === 'completed' ? 'info' : 'warning', undefined, { kind: 'agent-result', agentResult: result });
 }
 
 function runnerDepthOf(engine: Engine, session: Session): number {

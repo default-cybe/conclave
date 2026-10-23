@@ -132,6 +132,18 @@ test('with run_in_background the result arrives later as a workflow_result note'
   expect(status.content).toContain('(background)');
   expect(await until(() => gotResult, 10_000)).toBe(true);
   await t.engine.runnerFor(s.id).waitIdle();
+  // the apps draw one row for the run: its notice line and the message that carries the report name it
+  // (the WorkflowStatus text names the block too, so wait for the run's own note)
+  const carried = () => t.engine.getMessages(s.id).some((m) => m.role === 'user' && m.content.some((b) => b.type === 'text' && b.text.includes('<workflow_result run=')));
+  expect(await until(carried, 10_000)).toBe(true);
+  await t.engine.runnerFor(s.id).waitIdle();
+  const msgs = t.engine.getMessages(s.id);
+  const notice = msgs.find((m) => m.kind === 'notice' && m.meta?.kind === 'agent-result');
+  const ref = notice?.meta?.agentResult as { type: string; id: string; label: string; state: string } | undefined;
+  expect(ref).toMatchObject({ type: 'workflow', label: 'bg-run', state: 'completed' });
+  expect(ref!.id).toStartWith('wfr_');
+  const carrier = msgs.find((m) => m.role === 'user' && m.content.some((b) => b.type === 'text' && b.text.includes('<workflow_result')));
+  expect(carrier?.meta?.agentResults).toEqual([ref]);
 });
 
 test('in bypass mode the Workflow tool starts without the approval card; other modes still ask; the caps still hold', async () => {

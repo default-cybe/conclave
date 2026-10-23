@@ -23,9 +23,18 @@ export function textOf(blocks: ContentBlock[]): string {
     .join('\n\n');
 }
 
-/** A user message the owner never wrote: only hub context for the model (a Stop hook's feedback, say). */
+/** Something of the owner's in a user message: words that are not hub context, a picture or a document. */
+function ownBlock(b: ContentBlock): boolean {
+  return (b.type === 'text' && !isReminder(b) && b.text.trim() !== '') || b.type === 'image' || b.type === 'document';
+}
+
+/**
+ * A user message the owner never wrote: only hub context for the model (a
+ * Stop hook's feedback, a background task's report), maybe after tool
+ * results, or nothing at all. It draws no bubble: an empty one is never shown.
+ */
 export function isContextOnly(m: Message): boolean {
-  return m.role === 'user' && m.content.length > 0 && m.content.every(isReminder);
+  return m.role === 'user' && !m.content.some(ownBlock);
 }
 
 export function msgText(m: Message): string {

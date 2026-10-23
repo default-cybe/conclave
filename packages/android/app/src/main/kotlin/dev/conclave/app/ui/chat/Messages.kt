@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -63,6 +64,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.conclave.app.ui.common.MarkdownText
 import dev.conclave.app.ui.common.ModelMark
@@ -76,6 +78,7 @@ import dev.conclave.app.ui.conversation.tapForActions
 import dev.conclave.app.ui.motion.Fold
 import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
+import dev.conclave.client.logic.AgentResult
 import dev.conclave.client.logic.ChatLive
 import dev.conclave.client.logic.Format
 import dev.conclave.client.logic.ModelRefs
@@ -403,7 +406,13 @@ fun NoticeLine(
     onSwitchModel: () -> Unit,
     onTryNext: (() -> Unit)? = null,
     tryingNext: Boolean = false,
+    /** A background task that reported back: its compact row instead of the line. */
+    result: AgentResult? = null,
 ) {
+    if (result != null) {
+        AgentResultLine(result, Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+        return
+    }
     val text = message.content.plainText().ifBlank { message.author ?: "Notice" }
     val waiting = session?.status == SessionStatus.WAITING_RESET && isLatestNotice
     val resumeAt = session?.resumeAt
@@ -434,6 +443,43 @@ fun NoticeLine(
         if (onTryNext != null) {
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = onTryNext, enabled = !tryingNext) { Text(if (tryingNext) NextModel.BUSY else NextModel.LABEL) }
+        }
+    }
+}
+
+/**
+ * A background task that reported back (AgentResults): "Message from
+ * subagent count widgets", its state (failed in the fault color) and a
+ * chevron, one quiet line. A tap opens the report under it, markdown at up
+ * to 320dp that scrolls.
+ */
+@Composable
+fun AgentResultLine(result: AgentResult, modifier: Modifier = Modifier) {
+    val c = Conclave.colors
+    var open by rememberSaveable(result.id, result.label) { mutableStateOf(false) }
+    Column(modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 40.dp).clickable(onClickLabel = if (open) "Hide the report" else "Show the report") { open = !open },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(result.title, style = ConclaveType.meta, color = c.fg3, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
+            Text(result.stateWord, style = ConclaveType.meta, color = if (result.failed) c.fault else if (result.state == "stopped") c.warn else c.fg3)
+            Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, contentDescription = null, tint = c.fg4, modifier = Modifier.size(16.dp))
+        }
+        if (open) {
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(bottom = 6.dp)) {
+                Box(Modifier.width(1.dp).fillMaxHeight().background(c.rule2))
+                Spacer(Modifier.width(12.dp))
+                val report = result.report
+                if (report.isNullOrBlank()) {
+                    Text("The report is not in this view.", style = ConclaveType.meta, color = c.fg3)
+                } else {
+                    Box(Modifier.weight(1f).heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                        SelectionContainer { MarkdownText(report) }
+                    }
+                }
+            }
         }
     }
 }

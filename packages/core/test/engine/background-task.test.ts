@@ -46,6 +46,15 @@ describe('background Task results', () => {
       expect((child.meta?.background as { parentId: string }).parentId).toBe(s.id);
       // the user sees a notice in the parent
       expect(msgs.some((m) => m.kind === 'notice' && textOf(m).includes('Background task finished: count widgets'))).toBe(true);
+      // the apps draw one row for it: the notice and the wake message both name the task
+      const ref = { type: 'subagent', id: child.id, label: 'count widgets', agent: 'general-purpose', state: 'completed' };
+      const notice = msgs.find((m) => m.kind === 'notice' && textOf(m).includes('Background task finished'))!;
+      expect(notice.meta?.kind).toBe('agent-result');
+      expect(notice.meta?.agentResult).toEqual(ref);
+      expect(wake!.meta?.kind).toBe('agent-result');
+      expect(wake!.meta?.agentResults).toEqual([ref]);
+      // the model still gets the same block and nothing else in that message
+      expect(wake!.content.every((b) => b.type === 'text' && b.text.startsWith('<system-reminder>'))).toBe(true);
       // the last assistant reply came from the wake turn
       const last = [...msgs].reverse().find((m) => m.role === 'assistant' && m.kind === 'normal')!;
       expect(textOf(last)).toContain('42 widgets');
@@ -76,6 +85,9 @@ describe('background Task results', () => {
       const carrier = msgs.find((m) => m.role === 'user' && m.content.some((b) => b.type === 'tool_result') && textOf(m).includes('REPORT: 7 widgets'));
       expect(carrier).toBeDefined();
       expect(carrier!.meta?.subagentResults).toHaveLength(1);
+      expect((carrier!.meta?.agentResults as Array<{ type: string; state: string; label: string }>)?.map((r) => [r.type, r.state, r.label])).toEqual([['subagent', 'completed', 'count widgets']]);
+      // tool results plus the note: not a message of the owner's, so it carries no row kind of its own
+      expect(carrier!.meta?.kind).toBeUndefined();
       // tool results stay first in the message
       expect(carrier!.content[0].type).toBe('tool_result');
 
