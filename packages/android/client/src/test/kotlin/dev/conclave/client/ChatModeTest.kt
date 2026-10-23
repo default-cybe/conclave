@@ -76,9 +76,12 @@ class ChatModelsTest {
         assertEquals(ChatSettings(), bare.chatSettings)
 
         // a kind from a newer hub falls back to an agent session
-        val future = json.decodeFromString(Session.serializer(), """{"id":"x","kind":"canvas","chat":{"webSearch":true,"memory":false,"thinking":"ultra"}}""")
+        val future = json.decodeFromString(Session.serializer(), """{"id":"x","kind":"canvas","chat":{"webSearch":true,"memory":false,"thinking":"extreme"}}""")
         assertFalse(future.isChat)
         assertNull(future.chat?.thinking)
+        // ultra is a level now (ChatGPT plans offer it)
+        val ultra = json.decodeFromString(Session.serializer(), """{"id":"u","kind":"chat","chat":{"thinking":"ultra"}}""")
+        assertEquals(ThinkingLevel.ULTRA, ultra.chat?.thinking)
         // Claude's two levels above high decode
         val max = json.decodeFromString(Session.serializer(), """{"id":"y","kind":"chat","chat":{"thinking":"max"}}""")
         assertEquals(ThinkingLevel.MAX, max.chat?.thinking)

@@ -508,7 +508,7 @@ export function Composer({ session }: { session: Session }) {
           }
           add={<AddButton onFiles={(list) => void addFiles(list)} accept={ACCEPT} />}
           options={<OptionsButton label="Options: agent, device and permissions" onClick={() => setSheet(true)} />}
-          model={<PhoneModelEffort model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} harnesses switchOf={messages?.length ? session : undefined} />}
+          model={<PhoneModelEffort model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} harnesses switchOf={messages?.length ? session : undefined} />}
           mic={canDictate() && <DictateButton onText={(t) => setText((x) => (x.trim() ? `${x.trimEnd()} ${t}` : t))} />}
           send={
             <PhoneSend
@@ -619,7 +619,7 @@ export function Composer({ session }: { session: Session }) {
         left={left}
         right={
           <>
-            <ModelEffort model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} harnesses switchOf={messages?.length ? session : undefined} />
+            <ModelEffort model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} harnesses switchOf={messages?.length ? session : undefined} />
             <ContextRing session={session} />
           </>
         }

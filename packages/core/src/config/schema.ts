@@ -26,6 +26,12 @@ export interface ProviderConfig {
   models?: string[];
   /** Per-model overrides (context window, pricing, capabilities). */
   modelOverrides?: Record<string, Partial<ModelOverride>>;
+  /**
+   * What a plan says about its own models (the hub's CLIProxyAPI manager fills
+   * it from a ChatGPT plan's Codex model list; runtime only): the name it
+   * shows, the Effort levels it takes and its default, keyed by bare model id.
+   */
+  modelMeta?: Record<string, { name?: string; efforts?: string[]; defaultEffort?: string }>;
   enabled?: boolean;
   /** Subscription id this provider bills against, used to group limits (e.g. "zai-coding"). */
   subscription?: string;

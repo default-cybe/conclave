@@ -469,6 +469,16 @@ export class AccountsService {
   }
 
   /**
+   * The vendor of a plan whose own list has this model, account prefix
+   * ignored: for an id no catalog or name places (a new model only a
+   * ChatGPT plan lists), so pickers file it under its maker. Undefined when no plan lists it.
+   */
+  listedVendor(model: string): string | undefined {
+    const want = bareModel(model).toLowerCase();
+    return this.accts().find((a) => a.cfg.kind === 'subscription' && a.facts?.models?.some((m) => bareModel(m.id).toLowerCase() === want))?.cfg.vendor;
+  }
+
+  /**
    * The plans and keys marked "Use when a model refuses" that can take this
    * model now, in the owner's order for it: on, signed in, not at a limit or
    * resting, and offering the model. A refused reply is tried on these first,

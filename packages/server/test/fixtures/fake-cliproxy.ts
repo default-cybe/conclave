@@ -114,6 +114,7 @@ interface Account {
   plan_type?: string;
   /** codex: the plan's own model list as ChatGPT's Codex models address gives it (slugs, or full entries). */
   codex_models?: Array<string | Record<string, unknown>>;
+  codex_models_etag?: string;
 }
 
 const USAGE_URLS = {
@@ -341,7 +342,10 @@ async function management(req: Request, url: URL, api: 'v8' | 'v0'): Promise<Res
       if (body.method === 'GET' && body.url === USAGE_URLS.claudeProfile) return answer(200, a.acct.profile ?? { account: { has_claude_max: true }, organization: { rate_limit_tier: 'default_claude_max_20x' } });
       if (body.method === 'GET' && body.url?.startsWith(USAGE_URLS.codexModels)) {
         const list = a.acct.codex_models ?? (MODELS.codex ?? []).map(([id]) => id);
-        return answer(200, { models: list.map((m) => (typeof m === 'string' ? { slug: m, display_name: m, visibility: 'list', supported_in_api: true, minimal_client_version: '0.98.0' } : m)) });
+        // an entity tag on the list (codex_models_etag): the same tag back is a 304 with no body
+        const tag = a.acct.codex_models_etag;
+        if (tag && (body.header?.['If-None-Match'] ?? '') === tag) return json({ status_code: 304, header: { ETag: [tag] }, body: '' }, 200, mgmtHeaders);
+        return answer(200, { models: list.map((m) => (typeof m === 'string' ? { slug: m, display_name: m, visibility: 'list', supported_in_api: true, minimal_client_version: '0.98.0' } : m)) }, tag ? { ETag: [tag] } : {});
       }
       if (body.method === 'GET' && body.url === USAGE_URLS.codexUsage) return answer(a.acct.usage_status ?? 200, a.acct.usage ?? { plan_type: 'pro', rate_limit: { primary_window: { used_percent: 25, limit_window_seconds: 18_000, reset_after_seconds: 3600 }, secondary_window: { used_percent: 40, limit_window_seconds: 604_800, reset_after_seconds: 300_000 } } });
       return answer(599, { error: 'the fake answers only the usage addresses' });

@@ -12,7 +12,7 @@ import kotlin.math.abs
  * The hub sends the same.
  */
 object Effort {
-    private val ORDER = listOf(ThinkingLevel.LOW, ThinkingLevel.MEDIUM, ThinkingLevel.HIGH, ThinkingLevel.XHIGH, ThinkingLevel.MAX)
+    private val ORDER = listOf(ThinkingLevel.LOW, ThinkingLevel.MEDIUM, ThinkingLevel.HIGH, ThinkingLevel.XHIGH, ThinkingLevel.MAX, ThinkingLevel.ULTRA)
 
     /** The model's levels, lowest first. */
     fun levels(e: ModelEffort): List<ThinkingLevel> = ORDER.filter { it.wire in e.levels }

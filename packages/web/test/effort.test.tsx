@@ -99,7 +99,10 @@ describe('stored settings', () => {
     expect(readPicks().thinking).toBe('max');
     savePicks({ thinking: 'low' });
     expect(readPicks().thinking).toBe('low');
-    savePicks({ thinking: 'ultra' as never });
+    // ultra is a ChatGPT plan's level: kept like the others; a level no model has is dropped
+    savePicks({ thinking: 'ultra' });
+    expect(readPicks().thinking).toBe('ultra');
+    savePicks({ thinking: 'extreme' as never });
     expect(readPicks().thinking).toBeUndefined();
     expect(startEffort('xhigh', opus46)).toBe('high');
     expect(startEffort('off', opus55)).toBe('low');

@@ -8,6 +8,10 @@
  * Account prefixes ("neu/claude-opus-5-5" is the same model from a second
  * account) keep their prefix on the wire; the catalog lookup ignores it, and
  * the display name says which account it is.
+ *
+ * A request with a Cyber access program (ChatRequest.accessPrograms, a
+ * ChatGPT plan's GPT model) goes over the Responses wire, the one that
+ * carries access_programs; without one it stays on Chat Completions.
  */
 import type { ProviderConfig } from '../config/schema';
 import { AnthropicProvider } from './anthropic';
@@ -15,6 +19,7 @@ import type { ProviderOptions } from './common';
 import { OpenAIProvider } from './openai';
 import { OpenAIResponsesProvider } from './openai-responses';
 import type { ChatRequest, ModelInfo, Provider, StreamEvent } from './types';
+import { cyberChoices } from './access-programs';
 
 /** "claude-*" style pattern to a test: * is any run of characters, the rest is literal. Case-insensitive. */
 export function wirePattern(glob: string): RegExp {
@@ -37,6 +42,8 @@ export class SplitWireProvider implements Provider {
   readonly id: string;
   private readonly openai: Provider;
   private readonly anthropic: AnthropicProvider;
+  /** The Responses wire, for requests with an access program. */
+  private responses?: Provider;
   private readonly patterns: RegExp[];
 
   constructor(private readonly opts: ProviderOptions) {
@@ -59,12 +66,25 @@ export class SplitWireProvider implements Provider {
   }
 
   stream(req: ChatRequest): AsyncIterable<StreamEvent> {
-    return this.pick(req.model).stream(req);
+    if (req.accessPrograms && !this.anthropicFor(req.model) && !(this.openai instanceof OpenAIResponsesProvider)) {
+      this.responses ??= new OpenAIResponsesProvider({ ...this.opts, config: { ...this.opts.config, anthropicWire: undefined, responsesApi: true } });
+      return this.responses.stream(req);
+    }
+    const p = this.pick(req.model);
+    // only the Responses wire carries access_programs
+    return p.stream(req.accessPrograms && !(p instanceof OpenAIResponsesProvider) ? { ...req, accessPrograms: undefined } : req);
   }
 
   model(id: string): ModelInfo {
     const info = this.pick(id).model(id);
-    const { account } = splitAccount(id);
+    const { account, model } = splitAccount(id);
+    // the plan's own name for it ("GPT-6.1-Sol"), before the account's short name goes on
+    const meta = this.opts.config.modelMeta?.[model];
+    if (meta?.name) info.name = meta.name;
+    if (this.opts.config.subscription && !this.anthropicFor(id)) {
+      const cyber = cyberChoices(model);
+      if (cyber.length) info.cyber = cyber;
+    }
     // a second account's copy of a model reads "Claude Opus 5.5, neu" in pickers
     if (account && info.name !== id) info.name = `${info.name}, ${account}`;
     // signed in plans (config.subscription): calls cost nothing per token, so pickers say "plan" and usage shows no API price

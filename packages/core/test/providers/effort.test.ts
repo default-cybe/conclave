@@ -98,7 +98,7 @@ describe('clamping and words', () => {
     expect(effortLabel('off')).toBe('Off');
     expect(effortLabel('high', { levels: ['high'], off: true })).toBe('On');
     expect(isEffortSetting('max')).toBe(true);
-    expect(isEffortSetting('ultra')).toBe(false);
+    expect(isEffortSetting('extreme')).toBe(false);
     // plain words: no dashes in any label
     for (const s of ['off', ...ALL] as const) expect(effortLabel(s)).not.toMatch(/[\u2013\u2014]/);
   });

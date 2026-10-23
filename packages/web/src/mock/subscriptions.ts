@@ -81,7 +81,7 @@ export function registerSubscriptions(ctx: MockCtx) {
         { name: 'codex-kai@kaivalya.dev.json', provider: 'codex', label: 'kai@kaivalya.dev', state: 'unavailable', detail: 'Weekly limit reached, back Monday', updatedAt: Date.now() - 30 * H },
       ];
   const sessions = new Map<string, Session>();
-  /** Models an account's own list adds on Refresh models (core: credentials/models): the ChatGPT plan's "Daybreak". */
+  /** Models an account's own list adds on Refresh models (core: credentials/models): a model the ChatGPT plan lists before CLIProxyAPI's catalog does. */
   const extra: Record<string, Array<[string, string]>> = {};
 
   const dto = (a: Acct): SubscriptionAccountDto => ({ name: a.name, provider: a.provider, providerName: PROVIDERS.find((p) => p.id === a.provider)?.name ?? a.provider, label: a.label, state: a.state, detail: a.detail, canRefresh: true, updatedAt: a.updatedAt });
@@ -266,10 +266,10 @@ export function registerSubscriptions(ctx: MockCtx) {
     return { ...status(), local };
   });
 
-  // Refresh models (Settings, Subscriptions): each account's own list again; the ChatGPT plan now offers Daybreak
+  // Refresh models (Settings, Subscriptions): each account's own list again; the ChatGPT plan now offers a new model
   on('POST', '/api/models/refresh', async () => {
     await sleep(900);
-    if (mode !== 'off' && state === 'on') extra.codex = [['daybreak', 'Daybreak']];
+    if (mode !== 'off' && state === 'on') extra.codex = [['gpt-6.2-nova', 'GPT-6.2-Nova']];
     publish();
     emit({ type: 'models.updated' });
     const groups = (await (await ctx.request('/api/models')).json()) as ModelGroup[];

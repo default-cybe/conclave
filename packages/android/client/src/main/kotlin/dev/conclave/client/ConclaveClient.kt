@@ -464,8 +464,10 @@ class ConclaveClient(
     internal fun sessionPatchJson(patch: SessionPatch): JsonObject {
         val body = json.encodeToJsonElement(SessionPatch.serializer(), patch) as JsonObject
         val chat = patch.chat ?: return body
-        if (!chat.agentThinking) return body
-        val switches = (body["chat"] as? JsonObject).orEmpty() + ("thinking" to JsonNull)
+        if (!chat.agentThinking && !chat.defaultCyber) return body
+        var switches = (body["chat"] as? JsonObject).orEmpty()
+        if (chat.agentThinking) switches = switches + ("thinking" to JsonNull)
+        if (chat.defaultCyber) switches = switches + ("cyber" to JsonNull)
         return JsonObject(body + ("chat" to JsonObject(switches)))
     }
 

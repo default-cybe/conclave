@@ -18,6 +18,7 @@ import { Link } from 'wouter';
 import { FileArchive, FileText, Plus, X } from 'lucide-react';
 import type { Session } from '@conclave/core/types';
 import { claudeEffort } from '@conclave/core/providers/effort';
+import { cyberLabel, type CyberProgram } from '@conclave/core/providers/access-programs';
 import { filesWord, isZip, takeFiles } from '@conclave/core/attachments/limits';
 import { toast, useHub } from '@/store/store';
 import { cn } from '@/lib/text';
@@ -79,10 +80,32 @@ interface PickerProps {
    * showing the price and the choices first in a big chat, instead of calling onModel.
    */
   switchOf?: Session;
+  /** The Cyber access program (session.chat.cyber); offered only where the model takes one and onCyber is given. Undefined is Default: nothing sent. */
+  cyber?: CyberProgram;
+  onCyber?: (v: CyberProgram | undefined) => void;
+}
+
+/** Cyber access for a ChatGPT plan model (core providers/access-programs.ts): Default sends nothing, else the program. */
+export function CyberAccess({ model, value, onChange }: { model: string | undefined; value: CyberProgram | undefined; onChange: (v: CyberProgram | undefined) => void }) {
+  const choices = useHub((s) => (model ? s.models.flatMap((g) => g.models).find((m) => m.ref === model)?.cyber : undefined));
+  if (!choices?.length) return null;
+  const opts: Array<CyberProgram | undefined> = [undefined, ...choices];
+  return (
+    <div className="shrink-0 space-y-2 border-b border-rule px-3 pt-2 pb-2.5">
+      <div className="text-[12px] text-fg-3 phone:text-[13px]">Cyber access</div>
+      <div role="radiogroup" aria-label="Cyber access" className="flex flex-wrap gap-1.5">
+        {opts.map((o) => (
+          <button key={o ?? 'default'} type="button" role="radio" aria-checked={value === o || (!o && !value)} className={cn('rounded-md border border-rule px-2 py-0.5 text-[12px]', value === o || (!o && !value) ? 'bg-fg text-bg' : 'text-fg-2 hov:text-fg')} onClick={() => onChange(o)}>
+            {o ? cyberLabel(o) : 'Default'}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /** The picker's body: Effort for the model on top (when it has levels), then the model list. */
-function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = false, onDone, switchOf }: PickerProps & { onDone: () => void }) {
+function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = false, onDone, switchOf, cyber, onCyber }: PickerProps & { onDone: () => void }) {
   const e = useModelEffort(model);
   const mobile = useIsMobile();
   const shown = effortShown(value, e, follow);
@@ -105,6 +128,7 @@ function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = 
           <EffortSegments effort={e} value={shown} onChange={(v) => onEffort(v)} size={mobile ? 'touch' : 'sm'} />
         </div>
       )}
+      {onCyber && !stepping && <CyberAccess model={model} value={cyber} onChange={onCyber} />}
       {switchOf ? <SwitchModelList session={switchOf} harnesses={harnesses} onDone={onDone} onStep={setStepping} /> : <ModelList value={model} harnesses={harnesses} onChange={onModel} onDone={onDone} />}
     </>
   );

@@ -6,6 +6,7 @@
  */
 import type { ChatSettings, Session } from '../types';
 import { isEffortSetting } from '../providers/effort';
+import { isCyberProgram } from '../providers/access-programs';
 
 /** The built-in agent new chats use unless the request names another. */
 export const CHAT_AGENT = 'chat';
@@ -37,7 +38,13 @@ export function mergeChatSettings(base: ChatSettings | undefined, patch: unknown
   if (p.thinking !== undefined) {
     if (p.thinking === null) delete next.thinking;
     else if (isEffortSetting(p.thinking)) next.thinking = p.thinking;
-    else throw new Error('chat.thinking must be off, low, medium, high, xhigh or max');
+    else throw new Error('chat.thinking must be off, low, medium, high, xhigh, max or ultra');
+  }
+  // the Cyber access program for a ChatGPT plan model; null goes back to Default (send nothing)
+  if (p.cyber !== undefined) {
+    if (p.cyber === null) delete next.cyber;
+    else if (isCyberProgram(p.cyber)) next.cyber = p.cyber;
+    else throw new Error('chat.cyber must be standard, daybreak_blue or daybreak_red');
   }
   return next;
 }

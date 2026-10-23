@@ -148,7 +148,15 @@ export function formatModelId(id: string): string {
 const knownNames = new Map<string, string>();
 
 export function registerModelNames(entries: Array<{ ref: string; name: string }>) {
-  for (const e of entries) knownNames.set(e.ref, e.name.replace(/^Claude (?=(Opus|Sonnet|Haiku)\b)/, ''));
+  for (const e of entries) {
+    // a name that is only the raw id ("daybreak", no catalog knows it) reads better formatted ("Daybreak")
+    const id = e.ref.slice(e.ref.indexOf('/') + 1);
+    if (e.name.toLowerCase() === id.toLowerCase() || e.name.toLowerCase() === id.slice(id.lastIndexOf('/') + 1).toLowerCase()) {
+      knownNames.delete(e.ref);
+      continue;
+    }
+    knownNames.set(e.ref, e.name.replace(/^Claude (?=(Opus|Sonnet|Haiku)\b)/, ''));
+  }
 }
 
 /**

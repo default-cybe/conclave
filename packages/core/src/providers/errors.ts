@@ -1,6 +1,7 @@
 import type { LimitWindow } from '../types';
 import { parseDuration } from '../util/text';
 import { ProviderError, type ProviderErrorKind } from './types';
+import { accessProgramError } from './access-programs';
 
 export type HeaderSource = Headers | Record<string, string | undefined> | undefined;
 
@@ -462,6 +463,9 @@ export function classifyHttpError(
   else if (status >= 500) kind = 'server';
   else if (status >= 400) kind = 'bad_request';
   else kind = 'unknown';
+  // a Cyber access program ChatGPT refused (providers/access-programs.ts): the request's choice, not the account, so no fallback to another account
+  const program = accessProgramError(info.code, message);
+  if (program) kind = 'bad_request';
 
   let retryAfterMs = parseRetryAfter(headers, now);
   let resetAt: number | undefined;
@@ -504,7 +508,7 @@ export function classifyHttpError(
   }
 
   const label = info.type || info.code || info.status;
-  const text = `${provider} ${status}${label ? ` ${label}` : ''}: ${message}`;
+  const text = `${provider} ${status}${label ? ` ${label}` : ''}: ${program ?? message}`;
   return new ProviderError(kind, text, {
     status,
     retryAfterMs,

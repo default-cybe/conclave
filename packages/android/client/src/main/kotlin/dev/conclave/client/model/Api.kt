@@ -40,6 +40,12 @@ data class ModelInfo(
     val via: String? = null,
     /** On the entry pickers show: every ref that names this model, its own first. */
     val refs: List<String>? = null,
+    /** On the entry pickers show: the other refs that name a route of their own (a plan's prefix, a provider outside the order). */
+    val choices: List<String>? = null,
+    /** The vendor of a model whose id no name places: the vendor of the plan that lists it. */
+    val vendor: String? = null,
+    /** Cyber access programs a ChatGPT plan model takes (core providers/access-programs.ts). */
+    val cyber: List<String>? = null,
 ) {
     val fullRef: String get() = ref.ifBlank { if (provider.isBlank()) id else "$provider/$id" }
 }
@@ -481,6 +487,9 @@ data class ChatSettingsPatch(
     val memory: Boolean? = null,
     val thinking: ThinkingLevel? = null,
     @Transient val agentThinking: Boolean = false,
+    /** A Cyber access program; [defaultCyber] sends `"cyber": null` (back to Default: nothing sent). */
+    val cyber: String? = null,
+    @Transient val defaultCyber: Boolean = false,
 )
 
 @Serializable

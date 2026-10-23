@@ -7,6 +7,20 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [0.4.18] - 2026-10-23
+
+### What's new
+- Cyber access: on GPT models from a ChatGPT plan, choose Default, Standard or Daybreak Blue (Daybreak Red on gpt-5.6-cyber) next to effort. Conclave sends it as OpenAI's `access_programs`, tells you when a different program served the reply, and explains OpenAI's access errors.
+- Each ChatGPT plan's own model list, read as Codex reads it: its names, which models are hidden, and each model's efforts up to `ultra` with its default.
+- A finished subagent or workflow shows one "Message from subagent" row with its state, which opens to the report.
+
+### Changed
+- The model picker shows each model once, by name only, grouped by maker and family, newest first. Other routes to the same model sit behind "via". Effort and thinking variants fold under their model; image and review models are out of the chat picker; dates are gone from names.
+- The retiring Daybreak aliases (`gpt-daybreak-blue-latest`, `gpt-daybreak-red-latest`, retired by OpenAI on October 28) map to their models with the matching Cyber access.
+
+### Fixed
+- No more empty message bubbles after a subagent or workflow finishes, or for messages with only hook feedback.
+
 ## [0.4.17] - 2026-10-23
 
 ### What's new
