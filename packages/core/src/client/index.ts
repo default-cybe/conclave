@@ -66,6 +66,9 @@ export type { AddSuggestionRequest, AddSuggestionResult, RoutineSuggestionDto, R
 export type * from './assistant';
 import type { LeaveByDto, MapsSettingsDto, MapsSettingsPatch, MapsTestResult } from './maps';
 export type * from './maps';
+import type { WebSearchSettingsDto, WebSearchSettingsPatch, WebSearchTestResult } from './websearch';
+export type * from './websearch';
+export { SEARCH_PROVIDERS } from './websearch';
 // ----- accounts: several people on one hub, docs/design/ACCOUNTS.md -----
 import type { AccountRef, InviteDto, InviteInfo, MeDto, MePatch, PersonCreated, PersonDto, PersonInput, PersonPatch, WorkspaceCode } from './people';
 export type * from './people';
@@ -1962,6 +1965,14 @@ export class ConclaveClient {
   /** Store the Google Maps key on the hub, or remove it with null. The reply only says whether one is set. */
   setMapsKey = (key: string | null) => this.request<MapsSettingsDto>('PUT', '/api/maps/key', { key });
   testMaps = () => this.request<MapsTestResult>('POST', '/api/maps/test');
+
+  // ----- web search: the engine WebSearch uses (Settings > Web search) -----
+  webSearchSettings = () => this.request<WebSearchSettingsDto>('GET', '/api/websearch');
+  setWebSearchSettings = (patch: WebSearchSettingsPatch) => this.request<WebSearchSettingsDto>('PATCH', '/api/websearch', patch);
+  /** Store an engine's key on the hub, or remove it with null. The reply only says whether one is set. */
+  setWebSearchKey = (provider: string, key: string | null) => this.request<WebSearchSettingsDto>('PUT', '/api/websearch/key', { provider, key });
+  /** One real query on the engine (the one in use when none is named). */
+  testWebSearch = (provider?: string) => this.request<WebSearchTestResult>('POST', '/api/websearch/test', { provider });
   leaveBy = (date?: string) => this.request<LeaveByDto>('GET', '/api/maps/leave-by', undefined, { date });
   // ----- watches (Routines) and the hub's browser (Settings > Browser) -----
   watches = () => this.request<WatchSummaryDto[]>('GET', '/api/watches');
