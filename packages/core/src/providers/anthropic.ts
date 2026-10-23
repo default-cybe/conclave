@@ -2,7 +2,7 @@ import type { ContentBlock, StopReason, Usage } from '../types';
 import type { ProviderConfig } from '../config/schema';
 import { sanitizeToolId } from '../util/ids';
 import { normalizeModelId } from './catalog';
-import { BaseProvider, budgetOf, decodeBase64Text, effortOf, isTextMediaType, parseToolInput } from './common';
+import { BaseProvider, budgetOf, documentsForWire, effortOf, parseToolInput } from './common';
 import { clampEffort, claudeEffort, claudeThinkingOff, type Effort } from './effort';
 import { classifyStreamError, parseRateLimitHeaders } from './errors';
 import { getJson, hostOf, openStream, postJson, trimSlash } from './http';
@@ -120,9 +120,6 @@ function mapBlock(b: ContentBlock, names: ToolNameMap): Wire | undefined {
       if (b.data && b.mediaType === 'application/pdf') {
         return { type: 'document', source: { type: 'base64', media_type: b.mediaType, data: b.data }, ...title };
       }
-      if (b.data && isTextMediaType(b.mediaType)) {
-        return { type: 'document', source: { type: 'text', media_type: 'text/plain', data: decodeBase64Text(b.data) }, ...title };
-      }
       if (b.url) return { type: 'document', source: { type: 'url', url: b.url }, ...title };
       return { type: 'text', text: `[Attached ${b.mediaType} document${b.title ? ` "${b.title}"` : ''} could not be sent to this model]` };
     }
@@ -150,10 +147,12 @@ function lastCacheable(blocks: Wire[]): Wire | undefined {
   return undefined;
 }
 
-function mapMessages(msgs: ProviderMessage[], names: ToolNameMap, breakpoints: Wire[]): Wire[] {
+function mapMessages(msgs: ProviderMessage[], names: ToolNameMap, breakpoints: Wire[], vision: boolean): Wire[] {
   const out: Wire[] = [];
   for (const m of msgs) {
-    let blocks = m.content.map((b) => mapBlock(b, names)).filter((x): x is Wire => !!x);
+    // text documents as text: Anthropic-compatible endpoints (Z.ai) drop a text-source document
+    const content = m.role === 'user' ? documentsForWire(m.content, true, vision) : m.content;
+    let blocks = content.map((b) => mapBlock(b, names)).filter((x): x is Wire => !!x);
     // Tool results must lead the user turn.
     if (m.role === 'user') blocks = [...blocks.filter((b) => b.type === 'tool_result'), ...blocks.filter((b) => b.type !== 'tool_result')];
     if (!blocks.length) continue;
@@ -365,6 +364,7 @@ export class AnthropicProvider extends BaseProvider {
     const plan = planAnthropicThinking(req.model, req, info, req.maxTokens ?? Math.min(info.maxOutput, 64_000));
     const body: Wire = { model: req.model, max_tokens: plan.maxTokens };
     const breakpoints: Wire[] = [];
+    const claude = /^claude-/.test(normalizeModelId(req.model));
 
     if (req.tools?.length) {
       const tools: Wire[] = req.tools.map((t) => {
@@ -374,7 +374,8 @@ export class AnthropicProvider extends BaseProvider {
         return tool;
       });
       body.tools = tools;
-      breakpoints.push(tools[tools.length - 1]);
+      // Claude only: Z.ai keeps just the tool marked cache_control and swaps the rest for its own
+      if (claude) breakpoints.push(tools[tools.length - 1]);
     }
 
     const system: Wire[] = [];
@@ -389,12 +390,12 @@ export class AnthropicProvider extends BaseProvider {
     }
     if (system.length) body.system = system;
 
-    body.messages = mapMessages(req.messages, names, breakpoints);
+    body.messages = mapMessages(req.messages, names, breakpoints, this.seesImages(req.model, info));
 
     // Keep the newest breakpoints: later ones cover the earlier prefix anyway. One lifetime for all of them:
     // a 1h entry may not follow a 5m one. The ttl is sent explicitly to Claude models only (a gateway may
     // otherwise pick 1h for us); other models on this wire format get the plain marker.
-    const ttl = req.cacheTtl && /^claude-/.test(normalizeModelId(req.model)) ? req.cacheTtl : undefined;
+    const ttl = req.cacheTtl && claude ? req.cacheTtl : undefined;
     for (const b of breakpoints.slice(Math.max(0, breakpoints.length - MAX_CACHE_BREAKPOINTS))) {
       b.cache_control = ttl ? { type: 'ephemeral', ttl } : { type: 'ephemeral' };
     }

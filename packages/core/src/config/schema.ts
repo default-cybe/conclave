@@ -488,7 +488,7 @@ export interface ConclaveConfig {
   };
 
   search: {
-    provider: 'auto' | 'brave' | 'tavily' | 'exa' | 'searxng' | 'jina' | 'duckduckgo';
+    provider: 'auto' | 'brave' | 'tavily' | 'exa' | 'searxng' | 'jina' | 'duckduckgo' | 'serper' | 'serpapi' | 'langsearch' | 'linkup' | 'firecrawl' | 'youcom';
     apiKey?: string;
     apiKeyEnv?: string;
     url?: string;
@@ -578,6 +578,8 @@ export interface ConclaveConfig {
   /** Model tiers that agents and workflow steps ask for by word (extensions/model-ref.ts). Unset tiers resolve from smallModel, the session model and the catalog. */
   models?: {
     tiers?: Partial<Record<'fast' | 'smart' | 'deep', string>>;
+    /** Models hidden hub-wide (config/hidden.ts): refs or globs with `*` ("cliproxy/glm-*"). Pickers leave them out and nothing runs on them. Empty unless set. */
+    hidden?: string[];
     /** Sign in to Claude, ChatGPT, Google and other subscriptions through CLIProxyAPI. Off unless set. */
     cliproxy?: CliproxyConfig;
     /** Accounts and their order (Settings > Models > Accounts, accounts/service.ts). Accounts the hub finds and that are not listed join with defaults. */

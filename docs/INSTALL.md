@@ -611,6 +611,22 @@ agents as engines) or in setup step 4, then pick it in the model picker.
 Importing their past chats works either way. A hub from before v0.4.2 kept
 on, once, the ones you had turned on by hand or used in the last 30 days.
 
+### Web search
+
+WebSearch uses DuckDuckGo until you set up an engine, and DuckDuckGo often
+answers a hub with a bot check. Open **Settings > Web search** (owner only),
+pick an engine, follow its numbered sign-up steps, paste the key, press
+**Save**, then **Test** (one real search). The engines listed have a free
+allowance for personal use: Tavily (1,000 credits a month, no card), Exa
+($10 of credit a month, no card), Brave Search ($5 of credit a month, about
+1,000 searches, card needed) and Jina (a one-time 10M tokens,
+non-commercial). SearXNG takes the address of your own server instead of a
+key. **Automatic** uses the first engine with a key or address; **Use** pins
+one. Keys are hub secrets (`search.<engine>`), never written to config.json
+and never sent back to an app. The environment variables still work:
+`TAVILY_API_KEY`, `EXA_API_KEY`, `BRAVE_API_KEY`, `JINA_API_KEY`,
+`SEARXNG_URL`.
+
 ## 4. Subscriptions: sign in to Claude, ChatGPT and more
 
 The hub can use the plans you already pay for instead of API keys. Setup

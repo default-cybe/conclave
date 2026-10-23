@@ -43,6 +43,7 @@ import { registerCatalogRoutes } from './routes-catalog';
 import { registerRoutineSuggestionRoutes } from './routes-suggestions';
 import { registerAssistantRoutes } from './routes-assistant';
 import { registerMapsRoutes } from './routes-maps';
+import { registerWebSearchRoutes } from './routes-websearch';
 import { registerPimRoutes } from './routes-pim';
 import { registerWatchRoutes } from './routes-watches';
 import { registerBrowserRoutes } from './routes-browser';
@@ -743,6 +744,8 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
   registerAssistantRoutes(app, ctx, audit);
   // places, directions, map images and leave-by times (Settings > Maps)
   registerMapsRoutes(app, ctx, audit);
+  // the engine WebSearch uses and its keys (Settings > Web search)
+  registerWebSearchRoutes(app, ctx, audit);
   registerPimRoutes(app, ctx, audit);
   // watches: the Routines page rows, a watch's items and runs, item photos (routes-watches.ts)
   registerWatchRoutes(app, ctx);

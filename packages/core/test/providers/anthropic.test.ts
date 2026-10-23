@@ -230,8 +230,21 @@ describe('AnthropicProvider request mapping', () => {
     expect(marks(req('claude-sonnet-5-5', '5m'))).toEqual(Array(3).fill({ type: 'ephemeral', ttl: '5m' }));
     expect(marks(req('claude-opus-5-5', '1h'))).toEqual(Array(3).fill({ type: 'ephemeral', ttl: '1h' }));
     expect(marks(req('claude-sonnet-5-5'))).toEqual(Array(3).fill({ type: 'ephemeral' }));
-    // an Anthropic-compatible gateway serving another model gets the plain marker
-    expect(marks(req('glm-5', '5m'))).toEqual(Array(3).fill({ type: 'ephemeral' }));
+    // an Anthropic-compatible gateway serving another model gets the plain marker, and none on tools
+    expect(marks(req('glm-5', '5m'))).toEqual([undefined, { type: 'ephemeral' }, { type: 'ephemeral' }]);
+  });
+
+  test('Z.ai: no cache_control on any tool for a GLM model (it keeps only the marked tool), a Claude model keeps the tools breakpoint', () => {
+    const tools = ['Read', 'Bash', 'Glob', 'StructuredOutput', 'ToolSearch'].map((name) => ({ name, description: name, inputSchema: { type: 'object' as const } }));
+    const zai = new AnthropicProvider({ id: 'zai', config: { type: 'anthropic', baseUrl: 'https://api.z.ai/api/anthropic' }, apiKey: 'k' });
+    const body = (model: string) =>
+      zai.buildBody(base({ model, tools, system: [{ text: 's', cache: true }], messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }], cache: true }] })) as any;
+    const glm = body('glm-5.3');
+    expect(glm.tools).toHaveLength(5);
+    expect(glm.tools.some((t: any) => t.cache_control)).toBe(false);
+    expect(glm.system[0].cache_control).toEqual({ type: 'ephemeral' });
+    expect(glm.messages[0].content[0].cache_control).toEqual({ type: 'ephemeral' });
+    expect(body('claude-sonnet-5-5').tools[4].cache_control).toEqual({ type: 'ephemeral' });
   });
 
   test('two breakpoints keep both', () => {
@@ -287,7 +300,7 @@ describe('AnthropicProvider request mapping', () => {
     expect(u.content[0]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } });
     expect(u.content[1]).toEqual({ type: 'image', source: { type: 'url', url: 'https://x/y.png' } });
     expect(u.content[2]).toEqual({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERi0=' }, title: 'spec' });
-    expect(u.content[3]).toEqual({ type: 'document', source: { type: 'text', media_type: 'text/plain', data: 'hello doc' } });
+    expect(u.content[3]).toEqual({ type: 'text', text: '<document name="document" type="text/plain">\nhello doc\n</document>' });
     expect(a.content.map((b: any) => b.type)).toEqual(['thinking', 'redacted_thinking', 'tool_use']);
     expect(a.content[0].signature).toBe('anthropic-sig');
     expect(r.content[0]).toEqual({

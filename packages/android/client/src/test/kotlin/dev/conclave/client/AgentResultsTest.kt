@@ -67,4 +67,34 @@ class AgentResultsTest {
         assertTrue(AgentResults.isContextOnly(Message(id = "u4", role = Role.USER, content = listOf(TextBlock("  ")))))
         assertFalse(AgentResults.isContextOnly(list[0]))
     }
+
+
+    /** The exact body the hub stores for the carrier message: multi-line markdown with a table. */
+    @Test
+    fun parsesRealReportWithTable() {
+        val body = "<system-reminder>\nA background subagent you started has finished. Its final report:\n" +
+            "<subagent_result session=\"ses_0mvl9rhaeidizkmhv6f\" agent=\"general-purpose\" state=\"completed\" description=\"Probe tool visibility per model\">\n" +
+            "Partly done.\n\n**Dry result:**\n\n| wire | tools sent |\n|---|---|\n| anthropic | 47/47 |\n</subagent_result>\n</system-reminder>"
+        val carrier = Message(id = "u9", seq = 10, role = Role.USER, content = listOf(TextBlock(body)))
+        val results = AgentResults.resultsIn(carrier)
+        assertEquals(1, results.size)
+        val r = results[0]
+        assertEquals("ses_0mvl9rhaeidizkmhv6f", r.id)
+        assertEquals("Probe tool visibility per model", r.label)
+        assertEquals("completed", r.state)
+        assertTrue(r.report!!.contains("| anthropic | 47/47 |"))
+    }
+
+    /** meta.kind is agent-result but the agentResult object or its type is missing: no row, no crash. */
+    @Test
+    fun missingAgentResultFieldIsNull() {
+        // other words than the old hub's line, which still makes a row from the text alone (as on the web)
+        val noObj = notice.copy(content = listOf(TextBlock("Task ended")), meta = buildJsonObject { put("kind", "agent-result") })
+        assertNull(AgentResults.ofNotice(noObj))
+        val noType = notice.copy(meta = buildJsonObject {
+            put("kind", "agent-result")
+            putJsonObject("agentResult") { put("id", "ses_x"); put("label", "x"); put("state", "completed") }
+        })
+        assertNull(AgentResults.ofNotice(noType))
+    }
 }

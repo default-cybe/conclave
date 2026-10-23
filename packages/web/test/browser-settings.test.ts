@@ -53,8 +53,9 @@ describe('words', () => {
   });
 
   test('the proxy rule and the provider line never name a login', () => {
-    expect(PROXY_HELP).toContain('Used only when you ask for it in a chat');
-    expect(PROXY_HELP).toContain('never turns the proxy on by itself');
+    expect(PROXY_HELP).toContain('retries that request once through this proxy, in the hub\'s own country');
+    expect(PROXY_HELP).toContain('You can also ask for it in a chat');
+    expect(PROXY_HELP).toContain("never another person's");
     const di: BrowserProxySettingsDto = { provider: 'dataimpulse', dataimpulse: { host: 'gw.dataimpulse.com', port: 823, login: true, password: true, country: 'JP' }, custom: { password: false } };
     expect(providerWords(di)).toBe('DataImpulse at gw.dataimpulse.com:823, Japan (JP) by default. Login and password saved as secrets.');
     expect(providerWords({ ...di, provider: 'none' })).toContain('No proxy');

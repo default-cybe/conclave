@@ -33,6 +33,7 @@ import { registerFriends } from './friends';
 import { registerMap } from './map';
 import { registerGithub } from './github';
 import { registerMaps } from './maps';
+import { registerWebSearch } from './websearch';
 import { registerLogs } from './logs';
 import { registerUpdates } from './updates';
 import { registerBrowser } from './browser';
@@ -545,6 +546,8 @@ registerMap(ctx);
 registerGithub(ctx);
 // maps: Settings > Maps, the Test button, leave-by times and map pictures
 registerMaps(ctx);
+// Settings > Web search: the engine, its key and the Test button
+registerWebSearch(ctx);
 // Settings > Logs: size, errors, the debug switch and the lines the app sends
 registerLogs(ctx);
 registerUpdates(ctx);

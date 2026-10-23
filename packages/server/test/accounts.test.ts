@@ -667,7 +667,7 @@ describe('builtin: a ChatGPT plan\'s own models reach CLIProxyAPI through its ca
     expect((hub.engine.config.getUser() as any).models.accounts.find((a: { id: string }) => a.id === id)).toMatchObject({ label: 'ChatGPT Pro', credential: 'codex-you@example.test.json' });
   }, 20_000);
 
-  test("the plan's own list names its models and their Effort levels, hides what it hides, and drops the Daybreak aliases; read again with its entity tag", async () => {
+  test("the plan's own list names its models and their Effort levels, hides what it hides, and turns a Daybreak alias into a Daybreak Blue row; read again with its entity tag", async () => {
     const plan = [
       { slug: 'gpt-6.1-sol', display_name: 'GPT-6.1-Sol', visibility: 'list', supported_reasoning_levels: [{ effort: 'low' }, { effort: 'medium' }, { effort: 'high' }, { effort: 'xhigh' }, { effort: 'ultra' }], default_reasoning_level: 'medium' },
       { slug: 'gpt-6-astra', display_name: 'GPT-6-Astra', visibility: 'list', supported_reasoning_levels: ['low', 'medium', 'high'] },
@@ -675,12 +675,28 @@ describe('builtin: a ChatGPT plan\'s own models reach CLIProxyAPI through its ca
       { slug: 'gpt-reserve', display_name: 'Reserve', visibility: 'hide' },
       { slug: 'codex-auto-review', display_name: 'Review', visibility: 'hide' },
     ];
-    write('codex-me@example.test.json', { type: 'codex', email: 'me@example.test', plan_type: 'plus', codex_models: plan, codex_models_etag: '"v1"' });
+    // no alias in the list yet: no Daybreak row, no approval
+    expect(hub.engine.config.get().providers.cliproxy.models ?? []).not.toContain('gpt-daybreak-blue-latest');
+    expect(accountsOf(hub.engine)!.credentialOf('codex-me@example.test')?.daybreak).toBeUndefined();
+    // CLIProxyAPI registers models the plan hides (its catalog names them "GPT 6.0 Astra"), as on the owner's hub
+    write('codex-me@example.test.json', { type: 'codex', email: 'me@example.test', plan_type: 'plus', codex_models: plan, codex_models_etag: '"v1"', extra_models: ['codex-auto-review', 'gpt-reserve'] });
     await hub.api('/api/models/refresh', { method: 'POST' });
     const p = () => hub.engine.config.get().providers.cliproxy;
     await until(() => p().modelMeta?.['gpt-6.1-sol'], 8000, 'the plan meta');
+    // the Accounts page: the plan's names, nothing it hides, no alias
+    const listed = async () => ((await (await hub.api('/api/accounts')).json()) as AccountsStatus).accounts.find((a) => a.id === 'codex-me@example.test')?.models ?? [];
+    await until(async () => (await listed()).find((m) => m.id === 'gpt-6.1-sol')?.name === 'GPT-6.1-Sol', 8000, 'the plan names on the Accounts page');
+    expect(await listed()).toContainEqual({ id: 'gpt-6-astra', name: 'GPT-6-Astra' });
+    for (const id of ['gpt-reserve', 'codex-auto-review', 'gpt-daybreak-blue-latest']) expect((await listed()).map((m) => m.id)).not.toContain(id);
+    // approved for Daybreak Blue: the alias is its row, named for the program, run on gpt-6-sol with daybreak_blue
+    expect(accountsOf(hub.engine)!.credentialOf('codex-me@example.test')?.daybreak).toEqual(['daybreak_blue']);
+    expect(p().models).toContain('gpt-daybreak-blue-latest');
+    const rows = new ProviderRegistry(hub.engine.config);
+    expect(rows.resolveAt('cliproxy', 'gpt-daybreak-blue-latest').info.name).toBe('Daybreak Blue');
+    expect(rows.resolve('cliproxy/gpt-daybreak-blue-latest')).toMatchObject({ provider: 'cliproxy', model: 'gpt-6-sol' });
+    rows.dispose();
     expect(p().modelMeta).toMatchObject({ 'gpt-6.1-sol': { name: 'GPT-6.1-Sol', efforts: ['low', 'medium', 'high', 'xhigh', 'ultra'], defaultEffort: 'medium' }, 'gpt-6-astra': { name: 'GPT-6-Astra', efforts: ['low', 'medium', 'high'] } });
-    for (const id of ['gpt-reserve', 'codex-auto-review', 'gpt-daybreak-blue-latest']) expect(p().models).not.toContain(id);
+    for (const id of ['gpt-reserve', 'codex-auto-review']) expect(p().models).not.toContain(id);
     // the picker gets the plan's name and levels, ultra included
     const reg = new ProviderRegistry(hub.engine.config);
     expect(reg.resolveAt('cliproxy', 'gpt-6.1-sol').info).toMatchObject({ name: 'GPT-6.1-Sol', effort: { levels: ['low', 'medium', 'high', 'xhigh', 'ultra'], default: 'medium' }, cyber: ['standard', 'daybreak_blue'] });
