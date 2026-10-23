@@ -65,7 +65,7 @@ jobs:
           "$bin" status --json
 
       - name: Lint shell scripts
-        run: shellcheck -s sh scripts/install.sh scripts/smoke-hub.sh scripts/lxc/setup.sh scripts/lxc/test-docker.sh scripts/proxmox/conclave-lxc.sh
+        run: shellcheck -s sh scripts/ci/apt-install.sh scripts/install.sh scripts/smoke-hub.sh scripts/lxc/setup.sh scripts/lxc/test-docker.sh scripts/proxmox/conclave-lxc.sh
 
   # The release cross-compiles the Windows hub on Linux and never ran it: v0.4.5's
   # exited at once with code 0 and printed nothing. Run it on Windows, also the
@@ -116,9 +116,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: System libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+        run: '"$GITHUB_WORKSPACE/scripts/ci/apt-install.sh" libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev'
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
         with:
@@ -149,9 +147,7 @@ jobs:
 
       # glob and grep are checked against rg, as the TypeScript daemon runs them
       - name: ripgrep
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
+        run: '"$GITHUB_WORKSPACE/scripts/ci/apt-install.sh" ripgrep'
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
         with:
