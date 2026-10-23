@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { logEvent } from '../util/log';
 import type { ContentBlock, StopReason, Usage } from '../types';
 import type { ProviderConfig } from '../config/schema';
 import { sanitizeToolId } from '../util/ids';
@@ -9,13 +11,61 @@ import { getJson, hostOf, openStream, postJson, trimSlash } from './http';
 import { isTaggedSignature } from './signatures';
 import { parseSse, parseSseJson } from './sse';
 import { ToolNameMap } from './tool-names';
-import type { ChatRequest, ModelInfo, ProviderMessage, StreamEvent } from './types';
+import { ProviderError, type ChatRequest, type ModelInfo, type ProviderMessage, type StreamEvent } from './types';
 
 const DEFAULT_BASE = 'https://api.anthropic.com';
 const API_VERSION = '2023-06-01';
 const MAX_CACHE_BREAKPOINTS = 4;
 
 type Wire = Record<string, unknown>;
+
+const REPLAY_BLOCK_LIMIT = 20; // Match the log sink's array cap.
+const REPLAY_ENTRY_LIMIT = 64;
+// Group the full SHA-256 digest so the secret filter does not mistake it for a hex key.
+const replayHash = (value: unknown) => createHash('sha256').update(JSON.stringify(value) ?? 'null').digest('hex').match(/.{16}/g)!.join(':');
+type ReplayMessages = Array<{ role: string; content: Wire[] }>;
+
+/** Only hashes and structural metadata survive the request; no bodies or signatures. */
+function replayMessage(messages: ReplayMessages, index: number, focus = 0) {
+  const message = messages[index];
+  if (!message) return null;
+  const start = Math.max(0, Math.min(focus - Math.floor(REPLAY_BLOCK_LIMIT / 2), message.content.length - REPLAY_BLOCK_LIMIT));
+  return {
+    index,
+    role: message.role,
+    hash: replayHash(message),
+    typeOrderHash: replayHash(message.content.map((block) => block.type)),
+    blockCount: message.content.length,
+    omittedBlocks: Math.max(0, message.content.length - REPLAY_BLOCK_LIMIT),
+    blocks: message.content.slice(start, start + REPLAY_BLOCK_LIMIT).map((block, offset) => ({
+      index: start + offset,
+      type: block.type,
+      bytes: Buffer.byteLength(JSON.stringify(block)),
+      hash: replayHash(block),
+    })),
+  };
+}
+
+function replayFingerprint(body: Wire) {
+  const messages = body.messages as ReplayMessages;
+  return {
+    requestHash: replayHash(body),
+    toolsHash: replayHash(body.tools ?? []),
+    toolCount: Array.isArray(body.tools) ? body.tools.length : 0,
+    messageCount: messages.length,
+    lastAssistant: replayMessage(messages, messages.findLastIndex((message) => message.role === 'assistant')),
+  };
+}
+
+type ReplayFingerprint = ReturnType<typeof replayFingerprint>;
+
+function replayCoordinates(error: unknown) {
+  if (!(error instanceof ProviderError) || error.status !== 400) return;
+  const text = `${error.body ?? ''}\n${error.message}`;
+  if (!/thinking|redacted_thinking/i.test(text) || !/cannot be modified/i.test(text) || !/latest assistant/i.test(text)) return;
+  const match = /messages\.(\d+)\.content\.(\d+)/.exec(text);
+  return { messageIndex: match ? Number(match[1]) : null, blockIndex: match ? Number(match[2]) : null };
+}
 
 /** Gateways that take a bearer token (ANTHROPIC_AUTH_TOKEN style) instead of x-api-key. */
 function usesBearer(config: ProviderConfig, key: string): boolean {
@@ -336,6 +386,8 @@ class AnthropicStream {
  */
 export class AnthropicProvider extends BaseProvider {
   readonly type = 'anthropic' as const;
+  // Instance-local: member registries and rebuilt credentials never share evidence.
+  private readonly replaySuccesses = new Map<string, ReplayFingerprint>();
 
   get baseUrl(): string {
     return trimSlash(this.opts.config.baseUrl ?? DEFAULT_BASE);
@@ -422,13 +474,54 @@ export class AnthropicProvider extends BaseProvider {
 
   async *stream(req: ChatRequest): AsyncGenerator<StreamEvent> {
     const names = new ToolNameMap();
-    const body = { ...this.buildBody(req, names), stream: true };
-    const res = await openStream(`${this.baseUrl}/v1/messages`, { ...this.headers(), ...this.sessionHeaders(req) }, body, this.http(req.signal));
+    const body: Wire = { ...this.buildBody(req, names), stream: true };
+    const replayKey = req.session ? JSON.stringify([req.session, req.model, req.userId ?? null]) : undefined;
+    const previous = replayKey ? this.replaySuccesses.get(replayKey) : undefined;
+    const fingerprint = replayKey ? replayFingerprint(body) : undefined;
+    let res: Response;
+    try {
+      res = await openStream(`${this.baseUrl}/v1/messages`, { ...this.headers(), ...this.sessionHeaders(req) }, body, this.http(req.signal));
+    } catch (error) {
+      const coordinates = replayCoordinates(error);
+      if (coordinates) {
+        const current = fingerprint ?? replayFingerprint(body);
+        const suspect = coordinates.messageIndex === null ? null : replayMessage(body.messages as ReplayMessages, coordinates.messageIndex, coordinates.blockIndex ?? 0);
+        logEvent('warn', 'anthropic', 'signed thinking replay rejected', {
+          provider: this.id,
+          sessionId: req.session ?? null,
+          model: req.model,
+          ...coordinates,
+          requestHash: current.requestHash,
+          messageCount: current.messageCount,
+          toolCount: current.toolCount,
+          toolsHash: current.toolsHash,
+          suspect,
+          suspectBlockPresent: suspect?.blocks.some((block) => block.index === coordinates.blockIndex) ?? false,
+          lastAssistant: current.lastAssistant,
+          previousStatus: previous ? 'present' : 'absent',
+          previousRequestHash: previous?.requestHash ?? null,
+          previousMessageCount: previous?.messageCount ?? null,
+          previousLastAssistant: previous?.lastAssistant ?? null,
+          sameRequest: previous ? previous.requestHash === current.requestHash : null,
+          sameTools: previous ? previous.toolsHash === current.toolsHash : null,
+          sameLastAssistant: previous?.lastAssistant && current.lastAssistant ? previous.lastAssistant.hash === current.lastAssistant.hash : null,
+          sameLastAssistantTypeOrder: previous?.lastAssistant && current.lastAssistant ? previous.lastAssistant.typeOrderHash === current.lastAssistant.typeOrderHash : null,
+          suspectMatchesPreviousLastAssistant: previous?.lastAssistant && suspect?.index === previous.lastAssistant.index ? suspect.hash === previous.lastAssistant.hash : null,
+        });
+      }
+      throw error;
+    }
     const state = new AnthropicStream(this.id, names, res.headers);
     for await (const msg of parseSse(res, { signal: req.signal, idleTimeoutMs: this.idleTimeoutMs, provider: this.id })) {
       for (const data of parseSseJson(msg.data)) yield* state.handle(msg.event, data);
     }
-    yield* state.finish();
+    const final = state.finish();
+    if (replayKey && fingerprint) {
+      this.replaySuccesses.delete(replayKey);
+      this.replaySuccesses.set(replayKey, fingerprint);
+      if (this.replaySuccesses.size > REPLAY_ENTRY_LIMIT) this.replaySuccesses.delete(this.replaySuccesses.keys().next().value!);
+    }
+    yield* final;
   }
 
   async listModels(): Promise<ModelInfo[]> {
