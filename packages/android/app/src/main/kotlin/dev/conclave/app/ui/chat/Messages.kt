@@ -59,6 +59,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -468,9 +471,14 @@ fun AgentResultLine(result: AgentResult, modifier: Modifier = Modifier) {
             Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, contentDescription = null, tint = c.fg4, modifier = Modifier.size(16.dp))
         }
         if (open) {
-            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(bottom = 6.dp)) {
-                Box(Modifier.width(1.dp).fillMaxHeight().background(c.rule2))
-                Spacer(Modifier.width(12.dp))
+            // the Markdown composable uses a LazyColumn, which crashes under IntrinsicSize.Min; paint the rule
+            // with drawBehind so the Row can size naturally to the scroll Box
+            val stripe = c.rule2
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                    .drawBehind { drawRect(stripe, Offset.Zero, Size(1.dp.toPx(), size.height)) }
+                    .padding(start = 13.dp),
+            ) {
                 val report = result.report
                 if (report.isNullOrBlank()) {
                     Text("The report is not in this view.", style = ConclaveType.meta, color = c.fg3)
