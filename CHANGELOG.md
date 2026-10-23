@@ -21,6 +21,7 @@ like `## [0.4.16] - 2026-10-24`.
 - A ChatGPT plan's own model list was read but never applied to its account, so on hubs like the owner's the Accounts page kept CLIProxyAPI's names ("GPT 6.0 Astra") and models the plan hides (Codex Auto Review). It now shows the plan's names and leaves the hidden models out. A failed read of the list is now logged as a warning instead of a debug line.
 - A workbench session lost its Cyber access setting when saved or changed (for example on a title update). It now keeps it.
 - A saved `gpt-daybreak-blue-latest` ref now runs GPT-6-Sol, which takes Daybreak Blue. Before, it ran gpt-5.6-sol, which does not, so Blue was never sent.
+- Attached text files (Markdown, HTML, code, a read zip) reach every model again. Z.ai and other Anthropic-compatible endpoints dropped them, so GLM said nothing was attached. They now go as text on every wire, up to 200 KB per file and 512 KB per message, with a note where a file is cut. A PDF, archive or binary a model cannot read gets a one-line note instead of vanishing, and a file the browser sends with no type (a `.md`, a `.zip`) is known by its name.
 
 ## [0.4.18] - 2026-10-23
 

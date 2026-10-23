@@ -19,7 +19,7 @@ import { FileArchive, FileText, Plus, X } from 'lucide-react';
 import type { Session } from '@conclave/core/types';
 import { claudeEffort } from '@conclave/core/providers/effort';
 import { cyberLabel, type CyberProgram } from '@conclave/core/providers/access-programs';
-import { filesWord, isZip, takeFiles } from '@conclave/core/attachments/limits';
+import { filesWord, isZip, mediaTypeFor, takeFiles } from '@conclave/core/attachments/limits';
 import { toast, useHub } from '@/store/store';
 import { cn } from '@/lib/text';
 import { bytes, compact, usd } from '@/lib/format';
@@ -436,8 +436,8 @@ export async function readPicked(current: Array<{ size: number }>, picked: File[
       toast({ title: `Could not read ${f.name}. Try attaching it again.`, level: 'error' });
       continue;
     }
-    // some systems give a zip no type: the hub knows a zip by it
-    const mediaType = f.type || (isZip('', f.name) ? 'application/zip' : 'application/octet-stream');
+    // some systems give a zip or a .md no type: the hub knows them by it
+    const mediaType = mediaTypeFor(f.type, f.name);
     out.push({ mediaType, data: dataUrl.split(',')[1], name: f.name, size: f.size, preview: mediaType.startsWith('image/') ? dataUrl : undefined });
   }
   return out;
