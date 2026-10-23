@@ -66,12 +66,11 @@ function memberConfig(engine: EngineApi, accountId: string, dir: string): Member
   const expand = (v: string): string => v.replace(/\$\{env:[A-Za-z0-9_]+\}/g, '').replace(/\$\{secret:([A-Za-z0-9_.-]+)\}/g, (_, n: string) => secrets.hubValue(accountId, n) ?? '');
   const get = (): ConclaveConfig => {
     if (merged) return merged;
-    const hub = engine.config.get();
-    // only what the member's CLIProxyAPI and Accounts read: no hub provider, account or route is theirs
+    // an allow-list of what CliproxyManager (models.cliproxy) and AccountsService (providers, models.accounts, models.routes) read:
+    // nothing else of the hub's config (server.token, its providers, accounts or routes) reaches a member's view
     merged = {
-      ...hub,
       providers: (runtime.providers ?? {}) as ConclaveConfig['providers'],
-      models: { ...hub.models, cliproxy: { mode, ...(binary ? { binary } : {}) }, accounts: user.models?.accounts, routes: user.models?.routes, refusalFallback: undefined },
+      models: { cliproxy: { mode, ...(binary ? { binary } : {}) }, accounts: user.models?.accounts, routes: user.models?.routes },
     } as ConclaveConfig;
     return merged;
   };
@@ -166,7 +165,8 @@ function memberEngine(engine: EngineApi, accountId: string, config: ConfigStore,
         engine.bus.emit({ ...e, status: shown(e.status, engine.config), accountId });
       } else if (e.type === 'accounts.updated') engine.bus.emit({ ...e, accountId });
     },
-    // AccountsService reads usage rows of the hub's API keys; a member's view has none
+    // AccountsService.afterUsage is not needed here: it checks budgets, which only API accounts have (a member's view has none),
+    // and a plan's windows come from CLIProxyAPI's own reads (refreshAll, noteLimit on a 429), never from usage rows
     on: () => () => {},
   };
   return { config, repos, bus, people: engine.people, accountSecrets: engine.accountSecrets } as unknown as EngineApi;

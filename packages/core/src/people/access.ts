@@ -174,7 +174,8 @@ export class ProviderAccess {
     if (accountId === OWNER_ID || this.keyless(provider)) return 'hub';
     if (this.ownPlan(accountId, provider, model)) return 'own';
     if (this.deps.secrets.providerKey(accountId, provider)) return 'own';
-    return this.deps.people.get(accountId)?.settings.providers?.[provider] ? 'hub' : 'none';
+    // a grant on what the hub does not have now (no key, turned off: its CLIProxyAPI by default) reaches nothing, as MemberPlanProvider says
+    return this.hubGranted(accountId, provider) ? 'hub' : 'none';
   }
 
   /** The API key this account's call uses, or undefined (no access, or the provider needs none). */
