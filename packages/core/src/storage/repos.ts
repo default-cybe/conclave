@@ -135,7 +135,7 @@ export class SessionRepo {
       error: s.error ?? null,
       meta: s.meta || s.projectId ? JSON.stringify({ ...s.meta, ...(s.projectId ? { projectId: s.projectId } : {}) }) : null,
       kind: s.kind === 'chat' ? 'chat' : null,
-      chat: s.kind === 'chat' && s.chat ? JSON.stringify(s.chat) : s.chat?.thinking || s.chat?.memory === false ? JSON.stringify(s.chat) : null,
+      chat: s.kind === 'chat' && s.chat ? JSON.stringify(s.chat) : s.chat?.thinking || s.chat?.cyber || s.chat?.memory === false ? JSON.stringify(s.chat) : null,
       ultra: s.ultra ? 1 : null,
     };
   }
