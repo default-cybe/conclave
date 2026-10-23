@@ -132,8 +132,41 @@ describe("each member's own CLIProxyAPI and secrets file are out of reach of too
       const r = await m.exec(`cat ${acct}/cliproxy/auth/codex-alice.json`, { cwd: work });
       expect(r.stdout).toBe('');
       expect(r.stderr).toContain('Refused');
+      // from the hub home as the cwd: a relative path is refused too, and run, nothing comes out
+      expect(commandTouchesHubPrivate('cat accounts/*/secrets.json', home)).toBe(true);
+      expect(commandTouchesHubPrivate('cat secrets.json', join(home, 'accounts', 'acc_alice'))).toBe(true);
+      expect(commandTouchesHubPrivate('cat notes.txt', join(home, 'accounts', 'acc_alice'))).toBe(false);
+      const rel = await m.exec('cat accounts/*/secrets.json', { cwd: home });
+      expect(rel.stdout).not.toContain('cpk-alice-never-shown');
+      expect(rel.stderr).toContain('Refused');
     } finally {
       rmSync(join(home, 'accounts'), { recursive: true, force: true });
+    }
+  });
+
+  test('globs in a folder name, quotes around the home and paths relative to a home the command names are refused too', () => {
+    for (const cmd of [
+      'cat ~/.conclave/acc*/m1/secrets.json',
+      'cat ~/.conclave/a?counts/m1/cliproxy/auth/x.json',
+      'cat ~/.conc*/accounts/m1/secrets.json',
+      'cat "$CONCLAVE_HOME"/accounts/m1/secrets.json',
+      'cat "${CONCLAVE_HOME}/accounts/m1/secrets.json"',
+      "cat '$HOME/.conclave/accounts/m1/secrets.json'",
+      'cd $CONCLAVE_HOME && cat accounts/*/secrets.json',
+      'cd "$CONCLAVE_HOME" && cat accounts/m1/cliproxy/config.yaml',
+      'cd ~/.conclave/accounts && cat */secrets.json',
+      `cat ${home}/acc*/m1/secrets.json`,
+      `cat ${home}/{accounts,x}/m1/secrets.json`,
+      // the hub's own secrets file and CLIProxyAPI, the same ways
+      'cat ~/.conclave/secret?.json',
+      'cat ~/.conclave/*',
+      'cat "$CONCLAVE_HOME"/secrets.json',
+      'cd $CONCLAVE_HOME && cat secrets.json',
+      'cd ~/.conclave; cat ./cliproxy/x',
+      `cat ${home}/sec*.json`,
+    ]) expect([cmd, commandTouchesHubPrivate(cmd)]).toEqual([cmd, true]);
+    for (const cmd of ['ls ~/code/cliproxy-fork', 'cat ~/code/*/secrets.json', 'cat secrets.json', 'cd ~/.conclave && ls logs', 'cat ~/.conclave/notes*', `cat ${home}/notes.txt`, 'grep -r accounts src/', 'ls ~/*']) {
+      expect([cmd, commandTouchesHubPrivate(cmd, work)]).toEqual([cmd, false]);
     }
   });
 });

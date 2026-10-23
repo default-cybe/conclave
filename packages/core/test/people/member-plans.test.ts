@@ -91,6 +91,20 @@ describe("a member's own plans", () => {
     expect((await sideOf(bobId, 'cliproxy/claude-shared-5')).side).toBe('cliproxy');
   });
 
+  test("with the hub's CLIProxyAPI off (the default), a grant on it answers none, as her calls find", async () => {
+    t.engine.config.setRuntime({ providers: { cliproxy: { enabled: false } } } as never, 'cliproxy');
+    try {
+      expect(t.engine.access.hubHas('cliproxy')).toBe(false);
+      expect(t.engine.access.source(bobId, 'cliproxy')).toBe('none');
+      expect(() => t.engine.access.check(bobId, 'cliproxy', 'claude-hub-5')).toThrow("can't use");
+      // her own plan still answers for its models
+      expect(t.engine.access.source(aliceId, 'cliproxy', 'claude-own-5')).toBe('own');
+    } finally {
+      t.engine.config.setRuntime({ providers: { cliproxy: { enabled: true, modelOverrides: { 'claude-hub-5': { inputPrice: 1000, outputPrice: 1000 } } } } } as never, 'cliproxy');
+    }
+    expect(t.engine.access.source(bobId, 'cliproxy')).toBe('hub');
+  });
+
   test("the owner's calls never reach a member's plan", async () => {
     expect((await sideOf('owner', 'cliproxy/claude-shared-5')).side).toBe('cliproxy');
     expect(t.engine.access.info('owner', 'cliproxy').ownPlans).toBeUndefined();
