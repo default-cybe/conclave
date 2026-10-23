@@ -3,8 +3,8 @@ import type { BrowserProxyConfig } from '../browser/proxy-provider';
 
 /**
  * Provider wire types.
- * anthropic : Anthropic Messages API (also z.ai /api/anthropic, CLIProxyAPI /v1/messages, MiniMax...)
- * openai    : OpenAI Chat Completions compatible (OpenAI, z.ai coding paas, OpenRouter, DeepSeek, Groq, Ollama, LM Studio, CLIProxyAPI)
+ * anthropic : Anthropic Messages API (also CLIProxyAPI /v1/messages, MiniMax...)
+ * openai    : OpenAI Chat Completions compatible (OpenAI, z.ai /api/coding/paas/v4 (the zai default), OpenRouter, DeepSeek, Groq, Ollama, LM Studio, CLIProxyAPI)
  * gemini    : Google Generative Language API
  * acp       : an external agent harness spoken to over the Agent Client Protocol (Claude Code, Codex, Gemini CLI, OpenCode...)
  */
@@ -45,9 +45,30 @@ export interface ProviderConfig {
    * For type "openai" on a gateway that also speaks the Anthropic Messages
    * wire (CLIProxyAPI): models whose id matches one of `models` ("claude-*",
    * "*\/claude-*") go to `baseUrl` + /v1/messages with the same key. Every
-   * other model uses Chat Completions at the provider's own baseUrl.
+   * model no wire claims (geminiWire, responsesWire) uses Chat Completions
+   * at the provider's own baseUrl.
    */
   anthropicWire?: { baseUrl: string; models: string[] };
+  /**
+   * For a provider whose own wire is not Anthropic but that also has an
+   * Anthropic Messages upstream (Z.ai's /api/anthropic): the model gateway
+   * sends Anthropic-format requests (/gw/anthropic, /gw/p/<id>/v1/messages)
+   * there with the same key. Sessions never use it.
+   */
+  anthropicBaseUrl?: string;
+  /** providers.zai only: "paas-v4" once the load-time move off the Anthropic shim ran or the entry was set after it (config/retired.ts). */
+  migrated?: string;
+  /**
+   * For type "openai" on a gateway (CLIProxyAPI): models whose id matches one
+   * of `models` ("gpt-*") take the Responses wire at the provider's baseUrl.
+   */
+  responsesWire?: { models: string[] };
+  /**
+   * For type "openai" on a gateway that also speaks the native Gemini wire
+   * (CLIProxyAPI): models whose id matches one of `models` ("gemini-*") go to
+   * `baseUrl` + /v1beta/models/... with the same key. anthropicWire wins first.
+   */
+  geminiWire?: { baseUrl: string; models: string[] };
   /**
    * Header that carries the session id on every request (CLIProxyAPI reads
    * X-Session-ID to keep one conversation on one account).
@@ -710,9 +731,12 @@ export const DEFAULT_CONFIG: ConclaveConfig = {
     openai: { type: 'openai', baseUrl: 'https://api.openai.com/v1', apiKeyEnv: 'OPENAI_API_KEY' },
     google: { type: 'gemini', apiKeyEnv: 'GEMINI_API_KEY' },
     zai: {
-      type: 'anthropic',
+      // Chat Completions, as opencode's zai-coding-plan: Z.ai's Anthropic shim drops tools from long tool lists
+      type: 'openai',
       name: 'Z.ai Coding Plan',
-      baseUrl: 'https://api.z.ai/api/anthropic',
+      baseUrl: 'https://api.z.ai/api/coding/paas/v4',
+      // the gateway's Anthropic route (Claude Code pointed at Z.ai) still goes to the shim
+      anthropicBaseUrl: 'https://api.z.ai/api/anthropic',
       apiKeyEnv: 'ZAI_API_KEY',
       subscription: 'zai-coding',
       // the Coding Plan's models, newest first (the first one tests the key); keep in step with providers/catalog.ts

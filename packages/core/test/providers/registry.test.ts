@@ -61,7 +61,8 @@ afterAll(() => {
 describe('ProviderRegistry.get', () => {
   test('builds providers by type and skips ACP', () => {
     expect(registry.get('anthropic')).toBeInstanceOf(AnthropicProvider);
-    expect(registry.get('zai')).toBeInstanceOf(AnthropicProvider);
+    // Chat Completions at /api/coding/paas/v4 since 0.4.21
+    expect(registry.get('zai')).toBeInstanceOf(OpenAIProvider);
     expect(registry.get('openai')).toBeInstanceOf(OpenAIProvider);
     expect(registry.get('codex')).toBeInstanceOf(OpenAIResponsesProvider);
     expect(registry.get('google')?.type).toBe('gemini');

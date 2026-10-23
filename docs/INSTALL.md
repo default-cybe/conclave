@@ -552,6 +552,12 @@ example `conclave secret anthropic`.
 
    Other provider names: `openai`, `google`, `zai`, `openrouter`.
 
+   `zai` is the Z.ai Coding Plan over Chat Completions at
+   `https://api.z.ai/api/coding/paas/v4`, as opencode uses it. Before 0.4.21
+   it used the Anthropic endpoint `/api/anthropic`, which drops tools from long
+   tool lists. A config that names the old address moves to the new one when
+   the hub loads it.
+
    Keys set as environment variables on the hub (`ANTHROPIC_API_KEY` and the
    like) and the hub's own `CONCLAVE_TOKEN` are never passed to the shells,
    hooks and tools that sessions start, so a session cannot read them. If you
@@ -691,8 +697,11 @@ Settings > Models > Accounts) also shows its models as
 token now.
 
 Claude models go to CLIProxyAPI's Anthropic endpoint (`/v1/messages`), so
-thinking and prompt caching work as with an API key; the rest use Chat
-Completions.
+thinking and prompt caching work as with an API key. GPT models use the
+Responses endpoint (`/v1/responses`), so an image a tool returns stays inside
+that tool's result. Gemini models (bare ids, not `neu/gemini-*`) use the
+native Gemini endpoint (`/v1beta/models/...`), so tool results pair by name
+and thought signatures survive. The rest use Chat Completions.
 
 ### New models without an update
 

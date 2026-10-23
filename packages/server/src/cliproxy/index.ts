@@ -90,6 +90,10 @@ const KV_PORT = 'cliproxy.port';
 export const PROVIDER_ID = 'cliproxy';
 /** Models that go over the Anthropic Messages wire. */
 export const ANTHROPIC_MODELS = ['claude-*', '*/claude-*'];
+/** Models that go over the Responses wire (Codex speaks it natively, tool-result images stay inside function_call_output). */
+export const RESPONSES_MODELS = ['gpt-*', '*/gpt-*'];
+/** Models that go over the native Gemini wire (functionResponse by name, thought signatures kept). Bare ids only. */
+export const GEMINI_MODELS = ['gemini-*'];
 const DEFAULT_BASE = 'http://127.0.0.1:8317/v1';
 
 /** What each sign-in gives, in words. Anything else the running version or a plugin offers gets its own id as the name. */
@@ -823,6 +827,8 @@ export class CliproxyManager {
       models: this.allModels().map((m) => m.id),
       ...(Object.keys(this.planMeta()).length ? { modelMeta: this.planMeta() } : {}),
       anthropicWire: { baseUrl: this.root, models: ANTHROPIC_MODELS },
+      geminiWire: { baseUrl: this.root, models: GEMINI_MODELS },
+      responsesWire: { models: RESPONSES_MODELS },
       responsesApi: false,
       // signed in plans: no per-token price, limits grouped under one id
       subscription: PROVIDER_ID,
