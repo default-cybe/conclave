@@ -87,16 +87,34 @@ describe('the queue over HTTP and the socket', () => {
     }
   });
 
-  test('Stop clears what waits, and a bad pendingId is refused', async () => {
+  test('/btw answers apart from the transcript, for the session\'s own account only', async () => {
+    const s = await call(OWNER, 'POST', '/api/sessions', { kind: 'chat', title: 'btw' });
+    const id = s.body.id as string;
+    expect((await call(OWNER, 'POST', `/api/sessions/${id}/btw`, {})).status).toBe(400);
+    expect((await call(alice.token, 'POST', `/api/sessions/${id}/btw`, { text: 'hi?' })).status).toBe(404);
+    const r = await call(OWNER, 'POST', `/api/sessions/${id}/btw`, { text: 'hi?' });
+    expect(r.status).toBe(200);
+    expect(typeof r.body.answer).toBe('string');
+    expect(t.engine.getMessages(id)).toEqual([]);
+  });
+
+  test('Stop holds what waits, Send runs it (its own account only), and a bad pendingId is refused', async () => {
     const s = await call(OWNER, 'POST', '/api/sessions', { kind: 'chat', title: 'stop' });
     const id = s.body.id as string;
     expect((await call(OWNER, 'POST', `/api/sessions/${id}/messages`, { text: 'first', pendingId: 42 })).status).toBe(400);
     await call(OWNER, 'POST', `/api/sessions/${id}/messages`, { text: 'first' });
     expect(await until(() => t.engine.getSession(id)?.status === 'running')).toBe(true);
-    await call(OWNER, 'POST', `/api/sessions/${id}/messages`, { text: 'later' });
+    const later = await call(OWNER, 'POST', `/api/sessions/${id}/messages`, { text: 'later' });
     expect((await call(OWNER, 'GET', `/api/sessions/${id}/queue`)).body).toHaveLength(1);
     await call(OWNER, 'POST', `/api/sessions/${id}/abort`);
-    expect((await call(OWNER, 'GET', `/api/sessions/${id}/queue`)).body).toEqual([]);
     await t.engine.runnerFor(id).waitIdle();
+    const held = await call(OWNER, 'GET', `/api/sessions/${id}/queue`);
+    expect(held.body.map((q: { id: string; held?: boolean }) => [q.id, q.held])).toEqual([[later.body.pendingId, true]]);
+    expect((await call(alice.token, 'POST', `/api/sessions/${id}/queue/${later.body.pendingId}/send`)).status).toBe(404);
+    expect((await call(OWNER, 'POST', `/api/sessions/${id}/queue/q_nothing00/send`)).status).toBe(404);
+    expect((await call(OWNER, 'POST', `/api/sessions/${id}/queue/${later.body.pendingId}/send`)).body).toEqual({ ok: true });
+    expect(await until(() => t.engine.getMessages(id).some((m) => (m.meta?.pendingIds as string[] | undefined)?.includes(later.body.pendingId)), 5_000)).toBe(true);
+    await t.engine.runnerFor(id).waitIdle();
+    expect((await call(OWNER, 'GET', `/api/sessions/${id}/queue`)).body).toEqual([]);
   });
 });

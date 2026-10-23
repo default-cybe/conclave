@@ -432,6 +432,20 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     return c.json(ok);
   });
 
+  // /btw: a side question, answered apart from the transcript
+  app.post('/api/sessions/:id/btw', async (c) => {
+    const id = sid(c);
+    const { text } = await readJson<{ text?: unknown }>(c);
+    if (typeof text !== 'string' || !text.trim()) throw badRequest('text is required');
+    return c.json(await engine.btw(id, text));
+  });
+
+  // a message Stop held: it runs now (or after the running turn)
+  app.post('/api/sessions/:id/queue/:pendingId/send', (c) => {
+    engine.sendQueued(sid(c), c.req.param('pendingId'));
+    return c.json(ok);
+  });
+
   app.post('/api/sessions/:id/abort', (c) => {
     engine.abort(sid(c));
     return c.json(ok);

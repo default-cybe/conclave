@@ -1742,6 +1742,10 @@ export class ConclaveClient {
   queue = (id: string) => this.request<QueuedMessage[]>('GET', `/api/sessions/${id}/queue`);
   /** Take a waiting message off the queue before it runs. 409 once its turn has started, 404 when it is gone. */
   unqueue = (id: string, pendingId: string) => this.request<{ ok: true }>('DELETE', `/api/sessions/${id}/queue/${encodeURIComponent(pendingId)}`);
+  /** Send a waiting message Stop held (QueuedMessage.held). 404 when it is gone. */
+  sendQueued = (id: string, pendingId: string) => this.request<{ ok: true }>('POST', `/api/sessions/${id}/queue/${encodeURIComponent(pendingId)}/send`);
+  /** /btw: a side question about the session, answered apart from its transcript. */
+  btw = (id: string, text: string) => this.request<{ answer: string }>('POST', `/api/sessions/${id}/btw`, { text });
   abort = (id: string) => this.request<{ ok: true }>('POST', `/api/sessions/${id}/abort`);
   rewind = (id: string, seq: number, restoreFiles = false) => this.request<Session>('POST', `/api/sessions/${id}/rewind`, { seq, restoreFiles });
   secondOpinion = (id: string, input: SecondOpinionInput) => this.request<{ ok: true }>('POST', `/api/sessions/${id}/second-opinion`, input);

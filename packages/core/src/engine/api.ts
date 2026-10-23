@@ -161,8 +161,12 @@ export interface EngineApi {
   moveToMainList(id: string): Session;
   getMessages(id: string, afterSeq?: number): Message[];
   send(id: string, input: SendInput): Promise<SendResult>;
-  /** Messages waiting while the session is busy, in the order they will run. In memory: a hub restart drops them. */
+  /** Messages waiting while the session is busy, in the order they will run. Stored: a hub restart keeps them, Stop holds them (held). */
   queue(id: string): QueuedMessage[];
+  /** Send a message Stop held: it runs in its place in the queue. 404 when it is not there. */
+  sendQueued(id: string, pendingId: string): void;
+  /** /btw: a side question answered from the transcript's tail, with no tools; nothing joins the transcript or the queue. */
+  btw(id: string, text: string): Promise<{ answer: string }>;
   /** Take a waiting message off before it runs: 409 once its turn started, 404 when it is not there. */
   unqueue(id: string, pendingId: string): void;
   abort(id: string): void;

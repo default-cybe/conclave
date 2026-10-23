@@ -702,8 +702,20 @@ on('DELETE', '/api/sessions/:id/queue/:pending', ({ params }) => {
   if (!waiting.remove(params[0], decodeURIComponent(params[1]))) return ctx.fail(404, 'That message is not waiting any more.');
   return { ok: true };
 });
+on('POST', '/api/sessions/:id/queue/:pending/send', ({ params }) => {
+  const s = getSession(params[0]);
+  if (!waiting.release(s.id, decodeURIComponent(params[1]))) return ctx.fail(404, 'That message is not waiting any more.');
+  if (s.status === 'idle') void runNext(s.id);
+  return { ok: true };
+});
+on('POST', '/api/sessions/:id/btw', ({ params, body }) => {
+  getSession(params[0]);
+  const text = typeof body?.text === 'string' ? body.text.trim() : '';
+  if (!text) return ctx.fail(400, 'text is required');
+  return { answer: `(mock) A side answer to "${text}". The running turn never sees it.` };
+});
 on('POST', '/api/sessions/:id/abort', ({ params }) => {
-  waiting.clear(params[0]);
+  waiting.hold(params[0]);
   patchSession(params[0], { status: 'idle' });
   addMessage({ sessionId: params[0], role: 'assistant', kind: 'notice', content: [{ type: 'text', text: 'Stopped by you.' }] });
   return { ok: true };

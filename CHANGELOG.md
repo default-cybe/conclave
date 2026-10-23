@@ -7,6 +7,23 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [0.4.17] - 2026-10-23
+
+### What's new
+- `/btw <question>`: ask a side question while a turn runs. It gets its own quick answer from the session's model, as a card you can dismiss, and never enters the turn or the transcript.
+- A message you send while a turn works is delivered into that turn right after the current tool call, as Claude Code does. A turn that only writes text keeps it for its own next turn.
+- Held messages show "Stopped" with a Send button and an x, on the web and on Android.
+
+### Changed
+- Stop, Edit and Retry keep what you queued (held, visible) instead of dropping it.
+- Agents never block a turn on a long wait; they start it in the background or hand it to a background agent, so your messages are read.
+- The README is a front page for the public repo.
+
+### Fixed
+- Queued messages were lost when a turn was stopped or the hub restarted. They are now saved on the hub and survive a restart.
+- An agent's tier model (deep, fast) skips a model that answered "model not found" for 6 hours.
+- Members' own plans: the tool guard refuses more forms of member and hub secret paths; a granted member gets a clear refusal when the hub's CLIProxyAPI is off; a member's empty Accounts page points to Subscriptions; a member's CLIProxyAPI view never carries the hub's token.
+
 ## [0.4.16] - 2026-10-23
 
 ### What's new

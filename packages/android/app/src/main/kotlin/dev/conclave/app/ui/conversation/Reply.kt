@@ -197,6 +197,8 @@ fun UserBubble(
     label: String? = null,
     /** Given while it waits: the x before the label takes it off. */
     onRemove: (() -> Unit)? = null,
+    /** Given for one Stop held: Send after the label runs it. */
+    onSend: (() -> Unit)? = null,
     /** Notes from memory the hub gave the model with this message. */
     recalled: Int = 0,
     onOpenMemory: () -> Unit = {},
@@ -233,6 +235,7 @@ fun UserBubble(
                         }
                     }
                     Text(label, style = ConclaveType.meta, color = c.fg3)
+                    if (onSend != null) Text("Send", style = ConclaveType.meta, color = c.fg2, modifier = Modifier.clickable(onClickLabel = "Send", onClick = onSend).padding(horizontal = 10.dp, vertical = 4.dp))
                 }
             }
             if (message != null && recalled > 0) {

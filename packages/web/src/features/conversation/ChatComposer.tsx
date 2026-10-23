@@ -21,7 +21,9 @@ import { useLocation } from 'wouter';
 import type { Attachment } from '@conclave/core/client';
 import type { Session } from '@conclave/core/types';
 import { ACCEPT_FILES, MAX_ATTACHMENTS } from '@conclave/core/attachments/limits';
-import { useHub } from '@/store/store';
+import { askBtw, useHub } from '@/store/store';
+import { BtwCards } from '@/features/chat/Pending';
+import { btwQuestion } from '@/features/chat/slash';
 import { cn, fuzzyFilter } from '@/lib/text';
 import { useIsMobile } from '@/lib/hooks';
 import { effortForModel, effortOf, type EffortSetting } from '@/lib/effort';
@@ -276,6 +278,12 @@ export function ChatComposer({
   const send = async () => {
     if (!hasText || busy) return;
     const out = { text: text.trim(), attachments: files.map(({ size: _s, preview: _p, ...a }) => a) };
+    // /btw: a side question, never the turn or the queue (Pending.tsx BtwCards)
+    const btw = !target && session && !files.length ? btwQuestion(out.text) : undefined;
+    if (btw && session) {
+      setText('');
+      return void askBtw(session.id, btw);
+    }
     if (target?.prepare && !target.prepare(out)) return;
     // the composer clears in the same frame; a refusal puts the text back
     if (document.activeElement === box.current) focusUntil = Date.now() + 1500;
@@ -445,6 +453,7 @@ export function ChatComposer({
       <div className="w-full px-3 pt-1 pb-2">
         <div className="relative">
           {commandList}
+          {session && <BtwCards sessionId={session.id} />}
           <PhoneBox
             rim={rim}
             attachments={<AttachmentStrip phone files={files} onRemove={(i) => setFiles((x) => x.filter((_, k) => k !== i))} />}
@@ -489,6 +498,7 @@ export function ChatComposer({
     <div className="mx-auto w-full max-w-[784px] px-8 pb-3 phone:px-4 phone:pb-3">
       <div className="relative">
         {commandList}
+        {session && <BtwCards sessionId={session.id} />}
         <div className="relative rounded-[var(--r-2)] border border-rule-2 bg-sunk transition-[border-color] duration-[var(--dur-1)] has-[textarea:focus-visible]:border-edge">
           <Rim state={rim} />
           <AttachmentStrip files={files} onRemove={(i) => setFiles((x) => x.filter((_, k) => k !== i))} />

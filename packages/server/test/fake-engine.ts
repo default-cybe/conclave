@@ -380,6 +380,15 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
       rec('unqueue', id, pendingId);
       sessionOr404(id);
     },
+    sendQueued: (id, pendingId) => {
+      rec('sendQueued', id, pendingId);
+      sessionOr404(id);
+    },
+    async btw(id, text) {
+      rec('btw', id, text);
+      sessionOr404(id);
+      return { answer: `btw: ${text}` };
+    },
     abort: (id) => void rec('abort', id),
     async rewind(id, seq, restoreFiles) {
       rec('rewind', id, seq, restoreFiles);

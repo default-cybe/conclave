@@ -143,6 +143,8 @@ export interface QueuedMessage {
   /** When it was sent. */
   at: number;
   whenBusy: 'queue' | 'steer';
+  /** Stop kept it: it waits until the owner sends it (POST /queue/:pendingId/send) or removes it. */
+  held?: boolean;
 }
 
 export type SessionStatus =

@@ -422,6 +422,13 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
     log.warn('could not move Basic Memory onto the hub server', err);
   }
 
+  // messages that waited when the hub stopped wait again and run (session/runner.ts storeQueue)
+  try {
+    engine.restoreQueues();
+  } catch (err) {
+    log.warn('could not restore the waiting messages', err);
+  }
+
   if (!opts.noBackground) {
     scheduler.start();
     // reload extensions when config changes (new plugins, mcp servers)
