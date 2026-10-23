@@ -9,7 +9,7 @@ import { join, resolve as resolvePath } from 'node:path';
 import type { Engine } from '../engine/engine';
 import { EngineError } from '../engine/errors';
 import type { Machine } from '../machine/types';
-import type { ContentBlock, Session } from '../types';
+import type { AgentResultRef, ContentBlock, Session } from '../types';
 import type {
   FindingVerdict,
   StartWorkflowInput,
@@ -667,7 +667,12 @@ export class WorkflowService {
     if (row.hostSession) {
       this.engine.addMessage(row.sessionId, { role: 'assistant', kind: 'aside', author: `Workflow ${row.name}`, content: [{ type: 'text', text }], meta: { workflowRunId: row.id } });
     } else if (row.background) {
-      this.engine.runnerFor(row.sessionId).deliver({ block: workflowResultBlock(row, text), source: row.id, wake: !session.meta?.subagent });
+      const result: AgentResultRef = { type: 'workflow', id: row.id, label: row.name, state: row.status === 'done' ? 'completed' : row.status === 'stopped' ? 'stopped' : 'failed' };
+      this.engine.runnerFor(row.sessionId).deliver({ block: workflowResultBlock(row, text), source: row.id, wake: !session.meta?.subagent, result });
+      // the line the apps draw as the run's row ("Message from workflow ..."), its report from the message that carries it;
+      // stored as a notice message only, since notifyEvent below already tells the owner's devices
+      const words = row.status === 'done' ? 'finished' : row.status === 'stopped' ? 'stopped' : row.status === 'budget' ? 'stopped at its budget' : 'failed';
+      this.engine.addMessage(row.sessionId, { role: 'assistant', kind: 'notice', content: [{ type: 'text', text: `Workflow ${words}: ${row.name}` }], meta: { level: row.status === 'done' ? 'info' : 'warning', kind: 'agent-result', agentResult: result } });
     }
     const level = row.status === 'done' ? 'success' : row.status === 'stopped' ? 'info' : 'warning';
     this.engine.notifyEvent(row.status === 'done' ? 'sessionDone' : 'errors', { title: `Workflow ${row.name}`, body: `${row.status === 'done' ? 'Finished' : row.status === 'budget' ? 'Stopped at its budget' : row.status === 'stopped' ? 'Stopped' : 'Failed'}: ${oneLine(row.error ?? (typeof row.result === 'string' ? row.result : ''), 120)}`, level, sessionId: row.sessionId, link: `/workflows/runs/${row.id}` });

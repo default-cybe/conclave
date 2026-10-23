@@ -719,7 +719,11 @@ private fun UnitView(
         )
         is ChatUnit.Notice -> {
             val text = unit.message.content.plainText().ifBlank { unit.message.author ?: "Notice" }
-            if (failed && isLastUnit && isErrorNotice(unit)) {
+            val result = unit.result
+            // a background task that reported back: its compact row that opens to the report
+            if (result != null) {
+                dev.conclave.app.ui.chat.AgentResultLine(result)
+            } else if (failed && isLastUnit && isErrorNotice(unit)) {
                 FailedLine(reason = text.removePrefix("Error: "), onRetry = onRetryLast, onSwitch = actions.switchModel, mark = failedMark)
             } else if (nextModel != null && nextModel.notice.id == unit.message.id) {
                 // a refusal with a next model in Refusal fallback; the action's own padding is taken back so its words line up

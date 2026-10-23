@@ -1,4 +1,5 @@
 import type {
+  AgentResultRef,
   ApprovalResponse,
   ContentBlock,
   ImageBlock,
@@ -233,6 +234,8 @@ export interface PendingNote {
   source?: string;
   /** Start a turn for this note when the session is idle. */
   wake: boolean;
+  /** A finished background task's report: the message that carries it says so in meta.agentResults, for the apps' row. */
+  result?: AgentResultRef;
 }
 
 /**
@@ -705,6 +708,12 @@ export class SessionRunner {
       content.push(...notes.map((n) => n.block));
       const sources = notes.map((n) => n.source).filter((x): x is string => !!x);
       if (sources.length) userMeta.subagentResults = sources;
+      const results = notes.flatMap((n) => (n.result ? [n.result] : []));
+      if (results.length) {
+        userMeta.agentResults = results;
+        // nothing the owner wrote: the apps draw the task's row, not a bubble
+        if (!content.some((b) => (b.type === 'text' && !isReminder(b) && b.text.trim()) || b.type === 'image' || b.type === 'document')) userMeta.kind = 'agent-result';
+      }
     }
     if (q.forNotes && !notes.length) {
       // the notes this turn was for were already shown to the model
@@ -1318,6 +1327,8 @@ export class SessionRunner {
       const noteSources = notes.map((n) => n.source).filter((x): x is string => !!x);
       const resultMeta: Record<string, unknown> = {};
       if (noteSources.length) resultMeta.subagentResults = noteSources;
+      const noteResults = notes.flatMap((n) => (n.result ? [n.result] : []));
+      if (noteResults.length) resultMeta.agentResults = noteResults;
       if (halt) resultMeta.loopGuard = { code: halt.verdict.code, stopped: !!guardStop };
       engine.addMessage(this.id, { role: 'user', kind: 'normal', content: [...results, ...extra], meta: Object.keys(resultMeta).length ? resultMeta : undefined });
 
