@@ -488,7 +488,7 @@ export interface ConclaveConfig {
   };
 
   search: {
-    provider: 'auto' | 'brave' | 'tavily' | 'exa' | 'searxng' | 'jina' | 'duckduckgo';
+    provider: 'auto' | 'brave' | 'tavily' | 'exa' | 'searxng' | 'jina' | 'duckduckgo' | 'serper' | 'serpapi' | 'langsearch' | 'linkup' | 'firecrawl' | 'youcom';
     apiKey?: string;
     apiKeyEnv?: string;
     url?: string;

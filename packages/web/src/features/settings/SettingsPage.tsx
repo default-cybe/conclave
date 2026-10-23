@@ -39,6 +39,7 @@ import { NotificationsSection } from './notifications';
 import { AssistantSection } from './assistant';
 import { ReflectSection } from './reflect';
 import { MapsSection } from './maps';
+import { WebSearchSection } from './websearch';
 import { CalMailSection } from './calmail';
 import { BrowserSection } from './browser';
 import { GatewaySection } from './gateway';
@@ -158,6 +159,14 @@ const ALL_SECTIONS: SectionDef[] = [
     label: 'Maps',
     desc: 'Places, directions and maps for the assistant, from Google Maps or OpenStreetMap. The key stays on the hub.',
     C: MapsSection,
+    owner: true,
+  },
+  {
+    id: 'websearch',
+    label: 'Web search',
+    desc: 'The search engine WebSearch uses, how to get a free key for it, and the key. Keys stay on the hub.',
+    C: WebSearchSection,
+    // the hub's keys, used for everyone (docs/design/ACCOUNTS.md)
     owner: true,
   },
   {
