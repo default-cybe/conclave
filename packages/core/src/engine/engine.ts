@@ -88,7 +88,7 @@ import type { HarnessAdapter } from '../acp/types';
 import { harnessOffWords } from '../acp/harness-off';
 import type { Tool } from '../tools/types';
 import { builtinTools, filterTools } from '../tools';
-import { SessionRunner } from '../session/runner';
+import { QUEUE_KEY, SessionRunner, type StoredQueued } from '../session/runner';
 import { RunnerExtensions } from '../session/runner-ext';
 import { OfflineMachine } from '../projects/offline';
 import { checkMcpOff, mcpOff, sessionAllowsServerTool } from '../session/connectors';
@@ -105,7 +105,7 @@ import { isUntrusted } from '../session/untrusted';
 import { friendShareOf, narrowsTools } from '../session/friend-share';
 import { takesEffort } from '../providers/anthropic';
 import { clampEffort, type Effort, type EffortSetting } from '../providers/effort';
-import { activeMessages, isReminder } from '../session/transcript';
+import { activeMessages, isReminder, renderTranscript } from '../session/transcript';
 import { exportSession as exportShared, type ExportResult } from '../session/share';
 import { readPastSession, searchPastSessions, type PastRead, type PastSessionHit, type PastSessionQuery } from '../session/search';
 import { toolSearchFor } from '../tools/tool-search';
@@ -785,6 +785,44 @@ export class Engine implements EngineApi {
     const r = this.runners.get(id)?.unqueue(pendingId) ?? 'missing';
     if (r === 'started') throw new EngineError(409, 'That message has started. It is in the transcript now.');
     if (r === 'missing') throw new EngineError(404, 'That message is not waiting any more.');
+  }
+
+  /**
+   * /btw: a side question about the session, answered by one call on the
+   * session's model with no tools, from the transcript's tail. Nothing joins
+   * the transcript or the queue, so the running turn never sees it.
+   */
+  async btw(id: string, text: string): Promise<{ answer: string }> {
+    const s = this.requireSession(id);
+    const question = text.trim();
+    if (!question) throw new EngineError(400, 'Ask a question after /btw.');
+    const { completeText } = await import('../session/stream');
+    // shortcut: the last 60 messages, capped at 20k chars; a long session's start is left out
+    const context = renderTranscript(this.repos.messages.list(id).slice(-60), { maxChars: 20_000 });
+    const answer = await completeText(this, {
+      model: s.model,
+      system: 'You answer a quick side question about a conversation between the user and an assistant that may still be working. Answer briefly from the conversation; say so when it does not tell. You cannot use tools or act.',
+      prompt: `<conversation>\n${context || '(nothing yet)'}\n</conversation>\n\nSide question: ${question}`,
+      maxTokens: 1500,
+      purpose: 'btw',
+      sessionId: id,
+    });
+    return { answer };
+  }
+
+  sendQueued(id: string, pendingId: string): void {
+    this.requireSession(id);
+    if (!this.runners.get(id)?.release(pendingId)) throw new EngineError(404, 'That message is not waiting any more.');
+  }
+
+  /** At boot: the messages that waited when the hub stopped wait again (runner.ts storeQueue). */
+  restoreQueues(): void {
+    for (const key of this.repos.kv.keys(QUEUE_KEY)) {
+      const id = key.slice(QUEUE_KEY.length);
+      const items = this.repos.kv.get<StoredQueued[]>(key, []);
+      if (!this.repos.sessions.get(id) || !Array.isArray(items) || !items.length) this.repos.kv.delete(key);
+      else this.runnerFor(id).restore(items);
+    }
   }
 
   abort(id: string): void {
@@ -1475,7 +1513,8 @@ export class Engine implements EngineApi {
     await workflowsOf(this)?.shutdown().catch(() => {});
     alertsOf(this)?.stop();
     const ending = [...this.runners.entries()].filter(([, r]) => r.started).map(([id]) => this.repos.sessions.get(id)).filter((s): s is Session => !!s);
-    for (const r of this.runners.values()) r.abort();
+    // what waits stays stored and runs after the next boot
+    for (const r of this.runners.values()) r.abort('shutdown');
     // SessionEnd hooks have a short default timeout (1.5 s) so they cannot hold up a stop
     await Promise.allSettled(ending.map((s) => this.runHook(s, 'SessionEnd', { reason: 'other' }, 'other')));
     this.scheduler.stop();

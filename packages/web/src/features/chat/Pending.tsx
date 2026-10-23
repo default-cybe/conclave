@@ -13,7 +13,7 @@ import { useRef } from 'react';
 import { X } from 'lucide-react';
 import type { QueuedMessage, Session } from '@conclave/core/types';
 import type { Attachment } from '@conclave/core/client';
-import { pendingPreview, removeQueued } from '@/store/store';
+import { dismissBtw, pendingPreview, removeQueued, sendHeld, useHub } from '@/store/store';
 import { cn } from '@/lib/text';
 import { hhmm } from '@/lib/format';
 import { BUBBLE, BubbleText } from '@/components/ui/Bubble';
@@ -21,8 +21,38 @@ import { ActionText, LogRow } from './Log';
 import { Markdown } from './Markdown';
 
 /** The label a waiting message wears. */
-export function pendingWord(item: Pick<QueuedMessage, 'whenBusy'>): string {
+export function pendingWord(item: Pick<QueuedMessage, 'whenBusy' | 'held'>): string {
+  if (item.held) return 'Stopped';
   return item.whenBusy === 'steer' ? 'Sending to the running turn' : 'Queued';
+}
+
+/** A message Stop held waits for you: Send runs it (the x removes it). */
+export function SendHeld({ sessionId, item, className }: { sessionId: string; item: QueuedMessage; className?: string }) {
+  if (!item.held) return null;
+  return (
+    <button type="button" onClick={() => void sendHeld(sessionId, item.id)} className={cn('tap text-[12px] text-fg-2 hov:text-fg', className)}>
+      Send
+    </button>
+  );
+}
+
+/** /btw answers over the composer: each dismissible, never part of the transcript the agent reads. */
+export function BtwCards({ sessionId }: { sessionId: string }) {
+  const cards = useHub((s) => s.btws[sessionId]);
+  if (!cards?.length) return null;
+  return (
+    <div className="mb-2 flex max-h-[40vh] flex-col gap-2 overflow-y-auto">
+      {cards.map((c) => (
+        <div key={c.id} data-btw className="relative rounded-[var(--r-2)] border border-rule bg-raise px-3 py-2 pr-8 text-[14px]">
+          <div className="text-[12px] text-fg-3">btw: {c.question}</div>
+          <div className="text-fg">{c.answer === undefined ? <span className="text-fg-3">Thinking</span> : <Markdown text={c.answer} />}</div>
+          <button type="button" aria-label="Dismiss" title="Dismiss" onClick={() => dismissBtw(sessionId, c.id)} className="tap absolute top-1.5 right-1.5 grid size-6 place-items-center rounded-[var(--r-1)] text-fg-3 hov:bg-hover hov:text-fg">
+            <X aria-hidden strokeWidth={1.75} className="size-3.5" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /** The label a stored message keeps when it was sent while the session worked (meta.whenBusy). */
@@ -73,6 +103,7 @@ function PendingMessage({ item, session, enter }: { item: QueuedMessage; session
               <X aria-hidden strokeWidth={1.75} className="size-3.5" />
             </ActionText>
             <span className="ml-1 text-[12px] text-fg-3">{pendingWord(item)}</span>
+            <SendHeld sessionId={session.id} item={item} className="ml-2" />
           </div>
           {item.text && (
             <div className={cn(BUBBLE, 'min-w-0 max-w-[min(85%,520px)]')}>
@@ -115,6 +146,7 @@ export function PhonePending({ session, items }: { session: Session; items: Queu
           <X aria-hidden strokeWidth={2} className="size-3.5" />
         </button>
         {pendingWord(item)}
+        <SendHeld sessionId={session.id} item={item} className="text-[13px]" />
       </span>
     </div>
   ));

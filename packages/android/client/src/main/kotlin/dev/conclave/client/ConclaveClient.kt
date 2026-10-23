@@ -5,6 +5,7 @@ import dev.conclave.client.model.AppDto
 import dev.conclave.client.model.ApprovalRequest
 import dev.conclave.client.model.ApprovalResponse
 import dev.conclave.client.model.AuditEntry
+import dev.conclave.client.model.BtwAnswer
 import dev.conclave.client.model.Checkpoint
 import dev.conclave.client.model.CommandDef
 import dev.conclave.client.model.CommandResult
@@ -493,6 +494,13 @@ class ConclaveClient(
 
     /** Take a waiting message off before it runs: 409 once its turn started, 404 when it is gone. */
     suspend fun unqueue(id: String, pendingId: String) = sendUnit("DELETE", p("api", "sessions", id, "queue", pendingId))
+
+    /** Send a waiting message Stop held (QueuedMessage.held): 404 when it is gone. */
+    suspend fun sendQueued(id: String, pendingId: String) = sendUnit("POST", p("api", "sessions", id, "queue", pendingId, "send"))
+
+    /** /btw: a side question answered apart from the transcript; the running turn never sees it. */
+    suspend fun btw(id: String, text: String): BtwAnswer =
+        sendJson("POST", p("api", "sessions", id, "btw"), buildJsonObject { put("text", text) }, BtwAnswer.serializer())
 
     suspend fun rewind(id: String, seq: Long, restoreFiles: Boolean = false): Session = sendJson(
         "POST", p("api", "sessions", id, "rewind"),

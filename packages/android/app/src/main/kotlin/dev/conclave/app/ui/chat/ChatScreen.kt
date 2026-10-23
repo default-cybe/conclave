@@ -385,7 +385,7 @@ fun ChatScreen(
                             // never one whose message is in the list already: a key twice would end the screen
                             val taken = rows.flatMapTo(HashSet()) { r -> (r as? ChatItem.User)?.let { PendingQueue.pendingIds(it.message) }.orEmpty() }
                             items(queued.filter { it.id !in taken }.asReversed(), key = { PendingQueue.key(it.id) }) { p ->
-                                PendingUserMessage(p, local = previews[p.id], onRemove = { vm.removeQueued(p.id) })
+                                PendingUserMessage(p, local = previews[p.id], onRemove = { vm.removeQueued(p.id) }, onSend = { vm.sendHeld(p.id) })
                             }
                             // a message that took a waiting one's place keeps its row (the same key), so nothing moves or rises
                             items(rows.asReversed(), key = { (it as? ChatItem.User)?.let { u -> PendingQueue.keyOf(u.message) } ?: it.key }) { item ->

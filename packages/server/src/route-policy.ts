@@ -96,6 +96,9 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/sessions/:id/messages': SESSION,
   'GET /api/sessions/:id/queue': SESSION,
   'DELETE /api/sessions/:id/queue/:pendingId': SESSION,
+  'POST /api/sessions/:id/queue/:pendingId/send': SESSION,
+  // a side question: the same rule as sending a message
+  'POST /api/sessions/:id/btw': SESSION,
   'POST /api/sessions/:id/abort': SESSION,
   'POST /api/sessions/:id/rewind': SESSION,
   'POST /api/sessions/:id/second-opinion': SESSION,

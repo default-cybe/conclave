@@ -24,7 +24,8 @@ import { ACCEPT_FILES, MAX_ATTACHMENTS } from '@conclave/core/attachments/limits
 import type { EffortSetting } from '@/lib/effort';
 import type { Attachment } from '@conclave/core/client';
 import { api } from '@/lib/api';
-import { attempt, sendQueued, toast, upsertSession, useHub } from '@/store/store';
+import { askBtw, attempt, sendQueued, toast, upsertSession, useHub } from '@/store/store';
+import { BtwCards } from './Pending';
 import { openNewChat, openPalette } from '@/store/ui';
 import { cn, fuzzyFilter } from '@/lib/text';
 import { bytes, hhmm } from '@/lib/format';
@@ -225,6 +226,9 @@ export function Composer({ session }: { session: Session }) {
       }
       case 'init':
         return send(INIT_PROMPT);
+      case 'btw':
+        // a side question: never the turn or the queue (Pending.tsx BtwCards shows the answer)
+        return a ? askBtw(session.id, a) : setText('/btw ');
       default: {
         const it = findSlash(items, name);
         if (it?.sheet) setPanel(it.sheet);
@@ -472,6 +476,7 @@ export function Composer({ session }: { session: Session }) {
         }}
       >
         {menuBox}
+        <BtwCards sessionId={session.id} />
         <PhoneBox
           rim={rim}
           attachments={<AttachmentStrip phone files={files} onRemove={(i) => setFiles((x) => x.filter((_, k) => k !== i))} />}
@@ -566,6 +571,7 @@ export function Composer({ session }: { session: Session }) {
     >
       {menuBox}
       {sheets}
+      <BtwCards sessionId={session.id} />
 
       <div className={cn('relative rounded-[var(--r-2)] border bg-sunk transition-[border-color] duration-[var(--dur-1)] has-[textarea:focus]:border-edge', drag ? 'border-signal' : 'border-rule-2')}>
         <Rim state={rim} />

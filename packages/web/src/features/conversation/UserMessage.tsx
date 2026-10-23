@@ -18,7 +18,7 @@ import { Dialog, MenuList, Popover } from '@/components/ui/Overlay';
 import { Swap } from '@/components/motion';
 import { pendingPreview, removeQueued, useHub } from '@/store/store';
 import { msgText } from '@/features/chat/util';
-import { pendingWord, storedWord } from '@/features/chat/Pending';
+import { pendingWord, SendHeld, storedWord } from '@/features/chat/Pending';
 import { attachmentsOf, branchChat, replaceFrom } from './actions';
 import { BUBBLE, BubbleText } from '@/components/ui/Bubble';
 import { PlainText } from './ChatMarkdown';
@@ -281,6 +281,7 @@ export function QueuedBubble({ item, chatId }: { item: QueuedMessage; chatId: st
           <X aria-hidden strokeWidth={1.75} className="size-3.5" />
         </button>
         <span className="text-[12px] text-fg-3 phone:text-[13px]">{pendingWord(item)}</span>
+        <SendHeld sessionId={chatId} item={item} className="ml-1 phone:text-[13px]" />
       </div>
     </div>
   );

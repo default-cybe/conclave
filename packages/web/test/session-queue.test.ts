@@ -12,7 +12,7 @@ import type { EngineEvent, Message, QueuedMessage } from '@conclave/core/types';
 import { ApiError, type SendInput } from '@conclave/core/client';
 import { api, connectClient } from '../src/lib/api';
 import { afterHubList, newPendingId, pendingIdsOf, replacesPending, shownQueue, withoutIds } from '../src/store/queue';
-import { applyEvent, loadMessages, removeQueued, sendQueued, stopLive, useHub } from '../src/store/store';
+import { applyEvent, loadMessages, removeQueued, sendHeld, sendQueued, stopLive, useHub } from '../src/store/store';
 import { pendingWord } from '../src/features/chat/Pending';
 
 let seq = 0;
@@ -65,6 +65,7 @@ describe('the rules', () => {
   test('the words: Queued, or Sending to the running turn', () => {
     expect(pendingWord({ whenBusy: 'queue' })).toBe('Queued');
     expect(pendingWord({ whenBusy: 'steer' })).toBe('Sending to the running turn');
+    expect(pendingWord({ whenBusy: 'queue', held: true })).toBe('Stopped');
   });
 });
 
@@ -149,6 +150,20 @@ describe('the store', () => {
     await removeQueued('s1', 'c');
     expect(shown()).toEqual(['c']);
     expect(useHub.getState().toasts.at(-1)?.title).toBe('Could not reach the hub.');
+  });
+
+  test('Send on one Stop held shows it Queued at once; a refusal holds it again', async () => {
+    await connectClient({ baseUrl: 'http://hub.test', token: 't' });
+    send({ type: 'session.queue', sessionId: 's1', queue: [{ ...q('a'), held: true }, { ...q('b'), held: true }] });
+    let fail: Error | undefined;
+    const asked: string[] = [];
+    Object.assign(api(), { sendQueued: async (_s: string, id: string) => (asked.push(id), fail ? Promise.reject(fail) : { ok: true }) });
+    await sendHeld('s1', 'b');
+    expect(asked).toEqual(['b']);
+    expect(useHub.getState().queues.s1.map((x) => [x.id, !!x.held])).toEqual([['a', true], ['b', false]]);
+    fail = new ApiError(500, 'Could not reach the hub.');
+    await sendHeld('s1', 'a');
+    expect(useHub.getState().queues.s1.map((x) => [x.id, !!x.held])).toEqual([['a', true], ['b', false]]);
   });
 
   test('a transcript load brings the list, without one already in the transcript, and never over a newer event', async () => {

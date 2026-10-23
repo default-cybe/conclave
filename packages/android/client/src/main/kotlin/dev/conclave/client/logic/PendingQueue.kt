@@ -27,6 +27,8 @@ object PendingQueue {
     /** The label a waiting message wears. */
     const val QUEUED = "Queued"
     const val STEERING = "Sending to the running turn"
+    /** One Stop held: it waits for Send or the x. */
+    const val STOPPED = "Stopped"
 
     /** The label a stored message keeps when it joined a running turn. */
     const val STEERED = "Steered the running turn"
@@ -88,7 +90,12 @@ object PendingQueue {
         QueuedMessage(id = id, text = text, attachments = attachments.map { QueuedAttachment(name = it.name, mediaType = it.mediaType) }, at = at, whenBusy = if (whenBusy == "steer") "steer" else "queue")
 
     /** The label a waiting message wears. */
-    fun pendingWord(whenBusy: String): String = if (whenBusy == "steer") STEERING else QUEUED
+    fun pendingWord(whenBusy: String, held: Boolean = false): String = if (held) STOPPED else if (whenBusy == "steer") STEERING else QUEUED
+
+    /** The question of a "/btw <question>" message, or null for any other text. */
+    fun btwQuestion(text: String): String? = BTW.matchEntire(text.trim())?.groupValues?.get(1)?.trim()?.ifEmpty { null }
+
+    private val BTW = Regex("^/btw\\s+([\\s\\S]*)$", RegexOption.IGNORE_CASE)
 
     /** The label a stored message keeps when it was sent while the session worked (meta.whenBusy), else null. */
     fun storedWord(meta: JsonObject?): String? = when ((meta?.get("whenBusy") as? JsonPrimitive)?.contentOrNull) {

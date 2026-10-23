@@ -8,8 +8,7 @@ import type { ChatSettings, Message, Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { attempt, loadMessages, sendQueued, toast, upsertSession, useHub } from '@/store/store';
 import { msgText } from '@/features/chat/util';
-import { DEFAULTS_EVENT, movePending, patchPending, saveDefaults, setLeaving, setPending, setRestore, useChatUi, type Pending } from './state';
-import { shownQueue } from '@/store/queue';
+import { DEFAULTS_EVENT, movePending, patchPending, saveDefaults, setLeaving, setPending, setRestore, type Pending } from './state';
 import { timeGroup } from './units';
 
 export type Navigate = (to: string, opts?: { replace?: boolean }) => void;
@@ -102,19 +101,11 @@ export async function sendTo(session: Session, out: Outgoing): Promise<boolean> 
 }
 
 /**
- * Stop the reply that is running (Stop, esc). The hub drops what was queued
- * behind it, so that text goes back into the composer instead of vanishing.
+ * Stop the reply that is running (Stop, esc). The hub keeps what was queued
+ * behind it, held: each shows "Stopped" with Send and Remove (CHAT-AND-MOTION 2.11).
  */
 export async function stopChat(chatId: string) {
-  const { queues, sending } = useHub.getState();
-  const lost = shownQueue(queues[chatId], sending[chatId]).map((q) => q.text);
-  const ok = await attempt(() => api().abort(chatId));
-  if (!ok) return;
-  const text = lost.filter(Boolean).join('\n\n');
-  if (text) {
-    const prev = useChatUi.getState().restore[chatId];
-    setRestore(chatId, prev ? `${prev}\n\n${text}` : text);
-  }
+  await attempt(() => api().abort(chatId));
 }
 
 /**

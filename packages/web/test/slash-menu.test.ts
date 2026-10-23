@@ -7,7 +7,7 @@
  *   bun test packages/web/test/slash-menu.test.ts
  */
 import { describe, expect, test } from 'bun:test';
-import { agentHasSkills, builtinCommands, filterSlash, findSlash, menuList, pickAction, sectionsOf, SHEET_TITLES, slashItems, slashMode, TOP_COMMANDS } from '../src/features/chat/slash';
+import { agentHasSkills, btwQuestion, builtinCommands, filterSlash, findSlash, menuList, pickAction, sectionsOf, SHEET_TITLES, slashItems, slashMode, TOP_COMMANDS } from '../src/features/chat/slash';
 import { contextShares } from '../src/features/chat/sheets/ContextSheet';
 
 const skills = [
@@ -126,6 +126,18 @@ describe('a pick', () => {
     expect(pickAction(by('standup'))).toBe('run');
     expect(pickAction(by('compact'))).toBe('run');
     expect(pickAction(by('clear'))).toBe('run');
+  });
+});
+
+describe('/btw', () => {
+  test('a side question in both modes; only "/btw <question>" is one', () => {
+    for (const mode of ['code', 'chat'] as const) expect(builtinCommands(mode).find((c) => c.name === 'btw')).toMatchObject({ arg: '<question>' });
+    expect(pickAction(builtinCommands('chat').find((c) => c.name === 'btw')!)).toBe('fill');
+    expect(btwQuestion('/btw what is X?\nand Y')).toBe('what is X?\nand Y');
+    expect(btwQuestion('  /BTW  why ')).toBe('why');
+    expect(btwQuestion('/btw')).toBeUndefined();
+    expect(btwQuestion('/btwx hi')).toBeUndefined();
+    expect(btwQuestion('btw hi')).toBeUndefined();
   });
 });
 

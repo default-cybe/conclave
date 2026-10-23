@@ -100,6 +100,8 @@ export interface HubState {
   toolList: ToolInfo[];
   mcp: McpStatus[];
   toasts: Toast[];
+  /** /btw side questions per session, newest last: shown as cards, never part of the transcript. */
+  btws: Record<string, BtwCard[]>;
   usageVersion: number;
   configVersion: number;
   /** Hub config, loaded at boot and after config.updated. Undefined until loaded. */
@@ -158,6 +160,7 @@ const initial: HubState = {
   toolList: [],
   mcp: [],
   toasts: [],
+  btws: {},
   usageVersion: 0,
   configVersion: 0,
   friends: {},
@@ -380,6 +383,35 @@ export async function sendQueued(sessionId: string, input: SendInput & { whenBus
     return list.filter((x) => x.id !== id);
   });
   return r;
+}
+
+export interface BtwCard {
+  id: string;
+  question: string;
+  /** Undefined while the hub answers. */
+  answer?: string;
+}
+
+let btwSeq = 0;
+
+/** /btw: ask a side question; its card shows at once and gets the answer, or goes with a toast when the hub refuses. */
+export async function askBtw(sessionId: string, question: string): Promise<void> {
+  const id = `btw${++btwSeq}`;
+  const patch = (f: (list: BtwCard[]) => BtwCard[]) => set((s) => ({ btws: { ...s.btws, [sessionId]: f(s.btws[sessionId] ?? []) } }));
+  patch((l) => [...l, { id, question }]);
+  const r = await attempt(() => api().btw(sessionId, question));
+  patch((l) => (r ? l.map((c) => (c.id === id ? { ...c, answer: r.answer || '(no answer)' } : c)) : l.filter((c) => c.id !== id)));
+}
+
+export function dismissBtw(sessionId: string, id: string): void {
+  set((s) => ({ btws: { ...s.btws, [sessionId]: (s.btws[sessionId] ?? []).filter((c) => c.id !== id) } }));
+}
+
+/** Send a message Stop held: it shows Queued at once, and the hub's next list confirms it. */
+export async function sendHeld(sessionId: string, id: string): Promise<void> {
+  const held = (list: QueuedMessage[] | undefined, value: boolean) => list?.map((q) => (q.id === id ? { ...q, held: value || undefined } : q)) ?? [];
+  set((s) => ({ queues: { ...s.queues, [sessionId]: held(s.queues[sessionId], false) } }));
+  if (!(await attempt(() => api().sendQueued(sessionId, id)))) set((s) => ({ queues: { ...s.queues, [sessionId]: held(s.queues[sessionId], true) } }));
 }
 
 /** Take a waiting message off before it runs. It leaves at once; if the hub refuses, it comes back and the toast says why. */

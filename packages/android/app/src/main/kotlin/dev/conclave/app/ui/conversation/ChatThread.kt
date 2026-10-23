@@ -366,8 +366,9 @@ fun ChatThreadScreen(
                                         images = local.orEmpty().filter { it.mediaType.startsWith("image/") && it.data != null }.map { ImageBlock(mediaType = it.mediaType, data = it.data) },
                                         files = if (local != null) local.filterNot { it.mediaType.startsWith("image/") }.map { it.name ?: "File" } else row.item.attachments.map { it.name ?: "File" },
                                         onTap = {},
-                                        label = PendingQueue.pendingWord(row.item.whenBusy),
+                                        label = PendingQueue.pendingWord(row.item.whenBusy, row.item.held),
                                         onRemove = { vm.removeQueued(row.item.id) },
+                                        onSend = if (row.item.held) ({ vm.sendHeld(row.item.id) }) else null,
                                     )
                                 }
                                 is Row2.Unit2 -> {
