@@ -26,6 +26,7 @@ like `## [0.4.16] - 2026-10-24`.
 - GLM on Z.ai sees Conclave's tools again. Z.ai's Anthropic endpoint kept only the tool marked for caching and swapped the rest for its own, so GLM could not Read, run Bash or return structured output. Only Claude models get a cache marker on the tool list now; system and message caching are unchanged.
 - GPT models on the Responses API read images from a tool (a Read of a PNG) again. The image now rides in its call's `function_call_output` instead of a later user message, and a PDF a tool attaches goes along the same way. Chat Completions and Gemini send a tool's PDF too.
 - Files inside tool results follow the attachment rules: text files go as text, and a model the catalog lists without vision gets a one-line note for an image instead of a picture it cannot read.
+- ToolSearch no longer lets an agent search in circles: a search for a Conclave tool the agent does not have (Delegate, Task in a subagent) says it is not available, a search that finds nothing lists the tools the session has, and from the third empty search in a turn the loop guard warns and then ends the turn.
 
 ## [0.4.18] - 2026-10-23
 

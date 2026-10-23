@@ -115,4 +115,14 @@ describe('LoopGuard', () => {
     expect(v.message).toContain('Not run');
     expect(g.before('Read', { file_path: 'b.ts' }).level).toBe('ok');
   });
+
+  test('ToolSearch misses with different queries warn at 3 and halt from 4; a hit does not count', () => {
+    const g = new LoopGuard({ unattended: true });
+    const miss = (q: string) => g.after('ToolSearch', { query: q }, { content: `none for ${q}`, meta: { toolSearchMiss: true } });
+    const hit = g.after('ToolSearch', { query: 'x' }, result('loaded'));
+    const vs = [hit, miss('delegate'), miss('task'), miss('all tools'), miss('subagent')];
+    expect(levels(vs)).toEqual(['ok', 'ok', 'ok', 'warn', 'halt']);
+    expect(vs[3].code).toBe('search_miss');
+    expect(vs[4].code).toBe('search_miss');
+  });
 });

@@ -1695,6 +1695,7 @@ export class SessionRunner {
       readAllowed: (p) =>
         checkPermission({ tool: ReadTool as unknown as Tool, input: { file_path: p }, content: p, mode: session.permissionMode, rules, sessionAllow: this.sessionAllow, cwd: session.cwd, home, workspaceRoots: [session.cwd, ...cfg.permissions.additionalDirectories] }).decision === 'allow',
       toolUseId: use.id,
+      toolNames: [...toolMap.keys()],
       progress: (text) => engine.bus.emit({ type: 'tool.progress', sessionId: this.id, toolUseId: use.id, text }),
       ...engine.runnerExtensions.toolContext(session),
     };
