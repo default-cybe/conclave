@@ -20,6 +20,7 @@ import { watchesOf } from '../watches';
 import { LearnedSkills } from '../extensions/learned';
 import { runDelegate } from './delegate';
 import type { DelegateRequest } from '../tools/delegate';
+import { savedSearchKey } from '../tools/search-settings';
 
 /** ToolHost bound to one running session. Tools call this, never the engine directly. */
 export class EngineToolHost implements ToolHost {
@@ -34,6 +35,11 @@ export class EngineToolHost implements ToolHost {
 
   config() {
     return this.engine.config.get();
+  }
+
+  /** Web search runs on the hub's keys for every account (docs/design/ACCOUNTS.md). */
+  searchKey(provider: string) {
+    return savedSearchKey(this.engine.config)(provider);
   }
 
   async runSubagent(opts: Parameters<ToolHost['runSubagent']>[0]) {

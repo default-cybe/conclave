@@ -7,6 +7,11 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [0.4.20] - 2026-10-23
+
+### What's new
+- Settings > Web search: pick the engine WebSearch uses from 12 free engines (Tavily, Exa, LangSearch, Linkup, Firecrawl, You.com, Serper, SerpApi, Jina, Brave, your own SearXNG, or DuckDuckGo with no key). Each shows its free allowance, whether it needs a card, and the steps to get a key with links. A key you paste is stored as a hub secret and never shown again; Test runs one real search. With Choose automatically, the hub uses the first engine with a key, in the order shown.
+
 ## [0.4.18] - 2026-10-23
 
 ### What's new

@@ -3,6 +3,9 @@ import type { ConclaveConfig } from '../config/schema';
 import type { Tool } from './types';
 import { conclaveUA, DESKTOP_UA } from './webfetch';
 import { fail, withTimeout, wrapUntrusted } from './util';
+import { SEARCH_PROVIDERS, type SearchProviderId } from './search-providers';
+
+export type { SearchProviderId };
 
 export interface WebSearchInput {
   query: string;
@@ -17,8 +20,6 @@ export interface SearchResult {
   snippet: string;
   date?: string;
 }
-
-export type SearchProviderId = 'brave' | 'tavily' | 'exa' | 'searxng' | 'jina' | 'duckduckgo';
 
 interface SearchRequest {
   query: string;
@@ -50,7 +51,17 @@ const KEY_ENVS: Record<string, string[]> = {
   tavily: ['TAVILY_API_KEY'],
   exa: ['EXA_API_KEY'],
   jina: ['JINA_API_KEY'],
+  serper: ['SERPER_API_KEY'],
+  langsearch: ['LANGSEARCH_API_KEY'],
+  linkup: ['LINKUP_API_KEY'],
+  firecrawl: ['FIRECRAWL_API_KEY'],
+  youcom: ['YDC_API_KEY'],
 };
+
+/** A provider may echo the key in an error; replace it before anything is cut or shown. */
+export function redactKey(msg: string, key?: string): string {
+  return key ? msg.split(key).join('[key]') : msg;
+}
 
 function stripTags(s: string | undefined): string {
   return (s ?? '')
@@ -65,14 +76,19 @@ function stripTags(s: string | undefined): string {
 }
 
 /** Guess which provider a bare config key belongs to. */
-function providerForKey(key: string): SearchProviderId | undefined {
+export function providerForKey(key: string): SearchProviderId | undefined {
   if (key.startsWith('tvly-')) return 'tavily';
   if (key.startsWith('jina_')) return 'jina';
   if (key.startsWith('BSA')) return 'brave';
   return undefined;
 }
 
-function keyFor(provider: SearchProviderId, cfg: ConclaveConfig['search']): string | undefined {
+/** A key saved in Settings > Web search (a hub secret), by provider. */
+export type SavedSearchKey = (provider: SearchProviderId) => string | undefined;
+
+export function keyFor(provider: SearchProviderId, cfg: ConclaveConfig['search'], saved?: SavedSearchKey): string | undefined {
+  const stored = saved?.(provider);
+  if (stored) return stored;
   const configured = cfg.apiKey || (cfg.apiKeyEnv ? process.env[cfg.apiKeyEnv] : undefined);
   if (configured && (cfg.provider === provider || (cfg.provider === 'auto' && providerForKey(configured) === provider))) return configured;
   for (const env of KEY_ENVS[provider] ?? []) {
@@ -82,22 +98,23 @@ function keyFor(provider: SearchProviderId, cfg: ConclaveConfig['search']): stri
   return undefined;
 }
 
-function searxngUrl(cfg: ConclaveConfig['search']): string | undefined {
+export function searxngUrl(cfg: ConclaveConfig['search']): string | undefined {
   return cfg.url || process.env.SEARXNG_URL || undefined;
 }
 
 /** Which provider to use and its credentials, following config.search. */
-export function pickProvider(cfg: ConclaveConfig['search']): { id: SearchProviderId; key?: string; url?: string } {
+export function pickProvider(cfg: ConclaveConfig['search'], saved?: SavedSearchKey): { id: SearchProviderId; key?: string; url?: string } {
   if (cfg.provider && cfg.provider !== 'auto') {
     const id = cfg.provider;
-    return { id, key: id === 'searxng' || id === 'duckduckgo' ? undefined : keyFor(id, cfg), url: id === 'searxng' ? searxngUrl(cfg) : undefined };
+    return { id, key: id === 'searxng' || id === 'duckduckgo' ? undefined : keyFor(id, cfg, saved), url: id === 'searxng' ? searxngUrl(cfg) : undefined };
   }
-  for (const id of ['brave', 'tavily', 'exa', 'jina'] as const) {
-    const key = keyFor(id, cfg);
-    if (key) return { id, key };
+  // the catalog's order: the biggest free allowance with no card first
+  for (const p of SEARCH_PROVIDERS) {
+    const key = p.needs === 'key' ? keyFor(p.id, cfg, saved) : undefined;
+    if (key) return { id: p.id, key };
+    const url = p.needs === 'url' ? searxngUrl(cfg) : undefined;
+    if (url) return { id: p.id, url };
   }
-  const url = searxngUrl(cfg);
-  if (url) return { id: 'searxng', url };
   return { id: 'duckduckgo' };
 }
 
@@ -130,10 +147,10 @@ function withSiteOperators(query: string, allowed: string[], blocked: string[]):
   return q;
 }
 
-async function getJson(url: string, init: RequestInit, signal: AbortSignal): Promise<any> {
+async function getJson(url: string, init: RequestInit, signal: AbortSignal, key?: string): Promise<any> {
   const res = await fetch(url, { ...init, signal });
   if (!res.ok) {
-    const body = (await res.text().catch(() => '')).slice(0, 300);
+    const body = redactKey(await res.text().catch(() => ''), key).slice(0, 300);
     throw new Error(`HTTP ${res.status}${body ? `: ${body}` : ''}`);
   }
   return res.json();
@@ -147,6 +164,7 @@ const PROVIDERS: Record<SearchProviderId, (r: SearchRequest) => Promise<SearchRe
       `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=${Math.min(r.limit, 20)}`,
       { headers: { Accept: 'application/json', 'X-Subscription-Token': r.key } },
       r.signal,
+      r.key,
     );
     return (json?.web?.results ?? []).map((x: any) => ({
       title: stripTags(x.title),
@@ -164,6 +182,7 @@ const PROVIDERS: Record<SearchProviderId, (r: SearchRequest) => Promise<SearchRe
       'https://api.tavily.com/search',
       { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${r.key}` }, body: JSON.stringify(body) },
       r.signal,
+      r.key,
     );
     return (json?.results ?? []).map((x: any) => ({ title: stripTags(x.title), url: x.url, snippet: stripTags(x.content).slice(0, 500), date: x.published_date }));
   },
@@ -176,6 +195,7 @@ const PROVIDERS: Record<SearchProviderId, (r: SearchRequest) => Promise<SearchRe
       'https://api.exa.ai/search',
       { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': r.key }, body: JSON.stringify(body) },
       r.signal,
+      r.key,
     );
     return (json?.results ?? []).map((x: any) => ({
       title: stripTags(x.title) || x.url,
@@ -198,8 +218,79 @@ const PROVIDERS: Record<SearchProviderId, (r: SearchRequest) => Promise<SearchRe
       `https://s.jina.ai/?q=${encodeURIComponent(q)}`,
       { headers: { Accept: 'application/json', Authorization: `Bearer ${r.key}`, 'X-Respond-With': 'no-content' } },
       r.signal,
+      r.key,
     );
     return (json?.data ?? []).map((x: any) => ({ title: stripTags(x.title), url: x.url, snippet: stripTags(x.description || x.content).slice(0, 500), date: x.date }));
+  },
+  async serper(r) {
+    if (!r.key) throw new Error('no Serper API key (set SERPER_API_KEY or search.apiKey)');
+    const json = await getJson(
+      'https://google.serper.dev/search',
+      { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-KEY': r.key }, body: JSON.stringify({ q: withSiteOperators(r.query, r.allowed, r.blocked) }) },
+      r.signal,
+      r.key,
+    );
+    return (json?.organic ?? []).map((x: any) => ({ title: stripTags(x.title), url: x.link, snippet: stripTags(x.snippet), date: x.date }));
+  },
+  async serpapi(r) {
+    if (!r.key) throw new Error('no SerpApi API key (set search.apiKey)');
+    const q = withSiteOperators(r.query, r.allowed, r.blocked);
+    // SerpApi takes the key only as a query parameter
+    const json = await getJson(
+      `https://serpapi.com/search?engine=google&q=${encodeURIComponent(q)}&api_key=${encodeURIComponent(r.key)}`,
+      { headers: { Accept: 'application/json' } },
+      r.signal,
+      r.key,
+    );
+    return (json?.organic_results ?? []).map((x: any) => ({ title: stripTags(x.title), url: x.link, snippet: stripTags(x.snippet), date: x.date }));
+  },
+  async langsearch(r) {
+    if (!r.key) throw new Error('no LangSearch API key (set LANGSEARCH_API_KEY or search.apiKey)');
+    const json = await getJson(
+      'https://api.langsearch.com/v1/web-search',
+      { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${r.key}` }, body: JSON.stringify({ query: withSiteOperators(r.query, r.allowed, r.blocked), count: Math.min(r.limit, 50) }) },
+      r.signal,
+      r.key,
+    );
+    return (json?.data?.webPages?.value ?? []).map((x: any) => ({ title: stripTags(x.name), url: x.url, snippet: stripTags(x.snippet).slice(0, 500), date: x.datePublished }));
+  },
+  async linkup(r) {
+    if (!r.key) throw new Error('no Linkup API key (set LINKUP_API_KEY or search.apiKey)');
+    const body: Record<string, unknown> = { q: r.query, depth: 'fast', outputType: 'searchResults', maxResults: r.limit };
+    if (r.allowed.length) body.includeDomains = r.allowed;
+    if (r.blocked.length) body.excludeDomains = r.blocked;
+    const json = await getJson(
+      'https://api.linkup.so/v1/search',
+      { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${r.key}` }, body: JSON.stringify(body) },
+      r.signal,
+      r.key,
+    );
+    return (json?.results ?? [])
+      .filter((x: any) => x?.type !== 'image')
+      .map((x: any) => ({ title: stripTags(x.name) || x.url, url: x.url, snippet: stripTags(x.content).slice(0, 500) }));
+  },
+  async firecrawl(r) {
+    if (!r.key) throw new Error('no Firecrawl API key (set FIRECRAWL_API_KEY or search.apiKey)');
+    const json = await getJson(
+      'https://api.firecrawl.dev/v2/search',
+      // 10 results or fewer costs 2 credits
+      { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${r.key}` }, body: JSON.stringify({ query: withSiteOperators(r.query, r.allowed, r.blocked), limit: Math.min(r.limit, 10) }) },
+      r.signal,
+      r.key,
+    );
+    // the docs show data.web[], and in one example a flat data[]
+    const list = Array.isArray(json?.data) ? json.data : (json?.data?.web ?? []);
+    return list.map((x: any) => ({ title: stripTags(x.title) || x.url, url: x.url, snippet: stripTags(x.description || x.snippet).slice(0, 500) }));
+  },
+  async youcom(r) {
+    if (!r.key) throw new Error('no You.com API key (set YDC_API_KEY or search.apiKey)');
+    const json = await getJson(
+      'https://ydc-index.io/v1/search',
+      { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': r.key }, body: JSON.stringify({ query: withSiteOperators(r.query, r.allowed, r.blocked), count: r.limit }) },
+      r.signal,
+      r.key,
+    );
+    return (json?.results?.web ?? []).map((x: any) => ({ title: stripTags(x.title) || x.url, url: x.url, snippet: stripTags((x.snippets ?? []).join(' ') || x.description).slice(0, 500) }));
   },
   async duckduckgo(r) {
     const q = withSiteOperators(r.query, r.allowed, r.blocked);
@@ -212,10 +303,25 @@ const PROVIDERS: Record<SearchProviderId, (r: SearchRequest) => Promise<SearchRe
     const results = parseDuckDuckGo(html);
     // a bot check answers 202 with a puzzle page; without this it reads as "no results"
     if (!results.length && (res.status === 202 || html.includes('anomaly-modal')))
-      throw new Error(`DuckDuckGo refused this hub with a bot check (HTTP ${res.status}). Set a search provider with an API key (Brave, Tavily, Exa, Jina) or a SearXNG URL in Settings.`);
+      throw new Error(`DuckDuckGo refused this hub with a bot check (HTTP ${res.status}). Pick an engine with an API key or a SearXNG URL in Settings > Web search.`);
     return results;
   },
 };
+
+/** One query on one provider, with no fallback: the Test button in Settings > Web search. */
+export function searchOnce(id: SearchProviderId, r: { query: string; limit: number; key?: string; url?: string; signal: AbortSignal }): Promise<SearchResult[]> {
+  return runProvider(id, { ...r, allowed: [], blocked: [], signal: withTimeout(r.signal, TIMEOUT_MS) });
+}
+
+/** Every way out of a provider, the error included, has its key replaced by [key]. */
+async function runProvider(id: SearchProviderId, r: SearchRequest): Promise<SearchResult[]> {
+  try {
+    return await PROVIDERS[id](r);
+  } catch (err) {
+    if (!r.key || !String((err as Error)?.message).includes(r.key)) throw err;
+    throw new Error(redactKey((err as Error).message, r.key));
+  }
+}
 
 /** Reddit's own search, for reddit queries the search engine has nothing for. */
 export async function redditSearch(query: string, limit: number, signal: AbortSignal): Promise<SearchResult[]> {
@@ -266,9 +372,9 @@ export function parseDuckDuckGo(html: string): SearchResult[] {
 export async function webSearch(
   cfg: ConclaveConfig['search'],
   query: string,
-  opts: { limit?: number; allowed?: string[]; blocked?: string[]; signal: AbortSignal },
+  opts: { limit?: number; allowed?: string[]; blocked?: string[]; signal: AbortSignal; saved?: SavedSearchKey },
 ): Promise<{ provider: SearchProviderId; results: SearchResult[]; note?: string }> {
-  const choice = pickProvider(cfg);
+  const choice = pickProvider(cfg, opts.saved);
   const limit = Math.min(MAX_LIMIT, Math.max(1, Math.floor(opts.limit ?? DEFAULT_LIMIT)));
   const req = (id: SearchProviderId, key?: string, url?: string): SearchRequest => ({
     query,
@@ -286,7 +392,7 @@ export async function webSearch(
   let failed: Error | undefined;
   try {
     try {
-      results = await PROVIDERS[choice.id](req(choice.id, choice.key, choice.url));
+      results = await runProvider(choice.id, req(choice.id, choice.key, choice.url));
     } catch (err) {
       if (choice.id === 'duckduckgo' || opts.signal.aborted) throw err;
       note = `${choice.id} search failed (${(err as Error).message}); used DuckDuckGo instead.`;
@@ -342,7 +448,7 @@ export const WebSearchTool: Tool<WebSearchInput> = {
     if (allowed.length && blocked.length) return fail('Use either allowed_domains or blocked_domains, not both.');
     let out;
     try {
-      out = await webSearch(ctx.host.config().search, input.query.trim(), { limit: input.limit, allowed, blocked, signal: ctx.signal });
+      out = await webSearch(ctx.host.config().search, input.query.trim(), { limit: input.limit, allowed, blocked, signal: ctx.signal, saved: ctx.host.searchKey?.bind(ctx.host) });
     } catch (err) {
       return fail(`Web search failed: ${(err as Error).message}`);
     }
