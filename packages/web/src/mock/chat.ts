@@ -17,7 +17,7 @@
  * Inbox). Messages
  * sent while a reply runs wait on the hub, listed by session.queue (shared
  * with the session routes, mock/queue.ts), and go out after it, each with
- * the pendingIds of the bubble it replaces; Stop drops them. Rewind keeps
+ * the pendingIds of the bubble it replaces; Stop holds them. Rewind keeps
  * messages up to the seq it is given, as the hub does.
  *
  * Other sessions fall through to the routes in index.ts (ctx.pass).
@@ -599,10 +599,18 @@ export function registerChat(ctx: MockCtx) {
     return { queued: false, messageId: m.id };
   });
 
+  // Send on a message Stop held: it runs now when no reply runs
+  ctx.on('POST', '/api/sessions/:id/queue/:pending/send', ({ params }) => {
+    if (!isChat(params[0])) return ctx.pass;
+    if (!ctx.waiting.release(params[0], decodeURIComponent(params[1]))) return ctx.fail(404, 'That message is not waiting any more.');
+    if (!running.has(params[0])) void runNext(params[0]);
+    return { ok: true };
+  });
+
   ctx.on('POST', '/api/sessions/:id/abort', ({ params }) => {
     if (!isChat(params[0])) return ctx.pass;
     const r = running.get(params[0]);
-    ctx.waiting.clear(params[0]);
+    ctx.waiting.hold(params[0]);
     // nothing running: nothing to stop, and no notice (as on the hub)
     if (!r) return { ok: true };
     r.stop = true;
@@ -639,7 +647,8 @@ export function registerChat(ctx: MockCtx) {
     if (typeof body?.seq !== 'number') ctx.fail(400, 'seq is required');
     const r = running.get(s.id);
     if (r) r.stop = true;
-    ctx.waiting.clear(s.id);
+    // a rewind stops, so what waits is held, as on the hub
+    ctx.waiting.hold(s.id);
     const list = (db.messages.get(s.id) ?? []).filter((m) => m.seq <= body.seq);
     db.messages.set(s.id, list);
     return patch(s.id, { status: 'idle', error: undefined, stats: { ...s.stats, messages: list.length } });

@@ -186,6 +186,15 @@ interface Steer {
   pending: QueuedMessage;
 }
 
+/** Where a session's waiting messages are kept (kv), so a hub restart keeps them. */
+export const QUEUE_KEY = 'queue.';
+
+/** A waiting message as kept in kv: what runs, and what apps show. */
+export interface StoredQueued {
+  input: SendInput;
+  pending: QueuedMessage;
+}
+
 /** What an app may name a waiting message (SendInput.pendingId). */
 const PENDING_ID = /^[A-Za-z0-9_-]{6,64}$/;
 
@@ -235,7 +244,9 @@ export class SessionRunner {
   private queue: Queued[] = [];
   private steering: Steer[] = [];
   /** The waiting message whose turn is starting: listed until its user message is in the transcript, so apps never lose it. */
-  private starting?: QueuedMessage;
+  private starting?: Queued;
+  /** The hub is shutting down: no next turn starts, and what waits stays stored for the next boot. */
+  private closed = false;
   private controller?: AbortController;
   running = false;
   readState = new Map<string, number>();
@@ -334,7 +345,7 @@ export class SessionRunner {
   /** What waits, in the order it joins the transcript: the turn starting now, steering for the running turn, then the queue. */
   get pending(): QueuedMessage[] {
     const out: QueuedMessage[] = [];
-    if (this.starting) out.push(this.starting);
+    if (this.starting?.pending) out.push(this.starting.pending);
     for (const s of this.steering) out.push(s.pending);
     for (const q of this.queue) if (q.pending) out.push(q.pending);
     return out;
@@ -342,7 +353,7 @@ export class SessionRunner {
 
   /** Take a waiting message off before it runs. */
   unqueue(pendingId: string): UnqueueResult {
-    if (this.starting?.id === pendingId) return 'started';
+    if (this.starting?.pending?.id === pendingId) return 'started';
     const q = this.queue.findIndex((x) => x.pending?.id === pendingId);
     if (q >= 0) this.queue.splice(q, 1);
     else {
@@ -364,20 +375,87 @@ export class SessionRunner {
     return { id, text: input.text, at: Date.now(), whenBusy, ...(attachments.length ? { attachments } : {}) };
   }
 
+  /** Send a message Stop held: it runs in its place in the queue. False when it is not waiting. */
+  release(pendingId: string): boolean {
+    const i = this.queue.findIndex((x) => x.pending?.id === pendingId);
+    if (i < 0) return false;
+    const q = this.queue[i];
+    if (q.pending?.held) {
+      const { held: _h, ...pending } = q.pending;
+      this.queue[i] = { ...q, pending };
+      this.emitQueue();
+    }
+    if (!this.running) void this.drain();
+    return true;
+  }
+
+  /** Messages kept from before a hub restart (engine.restoreQueues): they wait again, in their order, and run unless held. */
+  restore(items: StoredQueued[]): void {
+    this.queue.push(...items.map((x): Queued => ({ input: { ...x.input, whenBusy: 'queue' }, pending: { ...x.pending, whenBusy: 'queue' } })));
+    this.emitQueue();
+    const s = this.engine.repos.sessions.get(this.id);
+    // a parked session runs them when it resumes
+    if (s && !s.archived && s.status !== 'waiting_reset') void this.drain();
+  }
+
   private emitQueue(): void {
+    this.storeQueue();
     this.engine.bus.emit({ type: 'session.queue', sessionId: this.id, queue: this.pending });
   }
 
-  abort(): void {
-    const had = this.steering.length > 0 || this.queue.some((q) => q.pending);
-    this.queue = [];
+  /** What waits is stored each time it changes, and a message leaves only once it is in the transcript. */
+  private storeQueue(): void {
+    const items: StoredQueued[] = [];
+    for (const q of [...(this.starting ? [this.starting] : []), ...this.steering, ...this.queue]) if (q.pending) items.push({ input: q.input, pending: q.pending });
+    try {
+      // shortcut: attachments are stored inline (base64) with the message; move them to files if queues with big files show up
+      if (items.length) this.engine.repos.kv.set(QUEUE_KEY + this.id, items);
+      else this.engine.repos.kv.delete(QUEUE_KEY + this.id);
+    } catch (err) {
+      log.warn(`could not store the queue of ${this.id}`, err);
+    }
+  }
+
+  /**
+   * The person's queued messages at the front of the queue become steering for
+   * the running turn, in order. One held, or with its own mode or model, waits
+   * for its own turn, and so does everything after it.
+   */
+  private queuedToSteering(): void {
+    const take: Steer[] = [];
+    for (const q of this.queue) {
+      if (!q.pending) continue;
+      if (q.pending.held || q.auto || q.input.mode || q.input.model) break;
+      take.push({ input: q.input, pending: q.pending });
+    }
+    if (!take.length) return;
+    const moved = new Set(take.map((s) => s.pending.id));
+    this.queue = this.queue.filter((q) => !q.pending || !moved.has(q.pending.id));
+    this.steering.push(...take);
+  }
+
+  /** The first input that may run: a message Stop held waits for the owner. */
+  private nextIndex(): number {
+    return this.closed ? -1 : this.queue.findIndex((q) => !q.pending?.held);
+  }
+
+  /**
+   * Stop (or the hub shutting down). Auto inputs go; what a person sent waits
+   * on, stored: after a Stop it is held until they send or remove it, at
+   * shutdown it runs after the next boot.
+   */
+  abort(why: 'stop' | 'shutdown' = 'stop'): void {
+    if (why === 'shutdown') this.closed = true;
+    const late = this.steering.map((s): Queued => ({ input: { ...s.input, whenBusy: 'queue' }, pending: { ...s.pending, whenBusy: 'queue' } }));
+    const waiting = [...late, ...this.queue.filter((q) => q.pending)];
+    const changed = waiting.length > 0 || this.queue.length > 0;
+    this.queue = waiting.map((q) => (why === 'stop' ? { ...q, pending: { ...q.pending!, held: true } } : q));
     this.steering = [];
     this.notesHeld = true;
     this.controller?.abort();
     for (const loop of this.activeLoops) loop.abort();
     this.engine.cancelPendingFor(this.id);
-    // Stop drops what waited: apps take it off the transcript
-    if (had) this.emitQueue();
+    if (changed && why === 'stop') this.emitQueue();
   }
 
   /** True while a turn or an agent loop runs for this session. */
@@ -474,7 +552,7 @@ export class SessionRunner {
   }
 
   waitIdle(): Promise<void> {
-    if (!this.running && !this.queue.length) return Promise.resolve();
+    if (!this.running && this.nextIndex() < 0) return Promise.resolve();
     return new Promise((r) => this.idleWaiters.push(r));
   }
 
@@ -482,10 +560,10 @@ export class SessionRunner {
     if (this.running) return;
     this.running = true;
     try {
-      while (this.queue.length) {
-        const next = this.queue.shift()!;
+      for (let i = this.nextIndex(); i >= 0; i = this.nextIndex()) {
+        const [next] = this.queue.splice(i, 1);
         // a waiting message stays listed while its turn starts (hooks, recall), until its user message is stored
-        if (next.pending) this.starting = next.pending;
+        if (next.pending) this.starting = next;
         this.controller = new AbortController();
         const signal = this.controller.signal;
         try {
@@ -502,8 +580,15 @@ export class SessionRunner {
             this.engine.setStatus(this.id, 'error', msg);
             this.engine.notifyEvent('errors', { title: 'Session error', body: oneLine(msg, 160), level: 'error', sessionId: this.id, link: `/s/${this.id}` });
           }
+          // it failed or stopped before its message was stored: the message waits again at the front, held so a failure does not repeat on its own
+          if (this.starting) {
+            const q = this.starting;
+            this.starting = undefined;
+            this.queue.unshift(this.closed ? q : { ...q, pending: { ...q.pending!, held: true } });
+            this.emitQueue();
+          }
         }
-        // a turn that ended before it stored the message (a hook blocked it, it failed): the message leaves the list
+        // a turn that ended before it stored the message (a hook blocked it): the message leaves the list
         if (this.starting) {
           this.starting = undefined;
           this.emitQueue();
@@ -636,7 +721,7 @@ export class SessionRunner {
     const userMsg = retry
       ? ([...engine.repos.messages.list(this.id)].reverse().find((m) => m.role === 'user' && m.kind === 'normal') ?? { seq: 0 })
       : engine.addMessage(this.id, { role: 'user', kind: 'normal', content, meta: Object.keys(userMeta).length ? userMeta : undefined });
-    if (q.pending && this.starting?.id === q.pending.id) {
+    if (q.pending && this.starting === q) {
       this.starting = undefined;
       this.emitQueue();
     }
@@ -858,6 +943,8 @@ export class SessionRunner {
       const toolMap = new Map(tools.map((t) => [t.name, t]));
       const toolSpecs = this.specsFor(tools, session);
 
+      // after tool calls, what the person queued joins this turn as steering (as Claude Code does); a harness turn never gets here
+      if (iter > 0) this.queuedToSteering();
       // steering messages typed while the model works join the transcript now, one message each (the request merges them)
       if (this.steering.length) {
         // read the attachments first: until each is stored it stays listed, so apps never lose it

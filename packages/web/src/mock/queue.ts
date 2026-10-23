@@ -3,7 +3,7 @@
  * session/runner.ts, docs/design/CHAT-AND-MOTION.md 2.11): each gets an id
  * (the app's pendingId when it is good), session.queue lists them in the
  * order they will run (steering first), the user message that takes one's
- * place carries meta.pendingIds, and Stop clears them. Shared by the
+ * place carries meta.pendingIds, and Stop holds them until Send or the x. Shared by the
  * session routes (index.ts) and the chat routes (chat.ts).
  */
 import type { ContentBlock, EngineEvent, QueuedMessage } from '@conclave/core/types';
@@ -55,7 +55,16 @@ export function createMockQueue(emit: (e: EngineEvent) => void, uid: (p: string)
       const all = ordered(sessionId).map((w) => (w.whenBusy === 'steer' ? { ...w, whenBusy: 'queue' as const } : w));
       waiting.set(sessionId, all);
       if (late) changed(sessionId);
-      return all[0];
+      // one Stop held waits for Send
+      return all.find((w) => !w.held);
+    },
+    /** Send on one Stop held: it runs in its place. */
+    release(sessionId: string, id: string): boolean {
+      const all = waiting.get(sessionId) ?? [];
+      if (!all.some((w) => w.id === id)) return false;
+      waiting.set(sessionId, all.map((w) => (w.id === id ? { ...w, held: undefined } : w)));
+      changed(sessionId);
+      return true;
     },
     /** The message took its place in the transcript (or was dropped): the list without it. */
     done(sessionId: string, ids: string[]) {
@@ -70,10 +79,10 @@ export function createMockQueue(emit: (e: EngineEvent) => void, uid: (p: string)
       changed(sessionId);
       return true;
     },
-    /** Stop: what waited is dropped, and the app hears of it. */
-    clear(sessionId: string) {
+    /** Stop: what waits is held (steering first, as queued) until Send or the x, and the app hears of it. */
+    hold(sessionId: string) {
       if (!waiting.get(sessionId)?.length) return;
-      waiting.delete(sessionId);
+      waiting.set(sessionId, ordered(sessionId).map((w) => ({ ...w, whenBusy: 'queue' as const, held: true })));
       changed(sessionId);
     },
     /** The user message for one that waited, as the hub writes it. */

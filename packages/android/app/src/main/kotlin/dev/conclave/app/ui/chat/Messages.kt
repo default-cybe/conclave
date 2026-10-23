@@ -137,9 +137,9 @@ fun UserMessage(message: Message, onTap: () -> Unit) {
  * and the label stays where it was.
  */
 @Composable
-fun PendingUserMessage(item: QueuedMessage, local: List<Attachment>?, onRemove: () -> Unit) {
+fun PendingUserMessage(item: QueuedMessage, local: List<Attachment>?, onRemove: () -> Unit, onSend: () -> Unit = {}) {
     val c = Conclave.colors
-    SessionBubble(label = PendingQueue.pendingWord(item.whenBusy), onRemove = onRemove) {
+    SessionBubble(label = PendingQueue.pendingWord(item.whenBusy, item.held), onRemove = onRemove, onSend = if (item.held) onSend else null) {
         if (item.text.isNotBlank()) Text(item.text, style = ConclaveType.chat, color = c.fg)
         if (local != null) {
             local.forEach { a ->
@@ -154,7 +154,7 @@ fun PendingUserMessage(item: QueuedMessage, local: List<Attachment>?, onRemove: 
 
 /** The bubble of your message and its quiet line: the label, after an x when it can be taken back. A tap runs [onTap]. */
 @Composable
-private fun SessionBubble(label: String?, onTap: (() -> Unit)? = null, onRemove: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
+private fun SessionBubble(label: String?, onTap: (() -> Unit)? = null, onRemove: (() -> Unit)? = null, onSend: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     val c = Conclave.colors
     BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp), contentAlignment = Alignment.CenterEnd) {
         val max = maxWidth * 0.85f
@@ -180,6 +180,8 @@ private fun SessionBubble(label: String?, onTap: (() -> Unit)? = null, onRemove:
                         }
                     }
                     Text(label, style = ConclaveType.meta, color = c.fg3)
+                    // one Stop held: Send runs it
+                    if (onSend != null) Text("Send", style = ConclaveType.meta, color = c.fg2, modifier = Modifier.clickable(onClickLabel = "Send", onClick = onSend).padding(horizontal = 10.dp, vertical = 4.dp))
                 }
             }
         }

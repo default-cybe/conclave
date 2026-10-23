@@ -149,6 +149,13 @@ class ChatViewModel(hub: HubRepository, val sessionId: String) : HubViewModel(hu
         val text = draft.value.trim()
         val files = attachments.value
         if (text.isEmpty() && files.isEmpty()) return
+        // /btw: a side question, never the turn or the queue; the answer shows as a line
+        val btw = if (files.isEmpty()) PendingQueue.btwQuestion(text) else null
+        if (btw != null) {
+            draft.value = ""
+            action { say("btw: " + hub.api { it.btw(sessionId, btw) }.answer) }
+            return
+        }
         // a turn runs or waits on you: the message shows at once, Queued, until its turn takes it
         val status = _session.value?.status
         if (running.value || status == SessionStatus.WAITING_APPROVAL || status == SessionStatus.WAITING_INPUT) return sendQueued(text, files)
@@ -191,6 +198,9 @@ class ChatViewModel(hub: HubRepository, val sessionId: String) : HubViewModel(hu
             if (r?.queued != true) previews.update { it - id }
         }
     }
+
+    /** Send on one Stop held: the hub runs it in its place, and its session.queue updates the row. */
+    fun sendHeld(id: String) = action { hub.api { it.sendQueued(sessionId, id) } }
 
     /** Take a waiting message off before it runs. It leaves at once; if the hub refuses, it comes back and a line says why. */
     fun removeQueued(id: String) {

@@ -82,6 +82,7 @@ const CODE: SlashMode[] = ['code'];
 /** Built-in commands, by name. Claude Code's names and words where Conclave has the same thing. */
 const BUILTINS: Builtin[] = [
   { name: 'agents', description: 'Pick the agent for this session', arg: '[name]', sheet: 'agents', aliases: ['agent'], modes: CODE },
+  { name: 'btw', description: 'Ask a side question; the running turn never sees it', arg: '<question>', modes: BOTH },
   { name: 'clear', description: 'Start a new session with the same settings', modes: BOTH },
   { name: 'compact', description: 'Summarize older messages to free context', arg: '[instructions]', modes: BOTH },
   { name: 'context', description: 'What fills the context now', sheet: 'context', modes: CODE },
@@ -168,6 +169,11 @@ export function filterSlash(items: SlashItem[], query: string): SlashItem[] {
 }
 
 /** The item a typed line names: its name or an alias, case does not matter. */
+/** The question of a "/btw <question>" message, or undefined for any other text. */
+export function btwQuestion(text: string): string | undefined {
+  return /^\/btw(?:\s+([\s\S]*))?$/i.exec(text.trim())?.[1]?.trim() || undefined;
+}
+
 export function findSlash(items: SlashItem[], name: string): SlashItem | undefined {
   const n = name.toLowerCase();
   return items.find((it) => it.name.toLowerCase() === n) ?? items.find((it) => it.aliases?.includes(n));

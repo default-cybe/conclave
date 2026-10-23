@@ -115,7 +115,7 @@ describe('the queue while a turn runs', () => {
     }
   });
 
-  test('Stop clears the queue and says so', async () => {
+  test('Stop holds the queue and says so: listed, held, until Send runs one or the x removes it', async () => {
     const { t, id } = await engineWith([slow('one', 1_500), [{ text: 'two' }]]);
     try {
       const seen = watch(t, id);
@@ -124,10 +124,20 @@ describe('the queue while a turn runs', () => {
       const s = await t.engine.send(id, { text: 'now', whenBusy: 'steer' });
       expect(queues(seen).at(-1)).toEqual([s.pendingId!, a.pendingId!]);
       t.engine.abort(id);
-      expect(queues(seen).at(-1)).toEqual([]);
-      expect(t.engine.queue(id)).toEqual([]);
+      // the event says what waits now: the same messages, held, steering first
+      expect(queues(seen).at(-1)).toEqual([s.pendingId!, a.pendingId!]);
+      expect(t.engine.queue(id).map((q) => [q.id, q.held, q.whenBusy])).toEqual([
+        [s.pendingId, true, 'queue'],
+        [a.pendingId, true, 'queue'],
+      ]);
       await t.engine.runnerFor(id).waitIdle();
       expect(userTexts(t, id)).toEqual(['first']);
+      t.engine.unqueue(id, s.pendingId!);
+      t.engine.sendQueued(id, a.pendingId!);
+      expect(await until(() => userTexts(t, id).length === 2)).toBe(true);
+      await t.engine.runnerFor(id).waitIdle();
+      expect(userTexts(t, id)).toEqual(['first', 'later']);
+      expect(t.engine.queue(id)).toEqual([]);
     } finally {
       await t.close();
     }
@@ -153,6 +163,51 @@ describe('the queue while a turn runs', () => {
       expect(queues(seen).at(-1)).toEqual([]);
       const created = seen.findIndex((x) => x.message?.id === steer.id);
       expect(seen[created + 1]).toEqual({ type: 'session.queue', queue: [] });
+    } finally {
+      await t.close();
+    }
+  });
+
+  test('queued messages join the running turn right after its tool call, in order, before the next model call', async () => {
+    const { t, id } = await engineWith([{ blocks: [{ tool: 'TodoWrite', input: { todos: [{ content: 'look', status: 'in_progress', activeForm: 'Looking' }] } }], delayMs: 600 }, [{ text: 'done' }]]);
+    try {
+      const seen = watch(t, id);
+      await startTurn(t, id);
+      const a = await t.engine.send(id, { text: 'also a' });
+      const b = await t.engine.send(id, { text: 'also b' });
+      expect(t.engine.queue(id).map((q) => q.whenBusy)).toEqual(['queue', 'queue']);
+      await t.engine.runnerFor(id).waitIdle();
+      // one turn: the second model call already carries both, in send order
+      expect(t.requests).toHaveLength(2);
+      expect(t.requests[1].indexOf('also a')).toBeGreaterThan(-1);
+      expect(t.requests[1].indexOf('also a')).toBeLessThan(t.requests[1].indexOf('also b'));
+      expect(userTexts(t, id)).toEqual(['first', 'also a', 'also b']);
+      const joined = t.engine.getMessages(id).filter((m) => m.meta?.pendingIds);
+      expect(joined.map((m) => m.meta)).toEqual([
+        { whenBusy: 'steer', pendingIds: [a.pendingId] },
+        { whenBusy: 'steer', pendingIds: [b.pendingId] },
+      ]);
+      // after the tool results, before the reply that read them
+      const seqOf = (pred: (m: Message) => boolean) => t.engine.getMessages(id).find(pred)!.seq;
+      expect(seqOf((m) => m.content.some((x) => x.type === 'tool_result'))).toBeLessThan(joined[0].seq);
+      expect(joined[1].seq).toBeLessThan(seqOf((m) => m.role === 'assistant' && m.content.some((x) => x.type === 'text' && x.text === 'done')));
+      expect(queues(seen).at(-1)).toEqual([]);
+    } finally {
+      await t.close();
+    }
+  });
+
+  test('a message sent while the model only writes text (no tool call) waits for the turn to end', async () => {
+    const { t, id } = await engineWith([slow('one'), [{ text: 'two' }]]);
+    try {
+      await startTurn(t, id);
+      const a = await t.engine.send(id, { text: 'zq-later-word' });
+      await t.engine.runnerFor(id).waitIdle();
+      expect(t.requests).toHaveLength(2);
+      expect(t.requests[0]).not.toContain('zq-later-word');
+      expect(t.requests[1]).toContain('zq-later-word');
+      const m = t.engine.getMessages(id).find((x) => x.meta?.pendingIds)!;
+      expect(m.meta).toEqual({ pendingIds: [a.pendingId], whenBusy: 'queue' });
     } finally {
       await t.close();
     }

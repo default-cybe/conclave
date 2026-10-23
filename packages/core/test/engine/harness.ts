@@ -127,7 +127,7 @@ export interface TestEngineOptions {
    * answer with that HTTP status. Use it when parent and subagent requests
    * interleave.
    */
-  route?: (body: RequestBody, text: string, provider: string) => Step | number | { status: number; error?: string; type?: string } | undefined;
+  route?: (body: RequestBody, text: string, provider: string) => Step | number | { status: number; error?: string; type?: string; delayMs?: number } | undefined;
   /** Reply for chore requests (no tools). A number answers with that HTTP status. Default: text "ok". */
   chore?: (body: RequestBody, text: string) => Step | number | undefined;
   hooks?: (t: { hook: TestEngine['hook'] }) => HooksConfig;
@@ -188,7 +188,10 @@ export async function startTestEngine(opts: TestEngineOptions): Promise<TestEngi
       requestProviders.push(provider);
       const routedReply = opts.route?.(body, text, provider);
       if (typeof routedReply === 'number') return failWith(routedReply);
-      if (routedReply && 'status' in routedReply) return failWith(routedReply.status, routedReply.error, routedReply.type);
+      if (routedReply && 'status' in routedReply) {
+        if (routedReply.delayMs) await Bun.sleep(routedReply.delayMs);
+        return failWith(routedReply.status, routedReply.error, routedReply.type);
+      }
       const picked = routedReply;
       const n = picked ? 500 + ++routed : ++turn;
       const step = picked ?? opts.script[Math.min(n - 1, opts.script.length - 1)];

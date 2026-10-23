@@ -514,7 +514,8 @@ data class SendInput(
  * A message sent while the session was busy, before it joins the transcript
  * (docs/design/CHAT-AND-MOTION.md 2.11). [whenBusy]: "queue" runs as its own
  * turn after the running one, "steer" joins the running turn at its next
- * step. The hub keeps these in memory: a hub restart drops them.
+ * step. The hub stores them: a restart keeps them, and Stop holds them
+ * ([held]) until Send (sendQueued) or the x.
  */
 @Serializable
 data class QueuedMessage(
@@ -525,7 +526,12 @@ data class QueuedMessage(
     /** When it was sent. */
     val at: Long = 0,
     val whenBusy: String = "queue",
+    /** Stop kept it: it waits until you send or remove it. */
+    val held: Boolean = false,
 )
+
+@Serializable
+data class BtwAnswer(val answer: String = "")
 
 @Serializable
 data class QueuedAttachment(val name: String? = null, val mediaType: String = "")
