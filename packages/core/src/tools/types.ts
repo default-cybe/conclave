@@ -28,6 +28,8 @@ export interface ToolOutput {
  */
 export interface ToolHost {
   config(): ConclaveConfig;
+  /** The web search key saved in Settings > Web search (a hub secret), for WebSearch only. */
+  searchKey?(provider: string): string | undefined;
   /** Run a subagent to completion and return its final text. */
   runSubagent(opts: {
     parentSessionId: string;
