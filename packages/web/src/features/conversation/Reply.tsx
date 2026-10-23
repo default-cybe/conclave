@@ -33,6 +33,7 @@ import { canSend, SendToFriendDialog } from '@/features/friends/SendToFriend';
 import { ReplyIcons } from './ReplyIcons';
 import { ChatMarkdown } from './ChatMarkdown';
 import { MapsCards, MapsLine } from '@/features/maps/MapsCard';
+import { FileCards, FileLine } from '@/features/files/FileCard';
 import { WatchCards, WatchLine } from '@/features/watches/WatchCards';
 import { mapsWorkingWords } from '@/features/maps/words';
 import { DelegateCallLine } from '@/features/chat/delegated';
@@ -300,6 +301,9 @@ function ToolLine({ tool, result, run, live, messages, results, folded }: { tool
       if (running) return null;
       // folded on a phone, the cards go under the fold's line instead
       return <MapsLine tool={tool} result={res} card={!folded} />;
+    case 'ShareFile':
+      if (running) return null;
+      return <FileLine tool={tool} result={res} sessionId={messages[0]?.sessionId ?? ''} card={!folded} />;
     // calendar and mail (docs/DESIGN.md 32): what was read, and what was proposed for the owner to approve
     case 'DayPlan':
     case 'CalendarList':
@@ -435,6 +439,7 @@ export const Reply = memo(function Reply({ reply, session, isLast, live, phase, 
                   </ToolFold>
                   <MapsCards results={toolPieces.map((t) => results[t.tool.id] ?? tools[t.tool.id]?.result)} className="mb-2" />
                   <WatchCards results={toolPieces.map((t) => results[t.tool.id] ?? tools[t.tool.id]?.result)} sessionId={session.id} className="mb-2" />
+                  <FileCards calls={toolPieces.map((t) => ({ name: t.tool.name, result: results[t.tool.id] ?? tools[t.tool.id]?.result }))} sessionId={session.id} className="mb-2" />
                 </div>
               );
             }
