@@ -1,10 +1,11 @@
 /**
- * The proxy only when the owner asks (browser/manager.ts useProxy, the proxy
- * input of browser_navigate and browser_tabs), with a fake launcher and fake
- * pages, so no browser runs:
+ * The proxy when the owner asks or a site blocks (browser/manager.ts useProxy,
+ * the proxy input of browser_navigate and browser_tabs), with a fake launcher
+ * and fake pages, so no browser runs:
  *
  * - a call without the proxy input never touches the proxy settings, its
  *   secrets or the network check, and goes out from the profile's browser;
+ * - a block page is loaded again once through the proxy, in the hub's country;
  * - with it, the session gets a throwaway browser through the proxy, in a
  *   fresh folder, with the country in the DataImpulse user name; later calls
  *   stay on it; another country is another browser; false goes back;
@@ -22,6 +23,9 @@ import { BrowserManager, WEBRTC_PROXY_FLAG } from '../../src/browser/manager';
 import { browserTools, PROXY_INPUT_RULE, proxyWant } from '../../src/browser/tools';
 import type { ProxyEntry } from '../../src/browser/proxy-list';
 import type { ToolContext, ToolOutput } from '../../src/tools/types';
+import { setHubCountryLookup, setProxySource } from '../../src/tools/blocked';
+
+const CLOUDFLARE_BLOCK = '<html><head><title>Attention Required! | Cloudflare</title></head><body>Sorry, you have been blocked</body></html>';
 
 const LOGIN = 'kai8f2login';
 const PASSWORD = 'Pw-di-0042-secret';
@@ -49,14 +53,17 @@ function fakeLauncher() {
       const listeners: Array<() => void> = [];
       const page = () => {
         let url = 'about:blank';
+        // blocked.example blocks every address but the proxy's; wall.example blocks the proxy too
+        const blocks = () => url.includes('wall.example') || (url.includes('blocked.example') && !opts.proxy);
         return {
           on: () => {},
           isClosed: () => call.closed,
           goto: async (u: string) => {
             url = u;
-            return { status: () => 200 };
+            return { status: () => (blocks() ? 403 : 200) };
           },
           url: () => url,
+          content: async () => (blocks() ? CLOUDFLARE_BLOCK : '<html><body>ok</body></html>'),
           waitForLoadState: async () => {},
           close: async () => {},
         };
@@ -141,11 +148,63 @@ describe('without the proxy input', () => {
     await h.manager.close();
   });
 
-  test('a site that blocks does not make the hub reach for the proxy', async () => {
+  test('a normal page reads no proxy settings', async () => {
     const h = hubWith(DI);
-    const out = await h.run('browser_navigate', { url: 'https://blocked.example/' });
+    const out = await h.run('browser_navigate', { url: 'https://example.com/' });
     expect(text(out)).not.toContain('proxy');
     expect(h.probed).toEqual([]);
+    await h.manager.close();
+  });
+});
+
+describe('a page that blocks the hub', () => {
+  afterEach(() => {
+    setProxySource();
+    setHubCountryLookup();
+  });
+  const source = (h: ReturnType<typeof hubWith>) => setProxySource({ cfg: () => h.config.get().browser?.proxy, read: (n) => h.config.secretValue(n) });
+
+  test("is loaded once more through the proxy, in the hub's country", async () => {
+    const h = hubWith(DI);
+    source(h);
+    setHubCountryLookup(async () => 'US');
+    const out = await h.run('browser_navigate', { url: 'https://blocked.example/' });
+    const t = text(out);
+    expect(t).toContain("blocked.example blocked the hub's address; loaded through the proxy (US).");
+    expect(t).not.toContain('HTTP 403');
+    expect(h.calls).toHaveLength(2);
+    expect(h.calls[0].opts.proxy).toBeUndefined();
+    expect(h.calls[1].opts.proxy).toMatchObject({ username: `${LOGIN}__cr.us` });
+    expect(t).not.toContain(LOGIN);
+    expect(t).not.toContain(PASSWORD);
+    await h.manager.close();
+  });
+
+  test('blocked through the proxy too: said, and only one retry', async () => {
+    const h = hubWith(DI);
+    source(h);
+    setHubCountryLookup(async () => 'US');
+    const out = await h.run('browser_navigate', { url: 'https://wall.example/' });
+    expect(text(out)).toContain('blocked through the proxy (US) too');
+    expect(h.calls).toHaveLength(2);
+    await h.manager.close();
+  });
+
+  test('no proxy set: the block is said with where to set one', async () => {
+    const h = hubWith(undefined);
+    source(h);
+    const out = await h.run('browser_navigate', { url: 'https://blocked.example/' });
+    expect(text(out)).toContain("blocked.example blocked the hub's address (a Cloudflare challenge). Set a proxy in Settings > Browser to retry these through it.");
+    expect(h.calls).toHaveLength(1);
+    await h.manager.close();
+  });
+
+  test("a member's session never uses the owner's proxy", async () => {
+    const h = hubWith(DI);
+    source(h);
+    const nav = browserTools(h.manager).find((t) => t.name === 'browser_navigate')!;
+    const out = await nav.run({ url: 'https://blocked.example/' }, { sessionId: 'm-1', session: { accountId: 'alice' }, signal: new AbortController().signal } as unknown as ToolContext);
+    expect(text(out)).toContain("belongs to the owner, so a member's request does not retry through it");
     expect(h.calls.every((c) => !c.opts.proxy)).toBe(true);
     await h.manager.close();
   });
@@ -250,8 +309,8 @@ describe('with the proxy input', () => {
 describe('the rule in the tool description', () => {
   test('says when to use it, plainly', () => {
     expect(PROXY_INPUT_RULE).toContain('Leave this out unless the owner asked for a proxy');
-    expect(PROXY_INPUT_RULE).toContain("Without it every page loads from the hub's own IP address");
-    expect(PROXY_INPUT_RULE).toContain('Never add it on your own, not even when a site blocks you');
+    expect(PROXY_INPUT_RULE).toContain("Without it pages load from the hub's own IP address");
+    expect(PROXY_INPUT_RULE).toContain('retries the page once through the hub\'s proxy in the hub\'s own country by itself');
     expect(PROXY_INPUT_RULE).toContain("watch's or routine's own instructions");
     const nav = browserTools({} as BrowserManager).find((t) => t.name === 'browser_navigate')!;
     expect(JSON.stringify(nav.inputSchema)).toContain('Leave this out unless');

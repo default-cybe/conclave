@@ -1,7 +1,8 @@
 /**
  * Settings > Browser, the parts besides signing in: the engines with Install
  * on the hub, each profile's engine, and the hub's proxy. The proxy is used
- * only when the owner asks for one in a chat. The hub keeps its login and
+ * once per blocked request, in the hub's country, or when the owner asks for
+ * one in a chat. The hub keeps its login and
  * password as secrets; this page sends them once and never gets them back.
  */
 import { useEffect, useState } from 'react';
@@ -362,7 +363,7 @@ export function profileHelp(p: Profile, sites: string): string {
 export { newProfileWords };
 
 // ---------------------------------------------------------------------------
-// The hub's proxy: used only when the owner asks in a chat
+// The hub's proxy: for a blocked request, or when the owner asks in a chat
 // ---------------------------------------------------------------------------
 
 type Provider = 'none' | 'dataimpulse' | 'custom';
