@@ -483,6 +483,12 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     return c.json(await engine.tryNextModel(id, messageId));
   });
 
+  app.post('/api/sessions/:id/retry-provider', async (c) => {
+    const id = sid(c);
+    const { messageId, model } = await readJson<{ messageId?: unknown; model?: unknown }>(c);
+    return c.json(await engine.retryProvider(id, requireString(messageId, 'messageId'), requireString(model, 'model')));
+  });
+
   app.get('/api/sessions/:id/switch-estimate', (c) => {
     const id = sid(c);
     return c.json(engine.switchEstimate(id, requireString(c.req.query('model'), 'model')));

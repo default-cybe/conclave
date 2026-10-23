@@ -7,7 +7,10 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
-## [Unreleased]
+## [0.4.22] - 2026-10-23
+
+### What's new
+- Web and Android: retry a failed provider inference with another model in the same session, preserving the full transcript and completed tools without resending the prompt. Disabled providers and stale retries are rejected; retry offers expire when the hub restarts, and generic prompt replay stays unavailable for unresolved provider failures.
 
 ### Fixed
 - Preserve the original assistant block order when thinking or redacted thinking follows a tool call, including when consecutive assistant messages merge.

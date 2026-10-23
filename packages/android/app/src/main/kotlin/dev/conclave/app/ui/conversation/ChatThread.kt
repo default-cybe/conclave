@@ -215,6 +215,7 @@ fun ChatThreadScreen(
 
     val s = session
     val failed = s?.status == SessionStatus.ERROR && !running
+    val providerFailure = NextModel.providerFailure(live.messages) != null
     val resuming = s?.status == SessionStatus.WAITING_RESET
     // an approval or a question is open, the chat's own or a subagent's: the reply waits on you
     val childWaits = s?.status == SessionStatus.RUNNING && Asks.below(live.approvals + live.questions, sessionId)
@@ -307,6 +308,7 @@ fun ChatThreadScreen(
         // made from a friend's share: whose turns are quoted here
         s?.let { FriendShareLine(it, onOpenShare) }
         OfflineBanner(connection)
+        dev.conclave.app.ui.chat.RetryProvider(s, live.messages, groups)
         error?.let { ErrorBanner(it, onRetry = { vm.load() }) }
         Box(Modifier.fillMaxWidth().weight(1f)) {
             if (loading && units.isEmpty() && pending == null) {
@@ -337,7 +339,7 @@ fun ChatThreadScreen(
                                     viewing = sessionId,
                                 )
                                 is Row2.Failed -> Box(itemMod.padding(horizontal = 20.dp)) {
-                                    FailedLine(reason = s?.error, onRetry = vm::retryLast, onSwitch = { pick = Pick.Model }, mark = turnReplyIndex < 0)
+                                    FailedLine(reason = s?.error, onRetry = if (providerFailure) null else vm::retryLast, onSwitch = { pick = Pick.Model }, mark = turnReplyIndex < 0)
                                 }
                                 is Row2.Resuming -> Box(itemMod.padding(horizontal = 20.dp, vertical = 6.dp)) {
                                     // the reply's Knot is the grey stub above; it writes on from there when the limit resets
@@ -392,7 +394,7 @@ fun ChatThreadScreen(
                                             waiting = waitingOnYou,
                                             resuming = resuming,
                                             isLastUnit = row.index == units.lastIndex,
-                                            onRetryLast = vm::retryLast,
+                                            onRetryLast = if (providerFailure) null else vm::retryLast,
                                             actions = actions,
                                             editing = editing,
                                             settled = settled,
@@ -657,7 +659,7 @@ private fun UnitView(
     waiting: Boolean,
     resuming: Boolean,
     isLastUnit: Boolean,
-    onRetryLast: () -> Unit,
+    onRetryLast: (() -> Unit)?,
     actions: ReplyActions,
     editing: String?,
     settled: Set<String>,
