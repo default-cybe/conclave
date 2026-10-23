@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { ContentBlock } from '../../src/types';
 import type { ProviderMessage } from '../../src/providers/types';
+import { AnthropicProvider } from '../../src/providers/anthropic';
 import { ProviderError } from '../../src/providers/types';
 import { CONTINUE_NOTE, MISSING_RESULT, flattenLastToolTurn, guardTranscript, isTranscriptShapeError } from '../../src/session/pairing';
 import { buildProviderMessages } from '../../src/session/transcript';
@@ -12,6 +13,27 @@ const text = (t: string): ContentBlock => ({ type: 'text', text: t });
 const types = (m: ProviderMessage) => m.content.map((b) => (b.type === 'tool_use' ? `use:${b.id}` : b.type === 'tool_result' ? `res:${b.toolUseId}` : b.type));
 
 describe('guardTranscript', () => {
+  test('signed interleaved thinking keeps its exact block sequence when assistant messages merge', () => {
+    const first = { type: 'thinking' as const, thinking: ' first\n\n', signature: 'signed-first' };
+    const second = { type: 'thinking' as const, thinking: 'second\r\n', signature: 'signed-second' };
+    const redacted = { type: 'redacted_thinking' as const, data: 'opaque-data' };
+    const blocks = [first, use('a'), second, redacted, text('after thinking'), use('b')];
+    const original = JSON.stringify(blocks);
+    const input: ProviderMessage[] = [
+      { role: 'user', content: [text('go')] },
+      { role: 'assistant', content: blocks.slice(0, 2) },
+      { role: 'assistant', content: blocks.slice(2) },
+      { role: 'user', content: [res('a'), res('b')] },
+    ];
+    const guarded = guardTranscript(input);
+    expect(JSON.stringify(guarded.messages[1].content)).toBe(original);
+    expect(guardTranscript(guarded.messages).messages).toEqual(guarded.messages);
+    expect(JSON.stringify(blocks)).toBe(original);
+    const provider = new AnthropicProvider({ id: 'cliproxy', config: { type: 'anthropic' } });
+    const body = provider.buildBody({ model: 'claude-opus-5-5', system: [], messages: guarded.messages });
+    expect(JSON.stringify((body.messages as Array<{ content: unknown }>)[1].content)).toBe(original);
+  });
+
   test('a valid transcript passes unchanged', () => {
     const msgs: ProviderMessage[] = [
       { role: 'user', content: [text('go')] },
