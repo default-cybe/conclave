@@ -236,6 +236,39 @@ describe('OpenAIProvider request mapping', () => {
     expect((router.buildBody({ ...ask('x'), model: 'anthropic/claude-sonnet-5.5', thinking: { budgetTokens: 3000 } }) as any).reasoning).toEqual({ max_tokens: 3000 });
   });
 
+  test('Z.ai coding endpoint: thinking off is said, on keeps reasoning across tool loops, long tool lists go whole', () => {
+    const zai = new OpenAIProvider({ id: 'zai', config: { type: 'openai', baseUrl: 'https://api.z.ai/api/coding/paas/v4' }, apiKey: 'k' });
+    const glm = (over: Partial<ChatRequest>) => zai.buildBody({ ...ask('x'), model: 'glm-5.3', ...over }) as any;
+    expect(glm({ thinking: { off: true } }).thinking).toEqual({ type: 'disabled' });
+    expect(glm({ thinking: { effort: 'high' } }).thinking).toEqual({ type: 'enabled', clear_thinking: false });
+    const tools = Array.from({ length: 51 }, (_, i) => ({ name: `T${i}`, description: 'd', inputSchema: { type: 'object' } }));
+    const body = glm({ tools });
+    expect(body.tools).toHaveLength(51);
+    expect(body.tools.every((t: any) => t.type === 'function' && t.function.name)).toBe(true);
+    expect(JSON.stringify(body)).not.toContain('cache_control');
+    const ds = new OpenAIProvider({ id: 'deepseek', config: { type: 'openai', baseUrl: 'https://api.deepseek.com/v1' }, apiKey: 'k' });
+    expect((ds.buildBody({ ...ask('x'), thinking: { effort: 'high' } }) as any).thinking).toEqual({ type: 'enabled' });
+  });
+
+  test('Z.ai: unset thinking (titles, memory, small model calls) is sent as disabled', () => {
+    for (const baseUrl of ['https://api.z.ai/api/coding/paas/v4', 'https://open.bigmodel.cn/api/paas/v4']) {
+      const zai = new OpenAIProvider({ id: 'zai', config: { type: 'openai', baseUrl }, apiKey: 'k' });
+      expect((zai.buildBody({ ...ask('x'), model: 'glm-5.3' }) as any).thinking).toEqual({ type: 'disabled' });
+    }
+    // elsewhere unset stays unset
+    expect((compat().buildBody({ ...ask('x'), model: 'glm-5.3' }) as any).thinking).toBeUndefined();
+  });
+
+  test('Z.ai structured output: json_object, schema in the system prompt', () => {
+    const zai = new OpenAIProvider({ id: 'zai', config: { type: 'openai', baseUrl: 'https://api.z.ai/api/coding/paas/v4' }, apiKey: 'k' });
+    const schema = { type: 'object', properties: { title: { type: 'string' } } };
+    const body = zai.buildBody({ ...ask('x'), model: 'glm-5.3', responseSchema: schema }) as any;
+    expect(body.response_format).toEqual({ type: 'json_object' });
+    const system = body.messages.filter((m: any) => m.role === 'system').map((m: any) => JSON.stringify(m.content)).join('\n');
+    expect(system).toContain('Reply with only JSON that matches this schema');
+    expect(system).toContain('\\"title\\"');
+  });
+
   test('tool_choice and response_format', () => {
     const body = compat().buildBody({
       ...ask('x'),

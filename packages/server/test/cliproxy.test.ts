@@ -371,6 +371,9 @@ describe('builtin: the hub runs CLIProxyAPI', () => {
     expect(p.enabled).toBe(true);
     expect(p.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/v1$/);
     expect(p.anthropicWire).toEqual({ baseUrl: p.baseUrl!.replace(/\/v1$/, ''), models: ['claude-*', '*/claude-*'] });
+    // GPT over Responses, Gemini over its own wire, at the same root and key
+    expect(p.responsesWire).toEqual({ models: ['gpt-*', '*/gpt-*'] });
+    expect(p.geminiWire).toEqual({ baseUrl: p.baseUrl!.replace(/\/v1$/, ''), models: ['gemini-*'] });
     expect(p.apiKey).toBe('${secret:cliproxy.clientKey}');
     // none of it went into config.json
     expect(JSON.stringify(hub.engine.config.getUser())).not.toContain('127.0.0.1:');
@@ -487,24 +490,35 @@ describe('builtin: the hub runs CLIProxyAPI', () => {
     expect((await api('/api/subscriptions/signin', { method: 'POST', json: { provider: 'myspace' } })).status).toBe(400);
   });
 
-  test('a chat request is routed: Claude over /v1/messages, ChatGPT over /v1/chat/completions', async () => {
+  test('a chat request is routed: Claude over /v1/messages, ChatGPT over /v1/responses, Gemini over /v1beta, the rest over /v1/chat/completions', async () => {
     rmSync(callLog, { force: true });
+    // a Google account for the Gemini round trip, removed after
+    const gfile = join(hub.engine.home, 'cliproxy', 'auth', 'antigravity-g@example.test.json');
+    writeFileSync(gfile, JSON.stringify({ type: 'antigravity', email: 'g@example.test' }));
     const reg = new ProviderRegistry(hub.engine.config);
-    const run = async (model: string) => {
-      let text = '';
-      for await (const ev of reg.get('cliproxy')!.stream({ model, system: [], messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }], maxTokens: 16 })) if (ev.type === 'text_delta') text += ev.text;
-      return text;
-    };
-    expect(await run('claude-opus-5-5')).toBe('Hello from claude-opus-5-5 over messages');
-    expect(await run('neu/gpt-6-astra')).toBe('Hello from neu/gpt-6-astra over chat');
-    expect(reg.resolve('cliproxy/claude-opus-5-5').info.name).toBe('Claude Opus 5.5');
-    // no Anthropic key on this hub: the alias goes to the signed in subscription
-    expect(reg.resolve('opus').provider).toBe('cliproxy');
-    reg.dispose();
+    try {
+      const run = async (model: string) => {
+        let text = '';
+        for await (const ev of reg.get('cliproxy')!.stream({ model, system: [], messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }], maxTokens: 16 })) if (ev.type === 'text_delta') text += ev.text;
+        return text;
+      };
+      expect(await run('claude-opus-5-5')).toBe('Hello from claude-opus-5-5 over messages');
+      expect(await run('neu/gpt-6-astra')).toBe('Hello from neu/gpt-6-astra over responses');
+      expect(await run('gemini-4-argon')).toBe('Hello from gemini-4-argon over gemini');
+      expect(await run('grok-4.7')).toBe('Hello from grok-4.7 over chat');
+      expect(reg.resolve('cliproxy/claude-opus-5-5').info.name).toBe('Claude Opus 5.5');
+      // no Anthropic key on this hub: the alias goes to the signed in subscription
+      expect(reg.resolve('opus').provider).toBe('cliproxy');
+    } finally {
+      reg.dispose();
+      rmSync(gfile, { force: true });
+    }
     const calls = readFileSync(callLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
     expect(calls).toEqual([
       { path: '/v1/messages', model: 'claude-opus-5-5' },
-      { path: '/v1/chat/completions', model: 'neu/gpt-6-astra' },
+      { path: '/v1/responses', model: 'neu/gpt-6-astra' },
+      { path: '/v1beta/models/gemini-4-argon:streamGenerateContent', model: 'gemini-4-argon' },
+      { path: '/v1/chat/completions', model: 'grok-4.7' },
     ]);
   });
 

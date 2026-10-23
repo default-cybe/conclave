@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { DEFAULT_CONFIG, type ConclaveConfig, type ProviderConfig } from './schema';
 import { paths, ensureDirs, type Paths } from './paths';
-import { dropRetiredKeys } from './retired';
+import { dropRetiredKeys, markZaiWire, migrateZaiWire } from './retired';
 
 export * from './schema';
 export * from './paths';
@@ -113,7 +113,9 @@ export class ConfigStore {
     this.overrides = overrides;
     this.userConfig = readJsonFile<Partial<ConclaveConfig>>(this.paths.config) ?? {};
     this.secrets = deepMerge({ providers: {}, values: {} }, readJsonFile<Secrets>(this.paths.secrets) ?? {});
-    if (this.dropRetired()) writePrivate(this.paths.config, this.userConfig);
+    // the zai move runs on load only, so a later explicit `config set` back to the Anthropic shim stays
+    const migrated = migrateZaiWire(this.userConfig as Record<string, unknown>);
+    if (this.dropRetired() || migrated) writePrivate(this.paths.config, this.userConfig);
     this.merged = this.compute();
     if (!this.merged.server.token) {
       const token = randomBytes(24).toString('base64url');
@@ -143,8 +145,10 @@ export class ConfigStore {
   }
 
   update(patch: Partial<ConclaveConfig>): ConclaveConfig {
+    const zai = JSON.stringify(this.userConfig.providers?.zai);
     this.userConfig = deepMerge(this.userConfig, patch);
     this.dropRetired();
+    markZaiWire(this.userConfig as Record<string, unknown>, zai);
     writePrivate(this.paths.config, this.userConfig);
     this.merged = this.compute();
     for (const fn of this.listeners) fn();
@@ -153,8 +157,10 @@ export class ConfigStore {
 
   /** Replace the user config entirely (used by the settings editor). */
   replace(next: Partial<ConclaveConfig>): ConclaveConfig {
+    const zai = JSON.stringify(this.userConfig.providers?.zai);
     this.userConfig = next;
     this.dropRetired();
+    markZaiWire(this.userConfig as Record<string, unknown>, zai);
     writePrivate(this.paths.config, this.userConfig);
     this.merged = this.compute();
     for (const fn of this.listeners) fn();
