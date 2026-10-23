@@ -7,7 +7,7 @@ import { lastAssistantText, reminder, renderTranscript } from '../session/transc
 import { truncateMiddle } from '../util/text';
 import { logger } from '../util/log';
 import { defuseFrameworkTags } from '../session/untrusted';
-import { subagentModel } from '../extensions/agent-model';
+import { markModelDead, subagentModel } from '../extensions/agent-model';
 import { ProviderError } from '../providers/types';
 
 const log = logger('subagent');
@@ -309,6 +309,8 @@ function oneLine(s: string): string {
  */
 export function modelFallback(engine: Engine, model: string, parent: Session | undefined, err: unknown): string | undefined {
   if (!(err instanceof ProviderError) || err.status !== 404 || !/model/i.test(err.message)) return undefined;
+  // tier picks skip it for a while, so the next Task, workflow agent or delegated job does not spend a failed call on it
+  markModelDead(engine, model);
   const to = parent?.model ?? engine.config.get().defaultModel;
   if (!to || to === model || isHarnessModel(engine, to) !== isHarnessModel(engine, model)) return undefined;
   return to;
