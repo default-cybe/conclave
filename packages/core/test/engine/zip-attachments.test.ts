@@ -48,8 +48,8 @@ describe('a zip with a message', () => {
     // the reply row can show before the request is recorded, so wait for it
     const read = () =>
       [...t!.requests, ...t!.chores]
-        .map((b) => JSON.parse(b) as { messages?: Array<{ content: string | Array<{ type: string; source?: { data?: string } }> }> })
-        .some((req) => (req.messages ?? []).some((m) => typeof m.content !== 'string' && m.content.some((b) => b.type === 'document' && b.source?.data?.includes('Ship the zip support.'))));
+        .map((b) => JSON.parse(b) as { messages?: Array<{ content: string | Array<{ type: string; text?: string }> }> })
+        .some((req) => (req.messages ?? []).some((m) => typeof m.content !== 'string' && m.content.some((b) => b.type === 'text' && b.text?.startsWith('<document name="project.zip"') && b.text.includes('Ship the zip support.'))));
     expect(await until(read, 10_000)).toBe(true);
   });
 

@@ -287,7 +287,7 @@ describe('AnthropicProvider request mapping', () => {
     expect(u.content[0]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } });
     expect(u.content[1]).toEqual({ type: 'image', source: { type: 'url', url: 'https://x/y.png' } });
     expect(u.content[2]).toEqual({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERi0=' }, title: 'spec' });
-    expect(u.content[3]).toEqual({ type: 'document', source: { type: 'text', media_type: 'text/plain', data: 'hello doc' } });
+    expect(u.content[3]).toEqual({ type: 'text', text: '<document name="document" type="text/plain">\nhello doc\n</document>' });
     expect(a.content.map((b: any) => b.type)).toEqual(['thinking', 'redacted_thinking', 'tool_use']);
     expect(a.content[0].signature).toBe('anthropic-sig');
     expect(r.content[0]).toEqual({

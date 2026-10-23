@@ -1,4 +1,5 @@
 import type { ContentBlock, ImageBlock, TextBlock, ToolResultBlock } from '../types';
+import { isZip, mediaTypeFor } from '../attachments/limits';
 import type { ProviderConfig } from '../config/schema';
 import { catalogEntries, familyForProvider, lookupModel, type CatalogEntry } from './catalog';
 import { DEFAULT_IDLE_TIMEOUT_MS, type FetchFn, type HttpOptions } from './http';
@@ -106,19 +107,57 @@ export function dataUrl(mediaType: string, data: string): string {
 }
 
 export function isTextMediaType(mediaType: string): boolean {
-  return /^text\/|^application\/(json|xml|yaml|x-yaml|javascript|typescript|x-sh)/.test(mediaType);
+  return /^text\/|^application\/(json|xml|yaml|x-yaml|toml|javascript|typescript|x-sh|sql|x-ndjson)|\+(json|xml|yaml)$/.test(mediaType);
 }
 
-export function decodeBase64Text(data: string): string {
-  return Buffer.from(data, 'base64').toString('utf8');
+/** One attached document's text at most; the rest is cut with a note. */
+export const DOC_TEXT_MAX_BYTES = 200 * 1024;
+/** All documents' text in one message: the budget the hub gives a zip's text files (attachments/zip.ts ZIP_TEXT_MAX_BYTES). */
+export const MESSAGE_DOCS_MAX_BYTES = 512 * 1024;
+
+const kb = (n: number) => `${Math.round(n / 1024)} KB`;
+const utf8 = new TextDecoder('utf-8', { fatal: true });
+const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+
+/** Its text when it is UTF-8 with no NUL bytes, else undefined (a binary). */
+function textOf(bytes: Buffer): string | undefined {
+  if (bytes.includes(0)) return undefined;
+  try {
+    return utf8.decode(bytes);
+  } catch {
+    return undefined;
+  }
 }
 
-/** A text rendering of a document for providers without native document input. */
-export function documentAsText(block: Extract<ContentBlock, { type: 'document' }>): string | undefined {
-  const title = block.title ? `Document: ${block.title}\n` : '';
-  if (block.data && isTextMediaType(block.mediaType)) return `${title}${decodeBase64Text(block.data)}`;
-  if (block.url) return `${title}${block.url}`;
-  return undefined;
+/**
+ * A user message's documents as a wire takes them. Text documents become
+ * `<document name type>` text blocks, cut at DOC_TEXT_MAX_BYTES each and
+ * MESSAGE_DOCS_MAX_BYTES together; PDFs stay document blocks when the wire
+ * reads them (`pdf`); anything else (a binary, an archive, a PDF the wire
+ * cannot read) becomes a one-line note, so the model always learns what was
+ * attached. Base64 of a binary is never sent as text.
+ */
+export function documentsForWire(content: ContentBlock[], pdf: boolean): ContentBlock[] {
+  if (!content.some((b) => b.type === 'document')) return content;
+  let room = MESSAGE_DOCS_MAX_BYTES;
+  const note = (text: string): TextBlock => ({ type: 'text', text });
+  return content.map((b): ContentBlock => {
+    if (b.type !== 'document') return b;
+    const name = (b.title ?? '').replace(/["\r\n\t]+/g, ' ').trim() || 'document';
+    const type = mediaTypeFor(b.mediaType, b.title);
+    if (type === 'application/pdf') return pdf && (b.data || b.url) ? { ...b, mediaType: type } : note(`[PDF ${name} not readable by this model]`);
+    if (!b.data) return note(b.url ? `[Attached ${name} (${type}): ${b.url}]` : `[Attached ${name} (${type}): empty]`);
+    const bytes = Buffer.from(b.data, 'base64');
+    if (isZip(type, b.title) || bytes.subarray(0, 4).equals(ZIP_MAGIC)) return note(`[archive ${name}, ${bytes.length} bytes: not opened]`);
+    const text = isTextMediaType(type) ? textOf(bytes) : undefined;
+    if (text === undefined) return note(`[Attached ${name} (${type}, ${bytes.length} bytes): not readable by this model]`);
+    if (room <= 0) return note(`[Attached ${name} (${type}, ${kb(bytes.length)}): left out, this message's attachments pass ${kb(MESSAGE_DOCS_MAX_BYTES)} of text]`);
+    const max = Math.min(DOC_TEXT_MAX_BYTES, room);
+    // cut on a byte boundary, then drop a character split in half
+    const body = bytes.length > max ? `${bytes.subarray(0, max).toString('utf8').replace(/\uFFFD$/, '')}\n[truncated after ${kb(max)}]` : text;
+    room -= Math.min(bytes.length, max);
+    return note(`<document name="${name}" type="${type}">\n${body}\n</document>`);
+  });
 }
 
 /** True when the request asks for thinking: a level or a budget, not Off. */

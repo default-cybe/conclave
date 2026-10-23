@@ -31,6 +31,42 @@ export function isZip(mediaType: string | undefined, name?: string): boolean {
   return (!t || t === 'application/octet-stream') && !!name && /\.zip$/i.test(name);
 }
 
+const EXT_TYPES: Record<string, string> = {
+  pdf: 'application/pdf',
+  zip: 'application/zip',
+  md: 'text/markdown',
+  markdown: 'text/markdown',
+  txt: 'text/plain',
+  log: 'text/plain',
+  csv: 'text/csv',
+  json: 'application/json',
+  xml: 'application/xml',
+  yaml: 'application/yaml',
+  yml: 'application/yaml',
+  toml: 'application/toml',
+  html: 'text/html',
+  htm: 'text/html',
+  css: 'text/css',
+  js: 'text/javascript',
+  ts: 'text/x-typescript',
+  tsx: 'text/x-typescript',
+  py: 'text/x-python',
+  sh: 'application/x-sh',
+};
+
+/**
+ * A file's media type: the one given, or the one its extension names when
+ * the given one says nothing (empty, application/octet-stream), and for a
+ * .ts file browsers call video/mp2t.
+ */
+export function mediaTypeFor(mediaType: string | undefined, name?: string): string {
+  const t = (mediaType ?? '').toLowerCase();
+  const ext = /\.([^./\\]+)$/.exec(name ?? '')?.[1].toLowerCase() ?? '';
+  const guess = Object.hasOwn(EXT_TYPES, ext) ? EXT_TYPES[ext] : undefined;
+  if (guess && (!t || t === 'application/octet-stream' || (t === 'video/mp2t' && guess === 'text/x-typescript'))) return guess;
+  return mediaType || 'application/octet-stream';
+}
+
 /**
  * What the file pickers offer: pictures, PDFs, text and code, and zips. The
  * web inputs' accept list; Android's picker asks for the same types.
