@@ -101,7 +101,7 @@ export function cardText(f: Pick<PlatformFacts, 'hub' | 'tools' | 'member'>): st
     ? '- Settings: your account and your own provider keys. The hub, its browser and its accounts are the owner\'s.'
     : [
         '- Settings > Models: Providers, Subscriptions (Claude, ChatGPT, Google plans), Accounts (order, budgets, the Window starter), Refusal fallback, Defaults.',
-        '- Settings > Browser (profiles, saved logins, CloakBrowser, a proxy only when asked), GitHub (repo sessions that end in a pull request), Remote access, Notifications, Permissions, People.',
+        '- Settings > Browser (profiles, saved logins, CloakBrowser, a proxy retried once when a site blocks the hub, in the hub\'s country), GitHub (repo sessions that end in a pull request), Remote access, Notifications, Permissions, People.',
       ].join('\n');
   return [
     '# Conclave',

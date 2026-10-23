@@ -7,6 +7,29 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [0.4.20] - 2026-10-23
+
+### What's new
+- Daybreak Blue in the model picker: a ChatGPT plan whose own model list has Daybreak (as Codex shows it) gets a "Daybreak Blue" row under OpenAI. It runs GPT-6-Sol on that plan with Daybreak Blue and never sends the retiring alias. Daybreak Red runs gpt-5.6-cyber. The Cyber access choice on GPT-6 rows stays.
+- Refusal retries with Daybreak: a ChatGPT plan marked "Use when a model refuses" and approved for Daybreak retries a refused GPT turn with Daybreak Blue. It keeps the same model when that model takes Blue, else uses GPT-6-Sol, and it can retry on the plan that refused. A refused Claude turn goes to that plan on GPT-6-Sol with Daybreak Blue. The notice names it ("Answered by GPT-6-Sol, Daybreak Blue"), and the session's own Cyber access stays as it was.
+- Settings > Web search: pick the engine WebSearch uses from 12 free engines (Tavily, Exa, LangSearch, Linkup, Firecrawl, You.com, Serper, SerpApi, Jina, Brave, your own SearXNG, or DuckDuckGo with no key). Each shows its free allowance, whether it needs a card, and the steps to get a key with links. A key you paste is stored as a hub secret and never shown again; Test runs one real search. With Choose automatically, the hub uses the first engine with a key, in the order shown.
+- Hidden models: list model refs or patterns like `cliproxy/glm-*` in Settings > Models > Defaults (`models.hidden`). Pickers leave them out, no tier, fallback, agent, workflow or task uses them, and a chat saved on one says so instead of switching.
+
+### Changed
+- When a site blocks the hub (a block page, a login wall, a bot check, a Cloudflare challenge), WebFetch, WebSearch and the browser retry once through the proxy in Settings > Browser, in the hub's own country, and say so in one line. Without a proxy they say plainly that the site blocked the hub. A member's request never uses the owner's proxy.
+
+### Fixed
+- A ChatGPT plan's own model list was read but never applied to its account, so on hubs like the owner's the Accounts page kept CLIProxyAPI's names ("GPT 6.0 Astra") and models the plan hides (Codex Auto Review). It now shows the plan's names and leaves the hidden models out. A failed read of the list is now logged as a warning instead of a debug line.
+- A workbench session lost its Cyber access setting when saved or changed (for example on a title update). It now keeps it.
+- A saved `gpt-daybreak-blue-latest` ref now runs GPT-6-Sol, which takes Daybreak Blue. Before, it ran gpt-5.6-sol, which does not, so Blue was never sent.
+- Attached text files (Markdown, HTML, code, a read zip) reach every model again. Z.ai and other Anthropic-compatible endpoints dropped them, so GLM said nothing was attached. They now go as text on every wire, up to 200 KB per file and 512 KB per message, with a note where a file is cut. A PDF, archive or binary a model cannot read gets a one-line note instead of vanishing, and a file the browser sends with no type (a `.md`, a `.zip`) is known by its name.
+- GLM on Z.ai sees Conclave's tools again. Z.ai's Anthropic endpoint kept only the tool marked for caching and swapped the rest for its own, so GLM could not Read, run Bash or return structured output. Only Claude models get a cache marker on the tool list now; system and message caching are unchanged.
+- GPT models on the Responses API read images from a tool (a Read of a PNG) again. The image now rides in its call's `function_call_output` instead of a later user message, and a PDF a tool attaches goes along the same way. Chat Completions and Gemini send a tool's PDF too.
+- Files inside tool results follow the attachment rules: text files go as text, and a model the catalog lists without vision gets a one-line note for an image instead of a picture it cannot read.
+- ToolSearch no longer lets an agent search in circles: a search for a Conclave tool the agent does not have (Delegate, Task in a subagent) says it is not available, a search that finds nothing lists the tools the session has, and from the third empty search in a turn the loop guard warns and then ends the turn.
+- Settings > Refusal fallback: a step on an API model names its key (for example "Z.ai API key") instead of "Your order".
+- Android: tapping a "Message from subagent" row no longer crashes the app.
+
 ## [0.4.18] - 2026-10-23
 
 ### What's new

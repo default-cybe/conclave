@@ -1,6 +1,6 @@
 import type { ContentBlock, ImageBlock, StopReason, Usage } from '../types';
 import { findCatalogEntry } from './catalog';
-import { BaseProvider, budgetOf, dataUrl, documentAsText, effortOf, parseToolInput, toolResultImages, toolResultString, wantsThinking } from './common';
+import { BaseProvider, budgetOf, dataUrl, documentsForWire, effortOf, parseToolInput, toolResultMedia, toolResultString, wantsThinking } from './common';
 import { classifyStreamError, parseRateLimitHeaders } from './errors';
 import { hostOf, openStream, trimSlash } from './http';
 import { OpenAIResponsesProvider } from './openai-responses';
@@ -27,13 +27,10 @@ function userPart(b: ContentBlock): Wire | undefined {
       return b.text ? { type: 'text', text: b.text } : undefined;
     case 'image':
       return imagePart(b);
-    case 'document': {
-      if (b.data && b.mediaType === 'application/pdf') {
-        return { type: 'file', file: { filename: b.title ?? 'document.pdf', file_data: dataUrl(b.mediaType, b.data) } };
-      }
-      const text = documentAsText(b);
-      return text ? { type: 'text', text } : undefined;
-    }
+    case 'document':
+      // only PDFs are left as documents (documentsForWire); the file part takes data, not a URL
+      if (b.data) return { type: 'file', file: { filename: b.title ?? 'document.pdf', file_data: dataUrl(b.mediaType, b.data) } };
+      return b.url ? { type: 'text', text: `[PDF ${b.title ?? 'document'}: ${b.url}]` } : undefined;
     default:
       return undefined;
   }
@@ -69,7 +66,7 @@ function assistantMessage(m: ProviderMessage, names: ToolNameMap, model: string)
  * messages are text only, so images from tool results go into the next user
  * message.
  */
-export function chatMessages(req: ChatRequest, names: ToolNameMap): Wire[] {
+export function chatMessages(req: ChatRequest, names: ToolNameMap, pdf = true, vision = true): Wire[] {
   const out: Wire[] = [];
   const system = req.system
     .map((s) => s.text)
@@ -84,11 +81,11 @@ export function chatMessages(req: ChatRequest, names: ToolNameMap): Wire[] {
     }
     const tools: Wire[] = [];
     const parts: Wire[] = [];
-    for (const b of m.content) {
+    for (const b of documentsForWire(m.content, pdf, vision)) {
       if (b.type === 'tool_result') {
         tools.push({ role: 'tool', tool_call_id: b.toolUseId, content: toolResultString(b) });
-        const imgs = toolResultImages(b)
-          .map(imagePart)
+        const imgs = toolResultMedia(b)
+          .map(userPart)
           .filter((x): x is Wire => !!x);
         if (imgs.length) parts.push({ type: 'text', text: `Images returned by tool call ${b.toolUseId}:` }, ...imgs);
       } else {
@@ -315,7 +312,8 @@ export class OpenAIProvider extends BaseProvider {
 
   buildBody(req: ChatRequest, names = new ToolNameMap()): Wire {
     const info = this.model(req.model);
-    const body: Wire = { model: req.model, messages: chatMessages(req, names) };
+    // a file part only for a model that reads more than text; others get a note per PDF
+    const body: Wire = { model: req.model, messages: chatMessages(req, names, info.vision, this.seesImages(req.model, info)) };
     if (req.tools?.length) {
       body.tools = req.tools.map((t) => ({
         type: 'function',

@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import { WebFetchTool, clearWebFetchCache, normalizeUrl, redditJsonUrl, redditToMarkdown, setWebFetchLookup } from '../../src/tools/webfetch';
-import { parseDuckDuckGo, pickProvider, webSearch } from '../../src/tools/websearch';
+import { WebSearchTool, parseDuckDuckGo, pickProvider, searchOnce, webSearch, type SearchProviderId } from '../../src/tools/websearch';
+import { patchSearchSettings, searchSettings, setSearchKey, testSearch } from '../../src/tools/search-settings';
+import { SEARCH_PROVIDERS } from '../../src/tools/search-providers';
+import { ConfigStore } from '../../src/config';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { DEFAULT_CONFIG } from '../../src/config/schema';
 import { fakeHost, makeCtx, text } from './helpers';
 
@@ -233,6 +239,222 @@ describe('WebSearch fallbacks', () => {
   });
 });
 
+describe('WebSearch providers map their answers', () => {
+  const signal = () => new AbortController().signal;
+  const cases: Array<{ id: SearchProviderId; url: string; auth: [string, string]; body: unknown; want: { title: string; url: string; snippet: string } }> = [
+    { id: 'brave', url: 'https://api.search.brave.com/res/v1/web/search?q=bun&count=3', auth: ['x-subscription-token', 'k-brave'], body: { web: { results: [{ title: '<b>Bun</b>', url: 'https://bun.sh/', description: 'Fast runtime' }] } }, want: { title: 'Bun', url: 'https://bun.sh/', snippet: 'Fast runtime' } },
+    { id: 'tavily', url: 'https://api.tavily.com/search', auth: ['authorization', 'Bearer k-tavily'], body: { results: [{ title: 'Bun', url: 'https://bun.sh/', content: 'Fast runtime' }] }, want: { title: 'Bun', url: 'https://bun.sh/', snippet: 'Fast runtime' } },
+    { id: 'exa', url: 'https://api.exa.ai/search', auth: ['x-api-key', 'k-exa'], body: { results: [{ title: 'Bun', url: 'https://bun.sh/', highlights: ['Fast', 'runtime'] }] }, want: { title: 'Bun', url: 'https://bun.sh/', snippet: 'Fast runtime' } },
+    { id: 'jina', url: 'https://s.jina.ai/?q=bun', auth: ['authorization', 'Bearer k-jina'], body: { code: 200, data: [{ title: 'Bun', url: 'https://bun.sh/', description: 'Fast runtime', content: '' }] }, want: { title: 'Bun', url: 'https://bun.sh/', snippet: 'Fast runtime' } },
+    { id: 'searxng', url: 'http://sx.lan/search?q=bun&format=json', auth: ['accept', 'application/json'], body: { results: [{ title: 'Bun', url: 'https://bun.sh/', content: 'Fast runtime' }] }, want: { title: 'Bun', url: 'https://bun.sh/', snippet: 'Fast runtime' } },
+  ];
+  for (const c of cases) {
+    test(c.id, async () => {
+      const f = fakeFetch(() => Response.json(c.body));
+      try {
+        const out = await searchOnce(c.id, { query: 'bun', limit: 3, key: `k-${c.id}`, url: 'http://sx.lan/', signal: signal() });
+        expect(f.calls[0].url).toBe(c.url);
+        expect(f.calls[0].headers[c.auth[0]]).toBe(c.auth[1]);
+        expect(out[0]).toMatchObject(c.want);
+      } finally {
+        f.restore();
+      }
+    });
+  }
+
+  // request shape and mapping from each provider's docs (research run wfr_0mvl7kmsavjxlgjtc5e)
+  const more: Array<{ id: SearchProviderId; url: string; method: string; auth: [string, string]; sent?: Record<string, unknown>; body: unknown; want: Array<{ title: string; url: string; snippet: string }> }> = [
+    {
+      id: 'serper',
+      url: 'https://google.serper.dev/search',
+      method: 'POST',
+      auth: ['x-api-key', 'k-serper'],
+      sent: { q: 'bun' },
+      body: { organic: [{ title: 'Bun', link: 'https://bun.sh/', snippet: 'Fast runtime', position: 1 }, { link: 'https://x.dev/' }] },
+      want: [{ title: 'Bun', url: 'https://bun.sh/', snippet: 'Fast runtime' }, { title: '', url: 'https://x.dev/', snippet: '' }],
+    },
+    {
+      id: 'serpapi',
+      url: 'https://serpapi.com/search?engine=google&q=bun&api_key=k-serpapi',
+      method: 'GET',
+      auth: ['accept', 'application/json'],
+      body: { organic_results: [{ title: 'Bun', link: 'https://bun.sh/', snippet: 'Fast runtime' }, { link: 'https://x.dev/' }] },
+      want: [{ title: 'Bun', url: 'https://bun.sh/', snippet: 'Fast runtime' }, { title: '', url: 'https://x.dev/', snippet: '' }],
+    },
+    {
+      id: 'langsearch',
+      url: 'https://api.langsearch.com/v1/web-search',
+      method: 'POST',
+      auth: ['authorization', 'Bearer k-langsearch'],
+      sent: { query: 'bun', count: 3 },
+      body: { data: { webPages: { value: [{ name: 'Bun', url: 'https://bun.sh/', snippet: 'Fast runtime' }, { url: 'https://x.dev/' }] } } },
+      want: [{ title: 'Bun', url: 'https://bun.sh/', snippet: 'Fast runtime' }, { title: '', url: 'https://x.dev/', snippet: '' }],
+    },
+    {
+      id: 'linkup',
+      url: 'https://api.linkup.so/v1/search',
+      method: 'POST',
+      auth: ['authorization', 'Bearer k-linkup'],
+      sent: { q: 'bun', depth: 'fast', outputType: 'searchResults', maxResults: 3 },
+      body: { results: [{ type: 'text', name: 'Bun', url: 'https://bun.sh/', content: 'Fast runtime' }, { type: 'image', name: 'logo', url: 'https://bun.sh/logo.png' }, { url: 'https://x.dev/' }] },
+      want: [{ title: 'Bun', url: 'https://bun.sh/', snippet: 'Fast runtime' }, { title: 'https://x.dev/', url: 'https://x.dev/', snippet: '' }],
+    },
+    {
+      id: 'firecrawl',
+      url: 'https://api.firecrawl.dev/v2/search',
+      method: 'POST',
+      auth: ['authorization', 'Bearer k-firecrawl'],
+      sent: { query: 'bun', limit: 3 },
+      body: { success: true, data: { web: [{ title: 'Bun', url: 'https://bun.sh/', description: 'Fast runtime', position: 1 }, { url: 'https://x.dev/' }] } },
+      want: [{ title: 'Bun', url: 'https://bun.sh/', snippet: 'Fast runtime' }, { title: 'https://x.dev/', url: 'https://x.dev/', snippet: '' }],
+    },
+    {
+      id: 'youcom',
+      url: 'https://ydc-index.io/v1/search',
+      method: 'POST',
+      auth: ['x-api-key', 'k-youcom'],
+      sent: { query: 'bun', count: 3 },
+      body: { results: { web: [{ title: 'Bun', url: 'https://bun.sh/', snippets: ['Fast', 'runtime'], description: 'other' }, { url: 'https://x.dev/', description: 'Only a description' }] } },
+      want: [{ title: 'Bun', url: 'https://bun.sh/', snippet: 'Fast runtime' }, { title: 'https://x.dev/', url: 'https://x.dev/', snippet: 'Only a description' }],
+    },
+  ];
+  for (const c of more) {
+    test(`${c.id}: request and mapping, missing fields`, async () => {
+      let sent: { method?: string; body?: string } = {};
+      const f = fakeFetch((_url, init) => ((sent = { method: init.method, body: init.body as string }), Response.json(c.body)));
+      try {
+        const out = await searchOnce(c.id, { query: 'bun', limit: 3, key: `k-${c.id}`, signal: signal() });
+        expect(f.calls[0].url).toBe(c.url);
+        expect(f.calls[0].headers[c.auth[0]]).toBe(c.auth[1]);
+        expect(sent.method ?? 'GET').toBe(c.method);
+        if (c.sent) expect(JSON.parse(sent.body!)).toEqual(c.sent);
+        expect(out.map(({ title, url, snippet }) => ({ title, url, snippet }))).toEqual(c.want);
+        const empty = fakeFetch(() => Response.json({}));
+        try {
+          expect(await searchOnce(c.id, { query: 'bun', limit: 3, key: `k-${c.id}`, signal: signal() })).toEqual([]);
+        } finally {
+          empty.restore();
+        }
+        await expect(searchOnce(c.id, { query: 'bun', limit: 3, signal: signal() })).rejects.toThrow('API key');
+      } finally {
+        f.restore();
+      }
+    });
+  }
+
+  test('a key echoed in a long error body is replaced before the body is cut, in Test and in the tool', async () => {
+    const KEY = 'k-secret-0123456789abcdef';
+    // the key straddles the 300-character cut
+    const f = fakeFetch(() => new Response(`${'x'.repeat(290)}${KEY}${'y'.repeat(500)}`, { status: 401 }));
+    try {
+      const err = await searchOnce('serper', { query: 'bun', limit: 3, key: KEY, signal: signal() }).catch((e: Error) => e);
+      expect((err as Error).message).toContain('[key]');
+      expect((err as Error).message).not.toContain(KEY.slice(0, 6));
+      const out = await WebSearchTool.run({ query: 'bun' }, makeCtx({ cwd: '/', host: fakeHost({ cfg: { search: { provider: 'serper', apiKey: KEY } } }) }));
+      expect(text(out)).toContain('Web search failed');
+      expect(text(out)).not.toContain(KEY.slice(0, 6));
+    } finally {
+      f.restore();
+    }
+  });
+
+  test('the fallback note to DuckDuckGo never carries the key', async () => {
+    const KEY = 'k-secret-0123456789abcdef';
+    const f = fakeFetch((url) => (url.includes('duckduckgo') ? new Response('<html></html>', { headers: { 'content-type': 'text/html' } }) : Promise.reject(new Error(`could not reach ${url}`))) as never);
+    try {
+      const out = await webSearch({ provider: 'serpapi', apiKey: KEY }, 'bun', { signal: signal() });
+      expect(out.provider).toBe('duckduckgo');
+      expect(out.note).toContain('api_key=[key]');
+      expect(out.note).not.toContain(KEY);
+    } finally {
+      f.restore();
+    }
+  });
+
+  test('a key saved in Settings wins over the environment, and WebSearch uses it', async () => {
+    const saved = { ...process.env };
+    process.env.TAVILY_API_KEY = 'tvly-from-env';
+    const f = fakeFetch(() => Response.json({ results: [{ title: 'Bun', url: 'https://bun.sh/', content: 'x' }] }));
+    try {
+      const out = await webSearch({ provider: 'tavily' }, 'bun', { signal: signal(), saved: (id) => (id === 'tavily' ? 'tvly-saved' : undefined) });
+      expect(out.provider).toBe('tavily');
+      expect(f.calls[0].headers.authorization).toBe('Bearer tvly-saved');
+    } finally {
+      f.restore();
+      process.env = saved;
+    }
+  });
+});
+
+describe('Settings > Web search storage', () => {
+  const ENVS = ['BRAVE_API_KEY', 'BRAVE_SEARCH_API_KEY', 'TAVILY_API_KEY', 'EXA_API_KEY', 'JINA_API_KEY', 'SERPER_API_KEY', 'LANGSEARCH_API_KEY', 'LINKUP_API_KEY', 'FIRECRAWL_API_KEY', 'YDC_API_KEY', 'SEARXNG_URL'];
+  const ORDER = ['tavily', 'exa', 'langsearch', 'linkup', 'firecrawl', 'youcom', 'serper', 'serpapi', 'jina', 'brave', 'searxng', 'duckduckgo'];
+
+  test('automatic order is the catalog order', () => {
+    const saved = { ...process.env };
+    for (const k of ENVS) delete process.env[k];
+    try {
+      expect(SEARCH_PROVIDERS.map((p) => p.id)).toEqual(ORDER as SearchProviderId[]);
+      expect(SEARCH_PROVIDERS.find((p) => p.id === 'brave')?.card).toBe(true);
+      // every engine set up: each one wins until it is taken away, in catalog order
+      const have = new Set<string>(ORDER);
+      const cfg = { provider: 'auto' as const, url: 'http://sx.lan' };
+      const picked: string[] = [];
+      for (;;) {
+        const id = pickProvider(have.has('searxng') ? cfg : { provider: 'auto' }, (p) => (have.has(p) ? `key-${p}` : undefined)).id;
+        picked.push(id);
+        if (id === 'duckduckgo') break;
+        have.delete(id);
+      }
+      expect(picked).toEqual(ORDER);
+    } finally {
+      process.env = saved;
+    }
+  });
+
+  test('the SearXNG address: no user name, password, query or hash; origin and path kept', () => {
+    const config = new ConfigStore(mkdtempSync(join(tmpdir(), 'cv-search-')));
+    for (const bad of ['http://me:pw@sx.lan', 'http://me@sx.lan', 'http://sx.lan/?token=1', 'http://sx.lan/#x', 'ftp://sx.lan', 'sx.lan'])
+      expect(() => patchSearchSettings(config, { url: bad })).toThrow();
+    expect(patchSearchSettings(config, { url: ' https://SX.lan:8443/searx// ' }).url).toBe('https://sx.lan:8443/searx');
+    expect(patchSearchSettings(config, { url: 'http://sx.lan/' }).url).toBe('http://sx.lan');
+    expect(patchSearchSettings(config, { url: null }).url).toBeUndefined();
+  });
+
+  test('the key is a hub secret, never in config or the settings answer; Test hides the key', async () => {
+    const saved = { ...process.env };
+    for (const k of ENVS) delete process.env[k];
+    const config = new ConfigStore(mkdtempSync(join(tmpdir(), 'cv-search-')));
+    const KEY = 'BSA-secret-key-0123456789';
+    try {
+      const s = setSearchKey(config, 'brave', `  ${KEY} `);
+      expect(config.secretValue('search.brave')).toBe(KEY);
+      expect(readFileSync(config.paths.config, 'utf8')).not.toContain(KEY);
+      expect(JSON.stringify(s)).not.toContain(KEY);
+      expect(s.active).toBe('brave');
+      expect(s.providers.find((p) => p.id === 'brave')).toMatchObject({ keySet: true, keyFrom: 'hub' });
+      expect(() => setSearchKey(config, 'searxng', 'abcdefghij')).toThrow('takes no key');
+      expect(patchSearchSettings(config, { provider: 'exa' }).active).toBe('exa');
+      expect(() => patchSearchSettings(config, { provider: 'bing' as never })).toThrow('provider must be one of');
+      patchSearchSettings(config, { provider: 'brave' });
+      const f = fakeFetch(() => new Response(`bad token ${KEY}`, { status: 401 }));
+      try {
+        const t = await testSearch(config);
+        expect(t).toMatchObject({ provider: 'brave', ok: false });
+        expect(t.message).toBe('HTTP 401: bad token [key]');
+      } finally {
+        f.restore();
+      }
+      setSearchKey(config, 'brave', null);
+      expect(config.secretValue('search.brave')).toBeUndefined();
+      expect(searchSettings(config).active).toBe('brave');
+      expect(patchSearchSettings(config, { provider: 'auto' }).active).toBe('duckduckgo');
+    } finally {
+      process.env = saved;
+    }
+  });
+});
+
 describe('WebSearch helpers', () => {
   test('parses DuckDuckGo HTML results and skips ads', () => {
     const html = `<div class="result result--ad"><a class="result__a" href="https://ads.example/">Ad</a></div>
@@ -245,7 +467,7 @@ describe('WebSearch helpers', () => {
   test('provider selection', () => {
     const saved = { ...process.env };
     try {
-      for (const k of ['BRAVE_API_KEY', 'BRAVE_SEARCH_API_KEY', 'TAVILY_API_KEY', 'EXA_API_KEY', 'JINA_API_KEY', 'SEARXNG_URL']) delete process.env[k];
+      for (const k of ['BRAVE_API_KEY', 'BRAVE_SEARCH_API_KEY', 'TAVILY_API_KEY', 'EXA_API_KEY', 'JINA_API_KEY', 'SERPER_API_KEY', 'LANGSEARCH_API_KEY', 'LINKUP_API_KEY', 'FIRECRAWL_API_KEY', 'YDC_API_KEY', 'SEARXNG_URL']) delete process.env[k];
       expect(pickProvider({ provider: 'auto' }).id).toBe('duckduckgo');
       expect(pickProvider({ provider: 'auto', apiKey: 'tvly-abc' })).toEqual({ id: 'tavily', key: 'tvly-abc' });
       process.env.EXA_API_KEY = 'exa-key';

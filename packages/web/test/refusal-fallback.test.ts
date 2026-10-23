@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, test } from 'bun:test';
 import type { AccountDto } from '@conclave/core/client';
 import type { EngineEvent, Message } from '@conclave/core/types';
 import { groupSections, searchSections, SETTINGS_GROUPS } from '../src/features/settings/nav';
-import { looseAccount, vendorOfRef } from '../src/features/settings/refusal';
+import { defaultRoute, looseAccount, vendorOfRef } from '../src/features/settings/refusal';
 import { offersNextModel } from '../src/features/chat/TryNextModel';
 import { applyEvent, stopLive, useHub } from '../src/store/store';
 
@@ -41,6 +41,16 @@ describe('Refusal fallback in Settings', () => {
     expect(looseAccount(neu, [personal, neu, key])).toBe(false);
     expect(looseAccount(personal, [personal, key])).toBe(false);
     expect(looseAccount(key, [personal, neu, key])).toBe(false);
+  });
+});
+
+describe('a step with no account set', () => {
+  test('a gateway model follows the account order; an API model names its own key', () => {
+    expect(defaultRoute('cliproxy/claude-opus-5-5', []).label).toBe('Your order');
+    expect(defaultRoute('zai/glm-5.3', []).label).toBe('Z.ai API key');
+    expect(defaultRoute('zai/glm-5.3', []).detail).toContain('own key');
+    const key = acct('api-zai', { kind: 'api', provider: 'zai', vendor: 'zai', label: 'Z.ai work key' });
+    expect(defaultRoute('zai/glm-5.3', [key]).label).toBe('Z.ai work key');
   });
 });
 

@@ -254,6 +254,12 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'GET /api/maps/leave-by': 'self',
   'GET /api/maps/image/:id': 'self',
 
+  // ----- web search: the engine and its keys are the hub's, set by the owner -----
+  'GET /api/websearch': 'admin',
+  'PATCH /api/websearch': 'admin',
+  'PUT /api/websearch/key': 'admin',
+  'POST /api/websearch/test': 'admin',
+
   // ----- memory -----
   'GET /api/memory': 'self',
   'GET /api/memory/search': 'self',

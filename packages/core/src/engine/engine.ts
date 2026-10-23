@@ -64,6 +64,7 @@ import { Repos } from '../storage/repos';
 import type { Db } from '../storage/db';
 import { ConfigStore } from '../config';
 import type { ConclaveConfig, HookEvent, HooksConfig, McpServerConfig } from '../config/schema';
+import { hiddenWords, isHiddenModel } from '../config/hidden';
 import { EventBus } from '../util/bus';
 import { newId } from '../util/ids';
 import { oneLine } from '../util/text';
@@ -142,6 +143,7 @@ import { join } from 'node:path';
 import { SqliteMemory } from '../memory/store';
 import { MemoryConnections, MemoryConnectionService } from '../memory/connections';
 import { prepareAttachments, type ZipHost } from '../attachments/prepare';
+import { mediaTypeFor } from '../attachments/limits';
 
 const log = logger('engine');
 /** The turn after which an auto title is revised once, when the topic is clearer. */
@@ -554,8 +556,9 @@ export class Engine implements EngineApi {
     return session;
   }
 
-  /** Words for a model on a harness that is off (acp/harness-off.ts), else undefined. */
+  /** Words for a model on a harness that is off (acp/harness-off.ts), or one the owner hid (models.hidden), else undefined. */
   harnessOff(model: string): string | undefined {
+    if (isHiddenModel(this.config.get(), model)) return hiddenWords(model);
     const i = model.indexOf('/');
     if (i < 0) return undefined;
     const provider = model.slice(0, i);
@@ -638,8 +641,8 @@ export class Engine implements EngineApi {
     if (kind === 'chat') Object.assign(next, { kind: 'chat', chat });
     else {
       delete next.kind;
-      // a workbench session keeps its effort and memory switches; Continue as a session drops the chat's switches
-      const keep = (patch.chat !== undefined || s.kind !== 'chat') && (!!chat?.thinking || chat?.memory === false);
+      // a workbench session keeps its effort, Cyber access and memory switches; Continue as a session drops the chat's switches
+      const keep = (patch.chat !== undefined || s.kind !== 'chat') && (!!chat?.thinking || !!chat?.cyber || chat?.memory === false);
       if (keep) next.chat = chat;
       else delete next.chat;
     }
@@ -1150,7 +1153,8 @@ export class Engine implements EngineApi {
    * list has their own providers and the routes they may use.
    */
   async listModels(accountId?: string): Promise<ModelGroup[]> {
-    const groups = await this.providersFor(accountId).groups();
+    const cfg = this.config.get();
+    const groups = (await this.providersFor(accountId).groups()).map((g) => ({ ...g, models: g.models.filter((m) => !isHiddenModel(cfg, m.ref)) }));
     const accounts = accountsOf(this);
     // a model a member's own plan lists goes to that plan: the owner's order does not speak for it
     const routeOf = (m: string) => (accountId && this.access.ownPlan(accountId, PLAN_PROVIDER, m) ? undefined : accounts?.routeOf(m));
@@ -2031,11 +2035,12 @@ export class Engine implements EngineApi {
 
   /**
    * The Cyber access program a turn sends (providers/access-programs.ts): the
-   * session's choice, else the one a retiring Daybreak alias in its model ref
-   * stands for. Only on a model that takes it (ModelInfo.cyber); none else.
+   * one a Daybreak alias in its model ref stands for (the picker's Daybreak
+   * row), else the session's choice. Only on a model that takes it
+   * (ModelInfo.cyber); none else.
    */
   accessProgramsFor(info: ModelInfo, session?: Session): ChatRequest['accessPrograms'] {
-    const asked = session?.chat?.cyber ?? (session?.model ? retiredAlias(session.model)?.cyber : undefined);
+    const asked = (session?.model ? retiredAlias(session.model)?.cyber : undefined) ?? session?.chat?.cyber;
     return asked && info.cyber?.includes(asked) ? { cyber: asked } : undefined;
   }
 
@@ -2189,6 +2194,7 @@ export class Engine implements EngineApi {
   // providers helpers ------------------------------------------------------
   /** A model the account can call now (the owner's when left out). */
   isUsable(ref: string, accountId?: string): boolean {
+    if (isHiddenModel(this.config.get(), ref)) return false;
     try {
       const reg = this.providersFor(accountId);
       const r = reg.resolve(ref);
@@ -2241,9 +2247,10 @@ export class Engine implements EngineApi {
       }
     }
     if (!data) return undefined;
-    if (a.mediaType.startsWith('image/')) return { type: 'image', mediaType: a.mediaType, data } as ImageBlock;
-    if (a.mediaType === 'application/pdf' || a.mediaType.startsWith('text/')) return { type: 'document', mediaType: a.mediaType, data, title: a.name };
-    return { type: 'document', mediaType: a.mediaType, data, title: a.name };
+    // a client that gave no type (or octet-stream): the name says what it is
+    const mediaType = mediaTypeFor(a.mediaType, a.name ?? a.path);
+    if (mediaType.startsWith('image/')) return { type: 'image', mediaType, data } as ImageBlock;
+    return { type: 'document', mediaType, data, title: a.name };
   }
 
   // harness helpers --------------------------------------------------------

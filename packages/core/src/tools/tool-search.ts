@@ -6,8 +6,9 @@
  * offered in the requests after it (engine.toolsFor), so a compaction that
  * drops the result unloads the tool again and no table is needed.
  */
-import type { Tool } from './types';
+import type { Tool, ToolContext, ToolOutput } from './types';
 import { fail } from './util';
+import { builtinTools } from './index';
 
 export interface ToolSearchInput {
   query: string;
@@ -90,6 +91,28 @@ export function toolSearchFor(deferred: Tool[]): Tool<ToolSearchInput> {
   return { ...ToolSearchTool, description: DESCRIPTION + list };
 }
 
+/**
+ * A search that loaded nothing: says which named Conclave tools this agent does
+ * not have or already has, and lists the session's tools so the model stops
+ * searching. meta.toolSearchMiss lets the loop guard count these per turn.
+ */
+function miss(lead: string, wanted: string[], ctx: ToolContext, isError: boolean): ToolOutput {
+  const have = ctx.toolNames ?? [];
+  const haveLower = new Set(have.map((n) => n.toLowerCase()));
+  const want = new Set(wanted.map((w) => w.toLowerCase()));
+  const known = builtinTools().map((t) => t.name).filter((n) => want.has(n.toLowerCase()));
+  const missing = known.filter((n) => !haveLower.has(n.toLowerCase()));
+  const present = have.filter((n) => want.has(n.toLowerCase()) && n !== 'ToolSearch');
+  const lines = [lead];
+  if (missing.length) {
+    const sub = ctx.depth > 0 || !!ctx.session.meta?.workflow;
+    lines.push(`${missing.join(', ')} ${missing.length > 1 ? 'are' : 'is'} not available to this agent${sub ? ': subagents and workflow agents cannot delegate, start subagents, run workflows or ask the user' : ''}. Do the step another way or report it as not possible.`);
+  }
+  if (present.length) lines.push(`${present.join(', ')} ${present.length > 1 ? 'are' : 'is'} already in your tool list: call ${present.length > 1 ? 'them' : 'it'} directly.`);
+  if (have.length) lines.push(`Your tools: ${have.join(', ')}. Tools not listed are not available in this session; do not search again.`);
+  return { content: lines.join('\n'), isError, meta: { toolSearchMiss: true } };
+}
+
 export const ToolSearchTool: Tool<ToolSearchInput> = {
   name: 'ToolSearch',
   description: DESCRIPTION,
@@ -106,19 +129,21 @@ export const ToolSearchTool: Tool<ToolSearchInput> = {
   summarize: (input) => `ToolSearch ${input.query}`,
   async run(input, ctx) {
     const catalog = ctx.host.deferredTools?.() ?? [];
-    if (!catalog.length) return fail('No deferred tools in this session: every tool is already in your tool list.');
     const query = typeof input.query === 'string' ? input.query.trim() : '';
+    const select = query.startsWith('select:');
+    // the names a search asks for: select: names, or each word of a query ("delegate", "task explore")
+    const wanted = select ? query.slice('select:'.length).split(',').map((s) => s.trim()).filter(Boolean) : (query.match(/[A-Za-z0-9_]+/g) ?? []);
+    if (!catalog.length) return miss('No deferred tools in this session: every tool is already in your tool list.', wanted, ctx, true);
     if (!query) return fail('query is required.');
     const limit = Math.min(MAX_LIMIT, Math.max(1, Math.floor(input.limit ?? DEFAULT_LIMIT)));
     let hits: Tool[];
-    if (query.startsWith('select:')) {
-      const wanted = query.slice('select:'.length).split(',').map((s) => s.trim()).filter(Boolean);
+    if (select) {
       hits = wanted.map((w) => catalog.find((t) => t.name === w) ?? catalog.find((t) => splitMcpName(t.name).tool === w)).filter((t): t is Tool => !!t);
       const missing = wanted.filter((w) => !hits.some((t) => t.name === w || splitMcpName(t.name).tool === w));
-      if (!hits.length) return fail(`No deferred tool is named ${missing.join(', ')}. Search by words instead.`);
+      if (!hits.length) return miss(`No deferred tool is named ${missing.join(', ')}. Search by words instead.`, wanted, ctx, true);
     } else {
       hits = rankTools(catalog, query, limit);
-      if (!hits.length) return { content: `No deferred tool matches "${query}". Try other words, or select:<name> with a name from the ToolSearch description.` };
+      if (!hits.length) return miss(`No deferred tool matches "${query}". Try other words, or select:<name> with a name from the ToolSearch description.`, wanted, ctx, false);
     }
     return {
       content: `${hits.length} tools loaded. Call them by these names from your next step:\n${hits.map(schemaOf).join('\n')}`,

@@ -1,6 +1,6 @@
 import type { ContentBlock, JsonSchema, StopReason, Usage } from '../types';
 import { normalizeModelId } from './catalog';
-import { BaseProvider, budgetOf, decodeBase64Text, effortOf, isTextMediaType, toolResultImages, toolResultText, wantsThinking } from './common';
+import { BaseProvider, budgetOf, documentsForWire, effortOf, toolResultMedia, toolResultText, wantsThinking } from './common';
 import { classifyStreamError } from './errors';
 import { getJson, openStream, postJson, trimSlash } from './http';
 import { ownSignature, tagSignature } from './signatures';
@@ -217,10 +217,10 @@ function modelParts(m: ProviderMessage, names: ToolNameMap, model: string, gemin
   return parts;
 }
 
-function userParts(m: ProviderMessage, toolNames: Map<string, string>): Part[] {
+function userParts(m: ProviderMessage, toolNames: Map<string, string>, vision: boolean): Part[] {
   const responses: Part[] = [];
   const parts: Part[] = [];
-  for (const b of m.content) {
+  for (const b of documentsForWire(m.content, true, vision)) {
     switch (b.type) {
       case 'text':
         if (b.text) parts.push({ text: b.text });
@@ -231,11 +231,9 @@ function userParts(m: ProviderMessage, toolNames: Map<string, string>): Part[] {
         break;
       }
       case 'document': {
-        if (b.data && isTextMediaType(b.mediaType)) parts.push({ text: `${b.title ? `Document: ${b.title}\n` : ''}${decodeBase64Text(b.data)}` });
-        else {
-          const p = mediaPart(b.mediaType, b.data, b.url);
-          if (p) parts.push(p);
-        }
+        // only PDFs are left as documents
+        const p = mediaPart(b.mediaType, b.data, b.url);
+        if (p) parts.push(p);
         break;
       }
       case 'tool_result': {
@@ -243,7 +241,7 @@ function userParts(m: ProviderMessage, toolNames: Map<string, string>): Part[] {
         // Gemini pairs responses with calls by name; ids are not echoed back.
         const name = toolNames.get(b.toolUseId) ?? 'unknown_tool';
         responses.push({ functionResponse: { name, response: b.isError ? { error: text } : { output: text } } });
-        const imgs = toolResultImages(b)
+        const imgs = toolResultMedia(b)
           .map((i) => mediaPart(i.mediaType, i.data, i.url))
           .filter((x): x is Part => !!x);
         if (imgs.length) parts.push({ text: `Images returned by ${name}:` }, ...imgs);
@@ -254,14 +252,14 @@ function userParts(m: ProviderMessage, toolNames: Map<string, string>): Part[] {
   return [...responses, ...parts];
 }
 
-export function geminiContents(req: ChatRequest, names: ToolNameMap): Array<{ role: 'user' | 'model'; parts: Part[] }> {
+export function geminiContents(req: ChatRequest, names: ToolNameMap, vision = true): Array<{ role: 'user' | 'model'; parts: Part[] }> {
   const toolNames = new Map<string, string>();
   for (const m of req.messages) for (const b of m.content) if (b.type === 'tool_use') toolNames.set(b.id, names.wire(b.name));
   const gemini3 = /^gemini-([3-9]|\d{2})/.test(normalizeModelId(req.model));
   const contents: Array<{ role: 'user' | 'model'; parts: Part[] }> = [];
   for (const m of req.messages) {
     const role = m.role === 'assistant' ? 'model' : 'user';
-    const parts = m.role === 'assistant' ? modelParts(m, names, req.model, gemini3) : userParts(m, toolNames);
+    const parts = m.role === 'assistant' ? modelParts(m, names, req.model, gemini3) : userParts(m, toolNames, vision);
     if (!parts.length) continue;
     const last = contents[contents.length - 1];
     if (last?.role === role) last.parts.push(...parts);
@@ -432,7 +430,7 @@ export class GeminiProvider extends BaseProvider {
 
   buildBody(req: ChatRequest, names = new ToolNameMap(GEMINI_TOOL_NAME_RULES)): Wire {
     const info = this.model(req.model);
-    const body: Wire = { contents: geminiContents(req, names) };
+    const body: Wire = { contents: geminiContents(req, names, this.seesImages(req.model, info)) };
     const system = req.system
       .map((s) => s.text)
       .filter(Boolean)

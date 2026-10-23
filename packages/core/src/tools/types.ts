@@ -28,6 +28,8 @@ export interface ToolOutput {
  */
 export interface ToolHost {
   config(): ConclaveConfig;
+  /** The web search key saved in Settings > Web search (a hub secret), for WebSearch only. */
+  searchKey?(provider: string): string | undefined;
   /** Run a subagent to completion and return its final text. */
   runSubagent(opts: {
     parentSessionId: string;
@@ -131,6 +133,8 @@ export interface ToolContext {
   /** Live progress lines (bash output) for the UI. */
   progress(text: string): void;
   toolUseId: string;
+  /** Names of the tools in the session's tool list this step (the runner sets it; ToolSearch lists them on a miss). */
+  toolNames?: string[];
   /**
    * Old folders of a session that moved (projects/move.ts). File tools map an
    * absolute path under roots[i].from to roots[i].to and push the old root on

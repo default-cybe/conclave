@@ -46,9 +46,12 @@ export function cyberChoices(model: string): CyberProgram[] {
   return [];
 }
 
-/** The retiring alias ids and what a saved ref to one runs on now. */
+/** The model a Daybreak Blue call runs on when the asked one does not take Blue (a refusal retry, the Daybreak Blue row). */
+export const DAYBREAK_BLUE_MODEL = 'gpt-6-sol';
+
+/** The retiring alias ids and what a saved ref to one (the picker's Daybreak rows) runs on now: a model that takes the program. */
 export const RETIRED_ALIASES: Record<string, { model: string; cyber: CyberProgram }> = {
-  'gpt-daybreak-blue-latest': { model: 'gpt-5.6-sol', cyber: 'daybreak_blue' },
+  'gpt-daybreak-blue-latest': { model: DAYBREAK_BLUE_MODEL, cyber: 'daybreak_blue' },
   'gpt-daybreak-red-latest': { model: 'gpt-5.6-cyber', cyber: 'daybreak_red' },
 };
 

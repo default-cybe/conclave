@@ -20,7 +20,7 @@ export function engineHelp(e: BrowserEngineDto): string {
 
 /** The line at the top of the Proxy group: the owner's rule. */
 export const PROXY_HELP =
-  "Used only when you ask for it in a chat (\"open it through the proxy\", \"open it from Japan\"), or when a watch's or routine's own instructions ask for it. Otherwise every page loads from the hub's own address, and the assistant never turns the proxy on by itself, not even when a site blocks it. A proxied page opens in a separate browser with no saved logins.";
+  "Pages load from the hub's own address. When a site blocks that address (Reddit, a captcha, a Cloudflare check), the hub retries that request once through this proxy, in the hub's own country, and tells the assistant. You can also ask for it in a chat (\"open it through the proxy\", \"open it from Japan\"). Only your own chats use it, never another person's. A proxied page opens in a separate browser with no saved logins.";
 
 /** The line under Provider. */
 export function providerWords(p: BrowserProxySettingsDto | undefined): string {
