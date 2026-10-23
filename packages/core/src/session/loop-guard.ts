@@ -11,7 +11,7 @@ import type { ToolResultBlock } from '../types';
  * files never look alike and a poll that keeps getting new output is fine.
  */
 
-export type LoopCode = 'repeat' | 'cycle' | 'same_error' | 'denied' | 'frequency' | 'after_compaction';
+export type LoopCode = 'repeat' | 'cycle' | 'same_error' | 'denied' | 'frequency' | 'after_compaction' | 'search_miss';
 
 export interface Verdict {
   level: 'ok' | 'warn' | 'halt';
@@ -36,6 +36,8 @@ export const CYCLE_HALT = 5;
 export const DENIED_HALT = 3;
 /** Calls of one tool in a turn before a single warning. */
 export const FREQUENCY_WARN = 60;
+/** ToolSearch calls in a turn that loaded nothing (meta.toolSearchMiss): warn at this many, halt after. */
+export const SEARCH_MISS_WARN = 3;
 /** Calls watched after a compaction. */
 export const COMPACTION_WINDOW = 3;
 
@@ -95,6 +97,7 @@ export class LoopGuard {
   /** Signatures that already tripped a halt this turn. */
   private stopped = new Set<string>();
   private frequencyWarned = new Set<string>();
+  private searchMisses = 0;
   private compactionWindowStart = -1;
 
   constructor(opts: LoopGuardOptions) {
@@ -183,6 +186,20 @@ export class LoopGuard {
     if (count > FREQUENCY_WARN && !this.frequencyWarned.has(tool)) {
       this.frequencyWarned.add(tool);
       v = worst(v, { level: 'warn', code: 'frequency', message: `You have called ${tool} ${count} times in this turn. Check that each call makes progress.` });
+    }
+
+    // ToolSearch with a new query each time, finding nothing: the input differs, so repeat rules miss it
+    if (result.meta?.toolSearchMiss) {
+      const n = ++this.searchMisses;
+      if (n > SEARCH_MISS_WARN) {
+        v = worst(v, { level: 'halt', code: 'search_miss', message: `ToolSearch found nothing ${n} times in this turn. The tools you can use are listed in its result; the others are not available.` });
+      } else if (n === SEARCH_MISS_WARN) {
+        v = worst(v, {
+          level: 'warn',
+          code: 'search_miss',
+          message: `ToolSearch found nothing ${n} times in this turn. Stop searching: use the tools you have, or report the step as not possible.`,
+        });
+      }
     }
 
     // right after a compaction, the same call three times
