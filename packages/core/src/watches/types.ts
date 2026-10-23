@@ -200,7 +200,7 @@ export interface BrowserStatusDto {
   playwright?: { installed: boolean; version?: string; where?: 'app' | 'hub' };
   engines?: BrowserEngineDto[];
   libs?: BrowserLibsDto;
-  /** The hub's proxy, used only when the owner asks for it in a chat. */
+  /** The hub's proxy: once per blocked request, or when the owner asks for it in a chat. */
   proxy?: BrowserProxySettingsDto;
   /** The engine a new profile gets. */
   newProfileEngine?: 'chromium' | 'cloak';
