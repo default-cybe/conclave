@@ -88,7 +88,8 @@ class AgentResultsTest {
     /** meta.kind is agent-result but the agentResult object or its type is missing: no row, no crash. */
     @Test
     fun missingAgentResultFieldIsNull() {
-        val noObj = notice.copy(meta = buildJsonObject { put("kind", "agent-result") })
+        // other words than the old hub's line, which still makes a row from the text alone (as on the web)
+        val noObj = notice.copy(content = listOf(TextBlock("Task ended")), meta = buildJsonObject { put("kind", "agent-result") })
         assertNull(AgentResults.ofNotice(noObj))
         val noType = notice.copy(meta = buildJsonObject {
             put("kind", "agent-result")
