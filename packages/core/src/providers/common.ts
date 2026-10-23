@@ -1,7 +1,7 @@
-import type { ContentBlock, ImageBlock, TextBlock, ToolResultBlock } from '../types';
+import type { ContentBlock, DocumentBlock, ImageBlock, TextBlock, ToolResultBlock } from '../types';
 import { isZip, mediaTypeFor } from '../attachments/limits';
 import type { ProviderConfig } from '../config/schema';
-import { catalogEntries, familyForProvider, lookupModel, type CatalogEntry } from './catalog';
+import { catalogEntries, familyForProvider, findCatalogEntry, lookupModel, type CatalogEntry } from './catalog';
 import { DEFAULT_IDLE_TIMEOUT_MS, type FetchFn, type HttpOptions } from './http';
 import type { Effort } from './effort';
 import type { ChatRequest, ModelInfo, Provider, StreamEvent } from './types';
@@ -31,6 +31,11 @@ export abstract class BaseProvider implements Provider {
 
   model(id: string): ModelInfo {
     return lookupModel(this.id, id, { type: this.opts.config.type, override: this.opts.config.modelOverrides?.[id] });
+  }
+
+  /** False only when the catalog or config says the model has no vision; an unknown model (a gateway's new one) keeps its images. */
+  protected seesImages(id: string, info: ModelInfo): boolean {
+    return info.vision || (!findCatalogEntry(id) && this.opts.config.modelOverrides?.[id]?.vision === undefined);
   }
 
   protected http(signal?: AbortSignal): HttpOptions {
@@ -93,13 +98,14 @@ export function toolResultText(block: ToolResultBlock): string {
 
 /** Tool result as one string for text-only wire formats. Errors are prefixed since there is no is_error flag. */
 export function toolResultString(block: ToolResultBlock): string {
-  const text = toolResultText(block) || (toolResultImages(block).length ? '(image output follows)' : '(no output)');
+  const text = toolResultText(block) || (toolResultMedia(block).length ? '(image output follows)' : '(no output)');
   return block.isError ? `Error: ${text}` : text;
 }
 
-export function toolResultImages(block: ToolResultBlock): ImageBlock[] {
+/** A tool result's images and the documents left after documentsForWire (a PDF Read attaches). */
+export function toolResultMedia(block: ToolResultBlock): Array<ImageBlock | DocumentBlock> {
   if (typeof block.content === 'string') return [];
-  return block.content.filter((b): b is ImageBlock => b.type === 'image');
+  return block.content.filter((b): b is ImageBlock | DocumentBlock => b.type === 'image' || b.type === 'document');
 }
 
 export function dataUrl(mediaType: string, data: string): string {
@@ -135,13 +141,15 @@ function textOf(bytes: Buffer): string | undefined {
  * MESSAGE_DOCS_MAX_BYTES together; PDFs stay document blocks when the wire
  * reads them (`pdf`); anything else (a binary, an archive, a PDF the wire
  * cannot read) becomes a one-line note, so the model always learns what was
- * attached. Base64 of a binary is never sent as text.
+ * attached. Base64 of a binary is never sent as text. Images become a note
+ * for a model without vision. Tool results' content takes the same rules.
  */
-export function documentsForWire(content: ContentBlock[], pdf: boolean): ContentBlock[] {
-  if (!content.some((b) => b.type === 'document')) return content;
+export function documentsForWire(content: ContentBlock[], pdf: boolean, vision = true): ContentBlock[] {
   let room = MESSAGE_DOCS_MAX_BYTES;
   const note = (text: string): TextBlock => ({ type: 'text', text });
-  return content.map((b): ContentBlock => {
+  const one = (b: ContentBlock): ContentBlock => {
+    if (b.type === 'tool_result') return typeof b.content === 'string' ? b : { ...b, content: b.content.map(one) as ToolResultBlock['content'] };
+    if (b.type === 'image') return vision ? b : note(`[image (${b.mediaType}) not readable by this model]`);
     if (b.type !== 'document') return b;
     const name = (b.title ?? '').replace(/["\r\n\t]+/g, ' ').trim() || 'document';
     const type = mediaTypeFor(b.mediaType, b.title);
@@ -157,7 +165,8 @@ export function documentsForWire(content: ContentBlock[], pdf: boolean): Content
     const body = bytes.length > max ? `${bytes.subarray(0, max).toString('utf8').replace(/\uFFFD$/, '')}\n[truncated after ${kb(max)}]` : text;
     room -= Math.min(bytes.length, max);
     return note(`<document name="${name}" type="${type}">\n${body}\n</document>`);
-  });
+  };
+  return content.map(one);
 }
 
 /** True when the request asks for thinking: a level or a budget, not Off. */

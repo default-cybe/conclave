@@ -1,5 +1,5 @@
 import type { ContentBlock, ImageBlock, StopReason, Usage } from '../types';
-import { BaseProvider, dataUrl, documentsForWire, effortOf, parseToolInput, toolResultImages, toolResultString, wantsThinking } from './common';
+import { BaseProvider, dataUrl, documentsForWire, effortOf, parseToolInput, toolResultMedia, toolResultString, wantsThinking } from './common';
 import { classifyStreamError, parseRateLimitHeaders } from './errors';
 import { hostOf, openStream, trimSlash } from './http';
 import { OPENAI_DEFAULT_BASE, listOpenAIModels, openaiEmbed, openaiHeaders, openaiUsage } from './openai-shared';
@@ -52,7 +52,7 @@ function userPart(b: ContentBlock): Wire | undefined {
 }
 
 /** Conversation as Responses input items. Encrypted reasoning is replayed only for the model that produced it. */
-export function responsesInput(req: ChatRequest, names: ToolNameMap): Wire[] {
+export function responsesInput(req: ChatRequest, names: ToolNameMap, vision = true): Wire[] {
   const items: Wire[] = [];
   for (const m of req.messages) {
     if (m.role === 'assistant') {
@@ -80,13 +80,14 @@ export function responsesInput(req: ChatRequest, names: ToolNameMap): Wire[] {
     }
 
     const parts: Wire[] = [];
-    for (const b of documentsForWire(m.content, true)) {
+    for (const b of documentsForWire(m.content, true, vision)) {
       if (b.type === 'tool_result') {
-        items.push({ type: 'function_call_output', call_id: b.toolUseId, output: toolResultString(b) });
-        const imgs = toolResultImages(b)
-          .map(imagePart)
+        // images and PDFs ride in the output itself, tied to their call; a later user message reads as unrelated
+        const media = toolResultMedia(b)
+          .map(userPart)
           .filter((x): x is Wire => !!x);
-        if (imgs.length) parts.push({ type: 'input_text', text: `Images returned by tool call ${b.toolUseId}:` }, ...imgs);
+        const text = toolResultString(b);
+        items.push({ type: 'function_call_output', call_id: b.toolUseId, output: media.length ? [{ type: 'input_text', text }, ...media] : text });
       } else {
         const p = userPart(b);
         if (p) parts.push(p);
@@ -281,7 +282,7 @@ export class OpenAIResponsesProvider extends BaseProvider {
 
   buildBody(req: ChatRequest, names = new ToolNameMap()): Wire {
     const info = this.model(req.model);
-    const body: Wire = { model: req.model, input: responsesInput(req, names), store: false };
+    const body: Wire = { model: req.model, input: responsesInput(req, names, this.seesImages(req.model, info)), store: false };
     const instructions = req.system
       .map((s) => s.text)
       .filter(Boolean)
