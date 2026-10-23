@@ -20,6 +20,7 @@ import type { AccountDto } from '@conclave/core/client';
 import type { RefusalFallbackConfig, RefusalFallbackEntry } from '@conclave/core/config/schema';
 import { SHORT_NAME_WHERE, refusalMarkedLine, useAccounts } from '@/lib/accounts';
 import { cn } from '@/lib/text';
+import { providerName } from '@/lib/models';
 import { useHub } from '@/store/store';
 import { useIsMobile } from '@/lib/hooks';
 import { makerOf, ModelList, ModelPicker } from '@/components/pickers/ModelPicker';
@@ -41,6 +42,18 @@ export function looseAccount(a: AccountDto | undefined, all: AccountDto[]): bool
 }
 
 const ANY = '__order';
+
+/**
+ * What a step with no account set runs on: the gateway's plans follow the
+ * owner's account order; any other provider in the ref is that provider's own key.
+ */
+export function defaultRoute(ref: string, accounts: AccountDto[]): { label: string; detail: string } {
+  const provider = ref.includes('/') ? ref.slice(0, ref.indexOf('/')) : '';
+  if (!provider || provider === 'cliproxy') return { label: 'Your order', detail: 'The first account in Accounts that has it' };
+  const key = accounts.find((a) => a.kind === 'api' && a.provider === provider);
+  const name = key?.label || `${providerName(provider)} API key`;
+  return { label: name, detail: `Runs on ${providerName(provider)}'s own key, not a plan` };
+}
 
 export function RefusalSection() {
   const config = useHub((s) => s.config);
@@ -172,8 +185,9 @@ function EntryRow({
   const vendor = vendorOfRef(entry.model);
   const mine = accounts.filter((a) => a.vendor === vendor);
   const chosen = entry.account ? accounts.find((a) => a.id === entry.account) : undefined;
+  const route = defaultRoute(entry.model, accounts);
   const options: SelectOption[] = [
-    { value: ANY, label: 'Your order', text: 'Your order', detail: 'The first account in Accounts that has it' },
+    { value: ANY, label: route.label, text: route.label, detail: route.detail },
     ...mine.map((a) => ({ value: a.id, label: a.label, text: a.label, detail: [a.kind === 'api' ? 'API key' : a.plan ? `${a.vendorName} ${a.plan}` : 'Plan', a.prefix && `ids as ${a.prefix}/`].filter(Boolean).join(' · ') })),
     // an account that is gone keeps its place, so the list says what it names
     ...(entry.account && !chosen ? [{ value: entry.account, label: `${entry.account} (not found)`, text: entry.account }] : []),
