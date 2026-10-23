@@ -27,6 +27,8 @@ like `## [0.4.16] - 2026-10-24`.
 - GPT models on the Responses API read images from a tool (a Read of a PNG) again. The image now rides in its call's `function_call_output` instead of a later user message, and a PDF a tool attaches goes along the same way. Chat Completions and Gemini send a tool's PDF too.
 - Files inside tool results follow the attachment rules: text files go as text, and a model the catalog lists without vision gets a one-line note for an image instead of a picture it cannot read.
 - ToolSearch no longer lets an agent search in circles: a search for a Conclave tool the agent does not have (Delegate, Task in a subagent) says it is not available, a search that finds nothing lists the tools the session has, and from the third empty search in a turn the loop guard warns and then ends the turn.
+- Settings > Refusal fallback: a step on an API model names its key (for example "Z.ai API key") instead of "Your order".
+- Android: tapping a "Message from subagent" row no longer crashes the app.
 
 ## [0.4.18] - 2026-10-23
 
