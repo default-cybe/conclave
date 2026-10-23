@@ -7,6 +7,7 @@ import { parseHTML } from 'linkedom';
 import TurndownService from 'turndown';
 import type { Tool, ToolContext } from './types';
 import { fail, formatBytes, outputBudget, withTimeout, wrapUntrusted } from './util';
+import { looksBlocked, proxiedLine, retryProxy, siteName } from './blocked';
 
 export interface WebFetchInput {
   url: string;
@@ -61,6 +62,8 @@ interface Page {
   title?: string;
   text: string;
   cutAtLimit: boolean;
+  /** looksBlocked's reason when the site answered with a block page. */
+  blocked?: string;
 }
 
 const cache = new Map<string, { at: number; page: Page }>();
@@ -302,7 +305,8 @@ export function htmlToMarkdown(html: string, url: string): { title?: string; mar
 
 type FetchOutcome = { page: Page } | { redirect: { from: string; to: string; status: number } } | { error: string };
 
-async function fetchPage(start: URL, signal: AbortSignal, headers: Record<string, string> = {}): Promise<FetchOutcome> {
+/** proxy: a URL for Bun's fetch, only for the one retry of a blocked request (tools/blocked.ts). */
+async function fetchPage(start: URL, signal: AbortSignal, headers: Record<string, string> = {}, proxy?: string): Promise<FetchOutcome> {
   let current = start;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     // every hop: resolve once, refuse metadata addresses, connect to what was checked
@@ -321,6 +325,7 @@ async function fetchPage(start: URL, signal: AbortSignal, headers: Record<string
           'Accept-Language': 'en-US,en;q=0.9',
           ...headers,
         },
+        ...(proxy ? { proxy } : {}),
       });
     } catch (err) {
       const msg = (err as Error).name === 'TimeoutError' ? `timed out after ${FETCH_TIMEOUT_MS / 1000}s` : (err as Error).message;
@@ -351,6 +356,8 @@ async function fetchPage(start: URL, signal: AbortSignal, headers: Record<string
       cutAtLimit: cut,
     };
     const raw = decode(bytes, contentType);
+    const blocked = looksBlocked({ status: res.status, url: current.href, body: raw, headers: res.headers });
+    if (blocked) page.blocked = blocked;
     const looksHtml = /html|xhtml/.test(contentType) || (!contentType && /^\s*<(!doctype html|html)/i.test(raw));
     if (looksHtml) {
       const { title, markdown } = htmlToMarkdown(raw, current.href);
@@ -396,7 +403,7 @@ export function redditJsonUrl(u: URL): URL | undefined {
 
 /** What WebFetch says when Reddit refuses the hub. */
 export function redditBlockedMessage(url: string, why: string): string {
-  return `Reddit blocked this hub's address (${why}) for ${url}. Reddit refuses many datacenter, VPN and cloud addresses whatever the User-Agent, so WebFetch cannot read Reddit from here. The browser tools (browser_navigate) likely meet the same block (a "Prove your humanity" check) from this address; they may get through with the hub's proxy, which only the owner can ask for. Otherwise use another source for the same information.`;
+  return `Reddit blocked this hub's address (${why}) for ${url}. Reddit refuses many datacenter, VPN and cloud addresses whatever the User-Agent, so WebFetch cannot read Reddit from here. The browser tools (browser_navigate) likely meet the same block (a "Prove your humanity" check) from this address. Otherwise use another source for the same information.`;
 }
 
 /** Turn the Reddit JSON answer into a markdown page, or explain the block. */
@@ -507,11 +514,31 @@ export const WebFetchTool: Tool<WebFetchInput> = {
 
     let page = cacheGet(key);
     const fromCache = !!page;
+    let note = '';
     if (!page) {
       const reddit = redditJsonUrl(u);
-      const raw = await fetchPage(reddit ?? u, withTimeout(ctx.signal, FETCH_TIMEOUT_MS), reddit ? { 'User-Agent': conclaveUA(), Accept: 'application/json' } : {});
-      const out = reddit ? fromReddit(raw, reddit) : raw;
-      if (typeof out === 'string') return fail(out);
+      const get = async (proxy?: string) => {
+        const raw = await fetchPage(reddit ?? u, withTimeout(ctx.signal, FETCH_TIMEOUT_MS), reddit ? { 'User-Agent': conclaveUA(), Accept: 'application/json' } : {}, proxy);
+        return reddit ? fromReddit(raw, reddit) : raw;
+      };
+      const blockedBy = (o: FetchOutcome | string) => (typeof o === 'string' ? o : 'page' in o ? o.page.blocked : undefined);
+      let out = await get();
+      // the site blocked the hub's address: once more through the owner's proxy, in the hub's country
+      if (blockedBy(out)) {
+        const p = await retryProxy();
+        if ('skip' in p) note = p.skip;
+        else {
+          const again = await get(p.url);
+          const where = p.country ? ` (${p.country})` : '';
+          if (blockedBy(again)) note = `It was blocked through the proxy${where} too.`;
+          else if (typeof again !== 'string' && 'error' in again) note = `The retry through the proxy${where} failed: ${again.error}`;
+          else {
+            out = again;
+            note = proxiedLine(siteName(u.href), p.country);
+          }
+        }
+      }
+      if (typeof out === 'string') return fail(`${out}${note ? ` ${note}` : ''}`);
       if ('error' in out) return fail(out.error);
       if ('redirect' in out) {
         const r = out.redirect;
@@ -521,10 +548,10 @@ export const WebFetchTool: Tool<WebFetchInput> = {
         };
       }
       page = out.page;
-      if (page.status < 400) cachePut(key, page);
+      if (page.status < 400 && !page.blocked) cachePut(key, page);
     }
 
-    const head = `Fetched ${page.url} (HTTP ${page.status}${page.contentType ? `, ${page.contentType.split(';')[0]}` : ''}, ${formatBytes(page.bytes)}${fromCache ? ', cached' : ''})${page.title ? `\nTitle: ${page.title}` : ''}`;
+    const head = `Fetched ${page.url} (HTTP ${page.status}${page.contentType ? `, ${page.contentType.split(';')[0]}` : ''}, ${formatBytes(page.bytes)}${fromCache ? ', cached' : ''})${page.title ? `\nTitle: ${page.title}` : ''}${note ? `\n${note}` : ''}`;
     if (page.status >= 400) {
       const excerpt = page.text.slice(0, 2000);
       return fail(`${head}\nThe server returned an error: HTTP ${page.status} ${page.statusText}.${excerpt ? `\n${wrapUntrusted(page.url, excerpt)}` : ''}`);

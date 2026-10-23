@@ -3,6 +3,7 @@ import type { ConclaveConfig } from '../config/schema';
 import type { Tool } from './types';
 import { conclaveUA, DESKTOP_UA } from './webfetch';
 import { fail, withTimeout, wrapUntrusted } from './util';
+import { fetchUnblocked } from './blocked';
 
 export interface WebSearchInput {
   query: string;
@@ -28,6 +29,8 @@ interface SearchRequest {
   key?: string;
   url?: string;
   signal: AbortSignal;
+  /** Lines for the agent, such as a retry through the proxy that worked. */
+  notes: string[];
 }
 
 const DEFAULT_LIMIT = 8;
@@ -203,32 +206,35 @@ const PROVIDERS: Record<SearchProviderId, (r: SearchRequest) => Promise<SearchRe
   },
   async duckduckgo(r) {
     const q = withSiteOperators(r.query, r.allowed, r.blocked);
-    const res = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`, {
-      signal: r.signal,
-      headers: { 'User-Agent': DESKTOP_UA, Accept: 'text/html', 'Accept-Language': 'en-US,en;q=0.9' },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const html = await res.text();
-    const results = parseDuckDuckGo(html);
+    // a bot check (looksBlocked) gets one retry through the owner's proxy
+    const res = await fetchUnblocked(
+      `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`,
+      { signal: r.signal, headers: { 'User-Agent': DESKTOP_UA, Accept: 'text/html', 'Accept-Language': 'en-US,en;q=0.9' } },
+      r.notes,
+    );
+    if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}${res.hint ? `. ${res.hint}` : ''}`);
+    const results = parseDuckDuckGo(res.body);
     // a bot check answers 202 with a puzzle page; without this it reads as "no results"
-    if (!results.length && (res.status === 202 || html.includes('anomaly-modal')))
-      throw new Error(`DuckDuckGo refused this hub with a bot check (HTTP ${res.status}). Set a search provider with an API key (Brave, Tavily, Exa, Jina) or a SearXNG URL in Settings.`);
+    if (!results.length && (res.status === 202 || res.blocked))
+      throw new Error(`DuckDuckGo refused this hub with a bot check (HTTP ${res.status}). Set a search provider with an API key (Brave, Tavily, Exa, Jina) or a SearXNG URL in Settings.${res.hint ? ` ${res.hint}` : ''}`);
     return results;
   },
 };
 
 /** Reddit's own search, for reddit queries the search engine has nothing for. */
-export async function redditSearch(query: string, limit: number, signal: AbortSignal): Promise<SearchResult[]> {
+export async function redditSearch(query: string, limit: number, signal: AbortSignal, notes?: string[]): Promise<SearchResult[]> {
   const sub = query.match(/(?:^|\s)\/?r\/(\w+)/)?.[1];
   const q = query.replace(/(?:^|\s)-?site:\S+|(?:^|\s)\/?r\/\w+|\breddit\b/gi, ' ').replace(/\s+/g, ' ').trim() || query;
   const url = `https://www.reddit.com/${sub ? `r/${sub}/` : ''}search.json?q=${encodeURIComponent(q)}&limit=${limit}&raw_json=1${sub ? '&restrict_sr=1' : ''}`;
-  const res = await fetch(url, { signal, headers: { 'User-Agent': conclaveUA(), Accept: 'application/json' } });
-  if (!res.ok) throw new Error(`HTTP ${res.status}${res.status === 403 || res.status === 429 ? ', Reddit blocks this hub\'s address' : ''}`);
+  const res = await fetchUnblocked(url, { signal, headers: { 'User-Agent': conclaveUA(), Accept: 'application/json' } }, notes);
+  // the proxy hint rides apart, so webSearch says it once after the reason
+  const hinted = (msg: string) => Object.assign(new Error(msg), { hint: res.hint });
+  if (res.status < 200 || res.status >= 300) throw hinted(`HTTP ${res.status}${res.status === 403 || res.status === 429 ? ', Reddit blocks this hub\'s address' : ''}`);
   let json: any;
   try {
-    json = await res.json();
+    json = JSON.parse(res.body);
   } catch {
-    throw new Error('Reddit answered with a challenge page, not JSON; it blocks this hub\'s address');
+    throw hinted("Reddit answered with a challenge page, not JSON; it blocks this hub's address");
   }
   return (json?.data?.children ?? [])
     .filter((c: any) => c?.kind === 't3' && c.data?.permalink)
@@ -270,6 +276,7 @@ export async function webSearch(
 ): Promise<{ provider: SearchProviderId; results: SearchResult[]; note?: string }> {
   const choice = pickProvider(cfg);
   const limit = Math.min(MAX_LIMIT, Math.max(1, Math.floor(opts.limit ?? DEFAULT_LIMIT)));
+  const notes: string[] = [];
   const req = (id: SearchProviderId, key?: string, url?: string): SearchRequest => ({
     query,
     limit: opts.allowed?.length || opts.blocked?.length ? Math.min(MAX_LIMIT, limit * 2) : limit,
@@ -278,6 +285,7 @@ export async function webSearch(
     key,
     url,
     signal: withTimeout(opts.signal, TIMEOUT_MS),
+    notes,
   });
   let provider = choice.id;
   let note: string | undefined;
@@ -300,11 +308,12 @@ export async function webSearch(
   }
   if (wantsReddit && !filterResults(results, opts.allowed ?? [], opts.blocked ?? []).length) {
     try {
-      results = await redditSearch(query, limit, withTimeout(opts.signal, TIMEOUT_MS));
+      results = await redditSearch(query, limit, withTimeout(opts.signal, TIMEOUT_MS), notes);
       note = `${note ? `${note} ` : ''}${failed ? `${provider} search failed (${failed.message}); ` : `${provider} found nothing; `}results from Reddit's own search.`;
     } catch (err) {
       if (opts.signal.aborted) throw err;
-      const why = `Reddit's own search also failed (${(err as Error).message}).`;
+      const hint = (err as { hint?: string }).hint;
+      const why = `Reddit's own search also failed (${(err as Error).message}).${hint && !failed?.message.includes(hint) ? ` ${hint}` : ''}`;
       if (failed) throw new Error(`${failed.message} ${why}`);
       note = `${note ? `${note} ` : ''}${why}`;
     }
@@ -315,7 +324,7 @@ export async function webSearch(
     seen.add(r.url);
     return true;
   });
-  return { provider, results: results.slice(0, limit), note };
+  return { provider, results: results.slice(0, limit), note: [note, ...notes].filter(Boolean).join(' ') || undefined };
 }
 
 export const WebSearchTool: Tool<WebSearchInput> = {

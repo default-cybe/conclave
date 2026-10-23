@@ -307,7 +307,7 @@ export class BrowserManager implements BrowserTakeover {
   private readOnly = new Set<string>();
   /** Requests blocked per read-only session. */
   private blockedCount = new Map<string, number>();
-  /** Sessions the owner asked to go out through the proxy, with the country. Nothing else uses the proxy. */
+  /** Sessions that go out through the proxy (asked for, or a blocked page's retry), with the country. Nothing else uses the proxy. */
   private sessionProxy = new Map<string, { country?: string }>();
   /** The throwaway proxied browser of each such session. */
   private proxiedStates = new Map<string, ProfileState>();
@@ -601,9 +601,10 @@ export class BrowserManager implements BrowserTakeover {
   }
 
   /**
-   * Go out through the hub's proxy for this session, or stop. Only the
-   * browser tools' proxy input calls this, which the agent passes when the
-   * owner asks (or a watch's or routine's own instructions do). `true` takes
+   * Go out through the hub's proxy for this session, or stop. The browser
+   * tools' proxy input calls this, which the agent passes when the owner asks
+   * (or a watch's or routine's own instructions do), and so does
+   * browser_navigate's one retry of a blocked page. `true` takes
    * the provider's default country; a country name or code picks one; false
    * goes back to the hub's own address. The session then browses in a
    * throwaway browser with no saved logins; its pages in the profile stay

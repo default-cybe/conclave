@@ -1,10 +1,10 @@
 /**
  * The hub's proxy (browser.proxy): DataImpulse, or one custom proxy.
  *
- * The rule the owner set: the browser goes out from the hub's own address
- * unless the owner asks for a proxy in a chat, or a watch's or routine's own
- * instructions ask for one. There is no fallback to the proxy and no profile
- * that always uses it. When asked, the tools open a throwaway browser for
+ * The rule the owner set: the hub goes out from its own address; when a site
+ * blocks it, that request is retried once through the proxy in the hub's own
+ * country (tools/blocked.ts), and the owner can ask for a proxy in a chat.
+ * No profile always uses it. The browser tools open a throwaway browser for
  * that session through the proxy (manager.ts), so the profiles' saved logins
  * never go through it.
  *

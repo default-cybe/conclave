@@ -60,6 +60,7 @@ import { guardMachine } from '../people/guard';
 import { WatchService, attachWatches, isWatch, watchExtension } from '../watches';
 import { builtinTools } from '../tools';
 import { setConclaveVersion } from '../tools/webfetch';
+import { setProxySource } from '../tools/blocked';
 
 const log = logger('create');
 
@@ -90,6 +91,8 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
   const bus = new EventBus();
   const version = opts.version ?? '0.1.0';
   setConclaveVersion(version);
+  // a blocked fetch retries once through the owner's proxy (tools/blocked.ts)
+  setProxySource({ cfg: () => config.get().browser?.proxy, read: (n) => config.secretValue(n) });
   // the harnesses are off by default since v0.4.2: once, a hub from before keeps on the ones the owner set or used lately
   const keptOn = harnessesOffOnce({ config, db, kv: repos.kv });
   if (keptOn?.length) log.info(`kept on as engines, used in the last 30 days: ${keptOn.join(', ')}`);
