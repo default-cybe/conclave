@@ -28,6 +28,7 @@ export function effortWire(cfg: ProviderConfig, model: string): EffortWire {
   if (cfg.type === 'gemini') return 'gemini';
   if (cfg.type === 'anthropic') return 'anthropic';
   if (cfg.anthropicWire?.models.some((g) => wirePattern(g).test(model))) return 'anthropic';
+  if (cfg.geminiWire?.models.some((g) => wirePattern(g).test(model))) return 'gemini';
   const host = hostOf(cfg.baseUrl);
   if (host.endsWith('openrouter.ai')) return 'openrouter';
   if (/(^|\.)z\.ai$|bigmodel\.cn$|deepseek\.com$/.test(host)) return 'switch';
@@ -99,7 +100,7 @@ export function createProvider(id: string, cfg: ProviderConfig, deps: Omit<Provi
     case 'anthropic':
       return new AnthropicProvider(opts);
     case 'openai':
-      if (cfg.anthropicWire?.baseUrl && cfg.anthropicWire.models?.length) return new SplitWireProvider(opts);
+      if ((cfg.anthropicWire?.baseUrl && cfg.anthropicWire.models?.length) || (cfg.geminiWire?.baseUrl && cfg.geminiWire.models?.length) || cfg.responsesWire?.models?.length) return new SplitWireProvider(opts);
       return cfg.responsesApi ? new OpenAIResponsesProvider(opts) : new OpenAIProvider(opts);
     case 'gemini':
       return new GeminiProvider(opts);
@@ -241,6 +242,7 @@ export class ProviderRegistry {
   private build(providerId: string, raw: ProviderConfig, apiKey: string | undefined): Provider | undefined {
     const cfg: ProviderConfig = { ...raw, baseUrl: raw.baseUrl ? this.config.expand(raw.baseUrl) : undefined };
     if (raw.anthropicWire) cfg.anthropicWire = { ...raw.anthropicWire, baseUrl: this.config.expand(raw.anthropicWire.baseUrl ?? '') };
+    if (raw.geminiWire) cfg.geminiWire = { ...raw.geminiWire, baseUrl: this.config.expand(raw.geminiWire.baseUrl ?? '') };
     return createProvider(providerId, cfg, { apiKey, headers: this.config.expandRecord(raw.headers), fetch: this.opts.fetch });
   }
 
