@@ -145,6 +145,88 @@ describe('per wire', () => {
   });
 });
 
+describe('tool results', () => {
+  const PNG = b64('png bytes');
+  const NO_IMG = '[image (image/png) not readable by this model]';
+  /** What Read returns: a text file, an image and a PDF with no text layer, all in one turn. */
+  const toolReq = (model: string): ChatRequest => ({
+    model,
+    system: [],
+    maxTokens: 16,
+    messages: [
+      { role: 'assistant', content: ['a', 'b', 'c'].map((id) => ({ type: 'tool_use', id, name: 'Read', input: {} })) },
+      {
+        role: 'user',
+        content: [
+          { type: 'tool_result', toolUseId: 'a', content: [{ type: 'text', text: 'note:' }, { type: 'document', mediaType: 'text/markdown', data: b64('# Readme\nhello'), title: '00_README.md' }] },
+          { type: 'tool_result', toolUseId: 'b', content: [{ type: 'text', text: 'Image x.png' }, { type: 'image', mediaType: 'image/png', data: PNG }] },
+          { type: 'tool_result', toolUseId: 'c', content: [{ type: 'text', text: 'PDF p.pdf' }, { type: 'document', mediaType: 'application/pdf', data: PDF, title: 'Prep.pdf' }] },
+        ],
+      },
+    ],
+  });
+
+  test('documentsForWire reaches into tool results; images are a note without vision', () => {
+    const [res] = documentsForWire([{ type: 'tool_result', toolUseId: 'b', content: [{ type: 'image', mediaType: 'image/png', data: PNG }, { type: 'document', mediaType: 'text/markdown', data: b64('# hi'), title: 'a.md' }] }], false, false);
+    expect(res).toEqual({ type: 'tool_result', toolUseId: 'b', content: [{ type: 'text', text: NO_IMG }, { type: 'text', text: '<document name="a.md" type="text/markdown">\n# hi\n</document>' }] });
+  });
+
+  test('anthropic wire, text-only GLM on Z.ai: text doc as text, image as a note, PDF native', () => {
+    const body = new AnthropicProvider(opts('anthropic', 'https://api.z.ai/api/anthropic')).buildBody(toolReq('glm-5.3')) as any;
+    expect(body.messages[1].content.map((r: any) => r.content)).toEqual([
+      [{ type: 'text', text: 'note:' }, { type: 'text', text: MD }],
+      [{ type: 'text', text: 'Image x.png' }, { type: 'text', text: NO_IMG }],
+      [{ type: 'text', text: 'PDF p.pdf' }, { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: PDF }, title: 'Prep.pdf' }],
+    ]);
+    // a Claude model sees the image
+    const claude = new AnthropicProvider(opts('anthropic')).buildBody(toolReq('claude-sonnet-5-5')) as any;
+    expect(claude.messages[1].content[1].content[1]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG } });
+  });
+
+  test('openai chat, text-only model: notes in the tool messages, no user message of media', () => {
+    const body = new OpenAIProvider(opts('openai', 'https://api.deepseek.com/v1')).buildBody(toolReq('deepseek-chat')) as any;
+    expect(body.messages.slice(1)).toEqual([
+      { role: 'tool', tool_call_id: 'a', content: `note:\n${MD}` },
+      { role: 'tool', tool_call_id: 'b', content: `Image x.png\n${NO_IMG}` },
+      { role: 'tool', tool_call_id: 'c', content: `PDF p.pdf\n${NO_PDF}` },
+    ]);
+  });
+
+  test('openai chat, vision model: the image and the PDF follow in a user message', () => {
+    const body = new OpenAIProvider(opts('openai')).buildBody(toolReq('gpt-5.5')) as any;
+    expect(body.messages.at(-1).content.map((p: any) => p.type)).toEqual(['text', 'image_url', 'text', 'file']);
+  });
+
+  test('openai responses: the image and the PDF ride in their function_call_output; an unknown model keeps its image', () => {
+    for (const model of ['gpt-5.5', 'gpt-6-sol']) {
+      const body = new OpenAIResponsesProvider(opts('openai')).buildBody(toolReq(model)) as any;
+      expect(body.input.filter((i: any) => i.type === 'message')).toEqual([]);
+      const out = body.input.filter((i: any) => i.type === 'function_call_output').map((i: any) => i.output);
+      expect(out[0]).toBe(`note:\n${MD}`);
+      expect(out[1]).toEqual([
+        { type: 'input_text', text: 'Image x.png' },
+        { type: 'input_image', image_url: `data:image/png;base64,${PNG}`, detail: 'auto' },
+      ]);
+      expect(out[2]).toEqual([
+        { type: 'input_text', text: 'PDF p.pdf' },
+        { type: 'input_file', filename: 'Prep.pdf', file_data: `data:application/pdf;base64,${PDF}` },
+      ]);
+    }
+  });
+
+  test('gemini: functionResponse text, then the image and PDF inline', () => {
+    const body = new GeminiProvider(opts('gemini')).buildBody(toolReq('gemini-3-flash')) as any;
+    const parts = body.contents.at(-1).parts;
+    expect(parts[0].functionResponse.response).toEqual({ output: `note:\n${MD}` });
+    expect(parts.slice(3)).toEqual([
+      { text: 'Images returned by Read:' },
+      { inlineData: { mimeType: 'image/png', data: PNG } },
+      { text: 'Images returned by Read:' },
+      { inlineData: { mimeType: 'application/pdf', data: PDF } },
+    ]);
+  });
+});
+
 describe('mediaTypeFor', () => {
   test('an empty or generic browser type takes the extension', () => {
     expect(mediaTypeFor('', 'Pack.zip')).toBe('application/zip');
