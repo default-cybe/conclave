@@ -131,6 +131,8 @@ export interface ToolContext {
   /** Live progress lines (bash output) for the UI. */
   progress(text: string): void;
   toolUseId: string;
+  /** Names of the tools in the session's tool list this step (the runner sets it; ToolSearch lists them on a miss). */
+  toolNames?: string[];
   /**
    * Old folders of a session that moved (projects/move.ts). File tools map an
    * absolute path under roots[i].from to roots[i].to and push the old root on
