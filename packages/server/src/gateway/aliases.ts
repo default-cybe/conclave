@@ -1,7 +1,12 @@
 import type { EngineApi } from '@conclave/core/engine/api.ts';
 import type { ModelInfo } from '@conclave/core/providers/types.ts';
 import type { WireType } from './usage';
-import type { GatewayRouteId } from '@conclave/core/config/schema.ts';
+import type { GatewayRouteId, ProviderConfig } from '@conclave/core/config/schema.ts';
+
+/** A provider takes requests of this wire format: its own type, or Anthropic through anthropicBaseUrl (Z.ai). */
+export function speaks(cfg: ProviderConfig | undefined, type: WireType): boolean {
+  return !!cfg && (cfg.type === type || (type === 'anthropic' && !!cfg.anthropicBaseUrl));
+}
 
 /**
  * Optional "gateway" block in the user config. Only routes is in the shared
@@ -68,7 +73,7 @@ export class AliasResolver {
     const providers = this.engine.config.get().providers;
     const ref = splitRef(target);
     if (ref.provider && providers[ref.provider]) {
-      if (providers[ref.provider].type !== type) return undefined;
+      if (!speaks(providers[ref.provider], type)) return undefined;
       return { model: ref.model, provider: ref.provider };
     }
     return { model: target };
@@ -79,13 +84,12 @@ export class AliasResolver {
     const providers = cfg.providers;
     const fits = (ref: string | undefined) => {
       if (!ref) return false;
-      const p = providers[splitRef(ref).provider];
-      return !!p && p.type === type;
+      return speaks(providers[splitRef(ref).provider], type);
     };
     if (tier === 'fast' && fits(cfg.smallModel)) return cfg.smallModel;
     if (tier === 'smart' && fits(cfg.defaultModel)) return cfg.defaultModel;
     const models = await this.loadModels();
-    const ofTier = models.filter((m) => m.tier === tier && providers[m.provider]?.type === type);
+    const ofTier = models.filter((m) => m.tier === tier && speaks(providers[m.provider], type));
     const pick = ofTier.find((m) => m.provider === providerId) ?? ofTier[0];
     if (pick) return `${pick.provider}/${pick.id}`;
     if (tier === 'deep' && fits(cfg.defaultModel)) return cfg.defaultModel;

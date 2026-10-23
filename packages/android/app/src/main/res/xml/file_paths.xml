@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="camera" path="camera/" />
+    <!-- files a session shared, written before ACTION_VIEW opens them (ShareFile) -->
+    <cache-path name="shared" path="shared/" />
     <!-- an update APK for the system installer (update/AppUpdater.kt): getExternalFilesDir(DIRECTORY_DOWNLOADS) -->
     <external-files-path name="updates" path="Download/" />
 </paths>

@@ -10,9 +10,18 @@ import { jsonResponse, mockServer, sseResponse } from './mock';
 const KEY_VARS = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'ZAI_API_KEY', 'OPENROUTER_API_KEY', 'CLIPROXY_API_KEY', 'CONCLAVE_MODEL'];
 const saved: Record<string, string | undefined> = {};
 
-/** A CLIProxyAPI that speaks both wires. */
+/** A CLIProxyAPI that speaks every wire. */
 const server = mockServer((req) => {
   const url = new URL(req.url);
+  if (url.pathname === '/v1/responses')
+    return sseResponse([
+      { event: 'response.created', data: { type: 'response.created', response: { id: 'r1' } } },
+      { event: 'response.output_item.added', data: { type: 'response.output_item.added', output_index: 0, item: { type: 'message', id: 'msg_1' } } },
+      { event: 'response.output_text.delta', data: { type: 'response.output_text.delta', item_id: 'msg_1', output_index: 0, delta: 'from responses' } },
+      { event: 'response.completed', data: { type: 'response.completed', response: { status: 'completed', usage: { input_tokens: 3, output_tokens: 2 } } } },
+    ]);
+  if (url.pathname.startsWith('/v1beta/models/'))
+    return sseResponse([{ data: { candidates: [{ content: { role: 'model', parts: [{ text: 'from gemini' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 2 } } }]);
   if (url.pathname === '/v1/models') return jsonResponse({ object: 'list', data: [{ id: 'claude-opus-5-5', owned_by: 'anthropic' }, { id: 'gpt-6-astra', owned_by: 'openai' }] });
   if (url.pathname === '/v1/messages')
     return sseResponse([
@@ -119,6 +128,64 @@ describe('one provider over two wires', () => {
   test('refs with an account prefix resolve to the provider', () => {
     const r = registry.resolve('cliproxy/neu/claude-opus-5-5');
     expect(r).toMatchObject({ provider: 'cliproxy', model: 'neu/claude-opus-5-5' });
+  });
+});
+
+describe('GPT over Responses, Gemini over its own wire', () => {
+  const wires = (models: string[]) => ({ ...entry(models), geminiWire: { baseUrl: server.url, models: ['gemini-*'] }, responsesWire: { models: ['gpt-*', '*/gpt-*'] } });
+  /** A turn after a Read whose result carries a PNG. */
+  const afterRead = (model: string, extra: object = {}) => ({
+    model,
+    system: [],
+    maxTokens: 16,
+    messages: [
+      { role: 'user' as const, content: [{ type: 'text' as const, text: 'read it' }] },
+      { role: 'assistant' as const, content: [{ type: 'tool_use' as const, id: 'call_1', name: 'Read', input: { path: 'a.png' } }] },
+      { role: 'user' as const, content: [{ type: 'tool_result' as const, toolUseId: 'call_1', content: [{ type: 'text' as const, text: 'a.png' }, { type: 'image' as const, mediaType: 'image/png', data: 'QUJD' }] }] },
+    ],
+    ...extra,
+  });
+
+  test('each model takes its own wire; the image stays inside its tool result', async () => {
+    config.setRuntime({ providers: { cliproxy: wires(['claude-opus-5-5', 'gpt-6-sol', 'gemini-3-flash', 'neu/gemini-3-flash', 'kimi-k3']) } } as any, 'cliproxy');
+    const p = registry.get('cliproxy')!;
+    server.requests.length = 0;
+    expect(await text(p.stream(afterRead('gpt-6-sol')))).toBe('from responses');
+    expect(await text(p.stream(afterRead('gemini-3-flash')))).toBe('from gemini');
+    expect(await text(p.stream(afterRead('claude-opus-5-5')))).toBe('from messages');
+    expect(await text(p.stream(afterRead('neu/gemini-3-flash')))).toBe('from chat');
+    expect(await text(p.stream(afterRead('kimi-k3')))).toBe('from chat');
+    expect(server.requests.map((r) => r.path)).toEqual([
+      '/v1/responses',
+      '/v1beta/models/gemini-3-flash:streamGenerateContent?alt=sse',
+      '/v1/messages',
+      '/v1/chat/completions',
+      '/v1/chat/completions',
+    ]);
+    const [responses, gemini] = server.requests;
+    expect(responses.headers.authorization).toBe('Bearer client-key-1');
+    expect(responses.body.input.find((i: any) => i.type === 'function_call_output')).toEqual({
+      type: 'function_call_output',
+      call_id: 'call_1',
+      output: [
+        { type: 'input_text', text: 'a.png' },
+        { type: 'input_image', image_url: 'data:image/png;base64,QUJD', detail: 'auto' },
+      ],
+    });
+    expect(gemini.headers['x-goog-api-key']).toBe('client-key-1');
+    const parts = gemini.body.contents.flatMap((c: any) => c.parts);
+    expect(parts.find((x: any) => x.functionResponse).functionResponse.name).toBe('Read');
+  });
+
+  test('a Cyber access program still takes Responses, even for a model no wire names', async () => {
+    config.setRuntime({ providers: { cliproxy: { ...entry(['codex-x']), responsesWire: { models: [] } } } } as any, 'cliproxy');
+    const p = registry.get('cliproxy')!;
+    server.requests.length = 0;
+    expect(await text(p.stream(afterRead('codex-x', { accessPrograms: { cyber: 'standard' } })))).toBe('from responses');
+    expect(await text(p.stream(afterRead('codex-x')))).toBe('from chat');
+    expect(server.requests.map((r) => r.path)).toEqual(['/v1/responses', '/v1/chat/completions']);
+    expect(server.requests[0].body.access_programs).toBeDefined();
+    config.setRuntime({}, 'cliproxy');
   });
 });
 

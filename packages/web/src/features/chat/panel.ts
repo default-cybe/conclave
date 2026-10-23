@@ -73,7 +73,13 @@ export function sessionOutputs(messages: readonly Message[]): Output[] {
   const files = new Map<string, Output>();
   const rest: Output[] = [];
   const failed = new Set<string>();
-  for (const m of messages) for (const b of m.content) if (b.type === 'tool_result' && b.isError) failed.add(b.toolUseId);
+  // only a ShareFile call's result is a file card; meta.file on any other tool's result is not
+  const shares = new Set<string>();
+  for (const m of messages)
+    for (const b of m.content) {
+      if (b.type === 'tool_result' && b.isError) failed.add(b.toolUseId);
+      if (b.type === 'tool_use' && b.name === 'ShareFile') shares.add(b.id);
+    }
   for (const m of messages) {
     let n = 0;
     for (const b of m.content as ContentBlock[]) {
@@ -85,6 +91,12 @@ export function sessionOutputs(messages: readonly Message[]): Output[] {
         const lang = content ? pageLang(path.split('.').pop()?.toLowerCase(), content) : undefined;
         files.delete(path);
         files.set(path, { key: `f:${path}`, kind: 'file', label: fileName(path), detail: folderOf(path), path, toolUseId: b.id, ...(content ? { content } : {}), ...(lang && content ? { page: { lang, code: content } } : {}), at: m.createdAt });
+      } else if (b.type === 'tool_result' && !b.isError && shares.has(b.toolUseId) && typeof (b.meta?.file as { path?: unknown } | undefined)?.path === 'string') {
+        // a ShareFile card: also files Bash made, which no Write shows; a Write of the same file keeps its preview
+        const path = (b.meta!.file as { path: string }).path;
+        const prev = files.get(path);
+        files.delete(path);
+        files.set(path, { ...prev, key: `f:${path}`, kind: 'file', label: fileName(path), detail: folderOf(path), path, toolUseId: b.toolUseId, at: m.createdAt });
       } else if (b.type === 'tool_result' && Array.isArray(b.content)) {
         b.content.forEach((c, i) => {
           if (c.type === 'image') rest.push({ key: `i:${b.toolUseId}:${i}`, kind: 'image', label: 'Image', detail: 'From a tool', image: { mediaType: c.mediaType, data: c.data, url: c.url }, toolUseId: b.toolUseId, at: m.createdAt });
