@@ -7,6 +7,11 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+- A signed in plan of another vendor whose own model list has a model now takes part in that model's order and failover: Claude Opus 5.5 on an Antigravity plan joins Claude Opus 5.5's order after the Claude plans and before the API key. Settings > Models > Accounts has a Per model section: add an order for a model two or more plans offer, and move any plan that offers it up or down (`PUT /api/accounts/order` with `match`; `vendor` may be empty to file it under the model's maker). A limit on a prefixed id (`ag/claude-opus-5-5`) blocks only that plan.
+
 ## [0.4.23] - 2026-10-24
 
 ### Added
