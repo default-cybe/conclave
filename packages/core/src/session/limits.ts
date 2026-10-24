@@ -10,7 +10,7 @@ import { accountsOf } from '../accounts/attached';
 import { OWNER_ID, isMember } from '../people/context';
 import { splitAccount } from '../providers/split';
 import { refusalPlan, shortModelName, targetFor, usable } from './refusal-fallback';
-import { bareModel } from '../accounts/policy';
+import { bareModel, ownModel } from '../accounts/policy';
 import { PLAN_PROVIDER, entryServes } from '../people/plans';
 import type { AgentDef } from '../extensions/types';
 
@@ -79,7 +79,8 @@ export function nextAccount(engine: Engine, sessionId: string, modelRef: string)
     const entry = plans!.entry(member);
     for (const a of plans!.readyAccounts!(member, bare)) {
       if (a.kind !== 'subscription' || !a.prefix || a.prefix === prefix) continue;
-      const wire = `${a.prefix}/${bare}`;
+      // the plan's own id: Antigravity lists claude-opus-5-5-high, not claude-opus-5-5
+      const wire = `${a.prefix}/${bareModel(ownModel((a.models ?? []).map((m) => m.id), bare) ?? bare)}`;
       if (!entryServes(entry, wire)) continue;
       return { ref: `${gw}/${wire}`, account: a.id, from: `${name} (${prefix})`, to: `${name} (${a.label})` };
     }
@@ -88,7 +89,8 @@ export function nextAccount(engine: Engine, sessionId: string, modelRef: string)
   const current = accounts!.accountFor(gw, wireModel);
   for (const a of accounts!.readyAccounts(bare)) {
     if (a.kind !== 'subscription' || a.id === current) continue;
-    const wire = a.prefix ? `${a.prefix}/${bare}` : bare;
+    const own = bareModel(ownModel((a.models ?? []).map((m) => m.id), bare) ?? bare);
+    const wire = a.prefix ? `${a.prefix}/${own}` : own;
     const ref = `${gw}/${wire}`;
     if (!usable(engine, session, { index: -1, entry: { model: ref, account: a.id }, ref, pin: { provider: gw, model: wire, account: a.id }, label: '' })) continue;
     return { ref, account: a.id, from: `${name} (${(current && accounts!.account(current)?.label) || prefix})`, to: `${name} (${a.label})` };

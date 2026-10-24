@@ -31,7 +31,7 @@ import type { LimitState, LimitWindow, UsageRecord } from '../types';
 import type { EventBus } from '../util/bus';
 import { catalogEntries, familyForProvider, lookupModel } from '../providers/catalog';
 import { budgetPeriod, hubZone, validZone, type Period } from './period';
-import { assess, bareModel, orderIds, pickAccount, priorities, reaches, routeFor, usable, type AccountView, type Verdict } from './policy';
+import { assess, bareModel, orderIds, ownModel, pickAccount, priorities, reaches, routeFor, usable, type AccountView, type Verdict } from './policy';
 import { credentialVendor, vendorName, vendorOfModel } from './vendors';
 import { splitAccount } from '../providers/split';
 import { DEFAULT_END, DEFAULT_START, type StarterFacts } from './starter';
@@ -81,6 +81,8 @@ export interface AccountsDeps {
   now?: () => number;
   /** Tell the owner, for a budget warning. */
   notify?: (title: string, body: string) => void;
+  /** Read a key plan's usage again now (usage/readers/zai.ts), for the window starter. */
+  readKeyPlan?: () => Promise<unknown>;
 }
 
 interface Acct {
@@ -246,13 +248,19 @@ export class AccountsService {
   private windowsOf(a: Acct, now: number): LimitWindow[] {
     // a window whose reset passed says nothing any more: unknown until the next read, not full and not zero
     const own = a.cfg.kind === 'subscription' ? (a.facts?.windows ?? []) : (this.observed.get(a.cfg.id) ?? []);
-    // a key plan's 5 hour and weekly windows come from its usage reader (usage/readers/zai.ts), stored for the provider
-    // its MCP tool quota does not stop coding calls: extra, as the reader's blocked says
-    const read = this.keyPlan(a) ? (this.deps.repos.usage.limits().find((l) => l.provider === a.provider && !l.account)?.windows ?? []).map((w) => (w.name === 'MCP monthly' ? { ...w, kind: 'extra' as const } : w)) : [];
+    const read = this.readWindows(a);
     const base = (read.length ? mergeWindows(read, own) : own).filter((w) => w.resetsAt === undefined || w.resetsAt > now);
     const b = this.budgetOf(a, now);
     const all = b ? [...base.filter((w) => w.name !== 'budget'), this.budgetWindow(b, now)] : base;
     return all.map((w) => annotateWindow(w)).sort((x, y) => windowOrder(x) - windowOrder(y));
+  }
+
+  /** A key plan's 5 hour and weekly windows from its usage reader (usage/readers/zai.ts), stored for the provider, marked with when they were read. */
+  private readWindows(a: Acct): LimitWindow[] {
+    if (!this.keyPlan(a)) return [];
+    const l = this.deps.repos.usage.limits().find((x) => x.provider === a.provider && !x.account);
+    // its MCP tool quota does not stop coding calls: extra, as the reader's blocked says
+    return (l?.windows ?? []).map((w) => annotateWindow(w.name === 'MCP monthly' ? { ...w, kind: 'extra' as const } : w, { source: 'api', observedAt: l!.updatedAt }));
   }
 
   /** The subscription an API account's key bills against (zai-coding), from its provider. */
@@ -311,9 +319,9 @@ export class AccountsService {
     return rest;
   }
 
-  /** A signed in plan whose own model list has the model. */
-  private lists(a: Acct, model: string): boolean {
-    return a.cfg.kind === 'subscription' && !!a.facts?.models && reaches({ models: a.facts.models.map((m) => m.id) }, model);
+  /** A signed in plan whose own model list has the model, or (unless exact) a variant of it (Antigravity's claude-opus-5-5-high). */
+  private lists(a: Acct, model: string, exact = false): boolean {
+    return a.cfg.kind === 'subscription' && !!a.facts?.models && ownModel(a.facts.models.map((m) => m.id), model, exact) !== undefined;
   }
 
   private label(a: Acct, all: Acct[]): string {
@@ -365,28 +373,29 @@ export class AccountsService {
     };
   }
 
-  /** Each signed in plan as the window starter sees it: its windows as last read (also ones whose reset passed), cooldowns, models and prefix. No tokens. */
+  /** Each signed in plan, and each plan paid with a key (Z.ai), as the window starter sees it: its windows as last read (also ones whose reset passed), cooldowns, models and prefix. No tokens. */
   starterFacts(all: Acct[] = this.accts()): StarterFacts[] {
     return all
-      .filter((a) => a.cfg.kind === 'subscription')
+      .filter((a) => a.cfg.kind === 'subscription' || this.keyPlan(a))
       .map((a) => ({
         id: a.cfg.id,
         label: this.label(a, all),
         vendor: a.cfg.vendor,
+        // a key plan's request goes on its own provider, with its key
         provider: a.provider,
-        enabled: a.cfg.enabled !== false && !!a.facts && !a.facts.disabled,
-        disabled: !a.facts || a.facts.disabled,
+        enabled: a.cfg.enabled !== false && (a.cfg.kind === 'api' ? a.hasKey : !!a.facts && !a.facts.disabled),
+        disabled: a.cfg.kind === 'api' ? !a.hasKey : !a.facts || a.facts.disabled,
         ...(this.errorOf(a) ? { error: this.errorOf(a) } : {}),
-        windows: (a.facts?.windows ?? []).map((w) => annotateWindow(w)),
+        windows: a.cfg.kind === 'api' ? this.readWindows(a) : (a.facts?.windows ?? []).map((w) => annotateWindow(w)),
         cooldowns: a.facts?.cooldowns ?? [],
-        ...(a.facts?.models ? { models: a.facts.models.map((m) => m.id) } : {}),
+        ...(a.cfg.kind === 'api' ? { models: this.models(a).map((m) => m.id) } : a.facts?.models ? { models: a.facts.models.map((m) => m.id) } : {}),
         ...(a.facts?.prefix ? { prefix: a.facts.prefix } : {}),
         ...(a.cfg.starter ? { starter: a.cfg.starter } : {}),
       }));
   }
 
   private starterOf(a: Acct, facts: StarterFacts[]): StarterDto | undefined {
-    if (a.cfg.kind !== 'subscription') return undefined;
+    if (a.cfg.kind !== 'subscription' && !this.keyPlan(a)) return undefined;
     const f = facts.find((x) => x.id === a.cfg.id);
     if (f && this.starterView) return this.starterView.view(f, facts);
     // no starter runs (a server over another engine): the settings, and off or waiting
@@ -407,7 +416,9 @@ export class AccountsService {
 
   /** Read an account's headers again now, and its plan usage when asked. Nothing when no reader is set. */
   async readNow(id: string, opts: { usage?: boolean } = {}): Promise<void> {
-    await this.reader?.(id, opts);
+    const a = this.accts().find((x) => x.cfg.id === id);
+    if (a && this.keyPlan(a)) await this.deps.readKeyPlan?.();
+    else await this.reader?.(id, opts);
   }
 
   /** Something the page shows changed outside the service (the window starter): publish again. */
@@ -420,7 +431,7 @@ export class AccountsService {
     const now = this.now();
     const all = this.accts();
     const views = new Map(all.map((a) => [a.cfg.id, this.view(a, now)]));
-    const starters = all.some((a) => a.cfg.kind === 'subscription') ? this.starterFacts(all) : [];
+    const starters = this.starterFacts(all);
     const accounts = all.map((a) => this.dto(a, assess(views.get(a.cfg.id)!, now), views.get(a.cfg.id)!, all, now, this.starterOf(a, starters)));
     const vendors = [...new Set(all.map((a) => a.cfg.vendor))];
     const routes: AccountRouteDto[] = vendors.map((vendor) => ({ vendor, vendorName: vendorName(vendor), order: this.forVendor(vendor).map((a) => a.cfg.id) }));
@@ -621,8 +632,8 @@ export class AccountsService {
       // a prefixed id ("neu/gpt-6-sol") went to that one plan only, of any vendor (Opus on Antigravity): the others were not tried
       const prefix = splitAccount(model).account;
       for (const a of all) {
-        // a bare id was tried on every plan that lists it, another vendor's too
-        if (a.cfg.kind !== 'subscription' || !(prefix ? a.facts?.prefix === prefix : !!vendor && (a.cfg.vendor === vendor ? reaches(this.view(a, now), model) : this.lists(a, model)))) continue;
+        // a bare id was tried on every plan that lists it, another vendor's too; not on one that lists only a variant of it
+        if (a.cfg.kind !== 'subscription' || !(prefix ? a.facts?.prefix === prefix : !!vendor && (a.cfg.vendor === vendor ? reaches(this.view(a, now), model) : this.lists(a, model, true)))) continue;
         // another vendor's model on this plan (Opus on Antigravity) has its own quota: block only that vendor's models here
         this.blocked.set(vendor && a.cfg.vendor !== vendor ? `${a.cfg.id}|${vendor}` : a.cfg.id, { until, at: now });
       }
@@ -774,7 +785,8 @@ export class AccountsService {
       }
       if (starter === null) delete a.starter;
       else if (starter) {
-        if (a.kind !== 'subscription') throw new AccountsError(400, 'The window starter is for signed in plans. An API key has no 5 hour window.');
+        // a plan paid with a key (the Z.ai Coding Plan) has a 5 hour window that starts on the first prompt, as a signed in plan's does
+        if (a.kind !== 'subscription' && !this.deps.config.get().providers?.[a.provider ?? a.vendor]?.subscription) throw new AccountsError(400, 'The window starter is for plans. An API key has no 5 hour window.');
         const next: AccountStarter = { ...(a.starter ?? {}) };
         for (const [k, v] of Object.entries(starter) as Array<[keyof AccountStarter, unknown]>) {
           if (v === '') delete next[k];

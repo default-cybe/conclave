@@ -377,7 +377,7 @@ function AccountRow({
         )}
         {sub && management && a.credential && <ShortNameRow a={a} all={all} suggestion={suggestion} onSaved={onSaved} />}
         {!memberNow() && <RefusalRow a={a} management={management} onSaved={onSaved} />}
-        {sub && !memberNow() && <StarterRow a={a} now={now} noted={noted} onSaved={onSaved} />}
+        {(sub || a.subscription) && !memberNow() && <StarterRow a={a} now={now} noted={noted} onSaved={onSaved} />}
       </div>
     </div>
   );

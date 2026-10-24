@@ -276,6 +276,34 @@ describe('API limit mappers', () => {
     });
   });
 
+  test('Z.ai credit limits are the 5 hour and weekly windows; unknown types read as words', () => {
+    // as the live plan answered in Oct 2026: an unstarted 5 hour window has no reset
+    const l = mapZaiQuota({
+      data: {
+        limits: [
+          { type: 'CREDIT_LIMIT', usage: 12000, currentValue: 0, remaining: 12000, percentage: 0 },
+          { type: 'CREDIT_LIMIT', usage: 60000, currentValue: 3226, remaining: 56774, percentage: 5, nextResetTime: 1_793_305_885_976 },
+          { type: 'SOME_NEW_LIMIT', percentage: 1 },
+        ],
+      },
+    });
+    expect(l.windows.map((w) => [w.name, w.resetsAt])).toEqual([
+      ['5h', undefined],
+      ['7d', 1_793_305_885_976],
+      ['some new limit', undefined],
+    ]);
+  });
+
+  test('Z.ai credit limits are told apart by size or a near reset, not order', () => {
+    const now = 1_793_000_000_000;
+    const names = (limits: object[]) => mapZaiQuota({ data: { limits } }, now).windows.map((w) => [w.name, w.limit]);
+    const day = { type: 'CREDIT_LIMIT', usage: 12000, percentage: 0 };
+    const week = { type: 'CREDIT_LIMIT', usage: 60000, percentage: 5, nextResetTime: now + 3 * 86_400_000 };
+    expect(names([week, day])).toEqual([['7d', 60000], ['5h', 12000]]);
+    // a reset within 6 hours is the 5 hour window, whatever its size
+    expect(names([{ ...week, usage: 5000 }, { ...day, nextResetTime: now + 3_600_000 }])).toEqual([['7d', 5000], ['5h', 12000]]);
+  });
+
   test('zaiQuotaUrl follows the configured host', () => {
     expect(zaiQuotaUrl()).toBe('https://api.z.ai/api/monitor/usage/quota/limit');
     expect(zaiQuotaUrl('https://api.z.ai/api/anthropic')).toBe('https://api.z.ai/api/monitor/usage/quota/limit');
