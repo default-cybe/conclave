@@ -76,6 +76,8 @@ export interface AccountDto {
   email?: string;
   /** "Max 20x", "Pro", "API key". */
   plan?: string;
+  /** api: a plan paid with an API key (the Z.ai Coding Plan): the subscription it bills against, "zai-coding". */
+  subscription?: string;
   enabled: boolean;
   state: AccountState;
   /** Why it is not ready, in words. */

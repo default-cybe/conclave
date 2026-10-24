@@ -93,7 +93,7 @@ interface Acct {
   hasKey: boolean;
 }
 
-const API_FAMILIES = new Set(['anthropic', 'openai', 'gemini']);
+const API_FAMILIES = new Set(['anthropic', 'openai', 'gemini', 'zai']);
 /** How long a session keeps its inferred account without a call. */
 const STICKY_MS = 6 * 3_600_000;
 /** A 429 with no reset: treat the account as blocked this long, until the next read says more. */
@@ -131,6 +131,8 @@ export class AccountsService {
     this.offs.push(
       deps.bus.on((e) => {
         if (e.type === 'usage.recorded' && e.record.account) this.afterUsage(e.record);
+        // a key plan's reader stored new windows: its account shows them
+        else if (e.type === 'limit.updated' && !e.limit.account && this.deps.config.get().providers?.[e.limit.provider]?.subscription) this.changed();
       }),
     );
   }
@@ -161,7 +163,8 @@ export class AccountsService {
   private apiProviders(): Array<{ id: string; vendor: string; cfg: ProviderConfig }> {
     const out: Array<{ id: string; vendor: string; cfg: ProviderConfig }> = [];
     for (const [id, cfg] of Object.entries(this.deps.config.get().providers ?? {})) {
-      if (!cfg || cfg.type === 'acp' || cfg.anthropicWire || cfg.subscription || cfg.enabled === false) continue;
+      // a provider with cfg.subscription (the Z.ai Coding Plan) is a plan paid with a key: still an API account, so routing stays as it was
+      if (!cfg || cfg.type === 'acp' || cfg.anthropicWire || cfg.enabled === false) continue;
       const fam = familyForProvider(cfg.type, cfg.baseUrl ? this.deps.config.expand(cfg.baseUrl) : undefined);
       if (!fam || fam === 'any' || !API_FAMILIES.has(fam)) continue;
       if (!this.deps.config.hasProviderKey(id)) continue;
@@ -242,10 +245,19 @@ export class AccountsService {
 
   private windowsOf(a: Acct, now: number): LimitWindow[] {
     // a window whose reset passed says nothing any more: unknown until the next read, not full and not zero
-    const base = (a.cfg.kind === 'subscription' ? (a.facts?.windows ?? []) : (this.observed.get(a.cfg.id) ?? [])).filter((w) => w.resetsAt === undefined || w.resetsAt > now);
+    const own = a.cfg.kind === 'subscription' ? (a.facts?.windows ?? []) : (this.observed.get(a.cfg.id) ?? []);
+    // a key plan's 5 hour and weekly windows come from its usage reader (usage/readers/zai.ts), stored for the provider
+    // its MCP tool quota does not stop coding calls: extra, as the reader's blocked says
+    const read = this.keyPlan(a) ? (this.deps.repos.usage.limits().find((l) => l.provider === a.provider && !l.account)?.windows ?? []).map((w) => (w.name === 'MCP monthly' ? { ...w, kind: 'extra' as const } : w)) : [];
+    const base = (read.length ? mergeWindows(read, own) : own).filter((w) => w.resetsAt === undefined || w.resetsAt > now);
     const b = this.budgetOf(a, now);
     const all = b ? [...base.filter((w) => w.name !== 'budget'), this.budgetWindow(b, now)] : base;
     return all.map((w) => annotateWindow(w)).sort((x, y) => windowOrder(x) - windowOrder(y));
+  }
+
+  /** The subscription an API account's key bills against (zai-coding), from its provider. */
+  private keyPlan(a: Acct): string | undefined {
+    return a.cfg.kind === 'api' ? this.deps.config.get().providers?.[a.provider]?.subscription : undefined;
   }
 
   private errorOf(a: Acct): string | undefined {
@@ -298,7 +310,7 @@ export class AccountsService {
     if (a.cfg.label) return a.cfg.label;
     if (a.cfg.kind === 'api') {
       const name = this.deps.config.get().providers?.[a.provider]?.name;
-      return `${name ?? vendorName(a.cfg.vendor)} API key`;
+      return this.keyPlan(a) && name ? name : `${name ?? vendorName(a.cfg.vendor)} API key`;
     }
     if (a.facts?.email) return a.facts.email;
     if (a.facts?.label && !/ user$/i.test(a.facts.label)) return a.facts.label;
@@ -325,7 +337,7 @@ export class AccountsService {
       ...(a.cfg.credential ? { credential: a.cfg.credential } : {}),
       ...(a.cfg.kind === 'api' ? { provider: a.provider } : {}),
       ...(f?.email ? { email: f.email } : {}),
-      ...(a.cfg.kind === 'api' ? { plan: API_PLAN } : f?.plan ? { plan: f.plan } : {}),
+      ...(this.keyPlan(a) ? { plan: this.deps.config.get().providers?.[a.provider]?.name ?? API_PLAN, subscription: this.keyPlan(a) } : a.cfg.kind === 'api' ? { plan: API_PLAN } : f?.plan ? { plan: f.plan } : {}),
       enabled: view.enabled,
       state: v.state,
       ...(v.reason && v.state !== 'ready' && v.state !== 'unknown' ? { detail: v.reason } : {}),
@@ -819,6 +831,17 @@ export class AccountsService {
     const live = new Set<string>();
     for (const d of status.accounts) {
       const a = all.find((x) => x.cfg.id === d.id)!;
+      // a key plan's windows are already stored for its provider by the usage reader: one state, not two; a 429 marks that one blocked, with the reset when known
+      if (d.subscription) {
+        const r = this.deps.repos.usage.limits().find((l) => l.provider === a.provider && !l.account);
+        const blocked = d.state === 'limited';
+        if (r && !!r.blocked !== blocked) {
+          const next: LimitState = { ...r, blocked, ...(blocked ? { windows: d.windows } : {}) };
+          this.deps.repos.usage.setLimit(next);
+          this.deps.bus.emit({ type: 'limit.updated', limit: next });
+        }
+        continue;
+      }
       if (!d.windows.length) continue;
       const l: LimitState = {
         provider: a.provider,
@@ -841,7 +864,7 @@ export class AccountsService {
       this.deps.bus.emit({ type: 'limit.updated', limit: l });
     }
     // states of accounts that left, and the old shared state of a provider whose accounts now hold its windows, go
-    const apiProviders = new Set(all.filter((a) => a.cfg.kind === 'api').map((a) => a.provider));
+    const apiProviders = new Set(all.filter((a) => a.cfg.kind === 'api' && !this.keyPlan(a)).map((a) => a.provider));
     for (const l of this.deps.repos.usage.limits()) {
       const key = limitKey(l);
       const stale = (l.account && !live.has(key)) || (!l.account && (this.hasAccounts(l.provider) || apiProviders.has(l.provider)));
