@@ -7,6 +7,11 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+- Android's Usage page shows the latest numbers. It reloads when you return to the app and a couple of seconds after new calls are recorded, and its usage and limit reads run at the same time. Two accounts on one provider each keep their own limit card, with the account named on it, and budget limits read "read from the ledger".
+
 ## [0.4.23] - 2026-10-24
 
 ### Added
