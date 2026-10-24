@@ -599,6 +599,12 @@ export interface ConclaveConfig {
   /** Model tiers that agents and workflow steps ask for by word (extensions/model-ref.ts). Unset tiers resolve from smallModel, the session model and the catalog. */
   models?: {
     tiers?: Partial<Record<'fast' | 'smart' | 'deep', string>>;
+    /**
+     * Model that reads images for a model without vision (session/image-text.ts): each image becomes a
+     * text transcription and a short description. Unset: the first usable model with vision among
+     * smallModel and defaultModel. A member's sessions use only models the member may use.
+     */
+    vision?: string;
     /** Models hidden hub-wide (config/hidden.ts): refs or globs with `*` ("cliproxy/glm-*"). Pickers leave them out and nothing runs on them. Empty unless set. */
     hidden?: string[];
     /** Sign in to Claude, ChatGPT, Google and other subscriptions through CLIProxyAPI. Off unless set. */

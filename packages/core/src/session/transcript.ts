@@ -1,4 +1,5 @@
-import type { ContentBlock, Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../types';
+import { createHash } from 'node:crypto';
+import type { ContentBlock, ImageBlock, Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../types';
 import type { ProviderMessage } from '../providers/types';
 import { sanitizeToolId } from '../util/ids';
 import { oneLine, truncateMiddle } from '../util/text';
@@ -27,6 +28,13 @@ export interface BuildOptions {
   toolNames: Set<string>;
   /** Put cache breakpoints on the last two user messages. */
   cache: boolean;
+  /** The model has no vision: images with a stored transcription (meta.imageText, session/image-text.ts) go as that text. */
+  imageText?: boolean;
+}
+
+/** An image's key in meta.imageText: a hash of its bytes (or its URL). */
+export function imageKey(b: ImageBlock): string {
+  return createHash('sha256').update(b.data ?? b.url ?? '').digest('hex').slice(0, 32);
 }
 
 /** Messages that are logically part of the conversation the model sees (after the last compaction). */
@@ -180,15 +188,18 @@ export function buildProviderMessages(all: Message[], opts: BuildOptions): Provi
     }
     // user
     const content: ContentBlock[] = [];
+    const texts = opts.imageText ? (m.meta?.imageText as Record<string, string> | undefined) : undefined;
+    const asText = <B extends ContentBlock>(b: B): B | TextBlock => (texts && b.type === 'image' && texts[imageKey(b)] ? { type: 'text', text: texts[imageKey(b)] } : b);
     for (const b of m.content) {
       if (b.type === 'tool_result') {
         if (flattened.has(b.toolUseId)) continue;
         const cleared = b.meta?.cleared as ClearMark | undefined;
         const id = typeof b.meta?.outputId === 'string' ? b.meta.outputId : b.toolUseId;
-        content.push({ type: 'tool_result', toolUseId: sanitizeToolId(b.toolUseId), content: cleared ? clearedText(cleared.chars, id) : b.content, isError: b.isError });
+        const body = cleared ? clearedText(cleared.chars, id) : texts && typeof b.content !== 'string' ? (b.content.map(asText) as ToolResultBlock['content']) : b.content;
+        content.push({ type: 'tool_result', toolUseId: sanitizeToolId(b.toolUseId), content: body, isError: b.isError });
         continue;
       }
-      content.push(b);
+      content.push(asText(b));
     }
     push('user', content);
   }

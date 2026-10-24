@@ -7,6 +7,18 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [0.4.23] - 2026-10-24
+
+### Added
+- A model without vision (GLM-5.3) can read images. Each image in an attachment or a tool result (a Read of a PNG, a screenshot) is transcribed once by a model with vision: all its text exactly, then a short description of its layout, charts and UI. The model gets it as `[image NAME, transcribed by MODEL: ...]`. The text is stored with the message, so later requests send the same bytes. Set the model with `conclave config set models.vision <provider/model>`; unset, the hub takes the small model or the default model, whichever has vision first. A member's session uses only models the member may use. Usage rows show the purpose `vision`. With no vision model, an image over 5 MB of base64, more than 8 new images in one request, or a failed call, the model gets a note that says why.
+
+### Fixed
+- A Code chat in the Home folder no longer shows "~ is not on <device>." with Choose folder / Continue without files. The folder check now expands `~` before it looks for the folder.
+- Grep: when `path` is a single file and `output_mode` is not given, show the matching lines instead of listing that one file. Directories keep `files_with_matches` as the default.
+- TodoWrite: accept a list of plain strings (each becomes a pending todo, the first in progress when none is) and a single todo object sent without the `todos` wrapper. Bad statuses, empty items and a missing list are still rejected.
+- Workflow: the tool description and the "did not load" error for an inline or saved script now include a minimal working script (meta literal, one `agent()` call, `return r;`).
+- A chat pinned to one signed in plan by its prefix (for example `cliproxy/personal-gpt/gpt-6.1-sol`) that hits its usage limit now continues on the same model on your next plan that serves it, in your account order, skipping paused and limited plans, and keeps that plan for the session. It says "GPT-6.1-Sol (personal-gpt) hit its limit. Continuing on GPT-6.1-Sol (backup-gpt)." Only when no other plan can take it does it use the configured fallbacks or wait for the reset as before. A limit on a prefixed model no longer marks your other plans as limited too. Member sessions never move to the owner's plans.
+
 ## [0.4.22] - 2026-10-23
 
 ### What's new
