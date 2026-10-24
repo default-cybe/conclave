@@ -839,6 +839,13 @@ describe("a member's own plans", () => {
     const entry = hub.engine.access.plans!.entry(alice.id)!;
     expect(entry.config.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/v1$/);
     expect(hub.engine.access.plans!.entry('owner')).toBeUndefined();
+    // her ready plans for a model, for failover between them (session/limits.ts nextAccount): hers only
+    const ready = await until(() => {
+      const r = hub.engine.access.plans!.readyAccounts!(alice.id, 'claude-opus-5-5');
+      return r.length ? r : undefined;
+    }, 8000, 'her ready plans');
+    expect(ready.map((a) => a.label)).toEqual(['alice-plan@example.test']);
+    expect(hub.engine.access.plans!.readyAccounts!('owner', 'claude-opus-5-5')).toEqual([]);
     expect(hub.engine.access.info(alice.id, 'cliproxy')).toMatchObject({ source: 'own', ownPlans: 1 });
     const accts = await as(alice.token, '/api/accounts');
     expect(accts.text).toContain('alice-plan@example.test');

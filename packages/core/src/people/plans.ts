@@ -13,6 +13,7 @@
 import type { ProviderConfig } from '../config/schema';
 import type { ChatRequest, ModelInfo, Provider, StreamEvent } from '../providers/types';
 import { ProviderError } from '../providers/types';
+import type { AccountDto } from '../client/accounts';
 
 /** The provider id signed in plans go by: the hub's and a member's own. */
 export const PLAN_PROVIDER = 'cliproxy';
@@ -35,6 +36,8 @@ export interface MemberPlans {
   onChange(fn: (accountId: string) => void): () => void;
   /** A call on a member's own plan was refused for a limit: read their plans again soon. */
   noteLimit?(accountId: string): void;
+  /** The member's own plans that can take this model now, in their order (AccountsService.readyAccounts of their own CLIProxyAPI); [] when none runs. */
+  readyAccounts?(accountId: string, model: string): AccountDto[];
 }
 
 /** True when the member's own CLIProxyAPI lists this model (bare, or with a plan's short name). */

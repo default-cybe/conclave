@@ -7,6 +7,20 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [0.4.25] - 2026-10-24
+
+### Added
+- A member's session at a plan's usage limit continues on the same model on the member's next ready plan of their own. It never moves to the owner's plans or the owner's Refusal fallback list.
+
+### Fixed
+- Another vendor's plan that lists a model (Claude Opus 5.5 on Antigravity) now goes before the API key in that model's order also when you saved an order for the vendor: after your saved plans, before the first key. A per model order that lists the plan keeps it where you put it.
+- With only an API key for a vendor, a model another vendor's plan lists goes to that plan first, and to the key when the plan is at its limit. A model the plan does not list goes to the key as before.
+- A per model order for a model the hub cannot place under a vendor is refused with "Unknown model ...", instead of being saved where it never applies.
+- A usage limit on a bare model id (`claude-opus-5-5`) now also blocks another vendor's plan that lists it, for that vendor's models only, since CLIProxyAPI already tried it.
+- A Task or Delegate subagent waiting for its usage limit to reset is no longer reported as lost when the hub restarts. It continues when the limit resets and sends its report once.
+- A usage limit's fallback follows the session agent's Refusal fallback setting. An agent with `refusalFallback: off` waits for the reset, and an agent with its own list falls back to that list, not yours.
+- A subagent waiting for its limit reset that you write to directly stops waiting for the reset. Its report reaches the parent when that turn ends, and its scheduled resume is cancelled.
+
 ## [0.4.24] - 2026-10-24
 
 ### Added
