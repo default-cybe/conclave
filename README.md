@@ -2,7 +2,7 @@
 
 # Conclave
 
-**Your own AI app, on your own computer.**
+**A self-hosted agent harness and hub: any model, your machines, one transcript.**
 
 [![Latest release](https://img.shields.io/github/v/release/default-cybe/conclave)](https://github.com/default-cybe/conclave/releases/latest)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
@@ -11,9 +11,9 @@
 
 </div>
 
-Chat with any AI model and let coding agents work on your machines. One app for the web, your desktop and your phone. You host it, so everything stays with you.
+Conclave runs coding agents on your own computers with any model, checks their work before a turn ends, and lets you steer them from the web, desktop, terminal or phone.
 
-Conclave is a hub you run on a home server, a Proxmox box or your own desktop. It keeps your chats, memory, routines and keys. Your PCs and Macs connect out to it, so agents can work on their files and shells without opening ports. There is no Conclave cloud: model calls go straight to the provider you pick.
+It is a hub you run on a home server, a Proxmox box or your desktop. The hub holds the agent loop, chats, memory, routines and keys. Your PCs and Macs dial out to it, so agents work on their files and shells without open ports. There is no Conclave cloud: model calls go straight to the provider you pick.
 
 <p align="center">
   <picture>
@@ -22,22 +22,60 @@ Conclave is a hub you run on a home server, a Proxmox box or your own desktop. I
   </picture>
 </p>
 
-## What you get
+## Why Conclave
 
-- **Chat with any model.** Claude, GPT, Gemini, GLM, DeepSeek, Kimi, Qwen, OpenRouter, Ollama, LM Studio or any OpenAI-compatible API. Ask a second model, or a jury, in the same chat.
-- **Coding agents on your machines.** Sessions edit, test and commit on a paired PC or Mac. Claude Code, Codex, Gemini CLI and OpenCode run through Conclave too.
-- **Approve from your phone.** Risky steps wait for your OK. Tap Allow or Deny from anywhere.
-- **Your subscriptions, not only API keys.** Sign in to Claude, ChatGPT, Google, Grok, Kimi and Muse plans through [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), which the hub runs for you.
-- **Bring your people.** Family or friends get their own accounts, chats, memory, keys and plans on your hub. You can set a monthly budget on yours.
+- **Its own harness for every model.** Built from Claude Code's public design: Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, Task and Skill tools, permission rules, hooks, skills, subagents, auto-compaction and prompt caching. GLM, GPT, Gemini or a local model get the same tools Claude gets.
+- **A verify gate.** After a turn that edited files, the project's check runs on the session's own device before the turn may end. A failure sends the agent back with the last 40 lines, up to 3 times per user turn.
+- **Several models in one chat.** Ask a second opinion on any message, run a jury (juror names can be hidden from the judge), a debate, or loop until a command such as `bun test` passes.
+- **Vendor CLIs in the same transcript.** Claude Code, Codex, Gemini CLI and OpenCode run as engines over the Agent Client Protocol (ACP). A Codex turn can be followed by a GLM turn in the same chat, and their permission prompts become Conclave approvals.
+- **Limits do not stop work.** A usage limit moves the session to your next plan or key for the same model, in your account order, then to the next model on your Usage fallback list. Long waits pause the session and resume it when the window resets.
+- **Subscriptions, not only API keys.** Sign in to Claude, ChatGPT, Google, Grok, Kimi and Muse plans through [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), which the hub runs for you.
+- **Agents that watch each other.** A write to a file that another live session wrote in the last 10 minutes gets a conflict warning (or an approval). A turn with no progress for 5 minutes raises a stuck alert with Stop and Keep waiting.
+- **Workflows in code.** Scripts use Claude Code's workflow API and run in QuickJS compiled to WebAssembly, with no file system, process or network. A journal lets a run resume after a crash or an edit, replaying finished calls.
+
+## What else you get
+
+- **Devices that dial out.** PCs and Macs connect out over a WebSocket. No inbound ports. Pick a device per session.
+- **Approve from your phone.** Risky steps wait for your OK. Tap Allow or Deny from the Android app or a push notification.
+- **Any provider.** Claude, GPT, Gemini, GLM, DeepSeek, Kimi, Qwen, OpenRouter, Ollama, LM Studio or any OpenAI-compatible API.
+- **Bring your people.** Family or friends get their own accounts, chats, memory, keys, devices and plans on your hub. You can set a monthly budget on yours.
 - **One memory.** Every model and device shares what it learned about you and your projects, with a Basic Memory adapter.
 - **Routines that run themselves.** Morning briefs, server checks, or a daily look for new listings on a site. Missed runs catch up after downtime.
-- **Workflows.** A script runs many agents with checks in code: review a change, deep research, fix until green, security audits and more.
+- **Files back from agents.** The ShareFile tool turns a PDF, image, spreadsheet or zip a session made into a file card with a preview and a Download button.
+- **Updates when idle.** The hub installs a new release by itself once nothing is running.
 - **Every device.** Web app, desktop app (Windows, Mac, Linux), Android app, iPhone home screen app and a terminal app.
-- **Self-hosted and in control.** Docker, Proxmox LXC or a plain Linux box. Permission rules, checkpoints you can undo, and an audit log.
+- **Self-hosted and in control.** Docker, Proxmox LXC or a plain Linux box. Permission rules, a dangerous-command guard, checkpoints you can undo, and an audit log.
 
-See [all features](https://conclave.dymnitguys.com/details.html#features) on the website.
+See [all features](https://conclave.dymnitguys.com/details.html#features) on the website, or [docs/DESIGN.md](docs/DESIGN.md) for how each one works and where it can fail.
 
-## Install
+## How it compares
+
+| | Conclave | Hermes Agent | Cline | OpenCode | Codex | Pi | Gemini CLI | OpenHands | goose |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Models from many vendors | yes | yes | yes | yes | ? | yes | Google only | yes | yes |
+| Subagents | yes | yes | yes | yes | yes | no | partial | yes | yes |
+| Hooks | yes | yes | partial | ? | yes | yes | yes | yes | ? |
+| Skills and MCP | yes | yes | yes | yes | yes | yes | yes | yes | partial |
+| Built-in verify gate after edits | yes | no | partial | no | no | no | no | no | no |
+| Second opinion, jury or debate across models | yes | no | no | no | partial | no | no | no | no |
+| Failover across accounts and models on usage limits | yes | yes | no | no | no | no | partial | no | no |
+| Drives Claude Code, Codex or Gemini CLI as engines | yes | no | partial | no | no | no | no | yes | yes |
+| Agents on several machines from one place | yes | partial | partial | no | partial | no | partial | yes | yes |
+| Phone app or approvals from the phone | yes | partial | partial | partial | yes | no | no | partial | partial |
+| Memory across sessions | yes | yes | partial | no | no | no | partial | no | yes |
+| Scheduled routines | yes | yes | yes | no | partial | no | no | yes | yes |
+| Scripted workflows | yes | partial | no | no | no | partial | partial | no | yes |
+| Several people with their own data | yes | partial | partial | no | no | no | no | partial | no |
+| Inline diffs in VS Code or JetBrains | no | no | yes | partial | partial | no | partial | no | no |
+| OS or container sandbox for commands | no | yes | partial | no | yes | no | yes | yes | ? |
+| Hosted cloud option | no | no | yes | no | yes | no | no | yes | no |
+| License | AGPL-3.0 | MIT | Apache-2.0 | MIT | Apache-2.0 | MIT | Apache-2.0 | per repo | Apache-2.0 |
+
+Checked on 2026-10-24 against each project's GitHub README and official docs. "no" means we did not find it listed there; "?" means we could not tell. Corrections are welcome in an issue.
+
+Where others are ahead: Cline shows every edit as a diff inside VS Code and JetBrains. Codex, Gemini CLI and OpenHands run commands in an OS or container sandbox; Conclave has permission rules, approvals and a dangerous-command guard, but no sandbox yet. Codex, Cline and OpenHands offer hosted cloud agents; Conclave is self-hosted only. Hermes Agent connects to Telegram, Signal and WhatsApp. OpenCode lists more than 75 providers.
+
+## Quick start
 
 Run the hub on a computer that stays on. Then install the app on each device and pair it with a code from the hub's Devices page.
 
