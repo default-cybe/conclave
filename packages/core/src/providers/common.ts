@@ -33,9 +33,8 @@ export abstract class BaseProvider implements Provider {
     return lookupModel(this.id, id, { type: this.opts.config.type, override: this.opts.config.modelOverrides?.[id] });
   }
 
-  /** False only when the catalog or config says the model has no vision; an unknown model (a gateway's new one) keeps its images. */
   protected seesImages(id: string, info: ModelInfo): boolean {
-    return info.vision || (!findCatalogEntry(id) && this.opts.config.modelOverrides?.[id]?.vision === undefined);
+    return seesImages(id, info, this.opts.config);
   }
 
   protected http(signal?: AbortSignal): HttpOptions {
@@ -74,6 +73,11 @@ export abstract class BaseProvider implements Provider {
       throw err;
     }
   }
+}
+
+/** False only when the catalog or config says the model has no vision; an unknown model (a gateway's new one) keeps its images. */
+export function seesImages(id: string, info: ModelInfo, config?: Pick<ProviderConfig, 'modelOverrides'>): boolean {
+  return info.vision || (!findCatalogEntry(id) && config?.modelOverrides?.[id]?.vision === undefined);
 }
 
 /** Parse streamed tool input JSON. Invalid JSON is kept under _raw and marked with _parseError. */
