@@ -182,6 +182,19 @@ export interface RefusalFallbackConfig {
 }
 
 /**
+ * Usage fallback (session/limits.ts limitFallback): an ordered list of
+ * models. When a model is at its limit on every account, the next model
+ * after it here takes over, on its own account order (Settings > Models >
+ * Accounts). Separate from the refusal fallback. Off unless set: then a
+ * limit falls back on the refusal fallback list as before.
+ */
+export interface LimitFallbackConfig {
+  enabled?: boolean;
+  /** "provider/model" refs as the model picker gives them, no account. First tried first. */
+  models?: string[];
+}
+
+/**
  * Built-in subscription sign-in (docs/INSTALL.md, Subscriptions). The hub
  * runs CLIProxyAPI for you (builtin) or uses one you already run (external);
  * either way its models appear under the provider id "cliproxy".
@@ -615,6 +628,8 @@ export interface ConclaveConfig {
     routes?: AccountRoute[];
     /** Refusal fallback, the owner's "safety priority" (Settings > Models > Refusal fallback). Off and empty unless set. */
     refusalFallback?: RefusalFallbackConfig;
+    /** Usage fallback by model (Settings > Models > Usage fallback). Off and empty unless set. */
+    limitFallback?: LimitFallbackConfig;
   };
 
   /** Agents across the hub. */

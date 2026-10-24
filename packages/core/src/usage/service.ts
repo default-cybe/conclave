@@ -397,18 +397,24 @@ export class UsageService {
       if (!done && tried.length) errors.push(`claude oauth: ${tried.join('; ')}`);
     }
 
-    const zai = this.opts.zai?.();
-    if (zai?.apiKey) {
-      try {
-        this.setLimit(await fetchZaiLimits(zai.apiKey, { baseUrl: zai.baseUrl, fetch: this.opts.fetch, now }));
-      } catch (err) {
-        errors.push(`zai: ${String((err as Error).message ?? err)}`);
-      }
-    }
+    const zai = await this.refreshZai(now);
+    if (zai) errors.push(zai);
 
     for (const e of errors) log.warn(e);
     this.lastErrors = errors;
     return { limits: this.limits(), imported, errors };
+  }
+
+  /** Read the Z.ai Coding Plan quota now (also the window starter, around a reset). Returns the error, if any. */
+  async refreshZai(now = Date.now()): Promise<string | undefined> {
+    const zai = this.opts.zai?.();
+    if (!zai?.apiKey) return undefined;
+    try {
+      this.setLimit(await fetchZaiLimits(zai.apiKey, { baseUrl: zai.baseUrl, fetch: this.opts.fetch, now }));
+    } catch (err) {
+      return `zai: ${String((err as Error).message ?? err)}`;
+    }
+    return undefined;
   }
 
   /** Refresh on an interval. Returns a stop function. */

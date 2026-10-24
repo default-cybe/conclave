@@ -31,7 +31,8 @@ export function StarterRow({ a, now, noted, onSaved }: { a: AccountDto; now: num
   const [note, setNote] = useState(false);
   const [edit, setEdit] = useState(false);
   const s = a.starter;
-  if (!s || a.kind !== 'subscription') return null;
+  // a plan paid with a key (Z.ai) has a 5 hour window too
+  if (!s || (a.kind !== 'subscription' && !a.subscription)) return null;
   const on = s.enabled;
   const line = starterLine(s, now);
   const model = modelName(a, s.model) ?? (s.autoModel ? `${modelName(a, s.autoModel)}, the cheapest` : undefined);
