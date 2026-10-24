@@ -36,7 +36,7 @@ h1 {
   letter-spacing: -0.042em;
 }
 /* each phrase stays on its line while it fits */
-.phrase { display: inline-block; }
+.phrase { display: inline-block; max-width: 100%; }
 .lead {
   margin: 24px 0 0;
   max-width: 32em;
@@ -198,6 +198,23 @@ h1 {
   border-bottom: 1px solid var(--rule);
   --kh: var(--bg-sunk);
 }
+
+/* what makes it different: four groups of short lines, each line links to the design log */
+.diff-intro { margin: 14px 0 0; max-width: 40em; font-size: 17px; line-height: 1.55; color: var(--fg-2); }
+.diff-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 44px 56px;
+  margin: 40px 0 0;
+}
+.diff-group { padding-top: 20px; border-top: 1px solid var(--rule-2); }
+.diff-group h3 { margin: 0; font-size: 20px; }
+.diff-group ul { margin: 14px 0 0; padding: 0; list-style: none; }
+.diff-group li { padding: 10px 0; border-bottom: 1px solid var(--rule); font-size: 15.5px; line-height: 1.55; color: var(--fg-2); }
+.diff-group li:last-child { border-bottom: 0; }
+.diff-group li a { color: var(--fg); font-weight: 600; text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 3px; }
+.diff-group li a:hover { text-decoration-color: currentColor; }
+.diff-group code { font-family: var(--mono); font-size: 0.92em; }
 
 /* features: six tiles */
 .tiles {
@@ -640,6 +657,7 @@ pre code {
   .dl-big { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 12px; }
   .steps { gap: 28px; }
   .points { gap: 28px; }
+  .diff-groups { gap: 36px 32px; }
 }
 
 /* the hero stacks: the label and the knot share a row, the copy runs under them */
@@ -662,6 +680,7 @@ pre code {
   .step-n b { font-size: 12px; }
   .step h3 { margin-top: 0; }
   .points { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .diff-groups { grid-template-columns: minmax(0, 1fr); gap: 32px; margin-top: 28px; }
   .dl-all-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
@@ -714,4 +733,6 @@ pre code {
   .close-knot { margin-left: calc(-1 * var(--gutter)); }
   .close-row .actions { margin-left: 0; width: 100%; }
   .close-row .actions .btn { width: 100%; }
+  .diff-intro { font-size: 16px; }
+  .diff-group li { font-size: 15px; }
 }

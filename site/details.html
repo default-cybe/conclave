@@ -3,8 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Conclave in detail</title>
-<meta name="description" content="Every Conclave feature, why it is built this way, how it compares with other AI apps, its limits today and what comes next.">
+<title>Conclave in detail: features, design, comparison and limits</title>
+<meta name="description" content="Every Conclave feature, why it is built this way, how it compares with AI apps and with Hermes Agent, Cline, OpenCode, Codex and OpenHands, its limits today and what comes next.">
+<link rel="canonical" href="https://conclave.dymnitguys.com/details.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Conclave">
+<meta property="og:title" content="Conclave in detail">
+<meta property="og:description" content="Every feature of the self-hosted agent harness and hub, why it is built this way, how it compares, and its limits today.">
+<meta property="og:url" content="https://conclave.dymnitguys.com/details.html">
+<meta property="og:image" content="https://conclave.dymnitguys.com/img/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Conclave in detail">
+<meta name="twitter:description" content="Every feature of the self-hosted agent harness and hub, why it is built this way, how it compares, and its limits today.">
+<meta name="twitter:image" content="https://conclave.dymnitguys.com/img/og.jpg">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#fafafb" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#141417" media="(prefers-color-scheme: dark)">
@@ -197,7 +208,9 @@
           <ul>
             <li><b>Second opinion.</b> Send any reply to another model and read its answer in line.</li>
             <li><b>Jury and debate.</b> Several models answer, then a judge sums up or votes. Juror names can be hidden from the judge.</li>
+            <li><b>Debate.</b> Two models argue for a set number of rounds, then a judge concludes.</li>
             <li><b>Handoff.</b> Switch the model in the middle of a chat and keep going.</li>
+            <li><b>Loop.</b> Keep going until a command such as <code>bun test</code> passes, up to a set number of tries.</li>
             <li>Edit, retry, branch, and preview an HTML or SVG answer in a sandbox.</li>
             <li>When a chat needs files or a shell, Continue as session moves it over.</li>
           </ul>
@@ -226,10 +239,11 @@
           <h3>Code on your own computers</h3>
           <p>A session is an agent at work in a folder, on the hub or on any PC or Mac you pair. The agent loop runs on the hub and the tools run on the computer you pick. The desktop app carries the small program that lets the hub use that computer, and it connects out, so no port opens.</p>
           <ul>
-            <li>Conclave's own agent loop gives any model file, shell, search, web, browser and subagent tools.</li>
-            <li>Claude Code, Codex, Gemini CLI and OpenCode run inside Conclave too. Their permission prompts become Conclave approvals.</li>
+            <li>Conclave's own agent loop gives any model file, shell, search, web, browser and subagent tools, with permission rules, hooks, skills, compaction and prompt caching.</li>
+            <li>Claude Code, Codex, Gemini CLI and OpenCode run inside Conclave too, over the Agent Client Protocol, in the same transcript as any other model. Their permission prompts become Conclave approvals.</li>
             <li>A checkpoint before each turn, so any change is one click to undo, even outside a git repository.</li>
-            <li>After a turn that edited files, the project's check runs on that computer before the turn may end.</li>
+            <li>After a turn that edited files, the project's check runs on that computer before the turn may end. A failure sends the agent back with the output, up to 3 times.</li>
+            <li>Sessions hand you the files they make, such as a PDF, an image or a zip, as a file card with a preview and Download.</li>
             <li>The slash menu of Claude Code, with your commands and skills.</li>
           </ul>
         </div>
@@ -337,7 +351,8 @@
           <ul>
             <li>Twelve ship, among them review changes, deep research, fix until green, fix an issue, bug hunt and security audit.</li>
             <li>A refuter panel tries to disprove each finding, and a quote must sit within 3 lines of the line it cites.</li>
-            <li>Runs resume after a crash, keep to a budget, and give risky agents their own git worktree.</li>
+            <li>Scripts run in QuickJS compiled to WebAssembly, with no file system, process or network.</li>
+            <li>Runs resume after a crash by replaying finished calls from a journal, keep to a budget, and give risky agents their own git worktree.</li>
             <li>Specialist agents (builder, tester, debugger, verifier, fact-checker and more) ask for a fast, smart or deep model.</li>
           </ul>
         </div>
@@ -418,7 +433,12 @@
         <div class="card">
           <svg class="tk tk-paused" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#k"/></svg>
           <h4>Usage and limits</h4>
-          <p>5 hour and weekly windows, spend per model, account and key, cache savings, and a budget per API key. A session that hits a limit waits and goes on when it resets.</p>
+          <p>5 hour and weekly windows, spend per model, account and key, cache savings, and a budget per API key. At a limit, a session goes on with the same model on your next plan or key, then with the next model on your fallback list, or waits and goes on when it resets.</p>
+        </div>
+        <div class="card">
+          <svg class="tk" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#k"/></svg>
+          <h4>Updates</h4>
+          <p>Every file an updater installs is signed. The hub installs a new release once no session is running, and sends the version on to its devices. The desktop and Android apps update themselves too.</p>
         </div>
         <div class="card wide">
           <svg class="tk" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#k"/></svg>
@@ -677,7 +697,7 @@
         <div class="mark-row" aria-hidden="true"><svg class="node" viewBox="0 0 64 64" focusable="false"><use href="#k"/></svg><span class="hair"></span></div>
         <p class="idx">04 <span>Compare</span></p>
         <h2>How it compares</h2>
-        <p class="intro">What people would otherwise use, as of October 2026, from each product's public docs and changelogs. Conclave can also run Claude Code, Codex, Gemini CLI and OpenCode inside it, so this is not one or the other.</p>
+        <p class="intro">What people would otherwise use, as of October 2026, from each product's public docs and changelogs. Conclave can also run Claude Code, Codex, Gemini CLI and OpenCode inside it, so this is not one or the other. The first table covers AI apps, the <a href="#agents">second</a> open source agent tools.</p>
       </header>
 
       <div class="picker" hidden>
@@ -823,14 +843,166 @@
         <li class="card"><b>All of them</b> have far more users behind them. Conclave is new, at its first releases.</li>
       </ul>
 
+      <h3 class="sub rv" id="agents">Against open source agent tools</h3>
+      <p class="note">Checked on October 24, 2026, from each project's GitHub README and the docs pages it links to. "Not listed" means those pages do not mention it. It does not mean the tool cannot do it.</p>
+      <p class="scroll-hint">Swipe the table sideways to see every tool.</p>
+      <div class="table-wrap agents-wrap" tabindex="0" role="region" aria-label="Comparison with open source agent tools, scrolls sideways">
+        <table class="compare">
+          <thead>
+            <tr>
+              <th scope="col"></th>
+              <th scope="col" class="us"><span class="us-head"><svg class="us-mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#k"/></svg>Conclave</span></th>
+              <th scope="col">Hermes Agent</th>
+              <th scope="col">Cline</th>
+              <th scope="col">OpenCode</th>
+              <th scope="col">Codex CLI</th>
+              <th scope="col">OpenHands</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">A server of yours, from a browser or phone</th>
+              <td class="us"><b>Yes.</b> Web, desktop, Android and terminal apps talk to one hub.</td>
+              <td><b>Partly.</b> Through Telegram, Discord, Slack and other chat apps.</td>
+              <td>Not listed. A local web task board.</td>
+              <td><b>Partly.</b> A web interface opened with <code>opencode pair</code>.</td>
+              <td>Not listed. Codex Web runs in OpenAI's cloud.</td>
+              <td><b>Yes.</b> A web UI on a computer or server you run.</td>
+            </tr>
+            <tr>
+              <th scope="row">Approve agent steps from your phone</th>
+              <td class="us"><b>Yes.</b> In the app or on the notification.</td>
+              <td><b>Yes.</b> Yes and no buttons in Telegram, Discord and Slack.</td>
+              <td><b>Partly.</b> Chat from messaging apps. Approvals not stated.</td>
+              <td>Not listed.</td>
+              <td>Not listed.</td>
+              <td>Not listed.</td>
+            </tr>
+            <tr>
+              <th scope="row">Other agent CLIs inside it</th>
+              <td class="us"><b>Yes.</b> Claude Code, Codex, Gemini CLI and OpenCode over ACP, in one transcript.</td>
+              <td><b>Partly.</b> The Copilot CLI over ACP.</td>
+              <td><b>Partly.</b> Claude Code as a model provider.</td>
+              <td>Not listed.</td>
+              <td>Not listed.</td>
+              <td><b>Yes.</b> Claude Code, Codex, Gemini CLI, Pi and OpenCode over ACP.</td>
+            </tr>
+            <tr>
+              <th scope="row">Plans you already pay for</th>
+              <td class="us"><b>Yes.</b> Claude, ChatGPT and Google plans at once, in your order.</td>
+              <td>ChatGPT, and Claude Max with extra usage credits.</td>
+              <td>Claude Pro or Max through Claude Code.</td>
+              <td>ChatGPT Plus, GitHub Copilot and GitLab Duo.</td>
+              <td>ChatGPT plans.</td>
+              <td>The logins of the CLIs it runs over ACP.</td>
+            </tr>
+            <tr>
+              <th scope="row">Several models on one question</th>
+              <td class="us"><b>Yes.</b> Second opinion, jury with hidden juror names, and debate.</td>
+              <td><b>Partly.</b> A Mixture of Agents tool.</td>
+              <td>Not listed.</td>
+              <td>Not listed.</td>
+              <td>Not listed.</td>
+              <td><b>Partly.</b> Switch models in the middle of a conversation.</td>
+            </tr>
+            <tr>
+              <th scope="row">Go on when a usage limit hits</th>
+              <td class="us"><b>Yes.</b> Your next account, then the next model on your list.</td>
+              <td><b>Partly.</b> Fallback routing. Usage limits not described.</td>
+              <td>Not listed.</td>
+              <td>Not listed.</td>
+              <td>Not listed.</td>
+              <td>Not listed.</td>
+            </tr>
+            <tr>
+              <th scope="row">Scheduled tasks</th>
+              <td class="us"><b>Yes.</b> Routines, and missed runs catch up.</td>
+              <td><b>Yes.</b> A built-in cron scheduler.</td>
+              <td><b>Yes.</b> Agents on cron schedules.</td>
+              <td>Not listed.</td>
+              <td><b>Partly.</b> In the ChatGPT desktop app.</td>
+              <td><b>Yes.</b> On a schedule or a webhook.</td>
+            </tr>
+            <tr>
+              <th scope="row">Scripted multi-agent work</th>
+              <td class="us"><b>Yes.</b> Workflows in sandboxed QuickJS that resume by replay.</td>
+              <td><b>Yes.</b> Python scripts that call tools over RPC.</td>
+              <td><b>Partly.</b> A headless CLI for CI, with JSON output.</td>
+              <td>Not listed.</td>
+              <td>Not listed.</td>
+              <td><b>Yes.</b> Automations, each conversation in its own Docker container.</td>
+            </tr>
+            <tr>
+              <th scope="row">Work on other computers</th>
+              <td class="us"><b>Yes.</b> Paired PCs and Macs connect out, with no open port.</td>
+              <td><b>Yes.</b> Docker, SSH, Modal, Daytona and Vercel Sandbox.</td>
+              <td>Not listed.</td>
+              <td>Not listed.</td>
+              <td><b>Partly.</b> Codex Web, in OpenAI's cloud.</td>
+              <td><b>Yes.</b> Docker containers, VMs and other backends.</td>
+            </tr>
+            <tr>
+              <th scope="row">Memory across sessions</th>
+              <td class="us"><b>Yes.</b> One memory for every model and device.</td>
+              <td><b>Yes.</b> Curated memory and session search.</td>
+              <td><b>Partly.</b> Team state persists.</td>
+              <td>Not listed.</td>
+              <td>Not listed.</td>
+              <td><b>Partly.</b> Conversation history.</td>
+            </tr>
+            <tr>
+              <th scope="row">Several people on one install</th>
+              <td class="us"><b>Yes.</b> Members with their own chats, memory, keys and devices.</td>
+              <td><b>Partly.</b> Allow lists of chat app users.</td>
+              <td><b>Partly.</b> Members and roles for organizations.</td>
+              <td>Not listed.</td>
+              <td>Not listed.</td>
+              <td><b>Partly.</b> Share an agent server with your team.</td>
+            </tr>
+            <tr>
+              <th scope="row">Review edits in your editor</th>
+              <td class="us">Diffs in the session view, and an undo checkpoint per turn. No editor plugin.</td>
+              <td>Not listed.</td>
+              <td><b>Yes.</b> Every edit as a diff in VS Code or JetBrains, with checkpoints.</td>
+              <td>Not listed.</td>
+              <td><b>Yes.</b> Extensions for VS Code, Cursor and Windsurf.</td>
+              <td>Not listed.</td>
+            </tr>
+            <tr>
+              <th scope="row">License</th>
+              <td class="us">AGPL-3.0</td>
+              <td>MIT</td>
+              <td>Apache 2.0. The JetBrains plugin is not open source.</td>
+              <td>MIT</td>
+              <td>Apache 2.0</td>
+              <td>MIT</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="sub rv">Where these tools lead</h3>
+      <ul class="better">
+        <li class="card"><b>Cline</b> lives in your editor: every edit is a diff you can review, change or revert, with checkpoints and Plan and Act modes.</li>
+        <li class="card"><b>Hermes Agent</b> writes and improves its own skills from experience, and reaches you on six chat platforms, voice memos included.</li>
+        <li class="card"><b>OpenHands</b> runs each conversation in its own Docker container, and switches between local, remote and cloud backends.</li>
+        <li class="card"><b>OpenCode</b> lists more than 75 providers, and takes GitHub Copilot and GitLab Duo plans.</li>
+        <li class="card"><b>Codex</b> is OpenAI's own loop for its models, with cloud tasks in Codex Web. Conclave can run the Codex CLI, but it does not change it.</li>
+      </ul>
+
       <details class="sources">
-        <summary>Sources for the table</summary>
+        <summary>Sources for the tables</summary>
         <ul>
           <li>Claude Code: <a href="https://code.claude.com/docs/en/remote-control">Remote Control</a>, <a href="https://code.claude.com/docs/en/workflows">dynamic workflows</a>, <a href="https://code.claude.com/docs/en/agent-view">agent view</a>, <a href="https://code.claude.com/docs/en/llm-gateway">gateways (no non-Claude models)</a>. Claude: <a href="https://support.claude.com/en/articles/10593882">sharing chats</a>.</li>
           <li>OpenAI: <a href="https://developers.openai.com/codex/app/mobile">Codex in the ChatGPT phone app</a>, <a href="https://developers.openai.com/codex/config-advanced">Codex providers and local models</a>, <a href="https://developers.openai.com/codex/subagents">Codex subagents</a>, <a href="https://help.openai.com/en/articles/12703475-group-chats">ChatGPT group chats</a>.</li>
           <li>Cursor: <a href="https://cursor.com/docs/cloud-agent/my-machines">My Machines</a>, <a href="https://cursor.com/docs/cloud-agent/mobile">Cursor for iOS</a>, <a href="https://cursor.com/help/models-and-usage/api-keys">API keys</a>, <a href="https://cursor.com/docs/shared-transcripts">shared transcripts</a>, <a href="https://forum.cursor.com/t/cursor-2-0-x-what-are-parallel-agents-doing/138911">parallel agents</a>.</li>
           <li>GitHub Copilot: <a href="https://github.blog/changelog/2025-10-28-copilot-coding-agent-now-supports-self-hosted-runners">self-hosted runners</a>, <a href="https://docs.github.com/en/copilot/concepts/models/bring-your-own-key">bring your own key</a>, <a href="https://code.visualstudio.com/docs/copilot/language-models">models in VS Code</a>, <a href="https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/use-cloud-agent-on-mobile">cloud agent on mobile</a>, <a href="https://github.blog/changelog/2025-04-17-share-copilot-chat-conversations-2/">shared conversations</a>.</li>
           <li>Open WebUI: <a href="https://docs.openwebui.com/features/">features</a>, <a href="https://docs.openwebui.com/features/chat-conversations/chat-features/chatshare/">chat sharing</a>, <a href="https://docs.openwebui.com/features/open-terminal/">Open Terminal</a>.</li>
+          <li>Hermes Agent: <a href="https://github.com/NousResearch/hermes-agent">README</a>, <a href="https://hermes-agent.nousresearch.com/docs/integrations/providers">providers</a>, <a href="https://hermes-agent.nousresearch.com/docs/user-guide/security">security</a>.</li>
+          <li>Cline: <a href="https://github.com/cline/cline">README</a>, <a href="https://docs.cline.bot/cline-overview">overview</a>, <a href="https://docs.cline.bot/getting-started/authorizing-with-cline">providers and sign-in</a>.</li>
+          <li>OpenCode: <a href="https://github.com/anomalyco/opencode">README</a>, <a href="https://opencode.ai/v2/docs">docs</a>, <a href="https://opencode.ai/docs/providers">providers</a>.</li>
+          <li>Codex CLI: <a href="https://github.com/openai/codex">README</a>, <a href="https://learn.chatgpt.com/docs/app">ChatGPT app</a>.</li>
+          <li>OpenHands: <a href="https://github.com/OpenHands/OpenHands">README</a>, <a href="https://docs.openhands.dev/openhands/usage/agent-canvas/acp-agents">ACP agents</a>, <a href="https://docs.openhands.dev/openhands/usage/settings/llm-settings">LLM settings</a>.</li>
           <li>LibreChat: <a href="https://www.librechat.ai/docs/features/agents">agents and agent chains</a>, <a href="https://www.librechat.ai/docs/features/shareable_links">shareable links</a>, <a href="https://www.librechat.ai/docs/features/code_interpreter">code interpreter</a>, <a href="https://www.librechat.ai/docs/compatibility">providers</a>, <a href="https://docs.ccv.brown.edu/ai-tools/services/librechat/advanced-usage">side by side compare</a>.</li>
         </ul>
       </details>
@@ -886,7 +1058,7 @@
 <footer class="foot">
   <div class="wrap foot-row">
     <a class="foot-brand" href="./"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#k"/></svg>Conclave</a>
-    <p class="foot-links"><a href="./">Home</a> <a href="privacy.html">Privacy policy</a> <a href="mailto:defaultcybe@gmail.com">Contact</a></p>
+    <p class="foot-links"><a href="./">Home</a> <a href="https://github.com/default-cybe/conclave">GitHub</a> <a href="llms.txt">llms.txt</a> <a href="privacy.html">Privacy policy</a> <a href="mailto:defaultcybe@gmail.com">Contact</a></p>
   </div>
 </footer>
 </body>

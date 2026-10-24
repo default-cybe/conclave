@@ -3,19 +3,40 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Conclave | Your own AI app, on your own computer</title>
+<title>Conclave | A self-hosted agent harness and hub for your own computers</title>
 <meta name="google-site-verification" content="xHuolIEU4JkeKLUy8SSlbhf-pA7wyXRZVJGtutR6fYU" />
 <meta name="google-site-verification" content="Pf0NY4AneQF7aLil1kK8Wb-MREP4Ay_QchZxsSpvNjY" />
-<meta name="description" content="Chat with any AI model and let coding agents work on your machines. One app for the web, your desktop and your phone. You host it, so everything stays with you.">
+<meta name="description" content="Conclave is a self-hosted agent harness and hub. Its own coding agent loop works with any model, Claude Code, Codex, Gemini CLI and OpenCode run in the same transcript, agents work on your own computers, and you approve risky steps from your phone. Open source, AGPL-3.0.">
+<link rel="canonical" href="https://conclave.dymnitguys.com/">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#fafafb" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#141417" media="(prefers-color-scheme: dark)">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Conclave: your own AI app, on your own computer">
-<meta property="og:description" content="Chat with any AI model and let coding agents work on your machines. One app for the web, your desktop and your phone. You host it, so everything stays with you.">
+<meta property="og:site_name" content="Conclave">
+<meta property="og:title" content="Conclave: a self-hosted agent harness for every computer you own">
+<meta property="og:description" content="Its own agent loop with any model, Claude Code, Codex, Gemini CLI and OpenCode in one transcript, agents on your own computers, and approvals from your phone.">
 <meta property="og:url" content="https://conclave.dymnitguys.com/">
 <meta property="og:image" content="https://conclave.dymnitguys.com/img/og.jpg">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Conclave: a self-hosted agent harness for every computer you own">
+<meta name="twitter:description" content="Its own agent loop with any model, Claude Code, Codex, Gemini CLI and OpenCode in one transcript, agents on your own computers, and approvals from your phone.">
+<meta name="twitter:image" content="https://conclave.dymnitguys.com/img/og.jpg">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Conclave",
+  "url": "https://conclave.dymnitguys.com/",
+  "description": "A self-hosted agent harness and hub. Its own coding agent loop works with any model, Claude Code, Codex, Gemini CLI and OpenCode run over ACP in the same transcript, devices connect out to the hub, and approvals can be answered from a phone.",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "Linux, macOS, Windows, Android, Docker",
+  "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+  "downloadUrl": "https://github.com/default-cybe/conclave/releases/latest",
+  "sameAs": "https://github.com/default-cybe/conclave",
+  "image": "https://conclave.dymnitguys.com/img/og.jpg",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
 <link rel="icon" href="logo.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -51,6 +72,7 @@
     <a class="brand" href="./"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#k"/></svg><span>Conclave</span></a>
     <nav class="sections" aria-label="Site">
       <div class="sections-row">
+        <a href="#different">Different</a>
         <a href="#features">Features</a>
         <a href="#how">How it works</a>
         <a href="details.html">Details</a>
@@ -72,13 +94,13 @@
     <div class="wrap hero-grid">
       <div class="hero-copy">
         <p class="pill enter"><svg class="pill-knot" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#k"/></svg><span data-version>Latest release</span></p>
-        <h1 id="hero-title"><span class="phrase">Your own AI app,</span> <span class="phrase">on your own computer.</span></h1>
-        <p class="lead enter">Chat with any AI model and let coding agents work on your machines. One app for the web, your desktop and your phone. You host it, so everything stays with you.</p>
+        <h1 id="hero-title"><span class="phrase">A self-hosted agent harness</span> <span class="phrase">for every computer you own.</span></h1>
+        <p class="lead enter">Conclave runs its own coding agent loop with any model, and Claude Code, Codex, Gemini CLI and OpenCode in the same transcript. Agents work on your PC, Mac or server. You answer their approvals from your phone.</p>
         <p class="actions enter">
-          <a class="btn" href="#download">Download</a>
-          <a class="btn btn-quiet" href="#how">See how it works</a>
+          <a class="btn" href="#download">Install</a>
+          <a class="btn btn-quiet" href="https://github.com/default-cybe/conclave">GitHub</a>
         </p>
-        <p class="platforms enter">Windows, Mac, Linux, Android and Docker.</p>
+        <p class="platforms enter">Open source, AGPL-3.0. Hub on Docker, Proxmox, Linux or macOS. Apps for Windows, Mac, Linux and Android.</p>
       </div>
       <div class="hero-knot">
         <div class="stage" aria-hidden="true">
@@ -112,6 +134,56 @@
           </ul>
         </div>
       </div>
+    </div>
+  </section>
+
+  <section id="different" class="sec diff" aria-labelledby="different-title">
+    <div class="wrap">
+      <h2 id="different-title" class="rv">What makes it different</h2>
+      <p class="diff-intro rv">Each line links to the part of the design log that says how it works and where it can fail.</p>
+      <div class="diff-groups">
+        <div class="diff-group rv">
+          <h3>Its own harness</h3>
+          <ul>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#3-own-harness-vs-vendor-harnesses">Agent loop for any model</a>. File, shell, search and web tools, permission rules, hooks, skills and subagents, rebuilt from Claude Code's public design.</li>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#5-efficiency">Compaction and prompt caching</a>. A byte-stable system prompt, cache breakpoints, and a checked summary at 80% of the context window.</li>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#19-specialist-subagents">Verify gate</a>. After a turn that edits files, the project's check runs on that computer. A failure sends the agent back, up to 3 times.</li>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#3-own-harness-vs-vendor-harnesses">Vendor CLIs over ACP</a>. Claude Code, Codex, Gemini CLI and OpenCode run as engines and write into the same transcript as any other model.</li>
+          </ul>
+        </div>
+        <div class="diff-group rv">
+          <h3>Several models on one problem</h3>
+          <ul>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#4-multi-model-in-one-chat">Second opinion</a>. Send any reply to another model and read its answer in line.</li>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#4-multi-model-in-one-chat">Jury</a>. Several models answer, then a judge decides. Juror names can be hidden from the judge.</li>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#4-multi-model-in-one-chat">Debate</a>. Two models argue for a set number of rounds, and a judge concludes.</li>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#4-multi-model-in-one-chat">Loop</a>. Keep going until a command such as <code>bun test</code> passes, up to a set number of tries.</li>
+          </ul>
+        </div>
+        <div class="diff-group rv">
+          <h3>Long runs that hold up</h3>
+          <ul>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#28-file-conflicts-and-stuck-agents">File conflict warnings</a>. A write to a file another live session changed in the last 10 minutes tells the agent and alerts you.</li>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#28-file-conflicts-and-stuck-agents">Stuck detection</a>. A turn with no progress for 5 minutes raises an alert with Stop and Keep waiting.</li>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#6-limits-and-auto-resume">Usage-limit failover</a>. At a limit, the same model goes on with your next plan or key, then the next model on your fallback list.</li>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#18-workflows">Workflows</a>. Scripts run in sandboxed QuickJS with no file system or network. A resume replays finished agent calls from a journal.</li>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/packages/core/src/scheduler/routines.ts">Routines that catch up</a>. A run missed while the hub was down runs when it is back, up to 6 hours late.</li>
+          </ul>
+        </div>
+        <div class="diff-group rv">
+          <h3>A hub, not a single terminal</h3>
+          <ul>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#24-subscriptions-through-cliproxyapi">Plans you already pay for</a>. Sign in with Claude, ChatGPT and Google plans through a pinned, checksum-checked CLIProxyAPI.</li>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#2-architecture">Devices dial out</a>. Each computer connects out to the hub, so no port opens on it.</li>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#10-devices-and-security">Approvals from your phone</a>. Risky calls wait for Allow or Deny, in the app or on the notification.</li>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#35-accounts-several-people-on-one-hub">Several people on one hub</a>. Each member has their own sessions, memory, keys and devices.</li>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#9-memory">Shared memory</a>. Every model and device reads one memory, mirrored to Basic Memory notes.</li>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#39-updates">Automatic updates</a>. Signed releases install themselves when no session is running.</li>
+            <li><a href="https://github.com/default-cybe/conclave/blob/main/CHANGELOG.md#0421---2026-10-23">File outputs</a>. A session hands you a PDF, image or zip as a file card with a Download button.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="more-link rv"><a class="arrow-link" href="details.html#agents">Compare with Hermes Agent, Cline, OpenCode, Codex and OpenHands</a></p>
     </div>
   </section>
 
@@ -381,7 +453,7 @@ sh setup.sh</code></pre>
     <div class="wrap close-row">
       <div class="close-knot" data-knot="close" aria-hidden="true"><svg viewBox="0 0 64 64" focusable="false"><use href="#k"/></svg></div>
       <h2 id="close-title">Run your own hub.</h2>
-      <p class="actions"><a class="btn" href="#download">Download</a></p>
+      <p class="actions"><a class="btn" href="#download">Install</a> <a class="btn btn-quiet" href="https://github.com/default-cybe/conclave">GitHub</a></p>
     </div>
   </section>
 </main>
@@ -389,7 +461,7 @@ sh setup.sh</code></pre>
 <footer class="foot">
   <div class="wrap foot-row">
     <a class="foot-brand" href="./"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#k"/></svg>Conclave</a>
-    <p class="foot-links"><a href="details.html">Details</a> <a href="privacy.html">Privacy policy</a> <a href="mailto:defaultcybe@gmail.com">Contact</a></p>
+    <p class="foot-links"><a href="details.html">Details</a> <a href="https://github.com/default-cybe/conclave">GitHub</a> <a href="llms.txt">llms.txt</a> <a href="privacy.html">Privacy policy</a> <a href="mailto:defaultcybe@gmail.com">Contact</a></p>
   </div>
 </footer>
 </body>
