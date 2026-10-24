@@ -185,6 +185,22 @@ export function shortNameSuggestions(accounts: AccountDto[]): Map<string, string
   return suggestPrefixes(plans, takenPrefixes(accounts));
 }
 
+/** Models two or more signed in plans list (Opus on Claude and Antigravity), account prefix dropped, that have no order of their own yet: what "Per model" offers. */
+export function sharedModels(status: Pick<AccountsStatus, 'accounts' | 'routes'>): Array<{ id: string; name: string }> {
+  const taken = new Set(status.routes.filter((r) => r.match).map((r) => r.match!.toLowerCase()));
+  const seen = new Map<string, { id: string; name: string; plans: Set<string> }>();
+  for (const a of status.accounts) {
+    if (a.kind !== 'subscription') continue;
+    for (const m of a.models) {
+      const id = m.id.slice(m.id.lastIndexOf('/') + 1);
+      const e = seen.get(id.toLowerCase()) ?? { id, name: m.name || id, plans: new Set<string>() };
+      e.plans.add(a.id);
+      seen.set(id.toLowerCase(), e);
+    }
+  }
+  return [...seen.entries()].filter(([k, e]) => e.plans.size > 1 && !taken.has(k)).map(([, e]) => ({ id: e.id, name: e.name })).sort((x, y) => x.name.localeCompare(y.name));
+}
+
 /** Vendors with two or more signed in plans that have no short name: CLIProxyAPI picks among them. */
 export function unnamedPlans(accounts: AccountDto[]): Array<{ vendor: string; vendorName: string; count: number; plans: AccountDto[] }> {
   const out: Array<{ vendor: string; vendorName: string; count: number; plans: AccountDto[] }> = [];

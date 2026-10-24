@@ -121,6 +121,50 @@ describe('the accounts service', () => {
     expect(svc.account('claude-a')!.label).toBe('Account 1');
   });
 
+  test("another vendor's plan that lists the model joins that model's order (Opus on Antigravity)", () => {
+    const now = { t: Date.now() };
+    const { svc, config } = setup(now);
+    const opus = [{ id: 'claude-opus-5-5' }];
+    svc.setCliproxy({
+      provider: 'cliproxy',
+      management: true,
+      credentials: [cred('claude-a.json', { models: opus }), cred('antigravity-g.json', { provider: 'antigravity', models: [...opus, { id: 'gemini-3-pro' }], prefix: 'ag' }), cred('gemini-cli-x.json', { provider: 'gemini-cli', models: [{ id: 'gemini-3-pro' }] })],
+    });
+    const ready = (m: string) => svc.readyAccounts(m).map((a) => a.id);
+    // the vendor's own plans first, then the other vendor's plan, then the key; a gemini plan without Opus stays out
+    expect(ready('claude-opus-5-5')).toEqual(['claude-a', 'antigravity-g', 'api-anthropic']);
+    expect(ready('claude-sonnet-5-5')).toEqual(['api-anthropic']);
+    // a per model order may hold it; the vendor's default order may not
+    svc.setOrder({ vendor: '', match: 'claude-opus-5-5', order: ['antigravity-g', 'claude-a'] });
+    expect((config.getUser() as any).models.routes).toEqual([{ vendor: 'anthropic', match: 'claude-opus-5-5', order: ['antigravity-g', 'claude-a'] }]);
+    expect(ready('claude-opus-5-5')).toEqual(['antigravity-g', 'claude-a', 'api-anthropic']);
+    expect(svc.status().routes.find((r) => r.match)?.order).toEqual(['antigravity-g', 'claude-a', 'api-anthropic']);
+    expect(() => svc.setOrder({ vendor: 'anthropic', order: ['antigravity-g'] })).toThrow(/Not an account of Claude/);
+    expect(() => svc.setOrder({ vendor: 'anthropic', match: 'claude-opus-5-5', order: ['gemini-cli-x'] })).toThrow(/Not an account of Claude/);
+    // a limit on the prefixed id blocks that plan only; a bare one blocks the vendor's own plans
+    svc.noteLimit('cliproxy', 'ag/claude-opus-5-5');
+    expect(ready('claude-opus-5-5')).toEqual(['claude-a', 'api-anthropic']);
+    svc.clearBlock('antigravity-g');
+    svc.noteLimit('cliproxy', 'claude-opus-5-5');
+    expect(ready('claude-opus-5-5')).toEqual(['antigravity-g', 'api-anthropic']);
+  });
+
+  test("a limit on another vendor's model blocks only that vendor's models on the plan (Antigravity keeps Claude and Gemini quotas apart)", () => {
+    const now = { t: Date.now() };
+    const { svc } = setup(now);
+    svc.setCliproxy({ provider: 'cliproxy', management: true, credentials: [cred('antigravity-g.json', { provider: 'antigravity', models: [{ id: 'claude-opus-5-5' }, { id: 'gemini-3-pro' }], prefix: 'ag' })] });
+    const ready = (m: string) => svc.readyAccounts(m).map((a) => a.id);
+    svc.noteLimit('cliproxy', 'ag/claude-opus-5-5');
+    expect(ready('claude-opus-5-5')).toEqual(['api-anthropic']);
+    expect(ready('gemini-3-pro')).toEqual(['antigravity-g']);
+    // a limit on the plan's own vendor still blocks the whole plan
+    svc.clearBlock('antigravity-g');
+    expect(ready('claude-opus-5-5')).toEqual(['antigravity-g', 'api-anthropic']);
+    svc.noteLimit('cliproxy', 'ag/gemini-3-pro');
+    expect(ready('gemini-3-pro')).toEqual([]);
+    expect(ready('claude-opus-5-5')).toEqual(['api-anthropic']);
+  });
+
   test('budgets are checked before they are saved', () => {
     expect(checkBudget({ usd: '25', resetDay: 22, tz: 'Europe/Berlin', hardStop: false })).toEqual({ usd: 25, period: 'month', resetDay: 22, tz: 'Europe/Berlin', hardStop: false });
     expect(checkBudget({ usd: 5, period: 'week', resetDay: 2, resetHour: 10 })).toEqual({ usd: 5, period: 'week', resetDay: 2, resetHour: 10 });
