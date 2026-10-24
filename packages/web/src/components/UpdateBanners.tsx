@@ -33,7 +33,7 @@ import { Button, buttonClass } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Field';
 import { Dialog } from '@/components/ui/Overlay';
 import { LiveStatus } from '@/components/motion';
-import { hubBanner, jobRunning, jobWords, popupFor, popupTitle, RELOAD_WORDS, showReload, updateDot, type UpdatePrefs } from '@/lib/updates';
+import { busyMessage, hubBanner, jobRunning, jobWords, popupFor, popupTitle, RELOAD_WORDS, showReload, updateDot, type UpdatePrefs } from '@/lib/updates';
 
 const SKIP_KEY = 'conclave.update.skip';
 /** The old banner's Later: the version it was put off for counts as skipped. */
@@ -180,9 +180,27 @@ function useHubUpdateStatus(): boolean {
 let decided = false;
 
 /** What the popup shows: the release, or the update it started. Tests render it. */
+/** Update now found work running: Update when idle, or Update anyway (Settings, About and the popup). busy: which one is pressed. */
+export function BusyChoices({ size, busy, onWhenIdle, onForce, className }: { size: 'sm' | 'md' | 'touch'; busy?: string | null; onWhenIdle: () => void; onForce: () => void; className?: string }) {
+  return (
+    <span className={cn('flex flex-wrap items-center gap-2', className)}>
+      <Button size={size} busy={busy === 'idle' ? 'Saving' : false} onClick={onWhenIdle}>
+        Update when idle
+      </Button>
+      <Button variant="danger" size={size} busy={busy === 'force' ? 'Starting' : false} onClick={onForce}>
+        Update anyway
+      </Button>
+    </span>
+  );
+}
+
 export function UpdatePopupBody({
   status,
   started,
+  blocked,
+  busy,
+  onForce,
+  onWhenIdle,
   onUpdate,
   onSkip,
   onClose,
@@ -193,6 +211,11 @@ export function UpdatePopupBody({
   status: UpdateStatusDto;
   /** Update now was pressed here: the popup follows the update. */
   started: boolean;
+  /** Update now found work running: what runs, in a sentence. */
+  blocked?: string;
+  busy?: string | null;
+  onForce?: () => void;
+  onWhenIdle?: () => void;
   onUpdate: () => void;
   onSkip: () => void;
   onClose: () => void;
@@ -219,6 +242,14 @@ export function UpdatePopupBody({
   const b = hubBanner(status, undefined);
   if (!p || !b) return null;
   const phone = size === 'touch';
+  if (blocked && onForce && onWhenIdle) {
+    return (
+      <div className="space-y-4">
+        <p className="m-0 text-[14px] leading-[1.5] text-fg-2 phone:text-[15px]">{blocked} The restart would stop it.</p>
+        <BusyChoices size={size} busy={busy} onWhenIdle={onWhenIdle} onForce={onForce} className={phone ? 'flex-col items-stretch' : 'justify-end'} />
+      </div>
+    );
+  }
   const update = p.canUpdate ? (
     <Button variant="solid" size={size} onClick={onUpdate} data-autofocus className={cn(phone && 'w-full')}>
       Update now
@@ -266,6 +297,8 @@ export function HubUpdatePopup() {
   const [open, setOpen] = useState(false);
   const [started, setStarted] = useState(false);
   const [version, setVersion] = useState<string>();
+  const [blocked, setBlocked] = useState<string>();
+  const [busy, setBusy] = useState<string | null>(null);
 
   // at start: the first status the hub gives decides, once per start of the app
   useEffect(() => {
@@ -280,6 +313,29 @@ export function HubUpdatePopup() {
 
   if (!show || !status) return null;
   const close = () => setOpen(false);
+  // Update now, Update anyway (force) or Update when idle; a 409 for running work shows what runs
+  const apply = (id: string, opts: { force?: boolean; when?: 'idle' } = {}) => {
+    if (!version) return;
+    setBusy(id);
+    if (id !== 'idle') setStarted(true);
+    void api()
+      .applyHubUpdate(version, opts)
+      .then((s) => {
+        setHubUpdateStatus(s);
+        setBlocked(undefined);
+        if (id === 'idle') {
+          toast({ title: `Conclave ${version} installs once nothing runs.`, level: 'success' });
+          close();
+        }
+      })
+      .catch((e: Error) => {
+        setStarted(false);
+        const why = busyMessage(e);
+        if (why) setBlocked(why);
+        else toast({ title: e.message, level: 'error' });
+      })
+      .finally(() => setBusy(null));
+  };
   return (
     <Dialog open={open} onClose={close} title={popupTitle(version ?? status.latest?.version ?? status.current)} width={460}>
       <UpdatePopupBody
@@ -293,17 +349,11 @@ export function HubUpdatePopup() {
           if (version) skipVersion(version);
           close();
         }}
-        onUpdate={() => {
-          if (!version) return;
-          setStarted(true);
-          void api()
-            .applyHubUpdate(version)
-            .then(setHubUpdateStatus)
-            .catch((e: Error) => {
-              setStarted(false);
-              toast({ title: e.message, level: 'error' });
-            });
-        }}
+        blocked={blocked}
+        busy={busy}
+        onUpdate={() => apply('now')}
+        onForce={() => apply('force', { force: true })}
+        onWhenIdle={() => apply('idle', { when: 'idle' })}
       />
     </Dialog>
   );
