@@ -39,7 +39,7 @@ import { DEFAULTS, Semaphore, SemaphoreMap, budgetWord, count, type RunCaps } fr
 import type { StepState } from './agents';
 import { repoInfo, worktreeAction as runWorktreeAction, pruneWorktrees } from './worktrees';
 import { setWorkflows } from './attached';
-import { MAX_SCRIPT_BYTES, WorkflowLoadError } from './meta';
+import { MAX_SCRIPT_BYTES, MINIMAL_WORKFLOW_EXAMPLE, WorkflowLoadError } from './meta';
 import { OWNER_ID, currentAccount, isMember } from '../people/context';
 import type { SANDBOX_LIMITS } from './sandbox';
 
@@ -578,7 +578,9 @@ export class WorkflowService {
     try {
       resolved = !input.name && !input.script && !input.scriptPath && old ? await this.resolveScript({ script: old.script }, session) : await this.resolveScript(input, session);
     } catch (err) {
-      return { text: `The workflow did not load: ${(err as Error).message}`, isError: true };
+      // a script the model wrote: show one that loads (load errors arrive here as EngineError, see resolveScript)
+      const example = input.script || input.scriptPath ? `\n\nA minimal script that works:\n${MINIMAL_WORKFLOW_EXAMPLE}` : '';
+      return { text: `The workflow did not load: ${(err as Error).message}${example}`, isError: true };
     }
     const cfg = this.engine.config.get().workflows ?? {};
     const threshold = cfg.autoApproveTokens ?? DEFAULTS.autoApproveTokens;

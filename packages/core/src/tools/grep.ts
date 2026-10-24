@@ -27,7 +27,7 @@ Usage:
 - Always use Grep for content search. Do not run grep or rg through Bash; this tool handles permissions, ignores and output limits for you.
 - pattern is a Rust regular expression (ripgrep syntax), e.g. "log.*Error" or "function\\s+\\w+". Escape literal braces and other metacharacters: use "interface\\{\\}" to find "interface{}".
 - Filter files with glob (e.g. "*.js", "*.{ts,tsx}") or type (e.g. "js", "py", "rust"; faster than glob for standard languages).
-- output_mode: "files_with_matches" (default) lists matching files, newest first; "content" shows matching lines; "count" shows match counts per file.
+- output_mode: "files_with_matches" (default for a directory) lists matching files, newest first; "content" shows matching lines; "count" shows match counts per file. When path is a single file, the default is "content".
 - In content mode you can add context lines with -A (after), -B (before) or -C (both), and -n shows line numbers (on by default).
 - -i makes the search case-insensitive.
 - Patterns match within a single line by default. Set multiline to true for patterns that span lines (e.g. "struct \\{[\\s\\S]*?field").
@@ -48,7 +48,7 @@ export const GrepTool: Tool<GrepInput> = {
       output_mode: {
         type: 'string',
         enum: ['content', 'files_with_matches', 'count'],
-        description: 'content: matching lines; files_with_matches: file paths (default); count: matches per file',
+        description: 'content: matching lines (default when path is a file); files_with_matches: file paths (default for a directory); count: matches per file',
       },
       '-i': { type: 'boolean', description: 'Case-insensitive search' },
       '-n': { type: 'boolean', description: 'Show line numbers (content mode, default true)' },
@@ -68,7 +68,8 @@ export const GrepTool: Tool<GrepInput> = {
   async run(input, ctx) {
     if (typeof input.pattern !== 'string' || !input.pattern) return fail('pattern is required.');
     const path = resolveLoose(ctx, input.path === 'undefined' || input.path === 'null' ? undefined : input.path);
-    const mode = input.output_mode ?? 'files_with_matches';
+    // listing the one file the caller already named says nothing, so show its lines
+    const mode = input.output_mode ?? (input.path && (await ctx.machine.stat(path).then((s) => s?.type === 'file', () => false)) ? 'content' : 'files_with_matches');
     const context = input['-C'];
     const limit = input.head_limit === undefined ? DEFAULT_HEAD_LIMIT : Math.max(0, Math.floor(input.head_limit));
     const offset = Math.max(0, Math.floor(input.offset ?? 0));
