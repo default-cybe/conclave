@@ -167,6 +167,8 @@ interface Queued {
   auto?: boolean;
   /** Continues a turn a usage limit parked (session/limits.ts resumeAfterReset). */
   resume?: boolean;
+  /** Resume only a failed native inference, without submitting a user turn again. */
+  inference?: boolean;
   /** Started to show pending notes to an idle session. */
   forNotes?: boolean;
   /** Sent by a person while the session was busy: apps show it until it joins the transcript (session.queue). */
@@ -245,6 +247,8 @@ export interface PendingNote {
 export class SessionRunner {
   readonly id: string;
   private queue: Queued[] = [];
+  private inferenceError?: ProviderError;
+  private retryNotice?: string;
   private steering: Steer[] = [];
   /** The waiting message whose turn is starting: listed until its user message is in the transcript, so apps never lose it. */
   private starting?: Queued;
@@ -342,6 +346,23 @@ export class SessionRunner {
    */
   retryRefusal(served: Served, reply?: Message): void {
     this.queue.push({ input: { text: '' }, auto: true, refusal: { served, ...(reply ? { reply } : {}) } });
+    void this.drain();
+  }
+
+  /** Consume a failed inference boundary before starting work, so concurrent or stale retries cannot replay it. */
+  retryProvider(messageId: string, model: string): void {
+    const engine = this.engine;
+    const messages = engine.repos.messages.list(this.id);
+    const at = messages.findIndex((m) => m.id === messageId);
+    const notice = messages[at];
+    if (this.busy || this.session.status !== 'error' || this.retryNotice !== messageId || !notice || messages.slice(at + 1).some((m) => m.kind !== 'notice')) {
+      throw new Error('This failed inference is no longer available to retry. Nothing was rerun.');
+    }
+    this.retryNotice = undefined;
+    engine.updateMessage(messageId, { meta: { ...notice.meta, canRetry: false } });
+    engine.updateSession(this.id, { model });
+    engine.notice(this.id, `Retrying failed inference with ${engine.displayModel(model)} (${model}). Completed tool calls are preserved.`, 'info');
+    this.queue.push({ input: { text: '' }, auto: true, inference: true });
     void this.drain();
   }
 
@@ -571,7 +592,15 @@ export class SessionRunner {
         const signal = this.controller.signal;
         try {
           // the turn is its session's account's work, wherever it was started from (the machine guard reads this)
-          await runAs(this.session.accountId ?? OWNER_ID, () => this.turn(next, signal));
+          this.inferenceError = undefined;
+          this.retryNotice = undefined;
+          await runAs(this.session.accountId ?? OWNER_ID, async () => {
+            if (!next.inference) return this.turn(next, signal);
+            this.engine.setStatus(this.id, 'running');
+            await this.agentLoop(this.session.model, this.session.mode, signal);
+            if (this.session.status === 'running') this.engine.setStatus(this.id, 'idle');
+            this.engine.afterTurn(this.id, Date.now() - this.turnStartedAt);
+          });
         } catch (err) {
           if (this.controller.signal.aborted) {
             this.engine.notice(this.id, 'Stopped', 'info');
@@ -579,7 +608,10 @@ export class SessionRunner {
           } else {
             log.error(`turn failed in ${this.id}`, err);
             const msg = turnErrorText(this.engine, err);
-            this.engine.notice(this.id, `Error: ${msg}`, 'error');
+            const canRetry = err === this.inferenceError && !this.inferenceError?.code && ['agent', 'chat', 'plan'].includes(this.session.mode);
+            const unsafe = err === this.inferenceError && !canRetry ? ' Alternate-model retry is unavailable for this session mode because its orchestration cannot safely resume at the failed inference.' : '';
+            const notice = this.engine.notice(this.id, `Error: ${msg}${unsafe}`, 'error', undefined, canRetry ? { type: 'provider_error', canRetry: true } : undefined);
+            if (canRetry) this.retryNotice = notice?.id;
             this.engine.setStatus(this.id, 'error', msg);
             this.engine.notifyEvent('errors', { title: 'Session error', body: oneLine(msg, 160), level: 'error', sessionId: this.id, link: `/s/${this.id}` });
           }
@@ -1092,6 +1124,7 @@ export class SessionRunner {
             return end('rate_limit', false);
           }
         }
+        if (err instanceof ProviderError && err.kind !== 'auth' && err.kind !== 'aborted' && !err.code && mode === this.session.mode) this.inferenceError = err;
         throw err;
       }
 
