@@ -31,6 +31,7 @@ import { useLocation } from 'wouter';
 import { Check, ChevronLeft, ChevronRight, SquareTerminal } from 'lucide-react';
 import type { ModelEntry, ModelGroup } from '@conclave/core/client';
 import type { Device, Session } from '@conclave/core/types';
+import { MODEL_VARIANT as VARIANT } from '@conclave/core/providers/model-id';
 import { cn, fuzzy } from '@/lib/text';
 import { useHub } from '@/store/store';
 import { useIsMobile } from '@/lib/hooks';
@@ -212,8 +213,6 @@ function accountWord(g: ModelGroup, secrets: string[] | undefined, limits: Recor
 /** A row's name: "Opus 5.5", never the plan's short name the hub adds ("Opus 5.5, neu"); a harness "Claude Code", or "Claude Code, Opus" for one of its models. */
 /** Ids that are not chat models: image generators, review models. */
 export const NON_CHAT = /(^|\/)(gpt-image|codex-auto-review|dall-e|whisper|tts-)|-image(-|$)|embedding/i;
-/** An effort or thinking variant of one model ("claude-opus-5-5-high", "claude-opus-4-6-thinking"). */
-const VARIANT = /-(minimal|low|medium|high|xhigh|thinking)$/i;
 const bareId = (r: Row) => (r.model?.id ?? r.ref.slice(r.ref.indexOf('/') + 1)).replace(/^.*\//, '').toLowerCase();
 
 /**
