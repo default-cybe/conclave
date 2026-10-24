@@ -457,12 +457,25 @@ async function refreshUpdate() {
       : v.off
         ? 'Updates from the app are off here.'
         : v.error
-          ? 'Could not check for updates. It tries again tomorrow.'
+          ? 'Could not check for updates. It tries again in 15 minutes.'
           : 'This is the newest version.';
   $('s-update-state').textContent = words;
   $('s-update-links').hidden = !v.available || v.installing;
   $('s-update-now').textContent = v.available ? `Update to ${v.available} and restart` : '';
+  $('s-update-auto').checked = settings?.autoUpdate !== false;
+  $('s-update-auto').disabled = !!v.off;
 }
+
+$('s-update-auto').addEventListener('change', async (event) => {
+  const box = event.target;
+  try {
+    await invoke('update_auto', { on: box.checked });
+    settings.autoUpdate = box.checked;
+  } catch (err) {
+    box.checked = !box.checked;
+    showError(String(err), 's-error');
+  }
+});
 
 /** `words` with `code` in backticks: text nodes and <code> elements, nothing read as HTML. */
 function setWords(el, words) {
