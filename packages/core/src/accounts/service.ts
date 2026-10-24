@@ -294,16 +294,26 @@ export class AccountsService {
     return this.ordered(vendor, routeFor(this.routes(), vendor, model)?.order, model);
   }
 
-  /** A vendor's accounts in order; with a model, also another vendor's plan whose own list has it (Opus on Antigravity), after the vendor's own. */
+  /** A vendor's accounts in order; with a model, also another vendor's plan whose own list has it (Opus on Antigravity), after the vendor's own plans and before its API keys unless the order lists it. */
   private ordered(vendor: string, order?: string[], model?: string): Acct[] {
     const own = this.accts().filter((a) => a.cfg.vendor === vendor);
-    const cross = model ? this.accts().filter((a) => a.cfg.vendor !== vendor && a.cfg.kind === 'subscription' && !!a.facts?.models && reaches({ models: a.facts.models.map((m) => m.id) }, model)) : [];
+    const cross = model ? this.accts().filter((a) => a.cfg.vendor !== vendor && this.lists(a, model)) : [];
     const all = [...own, ...cross];
     const ids = orderIds(
       all.map((a) => ({ id: a.cfg.id, kind: a.cfg.kind })),
       order,
     );
-    return ids.map((id) => all.find((a) => a.cfg.id === id)!);
+    // a saved order may put a key before a plan it never listed: a plan costs nothing, so it goes before the first key
+    const loose = new Set(cross.filter((a) => !order?.includes(a.cfg.id)).map((a) => a.cfg.id));
+    const rest = ids.filter((id) => !loose.has(id)).map((id) => all.find((a) => a.cfg.id === id)!);
+    const key = rest.findIndex((a) => a.cfg.kind === 'api');
+    rest.splice(key < 0 ? rest.length : key, 0, ...cross.filter((a) => loose.has(a.cfg.id)));
+    return rest;
+  }
+
+  /** A signed in plan whose own model list has the model. */
+  private lists(a: Acct, model: string): boolean {
+    return a.cfg.kind === 'subscription' && !!a.facts?.models && reaches({ models: a.facts.models.map((m) => m.id) }, model);
   }
 
   private label(a: Acct, all: Acct[]): string {
@@ -611,7 +621,8 @@ export class AccountsService {
       // a prefixed id ("neu/gpt-6-sol") went to that one plan only, of any vendor (Opus on Antigravity): the others were not tried
       const prefix = splitAccount(model).account;
       for (const a of all) {
-        if (a.cfg.kind !== 'subscription' || !(prefix ? a.facts?.prefix === prefix : a.cfg.vendor === vendor && reaches(this.view(a, now), model))) continue;
+        // a bare id was tried on every plan that lists it, another vendor's too
+        if (a.cfg.kind !== 'subscription' || !(prefix ? a.facts?.prefix === prefix : !!vendor && (a.cfg.vendor === vendor ? reaches(this.view(a, now), model) : this.lists(a, model)))) continue;
         // another vendor's model on this plan (Opus on Antigravity) has its own quota: block only that vendor's models here
         this.blocked.set(vendor && a.cfg.vendor !== vendor ? `${a.cfg.id}|${vendor}` : a.cfg.id, { until, at: now });
       }
@@ -717,6 +728,7 @@ export class AccountsService {
     const match = typeof input.match === 'string' && input.match.trim() ? input.match.trim() : undefined;
     // a per model order may leave the vendor to the hub: the model's maker
     const vendor = input.vendor || (match ? (vendorOfModel(match) ?? '') : '');
+    if (match && !vendor) throw new AccountsError(400, `Unknown model ${match}. Name its vendor.`);
     // a per model order may hold another vendor's plan that lists the model
     const mine = match ? this.ordered(vendor, undefined, match) : all.filter((a) => a.cfg.vendor === vendor);
     if (!mine.length) throw new AccountsError(404, `No accounts for ${vendor || match || 'that model'}.`);
