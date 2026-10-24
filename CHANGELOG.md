@@ -17,6 +17,8 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 - A notification when the hub updated itself, rolled back or failed, with the old and new version (Settings > Notifications, Updates).
+- Desktop app: updates install by themselves (Settings > Install updates automatically, on by default). The app checks at start and every 15 minutes, and installs once two checks in a row find the window not in use and the hub on this computer with no session running or waiting for an approval. A hub elsewhere does not hold the update back.
+- Desktop app: an update that cannot install for lack of permission (a macOS app the user cannot write, a Windows install for all users) shows one notification, "Conclave X is ready. Click to update.", and keeps the tray item. A version that failed is not tried again by itself until a newer one comes out.
 
 ## [0.4.26] - 2026-10-24
 
