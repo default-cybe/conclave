@@ -7,16 +7,16 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
-## [Unreleased]
-
-### Fixed
-
-- A plan that lists only an effort or thinking variant of a model (Antigravity's `claude-opus-5-5-high`, `claude-opus-4-6-thinking`) now joins that model's order in Accounts and the Per model list. A session moved to it after a limit asks for the plan's own id.
-- The Z.ai Coding Plan's windows read as 5 hours and Week again: the plan now answers `CREDIT_LIMIT` entries, which mapped to one "Credit_limit" row. Unknown limit types read as words.
+## [0.4.26] - 2026-10-24
 
 ### Added
-
+- Usage fallback (Settings > Models > Usage fallback, `models.limitFallback: { enabled, models }`): an ordered list of models, separate from Refusal fallback. When a model is at its limit on every account, the next model after it on the list takes over, on the first ready plan or key of its own account order. A model not on the list starts from the top. Chores use the same list.
+- Off or empty, a limit falls back on the Refusal fallback list as before. An agent with the refusal fallback off still gets no other model.
 - Window starter for the Z.ai Coding Plan: one tiny request on the cheapest GLM (Flash, then Air) right after each 5 hour reset, sent on the zai provider with its key, inside the owner's starter hours. Its quota is read again around the reset.
+
+### Fixed
+- A plan that lists only an effort or thinking variant of a model (Antigravity's `claude-opus-5-5-high`, `claude-opus-4-6-thinking`) now joins that model's order in Accounts and the Per model list. A session moved to it after a limit, or by the Usage fallback list, asks for the plan's own id.
+- The Z.ai Coding Plan's windows read as 5 hours and Week again: the plan now answers `CREDIT_LIMIT` entries, which mapped to one "Credit_limit" row. Unknown limit types read as words.
 
 ## [0.4.25] - 2026-10-24
 
