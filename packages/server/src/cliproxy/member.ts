@@ -281,6 +281,12 @@ export class MemberPlansManager implements MemberPlans {
     void r.manager.refreshAll().catch(() => undefined);
   }
 
+  readyAccounts(accountId: string, model: string) {
+    // the member's own AccountsService only: never the hub's plans
+    const r = this.runs.get(accountId);
+    return r?.attached ? r.accounts.readyAccounts(model) : [];
+  }
+
   // ----- for the routes (routes-subscriptions.ts, routes-accounts.ts) -----
 
   status(accountId: string): SubscriptionsStatus {
