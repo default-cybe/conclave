@@ -253,6 +253,120 @@ describe('no plan left for the model: the refusal fallback list is the default l
   }, 30_000);
 });
 
+describe('the usage fallback list (models.limitFallback): by model, each on its own account order', () => {
+  const SOL_MINI = [{ id: 'gpt-6-sol' }, { id: 'gpt-6-mini' }];
+  const solOut = { reason: 'quota', model: 'gpt-6-sol', until: Date.now() + 3_600_000 };
+  // every plan lists sol and mini; sol is at its limit on all of them, mini on personal only
+  const solBlocked = () =>
+    feed({
+      personal: { models: SOL_MINI, cooldowns: [{ ...solOut, model: 'gpt-6-mini' }] },
+      backup: { models: SOL_MINI, cooldowns: [solOut] },
+      spare: { models: SOL_MINI, cooldowns: [solOut] },
+    });
+  const withUsage = async (models: string[], fn: () => Promise<void>, enabled = true) => {
+    engine.config.update({ models: { limitFallback: { enabled, models } } } as never);
+    try {
+      await withChain([{ model: 'cliproxy/gpt-6-nano' }], fn);
+    } finally {
+      engine.config.update({ models: { limitFallback: { enabled: false, models: [] } } } as never);
+    }
+  };
+  const CHAIN = ['cliproxy/gpt-6-nano', 'cliproxy/gpt-6-sol', 'cliproxy/gpt-6-mini'];
+
+  test('the same model goes to its next account first', async () => {
+    const s = await engine.createSession({ cwd, title: 'usage same', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
+    await withUsage(CHAIN, async () => {
+      expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/backup-gpt/gpt-6-sol' });
+    });
+  });
+
+  test("every account of the model at its limit: the next model's first ready account, not the refusal list, and down the list, not back to the top", async () => {
+    const s = await engine.createSession({ cwd, title: 'usage next', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
+    solBlocked();
+    await withUsage(CHAIN, async () => {
+      // nano is first in the list and first in the refusal list; sol sits in the middle, so mini comes next, on backup (personal is out for mini)
+      expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/backup-gpt/gpt-6-mini' });
+      expect(notices(engine.getMessages(s.id)).at(-1)).toBe('cliproxy/personal-gpt/gpt-6-sol hit its limit. Falling back to cliproxy/backup-gpt/gpt-6-mini for this turn.');
+      // mini tried this turn too: nothing below it, it parks
+      expect(await handleLimit(engine, { id: s.id, turnCheckpoint: undefined } as never, 'cliproxy/personal-gpt/gpt-6-sol', limitErr(), ['cliproxy/backup-gpt/gpt-6-mini'])).toEqual({ parked: true });
+    });
+    // a model not on the list starts from the top
+    solBlocked();
+    await withUsage(['cliproxy/gpt-6-mini', 'cliproxy/gpt-6-nano'], async () => {
+      expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/backup-gpt/gpt-6-mini' });
+    });
+  });
+
+  test('the next model on a plan that lists only a variant of it gets the plan\'s own id', async () => {
+    const s = await engine.createSession({ cwd, title: 'usage variant', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
+    feed({
+      personal: { models: SOL_MINI, cooldowns: [{ ...solOut, model: 'gpt-6-mini' }] },
+      backup: { models: [{ id: 'gpt-6-sol' }, { id: 'gpt-6-mini-high' }], cooldowns: [solOut] },
+      spare: { models: SOL_MINI, cooldowns: [solOut] },
+    });
+    await withUsage(CHAIN, async () => {
+      expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/backup-gpt/gpt-6-mini-high' });
+    });
+  });
+
+  test('an agent with the refusal fallback off gets no other model; a chore uses the list', async () => {
+    solBlocked();
+    const base = engine.agentFor(await engine.createSession({ cwd, title: 'base' } as never));
+    await engine.extensions.saveAgent({ ...base, name: 'usage-off', refusalFallback: false }, 'user');
+    await withUsage(CHAIN, async () => {
+      const off = await engine.createSession({ cwd, title: 'usage off', model: 'cliproxy/personal-gpt/gpt-6-sol', agent: 'usage-off' } as never);
+      expect(await limit(off.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ parked: true });
+      calls.length = 0;
+      expect(await completeText(engine, { model: 'cliproxy/personal-gpt/gpt-6-sol', prompt: 'title this' })).toBe('ok');
+    });
+  }, 30_000);
+
+  test('across vendors: both Claude plans at their limit go to the first ready GPT plan, then to the Z.ai key', async () => {
+    const gptAccounts = IDS.map((id) => ({ id, label: `${id}-gpt`, vendor: 'openai', kind: 'subscription', credential: `codex-${id}-gpt.json` }));
+    const claude = ['claude-a', 'claude-b'];
+    const out = { reason: 'quota', until: Date.now() + 3_600_000 };
+    const sol61 = { ...out, model: 'gpt-6.1-sol' };
+    const feedAll = (gptOut: Record<string, boolean>) =>
+      accountsOf(engine)!.setCliproxy({
+        provider: 'cliproxy',
+        management: true,
+        refreshedAt: Date.now() - 1000,
+        credentials: [
+          ...claude.map((p) => ({ ...cred(p), name: `${p}.json`, provider: 'claude', models: [{ id: 'claude-opus-5-5' }], cooldowns: [out] })),
+          ...IDS.map((id) => cred(`${id}-gpt`, { models: [{ id: 'gpt-6-sol' }, { id: 'gpt-6.1-sol' }], cooldowns: gptOut[id] ? [sol61] : [] })),
+        ],
+      });
+    engine.config.update({
+      models: { accounts: [...claude.map((id) => ({ id, label: id, vendor: 'anthropic', kind: 'subscription', credential: `${id}.json` })), ...gptAccounts] },
+      providers: { zai: { type: 'openai', baseUrl: 'https://api.z.ai/api/coding/paas/v4', apiKey: 'zai-test-key', enabled: true, models: ['glm-5.3'] } },
+    } as never);
+    try {
+      const s = await engine.createSession({ cwd, title: 'usage vendors', model: 'cliproxy/claude-a/claude-opus-5-5' } as never);
+      await withUsage(['cliproxy/claude-opus-5-5', 'cliproxy/gpt-6.1-sol', 'zai/glm-5.3'], async () => {
+        // personal and backup are out for 6.1-sol: spare is the first ready plan in the order
+        feedAll({ personal: true, backup: true });
+        expect(await limit(s.id, 'cliproxy/claude-a/claude-opus-5-5')).toEqual({ fallback: 'cliproxy/spare-gpt/gpt-6.1-sol' });
+        // every GPT plan out too: the Z.ai key, no prefix
+        feedAll({ personal: true, backup: true, spare: true });
+        expect(await limit(s.id, 'cliproxy/claude-a/claude-opus-5-5')).toEqual({ fallback: 'zai/glm-5.3' });
+      });
+    } finally {
+      engine.config.update({ models: { accounts: gptAccounts }, providers: { zai: { enabled: false } } } as never);
+    }
+  });
+
+  test('off or unset: the refusal list as before', async () => {
+    const s = await engine.createSession({ cwd, title: 'usage unset', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
+    solBlocked();
+    await withUsage(CHAIN, async () => {
+      expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/gpt-6-nano' });
+    }, false);
+    await withUsage([], async () => {
+      expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/gpt-6-nano' });
+    });
+  });
+});
+
 describe('a refusal fallback entry at its limit tries the next plan of its model first', () => {
   test('personal-gpt at its limit: the entry runs on backup-gpt', async () => {
     const s = await engine.createSession({ cwd, title: 'refusal', model: 'cliproxy/gpt-6-nano' } as never);

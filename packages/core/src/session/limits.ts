@@ -106,6 +106,9 @@ export function nextAccount(engine: Engine, sessionId: string, modelRef: string)
  * whose plan or key is not paused or at a limit. The list is the one
  * refusalPlan gives the session's agent: its own, or none when it turned the
  * fallback off. Owner only: both lists name the owner's models and plans.
+ * With the usage fallback on (models.limitFallback), its list replaces the
+ * refusal list here (usageChainFallback); an agent with the refusal fallback
+ * off still gets no other model.
  */
 export function limitFallback(engine: Engine, accountId: string | undefined, modelRef: string, tried: readonly string[] = [], agent?: Pick<AgentDef, 'refusalFallback'>): string | undefined {
   const cfg = engine.config.get();
@@ -131,6 +134,10 @@ export function limitFallback(engine: Engine, accountId: string | undefined, mod
   const accounts = accountsOf(engine);
   const session = { accountId: accountId ?? OWNER_ID };
   const skip = new Set([bare, ...tried.map((r) => bareOf(engine, r))]);
+  const chain = cfg.models?.limitFallback;
+  if (chain?.enabled === true && Array.isArray(chain.models) && chain.models.length) {
+    return agent?.refusalFallback === false ? undefined : usageChainFallback(engine, session, bare, chain.models, skip, tried);
+  }
   const entries = refusalPlan(cfg, agent)?.entries ?? [];
   for (let i = 0; i < entries.length; i++) {
     const t = targetFor(engine, entries[i], i);
@@ -143,6 +150,36 @@ export function limitFallback(engine: Engine, accountId: string | undefined, mod
       if (t.pin?.account ? !ready.some((a) => a.id === t.pin!.account) : !!accounts.routeOf(model) && !ready.length) continue;
     }
     return t.ref;
+  }
+  return undefined;
+}
+
+/**
+ * The usage fallback list (models.limitFallback): the models after the one at
+ * its limit (by bare id; from the top when it is not listed), each on the
+ * first ready plan or key of its own account order. A model tried this turn,
+ * one with no ready account, or one the hub cannot call now is skipped.
+ */
+function usageChainFallback(engine: Engine, session: { accountId: string }, bare: string, refs: readonly unknown[], skip: Set<string>, tried: readonly string[]): string | undefined {
+  const list = refs.filter((r): r is string => typeof r === 'string' && r.includes('/'));
+  const ids = list.map((r) => bareModel(r));
+  const accounts = accountsOf(engine);
+  const gw = accounts?.gateway ?? 'cliproxy';
+  for (let i = ids.indexOf(bare) + 1; i < list.length; i++) {
+    const model = ids[i];
+    if (skip.has(model)) continue;
+    const ready = accounts ? accounts.readyAccounts(model) : [];
+    for (const a of ready) {
+      const p = a.kind === 'api' ? a.provider : gw;
+      if (!p) continue;
+      // a plan gets its own id (Antigravity lists claude-opus-5-5-high), as nextAccount sends
+      const wire = a.kind === 'subscription' && a.prefix ? `${a.prefix}/${bareModel(ownModel((a.models ?? []).map((m) => m.id), model) ?? model)}` : model;
+      const ref = `${p}/${wire}`;
+      if (tried.includes(ref) || !usable(engine, session, { index: -1, entry: { model: ref, account: a.id }, ref, pin: { provider: p, model: wire, account: a.id }, label: '' })) continue;
+      return ref;
+    }
+    // no account order for it (a key the accounts do not track): the ref as written
+    if (!ready.length && !accounts?.routeOf(model) && !tried.includes(list[i]) && usable(engine, session, { index: -1, entry: { model: list[i] }, ref: list[i], label: '' })) return list[i];
   }
   return undefined;
 }
