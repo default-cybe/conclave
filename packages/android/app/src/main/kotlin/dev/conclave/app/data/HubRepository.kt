@@ -162,6 +162,8 @@ class HubRepository(
     val receivedShares = MutableStateFlow<List<ReceivedShareDto>>(emptyList())
     val sentShares = MutableStateFlow<List<SentShareDto>>(emptyList())
     val limits = MutableStateFlow<List<LimitState>>(emptyList())
+    /** Counts usage_recorded events, so the Usage page reloads after new calls. */
+    val usageRecorded = MutableStateFlow(0)
     val devices = MutableStateFlow<List<Device>>(emptyList())
 
     /** Projects (folders across devices): the side panel groups sessions by them. Empty on a hub without them. */
@@ -559,7 +561,8 @@ class HubRepository(
             is EngineEvent.QuestionAnswered -> questions.update { list -> list.filterNot { it.id == e.id } }
             is EngineEvent.AlertRaised -> alerts.update { list -> list.filterNot { it.id == e.alert.id } + e.alert }
             is EngineEvent.AlertCleared -> alerts.update { list -> list.filterNot { it.id == e.id } }
-            is EngineEvent.LimitUpdated -> limits.update { list -> list.filterNot { it.provider == e.limit.provider } + e.limit }
+            is EngineEvent.LimitUpdated -> limits.update { list -> list.filterNot { it.key == e.limit.key } + e.limit }
+            is EngineEvent.UsageRecorded -> usageRecorded.update { it + 1 }
             is EngineEvent.DeviceUpdated -> {
                 devices.update { list -> list.filterNot { it.id == e.device.id } + e.device }
                 // the hub device's name is the hub's name everywhere ("homelab · online")

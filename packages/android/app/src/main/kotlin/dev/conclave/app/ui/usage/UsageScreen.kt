@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
 
 package dev.conclave.app.ui.usage
 
@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -76,7 +77,14 @@ import dev.conclave.client.model.UsageSummary
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.TimeZone
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 enum class UsageRange(val label: String, val days: Int) { WEEK("7 days", 7), MONTH("30 days", 30), QUARTER("90 days", 90) }
@@ -89,7 +97,8 @@ class UsageViewModel(hub: HubRepository) : HubViewModel(hub) {
     val refreshing = MutableStateFlow(false)
 
     init {
-        refresh()
+        // the first load comes from the screen's resume; this reloads after new calls, once per burst
+        viewModelScope.launch { hub.usageRecorded.drop(1).debounce(2_000).collect { refresh() } }
     }
 
     fun setRange(r: UsageRange) {
@@ -104,15 +113,28 @@ class UsageViewModel(hub: HubRepository) : HubViewModel(hub) {
                 val now = System.currentTimeMillis()
                 // Same sign as JavaScript's Date.getTimezoneOffset().
                 val tzOffset = -TimeZone.getDefault().getOffset(now) / 60_000
-                summary.value = hub.api { it.usage(from = now - range.value.days * 86_400_000L, to = now, tzOffset = tzOffset) }
                 val monthStart = LocalDate.now().withDayOfMonth(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                month.value = hub.api { it.usage(from = monthStart, to = now, tzOffset = tzOffset) }
-                hub.limits.value = hub.api { it.limits() }
-            } catch (e: Exception) {
-                say(errorText(e))
+                coroutineScope {
+                    listOf(
+                        async { part<UsageSummary>({ summary.value = it }) { hub.api { it.usage(from = now - range.value.days * 86_400_000L, to = now, tzOffset = tzOffset) } } },
+                        async { part<UsageSummary>({ month.value = it }) { hub.api { it.usage(from = monthStart, to = now, tzOffset = tzOffset) } } },
+                        async { part<List<LimitState>>({ hub.limits.value = it }) { hub.api { it.limits() } } },
+                    ).awaitAll()
+                }
             } finally {
                 refreshing.value = false
             }
+        }
+    }
+
+    /** One read of refresh(): a failure keeps the earlier value and says why, the other reads go on. */
+    private suspend fun <T> part(set: (T) -> Unit, call: suspend () -> T) {
+        try {
+            set(call())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            say(errorText(e))
         }
     }
 
@@ -130,6 +152,11 @@ fun UsageScreen(onBack: (() -> Unit)? = null) {
     val limits by hub.limits.collectAsStateWithLifecycle()
     val snackbar = rememberToasts()
     MessagesEffect(vm.messages, snackbar)
+    // first open and every return to the app: read the latest numbers
+    LifecycleResumeEffect(Unit) {
+        vm.refresh()
+        onPauseOrDispose { }
+    }
 
     Scaffold(
         topBar = {
@@ -149,7 +176,7 @@ fun UsageScreen(onBack: (() -> Unit)? = null) {
                 month?.totals?.let { PlanSavings(it) }
                 if (limits.isNotEmpty()) {
                     SectionHeader("Limits")
-                    limits.sortedBy { it.label.ifBlank { it.provider } }.forEach { LimitCard(it) }
+                    limits.sortedBy { it.label.ifBlank { it.key } }.forEach { LimitCard(it) }
                 }
                 val s = summary
                 if (s != null) {
@@ -388,7 +415,8 @@ private fun LimitCard(limit: LimitState) {
                 CompanyName(
                     limit.provider,
                     Modifier.weight(1f),
-                    name = limit.label,
+                    // the hub's label names the account already ("Claude Max 20x · Account 2"); else add its id
+                    name = limit.account?.takeIf { it.isNotBlank() && !limit.label.contains(it) }?.let { a -> if (limit.label.isBlank()) a else "${limit.label} · $a" } ?: limit.label,
                     size = 16.dp,
                     style = ConclaveType.rowTitle,
                     color = c.fg,
@@ -429,6 +457,7 @@ private fun LimitCard(limit: LimitState) {
 private fun sourceName(source: String): String = when (source) {
     "oauth" -> "OAuth"
     "api" -> "the API"
+    "ledger" -> "the ledger"
     else -> source
 }
 
