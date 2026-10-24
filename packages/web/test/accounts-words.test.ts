@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { AccountDto, AccountNowDto } from '@conclave/core/client';
-import { budgetWords, nowLine, resetWords, rowWindows, usedOf, windowName } from '../src/lib/accounts';
+import { budgetWords, nowLine, resetWords, rowWindows, sharedModels, usedOf, windowName } from '../src/lib/accounts';
 
 // Monday 19 October 2026, 09:00 local
 const NOW = new Date(2026, 9, 19, 9, 0).getTime();
@@ -41,5 +41,16 @@ describe('account words', () => {
     expect(nowLine(n, accounts, NOW)).toEqual({ lead: 'Now using Account 2 (resets Tue 10:00, 45% left).', why: ['Account 1: 5 hour limit reached until 10:23.'], tone: 'warn' });
     expect(nowLine({ vendor: 'anthropic', vendorName: 'Claude', skipped: [], until: at(19, 10, 23) }, accounts, NOW)).toMatchObject({ lead: 'No Claude account can take a call until 10:23.', tone: 'fault' });
     expect(nowLine({ vendor: 'anthropic', vendorName: 'Claude', account: 'a2', skipped: [] }, accounts, NOW)).toEqual({ lead: 'Now using Account 2.', why: [], tone: 'ok' });
+  });
+
+  test('Per model offers models two or more plans list, from any vendor, until they have an order', () => {
+    const opus = { id: 'claude-opus-5-5', name: 'Claude Opus 5.5' };
+    const accounts = [
+      acct('c', 'Claude', { models: [opus, { id: 'claude-sonnet-5-5', name: 'Sonnet' }] }),
+      acct('g', 'Antigravity', { vendor: 'gemini', vendorName: 'Gemini', models: [{ id: 'ag/claude-opus-5-5', name: 'Claude Opus 5.5' }, { id: 'gemini-3-pro', name: 'Gemini 3 Pro' }] }),
+      acct('k', 'Claude API key', { kind: 'api', models: [{ id: 'claude-sonnet-5-5', name: 'Sonnet' }] }),
+    ];
+    expect(sharedModels({ accounts, routes: [] })).toEqual([opus]);
+    expect(sharedModels({ accounts, routes: [{ vendor: 'anthropic', vendorName: 'Claude', match: 'claude-opus-5-5', order: ['g', 'c'] }] })).toEqual([]);
   });
 });

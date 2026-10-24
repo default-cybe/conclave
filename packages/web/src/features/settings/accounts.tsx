@@ -13,12 +13,12 @@
  */
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react';
-import type { AccountBudget, AccountDto, AccountsStatus } from '@conclave/core/client';
+import type { AccountBudget, AccountDto, AccountRouteDto, AccountsStatus } from '@conclave/core/client';
 import type { LimitWindow } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { useIsMobile, useNow } from '@/lib/hooks';
 import { cn } from '@/lib/text';
-import { MANAGEMENT_NOTE, REFUSAL_HINT, REFUSAL_SWITCH, STATE_WORD, VENDOR_LOGO, budgetWords, nowLine, resetWords, rowWindows, shortNameSuggestions, useAccounts, usedOf, windowName } from '@/lib/accounts';
+import { MANAGEMENT_NOTE, REFUSAL_HINT, REFUSAL_SWITCH, STATE_WORD, VENDOR_LOGO, budgetWords, nowLine, resetWords, rowWindows, sharedModels, shortNameSuggestions, useAccounts, usedOf, windowName } from '@/lib/accounts';
 import { TONE_CLASS } from '@/lib/subscriptions';
 import { memberNow, toast } from '@/store/store';
 import { Logo, ModelMark } from '@/components/logo';
@@ -44,6 +44,8 @@ export function AccountsSection() {
   const [renameFor, setRenameFor] = useState<AccountDto | null>(null);
 
   const vendors = useMemo(() => (status ? status.routes.filter((r) => !r.match) : []), [status]);
+  const perModel = useMemo(() => (status ? status.routes.filter((r) => r.match) : []), [status]);
+  const [adding, setAdding] = useState(false);
   if (!status) return error ? <p className="m-0 text-[14px] text-fault">{error}</p> : <LoadingRows loading rows={6} />;
 
   const run = async (b: NonNullable<Busy>, call: () => Promise<AccountsStatus>, done?: string) => {
@@ -56,13 +58,23 @@ export function AccountsSection() {
     }
     setBusy(null);
   };
-  const move = (vendor: string, id: string, by: -1 | 1) => {
-    const order = [...(status.routes.find((r) => r.vendor === vendor && !r.match)?.order ?? [])];
+  const move = (r: AccountRouteDto, id: string, by: -1 | 1) => {
+    const order = [...r.order];
     const i = order.indexOf(id);
     const j = i + by;
     if (i < 0 || j < 0 || j >= order.length) return;
     [order[i], order[j]] = [order[j], order[i]];
-    void run({ id, what: by < 0 ? 'up' : 'down' }, () => api().setAccountOrder({ vendor, order }));
+    void run({ id, what: by < 0 ? 'up' : 'down' }, () => api().setAccountOrder({ vendor: r.vendor, ...(r.match ? { match: r.match } : {}), order }));
+  };
+  // an empty vendor lets the hub file the order under the model's maker; an empty order starts from the default
+  const addModel = async (model: string) => {
+    setAdding(true);
+    try {
+      set(await api().setAccountOrder({ vendor: '', match: model, order: [] }));
+    } catch (e) {
+      toast({ title: `Failed. ${errText(e)}`, level: 'error' });
+    }
+    setAdding(false);
   };
   const refresh = async () => {
     setRefreshing(true);
@@ -96,18 +108,42 @@ export function AccountsSection() {
 
   const byId = new Map(status.accounts.map((a) => [a.id, a]));
   const suggestions = shortNameSuggestions(status.accounts);
+  const shared = sharedModels(status);
+  const rowsOf = (r: AccountRouteDto) => {
+    const list = r.order.map((id) => byId.get(id)).filter((a): a is AccountDto => !!a);
+    return list.map((a, i) => (
+      <AccountRow
+        key={a.id}
+        a={a}
+        rank={i + 1}
+        first={i === 0}
+        last={i === list.length - 1}
+        now={now}
+        busy={busy?.id === a.id ? busy.what : null}
+        management={status.management}
+        onMove={(by) => move(r, a.id, by)}
+        onPause={() => void run({ id: a.id, what: 'pause' }, () => api().updateAccount(a.id, { enabled: !a.enabled }), a.enabled ? `${a.label} is paused.` : `${a.label} is back in the order.`)}
+        onTry={() => void run({ id: a.id, what: 'try' }, () => api().tryAccountNow(a.id), `${a.label}: the next call tries it.`)}
+        onBudget={() => setBudgetFor(a)}
+        onRename={() => setRenameFor(a)}
+        noted={!!status.starterNoted}
+        all={status.accounts}
+        suggestion={suggestions.get(a.id)}
+        onSaved={set}
+      />
+    ));
+  };
   return (
     <div className="space-y-9">
       <UnnamedPlans status={status} suggestions={suggestions} onSaved={set} />
       <NowLines status={status} now={now} />
 
       {vendors.map((r, vi) => {
-        const list = r.order.map((id) => byId.get(id)).filter((a): a is AccountDto => !!a);
         return (
           <Group
             key={r.vendor}
             title={r.vendorName}
-            count={list.length}
+            count={r.order.filter((id) => byId.has(id)).length}
             right={
               vi > 0 ? undefined : refreshing ? (
                 <LiveStatus state="tool" label="Reading" />
@@ -120,30 +156,32 @@ export function AccountsSection() {
             }
             help={vi === 0 ? 'First in the list takes the call. The next one takes over when it is at a limit, resting or paused. Signed in plans go before API keys unless you move them.' : undefined}
           >
-            {list.map((a, i) => (
-              <AccountRow
-                key={a.id}
-                a={a}
-                rank={i + 1}
-                first={i === 0}
-                last={i === list.length - 1}
-                now={now}
-                busy={busy?.id === a.id ? busy.what : null}
-                management={status.management}
-                onMove={(by) => move(r.vendor, a.id, by)}
-                onPause={() => void run({ id: a.id, what: 'pause' }, () => api().updateAccount(a.id, { enabled: !a.enabled }), a.enabled ? `${a.label} is paused.` : `${a.label} is back in the order.`)}
-                onTry={() => void run({ id: a.id, what: 'try' }, () => api().tryAccountNow(a.id), `${a.label}: the next call tries it.`)}
-                onBudget={() => setBudgetFor(a)}
-                onRename={() => setRenameFor(a)}
-                noted={!!status.starterNoted}
-                all={status.accounts}
-                suggestion={suggestions.get(a.id)}
-                onSaved={set}
-              />
-            ))}
+            {rowsOf(r)}
           </Group>
         );
       })}
+
+      {(perModel.length > 0 || shared.length > 0) && (
+        <div className="space-y-5">
+          <h3 className="m-0 text-[15px] font-medium text-fg">Per model</h3>
+          <p className="m-0 max-w-[64ch] text-[13px] leading-[1.45] text-fg-3">An order for one model. It can hold any plan that offers the model, from any vendor (Opus on Antigravity). Calls for that model use it instead of the vendor&apos;s order.</p>
+          {perModel.map((r) => (
+            <Group key={`${r.vendor}:${r.match}`} title={r.match} count={r.order.filter((id) => byId.has(id)).length}>
+              {rowsOf(r)}
+            </Group>
+          ))}
+          {shared.length > 0 && (
+            <Select aria-label="Add an order for a model" className="max-w-[320px]" value="" disabled={adding} onChange={(e) => e.target.value && void addModel(e.target.value)}>
+              <option value="">Add an order for a model…</option>
+              {shared.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </Select>
+          )}
+        </div>
+      )}
 
       {!status.management && <p className="m-0 max-w-[64ch] text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">Pause, Try now, short names, {REFUSAL_SWITCH} and the order for signed in plans need CLIProxyAPI&apos;s management key. Add it in Subscriptions.</p>}
 
