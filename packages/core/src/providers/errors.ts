@@ -394,7 +394,12 @@ function kindFromType(type: string | undefined): ProviderErrorKind | undefined {
       return 'auth';
     case 'billing_error':
     case 'insufficient_quota':
+    // Codex (ChatGPT plans): the plan's window is spent, or the plan does not include the model
+    case 'usage_limit_reached':
+    case 'usage_not_included':
       return 'quota';
+    case 'RESOURCE_EXHAUSTED':
+      return 'rate_limit';
     case 'api_error':
     case 'server_error':
     case 'INTERNAL':
@@ -527,6 +532,8 @@ function statusForType(type: string | undefined, code: string | undefined): numb
     rate_limit_error: 429,
     rate_limit_exceeded: 429,
     insufficient_quota: 429,
+    usage_limit_reached: 429,
+    usage_not_included: 429,
     api_error: 500,
     server_error: 500,
     invalid_request_error: 400,
