@@ -24,6 +24,8 @@ import { buildSystemPrompt, subagentCatalog, type PromptParts } from './prompt';
 import { delegateCatalog } from '../engine/delegate';
 import { flattenLastToolTurn, isTranscriptShapeError } from './pairing';
 import { streamCompletion, type Served } from './stream';
+import { transcribeImages } from './image-text';
+import { seesImages } from '../providers/common';
 import { refusalPlan, refusalStepOf, refusalWords, RefusalWalk, servedLabel, stepOfTarget, type FallbackTarget } from './refusal-fallback';
 import { checkPermission, dangerousCommand } from './permissions';
 import { ReadTool } from '../tools/read';
@@ -1015,11 +1017,15 @@ export class SessionRunner {
         // the stored messages got shorter, so the last usage overstates them
         if (applyClearing(engine, this.id, { protectTokens: cfg.context.clearProtectTokens, batchTokens: cfg.context.clearBatchTokens })) this.meter = undefined;
       }
+      // a model without vision reads images as text another model wrote (session/image-text.ts)
+      const imageText = !seesImages(resolved.model, resolved.info, cfg.providers[resolved.provider]);
+      if (imageText) await transcribeImages(engine, this.id, engine.sessionAccount(this.id), signal);
       const stored = engine.repos.messages.list(this.id);
       let messages: ProviderMessage[] = buildProviderMessages(stored, {
         modelRef: currentModel,
         toolNames: new Set(tools.map((t) => t.name)),
         cache: cfg.context.promptCaching,
+        imageText,
       });
       // the retry after a shape 400: the last calls go as text
       if (shapeRetry === 'next') {
@@ -1508,6 +1514,7 @@ export class SessionRunner {
         modelRef,
         toolNames: names,
         cache: cfg.context.promptCaching,
+        imageText: !seesImages(resolved.model, resolved.info, cfg.providers[resolved.provider]),
       });
     const assistant = engine.addMessage(this.id, { role: 'assistant', kind: 'normal', content: [], model: modelRef, agent: agent.name });
     const call = (withTools: boolean) =>
