@@ -31,7 +31,7 @@ import { checkPermission, dangerousCommand } from './permissions';
 import { ReadTool } from '../tools/read';
 import { maybeCompact, estimateRequestTokens, meteredTokens, partHash, type TokenMeter } from './compaction';
 import { applyClearing } from './context-edit';
-import { handleLimit } from './limits';
+import { handleLimit, nextAccount } from './limits';
 import { OWNER_ID, isMember, runAs } from '../people/context';
 import { runHarnessTurn } from './harness';
 import { LoopGuard, type Verdict } from './loop-guard';
@@ -966,6 +966,8 @@ export class SessionRunner {
     let emptyRetries = 0;
     /** One repair and retry per turn when the API rejects the transcript shape. */
     let shapeRetry: 'unused' | 'next' | 'used' = 'unused';
+    /** Models that hit a limit this turn: a limit fallback never goes back to one. */
+    const limited: string[] = [];
     const maxSteps = this.stepBudget();
     let budgetNoted = false;
     // one loop guard per user turn; interactive turns get one strong warning before a halt ends them
@@ -1109,6 +1111,15 @@ export class SessionRunner {
             stepNotice = undefined;
           }
           engine.notice(this.id, refusalWords.failed(failed.label, why), 'warning', undefined, { type: 'refusal', outcome: 'failed', to: failed.label });
+          // an entry at its limit: the same model on the owner's next ready plan first, then the next entry
+          const other = err instanceof ProviderError && (err.kind === 'rate_limit' || err.kind === 'quota') && failed.pin && !failed.accessPrograms ? nextAccount(engine, this.id, failed.ref) : undefined;
+          if (other) {
+            const gw = failed.pin!.provider;
+            const t: FallbackTarget = { ...failed, ref: other.ref, label: other.to, pin: { provider: gw, model: other.ref.slice(gw.length + 1), account: other.account } };
+            walk.current = t;
+            step(undefined, t);
+            continue;
+          }
           const t = walk.next({ provider: resolved.provider, model: resolved.model, ...(failed.pin?.account ? { account: failed.pin.account } : {}), ...(failed.accessPrograms ? { cyber: failed.accessPrograms.cyber } : {}) });
           if (t) {
             step(undefined, t);
@@ -1120,7 +1131,8 @@ export class SessionRunner {
         }
         if (err instanceof ProviderError) {
           if (err.kind === 'rate_limit' || err.kind === 'quota') {
-            const outcome = await handleLimit(engine, this, currentModel, err);
+            limited.push(currentModel);
+            const outcome = await handleLimit(engine, this, currentModel, err, limited);
             if (outcome.fallback) {
               currentModel = outcome.fallback;
               resolved = engine.registryFor(this.session).resolve(currentModel);

@@ -7,9 +7,11 @@ import { regionTokens } from './compaction';
 import { SWITCH_BRIEF_AT } from '../modes/switch-math';
 import { logger } from '../util/log';
 import { accountsOf } from '../accounts/attached';
-import { isMember } from '../people/context';
+import { OWNER_ID, isMember } from '../people/context';
 import { splitAccount } from '../providers/split';
-import { shortModelName, usable } from './refusal-fallback';
+import { shortModelName, targetFor, usable } from './refusal-fallback';
+import { parseRefusalEntries } from './refusal-entries';
+import { bareModel } from '../accounts/policy';
 
 const log = logger('limits');
 
@@ -44,7 +46,7 @@ export interface LimitOutcome {
  * sessions only: the plans are the owner's. A plan without a prefix gets the
  * bare id; CLIProxyAPI gives it to the first ready plan in the same order.
  */
-function nextAccount(engine: Engine, sessionId: string, modelRef: string): { ref: string; from: string; to: string } | undefined {
+export function nextAccount(engine: Engine, sessionId: string, modelRef: string): { ref: string; account: string; from: string; to: string } | undefined {
   const accounts = accountsOf(engine);
   if (!accounts) return undefined;
   const session = engine.repos.sessions.get(sessionId);
@@ -74,9 +76,66 @@ function nextAccount(engine: Engine, sessionId: string, modelRef: string): { ref
     const wire = a.prefix ? `${a.prefix}/${bare}` : bare;
     const ref = `${gw}/${wire}`;
     if (!usable(engine, session, { index: -1, entry: { model: ref, account: a.id }, ref, pin: { provider: gw, model: wire, account: a.id }, label: '' })) continue;
-    return { ref, from: `${name} (${(current && accounts.account(current)?.label) || prefix})`, to: `${name} (${a.label})` };
+    return { ref, account: a.id, from: `${name} (${(current && accounts.account(current)?.label) || prefix})`, to: `${name} (${a.label})` };
   }
   return undefined;
+}
+
+/**
+ * Another model to run after `modelRef` hit its limit: the owner's
+ * limits.fallbacks for it first, else the first entry of the owner's
+ * refusal fallback list (models.refusalFallback) that the hub can call now,
+ * is another model than the one at its limit, was not tried this turn, and
+ * whose plan or key is not paused or at a limit. Owner only: both lists name
+ * the owner's models and plans.
+ */
+export function limitFallback(engine: Engine, accountId: string | undefined, modelRef: string, tried: readonly string[] = []): string | undefined {
+  const cfg = engine.config.get();
+  let resolved;
+  try {
+    resolved = engine.providers.resolve(modelRef);
+  } catch {
+    return undefined;
+  }
+  const { account: prefix, model: bare } = splitAccount(resolved.model ?? modelRef.slice(modelRef.indexOf('/') + 1));
+  const bareRef = prefix ? `${resolved.provider}/${bare}` : undefined;
+  const fallbacks =
+    cfg.limits.fallbacks[modelRef] ??
+    (bareRef ? cfg.limits.fallbacks[bareRef] : undefined) ??
+    Object.entries(cfg.limits.fallbacks).find(([k]) => {
+      const i = k.indexOf('/');
+      return i > 0 && k.slice(0, i) === resolved.provider && splitAccount(k.slice(i + 1)).model === bare;
+    })?.[1] ??
+    cfg.limits.fallbacks[resolved.provider] ??
+    [];
+  const configured = fallbacks.find((fb) => fb !== modelRef && !tried.includes(fb) && engine.isUsable(fb) && !engine.providers.resolve(fb).acp);
+  if (configured || isMember(accountId)) return configured;
+  const accounts = accountsOf(engine);
+  const session = { accountId: accountId ?? OWNER_ID };
+  const skip = new Set([bare, ...tried.map((r) => bareOf(engine, r))]);
+  const entries = parseRefusalEntries(cfg.models?.refusalFallback?.entries);
+  for (let i = 0; i < entries.length; i++) {
+    const t = targetFor(engine, entries[i], i);
+    if (!t || !usable(engine, session, t)) continue;
+    const model = t.pin ? bareModel(t.pin.model) : bareOf(engine, t.ref);
+    if (!model || skip.has(model) || tried.includes(t.ref)) continue;
+    if (accounts) {
+      // a plan or key that is paused or at a limit: an entry pinned to it is skipped, and so is a loose one when none of its vendor's is ready
+      const ready = accounts.readyAccounts(model);
+      if (t.pin?.account ? !ready.some((a) => a.id === t.pin!.account) : !!accounts.routeOf(model) && !ready.length) continue;
+    }
+    return t.ref;
+  }
+  return undefined;
+}
+
+/** A ref's model id without provider or account prefix; '' when it does not resolve. */
+function bareOf(engine: Engine, ref: string): string {
+  try {
+    return bareModel(engine.providers.resolve(ref).model);
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -84,7 +143,8 @@ function nextAccount(engine: Engine, sessionId: string, modelRef: string): { ref
  * 0. If the model is pinned to one plan by its prefix and another plan of the
  *    owner serves the same model now, continue there and keep it for the
  *    session (nextAccount). Same model, so waitInsteadOfFallback does not apply.
- * 1. If a fallback model is configured and usable, switch to it for this turn,
+ * 1. If a fallback model is configured and usable, or else the owner's refusal
+ *    fallback list has one that is ready (limitFallback), switch to it for this turn,
  *    unless the limit resets within a few minutes and the chat is big
  *    (waitInsteadOfFallback): then wait as in 2.
  * 2. Else if auto-resume is on and we know when it resets, park the session and
@@ -92,7 +152,7 @@ function nextAccount(engine: Engine, sessionId: string, modelRef: string): { ref
  *    window reopens, even across a hub restart.
  * 3. Else surface the error.
  */
-export async function handleLimit(engine: Engine, runner: SessionRunner, modelRef: string, err: ProviderError): Promise<LimitOutcome> {
+export async function handleLimit(engine: Engine, runner: SessionRunner, modelRef: string, err: ProviderError, tried: readonly string[] = []): Promise<LimitOutcome> {
   const cfg = engine.config.get();
   const sessionId = runner.id;
   const resetAt = err.resetAt ?? (err.retryAfterMs ? Date.now() + err.retryAfterMs : undefined);
@@ -112,19 +172,7 @@ export async function handleLimit(engine: Engine, runner: SessionRunner, modelRe
     return { fallback: next.ref };
   }
 
-  const resolved = engine.providers.resolve(modelRef);
-  const { account: prefix, model: bare } = splitAccount(resolved.model ?? modelRef.slice(modelRef.indexOf('/') + 1));
-  const bareRef = prefix ? `${resolved.provider}/${bare}` : undefined;
-  const fallbacks =
-    cfg.limits.fallbacks[modelRef] ??
-    (bareRef ? cfg.limits.fallbacks[bareRef] : undefined) ??
-    Object.entries(cfg.limits.fallbacks).find(([k]) => {
-      const i = k.indexOf('/');
-      return i > 0 && k.slice(0, i) === resolved.provider && splitAccount(k.slice(i + 1)).model === bare;
-    })?.[1] ??
-    cfg.limits.fallbacks[resolved.provider] ??
-    [];
-  const fallback = fallbacks.find((fb) => fb !== modelRef && engine.isUsable(fb) && !engine.providers.resolve(fb).acp);
+  const fallback = limitFallback(engine, engine.repos.sessions.get(sessionId)?.accountId, modelRef, tried);
   if (fallback) {
     const wait = waitInsteadOfFallback({
       enabled: cfg.limits.waitShortResets,
@@ -169,6 +217,8 @@ export async function resumeAfterReset(engine: Engine, payload: Record<string, u
   const session = engine.repos.sessions.get(sessionId);
   if (!session || session.status !== 'waiting_reset') return;
   engine.notice(sessionId, 'Usage limit reset. Resuming.', 'success');
+  const sub = await import('../engine/subagent');
+  if (sub.waitsForParent(session)) return sub.resumeParkedSubagent(engine, session);
   engine.setStatus(sessionId, 'idle');
   const runner = engine.runnerFor(sessionId);
   await runner.enqueue({ text: engine.config.get().limits.resumePrompt }, { auto: true, resume: true });
