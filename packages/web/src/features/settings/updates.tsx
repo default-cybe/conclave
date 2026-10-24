@@ -3,7 +3,9 @@
  * running version against the newest release (checked when this opens and
  * once a day by the hub), Update now with its progress, the command for a hub
  * that updates another way (Docker, a checkout), whether a new release pops
- * up when the app starts, and Install updates automatically.
+ * up when the app starts, and Install updates automatically (when idle or at
+ * night). Update now while work runs says what runs and offers Update anyway
+ * or Update when idle.
  */
 import { useEffect, useState } from 'react';
 import type { UpdateStatusDto } from '@conclave/core/client';
@@ -11,11 +13,11 @@ import { api } from '@/lib/api';
 import { toast } from '@/store/store';
 import { useIsMobile } from '@/lib/hooks';
 import { Button } from '@/components/ui/Button';
-import { OnOff } from '@/components/ui/Field';
+import { OnOff, Segmented } from '@/components/ui/Field';
 import { TextAction } from '@/components/ui/Section';
 import { LiveStatus } from '@/components/motion';
-import { cannotWords, installWords, jobRunning, jobTone, jobWords, latestWords } from '@/lib/updates';
-import { setHubUpdateStatus, setUpdateStartup, useHubUpdate } from '@/components/UpdateBanners';
+import { busyMessage, cannotWords, installWords, jobRunning, jobTone, jobWords, latestWords } from '@/lib/updates';
+import { BusyChoices, setHubUpdateStatus, setUpdateStartup, useHubUpdate } from '@/components/UpdateBanners';
 import { agoWords, errText, Group, Outcome, SettingRow } from './parts';
 
 export function UpdatesGroup() {
@@ -23,6 +25,8 @@ export function UpdatesGroup() {
   const size = mobile ? 'touch' : 'sm';
   const [s, setOwn] = useState<UpdateStatusDto>();
   const [busy, setBusy] = useState<string | null>(null);
+  /** Update now found work running: what runs, in a sentence. */
+  const [blocked, setBlocked] = useState<string>();
   const startup = useHubUpdate((u) => u.prefs.startup);
   // the shell's copy (the popup, the dot on the account row) follows what About reads
   const setS = (next: UpdateStatusDto) => {
@@ -34,8 +38,11 @@ export function UpdatesGroup() {
     setBusy(id);
     try {
       setS(await fn());
+      setBlocked(undefined);
     } catch (e) {
-      toast({ title: errText(e), level: 'error' });
+      const why = busyMessage(e);
+      if (why) setBlocked(why);
+      else toast({ title: errText(e), level: 'error' });
     } finally {
       setBusy(null);
     }
@@ -70,7 +77,7 @@ export function UpdatesGroup() {
   const job = s.job;
   return (
     <Group title="Updates">
-      <SettingRow label="Newest release" help={s.checkedAt ? `Looked ${agoWords(s.checkedAt)}. The hub looks once a day.` : 'The hub looks once a day.'}>
+      <SettingRow label="Newest release" help={`${s.checkedAt ? `Looked ${agoWords(s.checkedAt)}. ` : ''}The hub looks ${s.auto.on && s.auto.window === 'idle' ? 'every hour' : 'once a day'}.`}>
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1 md:justify-end">
           {s.checking ? <LiveStatus state="tool" label="Checking" /> : <span className="text-[14px] text-fg">{latestWords(s)}</span>}
           <TextAction label="Check now" onClick={() => void call('check', () => api().checkHubUpdate())} />
@@ -89,10 +96,28 @@ export function UpdatesGroup() {
         </SettingRow>
       )}
       {s.available && s.latest && !cannot && !running && (
-        <SettingRow label={`Update to ${s.latest.version}`} help="Downloads it, checks its signature, swaps it in and restarts the hub. The previous version stays next to it, and comes back if the new one does not start.">
+        <SettingRow
+          label={`Update to ${s.latest.version}`}
+          help={
+            s.whenIdle === s.latest.version
+              ? 'Installs once nothing runs.'
+              : 'Downloads it, checks its signature, swaps it in and restarts the hub. The previous version stays next to it, and comes back if the new one does not start.'
+          }
+        >
           <Button variant="solid" size={size} busy={busy === 'apply' ? 'Starting' : false} onClick={() => void call('apply', () => api().applyHubUpdate(s.latest!.version))}>
             Update now
           </Button>
+        </SettingRow>
+      )}
+      {blocked && s.available && s.latest && !running && (
+        <SettingRow label="Work is running" help={`${blocked} The restart would stop it.`}>
+          <BusyChoices
+            size={size}
+            busy={busy}
+            className="md:justify-end"
+            onWhenIdle={() => void call('idle', () => api().applyHubUpdate(s.latest!.version, { when: 'idle' }))}
+            onForce={() => void call('force', () => api().applyHubUpdate(s.latest!.version, { force: true }))}
+          />
         </SettingRow>
       )}
       {cannot && (
@@ -107,8 +132,23 @@ export function UpdatesGroup() {
         <span className="text-[14px] text-fg">{installWords(s.install)}</span>
       </SettingRow>
       {s.install.canUpdate && (
-        <SettingRow label="Install updates automatically" help={`At night, ${s.auto.window} on the hub's clock, when no session is working. Device daemons update then too.`}>
-          <OnOff label="Install updates automatically" size={size} checked={s.auto.on} disabled={busy === 'auto'} onChange={(v) => void call('auto', () => api().setAutoUpdate(v))} />
+        <SettingRow label="Install updates automatically" help="Updates install by themselves when nothing is running. Device daemons update too, each when nothing runs on it.">
+          <OnOff label="Install updates automatically" size={size} checked={s.auto.on} disabled={busy === 'auto'} onChange={(v) => void call('auto', () => api().setAutoUpdate({ auto: v }))} />
+        </SettingRow>
+      )}
+      {s.install.canUpdate && s.auto.on && (
+        <SettingRow label="When" help={s.auto.window === 'idle' ? 'As soon as nothing has run for a while.' : `At night, ${s.auto.hours} on the hub's clock, when nothing runs.`}>
+          <Segmented<'idle' | 'night'>
+            label="When updates install"
+            size={size}
+            value={s.auto.window}
+            disabled={busy === 'window'}
+            onChange={(v) => void call('window', () => api().setAutoUpdate({ window: v }))}
+            options={[
+              { value: 'idle', label: 'When idle' },
+              { value: 'night', label: 'At night' },
+            ]}
+          />
         </SettingRow>
       )}
     </Group>

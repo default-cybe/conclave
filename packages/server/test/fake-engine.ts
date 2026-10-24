@@ -384,6 +384,12 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
       rec('sendQueued', id, pendingId);
       sessionOr404(id);
     },
+    // tests replace busyWork with the work they need running
+    busyWork: () => [],
+    isIdle(device) {
+      return !this.busyWork(device).length;
+    },
+    notifyEvent: (kind, notice) => rec('notifyEvent', kind, notice),
     async btw(id, text) {
       rec('btw', id, text);
       sessionOr404(id);
