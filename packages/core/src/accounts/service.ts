@@ -255,8 +255,16 @@ export class AccountsService {
     return a.facts.error;
   }
 
-  private view(a: Acct, now: number): AccountView {
+  /** A block on the whole plan, or (with a model) one on that model's vendor only: a plan of another vendor keeps separate quotas per vendor (Antigravity's Claude and Gemini). */
+  private blockOf(id: string, model?: string): number | undefined {
+    const vendor = model ? vendorOfModel(model) : undefined;
+    const u = Math.max(this.blocked.get(id)?.until ?? 0, vendor ? (this.blocked.get(`${id}|${vendor}`)?.until ?? 0) : 0);
+    return u || undefined;
+  }
+
+  private view(a: Acct, now: number, model?: string): AccountView {
     const b = this.budgetOf(a, now);
+    const blockedUntil = this.blockOf(a.cfg.id, model);
     return {
       id: a.cfg.id,
       kind: a.cfg.kind,
@@ -266,16 +274,19 @@ export class AccountsService {
       cooldowns: a.facts?.cooldowns ?? [],
       ...(a.cfg.kind === 'subscription' && a.facts?.models ? { models: a.facts.models.map((m) => m.id) } : {}),
       ...(b ? { budget: { usd: b.usd, spentUsd: b.spentUsd, periodEnd: b.span.end, hardStop: b.hardStop } } : {}),
-      ...(this.blocked.get(a.cfg.id) ? { blockedUntil: this.blocked.get(a.cfg.id)!.until } : {}),
+      ...(blockedUntil ? { blockedUntil } : {}),
     };
   }
 
   private forVendor(vendor: string, model?: string): Acct[] {
-    return this.ordered(vendor, routeFor(this.routes(), vendor, model)?.order);
+    return this.ordered(vendor, routeFor(this.routes(), vendor, model)?.order, model);
   }
 
-  private ordered(vendor: string, order?: string[]): Acct[] {
-    const all = this.accts().filter((a) => a.cfg.vendor === vendor);
+  /** A vendor's accounts in order; with a model, also another vendor's plan whose own list has it (Opus on Antigravity), after the vendor's own. */
+  private ordered(vendor: string, order?: string[], model?: string): Acct[] {
+    const own = this.accts().filter((a) => a.cfg.vendor === vendor);
+    const cross = model ? this.accts().filter((a) => a.cfg.vendor !== vendor && a.cfg.kind === 'subscription' && !!a.facts?.models && reaches({ models: a.facts.models.map((m) => m.id) }, model)) : [];
+    const all = [...own, ...cross];
     const ids = orderIds(
       all.map((a) => ({ id: a.cfg.id, kind: a.cfg.kind })),
       order,
@@ -392,7 +403,7 @@ export class AccountsService {
     const vendors = [...new Set(all.map((a) => a.cfg.vendor))];
     const routes: AccountRouteDto[] = vendors.map((vendor) => ({ vendor, vendorName: vendorName(vendor), order: this.forVendor(vendor).map((a) => a.cfg.id) }));
     for (const r of this.routes()) {
-      if (r.match && vendors.includes(r.vendor)) routes.push({ vendor: r.vendor, vendorName: vendorName(r.vendor), match: r.match, order: this.ordered(r.vendor, r.order).map((a) => a.cfg.id) });
+      if (r.match && vendors.includes(r.vendor)) routes.push({ vendor: r.vendor, vendorName: vendorName(r.vendor), match: r.match, order: this.ordered(r.vendor, r.order, r.match).map((a) => a.cfg.id) });
     }
     const nowDtos: AccountNowDto[] = vendors.map((vendor) => {
       const ordered = this.forVendor(vendor);
@@ -428,7 +439,7 @@ export class AccountsService {
     const now = this.now();
     for (const a of this.forVendor(vendor, model)) {
       if (a.provider === skip) continue;
-      const view = this.view(a, now);
+      const view = this.view(a, now, model);
       // a credential with a prefix serves bare ids too (CLIProxyAPI's force-model-prefix is off)
       if (!view.enabled || !reaches(view, model)) continue;
       (usable(assess(view, now, model)) ? ready : blocked).push(a);
@@ -445,7 +456,7 @@ export class AccountsService {
   providersFor(model: string): string[] | undefined {
     if (model.includes('/')) return undefined;
     const vendor = vendorOfModel(model);
-    if (!vendor || !this.accts().some((a) => a.cfg.vendor === vendor && a.cfg.kind === 'subscription')) return undefined;
+    if (!vendor || !this.forVendor(vendor, model).some((a) => a.cfg.kind === 'subscription')) return undefined;
     const { ready, blocked } = this.ranked(model);
     const list = [...new Set([...ready, ...blocked].map((a) => a.provider))];
     return list.length ? list : undefined;
@@ -461,11 +472,11 @@ export class AccountsService {
   routeOf(model: string): Array<{ provider: string; kind: 'subscription' | 'api' }> | undefined {
     if (model.includes('/')) return undefined;
     const vendor = vendorOfModel(model);
-    if (!vendor || !this.accts().some((a) => a.cfg.vendor === vendor && a.cfg.kind === 'subscription')) return undefined;
+    if (!vendor || !this.forVendor(vendor, model).some((a) => a.cfg.kind === 'subscription')) return undefined;
     const now = this.now();
     const steps = this.forVendor(vendor, model)
       .filter((a) => {
-        const v = this.view(a, now);
+        const v = this.view(a, now, model);
         return v.enabled && !v.error && reaches(v, model);
       })
       .map((a) => ({ provider: a.provider, kind: a.cfg.kind }));
@@ -506,7 +517,7 @@ export class AccountsService {
     const all = this.accts();
     const out: AccountDto[] = [];
     for (const a of this.forVendor(vendor, bare)) {
-      const view = this.view(a, now);
+      const view = this.view(a, now, bare);
       if (!view.enabled || view.error || !reaches(view, bare)) continue;
       const v = assess(view, now, bare);
       if (!usable(v)) continue;
@@ -519,7 +530,7 @@ export class AccountsService {
   fallbackFor(provider: string, model: string, tried: Set<string> = new Set()): string | undefined {
     if (model.includes('/')) return undefined;
     const vendor = vendorOfModel(model);
-    if (!vendor || !this.accts().some((a) => a.cfg.vendor === vendor && a.cfg.kind === 'subscription')) return undefined;
+    if (!vendor || !this.forVendor(vendor, model).some((a) => a.cfg.kind === 'subscription')) return undefined;
     return this.ranked(model, provider).ready.map((a) => a.provider).find((p) => p !== provider && !tried.has(p));
   }
 
@@ -544,7 +555,7 @@ export class AccountsService {
     const now = this.now();
     const subs = this.forVendor(vendor, model).filter((a) => a.cfg.kind === 'subscription');
     if (!subs.length) return undefined;
-    const views = subs.map((a) => this.view(a, now));
+    const views = subs.map((a) => this.view(a, now, model));
     const held = sessionId ? this.sticky.get(sessionId) : undefined;
     if (held) {
       const v = views.find((x) => x.id === held.account);
@@ -585,9 +596,13 @@ export class AccountsService {
     const all = this.accts();
     if (this.cliproxy && provider === this.cliproxy.provider) {
       const until = Math.max(info.resetAt ?? 0, now + BLIND_BLOCK_MS);
-      // a prefixed id ("neu/gpt-6-sol") went to that one plan only: the others were not tried
+      // a prefixed id ("neu/gpt-6-sol") went to that one plan only, of any vendor (Opus on Antigravity): the others were not tried
       const prefix = splitAccount(model).account;
-      for (const a of all) if (a.cfg.kind === 'subscription' && a.cfg.vendor === vendor && (prefix ? a.facts?.prefix === prefix : reaches(this.view(a, now), model))) this.blocked.set(a.cfg.id, { until, at: now });
+      for (const a of all) {
+        if (a.cfg.kind !== 'subscription' || !(prefix ? a.facts?.prefix === prefix : a.cfg.vendor === vendor && reaches(this.view(a, now), model))) continue;
+        // another vendor's model on this plan (Opus on Antigravity) has its own quota: block only that vendor's models here
+        this.blocked.set(vendor && a.cfg.vendor !== vendor ? `${a.cfg.id}|${vendor}` : a.cfg.id, { until, at: now });
+      }
     } else {
       const a = all.find((x) => x.cfg.kind === 'api' && x.provider === provider);
       if (a) {
@@ -602,7 +617,9 @@ export class AccountsService {
 
   /** Forget the block the hub guessed from a 429 ("Try now"). */
   clearBlock(id: string): void {
-    if (this.blocked.delete(id)) this.changed();
+    let gone = this.blocked.delete(id);
+    for (const k of [...this.blocked.keys()]) if (k.startsWith(`${id}|`)) gone = this.blocked.delete(k) || gone;
+    if (gone) this.changed();
   }
 
   /** Header windows from a native provider's response, for its API account. */
@@ -622,10 +639,8 @@ export class AccountsService {
     this.cache = undefined;
     // a read made after a 429 replaces the block the hub guessed from it: CLIProxyAPI's cooldowns say the rest
     if (facts?.refreshedAt) {
-      for (const a of this.accts()) {
-        const b = this.blocked.get(a.cfg.id);
-        if (b && a.facts && b.at <= facts.refreshedAt) this.blocked.delete(a.cfg.id);
-      }
+      const read = new Set(this.accts().filter((a) => a.facts).map((a) => a.cfg.id));
+      for (const [k, b] of [...this.blocked]) if (read.has(k.split('|')[0]) && b.at <= facts.refreshedAt) this.blocked.delete(k);
     }
     if (JSON.stringify(facts ?? null) !== before) this.changed();
   }
@@ -687,14 +702,17 @@ export class AccountsService {
   setOrder(input: AccountOrderInput): AccountsStatus {
     const all = this.accts();
     if (typeof input?.vendor !== 'string' || !Array.isArray(input.order)) throw new AccountsError(400, 'vendor and order are required');
-    const mine = all.filter((a) => a.cfg.vendor === input.vendor);
-    if (!mine.length) throw new AccountsError(404, `No accounts for ${input.vendor}.`);
-    const unknown = input.order.filter((id) => typeof id !== 'string' || !mine.some((a) => a.cfg.id === id));
-    if (unknown.length) throw new AccountsError(400, `Not an account of ${vendorName(input.vendor)}: ${unknown.join(', ')}`);
     const match = typeof input.match === 'string' && input.match.trim() ? input.match.trim() : undefined;
+    // a per model order may leave the vendor to the hub: the model's maker
+    const vendor = input.vendor || (match ? (vendorOfModel(match) ?? '') : '');
+    // a per model order may hold another vendor's plan that lists the model
+    const mine = match ? this.ordered(vendor, undefined, match) : all.filter((a) => a.cfg.vendor === vendor);
+    if (!mine.length) throw new AccountsError(404, `No accounts for ${vendor || match || 'that model'}.`);
+    const unknown = input.order.filter((id) => typeof id !== 'string' || !mine.some((a) => a.cfg.id === id));
+    if (unknown.length) throw new AccountsError(400, `Not an account of ${vendorName(vendor)}: ${unknown.join(', ')}`);
     this.save((_, routes) => {
-      const i = routes.findIndex((r) => r.vendor === input.vendor && (r.match ?? undefined) === match);
-      const next: AccountRoute = { vendor: input.vendor, ...(match ? { match } : {}), order: [...new Set(input.order)] };
+      const i = routes.findIndex((r) => r.vendor === vendor && (r.match ?? undefined) === match);
+      const next: AccountRoute = { vendor, ...(match ? { match } : {}), order: [...new Set(input.order)] };
       if (i >= 0) routes[i] = next;
       else routes.push(next);
     });
