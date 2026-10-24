@@ -366,6 +366,23 @@ describe('the banner and Syncthing', () => {
     expect(loc).toMatchObject({ state: 'missing', suggestion: { device: 'mac', cwd: macRepo } });
   });
 
+  test('a session in the home folder ("~") is there; a folder that is gone is missing', async () => {
+    const { t, d, svc } = await setup();
+    makeRepo(d.pc.home);
+    writeFileSync(join(d.pc.home, 'CLAUDE.md'), 'home rules\n');
+    writeFileSync(join(d.pc.home, 'Cargo.toml'), '[package]\nname = "home"\n');
+    const home = await t.engine.createSession({ device: 'pc', cwd: '~' });
+    const s = t.engine.requireSession(home.id);
+    expect(s.cwd).toBe('~');
+    expect(await svc.location(home.id)).toMatchObject({ state: 'ok', exists: true });
+    const parts = await t.engine.systemPromptParts(s, t.engine.agentFor(s), s.model, s.mode, ['Bash']);
+    expect(parts.isGitRepo).toBe(true);
+    expect(parts.testCommand).toBe('cargo test');
+    expect(parts.projectInstructions.map((f) => f.path)).toContain(join(d.pc.home, 'CLAUDE.md'));
+    const gone = await t.engine.createSession({ device: 'pc', cwd: '~/no-such-folder' });
+    expect((await svc.location(gone.id)).state).toBe('missing');
+  });
+
   test('a paused Syncthing folder on the target is part of the freshness line', async () => {
     const { t, d, svc } = await setup();
     const pcRepo = join(d.pc.home, 'code', 'portfolio');
