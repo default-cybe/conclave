@@ -28,6 +28,14 @@ object UpdatePrompt {
     fun showDot(version: String?, skipped: String?): Boolean =
         version != null && !isSkipped(version, skipped)
 
+    /**
+     * Open the system installer by itself: an install waited for the install
+     * permission ([pending]), the checked APK is still there, and Android now
+     * allows this app to install apps.
+     */
+    fun resumeInstall(pending: Boolean, fileExists: Boolean, canInstall: Boolean): Boolean =
+        pending && fileExists && canInstall
+
     private val HEADING = Regex("""^#{1,6}\s*""")
     private val MARKER = Regex("""^(?:[-*+]|\d+[.)])\s+""")
     private val LINK = Regex("""\[([^\]]+)]\([^)]*\)""")
