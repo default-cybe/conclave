@@ -386,18 +386,30 @@ export async function completeText(
   let model = opts.model ?? small;
   // fall back to the default model when the small model's provider has no key (for this account)
   if (!engine.isUsable(model, accountId)) model = engine.isUsable(main, accountId) ? main : engine.firstUsableModel(accountId) ?? model;
-  const res = await streamCompletion(
-    engine,
-    model,
-    {
-      system: opts.system ? [{ text: opts.system }] : [],
-      messages: [{ role: 'user', content: [{ type: 'text', text: opts.prompt }] }],
-      maxTokens: opts.maxTokens ?? 2000,
-      ...(opts.stopSequences?.length ? { stopSequences: opts.stopSequences } : {}),
-      signal: opts.signal,
-    },
-    { purpose: opts.purpose ?? 'chore', sessionId: opts.sessionId, accountId },
-  );
+  const run = (m: string) =>
+    streamCompletion(
+      engine,
+      m,
+      {
+        system: opts.system ? [{ text: opts.system }] : [],
+        messages: [{ role: 'user', content: [{ type: 'text', text: opts.prompt }] }],
+        maxTokens: opts.maxTokens ?? 2000,
+        ...(opts.stopSequences?.length ? { stopSequences: opts.stopSequences } : {}),
+        signal: opts.signal,
+      },
+      { purpose: opts.purpose ?? 'chore', sessionId: opts.sessionId, accountId },
+    );
+  let res;
+  try {
+    res = await run(model);
+  } catch (err) {
+    // a chore at a usage limit runs once more on the next model a limit falls back to (session/limits.ts)
+    if (!(err instanceof ProviderError) || (err.kind !== 'rate_limit' && err.kind !== 'quota')) throw err;
+    const next = (await import('./limits')).limitFallback(engine, accountId, model);
+    if (!next) throw err;
+    log.info(`chore on ${model} hit its limit; retrying on ${next}`);
+    res = await run(next);
+  }
   return res.content
     .filter((b) => b.type === 'text')
     .map((b) => (b as { text: string }).text)

@@ -180,7 +180,7 @@ describe('rate limit fallbacks: wait for a short reset', () => {
       config: { get: () => ({ limits: { fallbacks: { 'a/opus': ['b/gpt'] }, autoResume: true, waitShortResets: over.wait }, context: { switchBriefAt: 50_000 } }) },
       providers: { resolve: (ref: string) => ({ provider: ref.split('/')[0], acp: false }) },
       isUsable: () => true,
-      repos: { messages: { list: () => big } },
+      repos: { messages: { list: () => big }, sessions: { get: () => undefined } },
       notice: (_id: string, body: string) => void notices.push(body),
       parkForReset: (_id: string, at: number) => void parked.push(at),
       scheduler: { enqueue: () => undefined },
