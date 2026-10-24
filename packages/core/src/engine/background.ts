@@ -34,6 +34,7 @@ interface BackgroundMeta {
   state?: string;
   startedAt?: number;
   finishedAt?: number;
+  waitingReset?: boolean;
 }
 
 function bg(s: Session): BackgroundMeta | undefined {
@@ -121,6 +122,8 @@ export class BackgroundTasks {
     for (const s of sessions) {
       const b = bg(s);
       if (b?.state !== 'running' || !b.parentId) continue;
+      // parked for a usage limit: the durable session.resume job continues it and reports (engine/subagent.ts waitForReset)
+      if (s.status === 'waiting_reset' && b.waitingReset === true) continue;
       n++;
       this.engine.patchMeta(s.id, { background: { ...b, state: 'lost', finishedAt: Date.now() } });
       const parent = this.engine.getSession(b.parentId);

@@ -18,6 +18,8 @@ import { completeText } from '../../src/session/stream';
 import { runSubagent } from '../../src/engine/subagent';
 import { ProviderError } from '../../src/providers/types';
 import type { Message, TextBlock } from '../../src/types';
+import type { MemberPlanEntry, MemberPlans } from '../../src/people/plans';
+import type { AccountDto } from '../../src/client/accounts';
 
 const sse = (events: unknown[]) => new Response(events.map((e) => `data: ${typeof e === 'string' ? e : JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
 const calls: string[] = [];
@@ -222,6 +224,19 @@ describe('no plan left for the model: the refusal fallback list is the default l
     });
   }, 30_000);
 
+  test("the session's agent decides the list: refusalFallback off parks, its own list replaces the owner's", async () => {
+    allBlocked();
+    const base = engine.agentFor(await engine.createSession({ cwd, title: 'base' } as never));
+    await engine.extensions.saveAgent({ ...base, name: 'limit-off', refusalFallback: false }, 'user');
+    await engine.extensions.saveAgent({ ...base, name: 'limit-own', refusalFallback: [{ model: 'cliproxy/gpt-6-nano' }] }, 'user');
+    await withChain([{ model: 'cliproxy/gpt-6-mini' }], async () => {
+      const off = await engine.createSession({ cwd, title: 'off', model: 'cliproxy/personal-gpt/gpt-6-sol', agent: 'limit-off' } as never);
+      expect(await limit(off.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ parked: true });
+      const own = await engine.createSession({ cwd, title: 'own', model: 'cliproxy/personal-gpt/gpt-6-sol', agent: 'limit-own' } as never);
+      expect(await limit(own.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/gpt-6-nano' });
+    });
+  });
+
   test('a chore at its limit runs once more on the next model', async () => {
     allBlocked();
     await withChain([{ model: 'cliproxy/gpt-6-mini' }], async () => {
@@ -282,4 +297,66 @@ describe('a subagent at a usage limit', () => {
     const all = engine.getMessages(parent.id).map((m) => m.content.map((b) => (b.type === 'text' ? (b as TextBlock).text : '')).join(''));
     expect(all.some((t) => t.includes(`<subagent_result session="${r.sessionId}"`))).toBe(true);
   }, 30_000);
+
+  test('a parked child the owner writes to stops waiting, its resume job goes, and its report reaches the parent', async () => {
+    const parent = await engine.createSession({ cwd, title: 'parent', model: 'cliproxy/spare-gpt/gpt-6-sol' } as never);
+    allBlocked();
+    const r = await runSubagent(engine, { parentSessionId: parent.id, agent: 'general-purpose', prompt: 'look', description: 'look', model: 'cliproxy/personal-gpt/gpt-6-sol' });
+    expect(engine.getSession(r.sessionId)!.status).toBe('waiting_reset');
+    expect(engine.repos.jobs.pending('session.resume').some((j) => j.dedupeKey === `resume:${r.sessionId}`)).toBe(true);
+    feed();
+    engine.runnerFor(parent.id).noteDelayMs = 50;
+    const child = engine.runnerFor(r.sessionId);
+    await child.enqueue({ text: 'how far did you get?' });
+    await Promise.race([child.waitIdle(), Bun.sleep(15_000)]);
+    await Bun.sleep(300);
+    const done = engine.getSession(r.sessionId)!;
+    expect(done.meta?.background).toMatchObject({ state: 'completed', waitingReset: false });
+    expect(engine.repos.jobs.pending('session.resume').some((j) => j.dedupeKey === `resume:${r.sessionId}`)).toBe(false);
+    await engine.runnerFor(parent.id).waitIdle();
+    const all = engine.getMessages(parent.id).map((m) => m.content.map((b) => (b.type === 'text' ? (b as TextBlock).text : '')).join(''));
+    expect(all.filter((t) => t.includes(`<subagent_result session="${r.sessionId}"`))).toHaveLength(1);
+  }, 30_000);
+});
+
+describe("a member's plan at its limit", () => {
+  let ready: AccountDto[] = [];
+  const listeners = new Set<(id: string) => void>();
+  let memberId = '';
+  const plan = (prefix: string) => ({ id: `m-${prefix}`, label: prefix, kind: 'subscription', prefix }) as unknown as AccountDto;
+  const entry: MemberPlanEntry = { config: { type: 'openai', baseUrl: `http://127.0.0.1:${cpa.port}/v1`, models: ['gpt-6-sol', 'personal-gpt/gpt-6-sol', 'mine-gpt/gpt-6-sol'] } as never, apiKey: 'member-key' };
+  const plans: MemberPlans = {
+    entry: (id) => (id === memberId ? entry : undefined),
+    count: (id) => (id === memberId ? 2 : 0),
+    onChange: (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    readyAccounts: (id, model) => (id === memberId && model === 'gpt-6-sol' ? ready : []),
+  };
+
+  beforeAll(() => {
+    memberId = engine.people.create({ name: 'mia' }).id;
+    engine.access.setPlans(plans);
+    for (const fn of listeners) fn(memberId);
+  });
+  afterAll(() => engine.access.setPlans(undefined));
+
+  // her plans are named like the owner's on purpose: personal-gpt is hers here
+  test('with two plans she moves to her second one, same model', async () => {
+    ready = [plan('personal-gpt'), plan('mine-gpt')];
+    const s = await engine.createSession({ cwd, title: 'member two plans', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never, memberId);
+    expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/mine-gpt/gpt-6-sol' });
+    expect(engine.repos.sessions.get(s.id)!.model).toBe('cliproxy/mine-gpt/gpt-6-sol');
+  });
+
+  test("she never gets an owner's plan or the owner's refusal list, even when they are ready", async () => {
+    // backup-gpt is the owner's: her own CLIProxyAPI does not list it
+    ready = [plan('backup-gpt')];
+    const s = await engine.createSession({ cwd, title: 'member no owner', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never, memberId);
+    await withChain([{ model: 'cliproxy/gpt-6-mini' }, { model: 'cliproxy/gpt-6-sol', account: 'spare' }], async () => {
+      expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ parked: true });
+    });
+    expect(engine.repos.sessions.get(s.id)!.model).toBe('cliproxy/personal-gpt/gpt-6-sol');
+  });
 });

@@ -31,7 +31,7 @@ import { checkPermission, dangerousCommand } from './permissions';
 import { ReadTool } from '../tools/read';
 import { maybeCompact, estimateRequestTokens, meteredTokens, partHash, type TokenMeter } from './compaction';
 import { applyClearing } from './context-edit';
-import { handleLimit, nextAccount } from './limits';
+import { afterWokenTurn, handleLimit, nextAccount } from './limits';
 import { OWNER_ID, isMember, runAs } from '../people/context';
 import { runHarnessTurn } from './harness';
 import { LoopGuard, type Verdict } from './loop-guard';
@@ -625,6 +625,8 @@ export class SessionRunner {
             this.emitQueue();
           }
         }
+        // a parked Task child a message woke: its parent still waits for the report (session/limits.ts)
+        void afterWokenTurn(this.engine, this.id).catch((err) => log.warn(`${this.id}: woken subagent report failed`, err));
         // a turn that ended before it stored the message (a hook blocked it): the message leaves the list
         if (this.starting) {
           this.starting = undefined;
