@@ -569,6 +569,8 @@ export interface ConclaveConfig {
       fileConflict: boolean;
       /** A running turn made no progress for its threshold, or one tool failed the same way 3 times. */
       stuck: boolean;
+      /** The hub updated itself, or the update failed or was rolled back (server update/service.ts). */
+      updates: boolean;
     };
     /** Hold notifications while a Conclave window was in use within this many seconds. 0 never holds. */
     idleSeconds: number;
@@ -684,8 +686,10 @@ export interface ConclaveConfig {
 
   /** Updates (docs/DESIGN.md, Updates; Settings > About). */
   updates?: {
-    /** Install new releases at night (03:00 to 05:00 on the hub's clock), and update the devices' daemons then. Default off. */
+    /** Install new releases by themselves, and update the devices' daemons, in `window`. Default on; a saved false stays off. */
     auto?: boolean;
+    /** idle (default): look every hour and install once nothing has run for two checks in a row; a device when nothing runs on it. night: 03:00 to 05:00 on the hub's clock, when nothing runs. */
+    window?: 'idle' | 'night';
     /** The daily look at the newest release. Default on; off checks only when asked. */
     check?: boolean;
   };
@@ -835,7 +839,7 @@ export const DEFAULT_CONFIG: ConclaveConfig = {
   search: { provider: 'auto' },
   browser: { headless: true },
   notifications: {
-    on: { sessionDone: true, approvalNeeded: true, limitReset: true, routineDone: true, errors: true, friendMessage: true, fileConflict: true, stuck: true },
+    on: { sessionDone: true, approvalNeeded: true, limitReset: true, routineDone: true, errors: true, friendMessage: true, fileConflict: true, stuck: true, updates: true },
     idleSeconds: 60,
   },
   modes: {
@@ -849,5 +853,7 @@ export const DEFAULT_CONFIG: ConclaveConfig = {
   },
   compat: { claudeCode: true, agentsMd: true },
   agents: { platformCard: true },
+  // only what the owner saves reaches config.json (config/index.ts), so a saved auto: false stays
+  updates: { auto: true, window: 'idle', check: true },
   ui: { theme: 'system' },
 };

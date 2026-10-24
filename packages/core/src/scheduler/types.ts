@@ -48,6 +48,8 @@ export interface RoutineService {
   remove(id: string): void;
   runNow(id: string, trigger?: RoutineRun['trigger'], extra?: string, opts?: RunNowOptions): Promise<RoutineRun>;
   runs(id: string, limit?: number): RoutineRun[];
+  /** Routines with a run going in this process now. */
+  running?(): Routine[];
   /** Next N fire times for a schedule string (for the UI preview). */
   preview(schedule: string, timezone?: string, count?: number): number[];
   /** Built-in templates (morning brief, nightly librarian, watchdog...). */

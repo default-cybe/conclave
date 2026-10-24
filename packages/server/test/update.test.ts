@@ -41,8 +41,13 @@ import {
 import type { UpdateStatusDto } from '@conclave/core/client/updates.ts';
 import { runDaemon, type DaemonHandle } from '@conclave/core/machine/daemon.ts';
 import { FakeMachine, waitFor } from '../../core/test/machine/fake-machine';
-import { inWindow } from '../src/update/service';
+import { inWindow, UpdateService } from '../src/update/service';
+import { ConfigStore } from '@conclave/core/config/index.ts';
+import type { BusyWorkDto } from '@conclave/core/client/updates.ts';
+import { createFakeEngine } from './fake-engine';
 import { startHub, type TestHub } from './helpers';
+
+const WORK: BusyWorkDto = { kind: 'session', id: 'ses_1', name: 'fix the build', device: 'local', status: 'running' };
 
 const dirs: string[] = [];
 function tmp(name: string): string {
@@ -423,7 +428,7 @@ describe('hub update through the API', () => {
 
   test('before a check: the running version and how this hub updates', async () => {
     const s = await status();
-    expect(s).toMatchObject({ current: '0.0.0-test', available: false, checking: false, keyMissing: false, install: { kind: 'systemd-user', canUpdate: true }, auto: { on: false, window: '03:00 to 05:00' } });
+    expect(s).toMatchObject({ current: '0.0.0-test', available: false, checking: false, keyMissing: false, install: { kind: 'systemd-user', canUpdate: true }, auto: { on: true, window: 'idle', hours: '03:00 to 05:00' } });
     expect(s.install).not.toHaveProperty('unit');
   });
 
@@ -437,9 +442,22 @@ describe('hub update through the API', () => {
     expect(s.checkedAt).toBeGreaterThan(0);
   });
 
-  test('Update now: download, check, swap, restart, health; the old version stays as .prev', async () => {
+  test('Update now while work runs: 409 with what runs, nothing starts', async () => {
+    hub.engine.busyWork = () => [WORK, { kind: 'workflow', id: 'wr_1', name: 'review', device: 'local', status: 'running' }];
     const res = await hub.api('/api/update/apply', { method: 'POST', json: { version: '0.5.0' } });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe('1 session, 1 workflow run running: fix the build, review.');
+    expect(body.busy).toHaveLength(2);
+    expect((await status()).job).toBeUndefined();
+    expect((await hub.api('/api/update/apply', { method: 'POST', json: { version: '0.5.0', force: 'yes' } })).status).toBe(400);
+  });
+
+  test('Update now: download, check, swap, restart, health; the old version stays as .prev', async () => {
+    // Update anyway: force goes past the running work
+    const res = await hub.api('/api/update/apply', { method: 'POST', json: { version: '0.5.0', force: true } });
     expect(res.status).toBe(202);
+    hub.engine.busyWork = () => [];
     await until((s) => s.job?.phase === 'done', 'update done');
     const s = await status();
     expect(s.job).toMatchObject({ version: '0.5.0', from: '0.0.0-test', phase: 'done', by: 'owner' });
@@ -451,6 +469,10 @@ describe('hub update through the API', () => {
     const audit = hub.engine.repos.audit.list({ limit: 20 }).map((a) => a.action);
     expect(audit).toContain('update.start');
     await waitFor(() => hub.engine.repos.audit.list({ limit: 20 }).some((a) => a.action === 'update.done'), 3000, 'audit line');
+    // the owner hears it, once
+    const told = hub.engine.calls.filter((c) => c.method === 'notifyEvent');
+    expect(told).toHaveLength(1);
+    expect(told[0].args).toEqual(['updates', expect.objectContaining({ title: 'Conclave updated to 0.5.0', body: 'Updated from 0.0.0-test to 0.5.0.', level: 'success' })]);
   });
 
   test('a version that does not answer after the restart is rolled back', async () => {
@@ -467,6 +489,7 @@ describe('hub update through the API', () => {
     expect(readFileSync(join(installDir, 'web', 'index.html'), 'utf8')).toContain('0.5.0');
     expect(readFileSync(join(`${installDir}.failed`, 'web', 'index.html'), 'utf8')).toContain('0.6.0');
     await waitFor(() => hub.engine.repos.audit.list({ limit: 30 }).some((a) => a.action === 'update.rolled_back'), 3000, 'rollback audit');
+    expect(hub.engine.calls.filter((c) => c.method === 'notifyEvent').at(-1)?.args).toEqual(['updates', expect.objectContaining({ title: 'Update to 0.6.0 rolled back', level: 'error' })]);
     answers = () => true;
   });
 
@@ -497,6 +520,10 @@ describe('hub update through the API', () => {
     expect((await hub.api('/api/update/settings', { method: 'PUT', json: { auto: 'yes' } })).status).toBe(400);
     await hub.api('/api/update/settings', { method: 'PUT', json: { auto: false } });
     expect(hub.engine.repos.audit.list({ limit: 50 }).filter((a) => a.action === 'update.auto')).toHaveLength(2);
+    const night = (await hub.api('/api/update/settings', { method: 'PUT', json: { window: 'night' } }).then((r) => r.json())) as UpdateStatusDto;
+    expect(night.auto).toEqual({ on: false, window: 'night', hours: '03:00 to 05:00' });
+    expect(hub.engine.config.getUser().updates).toEqual({ auto: false, window: 'night' });
+    expect((await hub.api('/api/update/settings', { method: 'PUT', json: { window: 'noon' } })).status).toBe(400);
   });
 
   test('without a token nothing is shown, and a member of the hub never sees updates', async () => {
@@ -514,6 +541,124 @@ describe('hub update through the API', () => {
       ['POST', '/api/devices/dev_x/update'],
     ];
     for (const [method, path] of routes) expect({ path, status: (await hub.api(path, { method, token: login.token, ...(method === 'GET' ? {} : { json: {} }) })).status }).toEqual({ path, status: 403 });
+  });
+});
+
+describe('automatic updates', () => {
+  const noon = new Date(2026, 9, 21, 12, 0).getTime();
+  function auto(config: Parameters<typeof createFakeEngine>[0] = {}) {
+    const releases = fakeReleases();
+    releases.publish('0.5.0', buildArchive('0.5.0'));
+    const engine = createFakeEngine(config);
+    let now = noon;
+    const svc = new UpdateService(engine, {
+      install: { kind: 'systemd-user', canUpdate: true, dir: tmp('auto'), unit: 'conclave-hub.service', scope: 'user', helper: 'systemd-run' },
+      key: KEY,
+      fetch: releases.fetch,
+      manifestUrl: releases.manifestUrl,
+      updatesDir: join(tmp('auto-home'), 'updates'),
+      background: false,
+      now: () => now,
+      pollMs: 60_000,
+      startFinisher: async () => {},
+    });
+    const started = () => svc.status().job?.version;
+    return {
+      engine,
+      svc,
+      started,
+      at: (t: number) => (now = t),
+      done: () => {
+        svc.dispose();
+        engine.cleanup();
+      },
+    };
+  }
+
+  test('defaults: on, when idle; the defaults are not written to config.json', () => {
+    const home = tmp('cfg');
+    const cfg = new ConfigStore(home);
+    expect(cfg.get().updates).toEqual({ auto: true, window: 'idle', check: true });
+    expect(cfg.getUser().updates).toBeUndefined();
+  });
+
+  test('a saved auto: false stays off, and nothing installs', async () => {
+    const home = tmp('cfg-off');
+    writeFileSync(join(home, 'config.json'), JSON.stringify({ updates: { auto: false } }));
+    expect(new ConfigStore(home).get().updates).toEqual({ auto: false, window: 'idle', check: true });
+    const a = auto({ updates: { auto: false } });
+    try {
+      for (let i = 0; i < 3; i++) await a.svc.tick();
+      expect(a.svc.status().available).toBe(true);
+      expect(a.started()).toBeUndefined();
+    } finally {
+      a.done();
+    }
+  });
+
+  test('when idle: it installs on the second idle tick in a row; work in between starts the count again', async () => {
+    const a = auto();
+    try {
+      await a.svc.tick();
+      expect(a.started()).toBeUndefined();
+      a.engine.busyWork = () => [WORK];
+      await a.svc.tick();
+      a.engine.busyWork = () => [];
+      await a.svc.tick();
+      expect(a.started()).toBeUndefined();
+      await a.svc.tick();
+      expect(a.svc.status().job).toMatchObject({ version: '0.5.0', by: 'auto' });
+    } finally {
+      a.done();
+    }
+  });
+
+  test('when idle looks every hour; at night waits for 03:00 and nothing running', async () => {
+    const a = auto({ updates: { window: 'night' } });
+    try {
+      await a.svc.tick();
+      await a.svc.tick();
+      expect(a.started()).toBeUndefined();
+      a.at(new Date(2026, 9, 22, 3, 30).getTime());
+      a.engine.busyWork = () => [WORK];
+      await a.svc.tick();
+      expect(a.started()).toBeUndefined();
+      a.engine.busyWork = () => [];
+      await a.svc.tick();
+      expect(a.started()).toBe('0.5.0');
+    } finally {
+      a.done();
+    }
+    const b = auto();
+    try {
+      await b.svc.tick();
+      const first = b.svc.status().checkedAt;
+      b.at(noon + 61 * 60_000);
+      b.engine.busyWork = () => [WORK];
+      await b.svc.tick();
+      expect(b.svc.status().checkedAt).toBeGreaterThan(first!);
+    } finally {
+      b.done();
+    }
+  });
+
+  test('Update when idle: a one-shot that installs once nothing runs, also with automatic updates off', async () => {
+    const a = auto({ updates: { auto: false } });
+    try {
+      await a.svc.check();
+      a.engine.busyWork = () => [WORK];
+      expect((await a.svc.applyWhenIdle('0.5.0', 'owner')).whenIdle).toBe('0.5.0');
+      await a.svc.tick();
+      await a.svc.tick();
+      expect(a.started()).toBeUndefined();
+      a.engine.busyWork = () => [];
+      await a.svc.tick();
+      await a.svc.tick();
+      expect(a.svc.status().job).toMatchObject({ version: '0.5.0', by: 'auto' });
+      expect(a.svc.status().whenIdle).toBeUndefined();
+    } finally {
+      a.done();
+    }
   });
 });
 
@@ -648,5 +793,33 @@ describe('device daemons', () => {
       3000,
       'failed shown',
     );
+  });
+
+  test('automatic updates leave a device alone while work runs on it', async () => {
+    const reg = await pair('Busy PC');
+    const asked: unknown[] = [];
+    daemons.push(
+      runDaemon({
+        hubUrl: hub.url,
+        deviceId: reg.deviceId,
+        token: reg.token,
+        name: 'busy',
+        maxBackoffMs: 200,
+        machine: machine('busy', { impl: 'rust', version: '0.0.0-alpha', update: 'self' }),
+        selfUpdate: async (params) => {
+          asked.push(params);
+          return { from: '0.0.0-alpha', to: params.version, restarting: false };
+        },
+      }),
+    );
+    await waitFor(() => hub.engine.devices.isOnline(reg.deviceId), 3000, 'device online');
+    const updates = hub.running.conclave.ctx.updates;
+    hub.engine.busyWork = (device) => (device === reg.deviceId ? [{ ...WORK, device: reg.deviceId }] : []);
+    await updates.tick();
+    await Bun.sleep(100);
+    expect(asked).toHaveLength(0);
+    hub.engine.busyWork = () => [];
+    await updates.tick();
+    await waitFor(() => asked.length === 1, 3000, 'selfUpdate sent once idle');
   });
 });

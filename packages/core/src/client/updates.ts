@@ -5,8 +5,9 @@
  *
  *   GET  /api/update                 UpdateStatusDto
  *   POST /api/update/check           check the newest release now
- *   POST /api/update/apply           { version }: download, check, swap, restart
- *   PUT  /api/update/settings        { auto }: install updates automatically at night
+ *   POST /api/update/apply           { version, force?, when? }: download, check, swap, restart;
+ *                                    409 { error, busy } while work runs, unless force; when 'idle' waits for it
+ *   PUT  /api/update/settings        { auto?, window? }: install updates automatically, when idle or at night
  *   POST /api/devices/:id/update     the device's daemon updates itself to the hub's version
  */
 
@@ -65,10 +66,23 @@ export interface UpdateStatusDto {
   install: HubInstallDto;
   /** The update key is still the placeholder: nothing installs until a release has one. */
   keyMissing: boolean;
-  /** "Install updates automatically": at night, owner's setting, off unless set. */
-  auto: { on: boolean; window: string };
+  /** "Install updates automatically": on unless the owner turned it off. idle: when nothing runs; night: in `hours` (03:00 to 05:00). */
+  auto: { on: boolean; window: UpdateWindow; hours: string };
+  /** "Update when idle" was asked for this version: it installs once nothing runs. */
+  whenIdle?: string;
   /** The update running now, or the last one. */
   job?: UpdateJobDto;
+}
+
+export type UpdateWindow = 'idle' | 'night';
+
+/** Work an update's restart would cut (engine.busyWork): the 409 of Update lists it. */
+export interface BusyWorkDto {
+  kind: 'session' | 'task' | 'queued' | 'workflow' | 'routine';
+  id: string;
+  name: string;
+  device?: string;
+  status?: string;
 }
 
 export type DeviceUpdateState = 'sent' | 'updating' | 'done' | 'failed';
