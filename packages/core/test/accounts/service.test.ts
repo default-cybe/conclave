@@ -141,12 +141,54 @@ describe('the accounts service', () => {
     expect(svc.status().routes.find((r) => r.match)?.order).toEqual(['antigravity-g', 'claude-a', 'api-anthropic']);
     expect(() => svc.setOrder({ vendor: 'anthropic', order: ['antigravity-g'] })).toThrow(/Not an account of Claude/);
     expect(() => svc.setOrder({ vendor: 'anthropic', match: 'claude-opus-5-5', order: ['gemini-cli-x'] })).toThrow(/Not an account of Claude/);
-    // a limit on the prefixed id blocks that plan only; a bare one blocks the vendor's own plans
+    // a limit on the prefixed id blocks that plan only; a bare one blocks every plan that lists the model (CLIProxyAPI tried them all)
     svc.noteLimit('cliproxy', 'ag/claude-opus-5-5');
     expect(ready('claude-opus-5-5')).toEqual(['claude-a', 'api-anthropic']);
     svc.clearBlock('antigravity-g');
     svc.noteLimit('cliproxy', 'claude-opus-5-5');
-    expect(ready('claude-opus-5-5')).toEqual(['antigravity-g', 'api-anthropic']);
+    expect(ready('claude-opus-5-5')).toEqual(['api-anthropic']);
+    // only Antigravity's Claude quota: its Gemini models stay ready
+    expect(ready('gemini-3-pro')).toEqual(['antigravity-g', 'gemini-cli-x']);
+  });
+
+  test("with a saved vendor order, another vendor's plan goes after the saved plans and before the API key", () => {
+    const now = { t: Date.now() };
+    const { svc } = setup(now);
+    const opus = [{ id: 'claude-opus-5-5' }];
+    svc.setCliproxy({ provider: 'cliproxy', management: true, credentials: [cred('claude-a.json', { models: opus }), cred('claude-b.json', { models: opus }), cred('antigravity-g.json', { provider: 'antigravity', models: opus, prefix: 'ag' })] });
+    const ready = (m: string) => svc.readyAccounts(m).map((a) => a.id);
+    svc.setOrder({ vendor: 'anthropic', order: ['claude-b', 'claude-a', 'api-anthropic'] });
+    expect(ready('claude-opus-5-5')).toEqual(['claude-b', 'claude-a', 'antigravity-g', 'api-anthropic']);
+    // a per model order that lists it keeps its place
+    svc.setOrder({ vendor: '', match: 'claude-opus-5-5', order: ['claude-a', 'api-anthropic', 'antigravity-g'] });
+    expect(ready('claude-opus-5-5')).toEqual(['claude-a', 'api-anthropic', 'antigravity-g', 'claude-b']);
+  });
+
+  test('a vendor with only an API key: the other vendor\'s plan goes first, and the key is next when the plan is blocked or lacks the model', () => {
+    const now = { t: Date.now() };
+    const { svc } = setup(now);
+    svc.setCliproxy({ provider: 'cliproxy', management: true, credentials: [cred('antigravity-g.json', { provider: 'antigravity', models: [{ id: 'claude-opus-5-5' }], prefix: 'ag' })] });
+    expect(svc.providersFor('claude-opus-5-5')).toEqual(['cliproxy', 'anthropic']);
+    expect(svc.fallbackFor('cliproxy', 'claude-opus-5-5')).toBe('anthropic');
+    // blocked: the key goes first, the plan keeps its place in the words
+    svc.noteLimit('cliproxy', 'claude-opus-5-5');
+    expect(svc.providersFor('claude-opus-5-5')).toEqual(['anthropic', 'cliproxy']);
+    expect(svc.fallbackFor('cliproxy', 'claude-opus-5-5')).toBe('anthropic');
+    expect(svc.routeOf('claude-opus-5-5')).toEqual([
+      { provider: 'cliproxy', kind: 'subscription' },
+      { provider: 'anthropic', kind: 'api' },
+    ]);
+    // a model the plan does not list goes straight to the key, as before
+    expect(svc.providersFor('claude-sonnet-5-5')).toBeUndefined();
+    expect(svc.routeOf('claude-sonnet-5-5')).toBeUndefined();
+    expect(svc.fallbackFor('cliproxy', 'claude-sonnet-5-5')).toBeUndefined();
+  });
+
+  test('a per model order for a model no vendor is known for is refused', () => {
+    const now = { t: Date.now() };
+    const { svc } = setup(now);
+    svc.setCliproxy({ provider: 'cliproxy', management: true, credentials: [cred('antigravity-g.json', { provider: 'antigravity', models: [{ id: 'mystery-1' }] })] });
+    expect(() => svc.setOrder({ vendor: '', match: 'mystery-1', order: ['antigravity-g'] })).toThrow(/Unknown model mystery-1/);
   });
 
   test("a limit on another vendor's model blocks only that vendor's models on the plan (Antigravity keeps Claude and Gemini quotas apart)", () => {
