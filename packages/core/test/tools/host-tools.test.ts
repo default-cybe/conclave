@@ -59,6 +59,29 @@ describe('TodoWrite', () => {
     await TodoWriteTool.run({ todos: [{ content: 'A', status: 'completed' }] }, makeCtx({ cwd, host }));
     expect(host.todos.get('sess_test')?.[0].activeForm).toBe('A');
   });
+
+  test('accepts plain strings and a bare todo object; still rejects real errors', async () => {
+    expect(TodoWriteTool.validatesInput).toBe(true);
+    const host = fakeHost();
+    const out = await TodoWriteTool.run({ todos: ['Run tests', 'Format output'] as any }, makeCtx({ cwd, host }));
+    expect(out.isError).toBeFalsy();
+    expect(host.todos.get('sess_test')).toEqual([
+      { content: 'Run tests', activeForm: 'Run tests', status: 'in_progress' },
+      { content: 'Format output', activeForm: 'Format output', status: 'pending' },
+    ]);
+    const bare = await TodoWriteTool.run({ content: 'Ship', activeForm: 'Shipping', status: 'pending' } as any, makeCtx({ cwd, host }));
+    expect(bare.isError).toBeFalsy();
+    expect(host.todos.get('sess_test')).toEqual([{ content: 'Ship', activeForm: 'Shipping', status: 'pending' }]);
+    expect((await TodoWriteTool.run({ todos: ['  '] as any }, makeCtx({ cwd, host }))).isError).toBe(true);
+    expect((await TodoWriteTool.run({} as any, makeCtx({ cwd, host }))).isError).toBe(true);
+  });
+
+  test('summarize handles [null], string items, and bare object without throwing', () => {
+    expect(TodoWriteTool.summarize!({ todos: [null] } as any)).toBe('Update todos (0/1 done)');
+    expect(TodoWriteTool.summarize!({ todos: ['Run tests', 'Ship'] } as any)).toBe('Update todos (0/2 done)');
+    expect(TodoWriteTool.summarize!({ content: 'Ship', status: 'completed' } as any)).toBe('Update todos (1/1 done)');
+    expect(TodoWriteTool.summarize!({} as any)).toBe('Update todos (0/0 done)');
+  });
 });
 
 describe('Task', () => {

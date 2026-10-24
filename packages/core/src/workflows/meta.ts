@@ -17,6 +17,12 @@
 
 export const MAX_SCRIPT_BYTES = 256 * 1024;
 
+/** The smallest script that loads and runs one agent; shown in the Workflow tool text and load errors. */
+export const MINIMAL_WORKFLOW_EXAMPLE = `export const meta = { name: 'example', description: 'One agent', phases: [{ title: 'Work' }] };
+phase('Work');
+const r = await agent('Summarize README.md in three bullets', { label: 'x' });
+return r;`;
+
 export class WorkflowLoadError extends Error {
   constructor(message: string) {
     super(message);
