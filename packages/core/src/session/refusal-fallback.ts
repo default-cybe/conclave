@@ -283,7 +283,7 @@ function alreadyTried(engine: Engine, t: FallbackTarget, tried: Served[]): boole
 }
 
 /** Whether the hub can call an entry at all now: its provider on and set up, its account on. */
-function usable(engine: Engine, session: Pick<Session, 'accountId'>, t: FallbackTarget): boolean {
+export function usable(engine: Engine, session: Pick<Session, 'accountId'>, t: FallbackTarget): boolean {
   if (isHiddenModel(engine.config.get(), t.ref) || isHiddenModel(engine.config.get(), t.entry.model)) return false;
   try {
     const reg = engine.registryFor(session);

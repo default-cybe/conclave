@@ -6,6 +6,10 @@ import { activeMessages } from './transcript';
 import { regionTokens } from './compaction';
 import { SWITCH_BRIEF_AT } from '../modes/switch-math';
 import { logger } from '../util/log';
+import { accountsOf } from '../accounts/attached';
+import { isMember } from '../people/context';
+import { splitAccount } from '../providers/split';
+import { shortModelName, usable } from './refusal-fallback';
 
 const log = logger('limits');
 
@@ -34,7 +38,52 @@ export interface LimitOutcome {
 }
 
 /**
+ * After a plan pinned by its prefix (cliproxy/neu/gpt-6-sol) hit its limit:
+ * the same model on the next plan in the owner's order that is on, signed in,
+ * offers it, is not at a limit and can be called for this session. Owner
+ * sessions only: the plans are the owner's. A plan without a prefix gets the
+ * bare id; CLIProxyAPI gives it to the first ready plan in the same order.
+ */
+function nextAccount(engine: Engine, sessionId: string, modelRef: string): { ref: string; from: string; to: string } | undefined {
+  const accounts = accountsOf(engine);
+  if (!accounts) return undefined;
+  const session = engine.repos.sessions.get(sessionId);
+  if (!session || isMember(session.accountId)) return undefined;
+  const gw = accounts.gateway ?? 'cliproxy';
+  let wireModel: string;
+  try {
+    const r = engine.registryFor(session).resolve(modelRef);
+    if (r.provider !== gw) return undefined;
+    wireModel = r.model;
+  } catch {
+    return undefined;
+  }
+  const { account: prefix, model: bare } = splitAccount(wireModel);
+  // an id without a prefix: CLIProxyAPI already moves it between plans
+  if (!prefix) return undefined;
+  // the plan's own name for the bare id (GPT-6.1-Sol), as the pickers show it
+  let name = bare;
+  try {
+    name = shortModelName(engine.registryFor(session).resolveAt(gw, bare).info.name);
+  } catch {
+    /* not listed bare: its id is its name */
+  }
+  const current = accounts.accountFor(gw, wireModel);
+  for (const a of accounts.readyAccounts(bare)) {
+    if (a.kind !== 'subscription' || a.id === current) continue;
+    const wire = a.prefix ? `${a.prefix}/${bare}` : bare;
+    const ref = `${gw}/${wire}`;
+    if (!usable(engine, session, { index: -1, entry: { model: ref, account: a.id }, ref, pin: { provider: gw, model: wire, account: a.id }, label: '' })) continue;
+    return { ref, from: `${name} (${(current && accounts.account(current)?.label) || prefix})`, to: `${name} (${a.label})` };
+  }
+  return undefined;
+}
+
+/**
  * A long rate limit or quota window was hit. In order:
+ * 0. If the model is pinned to one plan by its prefix and another plan of the
+ *    owner serves the same model now, continue there and keep it for the
+ *    session (nextAccount). Same model, so waitInsteadOfFallback does not apply.
  * 1. If a fallback model is configured and usable, switch to it for this turn,
  *    unless the limit resets within a few minutes and the chat is big
  *    (waitInsteadOfFallback): then wait as in 2.
@@ -48,7 +97,33 @@ export async function handleLimit(engine: Engine, runner: SessionRunner, modelRe
   const sessionId = runner.id;
   const resetAt = err.resetAt ?? (err.retryAfterMs ? Date.now() + err.retryAfterMs : undefined);
 
-  const fallbacks = cfg.limits.fallbacks[modelRef] ?? cfg.limits.fallbacks[engine.providers.resolve(modelRef).provider] ?? [];
+  const next = nextAccount(engine, sessionId, modelRef);
+  if (next) {
+    engine.notice(sessionId, `${next.from} hit its limit. Continuing on ${next.to}.`, 'warning');
+    // kept for the session, as a manual switch: later turns skip the plan at its limit
+    if (engine.repos.sessions.get(sessionId)?.model === modelRef) {
+      try {
+        engine.updateSession(sessionId, { model: next.ref });
+      } catch (e) {
+        log.warn(`${sessionId}: could not keep ${next.ref}: ${(e as Error).message}`);
+      }
+    }
+    log.info(`${sessionId}: ${modelRef} hit its limit; continuing on ${next.ref}`);
+    return { fallback: next.ref };
+  }
+
+  const resolved = engine.providers.resolve(modelRef);
+  const { account: prefix, model: bare } = splitAccount(resolved.model);
+  const bareRef = prefix ? `${resolved.provider}/${bare}` : undefined;
+  const fallbacks =
+    cfg.limits.fallbacks[modelRef] ??
+    (bareRef ? cfg.limits.fallbacks[bareRef] : undefined) ??
+    Object.entries(cfg.limits.fallbacks).find(([k]) => {
+      const i = k.indexOf('/');
+      return i > 0 && k.slice(0, i) === resolved.provider && splitAccount(k.slice(i + 1)).model === bare;
+    })?.[1] ??
+    cfg.limits.fallbacks[resolved.provider] ??
+    [];
   const fallback = fallbacks.find((fb) => fb !== modelRef && engine.isUsable(fb) && !engine.providers.resolve(fb).acp);
   if (fallback) {
     const wait = waitInsteadOfFallback({
