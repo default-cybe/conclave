@@ -49,6 +49,17 @@ class UpdatePromptTest {
     }
 
     @Test
+    fun aWaitingInstallResumesOnlyOnceAndroidAllowsIt() {
+        assertTrue(UpdatePrompt.resumeInstall(pending = true, fileExists = true, canInstall = true))
+        // the permission screen is still not allowed
+        assertFalse(UpdatePrompt.resumeInstall(pending = true, fileExists = true, canInstall = false))
+        // the checked APK is gone
+        assertFalse(UpdatePrompt.resumeInstall(pending = true, fileExists = false, canInstall = true))
+        // nothing waited: already launched, or skipped
+        assertFalse(UpdatePrompt.resumeInstall(pending = false, fileExists = true, canInstall = true))
+    }
+
+    @Test
     fun whatsNewIsTheFirstPlainLineOfTheNotes() {
         assertNull(UpdatePrompt.whatsNew(""))
         assertNull(UpdatePrompt.whatsNew("  \n\n "))

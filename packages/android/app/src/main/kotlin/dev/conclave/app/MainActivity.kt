@@ -108,8 +108,10 @@ class MainActivity : FragmentActivity() {
         // the background connection runs while it should (paired, Notify this device on, notifications allowed);
         // starting it from here works on every Android version because the app is in the foreground
         lifecycleScope.launch { (application as ConclaveApp).syncBackground() }
-        // the app's own update: a look at the newest release once a day (update/AppUpdater.kt)
+        // the app's own update: a look at the newest release once an hour, and an install that
+        // waited for the install permission goes on once it is allowed (update/AppUpdater.kt)
         container.updates.checkIfDue()
+        container.updates.resumeIfPending()
     }
 
     override fun onStop() {
