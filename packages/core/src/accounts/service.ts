@@ -33,6 +33,7 @@ import { catalogEntries, familyForProvider, lookupModel } from '../providers/cat
 import { budgetPeriod, hubZone, validZone, type Period } from './period';
 import { assess, bareModel, orderIds, pickAccount, priorities, reaches, routeFor, usable, type AccountView, type Verdict } from './policy';
 import { credentialVendor, vendorName, vendorOfModel } from './vendors';
+import { splitAccount } from '../providers/split';
 import { DEFAULT_END, DEFAULT_START, type StarterFacts } from './starter';
 import { annotateWindow, limitKey, mergeWindows, windowOrder } from './windows';
 import type { CyberProgram } from '../providers/access-programs';
@@ -489,6 +490,15 @@ export class AccountsService {
    * is ignored.
    */
   refusalAccounts(model: string): AccountDto[] {
+    return this.readyAccounts(model).filter((a) => a.refusal);
+  }
+
+  /**
+   * Every plan and key that can take this model now, in the owner's order
+   * for it: on, signed in, not at a limit or resting, and offering the
+   * model. An account prefix on the model is ignored.
+   */
+  readyAccounts(model: string): AccountDto[] {
     const bare = bareModel(model);
     const vendor = vendorOfModel(bare);
     if (!vendor) return [];
@@ -496,7 +506,6 @@ export class AccountsService {
     const all = this.accts();
     const out: AccountDto[] = [];
     for (const a of this.forVendor(vendor, bare)) {
-      if (!a.cfg.refusal) continue;
       const view = this.view(a, now);
       if (!view.enabled || view.error || !reaches(view, bare)) continue;
       const v = assess(view, now, bare);
@@ -576,7 +585,9 @@ export class AccountsService {
     const all = this.accts();
     if (this.cliproxy && provider === this.cliproxy.provider) {
       const until = Math.max(info.resetAt ?? 0, now + BLIND_BLOCK_MS);
-      for (const a of all) if (a.cfg.kind === 'subscription' && a.cfg.vendor === vendor && reaches(this.view(a, now), model)) this.blocked.set(a.cfg.id, { until, at: now });
+      // a prefixed id ("neu/gpt-6-sol") went to that one plan only: the others were not tried
+      const prefix = splitAccount(model).account;
+      for (const a of all) if (a.cfg.kind === 'subscription' && a.cfg.vendor === vendor && (prefix ? a.facts?.prefix === prefix : reaches(this.view(a, now), model))) this.blocked.set(a.cfg.id, { until, at: now });
     } else {
       const a = all.find((x) => x.cfg.kind === 'api' && x.provider === provider);
       if (a) {
