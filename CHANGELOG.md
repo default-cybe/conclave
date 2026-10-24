@@ -7,6 +7,11 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+- The Z.ai Coding Plan is an account. Settings > Models > Accounts names it by its plan and shows its 5 hour and weekly windows with their resets, read from Z.ai's quota endpoint. Settings > Subscriptions lists it read only, as a plan that uses an API key. GLM calls go where they went before.
+
 ## [0.4.23] - 2026-10-24
 
 ### Added

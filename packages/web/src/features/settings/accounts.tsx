@@ -179,7 +179,7 @@ function NowLines({ status, now }: { status: AccountsStatus; now: number }) {
 // One account
 // ---------------------------------------------------------------------------
 
-function Meter({ w, now }: { w: LimitWindow; now: number }) {
+export function Meter({ w, now }: { w: LimitWindow; now: number }) {
   const used = usedOf(w);
   const name = windowName(w);
   const money = budgetWords(w);
@@ -242,14 +242,14 @@ function AccountRow({
   const canTry = sub && management && (a.state === 'cooldown' || a.state === 'limited');
   const detail = sub
     ? [a.plan && `${a.vendorName} ${a.plan}`, a.email && a.email !== a.label && a.email, a.prefix && `ids also as ${a.prefix}/`].filter(Boolean).join(' · ')
-    : [`${a.vendorName} API key`, a.budget ? `Budget $${a.budget.usd} a ${a.budget.period ?? 'month'}` : 'No budget'].filter((x, i) => i > 0 || x !== a.label).join(' · ');
+    : [a.subscription ? `${a.plan} · API key` : `${a.vendorName} API key`, a.budget ? `Budget $${a.budget.usd} a ${a.budget.period ?? 'month'}` : 'No budget'].filter((x, i) => i > 0 || x !== a.label).join(' · ');
   const why = a.state === 'paused' ? undefined : a.state !== 'ready' && a.state !== 'unknown' ? `${a.detail ?? word.word}${a.until && a.until > now ? `, until ${resetWords(a.until, now)}` : ''}.` : a.state === 'unknown' ? 'No usage read yet.' : undefined;
   const menu = [
     ...(!first ? [{ label: 'Move up', onSelect: () => onMove(-1) }] : []),
     ...(!last ? [{ label: 'Move down', onSelect: () => onMove(1) }] : []),
     ...(canTry ? [{ label: 'Try now', onSelect: onTry }] : []),
     ...(canPause ? [{ label: a.enabled ? 'Pause' : 'Resume', onSelect: onPause }] : []),
-    ...(!sub ? [{ label: a.budget ? 'Change budget' : 'Set a budget', onSelect: onBudget }] : []),
+    ...(!sub && !a.subscription ? [{ label: a.budget ? 'Change budget' : 'Set a budget', onSelect: onBudget }] : []),
     { label: 'Rename', onSelect: onRename },
   ];
   return (
@@ -289,7 +289,7 @@ function AccountRow({
                 {a.enabled ? 'Pause' : 'Resume'}
               </Button>
             )}
-            {!sub && (
+            {!sub && !a.subscription && (
               <Button variant="quiet" size="sm" onClick={onBudget}>
                 {a.budget ? 'Budget' : 'Set budget'}
               </Button>

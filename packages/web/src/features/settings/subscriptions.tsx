@@ -6,9 +6,10 @@
  * step 2 (components/subscriptions).
  */
 import { useEffect, useState } from 'react';
-import type { SubscriptionsMode, SubscriptionsStatus } from '@conclave/core/client';
+import type { AccountDto, SubscriptionsMode, SubscriptionsStatus } from '@conclave/core/client';
 import { api } from '@/lib/api';
-import { useIsMobile } from '@/lib/hooks';
+import { rowWindows, useAccounts } from '@/lib/accounts';
+import { useIsMobile, useNow } from '@/lib/hooks';
 import { useSubscriptions } from '@/lib/subscriptions';
 import { toast, useHub } from '@/store/store';
 import { LiveStatus } from '@/components/motion';
@@ -19,6 +20,7 @@ import { ConfirmDialog } from '@/components/ui/Overlay';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { AccountRows, ExternalForm, ModelGroups, SubscriptionRows, SubscriptionsStatusLine } from '@/components/subscriptions/Subscriptions';
 import { errText, Group, SettingRow } from './parts';
+import { Meter } from './accounts';
 
 const MODE_LABEL: Record<SubscriptionsMode, string> = {
   builtin: 'Run it on the hub',
@@ -34,8 +36,33 @@ function modeHelp(s: SubscriptionsStatus): Record<SubscriptionsMode, string> {
   };
 }
 
+/** Plans paid with an API key (the Z.ai Coding Plan): read only, their windows as Accounts shows them. No sign-in. */
+export function KeyPlans({ accounts, now }: { accounts: AccountDto[]; now: number }) {
+  const plans = accounts.filter((a) => a.subscription);
+  if (!plans.length) return null;
+  return (
+    <Group title="Plans with an API key" count={plans.length} help="These plans use an API key, not a sign-in. Change the key in Settings > Providers.">
+      {plans.map((a) => (
+        <div key={a.id} className="py-3">
+          <span className="block text-[13.5px] font-medium text-fg phone:text-[15px]">{a.plan ?? a.label}</span>
+          <span className="block text-[12px] text-fg-3 phone:text-[13px]">Uses an API key</span>
+          {rowWindows(a).length > 0 && (
+            <div className="mt-2 max-w-[560px]">
+              {rowWindows(a).map((w) => (
+                <Meter key={w.name} w={w} now={now} />
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </Group>
+  );
+}
+
 export function SubscriptionsSection() {
   const { status, set, error, reload } = useSubscriptions();
+  const accounts = useAccounts().status?.accounts ?? [];
+  const now = useNow();
   const mobile = useIsMobile();
   const size = mobile ? 'touch' : 'sm';
   const [choice, setChoice] = useState<SubscriptionsMode | undefined>(status?.mode);
@@ -130,6 +157,8 @@ export function SubscriptionsSection() {
       <Group title="Accounts" count={status.accounts.length || undefined}>
         <AccountRows status={status} onChange={set} empty={status.management || status.mode === 'off' ? 'No account is signed in.' : (status.managementNote ?? 'Accounts show here once sign-in is available.')} />
       </Group>
+
+      <KeyPlans accounts={accounts} now={now} />
 
       <Group
         title="Models"
