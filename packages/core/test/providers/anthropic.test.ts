@@ -1,4 +1,8 @@
 import { afterAll, describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
+import { cleanFields } from '../../src/logs/redact';
+import { MAX_LINE } from '../../src/logs/sink';
+import { setLogTap } from '../../src/util/log';
 import { AnthropicProvider, planAnthropicThinking } from '../../src/providers/anthropic';
 import { lookupModel } from '../../src/providers/catalog';
 import { tagSignature } from '../../src/providers/signatures';
@@ -167,6 +171,123 @@ describe('AnthropicProvider streaming', () => {
     const req = server.requests.at(-1)!;
     expect(req.headers.authorization).toBe('Bearer tok');
     expect(req.headers['x-api-key']).toBeUndefined();
+  });
+});
+
+describe('signed thinking replay evidence', () => {
+  const rejection = 'messages.103.content.16: `thinking` or `redacted_thinking` blocks in the latest assistant message cannot be modified. These blocks must remain as they were in the original response.';
+  const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex').match(/.{16}/g)!.join(':');
+  const request = (): ChatRequest => base({
+    model: 'claude-opus-5-5', session: 'ses_replay',
+    system: [{ text: 'PRIVATE_SYSTEM' }],
+    tools: [{ name: 'PrivateTool', description: 'PRIVATE_DESCRIPTION', inputSchema: { type: 'object' } }],
+    messages: [
+      { role: 'user', content: [{ type: 'text', text: 'PRIVATE_USER' }] },
+      { role: 'assistant', content: [
+        { type: 'thinking', thinking: 'PRIVATE_THOUGHT', signature: 'PRIVATE_SIGNATURE' },
+        { type: 'redacted_thinking', data: 'PRIVATE_REDACTED' },
+        { type: 'text', text: 'PRIVATE_TEXT' },
+        { type: 'tool_use', id: 'private_call', name: 'PrivateTool', input: { password: 'PRIVATE_ARGUMENT' } },
+      ] },
+      { role: 'user', content: [{ type: 'tool_result', toolUseId: 'private_call', content: 'PRIVATE_RESULT' }] },
+    ],
+  });
+
+  async function capture(run: (p: AnthropicProvider, logs: any[], reject: (message?: string) => void) => Promise<void>) {
+    let error: string | undefined;
+    const local = mockServer(() => error ? jsonResponse({ error: { type: 'invalid_request_error', message: error } }, 400) : sseResponse(textStream));
+    const p = new AnthropicProvider({ id: 'cliproxy', config: { type: 'anthropic', baseUrl: local.url }, apiKey: 'PRIVATE_API_KEY', headers: { authorization: 'Bearer PRIVATE_SECRET' } });
+    const logs: any[] = [];
+    const previousTap = setLogTap((level, scope, message, fields) => logs.push({ level, scope, message, fields }));
+    try {
+      await run(p, logs, (message = rejection) => { error = message; });
+    } finally {
+      setLogTap(previousTap);
+      local.stop();
+    }
+  }
+
+  test('exact HTTP 400 records safe boundary evidence, not reconstructed coordinates or raw content', async () => {
+    await capture(async (p, logs, reject) => {
+      const req = request();
+      reject();
+      const err = await expectReject(collect(p.stream(req)));
+      expect(err).toBeInstanceOf(ProviderError);
+      expect(err.body).toContain(rejection);
+      expect(logs).toHaveLength(1);
+      const fields = logs[0].fields;
+      const body = { ...p.buildBody(req), stream: true } as any;
+      expect(fields).toMatchObject({ provider: 'cliproxy', sessionId: 'ses_replay', model: 'claude-opus-5-5', messageCount: 3, toolCount: 1, requestHash: hash(body), messageIndex: 103, blockIndex: 16, suspect: null, suspectBlockPresent: false, previousStatus: 'absent', previousLastAssistant: null, sameRequest: null });
+      expect(fields.lastAssistant.blocks.map((b: any) => b.type)).toEqual(['thinking', 'redacted_thinking', 'text', 'tool_use']);
+      expect(fields.lastAssistant.blocks[0]).toEqual({ index: 0, type: 'thinking', bytes: Buffer.byteLength(JSON.stringify(body.messages[1].content[0])), hash: hash(body.messages[1].content[0]) });
+      const raw = JSON.stringify(logs);
+      expect(raw).not.toContain('PRIVATE_');
+      expect(raw).not.toContain('private_call');
+      expect(raw).not.toContain('PrivateTool');
+      expect(cleanFields(fields)).toEqual(fields);
+      expect(fields.requestHash).toMatch(/^[a-f0-9]{16}(:[a-f0-9]{16}){3}$/);
+    });
+  });
+
+  test('normal success and unrelated HTTP 400 emit no replay diagnostic', async () => {
+    await capture(async (p, logs, reject) => {
+      await collect(p.stream(request()));
+      reject('messages.1.content.0: invalid signature');
+      await expectReject(collect(p.stream(request())));
+      expect(logs).toEqual([]);
+    });
+  });
+
+  test('compares successful request only, preserving block order and bounded suspect window', async () => {
+    await capture(async (p, logs, reject) => {
+      const req = request();
+      req.messages[1].content.push(...Array.from({ length: 40 }, (_, index) => ({ type: 'text' as const, text: `PRIVATE_${index}` })));
+      await collect(p.stream(req));
+      expect(logs).toEqual([]);
+      reject(rejection.replace('103.content.16', '1.content.39'));
+      await expectReject(collect(p.stream(req)));
+      const first = logs.at(-1).fields;
+      expect(first).toMatchObject({ previousStatus: 'present', sameRequest: true, sameTools: true, sameLastAssistant: true, sameLastAssistantTypeOrder: true, suspectMatchesPreviousLastAssistant: true, suspectBlockPresent: true });
+      expect(first.suspect.blocks).toHaveLength(20);
+      expect(first.suspect.omittedBlocks).toBe(24);
+      expect(first.suspect.blocks.some((b: any) => b.index === 39)).toBe(true);
+      expect(first.lastAssistant.blocks).toHaveLength(20);
+      expect(cleanFields(first)).toEqual(first);
+      expect(JSON.stringify({ fields: first }).length + 256).toBeLessThan(MAX_LINE);
+      const [a, b] = req.messages[1].content;
+      req.messages[1].content.splice(0, 2, b, a);
+      await expectReject(collect(p.stream(req)));
+      expect(logs.at(-1).fields).toMatchObject({ sameRequest: false, sameTools: true, sameLastAssistant: false, sameLastAssistantTypeOrder: false, previousRequestHash: first.previousRequestHash });
+      expect(JSON.stringify(logs)).not.toContain('PRIVATE_');
+    });
+  });
+
+  test('does not share previous evidence across session, model, user, provider instance, or missing session', async () => {
+    await capture(async (p, logs, reject) => {
+      await collect(p.stream(request()));
+      reject();
+      for (const over of [{ session: 'other' }, { model: 'claude-sonnet-5-5' }, { userId: 'other-member' }, { session: undefined }]) {
+        await expectReject(collect(p.stream({ ...request(), ...over })));
+        expect(logs.at(-1).fields.previousStatus).toBe('absent');
+      }
+      const other = new AnthropicProvider({ id: p.id, config: { type: 'anthropic' }, fetch: async () => jsonResponse({ error: { message: rejection } }, 400) });
+      await expectReject(collect(other.stream(request())));
+      expect(logs.at(-1).fields.previousStatus).toBe('absent');
+      await expectReject(collect(p.stream(request())));
+      expect(logs.at(-1).fields.previousStatus).toBe('present');
+    });
+  });
+
+  test('keeps at most 64 successful session/model entries', async () => {
+    await capture(async (p, logs, reject) => {
+      for (let index = 0; index < 65; index++) await collect(p.stream({ ...request(), session: `ses_${index}` }));
+      expect(logs).toEqual([]);
+      reject();
+      await expectReject(collect(p.stream({ ...request(), session: 'ses_0' })));
+      expect(logs.at(-1).fields.previousStatus).toBe('absent');
+      await expectReject(collect(p.stream({ ...request(), session: 'ses_1' })));
+      expect(logs.at(-1).fields.previousStatus).toBe('present');
+    });
   });
 });
 

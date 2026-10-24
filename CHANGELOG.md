@@ -7,6 +7,17 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [0.4.22] - 2026-10-23
+
+### What's new
+- Web and Android: retry a failed provider inference with another model in the same session, preserving the full transcript and completed tools without resending the prompt. Disabled providers and stale retries are rejected; retry offers expire when the hub restarts, and generic prompt replay stays unavailable for unresolved provider failures.
+
+### Fixed
+- Preserve the original assistant block order when thinking or redacted thinking follows a tool call, including when consecutive assistant messages merge.
+
+### Added
+- Bounded, content-free provider boundary evidence for HTTP 400 signed-thinking replay rejections: session/model identifiers, request and tool hashes, reported indexes, and capped block type/byte/hash metadata for the suspect and last assistant messages. Compares against the previous completed request in the same provider instance and session/model/user partition, with at most 64 entries. Normal requests and unrelated errors emit no replay diagnostic. This gathers evidence; it does not fix the rejection or change history, retries, or provider settings.
+
 ## [0.4.21] - 2026-10-23
 
 ### Added
