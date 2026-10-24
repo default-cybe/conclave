@@ -92,4 +92,26 @@ describe('background task tools', () => {
       await t.close();
     }
   }, 30_000);
+
+  test('at boot a child parked for its limit reset is not lost: its resume job reports to the parent', async () => {
+    const t = await startTestEngine({ script: [[{ text: 'ok' }]] });
+    try {
+      const parent = await t.engine.createSession({ title: 'parent', cwd: t.cwd });
+      const child = await t.engine.createSession({ title: 'parked job', cwd: t.cwd, parentId: parent.id });
+      t.engine.patchMeta(child.id, { subagent: true, background: { parentId: parent.id, state: 'running', startedAt: Date.now(), waitingReset: true } });
+      t.engine.parkForReset(child.id, Date.now() + 3_600_000);
+
+      const e2 = await createEngine({ home: t.home, noBackground: true, version: 'test', overrides: { memory: { enabled: false, autoExtract: false, autoInject: false, injectLimit: 0 } } as never });
+      try {
+        expect(e2.backgroundTasks.get(parent.id, child.id)?.state).toBe('running');
+        expect(e2.getSession(child.id)!.status).toBe('waiting_reset');
+        expect(e2.runnerFor(parent.id).pendingNoteCount).toBe(0);
+        expect(e2.getMessages(parent.id).some((m) => m.kind === 'notice' && JSON.stringify(m.content).includes('Background task lost'))).toBe(false);
+      } finally {
+        await e2.shutdown();
+      }
+    } finally {
+      await t.close();
+    }
+  }, 30_000);
 });
