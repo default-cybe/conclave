@@ -56,22 +56,22 @@ See [all features](https://conclave.dymnitguys.com/details.html#features) on the
 | Subagents | yes | yes | yes | yes | yes | no | partial | yes | yes |
 | Hooks | yes | yes | partial | ? | yes | yes | yes | yes | ? |
 | Skills and MCP | yes | yes | yes | yes | yes | yes | yes | yes | partial |
-| Built-in verify gate after edits | yes | no | partial | no | no | no | no | no | no |
-| Second opinion, jury or debate across models | yes | no | no | no | partial | no | no | no | no |
-| Failover across accounts and models on usage limits | yes | yes | no | no | no | no | partial | no | no |
-| Drives Claude Code, Codex or Gemini CLI as engines | yes | no | partial | no | no | no | no | yes | yes |
-| Agents on several machines from one place | yes | partial | partial | no | partial | no | partial | yes | yes |
-| Phone app or approvals from the phone | yes | partial | partial | partial | yes | no | no | partial | partial |
-| Memory across sessions | yes | yes | partial | no | no | no | partial | no | yes |
-| Scheduled routines | yes | yes | yes | no | partial | no | no | yes | yes |
-| Scripted workflows | yes | partial | no | no | no | partial | partial | no | yes |
-| Several people with their own data | yes | partial | partial | no | no | no | no | partial | no |
-| Inline diffs in VS Code or JetBrains | no | no | yes | partial | partial | no | partial | no | no |
-| OS or container sandbox for commands | no | yes | partial | no | yes | no | yes | yes | ? |
-| Hosted cloud option | no | no | yes | no | yes | no | no | yes | no |
+| Built-in verify gate after edits | yes | not listed | partial | not listed | not listed | not listed | not listed | not listed | not listed |
+| Second opinion, jury or debate across models | yes | not listed | not listed | not listed | partial | not listed | not listed | not listed | not listed |
+| Failover across accounts and models on usage limits | yes | yes | not listed | not listed | not listed | not listed | partial | not listed | not listed |
+| Drives Claude Code, Codex or Gemini CLI as engines | yes | not listed | partial | not listed | not listed | not listed | not listed | yes | yes |
+| Agents on several machines from one place | yes | partial | partial | not listed | partial | not listed | partial | yes | yes |
+| Phone app or approvals from the phone | yes | partial | partial | partial | yes | not listed | not listed | partial | partial |
+| Memory across sessions | yes | yes | partial | not listed | not listed | not listed | partial | not listed | yes |
+| Scheduled routines | yes | yes | yes | not listed | partial | not listed | not listed | yes | yes |
+| Scripted workflows | yes | partial | not listed | not listed | not listed | partial | partial | not listed | yes |
+| Several people with their own data | yes | partial | partial | not listed | not listed | not listed | not listed | partial | not listed |
+| Inline diffs in VS Code or JetBrains | no | not listed | yes | partial | partial | not listed | partial | not listed | not listed |
+| OS or container sandbox for commands | no | yes | partial | not listed | yes | not listed | yes | yes | ? |
+| Hosted cloud option | no | not listed | yes | not listed | yes | not listed | not listed | yes | not listed |
 | License | AGPL-3.0 | MIT | Apache-2.0 | MIT | Apache-2.0 | MIT | Apache-2.0 | per repo | Apache-2.0 |
 
-Checked on 2026-10-24 against each project's GitHub README and official docs. "no" means we did not find it listed there; "?" means we could not tell. Corrections are welcome in an issue.
+Checked on 2026-10-24 against each project's GitHub README and official docs. "not listed" means their README and docs do not mention it, not that it is missing. In a competitor column, "no" means their own docs say they lack it: Pi's README says it skips subagents. Conclave's "no" cells are features it does not have yet. "?" means we could not tell. Corrections are welcome in an issue.
 
 Where others are ahead: Cline shows every edit as a diff inside VS Code and JetBrains. Codex, Gemini CLI and OpenHands run commands in an OS or container sandbox; Conclave has permission rules, approvals and a dangerous-command guard, but no sandbox yet. Codex, Cline and OpenHands offer hosted cloud agents; Conclave is self-hosted only. Hermes Agent connects to Telegram, Signal and WhatsApp. OpenCode lists more than 75 providers.
 
