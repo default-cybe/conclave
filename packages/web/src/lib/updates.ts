@@ -4,7 +4,12 @@
  * "Conclave was updated" line and each device's daemon. Pure, so
  * test/updates.test.ts checks them.
  */
-import type { DeviceUpdateDto, HubInstallDto, UpdateJobDto, UpdateStatusDto } from '@conclave/core/client';
+import { ApiError, type DeviceUpdateDto, type HubInstallDto, type UpdateJobDto, type UpdateStatusDto } from '@conclave/core/client';
+
+/** Update now was refused because work runs (409 with busy): what runs, in a sentence. */
+export function busyMessage(e: unknown): string | undefined {
+  return e instanceof ApiError && e.status === 409 && (e.body as { busy?: unknown } | undefined)?.busy ? e.message : undefined;
+}
 
 /** The hub's version changed since this page loaded: the page runs old code, so it offers Reload. */
 export function versionChanged(loaded: string | undefined, now: string | undefined): boolean {

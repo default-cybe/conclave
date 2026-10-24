@@ -237,6 +237,10 @@ export class Routines implements RoutineService {
     return this.repos.routines.runs(id, limit);
   }
 
+  running(): Routine[] {
+    return [...this.inflight].flatMap((id) => this.repos.routines.get(id) ?? []);
+  }
+
   preview(schedule: string, timezone?: string, count = 5): number[] {
     return previewRuns(schedule, timezone, count, this.now());
   }

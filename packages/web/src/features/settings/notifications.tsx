@@ -24,9 +24,10 @@ export type NotifyOn = {
   friendMessage: boolean;
   fileConflict: boolean;
   stuck: boolean;
+  updates: boolean;
 };
 
-export const NOTIFY_DEFAULTS: NotifyOn = { sessionDone: true, approvalNeeded: true, limitReset: true, routineDone: true, errors: true, friendMessage: true, fileConflict: true, stuck: true };
+export const NOTIFY_DEFAULTS: NotifyOn = { sessionDone: true, approvalNeeded: true, limitReset: true, routineDone: true, errors: true, friendMessage: true, fileConflict: true, stuck: true, updates: true };
 
 export const NOTIFY_EVENTS: Array<{ key: keyof NotifyOn; label: string; help: string }> = [
   { key: 'approvalNeeded', label: 'Approvals and questions', help: 'A session is waiting on you. Answer from the notification or the Inbox.' },
@@ -35,6 +36,7 @@ export const NOTIFY_EVENTS: Array<{ key: keyof NotifyOn; label: string; help: st
   { key: 'fileConflict', label: 'File conflicts', help: 'Two chats edited the same file within 10 minutes. Both are linked from the Inbox.' },
   { key: 'limitReset', label: 'Limit resets', help: 'A plan you ran out of is usable again.' },
   { key: 'routineDone', label: 'Routine finished', help: 'Each routine run, with its summary. A routine can turn this off for itself.' },
+  { key: 'updates', label: 'Updates', help: 'The hub updated itself, or an update failed or was rolled back.' },
   { key: 'sessionDone', label: 'Session finished', help: 'A session finished its turn while you were away.' },
   { key: 'friendMessage', label: 'Friends', help: "A note or a request from a friend, a friend's hub with a new key, a note that could not be delivered." },
 ];
