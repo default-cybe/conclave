@@ -53,4 +53,15 @@ describe('account words', () => {
     expect(sharedModels({ accounts, routes: [] })).toEqual([opus]);
     expect(sharedModels({ accounts, routes: [{ vendor: 'anthropic', vendorName: 'Claude', match: 'claude-opus-5-5', order: ['g', 'c'] }] })).toEqual([]);
   });
+
+  test('Per model groups a plan that lists only an effort or thinking variant with the model (Antigravity)', () => {
+    const accounts = [
+      acct('g', 'Antigravity', { vendor: 'gemini', vendorName: 'Gemini', models: [{ id: 'claude-opus-5-5-high', name: 'Claude Opus 5.5 (High)' }, { id: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6 (Thinking)' }] }),
+      acct('c', 'Claude', { models: [{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5' }, { id: 'claude-opus-4-6', name: 'Claude Opus 4.6' }] }),
+    ];
+    expect(sharedModels({ accounts, routes: [] })).toEqual([
+      { id: 'claude-opus-4-6', name: 'Claude Opus 4.6' },
+      { id: 'claude-opus-5-5', name: 'Claude Opus 5.5' },
+    ]);
+  });
 });

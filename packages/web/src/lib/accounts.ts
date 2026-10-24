@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import type { AccountDto, AccountNowDto, AccountState, AccountsStatus, StarterDto } from '@conclave/core/client';
 import type { LimitWindow } from '@conclave/core/types';
 import { suggestPrefixes } from '@conclave/core/accounts/prefix';
+import { variantBase } from '@conclave/core/providers/model-id';
 import type { LogoId } from '@/components/logo';
 import { api } from './api';
 import { useHub } from '@/store/store';
@@ -185,15 +186,19 @@ export function shortNameSuggestions(accounts: AccountDto[]): Map<string, string
   return suggestPrefixes(plans, takenPrefixes(accounts));
 }
 
-/** Models two or more signed in plans list (Opus on Claude and Antigravity), account prefix dropped, that have no order of their own yet: what "Per model" offers. */
+/** Models two or more signed in plans list (Opus on Claude and Antigravity), account prefix and effort or thinking variant dropped (Antigravity's claude-opus-5-5-high), that have no order of their own yet: what "Per model" offers. */
 export function sharedModels(status: Pick<AccountsStatus, 'accounts' | 'routes'>): Array<{ id: string; name: string }> {
   const taken = new Set(status.routes.filter((r) => r.match).map((r) => r.match!.toLowerCase()));
   const seen = new Map<string, { id: string; name: string; plans: Set<string> }>();
   for (const a of status.accounts) {
     if (a.kind !== 'subscription') continue;
     for (const m of a.models) {
-      const id = m.id.slice(m.id.lastIndexOf('/') + 1);
-      const e = seen.get(id.toLowerCase()) ?? { id, name: m.name || id, plans: new Set<string>() };
+      const own = m.id.slice(m.id.lastIndexOf('/') + 1);
+      const id = variantBase(own);
+      // a variant's name says its level ("Claude Opus 5.5 (High)"); the model's own entry names it when a plan lists it
+      const name = id === own ? m.name || id : (m.name || id).replace(/\s*\([^)]*\)$/, '');
+      const e = seen.get(id.toLowerCase()) ?? { id, name, plans: new Set<string>() };
+      if (id === own && m.name) e.name = m.name;
       e.plans.add(a.id);
       seen.set(id.toLowerCase(), e);
     }

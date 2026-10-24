@@ -24,3 +24,11 @@ export function normalizeModelId(id: string): string {
   if (s.startsWith('claude-')) s = s.replace(/\./g, '-');
   return s;
 }
+
+/** An effort or thinking variant of one model ("claude-opus-5-5-high", "claude-opus-4-6-thinking"). */
+export const MODEL_VARIANT = /-(minimal|low|medium|high|xhigh|thinking)$/i;
+
+/** The model a variant is of: "claude-opus-5-5-high" -> "claude-opus-5-5". Other ids stay. */
+export function variantBase(id: string): string {
+  return id.replace(MODEL_VARIANT, '');
+}

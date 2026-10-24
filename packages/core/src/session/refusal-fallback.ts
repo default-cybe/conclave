@@ -39,7 +39,7 @@ import type { AgentDef } from '../extensions/types';
 import type { ConclaveConfig, RefusalFallbackEntry } from '../config/schema';
 import type { Message, Session } from '../types';
 import { accountsOf } from '../accounts/attached';
-import { bareModel } from '../accounts/policy';
+import { bareModel, ownModel } from '../accounts/policy';
 import { lookupModel } from '../providers/catalog';
 import { parseModelRef } from '../providers/types';
 import { parseRefusalEntries } from './refusal-entries';
@@ -132,6 +132,11 @@ function withProgram(engine: Engine, provider: string, model: string, cyber: Cyb
   return `${name}${cyber ? `, ${cyberLabel(cyber)}` : ''} (${acct})`;
 }
 
+/** The plan's own id for a model, as limits.ts asks it: Antigravity lists claude-opus-5-5-high, not claude-opus-5-5. */
+function planModel(a: Pick<AccountDto, 'models'>, model: string): string {
+  return bareModel(ownModel((a.models ?? []).map((m) => m.id), model) ?? model);
+}
+
 /** "Claude Opus 5.5" -> "Opus 5.5": the name the owner reads in notices. */
 export function shortModelName(name: string): string {
   return name.replace(/^Claude\s+/, '').trim() || name;
@@ -197,7 +202,7 @@ export function targetFor(engine: Engine, entry: RefusalFallbackEntry, index: nu
   }
   const gw = accounts?.gateway ?? 'cliproxy';
   if (acct.prefix) {
-    const wire = `${acct.prefix}/${bare}`;
+    const wire = `${acct.prefix}/${planModel(acct, bare)}`;
     return { index, entry, ref: `${gw}/${wire}`, pin: { provider: gw, model: wire, account: acct.id }, label, ...programs };
   }
   return { index, entry, ref: `${gw}/${bare}`, pin: { provider: gw, model: bare }, label, loose: true, ...programs };
@@ -240,7 +245,7 @@ function taggedTargets(engine: Engine, plan: RefusalPlan, origin: Served, from: 
       const ref = `${a.provider}/${model}`;
       out.push({ index: -1, tagged: true, entry: { model: ref, account: a.id }, ref, pin: { provider: a.provider, model, account: a.id }, label: withProgram(engine, a.provider, model, undefined, a.label) });
     } else if (a.prefix) {
-      const wire = `${a.prefix}/${model}`;
+      const wire = `${a.prefix}/${planModel(a, model)}`;
       const ref = `${gw}/${wire}`;
       out.push({ index: -1, tagged: true, entry: { model: ref, account: a.id }, ref, pin: { provider: gw, model: wire, account: a.id }, label: withProgram(engine, gw, model, cyber, a.label), ...(cyber ? { accessPrograms: { cyber } } : {}) });
     }

@@ -134,6 +134,12 @@ describe('a pinned plan at its limit moves to the next plan, same model', () => 
     expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/gpt-6-sol' });
   });
 
+  test('a next plan that lists only a variant of the model gets its own id (Antigravity: claude-opus-5-5-high)', async () => {
+    const s = await engine.createSession({ cwd, title: 'variant', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
+    feed({ backup: { models: [{ id: 'gpt-6-sol-high' }] } });
+    expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/backup-gpt/gpt-6-sol-high' });
+  });
+
   test('no other plan can serve it: parks as before', async () => {
     const s = await engine.createSession({ cwd, title: 'park', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
     feed({ backup: { disabled: true }, spare: { cooldowns: [{ reason: 'quota', until: Date.now() + 3_600_000 }] } });
