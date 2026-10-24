@@ -111,4 +111,16 @@ class UpdateTest {
         assertTrue(assertFailsWith<SignatureException> { AppUpdates.verify(ByteArrayInputStream(data), apk.copy(sha256 = "0".repeat(64)), key, JdkEd25519) }.message!!.contains("SHA-256"))
         assertTrue(assertFailsWith<SignatureException> { AppUpdates.verify(ByteArrayInputStream(data), apk.copy(signature = otherSig), key, JdkEd25519) }.message!!.contains("another key"))
     }
+
+    @Test
+    fun aColdStartLooksAtOnceAndComingBackAfterAnHour() {
+        val t = 10L * AppUpdates.EVERY_MS
+        assertEquals(60L * 60 * 1000, AppUpdates.EVERY_MS)
+        assertTrue(AppUpdates.isDue(now = t, checkedAt = t, coldStart = true))
+        assertTrue(!AppUpdates.isDue(now = t + AppUpdates.EVERY_MS - 1, checkedAt = t, coldStart = false))
+        assertTrue(AppUpdates.isDue(now = t + AppUpdates.EVERY_MS, checkedAt = t, coldStart = false))
+        assertTrue(AppUpdates.isDue(now = t, checkedAt = 0L, coldStart = false))
+        // the clock went back
+        assertTrue(AppUpdates.isDue(now = t, checkedAt = t + 5, coldStart = false))
+    }
 }

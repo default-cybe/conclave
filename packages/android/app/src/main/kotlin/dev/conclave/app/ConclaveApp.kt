@@ -46,7 +46,7 @@ class ConclaveApp : Application() {
         container.network.start()
         container.hub.start()
         schedulePeriodicRefresh()
-        container.updates.checkIfDue()
+        container.updates.checkIfDue(coldStart = true)
     }
 
     private fun schedulePeriodicRefresh() {
