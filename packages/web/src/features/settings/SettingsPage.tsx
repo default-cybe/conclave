@@ -52,6 +52,7 @@ import { SubscriptionsSection } from './subscriptions';
 import { MemberSubscriptionsSection } from './member-plans';
 import { AccountsSection } from './accounts';
 import { RefusalSection } from './refusal';
+import { UsageFallbackSection } from './usage-fallback';
 import { MemberProvidersSection, PeopleSection, YourAccountSection } from './people';
 import { useIsOwner } from '@/lib/people';
 import { LogsSection } from './logs';
@@ -119,6 +120,14 @@ const ALL_SECTIONS: SectionDef[] = [
     label: 'Refusal fallback',
     desc: 'When a model refuses, the same messages go to the next model on your list. Your words are never changed.',
     C: RefusalSection,
+    width: 900,
+    owner: true,
+  },
+  {
+    id: 'usage',
+    label: 'Usage fallback',
+    desc: 'When a model is at its limit on every account, the next model here takes over, on its own account order.',
+    C: UsageFallbackSection,
     width: 900,
     owner: true,
   },
