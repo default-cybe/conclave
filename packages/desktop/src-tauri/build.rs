@@ -23,6 +23,7 @@ fn main() {
             "open_remote_access",
             "update_status",
             "update_install",
+            "update_auto",
             "terminal_status",
             "terminal_install",
             "terminal_remove",
