@@ -11,6 +11,9 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Fixed
 - A Code chat in the Home folder no longer shows "~ is not on <device>." with Choose folder / Continue without files. The folder check now expands `~` before it looks for the folder.
+- Grep: when `path` is a single file and `output_mode` is not given, show the matching lines instead of listing that one file. Directories keep `files_with_matches` as the default.
+- TodoWrite: accept a list of plain strings (each becomes a pending todo, the first in progress when none is) and a single todo object sent without the `todos` wrapper. Bad statuses, empty items and a missing list are still rejected.
+- Workflow: the tool description and the "did not load" error for an inline or saved script now include a minimal working script (meta literal, one `agent()` call, `return r;`).
 
 ## [0.4.22] - 2026-10-23
 

@@ -25,6 +25,17 @@ How to use it:
 - Only mark an item completed when it is fully done. If tests fail, the work is partial, or you hit a blocker, keep it in_progress and add a new item for what blocks it.
 - Remove items that are no longer relevant.`;
 
+/** Some models send plain strings, or one todo without the todos wrapper; accept both. */
+function lenient(input: TodoWriteInput): TodoWriteInput {
+  const raw = input as unknown as Record<string, unknown>;
+  if (raw && raw.todos === undefined && typeof raw.content === 'string') return { todos: [raw as unknown as TodoWriteInput['todos'][number]] };
+  if (!Array.isArray(input?.todos) || !input.todos.some((t) => typeof t === 'string')) return input;
+  const todos: TodoWriteInput['todos'] = input.todos.map((t) => (typeof t === 'string' ? { content: t, activeForm: t, status: 'pending' } : t));
+  const first = todos.find((t, i) => typeof input.todos[i] === 'string' && t.content.trim());
+  if (first && !todos.some((t) => t?.status === 'in_progress')) first.status = 'in_progress';
+  return { todos };
+}
+
 export const TodoWriteTool: Tool<TodoWriteInput> = {
   name: 'TodoWrite',
   description: DESCRIPTION,
@@ -51,12 +62,16 @@ export const TodoWriteTool: Tool<TodoWriteInput> = {
   },
   // Only changes the session's own todo list.
   readOnly: true,
+  // run() checks the list itself, after accepting strings and a bare todo
+  validatesInput: true,
   summarize: (input) => {
-    const list = Array.isArray(input.todos) ? input.todos : [];
-    const done = list.filter((t) => t.status === 'completed').length;
+    input = lenient(input);
+    const list = Array.isArray(input?.todos) ? input.todos : [];
+    const done = list.filter((t) => t?.status === 'completed').length;
     return `Update todos (${done}/${list.length} done)`;
   },
   async run(input, ctx) {
+    input = lenient(input);
     if (!Array.isArray(input.todos)) return fail('todos must be an array of {content, activeForm, status}.');
     const todos: Todo[] = [];
     for (const [i, t] of input.todos.entries()) {
