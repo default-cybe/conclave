@@ -7,6 +7,16 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+- A member's session at a plan's usage limit continues on the same model on the member's next ready plan of their own. It never moves to the owner's plans or the owner's Refusal fallback list.
+
+### Fixed
+- A Task or Delegate subagent waiting for its usage limit to reset is no longer reported as lost when the hub restarts. It continues when the limit resets and sends its report once.
+- A usage limit's fallback follows the session agent's Refusal fallback setting. An agent with `refusalFallback: off` waits for the reset, and an agent with its own list falls back to that list, not yours.
+- A subagent waiting for its limit reset that you write to directly stops waiting for the reset. Its report reaches the parent when that turn ends, and its scheduled resume is cancelled.
+
 ## [0.4.24] - 2026-10-24
 
 ### Added
