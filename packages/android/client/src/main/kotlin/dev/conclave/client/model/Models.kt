@@ -363,15 +363,20 @@ data class LimitWindow(
 @Serializable
 data class LimitState(
     val provider: String,
+    /** The account (models.accounts id) these windows belong to; a provider has one state per account. */
+    val account: String? = null,
     val label: String = "",
     val windows: List<LimitWindow> = emptyList(),
     val updatedAt: Long = 0,
     val blocked: Boolean? = null,
-    /** headers, oauth, logs, api or error */
+    /** headers, oauth, logs, api, ledger or error */
     val source: String = "api",
     /** A plan whose window starter is on: what it is doing (logic/StarterWords.kt). */
     val starter: StarterLine? = null,
-)
+) {
+    /** Where the hub keeps this state: provider, or provider:account (core accounts/windows.ts limitKey). */
+    val key: String get() = if (account.isNullOrEmpty()) provider else "$provider:$account"
+}
 
 /**
  * A plan's window starter, as the hub's limit state carries it: right after
