@@ -9,9 +9,13 @@
  * when it does not come up. Docker, the desktop app's hub, a checkout and a
  * binary nobody supervises are told how to update instead.
  *
- * "Install updates automatically" runs the same at night (03:00 to 05:00 on
- * the hub's clock) when no session is working, and updates the devices'
- * daemons in the same window.
+ * "Install updates automatically" (on unless the owner turned it off) runs
+ * the same by itself. Window idle (default): the hub looks every hour and
+ * installs once engine.busyWork() was empty on two ticks in a row; a device's
+ * daemon updates when nothing runs on that device. Window night: 03:00 to
+ * 05:00 on the hub's clock, when nothing runs. "Update when idle" is a
+ * one-shot of the idle rule for one version. Update now refuses (409, with
+ * what runs) while work runs, unless forced. The owner hears how it went.
  *
  * Devices: a daemon older than the hub gets the hub's version on Update (or
  * at night with the setting on): the selfUpdate RPC (protocol 4) carries the
@@ -23,7 +27,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { EngineApi } from '@conclave/core/engine/api.ts';
 import type { Device } from '@conclave/core/types.ts';
-import type { DeviceUpdateDto, DeviceUpdatesDto, UpdateJobDto, UpdateStatusDto } from '@conclave/core/client/updates.ts';
+import type { BusyWorkDto, DeviceUpdateDto, DeviceUpdatesDto, UpdateJobDto, UpdateStatusDto, UpdateWindow } from '@conclave/core/client/updates.ts';
 import type { RemoteMachine } from '@conclave/core/machine/remote.ts';
 import {
   detectHubInstall,
@@ -50,7 +54,10 @@ import { HttpError } from '../http';
 
 const log = logger('update');
 
-const DAY = 24 * 3_600_000;
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+/** "Update when idle": the version the owner asked for, kept over a restart. */
+const WHEN_IDLE_KEY = 'update.whenIdle';
 /** The night window, on the hub's clock. */
 export const WINDOW = { from: 3, to: 5 };
 /** A device that took its update and has not come back with the new version by then failed. */
@@ -85,6 +92,30 @@ export function inWindow(now: number, w = WINDOW): boolean {
 const pad = (n: number) => String(n).padStart(2, '0');
 export const WINDOW_WORDS = `${pad(WINDOW.from)}:00 to ${pad(WINDOW.to)}:00`;
 
+const KIND_WORDS: Record<BusyWorkDto['kind'], [string, string]> = {
+  session: ['session', 'sessions'],
+  task: ['background task', 'background tasks'],
+  queued: ['queued message', 'queued messages'],
+  workflow: ['workflow run', 'workflow runs'],
+  routine: ['routine run', 'routine runs'],
+};
+
+/** "2 sessions, 1 workflow run running: A, B, W." */
+export function busyWords(busy: BusyWorkDto[]): string {
+  const counts = new Map<BusyWorkDto['kind'], number>();
+  for (const b of busy) counts.set(b.kind, (counts.get(b.kind) ?? 0) + 1);
+  const parts = [...counts].map(([k, n]) => `${n} ${KIND_WORDS[k][n === 1 ? 0 : 1]}`);
+  const names = busy.slice(0, 5).map((b) => b.name || b.id);
+  return `${parts.join(', ')} running: ${names.join(', ')}${busy.length > 5 ? `, and ${busy.length - 5} more` : ''}.`;
+}
+
+/** Update now while work runs: the route answers 409 with the list. */
+export class BusyError extends HttpError {
+  constructor(readonly busy: BusyWorkDto[]) {
+    super(409, busyWords(busy));
+  }
+}
+
 export class UpdateService {
   private latest?: UpdateManifest;
   private checkedAt?: number;
@@ -105,6 +136,8 @@ export class UpdateService {
   private own?: { at: number; manifest: UpdateManifest };
   /** Versions the night window already tried, so a failed one is not tried every 10 minutes. */
   private triedAuto = new Set<string>();
+  /** Ticks in a row that found nothing running. */
+  private idleTicks = 0;
 
   constructor(
     private readonly engine: EngineApi,
@@ -159,6 +192,14 @@ export class UpdateService {
     return this.engine.config.get().updates?.auto === true;
   }
 
+  private get window(): UpdateWindow {
+    return this.engine.config.get().updates?.window === 'night' ? 'night' : 'idle';
+  }
+
+  private get whenIdle(): string {
+    return this.engine.repos.kv.get<string>(WHEN_IDLE_KEY, '');
+  }
+
   status(): UpdateStatusDto {
     const key = this.key;
     const latest = this.latest;
@@ -172,7 +213,8 @@ export class UpdateService {
       ...(this.checkError ? { checkError: this.checkError } : {}),
       install,
       keyMissing: !key.ok,
-      auto: { on: this.auto, window: WINDOW_WORDS },
+      auto: { on: this.auto, window: this.window, hours: WINDOW_WORDS },
+      ...(this.whenIdle ? { whenIdle: this.whenIdle } : {}),
       ...(this.job ? { job: { ...this.job } } : {}),
     };
   }
@@ -195,9 +237,20 @@ export class UpdateService {
     return this.status();
   }
 
-  setAuto(on: boolean): UpdateStatusDto {
-    this.engine.config.update({ updates: { ...(this.engine.config.getUser().updates ?? {}), auto: on } });
-    this.audit('owner', 'update.auto', on ? `install updates automatically, ${WINDOW_WORDS}` : 'install updates by hand');
+  setAuto(patch: { auto?: boolean; window?: UpdateWindow }): UpdateStatusDto {
+    this.engine.config.update({ updates: { ...(this.engine.config.getUser().updates ?? {}), ...patch } });
+    const when = this.window === 'night' ? `at night, ${WINDOW_WORDS}` : 'when nothing runs';
+    this.audit('owner', 'update.auto', this.auto ? `install updates automatically, ${when}` : 'install updates by hand');
+    return this.status();
+  }
+
+  /** "Update when idle": install `version` once nothing has run for two ticks, also with automatic updates off. */
+  async applyWhenIdle(version: string, by: string): Promise<UpdateStatusDto> {
+    if (!this.install.canUpdate) throw new HttpError(409, this.install.why ?? 'This hub cannot update itself.');
+    if (!this.latest || this.latest.version !== version) await this.check();
+    if (this.latest?.version !== version || !isNewer(version, this.engine.version)) throw new HttpError(409, `The newest release is ${this.latest?.version ?? 'unknown'}, not ${version}.`);
+    this.engine.repos.kv.set(WHEN_IDLE_KEY, version);
+    this.audit(by, 'update.when_idle', `${this.engine.version} -> ${version} once nothing runs`);
     return this.status();
   }
 
@@ -217,7 +270,7 @@ export class UpdateService {
    * Update now: check what can be checked here, download, and hand off to the
    * finisher. Returns at once with the job; status() follows it.
    */
-  async apply(version: string, by: string): Promise<UpdateStatusDto> {
+  async apply(version: string, by: string, opts: { force?: boolean } = {}): Promise<UpdateStatusDto> {
     if (!this.install.canUpdate) throw new HttpError(409, this.install.why ?? 'This hub cannot update itself.');
     const key = this.key;
     if (!key.ok) throw new HttpError(409, key.why);
@@ -231,6 +284,11 @@ export class UpdateService {
     const target = hubTarget(process.platform, process.arch, hasAvx2());
     const artifact = target ? m.hub[target] : undefined;
     if (!target || !artifact || artifact.file !== hubArchive(target)) throw new HttpError(409, `Release ${m.version} has no hub for this system.`);
+    // the restart would cut running agents: the owner says "Update anyway" or "Update when idle"
+    if (by !== 'auto' && !opts.force) {
+      const busy = this.engine.busyWork();
+      if (busy.length) throw new BusyError(busy);
+    }
     const job: UpdateJobDto = { id: randomBytes(6).toString('hex'), version: m.version, from: this.engine.version, phase: 'downloading', startedAt: this.now(), by, done: 0, total: artifact.size };
     this.job = job;
     this.audit(by, 'update.start', `${job.from} -> ${job.version}`);
@@ -244,7 +302,20 @@ export class UpdateService {
     job.finishedAt = this.now();
     this.audit(job.by, 'update.failed', `${job.from} -> ${job.version}: ${job.message}`);
     this.engine.repos.kv.set('update.audited', job.id);
+    this.tell(job);
     log.warn('update failed', { version: job.version, error: job.message });
+  }
+
+  /** Tell the owner how an update ended (notifications.on.updates). */
+  private tell(job: UpdateJobDto): void {
+    const done = job.phase === 'done';
+    const title = done ? `Conclave updated to ${job.version}` : job.phase === 'rolled-back' ? `Update to ${job.version} rolled back` : `Update to ${job.version} failed`;
+    const body = done ? `Updated from ${job.from} to ${job.version}.` : `${job.message ?? job.phase} Still on ${job.from}.`;
+    try {
+      this.engine.notifyEvent('updates', { title, body, level: done ? 'success' : 'error', link: '/settings/about' });
+    } catch (err) {
+      log.warn('update notice failed', err);
+    }
   }
 
   private async run(job: UpdateJobDto, m: UpdateManifest, target: string, key: KeyState): Promise<void> {
@@ -306,6 +377,7 @@ export class UpdateService {
         this.engine.repos.kv.set('update.audited', s.id);
         const action = s.phase === 'done' ? 'update.done' : s.phase === 'rolled-back' ? 'update.rolled_back' : 'update.failed';
         this.audit(s.by === 'auto' ? 'update' : s.by, action, `${s.from} -> ${s.version}: ${s.message ?? s.phase}`);
+        this.tell(s);
         log.info('update finished', { phase: s.phase, from: s.from, to: s.version });
       }
       return true;
@@ -332,23 +404,41 @@ export class UpdateService {
     (this.poller as { unref?: () => void }).unref?.();
   }
 
-  /** The daily check, the night window for the hub and for devices. */
+  /** The check (hourly when idle, else daily), then the hub and devices in the window. */
   async tick(): Promise<void> {
     const now = this.now();
     const cfg = this.engine.config.get().updates;
-    if (cfg?.check !== false && (!this.checkedAt || now - this.checkedAt > DAY)) await this.check();
-    if (!this.auto || !inWindow(now)) return;
+    const idleMode = this.window === 'idle';
+    let whenIdle = this.whenIdle;
+    if (whenIdle && !isNewer(whenIdle, this.engine.version)) {
+      this.engine.repos.kv.delete(WHEN_IDLE_KEY);
+      whenIdle = '';
+    }
+    if (cfg?.check !== false && (!this.checkedAt || now - this.checkedAt > (idleMode && this.auto ? HOUR : DAY))) await this.check();
+    // two ticks in a row: a session that rests a moment between turns is not cut
+    const idle = this.engine.isIdle();
+    this.idleTicks = idle ? this.idleTicks + 1 : 0;
+    const autoNow = this.auto && (idleMode || inWindow(now));
+    if (!autoNow && !whenIdle) return;
     // devices first: the hub's own restart would cut their connections
-    for (const d of this.engine.devices.list('owner')) {
-      if (!d.online || d.id === 'local') continue;
-      const u = this.deviceView(d);
-      const last = this.devices.get(d.id);
-      if (u.mode === 'self' && u.behind && !(last && last.target === u.target && last.at && now - last.at < DAY)) void this.updateDevice(d.id, 'auto').catch(() => {});
+    if (autoNow) {
+      for (const d of this.engine.devices.list('owner')) {
+        if (!d.online || d.id === 'local') continue;
+        const u = this.deviceView(d);
+        const last = this.devices.get(d.id);
+        if (u.mode !== 'self' || !u.behind || (last && last.target === u.target && last.at && now - last.at < DAY)) continue;
+        // a daemon's restart would cut a session or task working on that device
+        if (!this.engine.isIdle(d.id)) continue;
+        void this.updateDevice(d.id, 'auto').catch(() => {});
+      }
     }
     const latest = this.latest;
-    if (!latest || !isNewer(latest.version, this.engine.version) || !this.install.canUpdate || this.running() || this.triedAuto.has(latest.version)) return;
-    // never in the middle of someone's work
-    if (this.engine.listSessions({ status: 'running', limit: 1 }).length) return;
+    if (!latest || !isNewer(latest.version, this.engine.version) || !this.install.canUpdate || this.running()) return;
+    // a version that failed or was rolled back is not tried again by itself (state.json keeps it over the restart)
+    const failed = this.triedAuto.has(latest.version) || (this.job?.version === latest.version && this.job.phase !== 'done');
+    if (!whenIdle && failed) return;
+    if (!(whenIdle || idleMode ? this.idleTicks >= 2 : idle)) return;
+    this.engine.repos.kv.delete(WHEN_IDLE_KEY);
     this.triedAuto.add(latest.version);
     await this.apply(latest.version, 'auto').catch((err) => log.warn('automatic update did not start', { error: (err as Error).message }));
   }

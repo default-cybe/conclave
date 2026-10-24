@@ -14,6 +14,7 @@ import dev.conclave.client.update.Minisign
 import dev.conclave.client.update.SignatureException
 import dev.conclave.client.update.UpdateArtifact
 import dev.conclave.client.update.UpdateManifest
+import dev.conclave.client.update.UpdatePrompt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -58,8 +59,8 @@ val UpdateState.waiting: String?
     }
 
 /**
- * The app's own updates (docs/DESIGN.md, Updates). On start and once a day it
- * reads conclave-update.json on the public releases. A newer, signed APK is
+ * The app's own updates (docs/DESIGN.md, Updates). On start and, when the app
+ * comes back, once an hour it reads conclave-update.json on the public releases. A newer, signed APK is
  * downloaded with DownloadManager into the app's own folder, checked for
  * size, SHA-256 and its minisign signature (the key in BuildConfig, from
  * packages/core/src/update/update-key.pub), and handed to the system
@@ -69,7 +70,10 @@ val UpdateState.waiting: String?
  * installed, so it updates in place and keeps the pairing.
  *
  * The last manifest read is kept, so an update found earlier is offered
- * again at the next start without waiting for the next look. Whether it
+ * again at the next start without waiting for the next look. A download
+ * checked earlier is checked again at start and offered as Install now. An
+ * install that waited for the install permission opens the installer by
+ * itself once the person allows it and comes back (resumeIfPending). Whether it
  * asks (Skip this version, Don't show at startup) is in the settings store
  * (data/SettingsStore.kt, client UpdatePrompt).
  */
@@ -81,18 +85,21 @@ class AppUpdater(private val context: Context, private val scope: CoroutineScope
     val state: StateFlow<UpdateState> = _state.asStateFlow()
 
     private var job: Job? = null
+    private var restoring: Job? = restoreReady()
 
-    /** On start and when the app comes back: look when a day has passed since the last look. */
-    fun checkIfDue() {
-        if (System.currentTimeMillis() - prefs.getLong(CHECKED_AT, 0L) >= AppUpdates.EVERY_MS) check()
+    /** A cold start looks now; when the app comes back, look when an hour has passed since the last look. */
+    fun checkIfDue(coldStart: Boolean = false) {
+        if (AppUpdates.isDue(System.currentTimeMillis(), prefs.getLong(CHECKED_AT, 0L), coldStart)) check()
     }
 
     /** Look at the newest release now. */
     fun check() {
         if (job?.isActive == true) return
-        val s = _state.value
-        if (s is UpdateState.Downloading || s is UpdateState.Ready) return
         job = scope.launch {
+            // a download checked earlier is Ready, and stays so
+            restoring?.join()
+            val s = _state.value
+            if (s is UpdateState.Downloading || s is UpdateState.Ready) return@launch
             val text = withContext(Dispatchers.IO) {
                 try {
                     val req = Request.Builder().url(AppUpdates.MANIFEST_URL).header("User-Agent", "conclave-android/${BuildConfig.VERSION_NAME}").build()
@@ -116,6 +123,20 @@ class AppUpdater(private val context: Context, private val scope: CoroutineScope
         return AppUpdates.parse(text)
     }
 
+    /** The APK downloaded for the offered version earlier, checked again: Ready when it still checks out. */
+    private fun restoreReady(): Job? {
+        val k = key ?: return null
+        val a = _state.value as? UpdateState.Available ?: return null
+        if (prefs.getString(READY_VERSION, null) != a.version) return null
+        val file = File(prefs.getString(READY_FILE, null) ?: return null)
+        if (!file.exists()) return null
+        return scope.launch {
+            val ok = withContext(Dispatchers.IO) { runCatching { AppUpdates.verify(file.inputStream(), a.apk, k, TinkEd25519) }.isSuccess }
+            // no resumeIfPending here: the process may start in the background, where Android blocks the installer
+            if (ok && _state.value == a) _state.value = UpdateState.Ready(a.version, file)
+        }
+    }
+
     /** What a manifest offers this build; Idle (or Off without a key) when it is up to date or there is none. */
     private fun stateOf(m: UpdateManifest?): UpdateState = when (val o = m?.let { AppUpdates.offer(it, BuildConfig.VERSION_NAME, key) }) {
         null -> if (key == null) UpdateState.Off(Minisign.NO_KEY) else UpdateState.Idle
@@ -128,11 +149,13 @@ class AppUpdater(private val context: Context, private val scope: CoroutineScope
         val k = key ?: return
         if (_state.value is UpdateState.Downloading) return
         job?.cancel()
+        restoring?.cancel()
         job = scope.launch {
             _state.value = UpdateState.Downloading(version, 0)
             try {
                 val file = download(version, apk)
                 withContext(Dispatchers.IO) { AppUpdates.verify(file.inputStream(), apk, k, TinkEd25519) }
+                prefs.edit().putString(READY_VERSION, version).putString(READY_FILE, file.path).apply()
                 _state.value = UpdateState.Ready(version, file)
                 openInstaller(file)
             } catch (e: SignatureException) {
@@ -180,10 +203,12 @@ class AppUpdater(private val context: Context, private val scope: CoroutineScope
     /**
      * The system installer for a checked APK. Without the install permission
      * Android's own screen to allow it opens first; Install again after that.
-     * Returns false when it opened that screen.
+     * Returns false when it opened that screen; the install then waits and
+     * resumes by itself when the app comes back allowed (resumeIfPending).
      */
     fun openInstaller(file: File): Boolean {
         if (!context.packageManager.canRequestPackageInstalls()) {
+            prefs.edit().putBoolean(PENDING, true).apply()
             val allow = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             runCatching { context.startActivity(allow) }
             return false
@@ -192,11 +217,28 @@ class AppUpdater(private val context: Context, private val scope: CoroutineScope
         val view = Intent(Intent.ACTION_VIEW)
             .setDataAndType(uri, "application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-        return runCatching { context.startActivity(view) }.isSuccess
+        val opened = runCatching { context.startActivity(view) }.isSuccess
+        if (opened) clearPending()
+        return opened
+    }
+
+    /** When the app comes back: an install that waited for the permission opens the installer once it is allowed. */
+    fun resumeIfPending() {
+        val r = _state.value as? UpdateState.Ready ?: return
+        val pending = prefs.getBoolean(PENDING, false)
+        if (UpdatePrompt.resumeInstall(pending, r.file.exists(), context.packageManager.canRequestPackageInstalls())) openInstaller(r.file)
+    }
+
+    /** No install waits any more (Skip this version). */
+    fun clearPending() {
+        prefs.edit().remove(PENDING).apply()
     }
 
     companion object {
         private const val CHECKED_AT = "checkedAt"
         private const val MANIFEST = "manifest"
+        private const val READY_VERSION = "readyVersion"
+        private const val READY_FILE = "readyFile"
+        private const val PENDING = "installPending"
     }
 }

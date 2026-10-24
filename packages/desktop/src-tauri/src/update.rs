@@ -3,8 +3,12 @@
 //! writes with each desktop bundle's minisign signature, and checks the
 //! download against the key in packages/core/src/update/update-key.pub (the
 //! one file every Conclave updater reads, built in here). It looks on start
-//! and once a day; a newer version puts "Update to X and restart" in the tray
-//! menu and in the app's settings page.
+//! and every 15 minutes; a newer version puts "Update to X and restart" in the
+//! tray menu and in the app's settings page. With "Install updates
+//! automatically" on (the default), it installs by itself once two checks in a
+//! row find nothing running (Host::idle). An install that fails is not tried
+//! again until a newer version; a permission error also says so in a
+//! notification, and the tray item stays for the owner to click.
 //!
 //! While that file holds the placeholder there is nothing to check against,
 //! so the app shows nothing and says why in its log. A Linux install from the
@@ -21,7 +25,7 @@ use tauri_plugin_updater::UpdaterExt;
 /// The update key file, built in.
 const KEY_FILE: &str = include_str!("../../../core/src/update/update-key.pub");
 /// Look again after this long.
-const EVERY: Duration = Duration::from_secs(24 * 60 * 60);
+const EVERY: Duration = Duration::from_secs(15 * 60);
 
 /// The last line that is not empty or a # comment.
 pub fn key_line(text: &str) -> &str {
@@ -91,6 +95,8 @@ pub struct View {
 #[derive(Default)]
 pub struct Updates {
     view: Mutex<View>,
+    /// The version an automatic install failed on: not tried again by itself.
+    failed: Mutex<Option<String>>,
 }
 
 impl Updates {
@@ -108,9 +114,32 @@ impl Updates {
 /// What the app does when an update shows up or changes: the tray item.
 pub trait Host: Send + Sync + 'static {
     fn changed(&self, view: &View);
+    /// "Install updates automatically" is on.
+    fn auto(&self) -> bool;
+    /// Nothing runs that an install would cut off. Blocking.
+    fn idle(&self) -> bool;
+    /// Install now and restart (returns only when the install failed). Blocking.
+    fn install(&self) -> Result<(), String>;
+    /// The install needs the owner: say so once.
+    fn notify(&self, version: &str);
 }
 
-/// Check now, then once a day, on a thread of its own. Returns at once.
+/// Worth asking whether the app is idle: auto-install is on and the version
+/// waiting is not one that failed before.
+fn wants_auto(auto: bool, available: Option<&str>, failed: Option<&str>) -> bool {
+    auto && available.is_some() && available != failed
+}
+
+/// The install failed because this user cannot write the app (macOS app not
+/// writable, Windows per-machine install): only the owner can do it.
+fn permission_error(e: &str) -> bool {
+    let e = e.to_ascii_lowercase();
+    ["permission denied", "access is denied", "operation not permitted", "read-only file system", "requires elevation", "(os error 1)", "(os error 5)", "(os error 13)"]
+        .iter()
+        .any(|w| e.contains(w))
+}
+
+/// Check now, then every 15 minutes, on a thread of its own. Returns at once.
 pub fn start<R: Runtime>(app: &AppHandle<R>, updates: Arc<Updates>, host: Arc<dyn Host>) {
     let current = app.package_info().version.to_string();
     if let Some(why) = off_reason() {
@@ -123,10 +152,31 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, updates: Arc<Updates>, host: Arc<dy
     }
     updates.set(|v| v.current = current);
     let app = app.clone();
-    std::thread::spawn(move || loop {
-        let view = tauri::async_runtime::block_on(check(&app, &updates));
-        host.changed(&view);
-        std::thread::sleep(EVERY);
+    std::thread::spawn(move || {
+        // the last check found the app idle too: two in a row before an install
+        let mut was_idle = false;
+        loop {
+            let view = tauri::async_runtime::block_on(check(&app, &updates));
+            host.changed(&view);
+            let failed = updates.failed.lock().unwrap().clone();
+            let idle = wants_auto(host.auto(), view.available.as_deref(), failed.as_deref()) && host.idle();
+            if idle && was_idle {
+                was_idle = false;
+                if let Err(e) = host.install() {
+                    eprintln!("conclave: automatic update: {e}");
+                    if let Some(version) = view.available.clone() {
+                        if permission_error(&e) {
+                            host.notify(&version);
+                        }
+                        *updates.failed.lock().unwrap() = Some(version);
+                    }
+                    host.changed(&updates.view());
+                }
+            } else {
+                was_idle = idle;
+            }
+            std::thread::sleep(EVERY);
+        }
     });
 }
 
@@ -212,6 +262,23 @@ mod tests {
         assert!(wrapped.starts_with("untrusted comment:") && wrapped.contains(bare));
         // the committed file: off while it is the placeholder
         assert_eq!(tauri_pubkey(KEY_FILE).is_err(), key_line(KEY_FILE).eq_ignore_ascii_case("placeholder"));
+    }
+
+    #[test]
+    fn auto_install_skips_a_failed_version_until_the_next() {
+        assert!(wants_auto(true, Some("0.5.0"), None));
+        assert!(!wants_auto(false, Some("0.5.0"), None));
+        assert!(!wants_auto(true, None, None));
+        assert!(!wants_auto(true, Some("0.5.0"), Some("0.5.0")));
+        assert!(wants_auto(true, Some("0.5.1"), Some("0.5.0")));
+    }
+
+    #[test]
+    fn permission_errors() {
+        assert!(permission_error("The update did not install: Permission denied (os error 13)"));
+        assert!(permission_error("The update did not install: Access is denied. (os error 5)"));
+        assert!(!permission_error("The update did not install: signature mismatch"));
+        assert!(!permission_error("connection reset (os error 104)"));
     }
 
     #[test]

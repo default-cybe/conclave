@@ -169,6 +169,12 @@ export interface EngineApi {
   btw(id: string, text: string): Promise<{ answer: string }>;
   /** Take a waiting message off before it runs: 409 once its turn started, 404 when it is not there. */
   unqueue(id: string, pendingId: string): void;
+  /** Work an update's restart would cut, on one device or anywhere (engine.ts). waiting_reset sessions do not count. */
+  busyWork(device?: string): import('../client/updates').BusyWorkDto[];
+  /** busyWork() is empty. */
+  isIdle(device?: string): boolean;
+  /** Tell the owner, if that kind of event notifies (config notifications.on). */
+  notifyEvent(kind: keyof import('../config/schema').ConclaveConfig['notifications']['on'], notice: Omit<import('../types').Notice, 'id' | 'createdAt'>): void;
   abort(id: string): void;
   rewind(id: string, seq: number, restoreFiles?: boolean): Promise<Session>;
   secondOpinion(id: string, input: SecondOpinionInput): Promise<void>;

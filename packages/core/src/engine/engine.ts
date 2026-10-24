@@ -58,6 +58,8 @@ import type {
   ToolInfo,
   UsageSummary,
 } from '../client';
+import type { BusyWorkDto } from '../client/updates';
+import { WorkflowStore } from '../workflows/store';
 import type { EngineApi, DeviceHub, MemoryAdminApi } from './api';
 import type { SessionFilter } from '../storage/repos';
 import { Repos } from '../storage/repos';
@@ -791,6 +793,45 @@ export class Engine implements EngineApi {
   queue(id: string): QueuedMessage[] {
     this.requireSession(id);
     return this.runners.get(id)?.pending ?? [];
+  }
+
+  /**
+   * Work an update's restart would cut (server update/service.ts): sessions
+   * running or waiting for the owner, background tasks, messages waiting to
+   * be sent, workflow runs and routine runs. With a device, only work there.
+   * A session parked for a usage limit (waiting_reset) does not count: boot
+   * keeps its status and its session.resume job is in the jobs table.
+   */
+  busyWork(device?: string): BusyWorkDto[] {
+    const on = (d: string | undefined) => !device || (d || 'local') === device;
+    const out: BusyWorkDto[] = [];
+    const seen = new Set<string>();
+    const add = (s: Session, kind: BusyWorkDto['kind']) => {
+      if (seen.has(s.id) || s.status === 'waiting_reset' || !on(s.device)) return;
+      seen.add(s.id);
+      out.push({ kind, id: s.id, name: s.title, device: s.device, status: s.status });
+    };
+    for (const s of this.repos.sessions.listActive()) add(s, (s.meta?.background as { state?: string } | undefined)?.state === 'running' ? 'task' : 'session');
+    // a background task between turns is not 'running' as a session, but is still work
+    const tasks = this.repos.db.query(`SELECT id FROM sessions WHERE json_extract(meta, '$.background.state') = 'running'`).all() as Array<{ id: string }>;
+    for (const { id } of tasks) {
+      const s = this.repos.sessions.get(id);
+      if (s) add(s, 'task');
+    }
+    for (const [id, r] of this.runners) {
+      const s = r.pending.some((p) => !p.held) ? this.repos.sessions.get(id) : undefined;
+      if (s) add(s, 'queued');
+    }
+    this.workflowRuns ??= new WorkflowStore(this.repos.db);
+    for (const w of this.workflowRuns.listRuns({ statuses: ['running', 'queued'], limit: 100 })) if (on(w.device)) out.push({ kind: 'workflow', id: w.id, name: w.name, device: w.device, status: w.status });
+    for (const r of this.routines.running?.() ?? []) if (on(r.device)) out.push({ kind: 'routine', id: r.id, name: r.name, ...(r.device ? { device: r.device } : {}) });
+    return out;
+  }
+  private workflowRuns?: WorkflowStore;
+
+  /** Nothing an update's restart would cut is going (busyWork). */
+  isIdle(device?: string): boolean {
+    return !this.busyWork(device).length;
   }
 
   unqueue(id: string, pendingId: string): void {
