@@ -678,7 +678,8 @@ export class ProjectsService {
     }
     const m = this.machine(s.device)!;
     let refused = false;
-    const stat = await m.stat(s.cwd).catch((err: unknown) => {
+    // "Home folder" sessions store cwd as "~": stat takes a real path, so expand it first
+    const stat = await m.stat(m.resolve(s.cwd, '')).catch((err: unknown) => {
       refused = err instanceof MachineRefused;
       return null;
     });

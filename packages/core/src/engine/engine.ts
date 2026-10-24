@@ -2073,14 +2073,15 @@ export class Engine implements EngineApi {
    */
   async systemPromptParts(session: Session, agent: AgentDef, modelRef: string, mode: Session['mode'], toolNames: string[], depth = 0): Promise<PromptParts> {
     const machine = this.machineFor(session);
+    const cwd = machine.resolve(session.cwd, '');
     const [{ loadProjectInstructions }, info] = await Promise.all([import('../extensions/instructions'), machine.info().catch(() => undefined)]);
-    const projectInstructions = await loadProjectInstructions(machine, session.cwd, this.config.get()).catch(() => []);
-    const isGit = !!(await machine.stat(`${session.cwd}/.git`).catch(() => null));
+    const projectInstructions = await loadProjectInstructions(machine, cwd, this.config.get()).catch(() => []);
+    const isGit = !!(await machine.stat(`${cwd}/.git`).catch(() => null));
     // read once per session and folder, so the system prompt (and its cache) stays the same through the session
-    const testKey = `${session.id}\n${session.cwd}`;
+    const testKey = `${session.id}\n${cwd}`;
     let testCommand = this.testCommands.get(testKey);
     if (!testCommand) {
-      testCommand = toolNames.includes('Bash') ? detectTestCommand(machine, session.cwd).catch(() => undefined) : Promise.resolve(undefined);
+      testCommand = toolNames.includes('Bash') ? detectTestCommand(machine, cwd).catch(() => undefined) : Promise.resolve(undefined);
       this.testCommands.set(testKey, testCommand);
     }
     // python3 without python, and what the verify gate checks at stop: once per session, folder and agent
@@ -2089,7 +2090,7 @@ export class Engine implements EngineApi {
     if (!workspace) {
       const gate = session.kind !== 'chat' && wantsVerifyGate(agent);
       workspace = toolNames.includes('Bash')
-        ? testCommand.then((tc) => detectWorkspaceFacts(machine, session.cwd, { testCommand: tc, stopCheck: gate ? () => verifyCommandFor(this, session, []) : undefined })).catch(() => ({}))
+        ? testCommand.then((tc) => detectWorkspaceFacts(machine, cwd, { testCommand: tc, stopCheck: gate ? () => verifyCommandFor(this, session, []) : undefined })).catch(() => ({}))
         : Promise.resolve({});
       this.workspaceFacts.set(factsKey, workspace);
     }
