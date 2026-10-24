@@ -268,7 +268,7 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
 
   (engine as unknown as { browser: BrowserManager }).browser = browser;
   // accounts and their order (accounts/service.ts): the registry follows it, so a signed in plan goes before the API key
-  const accounts = new AccountsService({ config, repos, bus, notify: (title, body) => engine.notifyEvent('limitReset', { title, body, level: 'warning', link: '/settings/accounts' }) });
+  const accounts = new AccountsService({ config, repos, bus, notify: (title, body) => engine.notifyEvent('limitReset', { title, body, level: 'warning', link: '/settings/accounts' }), readKeyPlan: () => usage.refreshZai() });
   setAccounts(engine, accounts);
   providers.setRouting(accounts);
   // the window starter (accounts/starter.ts): one tiny request right after a plan's 5 hour window resets, off until the owner turns it on

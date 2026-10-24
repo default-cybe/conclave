@@ -13,6 +13,7 @@ import type { AccountState } from '../client/accounts';
 import type { AccountRoute } from '../config/schema';
 import type { LimitWindow } from '../types';
 import { wirePattern } from '../providers/split';
+import { variantBase } from '../providers/model-id';
 import { annotateWindow, windowApplies, windowFull, windowScope } from './windows';
 
 export interface AccountView {
@@ -77,11 +78,16 @@ export function bareModel(model: string): string {
   return i < 0 ? model : model.slice(i + 1);
 }
 
-/** Whether the account offers the model. Unknown lists offer everything. */
+/** The plan's own id for a model: the id, else an effort or thinking variant it lists instead (Antigravity's "claude-opus-5-5-high"). With exact, only the id. */
+export function ownModel(models: string[], model: string, exact = false): string | undefined {
+  const want = bareModel(model).toLowerCase();
+  return models.find((m) => bareModel(m).toLowerCase() === want) ?? (exact ? undefined : models.find((m) => variantBase(bareModel(m)).toLowerCase() === want));
+}
+
+/** Whether the account offers the model, or a variant of it. Unknown lists offer everything. */
 export function reaches(a: Pick<AccountView, 'models'>, model?: string): boolean {
   if (!model || !a.models) return true;
-  const want = bareModel(model).toLowerCase();
-  return a.models.some((m) => bareModel(m).toLowerCase() === want);
+  return ownModel(a.models, model) !== undefined;
 }
 
 /** One account's state now, for a model when given (a weekly Opus window only blocks Opus). */

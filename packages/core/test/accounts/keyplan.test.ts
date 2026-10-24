@@ -14,6 +14,7 @@ import { openDb } from '../../src/storage/db';
 import { Repos } from '../../src/storage/repos';
 import { EventBus } from '../../src/util/bus';
 import { AccountsService } from '../../src/accounts/service';
+import { decide } from '../../src/accounts/starter';
 
 const homes: string[] = [];
 afterAll(() => {
@@ -67,9 +68,19 @@ describe('the Z.ai Coding Plan', () => {
     // publish keeps the reader's state and adds no second one
     svc.publish();
     expect(repos.usage.limits().map((l) => `${l.provider}:${l.account ?? ''}`)).toEqual(['zai:']);
+  });
 
-    // the window starter is for signed in plans
-    expect(() => svc.patch('api-zai', { starter: { enabled: true } })).toThrow('window starter');
+  test('has a window starter: the cheapest GLM, sent on the zai provider right after the 5 hour reset', () => {
+    const now = Date.parse('2026-10-23T09:00:00Z');
+    const { svc } = setup(now);
+    svc.patch('api-zai', { starter: { enabled: true, tz: 'UTC' } });
+    expect(svc.account('api-zai')!.starter).toMatchObject({ enabled: true });
+    const all = svc.starterFacts();
+    const f = all.find((x) => x.id === 'api-zai')!;
+    expect(f).toMatchObject({ provider: 'zai', vendor: 'zai', enabled: true, disabled: false });
+    // the reader's windows carry when they were read, so the starter can tell a new reading
+    expect(f.windows.find((w) => w.name === '5h')).toMatchObject({ kind: 'session', observedAt: now, source: 'api' });
+    expect(decide(f, all, { failures: 0 }, now, 'UTC')).toMatchObject({ state: 'scheduled', model: 'glm-5.3-flash', pinned: 'glm-5.3-flash', nextAt: now + 2 * H + 3_000 });
   });
 
   test('a 429 marks the reader state blocked with its reset, so the Usage page shows it', () => {
