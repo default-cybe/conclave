@@ -150,7 +150,7 @@ export async function runSubagent(
     // the parent gets the TaskList, TaskWait, TaskResult and TaskContinue tools from now on (engine/background.ts)
     if (!parent.meta?.backgroundTasks) engine.patchMeta(parent.id, { backgroundTasks: true });
     void driveSubagent(engine, sub.id, prompt, runner.depth)
-      .then((r) => deliverSubagentResult(engine, parent.id, sub.id, r.error ? 'error' : 'completed', r.error ? `${r.text}\n\nError: ${r.error}` : r.text))
+      .then((r) => (r.resumeAt && !opts.workflow ? waitForReset(engine, parent.id, sub.id, r.resumeAt) : deliverSubagentResult(engine, parent.id, sub.id, r.error ? 'error' : 'completed', r.error ? `${r.text}\n\nError: ${r.error}` : r.text)))
       .catch((err) => {
         log.warn('background subagent failed', err);
         deliverSubagentResult(engine, parent.id, sub.id, 'error', `Error: ${(err as Error)?.message ?? String(err)}`);
@@ -159,6 +159,16 @@ export async function runSubagent(
   }
 
   const { text, error, stop, resumeAt } = await driveSubagent(engine, sub.id, prompt, runner.depth, opts.signal);
+  // a workflow parks the call itself (workflows/agents.ts); a Task or Delegate child waits for the reset and reports then
+  if (resumeAt && !opts.workflow) {
+    waitForReset(engine, parent.id, sub.id, resumeAt);
+    return {
+      sessionId: sub.id,
+      text: `Subagent ${sub.id} hit a usage limit and no other plan or model could take over. It continues on its own when the limit resets (${new Date(resumeAt).toISOString()}); its report then arrives in a <subagent_result> block, like a background task's. TaskList shows its state.`,
+      stop,
+      resumeAt,
+    };
+  }
   return { sessionId: sub.id, text: report(text), ...(error ? { error } : {}), ...(stop ? { stop } : {}), ...(resumeAt ? { resumeAt } : {}) };
 }
 
@@ -174,6 +184,40 @@ export async function continueSubagent(engine: Engine, sessionId: string, text: 
   const depth = parent ? engine.runnerFor(parent.id).depth + 1 : 1;
   const r = await driveSubagent(engine, sessionId, text, depth, signal, true);
   return { sessionId, text: r.text, ...(r.error ? { error: r.error } : {}), ...(r.stop ? { stop: r.stop } : {}), ...(r.resumeAt ? { resumeAt: r.resumeAt } : {}) };
+}
+
+/**
+ * A Task or Delegate child a usage limit stopped with nothing left to fall
+ * back to: it stays parked, so the durable session.resume job continues it
+ * (session/limits.ts resumeAfterReset, resumeParkedSubagent), and the parent
+ * tracks it as a background task.
+ */
+function waitForReset(engine: Engine, parentId: string, childId: string, resumeAt: number): void {
+  const child = engine.getSession(childId);
+  engine.parkForReset(childId, resumeAt);
+  engine.patchMeta(childId, { background: { ...((child?.meta?.background as Record<string, unknown>) ?? {}), parentId, state: 'running', startedAt: child?.createdAt ?? Date.now(), waitingReset: true } });
+  if (!engine.getSession(parentId)?.meta?.backgroundTasks) engine.patchMeta(parentId, { backgroundTasks: true });
+}
+
+/** Whether a parked session is a Task or Delegate child waiting for its limit to reset (waitForReset). */
+export function waitsForParent(session: Session): boolean {
+  return !!session.parentId && (session.meta?.background as { waitingReset?: boolean } | undefined)?.waitingReset === true;
+}
+
+/** The limit reset: the child runs on, and its report goes to the parent, or it parks again. */
+export async function resumeParkedSubagent(engine: Engine, child: Session): Promise<void> {
+  const parentId = child.parentId!;
+  engine.setStatus(child.id, 'idle');
+  let r: SubagentResult;
+  try {
+    r = await continueSubagent(engine, child.id, engine.config.get().limits.resumePrompt);
+  } catch (err) {
+    r = { sessionId: child.id, text: '', error: (err as Error)?.message ?? String(err) };
+  }
+  if (r.resumeAt) return waitForReset(engine, parentId, child.id, r.resumeAt);
+  const bg = (engine.getSession(child.id)?.meta?.background as Record<string, unknown>) ?? {};
+  engine.patchMeta(child.id, { background: { ...bg, waitingReset: false } });
+  deliverSubagentResult(engine, parentId, child.id, r.error ? 'error' : 'completed', r.error ? `${r.text}\n\nError: ${r.error}` : r.text);
 }
 
 /** Longest part of a background result that goes into the parent; the full text stays in the child session. */

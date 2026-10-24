@@ -13,7 +13,9 @@ import { createEngine } from '../../src/engine';
 import type { Engine } from '../../src/engine/engine';
 import { accountsOf } from '../../src/accounts/attached';
 import type { CliproxyCredentialFacts } from '../../src/accounts/service';
-import { handleLimit } from '../../src/session/limits';
+import { handleLimit, resumeAfterReset } from '../../src/session/limits';
+import { completeText } from '../../src/session/stream';
+import { runSubagent } from '../../src/engine/subagent';
 import { ProviderError } from '../../src/providers/types';
 import type { Message, TextBlock } from '../../src/types';
 
@@ -31,6 +33,8 @@ const cpa = Bun.serve({
     if (String(body.model).startsWith('personal-gpt/')) {
       return Response.json({ error: { type: 'usage_limit_reached', message: 'The usage limit has been reached' } }, { status: 429, headers: { 'retry-after': '7200' } });
     }
+    // gpt-6-nano refuses: the refusal fallback walk starts
+    if (body.model === 'gpt-6-nano') return sse([{ id: 'c1', choices: [{ index: 0, delta: { content: 'no' }, finish_reason: 'content_filter' }] }, '[DONE]']);
     return sse([{ id: 'c1', choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] }, '[DONE]']);
   },
 });
@@ -62,7 +66,7 @@ beforeAll(async () => {
           baseUrl: `http://127.0.0.1:${cpa.port}/v1`,
           apiKey: 'test-client-key',
           enabled: true,
-          models: ['gpt-6-sol', ...IDS.map((id) => `${id}-gpt/gpt-6-sol`)],
+          models: ['gpt-6-sol', 'gpt-6-mini', 'gpt-6-nano', ...IDS.map((id) => `${id}-gpt/gpt-6-sol`)],
           modelMeta: { 'gpt-6-sol': { name: 'GPT-6-Sol' } },
           anthropicWire: { baseUrl: `http://127.0.0.1:${cpa.port}`, models: ['claude-*', '*/claude-*'] },
           subscription: 'cliproxy',
@@ -171,4 +175,111 @@ describe('a pinned plan at its limit moves to the next plan, same model', () => 
       engine.config.update({ limits: { fallbacks: {} } } as never);
     }
   });
+});
+
+// every plan of the model at its limit: personal-gpt answers 429, backup and spare are paused or cooling down
+const allBlocked = () => feed({ backup: { disabled: true }, spare: { cooldowns: [{ reason: 'quota', until: Date.now() + 3_600_000 }] } });
+// config updates merge, so a fallback an earlier test set stays: empty its list
+const clearFallbacks = () => engine.config.update({ limits: { fallbacks: Object.fromEntries(Object.keys(engine.config.get().limits.fallbacks).map((k) => [k, []])) } } as never);
+const withChain = async (entries: unknown[], fn: () => Promise<void>, enabled = false) => {
+  clearFallbacks();
+  engine.config.update({ models: { refusalFallback: { enabled, entries } } } as never);
+  try {
+    await fn();
+  } finally {
+    engine.config.update({ models: { refusalFallback: { enabled: false, entries: [] } } } as never);
+    clearFallbacks();
+  }
+};
+
+describe('no plan left for the model: the refusal fallback list is the default limit fallback', () => {
+  test('the first ready entry of another model takes the turn, with the usual notice', async () => {
+    const s = await engine.createSession({ cwd, title: 'chain', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
+    allBlocked();
+    await withChain([{ model: 'cliproxy/gpt-6-sol' }, { model: 'cliproxy/gpt-6-mini' }], async () => {
+      // the same model (another plan of it) is skipped: no plan of it is ready
+      expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/gpt-6-mini' });
+      expect(notices(engine.getMessages(s.id)).at(-1)).toBe('cliproxy/personal-gpt/gpt-6-sol hit its limit. Falling back to cliproxy/gpt-6-mini for this turn.');
+      // configured limits.fallbacks still win
+      engine.config.update({ limits: { fallbacks: { 'cliproxy/personal-gpt/gpt-6-sol': ['cliproxy/gpt-6-nano'] } } } as never);
+      expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/gpt-6-nano' });
+      clearFallbacks();
+      // a model that hit its limit this turn is not gone back to: nothing left, it parks
+      expect(await handleLimit(engine, { id: s.id, turnCheckpoint: undefined } as never, 'cliproxy/personal-gpt/gpt-6-sol', limitErr(), ['cliproxy/gpt-6-mini'])).toEqual({ parked: true });
+    });
+  });
+
+  test('a whole turn: the limit falls back to the list entry and answers', async () => {
+    const s = await engine.createSession({ cwd, title: 'turn', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
+    allBlocked();
+    await withChain([{ model: 'cliproxy/gpt-6-mini' }], async () => {
+      const runner = engine.runnerFor(s.id);
+      await runner.enqueue({ text: 'hi' });
+      await Promise.race([runner.waitIdle(), Bun.sleep(15_000)]);
+      expect(calls).toEqual(['personal-gpt/gpt-6-sol', 'gpt-6-mini']);
+      expect(engine.getSession(s.id)!.status).not.toBe('waiting_reset');
+      expect(engine.getMessages(s.id).filter((m) => m.role === 'assistant' && m.kind === 'normal').at(-1)!.model).toBe('cliproxy/gpt-6-mini');
+    });
+  }, 30_000);
+
+  test('a chore at its limit runs once more on the next model', async () => {
+    allBlocked();
+    await withChain([{ model: 'cliproxy/gpt-6-mini' }], async () => {
+      expect(await completeText(engine, { model: 'cliproxy/personal-gpt/gpt-6-sol', prompt: 'title this' })).toBe('ok');
+    });
+    // nothing to fall back to: the limit error stands
+    await expect(completeText(engine, { model: 'cliproxy/personal-gpt/gpt-6-sol', prompt: 'title this' })).rejects.toThrow(/usage limit/i);
+  }, 30_000);
+});
+
+describe('a refusal fallback entry at its limit tries the next plan of its model first', () => {
+  test('personal-gpt at its limit: the entry runs on backup-gpt', async () => {
+    const s = await engine.createSession({ cwd, title: 'refusal', model: 'cliproxy/gpt-6-nano' } as never);
+    await withChain(
+      [{ model: 'cliproxy/gpt-6-sol', account: 'personal' }],
+      async () => {
+        const runner = engine.runnerFor(s.id);
+        await runner.enqueue({ text: 'hi' });
+        await Promise.race([runner.waitIdle(), Bun.sleep(15_000)]);
+        expect(calls).toEqual(['gpt-6-nano', 'personal-gpt/gpt-6-sol', 'backup-gpt/gpt-6-sol']);
+        const last = engine.getMessages(s.id).filter((m) => m.role === 'assistant' && m.kind === 'normal').at(-1)!;
+        expect(last.model).toBe('cliproxy/backup-gpt/gpt-6-sol');
+        expect(last.stopReason).not.toBe('refusal');
+      },
+      true,
+    );
+  }, 30_000);
+});
+
+describe('a subagent at a usage limit', () => {
+  test('fails over like a main chat', async () => {
+    const parent = await engine.createSession({ cwd, title: 'parent', model: 'cliproxy/spare-gpt/gpt-6-sol' } as never);
+    const r = await runSubagent(engine, { parentSessionId: parent.id, agent: 'general-purpose', prompt: 'look', description: 'look', model: 'cliproxy/personal-gpt/gpt-6-sol' });
+    expect(r.resumeAt).toBeUndefined();
+    expect(r.text).toContain('ok');
+    expect(calls).toEqual(['personal-gpt/gpt-6-sol', 'backup-gpt/gpt-6-sol']);
+  }, 30_000);
+
+  test('with nothing left it waits for the reset, then reports to its parent', async () => {
+    const parent = await engine.createSession({ cwd, title: 'parent', model: 'cliproxy/spare-gpt/gpt-6-sol' } as never);
+    allBlocked();
+    const r = await runSubagent(engine, { parentSessionId: parent.id, agent: 'general-purpose', prompt: 'look', description: 'look', model: 'cliproxy/personal-gpt/gpt-6-sol' });
+    expect(r.resumeAt).toBeGreaterThan(Date.now());
+    expect(r.text).toContain('continues on its own when the limit resets');
+    // still parked: the durable resume job picks it up
+    const child = engine.getSession(r.sessionId)!;
+    expect(child.status).toBe('waiting_reset');
+    expect(engine.getSession(parent.id)!.meta?.backgroundTasks).toBe(true);
+    // the reset: backup-gpt is back, the child finishes and its report reaches the parent
+    feed();
+    engine.runnerFor(parent.id).noteDelayMs = 50;
+    await resumeAfterReset(engine, { sessionId: r.sessionId });
+    const done = engine.getSession(r.sessionId)!;
+    expect((done.meta?.background as { state: string }).state).toBe('completed');
+    expect(done.status).not.toBe('waiting_reset');
+    await Bun.sleep(300);
+    await engine.runnerFor(parent.id).waitIdle();
+    const all = engine.getMessages(parent.id).map((m) => m.content.map((b) => (b.type === 'text' ? (b as TextBlock).text : '')).join(''));
+    expect(all.some((t) => t.includes(`<subagent_result session="${r.sessionId}"`))).toBe(true);
+  }, 30_000);
 });

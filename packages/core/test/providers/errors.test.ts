@@ -205,6 +205,26 @@ describe('classifyStreamError', () => {
     expect(classifyStreamError('openai', { code: 'rate_limit_exceeded', message: 'slow' }).kind).toBe('rate_limit');
     expect(classifyStreamError('openai', { code: 'server_error', message: 'oops' }).kind).toBe('server');
   });
+
+  test('plan and quota limits mid-stream are limits, not server errors', () => {
+    // Codex (ChatGPT plans)
+    const codex = classifyStreamError('cliproxy', { type: 'usage_limit_reached', message: 'The usage limit has been reached', resets_in_seconds: 3600 });
+    expect(codex.kind).toBe('quota');
+    expect(codex.status).toBe(429);
+    expect(classifyStreamError('cliproxy', { type: 'usage_not_included', message: 'Upgrade to use this model' }).kind).toBe('quota');
+    // Gemini
+    expect(classifyStreamError('google', { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'Resource has been exhausted' }).kind).toBe('rate_limit');
+    // Z.ai business codes
+    expect(classifyStreamError('zai', { code: '1302', message: 'High concurrency' }).kind).toBe('rate_limit');
+    expect(classifyStreamError('zai', { code: 1308, message: 'Usage limit reached for 5 hour' }).kind).toBe('quota');
+    expect(classifyStreamError('zai', { code: '1310', message: 'Weekly limit exhausted' }).kind).toBe('quota');
+  });
+
+  test('Codex limit types on a non-429 status and Gemini RESOURCE_EXHAUSTED off 429 are limits', () => {
+    expect(classifyHttpError('cliproxy', 400, {}, body({ error: { type: 'usage_not_included', message: 'not in plan' } }), NOW).kind).toBe('quota');
+    expect(classifyHttpError('cliproxy', 429, {}, body({ error: { type: 'usage_limit_reached', message: 'The usage limit has been reached' } }), NOW).kind).toBe('quota');
+    expect(classifyHttpError('google', 400, {}, body({ error: { code: 400, status: 'RESOURCE_EXHAUSTED', message: 'quota' } }), NOW).kind).toBe('rate_limit');
+  });
 });
 
 describe('parseRateLimitHeaders', () => {
