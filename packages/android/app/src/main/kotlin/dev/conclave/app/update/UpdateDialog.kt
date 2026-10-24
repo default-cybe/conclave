@@ -37,7 +37,8 @@ import kotlinx.coroutines.launch
  * closed without a choice, it asks again at the next start. Skip hides the
  * version until a newer one. Don't show turns the dialog off: the update
  * then shows as a dot on the side panel's account row and in Settings,
- * About, where a switch turns the dialog on again.
+ * About, where a switch turns the dialog on again. A download checked
+ * earlier asks Install now instead of Update now.
  */
 @Composable
 fun StartupUpdate() {
@@ -49,24 +50,28 @@ fun StartupUpdate() {
     var dontShow by rememberSaveable { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val s = settings ?: return
-    val u = state as? UpdateState.Available ?: return
-    if (!UpdatePrompt.showDialog(u.version, s.updateSkipped, s.updateAtStartup, shown)) return
+    val u = state
+    if (u !is UpdateState.Available && u !is UpdateState.Ready) return
+    val version = u.waiting ?: return
+    if (!UpdatePrompt.showDialog(version, s.updateSkipped, s.updateAtStartup, shown)) return
     val c = Conclave.colors
-    val whatsNew = remember(u.notes) { UpdatePrompt.whatsNew(u.notes) }
+    val notes = (u as? UpdateState.Available)?.notes.orEmpty()
+    val whatsNew = remember(notes) { UpdatePrompt.whatsNew(notes) }
 
     // every way out keeps the box's choice
     fun close(skip: Boolean = false) {
         shown = true
+        if (skip) container.updates.clearPending()
         val off = dontShow
         scope.launch {
-            if (skip) container.settings.setUpdateSkipped(u.version)
+            if (skip) container.settings.setUpdateSkipped(version)
             if (off) container.settings.setUpdateAtStartup(false)
         }
     }
 
     AlertDialog(
         onDismissRequest = { close() },
-        title = { Text(UpdatePrompt.title(u.version)) },
+        title = { Text(UpdatePrompt.title(version)) },
         text = {
             Column {
                 if (whatsNew != null) {
@@ -90,8 +95,13 @@ fun StartupUpdate() {
         confirmButton = {
             TextButton(onClick = {
                 close()
-                container.updates.install(u.version, u.apk)
-            }) { Text("Update now") }
+                when (u) {
+                    is UpdateState.Available -> container.updates.install(u.version, u.apk)
+                    // without the install permission Android's screen opens; the install goes on after it
+                    is UpdateState.Ready -> container.updates.openInstaller(u.file)
+                    else -> Unit
+                }
+            }) { Text(if (u is UpdateState.Ready) "Install now" else "Update now") }
         },
         dismissButton = {
             TextButton(onClick = { close(skip = true) }) { Text("Skip this version") }
