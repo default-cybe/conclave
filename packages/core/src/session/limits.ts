@@ -2,16 +2,17 @@ import type { ProviderError } from '../providers/types';
 import type { Engine } from '../engine/engine';
 import type { SessionRunner } from './runner';
 import { keepTurnBase } from './checkpoints';
-import { activeMessages } from './transcript';
+import { activeMessages, lastAssistantText } from './transcript';
 import { regionTokens } from './compaction';
 import { SWITCH_BRIEF_AT } from '../modes/switch-math';
 import { logger } from '../util/log';
 import { accountsOf } from '../accounts/attached';
 import { OWNER_ID, isMember } from '../people/context';
 import { splitAccount } from '../providers/split';
-import { shortModelName, targetFor, usable } from './refusal-fallback';
-import { parseRefusalEntries } from './refusal-entries';
+import { refusalPlan, shortModelName, targetFor, usable } from './refusal-fallback';
 import { bareModel } from '../accounts/policy';
+import { PLAN_PROVIDER, entryServes } from '../people/plans';
+import type { AgentDef } from '../extensions/types';
 
 const log = logger('limits');
 
@@ -42,16 +43,19 @@ export interface LimitOutcome {
 /**
  * After a plan pinned by its prefix (cliproxy/neu/gpt-6-sol) hit its limit:
  * the same model on the next plan in the owner's order that is on, signed in,
- * offers it, is not at a limit and can be called for this session. Owner
- * sessions only: the plans are the owner's. A plan without a prefix gets the
+ * offers it, is not at a limit and can be called for this session. A
+ * member's session moves only between the member's own plans (people/plans.ts
+ * readyAccounts), never to the owner's. A plan without a prefix gets the
  * bare id; CLIProxyAPI gives it to the first ready plan in the same order.
  */
 export function nextAccount(engine: Engine, sessionId: string, modelRef: string): { ref: string; account: string; from: string; to: string } | undefined {
-  const accounts = accountsOf(engine);
-  if (!accounts) return undefined;
   const session = engine.repos.sessions.get(sessionId);
-  if (!session || isMember(session.accountId)) return undefined;
-  const gw = accounts.gateway ?? 'cliproxy';
+  if (!session) return undefined;
+  const member = isMember(session.accountId) ? session.accountId! : undefined;
+  const plans = member ? engine.access.plans : undefined;
+  const accounts = member ? undefined : accountsOf(engine);
+  if (member ? !plans?.readyAccounts : !accounts) return undefined;
+  const gw = accounts ? (accounts.gateway ?? 'cliproxy') : PLAN_PROVIDER;
   let wireModel: string;
   try {
     const r = engine.registryFor(session).resolve(modelRef);
@@ -70,13 +74,24 @@ export function nextAccount(engine: Engine, sessionId: string, modelRef: string)
   } catch {
     /* not listed bare: its id is its name */
   }
-  const current = accounts.accountFor(gw, wireModel);
-  for (const a of accounts.readyAccounts(bare)) {
+  if (member) {
+    // the member's own plans only: a wire their own CLIProxyAPI does not list would go to the hub's
+    const entry = plans!.entry(member);
+    for (const a of plans!.readyAccounts!(member, bare)) {
+      if (a.kind !== 'subscription' || !a.prefix || a.prefix === prefix) continue;
+      const wire = `${a.prefix}/${bare}`;
+      if (!entryServes(entry, wire)) continue;
+      return { ref: `${gw}/${wire}`, account: a.id, from: `${name} (${prefix})`, to: `${name} (${a.label})` };
+    }
+    return undefined;
+  }
+  const current = accounts!.accountFor(gw, wireModel);
+  for (const a of accounts!.readyAccounts(bare)) {
     if (a.kind !== 'subscription' || a.id === current) continue;
     const wire = a.prefix ? `${a.prefix}/${bare}` : bare;
     const ref = `${gw}/${wire}`;
     if (!usable(engine, session, { index: -1, entry: { model: ref, account: a.id }, ref, pin: { provider: gw, model: wire, account: a.id }, label: '' })) continue;
-    return { ref, account: a.id, from: `${name} (${(current && accounts.account(current)?.label) || prefix})`, to: `${name} (${a.label})` };
+    return { ref, account: a.id, from: `${name} (${(current && accounts!.account(current)?.label) || prefix})`, to: `${name} (${a.label})` };
   }
   return undefined;
 }
@@ -86,10 +101,11 @@ export function nextAccount(engine: Engine, sessionId: string, modelRef: string)
  * limits.fallbacks for it first, else the first entry of the owner's
  * refusal fallback list (models.refusalFallback) that the hub can call now,
  * is another model than the one at its limit, was not tried this turn, and
- * whose plan or key is not paused or at a limit. Owner only: both lists name
- * the owner's models and plans.
+ * whose plan or key is not paused or at a limit. The list is the one
+ * refusalPlan gives the session's agent: its own, or none when it turned the
+ * fallback off. Owner only: both lists name the owner's models and plans.
  */
-export function limitFallback(engine: Engine, accountId: string | undefined, modelRef: string, tried: readonly string[] = []): string | undefined {
+export function limitFallback(engine: Engine, accountId: string | undefined, modelRef: string, tried: readonly string[] = [], agent?: Pick<AgentDef, 'refusalFallback'>): string | undefined {
   const cfg = engine.config.get();
   let resolved;
   try {
@@ -113,7 +129,7 @@ export function limitFallback(engine: Engine, accountId: string | undefined, mod
   const accounts = accountsOf(engine);
   const session = { accountId: accountId ?? OWNER_ID };
   const skip = new Set([bare, ...tried.map((r) => bareOf(engine, r))]);
-  const entries = parseRefusalEntries(cfg.models?.refusalFallback?.entries);
+  const entries = refusalPlan(cfg, agent)?.entries ?? [];
   for (let i = 0; i < entries.length; i++) {
     const t = targetFor(engine, entries[i], i);
     if (!t || !usable(engine, session, t)) continue;
@@ -172,7 +188,8 @@ export async function handleLimit(engine: Engine, runner: SessionRunner, modelRe
     return { fallback: next.ref };
   }
 
-  const fallback = limitFallback(engine, engine.repos.sessions.get(sessionId)?.accountId, modelRef, tried);
+  const session = engine.repos.sessions.get(sessionId);
+  const fallback = limitFallback(engine, session?.accountId, modelRef, tried, session ? engine.agentFor(session) : undefined);
   if (fallback) {
     const wait = waitInsteadOfFallback({
       enabled: cfg.limits.waitShortResets,
@@ -222,4 +239,22 @@ export async function resumeAfterReset(engine: Engine, payload: Record<string, u
   engine.setStatus(sessionId, 'idle');
   const runner = engine.runnerFor(sessionId);
   await runner.enqueue({ text: engine.config.get().limits.resumePrompt }, { auto: true, resume: true });
+}
+
+/**
+ * After a turn the runner drained (a message, not the resume job): a parked
+ * Task or Delegate child that a message woke has run on. Unless that turn
+ * parked it again, its resume job goes, it stops waiting for the reset, and
+ * its report goes to the parent, which still waits for it.
+ */
+export async function afterWokenTurn(engine: Engine, sessionId: string): Promise<void> {
+  const sub = await import('../engine/subagent');
+  // read after the import: a next queued turn that already started reports when it ends
+  const s = engine.repos.sessions.get(sessionId);
+  if (!s || s.status === 'waiting_reset' || s.status === 'running' || !sub.waitsForParent(s)) return;
+  engine.scheduler.cancel(`resume:${sessionId}`);
+  engine.patchMeta(sessionId, { background: { ...(s.meta?.background as Record<string, unknown>), waitingReset: false } });
+  const text = lastAssistantText(engine.repos.messages.list(sessionId));
+  if (s.status === 'error') sub.deliverSubagentResult(engine, s.parentId!, sessionId, 'error', `${text}\n\nError: ${s.error ?? 'the turn failed'}`);
+  else sub.deliverSubagentResult(engine, s.parentId!, sessionId, 'completed', text);
 }
