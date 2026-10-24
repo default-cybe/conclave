@@ -380,6 +380,8 @@ struct SettingsView {
     hub_lan: bool,
     /// The hub on this computer is a `conclave serve` the app found: its own settings decide.
     hub_adopted: bool,
+    /// "Install updates automatically" (update.rs).
+    auto_update: bool,
 }
 
 #[tauri::command]
@@ -398,6 +400,7 @@ fn get_settings(app: AppHandle) -> SettingsView {
         local_available: std::env::var_os(local::BIN_ENV).is_some() || local::this_asset().is_ok(),
         hub_lan: s.hub_lan,
         hub_adopted: s.hub_adopted,
+        auto_update: s.auto_update != Some(false),
     }
 }
 
@@ -456,7 +459,7 @@ fn use_hub(app: &AppHandle, base: Url, token: Option<String>, addresses: Vec<Str
         let st = state(app);
         let mut current = st.settings.lock().unwrap();
         // the terminal command's state as it is now (its sync may have saved since)
-        let settings = Settings { hub_url: Some(base.to_string()), token, addresses, computer: current.computer, hub_port: current.hub_port, terminal: current.terminal.clone(), ..Default::default() };
+        let settings = Settings { hub_url: Some(base.to_string()), token, addresses, computer: current.computer, hub_port: current.hub_port, terminal: current.terminal.clone(), auto_update: current.auto_update, ..Default::default() };
         settings.save(&st.settings_path)?;
         *current = settings;
     }
@@ -1222,6 +1225,55 @@ impl update::Host for UpdateHost {
             (None, None) => {}
         }
     }
+
+    fn auto(&self) -> bool {
+        state(&self.0).settings.lock().unwrap().auto_update != Some(false)
+    }
+
+    /// Idle: the owner is not in a window of the app, and the hub on this
+    /// computer, when the app runs one, has no session running or waiting for
+    /// an approval. A hub elsewhere is not stopped by an update.
+    fn idle(&self) -> bool {
+        let app = &self.0;
+        let in_use = |label: &str| app.get_webview_window(label).is_some_and(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false));
+        if in_use(MAIN) || in_use(QUICK) {
+            return false;
+        }
+        let st = state(app);
+        if !st.local_hub.active() {
+            return true;
+        }
+        match st.local_hub.status().phase {
+            local::Phase::Running => {}
+            // starting or stopping: look again at the next check
+            local::Phase::Getting | local::Phase::Unpacking | local::Phase::Starting | local::Phase::Connecting | local::Phase::Stopping => return false,
+            // not serving: nothing runs on it
+            local::Phase::Off | local::Phase::Waiting | local::Phase::Retrying | local::Phase::Failed => return true,
+        }
+        let Ok((base, token)) = hub_creds(app) else { return false };
+        let busy = |status: &str| hub::has_session(&base, &token, status).unwrap_or(true);
+        !busy("running") && !busy("waiting_approval")
+    }
+
+    fn install(&self) -> Result<(), String> {
+        let app = self.0.clone();
+        let updates = state(&app).updates.clone();
+        let local_hub = state(&app).local_hub.clone();
+        let before = move || {
+            if local_hub.active() {
+                local_hub.stop(Duration::from_secs(15));
+            }
+        };
+        tauri::async_runtime::block_on(update::install(&app, &updates, before))
+    }
+
+    fn notify(&self, version: &str) {
+        use tauri_plugin_notification::NotificationExt;
+        let shown = self.0.notification().builder().title("Conclave").body(format!("Conclave {version} is ready. Click to update.")).show();
+        if let Err(e) = shown {
+            eprintln!("conclave: update notification: {e}");
+        }
+    }
 }
 
 /// Download, check and install the update, then start the new version. The hub on this computer stops first.
@@ -1256,6 +1308,15 @@ async fn update_install(app: AppHandle) -> Result<(), String> {
         }
     };
     update::install(&app, &updates, before).await
+}
+
+/// "Install updates automatically" on the settings page.
+#[tauri::command]
+fn update_auto(app: AppHandle, on: bool) -> Result<(), String> {
+    let st = state(&app);
+    let mut s = st.settings.lock().unwrap();
+    s.auto_update = Some(on);
+    s.save(&st.settings_path)
 }
 
 /// Quit: the hub on this computer stops cleanly first (closing its stdin), then the app exits.
@@ -1393,6 +1454,7 @@ fn main() {
             pair_phone,
             open_remote_access,
             update_status,
+            update_auto,
             update_install,
             terminal_status,
             terminal_install,
@@ -1433,7 +1495,7 @@ fn main() {
             build_tray(&handle)?;
             // an updated app brings a new daemon; the service moves to it
             refresh_daemon(&handle);
-            // look for a new version of the app now and once a day
+            // look for a new version of the app now and every 15 minutes; installed by itself when idle
             update::start(&handle, state(&handle).updates.clone(), Arc::new(UpdateHost(handle.clone())));
             // the AppImage adds itself to the app menu; a .deb or .rpm brings its own entry
             #[cfg(target_os = "linux")]
