@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { startTestEngine, type TestEngine } from '../engine/harness';
 import { runScript, svcOf, noHarnesses } from './helpers';
-import { parseScript, WorkflowLoadError } from '../../src/workflows/meta';
+import { MINIMAL_WORKFLOW_EXAMPLE, parseScript, WorkflowLoadError } from '../../src/workflows/meta';
 import { loadMeta } from '../../src/workflows/registry';
 
 let t: TestEngine;
@@ -136,6 +136,16 @@ test('meta must be first and a pure literal', async () => {
     `export const meta={name:"min",description:"minified"};const e="x";return e`,
   ];
   for (const s of okScripts) expect(() => parseScript(s)).not.toThrow();
+  // the example shown in the Workflow tool text and in load errors loads and runs
+  expect(() => parseScript(MINIMAL_WORKFLOW_EXAMPLE)).not.toThrow();
+  const s = await t.engine.createSession({ cwd: t.cwd });
+  const failed = await svcOf(t.engine).runFromTool({ sessionId: s.id, script: `${meta}export default 1` }, { toolUseId: 'tu_ex', signal: new AbortController().signal });
+  expect(failed.isError).toBe(true);
+  expect(failed.text).toContain('return the result instead of exporting it');
+  expect(failed.text).toContain(MINIMAL_WORKFLOW_EXAMPLE);
+  const ran = await runScript(t, MINIMAL_WORKFLOW_EXAMPLE);
+  expect(ran.status).toBe('done');
+  expect(ran.result).toBe('ok');
   expect((await loadMeta(okScripts[0])).meta).toMatchObject({ name: 'a', n: -1, ok: true, none: null });
   await expect(loadMeta(`export const meta = { name: 'a' }\nreturn 1`)).rejects.toThrow('meta.description is required');
   const run = await runScript(t, `export const meta = { name: x, description: 'b' }`).catch((e) => e as Error);

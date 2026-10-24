@@ -7,6 +7,7 @@
 import type { Tool } from './types';
 import { fail } from './util';
 import { oneLine } from '../util/text';
+import { MINIMAL_WORKFLOW_EXAMPLE } from '../workflows/meta';
 
 export interface WorkflowInput {
   script?: string;
@@ -30,6 +31,8 @@ The script begins with a pure literal: export const meta = { name, description, 
 - phase(title), log(text), args, budget.total / budget.spent() / budget.remaining(), workflow(name, args).
 - Date.now(), Math.random() and new Date() with no arguments throw; there is no filesystem, network or Node API. Agents do that work.
 - lib (Conclave only, set meta.runtime: 'conclave'): lib.schemas.finding, lib.checkCitations, lib.dedupe, lib.panel, lib.loopUntilDry, lib.judgePanel, lib.exec, lib.runCheck, lib.fence, lib.ask, lib.approve.
+- Return the result with return; do not export it. A minimal script that works:
+${MINIMAL_WORKFLOW_EXAMPLE}
 
 A finding or claim counts only when something outside the agent that made it confirms it: a test or typecheck that runs, a quote found in the source, or independent votes tallied in code. Put earlier agents' output into later prompts with lib.fence.
 
