@@ -7,6 +7,11 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+- A model without vision (GLM-5.3) can read images. Each image in an attachment or a tool result (a Read of a PNG, a screenshot) is transcribed once by a model with vision: all its text exactly, then a short description of its layout, charts and UI. The model gets it as `[image NAME, transcribed by MODEL: ...]`. The text is stored with the message, so later requests send the same bytes. Set the model with `conclave config set models.vision <provider/model>`; unset, the hub takes the small model or the default model, whichever has vision first. A member's session uses only models the member may use. Usage rows show the purpose `vision`. With no vision model, an image over 5 MB of base64, more than 8 new images in one request, or a failed call, the model gets a note that says why.
+
 ## [0.4.22] - 2026-10-23
 
 ### What's new
