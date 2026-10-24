@@ -90,6 +90,15 @@ describe.skipIf(!hasRg)('Grep', () => {
     expect(text(second)).not.toBe(text(first));
   });
 
+  test('a single file path with no output_mode shows matching lines', async () => {
+    const out = await GrepTool.run({ pattern: 'to[A-Z][a-z]+Case', path: join(dir, 'src/util.ts') }, makeCtx({ cwd: dir }));
+    expect(text(out)).toContain('2:  return x.toUpperCase();');
+    expect(text(out)).not.toContain('Found 1 file');
+    // an explicit mode still wins
+    const files = await GrepTool.run({ pattern: 'toUpperCase', path: join(dir, 'src/util.ts'), output_mode: 'files_with_matches' }, makeCtx({ cwd: dir }));
+    expect(text(files)).toContain('Found 1 file');
+  });
+
   test('multiline', async () => {
     const out = await GrepTool.run({ pattern: 'class Engine \\{\\s+run', multiline: true, output_mode: 'files_with_matches' }, makeCtx({ cwd: dir }));
     expect(text(out)).toContain('engine.ts');
