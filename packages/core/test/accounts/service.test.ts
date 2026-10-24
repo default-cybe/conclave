@@ -184,6 +184,24 @@ describe('the accounts service', () => {
     expect(svc.fallbackFor('cliproxy', 'claude-sonnet-5-5')).toBeUndefined();
   });
 
+  test("a plan that lists only an effort or thinking variant joins the model's order (Antigravity's claude-opus-5-5-high)", () => {
+    const now = { t: Date.now() };
+    const { svc } = setup(now);
+    svc.setCliproxy({
+      provider: 'cliproxy',
+      management: true,
+      credentials: [cred('claude-a.json', { models: [{ id: 'claude-opus-5-5' }] }), cred('antigravity-g.json', { provider: 'antigravity', models: [{ id: 'claude-opus-5-5-high' }, { id: 'claude-opus-4-6-thinking' }], prefix: 'backup-gemini' })],
+    });
+    const ready = (m: string) => svc.readyAccounts(m).map((a) => a.id);
+    expect(ready('claude-opus-5-5')).toEqual(['claude-a', 'antigravity-g', 'api-anthropic']);
+    expect(ready('claude-opus-4-6')).toEqual(['antigravity-g', 'api-anthropic']);
+    svc.setOrder({ vendor: '', match: 'claude-opus-5-5', order: ['antigravity-g', 'claude-a'] });
+    expect(svc.status().routes.find((r) => r.match)?.order).toEqual(['antigravity-g', 'claude-a', 'api-anthropic']);
+    // a 429 on the bare id did not reach the plan that lists only the variant
+    svc.noteLimit('cliproxy', 'claude-opus-5-5');
+    expect(ready('claude-opus-5-5')).toEqual(['antigravity-g', 'api-anthropic']);
+  });
+
   test('a per model order for a model no vendor is known for is refused', () => {
     const now = { t: Date.now() };
     const { svc } = setup(now);

@@ -28,7 +28,9 @@
  * row is the account's, with source "starter". Pinning: an account with a
  * CLIProxyAPI prefix is asked as "prefix/model", which only that credential
  * serves; one without a prefix only when no other credential serves the
- * model. Otherwise it says it cannot pin, and sends nothing.
+ * model. Otherwise it says it cannot pin, and sends nothing. A plan paid
+ * with a key (the Z.ai Coding Plan) is asked on its own provider with its
+ * key, and read again through its usage reader.
  *
  * Pure parts (hours, models, pinning, decide) take the clock as an argument
  * so the tests play a day at fixed times. No token or credential passes
@@ -222,8 +224,9 @@ function newerFirst(a: string, b: string): number {
 /**
  * The models to ask, cheapest kind first and the newest of each kind first:
  * Claude the newest Haiku, then Sonnet; ChatGPT the newest Luna, then nano,
- * mini and the rest of GPT; Gemini Flash, then Flash-Lite. From the plan's
- * own list when it was read, else the catalog. Other plans: none.
+ * mini and the rest of GPT; Gemini Flash, then Flash-Lite; GLM (the Z.ai
+ * Coding Plan) Flash, then Air. From the plan's own list when it was read,
+ * else the catalog. Other plans: none.
  */
 export function starterCandidates(vendor: string, models?: string[]): string[] {
   const list = [...new Set((models ?? catalogEntries(vendor as never).map((e) => e.id)).map(bareModel))];
@@ -237,6 +240,8 @@ export function starterCandidates(vendor: string, models?: string[]): string[] {
     out = [...pick((m) => gpt(m) && m.includes('luna')), ...pick((m) => gpt(m) && m.includes('nano')), ...pick((m) => gpt(m) && m.includes('mini')), ...pick(gpt)];
   } else if (vendor === 'gemini') {
     out = [...pick((m) => m.startsWith('gemini-') && m.includes('flash') && !m.includes('lite') && plain(m)), ...pick((m) => m.startsWith('gemini-') && m.includes('flash-lite') && plain(m))];
+  } else if (vendor === 'zai') {
+    out = [...pick((m) => m.startsWith('glm-') && m.includes('flash') && plain(m)), ...pick((m) => m.startsWith('glm-') && m.includes('air') && plain(m))];
   }
   return [...new Set(out)];
 }
@@ -259,7 +264,8 @@ const sameModel = (a: string, b: string) => bareModel(a).toLowerCase() === bareM
  */
 export function pinFor(f: StarterFacts, all: StarterFacts[], model: string): string | undefined {
   const bare = bareModel(model);
-  const others = all.filter((o) => o.id !== f.id && !o.disabled);
+  // only accounts on the same provider can take the id (a key plan has its own provider)
+  const others = all.filter((o) => o.id !== f.id && !o.disabled && o.provider === f.provider);
   if (f.prefix) return others.some((o) => o.prefix === f.prefix) ? undefined : `${f.prefix}/${bare}`;
   // a credential with a prefix serves bare ids too (CLIProxyAPI's force-model-prefix is off); an unread list serves its vendor's
   const serves = (o: StarterFacts) => (o.models ? o.models.some((m) => sameModel(m, bare)) : o.vendor === (vendorOfModel(bare) ?? f.vendor));
