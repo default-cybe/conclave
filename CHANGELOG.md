@@ -13,6 +13,13 @@ like `## [0.4.16] - 2026-10-24`.
 - A signed in plan of another vendor whose own model list has a model now takes part in that model's order and failover: Claude Opus 5.5 on an Antigravity plan joins Claude Opus 5.5's order after the Claude plans and before the API key. Settings > Models > Accounts has a Per model section: add an order for a model two or more plans offer, and move any plan that offers it up or down (`PUT /api/accounts/order` with `match`; `vendor` may be empty to file it under the model's maker). A limit on a prefixed id (`ag/claude-opus-5-5`) blocks only that plan.
 - The Z.ai Coding Plan is an account. Settings > Models > Accounts names it by its plan and shows its 5 hour and weekly windows with their resets, read from Z.ai's quota endpoint. Settings > Subscriptions lists it read only, as a plan that uses an API key. GLM calls go where they went before.
 
+### Fixed
+- A usage limit falls back to another model on its own. When no plan for the same model is ready and no `limits.fallbacks` entry matches, the turn moves to the first entry of your Refusal fallback list that is another model, can be called, and whose plan or key is not paused or limited. It says "X hit its limit. Falling back to Y for this turn." Configured `limits.fallbacks` still win. A model that hit its limit in a turn is not tried again in that turn.
+- A Task or Delegate subagent at a usage limit now fails over the same way a chat does. If nothing is left, it no longer ends with "stopped at a usage limit". It waits for the reset, continues on its own, and sends its report to the parent as a background task's `<subagent_result>`.
+- A Refusal fallback entry at its usage limit first tries the same model on your next ready plan, then moves on to the next entry.
+- Chores (titles, summaries, memory, compaction) that hit a usage limit retry once on the next fallback model before they fail.
+- Codex `usage_limit_reached` and `usage_not_included` errors sent mid-stream or with a non-429 status count as usage limits, not server or request errors. Gemini `RESOURCE_EXHAUSTED` on a non-429 status counts as a rate limit.
+
 ## [0.4.23] - 2026-10-24
 
 ### Added
