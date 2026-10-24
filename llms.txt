@@ -1,0 +1,39 @@
+# Conclave
+
+> Conclave is a self-hosted agent harness and hub. It runs coding agents with any model on your own computers, checks their work before a turn ends, and lets you steer them from a web app, desktop app, terminal app or phone. You run the hub yourself (Docker, Proxmox LXC, Linux, macOS, or inside the desktop app). There is no Conclave cloud; model calls go straight to the provider you pick. License: AGPL-3.0-only. Written in TypeScript on Bun with one SQLite file; Android app in Kotlin; desktop app in Tauri.
+
+## What it is
+
+- A hub (`conclave serve`) that holds the agent loop, chats, memory, routines, usage and keys.
+- Device programs on PCs and Macs that connect out to the hub over a WebSocket, so no inbound ports are needed. Each session picks the device its tools run on.
+- Clients: web app, desktop app (Windows, macOS, Linux), native Android app, iPhone home screen app, terminal app.
+
+## Features
+
+- Native harness built from Claude Code's public design: Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, Task, TodoWrite, AskUserQuestion and Skill tools, permission rules, hooks, skills, subagents, auto-compaction and prompt caching. Works with any model.
+- Verify gate: after a turn that edited files, the project's check runs on the session's device before the turn may end; a failure sends the agent back with the last 40 lines, up to 3 times per user turn.
+- Multi-model chat: second opinion on any message, jury (juror names can be hidden from the judge), debate, model switch, and loop until a command passes.
+- Vendor harnesses over the Agent Client Protocol (ACP): Claude Code, Codex, Gemini CLI and OpenCode run as engines and share one transcript with native turns. Their permission prompts become Conclave approvals.
+- Usage limits: failover to your next plan or key for the same model in your account order, then to the next model on a Usage fallback list; long waits pause the session and resume it when the limit resets.
+- Subscriptions through CLIProxyAPI, which the hub runs: Claude, ChatGPT, Google, Grok, Kimi and Muse plans. Also API keys for Anthropic, OpenAI, Gemini, GLM (Z.ai), DeepSeek, Kimi, Qwen, OpenRouter, Ollama, LM Studio and any OpenAI-compatible API.
+- File conflict warnings when two live sessions write the same file; stuck alerts when a turn makes no progress.
+- Workflows: scripts in Claude Code's workflow API, run in QuickJS compiled to WebAssembly with no file system, process or network, and a journal that lets a run resume and replay finished calls.
+- Approvals from the phone (Android app and Web Push with Allow and Deny).
+- Several people on one hub, each with their own accounts, chats, memory, keys, devices and budgets.
+- Shared long-term memory across models and devices, with a Basic Memory adapter.
+- Routines on a schedule; missed runs catch up after downtime.
+- ShareFile: agents hand back files (PDF, images, spreadsheets, zip) as file cards with download.
+- Automatic updates installed when nothing is running.
+- Permission rules, a dangerous-command guard, checkpoints you can undo and an audit log. No OS sandbox for commands yet.
+
+## Docs
+
+- [README](https://github.com/default-cybe/conclave/blob/main/README.md): overview, comparison, install
+- [docs/INSTALL.md](https://github.com/default-cybe/conclave/blob/main/docs/INSTALL.md): install, remote access, subscriptions, devices, people, updates
+- [docs/DESIGN.md](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md): every feature, why it is built that way, and where it can fail
+- [docs/EXTENSIONS.md](https://github.com/default-cybe/conclave/blob/main/docs/EXTENSIONS.md): skills, slash commands, hooks, plugins, MCP servers, verify gate
+- [docs/WORKFLOWS.md](https://github.com/default-cybe/conclave/blob/main/docs/WORKFLOWS.md): running and writing workflows
+- [docs/MEMORY.md](https://github.com/default-cybe/conclave/blob/main/docs/MEMORY.md): memory, past chats, Basic Memory
+- [docs/design/ACCOUNTS.md](https://github.com/default-cybe/conclave/blob/main/docs/design/ACCOUNTS.md): several people on one hub
+- [CHANGELOG.md](https://github.com/default-cybe/conclave/blob/main/CHANGELOG.md): release notes
+- [Website](https://conclave.dymnitguys.com)
