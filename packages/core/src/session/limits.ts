@@ -113,7 +113,7 @@ export async function handleLimit(engine: Engine, runner: SessionRunner, modelRe
   }
 
   const resolved = engine.providers.resolve(modelRef);
-  const { account: prefix, model: bare } = splitAccount(resolved.model);
+  const { account: prefix, model: bare } = splitAccount(resolved.model ?? modelRef.slice(modelRef.indexOf('/') + 1));
   const bareRef = prefix ? `${resolved.provider}/${bare}` : undefined;
   const fallbacks =
     cfg.limits.fallbacks[modelRef] ??
