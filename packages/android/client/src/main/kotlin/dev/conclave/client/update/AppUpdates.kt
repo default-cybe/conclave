@@ -38,8 +38,12 @@ object AppUpdates {
     /** The newest release's manifest on the public releases. */
     const val MANIFEST_URL = "https://github.com/default-cybe/conclave/releases/latest/download/conclave-update.json"
 
-    /** Look again after a day. */
-    const val EVERY_MS = 24L * 60 * 60 * 1000
+    /** When the app comes back, look again after an hour. */
+    const val EVERY_MS = 60L * 60 * 1000
+
+    /** A cold start always looks; coming back looks after [EVERY_MS], or when the clock went back. */
+    fun isDue(now: Long, checkedAt: Long, coldStart: Boolean): Boolean =
+        coldStart || now < checkedAt || now - checkedAt >= EVERY_MS
 
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
 

@@ -25,6 +25,7 @@
     "allow-open-remote-access",
     "allow-update-status",
     "allow-update-install",
+    "allow-update-auto",
     "allow-terminal-status",
     "allow-terminal-install",
     "allow-terminal-remove",

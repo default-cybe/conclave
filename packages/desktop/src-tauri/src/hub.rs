@@ -42,6 +42,9 @@ pub struct Settings {
     /// The `conclave` command in a terminal (terminal.rs).
     #[serde(default, skip_serializing_if = "crate::terminal::Saved::is_empty")]
     pub terminal: crate::terminal::Saved,
+    /// "Install updates automatically" (update.rs): None is on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_update: Option<bool>,
 }
 
 pub(crate) fn is_false(b: &bool) -> bool {
@@ -330,6 +333,20 @@ pub fn devices(base: &Url, token: &str) -> Result<Vec<DeviceReply>, String> {
         .map_err(|e| describe(base, e))?
         .into_json()
         .map_err(|e| format!("Unexpected reply from the hub: {e}"))
+}
+
+/// GET /api/sessions?status=<status>&limit=1: some session has that status.
+pub fn has_session(base: &Url, token: &str, status: &str) -> Result<bool, String> {
+    let list: Vec<serde_json::Value> = agent()
+        .get(&endpoint(base, "api/sessions")?)
+        .query("status", status)
+        .query("limit", "1")
+        .set("Authorization", &format!("Bearer {token}"))
+        .call()
+        .map_err(|e| describe(base, e))?
+        .into_json()
+        .map_err(|e| format!("Unexpected reply from the hub: {e}"))?;
+    Ok(!list.is_empty())
 }
 
 /// A pairing code for a phone, from POST /api/pairing.

@@ -11,8 +11,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Router } from 'wouter';
-import type { DeviceUpdateDto, UpdateJobDto, UpdateStatusDto } from '@conclave/core/client';
-import { bannerWords, cannotWords, compareVersions, deviceUpdateView, hubBanner, installWords, jobRunning, jobWords, latestWords, notesLine, popupFor, popupTitle, showReload, updateDot, updateWaiting, versionChanged } from '../src/lib/updates';
+import { ApiError, type DeviceUpdateDto, type UpdateJobDto, type UpdateStatusDto } from '@conclave/core/client';
+import { busyMessage, bannerWords, cannotWords, compareVersions, deviceUpdateView, hubBanner, installWords, jobRunning, jobWords, latestWords, notesLine, popupFor, popupTitle, showReload, updateDot, updateWaiting, versionChanged } from '../src/lib/updates';
 import { ReloadLine, UpdatePopupBody } from '../src/components/UpdateBanners';
 
 function status(p: Partial<UpdateStatusDto> = {}): UpdateStatusDto {
@@ -24,7 +24,7 @@ function status(p: Partial<UpdateStatusDto> = {}): UpdateStatusDto {
     checking: false,
     install: { kind: 'systemd-user', canUpdate: true },
     keyMissing: false,
-    auto: { on: false, window: '03:00 to 05:00' },
+    auto: { on: false, window: 'idle', hours: '03:00 to 05:00' },
     ...p,
   };
 }
@@ -141,6 +141,22 @@ describe('the popup at start', () => {
     // after Update now it follows the update
     expect(wrap(status({ job: job({ phase: 'restarting' }) }), true)).toContain('Restarting on Conclave 0.5.0.');
     expect(wrap(status({ available: false }))).toBe('');
+  });
+
+  test('Update now while work runs: what runs, with Update when idle and Update anyway', () => {
+    const err = new ApiError(409, '1 session running: fix the build.', { error: '1 session running: fix the build.', busy: [{ kind: 'session', id: 's', name: 'fix the build' }] });
+    expect(busyMessage(err)).toBe('1 session running: fix the build.');
+    expect(busyMessage(new ApiError(409, 'Release 0.5.0 has no hub for this system.', { error: 'x' }))).toBeUndefined();
+    expect(busyMessage(new Error('x'))).toBeUndefined();
+    const html = renderToStaticMarkup(
+      <Router ssrPath="/">
+        <UpdatePopupBody status={status()} started={false} blocked="1 session running: fix the build." onForce={() => {}} onWhenIdle={() => {}} hideAtStart={false} onHideAtStart={() => {}} onUpdate={() => {}} onSkip={() => {}} onClose={() => {}} />
+      </Router>,
+    );
+    expect(html).toContain('1 session running: fix the build. The restart would stop it.');
+    expect(html).toContain('Update when idle');
+    expect(html).toContain('Update anyway');
+    expect(html).not.toContain('Update now');
   });
 });
 

@@ -2354,9 +2354,9 @@ export class ConclaveClient {
   /** Check the newest release now. */
   checkHubUpdate = () => this.request<UpdateStatusDto>('POST', '/api/update/check');
   /** Download, check and install `version`, then restart the hub. Returns at once; follow it with hubUpdate(). */
-  applyHubUpdate = (version: string) => this.request<UpdateStatusDto>('POST', '/api/update/apply', { version });
-  /** "Install updates automatically", at night. */
-  setAutoUpdate = (on: boolean) => this.request<UpdateStatusDto>('PUT', '/api/update/settings', { auto: on });
+  applyHubUpdate = (version: string, opts: { force?: boolean; when?: 'idle' } = {}) => this.request<UpdateStatusDto>('POST', '/api/update/apply', { version, ...opts });
+  /** "Install updates automatically" and when: idle or night. */
+  setAutoUpdate = (patch: { auto?: boolean; window?: 'idle' | 'night' }) => this.request<UpdateStatusDto>('PUT', '/api/update/settings', patch);
   /** Each device's daemon version against the hub's, and the last update sent to it. */
   deviceUpdates = () => this.request<DeviceUpdatesDto>('GET', '/api/devices/updates');
   /** The device's daemon updates itself to the hub's version and restarts. */

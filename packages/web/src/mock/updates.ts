@@ -11,7 +11,8 @@ export function registerUpdates(ctx: MockCtx) {
   const { on, fail, db, FRESH } = ctx;
   const current = '0.1.0';
   let checkedAt = Date.now() - 5 * 3_600_000;
-  let auto = false;
+  let auto = true;
+  let window: 'idle' | 'night' = 'idle';
   let job: UpdateJobDto | undefined;
   const latest = FRESH ? undefined : { version: '0.2.0', notes: 'Updates from the app: Settings, About on the hub, the desktop app and the Android app.\nDevices update their daemons from the Devices page.', pubDate: new Date(Date.now() - 86_400_000).toISOString(), signed: true };
 
@@ -23,7 +24,7 @@ export function registerUpdates(ctx: MockCtx) {
     checking: false,
     install: { kind: 'systemd-user', canUpdate: true, dir: '/home/sam/.local/share/conclave' },
     keyMissing: false,
-    auto: { on: auto, window: '03:00 to 05:00' },
+    auto: { on: auto, window, hours: '03:00 to 05:00' },
     ...(job ? { job: { ...job } } : {}),
   });
 
@@ -41,8 +42,9 @@ export function registerUpdates(ctx: MockCtx) {
     setTimeout(() => job === j && Object.assign(j, { phase: 'failed', message: 'The demo hub cannot restart itself. A real one would be on 0.2.0 now.', finishedAt: Date.now() }), (steps.length + 1) * 900);
     return status();
   });
-  on('PUT', '/api/update/settings', ({ body }: { body?: { auto?: boolean } }) => {
-    auto = body?.auto === true;
+  on('PUT', '/api/update/settings', ({ body }: { body?: { auto?: boolean; window?: 'idle' | 'night' } }) => {
+    if (body?.auto !== undefined) auto = body.auto === true;
+    if (body?.window) window = body.window;
     return status();
   });
   on('GET', '/api/devices/updates', () => ({
