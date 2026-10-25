@@ -7,6 +7,11 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+- Toasts cut short ("Failed. A subagent runs where its parent session...") get an arrow-up button, "Show full message", that opens the whole text, selectable, with Copy on the web; an open toast stays until you fold or close it. The same on Android, where text past two lines was cut.
+
 ## [0.4.27] - 2026-10-24
 
 ### Changed
