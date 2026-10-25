@@ -20,7 +20,7 @@ import type { ProviderMessage, SystemBlock, ToolSpec } from '../providers/types'
 import { ProviderError } from '../providers/types';
 import type { Engine } from '../engine/engine';
 import { activeMessages, buildProviderMessages, lastAssistantText, reminder, isReminder } from './transcript';
-import { buildSystemPrompt, subagentCatalog, type PromptParts } from './prompt';
+import { buildSystemPrompt, subagentCatalog, TOOL_NOTE_TOOLS, type PromptParts } from './prompt';
 import { delegateCatalog } from '../engine/delegate';
 import { flattenLastToolTurn, isTranscriptShapeError } from './pairing';
 import { streamCompletion, type Served } from './stream';
@@ -1539,7 +1539,8 @@ export class SessionRunner {
    * The system prompt for a step. It is built once and then sent byte for
    * byte, so the cached prefix holds (HARNESS-REVIEW item 12). It is built
    * again after a compaction or /clear; when what it is built from changes
-   * (agent, model, mode, folder, device, the Skill tool, Ultra); when a
+   * (agent, model, mode, folder, device, the Skill tool, the tools the
+   * tool-use section names, Ultra); when a
    * memory it shows was removed or edited; and when the instruction files,
    * skills or the platform card's live state (tools, MCP servers, devices,
    * browser, accounts), read again once per user turn, say something else. New memories
@@ -1547,7 +1548,7 @@ export class SessionRunner {
    */
   private async systemFor(session: Session, agent: AgentDef, modelRef: string, mode: SessionMode, toolNames: string[]): Promise<SystemBlock[]> {
     const engine = this.engine;
-    const key = JSON.stringify([agent.name, agent.prompt, modelRef, mode, session.cwd, session.device, session.kind ?? '', !!session.ultra, !!session.meta?.workflow, toolNames.includes('Skill')]);
+    const key = JSON.stringify([agent.name, agent.prompt, modelRef, mode, session.cwd, session.device, session.kind ?? '', !!session.ultra, !!session.meta?.workflow, toolNames.includes('Skill'), TOOL_NOTE_TOOLS.filter((t) => toolNames.includes(t))]);
     const snap = this.prompt;
     let fresh: PromptParts | undefined;
     if (snap && !this.promptStale && snap.key === key && profileHolds(snap.parts.profile, engine.profileFor(session, agent))) {

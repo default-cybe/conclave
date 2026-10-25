@@ -163,6 +163,40 @@ describe('OpenAIProvider streaming', () => {
   });
 });
 
+describe('Gemini 3 behind Chat Completions', () => {
+  test('the thought signature on a call comes back with it; a call from another model gets the skip value', async () => {
+    scenarios.geminiCall = [
+      chunk({ tool_calls: [{ index: 0, id: 'call_g', type: 'function', function: { name: 'Read', arguments: '{"file_path":"a"}' }, extra_content: { google: { thought_signature: 'SIG-G' } } }] }),
+      finish('tool_calls'),
+      'data: [DONE]\n\n',
+    ];
+    const tools = [{ name: 'Read', description: 'read', inputSchema: { type: 'object' } }];
+    const done = doneOf(await collect(compat().stream(ask('geminiCall', { model: 'gemini-3-flash-preview', tools }))));
+    const call = done.content[0] as any;
+    expect(readSignature(call.signature)).toEqual({ kind: 'openai-chat', model: 'gemini-3-flash-preview', payload: 'SIG-G' });
+
+    const turn = (model: string, from: any) =>
+      compat().buildBody({
+        model,
+        system: [],
+        tools,
+        messages: [
+          { role: 'user', content: [{ type: 'text', text: 'go' }] },
+          { role: 'assistant', content: [from, { ...from, id: 'call_h' }] },
+          { role: 'user', content: [{ type: 'tool_result', toolUseId: from.id, content: 'a' }, { type: 'tool_result', toolUseId: 'call_h', content: 'a' }] },
+        ],
+      }) as any;
+    const own = turn('gemini-3-flash-preview', call).messages[1].tool_calls;
+    expect(own[0].extra_content).toEqual({ google: { thought_signature: 'SIG-G' } });
+    // a call another model made: the first call of the turn gets Google's documented skip value
+    const moved = turn('gemini-3-flash-preview', { type: 'tool_use', id: 'call_c', name: 'Read', input: {} }).messages[1].tool_calls;
+    expect(moved[0].extra_content).toEqual({ google: { thought_signature: 'skip_thought_signature_validator' } });
+    expect(moved[1].extra_content).toBeUndefined();
+    // other models never get the field
+    expect(turn('deepseek-v4-pro', call).messages[1].tool_calls[0].extra_content).toBeUndefined();
+  });
+});
+
 describe('OpenAIProvider request mapping', () => {
   test('tool results become tool messages; images follow in a user message', () => {
     // set to see images: the catalog has DeepSeek V4 Pro as text only
