@@ -13,9 +13,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarResult
@@ -42,6 +47,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
@@ -122,7 +128,9 @@ fun rememberToasts(): ToastState = remember { ToastState() }
  * Places move on the critically damped spring. A toast rises 18dp and fades
  * in; it leaves with a 6dp drop and a fade, or slides 22dp right when you
  * dismiss it. Auto dismiss after 5s unless sticky; the timers wait while the
- * stack is fanned. With "Remove animations" toasts appear and go in place.
+ * stack is fanned. Text cut at two lines gets a chevron that opens it all,
+ * selectable; an open toast stays until folded or closed.
+ * With "Remove animations" toasts appear and go in place.
  */
 @Composable
 fun ToastHost(state: ToastState, modifier: Modifier = Modifier) {
@@ -200,9 +208,11 @@ private fun ToastView(
         if (!reduced) out.animateTo(1f, tween(if (t.leave == Leave.GONE) Stack.GONE_MS else Stack.OUT_MS, easing = Motion.EaseIn))
         onDone()
     }
-    // the timer waits while the stack is fanned out to be read
-    LaunchedEffect(fanned, t.leave) {
-        if (fanned || t.leave != Leave.NONE || t.left == Long.MAX_VALUE) return@LaunchedEffect
+    var open by remember { mutableStateOf(false) }
+    var clamped by remember { mutableStateOf(false) }
+    // the timer waits while the stack is fanned out or the toast is open to be read
+    LaunchedEffect(fanned, open, t.leave) {
+        if (fanned || open || t.leave != Leave.NONE || t.left == Long.MAX_VALUE) return@LaunchedEffect
         val started = System.currentTimeMillis()
         try {
             delay(t.left)
@@ -245,10 +255,29 @@ private fun ToastView(
                 // a failure starts with the word in the fault color
                 if (failed) addStyle(SpanStyle(color = c.fault), 0, "Failed".length)
             }
-            Text(text, style = ConclaveType.body.copy(fontSize = ConclaveType.meta.fontSize * 1.08f), color = c.fg, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(vertical = 10.dp))
+            val style = ConclaveType.body.copy(fontSize = ConclaveType.meta.fontSize * 1.08f)
+            if (open) {
+                SelectionContainer(Modifier.weight(1f).heightIn(max = 320.dp).verticalScroll(rememberScrollState()).padding(vertical = 10.dp)) {
+                    Text(text, style = style, color = c.fg)
+                }
+            } else {
+                // cut short is measured by the layout, not guessed from the length
+                Text(text, style = style, color = c.fg, maxLines = 2, overflow = TextOverflow.Ellipsis, onTextLayout = { clamped = it.hasVisualOverflow }, modifier = Modifier.weight(1f).padding(vertical = 10.dp))
+            }
             if (t.action != null) {
                 TextButton(onClick = onAction, enabled = slot.words && t.leave == Leave.NONE, shape = RoundedCornerShape(5.dp)) {
                     Text(t.action, style = ConclaveType.button, color = c.fg)
+                }
+            }
+            if (clamped || open) {
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clickable(enabled = slot.words && t.leave == Leave.NONE, onClickLabel = if (open) "Fold the message" else "Show full message") { open = !open }
+                        .semantics { stateDescription = if (open) "Expanded" else "Collapsed" },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(if (open) Icons.Outlined.KeyboardArrowDown else Icons.Outlined.KeyboardArrowUp, contentDescription = "Show full message", modifier = Modifier.size(18.dp), tint = c.fg3)
                 }
             }
             Box(
