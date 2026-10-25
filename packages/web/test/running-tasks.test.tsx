@@ -14,7 +14,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { Router } from 'wouter';
 import type { WorkflowRun } from '@conclave/core/client';
 import type { ContentBlock, Message, Session, ToolResultBlock, ToolUseBlock } from '@conclave/core/types';
-import { runIdFor, runningTasks, sessionLive, subagentOf, taskCalls, tasksWord, type RunningInput, type RunningTask } from '../src/features/chat/liveTasks';
+import { Bot, Bug, Eye, FlaskConical, Globe, Hammer, Laptop, Palette, Search, ShieldCheck, Workflow } from 'lucide-react';
+import { groupByKind, taskIcon } from '../src/lib/taskKinds';
+import { runIdFor, runningTasks, sessionLive, subagentOf, taskCalls, taskKind, tasksWord, type RunningInput, type RunningTask } from '../src/features/chat/liveTasks';
 import { RunningTasksView, TaskList } from '../src/features/chat/RunningTasks';
 import type { ToolRun } from '../src/store/store';
 
@@ -260,5 +262,47 @@ describe('a Delegate call', () => {
     expect(out).toContain('Find names in the capstone PDFs');
     expect(out).not.toContain('>Subagent<');
     expect(out).toContain('href="/s/c9"');
+  });
+});
+
+describe('kinds: an icon and a word per kind, workflows first', () => {
+  test('a workflow, a delegated job and each agent type have their own icon; an unknown agent is a bot', () => {
+    expect(taskIcon('workflow')).toBe(Workflow);
+    expect(taskIcon('delegate', 'explore')).toBe(Laptop);
+    expect(taskIcon('subagent', 'explore')).toBe(Search);
+    expect(taskIcon('subagent', 'Builder')).toBe(Hammer);
+    expect(taskIcon('subagent', 'tester')).toBe(FlaskConical);
+    expect(taskIcon('subagent', 'reviewer')).toBe(Eye);
+    expect(taskIcon('subagent', 'debugger')).toBe(Bug);
+    expect(taskIcon('subagent', 'researcher')).toBe(Globe);
+    expect(taskIcon('subagent', 'designer')).toBe(Palette);
+    expect(taskIcon('subagent', 'verifier')).toBe(ShieldCheck);
+    expect(taskIcon('subagent', 'general-purpose')).toBe(Bot);
+    expect(taskIcon('subagent')).toBe(Bot);
+  });
+
+  test('groups keep their order, workflows first, and empty ones are left out', () => {
+    const items = [{ k: 'subagent', id: 1 }, { k: 'delegate', id: 2 }, { k: 'workflow', id: 3 }, { k: 'subagent', id: 4 }] as const;
+    expect(groupByKind(items, (t) => t.k).map((g) => [g.kind, g.items.map((t) => t.id)])).toEqual([['workflow', [3]], ['subagent', [1, 4]], ['delegate', [2]]]);
+    expect(groupByKind(items.slice(0, 1), (t) => t.k).map((g) => g.kind)).toEqual(['subagent']);
+  });
+
+  test('a subagent reads its model; the list heads each kind and leads each row with its icon and word', () => {
+    expect(subagentOf({ tool: explore }, { sessionId: 's1', status: 'running', sessions: {} }).model).toBeUndefined();
+    expect(subagentOf({ tool: use('t9', 'Task', { description: 'x', model: 'openai/gpt-5.5' }) }, { sessionId: 's1', status: 'running', sessions: {} }).model).toBe('openai/gpt-5.5');
+    const delegated: RunningTask = { kind: 'subagent', key: 't:d1', toolUseId: 'd1', state: 'running', background: false, description: 'Find names', handedTo: 'Code on MadX Arch', startedAt: NOW - 10_000, waiting: false };
+    const agent: RunningTask = { kind: 'subagent', key: 't:t2', toolUseId: 't2', state: 'running', background: false, agent: 'builder', model: 'anthropic/claude-haiku-5-5', description: 'Build it', startedAt: NOW - 20_000, waiting: false };
+    const flow: RunningTask = { kind: 'workflow', key: 'w:wfr_1', run: run(), startedAt: NOW - 119_000, waiting: false };
+    expect([delegated, agent, flow].map(taskKind)).toEqual(['delegate', 'subagent', 'workflow']);
+    const out = html(<TaskList tasks={[delegated, agent, flow]} />);
+    expect(out.indexOf('>Workflows<')).toBeLessThan(out.indexOf('>Subagents<'));
+    expect(out.indexOf('>Subagents<')).toBeLessThan(out.indexOf('>Delegated<'));
+    expect(out).toContain('data-task-icon="workflow"');
+    expect(out).toContain('data-task-icon="delegate"');
+    expect(out).toContain('>Delegate<');
+    expect(out).toContain('builder: ');
+    expect(out).toContain('Haiku 5.5');
+    // one kind: no headings
+    expect(html(<TaskList tasks={[agent]} />)).not.toContain('>Subagents<');
   });
 });

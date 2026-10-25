@@ -50,7 +50,9 @@ import { analyzeJury } from './Group';
 import { permissionMeta } from './modes';
 import { revealToolRow } from './ToolRows';
 import { agoText, msgText } from './util';
-import { subagentOf, taskCalls, tasksWord, useRunningTasks, type RunningTask } from './liveTasks';
+import { subagentOf, taskCalls, taskKind, tasksWord, useRunningTasks, type RunningTask } from './liveTasks';
+import { TaskTitle } from './RunningTasks';
+import { groupByKind } from '@/lib/taskKinds';
 import { backgroundShells, contextPercent, outputsWord, panelCards, sessionOutputs, type BackgroundShell, type CardId, type Output } from './panel';
 import { sessionMcpOff, ConnectorsSheet } from './sheets/Connectors';
 import { ContextSheet, CONTEXT_PARTS } from './sheets/ContextSheet';
@@ -650,9 +652,8 @@ function TasksCard({ session }: { session: Session }) {
       {n === 0 && finished.length === 0 && <p className={EMPTY}>Workflows, subagents and background shells it starts show up here while they run.</p>}
       {n > 0 && (
         <ul className="m-0 list-none p-0" aria-label={tasksWord(n)}>
-          {running.map((t) => (
-            <RunningRow key={t.key} task={t} />
-          ))}
+          {/* by kind, workflows first */}
+          {groupByKind(running, taskKind).flatMap((g) => g.items.map((t) => <RunningRow key={t.key} task={t} />))}
           {liveShells.map((sh) => (
             <ShellRow key={sh.id} sh={sh} />
           ))}
@@ -716,7 +717,7 @@ function RunningRow({ task }: { task: RunningTask }) {
       <li>
         <Line right={<StopButton label={`Stop the workflow ${r.name}`} onStop={() => attempt(() => api().stopWorkflow(r.id), `Stopping ${r.name}.`)} />}>
           <Link href={`/workflows/runs/${r.id}`} className="block truncate text-fg hover:underline hover:decoration-rule-2 hover:underline-offset-3">
-            <span className="text-fg-2">Workflow</span> <span className="font-medium">{r.name}</span>
+            <TaskTitle task={task} />
           </Link>
           <span className="block text-[12px]">{r.status === 'running' ? <Elapsed since={r.startedAt ?? r.createdAt} format="short" className="text-signal" /> : <StateWord tone={RUN_TONE[r.status]}>{RUN_WORD[r.status]}</StateWord>}</span>
         </Line>
@@ -728,16 +729,17 @@ function RunningRow({ task }: { task: RunningTask }) {
       <Line right={task.childId ? <StopButton label={`Stop the subagent ${task.description}`} onStop={() => attempt(() => api().abort(task.childId!), 'Stopping the subagent.')} /> : undefined}>
         {task.childId ? (
           <Link href={`/s/${task.childId}`} className="block truncate text-fg hover:underline hover:decoration-rule-2 hover:underline-offset-3">
-            <span className="text-fg-2">Subagent</span> {task.agent && <span className="font-medium">{task.agent}: </span>}
-            {task.description}
+            <TaskTitle task={task} />
           </Link>
         ) : (
           <span className="block truncate text-fg">
-            <span className="text-fg-2">Subagent</span> {task.agent && <span className="font-medium">{task.agent}: </span>}
-            {task.description}
+            <TaskTitle task={task} />
           </span>
         )}
-        <Elapsed since={task.startedAt} format="short" className="block text-[12px] text-signal" />
+        <span className="block truncate text-[12px]">
+          {task.model && <span className="text-fg-3">{modelName(task.model)} · </span>}
+          <Elapsed since={task.startedAt} format="short" className="text-signal" />
+        </span>
       </Line>
     </li>
   );
