@@ -31,7 +31,7 @@ export function AgentResultRow({ result, report, defaultOpen = false, className 
         className="flex min-h-[22px] w-full items-center gap-2 py-0.5 text-left text-[12px] leading-[22px] text-fg-3 hov:text-fg-2 phone:min-h-11 phone:text-[13px]"
       >
         <span className="min-w-0 flex-1 truncate">{title}</span>
-        <span className={cn('num shrink-0', state === 'failed' && 'text-fault', state === 'stopped' && 'text-warn')}>{state}</span>
+        <span className={cn('num shrink-0', state === 'failed' && 'text-fault', result.state !== 'completed' && result.state !== 'failed' && 'text-warn')}>{state}</span>
         <ChevronRight aria-hidden strokeWidth={2} className={cn('size-3.5 shrink-0 text-fg-4 transition-transform duration-[var(--dur-1)]', open && 'rotate-90')} />
       </button>
       {open && (

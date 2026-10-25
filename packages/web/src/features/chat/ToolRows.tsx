@@ -45,7 +45,9 @@ import { WatchCard } from '../watches/WatchCards';
 import { WATCH_TOOLS, watchCardOf, watchDoneWords } from '../watches/words';
 import { groupState, pinned, segment, troubleWords, workName, type CallStatus, type WorkEntry } from './toolGroups';
 import { Chevron, GROUP_BODY, RESULT, ROW, ROW_BTN, RunningTime, verbClass } from './rowParts';
-import { subagentLead, subagentOf, type Subagent } from './liveTasks';
+import { subagentOf, type Subagent } from './liveTasks';
+import { FanOutCard } from './FanOutCard';
+import { TASK_TOOLS, taskToolWords } from './fanOut';
 
 export interface ToolItem {
   tool: ToolUseBlock;
@@ -169,6 +171,12 @@ export function toolInfo(t: ToolUseBlock): Info {
       return { verb: 'Read', target: str(i.match) ? `links with ${i.match}` : 'links', kind: 'fetch' };
     case 'browser_snapshot':
       return { verb: 'Read', target: 'the page', kind: 'fetch' };
+    // a task tool no card holds (FanOutCard.tsx): words, no session ids
+    case 'TaskWait':
+    case 'TaskList':
+    case 'TaskResult':
+    case 'TaskContinue':
+      return { ...taskToolWords(t.name, i, undefined), kind: 'plan' };
   }
   if (t.name.startsWith('mcp__')) {
     const [, server, ...rest] = t.name.split('__');
@@ -367,7 +375,9 @@ export const ToolGroup = memo(function ToolGroup({
   return (
     <div className="my-2 border-y border-rule [&>*+*]:border-t [&>*+*]:border-rule">
       {segs.map((p, i) =>
-        p.kind === 'one' ? (
+        p.kind === 'fanout' ? (
+          <FanOutCard key={`f:${p.items[0].tool.id}`} items={p.items} sessionId={sessionId} />
+        ) : p.kind === 'one' ? (
           <ToolRow key={p.item.tool.id} item={p.item} sessionId={sessionId} depth={depth} />
         ) : p.kind === 'thought' ? (
           <ThoughtRow key={p.item.key} item={p.item} thought={thought} />
@@ -516,10 +526,10 @@ export function ToolRow({ item, sessionId, depth = 0 }: { item: ToolItem; sessio
   // a Workflow and a Task call are each one row that follows the work; a row's tool never changes, so the hooks below keep their order
   const kind = workName(item.tool.name, item.tool.input);
   if (kind === 'Workflow') return <WorkflowRow tool={item.tool} result={item.result ?? item.run?.result} sessionId={sessionId} startedAt={item.run?.startedAt} />;
-  if (kind === 'Task') return <SubagentRow item={item} sessionId={sessionId} depth={depth} />;
+  if (kind === 'Task') return <FanOutCard items={[item]} sessionId={sessionId} />;
   const { tool } = item;
-  const info = toolInfo(tool);
   const { res, status, ms } = useToolState(item);
+  const info = TASK_TOOLS.has(tool.name) ? { ...toolInfo(tool), ...taskToolWords(tool.name, tool.input, res ? resultText(res) : undefined) } : toolInfo(tool);
   const files = useMemo(() => (info.kind === 'edit' ? editFiles(tool, res) : []), [info.kind, tool, res]);
   const output = res ? resultText(res) : (item.run?.progress ?? '');
   const lines = lineCount(output);
@@ -748,112 +758,9 @@ export function useSubagentNow(on: boolean, childId: string | undefined): { text
   return key ? { text: key.slice(1), waiting: key[0] === '!' } : undefined;
 }
 
-/**
- * A Task call as one row of its own (toolGroups.ts ALONE): "Subagent
- * explore: Find the auth code, searching for jwt" (a Delegate call: "Code
- * on MadX Arch: Find names in the capstone PDFs") with the running time,
- * what it does now read from its own transcript (amber when it waits on
- * you); "done in 41s" once it answered. One started in the background runs
- * on after its call returned: the row follows its session. A click opens
- * its log.
- */
-function SubagentRow({ item, sessionId, depth }: { item: ToolItem; sessionId: string; depth: number }) {
-  const { tool } = item;
-  const sub = useSubagent(item, sessionId);
-  const running = sub.state === 'running';
-  const now = useSubagentNow(running, sub.childId);
-  const res = item.result ?? item.run?.result;
-  const output = res && !sub.background ? resultText(res) : '';
-  const ms = callMs(item);
-  const expandable = (!!sub.childId && depth < 1) || !!output.trim();
-  const [open, setOpen] = useState(false);
-  const shown = open && expandable;
-  // a subagent we watched run settles in place, as other rows do
-  const ranHere = useRef(running);
-  if (running) ranHere.current = true;
-  const settle = ranHere.current && !running;
-
-  let result: ReactNode = '';
-  if (running) result = <RunningTime since={sub.startedAt} />;
-  else if (sub.state === 'failed') result = <span className="text-fault">failed</span>;
-  else if (sub.state === 'done') result = ms !== undefined && !sub.background ? `done in ${took(ms)}` : 'done';
-
-  const lead = subagentLead(sub);
-  const head = (
-    <>
-      <span className={verbClass(running)}>{lead.verb}</span>
-      <span title={str(tool.input?.prompt) ?? sub.description} className="min-w-0 truncate tx-13.5 text-fg-2 phone:tx-15">
-        {lead.who && `${lead.who}: `}
-        {sub.description}
-        {now && (
-          <span data-subagent-now="" className={now.waiting ? 'text-warn' : 'text-fg-3'}>
-            {`, ${lowerFirst(now.text)}`}
-          </span>
-        )}
-      </span>
-      <span className={RESULT}>
-        <span key={sub.state} className={cn('inline-block', settle && 'anim-fade')}>
-          {result}
-        </span>
-      </span>
-      <Chevron open={shown} hidden={!expandable} />
-    </>
-  );
-  return (
-    <div id={`tool-${tool.id}`} data-subagent-row="" data-state={sub.state}>
-      {expandable ? (
-        <button type="button" aria-expanded={shown} onClick={() => setOpen(!shown)} className={ROW_BTN}>
-          {head}
-        </button>
-      ) : (
-        <div className={ROW}>{head}</div>
-      )}
-      {shown && <div className="pb-2.5 anim-fade">{sub.childId && depth < 1 ? <SubagentLog childId={sub.childId} agent={sub.agent} handed={!!sub.handedTo} /> : <CodeBlock code={output} copy maxLines={20} wrap />}</div>}
-    </div>
-  );
-}
-
 /** A Task call's subagent (liveTasks.ts subagentOf), live from the store: one string in the selector, so other events do not draw the row again. */
 export function useSubagent(item: ToolItem, sessionId: string): Subagent {
   const key = useHub((s) => JSON.stringify(subagentOf(item, { sessionId, status: s.sessions[sessionId]?.status, sessions: s.sessions })));
   return useMemo(() => JSON.parse(key) as Subagent, [key]);
 }
 
-/** A subagent's own session under its row: who runs it, its calls and words, and a way to it (a Delegate call's: "Open the session", a session of its own). */
-function SubagentLog({ childId, agent, handed }: { childId: string; agent?: string; handed?: boolean }) {
-  const model = useHub((s) => s.sessions[childId]?.model);
-  const messages = useHub((s) => s.messages[childId]);
-  const loaded = useHub((s) => s.messagesLoaded[childId]);
-  const tools = useHub((s) => s.tools);
-  useEffect(() => {
-    void loadMessages(childId);
-  }, [childId]);
-  const results = useMemo(() => toolResultsFor(messages ?? []), [messages]);
-  const blocks = useMemo(() => {
-    const out: Array<{ type: 'text'; text: string; key: string } | { type: 'tools'; items: ToolItem[]; key: string }> = [];
-    for (const m of (messages ?? []) as Message[]) {
-      if (m.role !== 'assistant') continue;
-      m.content.forEach((b, i) => {
-        if (b.type === 'text' && b.text.trim()) out.push({ type: 'text', text: b.text, key: `${m.id}:${i}` });
-        if (b.type === 'tool_use') {
-          const prev = out[out.length - 1];
-          const item = { tool: b, result: results[b.id], run: tools[b.id] };
-          if (prev?.type === 'tools') prev.items.push(item);
-          else out.push({ type: 'tools', items: [item], key: `${m.id}:${i}` });
-        }
-      });
-    }
-    return out;
-  }, [messages, results, tools]);
-
-  return (
-    <div className="ml-4 border-l border-rule pl-4">
-      {(agent || model) && <p className="m-0 pt-1 tx-12 text-fg-3">{[agent, model && modelName(model)].filter(Boolean).join(', ')}</p>}
-      {!loaded && <p className="py-1 tx-12 text-fg-3">Loading the subagent's log.</p>}
-      {blocks.map((b) => (b.type === 'text' ? <Markdown key={b.key} text={b.text} className="my-2 text-fg-2" /> : <ToolGroup key={b.key} entries={asWork(b.items)} sessionId={childId} depth={1} />))}
-      <Link href={`/s/${childId}`} className="link mt-1 inline-block tx-12">
-        {handed ? 'Open the session' : 'Open the subagent session'}
-      </Link>
-    </div>
-  );
-}

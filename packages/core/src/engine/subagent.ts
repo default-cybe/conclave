@@ -150,7 +150,7 @@ export async function runSubagent(
     // the parent gets the TaskList, TaskWait, TaskResult and TaskContinue tools from now on (engine/background.ts)
     if (!parent.meta?.backgroundTasks) engine.patchMeta(parent.id, { backgroundTasks: true });
     void driveSubagent(engine, sub.id, prompt, runner.depth)
-      .then((r) => (r.resumeAt && !opts.workflow ? waitForReset(engine, parent.id, sub.id, r.resumeAt) : deliverSubagentResult(engine, parent.id, sub.id, r.error ? 'error' : 'completed', r.error ? `${r.text}\n\nError: ${r.error}` : r.text)))
+      .then((r) => (r.resumeAt && !opts.workflow ? waitForReset(engine, parent.id, sub.id, r.resumeAt) : deliverSubagentResult(engine, parent.id, sub.id, subagentEndState(r), r.error ? `${r.text}\n\nError: ${r.error}` : r.text)))
       .catch((err) => {
         log.warn('background subagent failed', err);
         deliverSubagentResult(engine, parent.id, sub.id, 'error', `Error: ${(err as Error)?.message ?? String(err)}`);
@@ -217,7 +217,14 @@ export async function resumeParkedSubagent(engine: Engine, child: Session): Prom
   if (r.resumeAt) return waitForReset(engine, parentId, child.id, r.resumeAt);
   const bg = (engine.getSession(child.id)?.meta?.background as Record<string, unknown>) ?? {};
   engine.patchMeta(child.id, { background: { ...bg, waitingReset: false } });
-  deliverSubagentResult(engine, parentId, child.id, r.error ? 'error' : 'completed', r.error ? `${r.text}\n\nError: ${r.error}` : r.text);
+  deliverSubagentResult(engine, parentId, child.id, subagentEndState(r), r.error ? `${r.text}\n\nError: ${r.error}` : r.text);
+}
+
+/** How a subagent ended, for its <subagent_result>: an error is error, a usage limit that stopped it before it finished is limited, never completed. */
+export type SubagentEnd = 'completed' | 'error' | 'limited';
+
+export function subagentEndState(r: Pick<SubagentResult, 'error' | 'stop'>): SubagentEnd {
+  return r.error ? 'error' : r.stop === 'rate_limit' ? 'limited' : 'completed';
 }
 
 /** Longest part of a background result that goes into the parent; the full text stays in the child session. */
@@ -238,7 +245,7 @@ function defuseTags(text: string): string {
 }
 
 /** The note a parent session gets when a background subagent ends. */
-export function subagentResultBlock(child: Pick<Session, 'id' | 'agent' | 'title'>, state: 'completed' | 'error', text: string): ContentBlock {
+export function subagentResultBlock(child: Pick<Session, 'id' | 'agent' | 'title'>, state: SubagentEnd, text: string): ContentBlock {
   const cut = truncateMiddle(defuseTags(text), SUBAGENT_RESULT_MAX_CHARS, 'omitted');
   const body = cut.truncated ? `${cut.text}\n\n[The report was ${text.length} chars and was cut; the full text is in session ${child.id}.]` : cut.text;
   return reminder(
@@ -253,16 +260,16 @@ export function subagentResultBlock(child: Pick<Session, 'id' | 'agent' | 'title
  * its answer); the note waits for its next step. Deleted and archived parents
  * get nothing.
  */
-export function deliverSubagentResult(engine: Engine, parentId: string, childId: string, state: 'completed' | 'error', text: string): void {
+export function deliverSubagentResult(engine: Engine, parentId: string, childId: string, state: SubagentEnd, text: string): void {
   const child = engine.getSession(childId);
   if (child) engine.patchMeta(childId, { background: { ...((child.meta?.background as Record<string, unknown>) ?? {}), parentId, state, finishedAt: Date.now() } });
   const parent = engine.getSession(parentId);
   if (!parent || parent.archived || !child) return;
   const runner = engine.runnerFor(parentId);
   // the apps draw one row for the notice and the report ("Message from subagent ..."), not a notice and an empty bubble
-  const result: AgentResultRef = { type: 'subagent', id: childId, label: child.title, agent: child.agent, state: state === 'completed' ? 'completed' : 'failed' };
+  const result: AgentResultRef = { type: 'subagent', id: childId, label: child.title, agent: child.agent, state: state === 'error' ? 'failed' : state };
   runner.deliver({ block: subagentResultBlock(child, state, text), source: childId, wake: !parent.meta?.subagent, result });
-  engine.notice(parentId, `Background task ${state === 'completed' ? 'finished' : 'failed'}: ${child.title}`, state === 'completed' ? 'info' : 'warning', undefined, { kind: 'agent-result', agentResult: result });
+  engine.notice(parentId, `Background task ${state === 'completed' ? 'finished' : state === 'limited' ? 'stopped at a usage limit' : 'failed'}: ${child.title}`, state === 'completed' ? 'info' : 'warning', undefined, { kind: 'agent-result', agentResult: result });
 }
 
 function runnerDepthOf(engine: Engine, session: Session): number {
