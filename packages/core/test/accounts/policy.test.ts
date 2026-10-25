@@ -98,6 +98,26 @@ describe('what blocks an account', () => {
     expect(windowApplies({ name: '7d fable', usedPercent: 100 }, 'claude-fable-5')).toBe(true);
   });
 
+  test("the owner's personal plan: spent Fable credits never block; Fable's own weekly window stands in for the general one", () => {
+    const tue = Z('2026-10-27T09:00:00Z');
+    // the live windows: 5h 7%, 7d 100%, 7d fable 0%, fable credits 100% (250, none left, no kind)
+    const personal = acct1([
+      { name: '5h', usedPercent: 7, resetsAt: now + 3 * H, kind: 'session', windowMs: 5 * H },
+      { name: '7d', usedPercent: 100, resetsAt: tue, kind: 'weekly', windowMs: 7 * 24 * H },
+      { name: '7d fable', usedPercent: 0, resetsAt: tue, kind: 'weekly', windowMs: 7 * 24 * H },
+      { name: 'fable credits', usedPercent: 100, resetsAt: Z('2026-11-05T07:59:00Z'), limit: 250, remaining: 0 },
+    ]);
+    expect(assess(personal, now, 'claude-fable-5-1').state).toBe('ready');
+    expect(assess(personal, now, 'claude-opus-5-5')).toMatchObject({ state: 'limited', reason: 'Weekly limit reached', until: tue });
+    // the plan as a whole names the weekly window, never the credits
+    expect(assess(personal, now)).toMatchObject({ state: 'limited', reason: 'Weekly limit reached', until: tue });
+    // the 5 hour window still blocks Fable too
+    const busy = acct1([...personal.windows.filter((w) => w.name !== '5h'), w5h(100, now + H)]);
+    expect(assess(busy, now, 'claude-fable-5-1').state).toBe('limited');
+    // Opus has no own-weekly split: a full general week blocks it even beside a "7d opus" window with room
+    expect(assess(acct1([w7d(100, tue), { name: '7d opus', usedPercent: 10, resetsAt: tue, kind: 'weekly' }]), now, 'claude-opus-5-5').state).toBe('limited');
+  });
+
   test('paused, signed out, a cooldown, a block the hub saw', () => {
     expect(assess({ ...acct1(), enabled: false }, now).state).toBe('paused');
     expect(assess({ ...acct1(), error: 'Signed out' }, now)).toMatchObject({ state: 'error', reason: 'Signed out' });

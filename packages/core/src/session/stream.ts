@@ -1,5 +1,5 @@
 import type { ContentBlock, StopReason, Usage } from '../types';
-import type { ChatRequest } from '../providers/types';
+import type { ChatRequest, ProviderMessage } from '../providers/types';
 import { ProviderError, parseModelRef } from '../providers/types';
 import type { Engine } from '../engine/engine';
 import { accountsOf } from '../accounts/attached';
@@ -11,9 +11,38 @@ import { OWNER_ID, currentAccount, isMember } from '../people/context';
 import { AccessError } from '../people/access';
 import { catalogCost } from '../usage/value';
 import { servedNotice, type CyberProgram } from '../providers/access-programs';
+import { splitAccount } from '../providers/split';
+import { vendorOfModel } from '../accounts/vendors';
+
+/** Drop replayed thinking another vendor's account signed: its signature fails on this one (a 400). Unmarked thinking stays. */
+export function dropForeignThinking(messages: ProviderMessage[], vendor: string | undefined): ProviderMessage[] {
+  if (!vendor) return messages;
+  const foreign = (b: ContentBlock) => (b.type === 'thinking' || b.type === 'redacted_thinking') && !!b.signedBy && b.signedBy !== vendor;
+  if (!messages.some((m) => m.content.some(foreign))) return messages;
+  return messages.map((m) => (m.content.some(foreign) ? { ...m, content: m.content.filter((b) => !foreign(b)) } : m));
+}
 
 /** "session asked served" pairs already told: a served program the plan cannot change is said once. */
 const servedNoted = new Set<string>();
+
+/** Per session, the destinations a fallback notice already named: the same one again says nothing (the log still does). */
+const fallbackNoted = new Map<string, Set<string>>();
+
+/** The session's calls moved on (session/limits.ts switchBack): the next fallback says so again. */
+export function forgetFallbackNotice(sessionId: string): void {
+  fallbackNoted.delete(sessionId);
+}
+
+/** Post a fallback notice unless one already named this destination for the session. */
+function fallbackNotice(engine: Engine, sessionId: string | undefined, dest: string, text: string): void {
+  if (!sessionId) return;
+  const seen = fallbackNoted.get(sessionId) ?? new Set<string>();
+  if (seen.has(dest)) return;
+  // insertion order: the oldest session's entry goes first
+  if (!fallbackNoted.has(sessionId) && fallbackNoted.size >= 1000) fallbackNoted.delete(fallbackNoted.keys().next().value!);
+  fallbackNoted.set(sessionId, seen.add(dest));
+  engine.notice(sessionId, text, 'warning');
+}
 
 const log = logger('stream');
 
@@ -31,6 +60,8 @@ export interface Served {
   provider: string;
   model: string;
   account?: string;
+  /** The vendor whose account answered (anthropic for a Claude plan or key, gemini for Antigravity): its thinking signatures replay only there. */
+  vendor?: string;
   /** The Cyber access program the call asked for: a refusal retries on the same plan with Daybreak only when it was not asked already. */
   cyber?: CyberProgram;
 }
@@ -132,12 +163,45 @@ async function streamCall(
   const accounts = paidBy === 'own' ? undefined : accountsOf(engine);
   /** Providers this call already tried and that refused it for a limit. */
   const tried = new Set<string>();
+  /** The model as routed, before a plan's own id replaced it: what another provider gets. */
+  const base = resolved.model;
+  /** Gateway accounts this call already went to (a bare id reaches several at once). */
+  const triedPlans = new Set<string>();
+  /**
+   * The next gateway plan in the owner's order this call has not tried: the
+   * bare id, or a plan's own prefixed id when CLIProxyAPI never gives it the
+   * bare one (Opus on Antigravity lists claude-opus-5-5-high). The plan, when
+   * one is left; the call then goes there.
+   */
+  const toPlanWire = (): { label: string; account: string } | undefined => {
+    // a member never gets one of the owner's plans by name
+    if (member || target.pin || !accounts || resolved.provider !== accounts.gateway) return undefined;
+    const p = accounts.planWire(base, triedPlans);
+    if (!p) return undefined;
+    for (const id of p.covers) triedPlans.add(id);
+    if (p.wire !== resolved.model) resolved = registry.resolveAt(resolved.provider, p.wire);
+    return p;
+  };
+  toPlanWire();
+  /** The vendor of the account this attempt goes to: a prefixed id names its plan; otherwise the model's maker. */
+  const signer = (): string | undefined => {
+    const acct = resolved.provider === accounts?.gateway && splitAccount(resolved.model).account ? accounts.accountFor(resolved.provider, resolved.model) : undefined;
+    return (acct ? accounts?.vendorOf(acct) : undefined) ?? vendorOfModel(splitAccount(resolved.model).model);
+  };
 
   /** The next provider in the owner's account order after `from` refused, or undefined. */
   const fallback = (from: string, why: string): boolean => {
     // a pinned call stays on its account: the refusal fallback moves to its next entry instead
     if (target.pin) return false;
-    const next = accounts?.fallbackFor(from, resolved.model, tried);
+    // the gateway refused: its next ready plan in the order this call has not tried takes it, one by one, before any key
+    const plan = toPlanWire();
+    if (plan) {
+      fallbackNotice(engine, target.sessionId, plan.account, `${why} Using ${plan.label} for this call.`);
+      log.info(`${from}/${base}: ${why} trying ${resolved.model}`);
+      hold();
+      return true;
+    }
+    const next = accounts?.fallbackFor(from, base, tried);
     const p = next ? registry.get(next) : undefined;
     if (!next || !p) return false;
     // a member falls back only to a provider they may use, and pays as that one says
@@ -149,14 +213,14 @@ async function streamCall(
       }
     }
     tried.add(from);
-    if (target.sessionId) engine.notice(target.sessionId, `${why} Using ${engine.providerLabel(next)} for this call.`, 'warning');
+    fallbackNotice(engine, target.sessionId, next, `${why} Using ${engine.providerLabel(next)} for this call.`);
     if (target.messageId) {
       // reset a partly streamed reply on clients
       const msg = engine.repos.messages.get(target.messageId);
       if (msg) engine.bus.emit({ type: 'message.updated', message: { ...msg, content: [] } });
     }
     log.info(`${from}/${resolved.model}: ${why} falling back to ${next}`);
-    resolved = registry.resolveAt(next, resolved.model);
+    resolved = registry.resolveAt(next, base);
     provider = p;
     hold();
     return true;
@@ -188,7 +252,7 @@ async function streamCall(
       // when each block began, so a thinking block can say how long it took ("Thought for 12s")
       const blockStart = new Map<number, number>();
       // the session id rides along, so a gateway with session affinity keeps this conversation on one account
-      for await (const ev of provider!.stream({ ...req, model: resolved.model, maxTokens: req.maxTokens ?? Math.min(resolved.info.maxOutput, 32_000), session: req.session ?? target.sessionId })) {
+      for await (const ev of provider!.stream({ ...req, messages: dropForeignThinking(req.messages, signer()), model: resolved.model, maxTokens: req.maxTokens ?? Math.min(resolved.info.maxOutput, 32_000), session: req.session ?? target.sessionId })) {
         if (req.signal?.aborted) throw new ProviderError('aborted', 'aborted');
         begun = true;
         if (ev.type === 'text_delta' || ev.type === 'thinking_delta') written += ev.text.length;
@@ -252,7 +316,8 @@ async function streamCall(
       // the row counts now: the estimate goes
       held.release?.();
       held.release = undefined;
-      final.served = { provider: resolved.provider, model: resolved.model, ...(account ? { account } : {}), ...(req.accessPrograms?.cyber ? { cyber: req.accessPrograms.cyber } : {}) };
+      const vendor = signer();
+      final.served = { provider: resolved.provider, model: resolved.model, ...(account ? { account } : {}), ...(vendor ? { vendor } : {}), ...(req.accessPrograms?.cyber ? { cyber: req.accessPrograms.cyber } : {}) };
       return final;
     } catch (err) {
       const e = err instanceof ProviderError ? err : new ProviderError('network', (err as Error)?.message ?? String(err));

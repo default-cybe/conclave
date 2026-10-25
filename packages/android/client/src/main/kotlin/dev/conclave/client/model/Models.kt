@@ -371,6 +371,8 @@ data class LimitState(
     val blocked: Boolean? = null,
     /** headers, oauth, logs, api, ledger or error */
     val source: String = "api",
+    /** Why a signed in plan has no windows ("Usage not reported by Google"). */
+    val note: String? = null,
     /** A plan whose window starter is on: what it is doing (logic/StarterWords.kt). */
     val starter: StarterLine? = null,
 ) {
