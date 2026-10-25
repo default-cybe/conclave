@@ -26,10 +26,9 @@ import { OWNER_ID } from '@conclave/core/people/context.ts';
 import { accountKv } from '@conclave/core/people/scoped.ts';
 import { limitKey } from '@conclave/core/accounts/windows.ts';
 import { logger } from '@conclave/core/util/log.ts';
-import { CliproxyManager, PROVIDER_ID, PROVIDER_INFO, type CliproxyOptions } from './index';
-import { cliproxyEnv, cliproxyFiles, ensurePrivateDirs } from './config';
-import { PINS, installRelease, installedBinary, newestPin, parseVersion } from './release';
-import { defaultSpawn, runHelp } from './runner';
+import { CliproxyManager, PROVIDER_ID, subscriptionCards, type CliproxyOptions } from './index';
+import { cliproxyFiles } from './config';
+import { PINS, newestPin, pluginHostProblem } from './release';
 import { PidFile, processMatches } from '../remote/pids';
 
 const log = logger('cliproxy');
@@ -136,8 +135,8 @@ function shown(s: SubscriptionsStatus, hub: ConfigStore): SubscriptionsStatus {
   const { version: _version, pinned: _pinned, ...rest } = s;
   const owners = ['models.cliproxy', join(hub.paths.home, 'bin'), s.binary?.path, hub.get().models?.cliproxy?.binary].filter((x): x is string => !!x);
   const leaks = (t?: string) => !!t && owners.some((o) => t.includes(o));
-  const error = leaks(s.error) ? NOT_STARTED : s.error;
-  const detail = leaks(s.detail) ? (error ? undefined : NOT_STARTED) : s.detail;
+  const error = s.error && (s.state === 'error' || leaks(s.error)) ? NOT_STARTED : s.error;
+  const detail = error === NOT_STARTED ? undefined : leaks(s.detail) ? NOT_STARTED : s.detail?.replace(/CLIProxyAPI v?\d+(?:\.\d+)+/g, 'CLIProxyAPI');
   // pinned is the owner's: a member's page never reads it, so it is left out despite the type
   return { ...rest, error, detail, binary: undefined, update: undefined, external: undefined, local: false } as SubscriptionsStatus;
 }
@@ -200,7 +199,6 @@ interface Run {
 export class MemberPlansManager implements MemberPlans {
   private readonly runs = new Map<string, Run>();
   private readonly listeners = new Set<(accountId: string) => void>();
-  private installing?: Promise<string>;
   private closing = false;
 
   constructor(private readonly opts: CliproxyOptions) {}
@@ -229,7 +227,7 @@ export class MemberPlansManager implements MemberPlans {
       if (cur) cur.status = s;
       this.check(accountId);
     });
-    const manager = new CliproxyManager({ ...this.opts, engine: view });
+    const manager = new CliproxyManager({ ...this.opts, engine: view, binaryHome: this.engine.config.paths.home });
     const r: Run = { manager, accounts: manager.accountService, config, attached: false, entryKey: '', lastRead: 0 };
     config.onRuntime(() => this.check(accountId));
     this.runs.set(accountId, r);
@@ -303,7 +301,7 @@ export class MemberPlansManager implements MemberPlans {
         provider: PROVIDER_ID,
         pinned: { version: pin.version, repo: '', license: 'MIT' },
         management: false,
-        providers: pin.providers.map((id) => ({ id, ...PROVIDER_INFO[id], accounts: 0 })),
+        providers: subscriptionCards(pin, !this.engine.config.get().models?.cliproxy?.binary && !pluginHostProblem(this.opts)),
         accounts: [],
         models: [],
       },
@@ -330,7 +328,9 @@ export class MemberPlansManager implements MemberPlans {
       r = this.run(accountId);
     }
     if (r.attached || this.closing) return this.status(accountId);
-    r.config.setBinary(await this.binary());
+    // Explicit owner overrides remain unmanaged. Otherwise the manager resolves
+    // the shared binary home through the same locked migration as the owner.
+    r.config.setBinary(this.engine.config.get().models?.cliproxy?.binary);
     if (this.closing || this.runs.get(accountId) !== r || r.attached) return this.status(accountId);
     r.config.setMode(true);
     r.attached = true;
@@ -389,24 +389,4 @@ export class MemberPlansManager implements MemberPlans {
     );
   }
 
-  /** The program the hub runs for itself: models.cliproxy.binary, the copy in <home>/bin, or the pinned release downloaded there now. */
-  private binary(): Promise<string> {
-    const own = this.engine.config.get().models?.cliproxy?.binary;
-    if (own) return Promise.resolve(own);
-    const home = this.engine.config.paths.home;
-    const have = installedBinary(home, this.opts.platform);
-    if (have) return Promise.resolve(have.path);
-    this.installing ??= (async () => {
-      const files = cliproxyFiles(home);
-      ensurePrivateDirs(files);
-      const spawn = this.opts.spawn ?? defaultSpawn;
-      const probe = (p: string) =>
-        runHelp(spawn, p, cliproxyEnv(process.env, files.dir), files.dir)
-          .then((r) => parseVersion(r.out))
-          .catch(() => undefined);
-      const info = await installRelease({ home, pin: newestPin(this.opts.pins ?? PINS), base: this.opts.releaseBase, fetch: this.opts.fetch, platform: this.opts.platform, arch: this.opts.arch, probe });
-      return info.path;
-    })().finally(() => (this.installing = undefined));
-    return this.installing;
-  }
 }
