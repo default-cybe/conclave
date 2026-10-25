@@ -245,7 +245,7 @@ function bareOf(engine: Engine, ref: string): string {
  *    window reopens, even across a hub restart.
  * 3. Else surface the error.
  */
-export async function handleLimit(engine: Engine, runner: SessionRunner, modelRef: string, err: ProviderError, tried: readonly string[] = []): Promise<LimitOutcome> {
+export async function handleLimit(engine: Engine, runner: SessionRunner, modelRef: string, err: ProviderError, tried: readonly string[] = [], opts: { sticky?: boolean } = {}): Promise<LimitOutcome> {
   const cfg = engine.config.get();
   const sessionId = runner.id;
   const resetAt = err.resetAt ?? (err.retryAfterMs ? Date.now() + err.retryAfterMs : undefined);
@@ -303,7 +303,23 @@ export async function handleLimit(engine: Engine, runner: SessionRunner, modelRe
       bigTokens: cfg.context.switchBriefAt,
     });
     if (!wait) {
-      engine.notice(sessionId, `${modelRef} hit its limit. Falling back to ${fallback} for this turn.`, 'warning');
+      const s = engine.repos.sessions.get(sessionId);
+      const stick = !!s && !isMember(s.accountId) && opts.sticky !== false && s.model === modelRef;
+      engine.notice(sessionId, `${modelRef} hit its limit. Falling back to ${fallback} ${stick ? 'until a higher model on the list is ready' : 'for this turn'}.`, 'warning');
+      if (stick) {
+        try {
+          engine.updateSession(sessionId, { model: fallback });
+          const prev = s.meta?.limitFallback as LimitSwitch | undefined;
+          const chain = prev?.to === modelRef ? prev : undefined;
+          // an account failover (limitSwitch) that ended in this model fallback: the ref it left is the one to go back to
+          const sw = s.meta?.limitSwitch as LimitSwitch | undefined;
+          const seed = chain ?? (sw?.to === modelRef ? sw : undefined);
+          const until = seed ? seed.until : resetAt;
+          engine.patchMeta(sessionId, { limitFallback: { from: seed?.from ?? modelRef, to: fallback, at: seed?.at ?? Date.now(), ...(until ? { until } : {}) }, limitSwitch: undefined });
+        } catch (e) {
+          log.warn(`${sessionId}: could not keep ${fallback}: ${(e as Error).message}`);
+        }
+      }
       return { fallback };
     }
     log.info(`${sessionId}: ${modelRef} resets within ${Math.round(SHORT_RESET_MS / 60_000)} min and the chat is big; waiting instead of falling back to ${fallback}`);
@@ -398,6 +414,100 @@ export function switchBack(engine: Engine, sessionId: string): string | undefine
     }
     engine.patchMeta(sessionId, { limitSwitch: ref === ls.from ? undefined : { ...ls, to: ref } });
     engine.notice(sessionId, `Back on ${a.label}, its limit reset.`, 'info');
+    forgetFallbackNotice(sessionId);
+    log.info(`${sessionId}: back on ${ref} from ${session.model}`);
+    return ref;
+  }
+  return undefined;
+}
+
+/**
+ * At the start of a turn, for a session a usage-chain model fallback moved to
+ * another model (meta.limitFallback): walk the owner's priority (the model it
+ * left first, gated by its reset time or SWITCH_BACK_AFTER_MS, then the usage
+ * fallback list models in config order above the current one, or the refusal
+ * fallback list entries above it when the usage list is off), each via
+ * readyRef on ready accounts in the owner's order (a provider the accounts do
+ * not track keeps the ref as written); switch to the first ready
+ * one with a notice, clearing limitFallback when it is the original model.
+ * A manual pick clears the meta. Owner only.
+ */
+export function switchBackModel(engine: Engine, sessionId: string): string | undefined {
+  const session = engine.repos.sessions.get(sessionId);
+  const lf = session?.meta?.limitFallback as LimitSwitch | undefined;
+  if (!session || !lf?.from || !lf.to) return undefined;
+  if (session.model !== lf.to) {
+    engine.patchMeta(sessionId, { limitFallback: undefined });
+    return undefined;
+  }
+  const accounts = accountsOf(engine);
+  if (!accounts || isMember(session.accountId)) return undefined;
+  const nowBare = variantBase(bareOf(engine, session.model) || bareModel(session.model));
+  const fromBare = variantBase(bareOf(engine, lf.from) || bareModel(lf.from));
+  if (!nowBare || !fromBare) return undefined;
+  const t = Date.now();
+  const canReturnToFrom = (lf.until !== undefined && t >= lf.until) || t - (lf.at ?? 0) >= SWITCH_BACK_AFTER_MS;
+  const candidates: Array<{ model: string; isFrom: boolean; ref?: string }> = [];
+  const seen = new Set<string>([nowBare]);
+  if (canReturnToFrom && !seen.has(fromBare)) {
+    seen.add(fromBare);
+    candidates.push({ model: fromBare, isFrom: true, ref: lf.from });
+  }
+  const cfg = engine.config.get();
+  const chain = cfg.models?.limitFallback;
+  if (chain?.enabled === true && Array.isArray(chain.models)) {
+    const list = chain.models.filter((r): r is string => typeof r === 'string' && r.includes('/'));
+    const ids = list.map((r) => variantBase(bareModel(r)));
+    const curIdx = ids.indexOf(nowBare);
+    const stop = curIdx >= 0 ? curIdx : list.length;
+    for (let i = 0; i < stop; i++) {
+      const m = ids[i];
+      if (!m || seen.has(m)) continue;
+      if (m === fromBare && !canReturnToFrom) continue;
+      seen.add(m);
+      candidates.push({ model: m, isFrom: m === fromBare, ref: list[i] });
+    }
+  } else {
+    // the refusal fallback list (models.refusalFallback) is the priority when the usage list is off: the entries above the current model
+    const entries = refusalPlan(cfg, engine.agentFor(session))?.entries ?? [];
+    const targets = entries.map((e, i) => {
+      const t = targetFor(engine, e, i);
+      if (!t) return undefined;
+      const wire = t.pin ? t.pin.model : t.ref.slice(t.ref.indexOf('/') + 1);
+      return { t, m: variantBase(bareModel(wire)) };
+    });
+    const curIdx = targets.findIndex((x) => x?.m === nowBare);
+    const stop = curIdx >= 0 ? curIdx : targets.length;
+    for (let i = 0; i < stop; i++) {
+      const x = targets[i];
+      if (!x || !x.m || seen.has(x.m)) continue;
+      if (x.m === fromBare && !canReturnToFrom) continue;
+      if (!usable(engine, session, x.t)) continue;
+      if (accounts) {
+        // a plan or key that is paused or at a limit: an entry pinned to it is skipped, and so is a loose one when none of its vendor's is ready
+        const ready = accounts.readyAccounts(x.m);
+        if (x.t.pin?.account ? !ready.some((a) => a.id === x.t.pin!.account) : !!accounts.routeOf(x.m) && !ready.length) continue;
+      }
+      seen.add(x.m);
+      candidates.push({ model: x.m, isFrom: x.m === fromBare, ref: x.t.ref });
+    }
+  }
+  const ownerSession = { accountId: session.accountId ?? OWNER_ID };
+  for (const c of candidates) {
+    // readyRef walks the owner's account order; a model no account of the owner's tracks (limits.fallbacks naming another provider) keeps the ref as written
+    const tracked = !!accounts && (!!accounts.readyAccounts(c.model).length || !!accounts.routeOf(c.model));
+    const ref =
+      readyRef(engine, ownerSession, c.model, []) ??
+      (!tracked && c.ref && usable(engine, ownerSession, { index: -1, entry: { model: c.ref }, ref: c.ref, label: '' }) ? c.ref : undefined);
+    if (!ref) continue;
+    try {
+      engine.updateSession(sessionId, { model: ref });
+    } catch (e) {
+      log.warn(`${sessionId}: could not go back to ${ref}: ${(e as Error).message}`);
+      return undefined;
+    }
+    engine.patchMeta(sessionId, { limitFallback: c.isFrom ? undefined : { ...lf, to: ref } });
+    engine.notice(sessionId, `Back on ${ref}, its limit reset.`, 'info');
     forgetFallbackNotice(sessionId);
     log.info(`${sessionId}: back on ${ref} from ${session.model}`);
     return ref;
