@@ -53,7 +53,7 @@ describe('the cap of 15 files', () => {
     await expect(prepareAttachments(list, host())).rejects.toThrow(TOO_MANY_FILES);
     const fifteen = list.slice(0, MAX_ATTACHMENTS);
     // no zip: the very same list goes on
-    expect(await prepareAttachments(fifteen, host())).toBe(fifteen);
+    expect((await prepareAttachments(fifteen, host())).attachments).toEqual(fifteen);
   });
 });
 
@@ -81,7 +81,7 @@ describe('a zip in a chat', () => {
       { name: 'data.bin', data: new Uint8Array([0, 1, 2, 3, 0, 255]) },
       { name: '__MACOSX/._README.md', data: new Uint8Array([0, 5, 22, 7]) },
     ]);
-    const out = (await prepareAttachments([{ mediaType: 'text/plain', data: b64(new TextEncoder().encode('note')), name: 'note.txt' }, zipAttachment(zip)], host()))!;
+    const out = (await prepareAttachments([{ mediaType: 'text/plain', data: b64(new TextEncoder().encode('note')), name: 'note.txt' }, zipAttachment(zip)], host())).attachments!;
     expect(out.map((a) => [a.mediaType, a.name])).toEqual([
       ['text/plain', 'note.txt'],
       ['text/plain', 'project.zip'],
@@ -128,7 +128,7 @@ describe('a zip in a chat', () => {
   test('pictures take only what is left of the cap', async () => {
     const zip = makeZip(Array.from({ length: 6 }, (_, i) => ({ name: `p${i}.png`, data: PNG })));
     const others = Array.from({ length: 12 }, (_, i) => ({ mediaType: 'text/plain', data: b64(new TextEncoder().encode('x')), name: `${i}.txt` }));
-    const out = (await prepareAttachments([...others, zipAttachment(zip)], host()))!;
+    const out = (await prepareAttachments([...others, zipAttachment(zip)], host())).attachments!;
     expect(out.length).toBe(MAX_ATTACHMENTS);
     expect(out.filter((a) => a.mediaType === 'image/png').length).toBe(2);
     expect(docText(out[12])).toContain('The 2 pictures follow as images, and 4 more are not included.');
@@ -139,7 +139,7 @@ describe('a zip in a session with file tools', () => {
   test('is saved in its folder, and the model gets the path and the listing', async () => {
     const h = host({ fileTools: () => true });
     const zip = makeZip([{ name: 'app/index.js', data: 'console.log(1)' }, { name: 'app/pic.png', data: PNG }]);
-    const out = (await prepareAttachments([zipAttachment(zip, 'my app.zip')], h))!;
+    const out = (await prepareAttachments([zipAttachment(zip, 'my app.zip')], h)).attachments!;
     expect(h.saved.map((s) => s.name)).toEqual(['my app.zip']);
     expect(h.saved[0].bytes).toEqual(zip);
     expect(out.length).toBe(1);
@@ -152,7 +152,7 @@ describe('a zip in a session with file tools', () => {
   });
 
   test('a folder that cannot take it: the hub reads it as for a chat', async () => {
-    const out = (await prepareAttachments([zipAttachment(makeZip([{ name: 'a.txt', data: 'hello' }]))], host({ fileTools: () => true, save: async () => Promise.reject(new Error('offline')) })))!;
+    const out = (await prepareAttachments([zipAttachment(makeZip([{ name: 'a.txt', data: 'hello' }]))], host({ fileTools: () => true, save: async () => Promise.reject(new Error('offline')) }))).attachments!;
     expect(docText(out[0])).toContain('--- a.txt ---\nhello');
   });
 
@@ -218,5 +218,43 @@ describe('zips the hub refuses', () => {
     })();
     expect(err).toBeInstanceOf(ZipRefused);
     expect((err as Error).message).not.toMatch(/[\u2013\u2014]/);
+  });
+});
+
+describe('a receipt per picked file', () => {
+  test('keeps the picked names through a zip expansion', async () => {
+    const zip = makeZip([
+      { name: 'src/main.ts', data: 'export const one = 1;' },
+      { name: 'logo.png', data: PNG },
+    ]);
+    const r = await prepareAttachments([zipAttachment(zip, 'my app.zip'), { mediaType: 'text/plain', data: b64(new TextEncoder().encode('n')), name: 'note.txt' }], host());
+    expect(r.receipts.map((x) => [x.name, x.state])).toEqual([
+      ['my app.zip', 'prepared'],
+      ['note.txt', 'prepared'],
+    ]);
+    // the zip keeps its name; its entries go under their own
+    expect(r.receipts[0].as).toEqual(['my app.zip', 'my app.zip: logo.png']);
+    expect(r.receipts[0].parts).toEqual(['text', 'image']);
+    expect(r.lost).toEqual([]);
+  });
+
+  test('a file the hub cannot read is omitted and named, never silently dropped', async () => {
+    const gone: Attachment = { mediaType: 'text/plain', path: '/device/note.txt' };
+    const r = await prepareAttachments([gone, zipAttachment(makeZip([{ name: 'a.txt', data: 'hi' }]), 'ok.zip')], host());
+    expect(r.receipts[0]).toEqual({ name: 'note.txt', state: 'omitted', reason: 'could not be read from the device' });
+    expect(r.lost).toEqual(['note.txt']);
+    expect(r.attachments!.map((a) => a.name)).toEqual(['ok.zip']);
+  });
+
+  test('a zip saved to the session folder says what it became', async () => {
+    const r = await prepareAttachments([zipAttachment(makeZip([{ name: 'a.js', data: '1' }]), 'app.zip')], host({ fileTools: () => true }));
+    expect(r.receipts).toEqual([{ name: 'app.zip', state: 'prepared', as: ['app.zip'], parts: ['text'] }]);
+  });
+
+  test('a zip by a path that cannot be read is a loss too', async () => {
+    const r = await prepareAttachments([{ mediaType: 'application/zip', path: '/device/app.zip' }], host());
+    expect(r.lost).toEqual(['app.zip']);
+    expect(r.receipts[0].state).toBe('omitted');
+    expect(r.attachments).toBe(undefined);
   });
 });

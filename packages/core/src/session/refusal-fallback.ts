@@ -37,13 +37,14 @@
 import type { Engine } from '../engine/engine';
 import type { AgentDef } from '../extensions/types';
 import type { ConclaveConfig, RefusalFallbackEntry } from '../config/schema';
-import type { Message, Session } from '../types';
+import type { Message } from '../types';
 import { accountsOf } from '../accounts/attached';
 import { bareModel, ownModel } from '../accounts/policy';
 import { lookupModel } from '../providers/catalog';
 import { parseModelRef } from '../providers/types';
 import { parseRefusalEntries } from './refusal-entries';
 import { isHiddenModel } from '../config/hidden';
+import { checkFallback, type PolicySession } from './limit-tree';
 import type { Served, StreamPin } from './stream';
 import { DAYBREAK_BLUE_MODEL, cyberChoices, cyberLabel, type CyberProgram } from '../providers/access-programs';
 import { vendorOfModel } from '../accounts/vendors';
@@ -287,11 +288,13 @@ function alreadyTried(engine: Engine, t: FallbackTarget, tried: Served[]): boole
   return tried.some((s) => matches(engine, t, s));
 }
 
-/** Whether the hub can call an entry at all now: its provider on and set up, its account on. */
-export function usable(engine: Engine, session: Pick<Session, 'accountId'>, t: FallbackTarget): boolean {
+/** Whether the hub can call an entry at all now: its provider on and set up, its account on, and the task's fallback policy allowing the destination. */
+export function usable(engine: Engine, session: PolicySession, t: FallbackTarget): boolean {
   if (isHiddenModel(engine.config.get(), t.ref) || isHiddenModel(engine.config.get(), t.entry.model)) return false;
   try {
     const reg = engine.registryFor(session);
+    const resolved = t.pin ? reg.resolveAt(t.pin.provider, t.pin.model) : reg.resolve(t.ref);
+    if (!checkFallback(engine, session, resolved, undefined, undefined, true).ok) return false;
     if (t.pin) {
       if (!reg.isEnabled(t.pin.provider) || !reg.isConfigured(t.pin.provider)) return false;
       const acct = t.pin.account ? accountsOf(engine)?.account(t.pin.account) : undefined;
@@ -322,7 +325,7 @@ export class RefusalWalk {
 
   constructor(
     private readonly engine: Engine,
-    private readonly session: Pick<Session, 'accountId'>,
+    private readonly session: PolicySession,
     readonly plan: RefusalPlan,
     /** Where the first refusal came from (refusalStepOf its reply); undefined for the chat's own model. */
     private readonly from?: RefusalStep,

@@ -42,6 +42,8 @@ export interface ToolHost {
     /** JSON Schema for the result: the child gets StructuredOutput and the call returns the validated object (engine/structured-task.ts). */
     schema?: unknown;
   }): Promise<{ sessionId: string; text: string; structured?: unknown; error?: string }>;
+  /** The agent's profile as this session's account sees it, for Task's capability preflight (engine/tool-check.ts). */
+  subagentTools?(agent: string): { name: string; tools?: string[]; disallowedTools?: string[] } | undefined;
   /** Ask the user multiple-choice questions and wait. */
   askUser(sessionId: string, questions: QuestionRequest['questions'], signal?: AbortSignal): Promise<Record<string, string>>;
   /** One-shot completion on any model (used by Consult, WebFetch summarizing). */
@@ -63,6 +65,8 @@ export interface ToolHost {
   createRoutine(input: { name: string; schedule: string; prompt: string; agent?: string; cwd?: string; device?: string }): Promise<{ id: string; nextRunAt?: number }>;
   /** Switch session into or out of plan mode. */
   setPermissionMode(sessionId: string, mode: Session['permissionMode']): void;
+  /** Tell the session a background shell Bash moved there has ended; the note joins its next step or wakes it when idle. */
+  shellEnded?(sessionId: string, text: string): void;
   /** Record an audit entry. */
   audit(sessionId: string, action: string, detail: string): void;
   /** Goals, preferences and day plans (assistant/service.ts), when the hub has them. */

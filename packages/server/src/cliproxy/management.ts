@@ -19,6 +19,13 @@
 
 export type ManagementApi = 'v8' | 'v0';
 
+/** Store IDs differ from the OAuth provider IDs returned by the plugins. */
+export const SUBSCRIPTION_PLUGINS: Record<string, { id: string; version: string; repository: string }> = {
+  copilot: { id: 'github-copilot', version: '0.1.1', repository: 'https://github.com/syepes/CLIProxyAPI-plugin-github-copilot' },
+  kiro4cpa: { id: 'kiro4cpa', version: '1.0.5', repository: 'https://github.com/AkkunYo/kiro4cpa-plugin' },
+};
+export const OFFICIAL_PLUGIN_SOURCE = 'https://raw.githubusercontent.com/router-for-me/CLIProxyAPI-Plugins-Store/main/registry.json';
+
 export class ManagementError extends Error {
   constructor(
     message: string,
@@ -179,6 +186,7 @@ export class Management {
   /** From the X-CPA-VERSION header of the last answer. */
   version?: string;
   private api?: ManagementApi;
+  private readonly installingPlugins = new Map<string, Promise<void>>();
 
   constructor(
     private readonly base: string,
@@ -191,7 +199,7 @@ export class Management {
     return this.api;
   }
 
-  private async call<T>(method: string, path: string, body?: unknown, query?: Record<string, string>): Promise<{ status: number; data: T }> {
+  private async call<T>(method: string, path: string, body?: unknown, query?: Record<string, string>, timeoutMs = this.timeoutMs): Promise<{ status: number; data: T }> {
     const url = new URL(this.base.replace(/\/+$/, '') + path);
     for (const [k, v] of Object.entries(query ?? {})) url.searchParams.set(k, v);
     let res: Response;
@@ -200,7 +208,7 @@ export class Management {
         method,
         headers: { authorization: `Bearer ${this.key}`, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) },
         body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: AbortSignal.timeout(timeoutMs),
         redirect: 'manual',
       });
     } catch (err) {
@@ -252,13 +260,23 @@ export class Management {
         : await this.call<Record<string, unknown>>('GET', `/v0/management/${V0_AUTH[provider] ?? provider}-auth-url`);
     if (r.status === 404 && (str(r.data.error) === 'provider_not_found' || api === 'v0')) throw new ManagementError(`This CLIProxyAPI cannot sign in to ${provider}. Update it to a newer version.`, 404);
     if (r.status !== 200) this.fail(r.status, r.data, 'start the sign-in');
-    const url = str(r.data.url);
+    let url = str(r.data.url);
     const state = str(r.data.state);
     if (!url || !state) throw new ManagementError('CLIProxyAPI started a sign-in but sent no address for it.', 502);
+    // kiro4cpa normally opens a local connect page requiring the management
+    // key. Start its Builder ID device flow on the server instead; never send
+    // that page, a loopback URL, or the management key to the browser.
+    if (provider === 'kiro4cpa' && url.startsWith('/v0/resource/plugins/kiro4cpa/connect#')) {
+      const device = await this.call<Record<string, unknown>>('POST', '/v0/management/plugins/kiro4cpa/login/device', { state, kind: 'builder' });
+      if (device.status !== 200) this.fail(device.status, device.data, 'start Kiro Builder ID sign-in');
+      url = str(device.data.verificationUri);
+      if (!url || !/^https:\/\//i.test(url)) throw new ManagementError('Kiro sent no valid device authorization address.', 502);
+      return { url, state, flow: 'device', userCode: str(device.data.userCode), expiresIn: typeof device.data.expiresIn === 'number' ? device.data.expiresIn : undefined };
+    }
     if (!/^https?:\/\//i.test(url)) throw new ManagementError('CLIProxyAPI sent a sign-in address that is not a web page.', 502);
-    const device = r.data.flow === 'device' || !!str(r.data.user_code);
+    const device = r.data.flow === 'device' || !!str(r.data.user_code) || provider === 'copilot' || provider === 'kiro4cpa';
     const expiresIn = typeof r.data.expires_in === 'number' ? r.data.expires_in : undefined;
-    return { url, state, flow: device ? 'device' : 'redirect', userCode: str(r.data.user_code), expiresIn };
+    return { url, state, flow: device ? 'device' : 'redirect', userCode: str(r.data.user_code) ?? (device ? new URL(url).searchParams.get('user_code') ?? undefined : undefined), expiresIn };
   }
 
   async status(state: string): Promise<AuthStatus> {
@@ -438,6 +456,52 @@ export class Management {
     if (r.status !== 200) this.fail(r.status, r.data, 'refresh the account');
   }
 
+  /** Install only a known subscription plugin, on a sign-in request (owner or member).
+   * Trust is the official store's claim plus the pinned version string: no
+   * artifact hash is checked, so the upstream plugin repository is trusted. */
+  ensureSubscriptionPlugin(provider: string): Promise<void> {
+    const id = Object.hasOwn(SUBSCRIPTION_PLUGINS, provider) ? SUBSCRIPTION_PLUGINS[provider].id : undefined;
+    if (!id) return Promise.reject(new ManagementError('That subscription has no supported store plugin.', 400));
+    const running = this.installingPlugins.get(id);
+    if (running) return running;
+    const run = this.installSubscriptionPlugin(provider, id).finally(() => this.installingPlugins.delete(id));
+    this.installingPlugins.set(id, run);
+    return run;
+  }
+
+  private async installSubscriptionPlugin(provider: string, id: string): Promise<void> {
+    const api = await this.detect();
+    const local = await this.call<{ plugins?: Array<Record<string, unknown>> }>('GET', `/${api}/management/plugins`);
+    if (local.status !== 200 || !Array.isArray(local.data.plugins)) throw new ManagementError('Cannot safely inspect existing CLIProxyAPI plugins; nothing was installed.', 409);
+    const existing = local.data.plugins.filter((p) => p.id === id || p.oauth_provider === provider);
+    // Keep deliberately installed providers, including another implementation.
+    // Never reinstall a disabled, incompatible or configured local plugin.
+    if (existing.some((p) => p.supports_oauth === true && p.effective_enabled === true && p.oauth_provider === provider)) return;
+    if (existing.length) throw new ManagementError(`The ${id} provider already has a plugin configured. Enable or repair it in CLIProxyAPI; Conclave will not overwrite it.`, 409);
+    const store = await this.call<{ sources?: Array<Record<string, unknown>>; plugins?: Array<Record<string, unknown>> }>('GET', '/v0/management/plugin-store', undefined, undefined, 120_000);
+    if (store.status !== 200) this.fail(store.status, store.data, 'inspect the plugin store');
+    const reviewed = SUBSCRIPTION_PLUGINS[provider];
+    const entries = store.data.plugins?.filter((p) => p.id === id);
+    if (!entries || entries.some((p) => p.installed === true || p.configured === true || p.registered === true))
+      throw new ManagementError(`The ${id} plugin is already installed or its local state is unknown. Conclave will not overwrite it.`, 409);
+    if (!store.data.sources?.some((s) => s.id === 'official' && s.url === OFFICIAL_PLUGIN_SOURCE)
+      || !entries.some((p) => p.source_id === 'official' && p.source_url === OFFICIAL_PLUGIN_SOURCE && p.repository === reviewed.repository))
+      throw new ManagementError(`The official store no longer identifies the reviewed ${id} repository. Nothing was installed.`, 409);
+    // 8.0.32 accepts the version in JSON and the source selector in the query.
+    const r = await this.call<Record<string, unknown>>('POST', `/v0/management/plugin-store/${id}/install`, { version: reviewed.version }, { source: 'official' }, 120_000);
+    if (r.status !== 200) this.fail(r.status, r.data, `install the ${id} plugin`);
+    if (r.data.id !== id || r.data.version !== reviewed.version || r.data.source_id !== 'official' || r.data.source_url !== OFFICIAL_PLUGIN_SOURCE)
+      throw new ManagementError(`CLIProxyAPI returned an unexpected plugin identity, version or source for ${id}. Sign-in was not started; inspect the installed plugin before retrying.`, 409);
+    if (r.data.restart_required === true) throw new ManagementError(`The ${id} plugin needs a CLIProxyAPI restart before sign-in.`, 409);
+    // Installation reloads config asynchronously. Do not start OAuth until
+    // the new provider is actually registered and effective.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      if ((await this.oauthPlugins()).some((p) => p.id === provider)) return;
+      await Bun.sleep(250);
+    }
+    throw new ManagementError(`The ${id} plugin was installed but did not become available. Check CLIProxyAPI's plugin compatibility and logs.`, 409);
+  }
+
   /** Sign-in providers that plugins add (supports_oauth). Empty when the list is not available. */
   async oauthPlugins(): Promise<Array<{ id: string; name: string }>> {
     const api = await this.detect().catch(() => undefined);
@@ -445,7 +509,7 @@ export class Management {
     const r = await this.call<{ plugins?: Array<Record<string, unknown>> }>('GET', `/${api}/management/plugins`).catch(() => undefined);
     if (!r || r.status !== 200) return [];
     return (r.data.plugins ?? [])
-      .filter((p) => p.supports_oauth === true && (p.effective_enabled === true || p.enabled === true) && str(p.oauth_provider))
+      .filter((p) => p.supports_oauth === true && (p.effective_enabled === true || (p.effective_enabled === undefined && p.enabled === true)) && str(p.oauth_provider))
       .map((p) => ({ id: str(p.oauth_provider)!.toLowerCase(), name: str((p.metadata as Record<string, unknown> | undefined)?.name) ?? str(p.oauth_provider)! }));
   }
 }
@@ -456,18 +520,23 @@ export class Management {
  * the prefix (8.0.32 keeps it in the auth file only), but once a plan has
  * one its list names every model twice: "claude-opus-5-5" and
  * "personal/claude-opus-5-5". Undefined prefix: the list has no prefixed id.
+ * While a renamed plan is listed under both names, `prefer` (the name the
+ * hub wrote or last saw) wins when listed; otherwise the most listed one.
  */
-export function splitPrefixed<T extends { id: string }>(models: T[]): { prefix?: string; models: T[] } {
+export function splitPrefixed<T extends { id: string }>(models: T[], prefer?: string): { prefix?: string; models: T[] } {
   const count = new Map<string, number>();
   for (const m of models) {
     const i = m.id.lastIndexOf('/');
     if (i > 0) count.set(m.id.slice(0, i), (count.get(m.id.slice(0, i)) ?? 0) + 1);
   }
-  const prefix = [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const prefix = prefer && count.has(prefer) ? prefer : [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
   const out: T[] = [];
   const seen = new Set<string>();
+  // another prefix on an id the list also has bare or under the prefix (the old short name, before CLIProxyAPI drops it) is the same model too
+  const bare = new Set(models.map((m) => m.id).filter((id) => !id.includes('/') || (prefix && id.startsWith(`${prefix}/`))).map((id) => id.slice(id.lastIndexOf('/') + 1)));
   for (const m of models) {
-    const id = prefix && m.id.startsWith(`${prefix}/`) ? m.id.slice(prefix.length + 1) : m.id;
+    const own = m.id.slice(m.id.lastIndexOf('/') + 1);
+    const id = (prefix && m.id.startsWith(`${prefix}/`)) || bare.has(own) ? own : m.id;
     if (seen.has(id)) continue;
     seen.add(id);
     out.push(id === m.id ? m : { ...m, id });

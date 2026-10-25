@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { pwa } from './build/pwa.ts';
 
@@ -8,7 +9,17 @@ const core = fileURLToPath(new URL('../core/src', import.meta.url));
 const src = fileURLToPath(new URL('./src', import.meta.url));
 const hub = process.env.CONCLAVE_HUB ?? 'http://127.0.0.1:7717';
 
+// the last release tag a build carries (cli/package.json stays 0.1.0 outside CI); '' without git or tags skips the iPhone app's version check
+const bundled = (() => {
+  try {
+    return execFileSync('git', ['describe', '--tags', '--abbrev=0'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim().replace(/^v/, '');
+  } catch {
+    return '';
+  }
+})();
+
 export default defineConfig({
+  define: { __BUNDLED_VERSION__: JSON.stringify(bundled) },
   plugins: [react(), tailwindcss(), pwa()],
   resolve: {
     alias: [

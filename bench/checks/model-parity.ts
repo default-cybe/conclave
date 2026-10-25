@@ -324,11 +324,12 @@ export const RUNS: Record<Case, (t: Target) => Promise<CaseResult>> = {
       { name: 'src/main.py', data: 'print("ZIP-PARITY")\n', method: 8 },
       { name: 'shot.png', data: PNG },
     ]);
-    const list = await prepareAttachments([{ mediaType: 'application/zip', data: Buffer.from(zip).toString('base64'), name: 'project.zip' }], {
+    const prepared = await prepareAttachments([{ mediaType: 'application/zip', data: Buffer.from(zip).toString('base64'), name: 'project.zip' }], {
       fileTools: () => false,
       save: async () => '',
       read: async () => new Uint8Array(),
     });
+    const list = prepared.attachments;
     const blocks: ContentBlock[] = (list ?? []).map((a) =>
       a.mediaType.startsWith('image/') ? { type: 'image', mediaType: a.mediaType, data: a.data! } : { type: 'document', mediaType: a.mediaType, data: a.data, title: a.name },
     );

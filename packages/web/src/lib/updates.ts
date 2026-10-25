@@ -23,6 +23,15 @@ export function showReload(loaded: string | undefined, now: string | undefined, 
 
 export const RELOAD_WORDS = 'Conclave was updated.';
 
+/** The iPhone app bundles its web code, so a hub update does not reach it: a different hub version asks to rebuild or reinstall. */
+export function bundleStale(native: boolean, bundled: string | undefined, hub: string | undefined, closedFor: string | undefined): boolean {
+  return native && versionChanged(bundled, hub) && closedFor !== hub;
+}
+
+export function bundleWords(bundled: string, hub: string): string {
+  return `This app has Conclave ${bundled}, the hub runs ${hub}. Rebuild or reinstall the app to match.`;
+}
+
 /** The update running now: started and not finished. */
 export function jobRunning(job: UpdateJobDto | undefined): boolean {
   return !!job && !['done', 'rolled-back', 'failed'].includes(job.phase);

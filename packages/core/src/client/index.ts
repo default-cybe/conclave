@@ -8,6 +8,7 @@
  */
 import type {
   ApprovalRequest,
+  AttachmentReceipt,
   ApprovalResponse,
   AuditEntry,
   ChatSettings,
@@ -322,6 +323,8 @@ export interface SwitchEstimate {
   suggestBrief: boolean;
   /** Prices are known: false for a harness, an agent, or a plan with no per-token price. */
   priced: boolean;
+  /** The task's effective fallback policy (its own, its ancestors' and the config's; session/limit-tree.ts). Missing when it has none. */
+  fallbackPolicy?: { providers?: string[]; paid?: boolean; costUsd?: number };
 }
 
 /** What "Try the next model" started: the model ref and its words ("Opus 5.5 (personal)"). */
@@ -363,6 +366,13 @@ export interface SendInput {
    * _ or -; the hub makes one when it is missing, malformed or taken.
    */
   pendingId?: string;
+  /**
+   * The sender chose to go on without a file the hub could not read (the 409
+   * named them): the message is sent, its receipt says omitted.
+   */
+  attachmentLoss?: 'drop';
+  /** Filled by the hub from prepareAttachments and carried to the runner; never set by a client. */
+  attachmentReceipts?: AttachmentReceipt[];
 }
 
 /** What a send did. queued: the session was busy and the message waits (session.queue lists it under pendingId). */

@@ -112,6 +112,8 @@ export interface Provider {
   embed?(texts: string[], model?: string): Promise<number[][]>;
   /** Optional: exact token count. */
   countTokens?(req: ChatRequest): Promise<number>;
+  /** Optional: whether this wire carries a model's PDFs (documentsForWire's pdf flag). Default true. */
+  readsPdf?(model: string): boolean;
 }
 
 export type ProviderErrorKind =
@@ -135,13 +137,13 @@ export class ProviderError extends Error {
   resetAt?: number;
   provider?: string;
   body?: string;
-  /** spend_cap: the provider's own spend limit (Anthropic enforced_spend_limit_reached). budget: the owner's budget in Conclave (or a member's monthly budget on the hub's key). access: a member may not use this provider. */
-  code?: 'spend_cap' | 'budget' | 'access';
+  /** spend_cap: the provider's own spend limit (Anthropic enforced_spend_limit_reached). budget: the owner's budget in Conclave (or a member's monthly budget on the hub's key). access: a member may not use this provider. fallback_policy: the task's fallback policy (session/limit-tree.ts) denied the call. */
+  code?: 'spend_cap' | 'budget' | 'access' | 'fallback_policy';
 
   constructor(
     kind: ProviderErrorKind,
     message: string,
-    extra: { status?: number; retryAfterMs?: number; resetAt?: number; provider?: string; body?: string; code?: 'spend_cap' | 'budget' | 'access' } = {},
+    extra: { status?: number; retryAfterMs?: number; resetAt?: number; provider?: string; body?: string; code?: 'spend_cap' | 'budget' | 'access' | 'fallback_policy' } = {},
   ) {
     super(message);
     this.name = 'ProviderError';

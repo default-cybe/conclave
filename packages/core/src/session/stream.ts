@@ -10,6 +10,7 @@ import { hiddenWords, isHiddenModel } from '../config/hidden';
 import { OWNER_ID, currentAccount, isMember } from '../people/context';
 import { AccessError } from '../people/access';
 import { catalogCost } from '../usage/value';
+import { checkFallback, recordAutoSwitch, reserveFallback } from './limit-tree';
 import { servedNotice, type CyberProgram } from '../providers/access-programs';
 import { splitAccount } from '../providers/split';
 import { vendorOfModel } from '../accounts/vendors';
@@ -91,6 +92,8 @@ export interface StreamTarget {
   purpose: string;
   /** Run on exactly this provider and account (a refusal fallback entry). */
   pin?: StreamPin;
+  /** A committed automatic selection; checked and recorded only immediately before the wire. */
+  autoSwitchFrom?: string;
 }
 
 /** Output tokens a call holds on a member's budget on top of its input while it runs: about one reply. */
@@ -185,6 +188,7 @@ async function streamCall(
     return p;
   };
   toPlanWire();
+  let switchFrom = target.autoSwitchFrom;
   /** The vendor of the account this attempt goes to: a prefixed id names its plan; otherwise the model's maker. */
   const signer = (): string | undefined => {
     const acct = resolved.provider === accounts?.gateway && splitAccount(resolved.model).account ? accounts.accountFor(resolved.provider, resolved.model) : undefined;
@@ -198,6 +202,14 @@ async function streamCall(
     // the gateway refused: its next ready plan in the order this call has not tried takes it, one by one, before any key
     const plan = toPlanWire();
     if (plan) {
+      // the task's fallback policy (ideas item 8): a destination it does not allow ends the failover, so the caller parks or errors instead
+      const dest = `${resolved.provider}/${resolved.model}`;
+      const check = checkFallback(engine, session, resolved, estimateInput(req), req.maxTokens);
+      if (!check.ok) {
+        log.info(`${from}/${base}: plan failover to ${dest} denied by policy: ${check.why}`);
+        return false;
+      }
+      switchFrom = `${from}/${base}`;
       fallbackNotice(engine, target.sessionId, plan.account, `${why} Using ${plan.label} for this call.`);
       log.info(`${from}/${base}: ${why} trying ${resolved.model}`);
       hold();
@@ -206,6 +218,14 @@ async function streamCall(
     const next = accounts?.fallbackFor(from, base, tried);
     const p = next ? registry.get(next) : undefined;
     if (!next || !p) return false;
+    // the task's fallback policy (ideas item 8): allowed destinations, paid rule, cost ceiling
+    const destination = registry.resolveAt(next, base);
+    const check = checkFallback(engine, session, destination, estimateInput(req), req.maxTokens);
+    if (!check.ok) {
+      log.info(`${from}/${base}: fallback to ${next} denied by policy: ${check.why}`);
+      return false;
+    }
+    switchFrom = `${from}/${base}`;
     // a member falls back only to a provider they may use, and pays as that one says
     if (member) {
       try {
@@ -222,7 +242,7 @@ async function streamCall(
       if (msg) engine.bus.emit({ type: 'message.updated', message: { ...msg, content: [] } });
     }
     log.info(`${from}/${resolved.model}: ${why} falling back to ${next}`);
-    resolved = registry.resolveAt(next, base);
+    resolved = destination;
     provider = p;
     hold();
     return true;
@@ -245,6 +265,17 @@ async function streamCall(
   }
 
   for (;;) {
+    const maxTokens = Math.min(req.maxTokens ?? 32_000, resolved.info.maxOutput);
+    if (!Number.isSafeInteger(maxTokens) || maxTokens <= 0) throw new ProviderError('bad_request', 'Output token limit must be a positive integer.');
+    const liveSession = target.sessionId ? engine.getSession(target.sessionId) : session;
+    const inputTokens = estimateInput(req);
+    const check = checkFallback(engine, liveSession, resolved, inputTokens, maxTokens);
+    if (switchFrom && !check.ok) throw new ProviderError('bad_request', check.why!, { code: 'fallback_policy' });
+    const settleBudget = reserveFallback(engine, liveSession, resolved, inputTokens, req.thinking ? resolved.info.maxOutput : maxTokens);
+    if (switchFrom) {
+      recordAutoSwitch(engine, target.sessionId, switchFrom, `${resolved.provider}/${resolved.model}`, { estimateUsd: check.estimateUsd, paid: check.paid, costUnknown: check.costUnknown });
+      switchFrom = undefined;
+    }
     const started = Date.now();
     // what this attempt got before it ended: the model began (its input is billed) and wrote this much
     let begun = false;
@@ -254,7 +285,7 @@ async function streamCall(
       // when each block began, so a thinking block can say how long it took ("Thought for 12s")
       const blockStart = new Map<number, number>();
       // the session id rides along, so a gateway with session affinity keeps this conversation on one account
-      for await (const ev of provider!.stream({ ...req, messages: dropForeignThinking(req.messages, signer()), model: resolved.model, maxTokens: req.maxTokens ?? Math.min(resolved.info.maxOutput, 32_000), session: req.session ?? target.sessionId })) {
+      for await (const ev of provider!.stream({ ...req, messages: dropForeignThinking(req.messages, signer()), model: resolved.model, maxTokens, session: req.session ?? target.sessionId })) {
         if (req.signal?.aborted) throw new ProviderError('aborted', 'aborted');
         begun = true;
         if (ev.type === 'text_delta' || ev.type === 'thinking_delta') written += ev.text.length;
@@ -289,6 +320,7 @@ async function streamCall(
       timeThinking(final.content, blockStart, started);
       const costUsd = engine.providers.costOf(resolved.info, final.usage);
       final.usage.costUsd = costUsd;
+      settleBudget?.(costUsd);
       const account = (target.pin?.provider === resolved.provider ? target.pin.account : undefined) ?? accounts?.accountFor(resolved.provider, resolved.model, target.sessionId);
       // a member's own plan bills nothing per token, as the hub's plans: its row shows what the call is worth at API prices
       const ownPlan = member && paidBy === 'own' && engine.access.ownPlan(accountId, resolved.provider, resolved.model);
@@ -323,6 +355,9 @@ async function streamCall(
       return final;
     } catch (err) {
       const e = err instanceof ProviderError ? err : new ProviderError('network', (err as Error)?.message ?? String(err));
+      // An errored attempt may have been billed even without a streamed event; retain its full bound.
+      // A limit or a refused sign in before any event is a rejection the provider does not bill.
+      settleBudget?.(!begun && (e.kind === 'rate_limit' || e.kind === 'quota' || e.kind === 'auth') ? 0 : undefined);
       // a member's call on the hub's key that ended mid-answer (Stop, a dropped connection) still cost the hub its
       // input and what was written: count an estimate, so Stop is no way around the budget (docs/design/ACCOUNTS.md 6)
       if (begun && member && paidBy === 'hub') {
@@ -455,10 +490,11 @@ export async function completeText(
   const prefs = isMember(accountId) ? engine.accountPrefs(accountId) : {};
   const small = prefs.smallModel ?? cfg.smallModel;
   const main = prefs.defaultModel ?? cfg.defaultModel;
-  let model = opts.model ?? small;
+  const requested = opts.model ?? small;
+  let model = requested;
   // fall back to the default model when the small model's provider has no key (for this account)
   if (!engine.isUsable(model, accountId)) model = engine.isUsable(main, accountId) ? main : engine.firstUsableModel(accountId) ?? model;
-  const run = (m: string) =>
+  const run = (m: string, autoSwitchFrom?: string) =>
     streamCompletion(
       engine,
       m,
@@ -469,18 +505,18 @@ export async function completeText(
         ...(opts.stopSequences?.length ? { stopSequences: opts.stopSequences } : {}),
         signal: opts.signal,
       },
-      { purpose: opts.purpose ?? 'chore', sessionId: opts.sessionId, accountId },
+      { purpose: opts.purpose ?? 'chore', sessionId: opts.sessionId, accountId, autoSwitchFrom },
     );
   let res;
   try {
-    res = await run(model);
+    res = await run(model, model !== requested ? requested : undefined);
   } catch (err) {
     // a chore at a usage limit runs once more on the next model a limit falls back to (session/limits.ts)
     if (!(err instanceof ProviderError) || (err.kind !== 'rate_limit' && err.kind !== 'quota')) throw err;
     const next = (await import('./limits')).limitFallback(engine, accountId, model);
     if (!next) throw err;
     log.info(`chore on ${model} hit its limit; retrying on ${next}`);
-    res = await run(next);
+    res = await run(next, model);
   }
   return res.content
     .filter((b) => b.type === 'text')

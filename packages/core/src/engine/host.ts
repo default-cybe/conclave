@@ -12,6 +12,7 @@ import type { ToolHost } from '../tools/types';
 import type { Engine } from './engine';
 import type { SessionRunner } from '../session/runner';
 import { completeText } from '../session/stream';
+import { reminder } from '../session/transcript';
 import { assistantFor } from '../assistant/registry';
 import { workflowsOf } from '../workflows/attached';
 import { mapsOf } from '../maps/registry';
@@ -46,6 +47,12 @@ export class EngineToolHost implements ToolHost {
 
   async runSubagent(opts: Parameters<ToolHost['runSubagent']>[0]) {
     return this.engine.runSubagent(opts);
+  }
+
+  /** Task's preflight (engine/tool-check.ts): the agent's tool lists as this session's account sees it. */
+  subagentTools(agent: string) {
+    const def = this.engine.agentNamed(agent, this.session.cwd, this.engine.accountOf(this.session));
+    return def ? { name: def.name, tools: def.tools, disallowedTools: def.disallowedTools } : undefined;
   }
 
   askUser(sessionId: string, questions: QuestionRequest['questions'], signal?: AbortSignal) {
@@ -127,6 +134,12 @@ export class EngineToolHost implements ToolHost {
 
   setPermissionMode(sessionId: string, mode: Session['permissionMode']) {
     this.engine.setPermissionMode(sessionId, mode);
+  }
+
+  shellEnded(sessionId: string, text: string) {
+    if (sessionId !== this.runner.id) return;
+    // a finished subagent child must not start an orphan turn nobody reads (subagent.ts does the same)
+    this.runner.deliver({ block: reminder(text), wake: !this.session.meta?.subagent });
   }
 
   audit(sessionId: string, action: string, detail: string) {

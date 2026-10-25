@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { BashTool } from '../../src/tools/bash';
+import { BashTool, isBlockingWait } from '../../src/tools/bash';
 import { BashOutputTool } from '../../src/tools/bash-output';
 import { KillShellTool } from '../../src/tools/kill-shell';
 import { shellRegistry } from '../../src/tools/shells';
@@ -75,6 +75,65 @@ describe('Bash', () => {
     const out = await BashTool.run({ command: 'if then fi (' }, makeCtx({ cwd: dir }));
     expect(out.isError).toBe(true);
     expect(text(out).toLowerCase()).toContain('syntax');
+  });
+
+  test('a command that only waits goes to the background', async () => {
+    for (const c of ['gh run watch 123', 'gh run watch 1 --exit-status', 'gh pr checks 5 --watch', 'watch -n5 ls', 'sleep 120', 'sleep 2m', ' sleep 1m 30s\n']) {
+      expect(isBlockingWait(c)).toBe(true);
+    }
+    for (const c of [
+      'sleep 5',
+      'sleep 30',
+      'gh pr checks 5',
+      'echo watch me',
+      'ls | grep sleep',
+      'rg -n while src; rg -n sleep src',
+      'until curl -sf localhost:3000; do sleep 1; done && bun run e2e',
+      'while true; do sleep 5; done',
+      'git commit -m "$(cat <<\'EOF\'\nfix race\nwatch the cwd\nEOF\n)"',
+      'echo "sleep 60" >> notes.txt',
+      'gh run watch 1 --exit-status && gh pr merge 5',
+      'cd sub && sleep 120',
+      'sleep 120; true',
+    ]) {
+      expect(isBlockingWait(c)).toBe(false);
+    }
+  });
+
+  test('a moved wait tells the session when it ends, and keeps its timeout', async () => {
+    const ended: string[] = [];
+    const host = fakeHost({ shellEnded: (_id, t) => void ended.push(t) });
+    const ctx = makeCtx({ cwd: dir, host, sessionId: 'sess_wait' });
+    const out = await BashTool.run({ command: 'sleep 31', timeout: 1000 }, ctx);
+    expect(out.meta?.background).toBe(true);
+    expect(text(out)).toContain('moved to the background');
+    expect(ended).toHaveLength(0);
+    for (let i = 0; i < 50 && !ended.length; i++) await Bun.sleep(100);
+    expect(ended).toHaveLength(1);
+    expect(ended[0]).toContain(`${out.meta?.shellId}) ended`);
+    expect(shellRegistry.get('sess_wait', String(out.meta?.shellId))?.running).toBe(false);
+  });
+
+  test('a wait in a subagent or headless run stays in the foreground', async () => {
+    const sub = await BashTool.run({ command: 'sleep 31', timeout: 1000 }, makeCtx({ cwd: dir, depth: 1 }));
+    expect(sub.meta?.background).toBeFalsy();
+    expect(text(sub)).toContain('timed out');
+    for (const tags of [['workflow'], ['cli-run'], ['routine']]) {
+      const ctx = makeCtx({ cwd: dir });
+      ctx.session = { ...ctx.session, tags };
+      const out = await BashTool.run({ command: 'sleep 31', timeout: 1000 }, ctx);
+      expect(out.meta?.background).toBeFalsy();
+      expect(text(out)).toContain('timed out');
+    }
+  });
+
+  test('a killed moved wait stays quiet', async () => {
+    const ended: string[] = [];
+    const ctx = makeCtx({ cwd: dir, host: fakeHost({ shellEnded: (_id, t) => void ended.push(t) }), sessionId: 'sess_wait2' });
+    const out = await BashTool.run({ command: 'sleep 31' }, ctx);
+    await shellRegistry.kill('sess_wait2', String(out.meta?.shellId));
+    await Bun.sleep(50);
+    expect(ended).toHaveLength(0);
   });
 
   test('background shell with BashOutput and KillShell', async () => {

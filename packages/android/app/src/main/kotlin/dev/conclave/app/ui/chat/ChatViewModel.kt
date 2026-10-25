@@ -54,6 +54,11 @@ class ChatViewModel(hub: HubRepository, val sessionId: String) : HubViewModel(hu
     private val _session = MutableStateFlow(hub.sessions.value.firstOrNull { it.id == sessionId })
     val session: StateFlow<Session?> = _session
 
+    companion object {
+        /** The hub's 409 when a send would lose a file it could not read. */
+        const val ATTACHMENT_LOST = "Attachment not included: "
+    }
+
     val loading = MutableStateFlow(true)
     val error = MutableStateFlow<String?>(null)
 
@@ -61,6 +66,9 @@ class ChatViewModel(hub: HubRepository, val sessionId: String) : HubViewModel(hu
     val draft = MutableStateFlow("")
     val attachments = MutableStateFlow<List<Attachment>>(emptyList())
     val sending = MutableStateFlow(false)
+
+    /** A file the hub could not read: its words, while the owner chooses to send without it. */
+    val lossAsk = MutableStateFlow<String?>(null)
 
     val items: StateFlow<List<ChatItem>> = transcript
         .map { ChatItems.build(it.messages) }
@@ -170,11 +178,40 @@ class ChatViewModel(hub: HubRepository, val sessionId: String) : HubViewModel(hu
                 draft.value = ""
                 attachments.value = emptyList()
             } catch (e: Exception) {
+                val msg = errorText(e)
+                // the hub will not drop a file on its own: the choice is the owner's
+                if (msg.startsWith(ATTACHMENT_LOST)) lossAsk.value = msg.removePrefix(ATTACHMENT_LOST)
+                else say(msg)
+            } finally {
+                sending.value = false
+            }
+        }
+    }
+
+    /** The owner chose to send the message without the file the hub could not read. */
+    fun sendWithoutLost() {
+        val text = draft.value.trim()
+        val files = attachments.value
+        lossAsk.value = null
+        if (text.isEmpty() && files.isEmpty()) return
+        sending.value = true
+        viewModelScope.launch {
+            try {
+                hub.api {
+                    it.send(sessionId, SendInput(text = text, attachments = files.ifEmpty { null }, attachmentLoss = "drop"))
+                }
+                draft.value = ""
+                attachments.value = emptyList()
+            } catch (e: Exception) {
                 say(errorText(e))
             } finally {
                 sending.value = false
             }
         }
+    }
+
+    fun dismissLossAsk() {
+        lossAsk.value = null
     }
 
     private fun sendQueued(text: String, files: List<Attachment>) {

@@ -75,6 +75,8 @@ self.addEventListener('push', (event) => {
     self.registration.showNotification(notice.title || 'Conclave', {
       body: notice.body || '',
       tag: notice.tag || notice.approvalId || notice.id || undefined,
+      // a job's notice replaces the last one in place; renotify so the update still alerts
+      renotify: String(notice.tag || '').startsWith('thread-'),
       icon: '/icons/icon-192.png',
       badge: '/icons/badge-96.png',
       data: notice,

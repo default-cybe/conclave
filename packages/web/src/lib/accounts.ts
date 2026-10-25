@@ -191,24 +191,25 @@ export function shortNameSuggestions(accounts: AccountDto[]): Map<string, string
   return suggestPrefixes(plans, takenPrefixes(accounts));
 }
 
-/** Models two or more signed in plans list (Opus on Claude and Antigravity), account prefix and effort or thinking variant dropped (Antigravity's claude-opus-5-5-high), that have no order of their own yet: what "Per model" offers. */
+/** Every model a plan lists, a subscription or one paid with a key (the Z.ai Coding Plan), once (Opus on Claude and Antigravity), account prefix and effort or thinking variant dropped (Antigravity's claude-opus-5-5-high), that the hub can file under a vendor and that has no order of its own yet: what "Per model" offers. A plain key's models follow the registry (core providersFor), so they are left out. */
 export function sharedModels(status: Pick<AccountsStatus, 'accounts' | 'routes'>): Array<{ id: string; name: string }> {
   const taken = new Set(status.routes.filter((r) => r.match).map((r) => r.match!.toLowerCase()));
-  const seen = new Map<string, { id: string; name: string; plans: Set<string> }>();
+  const seen = new Map<string, { id: string; name: string }>();
   for (const a of status.accounts) {
-    if (a.kind !== 'subscription') continue;
+    if (a.kind !== 'subscription' && !a.subscription) continue;
     for (const m of a.models) {
+      // setAccountOrder rejects a model the hub cannot place ("Unknown model")
+      if (!m.vendor) continue;
       const own = m.id.slice(m.id.lastIndexOf('/') + 1);
       const id = variantBase(own);
       // a variant's name says its level ("Claude Opus 5.5 (High)"); the model's own entry names it when a plan lists it
       const name = id === own ? m.name || id : (m.name || id).replace(/\s*\([^)]*\)$/, '');
-      const e = seen.get(id.toLowerCase()) ?? { id, name, plans: new Set<string>() };
+      const e = seen.get(id.toLowerCase()) ?? { id, name };
       if (id === own && m.name) e.name = m.name;
-      e.plans.add(a.id);
       seen.set(id.toLowerCase(), e);
     }
   }
-  return [...seen.entries()].filter(([k, e]) => e.plans.size > 1 && !taken.has(k)).map(([, e]) => ({ id: e.id, name: e.name })).sort((x, y) => x.name.localeCompare(y.name));
+  return [...seen.entries()].filter(([k]) => !taken.has(k)).map(([, e]) => e).sort((x, y) => x.name.localeCompare(y.name));
 }
 
 /** Vendors with two or more signed in plans that have no short name: CLIProxyAPI picks among them. */

@@ -717,7 +717,7 @@ export class WorkflowService {
       this.engine.addMessage(row.sessionId, { role: 'assistant', kind: 'notice', content: [{ type: 'text', text: `Workflow ${words}: ${row.name}` }], meta: { level: row.status === 'done' ? 'info' : 'warning', kind: 'agent-result', agentResult: result } });
     }
     const level = row.status === 'done' ? 'success' : row.status === 'stopped' ? 'info' : 'warning';
-    this.engine.notifyEvent(row.status === 'done' ? 'sessionDone' : 'errors', { title: `Workflow ${row.name}`, body: `${row.status === 'done' ? 'Finished' : row.status === 'budget' ? 'Stopped at its budget' : row.status === 'stopped' ? 'Stopped' : 'Failed'}: ${oneLine(row.error ?? (typeof row.result === 'string' ? row.result : ''), 120)}`, level, sessionId: row.sessionId, link: `/workflows/runs/${row.id}` });
+    this.engine.notifyEvent(row.status === 'done' ? 'sessionDone' : 'errors', { title: `Workflow ${row.name}`, body: `${row.status === 'done' ? 'Finished' : row.status === 'budget' ? 'Stopped at its budget' : row.status === 'stopped' ? 'Stopped' : 'Failed'}: ${oneLine(row.error ?? (typeof row.result === 'string' ? row.result : ''), 120)}`, level, sessionId: row.sessionId, link: `/workflows/runs/${row.id}`, thread: this.engine.askOrigin(row.sessionId).rootSessionId });
   }
 
   /** The account of a run: its host session's (a run always has one). */
