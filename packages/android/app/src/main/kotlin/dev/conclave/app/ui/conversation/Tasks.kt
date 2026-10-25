@@ -13,11 +13,23 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.AccountTree
+import androidx.compose.material.icons.outlined.BugReport
+import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.Computer
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material.icons.outlined.Science
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.SmartToy
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -41,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
@@ -66,6 +79,9 @@ import dev.conclave.client.logic.RunReducer
 import dev.conclave.client.logic.RunningTask
 import dev.conclave.client.logic.StateTone
 import dev.conclave.client.logic.SubagentNow
+import dev.conclave.client.logic.TaskGlyph
+import dev.conclave.client.logic.TaskKind
+import dev.conclave.client.logic.TaskKinds
 import dev.conclave.client.logic.Tasks
 import dev.conclave.client.logic.Transcript
 import dev.conclave.client.logic.TranscriptReducer
@@ -273,6 +289,7 @@ fun WorkflowRow(use: ToolUseBlock, result: ToolResultBlock?, callLive: Boolean, 
                 val state = WorkflowWords.rowWords(name, run, callLive, failedToStart).removePrefix("Workflow $name")
                 withStyle(SpanStyle(color = toneColor(tone))) { append(state) }
             },
+            glyph = TaskGlyph.FLOW,
             time = time,
             live = live,
             label = "Open the workflow",
@@ -370,6 +387,7 @@ fun SubagentRow(use: ToolUseBlock, result: ToolResultBlock?, callLive: Boolean, 
                     withStyle(SpanStyle(color = c.fault)) { append(", failed") }
                 }
             },
+            glyph = TaskKinds.glyph(if (handedTo != null) TaskKind.DELEGATE else TaskKind.SUBAGENT, agent),
             time = time,
             live = running,
             label = "Open the subagent",
@@ -383,18 +401,34 @@ fun SubagentRow(use: ToolUseBlock, result: ToolResultBlock?, callLive: Boolean, 
     }
 }
 
-/** A task row: the words, its time at the right (signal while it runs), a chevron. */
+/**
+ * The icon a task row leads with, by its glyph (TaskKinds.glyph): one place,
+ * so a later motion pack can swap the icons.
+ */
+fun taskIcon(glyph: TaskGlyph): ImageVector = when (glyph) {
+    TaskGlyph.FLOW -> Icons.Outlined.AccountTree
+    TaskGlyph.DEVICE -> Icons.Outlined.Computer
+    TaskGlyph.SEARCH -> Icons.Outlined.Search
+    TaskGlyph.BUILD -> Icons.Outlined.Build
+    TaskGlyph.TEST -> Icons.Outlined.Science
+    TaskGlyph.REVIEW -> Icons.Outlined.Visibility
+    TaskGlyph.DEBUG -> Icons.Outlined.BugReport
+    TaskGlyph.RESEARCH -> Icons.Outlined.Public
+    TaskGlyph.DESIGN -> Icons.Outlined.Palette
+    TaskGlyph.VERIFY -> Icons.Outlined.Shield
+    TaskGlyph.BOT -> Icons.Outlined.SmartToy
+}
+
+/** A task row: its kind's icon (signal while it runs), the words, its time at the right, a chevron. */
 @Composable
-private fun TaskRowHead(text: androidx.compose.ui.text.AnnotatedString, time: String?, live: Boolean, label: String, onClick: () -> Unit) {
+private fun TaskRowHead(text: androidx.compose.ui.text.AnnotatedString, glyph: TaskGlyph, time: String?, live: Boolean, label: String, onClick: () -> Unit) {
     val c = Conclave.colors
     Row(
         Modifier.fillMaxWidth().heightIn(min = 40.dp).clip(RoundedCornerShape(5.dp)).clickable(onClickLabel = label, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (live) {
-            Knot(KnotState.TOOL, size = 12.dp, still = true)
-            Spacer(Modifier.width(8.dp))
-        }
+        Icon(taskIcon(glyph), contentDescription = null, modifier = Modifier.size(16.dp), tint = if (live) c.signal else c.fg3)
+        Spacer(Modifier.width(8.dp))
         Text(text, style = ConclaveType.body.copy(fontSize = 14.sp), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         if (time != null) {
             Spacer(Modifier.width(8.dp))
@@ -640,12 +674,17 @@ fun RunningTasksLine(tasks: List<RunningTask>, work: SessionWork, results: Map<S
         CompositionLocalProvider(LocalSessionWork provides work) {
             DetailSheet(onDismiss = { open = false }) {
                 Text(Tasks.pill(tasks.size).replaceFirstChar { it.uppercaseChar() }, style = ConclaveType.title, color = c.fg)
-                tasks.forEachIndexed { i, t ->
-                    if (i > 0) HorizontalDivider(thickness = 1.dp, color = c.rule)
-                    androidx.compose.runtime.key(t.key) {
-                        when (t) {
-                            is RunningTask.Flow -> FlowItem(t, results[t.use?.id], onLeave = { open = false })
-                            is RunningTask.Agent -> AgentItem(t, results[t.use.id], work.progress[t.use.id], onLeave = { open = false })
+                // by kind, workflows first; a heading per kind when there are several
+                val groups = TaskKinds.grouped(tasks)
+                groups.forEach { (kind, items) ->
+                    if (groups.size > 1) Text(kind.group, style = ConclaveType.meta.copy(fontWeight = FontWeight.Medium), color = c.fg3, modifier = Modifier.padding(top = 4.dp))
+                    items.forEachIndexed { i, t ->
+                        if (i > 0) HorizontalDivider(thickness = 1.dp, color = c.rule)
+                        androidx.compose.runtime.key(t.key) {
+                            when (t) {
+                                is RunningTask.Flow -> FlowItem(t, results[t.use?.id], onLeave = { open = false })
+                                is RunningTask.Agent -> AgentItem(t, results[t.use.id], work.progress[t.use.id], onLeave = { open = false })
+                            }
                         }
                     }
                 }
@@ -659,13 +698,16 @@ fun RunningTasksLine(tasks: List<RunningTask>, work: SessionWork, results: Map<S
 private fun FlowItem(t: RunningTask.Flow, result: ToolResultBlock?, onLeave: () -> Unit) {
     var open by rememberSaveable(t.key) { mutableStateOf(false) }
     val name = t.use?.let { WorkflowWords.workflowName(it.input) } ?: t.run.name.ifBlank { "workflow" }
+    val clock by rememberNow(1_000)
+    // a workflow's agents each pick their own model: no model word
+    val time = Format.durationShort(clock - (t.run.startedAt ?: t.run.createdAt))
     if (open) {
-        ItemHead("Workflow $name", null, open = true) { open = false }
+        ItemHead(TaskKind.WORKFLOW, TaskGlyph.FLOW, name, null, null, time, open = true) { open = false }
         WorkflowDetail(name, t.run, result, callLive = true, onLeave = onLeave)
         return
     }
     val where = listOfNotNull(WorkflowWords.phaseLine(t.run), WorkflowWords.agentsRunning(t.run)).joinToString(". ")
-    ItemHead("Workflow $name", where, open = false) { open = true }
+    ItemHead(TaskKind.WORKFLOW, TaskGlyph.FLOW, name, where, null, time, open = false) { open = true }
 }
 
 /** A running subagent in the sheet: what it was asked, its agent and what it is doing now; a tap shows the rest. */
@@ -675,26 +717,56 @@ private fun AgentItem(t: RunningTask.Agent, result: ToolResultBlock?, progress: 
     val now = rememberSubagentNow(t.child, on = true, progress = progress)
     val agent = Tasks.agentOf(t.use, result, t.child)
     val handedTo = Tasks.handedTo(t.use, result, t.child)
+    val kind = TaskKinds.kind(t)
+    val glyph = TaskKinds.glyph(kind, agent)
+    val model = Tasks.model(t.use, t.child)
+    val clock by rememberNow(1_000)
+    val time = t.child?.createdAt?.takeIf { it > 0 }?.let { Format.durationShort(clock - it) }
+    // "explore: Find the auth code", a delegated job "Code on MadX Arch: Find names"
+    val who = handedTo ?: agent
     if (open) {
-        ItemHead(handedTo ?: if (agent != null) "Subagent $agent" else "Subagent", null, open = true) { open = false }
+        ItemHead(kind, glyph, who ?: Tasks.description(t.use), null, model, time, open = true) { open = false }
         SubagentDetail(t.use, result, t.child, running = true, now = now, onLeave = onLeave)
         return
     }
-    val head = Tasks.subagentRow(t.use, agent, null, handedTo)
-    ItemHead(head, now?.text ?: "Starting", open = false, warn = now?.waiting == true) { open = true }
+    val head = (who?.let { "$it: " } ?: "") + Tasks.description(t.use)
+    ItemHead(kind, glyph, head, now?.text ?: "Starting", model, time, open = false, warn = now?.waiting == true) { open = true }
 }
 
-/** An item's first lines and its chevron; a tap opens or closes it. */
+/**
+ * An item's first lines: its kind's icon, "Workflow · deep-research" (or
+ * "Subagent · explore: Find the auth code"), what it does now, then its model
+ * and time at the right and its chevron; a tap opens or closes it.
+ */
 @Composable
-private fun ItemHead(title: String, detail: String?, open: Boolean, warn: Boolean = false, onClick: () -> Unit) {
+private fun ItemHead(kind: TaskKind, glyph: TaskGlyph, title: String, detail: String?, model: String?, time: String?, open: Boolean, warn: Boolean = false, onClick: () -> Unit) {
     val c = Conclave.colors
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(5.dp)).clickable(onClick = onClick).padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(taskIcon(glyph), contentDescription = null, modifier = Modifier.size(18.dp), tint = c.fg3)
+        Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, style = ConclaveType.rowTitle, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                buildAnnotatedString {
+                    withStyle(SpanStyle(color = c.fg2)) { append(kind.label) }
+                    withStyle(SpanStyle(color = c.fg4)) { append(" · ") }
+                    append(title)
+                },
+                style = ConclaveType.rowTitle,
+                color = c.fg,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             if (detail != null) Text(detail, style = ConclaveType.meta, color = if (warn) c.warn else c.fg3, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        if (model != null || time != null) {
+            Spacer(Modifier.width(8.dp))
+            Column(horizontalAlignment = Alignment.End) {
+                if (time != null) Text(time, style = ConclaveType.metaNum, color = c.signal, maxLines = 1)
+                if (model != null) Text(model, style = ConclaveType.meta, color = c.fg3, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 96.dp))
+            }
         }
         Spacer(Modifier.width(8.dp))
         Icon(
