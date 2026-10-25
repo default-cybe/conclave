@@ -65,11 +65,31 @@ export function annotateWindow(w: LimitWindow, extra: { source?: LimitWindow['so
 
 /** Whether a window limits calls to this model. Without a model, only windows for every model do. */
 export function windowApplies(w: LimitWindow, model?: string): boolean {
-  if (w.kind === 'extra') return false;
+  if (w.kind === 'extra' || creditPool(w)) return false;
   const scope = windowScope(w.name);
   if (!scope) return true;
   if (!MODEL_SCOPES.includes(scope)) return false;
   return !!model && model.toLowerCase().includes(scope);
+}
+
+/** Paid extra credits ("fable credits": a limit and what remains, no window kind): spent credits never block, the plan's windows do. */
+export function creditPool(w: LimitWindow): boolean {
+  return !w.kind && w.limit !== undefined && /credits/i.test(w.name);
+}
+
+/**
+ * Families whose own weekly window replaces the general one for their models
+ * ("7d fable" at 0% while "7d" is full: Fable still answers). Opus and Sonnet
+ * windows cap on top of the general one, so they are not here.
+ * shortcut: Fable only, from the owner's plan; add a family when its plan shows the same split.
+ */
+const OWN_WEEKLY = ['fable'];
+
+/** The windows that limit this model: a family's own weekly window stands in for the general weekly one (OWN_WEEKLY). */
+export function governing(windows: LimitWindow[], model?: string): LimitWindow[] {
+  const applies = windows.filter((w) => windowApplies(w, model));
+  const own = applies.some((w) => w.kind === 'weekly' && OWN_WEEKLY.includes(windowScope(w.name) ?? ''));
+  return own ? applies.filter((w) => !(w.kind === 'weekly' && !windowScope(w.name))) : applies;
 }
 
 /** Full now: at 100% with a reset still ahead. A full window whose reset passed is unknown again. */

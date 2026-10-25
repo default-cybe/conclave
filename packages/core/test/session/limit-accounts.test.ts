@@ -13,7 +13,7 @@ import { createEngine } from '../../src/engine';
 import type { Engine } from '../../src/engine/engine';
 import { accountsOf } from '../../src/accounts/attached';
 import type { CliproxyCredentialFacts } from '../../src/accounts/service';
-import { handleLimit, resumeAfterReset } from '../../src/session/limits';
+import { handleLimit, resumeAfterReset, switchBack } from '../../src/session/limits';
 import { completeText } from '../../src/session/stream';
 import { runSubagent } from '../../src/engine/subagent';
 import { ProviderError } from '../../src/providers/types';
@@ -182,6 +182,81 @@ describe('a pinned plan at its limit moves to the next plan, same model', () => 
     } finally {
       engine.config.update({ limits: { fallbacks: {} } } as never);
     }
+  });
+});
+
+describe('back on the first plan once its limit resets', () => {
+  const coolPersonal = () => feed({ personal: { cooldowns: [{ reason: 'quota', until: Date.now() + 3_600_000 }] } });
+  /** As if the failover was 16 minutes ago and its reset unknown. */
+  const settle = (id: string) => {
+    const ls = engine.getSession(id)!.meta?.limitSwitch as Record<string, unknown>;
+    engine.patchMeta(id, { limitSwitch: { from: ls.from, to: ls.to, at: Date.now() - 16 * 60_000 } });
+  };
+
+  test('the failover is recorded; while personal-gpt is limited nothing moves; after its reset the next turn goes back, with one notice', async () => {
+    const s = await engine.createSession({ cwd, title: 'back', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
+    coolPersonal();
+    expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/backup-gpt/gpt-6-sol' });
+    expect(engine.getSession(s.id)!.meta?.limitSwitch).toMatchObject({ from: 'cliproxy/personal-gpt/gpt-6-sol', to: 'cliproxy/backup-gpt/gpt-6-sol' });
+    settle(s.id);
+    expect(switchBack(engine, s.id)).toBeUndefined();
+    expect(engine.getSession(s.id)!.model).toBe('cliproxy/backup-gpt/gpt-6-sol');
+    // the window reset: the next turn starts on personal-gpt again (the fake still refuses it, so it fails over once more)
+    feed();
+    calls.length = 0;
+    const runner = engine.runnerFor(s.id);
+    await runner.enqueue({ text: 'next' });
+    await Promise.race([runner.waitIdle(), Bun.sleep(15_000)]);
+    expect(calls[0]).toBe('personal-gpt/gpt-6-sol');
+    expect(notices(engine.getMessages(s.id)).filter((n) => n.startsWith('Back on'))).toEqual(['Back on personal-gpt, its limit reset.']);
+  }, 30_000);
+
+  test('a chain of failovers keeps the first ref; a higher plan that has room comes back before the first', async () => {
+    const s = await engine.createSession({ cwd, title: 'chain-back', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
+    feed({ personal: { cooldowns: [{ reason: 'quota', until: Date.now() + 3_600_000 }] }, backup: { disabled: true } });
+    expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/spare-gpt/gpt-6-sol' });
+    // backup-gpt is on again, personal-gpt still limited: up one plan, the original stays recorded
+    coolPersonal();
+    settle(s.id);
+    expect(switchBack(engine, s.id)).toBe('cliproxy/backup-gpt/gpt-6-sol');
+    expect(engine.getSession(s.id)!.meta?.limitSwitch).toMatchObject({ from: 'cliproxy/personal-gpt/gpt-6-sol', to: 'cliproxy/backup-gpt/gpt-6-sol' });
+    feed();
+    expect(switchBack(engine, s.id)).toBe('cliproxy/personal-gpt/gpt-6-sol');
+    expect(engine.getSession(s.id)!.meta?.limitSwitch).toBeUndefined();
+  });
+
+  test('a block that lifts within minutes does not bounce the session back: the reset must pass, or 15 minutes', async () => {
+    const s = await engine.createSession({ cwd, title: 'bounce', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
+    coolPersonal();
+    expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/backup-gpt/gpt-6-sol' });
+    // the hub's blind block cleared and CLIProxyAPI reports no cooldown: personal-gpt looks ready at once
+    feed();
+    expect(switchBack(engine, s.id)).toBeUndefined();
+    expect(engine.getSession(s.id)!.model).toBe('cliproxy/backup-gpt/gpt-6-sol');
+    // its reset time passed: back
+    const ls = engine.getSession(s.id)!.meta?.limitSwitch as Record<string, unknown>;
+    expect(ls.until).toBeGreaterThan(Date.now());
+    engine.patchMeta(s.id, { limitSwitch: { ...ls, until: Date.now() - 1 } });
+    expect(switchBack(engine, s.id)).toBe('cliproxy/personal-gpt/gpt-6-sol');
+  });
+
+  test("a member's session never goes back to, or onto, the owner's plans", async () => {
+    const s = await engine.createSession({ cwd, title: 'member-back', model: 'cliproxy/backup-gpt/gpt-6-sol' } as never, 'acc_alice');
+    engine.patchMeta(s.id, { limitSwitch: { from: 'cliproxy/personal-gpt/gpt-6-sol', to: 'cliproxy/backup-gpt/gpt-6-sol' } });
+    expect(switchBack(engine, s.id)).toBeUndefined();
+    expect(engine.repos.sessions.get(s.id)!.model).toBe('cliproxy/backup-gpt/gpt-6-sol');
+    expect(notices(engine.getMessages(s.id)).some((n) => n.startsWith('Back on'))).toBe(false);
+  });
+
+  test('a model the owner picked by hand after the failover stays', async () => {
+    const s = await engine.createSession({ cwd, title: 'hand', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
+    coolPersonal();
+    expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/backup-gpt/gpt-6-sol' });
+    engine.updateSession(s.id, { model: 'cliproxy/spare-gpt/gpt-6-sol' });
+    feed();
+    expect(switchBack(engine, s.id)).toBeUndefined();
+    expect(engine.getSession(s.id)!.model).toBe('cliproxy/spare-gpt/gpt-6-sol');
+    expect(engine.getSession(s.id)!.meta?.limitSwitch).toBeUndefined();
   });
 });
 

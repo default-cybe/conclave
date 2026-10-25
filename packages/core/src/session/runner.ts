@@ -31,7 +31,7 @@ import { checkPermission, dangerousCommand } from './permissions';
 import { ReadTool } from '../tools/read';
 import { maybeCompact, estimateRequestTokens, meteredTokens, partHash, type TokenMeter } from './compaction';
 import { applyClearing } from './context-edit';
-import { afterWokenTurn, handleLimit, nextAccount } from './limits';
+import { afterWokenTurn, handleLimit, nextAccount, switchBack } from './limits';
 import { OWNER_ID, isMember, runAs } from '../people/context';
 import { runHarnessTurn } from './harness';
 import { LoopGuard, type Verdict } from './loop-guard';
@@ -660,6 +660,9 @@ export class SessionRunner {
     // a fork of a friend's share: its first turn runs guarded, and the owner's own message after it lifts the guard
     const guarded = friendGuardTurn(engine, session, !q.auto && !q.forNotes && !q.resume && !!q.input.text.trim());
     if (guarded) session = guarded;
+    // a usage-limit failover moved the session off a plan: back to the owner's first ready plan, between turns only
+    const back = !q.input.model && !q.refusal ? switchBack(engine, this.id) : undefined;
+    if (back) session = { ...session, model: back };
     const mode = q.input.mode ?? session.mode;
     const modelRef = q.input.model ?? session.model;
     this.turnStartedAt = Date.now();
@@ -1155,6 +1158,8 @@ export class SessionRunner {
         stopReason: result.stopReason,
         // which provider, model and account refused, and at which step of a walk: "Try the next model" starts after it
         ...(declined && (result.served || walk?.current) ? { meta: { ...assistant.meta, ...(result.served ? { served: result.served } : {}), ...(walk?.current ? { refusalStep: stepOfTarget(walk.current) } : {}) } } : {}),
+        // whose account signed its thinking: a later call on another vendor's account drops it (session/transcript.ts)
+        ...(!declined && result.served?.vendor && result.content.some((b) => b.type === 'thinking' || b.type === 'redacted_thinking') ? { meta: { ...assistant.meta, signedBy: result.served.vendor } } : {}),
       });
       engine.addStats(this.id, result.usage);
       const u = result.usage;

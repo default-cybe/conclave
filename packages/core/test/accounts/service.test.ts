@@ -67,6 +67,10 @@ describe('the accounts service', () => {
     expect(repos.usage.limits()[0]).toMatchObject({ label: 'Claude Max 20x · a@example.test', blocked: false, windows: [{ name: '5h', usedPercent: 30, kind: 'session' }] });
     expect(events.some((e) => e.type === 'accounts.updated')).toBe(true);
     expect(events.some((e) => e.type === 'limit.updated' && e.limit.account === 'claude-a')).toBe(true);
+    // a signed in plan whose vendor reports no usage (Antigravity) still gets a state, saying so
+    svc.setCliproxy({ provider: 'cliproxy', management: true, credentials: [cred('antigravity-g.json', { provider: 'antigravity', email: 'g@example.test', models: [{ id: 'gemini-3-flash' }] })] });
+    svc.publish();
+    expect(repos.usage.limits()).toMatchObject([{ provider: 'cliproxy', account: 'antigravity-g', windows: [], note: 'Usage not reported by Google', blocked: false }]);
     // the account signs out: its state goes too
     svc.setCliproxy({ provider: 'cliproxy', management: true, credentials: [] });
     svc.publish();
