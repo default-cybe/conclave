@@ -7,6 +7,8 @@
 import { useEffect, useState } from 'react';
 import type { AccountDto, AccountNowDto, AccountState, AccountsStatus, StarterDto } from '@conclave/core/client';
 import type { LimitWindow } from '@conclave/core/types';
+import type { LimitFallbackConfig, RefusalFallbackConfig } from '@conclave/core/config/schema';
+import { parseRefusalEntries } from '@conclave/core/session/refusal-entries';
 import { suggestPrefixes } from '@conclave/core/accounts/prefix';
 import { variantBase } from '@conclave/core/providers/model-id';
 import type { LogoId } from '@/components/logo';
@@ -136,6 +138,19 @@ export function nowLine(n: AccountNowDto, accounts: AccountDto[], now = Date.now
   const used = w ? usedOf(w) : undefined;
   const parts = [w?.resetsAt && `resets ${resetWords(w.resetsAt, now)}`, used !== undefined && `${Math.max(0, 100 - used)}% left`].filter(Boolean);
   return { lead: `Now using ${name(n.account)}${parts.length ? ` (${parts.join(', ')})` : ''}.`, why, tone: n.skipped.length ? 'warn' : 'ok' };
+}
+
+/**
+ * Where a model at its limit on every account goes, as core limitFallback
+ * picks it for the owner: the usage fallback list when it is on and has
+ * models, else the refusal fallback entries (on or off, the list is used),
+ * else none. Owner only: a member never gets the owner's lists.
+ */
+export function limitFallbackRoute(models: { limitFallback?: LimitFallbackConfig; refusalFallback?: RefusalFallbackConfig } | undefined): { kind: 'usage'; models: string[] } | { kind: 'refusal' } | { kind: 'none' } {
+  const chain = models?.limitFallback;
+  const list = chain?.enabled === true && Array.isArray(chain.models) ? chain.models.filter((r): r is string => typeof r === 'string' && r.includes('/')) : [];
+  if (list.length) return { kind: 'usage', models: list };
+  return parseRefusalEntries(models?.refusalFallback?.entries).length ? { kind: 'refusal' } : { kind: 'none' };
 }
 
 // ---------------------------------------------------------------------------
