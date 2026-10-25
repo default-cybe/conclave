@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Imported Claude Code chats keep the model they ran on (`meta.import.model`), and chats imported earlier get it on their next sync. With the Claude Code engine off, the chat goes on with that model when its provider is set up and still serves it, else the default model, both at import and on the first turn of a chat still on Claude Code. Chats an earlier import already put on the default model stay on it.
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed
