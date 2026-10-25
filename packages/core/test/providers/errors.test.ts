@@ -175,6 +175,9 @@ describe('classifyHttpError', () => {
   test('overloaded, server, auth', () => {
     expect(classifyHttpError('a', 529, {}, body({ error: { type: 'overloaded_error', message: 'Overloaded' } })).kind).toBe('overloaded');
     expect(classifyHttpError('a', 503, {}, 'Service Unavailable').kind).toBe('overloaded');
+    // a 529 that says come back in 12 hours is a usage limit with its reset
+    const long = classifyHttpError('a', 529, { 'retry-after': '43199' }, body({ error: { type: 'overloaded_error', message: 'Overloaded' } }), NOW);
+    expect([long.kind, long.resetAt]).toEqual(['rate_limit', NOW + 43_199_000]);
     expect(classifyHttpError('a', 500, {}, 'boom').kind).toBe('server');
     expect(classifyHttpError('a', 502, {}, '<html>bad gateway</html>').kind).toBe('server');
     expect(classifyHttpError('a', 401, {}, body({ error: { type: 'authentication_error', message: 'invalid x-api-key' } })).kind).toBe('auth');

@@ -9,6 +9,11 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Fixed
+
+- A model call no longer sleeps on a long retry-after. A 529 or 503 that says come back in hours (CLIProxyAPI with a plan's credits spent) counts as a usage limit with its reset, and the retry loop waits at most 60 seconds; a longer wait fails over to the next account or model, or parks the session until the reset, and a subagent reports to its parent instead of hanging in running.
+- A subagent or workflow agent that makes no progress past the stuck threshold no longer waits on an Inbox answer nobody gives. Its call is cut and it runs once on its fallback model (the parent's, else the hub default); if that is quiet too, or there is none, it stops and its parent gets an error result. A stall inside a tool with no time limit of its own (an MCP tool) skips the failover, so the tool does not run twice, and the error names the tool. If a cut does not end the loop, the next check raises the usual Inbox item. A foreground Task whose child failed now returns that error instead of a bare "(the subagent produced no final answer)".
+
 ### Changed
 
 - Android: a shared PNG, JPEG, WebP or GIF file shows in the chat above its card, like the web. Animated GIF and WebP play on Android 9 and later and show their first frame below. Tap the image to open it. SVG never renders, and files over 20 MB stay a card only.
