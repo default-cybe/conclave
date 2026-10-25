@@ -86,8 +86,8 @@ export interface AccountDto {
   until?: number;
   /** 5h, 7d, 7d opus, 7d sonnet, 7d fable, budget and rate windows. A window not listed is unknown, not zero. */
   windows: LimitWindow[];
-  /** Models this account reaches. */
-  models: Array<{ id: string; name: string }>;
+  /** Models this account reaches, each with the vendor a per model order files it under (none for an id the hub cannot place). */
+  models: Array<{ id: string; name: string; vendor?: string }>;
   /** The plan's short name: CLIProxyAPI's prefix for its model ids (neu/claude-opus-5-5). Set with PUT /api/accounts/:id/prefix. */
   prefix?: string;
   /** "Use when a model refuses": a refused reply is tried again on this plan or key first, same model (session/refusal-fallback.ts). */

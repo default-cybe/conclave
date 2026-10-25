@@ -784,7 +784,7 @@
 }
 
 /* ------------------------------------------------------------------------ */
-/* Transcript pieces (MessageList)                                           */
+/* Transcript pieces (MessageList) and conversation rows (ChatMessages)       */
 /* ------------------------------------------------------------------------ */
 
 /* A long session has hundreds of turns. Once the transcript has laid out,

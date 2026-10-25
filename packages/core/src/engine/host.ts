@@ -12,6 +12,7 @@ import type { ToolHost } from '../tools/types';
 import type { Engine } from './engine';
 import type { SessionRunner } from '../session/runner';
 import { completeText } from '../session/stream';
+import { reminder } from '../session/transcript';
 import { assistantFor } from '../assistant/registry';
 import { workflowsOf } from '../workflows/attached';
 import { mapsOf } from '../maps/registry';
@@ -133,6 +134,12 @@ export class EngineToolHost implements ToolHost {
 
   setPermissionMode(sessionId: string, mode: Session['permissionMode']) {
     this.engine.setPermissionMode(sessionId, mode);
+  }
+
+  shellEnded(sessionId: string, text: string) {
+    if (sessionId !== this.runner.id) return;
+    // a finished subagent child must not start an orphan turn nobody reads (subagent.ts does the same)
+    this.runner.deliver({ block: reminder(text), wake: !this.session.meta?.subagent });
   }
 
   audit(sessionId: string, action: string, detail: string) {

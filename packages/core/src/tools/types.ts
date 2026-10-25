@@ -65,6 +65,8 @@ export interface ToolHost {
   createRoutine(input: { name: string; schedule: string; prompt: string; agent?: string; cwd?: string; device?: string }): Promise<{ id: string; nextRunAt?: number }>;
   /** Switch session into or out of plan mode. */
   setPermissionMode(sessionId: string, mode: Session['permissionMode']): void;
+  /** Tell the session a background shell Bash moved there has ended; the note joins its next step or wakes it when idle. */
+  shellEnded?(sessionId: string, text: string): void;
   /** Record an audit entry. */
   audit(sessionId: string, action: string, detail: string): void;
   /** Goals, preferences and day plans (assistant/service.ts), when the hub has them. */

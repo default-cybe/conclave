@@ -163,6 +163,19 @@ describe('model tiers resolve per session', () => {
     expect(agentModelRef(small, 'fast', 's/m')).toEqual({ model: 's/m', tier: 'fast' });
   });
 
+  test('deep without a tier keeps a deep session model, else a deep defaultModel, before the catalog pick', () => {
+    const proxy = { cliproxy: { type: 'anthropic', apiKey: 'k', models: ['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5'] } } as never;
+    const h = host({ providers: proxy, defaultModel: 'cliproxy/claude-opus-5-5', smallModel: 'cliproxy/claude-sonnet-5-5' });
+    expect(subagentModel(h, undefined, 'deep', 'cliproxy/claude-opus-5-5')).toBe('cliproxy/claude-opus-5-5');
+    // account prefix and effort suffix still count as deep
+    expect(agentModelRef(h, 'deep', 'cliproxy/neu-claude/claude-opus-5-5-high').model).toBe('cliproxy/neu-claude/claude-opus-5-5-high');
+    // a non-deep session model: the deep defaultModel
+    expect(agentModelRef(h, 'deep', 'cliproxy/claude-sonnet-5-5')).toEqual({ model: 'cliproxy/claude-opus-5-5', tier: 'deep' });
+    // models.tiers.deep wins over both
+    const pinned = host({ providers: proxy, defaultModel: 'cliproxy/claude-opus-5-5', models: { tiers: { deep: 'cliproxy/claude-fable-5-1' } } });
+    expect(agentModelRef(pinned, 'deep', 'cliproxy/claude-opus-5-5').model).toBe('cliproxy/claude-fable-5-1');
+  });
+
   test('a subagent: a usable override wins, else the profile tier, else the parent', () => {
     const h = host({ providers: anthropic }, (ref) => ref.startsWith('anthropic/'));
     expect(subagentModel(h, 'anthropic/claude-opus-5', 'fast', 'anthropic/claude-sonnet-5-5')).toBe('anthropic/claude-opus-5');
