@@ -1,5 +1,5 @@
 import type { ProviderMessage, SystemBlock, ToolSpec } from '../providers/types';
-import type { Message, TextBlock, ToolResultBlock } from '../types';
+import type { Message, Session, TextBlock, ToolResultBlock } from '../types';
 import type { Engine } from '../engine/engine';
 import { activeMessages, isReminder, lastAssistantText } from './transcript';
 import { COMPACT_PROMPT, COMPACT_UPDATE_RULES, SUMMARY_HEADINGS } from './prompt';
@@ -370,8 +370,9 @@ function isLatched(meta: Record<string, unknown> | undefined, now: number, model
   return !c.model || c.model === modelRef;
 }
 
-function summaryCandidates(engine: Engine, modelRef: string, accountId?: string): string[] {
+async function summaryCandidates(engine: Engine, modelRef: string, session: Session): Promise<string[]> {
   const cfg = engine.config.get();
+  const accountId = session.accountId;
   const out: string[] = [];
   const add = (m?: string) => {
     if (!m || out.includes(m) || !engine.isUsable(m, accountId)) return;
@@ -384,11 +385,16 @@ function summaryCandidates(engine: Engine, modelRef: string, accountId?: string)
   };
   add(cfg.smallModel);
   add(modelRef);
-  const usageFb = (cfg.limits as { usageFallback?: unknown }).usageFallback;
-  if (Array.isArray(usageFb)) for (const m of usageFb) if (typeof m === 'string') add(m);
-  if (Array.isArray(cfg.models?.limitFallback?.models)) for (const m of cfg.models.limitFallback.models) add(m);
-  for (const m of cfg.limits.fallbacks?.[modelRef] ?? []) add(m);
-  if (!out.length) out.push(engine.isUsable(cfg.smallModel, accountId) ? cfg.smallModel : modelRef);
+  // limits imports regionTokens from this module; load its policy after module initialization.
+  const { limitFallback } = await import('./limits');
+  const tried = [...out];
+  const agent = engine.agentFor(session);
+  for (;;) {
+    const next = limitFallback(engine, accountId, modelRef, tried, agent);
+    if (!next || tried.includes(next)) break;
+    tried.push(next);
+    add(next);
+  }
   return out;
 }
 
@@ -478,11 +484,11 @@ async function compact(engine: Engine, sessionId: string, modelRef: string, sign
   const files = filesTouched(region, Array.isArray(prevMeta?.files) ? prevMeta.files : [], roots);
   const sections = [deterministicSections(quoted, omitted, files, roots[0]), anchorSection(anchorIndex(region))].filter(Boolean).join('\n\n');
 
-  const candidates = summaryCandidates(engine, modelRef, session.accountId);
-  let usedModel = candidates[0];
+  const candidates = await summaryCandidates(engine, modelRef, session);
+  let usedModel: string | undefined;
   const now = Date.now();
   const latched = trigger === 'auto' && isLatched(session.meta, now, modelRef);
-  engine.audit(sessionId, 'compaction:start', `${trigger} seq ${firstSeq}..${coversThroughSeq}, ${toSummarize.length} messages, ~${beforeTokens} tokens${latched ? ', latched (no model)' : `, model ${usedModel}`}`);
+  engine.audit(sessionId, 'compaction:start', `${trigger} seq ${firstSeq}..${coversThroughSeq}, ${toSummarize.length} messages, ~${beforeTokens} tokens${latched ? ', latched (no model)' : `, model ${candidates[0] ?? 'none'}`}`);
 
   let summary: string | undefined;
   let failure: string | undefined;
@@ -501,9 +507,9 @@ async function compact(engine: Engine, sessionId: string, modelRef: string, sign
       anchor ? `<recent-state-anchor>\n${truncateMiddle(anchor, 4_000, 'omitted').text}\n</recent-state-anchor>\nThis is the latest state of the work; it stays in context after the summary. Make the Next step agree with it.` : '',
     ].filter(Boolean).join('\n\n');
     let candidateIdx = 0;
-    const ask = async (problems?: string[]): Promise<string> => {
+    const ask = async (problems?: string[]): Promise<{ text: string; model: string }> => {
       const retry = problems?.length ? `\n\nYour last summary missed: ${problems.join('; ')}. Write the whole summary again with every heading and these identifiers.` : '';
-      let lastErr: unknown;
+      let lastErr: unknown = new Error('no usable summary model');
       for (let i = candidateIdx; i < candidates.length; i++) {
         const candidate = candidates[i];
         try {
@@ -519,28 +525,31 @@ async function compact(engine: Engine, sessionId: string, modelRef: string, sign
             { sessionId, purpose: 'compaction' },
           );
           candidateIdx = i;
-          usedModel = candidate;
-          return res.content.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('').trim();
+          return { text: res.content.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('').trim(), model: candidate };
         } catch (err) {
           if (signal.aborted) throw err;
           lastErr = err;
+          log.warn(`compaction summary model ${candidate} failed in ${sessionId}: ${(err as Error)?.message ?? String(err)}`);
         }
       }
       throw lastErr;
     };
     const tooBig = (text: string) => estimateTokens(text) >= beforeTokens;
     try {
-      summary = await ask();
+      const first = await ask();
+      summary = first.text;
+      usedModel = first.model;
       if (!summary) failure = 'the summary model returned nothing';
       else if (tooBig(summary)) failure = `the summary (~${estimateTokens(summary)} tokens) was not smaller than what it replaces (~${beforeTokens} tokens)`;
       else {
         // the audit: one retry that lists what is missing, then the better of the two is kept
         audited = auditSummary(summary, region);
         if (audited.length) {
-          const again = await ask(audited).catch(() => '');
-          const problems = again && !tooBig(again) ? auditSummary(again, region) : undefined;
-          if (problems && problems.length < audited.length) {
-            summary = again;
+          const again = await ask(audited).catch(() => undefined);
+          const problems = again?.text && !tooBig(again.text) ? auditSummary(again.text, region) : undefined;
+          if (again && problems && problems.length < audited.length) {
+            summary = again.text;
+            usedModel = again.model;
             audited = problems;
           }
         }

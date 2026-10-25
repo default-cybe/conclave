@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Compaction no longer gives up on the summary ("Compacted N messages without a summary") when the small model fails or is rate limited: it tries the session's model next, then the limit fallback chain, logging each model that fails. A failed-summary latch only skips the model for the session model it was set under.
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed

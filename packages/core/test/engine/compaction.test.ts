@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { FALLBACK_NOTE } from '../../src/session/compaction';
+import { FALLBACK_NOTE, maybeCompact } from '../../src/session/compaction';
 import { SUMMARY_HEADINGS } from '../../src/session/prompt';
 import type { Engine } from '../../src/engine/engine';
 import type { Message, TextBlock } from '../../src/types';
@@ -28,6 +28,121 @@ function seed(engine: Engine, id: string, texts: Array<[role: 'user' | 'assistan
 
 const summaries = (engine: Engine, id: string) => engine.getMessages(id).filter((m) => m.kind === 'summary');
 const textOf = (m: Message) => (m.content[0] as TextBlock).text;
+
+describe('compaction fallback regressions', () => {
+  for (const policy of ['disabled', 'ordered', 'ordered-all-fail', 'agent-off'] as const) {
+    test(`summary fallback respects ${policy} policy`, async () => {
+      const called: unknown[] = [];
+      const t = await startTestEngine({
+        models: ['claude-sonnet-5-5', 'session-model', 'earlier-model', 'later-model'],
+        modelOverrides: small,
+        script: [[{ text: 'done' }]],
+        overrides: {
+          limits: { maxRetries: 0 },
+          models: { limitFallback: { enabled: policy !== 'disabled', models: ['mock/earlier-model', 'mock/session-model', 'mock/later-model', 'mock/later-model'] } },
+        } as never,
+        chore: (body, text) => {
+          if (!text.includes(SUMMARIZE)) return undefined;
+          called.push(body.model);
+          return policy === 'ordered-all-fail' || body.model === 'claude-sonnet-5-5' || body.model === 'session-model' ? 500 : [{ text: shaped('policy summary') }];
+        },
+      });
+      try {
+        const s = await t.engine.createSession({ title: 't', cwd: t.cwd, model: 'mock/session-model' });
+        if (policy === 'agent-off') {
+          const agent = t.engine.agentFor(s);
+          t.engine.agentFor = () => ({ ...agent, refusalFallback: false });
+        }
+        seed(t.engine, s.id, [['user', 'first ask'], ['assistant', filler('a')], ['user', 'second ask'], ['assistant', filler('b')]]);
+        await maybeCompact(t.engine, s.id, s.model, AbortSignal.timeout(3_000), 'manual');
+        expect(called).toEqual(policy.startsWith('ordered') ? ['claude-sonnet-5-5', 'session-model', 'later-model'] : ['claude-sonnet-5-5', 'session-model']);
+        const [sum] = summaries(t.engine, s.id);
+        expect(sum.meta?.fallback).toBe(policy === 'ordered' ? undefined : 'no_llm');
+        if (policy === 'ordered') expect(sum.model).toBe('mock/later-model');
+      } finally {
+        await t.close();
+      }
+    }, 10_000);
+  }
+
+  test('a member without shared keys never calls owner summary or fallback models', async () => {
+    const called: unknown[] = [];
+    const t = await startTestEngine({
+      models: ['claude-sonnet-5-5', 'owner-fallback'], modelOverrides: small,
+      script: [[{ text: 'done' }]],
+      overrides: {
+        limits: { maxRetries: 0, fallbacks: { 'mock/claude-sonnet-5-5': ['mock/owner-fallback'] } },
+        models: { limitFallback: { enabled: true, models: ['mock/owner-fallback'] } },
+      } as never,
+      chore: (body, text) => {
+        if (!text.includes(SUMMARIZE)) return undefined;
+        called.push(body.model);
+        return [{ text: shaped('owner-only summary') }];
+      },
+    });
+    try {
+      const s = await t.engine.createSession({ title: 'member', cwd: t.cwd }, 'acc_alice');
+      seed(t.engine, s.id, [['user', 'first ask'], ['assistant', filler('a')], ['user', 'second ask'], ['assistant', filler('b')]]);
+      expect(await maybeCompact(t.engine, s.id, s.model, AbortSignal.timeout(3_000), 'manual')).toBe(true);
+      expect(called).toEqual([]);
+      expect(summaries(t.engine, s.id)[0].meta?.fallback).toBe('no_llm');
+    } finally {
+      await t.close();
+    }
+  }, 10_000);
+
+  test('cancellation stops fallback without writing a summary or latch', async () => {
+    const abort = new AbortController();
+    const called: unknown[] = [];
+    const t = await startTestEngine({
+      models: ['claude-sonnet-5-5', 'session-model'], modelOverrides: small,
+      script: [[{ text: 'done' }]], overrides: { limits: { maxRetries: 0 } } as never,
+      chore: (body, text) => {
+        if (!text.includes(SUMMARIZE)) return undefined;
+        called.push(body.model);
+        abort.abort();
+        return 500;
+      },
+    });
+    try {
+      const s = await t.engine.createSession({ title: 't', cwd: t.cwd, model: 'mock/session-model' });
+      seed(t.engine, s.id, [['user', 'first ask'], ['assistant', filler('a')], ['user', 'second ask'], ['assistant', filler('b')]]);
+      expect(await maybeCompact(t.engine, s.id, s.model, AbortSignal.any([abort.signal, AbortSignal.timeout(3_000)]), 'auto')).toBe(false);
+      expect(called).toEqual(['claude-sonnet-5-5']);
+      expect(summaries(t.engine, s.id)).toEqual([]);
+      expect(t.engine.getSession(s.id)!.meta?.compaction).toBeUndefined();
+      expect(t.engine.compacting.has(s.id)).toBe(false);
+    } finally {
+      await t.close();
+    }
+  }, 10_000);
+
+  test('retained initial summary keeps its model when audit fallback is equally weak', async () => {
+    let calls = 0;
+    const t = await startTestEngine({
+      models: ['claude-sonnet-5-5', 'session-model'], modelOverrides: small,
+      script: [[{ text: 'done' }]], overrides: { limits: { maxRetries: 0 } } as never,
+      chore: (body, text) => {
+        if (!text.includes(SUMMARIZE)) return undefined;
+        calls++;
+        if (calls === 1) return [{ text: 'INITIAL summary' }];
+        return body.model === 'claude-sonnet-5-5' ? 500 : [{ text: 'EQUALLY WEAK retry' }];
+      },
+    });
+    try {
+      const s = await t.engine.createSession({ title: 't', cwd: t.cwd, model: 'mock/session-model' });
+      seed(t.engine, s.id, [['user', 'first ask'], ['assistant', filler('a')], ['user', 'second ask'], ['assistant', filler('b')]]);
+      await maybeCompact(t.engine, s.id, s.model, AbortSignal.timeout(3_000), 'manual');
+      const [sum] = summaries(t.engine, s.id);
+      expect(calls).toBe(3);
+      expect(textOf(sum).startsWith('INITIAL summary')).toBe(true);
+      expect(textOf(sum)).not.toContain('EQUALLY WEAK retry');
+      expect(sum.model).toBe('mock/claude-sonnet-5-5');
+    } finally {
+      await t.close();
+    }
+  }, 10_000);
+});
 
 describe('compaction that cannot fail the turn', () => {
   test('a failing summary model gives a fallback summary with the verbatim section, and the turn finishes', async () => {
