@@ -6,7 +6,7 @@
  * here ever carries the token.
  */
 import type { Context, Hono } from 'hono';
-import type { OpenPrInput, PushInput, RepoSessionInput } from '@conclave/core/client/github.ts';
+import type { OpenPrInput, PushInput, RepoSessionInput, WorktreeSessionInput } from '@conclave/core/client/github.ts';
 import type { PermissionMode } from '@conclave/core/types.ts';
 import { githubOf } from '@conclave/core/github/attached.ts';
 import type { GithubService } from '@conclave/core/github/service.ts';
@@ -24,13 +24,23 @@ export function repoSessionInput(body: Record<string, unknown>): RepoSessionInpu
   if (repo.length > 200 || !/^[\w.-]+\/[\w.-]+$/.test(repo)) throw badRequest('repo must be owner/name');
   const base = optString(body.base, 'base', 200);
   if (base && /[\s\u0000~^:?*[\\]/.test(base)) throw badRequest('base is not a branch name');
+  return { repo, ...(base ? { base } : {}), ...sessionOptions(body) };
+}
+
+/** Validate a POST /api/worktrees/sessions body. */
+export function worktreeSessionInput(body: Record<string, unknown>): WorktreeSessionInput {
+  const folder = requireString(body.folder, 'folder').trim();
+  if (folder.length > 4096 || folder.includes('\u0000')) throw badRequest('folder is not a path');
+  return { folder, ...sessionOptions(body) };
+}
+
+/** The session options both kinds of worktree session take. */
+function sessionOptions(body: Record<string, unknown>): Omit<WorktreeSessionInput, 'folder'> {
   const mode = optString(body.permissionMode, 'permissionMode');
   if (mode && !MODES.includes(mode as PermissionMode)) throw badRequest(`permissionMode must be one of ${MODES.join(', ')}`);
   if (body.chat !== undefined && (typeof body.chat !== 'object' || body.chat === null || Array.isArray(body.chat))) throw badRequest('chat must be an object');
   const str = (k: string, max: number) => optString(body[k], k, max);
   return {
-    repo,
-    ...(base ? { base } : {}),
     ...(str('device', 200) ? { device: str('device', 200) } : {}),
     ...(str('agent', 200) ? { agent: str('agent', 200) } : {}),
     ...(str('model', 300) ? { model: str('model', 300) } : {}),
@@ -88,6 +98,30 @@ export function registerGithubRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
     return c.json(await svc().startSession(input));
   });
 
+  // ----- "Run in a worktree" on any git folder of a device ---------------------
+
+  app.get('/api/worktrees/folder', async (c) => {
+    const device = optString(c.req.query('device'), 'device', 200) || 'local';
+    const path = requireString(c.req.query('path'), 'path');
+    if (path.length > 4096) throw badRequest('path is too long');
+    ownDevice(engine, c, device);
+    return c.json(await svc().folderGit(device, path));
+  });
+
+  app.post('/api/worktrees/sessions', async (c) => {
+    const input = worktreeSessionInput(await readJson<Record<string, unknown>>(c));
+    const device = input.device || 'local';
+    if (isMember(accountOf(c)) && device === 'local') throw badRequest(CODE_NEEDS_DEVICE);
+    ownDevice(engine, c, device);
+    return c.json(await svc().startFolderSession(input));
+  });
+
+  app.post('/api/sessions/:id/repo/merge', async (c) => {
+    const id = sid(c);
+    const body = await readJson<Record<string, unknown>>(c);
+    return c.json(await svc().merge(id, { ...(optBool(body.squash, 'squash') ? { squash: true } : {}) }));
+  });
+
   app.get('/api/sessions/:id/repo', async (c) => c.json(await svc().dto(sid(c), { refresh: !!qBool(c.req.query('refresh')) })));
 
   app.post('/api/sessions/:id/repo/push', async (c) => {
@@ -112,6 +146,6 @@ export function registerGithubRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
   app.post('/api/sessions/:id/repo/cleanup', async (c) => {
     const id = sid(c);
     const body = await readJson<Record<string, unknown>>(c);
-    return c.json(await svc().cleanup(id, { ...(optBool(body.force, 'force') ? { force: true } : {}) }));
+    return c.json(await svc().cleanup(id, { ...(optBool(body.force, 'force') ? { force: true } : {}), ...(optBool(body.discard, 'discard') ? { discard: true } : {}) }));
   });
 }

@@ -52,8 +52,10 @@ export interface RepoActions {
  * GitHub does not have; Open pull request once there are commits and no pull
  * request is open or merged; Clean up after a merge or close.
  */
-export function repoActions(r: Pick<RepoSessionDto, 'cleaned' | 'online' | 'commits' | 'pushed' | 'pr' | 'canCleanUp' | 'dirty'>): RepoActions {
+export function repoActions(r: Pick<RepoSessionDto, 'cleaned' | 'online' | 'commits' | 'pushed' | 'pr' | 'canCleanUp' | 'dirty' | 'pullRequests'>): RepoActions {
   if (r.cleaned) return { push: false, openPr: false, viewPr: !!r.pr, cleanUp: false };
+  // a folder worktree with no GitHub origin, or GitHub not connected: nothing to push to
+  if (r.pullRequests === false) return { push: false, openPr: false, viewPr: !!r.pr, cleanUp: r.canCleanUp };
   const commits = r.commits ?? 0;
   const live = r.pr && r.pr.state === 'open';
   const done = r.pr && r.pr.state !== 'open';
@@ -63,4 +65,10 @@ export function repoActions(r: Pick<RepoSessionDto, 'cleaned' | 'online' | 'comm
     viewPr: !!r.pr,
     cleanUp: r.canCleanUp,
   };
+}
+
+/** A folder worktree ("Run in a worktree"): Merge into its base while there are commits, Discard until it is cleaned up. */
+export function worktreeActions(r: Pick<RepoSessionDto, 'folder' | 'cleaned' | 'online' | 'canMerge' | 'merged'>): { merge: boolean; discard: boolean } {
+  const live = !!r.folder && !r.cleaned && r.online;
+  return { merge: live && !!r.canMerge, discard: live && !r.merged };
 }

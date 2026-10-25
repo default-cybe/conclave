@@ -43,11 +43,17 @@ CREATE TABLE IF NOT EXISTS repo_sessions (
 CREATE INDEX IF NOT EXISTS repo_sessions_open ON repo_sessions(pr_state, cleaned_at);
 `;
 
+/** Columns added after the first release: source (folder for "Run in a worktree"; null is GitHub) and merged_at. */
+const ADDED: Array<[string, string]> = [
+  ['source', 'TEXT'],
+  ['merged_at', 'INTEGER'],
+];
+
 type Row = Record<string, any>;
 
 export interface RepoSessionRow {
   sessionId: string;
-  /** owner/name as GitHub spells it. */
+  /** owner/name as GitHub spells it; a folder whose remote is not on GitHub has its folder name. */
   repo: string;
   device: string;
   clonePath: string;
@@ -56,8 +62,12 @@ export interface RepoSessionRow {
   base: string;
   baseSha: string;
   defaultBranch: string;
-  /** The repository's page. */
+  /** The repository's page; empty for a folder whose remote is not on GitHub. */
   url: string;
+  /** folder: a worktree of a git folder on the device ("Run in a worktree"); clonePath is that folder. Unset: a GitHub repo session. */
+  source?: 'folder';
+  /** When Merge brought the branch into base in clonePath. */
+  mergedAt?: number;
   pushedSha?: string;
   pushedAt?: number;
   prNumber?: number;
@@ -85,6 +95,8 @@ function toRow(r: Row): RepoSessionRow {
     baseSha: r.base_sha,
     defaultBranch: r.default_branch,
     url: r.url,
+    ...(r.source === 'folder' ? { source: 'folder' as const } : {}),
+    ...(r.merged_at ? { mergedAt: r.merged_at } : {}),
     ...(r.pushed_sha ? { pushedSha: r.pushed_sha } : {}),
     ...(r.pushed_at ? { pushedAt: r.pushed_at } : {}),
     ...(r.pr_number ? { prNumber: r.pr_number } : {}),
@@ -104,6 +116,8 @@ function toRow(r: Row): RepoSessionRow {
 export class RepoStore {
   constructor(readonly db: Db) {
     db.exec(SCHEMA);
+    const have = new Set((db.query('PRAGMA table_info(repo_sessions)').all() as Row[]).map((c) => c.name as string));
+    for (const [col, type] of ADDED) if (!have.has(col)) db.exec(`ALTER TABLE repo_sessions ADD COLUMN ${col} ${type}`);
   }
 
   // ----- clones ---------------------------------------------------------------
@@ -140,19 +154,19 @@ export class RepoStore {
     return (this.db.query("SELECT * FROM repo_sessions WHERE pr_state = 'open' AND cleaned_at IS NULL ORDER BY checked_at ASC").all() as Row[]).map(toRow);
   }
 
-  /** Branch names in use for a repository on a device (worktrees cannot share one). */
-  branches(device: string, repo: string): string[] {
-    return (this.db.query('SELECT branch FROM repo_sessions WHERE device = ? AND lower(repo) = ?').all(device, repo.toLowerCase()) as Row[]).map((r) => r.branch);
+  /** Branch names in use for a clone or folder on a device (worktrees cannot share one). */
+  branches(device: string, clonePath: string): string[] {
+    return (this.db.query('SELECT branch FROM repo_sessions WHERE device = ? AND clone_path = ?').all(device, clonePath) as Row[]).map((r) => r.branch);
   }
 
   insert(row: Omit<RepoSessionRow, 'createdAt' | 'updatedAt'>): RepoSessionRow {
     const now = Date.now();
     this.db
       .query(
-        `INSERT INTO repo_sessions (session_id, repo, device, clone_path, worktree, branch, base, base_sha, default_branch, url, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO repo_sessions (session_id, repo, device, clone_path, worktree, branch, base, base_sha, default_branch, url, source, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
-      .run(row.sessionId, row.repo, row.device, row.clonePath, row.worktree, row.branch, row.base, row.baseSha, row.defaultBranch, row.url, now, now);
+      .run(row.sessionId, row.repo, row.device, row.clonePath, row.worktree, row.branch, row.base, row.baseSha, row.defaultBranch, row.url, row.source ?? null, now, now);
     return this.get(row.sessionId)!;
   }
 
@@ -178,6 +192,7 @@ export class RepoStore {
       ciUrl: 'ci_url',
       checkedAt: 'checked_at',
       cleanedAt: 'cleaned_at',
+      mergedAt: 'merged_at',
     };
     const sets: string[] = [];
     const values: Array<string | number | null> = [];
