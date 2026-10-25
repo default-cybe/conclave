@@ -5,10 +5,12 @@
  * device when the list is not grouped by device), in groups.
  *
  * Code goes by project (one group per project across devices, the + of a
- * group starts a session there), by device, or by time. Chats and the
- * assistant's conversations go by time: Pinned, Today, Yesterday, This week,
- * Older. Subagents, a workflow's own agents, routine runs and what is
- * archived stay out: they are not places the owner went.
+ * group starts a session there), by device, or by time. Chats go by time:
+ * Pinned, Today, Yesterday, This week, Older. The assistant is one thread
+ * (meta.home, GET /api/assistant/home), on top with no heading; its older
+ * conversations are under History, newest first. Subagents, a workflow's
+ * own agents, routine runs and what is archived stay out: they are not
+ * places the owner went.
  *
  * Delegated work (a Delegate call's Code or Assistant session) has a group
  * of its own under the list in every mode, newest first: the title, who did
@@ -135,6 +137,14 @@ export function sideGroups(i: SideInput): SideGroupOut[] {
   const list = modeSessions(i.sessions, i.mode).slice(0, i.limit ?? SIDE_LIMIT);
   const by: SideGroupBy = i.mode === 'code' ? i.by : 'time';
   const code = i.mode === 'code';
+  if (i.mode === 'assistant') {
+    const home = list.filter((s) => s.meta?.home);
+    const history = list.filter((s) => !s.meta?.home);
+    return [
+      ...(home.length ? [{ key: 'home', label: 'Assistant', rows: home.map((s) => rowOf(s, waiting)) }] : []),
+      ...(history.length ? [{ key: 'history', label: 'History', rows: history.map((s) => rowOf(s, waiting)) }] : []),
+    ];
+  }
   if (by === 'time') {
     const out: SideGroupOut[] = [];
     const push = (key: string, label: string, s: Session) => {
@@ -172,7 +182,7 @@ export function sideListWord(mode: SideMode): string {
 }
 
 /** The words of the New row for a mode. */
-export const NEW_WORDS: Record<SideMode, string> = { chat: 'New chat', assistant: 'New assistant chat', code: 'New session' };
+export const NEW_WORDS: Record<SideMode, string> = { chat: 'New chat', assistant: 'Message assistant', code: 'New session' };
 
 // ---------------------------------------------------------------------------
 // Delegated work

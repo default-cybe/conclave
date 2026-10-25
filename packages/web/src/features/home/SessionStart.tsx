@@ -3,9 +3,10 @@
  * the "+" items and the send. Enter starts the session and opens it at
  * /s/:id.
  *
- * Assistant: the assistant agent on the hub. The row has the permission
- * mode at the left and the model with its effort at the right; no device or
- * folder.
+ * Assistant: the account's one assistant thread on the hub (GET
+ * /api/assistant/home); Enter sends into it and opens it, no new session.
+ * The row has the permission mode at the left and the model with its effort
+ * at the right; no device or folder.
  *
  * Code: the default coding agent (a custom one when picked under "+"). In
  * the desktop app it runs on the app's own computer; in a browser on the
@@ -52,7 +53,7 @@ import { LiveStatus } from '@/components/motion';
 import { AgentPicker } from '@/components/pickers/Pickers';
 import { DeviceFolderPicker, PermissionPicker } from '@/features/chat/pickers';
 import { ULTRA_LINE } from '@/features/workflows/UltraSwitch';
-import { keepSession, type Outgoing } from '@/features/conversation/actions';
+import { keepSession, sendToAssistant, type Outgoing } from '@/features/conversation/actions';
 import { SEND_EVENT, type ComposerTarget } from '@/features/conversation/ChatComposer';
 import { useAgentFollow } from '@/features/conversation/ComposerParts';
 import { OptionsButton } from '@/features/conversation/PhoneBox';
@@ -161,6 +162,19 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
     const files = out.attachments.length > 0;
     setStarting(Date.now());
     try {
+      // Assistant is one thread per account: the message goes into it, no new session
+      if (!code) {
+        // only a model picked here switches the thread's; permission mode and effort stay the thread's own
+        const home = command ? await attempt(() => api().assistantHome()) : await sendToAssistant(out, { model: picks.assistantModel });
+        if (!home) return false;
+        if (command) {
+          keepSession(home);
+          const r = await attempt(() => api().command(home.id, out.text.trim()));
+          if (r?.output) toast({ title: `/${command}`, body: r.output, level: 'info' });
+        }
+        if (window.location.pathname === '/') navigate(`/s/${home.id}`);
+        return true;
+      }
       const common = {
         agent: setup.agent,
         model: setup.model,
@@ -334,7 +348,7 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
       return false;
     },
     send,
-    sendLabel: 'Start session',
+    sendLabel: code ? 'Start session' : 'Send',
     placeholder: mobile ? (code ? 'Describe a task' : 'Ask your assistant') : 'Type / for commands',
     commands,
     note: starting ? (

@@ -335,6 +335,13 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
       bus.emit({ type: 'session.created', session: s });
       return s;
     },
+    async assistantHome(accountId: string) {
+      const found = repos.sessions.list({ accountId, agent: 'assistant', home: true, limit: 1 })[0];
+      if (found) return found;
+      const s = { ...(await engine.createSession({ agent: 'assistant', title: 'Assistant' }, accountId)), pinned: true, meta: { home: true } };
+      repos.sessions.update(s);
+      return s;
+    },
     updateSession(id, patch: SessionPatch) {
       const s = { ...sessionOr404(id), ...patch, updatedAt: Date.now() } as Session;
       if (patch.taskId === null) s.taskId = undefined;

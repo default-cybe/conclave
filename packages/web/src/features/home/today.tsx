@@ -12,7 +12,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import type { TodayDto } from '@conclave/core/client';
 import { api } from '@/lib/api';
-import { attempt, toast, useHub } from '@/store/store';
+import { toast, useHub } from '@/store/store';
+import { sendToAssistant } from '@/features/conversation/actions';
 import { cn } from '@/lib/text';
 import { hhmm } from '@/lib/format';
 import { Section } from '@/components/ui/Section';
@@ -67,7 +68,7 @@ export function TodaySection({ phone, title = 'Today' }: { phone?: boolean; titl
   const size = phone ? 'touch' : 'sm';
 
   const askForPlan = async () => {
-    const s = await attempt(() => api().createSession({ agent: 'assistant', title: 'Plan my day', prompt: 'Plan my day.' }));
+    const s = await sendToAssistant({ text: 'Plan my day.' });
     if (s) navigate(`/s/${s.id}`);
   };
   const answer = async (option: string) => {

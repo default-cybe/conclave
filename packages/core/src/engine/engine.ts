@@ -283,6 +283,8 @@ export class Engine implements EngineApi {
    * listed here, and a question gets no answer; the turn goes on.
    */
   readonly unattended = new Map<string, { denied: Array<{ tool: string; input: string; rule?: string }> }>();
+  /** A routine's turn running in a session it does not own (the assistant home thread): session id to routine id, so its rules apply to that turn only. */
+  readonly routineTurns = new Map<string, string>();
   private toolCache: { tools: Tool[]; at: number } | null = null;
   /** Test command per session and folder, for the Environment block (session/project.ts). */
   private testCommands = new Map<string, Promise<string | undefined>>();
@@ -567,6 +569,30 @@ export class Engine implements EngineApi {
     return session;
   }
 
+  /** Home threads being made, by account, so two calls at once get the same one. */
+  private homeMaking = new Map<string, Promise<Session>>();
+
+  /**
+   * The account's one assistant thread (docs/DESIGN.md, Assistant home): the
+   * session with meta.home and the assistant agent, made pinned and titled
+   * "Assistant" the first time. Each account has its own.
+   */
+  async assistantHome(accountId: string): Promise<Session> {
+    const found = this.repos.sessions.list({ accountId, agent: 'assistant', home: true, limit: 1 })[0];
+    if (found) return found;
+    const making = this.homeMaking.get(accountId);
+    if (making) return making;
+    const p = (async () => {
+      const s = await this.createSession({ agent: 'assistant', title: 'Assistant' }, accountId);
+      this.repos.sessions.update({ ...s, pinned: true, meta: { ...s.meta, home: true } });
+      const home = this.requireSession(s.id);
+      this.bus.emit({ type: 'session.updated', session: home });
+      return home;
+    })().finally(() => this.homeMaking.delete(accountId));
+    this.homeMaking.set(accountId, p);
+    return p;
+  }
+
   /** Words for a model on a harness that is off (acp/harness-off.ts), or one the owner hid (models.hidden), else undefined. */
   harnessOff(model: string): string | undefined {
     if (isHiddenModel(this.config.get(), model)) return hiddenWords(model);
@@ -722,6 +748,8 @@ export class Engine implements EngineApi {
     const s = this.requireSession(id);
     const now = Date.now();
     const fork: Session = { ...s, id: newId('ses'), title: `${s.title} (fork)`, parentId: s.parentId, createdAt: now, updatedAt: now, status: 'idle', external: undefined };
+    // a fork of the assistant home thread is a normal session: the account keeps one home
+    if (fork.meta?.home) fork.meta = { ...fork.meta, home: undefined };
     const msgs = this.repos.messages.list(id).filter((m) => fromSeq === undefined || m.seq <= fromSeq);
     // new ids in the fork; a second opinion keeps pointing at its reply's copy
     const ids = new Map(msgs.map((m) => [m.id, newId('msg')]));
