@@ -1,13 +1,5 @@
 ## [0.4.29] - 2026-10-25
 
-### Fixed
+### Added
 
-- A turn the loop guard stops now ends with a report: after the "Loop guard stopped the turn" notice, the model gets one call with tools disabled and is asked what it did, what it found and what is left. Subagents stopped this way used to return "(the subagent produced no final answer)".
-- The step-limit wrap-up call asks for the same final report (what was done, found and left).
-- With both Claude plans at their limit, Opus no longer moves to the API key while Antigravity has room. CLIProxyAPI never gives the bare `claude-opus-5-5` to a plan that lists only `claude-opus-5-5-high`, so the hub now sends that plan's own id with its short name (`backup-gemini/claude-opus-5-5-high`) when it is the first ready plan, before trying the key.
-- When a plan refuses a call for its limit, the hub now tries the next ready plan in your order, one at a time (a second Antigravity plan, or a Claude plan placed after Antigravity), and uses an API key only when no plan is left.
-- Thinking replays only to the vendor whose account signed it. A conversation that moved between a Claude plan and Antigravity's Claude no longer sends one side's signed thinking to the other, which failed the call.
-- A session a usage-limit failover moved to another plan goes back to the owner's first ready plan for the same model at the start of the next turn after its limit resets, with one notice ("Back on <plan>, its limit reset"). A model picked by hand after the failover stays. It waits until the first plan's reset time passes, or 15 minutes when the reset is unknown, so a short block that lifts does not bounce it back each turn.
-- Spent Fable credits ("fable credits", paid extra) never block a Claude plan. Fable's own weekly window ("7d fable") stands in for the general weekly window for Fable models, so Fable stays usable when the general week is full while Opus waits for it. The status names the window that blocks ("Weekly limit reached"), never the credits. The 5 hour window still blocks every model.
-- "Your signed in plans are at their limit. Using ... for this call." shows once per session for each place calls go, not on every call. It shows again after the session goes back to a plan whose limit reset.
-- Plans whose vendor reports no usage (Google Antigravity) now show on the Usage page, web and Android, with "Usage not reported by Google" instead of being left out, and "Blocked" when the hub saw it refuse.
+- Scrapling is in the extension catalog as an MCP entry (`uvx --from scrapling scrapling mcp`). The plain Fetcher is the cheap default; StealthyFetcher gets past Turnstile and fingerprint checks but downloads its own browsers and uses about 2 GB RAM, so it stays opt-in and complements the built-in browser.
