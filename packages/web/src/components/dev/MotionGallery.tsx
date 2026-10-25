@@ -14,6 +14,11 @@ import { Greeting } from '@/features/conversation/Greeting';
 import { toast } from '@/store/store';
 import { cn } from '@/lib/text';
 import {
+  AgentGlyph,
+  GLYPH_KINDS,
+  PET_STATES,
+  Pet,
+  type GlyphState,
   CardToPanel,
   Fold,
   GapList,
@@ -119,6 +124,8 @@ export function MotionGallery() {
         <span className="text-[13px] text-fg-2">Reduce motion</span>
         <span className="text-[12px] text-fg-3">Shows the still pose of each one.</span>
       </div>
+      <PetDemo />
+      <GlyphDemo />
       <KnotStates />
       <KnotReply />
       <KnotHero />
@@ -134,6 +141,63 @@ export function MotionGallery() {
       <ToastDemo />
       <LabelsDemo />
     </div>
+  );
+}
+
+/** The pet in every state, at 64 and at 24. */
+function PetDemo() {
+  return (
+    <Demo id="pet" title="Pet" note="Every state at 64 and 24. Never in a chat reply.">
+      <div className="grid grid-cols-5 gap-x-4 gap-y-5 phone:grid-cols-2" data-motion-pets>
+        {PET_STATES.map((st) => (
+          <div key={st} className="flex items-end gap-3">
+            <Pet state={st} size={64} className="text-fg" />
+            <span className="flex flex-col gap-1">
+              <Pet state={st} size={24} className="text-fg-2" />
+              <span className="text-[12px] text-fg-2">{st}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </Demo>
+  );
+}
+
+const GLYPH_STATES: GlyphState[] = ['running', 'waiting', 'failed', 'done'];
+
+/** Each agent glyph in each state, at 14 and 32. */
+function GlyphDemo() {
+  return (
+    <Demo id="glyphs" title="Agent glyphs" note="One stroke on a 16 grid. Only the first three running rows of a list move.">
+      <div className="overflow-x-auto">
+        <table className="tbl min-w-[520px] max-w-[760px]" data-motion-glyphs>
+          <thead>
+            <tr>
+              <th>Type</th>
+              {GLYPH_STATES.map((s) => (
+                <th key={s}>{s}</th>
+              ))}
+              <th>32</th>
+            </tr>
+          </thead>
+          <tbody>
+            {GLYPH_KINDS.map((k) => (
+              <tr key={k}>
+                <td className="text-fg-2">{k}</td>
+                {GLYPH_STATES.map((s) => (
+                  <td key={s}>
+                    <AgentGlyph type={k} state={s} className="text-fg align-middle" />
+                  </td>
+                ))}
+                <td>
+                  <AgentGlyph type={k} size={32} className="text-fg align-middle" />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Demo>
   );
 }
 

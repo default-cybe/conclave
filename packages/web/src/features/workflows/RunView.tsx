@@ -1,5 +1,5 @@
 /**
- * One workflow run (spec 3.18): a status sentence on top with the Knot while
+ * One workflow run (spec 3.18): a status sentence on top with the pet while
  * it works and the current step under it, the phases in meta order with one
  * row per call, the narrator log, the result, findings and kept branches.
  * A row opens the agent's transcript in a side panel.
@@ -15,7 +15,7 @@ import { Notice, SectionHeading } from '@/components/ui/Section';
 import { Meter } from '@/components/ui/Meter';
 import { CodeBlock } from '@/components/ui/Code';
 import { LoadingRows } from '@/components/ui/EmptyState';
-import { Knot, Roll, Steps } from '@/components/motion';
+import { MorphLabel, Pet, Roll, Steps } from '@/components/motion';
 import { api } from '@/lib/api';
 import { attempt, useHub } from '@/store/store';
 import { compact, folderName, hhmm, usd } from '@/lib/format';
@@ -27,7 +27,7 @@ import { useRunDetail } from './data';
 import { CallHeader, CallRows, hasToolCell } from './CallRows';
 import { Findings } from './Findings';
 import { Worktrees } from './Worktrees';
-import { byPhase, isLive, knotFor, statusParts } from './words';
+import { byPhase, isLive, petFor, statusParts } from './words';
 
 export function RunView({ id }: { id: string }) {
   const { data, error, progress, lastActivity, reload } = useRunDetail(id);
@@ -111,11 +111,9 @@ export function RunView({ id }: { id: string }) {
       <div className="space-y-9 phone:space-y-8">
         <section aria-label="Status">
           <div className="flex items-start gap-3">
-            <span className="mt-[5px] grid size-4 shrink-0 place-items-center phone:mt-[6px]">
-              <Knot state={knotFor(run)} size={16} still={!live} label={live ? 'Working' : undefined} />
-            </span>
+            <Pet state={petFor(run, detail.calls)} size={32} className="mt-px shrink-0 text-fg-2" />
             <p className="t-title max-w-[80ch] text-fg" aria-live="polite">
-              {parts.lead}.{parts.phase ? ` ${parts.phase}.` : ''} <Roll value={run.counts.agents} /> {run.counts.agents === 1 ? 'agent' : 'agents'}
+              <MorphLabel text={parts.lead} />.{parts.phase ? ` ${parts.phase}.` : ''} <Roll value={run.counts.agents} /> {run.counts.agents === 1 ? 'agent' : 'agents'}
               {run.counts.done + run.counts.cached > 0 && (
                 <>
                   : <Roll value={run.counts.done + run.counts.cached} /> done
@@ -136,11 +134,11 @@ export function RunView({ id }: { id: string }) {
             </p>
           </div>
           {live && activity && (
-            <div className="mt-2 ml-7 text-[13px] text-fg-2 phone:text-[14px]">
+            <div className="mt-2 ml-11 text-[13px] text-fg-2 phone:text-[14px]">
               <Steps step={{ id: `${activity.seq}:${activity.text}`, verb: activityCall?.label ?? `Call ${activity.seq}`, target: activity.text }} />
             </div>
           )}
-          <div className="mt-3 ml-7 max-w-[100ch] text-[12px] text-fg-3 phone:text-[13px]">
+          <div className="mt-3 ml-11 max-w-[100ch] text-[12px] text-fg-3 phone:text-[13px]">
             {[run.description?.replace(/\.$/, ''), `On ${run.device === 'local' ? 'the hub' : (devices[run.device]?.name ?? run.device)}, in ${folderName(run.cwd) || 'the home folder'}`, run.sessionId ? null : 'Started from the app', run.portable ? null : 'Uses the Conclave layer'].filter(Boolean).join('. ')}
             {run.sessionId && (
               <>
@@ -152,7 +150,7 @@ export function RunView({ id }: { id: string }) {
             )}
           </div>
           {run.budget?.tokens && (
-            <div className="mt-3 ml-7 max-w-[420px]">
+            <div className="mt-3 ml-11 max-w-[420px]">
               <Meter value={run.outputTokens} max={run.budget.tokens} tone={run.outputTokens / run.budget.tokens >= 0.9 ? 'fault' : run.outputTokens / run.budget.tokens >= 0.7 ? 'warn' : 'neutral'} label={`Budget, ${compact(run.outputTokens)} of ${compact(run.budget.tokens)} output tokens`} />
               <div className="mt-1 text-[12px] text-fg-3">
                 {compact(run.outputTokens)} of {compact(run.budget.tokens)} output tokens
@@ -177,7 +175,7 @@ export function RunView({ id }: { id: string }) {
                 </span>
               }
             >
-              <span className={cn(i === run.phaseIndex && live && 'text-signal')}>{p.title}</span>
+              <span className={cn('cv-state', i === run.phaseIndex && live && 'text-signal')}>{p.title}</span>
             </SectionHeading>
             {p.detail && <p className="pt-2 text-[12px] text-fg-3 phone:text-[13px]">{p.detail}</p>}
             {p.calls.length > 0 && (

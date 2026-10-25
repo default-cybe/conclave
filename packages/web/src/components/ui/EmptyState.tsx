@@ -4,6 +4,7 @@ import { Wave } from '../wave';
 import { Button } from './Button';
 import { useDelayed } from '@/lib/hooks';
 import { KnotRope } from '../motion/KnotRope';
+import { Pet } from '../motion/Pet';
 
 /**
  * Empty state (spec 10.23): an ambient wave band (72px, 56 on phones), one
@@ -14,6 +15,7 @@ export function EmptyState({
   children,
   action,
   wave = true,
+  pet,
   className,
 }: {
   /** The sentence. */
@@ -22,6 +24,8 @@ export function EmptyState({
   action?: { label: string; onClick: () => void } | ReactNode;
   /** Draw the ambient band. Default true; turn off for a second empty state on the same screen. */
   wave?: boolean;
+  /** The idle pet in place of the wave (CHAT-AND-MOTION 1.11). */
+  pet?: boolean;
   className?: string;
 }) {
   const act =
@@ -34,8 +38,8 @@ export function EmptyState({
     );
   return (
     <div className={cn('py-4', className)}>
-      {wave && <Wave variant="ambient" className="h-[72px] phone:h-14" />}
-      <p className={cn('max-w-[60ch] text-[14px] leading-[1.45] text-fg-2 phone:text-[15px]', wave && 'mt-4')}>{children}</p>
+      {pet ? <Pet state="idle" size={48} className="text-fg-2" /> : wave && <Wave variant="ambient" className="h-[72px] phone:h-14" />}
+      <p className={cn('max-w-[60ch] text-[14px] leading-[1.45] text-fg-2 phone:text-[15px]', (wave || pet) && 'mt-4')}>{children}</p>
       {act && <div className="mt-4">{act}</div>}
     </div>
   );

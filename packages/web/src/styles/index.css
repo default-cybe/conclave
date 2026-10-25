@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import './motion.css';
+@import './pet.css';
 
 /*
   Conclave tokens (docs/design/SPEC.md, section 3).
