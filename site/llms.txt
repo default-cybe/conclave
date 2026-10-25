@@ -36,7 +36,7 @@ The hub runs on a server you own (Docker, a Proxmox container, Linux or macOS). 
 - Routines that catch up: a run missed while the hub was down runs when it is back, up to 6 hours late. [routines.ts](https://github.com/default-cybe/conclave/blob/main/packages/core/src/scheduler/routines.ts)
 
 ### A hub, not a single terminal
-- Plans you already pay for: sign in with Claude, ChatGPT and Google plans through a pinned, checksum-checked CLIProxyAPI. [Section 24](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#24-subscriptions-through-cliproxyapi)
+- Plans you already pay for: sign in with Claude, ChatGPT, Google, Grok, Kimi and Muse plans through a pinned, checksum-checked CLIProxyAPI, and with GitHub Copilot and Kiro plans through its plugins (new; live sign-in not yet verified). [Section 24](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#24-subscriptions-through-cliproxyapi)
 - Devices dial out: each computer connects out to the hub over a WebSocket, so no port opens on it. [Section 2](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#2-architecture)
 - Approvals from your phone: risky calls wait for Allow or Deny, in the app or on the notification. [Section 10](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#10-devices-and-security)
 - Several people on one hub: each member has their own sessions, memory, keys and devices. [Section 35](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#35-accounts-several-people-on-one-hub)
@@ -66,5 +66,5 @@ Not listed for any of the five in the pages checked: a jury with hidden juror na
 
 - Accounts are for a few people you trust, not an organization with roles.
 - A provider may treat plan sign-in through CLIProxyAPI as against its terms.
-- The desktop apps are not signed yet. There is no native iPhone app; the web app works from the home screen.
+- The Windows desktop app is not signed yet; the Mac app is signed ad hoc but not notarized. There is no native iPhone app; the web app works from the home screen.
 - Conclave is new, at its first releases.
