@@ -47,6 +47,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - A foreground Bash command that is only a wait (`gh run watch`, `gh pr checks --watch`, `watch`, `sleep` over 30 seconds) now starts in the background with a one-line notice, so queued messages are read instead of waiting behind it. The session gets a note with the exit code and the end of the output when it ends or hits its timeout (600 seconds unless `timeout` is set). Compound commands, poll loops and quoted text are left alone, and so are subagents, workflow steps, routines and headless runs, which need the result before they report.
 
+### Fixed
+
+- Accounts: a plan's short name no longer falls back to the old one (or none) right after Save. CLIProxyAPI keeps listing the old model ids for a while, and the models read after the save took those as the truth, so the name looked unsaved and another plan could take it. The saved name now stands until the list shows it, or for up to 5 minutes, and while the list shows the old and the new name side by side the new one wins, also after those 5 minutes. A plan's model count also stays right while an old short name is still listed next to the new one, with or without bare model ids.
+
 ## [0.4.30] - 2026-10-25
 
 ### Fixed
