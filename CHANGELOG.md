@@ -11,6 +11,8 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- `docs/research/SCRAPLING-BENCH.md`: the written-up 2026-10-24 hub benchmark behind the Scrapling catalog entry, Fetcher and StealthyFetcher vs CloakBrowser per site with RAM, startup and disk. Verdict: the entry stays opt-in; the plain Fetcher is the cheap default.
+
 - Save drafts without asking: a per-account setting (off by default, Settings > Calendar and mail) that makes the Assistant's `MailDraft` save the draft straight into Drafts with no approval card. It never sends; sending still needs approval, and the email-reading agent still cannot draft.
 
 ## [0.4.30] - 2026-10-25
