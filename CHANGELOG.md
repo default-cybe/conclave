@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Save drafts without asking: a per-account setting (off by default, Settings > Calendar and mail) that makes the Assistant's `MailDraft` save the draft straight into Drafts with no approval card. It never sends; sending still needs approval, and the email-reading agent still cannot draft.
+
 ## [0.4.30] - 2026-10-25
 
 ### Fixed
