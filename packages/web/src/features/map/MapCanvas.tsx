@@ -12,7 +12,7 @@ import { dprNow, isDark, onFrame, tokenRGB, useColorVersion } from '@/components
 import { EASE } from '@/components/motion/ease';
 import { cn } from '@/lib/text';
 import type { LBox, LLink, LNode, Layout } from './layout';
-import { STATE_TONE, STATE_WORD, groupNoun, groupState, groupStats, hubKnot, isBusy, shortId, stuckWords } from './model';
+import { STATE_TONE, groupNoun, groupState, groupStats, hubKnot, isBusy, nodeMeta } from './model';
 import { Streams, type StreamMode, type StreamSource } from './streams';
 import { clampView, fitView, pinch, startView, wheelFactor, zoomAt, type Insets, type View } from './view';
 
@@ -643,9 +643,9 @@ const Mark = memo(function Mark({
   }
 
   const n = node ?? ln.node!;
-  const stuck = stuckWords(n, now);
-  const word = stuck ?? STATE_WORD[n.state];
-  const tone = stuck ? 'warn' : STATE_TONE[n.state];
+  const meta = nodeMeta(n, now);
+  const word = meta.word;
+  const tone = n.stuckSince ? 'warn' : STATE_TONE[n.state];
   const kindWord = n.kind === 'chat' ? 'chat' : n.kind === 'subagent' ? 'subagent' : n.kind === 'workflow' ? 'workflow run' : n.kind === 'agent' ? 'workflow agent' : 'session';
   return (
     <button
@@ -656,16 +656,18 @@ const Mark = memo(function Mark({
       data-new={fresh || undefined}
       aria-pressed={selected}
       aria-label={`${n.title}, ${kindWord}, ${word}`}
+      title={n.title}
       onClick={() => onSelect(selected ? undefined : n.id)}
     >
-      <span className={cn('map-mark', n.kind === 'workflow' ? 'map-run' : 'map-dot', selected && 'map-selected', stuck && 'map-stuck')} style={{ left: 0, top: 0, width: 2 * r, height: 2 * r }} data-state={n.state} />
+      <span className={cn('map-mark', n.kind === 'workflow' ? 'map-run' : 'map-dot', selected && 'map-selected', n.stuckSince && 'map-stuck')} style={{ left: 0, top: 0, width: 2 * r, height: 2 * r }} data-state={n.state} />
       <span className="map-label" data-align={align} style={{ ...labelStyle, left: L.x - ln.x + r, top: L.y - ln.y + r }}>
         <span className="map-title" data-quiet={!isBusy(n.state) || undefined}>
-          {n.title}
+          {/* the short name the layout measured (it lays out again when a title changes); the full title is the tooltip and the drawer's */}
+          {L.title}
         </span>
         <span className="map-meta">
-          <span className="map-id">{shortId(n.id)}</span>
-          <span style={{ color: TONE_COLOR[tone] }}>{word}</span>
+          {meta.mode} · <span style={{ color: TONE_COLOR[tone] }}>{word}</span>
+          {meta.when && ` · ${meta.when}`}
         </span>
       </span>
     </button>
