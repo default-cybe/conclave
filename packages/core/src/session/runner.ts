@@ -20,7 +20,7 @@ import type { ProviderMessage, SystemBlock, ToolSpec } from '../providers/types'
 import { ProviderError } from '../providers/types';
 import type { Engine } from '../engine/engine';
 import { activeMessages, buildProviderMessages, lastAssistantText, reminder, isReminder } from './transcript';
-import { buildSystemPrompt, subagentCatalog, type PromptParts } from './prompt';
+import { buildSystemPrompt, subagentCatalog, TOOL_NOTE_TOOLS, type PromptParts } from './prompt';
 import { delegateCatalog } from '../engine/delegate';
 import { flattenLastToolTurn, isTranscriptShapeError } from './pairing';
 import { streamCompletion, type Served } from './stream';
@@ -31,7 +31,7 @@ import { checkPermission, dangerousCommand } from './permissions';
 import { ReadTool } from '../tools/read';
 import { maybeCompact, estimateRequestTokens, meteredTokens, partHash, type TokenMeter } from './compaction';
 import { applyClearing } from './context-edit';
-import { afterWokenTurn, handleLimit, nextAccount, switchBack } from './limits';
+import { afterWokenTurn, handleLimit, limitFallback, nextAccount, switchBack } from './limits';
 import { OWNER_ID, isMember, runAs } from '../people/context';
 import { deviceFolder, runHarnessTurn } from './harness';
 import { LoopGuard, type Verdict } from './loop-guard';
@@ -50,6 +50,7 @@ import { memoryRecallBudget } from '../engine/builtin-hooks';
 import { STOP_BLOCK_CAP } from '../extensions/hooks';
 import { loadPathRules, loadScopedInstructions, type InstructionFile, type PathRule } from '../extensions/instructions';
 import { pendingSwitch, switchNote } from '../modes/switch-marker';
+import { movedToMain } from './delegated';
 import type { Machine } from '../machine/types';
 
 const log = logger('runner');
@@ -88,6 +89,18 @@ const CONTINUE_AFTER_OUTPUT_LIMIT =
   'Your last reply hit the output token limit and was cut off. Continue exactly where it stopped, without repeating what you already wrote. Split long output into smaller parts.';
 /** Sent before the retry of an empty reply: the same request again tends to get the same empty reply. */
 export const CONTINUE_AFTER_EMPTY_REPLY = 'Your last reply was empty. Continue: answer the user, or take the next step of the task.';
+/** Sent when the owner resumes a turn that Stop or a hub restart cut (resumeStopped). */
+export const RESUME_AFTER_STOP =
+  'The user stopped your last turn and has now resumed it. Continue the task from where it stopped. Do not redo steps that already finished; a tool call marked interrupted did not complete.';
+
+/**
+ * Only the owner's own sessions get Resume after Stop: a Task child or a
+ * workflow agent resumes through its parent or run, and a plain turn there
+ * would report to no one.
+ */
+export function canResumeStopped(s: Pick<Session, 'parentId' | 'meta'>): boolean {
+  return (!s.parentId || movedToMain(s)) && !s.meta?.workflow;
+}
 
 export function stepBudgetNote(used: number, max: number): string {
   return `Step budget: you have used ${used} of ${max} steps in this turn. Save durable progress now (files, TodoWrite), then continue. Do not stop only because of this note.`;
@@ -272,6 +285,10 @@ export class SessionRunner {
   readonly id: string;
   private queue: Queued[] = [];
   private inferenceError?: ProviderError;
+  /** The model the failed inference ran on (a limit fallback may differ from the session's). */
+  private inferenceModel?: string;
+  /** Models that hit a usage limit earlier in the failed turn: the automatic retry skips them. */
+  private inferenceLimited: string[] = [];
   private retryNotice?: string;
   private steering: Steer[] = [];
   /** The waiting message whose turn is starting: listed until its user message is in the transcript, so apps never lose it. */
@@ -309,6 +326,8 @@ export class SessionRunner {
   noteDelayMs = 2_000;
   /** Why the last agentLoop call ended. */
   lastStop?: LoopStop;
+  /** Set by stall(): the alert service cut a quiet subagent loop, with the tool that was running if any; driveSubagent (engine/subagent.ts) reads it. */
+  stalled?: { tool?: string };
   /** The checkpoint of the current turn (agent and loop mode), for the regression gate. */
   turnCheckpoint?: TurnCheckpoint;
   /** The system prompt, kept byte for byte between steps (systemFor). */
@@ -545,6 +564,13 @@ export class SessionRunner {
     void this.drain();
   }
 
+  /** Resume after Stop (or a restart that cut the turn): a new turn on the stored transcript with a continue reminder, before held messages. */
+  resumeStopped(): void {
+    this.engine.addMessage(this.id, { role: 'user', kind: 'normal', content: [reminder(RESUME_AFTER_STOP)], meta: { auto: true } });
+    this.queue.unshift({ input: { text: '' }, auto: true, inference: true });
+    void this.drain();
+  }
+
   /**
    * Stop (or the hub shutting down). Auto inputs go; what a person sent waits
    * on, stored: after a Stop it is held until they send or remove it, at
@@ -563,6 +589,20 @@ export class SessionRunner {
     for (const loop of this.activeLoops) loop.abort();
     this.engine.cancelPendingFor(this.id);
     if (changed && why === 'stop') this.emitQueue();
+  }
+
+  /**
+   * A subagent's loop made no progress past the stuck threshold
+   * (alerts/service.ts): end it so its caller fails over or reports to the
+   * parent. Queue and notes stay as they are. False when no caller-driven
+   * loop runs here (a turn the owner started), or the last cut did not end
+   * the loop (a tool that ignores its signal): the owner has to look then.
+   */
+  stall(tool?: string): boolean {
+    if (this.running || !this.activeLoops.size || this.stalled) return false;
+    this.stalled = tool ? { tool } : {};
+    for (const loop of this.activeLoops) loop.abort();
+    return true;
   }
 
   /** True while a turn or an agent loop runs for this session. */
@@ -669,9 +709,12 @@ export class SessionRunner {
     try {
       for (let i = this.nextIndex(); i >= 0; i = this.nextIndex()) {
         const [next] = this.queue.splice(i, 1);
+        let retry: Queued | undefined;
         // a waiting message stays listed while its turn starts (hooks, recall), until its user message is stored
         if (next.pending) this.starting = next;
         this.current = next;
+        // any new turn ends what Resume after Stop could continue
+        if (this.session.meta?.stoppedTurn) this.engine.patchMeta(this.id, { stoppedTurn: undefined });
         next.turn?.start?.();
         this.controller = new AbortController();
         const signal = this.controller.signal;
@@ -684,7 +727,7 @@ export class SessionRunner {
             this.engine.setStatus(this.id, 'running');
             // a resumed jury or debate turn goes on as the agent loop it was cut in
             const mode = this.session.mode === 'jury' || this.session.mode === 'debate' ? 'agent' : this.session.mode;
-            await this.agentLoop(this.session.model, mode, signal);
+            await this.agentLoop(next.input.model ?? this.session.model, mode, signal);
             if (this.session.status === 'running') this.engine.setStatus(this.id, 'idle');
             this.engine.afterTurn(this.id, Date.now() - this.turnStartedAt);
           });
@@ -693,16 +736,27 @@ export class SessionRunner {
           if (this.pausing && !this.controller.signal.aborted) this.parkPaused(true);
           else if (this.controller.signal.aborted) {
             this.engine.notice(this.id, 'Stopped', 'info');
+            // a message cut before it was stored is the owner's next ask: it waits held below, nothing to continue
+            if (!this.starting && canResumeStopped(this.session)) this.engine.patchMeta(this.id, { stoppedTurn: true });
             this.engine.setStatus(this.id, 'idle');
           } else {
             log.error(`turn failed in ${this.id}`, err);
             const msg = turnErrorText(this.engine, err);
             const canRetry = err === this.inferenceError && !this.inferenceError?.code && ['agent', 'chat', 'plan'].includes(this.session.mode);
-            const unsafe = err === this.inferenceError && !canRetry ? ' Alternate-model retry is unavailable for this session mode because its orchestration cannot safely resume at the failed inference.' : '';
-            const notice = this.engine.notice(this.id, `Error: ${msg}${unsafe}`, 'error', undefined, canRetry ? { type: 'provider_error', canRetry: true } : undefined);
-            if (canRetry) this.retryNotice = notice?.id;
-            this.engine.setStatus(this.id, 'error', msg);
-            this.engine.notifyEvent('errors', { title: 'Session error', body: oneLine(msg, 160), level: 'error', sessionId: this.id, link: `/s/${this.id}` });
+            // one automatic retry on the next fallback model for this turn only; a failed retry gets the button below
+            // a model the owner hid or turned off fails on purpose: it says so and never moves on its own
+            const from = canRetry && !next.inference && this.inferenceModel && !this.engine.harnessOff(this.inferenceModel) ? this.inferenceModel : undefined;
+            const to = from ? limitFallback(this.engine, this.session.accountId, from, [from, ...this.inferenceLimited], this.engine.agentFor(this.session)) : undefined;
+            if (from && to) {
+              this.engine.notice(this.id, `${this.engine.displayModel(from)} failed (${oneLine(msg, 160)}). Retrying on ${this.engine.displayModel(to)}.`, 'warning', undefined, { type: 'provider_retry', from, to });
+              retry = { input: { text: '', model: to }, auto: true, inference: true };
+            } else {
+              const unsafe = err === this.inferenceError && !canRetry ? ' Alternate-model retry is unavailable for this session mode because its orchestration cannot safely resume at the failed inference.' : '';
+              const notice = this.engine.notice(this.id, `Error: ${msg}${unsafe}`, 'error', undefined, canRetry ? { type: 'provider_error', canRetry: true } : undefined);
+              if (canRetry) this.retryNotice = notice?.id;
+              this.engine.setStatus(this.id, 'error', msg);
+              this.engine.notifyEvent('errors', { title: 'Session error', body: oneLine(msg, 160), level: 'error', sessionId: this.id, link: `/s/${this.id}` });
+            }
           }
           // it failed or stopped before its message was stored: the message waits again at the front, held so a failure does not repeat on its own
           if (this.starting) {
@@ -730,6 +784,8 @@ export class SessionRunner {
           this.queue.unshift(...late);
           this.emitQueue();
         }
+        // the retry answers the failed turn before any late steering gets its own turn
+        if (retry) this.queue.unshift(retry);
       }
     } finally {
       this.running = false;
@@ -966,8 +1022,9 @@ export class SessionRunner {
     let currentModel = modelRef;
     let resolved = engine.registryFor(this.session).resolve(currentModel);
     if (!this.depth) {
-      // a harness that is off (imported chats keep claude-code/default): the turn goes on with the account's default model instead of stopping
-      const to = (isMember(this.session.accountId) ? engine.accountPrefs(this.session.accountId!).defaultModel : undefined) ?? engine.config.get().defaultModel;
+      // a harness that is off (imported chats keep claude-code/default): the turn goes on with the chat's own model when usable, else the account's default, instead of stopping
+      const own = (this.session.meta?.import as { model?: string } | undefined)?.model;
+      const to = (own && engine.isUsable(own, this.session.accountId) && engine.providersFor(this.session.accountId).servesModel(own) ? own : undefined) ?? (isMember(this.session.accountId) ? engine.accountPrefs(this.session.accountId!).defaultModel : undefined) ?? engine.config.get().defaultModel;
       if (resolved.acp && engine.harnessOff(currentModel) && !engine.harnessOff(to)) {
         engine.notice(this.id, `${engine.displayModel(currentModel)} is off as an engine, so this session goes on with ${engine.displayModel(to)}.`, 'info');
         if (this.session.model === currentModel) engine.updateSession(this.id, { model: to });
@@ -1228,7 +1285,7 @@ export class SessionRunner {
           }
           engine.notice(this.id, refusalWords.failed(failed.label, why), 'warning', undefined, { type: 'refusal', outcome: 'failed', to: failed.label });
           // an entry at its limit: the same model on the owner's next ready plan first, then the next entry
-          const other = err instanceof ProviderError && (err.kind === 'rate_limit' || err.kind === 'quota') && failed.pin && !failed.accessPrograms ? nextAccount(engine, this.id, failed.ref) : undefined;
+          const other = err instanceof ProviderError && (err.kind === 'rate_limit' || err.kind === 'quota') && failed.pin && !failed.accessPrograms ? nextAccount(engine, this.id, failed.ref, { exact: true }) : undefined;
           if (other) {
             const gw = failed.pin!.provider;
             const t: FallbackTarget = { ...failed, ref: other.ref, label: other.to, pin: { provider: gw, model: other.ref.slice(gw.length + 1), account: other.account } };
@@ -1258,7 +1315,11 @@ export class SessionRunner {
             return end('rate_limit', false);
           }
         }
-        if (err instanceof ProviderError && err.kind !== 'auth' && err.kind !== 'aborted' && !err.code && mode === this.session.mode) this.inferenceError = err;
+        if (err instanceof ProviderError && err.kind !== 'auth' && err.kind !== 'aborted' && !err.code && mode === this.session.mode) {
+          this.inferenceError = err;
+          this.inferenceModel = currentModel;
+          this.inferenceLimited = [...limited];
+        }
         throw err;
       }
 
@@ -1539,7 +1600,8 @@ export class SessionRunner {
    * The system prompt for a step. It is built once and then sent byte for
    * byte, so the cached prefix holds (HARNESS-REVIEW item 12). It is built
    * again after a compaction or /clear; when what it is built from changes
-   * (agent, model, mode, folder, device, the Skill tool, Ultra); when a
+   * (agent, model, mode, folder, device, the Skill tool, the tools the
+   * tool-use section names, Ultra); when a
    * memory it shows was removed or edited; and when the instruction files,
    * skills or the platform card's live state (tools, MCP servers, devices,
    * browser, accounts), read again once per user turn, say something else. New memories
@@ -1547,7 +1609,7 @@ export class SessionRunner {
    */
   private async systemFor(session: Session, agent: AgentDef, modelRef: string, mode: SessionMode, toolNames: string[]): Promise<SystemBlock[]> {
     const engine = this.engine;
-    const key = JSON.stringify([agent.name, agent.prompt, modelRef, mode, session.cwd, session.device, session.kind ?? '', !!session.ultra, !!session.meta?.workflow, toolNames.includes('Skill')]);
+    const key = JSON.stringify([agent.name, agent.prompt, modelRef, mode, session.cwd, session.device, session.kind ?? '', !!session.ultra, !!session.meta?.workflow, toolNames.includes('Skill'), TOOL_NOTE_TOOLS.filter((t) => toolNames.includes(t))]);
     const snap = this.prompt;
     let fresh: PromptParts | undefined;
     if (snap && !this.promptStale && snap.key === key && profileHolds(snap.parts.profile, engine.profileFor(session, agent))) {

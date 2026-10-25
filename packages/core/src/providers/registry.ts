@@ -9,6 +9,7 @@ import {
   familyForProvider,
   findCatalogEntry,
   lookupModel,
+  normalizeModelId,
   refreshPricingFromLiteLLM,
   type ModelFamily,
 } from './catalog';
@@ -254,6 +255,21 @@ export class ProviderRegistry {
     if (this.opts.allowed && !this.opts.allowed(providerId)) return false;
     const hasKey = this.opts.apiKey ? !!this.opts.apiKey(providerId) : this.config.hasProviderKey(providerId);
     return hasKey || isLocalUrl(cfg.baseUrl);
+  }
+
+  /**
+   * The provider still serves this model: its models list, its last listing,
+   * else the catalog. A retired id (claude-3-5-sonnet-20241022) is in none.
+   */
+  servesModel(ref: string): boolean {
+    const r = this.resolve(ref);
+    if (r.acp) return true;
+    const n = normalizeModelId(r.model);
+    if (this.providerConfigs()[r.provider]?.models?.includes(r.model)) return true;
+    const listing = this.listings.get(r.provider)?.models;
+    if (listing?.length) return listing.some((m) => m.id === r.model || normalizeModelId(m.id) === n);
+    const entry = findCatalogEntry(r.model);
+    return !!entry && normalizeModelId(entry.id) === n;
   }
 
   /** A registry on other keys (a member's), with the same config, options and account order. */

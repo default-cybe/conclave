@@ -9,10 +9,29 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Compaction no longer gives up on the summary ("Compacted N messages without a summary") when the small model fails or is rate limited: it tries the session's model next, then the limit fallback chain, logging each model that fails. A failed-summary latch only skips the model for the session model it was set under.
+- The Mac app is signed ad hoc, so macOS no longer calls a downloaded copy "damaged". The first open still needs Open Anyway in System Settings > Privacy & Security, since the app is not notarized.
+- A chat on an effort variant only one plan lists (Antigravity's `claude-opus-5-5-high`) that hits its limit now moves to the model itself on the next ready plan or key in the owner's order (a Claude plan first) and keeps it for the session, before the usage fallback list or the refusal list offers another model. Before, it went straight to Gemini, GPT or GLM and never came back to Opus. A CLIProxyAPI cooldown on a variant now also blocks the model itself on that plan, so the session does not move back to a plan that is still at its limit.
+- A model call no longer sleeps on a long retry-after. A 529 or 503 that says come back in hours (CLIProxyAPI with a plan's credits spent) counts as a usage limit with its reset, and the retry loop waits at most 60 seconds; a longer wait fails over to the next account or model, or parks the session until the reset, and a subagent reports to its parent instead of hanging in running.
+- A subagent or workflow agent that makes no progress past the stuck threshold no longer waits on an Inbox answer nobody gives. Its call is cut and it runs once on its fallback model (the parent's, else the hub default); if that is quiet too, or there is none, it stops and its parent gets an error result. A stall inside a tool with no time limit of its own (an MCP tool) skips the failover, so the tool does not run twice, and the error names the tool. If a cut does not end the loop, the next check raises the usual Inbox item. A foreground Task whose child failed now returns that error instead of a bare "(the subagent produced no final answer)".
+
 ### Changed
 
+- Android: a shared PNG, JPEG, WebP or GIF file shows in the chat above its card, like the web. Animated GIF and WebP play on Android 9 and later and show their first frame below. Tap the image to open it. SVG never renders, and files over 20 MB stay a card only.
+- Google (Antigravity) plans show the raw paid-credit balance and plan tier (AI Pro, AI Ultra) in Accounts and Usage. The hub reads `loadCodeAssist` through CLIProxyAPI with the credential's own token. Credits remain informational, without an invented percentage or quota, and never block ordinary model access. Provider cooldowns still apply.
+- Harness parity for GPT, Gemini and GLM. `bun bench/checks/model-parity.ts` checks ten things per model on its own wire with no model calls: tool calls, Delegate, Workflow, ToolSearch, file reads, images, PDFs, zips, structured output and text attachments. GLM-5.3 now gets an attached PDF as text a vision model wrote, not "not readable": at most 2 new PDFs per request, only from a model the catalog says reads them, and a transcription cut at its 16,000-token limit says later pages are missing. `bun run test` now runs the parity check. Gemini 3 behind a Chat Completions gateway gets its thought signature back on tool calls. Models other than Claude get a short "Using Conclave's tools" section in the system prompt.
+- Android Usage: pull to refresh shows the stored numbers at once, then asks the hub to re-read plan usage (`POST /api/limits/refresh`) and reloads the summaries with the records it imported. Members, who may not force a re-read, keep the stored values with no error toast. Each limit card says how old its numbers are ("read from OAuth, updated 3m ago"). Opening the page still reads only the stored values.
+- Imported Claude Code chats keep the model they ran on (`meta.import.model`), and chats imported earlier get it on their next sync. With the Claude Code engine off, the chat goes on with that model when its provider is set up and still serves it, else the default model, both at import and on the first turn of a chat still on Claude Code. Chats an earlier import already put on the default model stay on it.
+- A model call that fails with a provider error (a 5xx, a 400, a network error or a timeout; not a sign-in error, a usage limit or a stop) in agent, chat or plan mode now retries once on the next model of the usage or refusal fallback list, for that turn only, with a visible "X failed, retrying on Y" notice. If that retry also fails, the "Retry with another model" button shows as before.
 - Android chat: the subagents one message starts are one card ("3 subagents, 2 running, 1 failed") with each subagent's named row under it, as on the web.
 - The base prompt tells agents that "run a workflow" means the Workflow tool; Task subagents alone are not a workflow.
+
+### Added
+
+- Window starter for Google (Antigravity) plans: it goes by the 5 hour window of the model it sends, so the cheapest Gemini Flash starts the `5h gemini` window right after its reset. An owner-picked Claude or GPT model goes by the `5h 3p` window. Before, these plans showed "No 5 hour window".
+- Resume now works after Stop too. A turn that Stop or a hub restart cut can go on from the session menu (web and Android): Resume starts a new turn on the stored transcript with a reminder to continue where it stopped. Subagent and workflow agent sessions do not get it (they resume through their parent or run), and a rewind clears it. The Android chat menu also gets Pause and Resume.
 
 ## [0.4.29] - 2026-10-25
 

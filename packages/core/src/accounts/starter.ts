@@ -49,7 +49,7 @@ import { logger } from '../util/log';
 import { validZone, wallAt, zonedTime } from './period';
 import { bareModel } from './policy';
 import { vendorOfModel } from './vendors';
-import { annotateWindow, governing, windowFull, windowScope } from './windows';
+import { annotateWindow, governing, windowApplies, windowFull } from './windows';
 
 const log = logger('starter');
 
@@ -278,11 +278,11 @@ export function pinFor(f: StarterFacts, all: StarterFacts[], model: string): str
 
 const annotated = (w: LimitWindow) => (w.kind ? w : annotateWindow(w));
 
-/** The plan's 5 hour window, the newest reading: a session window for every model. */
-export function fiveHour(windows: LimitWindow[]): LimitWindow | undefined {
+/** The plan's 5 hour window, the newest reading: a session window for every model, or one scoped to the model (Antigravity's "5h gemini", "5h 3p"). */
+export function fiveHour(windows: LimitWindow[], model?: string): LimitWindow | undefined {
   return windows
     .map(annotated)
-    .filter((w) => w.kind === 'session' && !windowScope(w.name))
+    .filter((w) => w.kind === 'session' && windowApplies(w, model))
     .sort((a, b) => (b.observedAt ?? 0) - (a.observedAt ?? 0))[0];
 }
 
@@ -393,9 +393,9 @@ export function decide(f: StarterFacts, all: StarterFacts[], mem: StarterMemory,
   if (!f.enabled) return { state: 'waiting', reason: 'Account paused' };
   if (f.error) return { state: 'waiting', reason: f.error };
   if (!f.windows.length) return { state: 'waiting', reason: 'No usage read yet' };
-  const w5 = fiveHour(windowsWith(f, mem));
-  if (!w5) return { state: 'never', reason: 'No 5 hour window' };
   const model = modelsToTry(f, mem, now)[0];
+  const w5 = fiveHour(windowsWith(f, mem), model);
+  if (!w5) return { state: 'never', reason: 'No 5 hour window' };
   if (!model) return { state: 'setup', reason: 'Pick a model' };
   if (f.models && !f.models.some((m) => sameModel(m, model))) return { state: 'setup', reason: `Does not offer ${bareModel(model)}`, model };
   const pinned = pinFor(f, all, model);
@@ -550,7 +550,7 @@ export class WindowStarter {
       on.add(f.id);
       if (this.busy.has(f.id)) continue;
       const mem = this.mem(f.id);
-      if (observe(mem, fiveHour(windowsWith(f, mem)))) dirty = true;
+      if (observe(mem, this.fiveOf(f, mem))) dirty = true;
       if (mem.stoppedUntil && mem.stoppedUntil <= now) {
         delete mem.stoppedUntil;
         delete mem.stopReason;
@@ -602,7 +602,7 @@ export class WindowStarter {
       if (!f?.starter?.enabled) return;
       const mem = this.mem(id);
       const now = this.now();
-      observe(mem, fiveHour(windowsWith(f, mem)));
+      observe(mem, this.fiveOf(f, mem));
       if (mem.stoppedUntil && mem.stoppedUntil <= now) {
         delete mem.stoppedUntil;
         delete mem.stopReason;
@@ -618,7 +618,7 @@ export class WindowStarter {
       if (!d.wake || d.wake.at > now + 250) return;
       if (d.wake.action === 'confirm') await this.confirm(f, mem);
       else if (d.wake.action === 'check') {
-        const reset = fiveHour(windowsWith(f, mem))?.resetsAt;
+        const reset = this.fiveOf(f, mem)?.resetsAt;
         await this.deps.read(id, { usage: true }).catch((err) => log.debug(`read before a reset: ${(err as Error).message}`));
         mem.checkedFor = reset;
       } else if (d.wake.action === 'fire') await this.fire(f, all, mem);
@@ -630,6 +630,11 @@ export class WindowStarter {
       this.planned.delete(id);
       this.plan();
     }
+  }
+
+  /** The 5 hour window of the model it sends or would send. */
+  private fiveOf(f: StarterFacts, mem: StarterMemory, windows = windowsWith(f, mem)): LimitWindow | undefined {
+    return fiveHour(windows, mem.sending?.model ?? modelsToTry(f, mem, this.now())[0]);
   }
 
   private async fire(f: StarterFacts, all: StarterFacts[], mem: StarterMemory): Promise<void> {
@@ -675,7 +680,7 @@ export class WindowStarter {
       });
       mem.lastModel = pinned;
       const at = this.now();
-      const w = fiveHour(res.windows.map((x) => annotateWindow(x, { source: 'headers', observedAt: at })));
+      const w = fiveHour(res.windows.map((x) => annotateWindow(x, { source: 'headers', observedAt: at })), pinned);
       if (w) mem.own = w;
       else delete mem.own;
       mem.sending = { at: start, model: pinned, step: 0 };
@@ -691,7 +696,7 @@ export class WindowStarter {
     await this.deps.read(f.id, { usage: s.step >= CONFIRM_USAGE_FROM }).catch((err) => log.debug(`read after a start: ${(err as Error).message}`));
     const now = this.now();
     const after = this.deps.facts().find((x) => x.id === f.id) ?? f;
-    const w = fiveHour(windowsWith(after, mem));
+    const w = this.fiveOf(after, mem);
     observe(mem, w);
     if (windowStarted(mem, w, s.at, now)) {
       this.succeeded(after, mem);
@@ -706,10 +711,10 @@ export class WindowStarter {
 
   private succeeded(f: StarterFacts, mem: StarterMemory): void {
     const now = this.now();
-    const reset = fiveHour(windowsWith(f, mem))?.resetsAt;
+    const reset = this.fiveOf(f, mem)?.resetsAt;
     delete mem.sending;
     // the window from its own response stays until a newer reading of the account comes
-    const read = fiveHour(f.windows)?.observedAt;
+    const read = this.fiveOf(f, mem, f.windows)?.observedAt;
     if (mem.own && read !== undefined && read >= (mem.own.observedAt ?? 0)) delete mem.own;
     mem.lastSuccess = now;
     mem.failures = 0;

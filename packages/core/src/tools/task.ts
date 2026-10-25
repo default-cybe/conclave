@@ -99,6 +99,11 @@ export const TaskTool: Tool<TaskInput> = {
           meta: { sessionId: res.sessionId, agent, background: true },
         };
       }
+      // a loop error (a stall, a provider failure) reaches the parent as an error, with what the child had so far
+      if (res.error) {
+        const last = res.text?.startsWith('(the subagent produced no final answer)') ? '' : `. Its last message:\n${(res.text ?? '').slice(0, 2_000)}`;
+        return fail(`Subagent "${agent}" failed: ${res.error}${last}`, { sessionId: res.sessionId, agent });
+      }
       return { content: res.text?.trim() || '(The subagent finished without a final message.)', meta: { sessionId: res.sessionId, agent } };
     } catch (err) {
       if (ctx.signal.aborted) return fail('Subagent was interrupted.');
