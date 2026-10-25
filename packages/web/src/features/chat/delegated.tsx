@@ -20,6 +20,7 @@ import { hrefOf } from '@/lib/recents';
 import { delegateWho, fromWords } from '@/lib/sidebar';
 import { attempt, upsertSession, useHub, type ToolRun } from '@/store/store';
 import { TextAction } from '@/components/ui/Section';
+import { AgentGlyph, glyphState, useLiveSlot } from '@/components/motion';
 import { useSubagent } from './ToolRows';
 import { subagentLead } from './liveTasks';
 
@@ -78,11 +79,17 @@ export function DelegatedLine({ session, className }: { session: Session; classN
 export function DelegateCallLine({ tool, result, run, sessionId }: { tool: ToolUseBlock; result?: ToolResultBlock; run?: ToolRun; sessionId: string }) {
   const sub = useSubagent({ tool, result, run }, sessionId);
   const lead = subagentLead(sub);
+  const state = glyphState(sub.state);
+  // only LIVE_ROWS running lines move at once; the rest draw their still frame
+  const still = useLiveSlot(state === 'running');
   return (
     <div data-delegate-line="" className="flex min-h-[25px] min-w-0 items-center gap-3 py-0.5 tx-12.5 text-fg-3 phone:tx-13.5">
-      <span className={cn('min-w-0 truncate', sub.state === 'failed' && 'text-fault')}>
+      <span className={cn('cv-state flex min-w-0 items-center gap-1.5', sub.state === 'failed' && 'text-fault')}>
+        <AgentGlyph type="delegate" state={state} still={still} />
+        <span className="min-w-0 truncate">
         {lead.verb} {sub.description}
         {sub.state === 'running' ? ', working' : sub.state === 'failed' ? ', failed' : ''}
+        </span>
       </span>
       {sub.childId && (
         <Link href={`/s/${sub.childId}`} className="link shrink-0">

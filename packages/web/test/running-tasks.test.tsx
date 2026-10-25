@@ -297,8 +297,8 @@ describe('kinds: an icon and a word per kind, workflows first', () => {
     const out = html(<TaskList tasks={[delegated, agent, flow]} />);
     expect(out.indexOf('>Workflows<')).toBeLessThan(out.indexOf('>Subagents<'));
     expect(out.indexOf('>Subagents<')).toBeLessThan(out.indexOf('>Delegated<'));
-    expect(out).toContain('data-task-icon="workflow"');
-    expect(out).toContain('data-task-icon="delegate"');
+    expect(out).toContain('data-kind="workflow"');
+    expect(out).toContain('data-kind="delegate"');
     expect(out).toContain('>Delegate<');
     expect(out).toContain('builder: ');
     expect(out).toContain('Haiku 5.5');
