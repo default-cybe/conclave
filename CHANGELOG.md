@@ -13,6 +13,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Save drafts without asking: a per-account setting (off by default, Settings > Calendar and mail) that makes the Assistant's `MailDraft` save the draft straight into Drafts with no approval card. It never sends; sending still needs approval, and the email-reading agent still cannot draft.
 
+### Fixed
+
+- Accounts: a plan's short name no longer falls back to the old one (or none) right after Save. CLIProxyAPI keeps listing the old model ids for a while, and the models read after the save took those as the truth, so the name looked unsaved and another plan could take it. The saved name now stands until the list shows it, or for up to 5 minutes, and while the list shows the old and the new name side by side the new one wins, also after those 5 minutes. A plan's model count also stays right while an old short name is still listed next to the new one, with or without bare model ids.
+
 ## [0.4.30] - 2026-10-25
 
 ### Fixed
