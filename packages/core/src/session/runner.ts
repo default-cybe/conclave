@@ -91,7 +91,12 @@ export function stepBudgetNote(used: number, max: number): string {
 }
 
 export function stepLimitReminder(max: number): string {
-  return `You reached the step limit for this turn (${max} steps). Do not call tools. Reply with what you finished, what is left, and the next step you recommend.`;
+  return `You reached the step limit for this turn (${max} steps). Do not call tools. Reply with a final report: what you did, what you found, what is left, and the next step you recommend.`;
+}
+
+/** Sent before the toolless final-answer call after the loop guard stopped the turn. */
+export function loopStopReminder(why: string): string {
+  return `The loop guard stopped your tool calls for this turn: ${why} Do not call tools. Reply with a final report: what you did, what you found, what is left, and what is blocking you.`;
 }
 
 /** No visible text and no tool calls. Thinking alone does not count as a reply. */
@@ -1357,6 +1362,7 @@ export class SessionRunner {
         const use = byId.get(r.toolUseId);
         if (!use || r.meta?.loopGuard === 'refused') continue;
         const v = guard.after(use.name, use.input, r);
+        if (v.level !== 'ok') log.info(`loop guard ${v.level} ${v.code} in ${this.id}: ${use.name}`);
         if (v.level === 'halt' && !halt) halt = { verdict: v, use };
         else if (v.level === 'warn' && v.code && !guardWarned.has(v.code)) {
           guardWarned.add(v.code);
@@ -1371,8 +1377,8 @@ export class SessionRunner {
         guard.stop(halt.use.name, halt.use.input);
         const why = halt.verdict.message ?? 'The same calls keep repeating.';
         if (guard.unattended || guardHalts > 1) {
+          // the reason reaches the model once, in loopStopReminder before the final-answer call
           guardStop = why;
-          extra.push(reminder(`Loop guard: ${why} The turn was stopped.`));
         } else {
           // interactive: one strong warning first
           extra.push(reminder(`Loop guard: ${why} This is the last warning in this turn: if the loop guard trips again, the turn ends. Change your approach now, or stop and tell the user what is blocking you.`));
@@ -1395,6 +1401,8 @@ export class SessionRunner {
       if (guardStop) {
         engine.audit(this.id, 'loop_guard', `${halt?.verdict.code}: ${oneLine(guardStop, 200)}`);
         engine.notice(this.id, `Loop guard stopped the turn: ${guardStop}`, 'warning');
+        // no more tools, but one toolless call so the turn (and a subagent's result) ends with a report
+        await this.finalAnswerTurn(currentModel, mode, signal, loopStopReminder(guardStop), { loopGuard: halt?.verdict.code ?? 'stopped' });
         return end('loop_capped', false);
       }
       if (stopRequested) {
@@ -1404,7 +1412,7 @@ export class SessionRunner {
       if (this.session.status === 'waiting_reset') return end('rate_limit', false);
     }
     // at the cap: one more call that may not use tools, so the model reports instead of stopping mid-task
-    await this.wrapUpAtStepLimit(currentModel, mode, maxSteps, signal);
+    await this.finalAnswerTurn(currentModel, mode, signal, stepLimitReminder(maxSteps), { stepLimit: maxSteps });
     engine.notice(this.id, `Stopped after ${maxSteps} steps.`, 'warning');
     return end('step_limit', false);
   }
@@ -1505,13 +1513,13 @@ export class SessionRunner {
   }
 
   /**
-   * The step-limit wrap-up: a final reminder, then one call with the same tool
+   * The final-answer turn (step limit or loop-guard stop): a final reminder, then one call with the same tool
    * specs and toolChoice "none". The cached tools and system prompt hold; on
    * Anthropic the new tool choice means the messages are read again once. A provider that
    * rejects the tool choice gets one retry with tools left out. Tool calls in
    * the reply are dropped. Failures only log: the caller still posts the notice.
    */
-  private async wrapUpAtStepLimit(modelRef: string, mode: SessionMode, maxSteps: number, signal: AbortSignal): Promise<void> {
+  private async finalAnswerTurn(modelRef: string, mode: SessionMode, signal: AbortSignal, note: string, meta: Record<string, unknown>): Promise<void> {
     const engine = this.engine;
     if (signal.aborted) throw new Error('aborted');
     let resolved;
@@ -1521,7 +1529,7 @@ export class SessionRunner {
       return;
     }
     if (resolved.acp) return;
-    engine.addMessage(this.id, { role: 'user', kind: 'normal', content: [reminder(stepLimitReminder(maxSteps))], meta: { auto: true, stepLimit: maxSteps } });
+    engine.addMessage(this.id, { role: 'user', kind: 'normal', content: [reminder(note)], meta: { auto: true, ...meta } });
     const session = this.session;
     const agent = engine.agentFor(session);
     const tools = engine.toolsFor(session, agent, mode, this.depth);
@@ -1562,13 +1570,13 @@ export class SessionRunner {
         result = await call(toolSpecs.length > 0);
       } catch (err) {
         if (!(err instanceof ProviderError) || err.kind !== 'bad_request' || !toolSpecs.length) throw err;
-        log.info(`step limit wrap-up: tool choice rejected (${err.message}); retrying without tools`);
+        log.info(`final-answer turn: tool choice rejected (${err.message}); retrying without tools`);
         result = await call(false);
       }
     } catch (err) {
       engine.removeMessage(assistant.id);
       if (signal.aborted || (err instanceof ProviderError && err.kind === 'aborted')) throw err;
-      log.warn('step limit wrap-up failed', err);
+      log.warn('final-answer turn failed', err);
       return;
     }
     engine.addStats(this.id, result.usage);
