@@ -102,7 +102,8 @@ export function assess(a: AccountView, now: number, model?: string): Verdict {
   if (a.budget && a.budget.hardStop !== false && a.budget.usd > 0 && a.budget.spentUsd >= a.budget.usd) {
     return { ...v, state: 'budget', reason: 'Budget spent', until: a.budget.periodEnd };
   }
-  const cooling = (a.cooldowns ?? []).filter((c) => c.until > now && (!c.model || !model || bareModel(c.model) === bareModel(model)));
+  // CLIProxyAPI keys a cooldown by the plan's own id: Antigravity's claude-opus-5-5-high also blocks claude-opus-5-5 there
+  const cooling = (a.cooldowns ?? []).filter((c) => c.until > now && (!c.model || !model || variantBase(bareModel(c.model)) === variantBase(bareModel(model))));
   if (cooling.length) {
     const last = cooling.reduce((x, y) => (y.until > x.until ? y : x));
     return { ...v, state: 'cooldown', reason: COOLDOWN_WORDS[last.reason] ?? 'Resting after errors', until: last.until };

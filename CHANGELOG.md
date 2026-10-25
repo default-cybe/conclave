@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- A chat on an effort variant only one plan lists (Antigravity's `claude-opus-5-5-high`) that hits its limit now moves to the model itself on the next ready plan or key in the owner's order (a Claude plan first) and keeps it for the session, before the usage fallback list or the refusal list offers another model. Before, it went straight to Gemini, GPT or GLM and never came back to Opus. A CLIProxyAPI cooldown on a variant now also blocks the model itself on that plan, so the session does not move back to a plan that is still at its limit.
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed

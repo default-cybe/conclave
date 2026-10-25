@@ -13,7 +13,7 @@ import { createEngine } from '../../src/engine';
 import type { Engine } from '../../src/engine/engine';
 import { accountsOf } from '../../src/accounts/attached';
 import type { CliproxyCredentialFacts } from '../../src/accounts/service';
-import { handleLimit, resumeAfterReset, switchBack } from '../../src/session/limits';
+import { handleLimit, limitFallback, nextAccount, resumeAfterReset, switchBack } from '../../src/session/limits';
 import { completeText } from '../../src/session/stream';
 import { runSubagent } from '../../src/engine/subagent';
 import { ProviderError } from '../../src/providers/types';
@@ -430,6 +430,57 @@ describe('the usage fallback list (models.limitFallback): by model, each on its 
     }
   });
 
+  test("Antigravity's effort variant at its limit: the model itself on the Claude plan first, then down the list", async () => {
+    const gptAccounts = IDS.map((id) => ({ id, label: `${id}-gpt`, vendor: 'openai', kind: 'subscription', credential: `codex-${id}-gpt.json` }));
+    const out = { reason: 'quota', until: Date.now() + 3_600_000 };
+    // Antigravity (no prefix) lists only the -high variant and is at its limit
+    const feedAll = (claudeOut: boolean) =>
+      accountsOf(engine)!.setCliproxy({
+        provider: 'cliproxy',
+        management: true,
+        refreshedAt: Date.now() - 1000,
+        credentials: [
+          { ...cred('neu'), name: 'neu.json', provider: 'claude', models: [{ id: 'claude-opus-5-5' }], cooldowns: claudeOut ? [out] : [] },
+          { ...cred('ag'), name: 'ag.json', provider: 'antigravity', prefix: undefined, models: [{ id: 'claude-opus-5-5-high' }], cooldowns: [out] },
+          ...IDS.map((id) => cred(`${id}-gpt`, { models: SOL_MINI })),
+        ],
+      });
+    engine.config.update({
+      models: {
+        accounts: [
+          { id: 'neu', label: 'NEU Claude', vendor: 'anthropic', kind: 'subscription', credential: 'neu.json' },
+          { id: 'ag', label: 'Antigravity', vendor: 'gemini', kind: 'subscription', credential: 'ag.json' },
+          ...gptAccounts,
+        ],
+      },
+    } as never);
+    const HIGH = 'cliproxy/claude-opus-5-5-high';
+    try {
+      await withUsage([HIGH, 'cliproxy/gpt-6-mini'], async () => {
+        feedAll(false);
+        // the list's own walk: Opus 5.5 on the Claude plan, not the next model
+        expect(limitFallback(engine, undefined, HIGH)).toBe('cliproxy/neu/claude-opus-5-5');
+        // a turn moves there and the session keeps it, with the failover recorded for switchBack
+        const s = await engine.createSession({ cwd, title: 'usage variant base', model: HIGH } as never);
+        expect(await limit(s.id, HIGH)).toEqual({ fallback: 'cliproxy/neu/claude-opus-5-5' });
+        expect(engine.getSession(s.id)!.model).toBe('cliproxy/neu/claude-opus-5-5');
+        expect(engine.getSession(s.id)!.meta?.limitSwitch).toMatchObject({ from: HIGH, to: 'cliproxy/neu/claude-opus-5-5' });
+        // no plan of Opus 5.5 ready: the list goes on as before
+        feedAll(true);
+        expect(limitFallback(engine, undefined, HIGH)).toBe('cliproxy/personal-gpt/gpt-6-mini');
+        const t = await engine.createSession({ cwd, title: 'usage variant next', model: HIGH } as never);
+        expect(await limit(t.id, HIGH)).toEqual({ fallback: 'cliproxy/personal-gpt/gpt-6-mini' });
+      });
+      // the refusal list (usage list off) gets the model itself first too
+      await withUsage([], async () => {
+        feedAll(false);
+        expect(limitFallback(engine, undefined, HIGH)).toBe('cliproxy/neu/claude-opus-5-5');
+      }, false);
+    } finally {
+      engine.config.update({ models: { accounts: gptAccounts } } as never);
+    }
+  });
+
   test('off or unset: the refusal list as before', async () => {
     const s = await engine.createSession({ cwd, title: 'usage unset', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
     solBlocked();
@@ -439,6 +490,101 @@ describe('the usage fallback list (models.limitFallback): by model, each on its 
     await withUsage([], async () => {
       expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/gpt-6-nano' });
     });
+  });
+});
+
+describe("an effort variant at its limit (Antigravity's claude-opus-5-5-high)", () => {
+  const gptAccounts = IDS.map((id) => ({ id, label: `${id}-gpt`, vendor: 'openai', kind: 'subscription', credential: `codex-${id}-gpt.json` }));
+  const HIGH = 'cliproxy/claude-opus-5-5-high';
+  const NEU = 'cliproxy/neu/claude-opus-5-5';
+  // CLIProxyAPI keys a cooldown by the plan's own id
+  const out = (model: string) => [{ reason: 'quota', model, until: Date.now() + 3_600_000 }];
+  const feedAll = (o: { agPrefix?: string; agOut?: boolean; neuOut?: boolean } = {}) =>
+    accountsOf(engine)!.setCliproxy({
+      provider: 'cliproxy',
+      management: true,
+      refreshedAt: Date.now() - 1000,
+      credentials: [
+        { ...cred('neu'), name: 'neu.json', provider: 'claude', models: [{ id: 'claude-opus-5-5' }], cooldowns: o.neuOut ? out('claude-opus-5-5') : [] },
+        { ...cred('ag'), name: 'ag.json', provider: 'antigravity', prefix: o.agPrefix, models: [{ id: 'claude-opus-5-5-high' }], cooldowns: o.agOut ? out('claude-opus-5-5-high') : [] },
+        ...IDS.map((id) => cred(`${id}-gpt`, { models: [{ id: 'gpt-6-sol' }, { id: 'gpt-6-mini' }] })),
+      ],
+    });
+  const claudeAccounts = [
+    { id: 'neu', label: 'NEU Claude', vendor: 'anthropic', kind: 'subscription', credential: 'neu.json' },
+    { id: 'ag', label: 'Antigravity', vendor: 'gemini', kind: 'subscription', credential: 'ag.json' },
+  ];
+  const settle = (id: string) => {
+    const ls = engine.getSession(id)!.meta?.limitSwitch as Record<string, unknown>;
+    engine.patchMeta(id, { limitSwitch: { from: ls.from, to: ls.to, at: Date.now() - 16 * 60_000 } });
+  };
+  beforeAll(() => engine.config.update({ models: { accounts: [...claudeAccounts, ...gptAccounts] } } as never));
+  afterAll(() => engine.config.update({ models: { accounts: gptAccounts, routes: [] } } as never));
+
+  test('back on the Antigravity plan only after its reset, not while its -high cooldown runs', async () => {
+    // the owner's order puts Antigravity above the Claude plan for Opus
+    engine.config.update({ models: { routes: [{ vendor: 'anthropic', match: 'claude-opus-5-5', order: ['ag', 'neu'] }] } } as never);
+    try {
+      feedAll({ agOut: true });
+      const s = await engine.createSession({ cwd, title: 'variant back', model: HIGH } as never);
+      expect(await limit(s.id, HIGH)).toEqual({ fallback: NEU });
+      settle(s.id);
+      expect(switchBack(engine, s.id)).toBeUndefined();
+      expect(engine.getSession(s.id)!.model).toBe(NEU);
+      feedAll();
+      expect(switchBack(engine, s.id)).toBe(HIGH);
+      expect(engine.getSession(s.id)!.meta?.limitSwitch).toBeUndefined();
+    } finally {
+      engine.config.update({ models: { routes: [] } } as never);
+    }
+  });
+
+  test('a prefixed variant moves to the model itself; the refusal walk (exact) never goes to the model\'s other plans', async () => {
+    feedAll({ agPrefix: 'ag' });
+    const s = await engine.createSession({ cwd, title: 'variant prefixed', model: 'cliproxy/ag/claude-opus-5-5-high' } as never);
+    expect(nextAccount(engine, s.id, 'cliproxy/ag/claude-opus-5-5-high', { exact: true })).toBeUndefined();
+    expect(await limit(s.id, 'cliproxy/ag/claude-opus-5-5-high')).toEqual({ fallback: NEU });
+    // unprefixed: the refusal walk's entry on Antigravity does not go to the Claude plan, which may be the one that refused
+    feedAll({ agOut: true });
+    const t = await engine.createSession({ cwd, title: 'variant exact', model: HIGH } as never);
+    expect(nextAccount(engine, t.id, HIGH)?.ref).toBe(NEU);
+    expect(nextAccount(engine, t.id, HIGH, { exact: true })).toBeUndefined();
+  });
+
+  test("a member's unprefixed variant does not move", async () => {
+    feedAll({ agOut: true });
+    const memberId = engine.people.create({ name: 'vera' }).id;
+    const entry: MemberPlanEntry = { config: { type: 'openai', baseUrl: `http://127.0.0.1:${cpa.port}/v1`, models: ['claude-opus-5-5-high', 'claude-opus-5-5', 'm-neu/claude-opus-5-5-high', 'm-neu/claude-opus-5-5'] } as never, apiKey: 'member-key' };
+    engine.access.setPlans({
+      entry: (id) => (id === memberId ? entry : undefined),
+      count: (id) => (id === memberId ? 1 : 0),
+      onChange: () => () => {},
+      readyAccounts: (id) => (id === memberId ? [{ id: 'm-neu', label: 'm-neu', kind: 'subscription', prefix: 'm-neu' } as unknown as AccountDto] : []),
+    });
+    try {
+      const s = await engine.createSession({ cwd, title: 'member variant', model: HIGH } as never, memberId);
+      expect(nextAccount(engine, s.id, HIGH)).toBeUndefined();
+    } finally {
+      engine.access.setPlans(undefined);
+    }
+  });
+
+  test('the base step takes a ready API key after the plans, and skips it when its budget is spent', async () => {
+    engine.config.update({
+      models: { accounts: [...claudeAccounts, { id: 'api-anthropic', label: 'Anthropic key', vendor: 'anthropic', kind: 'api', provider: 'anthropic' }, ...gptAccounts], limitFallback: { enabled: true, models: [HIGH, 'cliproxy/gpt-6-mini'] } },
+      providers: { anthropic: { type: 'anthropic', baseUrl: 'http://127.0.0.1:9', apiKey: 'test-key-not-real', enabled: true, models: ['claude-opus-5-5'] } },
+    } as never);
+    try {
+      feedAll({ agOut: true, neuOut: true });
+      expect(limitFallback(engine, undefined, HIGH)).toBe('anthropic/claude-opus-5-5');
+      // the key spent more than its budget this month
+      engine.repos.usage.insert({ id: 'variant-budget', ts: Date.now(), source: 'api', provider: 'anthropic', model: 'claude-opus-5-5', inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, costUsd: 1, account: 'api-anthropic' });
+      accountsOf(engine)!.patch('api-anthropic', { budget: { usd: 0.0001, period: 'month', resetDay: 1, tz: 'UTC' } });
+      expect(accountsOf(engine)!.account('api-anthropic')!.state).toBe('budget');
+      expect(limitFallback(engine, undefined, HIGH)).toBe('cliproxy/personal-gpt/gpt-6-mini');
+    } finally {
+      engine.config.update({ models: { accounts: [...claudeAccounts, ...gptAccounts], limitFallback: { enabled: false, models: [] } }, providers: { anthropic: { enabled: false } } } as never);
+    }
   });
 });
 
