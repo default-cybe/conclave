@@ -97,6 +97,20 @@ describe("a member's code session on the hub", () => {
     expect(r.body.device).toBe(reg.deviceId);
   });
 
+  test('GET /api/assistant/home: one thread per account, the same DTO as GET /api/sessions/:id', async () => {
+    const [a, b] = await Promise.all([call(OWNER, 'GET', '/api/assistant/home'), call(OWNER, 'GET', '/api/assistant/home')]);
+    expect(a.status).toBe(200);
+    expect(b.body.id).toBe(a.body.id);
+    expect(a.body).toMatchObject({ agent: 'assistant', pinned: true, meta: { home: true } });
+    expect((await call(OWNER, 'GET', `/api/sessions/${a.body.id}`)).body).toEqual((await call(OWNER, 'GET', '/api/assistant/home')).body);
+    const hers = await call(alice.token, 'GET', '/api/assistant/home');
+    expect(hers.status).toBe(200);
+    expect(hers.body.id).not.toBe(a.body.id);
+    expect(hers.body.accountId).toBe(alice.id);
+    // the owner's thread is not hers to read
+    expect((await call(alice.token, 'GET', `/api/sessions/${a.body.id}`)).status).toBe(404);
+  });
+
   test("the owner's code session on the hub starts as before", async () => {
     const r = await call(OWNER, 'POST', '/api/sessions', { agent: 'coder', cwd: t.cwd });
     expect(r.status).toBe(200);

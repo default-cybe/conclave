@@ -636,6 +636,16 @@ on('POST', '/api/sessions', ({ body }) => {
   }
   return s;
 });
+// the one assistant thread: the session marked home, made the first time
+on('GET', '/api/assistant/home', async () => {
+  const found = [...db.sessions.values()].find((x) => x.agent === 'assistant' && x.meta?.home);
+  if (found) return found;
+  const res = await mockFetch('/api/sessions', { method: 'POST', body: JSON.stringify({ agent: 'assistant', title: 'Assistant' }) });
+  const s: Session = { ...(await res.json()), pinned: true, meta: { home: true } };
+  db.sessions.set(s.id, s);
+  emit({ type: 'session.updated', session: structuredClone(s) });
+  return s;
+});
 on('PATCH', '/api/sessions/:id', ({ params, body }) => {
   const patch = { ...body };
   if (patch.taskId === null) patch.taskId = undefined;

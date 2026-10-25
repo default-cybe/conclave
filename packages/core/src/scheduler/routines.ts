@@ -89,6 +89,17 @@ function checkWatch(input: Partial<RoutineInput>, accountId: string): void {
   if (accountId !== OWNER_ID && input.watch) throw new Error(MEMBER_WATCH_REFUSED);
 }
 
+/**
+ * The assistant home thread is the owner's own conversation: a watch reads web
+ * pages, so it never runs there. A webhook run of a home routine runs in a new
+ * session instead (engine/create.ts runRoutine); every routine has a webhook
+ * secret, so save cannot tell those apart.
+ */
+function checkPolicy(r: Routine): void {
+  if (!['new', 'reuse', 'home'].includes(r.sessionPolicy)) throw new Error('sessionPolicy must be new, reuse or home');
+  if (r.sessionPolicy === 'home' && r.watch) throw new Error('A watch reads web pages, so it cannot run in the assistant thread. Use new or reuse.');
+}
+
 function cleanExtra(input: Partial<RoutineInput>): Partial<RoutineInput> {
   const out: Record<string, unknown> = {};
   const has = (k: keyof RoutineInput) => Object.prototype.hasOwnProperty.call(input, k);
@@ -280,6 +291,7 @@ export class Routines implements RoutineService {
       updatedAt: now,
     };
     const r = applyExtra(base, extra);
+    checkPolicy(r);
     this.repos.routines.upsert(r);
     return this.reschedule(r);
   }
@@ -302,7 +314,8 @@ export class Routines implements RoutineService {
     const timing = clean.schedule !== undefined || 'timezone' in clean || clean.enabled !== undefined;
     if (timing) parseSchedule(next.schedule, next.timezone);
     // switching away from a reused session starts fresh next time
-    if (clean.sessionPolicy === 'new') next.sessionId = undefined;
+    if (clean.sessionPolicy && clean.sessionPolicy !== 'reuse') next.sessionId = undefined;
+    checkPolicy(next);
     this.repos.routines.upsert(next);
     if (timing) return this.reschedule(next);
     this.bus.emit({ type: 'routine.updated', routine: next });

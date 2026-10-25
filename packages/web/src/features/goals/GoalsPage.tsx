@@ -10,8 +10,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useParams, useSearch } from 'wouter';
 import type { GoalArea, GoalSummary } from '@conclave/core/client';
-import { api } from '@/lib/api';
-import { attempt, useHub } from '@/store/store';
+import { useHub } from '@/store/store';
+import { sendToAssistant } from '@/features/conversation/actions';
 import { cn } from '@/lib/text';
 import { useIsMobile, useMedia } from '@/lib/hooks';
 import { Page, PageHeader, usePageHeader } from '@/components/ui/Page';
@@ -59,9 +59,9 @@ function GoalPage({ id }: { id: string }) {
   );
 }
 
-/** Start a session with the assistant for a goal, the way Muse's Add goal starts a chat. */
+/** Talk a goal through in the assistant thread, the way Muse's Add goal opens its chat. */
 async function talkItThrough(navigate: (to: string) => void, text = 'I want to set a new goal.') {
-  const s = await attempt(() => api().createSession({ agent: 'assistant', title: 'New goal', prompt: text }));
+  const s = await sendToAssistant({ text });
   if (s) navigate(`/s/${s.id}`);
 }
 

@@ -1950,6 +1950,8 @@ export class ConclaveClient {
   addGoalEntry = (id: string, entry: { text: string; date?: string }) => this.request<GoalEntry>('POST', `/api/goals/${id}/entries`, entry);
   deleteGoalEntry = (id: string, entryId: string) => this.request<{ ok: true }>('DELETE', `/api/goals/${id}/entries/${entryId}`);
   assistantSettings = () => this.request<AssistantSettingsDto>('GET', '/api/assistant');
+  /** The account's one assistant thread (meta.home), made the first time; the same session as GET /api/sessions/:id. */
+  assistantHome = () => this.request<Session>('GET', '/api/assistant/home');
   setAssistantPrefs = (patch: PrefsPatch) => this.request<AssistantSettingsDto>('PATCH', '/api/assistant/prefs', patch);
   setHeartbeat = (input: { enabled?: boolean; checklist?: string }) => this.request<AssistantSettingsDto>('PUT', '/api/assistant/heartbeat', input);
   setReflection = (input: { enabled?: boolean }) => this.request<AssistantSettingsDto>('PUT', '/api/assistant/reflection', input);
