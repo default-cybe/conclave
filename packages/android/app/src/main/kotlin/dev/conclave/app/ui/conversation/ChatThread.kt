@@ -91,6 +91,9 @@ import dev.conclave.client.logic.ContextUse
 import dev.conclave.client.logic.LivePhase
 import dev.conclave.client.logic.ModelRefs
 import dev.conclave.client.logic.NextModel
+import dev.conclave.client.logic.StopCard
+import dev.conclave.client.logic.StopCards
+import dev.conclave.client.logic.TodayWords
 import dev.conclave.client.logic.PendingQueue
 import dev.conclave.client.logic.ShareWords
 import dev.conclave.client.model.ApprovalRequest
@@ -131,6 +134,9 @@ private sealed class Row2(val key: String) {
     class Asking(key: String, val model: String) : Row2(key)
     class Failed(key: String) : Row2(key)
     class Resuming(key: String, val resumeAt: Long?) : Row2(key)
+
+    /** Why the turn stopped: the reason, the evidence and the next step. */
+    class Stopped(val card: StopCard) : Row2("stopped")
 
     /** What waits on you at the end, the chat's own or a subagent's (Asks.kt); it stays in place while it confirms. */
     class Approval(val e: GapEntry<ApprovalRequest>) : Row2("a:" + e.key)
@@ -263,7 +269,11 @@ fun ChatThreadScreen(
     val approvalHold = rememberGapHold()
     val approvalRows = rememberGapList(live.approvals, { it.id }, approvalHold)
     val questionRows = rememberGapList(live.questions, { it.id })
-    val rows = remember(units, pending, awaiting, asking, failed, resuming, s?.resumeAt, startedAt, aliases, queued, approvalRows, questionRows) {
+    // the open stuck alert's "no progress since", as the web card takes it
+    val alerts by hub.alerts.collectAsStateWithLifecycle()
+    val stuckSince = alerts.firstOrNull { it.kind == "stuck" && it.reason == "idle" && it.sessionId == sessionId }?.since
+    val stop = remember(s?.status, s?.resumeAt, s?.meta, live.messages, stuckSince) { s?.let { StopCards.of(it, live.messages, stuckSince, clock = { t -> TodayWords.clock(t, java.time.ZoneId.systemDefault()) }) } }
+    val rows = remember(units, pending, awaiting, asking, failed, resuming, stop, s?.resumeAt, startedAt, aliases, queued, approvalRows, questionRows) {
         // a message that took a waiting one's place keeps that row's key, so it stays where it was and does not fade in
         val unitRows = units.indices.reversed().map { i ->
             val u = units[i]
@@ -281,6 +291,7 @@ fun ChatThreadScreen(
         if (failed && pending == null && !isErrorNotice(units.lastOrNull())) out.add(Row2.Failed("failed"))
         // a limit: still, with the time it resumes
         if (resuming && pending == null) out.add(Row2.Resuming("resuming", s?.resumeAt))
+        if (pending == null) stop?.let { out.add(Row2.Stopped(it)) }
         asking?.let { (_, model) -> out.add(Row2.Asking("asking", model)) }
         val p = pending
         val at = p?.at ?: startedAt ?: 0L
@@ -344,6 +355,11 @@ fun ChatThreadScreen(
                                 is Row2.Resuming -> Box(itemMod.padding(horizontal = 20.dp, vertical = 6.dp)) {
                                     // the reply's Knot is the grey stub above; it writes on from there when the limit resets
                                     LiveStatus(LiveState.RESUMING, resumeAt = row.resumeAt, countdown = row.resumeAt != null, label = if (row.resumeAt == null) "Resumes when the limit resets" else null, mark = turnReplyIndex < 0)
+                                }
+                                is Row2.Stopped -> Column(itemMod.padding(horizontal = 20.dp, vertical = 6.dp)) {
+                                    Text("Why this turn stopped: " + row.card.title, style = ConclaveType.body, color = Conclave.colors.fg)
+                                    Text(row.card.evidence, style = ConclaveType.body, color = Conclave.colors.fg3)
+                                    Text(row.card.next, style = ConclaveType.body, color = Conclave.colors.fg2)
                                 }
                                 // one mark moves per chat: while a reply is written, the reply has it
                                 is Row2.Asking -> Box(itemMod.padding(horizontal = 20.dp, vertical = 4.dp)) {

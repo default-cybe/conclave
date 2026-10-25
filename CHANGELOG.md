@@ -12,6 +12,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Added
 
 - Save drafts without asking: a per-account setting (off by default, Settings > Calendar and mail) that makes the Assistant's `MailDraft` save the draft straight into Drafts with no approval card. It never sends; sending still needs approval, and the email-reading agent still cannot draft.
+- A "Why this turn stopped" card at the end of a chat (web and Android): refused, usage limit, provider error, stalled, stopped by you or interrupted by a hub restart (only a turn with the "Stopped" notice counts as stopped by you, also a Stop during a tool run that can not resume; a harness error or output limit shows its own notice, not "stopped by you"), with the evidence (the notice, the refused reply, the time of the last progress) and the next step (Retry with another model and Try the next model stay on their notice). A running subagent in the running-tasks list now shows its session's last activity ("Active 2 min ago"), and "No activity for 7 min" in amber once it is quiet for 5 minutes, so a stalled task does not look alive. A task paused or waiting on your approval or answer shows no activity time. Workflow runs have no activity time on the hub yet and show none.
 
 ## [0.4.30] - 2026-10-25
 
