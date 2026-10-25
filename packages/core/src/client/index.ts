@@ -2083,7 +2083,7 @@ export class ConclaveClient {
   pimSettings = () => this.request<PimSettingsDto>('GET', '/api/pim');
   addCaldav = (input: { preset?: CaldavPreset; serverUrl: string; username: string; password: string; label?: string }) => this.request<PimAccountDto>('POST', '/api/pim/accounts/caldav', input);
   addImap = (input: { preset?: string; host: string; port?: number; security?: MailSecurity; username: string; password: string; address?: string; label?: string; draftsFolder?: string; smtp?: { host: string; port?: number; security?: MailSecurity }; send?: boolean }) => this.request<PimAccountDto>('POST', '/api/pim/accounts/imap', input);
-  updatePimAccount = (id: string, patch: { label?: string; drafts?: boolean; send?: boolean; password?: string; calendars?: Array<{ remoteId: string; read?: boolean; write?: boolean }> }) => this.request<PimAccountDto>('PATCH', `/api/pim/accounts/${id}`, patch);
+  updatePimAccount = (id: string, patch: { label?: string; drafts?: boolean; send?: boolean; autoDraft?: boolean; password?: string; calendars?: Array<{ remoteId: string; read?: boolean; write?: boolean }> }) => this.request<PimAccountDto>('PATCH', `/api/pim/accounts/${id}`, patch);
   testPimAccount = (id: string) => this.request<PimAccountDto>('POST', `/api/pim/accounts/${id}/test`);
   removePimAccount = (id: string) => this.request<{ revoked: boolean; note?: string }>('DELETE', `/api/pim/accounts/${id}`);
   setOAuthClients = (input: { googleWebClientId?: string; googleWebSecret?: string; googleDesktopClientId?: string; googleDesktopSecret?: string; microsoftClientId?: string }) => this.request<PimSettingsDto>('PUT', '/api/pim/oauth/clients', input);

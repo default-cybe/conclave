@@ -193,6 +193,19 @@ describe('mail through the email agent', () => {
     await pim.approve(p.id);
     expect(imap.boxes.get('Drafts')!.messages).toHaveLength(1);
   });
+
+  test('with Save drafts without asking on, the assistant\'s draft lands in Drafts at once', async () => {
+    t = await startTestEngine({ script: [[{ tool: 'MailDraft', input: { to: ['ana@example.com'], subject: 'Re: Lunch Thursday?', body: 'Thursday at 12 works.' } }], [{ text: 'Saved.' }]] });
+    imap = await startFakeImap();
+    const pim = pimOf(t.engine)!;
+    const acc = await pim.addImap({ host: imap.host, port: imap.port, security: 'none', username: imap.user, password: imap.password, address: 'owner@example.com' });
+    pim.updateAccount(acc.id, { autoDraft: true });
+    const s = await t.engine.createSession({ agent: 'assistant', cwd: t.cwd });
+    await t.run(s.id, 'Tell Ana Thursday works');
+    expect(t.approvals).toEqual([]);
+    expect(imap.boxes.get('Drafts')!.messages).toHaveLength(1);
+    expect(pim.proposals({ status: 'pending' })).toEqual([]);
+  });
 });
 
 describe('secrets', () => {
