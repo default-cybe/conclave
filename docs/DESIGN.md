@@ -859,3 +859,13 @@ Where it can fail: a model the catalog does not know is worth $0 at API prices, 
 **Files.** `packages/server/src/cliproxy/member.ts` (`MemberPlansManager`, `plansFor`), `packages/core/src/people/plans.ts` and `access.ts` (routing), `people/secrets.ts` (`hubValue`), `people/events.ts` (`PLAN_EVENTS`), `server/src/routes-subscriptions.ts`, `routes-accounts.ts` and `route-policy.ts`, `core/src/machine/private.ts`, `web/src/features/settings/member-plans.tsx`.
 
 Where it can fail: see ACCOUNTS.md section 12.
+
+## 54. Pause and Resume
+
+**Why.** Only Stop existed, and Stop throws away the turn. The owner wants to hold any running work and pick it up later, also after a hub restart.
+
+**How.** `engine.pauseSession` asks the session's runner to pause. The tool call in progress finishes; the agent loop checks the flag at the top of each step and stops before the next model call. A call still running after `PAUSE_GRACE_MS` (30 s) is cut as Stop cuts it and gets an interrupted result. The session's status becomes `paused` and `meta.pausedTurn` marks a cut turn. Status is stored, so boot neither resets it nor marks a paused Task child lost, and the update busy check skips it. While paused the queue holds new messages. `resumeSession` clears it: a top-level session runs an inference-only queue item (the transcript already holds the results), a Task or Delegate child goes on through `resumePausedSubagent` and reports to its parent as a background task, and a workflow agent wakes its call. A paused workflow run pauses its running agents, and agents made while paused stop at their first step. Shutdown keeps a paused run `paused`; boot does not auto-resume it, and Resume replays it from the journal.
+
+**Files.** `core/src/session/runner.ts` (`pause`, `parkPaused`, `unpause`, `resumePaused`), `engine/engine.ts`, `engine/subagent.ts`, `engine/background.ts`, `tools/background-tasks.ts`, `workflows/run.ts`, `agents.ts`, `service.ts`, `server/src/routes.ts`, `route-policy.ts`, web `ContextPanel.tsx`, `RunningTasks.tsx`, `ChatView.tsx`, `WorkflowCard.tsx`, Android `ui/conversation/Tasks.kt`.
+
+Where it can fail: a harness (ACP) turn cannot stop between its own steps, so Pause waits the 30 s and cuts it; a session waiting for a usage limit cannot be paused (Stop it); a workflow agent paused across a restart is let go and its call runs again from the start.

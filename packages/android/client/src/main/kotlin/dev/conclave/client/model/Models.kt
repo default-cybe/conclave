@@ -65,6 +65,8 @@ enum class SessionStatus {
     @SerialName("waiting_approval") WAITING_APPROVAL,
     @SerialName("waiting_input") WAITING_INPUT,
     @SerialName("waiting_reset") WAITING_RESET,
+    /** The owner paused it; it waits for Resume, also across hub restarts. */
+    @SerialName("paused") PAUSED,
     @SerialName("error") ERROR,
 }
 

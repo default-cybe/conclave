@@ -35,9 +35,9 @@ export function tasksWord(n: number): string {
   return `${n} running ${n === 1 ? 'task' : 'tasks'}`;
 }
 
-const LIVE_SESSION: readonly SessionStatus[] = ['running', 'waiting_approval', 'waiting_input', 'waiting_reset'];
+const LIVE_SESSION: readonly SessionStatus[] = ['running', 'waiting_approval', 'waiting_input', 'waiting_reset', 'paused'];
 
-/** The session is at work: a turn runs, waits on you or waits for a limit. */
+/** The session is at work: a turn runs, waits on you, waits for a limit or is paused (it stays listed until Resume). */
 export function sessionLive(status: SessionStatus | undefined): boolean {
   return !!status && LIVE_SESSION.includes(status);
 }

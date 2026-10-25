@@ -143,6 +143,8 @@ export interface StepOutcome {
   error?: string;
   /** A usage limit stopped it; run again after this time. */
   parkedUntil?: number;
+  /** The owner paused it (or its run): continue the child after Resume. */
+  paused?: boolean;
   /** Notes for the run log. */
   notes: string[];
 }
@@ -163,6 +165,8 @@ export interface StepRunOptions {
   register(sessionId: string, state: StepState): void;
   /** The child of an earlier attempt to continue (a parked call). */
   continueChild?: string;
+  /** continueChild was paused: its cut turn goes on with no new message. */
+  resumeOnly?: boolean;
   /** meta.permissions of the workflow: rules for its agents only. */
   rules?: { allow?: string[]; deny?: string[] };
   /** Harness models that did not start earlier in this run; a tier word skips them. */
@@ -233,7 +237,7 @@ export async function runStep(o: StepRunOptions): Promise<StepOutcome> {
   try {
     if (o.continueChild) {
       o.register(o.continueChild, stepState);
-      r = await continueSubagent(engine, o.continueChild, engine.config.get().limits.resumePrompt, o.signal);
+      r = await continueSubagent(engine, o.continueChild, o.resumeOnly ? undefined : engine.config.get().limits.resumePrompt, o.signal);
     } else {
       r = await runSubagent(engine, {
         parentSessionId: o.parentSessionId,
@@ -261,6 +265,7 @@ export async function runStep(o: StepRunOptions): Promise<StepOutcome> {
   const child = r.sessionId;
   if (untilAborted(o.signal)) return { value: null, childSessionId: child, error: 'stopped', notes };
   if (r.stop === 'rate_limit') return { value: null, childSessionId: child, parkedUntil: r.resumeAt ?? Date.now() + 5 * 60_000, notes };
+  if (r.stop === 'paused') return { value: null, childSessionId: child, paused: true, notes };
   if (r.error) return { value: null, childSessionId: child, error: r.error, notes };
   // a harness turn that failed (not installed, not logged in, refused to start) is an error, not an answer
   const failed = acp ? harnessError(engine, child, turnAt) : undefined;
@@ -281,6 +286,7 @@ export async function runStep(o: StepRunOptions): Promise<StepOutcome> {
       if (untilAborted(o.signal)) return { value: null, childSessionId: child, error: 'stopped', notes };
       const next = await continueSubagent(engine, child, structuredOutputNudge(structured.state), o.signal).catch((err) => ({ sessionId: child, text: '', error: (err as Error).message }) as SubagentResult);
       if (next.stop === 'rate_limit') return { value: null, childSessionId: child, parkedUntil: next.resumeAt ?? Date.now() + 5 * 60_000, notes };
+      if (next.stop === 'paused') return { value: null, childSessionId: child, paused: true, notes };
       if (next.error) return { value: null, childSessionId: child, error: next.error, notes };
     }
     if (structured.state.done) return { value: structured.state.value, childSessionId: child, notes };

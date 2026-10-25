@@ -396,6 +396,14 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
       return { answer: `btw: ${text}` };
     },
     abort: (id) => void rec('abort', id),
+    pauseSession(id) {
+      rec('pauseSession', id);
+      return sessionOr404(id);
+    },
+    async resumeSession(id) {
+      rec('resumeSession', id);
+      return sessionOr404(id);
+    },
     async rewind(id, seq, restoreFiles) {
       rec('rewind', id, seq, restoreFiles);
       return sessionOr404(id);

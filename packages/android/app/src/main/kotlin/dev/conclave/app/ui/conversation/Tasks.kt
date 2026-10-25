@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -34,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -72,6 +74,7 @@ import dev.conclave.client.logic.TranscriptReducer
 import dev.conclave.client.logic.WorkflowWords
 import dev.conclave.client.model.EngineEvent
 import dev.conclave.client.model.Session
+import dev.conclave.client.model.SessionStatus
 import dev.conclave.client.model.ToolResultBlock
 import dev.conclave.client.model.ToolUseBlock
 import dev.conclave.client.model.WorkflowCall
@@ -79,6 +82,8 @@ import dev.conclave.client.model.WorkflowCallState
 import dev.conclave.client.model.WorkflowRun
 import dev.conclave.client.model.WorkflowRunStatus
 import dev.conclave.client.motion.KnotState
+import dev.conclave.client.pauseWorkflow
+import dev.conclave.client.resumeWorkflow
 import dev.conclave.client.workflowRun
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
@@ -275,6 +280,7 @@ fun WorkflowRow(use: ToolUseBlock, result: ToolResultBlock?, callLive: Boolean, 
             },
             time = time,
             live = live,
+            paused = run?.status == WorkflowRunStatus.PAUSED,
             label = "Open the workflow",
             onClick = { open = true },
         )
@@ -372,6 +378,7 @@ fun SubagentRow(use: ToolUseBlock, result: ToolResultBlock?, callLive: Boolean, 
             },
             time = time,
             live = running,
+            paused = child?.status == SessionStatus.PAUSED,
             label = "Open the subagent",
             onClick = { open = true },
         )
@@ -383,14 +390,24 @@ fun SubagentRow(use: ToolUseBlock, result: ToolResultBlock?, callLive: Boolean, 
     }
 }
 
-/** A task row: the words, its time at the right (signal while it runs), a chevron. */
+/** A task row: the words, its time at the right (signal while it runs), a chevron. [paused]: a pause icon and "paused" in fg3. */
 @Composable
-private fun TaskRowHead(text: androidx.compose.ui.text.AnnotatedString, time: String?, live: Boolean, label: String, onClick: () -> Unit) {
+private fun TaskRowHead(text: androidx.compose.ui.text.AnnotatedString, time: String?, live: Boolean, label: String, paused: Boolean = false, onClick: () -> Unit) {
     val c = Conclave.colors
     Row(
         Modifier.fillMaxWidth().heightIn(min = 40.dp).clip(RoundedCornerShape(5.dp)).clickable(onClickLabel = label, onClick = onClick),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (paused) {
+            Icon(Icons.Outlined.Pause, contentDescription = null, modifier = Modifier.size(12.dp), tint = c.fg3)
+            Spacer(Modifier.width(8.dp))
+            Text(text, style = ConclaveType.body.copy(fontSize = 14.sp), maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
+            Text("paused", style = ConclaveType.meta, color = c.fg3, maxLines = 1)
+            Spacer(Modifier.width(4.dp))
+            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = null, modifier = Modifier.size(16.dp), tint = c.fg4)
+            return@Row
+        }
         if (live) {
             Knot(KnotState.TOOL, size = 12.dp, still = true)
             Spacer(Modifier.width(8.dp))
@@ -477,6 +494,9 @@ fun WorkflowDetail(name: String, known: WorkflowRun?, result: ToolResultBlock?, 
         HorizontalDivider(thickness = 1.dp, color = c.rule)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(WorkflowWords.runMeta(run), style = ConclaveType.metaNum, color = c.fg3, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (run.status == WorkflowRunStatus.RUNNING || run.status == WorkflowRunStatus.PAUSED) {
+                PauseResume(run.status == WorkflowRunStatus.PAUSED, pause = { it.pauseWorkflow(run.id) }, resume = { it.resumeWorkflow(run.id) })
+            }
             if (openRun != null) {
                 TextButton(onClick = {
                     onLeave()
@@ -597,12 +617,25 @@ fun SubagentDetail(use: ToolUseBlock, result: ToolResultBlock?, child: Session?,
             CodeBox(if (lines.size > 40) lines.take(40).joinToString("\n") + "\n…" else text)
         }
     }
+    if (child != null && running && child.status != SessionStatus.WAITING_RESET) {
+        PauseResume(child.status == SessionStatus.PAUSED, pause = { it.pauseSession(child.id) }, resume = { it.resumeSession(child.id) })
+    }
     if (child != null && openSession != null) {
         TextButton(onClick = {
             onLeave()
             openSession(child.id)
         }) { Text("Open the subagent's session") }
     }
+}
+
+/** Pause or Resume: paused work waits, kept across hub restarts, until Resume. A failed call shows nothing; the next event tells the state. */
+@Composable
+private fun PauseResume(paused: Boolean, pause: suspend (dev.conclave.client.ConclaveClient) -> Unit, resume: suspend (dev.conclave.client.ConclaveClient) -> Unit) {
+    val hub = LocalAppContainer.current.hub
+    val scope = rememberCoroutineScope()
+    TextButton(onClick = {
+        scope.launch { runCatching { hub.api { if (paused) resume(it) else pause(it) } } }
+    }) { Text(if (paused) "Resume" else "Pause") }
 }
 
 // ---------------------------------------------------------------------------

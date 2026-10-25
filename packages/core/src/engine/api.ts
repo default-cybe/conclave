@@ -176,6 +176,8 @@ export interface EngineApi {
   /** Tell the owner, if that kind of event notifies (config notifications.on). */
   notifyEvent(kind: keyof import('../config/schema').ConclaveConfig['notifications']['on'], notice: Omit<import('../types').Notice, 'id' | 'createdAt'>): void;
   abort(id: string): void;
+  pauseSession(id: string): Session;
+  resumeSession(id: string): Promise<Session>;
   rewind(id: string, seq: number, restoreFiles?: boolean): Promise<Session>;
   secondOpinion(id: string, input: SecondOpinionInput): Promise<void>;
   /** Switch the session's model; brief asks for a short handover (modes/handoff.ts). */

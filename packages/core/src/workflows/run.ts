@@ -72,6 +72,8 @@ export class LiveRun {
   private logCapped = false;
   private paused = false;
   private pauseWaiters: Array<() => void> = [];
+  /** Calls whose agent the owner paused, by seq: each waits for Resume, then its cut turn goes on. */
+  private pausedCalls = new Map<number, () => void>();
   private parkWaiters = new Map<number, () => void>();
   private callControllers = new Map<number, AbortController>();
   /** Calls skipped by the owner or stopped for no progress, with the text their row keeps. */
@@ -267,14 +269,36 @@ export class LiveRun {
 
   // ----- controls -----
 
+  get isPaused(): boolean {
+    return this.paused;
+  }
+
   pause(): void {
     if (this.paused) return;
     this.paused = true;
     if (this.row.status === 'running') this.setStatus('paused');
-    this.log('Paused: running calls finish, new ones wait.');
+    // running agents stop after their current tool call; one created from now on pauses at its first step (register)
+    for (const c of this.calls.values()) if (c.state === 'running' && c.childSessionId) this.pauseAgent(c.childSessionId);
+    this.log('Paused: running agents stop after their current tool call, new ones wait.');
+  }
+
+  private pauseAgent(sessionId: string): void {
+    try {
+      this.engine.runnerFor(sessionId).pause();
+    } catch (err) {
+      this.log(`could not pause ${sessionId}: ${shortError(err)}`);
+    }
+  }
+
+  /** Resume one paused agent (its session's Resume). False when that call is not paused. */
+  resumeCall(seq: number): boolean {
+    const w = this.pausedCalls.get(seq);
+    w?.();
+    return !!w;
   }
 
   resume(): void {
+    for (const w of [...this.pausedCalls.values()]) w();
     if (!this.paused) return;
     this.paused = false;
     for (const w of this.pauseWaiters.splice(0)) w();
@@ -288,6 +312,7 @@ export class LiveRun {
     this.controller.abort();
     for (const w of this.pauseWaiters.splice(0)) w();
     for (const w of this.parkWaiters.values()) w();
+    for (const w of this.pausedCalls.values()) w();
   }
 
   skip(seq: number, reason: 'owner' | 'stall' = 'owner'): boolean {
@@ -296,6 +321,7 @@ export class LiveRun {
     this.skipped.set(seq, reason === 'owner' ? SKIPPED_BY_OWNER : 'stopped after no progress (stallMs)');
     this.callControllers.get(seq)?.abort();
     this.parkWaiters.get(seq)?.();
+    this.pausedCalls.get(seq)?.();
     return true;
   }
 
@@ -590,6 +616,7 @@ export class LiveRun {
       const parentSessionId = this.row.sessionId!;
       const phaseModel = this.row.phases.find((p) => p.title === spec.phase)?.model;
       let continueChild: string | undefined;
+      let resumeOnly = false;
       for (let attempt = 1; ; attempt++) {
         this.saveCall({ ...this.calls.get(c.seq)!, state: 'running', attempt, startedAt: this.calls.get(c.seq)!.startedAt ?? Date.now() });
         const out = await runStep({
@@ -605,10 +632,12 @@ export class LiveRun {
           signal: callController.signal,
           register: (sid: string, st: StepState) => {
             this.svc.steps.set(sid, st);
+            // made while the run is paused: it stops at its first step
+            if (this.paused && sid !== continueChild) this.pauseAgent(sid);
             const cur = this.calls.get(c.seq);
             if (cur && cur.childSessionId !== sid) this.saveCall({ ...cur, childSessionId: sid });
           },
-          ...(continueChild ? { continueChild } : {}),
+          ...(continueChild ? { continueChild, ...(resumeOnly ? { resumeOnly } : {}) } : {}),
           ...(this.row.meta?.permissions ? { rules: this.row.meta.permissions } : {}),
           failedHarnesses: this.failedHarnesses,
         });
@@ -642,6 +671,22 @@ export class LiveRun {
           }
           if (this.controller.signal.aborted) throw new Error('the run was stopped');
           continueChild = out.childSessionId;
+          resumeOnly = false;
+          continue;
+        }
+        if (out.paused && out.childSessionId) {
+          // the owner paused the run or this agent: the call waits for Resume, then the agent's cut turn goes on
+          this.saveCall({ ...cur, state: 'parked', error: 'paused; it goes on after Resume' });
+          await new Promise<void>((resolve) => this.pausedCalls.set(c.seq, resolve));
+          this.pausedCalls.delete(c.seq);
+          if (this.skipped.has(c.seq) || this.controller.signal.aborted) this.engine.runnerFor(out.childSessionId).unpause();
+          if (this.skipped.has(c.seq)) {
+            this.saveCall({ ...this.calls.get(c.seq)!, state: 'skipped', error: this.skipped.get(c.seq) ?? SKIPPED_BY_OWNER, finishedAt: Date.now() });
+            return null;
+          }
+          if (this.controller.signal.aborted) throw new Error('the run was stopped');
+          continueChild = out.childSessionId;
+          resumeOnly = true;
           continue;
         }
         let value = out.value;

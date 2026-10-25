@@ -266,6 +266,7 @@ object Inbox {
             SessionStatus.RUNNING -> "Running · " + Format.durationShort(now - s.updatedAt)
             SessionStatus.WAITING_APPROVAL, SessionStatus.WAITING_INPUT -> "Waiting for you"
             SessionStatus.WAITING_RESET -> s.resumeAt?.takeIf { it > 0 }?.let { "Resumes ${clock(it)}" } ?: "Waiting for reset"
+            SessionStatus.PAUSED -> "Paused"
             SessionStatus.ERROR -> "Failed"
             SessionStatus.IDLE -> "Done"
         }
