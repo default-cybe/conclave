@@ -239,6 +239,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/goals/:id/entries': own({ id: 'goal' }),
   'DELETE /api/goals/:id/entries/:entryId': own({ id: 'goal' }),
   'GET /api/assistant': 'self',
+  'GET /api/assistant/home': 'self',
   'PATCH /api/assistant/prefs': 'self',
   'PUT /api/assistant/heartbeat': 'self',
   'PUT /api/assistant/reflection': 'self',

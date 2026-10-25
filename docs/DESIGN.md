@@ -196,6 +196,16 @@ Where it can fail: a chat started from Home while the hub is slow can finish aft
 
 Where it can fail: the heartbeat cannot see a calendar or mail without the model, so such checks run when something else changed and at least once a day; goals are not in hub backups yet.
 
+### Assistant home: one thread per account
+
+**Why.** The owner wanted the assistant to be one chat, like Hermes or Muse: separate assistant chats felt like work. Each account now has one assistant session, marked `meta.home`, pinned and titled "Assistant". `engine.assistantHome(account)` returns it or makes it (two calls at once share one promise, so they get the same session); `GET /api/assistant/home` returns it with the same shape as `GET /api/sessions/:id`, for the caller's own account. Home's composer in Assistant mode, Plan my day and Goals send into it; it never starts a session. Older assistant sessions stay in the sidebar under History and work as before. A fork of the thread is a normal session.
+
+**Routines.** `sessionPolicy: 'home'` posts a run's prompt as one queued turn in the thread, its user message marked `meta.routine`. The routine's rules and the refusals nobody can approve hold only while that turn runs (`engine.routineTurns`, the turn's start and end hooks in the runner), and the owner's messages never join it as steering. A webhook run, a run with a payload and a watch never go there: save refuses a watch, and such a run starts a new untrusted session. The Morning brief uses home. The Heartbeat stays on new: in the thread it would run on the thread's model with all its context, past its cost cap, and post every 30 minutes.
+
+**Long life.** The thread is a normal session, so auto compaction (`context.compactAt`) and memory recall apply as they do anywhere.
+
+Where it can fail: a home routine runs on the thread's model, not the routine's `model`; the composer's model pick on Home does not change the thread's model; tool results a routine's turn read (mail through the email agent) stay in the thread's context until compaction.
+
 
 ## 17. Folders across devices
 

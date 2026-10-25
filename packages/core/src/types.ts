@@ -358,8 +358,8 @@ export interface Routine {
   cwd?: string;
   device?: string;
   enabled: boolean;
-  /** new: fresh session each run. reuse: append to one session. */
-  sessionPolicy: 'new' | 'reuse';
+  /** new: fresh session each run. reuse: append to one session. home: a turn in the account's assistant home thread (never a webhook's or a watch's run: those run as new). */
+  sessionPolicy: 'new' | 'reuse' | 'home';
   sessionId?: string;
   /** on_attention: when the run fails or its reply starts with STATUS: attention or problem. */
   notify: 'always' | 'on_error' | 'on_attention' | 'never';
