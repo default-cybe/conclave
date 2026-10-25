@@ -21,6 +21,7 @@ import { isContextOnly, isToolResultOnly } from '@/features/chat/util';
 import { asksBelow, asksOf } from '@/lib/asks';
 import { AskingRow, AsideView, FailedWords, NoticeView, Reply, SwitchView, isErrorNotice } from './Reply';
 import { TryNextModel } from '@/features/chat/TryNextModel';
+import { StopCardView } from '@/features/chat/StopCardView';
 import { PendingMessage, QueuedBubble, UserMessage } from './UserMessage';
 import { asideTargets, patchPending, rememberAside, setAsking, setPending, setScrolled, useChatUi, type Pending } from './state';
 import { buildUnits, livePhase, replyEnded, type Unit } from './units';
@@ -343,6 +344,7 @@ export function ChatMessages({ chatId, session }: { chatId: string; session?: Se
             {/* the last reply carries a failure or a limit next to its Knot; these are for a chat with no reply to carry it */}
             {failed && session && !carried && <ErrorLine session={session} user={lastUser} />}
             {resuming && session && !carried && <ResumeLine session={session} />}
+            {session && !pending && <StopCardView session={session} className="mt-4" />}
             {/* what waits on you sits at the end, like a permission prompt (a hook can ask, even in a chat, and so can a subagent) */}
             {session && <Asks sessionId={session.id} />}
           </div>
