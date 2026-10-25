@@ -478,7 +478,11 @@ fun ChatThreadScreen(
             deviceName = null,
             onDismiss = { sheet = false },
             actions = buildList {
+                if (running) add(SheetAction("Pause", onClick = then { vm.pause() }))
                 if (running) add(SheetAction("Stop", onClick = then { vm.stop() }))
+                // paused, or a turn Stop or a hub restart cut: Resume continues it
+                val stoppedTurn = (s.meta?.get("stoppedTurn") as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
+                if (s.status == SessionStatus.PAUSED || (s.status == SessionStatus.IDLE && stoppedTurn)) add(SheetAction("Resume", onClick = then { vm.resume() }))
                 add(SheetAction("Rename", onClick = then { renaming = true }))
                 if (ShareWords.canSend(s)) add(SheetAction("Send to friend", onClick = then { sendingToFriend = true }))
                 add(SheetAction("Archive", onClick = then { vm.archive(onDone = onNewChat) }))

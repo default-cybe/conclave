@@ -91,7 +91,7 @@ import type { HarnessAdapter } from '../acp/types';
 import { harnessOffWords } from '../acp/harness-off';
 import type { Tool } from '../tools/types';
 import { builtinTools, filterTools } from '../tools';
-import { QUEUE_KEY, SessionRunner, type StoredQueued } from '../session/runner';
+import { QUEUE_KEY, SessionRunner, canResumeStopped, type StoredQueued } from '../session/runner';
 import { RunnerExtensions } from '../session/runner-ext';
 import { OfflineMachine } from '../projects/offline';
 import { checkMcpOff, mcpOff, sessionAllowsServerTool } from '../session/connectors';
@@ -339,7 +339,8 @@ export class Engine implements EngineApi {
     const active = this.repos.sessions.listActive();
     for (const s of active) {
       if (s.status === 'running' || s.status === 'waiting_approval' || s.status === 'waiting_input') {
-        this.repos.sessions.update({ ...s, status: 'idle', updatedAt: Date.now() });
+        // the cut turn can go on with Resume (resumeSession)
+        this.repos.sessions.update({ ...s, status: 'idle', meta: canResumeStopped(s) ? { ...s.meta, stoppedTurn: true } : s.meta, updatedAt: Date.now() });
       }
     }
     // Failed-inference boundaries live only in runners; never advertise replay after a restart.
@@ -928,14 +929,19 @@ export class Engine implements EngineApi {
     return this.requireSession(id);
   }
 
-  /** Resume a paused session: its cut turn continues with no new message; a workflow agent's run or a Task child's report goes on. */
+  /**
+   * Resume a paused session: its cut turn continues with no new message; a
+   * workflow agent's run or a Task child's report goes on. A turn Stop or a
+   * restart cut (meta.stoppedTurn) goes on as a new turn with a continue reminder.
+   */
   async resumeSession(id: string): Promise<Session> {
     const s = this.requireSession(id);
     const runner = this.runnerFor(id);
     if (s.status !== 'paused') {
       // pause asked, the turn not yet stopped: it just goes on
       if (runner.isPaused) runner.unpause();
-      else throw new EngineError(409, 'This session is not paused.');
+      else if (s.meta?.stoppedTurn && s.status === 'idle' && !runner.busy && canResumeStopped(s)) runner.resumeStopped();
+      else throw new EngineError(409, 'This session is not paused or stopped.');
       return this.requireSession(id);
     }
     const runId = (s.meta?.workflow as { runId?: string } | undefined)?.runId;
@@ -948,7 +954,11 @@ export class Engine implements EngineApi {
 
   async rewind(id: string, seq: number, restoreFiles = false): Promise<Session> {
     const s = this.requireSession(id);
-    this.runners.get(id)?.abort();
+    const runner = this.runners.get(id);
+    runner?.abort();
+    // the cut turn settles first, so it neither writes past the cut nor marks it for Resume after Stop
+    await runner?.waitIdle();
+    this.patchMeta(id, { stoppedTurn: undefined });
     // Keeps messages up to and including `seq`. Files go back to how they were right
     // after that message: the first checkpoint taken at or after it (a checkpoint at
     // seq N is taken when prompt N arrives, before its tools run).

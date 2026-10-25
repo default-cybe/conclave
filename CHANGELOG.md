@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Resume now works after Stop too. A turn that Stop or a hub restart cut can go on from the session menu (web and Android): Resume starts a new turn on the stored transcript with a reminder to continue where it stopped. Subagent and workflow agent sessions do not get it (they resume through their parent or run), and a rewind clears it. The Android chat menu also gets Pause and Resume.
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed
