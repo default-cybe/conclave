@@ -114,7 +114,7 @@ export function TaskTitle({ task, still }: { task: RunningTask; still?: boolean 
   const kind = taskKind(task);
   return (
     <>
-      <AgentGlyph type={task.kind === 'subagent' ? task.agent : kind} state={task.waiting ? 'waiting' : 'running'} still={still} className="mr-1.5 inline align-[-2px]" label={TASK_KIND_LABEL[kind]} />
+      <AgentGlyph type={task.kind === 'subagent' && !task.handedTo ? task.agent : kind} state={task.waiting ? 'waiting' : 'running'} still={still} className="mr-1.5 inline align-[-2px]" label={TASK_KIND_LABEL[kind]} />
       <span className="text-fg-2">{TASK_KIND_LABEL[kind]}</span>
       <span className="text-fg-4"> · </span>
       {task.kind === 'workflow' ? (
