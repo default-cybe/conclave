@@ -111,7 +111,7 @@ import type {
 } from './import';
 export type * from './import';
 // ----- folders across devices DTOs: block "projects", docs/design/ROUND-IMPORT-PATHS-WORKFLOWS.md 2.12 -----
-import type { DeviceFoldersDto, IdentifyResult, MoveInput, MoveResult, ProjectDto, SessionLocationDto } from './projects';
+import type { DeviceFoldersDto, HubBackInput, HubBackPreview, HubCopyPreview, IdentifyResult, MoveInput, MoveResult, ProjectDto, SessionLocationDto } from './projects';
 export type * from './projects';
 // ----- repo sessions on GitHub, docs/DESIGN.md 30 -----
 import type { CleanupInput, GithubBranchesDto, GithubRepoDto, GithubStatusDto, OpenPrInput, PrDraft, PushInput, PushResult, RepoSessionDto, RepoSessionInput } from './github';
@@ -1779,6 +1779,14 @@ export class ConclaveClient {
   // ----- folders across devices, docs/design/ROUND-IMPORT-PATHS-WORKFLOWS.md 2.12 -----
   /** Move a session to another device or folder. Not resolved: the result lists candidates for Choose folder. */
   moveSession = (id: string, input: MoveInput) => this.request<MoveResult>('POST', `/api/sessions/${id}/move`, input);
+  /** Move to hub: copy the session's whole folder to the hub, then run there. Starts it; hubcopy.progress events follow. */
+  moveToHub = (id: string) => this.request<{ line: string }>('POST', `/api/sessions/${id}/move`, { device: 'local', copy: true });
+  hubCopyPreview = (id: string) => this.request<HubCopyPreview>('GET', `/api/sessions/${id}/hub-copy`);
+  /** Cancel a running Move to hub or Move back. */
+  cancelHubCopy = (id: string) => this.request<{ cancelled: boolean }>('DELETE', `/api/sessions/${id}/hub-copy`);
+  hubBackPreview = (id: string) => this.request<HubBackPreview>('GET', `/api/sessions/${id}/hub-copy/back`);
+  /** Move back: copy the hub's changes to the device, then run there. */
+  moveBack = (id: string, input: HubBackInput) => this.request<{ line: string }>('POST', `/api/sessions/${id}/hub-copy/back`, input);
   /** Where the session runs, and what the location banner should say. refresh checks the copy again. */
   sessionLocation = (id: string, refresh = false) => this.request<SessionLocationDto>('GET', `/api/sessions/${id}/location`, undefined, { refresh: refresh || undefined });
   identifyFolder = (input: { device: string; path: string; sessionId?: string; projectId?: string }) => this.request<IdentifyResult>('POST', '/api/projects/identify', input);

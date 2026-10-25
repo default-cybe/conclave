@@ -91,6 +91,11 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'DELETE /api/sessions/:id': SESSION,
   'POST /api/sessions/:id/move': SESSION,
   'GET /api/sessions/:id/location': SESSION,
+  // Move to hub writes to the hub's own disk: the owner's only
+  'GET /api/sessions/:id/hub-copy': 'admin',
+  'DELETE /api/sessions/:id/hub-copy': 'admin',
+  'GET /api/sessions/:id/hub-copy/back': 'admin',
+  'POST /api/sessions/:id/hub-copy/back': 'admin',
   'POST /api/sessions/:id/fork': SESSION,
   'GET /api/sessions/:id/messages': SESSION,
   'POST /api/sessions/:id/messages': SESSION,

@@ -153,6 +153,8 @@ data class MoveInput(
     val allowMismatch: Boolean? = null,
     val withoutFiles: Boolean? = null,
     val clone: CloneInput? = null,
+    /** With device "local": copy the whole folder to the hub first (Move to hub). */
+    val copy: Boolean? = null,
 )
 
 /** Why a move found no folder. */
