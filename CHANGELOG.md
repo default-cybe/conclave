@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- The iPhone app checks its bundled web version against the hub's. When they differ (the hub updated, the app did not), a line at the top says the app has an older version and to rebuild or reinstall it; Later hides it until the hub's version changes again. The app's version is the last git release tag at build time; a build without tags skips the check, and the app no longer also shows the reload line.
+
 ## [0.4.30] - 2026-10-25
 
 ### Fixed
