@@ -327,6 +327,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/import/batches/:id/cancel': own({ id: 'importBatch' }),
   'POST /api/import/batches/:id/undo': own({ id: 'importBatch' }),
   'POST /api/import/upload': 'self',
+  'POST /api/import/merge-duplicates': 'self',
   'POST /api/import/sessions/:sessionId/sync': own({ sessionId: 'session' }),
   'GET /api/import/retention': 'self',
   'POST /api/import/retention': 'self',
