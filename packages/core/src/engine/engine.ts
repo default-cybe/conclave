@@ -1579,6 +1579,9 @@ export class Engine implements EngineApi {
         if (b.type === 'tool_result' && b.toolUseId === toolUseId && !b.isError) meta = b.meta?.file as SharedFileMeta | undefined;
       }
     }
+    // the step stores its results only when every call in it is done (an AskUserQuestion can wait minutes); the card is shown already
+    const live = this.runners.get(sessionId)?.stepResults.get(toolUseId);
+    if (shareCall && !meta && live && !live.isError) meta = live.meta?.file as SharedFileMeta | undefined;
     if (!shareCall || !meta || typeof meta.path !== 'string' || typeof meta.device !== 'string') throw gone();
     const check = await checkShareable(meta.path, this.shareRoots(s).filter((r) => r.device === meta!.device), this.config.paths.home);
     if (!check.ok) throw check.code === 'missing' ? gone() : new EngineError(check.code === 'too_big' ? 413 : 403, check.message);
