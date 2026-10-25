@@ -123,6 +123,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'GET /api/sessions/:id/repo/pr-draft': SESSION,
   'POST /api/sessions/:id/repo/pr': SESSION,
   'POST /api/sessions/:id/repo/cleanup': SESSION,
+  'POST /api/sessions/:id/repo/merge': SESSION,
   'GET /api/search': 'self',
 
   // ----- folders across devices -----
@@ -141,6 +142,9 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'GET /api/github/repos': 'self',
   'GET /api/github/repos/:owner/:name/branches': 'self',
   'POST /api/github/sessions': 'self',
+  // "Run in a worktree": the handlers check the device is the caller's
+  'GET /api/worktrees/folder': 'self',
+  'POST /api/worktrees/sessions': 'self',
 
   // ----- approvals and questions -----
   'GET /api/approvals': 'self',
