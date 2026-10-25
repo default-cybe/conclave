@@ -451,6 +451,16 @@ class ConclaveClient(
 
     suspend fun getSession(id: String): Session = get(p("api", "sessions", id), Session.serializer())
 
+    /**
+     * GET /api/assistant/home: the account's one Assistant thread (meta.home),
+     * made on the first ask. Null on an older hub without the route (404).
+     */
+    suspend fun assistantHome(): Session? = try {
+        get(p("api", "assistant", "home"), Session.serializer())
+    } catch (e: ConclaveApiException) {
+        if (e.status == 404) null else throw e
+    }
+
     suspend fun createSession(input: CreateSessionInput): Session =
         send("POST", p("api", "sessions"), CreateSessionInput.serializer(), input, Session.serializer())
 
