@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { alertsOf, liveAlerts } from '../../src/alerts/attached';
 import type { AlertItem } from '../../src/client/alerts';
 import type { EngineEventEnvelope, Notice } from '../../src/types';
-import { startTestEngine, until, type TestEngine } from './harness';
+import { firstUserText, startTestEngine, toolResults, until, type TestEngine } from './harness';
+import { noHarnesses, svcOf } from '../workflows/helpers';
 
 /**
  * Stuck turns on the scripted engine (docs/DESIGN.md 28): no progress for the
@@ -215,6 +216,161 @@ describe('stuck turns', () => {
       await turn.done;
       expect(w.cleared).toEqual(w.raised.map((a) => a.id));
       expect(svc.list()).toHaveLength(0);
+    } finally {
+      await t.close();
+    }
+  }, 60_000);
+
+  describe('a subagent whose provider never answers', () => {
+    const isChild = (body: { messages?: unknown[] }) => firstUserText(body).includes('CHILD-JOB');
+    const hang = { blocks: [{ text: 'never sent' }], delayMs: 600_000 };
+    // verifier is model: deep; the deep tier is the provider that goes quiet, the parent runs on mock
+    const setup = (route: (provider: string) => typeof hang | { blocks: Array<{ text: string }> }) =>
+      startTestEngine({
+        script: [[{ tool: 'Task', input: { description: 'child job', prompt: 'CHILD-JOB: check it', subagent_type: 'verifier' } }], [{ text: 'parent done' }]],
+        extraProviders: { quiet: ['claude-sonnet-5-5'] },
+        overrides: { models: { tiers: { fast: 'mock/claude-sonnet-5-5', deep: 'quiet/claude-sonnet-5-5' } } } as never,
+        route: (body, _text, provider) => (isChild(body) ? route(provider) : undefined),
+      });
+    const childCalls = (t: TestEngine, provider: string) => t.requests.filter((r, i) => t.requestProviders[i] === provider && r.includes('CHILD-JOB')).length;
+
+    test('fails over to the parent model once, with no Inbox item', async () => {
+      const t = await setup((provider) => (provider === 'quiet' ? hang : { blocks: [{ text: 'VERDICT: confirmed' }] }));
+      try {
+        const w = watch(t);
+        const svc = alertsOf(t.engine)!;
+        const s = await t.engine.createSession({ title: 'Parent', cwd: t.cwd, agent: 'general-purpose', permissionMode: 'bypass' });
+        const turn = await start(t, s.id, 'verify it');
+        expect(await until(() => childCalls(t, 'quiet') === 1, 10_000)).toBe(true);
+        svc.tick(Date.now() + 6 * MIN);
+        expect(await Promise.race([turn.done.then(() => true), Bun.sleep(15_000).then(() => false)])).toBe(true);
+        const child = t.engine.listSessions({ parentId: s.id })[0];
+        expect(child.model).toBe('mock/claude-sonnet-5-5');
+        const warnings = t.engine.getMessages(child.id).filter((m) => m.kind === 'notice' && m.meta?.level === 'warning');
+        expect(JSON.stringify(warnings.map((m) => m.content))).toContain('quiet/claude-sonnet-5-5 made no progress');
+        const res = toolResults(t.engine, s.id).find((r) => r.name === 'Task')!;
+        expect(res.isError).toBe(false);
+        expect(res.content).toContain('VERDICT: confirmed');
+        expect(w.raised).toHaveLength(0);
+      } finally {
+        await t.close();
+      }
+    }, 60_000);
+
+    test('when the fallback is quiet too, the parent gets an error result', async () => {
+      const t = await setup(() => hang);
+      try {
+        const w = watch(t);
+        const svc = alertsOf(t.engine)!;
+        const s = await t.engine.createSession({ title: 'Parent', cwd: t.cwd, agent: 'general-purpose', permissionMode: 'bypass' });
+        const turn = await start(t, s.id, 'verify it');
+        expect(await until(() => childCalls(t, 'quiet') === 1, 10_000)).toBe(true);
+        svc.tick(Date.now() + 6 * MIN);
+        expect(await until(() => childCalls(t, 'mock') === 1, 10_000)).toBe(true);
+        // the fallback gets a full threshold of its own, counted from the failover
+        svc.tick(Date.now() + 10 * MIN);
+        expect(childCalls(t, 'mock')).toBe(1);
+        svc.tick(Date.now() + 13 * MIN);
+        expect(await Promise.race([turn.done.then(() => true), Bun.sleep(15_000).then(() => false)])).toBe(true);
+        const res = toolResults(t.engine, s.id).find((r) => r.name === 'Task')!;
+        expect(res.isError).toBe(true);
+        expect(res.content).toContain('made no progress past the stuck threshold');
+        expect(t.engine.listSessions({ parentId: s.id })[0].status).toBe('idle');
+        expect(w.raised).toHaveLength(0);
+      } finally {
+        await t.close();
+      }
+    }, 60_000);
+
+    test('a stall while a tool with no time limit runs names the tool and does not fail over', async () => {
+      const t = await setup((provider) => (provider === 'quiet' ? hang : { blocks: [{ text: 'VERDICT: confirmed' }] }));
+      try {
+        const w = watch(t);
+        const svc = alertsOf(t.engine)!;
+        const s = await t.engine.createSession({ title: 'Parent', cwd: t.cwd, agent: 'general-purpose', permissionMode: 'bypass' });
+        const turn = await start(t, s.id, 'verify it');
+        expect(await until(() => childCalls(t, 'quiet') === 1, 10_000)).toBe(true);
+        const child = t.engine.listSessions({ parentId: s.id })[0];
+        // a tool with no timeoutMs (an MCP tool) still running when the check comes
+        t.engine.bus.emit({ type: 'tool.started', sessionId: child.id, messageId: 'msg_x', toolUseId: 'tu_slow', name: 'mcp__slow__op', input: {} });
+        svc.tick(Date.now() + 6 * MIN);
+        expect(await Promise.race([turn.done.then(() => true), Bun.sleep(15_000).then(() => false)])).toBe(true);
+        expect(t.engine.getSession(child.id)!.model).toBe('quiet/claude-sonnet-5-5');
+        const res = toolResults(t.engine, s.id).find((r) => r.name === 'Task')!;
+        expect(res.isError).toBe(true);
+        expect(res.content).toContain('the mcp__slow__op tool made no progress past the stuck threshold');
+        expect(w.raised).toHaveLength(0);
+      } finally {
+        await t.close();
+      }
+    }, 60_000);
+
+    test('when the cut does not end the loop, the next check raises the Inbox item', async () => {
+      const t = await setup(() => hang);
+      try {
+        const w = watch(t);
+        const svc = alertsOf(t.engine)!;
+        const s = await t.engine.createSession({ title: 'Parent', cwd: t.cwd, agent: 'general-purpose', permissionMode: 'bypass' });
+        await start(t, s.id, 'verify it');
+        expect(await until(() => childCalls(t, 'quiet') === 1, 10_000)).toBe(true);
+        const child = t.engine.listSessions({ parentId: s.id })[0];
+        // as if an earlier cut had not ended the loop (a tool that ignores its signal)
+        t.engine.runnerFor(child.id).stalled = {};
+        svc.tick(Date.now() + 6 * MIN);
+        expect(w.raised).toHaveLength(1);
+        expect(w.raised[0]).toMatchObject({ kind: 'stuck', reason: 'idle', sessionId: child.id });
+        t.engine.runnerFor(child.id).abort();
+      } finally {
+        await t.close();
+      }
+    }, 60_000);
+  });
+
+  test('a workflow agent that stalls fails its call with the stall', async () => {
+    const t = await startTestEngine({
+      script: [[{ text: 'fallback' }]],
+      route: (body) => (firstUserText(body).includes('WF-JOB') ? { blocks: [{ text: 'never sent' }], delayMs: 600_000 } : undefined),
+    });
+    try {
+      noHarnesses(t.engine);
+      const w = watch(t);
+      const svc = alertsOf(t.engine)!;
+      const wf = svcOf(t.engine);
+      const s = await t.engine.createSession({ cwd: t.cwd, permissionMode: 'bypass' });
+      const run = await wf.startRun({ script: `export const meta = { name: 'stall', description: 'one call' }\nreturn await agent('WF-JOB: check it')`, sessionId: s.id });
+      expect(await until(() => t.requests.some((r) => r.includes('WF-JOB')), 10_000)).toBe(true);
+      svc.tick(Date.now() + 6 * MIN);
+      const done = await Promise.race([wf.wait(run.id), Bun.sleep(15_000).then(() => undefined)]);
+      expect(done?.status).toBe('done');
+      const call = wf.store.calls(run.id).find((c) => c.prompt?.includes('WF-JOB'));
+      expect(call?.state).toBe('failed');
+      expect(call?.error).toContain('made no progress past the stuck threshold');
+      expect(w.raised).toHaveLength(0);
+    } finally {
+      await t.close();
+    }
+  }, 60_000);
+
+  test('a background subagent that stalls reports an error to its parent', async () => {
+    const t = await startTestEngine({
+      script: [[{ tool: 'Task', input: { description: 'bg job', prompt: 'BG-JOB: check it', subagent_type: 'general-purpose', run_in_background: true } }], [{ text: 'waiting' }], [{ text: 'saw the failure' }]],
+      route: (body) => (firstUserText(body).includes('BG-JOB') ? { blocks: [{ text: 'never sent' }], delayMs: 600_000 } : undefined),
+    });
+    try {
+      const w = watch(t);
+      const svc = alertsOf(t.engine)!;
+      const s = await t.engine.createSession({ title: 'Parent', cwd: t.cwd, permissionMode: 'bypass' });
+      t.engine.runnerFor(s.id).noteDelayMs = 50;
+      await t.run(s.id, 'start');
+      expect(await until(() => t.requests.some((r) => r.includes('BG-JOB')), 10_000)).toBe(true);
+      // the child runs on the parent's model: nothing to fail over to
+      svc.tick(Date.now() + 6 * MIN);
+      const child = t.engine.listSessions({ parentId: s.id })[0];
+      expect(await until(() => (child && (t.engine.getSession(child.id)?.meta?.background as { state?: string })?.state) === 'error', 10_000)).toBe(true);
+      const notices = t.engine.getMessages(s.id).filter((m) => m.kind === 'notice');
+      expect(JSON.stringify(notices.map((m) => m.content))).toContain('Background task failed: bg job');
+      expect(await until(() => t.requests.some((r) => !firstUserText(JSON.parse(r)).includes('BG-JOB') && r.includes('made no progress past the stuck threshold')), 10_000)).toBe(true);
+      expect(w.raised).toHaveLength(0);
     } finally {
       await t.close();
     }
