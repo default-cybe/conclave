@@ -67,8 +67,10 @@ import dev.conclave.app.ui.motion.ToastHost
 import dev.conclave.app.ui.motion.rememberToasts
 import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
+import dev.conclave.client.ConclaveApiException
 import dev.conclave.client.logic.ApiValue
 import dev.conclave.client.logic.Format
+import dev.conclave.client.logic.Home
 import dev.conclave.client.logic.StarterWords
 import dev.conclave.client.model.LimitState
 import dev.conclave.client.model.LimitWindow
@@ -106,25 +108,46 @@ class UsageViewModel(hub: HubRepository) : HubViewModel(hub) {
         refresh()
     }
 
-    fun refresh() {
+    /**
+     * [force]: after the stored values show, the hub re-reads plan usage (POST /api/limits/refresh),
+     * then the summaries load again so they include the log records that re-read imported.
+     */
+    fun refresh(force: Boolean = false) {
         viewModelScope.launch {
             refreshing.value = true
             try {
-                val now = System.currentTimeMillis()
-                // Same sign as JavaScript's Date.getTimezoneOffset().
-                val tzOffset = -TimeZone.getDefault().getOffset(now) / 60_000
-                val monthStart = LocalDate.now().withDayOfMonth(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-                coroutineScope {
-                    listOf(
-                        async { part<UsageSummary>({ summary.value = it }) { hub.api { it.usage(from = now - range.value.days * 86_400_000L, to = now, tzOffset = tzOffset) } } },
-                        async { part<UsageSummary>({ month.value = it }) { hub.api { it.usage(from = monthStart, to = now, tzOffset = tzOffset) } } },
-                        async { part<List<LimitState>>({ hub.limits.value = it }) { hub.api { it.limits() } } },
-                    ).awaitAll()
-                }
+                load()
             } finally {
                 refreshing.value = false
             }
+            // the re-read can take 8s or more (it reads every machine's logs), so it runs after the spinner stops
+            if (force && forceLimits()) load()
         }
+    }
+
+    private suspend fun load() {
+        val now = System.currentTimeMillis()
+        // Same sign as JavaScript's Date.getTimezoneOffset().
+        val tzOffset = -TimeZone.getDefault().getOffset(now) / 60_000
+        val monthStart = LocalDate.now().withDayOfMonth(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        coroutineScope {
+            listOf(
+                async { part<UsageSummary>({ summary.value = it }) { hub.api { it.usage(from = now - range.value.days * 86_400_000L, to = now, tzOffset = tzOffset) } } },
+                async { part<UsageSummary>({ month.value = it }) { hub.api { it.usage(from = monthStart, to = now, tzOffset = tzOffset) } } },
+                async { part<List<LimitState>>({ hub.limits.value = it }) { hub.api { it.limits() } } },
+            ).awaitAll()
+        }
+    }
+
+    /** True when the hub re-read the limits. A member gets 403 (the re-read is admin only) and keeps the stored values quietly. */
+    private suspend fun forceLimits(): Boolean = try {
+        hub.limits.value = hub.api { it.refreshLimits() }
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        if (!(e is ConclaveApiException && e.status == 403)) say(errorText(e))
+        false
     }
 
     /** One read of refresh(): a failure keeps the earlier value and says why, the other reads go on. */
@@ -166,7 +189,7 @@ fun UsageScreen(onBack: (() -> Unit)? = null) {
         },
         snackbarHost = { ToastHost(snackbar) },
     ) { padding ->
-        PullToRefreshBox(isRefreshing = refreshing, onRefresh = { vm.refresh() }, modifier = Modifier.padding(padding).fillMaxSize()) {
+        PullToRefreshBox(isRefreshing = refreshing, onRefresh = { vm.refresh(force = true) }, modifier = Modifier.padding(padding).fillMaxSize()) {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
                 Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     UsageRange.entries.forEach { r ->
@@ -422,10 +445,11 @@ private fun LimitCard(limit: LimitState) {
                     color = c.fg,
                 )
                 Spacer(Modifier.width(8.dp))
+                val age = Format.relative(limit.updatedAt, now).takeIf { it.isNotEmpty() }?.let { ", updated $it" }.orEmpty()
                 when {
-                    limit.blocked == true -> Text("blocked", style = ConclaveType.meta, color = c.fault)
+                    limit.blocked == true -> Text("blocked$age", style = ConclaveType.meta, color = c.fault)
                     limit.source == "error" -> Text("not read", style = ConclaveType.meta, color = c.fault)
-                    else -> Text("read from ${sourceName(limit.source)}", style = ConclaveType.meta, color = c.fg3)
+                    else -> Text("read from ${sourceName(limit.source)}$age", style = ConclaveType.meta, color = c.fg3)
                 }
             }
             Spacer(Modifier.height(10.dp))
@@ -465,7 +489,14 @@ private fun sourceName(source: String): String = when (source) {
 private fun Gauge(window: LimitWindow, modifier: Modifier = Modifier) {
     val now by rememberNow()
     val c = Conclave.colors
-    val used = window.usedPercent ?: window.limit?.takeIf { it > 0 }?.let { lim -> window.remaining?.let { 100.0 * (lim - it) / lim } }
+    val used = Home.percent(window, blocked = false)
+    if (used == null && window.remaining != null && window.limit == null) {
+        Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("${window.remaining} balance", style = ConclaveType.metaNum, color = c.fg)
+            Text(window.name, style = MaterialTheme.typography.labelMedium)
+        }
+        return
+    }
     // Neutral below 70%, amber from 70%, red from 90% (spec 10.9).
     val color = when {
         used == null -> c.edge
@@ -487,7 +518,7 @@ private fun Gauge(window: LimitWindow, modifier: Modifier = Modifier) {
                     drawArc(color, startAngle = 150f, sweepAngle = sweep, useCenter = false, topLeft = topLeft, size = arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
                 }
             }
-            Text(used?.let { "${it.toInt()}%" } ?: "n/a", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(used?.let { "$it%" } ?: "n/a", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
         Text(window.name, style = MaterialTheme.typography.labelMedium)
         window.resetsAt?.let { at ->
