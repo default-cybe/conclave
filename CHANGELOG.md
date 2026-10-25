@@ -13,6 +13,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Google (Antigravity) plans show the raw paid-credit balance and plan tier (AI Pro, AI Ultra) in Accounts and Usage. The hub reads `loadCodeAssist` through CLIProxyAPI with the credential's own token. Credits remain informational, without an invented percentage or quota, and never block ordinary model access. Provider cooldowns still apply.
 
+### Added
+
+- Window starter for Google (Antigravity) plans: it goes by the 5 hour window of the model it sends, so the cheapest Gemini Flash starts the `5h gemini` window right after its reset. An owner-picked Claude or GPT model goes by the `5h 3p` window. Before, these plans showed "No 5 hour window".
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed
