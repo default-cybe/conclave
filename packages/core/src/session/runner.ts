@@ -759,7 +759,7 @@ export class SessionRunner {
               const notice = this.engine.notice(this.id, `Error: ${msg}${unsafe}`, 'error', undefined, canRetry ? { type: 'provider_error', canRetry: true } : undefined);
               if (canRetry) this.retryNotice = notice?.id;
               this.engine.setStatus(this.id, 'error', msg);
-              this.engine.notifyEvent('errors', { title: 'Session error', body: oneLine(msg, 160), level: 'error', sessionId: this.id, link: `/s/${this.id}` });
+              this.engine.notifyEvent('errors', { title: 'Session error', body: oneLine(msg, 160), level: 'error', sessionId: this.id, link: `/s/${this.id}`, thread: this.engine.askOrigin(this.id).rootSessionId });
             }
           }
           // it failed or stopped before its message was stored: the message waits again at the front, held so a failure does not repeat on its own

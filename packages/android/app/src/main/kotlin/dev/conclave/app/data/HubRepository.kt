@@ -152,6 +152,10 @@ class HubRepository(
     /** File conflicts and stuck turns (docs/DESIGN.md 28), for the Inbox. */
     val alerts = MutableStateFlow<List<AlertItem>>(emptyList())
 
+    /** When each session last streamed text or ran a tool (this phone's clock): [Session.updatedAt] moves on neither, so a busy task would look quiet. */
+    private val lastActive = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    fun lastActiveAt(sessionId: String): Long = lastActive[sessionId] ?: 0L
+
     /** Friends: other owners' hubs (docs/design/FRIENDS.md). A removed friend leaves the list. Empty on a hub without friends. */
     val friends = MutableStateFlow<List<FriendDto>>(emptyList())
 
@@ -554,7 +558,11 @@ class HubRepository(
         when (e) {
             is EngineEvent.SessionCreated -> putSession(e.session)
             is EngineEvent.SessionUpdated -> putSession(e.session)
-            is EngineEvent.SessionDeleted -> sessions.update { list -> list.filterNot { it.id == e.sessionId } }
+            is EngineEvent.SessionDeleted -> {
+                lastActive.remove(e.sessionId)
+                sessions.update { list -> list.filterNot { it.id == e.sessionId } }
+            }
+            is EngineEvent.MessageDelta, is EngineEvent.ToolStarted, is EngineEvent.ToolProgress, is EngineEvent.ToolCompleted -> e.sessionKey?.let { lastActive[it] = System.currentTimeMillis() }
             is EngineEvent.ApprovalRequested -> approvals.update { list -> list.filterNot { it.id == e.approval.id } + e.approval }
             is EngineEvent.ApprovalResolved -> approvals.update { list -> list.filterNot { it.id == e.id } }
             is EngineEvent.QuestionAsked -> questions.update { list -> list.filterNot { it.id == e.question.id } + e.question }

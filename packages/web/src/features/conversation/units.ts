@@ -109,6 +109,27 @@ export function buildUnits(messages: Message[], hide?: Set<string>, asideFor?: R
   return units;
 }
 
+/**
+ * The row that shows message `id`, for a #message link into a windowed chat
+ * (chat/window.ts): a reply holds every message of its turn, so a message
+ * without a row of its own (a tool result, a reminder) belongs to the row
+ * before it in the chat's order. -1 when the chat has no such message.
+ */
+export function rowIndexOf(rows: readonly Unit[], messages: readonly Message[], id: string): number {
+  const own = rows.findIndex((u) => u.key === id || (u.kind === 'reply' && u.messages.some((m) => m.id === id)));
+  if (own >= 0) return own;
+  const m = messages.find((x) => x.id === id);
+  if (!m) return -1;
+  const seqOf = new Map(messages.map((x) => [x.id, x.seq]));
+  let best = -1;
+  rows.forEach((u, i) => {
+    const ids = u.kind === 'reply' ? u.messages : u.kind === 'user' || u.kind === 'aside' || u.kind === 'notice' ? [u.message] : [];
+    const first = Math.min(...ids.map((x) => seqOf.get(x.id) ?? Infinity));
+    if (first <= m.seq) best = i;
+  });
+  return best;
+}
+
 /** Text of a reply, every text block joined. */
 /** The reply is over: its last assistant message stopped, and not for tool calls. */
 export function replyEnded(messages: Message[]): boolean {
