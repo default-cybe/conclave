@@ -54,7 +54,8 @@ export function PermissionRulesFor(engine: Engine, session: Session): Permission
 export function routineOf(engine: Engine, session: Session) {
   let s: Session | undefined = session;
   for (let depth = 0; s && depth < 6; depth++) {
-    if (s.routineId) return engine.routines.get(s.routineId);
+    const id = s.routineId ?? engine.routineTurns.get(s.id);
+    if (id) return engine.routines.get(id);
     s = s.parentId ? engine.getSession(s.parentId) : undefined;
   }
   return undefined;

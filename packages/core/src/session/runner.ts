@@ -182,6 +182,20 @@ interface Queued {
   pending?: QueuedMessage;
   /** "Try the next model" on a refused reply: the turn runs again on the next refusal fallback entry, with no new user message. */
   refusal?: { served: Served; reply?: Message };
+  /** Work that owns this one turn only (a routine run in the assistant home thread). */
+  turn?: TurnHooks;
+}
+
+/**
+ * A turn that belongs to someone else's work in a shared session (a routine
+ * in the assistant home thread): meta marks its user message, start and end
+ * run around this turn alone, and end also runs when the turn never starts
+ * (Stop drops it). The person's messages never join it as steering.
+ */
+export interface TurnHooks {
+  meta?: Record<string, unknown>;
+  start?: () => void;
+  end?: () => void;
 }
 
 /** How an agentLoop call starts (the "Try the next model" button). */
@@ -268,6 +282,8 @@ export class SessionRunner {
   todos: Todo[] = [];
   shellCwd?: string;
   depth = 0;
+  /** The input whose turn runs now. */
+  private current?: Queued;
   /** Resolves when the current drain finishes (used by subagents and routines). */
   private idleWaiters: Array<() => void> = [];
   private turnStartedAt = 0;
@@ -330,20 +346,20 @@ export class SessionRunner {
    * person's message that waits is listed for apps (session.queue) under its
    * pendingId until it joins the transcript.
    */
-  async enqueue(input: SendInput, opts: { auto?: boolean; resume?: boolean } = {}): Promise<SendResult> {
+  async enqueue(input: SendInput, opts: { auto?: boolean; resume?: boolean; turn?: TurnHooks } = {}): Promise<SendResult> {
     if (this.running) {
-      if (input.whenBusy === 'steer' && !opts.auto) {
+      if (input.whenBusy === 'steer' && !opts.auto && !this.current?.turn) {
         const pending = this.pendingFor(input, 'steer');
         this.steering.push({ input, pending });
         this.emitQueue();
         return { queued: true, pendingId: pending.id };
       }
       const pending = opts.auto ? undefined : this.pendingFor(input, 'queue');
-      this.queue.push({ input, auto: opts.auto, resume: opts.resume, pending });
+      this.queue.push({ input, auto: opts.auto, resume: opts.resume, pending, turn: opts.turn });
       if (pending) this.emitQueue();
       return { queued: true, ...(pending ? { pendingId: pending.id } : {}) };
     }
-    this.queue.push({ input, auto: opts.auto, resume: opts.resume });
+    this.queue.push({ input, auto: opts.auto, resume: opts.resume, turn: opts.turn });
     void this.drain();
     return { queued: false };
   }
@@ -455,6 +471,7 @@ export class SessionRunner {
    * for its own turn, and so does everything after it.
    */
   private queuedToSteering(): void {
+    if (this.current?.turn) return;
     const take: Steer[] = [];
     for (const q of this.queue) {
       if (!q.pending) continue;
@@ -481,6 +498,7 @@ export class SessionRunner {
     if (why === 'shutdown') this.closed = true;
     const late = this.steering.map((s): Queued => ({ input: { ...s.input, whenBusy: 'queue' }, pending: { ...s.pending, whenBusy: 'queue' } }));
     const waiting = [...late, ...this.queue.filter((q) => q.pending)];
+    for (const q of this.queue) if (!q.pending) q.turn?.end?.();
     const changed = waiting.length > 0 || this.queue.length > 0;
     this.queue = waiting.map((q) => (why === 'stop' ? { ...q, pending: { ...q.pending!, held: true } } : q));
     this.steering = [];
@@ -597,6 +615,8 @@ export class SessionRunner {
         const [next] = this.queue.splice(i, 1);
         // a waiting message stays listed while its turn starts (hooks, recall), until its user message is stored
         if (next.pending) this.starting = next;
+        this.current = next;
+        next.turn?.start?.();
         this.controller = new AbortController();
         const signal = this.controller.signal;
         try {
@@ -631,6 +651,9 @@ export class SessionRunner {
             this.queue.unshift(this.closed ? q : { ...q, pending: { ...q.pending!, held: true } });
             this.emitQueue();
           }
+        } finally {
+          this.current = undefined;
+          next.turn?.end?.();
         }
         // a parked Task child a message woke: its parent still waits for the report (session/limits.ts)
         void afterWokenTurn(this.engine, this.id).catch((err) => log.warn(`${this.id}: woken subagent report failed`, err));
@@ -741,6 +764,7 @@ export class SessionRunner {
     const userMeta: Record<string, unknown> = {};
     if (q.auto) userMeta.auto = true;
     if (q.resume) userMeta.resume = true;
+    if (q.turn?.meta) Object.assign(userMeta, q.turn.meta);
     // it waited while the session was busy: apps swap their pending bubble for this message
     if (q.pending) {
       userMeta.pendingIds = [q.pending.id];

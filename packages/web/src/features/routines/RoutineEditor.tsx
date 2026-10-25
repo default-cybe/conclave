@@ -80,6 +80,21 @@ function usePreview(expr: string | undefined, tz: string | undefined) {
   return state;
 }
 
+/**
+ * The Sessions choices. Post into the Assistant chat is left out for a watch,
+ * as save refuses it (core scheduler/routines.ts checkPolicy); a webhook run
+ * of a home routine gets its own session on the hub, so the help says so.
+ */
+export function sessionOptions(d: Pick<RoutineInput, 'watch'>): Array<{ value: Routine['sessionPolicy']; label: string }> {
+  return [{ value: 'new', label: 'New each run' }, { value: 'reuse', label: 'Keep one session' }, ...(d.watch ? [] : [{ value: 'home' as const, label: 'Post into the Assistant chat' }])];
+}
+
+export const SESSION_HELP: Record<Routine['sessionPolicy'], string> = {
+  new: 'Each run starts clean and shows up as its own session.',
+  reuse: 'Every run adds to the same session, so it remembers earlier runs.',
+  home: 'Each run posts its prompt and answer into your Assistant chat. A webhook run still gets its own session.',
+};
+
 export function webhookUrl(r: Routine): string {
   const hub = (loadConnection()?.baseUrl ?? location.origin).replace(/\/+$/, '');
   return `${hub}/api/routines/${r.id}/trigger${r.webhookSecret ? `?secret=${r.webhookSecret}` : ''}`;
@@ -213,16 +228,8 @@ export function RoutineEditor({ initial, routine, onCancel }: { initial: Routine
         <FormRow label="Mode" help={MODE_OPTIONS.find((m) => m.value === d.mode)?.help}>
           <Segmented label="Mode" value={d.mode ?? 'agent'} onChange={(v) => up({ mode: v })} options={modeOptions} />
         </FormRow>
-        <FormRow label="Sessions" help={d.sessionPolicy === 'reuse' ? 'Every run adds to the same session, so it remembers earlier runs.' : 'Each run starts clean and shows up as its own session.'}>
-          <Segmented
-            label="Sessions"
-            value={d.sessionPolicy ?? 'new'}
-            onChange={(v) => up({ sessionPolicy: v })}
-            options={[
-              { value: 'new', label: 'New each run' },
-              { value: 'reuse', label: 'Keep one session' },
-            ]}
-          />
+        <FormRow label="Sessions" help={SESSION_HELP[d.sessionPolicy ?? 'new']}>
+          <Segmented label="Sessions" value={d.sessionPolicy ?? 'new'} onChange={(v) => up({ sessionPolicy: v })} options={sessionOptions({ watch: d.watch ?? routine?.watch })} />
         </FormRow>
       </EditorSection>
 

@@ -255,7 +255,7 @@ export function SideSessions({ mode, phone, onPick }: { mode: SideMode; phone?: 
       </div>
       {groups.length === 0 && <p className={cn('m-0 px-2.5 py-2 leading-[1.45] text-fg-3', phone ? 'text-[14px]' : 'text-[12.5px]')}>{empty}</p>}
       {groups.map((g) => (
-        <Group key={g.key} g={g} folded={folded.includes(`${mode}:${g.key}`)} foldKey={`${mode}:${g.key}`} path={path} phone={phone} onPick={onPick} actions={actions} titled={code || groups.length > 1 || g.key !== 'today'} />
+        <Group key={g.key} g={g} folded={folded.includes(`${mode}:${g.key}`)} foldKey={`${mode}:${g.key}`} path={path} phone={phone} onPick={onPick} actions={actions} titled={g.key !== 'home' && (code || groups.length > 1 || g.key !== 'today')} />
       ))}
       {delegated.length > 0 && <DelegatedGroup rows={delegated} folded={folded.includes(DELEGATED_KEY)} path={path} phone={phone} onPick={onPick} actions={actions} />}
       <Link
