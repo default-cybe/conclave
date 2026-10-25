@@ -11,7 +11,7 @@ import { useNow } from '@/lib/hooks';
 import { durationShort, hhmm } from '@/lib/format';
 import { CompanyMark, logoGap } from '../logo';
 import { Roll } from '../motion/Roll';
-import { budgetWords } from '@/lib/accounts';
+import { balanceWords, budgetWords, usedOf } from '@/lib/accounts';
 
 /** Thresholds from hub config ui.limitWarn / ui.limitFault (defaults 70 and 90). */
 export function useLimitThresholds(): { warn: number; fault: number } {
@@ -103,8 +103,9 @@ export function isRateWindow(w: LimitWindow): boolean {
 export function LimitRow({ window: w, plan, blocked, compact, className }: { window: LimitWindow; plan: string; blocked?: boolean; compact?: boolean; className?: string }) {
   const t = useLimitThresholds();
   const now = useNow(compact ? 60_000 : 1000);
-  const pct = blocked ? 100 : Math.round(w.usedPercent ?? (w.limit ? (1 - (w.remaining ?? 0) / w.limit) * 100 : 0));
-  const tone = limitTone(pct, t, blocked);
+  const balance = balanceWords(w);
+  const pct = balance !== undefined ? undefined : blocked ? 100 : usedOf(w);
+  const tone = pct === undefined ? 'neutral' : limitTone(pct, t, blocked);
   const name = windowLabel(w.name);
   const until = w.resetsAt ? durationShort(w.resetsAt - now) : undefined;
   let reset: ReactNode = null;
@@ -136,7 +137,7 @@ export function LimitRow({ window: w, plan, blocked, compact, className }: { win
         )}
       </>
     );
-  else if (until && (pct >= t.warn || !compact))
+  else if (until && ((pct !== undefined && pct >= t.warn) || !compact))
     reset = (
       <>
         resets in <Roll value={until} direction="down" />
@@ -147,9 +148,9 @@ export function LimitRow({ window: w, plan, blocked, compact, className }: { win
     <div className={cn('py-[5px]', className)}>
       <div className="grid grid-cols-[72px_minmax(0,1fr)_44px] items-center gap-3">
         <span className="text-[12px] leading-[1.25] text-fg-3 phone:text-[13px]">{name}</span>
-        <LimitGauge value={pct} blocked={blocked} label={`${plan}, ${name}`} />
+        {pct === undefined ? <span className="text-[12px] text-fg-3">{balance ?? 'not read yet'}</span> : <LimitGauge value={pct} blocked={blocked} label={`${plan}, ${name}`} />}
         <span className={cn('num text-right text-[13px] font-[560]', TONE_TEXT[tone])}>
-          <Roll value={`${pct}%`} />
+          {pct !== undefined && <Roll value={`${pct}%`} />}
         </span>
       </div>
       {reset && <div className="mt-0.5 pl-[84px] text-[12px] text-fg-3 phone:text-[13px]">{reset}</div>}

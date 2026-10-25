@@ -1067,7 +1067,7 @@ export class ImportService {
   }
 
   private importInfo(conv: ConvertedSession, device: string, found: FoundSession, batchId: string, st: ReturnType<typeof sessionStats>): SessionImportInfo {
-    return { source: conv.source, device, path: found.path, id: conv.nativeId ?? '', importedAt: Date.now(), batchId, createdAt: st.createdAt, state: 'current' };
+    return { source: conv.source, device, path: found.path, id: conv.nativeId ?? '', importedAt: Date.now(), batchId, createdAt: st.createdAt, state: 'current', ...(conv.model ? { model: conv.model } : {}) };
   }
 
   private createSession(device: string, conv: ConvertedSession, found: FoundSession, fp: string, st: ReturnType<typeof sessionStats>, batchId: string, ledgerId?: string, fork?: { parentId: string; title: string }, learned = false): Session {
@@ -1078,8 +1078,8 @@ export class ImportService {
     const ledger: LedgerRow = { ...this.baseLedger(conv, device, found, fp, st, batchId), ...(ledgerId ? { id: ledgerId } : {}), sessionId: id, status: 'importing', ...(learned ? { learnState: 'learned' as const } : {}) };
     this.store.putLedger(ledger);
     const h = HARNESS[conv.source];
-    // a harness that is off (the default) would refuse every turn: the chat goes on with the owner's model, and external keeps the resume id
-    const model = h && !this.engine.harnessOff(h.model) ? h.model : cfg.defaultModel;
+    // a harness that is off (the default) would refuse every turn: the chat goes on with its own model when Conclave can run it, else the owner's; external keeps the resume id
+    const model = h && !this.engine.harnessOff(h.model) ? h.model : conv.model && this.engine.isUsable(conv.model) && this.engine.providers.servesModel(conv.model) ? conv.model : cfg.defaultModel;
     const realDevice = chatApp || uploadIdOf(device) ? 'local' : device;
     const session: Session = {
       id,
@@ -1179,7 +1179,8 @@ export class ImportService {
       ...target,
       updatedAt: changed ? Math.max(target.updatedAt, st.updatedAt) : target.updatedAt,
       stats: { ...target.stats, messages: after.length },
-      meta: { ...(target.meta ?? {}), import: { ...prevInfo, state: 'current', newThere: 0 } },
+      // chats imported before the model was kept get it here, and later syncs keep the newest
+      meta: { ...(target.meta ?? {}), import: { ...prevInfo, state: 'current', newThere: 0, ...(conv.model ? { model: conv.model } : {}) } },
     };
     repos.sessions.update(next);
     this.engine.bus.emit({ type: 'session.updated', session: next });
