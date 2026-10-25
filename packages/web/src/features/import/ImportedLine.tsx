@@ -3,13 +3,14 @@
  * the source grew, how many new messages are there with Sync. A sync that
  * finds both sides grew makes a fork ("Continued in Claude Code on ...").
  */
-import { useState } from 'react';
-import { useLocation } from 'wouter';
+import { useMemo, useState } from 'react';
+import { Link, useLocation } from 'wouter';
 import type { SessionImportInfo } from '@conclave/core/client';
 import type { Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/text';
-import { toast } from '@/store/store';
+import { hrefOf } from '@/lib/recents';
+import { toast, useHub } from '@/store/store';
 import { TextAction } from '@/components/ui/Section';
 import { LiveStatus } from '@/components/motion';
 import { useDeviceNames } from './PastChats';
@@ -20,11 +21,23 @@ export function importInfo(s: Session): SessionImportInfo | undefined {
   return i && typeof i === 'object' && typeof i.source === 'string' ? i : undefined;
 }
 
+/** A copy of a chat the merge archived: every message of it is in another session (ImportService.mergeDuplicates), so lists leave it out. */
+export function isDuplicateCopy(s: Session): boolean {
+  return !!(s.meta?.import as { duplicateOf?: string } | undefined)?.duplicateOf;
+}
+
+/** The other copies of an imported chat with messages of their own (a merge's branches, a sync's forks), for links under its title. */
+export function importBranches(sessions: Record<string, Session>, id: string): Session[] {
+  return Object.values(sessions).filter((s) => s.parentId === id && s.tags.includes('imported') && !isDuplicateCopy(s));
+}
+
 export function ImportedLine({ session, className }: { session: Session; className?: string }) {
   const info = importInfo(session);
   const names = useDeviceNames();
   const [, navigate] = useLocation();
   const [busy, setBusy] = useState(false);
+  const sessions = useHub((s) => s.sessions);
+  const branches = useMemo(() => importBranches(sessions, session.id), [sessions, session.id]);
   if (!info) return null;
   const sync = async () => {
     setBusy(true);
@@ -49,6 +62,11 @@ export function ImportedLine({ session, className }: { session: Session; classNa
       {behind && <span className="text-fg-2">{info.newThere} new {info.newThere === 1 ? 'message' : 'messages'} there.</span>}
       {diverged && <span className="text-warn">Continued there and here.</span>}
       {busy ? <LiveStatus state="tool" label="Syncing" size={14} /> : !info.device.startsWith('upload:') && <TextAction label={diverged ? 'Copy the other side' : 'Sync'} onClick={() => void sync()} />}
+      {branches.map((b) => (
+        <Link key={b.id} href={hrefOf(b)} className="link min-w-0 truncate">
+          {b.title}
+        </Link>
+      ))}
     </div>
   );
 }

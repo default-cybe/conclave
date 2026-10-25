@@ -181,7 +181,7 @@ describe('import, re-import, update and merge', () => {
     aSession = a.imported!.sessionId!;
     expect(a.imported).toMatchObject({ state: 'current', learned: false, batchId: b.id });
     const s = t.engine.repos.sessions.get(aSession)!;
-    expect(s).toMatchObject({ archived: true, cwd: '/home/kai/code/portfolio', device: 'local', model: 'claude-code/default', external: { 'claude-code': OWNER.claudeA } });
+    expect(s).toMatchObject({ archived: true, cwd: '/home/kai/code/portfolio', device: 'local', model: t.engine.config.get().defaultModel, external: { 'claude-code': OWNER.claudeA } });
     expect(s.tags).toEqual(['imported', 'claude-code']);
     expect(s.createdAt).toBe(Date.parse('2026-03-14T09:00:00.000Z'));
     expect((s.meta?.import as SessionImportInfo).source).toBe('claude-code');

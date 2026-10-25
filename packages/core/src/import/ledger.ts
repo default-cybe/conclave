@@ -4,8 +4,9 @@
  * A re-read source is compared with the Conclave session it was imported
  * into by message ids (meta.external.id). If the source only grew, the rest
  * is appended (Codex's own appender model). If the owner also kept going in
- * Conclave, both sides grew past the shared prefix and the source's version
- * becomes a fork; history is never interleaved. Turns Conclave ran through
+ * Conclave, both sides grew past the shared prefix: the side with more new
+ * messages stays in the session and the other becomes a branch (the service
+ * decides, from `both`); history is never interleaved. Turns Conclave ran through
  * the same harness session (ACP) appear in the source too, without a source
  * id on the Conclave side: they count as present when the owner's prompts
  * match by role and normalized text.
@@ -18,7 +19,17 @@ import type { LedgerCursor } from './store';
 export type SyncPlan =
   | { state: 'unchanged'; absorbed: string[]; claims?: Claim[]; grownLast?: { messageId: string; message: ImportedMessage } }
   | { state: 'append'; append: ImportedMessage[]; absorbed: string[]; claims?: Claim[]; grownLast?: { messageId: string; message: ImportedMessage } }
-  | { state: 'diverged'; reason: string };
+  | { state: 'diverged'; reason: string; both?: BothGrew };
+
+/**
+ * Both sides grew past the last imported message: what the source has after
+ * it, and how many messages Conclave wrote after it (seq above afterSeq).
+ */
+export interface BothGrew {
+  append: ImportedMessage[];
+  native: number;
+  afterSeq: number;
+}
 
 /** A Conclave message that matched a source message: it gets that source id, so later syncs line up. */
 export interface Claim {
@@ -95,7 +106,8 @@ export function planSync(source: ImportedMessage[], session: Message[], cursor: 
 
   // Conclave also grew. Its own harness turns are in the source as well: match the owner's prompts in order.
   const prompts = native.filter((m) => m.role === 'user' && m.kind === 'normal' && norm(textOf(m)));
-  if (!prompts.length) return { state: 'diverged', reason: 'both Conclave and the source have new messages' };
+  const both: BothGrew = { append: rest, native: native.length, afterSeq: lastImportedSeq };
+  if (!prompts.length) return { state: 'diverged', reason: 'both Conclave and the source have new messages', both };
   let j = 0;
   let matched = -1;
   const claims: Claim[] = [];
@@ -109,7 +121,7 @@ export function planSync(source: ImportedMessage[], session: Message[], cursor: 
         break;
       }
     }
-    if (found < 0) return { state: 'diverged', reason: 'both Conclave and the source have new messages' };
+    if (found < 0) return { state: 'diverged', reason: 'both Conclave and the source have new messages', both };
     const id = externalId(rest[found]);
     if (id) claims.push({ messageId: p.id, id });
     matched = found;

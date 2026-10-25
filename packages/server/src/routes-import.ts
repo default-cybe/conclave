@@ -204,6 +204,14 @@ export function registerImportRoutes(app: Hono<HonoEnv>, ctx: ServerContext, aud
     return c.json(r);
   });
 
+  // one session per Claude Code chat: a dry run unless apply is true
+  app.post('/api/import/merge-duplicates', async (c) => {
+    const body = await readJson<{ apply?: unknown }>(c);
+    const r = svc().mergeDuplicates({ apply: body.apply === true });
+    if (!r.dryRun) audit(c, 'import.merge', `${r.groups.length} chats merged`, {});
+    return c.json(r);
+  });
+
   // ----- vendor cleanup settings ---------------------------------------------
 
   app.get('/api/import/retention', async (c) => c.json(await svc().retention(onlineDevice(c.req.query('device')))));

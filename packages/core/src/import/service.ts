@@ -48,6 +48,7 @@ import { hashText } from '../memory/connections/util';
 import { episodeNote } from '../memory/external';
 import { redactSecrets } from '../memory/secrets';
 import { externalId, humanText, sessionStats, type ConvertedSession, type ImportedMessage } from '../importers/types';
+import { claudeDeviceCwd, stripWrappers } from '../importers/claude-code';
 import { sha256Hex } from '../importers/files';
 import { ImportStore, batchDto, EMPTY_COUNTS, UNDO_DAYS, type BatchRow, type ItemRow, type LedgerRow, type ScanCacheRow } from './store';
 import { DEVICE_SOURCES, ReadContext, fingerprintOf, rowInfo, scanMachine, sourceName, type FoundSession, type RowInfo, type ScanResult } from './sources';
@@ -92,6 +93,16 @@ class Parked extends Error {
   constructor(readonly resetAt: number) {
     super('limit');
   }
+}
+
+/** One chat's copies as mergeDuplicates leaves them. */
+export interface MergeGroup {
+  nativeId: string;
+  keep: string;
+  title: string;
+  branches: Array<{ id: string; title: string }>;
+  archived: string[];
+  ledgerRows: number;
 }
 
 /** One scan row, ready for the list and for selections. */
@@ -165,16 +176,18 @@ export function checkDeviceSession(raw: unknown, source: ImportSource): Converte
     messages.push(MSG_KINDS.has(msg.kind) ? msg : { ...msg, kind: 'normal' });
   }
   const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  const kind = KINDS.has(c.kind as ImportSessionKind) ? (c.kind as ImportSessionKind) : 'main';
   return {
     source,
     nativeId: str(c.nativeId),
-    nativeIdUnique: source === 'claude-code' ? false : c.nativeIdUnique !== false,
+    // the hub decides, so every device's copy of a chat gets the same fingerprint (importers/claude-code.ts)
+    nativeIdUnique: source === 'claude-code' ? kind !== 'subagent' : c.nativeIdUnique !== false,
     title: str(c.title) && redactSecrets(str(c.title)!),
     cwd: str(c.cwd),
     gitBranch: str(c.gitBranch),
     repo: str(c.repo),
     model: str(c.model),
-    kind: KINDS.has(c.kind as ImportSessionKind) ? (c.kind as ImportSessionKind) : 'main',
+    kind,
     parentNativeId: str(c.parentNativeId),
     entrypoint: str(c.entrypoint),
     messages,
@@ -902,24 +915,23 @@ export class ImportService {
     const st = sessionStats(conv.messages);
     const fp = fingerprintOf(conv, st.firstIds);
     const now = Date.now();
+    if (conv.source === 'claude-code') conv.cwd = await this.deviceCwd(device, found.path, conv.cwd);
+    // an ambiguous row is matched again: a merge (mergeDuplicates) or the native id may settle it now
     let here = this.store.ledgerAt(conv.source, device, found.path);
-    if (here && here.status === 'ambiguous') return { state: 'failed', reason: 'ambiguous: two imported sessions match this source' };
     // the file at a known location now holds another conversation (a bad copy, a sync conflict): fail closed, never a fork of an unrelated chat
     if (here?.sessionId && here.nativeId && conv.nativeId && here.nativeId.toLowerCase() !== conv.nativeId.toLowerCase()) {
       return { state: 'failed', reason: 'The file now holds another conversation, so the imported session was left alone.' };
     }
     let target: Session | undefined = here?.sessionId ? this.engine.repos.sessions.get(here.sessionId) : undefined;
     if (!target) {
-      const others = this.store.ledgerByFingerprint(fp, this.acct).filter((l) => l.sessionId && l.status === 'ok' && this.engine.repos.sessions.get(l.sessionId));
+      const others = this.knownRows(conv, st.firstIds, fp).filter((l) => l.sessionId && l.status === 'ok' && this.engine.repos.sessions.get(l.sessionId));
       const ids = [...new Set(others.map((l) => l.sessionId!))];
-      if (ids.length > 1) {
-        this.store.putLedger({ ...this.baseLedger(conv, device, found, fp, st, batchId), ...(here ? { id: here.id } : {}), status: 'ambiguous' });
-        return { state: 'failed', reason: 'ambiguous: two imported sessions match this source' };
-      }
-      if (ids.length === 1) {
-        target = this.engine.repos.sessions.get(ids[0]);
-        const from = others.find((l) => l.sessionId === ids[0])!;
-        here = { ...this.baseLedger(conv, device, found, fp, st, batchId), ...(here ? { id: here.id } : {}), sessionId: ids[0], cursor: from.cursor, status: 'ok', importedAt: from.importedAt ?? now };
+      // several copies of the chat (claudesync put it in two folders, and they split): the one this source continues
+      const best = ids.length > 1 ? this.closestCopy(conv.messages, ids) : ids[0];
+      if (best) {
+        target = this.engine.repos.sessions.get(best);
+        const from = others.find((l) => l.sessionId === best)!;
+        here = { ...this.baseLedger(conv, device, found, fp, st, batchId), ...(here ? { id: here.id } : {}), sessionId: best, cursor: from.cursor, status: 'ok', importedAt: from.importedAt ?? now };
         this.store.putLedger(here);
       }
     }
@@ -935,6 +947,50 @@ export class ImportService {
     const created = this.createSession(device, conv, found, fp, st, batchId, here?.id, undefined, learned);
     await this.attachProject(created.id);
     return { state: 'imported', sessionId: created.id, created: true, added: conv.messages.length };
+  }
+
+  /**
+   * Ledger rows of the same chat at other locations: by fingerprint, else by
+   * the fingerprint older rows have (no native id in it) with the same native
+   * id. A Claude Code chat copied to another device matches its own session,
+   * never the copy it was resumed from.
+   */
+  private knownRows(conv: ConvertedSession, firstIds: string[], fp: string): LedgerRow[] {
+    const rows = this.store.ledgerByFingerprint(fp, this.acct);
+    const legacy = fingerprintOf({ ...conv, nativeIdUnique: false }, firstIds);
+    if (rows.length || legacy === fp || !conv.nativeId) return rows;
+    const id = conv.nativeId.toLowerCase();
+    return this.store.ledgerByFingerprint(legacy, this.acct).filter((l) => l.nativeId?.toLowerCase() === id);
+  }
+
+  /**
+   * Of several sessions holding copies of one chat, the one a source syncs
+   * into: one it extends or is behind (no split: planSync appends or finds
+   * nothing) before one it split from, then the longest run of the source's
+   * first messages it holds, then the most messages.
+   */
+  private closestCopy(source: ImportedMessage[], ids: string[]): string {
+    const score = (id: string) => {
+      const have = new Set(importedIds(this.engine.repos.messages.list(id)));
+      let k = 0;
+      while (k < source.length && have.has(externalId(source[k]) ?? '')) k++;
+      const inSource = new Set(source.map((m) => externalId(m)));
+      const split = k < source.length && [...have].some((x) => !inSource.has(x));
+      return [split ? 0 : 1, k, have.size];
+    };
+    const scored = ids.map((id) => ({ id, s: score(id) }));
+    scored.sort((a, b) => b.s[0] - a.s[0] || b.s[1] - a.s[1] || b.s[2] - a.s[2]);
+    return scored[0].id;
+  }
+
+  /**
+   * A Claude Code chat's folder on the device that holds the file, checked
+   * there (claudeDeviceCwd). Nothing found keeps the file's own cwd: a turn
+   * maps it again or asks (session/harness.ts deviceFolder).
+   */
+  private async deviceCwd(device: string, path: string, cwd: string | undefined): Promise<string | undefined> {
+    const m = uploadIdOf(device) ? undefined : this.machine(device);
+    return (m && (await claudeDeviceCwd(m, path, cwd))) || cwd;
   }
 
   /**
@@ -1022,6 +1078,8 @@ export class ImportService {
     const ledger: LedgerRow = { ...this.baseLedger(conv, device, found, fp, st, batchId), ...(ledgerId ? { id: ledgerId } : {}), sessionId: id, status: 'importing', ...(learned ? { learnState: 'learned' as const } : {}) };
     this.store.putLedger(ledger);
     const h = HARNESS[conv.source];
+    // a harness that is off (the default) would refuse every turn: the chat goes on with the owner's model, and external keeps the resume id
+    const model = h && !this.engine.harnessOff(h.model) ? h.model : cfg.defaultModel;
     const realDevice = chatApp || uploadIdOf(device) ? 'local' : device;
     const session: Session = {
       id,
@@ -1029,7 +1087,7 @@ export class ImportService {
       title: fork?.title ?? (conv.title ? redactSecrets(conv.title) : `Untitled ${sourceName(conv.source)} session`),
       // a coding tool's chat goes on with the coding agent; the default agent is the personal assistant
       agent: !chatApp && this.engine.extensions.agent('coder') ? 'coder' : cfg.defaultAgent,
-      model: h?.model ?? cfg.defaultModel,
+      model,
       mode: 'agent',
       permissionMode: cfg.permissions.mode,
       cwd: conv.cwd ?? '~',
@@ -1061,8 +1119,19 @@ export class ImportService {
   private async syncInto(target: Session, here: LedgerRow, conv: ConvertedSession, found: FoundSession, fp: string, batchId: string): Promise<{ state: ImportItemState; sessionId?: string; created?: boolean; reason?: string; added?: number }> {
     const repos = this.engine.repos;
     const existing = repos.messages.list(target.id);
-    const plan = planSync(conv.messages, existing, here.cursor);
+    let plan = planSync(conv.messages, existing, here.cursor);
     const st = sessionStats(conv.messages);
+    let branch: Session | undefined;
+    // both grew and the source more (it ran on in the tool): the source stays here and Conclave's own turns move to a branch
+    if (plan.state === 'diverged' && plan.both && plan.both.append.length > plan.both.native && target.status === 'idle') {
+      const copy = this.engine.forkSession(target.id);
+      const { import: _imp, ...meta } = copy.meta ?? {};
+      branch = { ...copy, parentId: target.id, title: `${target.title} (Conclave branch)`, meta };
+      repos.sessions.update(branch);
+      this.engine.bus.emit({ type: 'session.updated', session: branch });
+      repos.messages.truncateAfter(target.id, plan.both.afterSeq);
+      plan = { state: 'append', append: plan.both.append, absorbed: here.cursor.absorbed ?? [] };
+    }
     if (plan.state === 'diverged') {
       const fork = this.createSession(here.device, conv, found, fp, st, batchId, here.id, {
         parentId: target.id,
@@ -1116,7 +1185,7 @@ export class ImportService {
     this.engine.bus.emit({ type: 'session.updated', session: next });
     // appended history is the source's, not new talk: the next turn's extraction starts after it
     if (added) this.engine.repos.kv.set(`memory.extract.${target.id}`, lastSeq);
-    return { state: resumed ? 'imported' : changed ? 'updated' : 'unchanged', sessionId: target.id, added, ...(resumed ? { created: true } : {}) };
+    return { state: resumed ? 'imported' : changed ? 'updated' : 'unchanged', sessionId: target.id, added, ...(resumed ? { created: true } : {}), ...(branch ? { reason: `Conclave's own turns moved to ${branch.id}` } : {}) };
   }
 
   /**
@@ -1151,6 +1220,88 @@ export class ImportService {
     if (added) return { state: 'updated', added };
     if (error) return { state: 'failed', added: 0, error };
     return { state: 'unchanged', added: 0 };
+  }
+
+  /**
+   * One visible session per Claude Code chat. A chat a sync tool (claudesync)
+   * copied to several devices, and the forks older imports made of it, are
+   * sessions with the same chat id and first message. The copy with the most
+   * of the chat's messages is the main one. Every other copy with messages the
+   * main one lacks (its own source messages, or turns run in Conclave) becomes
+   * a branch of it: parentId and meta.branchOf, titled "Branch from <device>:
+   * <first own prompt>", listed in the main session's header. A copy whose
+   * messages are all in a kept one is archived with meta.import.duplicateOf,
+   * and its ledger rows move to the session holding its messages, so a later
+   * sync appends there. Nothing is deleted. A dry run (the default) only lists
+   * what would change; a second run finds nothing.
+   */
+  mergeDuplicates(opts: { apply?: boolean } = {}): { dryRun: boolean; groups: MergeGroup[] } {
+    const repos = this.engine.repos;
+    const groups = new Map<string, ReturnType<ImportStore['claudeChats']>>();
+    for (const c of this.store.claudeChats(this.acct)) {
+      if (!c.firstId) continue;
+      const k = `${c.nativeId}\n${c.firstId}`;
+      groups.set(k, [...(groups.get(k) ?? []), c]);
+    }
+    const out: MergeGroup[] = [];
+    for (const g of groups.values()) {
+      if (g.length < 2) continue;
+      const copies = g.map((c) => {
+        const s = repos.sessions.get(c.id)!;
+        const msgs = repos.messages.list(c.id);
+        const ids = importedIds(msgs);
+        return { s, msgs, ids, set: new Set(ids), own: msgs.some((m) => !externalId(m) && m.kind !== 'notice') };
+      });
+      // the longest history of the chat leads; a tie keeps the main one it already has
+      copies.sort((a, b) => b.ids.length - a.ids.length || Number(!!a.s.meta?.branchOf) - Number(!!b.s.meta?.branchOf) || b.msgs.length - a.msgs.length || b.s.updatedAt - a.s.updatedAt);
+      const [main, ...rest] = copies;
+      const kept = [main];
+      const changed: Session[] = [];
+      const moves: Array<{ row: LedgerRow; to: string; ids: string[] }> = [];
+      const group: MergeGroup = { nativeId: g[0].nativeId, keep: main.s.id, title: main.s.title, branches: [], archived: [], ledgerRows: 0 };
+      // the copy kept is often a fork titled "Continued in ...": it takes the chat's own title
+      const named = copies.find((c) => !c.s.meta?.branchOf && !c.s.title.startsWith('Continued in '));
+      if (main.s.title.startsWith('Continued in ') && named) group.title = named.s.title;
+      const parentGone = !!main.s.parentId && copies.some((c) => c.s.id === main.s.parentId);
+      if (group.title !== main.s.title || parentGone || main.s.meta?.branchOf) {
+        const { branchOf: _b, ...meta } = main.s.meta ?? {};
+        changed.push({ ...main.s, title: group.title, ...(parentGone ? { parentId: undefined } : {}), meta });
+      }
+      for (const c of rest) {
+        const holder = c.own ? undefined : kept.find((k) => c.ids.every((id) => k.set.has(id)));
+        if (holder) {
+          group.archived.push(c.s.id);
+          const imp = (c.s.meta?.import ?? {}) as Record<string, unknown>;
+          if (!c.s.archived || imp.duplicateOf !== holder.s.id) changed.push({ ...c.s, archived: true, meta: { ...(c.s.meta ?? {}), import: { ...imp, duplicateOf: holder.s.id } } });
+          for (const row of this.store.ledgerBySession(c.s.id)) moves.push({ row, to: holder.s.id, ids: holder.ids });
+          continue;
+        }
+        kept.push(c);
+        const title = c.s.meta?.branchOf === main.s.id ? c.s.title : this.branchTitle(c.s.device, c.msgs, main.set);
+        group.branches.push({ id: c.s.id, title });
+        if (c.s.parentId !== main.s.id || c.s.meta?.branchOf !== main.s.id || c.s.title !== title) changed.push({ ...c.s, parentId: main.s.id, title, meta: { ...(c.s.meta ?? {}), branchOf: main.s.id } });
+      }
+      group.ledgerRows = moves.length;
+      if (!changed.length && !moves.length) continue;
+      out.push(group);
+      if (!opts.apply) continue;
+      const now = Date.now();
+      repos.db.transaction(() => {
+        for (const { row, to, ids } of moves) this.store.putLedger({ ...row, sessionId: to, cursor: { lastId: ids[ids.length - 1], count: ids.length }, prefixHash: prefixHash(ids), status: 'ok', updatedAt: now });
+        for (const s of changed) repos.sessions.update(s);
+      })();
+      for (const s of changed) this.engine.bus.emit({ type: 'session.updated', session: s });
+    }
+    return { dryRun: !opts.apply, groups: out };
+  }
+
+  /** "Branch from MacBook: yoo im back from mac now": the device, and the first 6 words the owner typed that the main copy does not have. */
+  private branchTitle(device: string, msgs: Message[], main: Set<string>): string {
+    // a prompt, not a slash command, without the reminders a Conclave turn adds
+    const said = (m: Message) => (main.has(externalId(m) ?? '') ? '' : stripWrappers(humanText(m as ImportedMessage)).trim());
+    const first = msgs.map(said).find((x) => x && !x.startsWith('/'));
+    const words = first ? first.split(/\s+/).slice(0, 6).join(' ') : '';
+    return `Branch from ${this.deviceName(device)}${words ? `: ${words}` : ''}`;
   }
 
   /** Keep Session.meta.import.state and newThere in line with the latest scan, so the session line can say "4 new messages there". */
@@ -1232,7 +1383,7 @@ export class ImportService {
     // Codex's own memory and review threads are never learned from
     if (!conv.learnable) return { messages: [], ctx: empty, skip: "the tool's own memory thread, never learned" };
     // learn only: already learned under any location means nothing to do
-    if (this.store.ledgerByFingerprint(fp, this.acct).some((l) => l.learnState === 'learned')) return { messages: [], ctx: empty };
+    if (this.knownRows(conv, st.firstIds, fp).some((l) => l.learnState === 'learned')) return { messages: [], ctx: empty };
     let ledger = this.store.ledgerAt(conv.source, b.device, found.path);
     if (!ledger) {
       ledger = { ...this.baseLedger(conv, b.device, found, fp, st, b.id), learnState: 'pending' };
