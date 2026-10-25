@@ -8,6 +8,7 @@ import { truncateMiddle } from '../util/text';
 import { logger } from '../util/log';
 import { defuseFrameworkTags } from '../session/untrusted';
 import { markModelDead, subagentModel } from '../extensions/agent-model';
+import { checkFallback } from '../session/limit-tree';
 import { ProviderError } from '../providers/types';
 
 const log = logger('subagent');
@@ -354,10 +355,12 @@ async function driveSubagent(
   let error: string | undefined;
   let model = session.model;
   let fellBack = false;
+  let autoSwitchFrom: string | undefined;
   for (let round = 0; ; round++) {
     try {
       runner.stalled = undefined;
-      await runner.agentLoop(model, 'agent', controller.signal);
+      await runner.agentLoop(model, 'agent', controller.signal, { autoSwitchFrom });
+      autoSwitchFrom = undefined;
       if (runner.lastStop === 'paused') break;
     } catch (err) {
       // Pause cut a call that ran past its grace time (runner.pause)
@@ -368,10 +371,18 @@ async function driveSubagent(
       // the stuck alert cut a call that made no progress (alerts/service.ts): fail over once, else report the stall to the caller
       // a tool that hung is not the model's fault, and a rerun could repeat its side effects: no failover then
       const stalled = runner.stalled;
-      const fallback = fellBack || controller.signal.aborted || stalled?.tool ? undefined : stalled ? fallbackModel(engine, model, parent) : modelFallback(engine, model, parent, err);
+      const picked = fellBack || controller.signal.aborted || stalled?.tool ? undefined : stalled ? fallbackModel(engine, model, parent) : modelFallback(engine, model, parent, err);
+      // the task's fallback policy (ideas item 8): a destination it does not allow leaves the error standing
+      const check = picked ? checkFallback(engine, session, picked, undefined, undefined, true) : undefined;
+      const fallback = picked && check?.ok ? picked : undefined;
+      if (picked && !fallback) {
+        log.warn(`subagent ${sessionId}: fallback to ${picked} denied by policy: ${check?.why}`);
+        engine.notice(sessionId, `Not moving to ${picked}: ${check?.why}.`, 'warning');
+      }
       if (fallback) {
         // the profile's or tier's model is one the provider cannot serve (or it went quiet): run on the parent's (or the hub default) instead of failing
         fellBack = true;
+        autoSwitchFrom = model;
         log.warn(`subagent ${sessionId}: ${model} ${stalled ? 'stalled' : 'not found'}, falling back to ${fallback}`);
         engine.updateSession(sessionId, { model: fallback }, { quiet: true });
         engine.notice(sessionId, `${model} ${stalled ? 'made no progress' : `is not available (${oneLine((err as Error).message)})`}, so this ran on ${fallback}.`, 'warning');

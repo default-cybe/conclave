@@ -92,6 +92,7 @@ import { harnessOffWords } from '../acp/harness-off';
 import type { Tool } from '../tools/types';
 import { builtinTools, filterTools } from '../tools';
 import { QUEUE_KEY, SessionRunner, canResumeStopped, type StoredQueued } from '../session/runner';
+import { fallbackPolicyFor } from '../session/limit-tree';
 import { RunnerExtensions } from '../session/runner-ext';
 import { OfflineMachine } from '../projects/offline';
 import { checkMcpOff, mcpOff, sessionAllowsServerTool } from '../session/connectors';
@@ -1046,7 +1047,9 @@ export class Engine implements EngineApi {
   switchEstimate(id: string, model: string): import('../modes/switch-cost').SwitchEstimate {
     const s = this.requireSession(id);
     if (!this.isUsableRef(model)) throw new EngineError(400, this.harnessOff(model) ?? `Model ${model} is not available`);
-    return estimateSwitch(this, s, model);
+    // the effective fallback policy (its own, its ancestors' and the config's), for the switch step's line
+    const fallbackPolicy = fallbackPolicyFor(this, s);
+    return { ...estimateSwitch(this, s, model), ...(fallbackPolicy ? { fallbackPolicy } : {}) };
   }
 
   /** Summarize older messages now. instructions: what the summary must keep (/compact <instructions>). False when there was nothing to compact. */

@@ -268,6 +268,32 @@ export interface LimitSpec {
   turns?: number;
   /** Working time; waiting for a reset, an approval or an answer does not count. */
   minutes?: number;
+  /** Where this node's automatic fallbacks may go (FallbackPolicy; ideas item 8). */
+  fallback?: FallbackPolicy;
+}
+
+/**
+ * A task's fallback policy (session/limit-tree.ts checkFallback): where a
+ * usage limit or a refusal may move it, and what that may cost. It rides a
+ * LimitSpec node, so the session's own (meta.limits), or the config's session,
+ * routine and subagent limits each carry one. Ancestor restrictions remain
+ * binding; the ceiling counts the whole tree, descendants and retries included.
+ * Enforced only on Conclave-managed calls: an external harness (Claude Code,
+ * Codex) bills on its own, and the hub never moves a task onto one.
+ */
+export interface FallbackPolicy {
+  /** Provider ids an automatic fallback may move the task to. Empty or unset: any the hub can call. */
+  providers?: string[];
+  /** False: never move the task to a pay-per-token key; plans only. Default true. */
+  paid?: boolean;
+  /**
+   * Finite, nonnegative ceiling in USD (zero allows no billed spend): the whole
+   * tree's billed spend (the task's own model included, not only fallbacks) plus
+   * concurrent request bounds must stay under it. A destination
+   * whose cost cannot be estimated (no price) is not allowed; the task
+   * parks or stops instead.
+   */
+  costUsd?: number;
 }
 
 export interface McpServerConfig {

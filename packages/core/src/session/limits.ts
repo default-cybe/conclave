@@ -2,6 +2,7 @@ import type { ProviderError } from '../providers/types';
 import type { Engine } from '../engine/engine';
 import type { SessionRunner } from './runner';
 import { keepTurnBase } from './checkpoints';
+import { checkFallback } from './limit-tree';
 import { activeMessages, lastAssistantText } from './transcript';
 import { regionTokens } from './compaction';
 import { SWITCH_BRIEF_AT } from '../modes/switch-math';
@@ -248,8 +249,20 @@ export async function handleLimit(engine: Engine, runner: SessionRunner, modelRe
   const cfg = engine.config.get();
   const sessionId = runner.id;
   const resetAt = err.resetAt ?? (err.retryAfterMs ? Date.now() + err.retryAfterMs : undefined);
+  const session = engine.repos.sessions.get(sessionId);
+  // the chat the fallback would read again, for the cost ceiling's estimate
+  const chatTokens = () => regionTokens(activeMessages(engine.repos.messages.list(sessionId)));
 
-  const next = nextAccount(engine, sessionId, modelRef);
+  let next = nextAccount(engine, sessionId, modelRef);
+  if (next) {
+    // the task's fallback policy (ideas item 8): allowed destinations, paid rule, cost ceiling
+    const check = checkFallback(engine, session, next.ref, chatTokens(), undefined, true);
+    if (!check.ok) {
+      engine.notice(sessionId, `Not moving to ${next.to}: ${check.why}.`, 'warning');
+      log.info(`${sessionId}: fallback to ${next.ref} denied by policy: ${check.why}`);
+      next = undefined;
+    }
+  }
   if (next) {
     engine.notice(sessionId, `${next.from} hit its limit. Continuing on ${next.to}.`, 'warning');
     // kept for the session: later turns skip the plan at its limit, and go back once it resets (switchBack)
@@ -270,8 +283,17 @@ export async function handleLimit(engine: Engine, runner: SessionRunner, modelRe
     return { fallback: next.ref };
   }
 
-  const session = engine.repos.sessions.get(sessionId);
-  const fallback = limitFallback(engine, session?.accountId, modelRef, tried, session ? engine.agentFor(session) : undefined);
+  const fallback = (() => {
+    const f = limitFallback(engine, session?.accountId, modelRef, tried, session ? engine.agentFor(session) : undefined);
+    if (!f) return undefined;
+    const check = checkFallback(engine, session, f, chatTokens(), undefined, true);
+    if (!check.ok) {
+      engine.notice(sessionId, `Not falling back to ${f}: ${check.why}.`, 'warning');
+      log.info(`${sessionId}: fallback to ${f} denied by policy: ${check.why}`);
+      return undefined;
+    }
+    return f;
+  })();
   if (fallback) {
     const wait = waitInsteadOfFallback({
       enabled: cfg.limits.waitShortResets,
