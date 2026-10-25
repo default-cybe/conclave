@@ -280,6 +280,8 @@ export interface SessionImportInfo {
   batchId?: string;
   /** First message time in the source. */
   createdAt?: number;
+  /** The model the chat ran on in the source (anthropic/claude-opus-4-6). */
+  model?: string;
   state?: ImportedState;
   /** Messages in the source that are not here yet. */
   newThere?: number;

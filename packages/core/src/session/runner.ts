@@ -982,8 +982,9 @@ export class SessionRunner {
     let currentModel = modelRef;
     let resolved = engine.registryFor(this.session).resolve(currentModel);
     if (!this.depth) {
-      // a harness that is off (imported chats keep claude-code/default): the turn goes on with the account's default model instead of stopping
-      const to = (isMember(this.session.accountId) ? engine.accountPrefs(this.session.accountId!).defaultModel : undefined) ?? engine.config.get().defaultModel;
+      // a harness that is off (imported chats keep claude-code/default): the turn goes on with the chat's own model when usable, else the account's default, instead of stopping
+      const own = (this.session.meta?.import as { model?: string } | undefined)?.model;
+      const to = (own && engine.isUsable(own, this.session.accountId) && engine.providersFor(this.session.accountId).servesModel(own) ? own : undefined) ?? (isMember(this.session.accountId) ? engine.accountPrefs(this.session.accountId!).defaultModel : undefined) ?? engine.config.get().defaultModel;
       if (resolved.acp && engine.harnessOff(currentModel) && !engine.harnessOff(to)) {
         engine.notice(this.id, `${engine.displayModel(currentModel)} is off as an engine, so this session goes on with ${engine.displayModel(to)}.`, 'info');
         if (this.session.model === currentModel) engine.updateSession(this.id, { model: to });
