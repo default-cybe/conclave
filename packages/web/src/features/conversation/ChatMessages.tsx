@@ -6,7 +6,7 @@
  * and "Jump to latest" rises when you scroll away. What waits on you, the
  * chat's own and its subagents' (lib/asks.ts), sits at the end.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { Message, Session } from '@conclave/core/types';
 import { loadMessages, toolResultsFor, useHub, useQueue } from '@/store/store';
 import { pendingIdsOf } from '@/store/queue';
@@ -14,7 +14,7 @@ import { useIsMobile, useReducedMotion } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
-import { GapList, Knot, LiveStatus, usePresence } from '@/components/motion';
+import { DUR, GapList, Knot, LiveStatus, arrived, useArrivals, usePresence } from '@/components/motion';
 import { ApprovalCard } from '@/components/inbox/ApprovalCard';
 import { QuestionCard } from '@/components/inbox/QuestionCard';
 import { isContextOnly, isToolResultOnly } from '@/features/chat/util';
@@ -174,6 +174,18 @@ export function ChatMessages({ chatId, session }: { chatId: string; session?: Se
     return out;
   }, [units, showPending, waiting, pending?.key, lastUser, failed, resuming, lastUserIdx, queuedAtEnd, queued, startingId]);
   const rows = useStableRows(rowsNext);
+  // rows that arrive in one update fade in --stagger apart, 5 deep at most (--n, motion.css)
+  const seen = useArrivals(() => rows.map((u) => u.key), loaded, chatId);
+  const batch = useRef({ chatId, n: new Map<string, { n: number; at: number }>() });
+  if (batch.current.chatId !== chatId) batch.current = { chatId, n: new Map() };
+  let fresh = 0;
+  const now = Date.now();
+  for (const u of rows) if (arrived(seen, u.key) && !batch.current.n.has(u.key)) batch.current.n.set(u.key, { n: fresh++, at: now });
+  // a row hands its delay down only while it enters (--dur-4 covers 4 staggers and the fade), so what mounts in it later does not wait
+  const nOf = (key: string) => {
+    const b = batch.current.n.get(key);
+    return b && now - b.at < DUR.d4 ? b.n : undefined;
+  };
 
   const lastReplyIdx = findLastIndex(rows, (u) => u.kind === 'reply');
   const lastTurnIdx = findLastIndex(rows, (u) => (u.kind === 'user' && !u.queued) || u.kind === 'pending');
@@ -316,6 +328,8 @@ export function ChatMessages({ chatId, session }: { chatId: string; session?: Se
                 data-anchor={i === anchorIdx ? '' : undefined}
                 data-ids={u.kind === 'reply' ? u.messages.map((m) => m.id).join(' ') : undefined}
                 className={gapClass(rows[i - 1], u)}
+                data-msg-n={nOf(u.key)}
+                style={nOf(u.key) !== undefined ? ({ '--n': nOf(u.key) } as CSSProperties) : undefined}
               >
                 {render(u, i)}
                 {i === askAfter && asking && (
