@@ -533,7 +533,73 @@ describe('builtin: the hub runs CLIProxyAPI', () => {
       }, 10_000, 'the Google plan to read its usage');
       expect(acct.vendor).toBe('gemini');
       expect(acct.plan).toBe('AI Pro');
-      expect(acct.windows).toEqual([expect.objectContaining({ name: 'credits', remaining: 91.5 })]);
+      expect(acct.windows).toEqual([expect.objectContaining({ name: 'credits', kind: 'extra', remaining: 96.5 })]);
+      expect(acct.windows[0].usedPercent).toBeUndefined();
+      expect(acct.windows[0].limit).toBeUndefined();
+    } finally {
+      rmSync(gfile, { force: true });
+    }
+  });
+
+  test('a Google (Antigravity) plan shows its 5h and weekly quota from both quota hosts, next to its credits', async () => {
+    const gfile = join(hub.engine.home, 'cliproxy', 'auth', 'antigravity-q@example.test.json');
+    const at = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString();
+    writeFileSync(
+      gfile,
+      JSON.stringify({
+        type: 'antigravity',
+        email: 'q@example.test',
+        usage: { cloudaicompanionProject: { id: 'proj-q' }, paidTier: { id: 'GOOGLE_ONE_AI_PREMIUM', availableCredits: [{ creditType: 'GOOGLE_ONE_AI', creditAmount: '10' }] } },
+        // the daily host leaves the Gemini group out
+        quota_daily: { groups: [{ buckets: [{ bucketId: '3p-5h', window: '5h', remainingFraction: 0.5, resetTime: at(2) }, { bucketId: '3p-weekly', window: 'weekly', remainingFraction: 1, resetTime: at(100) }] }] },
+        // the Gemini week is spent (no fraction), so its 5h bucket comes back disabled
+        quota: {
+          groups: [
+            { buckets: [{ bucketId: 'gemini-5h', window: '5h', remainingFraction: 1, disabled: true }, { bucketId: 'gemini-weekly', window: 'weekly', resetTime: at(30) }] },
+            { buckets: [{ bucketId: '3p-5h', window: '5h', remainingFraction: 0.8, resetTime: at(2) }, { bucketId: '3p-weekly', window: 'weekly', remainingFraction: 1, resetTime: at(100) }] },
+          ],
+        },
+      }),
+    );
+    try {
+      const acct = await until(async () => {
+        const r = await api('/api/accounts');
+        const a = r.body.accounts.find((x: { credential?: string }) => x.credential === 'antigravity-q@example.test.json');
+        return a && a.windows.length > 1 ? a : undefined;
+      }, 10_000, 'the Google plan to read its quota');
+      const by = Object.fromEntries(acct.windows.map((w: { name: string }) => [w.name, w]));
+      expect(Object.keys(by).sort()).toEqual(['5h 3p', '7d 3p', '7d gemini', 'credits']);
+      expect(by['5h 3p']).toMatchObject({ kind: 'session', usedPercent: 50, source: 'oauth' });
+      expect(by['7d 3p']).toMatchObject({ kind: 'weekly', usedPercent: 0 });
+      expect(by['7d 3p'].resetsAt).toBeUndefined();
+      expect(by['7d gemini']).toMatchObject({ kind: 'weekly', usedPercent: 100 });
+      expect(by.credits).toMatchObject({ kind: 'extra', remaining: 10 });
+      const limits = await api('/api/limits');
+      const limit = limits.body.find((x: { account?: string }) => x.account === acct.id);
+      expect(limit.note).toBeUndefined();
+    } finally {
+      rmSync(gfile, { force: true });
+    }
+  });
+
+  test('a below-minimum Google credit balance stays informational and callable', async () => {
+    const gfile = join(hub.engine.home, 'cliproxy', 'auth', 'antigravity-low@example.test.json');
+    writeFileSync(gfile, JSON.stringify({ type: 'antigravity', email: 'low@example.test', usage: { paidTier: { id: 'GOOGLE_ONE_AI_PREMIUM', availableCredits: [{ creditType: 'GOOGLE_ONE_AI', creditAmount: '1.234567', minimumCreditAmountForUsage: '5' }] } } }));
+    try {
+      const acct = await until(async () => {
+        const r = await api('/api/accounts');
+        const a = r.body.accounts.find((x: { credential?: string }) => x.credential === 'antigravity-low@example.test.json');
+        return a && a.windows.length ? a : undefined;
+      }, 10_000, 'the low-credit Google plan to read its balance');
+      expect(acct.plan).toBe('AI Pro');
+      expect(['ready', 'unknown']).toContain(acct.state);
+      expect(acct.windows).toEqual([expect.objectContaining({ name: 'credits', kind: 'extra', remaining: 1.234567 })]);
+      expect(acct.windows[0].usedPercent).toBeUndefined();
+      expect(acct.windows[0].limit).toBeUndefined();
+      const limits = await api('/api/limits');
+      const limit = limits.body.find((x: { account?: string }) => x.account === acct.id);
+      expect(limit.windows).toEqual(acct.windows);
+      expect(limit.blocked).not.toBe(true);
     } finally {
       rmSync(gfile, { force: true });
     }

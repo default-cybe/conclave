@@ -310,13 +310,13 @@ describe('API limit mappers', () => {
       currentTier: { id: 'GOOGLE_ONE_AI_PREMIUM' },
       paidTier: { id: 'GOOGLE_ONE_AI_PREMIUM', availableCredits: [{ creditType: 'GOOGLE_ONE_AI', creditAmount: '96.5', minimumCreditAmountForUsage: '5' }] },
     });
-    expect(l).toEqual({ plan: 'AI Pro', windows: [{ name: 'credits', remaining: 91.5 }] });
-    // under the minimum for use: spent, so the account reads blocked
+    expect(l).toEqual({ plan: 'AI Pro', windows: [{ name: 'credits', kind: 'extra', remaining: 96.5 }] });
+    // Below the paid-spending minimum, the raw balance remains informational.
     expect(mapAntigravityUsage({ paidTier: { id: 'google_one_ai_premium', availableCredits: [{ creditType: 'GOOGLE_ONE_AI', creditAmount: 1, minimumCreditAmountForUsage: 5 }] } })).toEqual({
       plan: 'AI Pro',
-      windows: [{ name: 'credits', remaining: 0, usedPercent: 100 }],
+      windows: [{ name: 'credits', kind: 'extra', remaining: 1 }],
     });
-    // a tier without a credits list: the plan only, and the page keeps saying Google reports no usage
+    // A tier without a credits list supplies the plan only; the balance stays unknown.
     expect(mapAntigravityUsage({ currentTier: { id: 'INDIVIDUAL_STANDARD_NOCC' } })).toEqual({ plan: 'Standard', windows: [] });
     expect(mapAntigravityUsage({ paidTier: { id: 'SOME_NEW_TIER' } })).toEqual({ plan: 'some new tier', windows: [] });
     expect(mapAntigravityUsage(undefined)).toEqual({ windows: [] });

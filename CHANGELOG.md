@@ -11,7 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Changed
 
-- Google (Antigravity) plans show real numbers in Accounts and Usage: the hub reads `loadCodeAssist` (the call the Antigravity editor makes on start) through CLIProxyAPI with the credential's own token, and shows the GOOGLE_ONE_AI credits balance and the plan tier (AI Pro, AI Ultra). Google still exposes no 5-hour or weekly usage to these clients, so those windows stay unreported and a 429 keeps showing as the account's cooldown.
+- Google (Antigravity) plans show the raw paid-credit balance and plan tier (AI Pro, AI Ultra) in Accounts and Usage. The hub reads `loadCodeAssist` through CLIProxyAPI with the credential's own token. Credits remain informational, without an invented percentage or quota, and never block ordinary model access. Provider cooldowns still apply.
 
 ## [0.4.29] - 2026-10-25
 

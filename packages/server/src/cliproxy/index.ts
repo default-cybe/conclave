@@ -50,7 +50,7 @@ import { prefixProblem } from '@conclave/core/accounts/prefix.ts';
 import { annotateWindow, mergeWindows } from '@conclave/core/accounts/windows.ts';
 import { mapClaudeOAuthUsage, mapClaudeProfile } from '@conclave/core/usage/readers/claude-oauth.ts';
 import { mapWhamUsage } from '@conclave/core/usage/readers/codex-usage.ts';
-import { mapAntigravityUsage } from '@conclave/core/usage/readers/antigravity.ts';
+import { antigravityProject, mapAntigravityQuota, mapAntigravityUsage } from '@conclave/core/usage/readers/antigravity.ts';
 import type { LimitWindow } from '@conclave/core/types.ts';
 import { markHubPrivate } from '@conclave/core/machine/private.ts';
 import { logger } from '@conclave/core/util/log.ts';
@@ -1099,14 +1099,25 @@ export class CliproxyManager {
           continue;
         }
         const at = Date.now();
-        // Google answers the credits call only with the balance and the tier: no windows for the 5h and weekly limits it keeps to itself
+        // Antigravity credits are informational paid-spending balances, not subscription quota windows.
         const mapped =
           kind === 'claude-usage'
             ? mapClaudeOAuthUsage(r.json as Record<string, any>, at)
             : kind === 'antigravity-usage'
               ? mapAntigravityUsage(r.json as Record<string, any>)
               : mapWhamUsage(r.json as Record<string, any>, at);
-        s.windows = mapped.windows.map((w) => annotateWindow(w, { source: 'oauth', observedAt: at }));
+        const windows = [...mapped.windows];
+        if (kind === 'antigravity-usage') {
+          // the quota buckets; a failed read leaves the credits and plan as they are
+          const projectId = c.projectId ?? antigravityProject(r.json as Record<string, any>);
+          const answers = await Promise.all(
+            (['antigravity-quota-daily', 'antigravity-quota'] as const).map((q) =>
+              mgmt.usageCall(q, c.authIndex!, { projectId }).then((a) => (a.status >= 200 && a.status < 300 && a.json && typeof a.json === 'object' ? (a.json as Record<string, any>) : undefined), () => undefined),
+            ),
+          );
+          windows.push(...mapAntigravityQuota(answers));
+        }
+        s.windows = windows.map((w) => annotateWindow(w, { source: 'oauth', observedAt: at }));
         if (kind !== 'claude-usage') s.plan = (mapped as { plan?: string }).plan ?? s.plan;
         s.backoff = 0;
         s.usageError = undefined;

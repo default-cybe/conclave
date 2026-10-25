@@ -149,6 +149,20 @@ describe('config and the management client', () => {
     expect(seen.at(-1)!.body.header['Chatgpt-Account-Id']).toBeUndefined();
     await m.usageCall('antigravity-usage', 'g7');
     expect(seen.at(-1)!.body).toEqual({ auth_index: 'g7', method: 'POST', url: 'https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist', header: { Authorization: 'Bearer $TOKEN$', 'Content-Type': 'application/json', Accept: 'application/json' }, data: '{"metadata":{"ideType":"ANTIGRAVITY"}}' });
+    // the quota summary: both hosts, the client name Cloud Code accepts, the project as the only value in the body
+    const quotaHeader = { Authorization: 'Bearer $TOKEN$', 'Content-Type': 'application/json', 'User-Agent': 'antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64; cl=1000335682)' };
+    await m.usageCall('antigravity-quota-daily', 'g7', { projectId: 'proj-1.a:b' });
+    expect(seen.at(-1)!.body).toEqual({ auth_index: 'g7', method: 'POST', url: 'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary', header: quotaHeader, data: '{"project":"proj-1.a:b"}' });
+    await m.usageCall('antigravity-quota', 'g7');
+    expect(seen.at(-1)!.body).toEqual({ auth_index: 'g7', method: 'POST', url: 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary', header: quotaHeader, data: '{}' });
+    // a project that is not an id is left out, not passed on
+    for (const projectId of ['x","evil":"1', 'a b', 'a'.repeat(129)]) {
+      await m.usageCall('antigravity-quota', 'g7', { projectId });
+      expect(seen.at(-1)!.body.data).toBe('{}');
+    }
+    // the project goes only into the quota calls
+    await m.usageCall('antigravity-usage', 'g7', { projectId: 'proj-1' });
+    expect(seen.at(-1)!.body.data).toBe('{"metadata":{"ideType":"ANTIGRAVITY"}}');
     answer = { status_code: 429, header: { 'Retry-After': ['120'] }, body: '{"error":"slow"}' };
     expect(await m.usageCall('claude-profile', 'a1b2')).toEqual({ status: 429, json: { error: 'slow' }, retryAfterMs: 120_000 });
     answer = { status_code: 502, header: {}, body: 'upstream down' };
@@ -168,7 +182,11 @@ describe('config and the management client', () => {
       'GET https://chatgpt.com/backend-api/wham/usage',
       `GET https://chatgpt.com/backend-api/codex/models?client_version=${CODEX_CLIENT_VERSION}`,
       'POST https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist',
+      'POST https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
+      'POST https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary',
     ]);
+    expect(() => assertAllowedCall({ method: 'GET', url: 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary' })).toThrow();
+    expect(() => assertAllowedCall({ method: 'POST', url: 'https://cloudcode-pa.googleapis.com/v1internal:generateContent' })).toThrow();
     // the Codex models address with any other query is refused too
     expect(() => assertAllowedCall({ method: 'GET', url: 'https://chatgpt.com/backend-api/codex/models?client_version=0.1.0' })).toThrow();
     expect(() => assertAllowedCall({ method: 'GET', url: 'https://chatgpt.com/backend-api/codex/responses' })).toThrow();
