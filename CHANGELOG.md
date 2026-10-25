@@ -9,6 +9,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Save drafts without asking: a per-account setting (off by default, Settings > Calendar and mail) that makes the Assistant's `MailDraft` save the draft straight into Drafts with no approval card. It never sends; sending still needs approval, and the email-reading agent still cannot draft.
+
 ### Fixed
 
 - The workflow test "a call the owner skipped stays skipped when the run resumes" no longer fails under full-suite load: scripted replies are held by a promise the test releases, and it waits on call state events instead of polling against 3 s timers.

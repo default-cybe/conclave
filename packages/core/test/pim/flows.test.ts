@@ -39,7 +39,8 @@ describe('guides and prompt', () => {
     const md = readFileSync(join(DIR, 'assistant.md'), 'utf8');
     expect(md).toContain('guide (plan-week, meal-plan, meeting or time-booking)');
     expect(md).toContain('CalendarEvent and MailDraft only propose');
-    expect(md).toContain('never say something is booked, saved or sent before you hear back');
+    expect(md).toContain('Save drafts without asking, MailDraft saves the draft at once');
+    expect(md).toContain('Never say something is booked, saved or sent unless a result or note says so');
     expect(md).toContain('You never read mail yourself');
     expect(md).toContain('subagent_type "email"');
     expect(md.split('\n').length).toBeLessThan(60);
