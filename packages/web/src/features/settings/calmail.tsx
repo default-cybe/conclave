@@ -18,7 +18,7 @@ import { CodeBlock } from '@/components/ui/Code';
 import { ConfirmDialog } from '@/components/ui/Overlay';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { errText, Group, Outcome, SettingRow, agoWords } from './parts';
-import { accountKind, checkWords, googleChoice, googleWaitWords, hubOrigin, pastedCallback, scopeWords } from './calmailWords';
+import { AUTO_DRAFT_HELP, accountKind, checkWords, googleChoice, googleWaitWords, hubOrigin, pastedCallback, scopeWords } from './calmailWords';
 
 export function CalMailSection() {
   const [s, setS] = useState<PimSettingsDto>();
@@ -124,6 +124,9 @@ function AccountRow({ a, reload }: { a: PimAccountDto; reload: () => Promise<voi
         <div className="mt-2">
           <SettingRow label="Drafts" help={a.kind === 'imap' ? 'Approved messages go to the Drafts folder. You send them yourself.' : 'Needs more access from the provider: sign in again to change it.'}>
             <OnOff label="Drafts" size={size} checked={!!a.drafts} disabled={!!busy || a.kind !== 'imap'} onChange={(v) => void run('drafts', () => api().updatePimAccount(a.id, { drafts: v }))} />
+          </SettingRow>
+          <SettingRow label="Save drafts without asking" help={AUTO_DRAFT_HELP}>
+            <OnOff label="Save drafts without asking" size={size} checked={!!a.autoDraft} disabled={!!busy || !(a.drafts || a.kind === 'imap')} onChange={(v) => void run('autoDraft', () => api().updatePimAccount(a.id, { autoDraft: v }))} />
           </SettingRow>
           <SettingRow label="Sending" help="Off: the assistant can only save drafts. On: an approved message may go out at once. Each message still needs your approval.">
             <OnOff label="Sending" size={size} checked={!!a.send} disabled={!!busy} onChange={(v) => void run('send', () => api().updatePimAccount(a.id, { send: v }), v ? 'Sending is on. Each message still waits for your approval.' : undefined)} />

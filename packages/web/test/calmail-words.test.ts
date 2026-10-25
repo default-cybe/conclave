@@ -2,7 +2,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { GoogleOAuthStatus, ProposalDto } from '@conclave/core/client';
 import { approveWords, clock, eventRange, eventWhen, inviteWords, nextEventLine, outcomeWords, proposalQuestion } from '../src/features/home/proposalWords';
-import { accountKind, checkWords, googleChoice, googleWaitWords, hubOrigin, onHubMachine, pastedCallback, scopeWords } from '../src/features/settings/calmailWords';
+import { AUTO_DRAFT_HELP, accountKind, checkWords, googleChoice, googleWaitWords, hubOrigin, onHubMachine, pastedCallback, scopeWords } from '../src/features/settings/calmailWords';
 
 const Z = 'Europe/Berlin';
 const t = (iso: string) => Date.parse(iso);
@@ -63,6 +63,10 @@ describe('settings words', () => {
     expect(scopeWords(['offline_access', 'https://graph.microsoft.com/Mail.Read', 'https://graph.microsoft.com/Mail.ReadWrite'])).toEqual(['read mail', 'save drafts', 'stay signed in']);
     expect(checkWords({ signedIn: false })).toMatchObject({ tone: 'fault', word: 'Signed out' });
     expect(checkWords({ signedIn: true, lastCheck: { at: 0, ok: true, detail: '3 calendars.' } })).toMatchObject({ tone: 'ok', word: 'Works' });
+  });
+
+  test('the auto-draft toggle says drafts are never sent', () => {
+    expect(AUTO_DRAFT_HELP).toBe('The Assistant saves a draft straight into Drafts. It never sends; sending still needs your approval.');
   });
 
   test('which Google sign-in fits where the page is open', () => {

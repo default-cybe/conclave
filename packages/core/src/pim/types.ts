@@ -62,6 +62,8 @@ export interface PimAccount {
   drafts?: boolean;
   /** The owner opted in to sending approved messages, not only saving drafts. */
   send?: boolean;
+  /** MailDraft saves a draft at once, without a card. Never sends. Needs drafts. */
+  autoDraft?: boolean;
   calendars?: CalendarPick[];
   lastCheck?: { at: number; ok: boolean; detail: string };
 }
