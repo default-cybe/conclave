@@ -301,6 +301,8 @@ export class SessionRunner {
   private scopedShown?: Set<string>;
   /** Read marks by path: the active messages' file tool results, then this runner's newer ones (item 17). */
   private marks?: Map<string, ReadMark>;
+  /** Results of the current step's calls, before the step stores them as one message (engine.sharedFile reads a card from here). */
+  readonly stepResults = new Map<string, ToolResultBlock>();
   /** Marks in messages at or below this seq do not count (the session moved since). */
   private marksAfterSeq = 0;
 
@@ -1283,12 +1285,16 @@ export class SessionRunner {
       // execute tool calls: consecutive concurrency-safe calls run together
       const results: ToolResultBlock[] = [];
       let batch: ToolUseBlock[] = [];
-      const run = (u: ToolUseBlock) => this.executeTool(u, toolMap, assistant.id, signal).catch((err) => {
-        if (signal.aborted) throw err;
-        // a failure outside the tool itself still answers the call
-        log.warn(`tool ${u.name} failed in ${this.id}`, err);
-        return this.errorResult(u, `Tool error: ${(err as Error)?.message ?? String(err)}`);
-      });
+      this.stepResults.clear();
+      const run = (u: ToolUseBlock) =>
+        this.executeTool(u, toolMap, assistant.id, signal)
+          .catch((err) => {
+            if (signal.aborted) throw err;
+            // a failure outside the tool itself still answers the call
+            log.warn(`tool ${u.name} failed in ${this.id}`, err);
+            return this.errorResult(u, `Tool error: ${(err as Error)?.message ?? String(err)}`);
+          })
+          .then((r) => (this.stepResults.set(r.toolUseId, r), r));
       const flush = async () => {
         if (!batch.length) return;
         const out = await Promise.all(batch.map(run));
