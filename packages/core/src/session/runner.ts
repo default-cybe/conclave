@@ -1,6 +1,7 @@
 import type {
   AgentResultRef,
   ApprovalResponse,
+  AttachmentReceipt,
   ContentBlock,
   ImageBlock,
   Message,
@@ -26,6 +27,7 @@ import { flattenLastToolTurn, isTranscriptShapeError } from './pairing';
 import { streamCompletion, type Served } from './stream';
 import { transcribeImages } from './image-text';
 import { seesImages } from '../providers/common';
+import { pickedName } from '../attachments/prepare';
 import { refusalPlan, refusalStepOf, refusalWords, RefusalWalk, servedLabel, stepOfTarget, type FallbackTarget } from './refusal-fallback';
 import { checkPermission, dangerousCommand } from './permissions';
 import { ReadTool } from '../tools/read';
@@ -822,9 +824,12 @@ export class SessionRunner {
     // user content: text, attachments, then reminders (hooks, memory, todos)
     const content: ContentBlock[] = [];
     if (q.input.text) content.push({ type: 'text', text: q.input.text });
+    // one receipt per picked file (attachments/prepare.ts); one unreadable now is omitted, never silently dropped
+    const receipts: AttachmentReceipt[] = (q.input.attachmentReceipts ?? []).map((r) => ({ ...r }));
     for (const a of q.input.attachments ?? []) {
       const block = await engine.attachmentBlock(session, a);
       if (block) content.push(block);
+      else if (!receipts.some((r) => r.state === 'omitted' && r.name === pickedName(a))) receipts.push({ name: pickedName(a), state: 'omitted', reason: 'could not be read from the device' });
     }
 
     engine.setStatus(this.id, 'running');
@@ -889,6 +894,7 @@ export class SessionRunner {
       userMeta.whenBusy = 'queue';
     }
     if (recalled.length) userMeta.recalled = recalled;
+    if (receipts.length) userMeta.attachments = receipts;
     // notes from background subagents that finished while the session was idle (a retry has no message to carry them)
     const retry = q.refusal;
     const notes = retry ? [] : this.takeNotes();
@@ -1167,21 +1173,23 @@ export class SessionRunner {
       if (this.steering.length) {
         // read the attachments first: until each is stored it stays listed, so apps never lose it
         const steer = [...this.steering];
-        const built: Array<{ s: Steer; content: ContentBlock[] }> = [];
+        const built: Array<{ s: Steer; content: ContentBlock[]; receipts?: AttachmentReceipt[] }> = [];
         for (const s of steer) {
           const content: ContentBlock[] = s.input.text ? [{ type: 'text', text: s.input.text }] : [];
+          const receipts: AttachmentReceipt[] = (s.input.attachmentReceipts ?? []).map((r) => ({ ...r }));
           for (const a of s.input.attachments ?? []) {
             const block = await engine.attachmentBlock(session, a);
             if (block) content.push(block);
+            else if (!receipts.some((r) => r.state === 'omitted' && r.name === pickedName(a))) receipts.push({ name: pickedName(a), state: 'omitted', reason: 'could not be read from the device' });
           }
           content.push(reminder(STEER_NOTE));
-          built.push({ s, content });
+          built.push({ s, content, ...(receipts.length ? { receipts } : {}) });
         }
         if (signal.aborted) throw new Error('aborted');
         // one removed meanwhile stays out; what came in meanwhile joins the next step
         const still = built.filter((b) => this.steering.includes(b.s));
         this.steering = this.steering.filter((x) => !steer.includes(x));
-        for (const { s, content } of still) engine.addMessage(this.id, { role: 'user', kind: 'normal', content, meta: { whenBusy: 'steer', pendingIds: [s.pending.id] } });
+        for (const { s, content, receipts } of still) engine.addMessage(this.id, { role: 'user', kind: 'normal', content, meta: { whenBusy: 'steer', pendingIds: [s.pending.id], ...(receipts?.length ? { attachments: receipts } : {}) } });
         this.emitQueue();
       }
 
@@ -1196,6 +1204,9 @@ export class SessionRunner {
       const imageText = !seesImages(resolved.model, resolved.info, cfg.providers[resolved.provider]);
       if (imageText) await transcribeImages(engine, this.id, engine.sessionAccount(this.id), signal);
       const stored = engine.repos.messages.list(this.id);
+      // the receipts say whether this request carried each attachment; another model may differ
+      const pdf = engine.registryFor(this.session).get(resolved.provider)?.readsPdf?.(resolved.model) ?? true;
+      markAttachmentInclusion(engine, stored, !imageText, pdf);
       let messages: ProviderMessage[] = buildProviderMessages(stored, {
         modelRef: currentModel,
         toolNames: new Set(tools.map((t) => t.name)),
@@ -2124,4 +2135,30 @@ export function turnErrorText(engine: Engine, err: unknown): string {
   }
   if (err.kind === 'quota') return `${name} says the account is out of credit (${raw}). Add credit or switch model, then retry.`;
   return raw;
+}
+
+/**
+ * Records on the turn's user message whether this model's request carries
+ * each prepared attachment: a picture needs vision, a PDF a wire that takes
+ * it (providers/common.ts documentsForWire); text always goes. A row says
+ * included in the request, never that the model read it, and is rewritten
+ * when a failover or a switch changes the model's reach.
+ */
+function markAttachmentInclusion(engine: Engine, stored: Message[], vision: boolean, pdf: boolean): void {
+  const msg = [...stored].reverse().find((m) => m.role === 'user' && Array.isArray(m.meta?.attachments));
+  if (!msg) return;
+  const rows = msg.meta!.attachments as AttachmentReceipt[];
+  const reasonFor = (p: 'image' | 'pdf') => (p === 'image' ? 'this model cannot see pictures' : 'this model cannot read PDFs');
+  let changed = false;
+  const next = rows.map((r) => {
+    if (r.state !== 'prepared') return r;
+    const parts = r.parts ?? ['text'];
+    const carried = parts.some((p) => (p === 'image' ? vision : p === 'pdf' ? pdf : true));
+    const bad = parts.find((p) => p !== 'text') as 'image' | 'pdf' | undefined;
+    const reason = carried ? undefined : reasonFor(bad ?? 'image');
+    if (r.included === carried && r.reason === reason) return r;
+    changed = true;
+    return { ...r, included: carried, ...(reason ? { reason } : {}) };
+  });
+  if (changed) engine.updateMessage(msg.id, { meta: { ...msg.meta, attachments: next } });
 }

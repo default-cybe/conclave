@@ -13,6 +13,9 @@ import { timeGroup } from './units';
 
 export type Navigate = (to: string, opts?: { replace?: boolean }) => void;
 
+/** The hub's 409 when a send would lose a file it could not read (attachments/prepare.ts ATTACHMENT_LOST; not imported: that module pulls Bun-only code into the web build). */
+const ATTACHMENT_LOST = 'Attachment not included: ';
+
 export interface Outgoing {
   text: string;
   attachments: Attachment[];
@@ -97,10 +100,43 @@ export async function startChat(out: Outgoing, opts: { model?: string; chat: Par
   // only while the new chat is still on screen: Back or a link during the call must not pull you into it
   if (window.location.pathname === '/chat') navigate(`/chat/${s.id}`, { replace: true });
   if (withFiles) {
-    const r = await attempt(() => api().send(s.id, { text: out.text, attachments: out.attachments }));
+    const r = await sendChosen(s.id, { text: out.text, attachments: out.attachments }, () => setPending(s.id, undefined));
     if (!r) setPending(s.id, undefined);
   }
   return true;
+}
+
+/**
+ * Send, and when the hub names a file it could not read, put the choice to
+ * the owner instead of dropping it silently: "Send without it" sends the
+ * message with the loss accepted. Undefined while the choice waits.
+ */
+async function sendChosen(sessionId: string, input: { text: string; attachments?: Attachment[] }, onRefused: () => void) {
+  try {
+    return await api().send(sessionId, input);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '';
+    if (!msg.startsWith(ATTACHMENT_LOST)) {
+      // as attempt(): the refusal says why, the message stays unsent
+      toast({ title: msg, level: 'error' });
+      return undefined;
+    }
+    onRefused();
+    toast({
+      title: msg.slice(ATTACHMENT_LOST.length),
+      level: 'error',
+      sticky: true,
+      action: {
+        label: 'Send without it',
+        run: () => {
+          void api()
+            .send(sessionId, { ...input, attachmentLoss: 'drop' })
+            .catch((err) => toast({ title: err instanceof Error ? err.message : String(err), level: 'error' }));
+        },
+      },
+    });
+    return undefined;
+  }
 }
 
 /** A message in an open chat. While a reply runs it queues and sends when the reply ends. */
@@ -112,7 +148,7 @@ export async function sendTo(session: Session, out: Outgoing): Promise<boolean> 
   // while a reply runs it shows at once at the end, Queued, until its turn takes it (CHAT-AND-MOTION 2.11)
   if (running) return !!(await sendQueued(session.id, { text: out.text, attachments, whenBusy: 'queue' }));
   setPending(session.id, pendingFor(out, known));
-  const r = await attempt(() => api().send(session.id, { text: out.text, attachments }));
+  const r = await sendChosen(session.id, { text: out.text, attachments }, () => setPending(session.id, undefined));
   if (!r) {
     setPending(session.id, undefined);
     return false;

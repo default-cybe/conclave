@@ -8,6 +8,7 @@
  */
 import type {
   ApprovalRequest,
+  AttachmentReceipt,
   ApprovalResponse,
   AuditEntry,
   ChatSettings,
@@ -362,6 +363,13 @@ export interface SendInput {
    * _ or -; the hub makes one when it is missing, malformed or taken.
    */
   pendingId?: string;
+  /**
+   * The sender chose to go on without a file the hub could not read (the 409
+   * named them): the message is sent, its receipt says omitted.
+   */
+  attachmentLoss?: 'drop';
+  /** Filled by the hub from prepareAttachments and carried to the runner; never set by a client. */
+  attachmentReceipts?: AttachmentReceipt[];
 }
 
 /** What a send did. queued: the session was busy and the message waits (session.queue lists it under pendingId). */

@@ -11,6 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- Attachment delivery receipts. Each user message records, per picked file, whether the hub prepared it (a zip keeps its name while its entries keep their own) and whether the request carried it; the web chat shows a quiet line per file that was expanded, left out of a request (a model without vision or PDFs) or omitted, with the reason. A file the hub cannot read is never dropped silently: the send is refused with its name, and the apps ask "Send without it?" before the message goes on. Inclusion is reported; the apps never claim the model read the file.
 - Save drafts without asking: a per-account setting (off by default, Settings > Calendar and mail) that makes the Assistant's `MailDraft` save the draft straight into Drafts with no approval card. It never sends; sending still needs approval, and the email-reading agent still cannot draft.
 
 ## [0.4.30] - 2026-10-25

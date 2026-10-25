@@ -112,6 +112,8 @@ export interface Provider {
   embed?(texts: string[], model?: string): Promise<number[][]>;
   /** Optional: exact token count. */
   countTokens?(req: ChatRequest): Promise<number>;
+  /** Optional: whether this wire carries a model's PDFs (documentsForWire's pdf flag). Default true. */
+  readsPdf?(model: string): boolean;
 }
 
 export type ProviderErrorKind =
