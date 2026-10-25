@@ -45,6 +45,7 @@ export function moveInput(body: Record<string, unknown>): MoveInput {
     ...(optBool(body.allowMismatch, 'allowMismatch') ? { allowMismatch: true } : {}),
     ...(optBool(body.withoutFiles, 'withoutFiles') ? { withoutFiles: true } : {}),
     ...(cloneInput ? { clone: cloneInput } : {}),
+    ...(optBool(body.copy, 'copy') ? { copy: true } : {}),
   };
 }
 
@@ -87,12 +88,34 @@ export function registerProjectRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
     const id = sid(c);
     const input = moveInput(await readJson<Record<string, unknown>>(c));
     known(c, input.device);
+    // Move to hub copies for minutes: it runs in the background and reports in the session (hubcopy.progress)
+    if (input.copy) {
+      if (input.device !== 'local') throw badRequest('copy moves a session to the hub only (device "local")');
+      audit(c, 'session.move-to-hub', id, { sessionId: id });
+      return c.json(svc().copies.start(id), 202);
+    }
     const result = await svc().move(id, input);
     if (result.resolved) audit(c, 'session.move', `${result.session.device} ${result.cwd} (${result.via}, ${result.level})`, { sessionId: id, device: result.session.device });
     return c.json(result);
   });
 
   app.get('/api/sessions/:id/location', async (c) => c.json(await svc().location(sid(c), { refresh: !!qBool(c.req.query('refresh')) })));
+
+  // ----- Move to hub and Move back (core projects/hubcopy.ts) -----------------
+
+  app.get('/api/sessions/:id/hub-copy', async (c) => c.json(await svc().copies.preview(sid(c))));
+
+  app.delete('/api/sessions/:id/hub-copy', (c) => c.json({ cancelled: svc().copies.cancel(sid(c)) }));
+
+  app.get('/api/sessions/:id/hub-copy/back', async (c) => c.json(await svc().copies.backPreview(sid(c))));
+
+  app.post('/api/sessions/:id/hub-copy/back', async (c) => {
+    const id = sid(c);
+    const body = await readJson<Record<string, unknown>>(c);
+    const input = { skipConflicts: !!optBool(body.skipConflicts, 'skipConflicts'), deleteRemoved: !!optBool(body.deleteRemoved, 'deleteRemoved') };
+    audit(c, 'session.move-back', `${id} ${JSON.stringify(input)}`, { sessionId: id });
+    return c.json(svc().copies.startBack(id, input), 202);
+  });
 
   // ----- projects ------------------------------------------------------------
 

@@ -7,6 +7,7 @@ import type { Tool } from '../tools/types';
 import { newId } from '../util/ids';
 import { oneLine } from '../util/text';
 import { reminder } from '../session/transcript';
+import { projectsOf } from '../projects/attached';
 
 /** Where a member's commands and skills may come from: what ships, and the plugins the owner installed. */
 const SHARED_SOURCES = new Set(['builtin', 'plugin']);
@@ -57,6 +58,12 @@ export async function runCommand(engine: Engine, sessionId: string, line: string
         return { output: `${res.line}${top ? ` Closest folder: ${top.path} (${top.line}).` : ''} Use the device picker to choose a folder.` };
       }
       return { output: `Devices: ${devices.map((d) => `${d.name}${d.online ? '' : ' (offline)'}`).join(', ')}` };
+    }
+    case 'move': {
+      // /move hub --copy: Move to hub (projects/hubcopy.ts); it runs in the background
+      const svc = projectsOf(engine);
+      if (/^hub\b/.test(args) && /(^|\s)--copy\b/.test(args) && svc && !member) return { output: svc.copies.start(sessionId).line };
+      return { output: 'Usage: /move hub --copy copies this folder to the hub and runs there. /device <name> moves without copying.' };
     }
     case 'cwd':
       if (args) {

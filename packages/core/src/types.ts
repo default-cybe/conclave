@@ -852,6 +852,18 @@ export type EngineEvent =
       via: import('./client/projects').LocationVia;
       level: import('./client/projects').MatchLevel;
     }
+  /** Move to hub (to-hub) or Move back (back): progress twice a second at most, then done, failed or cancelled (projects/hubcopy.ts). */
+  | {
+      type: 'hubcopy.progress';
+      sessionId: string;
+      direction: 'to-hub' | 'back';
+      phase: 'measuring' | 'copying' | 'manifest' | 'done' | 'failed' | 'cancelled';
+      bytes: number;
+      files: number;
+      totalBytes?: number;
+      totalFiles?: number;
+      line?: string;
+    }
   // ----- workflows (workflows/**) -----
   | { type: 'workflow.run'; run: import('./client/workflows').WorkflowRun }
   | { type: 'workflow.phase'; runId: string; index: number; title: string }

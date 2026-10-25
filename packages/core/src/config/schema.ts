@@ -667,6 +667,12 @@ export interface ConclaveConfig {
     searchRoots?: string[];
   };
 
+  /** Move to hub (projects/hubcopy.ts): a session's whole folder copied to the hub's disk. */
+  projects?: {
+    /** Where copies go, as <hubRoot>/<device>/<folder>. Default /srv/conclave-projects when it exists and is writable, else ~/conclave-projects. */
+    hubRoot?: string;
+  };
+
   /**
    * Repo sessions (docs/DESIGN.md 30). The token is the hub secret "github"
    * (Settings, GitHub, or `conclave github login`), else CONCLAVE_GITHUB_TOKEN.

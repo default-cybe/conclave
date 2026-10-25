@@ -49,6 +49,7 @@ import { RepoBar, useArchiveRepo } from '@/features/github/RepoBar';
 import { sessionRepo } from '@/lib/github';
 import { isDelegated } from '@conclave/core/session/delegated';
 import { DelegatedLine, FromLink, moveToMainList, MOVE_TO_MAIN, useDelegatedFrom } from './delegated';
+import { useHubCopy } from './HubCopy';
 
 export function ChatView({ session }: { session: Session }) {
   const todos = useHub((s) => s.todos[session.id]);
@@ -291,6 +292,8 @@ function SessionMenu({ session }: { session: Session }) {
   const later = (fn: () => void) => () => setTimeout(fn, 0);
   // a repo session's worktree may go with it (features/github/RepoBar.tsx)
   const arch = useArchiveRepo(session, () => patch({ archived: true }, 'Archived. It is under Show archived.'));
+  // Move to hub (copy folder) and Move back to <device>
+  const hub = useHubCopy(session, menu);
 
   return (
     <>
@@ -323,6 +326,7 @@ function SessionMenu({ session }: { session: Session }) {
             },
             { label: 'Second opinion…', onSelect: later(() => setPick('opinion')) },
             { label: 'Compact', detail: 'Summarize older messages', onSelect: () => attempt(() => api().compact(session.id)) },
+            ...(hub.items.length ? [{ separator: true, label: '' }, ...hub.items] : []),
             { separator: true, label: '' },
             { label: 'Export Markdown', onSelect: () => downloadExport(session, 'md') },
             { label: 'Export JSON', onSelect: () => downloadExport(session, 'json') },
@@ -376,6 +380,7 @@ function SessionMenu({ session }: { session: Session }) {
         </form>
       </Dialog>
       {arch.dialog}
+      {hub.dialogs}
       <ConfirmDialog
         open={del}
         onClose={() => setDel(false)}

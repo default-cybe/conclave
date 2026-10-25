@@ -17,6 +17,10 @@ import kotlinx.serialization.json.put
 suspend fun ConclaveClient.moveSession(id: String, input: MoveInput): MoveResult =
     send("POST", p("api", "sessions", id, "move"), MoveInput.serializer(), input, MoveResult.serializer())
 
+/** Move to hub: copy the session's whole folder to the hub, then run there (core projects/hubcopy.ts). The hub answers at once; the copy reports in the session. */
+suspend fun ConclaveClient.moveToHub(id: String) =
+    sendUnit("POST", p("api", "sessions", id, "move"), MoveInput.serializer(), MoveInput(device = "local", copy = true))
+
 /** What the location banner shows. [refresh] reads the device again instead of the cached state. */
 suspend fun ConclaveClient.sessionLocation(id: String, refresh: Boolean = false): SessionLocation =
     get(p("api", "sessions", id, "location"), SessionLocation.serializer(), mapOf("refresh" to if (refresh) "1" else null))

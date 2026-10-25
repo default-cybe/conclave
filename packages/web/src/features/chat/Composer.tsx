@@ -189,6 +189,10 @@ export function Composer({ session }: { session: Session }) {
         document.querySelector<HTMLButtonElement>('[data-picker="device"]')?.click();
         return;
       }
+      case 'move':
+        // /move hub --copy: Move to hub (core projects/hubcopy.ts); progress shows in the session
+        if (/^hub\b/.test(a) && /(^|\s)--copy\b/.test(a)) return attempt(() => api().moveToHub(session.id), 'Copying the folder to the hub.');
+        return toast({ title: '/move hub --copy', body: 'Copies this folder to the hub and runs there. /device moves without copying.', level: 'info' });
       case 'cwd':
         return a ? patch({ cwd: a }) : document.querySelector<HTMLButtonElement>('[data-picker="device"]')?.click();
       case 'new':
