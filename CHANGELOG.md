@@ -43,6 +43,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - The web conversation opens a long chat with its latest rows only, as a session's transcript already does: older rows mount a chunk at a time as you scroll up and in idle time, rows off screen are skipped from layout, a #message link mounts its row and a few around it, the streaming tail stays mounted, and the scroll position holds while older rows mount. Short chats render as before.
 
+### Changed
+
+- A foreground Bash command that is only a wait (`gh run watch`, `gh pr checks --watch`, `watch`, `sleep` over 30 seconds) now starts in the background with a one-line notice, so queued messages are read instead of waiting behind it. The session gets a note with the exit code and the end of the output when it ends or hits its timeout (600 seconds unless `timeout` is set). Compound commands, poll loops and quoted text are left alone, and so are subagents, workflow steps, routines and headless runs, which need the result before they report.
+
 ## [0.4.30] - 2026-10-25
 
 ### Fixed
