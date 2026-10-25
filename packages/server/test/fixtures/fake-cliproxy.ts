@@ -17,7 +17,8 @@
  * its models (credentials/models), PATCH credentials/fields,
  * routing/cooldown/reset, and requests/api-call with canned answers for the
  * addresses the hub may ask for (an auth file's "usage", "usage_status",
- * "profile" and "codex_models" override them). api-call answers any other
+ * "profile" and "codex_models" override them; "quota_daily" and "quota" answer
+ * Antigravity's retrieveUserQuotaSummary, else 404). api-call answers any other
  * address with status_code 599, so a test sees it.
  *
  * Shapes as the real 8.0.32 gives them (checked against its binary):
@@ -110,6 +111,9 @@ interface Account {
   /** Canned answer of the usage address for this account. */
   usage?: unknown;
   usage_status?: number;
+  /** antigravity: retrieveUserQuotaSummary answers of the daily and prod hosts. */
+  quota_daily?: unknown;
+  quota?: unknown;
   profile?: unknown;
   chatgpt_account_id?: string;
   /** codex: the plan in the id token (free, plus, pro, team). */
@@ -351,6 +355,10 @@ async function management(req: Request, url: URL, api: 'v8' | 'v0'): Promise<Res
         if (tag && (body.header?.['If-None-Match'] ?? '') === tag) return json({ status_code: 304, header: { ETag: [tag] }, body: '' }, 200, mgmtHeaders);
         return answer(200, { models: list.map((m) => (typeof m === 'string' ? { slug: m, display_name: m, visibility: 'list', supported_in_api: true, minimal_client_version: '0.98.0' } : m)) }, tag ? { ETag: [tag] } : {});
       }
+      if (body.method === 'POST' && body.url === 'https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist')
+        return answer(a.acct.usage_status ?? 200, a.acct.usage ?? { currentTier: { id: 'GOOGLE_ONE_AI_PREMIUM' }, paidTier: { id: 'GOOGLE_ONE_AI_PREMIUM', availableCredits: [{ creditType: 'GOOGLE_ONE_AI', creditAmount: '96.5', minimumCreditAmountForUsage: '5' }] } });
+      if (body.method === 'POST' && body.url === 'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary') return a.acct.quota_daily ? answer(200, a.acct.quota_daily) : answer(404, { error: 'not found' });
+      if (body.method === 'POST' && body.url === 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary') return a.acct.quota ? answer(200, a.acct.quota) : answer(404, { error: 'not found' });
       if (body.method === 'GET' && body.url === USAGE_URLS.codexUsage) return answer(a.acct.usage_status ?? 200, a.acct.usage ?? { plan_type: 'pro', rate_limit: { primary_window: { used_percent: 25, limit_window_seconds: 18_000, reset_after_seconds: 3600 }, secondary_window: { used_percent: 40, limit_window_seconds: 604_800, reset_after_seconds: 300_000 } } });
       return answer(599, { error: 'the fake answers only the usage addresses' });
     }
