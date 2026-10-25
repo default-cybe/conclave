@@ -96,6 +96,7 @@ export function registerPimRoutes(app: Hono<HonoEnv>, ctx: ServerContext, audit:
         ...(typeof b.label === 'string' ? { label: b.label } : {}),
         ...(bool(b.drafts) !== undefined ? { drafts: b.drafts } : {}),
         ...(bool(b.send) !== undefined ? { send: b.send } : {}),
+        ...(bool(b.autoDraft) !== undefined ? { autoDraft: b.autoDraft } : {}),
         ...(typeof b.password === 'string' ? { password: b.password } : {}),
         ...(Array.isArray(b.calendars) ? { calendars: b.calendars.filter((x: unknown) => x && typeof x === 'object' && typeof (x as { remoteId?: unknown }).remoteId === 'string') } : {}),
       }),

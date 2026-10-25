@@ -15,6 +15,8 @@ export function accountKind(a: Pick<PimAccountDto, 'kind' | 'preset' | 'mail' | 
   return `Google ${[a.mail && 'mail', a.calendar && 'calendar'].filter(Boolean).join(' and ') || 'account'}`;
 }
 
+export const AUTO_DRAFT_HELP = 'The Assistant saves a draft straight into Drafts. It never sends; sending still needs your approval.';
+
 const SCOPE: Array<[RegExp, string]> = [
   [/gmail\.readonly$/, 'read mail'],
   [/gmail\.compose$/, 'save drafts and send'],
