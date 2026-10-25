@@ -59,6 +59,7 @@ import { fixRetention, readRetention } from './retention';
 import { UploadError, Uploads, uploadIdOf, UPLOAD_PREFIX } from './upload';
 import { importOffersOf } from './registry';
 import { DEVICE_TOOL_CHARS } from './wire';
+import { writeBack } from './writeback';
 import { projectsOf } from '../projects/attached';
 import { OWNER_ID, currentAccount, isMember, runAs } from '../people/context';
 
@@ -266,6 +267,11 @@ export class ImportService {
   private emitAt = new Map<string, number>();
   private emitTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private running = new Map<string, Promise<void>>();
+  /** Imported sessions' last status, to see a turn end. */
+  private turnStatus = new Map<string, string>();
+  /** shortcut: kept in memory, so a hub restart forgets a skipped write-back until the chat's next turn writes it; persist it if that shows. */
+  private pendingWrite = new Set<string>();
+  private fileLocks = new Map<string, Promise<void>>();
 
   constructor(private engine: Engine) {
     this.store = new ImportStore(engine.repos.db);
@@ -317,7 +323,20 @@ export class ImportService {
     // imported sessions without a project find it once their device is there to read the folder
     const backfill = (device: string) => void this.attachProjects(device).catch((err) => log.debug(`projects of imports on ${device} skipped`, err));
     this.engine.bus.on((e) => {
-      if (e.type === 'device.updated' && e.device.online && e.device.id !== 'local') backfill(e.device.id);
+      if (e.type === 'device.updated' && e.device.online && e.device.id !== 'local') {
+        backfill(e.device.id);
+        void this.retryWrites(e.device.id);
+      }
+      // a turn on an imported Claude Code chat ended: it goes back into the chat's file
+      if (e.type === 'session.updated' && e.session.tags.includes('claude-code') && e.session.tags.includes('imported')) {
+        const prev = this.turnStatus.get(e.session.id);
+        this.turnStatus.set(e.session.id, e.session.status);
+        if (prev && prev !== 'idle' && e.session.status === 'idle') void this.writeBack(e.session.id).catch((err) => log.warn(`write-back of ${e.session.id} failed: ${(err as Error).message}`));
+      }
+      if (e.type === 'session.deleted') {
+        this.turnStatus.delete(e.sessionId);
+        this.pendingWrite.delete(e.sessionId);
+      }
     });
     setTimeout(() => backfill('local'), 2_000).unref?.();
   }
@@ -892,9 +911,13 @@ export class ImportService {
     };
     if (!item.source || !item.path) return finish('failed', { reason: 'missing source' });
     try {
-      const { conv, found } = await this.readSource(b.device, item.source, item.path, ctx);
-      if (!conv.messages.length) return finish('skipped', { reason: 'empty' });
-      const r = await this.importConverted(b.device, conv, found, b.id);
+      const path = item.path;
+      const r = await this.serial(b.device, path, async () => {
+        const { conv, found } = await this.readSource(b.device, item.source!, path, ctx);
+        return conv.messages.length ? { ...(await this.importConverted(b.device, conv, found, b.id)), conv } : undefined;
+      });
+      if (!r) return finish('skipped', { reason: 'empty' });
+      const conv = r.conv;
       finish(r.state, { sessionId: r.sessionId, ...(r.reason ? { reason: r.reason } : {}), created: r.created, title: conv.title });
     } catch (err) {
       finish('failed', { reason: (err as Error).message.slice(0, 300) });
@@ -1189,6 +1212,87 @@ export class ImportService {
   }
 
   /**
+   * Conclave's own turns on an imported Claude Code chat go back into the
+   * chat's file on its device (import/writeback.ts), so Claude Code shows
+   * them on resume. Turns the Claude Code harness ran are in the file
+   * already. Each written message takes the importer's id of its row, so the
+   * next import sees them as present, not as divergence. Returns why nothing
+   * was written, or undefined when it was (or there was nothing); a skipped
+   * write is tried again later (retryWrites).
+   */
+  async writeBack(sessionId: string): Promise<string | undefined> {
+    const s = this.engine.repos.sessions.get(sessionId);
+    const here = s && this.store.ledgerBySession(sessionId).find((l) => l.status === 'ok' && l.source === 'claude-code' && l.device === s.device);
+    if (!here || uploadIdOf(here.device)) return undefined;
+    const reason = await this.serial(here.device, here.path, () => this.writeBackNow(sessionId));
+    if (reason) this.pendingWrite.add(sessionId);
+    else this.pendingWrite.delete(sessionId);
+    return reason;
+  }
+
+  private async writeBackNow(sessionId: string): Promise<string | undefined> {
+    const repos = this.engine.repos;
+    const s = repos.sessions.get(sessionId);
+    if (!s || s.status !== 'idle') return undefined;
+    // read again under the lock: a sync that ran first moved the file and the cursor on
+    const here = this.store.ledgerBySession(sessionId).find((l) => l.status === 'ok' && l.source === 'claude-code' && l.device === s.device);
+    const machine = here && this.machine(here.device);
+    if (!here) return undefined;
+    if (!machine) return `${this.deviceName(here.device)} is offline`;
+    const msgs = repos.messages.list(sessionId);
+    const lastImported = Math.max(-1, ...msgs.filter((m) => externalId(m)).map((m) => m.seq));
+    // the same messages planSync counts as Conclave's own
+    const native = msgs.filter((m) => m.seq > lastImported && !externalId(m) && m.kind !== 'notice');
+    if (!native.length || native.some((m) => m.role === 'assistant' && m.model?.startsWith(`${HARNESS['claude-code']!.harness}/`))) return undefined;
+    const r = await writeBack(machine, here.path, native, here.size);
+    if (!r.ok || !r.ids.length) {
+      const reason = r.ok ? 'the importer would not read the rows' : r.reason;
+      log.info(`write-back of ${sessionId} to ${here.path} skipped: ${reason}`);
+      return reason;
+    }
+    // each written message takes the importer's id of its (last) row, so planSync finds it present without the cursor's absorbed list
+    const idOf = new Map(r.ids.map((w) => [w.messageId, w.id]));
+    const taken = new Set(idOf.values());
+    // a message with two rows (an "interrupted" tool result before its reply): the other id is absorbed
+    const extra = r.ids.map((w) => w.id).filter((id) => !taken.has(id));
+    repos.db.transaction(() => {
+      for (const m of native) {
+        const id = idOf.get(m.id);
+        // written: a later sync never grows this message from the file (ledger.ts grownLast)
+        if (id) repos.messages.update({ ...m, meta: { ...(m.meta ?? {}), external: { source: 'claude-code', id, absorbed: true, written: true } } });
+      }
+      this.store.putLedger({
+        ...here,
+        size: r.size,
+        mtime: r.mtime,
+        cursor: { ...here.cursor, lastId: r.ids[r.ids.length - 1].id, count: (here.cursor.count ?? 0) + idOf.size, ...(extra.length ? { absorbed: [...(here.cursor.absorbed ?? []), ...extra] } : {}) },
+        prefixHash: prefixHash(importedIds(repos.messages.list(sessionId))),
+        updatedAt: Date.now(),
+      });
+    })();
+    return undefined;
+  }
+
+  /** Write-backs skipped (the chat open in Claude Code, the file changed, an old daemon), tried again by a sync, the watch job, and the device connecting. */
+  private retryWrites(device?: string): Promise<void> {
+    const ids = [...this.pendingWrite].filter((id) => !device || this.engine.repos.sessions.get(id)?.device === device);
+    return ids.reduce((p, id) => p.then(() => this.writeBack(id).then(() => {}, (err) => log.warn(`write-back of ${id} failed: ${(err as Error).message}`))), Promise.resolve());
+  }
+
+  /** One read-and-sync or write-back at a time per chat file: a sync's ledger row never lands over a write-back's. */
+  private serial<T>(device: string, path: string, fn: () => Promise<T>): Promise<T> {
+    const k = `${device}\n${path}`;
+    const run = (this.fileLocks.get(k) ?? Promise.resolve()).then(fn);
+    const done = run.then(
+      () => {},
+      () => {},
+    );
+    this.fileLocks.set(k, done);
+    void done.then(() => this.fileLocks.get(k) === done && this.fileLocks.delete(k));
+    return run;
+  }
+
+  /**
    * Re-sync one imported session (the Sync action under its title). Every
    * location of it on an online device is read: a copy that is behind adds
    * nothing, the one that grew appends, and one that grew past Conclave forks.
@@ -1205,9 +1309,11 @@ export class ImportService {
     let error: string | undefined;
     for (const l of reachable) {
       try {
-        const { conv, found } = await this.readSource(l.device, l.source, l.path);
         // a sync is not part of a batch: undo of an earlier batch never takes away what a later sync added
-        const r = await this.importConverted(l.device, conv, found, 'sync');
+        const r = await this.serial(l.device, l.path, async () => {
+          const { conv, found } = await this.readSource(l.device, l.source, l.path);
+          return this.importConverted(l.device, conv, found, 'sync');
+        });
         if (r.state === 'forked') forkedSessionId = r.sessionId;
         else if (r.state === 'failed') error = r.reason;
         else added += r.added ?? 0;
@@ -1216,6 +1322,8 @@ export class ImportService {
       }
       this.refreshImportedLines(l.device);
     }
+    // a write-back skipped before (the file had changed, the chat was open): the file is read now, so try again
+    if (this.pendingWrite.has(sessionId)) await this.writeBack(sessionId).catch((err) => log.warn(`write-back of ${sessionId} failed: ${(err as Error).message}`));
     if (forkedSessionId) return { state: 'forked', added, forkedSessionId };
     if (added) return { state: 'updated', added };
     if (error) return { state: 'failed', added: 0, error };
@@ -1776,6 +1884,7 @@ export class ImportService {
           const b = await this.importNew(d.id, { mode, refreshed: true }).catch((err) => void log.warn(`watch import on ${d.id} failed: ${(err as Error).message}`));
           if (b) this.engine.audit(undefined, 'import.watch', `${mode}, ${b.total} new or grown chats on ${this.deviceName(d.id)}`);
         });
+        await this.retryWrites(d.id);
       }
     } finally {
       this.engine.scheduler.enqueue(WATCH_JOB, Date.now() + WATCH_EVERY_MS, {}, WATCH_JOB);
@@ -1801,8 +1910,11 @@ export class ImportService {
       row = find();
     }
     if (!row) throw new ImportError(404, `${sourceName(source)} session ${nativeId} not found on ${this.deviceName(device)}`);
-    const { conv, found } = await this.readSource(device, source, row.path);
-    const r = await this.importConverted(device, conv, found, 'single');
+    const path = row.path;
+    const r = await this.serial(device, path, async () => {
+      const { conv, found } = await this.readSource(device, source, path);
+      return this.importConverted(device, conv, found, 'single');
+    });
     if (!r.sessionId) throw new ImportError(409, r.reason ?? 'The session could not be imported.');
     return this.engine.repos.sessions.get(r.sessionId)!;
   }

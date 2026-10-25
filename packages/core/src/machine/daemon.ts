@@ -163,6 +163,11 @@ export class MachineServer {
         const params = req.params;
         return this.reply(id, async () => (m.importRead ? m.importRead(params) : notImplemented('importRead')));
       }
+      // version 5: Conclave's turns appended to a Claude Code chat on this device
+      case 'importAppend': {
+        const params = req.params;
+        return this.reply(id, async () => (m.importAppend ? m.importAppend(params) : notImplemented('importAppend')));
+      }
       // version 3: the daemon's recent log, for the hub's logs export
       case 'logTail': {
         const lines = typeof req.params?.lines === 'number' ? req.params.lines : 500;

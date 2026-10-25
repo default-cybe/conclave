@@ -24,7 +24,7 @@ import {
   type RpcResults,
 } from './protocol';
 import type { SyncthingFolder, SyncthingStatus } from './syncthing';
-import type { ImportReadParams, ImportScanParams, ImportScanWire } from '../import/types';
+import type { ImportAppendParams, ImportAppendResult, ImportReadParams, ImportScanParams, ImportScanWire } from '../import/types';
 import type { ConvertedSession } from '../importers/types';
 import type { DaemonLogTail } from '../client/logs';
 
@@ -78,6 +78,8 @@ export class RemoteMachine implements Machine {
   readonly logTail?: (lines?: number) => Promise<DaemonLogTail>;
   /** Version 4: the daemon replaces its own binary and restarts. */
   readonly selfUpdate?: (params: RpcParams['selfUpdate']) => Promise<RpcResults['selfUpdate']>;
+  /** Version 5: Conclave's turns appended to a Claude Code chat on the device. */
+  readonly importAppend?: (params: ImportAppendParams) => Promise<ImportAppendResult>;
 
   constructor(opts: RemoteMachineOptions) {
     this.id = opts.id;
@@ -100,6 +102,8 @@ export class RemoteMachine implements Machine {
     if (this.protocol >= 3) this.logTail = (lines = 500) => this.call('logTail', { lines }, { timeoutMs: 15_000 });
     // version 4: a download over a slow link takes a while; the answer comes once the new binary is checked
     if (this.protocol >= 4) this.selfUpdate = (params) => this.call('selfUpdate', params, { timeoutMs: 20 * 60_000 });
+    // version 5: the busy check and the append run where the file is
+    if (this.protocol >= 5) this.importAppend = (params: ImportAppendParams) => this.call('importAppend', params);
   }
 
   /** True until dispose(). */

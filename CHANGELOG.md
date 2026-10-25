@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Two-way sync with Claude Code: when a Conclave turn on an imported Claude Code chat ends, its messages go into the chat's `.jsonl` in Claude Code's own row format, so `claude --resume` shows them. No thinking is written from any model, Claude's own signed thinking included, because a block Claude Code cannot replay makes the API refuse the resumed chat. The device that holds the file skips the write while a Claude Code process has the chat open, or when the file changed since the hub read it (new daemon RPC `importAppend`, protocol 5, in the TypeScript and Rust daemons). A skipped write is tried again by the next Sync, the watch job, and the device connecting. Each written message takes the id of its row in the file, so the next sync counts it as present and does not fork, and a later Claude Code prompt still shows as new. A sync and a write-back of one chat file never run at once.
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed
