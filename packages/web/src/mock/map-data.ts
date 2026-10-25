@@ -243,7 +243,7 @@ export function mapFixture(now: number): MapSnapshot {
       {
         id: I.push,
         kind: 'session',
-        title: 'Push the login fix',
+        title: 'Skip To Content Dashboard Kaivalya Ahir Account Dashboard Courses Groups Cale...',
         state: 'waiting',
         waitingOn: 'approval',
         agent: 'coder',
@@ -262,7 +262,8 @@ export function mapFixture(now: number): MapSnapshot {
       {
         id: I.e2e,
         kind: 'session',
-        title: 'Write e2e tests for checkout',
+        // titles like the owner's real ones (imported, raw first prompts, New chat), so the Map's labels show their cleaning
+        title: 'fernway-web - Session continued from prior context',
         state: 'idle',
         agent: 'tester',
         model: 'anthropic/claude-sonnet-5-5',
@@ -280,7 +281,7 @@ export function mapFixture(now: number): MapSnapshot {
       {
         id: I.bundle,
         kind: 'session',
-        title: 'Audit the bundle size',
+        title: 'Continued in Claude Code on DefaulTs-MacBook-Pro-2.local',
         state: 'failed',
         agent: 'coder',
         model: 'zai/glm-5',
@@ -321,7 +322,7 @@ export function mapFixture(now: number): MapSnapshot {
       {
         id: I.certs,
         kind: 'session',
-        title: 'Rotate the Caddy certificates',
+        title: 'Run `cat /root/scripts/certs/rotate.log` and check the Caddy certificates...',
         state: 'done',
         agent: 'sysadmin',
         model: 'anthropic/claude-sonnet-5-5',
@@ -337,8 +338,8 @@ export function mapFixture(now: number): MapSnapshot {
     ),
 
     // the chats
-    n({ id: I.week, kind: 'chat', title: 'Plan the week', state: 'idle', agent: 'chat', model: 'anthropic/claude-sonnet-5-5', device: 'local', group: 'chats', usage: usage(6_200, 900, 12_000, 0.03), endedAt: now - 2 * HOUR }, 2.5 * 60, 2 * 3600),
-    n({ id: I.proxy, kind: 'chat', title: 'Caddy or Traefik for the homelab', state: 'idle', agent: 'chat', model: 'openai/gpt-5.5', device: 'local', group: 'chats', tools: [tool(now, 'WebSearch', 'caddy vs traefik 2026', 5 * 3600, 2_100)], usage: usage(22_000, 6_100, 0, 0.19), endedAt: now - 5 * HOUR }, 5.5 * 60, 5 * 3600),
+    n({ id: I.week, kind: 'chat', title: 'New chat', state: 'idle', agent: 'chat', model: 'anthropic/claude-sonnet-5-5', device: 'local', group: 'chats', usage: usage(6_200, 900, 12_000, 0.03), endedAt: now - 2 * HOUR }, 2.5 * 60, 2 * 3600),
+    n({ id: I.proxy, kind: 'chat', title: 'yo can you do this? yes or no Yep. On Linux, the cleanest way is to give **Ac...', state: 'idle', agent: 'chat', model: 'openai/gpt-5.5', device: 'local', group: 'chats', tools: [tool(now, 'WebSearch', 'caddy vs traefik 2026', 5 * 3600, 2_100)], usage: usage(22_000, 6_100, 0, 0.19), endedAt: now - 5 * HOUR }, 5.5 * 60, 5 * 3600),
   ];
 
   const counted = nodes.filter((x) => x.kind !== 'workflow');

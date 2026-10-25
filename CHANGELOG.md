@@ -7,6 +7,11 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+- The Map names each node in 2 to 5 words instead of its raw title: imported "Continued in Claude Code on ..." and "Session continued from prior context" titles, "New chat", pasted pages, paths, ids and the project name its folder already shows are dropped, and a title with nothing left reads like "Code chat on MacBook". The line under it says what it is, its state and when it last worked ("Code · idle · 3h ago"). The full title stays in the tooltip and the drawer.
+
 ## [0.4.27] - 2026-10-24
 
 ### Changed
