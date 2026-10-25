@@ -31,6 +31,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Discard or Clean up of a worktree no longer fails with "Directory not empty" when git removed the folder but a background git maintenance still held its `.git/worktrees` entry: the hub prunes the entry and finishes, branch included.
 
+### Changed
+
+- Added an end-to-end test for continuing a capped Claude Code chat in Conclave: import, a turn on another model, that model's usage limit failing over to the next one, and the turn written back into the Claude Code `.jsonl`.
+
 ## [0.4.30] - 2026-10-25
 
 ### Fixed
