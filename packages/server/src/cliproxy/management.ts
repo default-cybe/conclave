@@ -520,18 +520,23 @@ export class Management {
  * the prefix (8.0.32 keeps it in the auth file only), but once a plan has
  * one its list names every model twice: "claude-opus-5-5" and
  * "personal/claude-opus-5-5". Undefined prefix: the list has no prefixed id.
+ * While a renamed plan is listed under both names, `prefer` (the name the
+ * hub wrote or last saw) wins when listed; otherwise the most listed one.
  */
-export function splitPrefixed<T extends { id: string }>(models: T[]): { prefix?: string; models: T[] } {
+export function splitPrefixed<T extends { id: string }>(models: T[], prefer?: string): { prefix?: string; models: T[] } {
   const count = new Map<string, number>();
   for (const m of models) {
     const i = m.id.lastIndexOf('/');
     if (i > 0) count.set(m.id.slice(0, i), (count.get(m.id.slice(0, i)) ?? 0) + 1);
   }
-  const prefix = [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const prefix = prefer && count.has(prefer) ? prefer : [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
   const out: T[] = [];
   const seen = new Set<string>();
+  // another prefix on an id the list also has bare or under the prefix (the old short name, before CLIProxyAPI drops it) is the same model too
+  const bare = new Set(models.map((m) => m.id).filter((id) => !id.includes('/') || (prefix && id.startsWith(`${prefix}/`))).map((id) => id.slice(id.lastIndexOf('/') + 1)));
   for (const m of models) {
-    const id = prefix && m.id.startsWith(`${prefix}/`) ? m.id.slice(prefix.length + 1) : m.id;
+    const own = m.id.slice(m.id.lastIndexOf('/') + 1);
+    const id = (prefix && m.id.startsWith(`${prefix}/`)) || bare.has(own) ? own : m.id;
     if (seen.has(id)) continue;
     seen.add(id);
     out.push(id === m.id ? m : { ...m, id });

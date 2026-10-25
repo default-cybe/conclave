@@ -291,25 +291,44 @@ test('the budget counts what earlier attempts of the same run spent', async () =
 
 test('a call the owner skipped stays skipped when the run resumes', async () => {
   let slow = true;
-  answers.set('skip-me', () => ({ blocks: [{ text: 'skipped one' }], delayMs: 3000 }));
-  answers.set('block-c', () => (slow ? { blocks: [{ text: 'c' }], delayMs: 3000 } : [{ text: 'c' }]));
+  // replies held by hand until the test ends: no wall-clock delay to lose under load
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  answers.set('skip-me', () => ({ blocks: [{ text: 'skipped one' }], gate }));
+  answers.set('block-c', () => (slow ? { blocks: [{ text: 'c' }], gate } : [{ text: 'c' }]));
   try {
     const svc = svcOf(t.engine);
     const s = await t.engine.createSession({ cwd: t.cwd });
+    // resolves when call `seq` of the run reaches `state`: listen first, then check, so no change is missed
+    const reached = (runId: string, seq: number, state: string) =>
+      new Promise<void>((resolve) => {
+        const off = t.engine.bus.on((e: { type: string; runId?: string; call?: { seq: number; state: string } }) => {
+          if (e.type === 'workflow.agent' && e.runId === runId && e.call?.seq === seq && e.call.state === state) {
+            off();
+            resolve();
+          }
+        });
+        if (svc.live.get(runId)?.calls.get(seq)?.state === state) {
+          off();
+          resolve();
+        }
+      });
     const run = await svc.startRun({ sessionId: s.id, script: `${meta('skip-resume')}const a = await agent('say s1')\nconst b = await agent('skip-me')\nconst c = await agent('block-c')\nreturn [a, b, c]` });
-    expect(await until(() => svc.live.get(run.id)?.calls.get(2)?.state === 'running', 10_000)).toBe(true);
+    await reached(run.id, 2, 'running');
+    const third = reached(run.id, 3, 'running');
     svc.skip(run.id, 2);
-    expect(await until(() => svc.live.get(run.id)?.calls.get(3)?.state === 'running', 10_000)).toBe(true);
+    await third;
     svc.live.get(run.id)!.stop('interrupted');
     await svc.wait(run.id);
     slow = false;
     const before = t.requests.length;
     await svc.resume(run.id, { auto: true });
-    expect(await until(() => !svc.live.has(run.id) && svc.store.getRun(run.id)!.status === 'done', 15_000)).toBe(true);
+    expect((await svc.wait(run.id)).status).toBe('done');
     expect(svc.store.getRun(run.id)!.result).toEqual(['s1', null, 'c']);
     expect(t.requests.slice(before).filter((x) => x.includes('skip-me')).length).toBe(0);
     expect(svc.store.calls(run.id).map((c) => c.state)).toEqual(['cached', 'skipped', 'done']);
   } finally {
+    release();
     answers.delete('skip-me');
     answers.delete('block-c');
   }

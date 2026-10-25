@@ -539,6 +539,8 @@ data class Notice(
     val link: String? = null,
     /** Approval id so phone notifications can approve directly. */
     val approvalId: String? = null,
+    /** The job this belongs to: notices of one job replace each other instead of stacking. */
+    val thread: String? = null,
     val createdAt: Long = 0,
     /**
      * True when the notice passed the owner's rules (Settings, Notifications)

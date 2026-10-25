@@ -26,16 +26,17 @@ import { Link } from 'wouter';
 import { ChevronRight, ChevronUp, Pause } from 'lucide-react';
 import { AgentGlyph, Elapsed, LIVE_ROWS, Pet, busiestKind, petState } from '@/components/motion';
 import { Popover } from '@/components/ui/Overlay';
-import { useHub } from '@/store/store';
+import { lastActiveAt, useHub } from '@/store/store';
 import { StateWord } from '@/components/ui/List';
 import { cn } from '@/lib/text';
-import { useIsMobile } from '@/lib/hooks';
+import { useIsMobile, useNow } from '@/lib/hooks';
 import { RUN_TONE, RUN_WORD, taskLine } from '@/features/workflows/words';
 import { useRunDetail } from '@/features/workflows/data';
 import { WorkflowDetail } from '@/features/workflows/WorkflowCard';
 import { modelName } from '@/lib/models';
 import { groupByKind, TASK_KIND_GROUP, TASK_KIND_LABEL } from '@/lib/taskKinds';
 import { useSubagentNow } from './ToolRows';
+import { activity } from './stopCard';
 import { taskKind, tasksWord, useRunningTasks, type RunningSubagent, type RunningTask, type RunningWorkflow } from './liveTasks';
 
 /** The line above the composer, and the list it opens. Nothing while no task runs. */
@@ -191,6 +192,9 @@ export function PausedWord({ className }: { className?: string }) {
 function SubagentTask({ task, still }: { task: RunningSubagent; still?: boolean }) {
   const now = useSubagentNow(true, task.childId);
   const paused = useHub((s) => (task.childId ? s.sessions[task.childId]?.status === 'paused' : false));
+  // its session's last update or streamed chunk: a task that went quiet must not look alive, nor a busy one quiet
+  const updatedAt = useHub((s) => (task.childId ? s.sessions[task.childId]?.updatedAt : undefined));
+  const last = activity(Math.max(updatedAt ?? 0, (task.childId ? lastActiveAt(task.childId) : undefined) ?? 0), useNow(30_000));
   return (
     <li data-task="subagent" className={ITEM}>
       <div className={HEAD}>
@@ -211,6 +215,7 @@ function SubagentTask({ task, still }: { task: RunningSubagent; still?: boolean 
         <span data-subagent-now="" className={cn('min-w-0 flex-1 truncate', now?.waiting ? 'text-warn' : 'text-fg-3')}>
           {now?.text ?? 'Starting'}
         </span>
+        {last && !paused && !now?.waiting && <span data-task-activity={last.quiet ? 'quiet' : 'active'} className={cn('shrink-0', last.quiet ? 'text-warn' : 'text-fg-4')}>{last.text}</span>}
         {task.childId && (
           <Link href={`/s/${task.childId}`} className="link shrink-0">
             Open session

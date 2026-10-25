@@ -193,6 +193,8 @@ interface CredState {
    * says (8.0.32 keeps it in the auth file only).
    */
   prefix?: string;
+  /** The prefix the hub last wrote, and when: it stands until the model list shows it (CLIProxyAPI lists the old ids for a while) or PREFIX_SETTLE_MS pass. */
+  wrote?: { prefix: string; at: number };
   /** A ChatGPT plan's own model list (the Codex app's, catalog.ts), hidden ones marked. */
   own?: CodexModel[];
   /** When the plan's own list was last read, and its entity tag (a 304 keeps the list). */
@@ -226,6 +228,8 @@ function daybreakOf(s: CredState | undefined): CyberProgram[] {
 /** The plan's usage endpoint per credential type. */
 const USAGE_KIND: Record<string, 'claude-usage' | 'codex-usage' | 'antigravity-usage'> = { claude: 'claude-usage', anthropic: 'claude-usage', codex: 'codex-usage', antigravity: 'antigravity-usage' };
 const DAY_MS = 86_400_000;
+/** How long a short name the hub wrote outlasts a model list that does not show it yet. */
+const PREFIX_SETTLE_MS = 5 * 60_000;
 const STATUS_WORDS: Record<string, string> = { error: 'Failing', refreshing: 'Refreshing its sign-in', pending: 'Waiting to sign in' };
 
 /** "http://host:8317/v1/" -> "http://host:8317". Undefined for anything that is not a plain http(s) base. */
@@ -1158,9 +1162,12 @@ export class CliproxyManager {
       s.modelsAt = Date.now();
       try {
         // a plan with a short name has each model twice ("gpt-6-astra", "work/gpt-6-astra"): that is how the hub learns the name
-        const split = splitPrefixed(await mgmt.credentialModels(c.name));
+        // the name the hub wrote or last saw wins while CLIProxyAPI lists the old one next to it
+        const split = splitPrefixed(await mgmt.credentialModels(c.name), s.wrote?.prefix ?? s.prefix);
         const models = split.models.map((m) => ({ id: m.id, ...(m.name ? { name: m.name } : {}) }));
-        const prefix = split.prefix ?? '';
+        const listed = split.prefix ?? '';
+        if (s.wrote && (listed === s.wrote.prefix || Date.now() - s.wrote.at >= PREFIX_SETTLE_MS)) s.wrote = undefined;
+        const prefix = s.wrote?.prefix ?? listed;
         if (JSON.stringify(models) !== JSON.stringify(s.models) || prefix !== s.prefix) {
           s.models = models;
           s.prefix = prefix;
@@ -1371,6 +1378,7 @@ export class CliproxyManager {
     }
     // the credentials list does not carry it: the hub knows it now, and the models read below confirms it
     this.cred(f.name).prefix = prefix;
+    this.cred(f.name).wrote = { prefix, at: Date.now() };
     await this.readCredentials().catch((err) => log.debug(`credentials after a short name: ${(err as Error).message}`));
     await this.readModels().catch((err) => log.warn(`model list after a short name: ${(err as Error).message}`));
     return prefix;

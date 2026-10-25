@@ -2000,7 +2000,7 @@ export class Engine implements EngineApi {
         .extract(id, this.repos.messages.list(id), { project: s.cwd, agent: s.agent })
         .catch((err) => log.debug('memory extract failed', err));
     }
-    this.notifyEvent('sessionDone', { title: s.title, body: 'Session finished a turn', level: 'success', sessionId: id, link: `/s/${id}` });
+    this.notifyEvent('sessionDone', { title: s.title, body: 'Session finished a turn', level: 'success', sessionId: id, link: `/s/${id}`, thread: this.askOrigin(id).rootSessionId });
     this.retitle(s);
   }
 
