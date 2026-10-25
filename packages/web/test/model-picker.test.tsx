@@ -204,6 +204,36 @@ describe('one row per model, by its name, the routes behind it', () => {
     expect(openai.map((r) => r.ref)).toContain('cliproxy/gpt-6.1-sol');
   });
 
+  test('a plan of another vendor that lists only a variant (Antigravity) is a "via" route under the model, by its own prefixed id', () => {
+    const ag = 'cliproxy/backup-gemini/claude-opus-5-5-high';
+    const accounts = [
+      { prefix: 'backup-gemini', vendor: 'gemini', vendorName: 'Gemini', credential: 'antigravity-me@example.test.json' },
+      { prefix: 'neu-claude', vendor: 'anthropic', vendorName: 'Claude', credential: 'claude-neu.json' },
+    ];
+    const opus = (models: ModelEntry[]) => {
+      const hub = HUB.map((g) => (g.provider === 'cliproxy' ? { ...g, models } : g));
+      const rows = buildPicker({ models: hub, sessions: {}, devices: {}, limits: {}, harnesses: false, accounts }).groups.find((g) => g.key === 'anthropic')!.rows;
+      // still one Opus 5.5 row
+      expect(rows.filter((r) => rowName(r) === 'Opus 5.5').length).toBe(1);
+      return rows[0];
+    };
+    const cliproxy = HUB.find((g) => g.provider === 'cliproxy')!.models;
+    // the main accounts list the variant too: merged, the plan is a choice of it
+    const merged = cliproxy.map((m) => (m.id === 'claude-opus-5-5-high' ? { ...m, refs: [m.ref, ag], choices: [ag] } : m));
+    expect(opus([...merged, plan('backup-gemini/claude-opus-5-5-high', 'Claude Opus 5.5 (High), backup-gemini', { sameAs: 'cliproxy/claude-opus-5-5-high' })]).routes?.slice(3)).toEqual([
+      { ref: 'cliproxy/claude-opus-5-5-high', label: 'High' },
+      { ref: ag, label: 'backup-gemini (Antigravity)' },
+    ]);
+    // only the plan lists it
+    const alone = cliproxy.filter((m) => m.id !== 'claude-opus-5-5-high');
+    expect(opus([...alone, plan('backup-gemini/claude-opus-5-5-high', 'Claude Opus 5.5 (High), backup-gemini')]).routes?.map((r) => [r.ref, r.label])).toEqual([
+      ['cliproxy/claude-opus-5-5', 'Main accounts'],
+      ['cliproxy/neu-claude/claude-opus-5-5', 'neu-claude'],
+      ['openrouter/anthropic/claude-opus-5.5', 'OpenRouter'],
+      [ag, 'backup-gemini (Antigravity)'],
+    ]);
+  });
+
   test('versions sort newest first, a plain id before its variants and snapshots', () => {
     const ids = ['gpt-5.5-mini', 'o4', 'gpt-6.1-sol', 'gpt-5.5', 'codex-mini', 'gpt-6'];
     expect([...ids].sort(compareModels)).toEqual(['gpt-6.1-sol', 'gpt-6', 'gpt-5.5', 'gpt-5.5-mini', 'o4', 'codex-mini']);
@@ -438,6 +468,23 @@ describe('the list, clicked and keyed', () => {
       expect(w.texts()[0]).toBe('Back from Anthropic');
     } finally {
       await w.unmount();
+    }
+  });
+
+  test('Opus via the Antigravity plan stores that plan\'s own prefixed variant id', async () => {
+    const { useHub } = await import('../src/store/store');
+    const ag = 'cliproxy/backup-gemini/claude-opus-5-5-high';
+    const models = HUB.map((g) => (g.provider === 'cliproxy' ? { ...g, models: [...g.models.filter((m) => m.id !== 'claude-opus-5-5-high'), plan('backup-gemini/claude-opus-5-5-high', 'Claude Opus 5.5 (High), backup-gemini')] } : g));
+    useHub.setState({ accounts: { accounts: [{ prefix: 'backup-gemini', vendor: 'gemini', vendorName: 'Gemini', credential: 'antigravity-me@example.test.json' }] } as never });
+    const v = await mount({ value: 'cliproxy/claude-opus-5-5', models });
+    try {
+      await v.click(v.host.querySelector('[aria-label="Choose a route"]')!);
+      expect(v.texts()).toContain('via backup-gemini (Antigravity)');
+      await v.click(v.options().find((o) => o.getAttribute('aria-label') === 'via backup-gemini (Antigravity)')!);
+      expect(v.picks).toEqual([ag]);
+    } finally {
+      await v.unmount();
+      useHub.setState({ accounts: undefined });
     }
   });
 

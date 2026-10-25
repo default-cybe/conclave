@@ -54,6 +54,18 @@ class ModelPicksRoutesTest {
     }
 
     @Test
+    fun aPlanOfAnotherVendorThatListsOnlyAVariantIsARouteUnderTheModel() {
+        // Antigravity (gemini vendor) lists claude-opus-5-5-high only, under its short name backup-gemini
+        val ag = "cliproxy/backup-gemini/claude-opus-5-5-high"
+        val withAg = hub.map { gr -> if (gr.provider != "cliproxy") gr else gr.copy(models = gr.models.filter { it.id != "claude-opus-5-5-high" } + m("cliproxy", "backup-gemini/claude-opus-5-5-high", "Claude Opus 5.5 (High), backup-gemini")) }
+        val anthropic = ModelPicks.groups(withAg).first { it.key == "anthropic" }.rows
+        assertEquals(1, anthropic.count { it.label == "Opus 5.5" })
+        val opus = anthropic.first { it.ref == "cliproxy/claude-opus-5-5" }
+        assertEquals(listOf("Main accounts", "neu-claude", "backup-gemini"), opus.routes.map { it.label })
+        assertEquals(ag, opus.routes.last().ref)
+    }
+
+    @Test
     fun aVariantAloneStandsAsItsModelAndDatesComeOffTheName() {
         val r = rows("anthropic").first { it.ref == "cliproxy/claude-opus-4-6-thinking" }
         assertEquals("Opus 4.6", r.label)
