@@ -157,7 +157,8 @@ export function buildProviderMessages(all: Message[], opts: BuildOptions): Provi
       const flatText: TextBlock[] = [];
       for (const b of m.content) {
         if (b.type === 'thinking' || b.type === 'redacted_thinking') {
-          if (m.model === opts.modelRef && m.seq >= noThinkingBefore) content.push(b);
+          const signedBy = typeof m.meta?.signedBy === 'string' ? m.meta.signedBy : undefined;
+          if (m.model === opts.modelRef && m.seq >= noThinkingBefore) content.push(signedBy ? { ...b, signedBy } : b);
           continue;
         }
         if (b.type === 'tool_use') {

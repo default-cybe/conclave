@@ -430,7 +430,7 @@ private fun LimitCard(limit: LimitState) {
             }
             Spacer(Modifier.height(10.dp))
             if (limit.windows.isEmpty()) {
-                Text("No limit windows reported", style = MaterialTheme.typography.bodySmall)
+                Text(limit.note ?: "No limit windows reported", style = MaterialTheme.typography.bodySmall)
             } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     limit.windows.take(3).forEach { w -> Gauge(w, Modifier.weight(1f)) }

@@ -559,6 +559,41 @@ export class AccountsService {
     return out;
   }
 
+  /**
+   * The next gateway plan to try for a bare model, in the owner's order,
+   * skipping accounts this call already tried: the bare id when the plan is
+   * one CLIProxyAPI gives it to (the vendor's own plans, a plan that lists it
+   * exactly), else the plan's prefixed own id ("backup-gemini/claude-opus-5-5-high",
+   * Antigravity lists only the -high variant). covers: every account that id
+   * reaches, so the caller marks them tried. Undefined when the next ready
+   * account is a key, or no gateway plan is ready.
+   */
+  planWire(model: string, tried: ReadonlySet<string> = new Set()): { wire: string; account: string; label: string; covers: string[] } | undefined {
+    if (!this.cliproxy || model.includes('/')) return undefined;
+    const gw = this.cliproxy.provider;
+    const vendor = vendorOfModel(model);
+    if (!vendor) return undefined;
+    const now = this.now();
+    const all = this.accts();
+    // as noteLimit: the bare id reaches the vendor's own plans and any plan that lists it exactly
+    const bareReaches = (a: Acct) => a.cfg.kind === 'subscription' && a.provider === gw && (a.cfg.vendor === vendor ? reaches(this.view(a, now, model), model) : this.lists(a, model, true));
+    for (const a of this.ranked(model).ready) {
+      if (tried.has(a.cfg.id)) continue;
+      // the owner's order puts a key here: the key's turn comes first
+      if (a.cfg.kind !== 'subscription' || a.provider !== gw) return undefined;
+      const label = this.label(a, all);
+      if (bareReaches(a)) return { wire: model, account: a.cfg.id, label, covers: this.forVendor(vendor, model).filter(bareReaches).map((x) => x.cfg.id) };
+      const own = a.facts?.prefix && a.facts.models ? ownModel(a.facts.models.map((m) => m.id), model) : undefined;
+      if (own) return { wire: `${a.facts!.prefix}/${bareModel(own)}`, account: a.cfg.id, label, covers: [a.cfg.id] };
+    }
+    return undefined;
+  }
+
+  /** The vendor of an account (anthropic for a Claude plan, gemini for Antigravity). */
+  vendorOf(id: string): string | undefined {
+    return this.accts().find((a) => a.cfg.id === id)?.cfg.vendor;
+  }
+
   /** After a provider refused a call: the next provider in the order with a usable account. */
   fallbackFor(provider: string, model: string, tried: Set<string> = new Set()): string | undefined {
     if (model.includes('/')) return undefined;
@@ -866,7 +901,9 @@ export class AccountsService {
         }
         continue;
       }
-      if (!d.windows.length) continue;
+      // a signed in plan with no windows (Antigravity: no usage reader) still shows on the Usage page, saying so
+      const silent = !d.windows.length && d.kind === 'subscription' && !!a.facts && !a.facts.error;
+      if (!d.windows.length && !silent) continue;
       const l: LimitState = {
         provider: a.provider,
         account: d.id,
@@ -876,6 +913,7 @@ export class AccountsService {
         updatedAt: d.observedAt ?? now,
         blocked: d.state === 'limited' || d.state === 'cooldown' || d.state === 'budget',
         source: d.windows.some((w) => w.source === 'oauth') ? 'oauth' : d.kind === 'api' && d.windows.every((w) => w.kind === 'budget') ? 'ledger' : 'headers',
+        ...(silent ? { note: `Usage not reported by ${d.vendor === 'gemini' ? 'Google' : d.vendorName}` } : {}),
         // the window starter's line, for clients that show limits only (Android's Usage)
         ...(d.starter?.enabled ? { starter: { state: d.starter.state, ...pick(d.starter, ['nextAt', 'startedAt', 'until', 'reason']) } } : {}),
       };
