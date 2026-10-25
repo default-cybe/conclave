@@ -35,6 +35,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Added an end-to-end test for continuing a capped Claude Code chat in Conclave: import, a turn on another model, that model's usage limit failing over to the next one, and the turn written back into the Claude Code `.jsonl`.
 
+### Fixed
+
+- The workflow test "a call the owner skipped stays skipped when the run resumes" no longer fails under full-suite load: scripted replies are held by a promise the test releases, and it waits on call state events instead of polling against 3 s timers.
+
 ## [0.4.30] - 2026-10-25
 
 ### Fixed

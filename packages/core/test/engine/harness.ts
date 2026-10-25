@@ -25,6 +25,8 @@ export interface StepSpec {
   stop?: string;
   usage?: { input?: number; output?: number };
   delayMs?: number;
+  /** Hold the reply until this settles (a test releases it by hand, no timing). */
+  gate?: Promise<unknown>;
 }
 
 /** Request body as the mock server received it. */
@@ -197,6 +199,7 @@ export async function startTestEngine(opts: TestEngineOptions): Promise<TestEngi
       const step = picked ?? opts.script[Math.min(n - 1, opts.script.length - 1)];
       const delay = stepOf(step).delayMs;
       if (delay) await Bun.sleep(delay);
+      await stepOf(step).gate;
       return new Response(sse(step, n), { headers: { 'content-type': 'text/event-stream' } });
     },
   });
