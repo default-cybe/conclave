@@ -8,7 +8,9 @@ import dev.conclave.client.model.ToolUseBlock
 import kotlinx.serialization.json.JsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /** The shared file call (ConclaveClientFiles.kt) asks the route the web asks: by session and call id, no path. File cards read meta.file (FileCards.kt). */
 class ConclaveClientFilesTest {
@@ -49,6 +51,12 @@ class ConclaveClientFilesTest {
         val results = mapOf("a" to result(pdf, id = "a"), "b" to result(pdf, id = "b"))
         val uses = listOf(ToolUseBlock("a", "WebFetch", JsonObject(emptyMap())), ToolUseBlock("b", "ShareFile", JsonObject(emptyMap())))
         assertEquals(listOf("b"), FileCards.cards(uses, results).map { it.toolUseId })
+    }
+
+    @Test
+    fun onlyRasterImagesShowInline() {
+        listOf("image/png", "image/jpeg", "image/webp", "image/gif").forEach { assertTrue(FileCards.inlineImage(it), it) }
+        listOf("image/svg+xml", "text/html", "application/pdf", "image/bmp", "").forEach { assertFalse(FileCards.inlineImage(it), it) }
     }
 
     @Test

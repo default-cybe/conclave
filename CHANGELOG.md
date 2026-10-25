@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Android: a shared PNG, JPEG, WebP or GIF file shows in the chat above its card, like the web. Animated GIF and WebP play on Android 9 and later and show their first frame below. Tap the image to open it. SVG never renders, and files over 20 MB stay a card only.
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed
