@@ -39,6 +39,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - The workflow test "a call the owner skipped stays skipped when the run resumes" no longer fails under full-suite load: scripted replies are held by a promise the test releases, and it waits on call state events instead of polling against 3 s timers.
 
+### Changed
+
+- The web conversation opens a long chat with its latest rows only, as a session's transcript already does: older rows mount a chunk at a time as you scroll up and in idle time, rows off screen are skipped from layout, a #message link mounts its row and a few around it, the streaming tail stays mounted, and the scroll position holds while older rows mount. Short chats render as before.
+
 ## [0.4.30] - 2026-10-25
 
 ### Fixed
