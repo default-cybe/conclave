@@ -16,7 +16,7 @@ export function limitKey(l: Pick<LimitState, 'provider' | 'account'>): string {
 const DAY = 24 * HOUR;
 
 /** Model families a weekly window may be scoped to. Other scopes (oauth apps, cowork) only inform. */
-const MODEL_SCOPES = ['opus', 'sonnet', 'fable', 'haiku'];
+export const MODEL_SCOPES = ['opus', 'sonnet', 'fable', 'haiku'];
 
 const RATE = /^(requests|tokens|input-tokens|output-tokens)$|\/\s*(min|minute)\b|per[- ]minute/i;
 
@@ -70,6 +70,12 @@ export function windowApplies(w: LimitWindow, model?: string): boolean {
   if (!scope) return true;
   if (!MODEL_SCOPES.includes(scope)) return false;
   return !!model && model.toLowerCase().includes(scope);
+}
+
+/** The model family a scoped window limits ("claude-opus-5-5" -> "opus"), if any. */
+export function modelFamily(model: string): string | undefined {
+  const m = model.toLowerCase();
+  return MODEL_SCOPES.find((s) => m.includes(s));
 }
 
 /** Paid extra credits ("fable credits": a limit and what remains, no window kind): spent credits never block, the plan's windows do. */

@@ -35,7 +35,7 @@ import { assess, bareModel, orderIds, ownModel, pickAccount, priorities, reaches
 import { credentialVendor, vendorName, vendorOfModel } from './vendors';
 import { splitAccount } from '../providers/split';
 import { DEFAULT_END, DEFAULT_START, type StarterFacts } from './starter';
-import { annotateWindow, limitKey, mergeWindows, windowOrder } from './windows';
+import { annotateWindow, limitKey, mergeWindows, MODEL_SCOPES, modelFamily, windowOrder } from './windows';
 import type { CyberProgram } from '../providers/access-programs';
 
 /** One CLIProxyAPI credential as the cliproxy manager reads it. No tokens. */
@@ -275,16 +275,17 @@ export class AccountsService {
     return a.facts.error;
   }
 
-  /** A block on the whole plan, or (with a model) one on that model's vendor only: a plan of another vendor keeps separate quotas per vendor (Antigravity's Claude and Gemini). */
-  private blockOf(id: string, model?: string): number | undefined {
-    const vendor = model ? vendorOfModel(model) : undefined;
-    const u = Math.max(this.blocked.get(id)?.until ?? 0, vendor ? (this.blocked.get(`${id}|${vendor}`)?.until ?? 0) : 0);
+  /** A block on the whole account, or one on the model's vendor or family only (noteLimit). Without a model (the account card), any block on the plan's own vendor or a family; another vendor's stays out. */
+  private blockOf(a: Acct, model?: string): number | undefined {
+    const id = a.cfg.id;
+    const scopes = model ? [vendorOfModel(model), modelFamily(model)] : [a.cfg.vendor, ...MODEL_SCOPES];
+    const u = Math.max(this.blocked.get(id)?.until ?? 0, ...scopes.map((s) => (s ? (this.blocked.get(`${id}|${s}`)?.until ?? 0) : 0)));
     return u || undefined;
   }
 
   private view(a: Acct, now: number, model?: string): AccountView {
     const b = this.budgetOf(a, now);
-    const blockedUntil = this.blockOf(a.cfg.id, model);
+    const blockedUntil = this.blockOf(a, model);
     return {
       id: a.cfg.id,
       kind: a.cfg.kind,
@@ -669,15 +670,18 @@ export class AccountsService {
       for (const a of all) {
         // a bare id was tried on every plan that lists it, another vendor's too; not on one that lists only a variant of it
         if (a.cfg.kind !== 'subscription' || !(prefix ? a.facts?.prefix === prefix : !!vendor && (a.cfg.vendor === vendor ? reaches(this.view(a, now), model) : this.lists(a, model, true)))) continue;
-        // another vendor's model on this plan (Opus on Antigravity) has its own quota: block only that vendor's models here
-        this.blocked.set(vendor && a.cfg.vendor !== vendor ? `${a.cfg.id}|${vendor}` : a.cfg.id, { until, at: now });
+        // block only the quota the model draws from: another vendor's models on this plan (Antigravity's Claude and GPT) share one, the plan's own a family's (Opus) or the vendor's (Antigravity's Gemini)
+        const scope = vendor && a.cfg.vendor !== vendor ? vendor : (modelFamily(model) ?? vendor);
+        this.blocked.set(scope ? `${a.cfg.id}|${scope}` : a.cfg.id, { until, at: now });
       }
     } else {
       const a = all.find((x) => x.cfg.kind === 'api' && x.provider === provider);
       if (a) {
         const b = this.budgetOf(a, now);
         const until = info.resetAt ?? (info.spendCap ? (b?.span.end ?? now + 3_600_000) : now + BLIND_BLOCK_MS);
-        this.blocked.set(a.cfg.id, { until, at: now });
+        // a rate limit is per model family (Opus, Sonnet); a spend cap stops every model on the key
+        const family = info.spendCap ? undefined : modelFamily(model);
+        this.blocked.set(family ? `${a.cfg.id}|${family}` : a.cfg.id, { until, at: now });
       }
     }
     if (vendor) for (const fn of this.hitListeners) fn(vendor);

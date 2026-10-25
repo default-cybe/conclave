@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- A 429 with no usage reading blocks only the quota it came from, not the whole account. An Opus limit leaves Sonnet and Haiku ready on the same Claude plan and on the Anthropic API key. A Gemini limit on Antigravity blocks its Gemini models, which share one quota, and leaves its Claude and GPT models ready. A spend cap still stops the whole key, and the account card still shows the limit.
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed
