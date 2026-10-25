@@ -7,6 +7,13 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Android chat: the subagents one message starts are one card ("3 subagents, 2 running, 1 failed") with each subagent's named row under it, as on the web.
+- The base prompt tells agents that "run a workflow" means the Workflow tool; Task subagents alone are not a workflow.
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed
