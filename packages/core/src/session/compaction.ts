@@ -364,6 +364,34 @@ function latchedUntil(meta: Record<string, unknown> | undefined): number {
   return typeof c?.latchedUntil === 'number' ? c.latchedUntil : 0;
 }
 
+function isLatched(meta: Record<string, unknown> | undefined, now: number, modelRef: string): boolean {
+  const c = meta?.compaction as { latchedUntil?: unknown; model?: unknown } | undefined;
+  if (typeof c?.latchedUntil !== 'number' || c.latchedUntil <= now) return false;
+  return !c.model || c.model === modelRef;
+}
+
+function summaryCandidates(engine: Engine, modelRef: string, accountId?: string): string[] {
+  const cfg = engine.config.get();
+  const out: string[] = [];
+  const add = (m?: string) => {
+    if (!m || out.includes(m) || !engine.isUsable(m, accountId)) return;
+    try {
+      if (engine.providersFor(accountId).resolve(m).acp) return;
+    } catch {
+      return;
+    }
+    out.push(m);
+  };
+  add(cfg.smallModel);
+  add(modelRef);
+  const usageFb = (cfg.limits as { usageFallback?: unknown }).usageFallback;
+  if (Array.isArray(usageFb)) for (const m of usageFb) if (typeof m === 'string') add(m);
+  if (Array.isArray(cfg.models?.limitFallback?.models)) for (const m of cfg.models.limitFallback.models) add(m);
+  for (const m of cfg.limits.fallbacks?.[modelRef] ?? []) add(m);
+  if (!out.length) out.push(engine.isUsable(cfg.smallModel, accountId) ? cfg.smallModel : modelRef);
+  return out;
+}
+
 /**
  * Summarize the conversation and replace it with a summary message. Everything
  * before the summary is skipped when building later requests (the rows stay).
@@ -450,11 +478,11 @@ async function compact(engine: Engine, sessionId: string, modelRef: string, sign
   const files = filesTouched(region, Array.isArray(prevMeta?.files) ? prevMeta.files : [], roots);
   const sections = [deterministicSections(quoted, omitted, files, roots[0]), anchorSection(anchorIndex(region))].filter(Boolean).join('\n\n');
 
-  const cfg = engine.config.get();
-  const summaryModel = engine.isUsable(cfg.smallModel) ? cfg.smallModel : modelRef;
+  const candidates = summaryCandidates(engine, modelRef, session.accountId);
+  let usedModel = candidates[0];
   const now = Date.now();
-  const latched = trigger === 'auto' && latchedUntil(session.meta) > now;
-  engine.audit(sessionId, 'compaction:start', `${trigger} seq ${firstSeq}..${coversThroughSeq}, ${toSummarize.length} messages, ~${beforeTokens} tokens${latched ? ', latched (no model)' : `, model ${summaryModel}`}`);
+  const latched = trigger === 'auto' && isLatched(session.meta, now, modelRef);
+  engine.audit(sessionId, 'compaction:start', `${trigger} seq ${firstSeq}..${coversThroughSeq}, ${toSummarize.length} messages, ~${beforeTokens} tokens${latched ? ', latched (no model)' : `, model ${usedModel}`}`);
 
   let summary: string | undefined;
   let failure: string | undefined;
@@ -472,20 +500,33 @@ async function compact(engine: Engine, sessionId: string, modelRef: string, sign
       `Conversation to summarize:\n\n${summarizerInput(region)}`,
       anchor ? `<recent-state-anchor>\n${truncateMiddle(anchor, 4_000, 'omitted').text}\n</recent-state-anchor>\nThis is the latest state of the work; it stays in context after the summary. Make the Next step agree with it.` : '',
     ].filter(Boolean).join('\n\n');
+    let candidateIdx = 0;
     const ask = async (problems?: string[]): Promise<string> => {
       const retry = problems?.length ? `\n\nYour last summary missed: ${problems.join('; ')}. Write the whole summary again with every heading and these identifiers.` : '';
-      const res = await streamCompletion(
-        engine,
-        summaryModel,
-        {
-          system: [{ text: COMPACT_PROMPT + (extra ? `\n\nAlso keep these details:\n${extra}` : '') }],
-          messages: [{ role: 'user', content: [{ type: 'text', text: request + retry }] }],
-          maxTokens: 4000,
-          signal: AbortSignal.any([signal, AbortSignal.timeout(COMPACTION_TIMEOUT_MS)]),
-        },
-        { sessionId, purpose: 'compaction' },
-      );
-      return res.content.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('').trim();
+      let lastErr: unknown;
+      for (let i = candidateIdx; i < candidates.length; i++) {
+        const candidate = candidates[i];
+        try {
+          const res = await streamCompletion(
+            engine,
+            candidate,
+            {
+              system: [{ text: COMPACT_PROMPT + (extra ? `\n\nAlso keep these details:\n${extra}` : '') }],
+              messages: [{ role: 'user', content: [{ type: 'text', text: request + retry }] }],
+              maxTokens: 4000,
+              signal: AbortSignal.any([signal, AbortSignal.timeout(COMPACTION_TIMEOUT_MS)]),
+            },
+            { sessionId, purpose: 'compaction' },
+          );
+          candidateIdx = i;
+          usedModel = candidate;
+          return res.content.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('').trim();
+        } catch (err) {
+          if (signal.aborted) throw err;
+          lastErr = err;
+        }
+      }
+      throw lastErr;
     };
     const tooBig = (text: string) => estimateTokens(text) >= beforeTokens;
     try {
@@ -511,7 +552,7 @@ async function compact(engine: Engine, sessionId: string, modelRef: string, sign
     }
     if (failure) {
       // latch: the next auto compactions skip the model for a while
-      engine.patchMeta(sessionId, { compaction: { latchedUntil: now + COMPACTION_LATCH_MS, reason: failure } });
+      engine.patchMeta(sessionId, { compaction: { latchedUntil: now + COMPACTION_LATCH_MS, reason: failure, model: modelRef } });
     } else if (latchedUntil(session.meta)) {
       engine.patchMeta(sessionId, { compaction: undefined });
     }
@@ -545,7 +586,7 @@ async function compact(engine: Engine, sessionId: string, modelRef: string, sign
     role: 'user',
     kind: 'summary',
     content: [{ type: 'text', text: body }],
-    model: degraded ? undefined : summaryModel,
+    model: degraded ? undefined : usedModel,
     meta: { ...opts.meta, ...(meta as unknown as Record<string, unknown>) },
   });
   const afterTokens = estimateTokens(body);

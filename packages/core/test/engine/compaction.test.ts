@@ -286,4 +286,48 @@ describe('structured compaction (item 13)', () => {
       await t.close();
     }
   }, 60_000);
+
+  test('when smallModel fails during compaction, falls back to the session modelRef and produces a full summary', async () => {
+    const t = await startTestEngine({
+      models: ['claude-sonnet-5-5', 'gemini-4-argon-high'],
+      modelOverrides: { 'claude-sonnet-5-5': { contextWindow: 200_000 }, 'gemini-4-argon-high': { contextWindow: 200_000 } },
+      script: [[{ text: 'done' }], [{ text: 'done 2' }]],
+      chore: (body, text) => {
+        if (!text.includes(SUMMARIZE)) return undefined;
+        if (body.model === 'claude-sonnet-5-5') return 429;
+        return [{ text: shaped('FALLBACK-MODEL-SUMMARY from session model') }];
+      },
+      overrides: always,
+    });
+    try {
+      const s = await t.engine.createSession({ title: 't', cwd: t.cwd, model: 'mock/gemini-4-argon-high' });
+      seed(t.engine, s.id, [['user', 'first ask'], ['assistant', filler('a')], ['user', 'second ask'], ['assistant', filler('b')]]);
+      await t.run(s.id, 'go');
+
+      const [sum] = summaries(t.engine, s.id);
+      expect(sum).toBeDefined();
+      expect(sum.meta?.qualityDegraded).toBeUndefined();
+      expect(sum.model).toBe('mock/gemini-4-argon-high');
+      expect(textOf(sum).startsWith('FALLBACK-MODEL-SUMMARY from session model')).toBe(true);
+      expect(t.engine.getSession(s.id)!.meta?.compaction).toBeUndefined();
+
+      // if latched on a failing model, switching to a working modelRef tries modelRef instead of staying latched
+      const s2 = await t.engine.createSession({ title: 't2', cwd: t.cwd, model: 'mock/claude-sonnet-5-5' });
+      seed(t.engine, s2.id, [['user', 'first ask'], ['assistant', filler('a')], ['user', 'second ask'], ['assistant', filler('b')]]);
+      await t.run(s2.id, 'go');
+      expect(summaries(t.engine, s2.id)[0].meta?.qualityDegraded).toBe(true);
+      expect((t.engine.getSession(s2.id)!.meta?.compaction as { latchedUntil?: number })?.latchedUntil).toBeGreaterThan(Date.now());
+
+      t.engine.updateSession(s2.id, { model: 'mock/gemini-4-argon-high' });
+      seed(t.engine, s2.id, [['assistant', filler('c')], ['user', 'third ask'], ['assistant', filler('d')]]);
+      await t.run(s2.id, 'go again');
+      const last = summaries(t.engine, s2.id).at(-1)!;
+      expect(last.meta?.qualityDegraded).toBeUndefined();
+      expect(last.model).toBe('mock/gemini-4-argon-high');
+      expect(textOf(last).startsWith('FALLBACK-MODEL-SUMMARY from session model')).toBe(true);
+      expect(t.engine.getSession(s2.id)!.meta?.compaction).toBeUndefined();
+    } finally {
+      await t.close();
+    }
+  }, 60_000);
 });
