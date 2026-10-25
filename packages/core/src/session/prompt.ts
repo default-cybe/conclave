@@ -3,6 +3,7 @@ import type { AgentDef, SkillDef } from '../extensions/types';
 import type { MemoryEntry, Session, SessionMode } from '../types';
 import type { SystemBlock } from '../providers/types';
 import type { WorkspaceFacts } from './project';
+import { findCatalogEntry } from '../providers/catalog';
 import BASE_MD from '../agents-defaults/BASE.md' with { type: 'text' };
 import MODES_MD from '../agents-defaults/modes.md' with { type: 'text' };
 
@@ -33,6 +34,8 @@ export interface PromptParts {
   conclave?: { card: string; live?: string };
   /** The outputs folder (files/share.ts), set for a session on the hub without a project folder that has ShareFile. */
   outputsDir?: string;
+  /** The model modelRef resolves to is Claude (an alias like "opus" or "fast" says nothing); unset: judged by modelRef. */
+  claude?: boolean;
 }
 
 /**
@@ -84,6 +87,39 @@ const WORKFLOW_STEP_FALLBACK =
   '# Mode: workflow\nYou are one step of a workflow. The brief is all you get, and your final message goes to a script, not a person. Do exactly what the brief asks and return what it asks for. When StructuredOutput is available, end by calling it.';
 
 
+/**
+ * How Conclave's tools work, for a model that was not trained on this tool
+ * set (GPT, Gemini, GLM): Claude learned the same conventions from Claude
+ * Code. One line per tool the session has, so it names nothing it cannot call.
+ */
+const TOOL_NOTES: Array<[string, string]> = [
+  ['', 'Act through tool calls in the API, never by writing a call as text or JSON in your reply. Send independent calls together in one turn.'],
+  ['Read', 'Read opens text, code, images, PDFs and notebooks. Images or PDFs you cannot see arrive as a transcription another model wrote.'],
+  ['Bash', 'A zip the owner attaches is saved under uploads/ with its listing; open it with Bash (unzip -o <zip> -d <dir>).'],
+  ['Task', 'Task runs a subagent with its own context. Give it a complete brief, because it cannot see this conversation.'],
+  ['Delegate', 'Delegate hands a job to Code or the Assistant on a named device and returns the answer here.'],
+  ['Workflow', 'Workflow runs a script that fans work out to many agents in parallel and checks their results.'],
+  ['ToolSearch', 'More MCP tools exist than your tool list shows. Load them with ToolSearch (words, or "select:<name>") and call them from your next step on.'],
+  ['TodoWrite', 'TodoWrite keeps a task list the owner follows in the app. Each call sends the whole list.'],
+  ['StructuredOutput', 'When StructuredOutput is in your tools, end by calling it with the result.'],
+];
+
+/** The tools the tool-use section has a line for: a change in which of them a session has changes the prompt. */
+export const TOOL_NOTE_TOOLS = TOOL_NOTES.map(([tool]) => tool).filter(Boolean);
+
+/** True for a Claude model id ("claude-opus-5-5", "anthropic/claude-opus-5-5"): the catalog's family, else the name. */
+export function isClaudeModel(id: string): boolean {
+  const entry = findCatalogEntry(id);
+  return entry ? entry.family === 'anthropic' : /(^|\/)claude-/i.test(id);
+}
+
+/** The tool-use section for a model other than Claude; undefined for Claude or a session without tools. */
+export function toolUseNote(claude: boolean, toolNames: string[]): string | undefined {
+  if (claude || !toolNames.length) return undefined;
+  const lines = TOOL_NOTES.filter(([tool]) => !tool || toolNames.includes(tool)).map(([, line]) => `- ${line}`);
+  return `# Using Conclave's tools\n${lines.join('\n')}`;
+}
+
 /** The Ultra note: on for a session with Ultra on, never for chats or workflow steps. */
 export function ultraNote(session: Session): string | undefined {
   if (!session.ultra || session.kind === 'chat' || session.meta?.workflow) return undefined;
@@ -118,6 +154,8 @@ export function buildSystemPrompt(p: PromptParts): SystemBlock[] {
     `- Your model: ${p.modelRef}`,
   ].join('\n');
   blocks.push({ text: env });
+  const toolUse = toolUseNote(p.claude ?? isClaudeModel(p.modelRef), p.toolNames);
+  if (toolUse) blocks.push({ text: toolUse });
 
   const modeNote = MODE_NOTES[p.mode];
   if (modeNote) blocks.push({ text: modeNote });
