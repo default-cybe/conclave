@@ -29,12 +29,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
 import { Check, ChevronLeft, ChevronRight, SquareTerminal } from 'lucide-react';
-import type { ModelEntry, ModelGroup } from '@conclave/core/client';
+import type { AccountDto, ModelEntry, ModelGroup } from '@conclave/core/client';
 import type { Device, Session } from '@conclave/core/types';
 import { MODEL_VARIANT as VARIANT } from '@conclave/core/providers/model-id';
 import { cn, fuzzy } from '@/lib/text';
 import { useHub } from '@/store/store';
 import { useIsMobile } from '@/lib/hooks';
+import { api } from '@/lib/api';
 import { contextLabel, HARNESSES, modelName, providerName } from '@/lib/models';
 import { PROVIDERS } from '@/lib/providers';
 import { Popover } from '../ui/Overlay';
@@ -133,6 +134,21 @@ export function routeLabel(ref: string): string {
   return providerName(provider);
 }
 
+/** A ref through one CLIProxyAPI plan's prefix ("cliproxy/backup-gemini/claude-opus-5-5-high"). */
+const onPlan = (ref: string) => ref.startsWith(`${PLAN_GATEWAY}/`) && ref.indexOf('/', PLAN_GATEWAY.length + 1) > 0;
+
+export type PlanAccount = Pick<AccountDto, 'prefix' | 'vendor' | 'vendorName' | 'credential'>;
+
+/** routeLabel, with a plan of another vendor named by its service: "backup-gemini (Antigravity)" under Opus. */
+export function planLabel(ref: string, maker: string, accounts?: PlanAccount[]): string {
+  const label = routeLabel(ref);
+  const a = onPlan(ref) ? accounts?.find((x) => x.prefix === label) : undefined;
+  if (!a || (VENDOR_MAKER[a.vendor] ?? a.vendor) === maker) return label;
+  // CLIProxyAPI names a credential file after its service ("antigravity-me@x.json")
+  const service = a.credential?.match(/^([a-z]+)-/)?.[1];
+  return `${label} (${service ? service[0].toUpperCase() + service.slice(1) : a.vendorName})`;
+}
+
 /**
  * A model's family inside its maker, its place among the families, and its
  * version: Opus, Sonnet, Haiku; GPT, o-series, Codex; Gemini Pro, Flash,
@@ -218,9 +234,11 @@ const bareId = (r: Row) => (r.model?.id ?? r.ref.slice(r.ref.indexOf('/') + 1)).
 /**
  * Effort and thinking variants fold under their model's row, as choices
  * behind it ("High", "Thinking"), not rows of their own. A variant whose
- * model is not listed becomes the row, named as the model.
+ * model is not listed becomes the row, named as the model. A plan the row
+ * does not reach yet that lists only a variant (Antigravity's
+ * claude-opus-5-5-high) is one more "via" route, by the variant's own id.
  */
-export function foldVariants(rows: Row[]): Row[] {
+export function foldVariants(rows: Row[], name: (ref: string) => string = routeLabel): Row[] {
   const base = new Map<string, Row>();
   for (const r of rows) if (!r.harness && !VARIANT.test(bareId(r))) base.set(bareId(r), r);
   const out: Row[] = [];
@@ -234,12 +252,22 @@ export function foldVariants(rows: Row[]): Row[] {
     const key = bareId(r).slice(0, -m[0].length);
     const host = base.get(key);
     if (host) {
-      host.routes = [...(host.routes ?? [{ ref: host.ref, label: host.label ?? 'Default', first: true }]), { ref: r.ref, label: word }];
+      const routes = host.routes ?? [{ ref: host.ref, label: host.label ?? 'Default', first: true }];
+      const reached = new Set(routes.map((x) => routeLabel(x.ref)));
+      // one route per plan: its first variant
+      const plans: string[] = [];
+      for (const ref of [r.ref, ...(r.model?.choices ?? [])]) {
+        if (!onPlan(ref) || reached.has(routeLabel(ref))) continue;
+        reached.add(routeLabel(ref));
+        plans.push(ref);
+      }
+      host.routes = [...routes, ...(plans.includes(r.ref) ? [] : [{ ref: r.ref, label: word }]), ...plans.map((ref): Route => ({ ref, label: name(ref) }))];
       continue;
     }
-    // only the variant is listed: it is the row, under the model's name
+    // only the variant is listed: it is the row, under the model's name, its other plans behind it
     const own = rowName(r);
-    base.set(key, { ...r, label: own.replace(new RegExp(`[\\s-]${m[1]}$`, 'i'), ''), routes: [{ ref: r.ref, label: word, first: true }] });
+    const others = (r.model?.choices ?? []).map((ref): Route => ({ ref, label: name(ref) }));
+    base.set(key, { ...r, label: own.replace(new RegExp(`[\\s-]${m[1]}$`, 'i'), ''), routes: [{ ref: r.ref, label: word, first: true }, ...others] });
     out.push(base.get(key)!);
   }
   return out;
@@ -267,10 +295,12 @@ export interface PickerInput {
   limits: Record<string, { label: string }>;
   /** Offer the coding agents. */
   harnesses: boolean;
+  /** Signed in plans, to name a plan of another vendor in a "via" row ("backup-gemini (Antigravity)"). */
+  accounts?: PlanAccount[];
 }
 
 /** Recent and the makers, from the hub's model groups. */
-export function buildPicker({ models, sessions, devices, secrets, limits, harnesses: includeHarness }: PickerInput): Picker {
+export function buildPicker({ models, sessions, devices, secrets, limits, harnesses: includeHarness, accounts }: PickerInput): Picker {
   const byRef = new Map<string, ModelEntry>();
   for (const g of models) for (const m of g.models) byRef.set(m.ref, m);
   // a recent model of a provider that is off since cannot be picked, as in its own group; a harness that is off is not offered at all
@@ -298,7 +328,7 @@ export function buildPicker({ models, sessions, devices, secrets, limits, harnes
       if (m.via || m.refs || maker !== g.provider) merged.add(maker);
       const list = byMaker.get(maker) ?? [];
       // the other ways to the same model: a choice behind the row, never rows of their own
-      const routes = m.choices?.length ? [{ ref: m.ref, label: routeLabel(m.ref), first: true }, ...m.choices.map((ref): Route => ({ ref, label: routeLabel(ref) }))] : undefined;
+      const routes = m.choices?.length ? [{ ref: m.ref, label: routeLabel(m.ref), first: true }, ...m.choices.map((ref): Route => ({ ref, label: planLabel(ref, maker, accounts) }))] : undefined;
       const row: Row = { ref: m.ref, model: m, group: providerName(maker), groupKey: maker, disabled: !g.enabled, family: familyOf(m.id).family || undefined, ...(routes ? { routes } : {}) };
       list.push(row);
       rowOf.set(m.ref, row);
@@ -309,7 +339,7 @@ export function buildPicker({ models, sessions, devices, secrets, limits, harnes
     .sort((a, b) => makerRank(a) - makerRank(b))
     .map((key) => {
       const g = ordered.find((x) => x.provider === key);
-      const rows = foldVariants(byMaker.get(key)!).sort((a, b) => compareModels(a.model?.id ?? a.ref, b.model?.id ?? b.ref));
+      const rows = foldVariants(byMaker.get(key)!, (ref) => planLabel(ref, key, accounts)).sort((a, b) => compareModels(a.model?.id ?? a.ref, b.model?.id ?? b.ref));
       return { key, name: providerName(key), word: merged.has(key) || !g ? undefined : accountWord(g, secrets, limits), rows };
     });
   const recent: Row[] = refs.map((ref) => {
@@ -348,7 +378,17 @@ function usePicker(includeHarness: boolean): Picker {
   const devices = useHub((s) => s.devices);
   const secrets = useHub((s) => s.secrets?.providers);
   const limits = useHub((s) => s.limits);
-  return useMemo(() => buildPicker({ models, sessions, devices, secrets, limits, harnesses: includeHarness }), [models, sessions, devices, secrets, limits, includeHarness]);
+  const accounts = useHub((s) => s.accounts?.accounts);
+  useEffect(() => {
+    // plan names for the "via" rows; not connected or refused, they say the short name only
+    if (useHub.getState().accounts) return;
+    try {
+      api().accounts().then((a) => useHub.setState({ accounts: a }), () => {});
+    } catch {
+      /* not connected */
+    }
+  }, []);
+  return useMemo(() => buildPicker({ models, sessions, devices, secrets, limits, harnesses: includeHarness, accounts }), [models, sessions, devices, secrets, limits, includeHarness, accounts]);
 }
 
 /** One line of the list: the back row, a maker's row, a model, or one route to a model under its row. */
