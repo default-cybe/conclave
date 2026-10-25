@@ -7,6 +7,8 @@ import dev.conclave.client.model.Session
 import dev.conclave.client.model.obj
 import dev.conclave.client.model.string
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import java.time.Instant
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
@@ -112,6 +114,18 @@ object Drawer {
     /** Sessions with no project and no folder (the home folder counts as none). Last. */
     const val NO_PROJECT = "none"
 
+    /** The Assistant home thread (meta.home), first in Assistant mode. */
+    const val HOME = "home"
+
+    /** Every other assistant session once a home thread exists. */
+    const val HISTORY = "history"
+
+    /** The account's one Assistant thread, from GET /api/assistant/home: meta.home is true. */
+    fun isHome(s: Session): Boolean = (s.meta?.get("home") as? JsonPrimitive)?.booleanOrNull == true
+
+    /** The home thread among [sessions], not archived. Null on an older hub that has none. */
+    fun homeOf(sessions: List<Session>): Session? = sessions.firstOrNull { isHome(it) && !it.archived }
+
     /**
      * The conversations of [mode] (all of them when null) in groups by [by]:
      * Pinned first, then the groups newest first, each newest first. By
@@ -120,7 +134,8 @@ object Drawer {
      * the recents. [waiting] holds the sessions an approval or question
      * belongs to, for their dot. [query] (Search) keeps the conversations
      * whose title has it, or for a session its agent, its folder or its
-     * group's name.
+     * group's name. In Assistant mode with a home thread, it comes first as
+     * "Assistant" and every other assistant session goes under History.
      */
     fun groups(
         sessions: List<Session>,
@@ -139,9 +154,12 @@ object Drawer {
             .sortedByDescending { it.updatedAt }
         val byProject = projects.associateBy { it.id }
         val byDevice = devices.associateBy { it.id }
+        val home = if (mode == StartMode.ASSISTANT) homeOf(list) else null
         val out = LinkedHashMap<String, Pair<String, MutableList<Recent>>>()
         for (s in list) {
             val (key, title) = when {
+                home != null && s.id == home.id -> HOME to "Assistant"
+                home != null -> HISTORY to "History"
                 s.pinned -> PINNED to "Pinned"
                 by == GroupBy.PROJECT -> projectGroup(s, byProject, byDevice)
                 by == GroupBy.DEVICE -> deviceGroup(s, byDevice)
@@ -152,8 +170,8 @@ object Drawer {
             out.getOrPut(key) { title to ArrayList() }.second.add(Recent(s.id, Panel.title(s), s.isChat, Panel.dot(s, s.id in waiting)))
         }
         val groups = out.map { (k, v) -> DrawerGroup(k, v.first, v.second) }
-        val first = groups.filter { it.key == PINNED }
-        val last = setOf(PINNED, CHATS, NO_PROJECT)
+        val first = groups.filter { it.key == HOME } + groups.filter { it.key == PINNED }
+        val last = setOf(HOME, PINNED, CHATS, NO_PROJECT)
         return first + groups.filter { it.key !in last } + groups.filter { it.key == NO_PROJECT } + groups.filter { it.key == CHATS }
     }
 
