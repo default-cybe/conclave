@@ -61,7 +61,10 @@ export const DEFAULT_SUBAGENT_MAX_STEPS = 100;
 const STEP_NOTE_AT = 0.8;
 
 /** Why the last agent loop ended, for callers that report it (subagents, routines). */
-export type LoopStop = 'done' | 'step_limit' | 'loop_capped' | 'output_limit' | 'refusal' | 'empty_reply' | 'rate_limit' | 'hook' | 'harness';
+export type LoopStop = 'done' | 'step_limit' | 'loop_capped' | 'output_limit' | 'refusal' | 'empty_reply' | 'rate_limit' | 'hook' | 'harness' | 'paused';
+
+/** How long Pause lets the call in progress run before it is cut like Stop (SessionRunner.pause). */
+export const PAUSE_GRACE_MS = 30_000;
 
 /** File tools after which nested instruction files and path rules for that file are shown (item 11). */
 const SCOPED_TOOLS = new Set(['Read', 'Edit', 'Write', 'MultiEdit']);
@@ -303,6 +306,9 @@ export class SessionRunner {
   private marks?: Map<string, ReadMark>;
   /** Marks in messages at or below this seq do not count (the session moved since). */
   private marksAfterSeq = 0;
+  /** Pause was asked: the loop stops before its next model call (pause). */
+  private pausing = false;
+  private pauseTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     private engine: Engine,
@@ -324,8 +330,9 @@ export class SessionRunner {
    * pendingId until it joins the transcript.
    */
   async enqueue(input: SendInput, opts: { auto?: boolean; resume?: boolean } = {}): Promise<SendResult> {
-    if (this.running) {
-      if (input.whenBusy === 'steer' && !opts.auto) {
+    // a paused session queues what is sent, as a busy one does; it runs after Resume
+    if (this.running || this.isPaused) {
+      if (this.running && input.whenBusy === 'steer' && !opts.auto) {
         const pending = this.pendingFor(input, 'steer');
         this.steering.push({ input, pending });
         this.emitQueue();
@@ -462,7 +469,56 @@ export class SessionRunner {
 
   /** The first input that may run: a message Stop held waits for the owner. */
   private nextIndex(): number {
-    return this.closed ? -1 : this.queue.findIndex((q) => !q.pending?.held);
+    return this.closed || this.isPaused ? -1 : this.queue.findIndex((q) => !q.pending?.held);
+  }
+
+  /** Pause was asked, or the session is paused (kept across restarts as its status). */
+  get isPaused(): boolean {
+    return this.pausing || this.engine.repos.sessions.get(this.id)?.status === 'paused';
+  }
+
+  /**
+   * Pause (engine.pauseSession): the tool call in progress finishes and the
+   * loop stops before its next model call (runLoop). A call still running
+   * after graceMs is cut as Stop cuts it, and answered as interrupted.
+   */
+  pause(graceMs = PAUSE_GRACE_MS): void {
+    this.pausing = true;
+    if (!this.busy) return this.parkPaused(false);
+    if (this.pauseTimer) clearTimeout(this.pauseTimer);
+    this.pauseTimer = setTimeout(() => {
+      this.pauseTimer = undefined;
+      if (this.pausing) for (const loop of this.activeLoops) loop.abort();
+    }, graceMs);
+  }
+
+  /** The loop stopped for Pause: the session shows paused; turn says a turn was cut and Resume continues it. */
+  parkPaused(turn: boolean): void {
+    if (this.pauseTimer) clearTimeout(this.pauseTimer);
+    this.pauseTimer = undefined;
+    this.pausing = true;
+    if (turn) this.engine.patchMeta(this.id, { pausedTurn: true });
+    this.engine.setStatus(this.id, 'paused');
+    if (turn) this.engine.notice(this.id, 'Paused. Resume continues this turn.', 'info');
+  }
+
+  /** Clear Pause. Returns true when a turn was cut and should continue. */
+  unpause(): boolean {
+    if (this.pauseTimer) clearTimeout(this.pauseTimer);
+    this.pauseTimer = undefined;
+    this.pausing = false;
+    const s = this.engine.repos.sessions.get(this.id);
+    if (s?.status !== 'paused') return false;
+    const turn = s.meta?.pausedTurn === true;
+    if (turn) this.engine.patchMeta(this.id, { pausedTurn: undefined });
+    this.engine.setStatus(this.id, 'idle');
+    return turn;
+  }
+
+  /** Resume a paused session: a cut turn continues from its stored transcript with no new user message, then the queue runs. */
+  resumePaused(): void {
+    if (this.unpause()) this.queue.unshift({ input: { text: '' }, auto: true, inference: true });
+    void this.drain();
   }
 
   /**
@@ -599,12 +655,16 @@ export class SessionRunner {
           await runAs(this.session.accountId ?? OWNER_ID, async () => {
             if (!next.inference) return this.turn(next, signal);
             this.engine.setStatus(this.id, 'running');
-            await this.agentLoop(this.session.model, this.session.mode, signal);
+            // a resumed jury or debate turn goes on as the agent loop it was cut in
+            const mode = this.session.mode === 'jury' || this.session.mode === 'debate' ? 'agent' : this.session.mode;
+            await this.agentLoop(this.session.model, mode, signal);
             if (this.session.status === 'running') this.engine.setStatus(this.id, 'idle');
             this.engine.afterTurn(this.id, Date.now() - this.turnStartedAt);
           });
         } catch (err) {
-          if (this.controller.signal.aborted) {
+          // Pause cut a call that ran past its grace time: the turn waits for Resume
+          if (this.pausing && !this.controller.signal.aborted) this.parkPaused(true);
+          else if (this.controller.signal.aborted) {
             this.engine.notice(this.id, 'Stopped', 'info');
             this.engine.setStatus(this.id, 'idle');
           } else {
@@ -625,6 +685,8 @@ export class SessionRunner {
             this.emitQueue();
           }
         }
+        // Pause asked while the turn ended on its own: the session stays paused and the queue waits
+        if (this.pausing && this.session.status !== 'paused') this.parkPaused(false);
         // a parked Task child a message woke: its parent still waits for the report (session/limits.ts)
         void afterWokenTurn(this.engine, this.id).catch((err) => log.warn(`${this.id}: woken subagent report failed`, err));
         // a turn that ended before it stored the message (a hook blocked it): the message leaves the list
@@ -834,7 +896,8 @@ export class SessionRunner {
       engine.setStatus(this.id, 'idle');
     }
 
-    engine.afterTurn(this.id, Date.now() - this.turnStartedAt);
+    // a paused turn has not finished
+    if (session.status !== 'paused') engine.afterTurn(this.id, Date.now() - this.turnStartedAt);
   }
 
   // -------------------------------------------------------------------------
@@ -983,6 +1046,11 @@ export class SessionRunner {
     let tasksNoted = false;
     for (let iter = 0; iter < maxSteps; iter++) {
       if (signal.aborted) throw new Error('aborted');
+      // Pause: the calls of the last step have their results; the next model call waits for Resume
+      if (this.pausing) {
+        this.parkPaused(true);
+        return end('paused', false);
+      }
       if (iter > 0 && !(await this.stepGate(mode, iter, signal))) return end('hook', false);
       let session = this.session;
       const agent = engine.agentFor(session);

@@ -490,6 +490,11 @@ class ConclaveClient(
 
     suspend fun abort(id: String) = sendUnit("POST", p("api", "sessions", id, "abort"))
 
+    /** Pause: the call in progress finishes, then the session waits for Resume. */
+    suspend fun pauseSession(id: String) = sendUnit("POST", p("api", "sessions", id, "pause"))
+
+    suspend fun resumeSession(id: String) = sendUnit("POST", p("api", "sessions", id, "resume"))
+
     /** Messages waiting while the session is busy, in the order they will run (session.queue keeps it current). */
     suspend fun queue(id: String): List<QueuedMessage> =
         get(p("api", "sessions", id, "queue"), ListSerializer(QueuedMessage.serializer()))

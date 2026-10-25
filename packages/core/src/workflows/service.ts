@@ -209,8 +209,9 @@ export class WorkflowService {
     this.stallTimer = setInterval(() => this.checkStalls(), 5000);
     (this.stallTimer as { unref?: () => void }).unref?.();
 
-    // runs left going by a crash are interrupted; they resume once unless many died together
-    const dead = this.store.listRuns({ statuses: ['running', 'paused', 'queued', 'waiting_reset'], limit: 500 });
+    // runs left going by a crash are interrupted; they resume once unless many died together.
+    // A paused run stays paused: Resume runs it again from its journal
+    const dead = this.store.listRuns({ statuses: ['running', 'queued', 'waiting_reset'], limit: 500 });
     for (const r of dead) this.store.updateRun({ ...r, status: 'interrupted', error: 'the hub stopped while the run was going' });
     const interrupted = this.store.listRuns({ status: 'interrupted', limit: 500 }).filter((r) => r.autoResumes < 1);
     if (opts.resumeInterrupted === false || !interrupted.length) return;
@@ -244,9 +245,11 @@ export class WorkflowService {
   async shutdown(): Promise<void> {
     if (this.closed) return;
     for (const run of this.live.values()) {
+      const paused = run.isPaused;
       run.stop('interrupted');
-      // on the live row too, so a later write (the 2 s ticker, a call that ends) keeps it
-      run.setStatus('interrupted', { error: 'the hub stopped while the run was going' });
+      // on the live row too, so a later write (the 2 s ticker, a call that ends) keeps it; a paused run waits for Resume
+      if (paused) run.setStatus('paused');
+      else run.setStatus('interrupted', { error: 'the hub stopped while the run was going' });
     }
     this.closed = true;
     await Promise.race([Promise.all([...this.live.values()].map((r) => r.done)), new Promise((r) => setTimeout(r, 3000))]);
@@ -811,6 +814,26 @@ export class WorkflowService {
     return runDto(live.row, [...live.calls.values()]);
   }
 
+  /**
+   * Resume from one paused agent's session: a paused run resumes whole, else
+   * that call goes on. A run that is not live (a restart) resumes from its
+   * journal when it was paused; the old agent is let go either way.
+   */
+  async resumeAgent(runId: string, sessionId: string): Promise<boolean> {
+    const live = this.live.get(runId);
+    if (live) {
+      if (live.isPaused) {
+        await this.resume(runId);
+        return true;
+      }
+      const seq = (this.engine.getSession(sessionId)?.meta?.workflow as { seq?: number } | undefined)?.seq;
+      return typeof seq === 'number' && live.resumeCall(seq);
+    }
+    this.engine.runnerFor(sessionId).unpause();
+    if (this.store.getRun(runId)?.status === 'paused') await this.resume(runId);
+    return true;
+  }
+
   /** Resume: a paused run goes on; an ended run runs again with its journal. */
   async resume(id: string, opts: { auto?: boolean; fromSeq?: number } = {}): Promise<WorkflowRun> {
     const live = this.live.get(id);
@@ -823,6 +846,8 @@ export class WorkflowService {
     const row = this.store.getRun(id);
     if (!row) throw new EngineError(404, `run ${id} not found`);
     const calls = this.store.calls(id);
+    // agents paused when the hub stopped are let go: their calls run again
+    for (const c of calls) if (c.childSessionId && this.engine.getSession(c.childSessionId)?.status === 'paused') this.engine.runnerFor(c.childSessionId).unpause();
     const cache = this.cacheOf(calls, opts.fromSeq);
     // what this run spent so far stays spent: a restart or a resume never starts the budget over.
     // The owner resuming a run that stopped at its budget gives it one more budget's worth.
