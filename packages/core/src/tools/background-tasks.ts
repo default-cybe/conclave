@@ -25,7 +25,7 @@ const none = () => fail('This session has no background tasks. Start one with Ta
 
 export const TaskListTool: Tool<Record<string, never>> = {
   name: 'TaskList',
-  description: 'List the background tasks (subagents started with Task and run_in_background) of this session: id, state (running, completed, failed, lost) and what each one does.',
+  description: 'List the background tasks (subagents started with Task and run_in_background) of this session: id, state (running, paused, completed, failed, lost) and what each one does.',
   inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   readOnly: true,
   summarize: () => 'TaskList',
@@ -44,7 +44,7 @@ export interface TaskWaitInput {
 export const TaskWaitTool: Tool<TaskWaitInput> = {
   name: 'TaskWait',
   description:
-    'Wait until one of your running background tasks finishes, then return the state of each. ids limits it to those tasks. timeoutSec is at most 300; 0 returns the states at once. A finished task\'s report arrives in a <subagent_result> block; TaskResult reads it again.',
+    'Wait until one of your running background tasks finishes or is paused by the owner, then return the state of each. A paused task continues only when the owner resumes it. ids limits it to those tasks. timeoutSec is at most 300; 0 returns the states at once. A finished task\'s report arrives in a <subagent_result> block; TaskResult reads it again.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -75,6 +75,7 @@ export const TaskResultTool: Tool<{ id: string }> = {
     const r = ctx.host.tasks?.result(ctx.sessionId, String(input.id ?? '').trim());
     if (!r) return fail(`No background task ${input.id} in this session. TaskList shows yours.`);
     if (r.task.state === 'running') return { content: `Task ${r.task.id} is still running. Wait for it with TaskWait.` };
+    if (r.task.state === 'paused') return { content: `Task ${r.task.id} is paused by the owner and has no report yet. It reports after the owner resumes it.` };
     return { content: `${line(r.task)}\n\n${r.text || '(no final message)'}` };
   },
 };

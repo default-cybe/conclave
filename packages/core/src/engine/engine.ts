@@ -835,7 +835,8 @@ export class Engine implements EngineApi {
     const out: BusyWorkDto[] = [];
     const seen = new Set<string>();
     const add = (s: Session, kind: BusyWorkDto['kind']) => {
-      if (seen.has(s.id) || s.status === 'waiting_reset' || !on(s.device)) return;
+      // parked or paused work survives a restart (its status and queue are stored)
+      if (seen.has(s.id) || s.status === 'waiting_reset' || s.status === 'paused' || !on(s.device)) return;
       seen.add(s.id);
       out.push({ kind, id: s.id, name: s.title, device: s.device, status: s.status });
     };
@@ -909,6 +910,40 @@ export class Engine implements EngineApi {
 
   abort(id: string): void {
     this.runners.get(id)?.abort();
+  }
+
+  /**
+   * Pause: the tool call in progress finishes (one past 30 s is cut and
+   * answered as interrupted), then the session stops before its next model
+   * call with status paused, which a restart keeps. What is sent meanwhile
+   * queues. A session parked for a usage limit resumes on its own; Stop it.
+   */
+  pauseSession(id: string): Session {
+    const s = this.requireSession(id);
+    if (s.status === 'paused') return s;
+    const runner = this.runnerFor(id);
+    if (s.status === 'waiting_reset') throw new EngineError(409, 'This session waits for a usage limit and resumes on its own. Stop it instead.');
+    if (!runner.busy) throw new EngineError(409, 'Nothing is running in this session.');
+    runner.pause();
+    return this.requireSession(id);
+  }
+
+  /** Resume a paused session: its cut turn continues with no new message; a workflow agent's run or a Task child's report goes on. */
+  async resumeSession(id: string): Promise<Session> {
+    const s = this.requireSession(id);
+    const runner = this.runnerFor(id);
+    if (s.status !== 'paused') {
+      // pause asked, the turn not yet stopped: it just goes on
+      if (runner.isPaused) runner.unpause();
+      else throw new EngineError(409, 'This session is not paused.');
+      return this.requireSession(id);
+    }
+    const runId = (s.meta?.workflow as { runId?: string } | undefined)?.runId;
+    if (runId && (await workflowsOf(this)?.resumeAgent(runId, id))) return this.requireSession(id);
+    const sub = await import('./subagent');
+    if (sub.waitsForResume(s)) void sub.resumePausedSubagent(this, s).catch((err) => log.warn(`resume of ${id} failed`, err));
+    else runner.resumePaused();
+    return this.requireSession(id);
   }
 
   async rewind(id: string, seq: number, restoreFiles = false): Promise<Session> {

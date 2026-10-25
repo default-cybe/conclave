@@ -453,6 +453,10 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     return c.json(ok);
   });
 
+  // Pause: the call in progress finishes, then the session waits for Resume (kept across restarts)
+  app.post('/api/sessions/:id/pause', (c) => c.json(engine.pauseSession(sid(c))));
+  app.post('/api/sessions/:id/resume', async (c) => c.json(await engine.resumeSession(sid(c))));
+
   app.post('/api/sessions/:id/rewind', async (c) => {
     const id = sid(c);
     const body = await readJson<{ seq?: unknown; restoreFiles?: unknown }>(c);

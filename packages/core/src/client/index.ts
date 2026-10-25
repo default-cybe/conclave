@@ -1754,6 +1754,8 @@ export class ConclaveClient {
   /** /btw: a side question about the session, answered apart from its transcript. */
   btw = (id: string, text: string) => this.request<{ answer: string }>('POST', `/api/sessions/${id}/btw`, { text });
   abort = (id: string) => this.request<{ ok: true }>('POST', `/api/sessions/${id}/abort`);
+  pauseSession = (id: string) => this.request<Session>('POST', `/api/sessions/${id}/pause`);
+  resumeSession = (id: string) => this.request<Session>('POST', `/api/sessions/${id}/resume`);
   rewind = (id: string, seq: number, restoreFiles = false) => this.request<Session>('POST', `/api/sessions/${id}/rewind`, { seq, restoreFiles });
   secondOpinion = (id: string, input: SecondOpinionInput) => this.request<{ ok: true }>('POST', `/api/sessions/${id}/second-opinion`, input);
   /** Switch the session's model. brief: a short handover (the default keeps the full history). */
