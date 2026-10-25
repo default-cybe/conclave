@@ -134,6 +134,17 @@ describe('config and the management client', () => {
     expect(seen.find((s) => s.path.endsWith('/credentials/models'))?.query).toEqual({ name: 'claude-a.json' });
   });
 
+  test('splitPrefixed: the prefix and each model once, also while an old short name is still listed', () => {
+    const ids = (list: string[]) => splitPrefixed(list.map((id) => ({ id })));
+    expect(ids(['claude-opus-5-5', 'claude-haiku-5-5'])).toEqual({ models: [{ id: 'claude-opus-5-5' }, { id: 'claude-haiku-5-5' }] });
+    expect(ids(['claude-opus-5-5', 'neu/claude-opus-5-5', 'claude-haiku-5-5', 'neu/claude-haiku-5-5'])).toEqual({ prefix: 'neu', models: [{ id: 'claude-opus-5-5' }, { id: 'claude-haiku-5-5' }] });
+    // a rename from personal to personal-claude, both still listed: two models, not four or six
+    const both = ids(['claude-opus-5-5', 'personal/claude-opus-5-5', 'personal-claude/claude-opus-5-5', 'claude-haiku-5-5', 'personal/claude-haiku-5-5', 'personal-claude/claude-haiku-5-5']);
+    expect(both.models).toEqual([{ id: 'claude-opus-5-5' }, { id: 'claude-haiku-5-5' }]);
+    // a tie goes to the name the hub prefers; with force-model-prefix on (no bare ids) still each model once
+    expect(splitPrefixed(['personal/claude-opus-5-5', 'personal-claude/claude-opus-5-5'].map((id) => ({ id })), 'personal-claude')).toEqual({ prefix: 'personal-claude', models: [{ id: 'claude-opus-5-5' }] });
+  });
+
   test('api-call: the allowlisted request with the $TOKEN$ placeholder, the answer envelope parsed, Retry-After on a 429', async () => {
     let answer: { status_code: number; header: Record<string, string[]>; body: string } = { status_code: 200, header: { 'Content-Type': ['application/json'] }, body: JSON.stringify({ five_hour: { utilization: 7 } }) };
     const { m, seen } = scripted({
@@ -533,6 +544,49 @@ describe('accounts on the hub', () => {
     expect(hub.engine.repos.audit.list({ limit: 20 }).find((a) => a.action === 'accounts.update')?.detail).toBe('two@example.test: short name removed');
   });
 
+  test('a short name just saved stays while CLIProxyAPI still lists the old ids, so it is not lost or given twice', async () => {
+    const id = 'claude-one@example.test';
+    const file = 'claude-one@example.test.json';
+    const put = (who: string, prefix: string) => api(`/api/accounts/${encodeURIComponent(who)}/prefix`, { method: 'PUT', json: { prefix } });
+    // CLIProxyAPI has not reloaded the auth file yet: its model list has no work/ ids
+    write(file, { ...read(file), listed_prefix: '' });
+    expect((await put(id, 'work')).body.accounts.find((a: { id: string }) => a.id === id).prefix).toBe('work');
+    const again = (await api('/api/accounts/refresh', { method: 'POST' })).body as AccountsStatus;
+    const one = again.accounts.find((a) => a.id === id)!;
+    expect(one.prefix).toBe('work');
+    expect(one.models.map((m) => m.id)).toEqual(['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']);
+    // so another plan cannot take it meanwhile
+    const r = await put('claude-two@example.test', 'work');
+    expect([r.status, r.body.error]).toEqual([409, 'Another plan already has the short name work.']);
+    // it reloaded: the list confirms the name, and from then on the list speaks
+    write(file, { ...read(file), listed_prefix: undefined });
+    expect(((await api('/api/accounts/refresh', { method: 'POST' })).body as AccountsStatus).accounts.find((a) => a.id === id)!.prefix).toBe('work');
+    expect((await put(id, '')).body.accounts.find((a: { id: string }) => a.id === id).prefix).toBeUndefined();
+  });
+
+  test('a rename stays while CLIProxyAPI lists the old and the new short name, also after the 5 minutes', async () => {
+    const id = 'claude-one@example.test';
+    const file = 'claude-one@example.test.json';
+    const put = (prefix: string) => api(`/api/accounts/${encodeURIComponent(id)}/prefix`, { method: 'PUT', json: { prefix } });
+    const now = async () => ((await api('/api/accounts/refresh', { method: 'POST' })).body as AccountsStatus).accounts.find((a) => a.id === id)!;
+    expect((await put('personal')).body.accounts.find((a: { id: string }) => a.id === id).prefix).toBe('personal');
+    // the old name comes first in the list, with as many ids as the new one
+    write(file, { ...read(file), listed_prefix: ['personal', 'personal-claude'] });
+    await put('personal-claude');
+    const one = await now();
+    expect(one.prefix).toBe('personal-claude');
+    expect(one.models.map((m) => m.id)).toEqual(['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']);
+    const real = Date.now.bind(Date);
+    const clock = spyOn(Date, 'now').mockImplementation(() => real() + 6 * 60_000);
+    try {
+      expect((await now()).prefix).toBe('personal-claude');
+    } finally {
+      clock.mockRestore();
+    }
+    write(file, { ...read(file), listed_prefix: undefined });
+    expect((await put('')).body.accounts.find((a: { id: string }) => a.id === id).prefix).toBeUndefined();
+  });
+
   test('"Use when a model refuses": saved on the account; a plan without a short name gets the suggested one, an API key needs none', async () => {
     const id = 'codex-me@example.test';
     const prefixes = () => mgmtCalls().filter((c) => c.path === 'fields' && 'prefix' in c.fields && c.name === 'codex-me@example.test.json');
@@ -707,7 +761,8 @@ describe('builtin: a ChatGPT plan\'s own models reach CLIProxyAPI through its ca
     // the Accounts page: the plan's names, nothing it hides, no alias
     const listed = async () => ((await (await hub.api('/api/accounts')).json()) as AccountsStatus).accounts.find((a) => a.id === 'codex-me@example.test')?.models ?? [];
     await until(async () => (await listed()).find((m) => m.id === 'gpt-6.1-sol')?.name === 'GPT-6.1-Sol', 8000, 'the plan names on the Accounts page');
-    expect(await listed()).toContainEqual({ id: 'gpt-6-astra', name: 'GPT-6-Astra' });
+    // each model carries the vendor a per model order files it under
+    expect(await listed()).toContainEqual({ id: 'gpt-6-astra', name: 'GPT-6-Astra', vendor: 'openai' });
     for (const id of ['gpt-reserve', 'codex-auto-review', 'gpt-daybreak-blue-latest']) expect((await listed()).map((m) => m.id)).not.toContain(id);
     // approved for Daybreak Blue: the alias is its row, named for the program, run on gpt-6-sol with daybreak_blue
     expect(accountsOf(hub.engine)!.credentialOf('codex-me@example.test')?.daybreak).toEqual(['daybreak_blue']);

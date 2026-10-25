@@ -299,6 +299,11 @@ export class AccountsService {
     };
   }
 
+  /** The owner's order routes a vendor's model once it has a plan, or a plan paid with a key (the Z.ai Coding Plan): keys alone keep the registry's route. */
+  private ordersApply(vendor: string, model: string): boolean {
+    return this.forVendor(vendor, model).some((a) => a.cfg.kind === 'subscription' || !!this.keyPlan(a));
+  }
+
   private forVendor(vendor: string, model?: string): Acct[] {
     return this.ordered(vendor, routeFor(this.routes(), vendor, model)?.order, model);
   }
@@ -362,7 +367,7 @@ export class AccountsService {
       ...(v.reason && v.state !== 'ready' && v.state !== 'unknown' ? { detail: v.reason } : {}),
       ...(v.until ? { until: v.until } : {}),
       windows: view.windows,
-      models: this.models(a),
+      models: this.models(a).map((m) => ({ ...m, vendor: vendorOfModel(m.id) })),
       ...(f?.prefix ? { prefix: f.prefix } : {}),
       ...(a.cfg.refusal ? { refusal: true } : {}),
       ...(f?.priority !== undefined ? { priority: f.priority } : {}),
@@ -490,7 +495,7 @@ export class AccountsService {
   providersFor(model: string): string[] | undefined {
     if (model.includes('/')) return undefined;
     const vendor = vendorOfModel(model);
-    if (!vendor || !this.forVendor(vendor, model).some((a) => a.cfg.kind === 'subscription')) return undefined;
+    if (!vendor || !this.ordersApply(vendor, model)) return undefined;
     const { ready, blocked } = this.ranked(model);
     const list = [...new Set([...ready, ...blocked].map((a) => a.provider))];
     return list.length ? list : undefined;
@@ -506,7 +511,7 @@ export class AccountsService {
   routeOf(model: string): Array<{ provider: string; kind: 'subscription' | 'api' }> | undefined {
     if (model.includes('/')) return undefined;
     const vendor = vendorOfModel(model);
-    if (!vendor || !this.forVendor(vendor, model).some((a) => a.cfg.kind === 'subscription')) return undefined;
+    if (!vendor || !this.ordersApply(vendor, model)) return undefined;
     const now = this.now();
     const steps = this.forVendor(vendor, model)
       .filter((a) => {
@@ -599,7 +604,7 @@ export class AccountsService {
   fallbackFor(provider: string, model: string, tried: Set<string> = new Set()): string | undefined {
     if (model.includes('/')) return undefined;
     const vendor = vendorOfModel(model);
-    if (!vendor || !this.forVendor(vendor, model).some((a) => a.cfg.kind === 'subscription')) return undefined;
+    if (!vendor || !this.ordersApply(vendor, model)) return undefined;
     return this.ranked(model, provider).ready.map((a) => a.provider).find((p) => p !== provider && !tried.has(p));
   }
 
