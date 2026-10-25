@@ -6,6 +6,7 @@ import { BASE_PROMPT, MODE_NOTES, basePromptFor, buildSystemPrompt, parseModeNot
 import { createEngine } from '../../src/engine';
 import type { Session } from '../../src/types';
 import { cleanup, tempDir } from '../extensions/_helpers';
+import { startTestEngine } from './harness';
 
 const DIR = join(import.meta.dir, '..', '..', 'src', 'agents-defaults');
 
@@ -64,6 +65,35 @@ describe('base prompt and mode notes come from BASE.md and modes.md', () => {
     expect(blocks[1].text).toStartWith('# Environment');
     expect(blocks[2].text).toBe(MODE_NOTES.plan!);
     expect(blocks[3].text).toBe(`# Your role: planner\n${agent.prompt}`);
+  });
+
+  test('a model other than Claude gets the tool-use section, naming only the tools it has', () => {
+    const agent = BUILTIN_AGENTS.find((a) => a.name === 'coder')!;
+    const session = { id: 's', cwd: '/repo', agent: 'coder', mode: 'agent' } as Session;
+    const prompt = (modelRef: string, toolNames: string[]) =>
+      buildSystemPrompt({ session, agent, modelRef, mode: 'agent', toolNames, platform: 'linux', isGitRepo: true, deviceName: 'hub', projectInstructions: [], profile: [], skills: [], subagents: [], date: '2026-10-25' }).map((b) => b.text);
+    const glm = prompt('zai/glm-5.3', ['Read', 'Bash', 'Task', 'ToolSearch']);
+    const note = glm.find((t) => t.startsWith("# Using Conclave's tools"))!;
+    expect(glm.indexOf(note)).toBe(2);
+    for (const tool of ['Read opens', 'unzip', 'Task runs', 'ToolSearch']) expect(note).toContain(tool);
+    expect(note).not.toContain('Delegate');
+    expect(note).not.toContain('Workflow');
+    expect(prompt('google/gemini-3-flash-preview', ['Read']).some((t) => t.startsWith("# Using Conclave's tools"))).toBe(true);
+    for (const ref of ['anthropic/claude-opus-5-5', 'cliproxy/neu/claude-sonnet-5-5']) expect(prompt(ref, ['Read']).some((t) => t.startsWith("# Using Conclave's tools"))).toBe(false);
+    expect(prompt('zai/glm-5.3', []).some((t) => t.startsWith("# Using Conclave's tools"))).toBe(false);
+  });
+
+  test('the tool-use section follows the model an alias resolves to, not the alias', async () => {
+    const t = await startTestEngine({ models: ['claude-sonnet-5-5', 'glm-5.3'], script: [[{ text: 'ok' }]] });
+    try {
+      const s = await t.engine.createSession({ title: 's', agent: 'coder', cwd: t.cwd });
+      const has = async (ref: string) => (await t.engine.systemPromptFor(s, t.engine.agentFor(s), ref, 'agent', ['Read'])).some((b) => b.text.startsWith("# Using Conclave's tools"));
+      // "smart" is the default model, a Claude model
+      expect(await has('smart')).toBe(false);
+      expect(await has('mock/glm-5.3')).toBe(true);
+    } finally {
+      await t.close();
+    }
   });
 
   test('memory and skill rules are in the base prompt only when their tools are', () => {
@@ -202,6 +232,8 @@ describe('specialist agents keep their key lines', () => {
   test('BASE.md and modes.md carry the round 5 lines', () => {
     expect(BASE_PROMPT).toContain('Before you say how code behaves, open it.');
     expect(BASE_PROMPT).toContain('Do not start a subagent to verify or double-check your own work');
+    // "run a workflow" means the Workflow tool; agents answered it with Task calls only (2026-10-23 transcripts)
+    expect(BASE_PROMPT).toContain('When the owner asks for a workflow ("run a workflow", "use a multiagent workflow"), call the Workflow tool.');
     expect(MODE_NOTES.ultra).toStartWith('# Mode: ultra\nUltra is on.');
     expect(MODE_NOTES.workflow).toStartWith('# Mode: workflow\nYou are one step of a workflow.');
   });

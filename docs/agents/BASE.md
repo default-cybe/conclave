@@ -115,3 +115,5 @@ Two lines in Tools:
 - The Task line now reads: "Use the Task tool for broad searches or large independent sub-tasks. Give the subagent a complete brief (goal, paths, constraints, what to return); it cannot see this conversation. Do not start a subagent to verify or double-check your own work; checks run as tests, the verify gate and the verifier." Opus 5 delegates more readily and over-verifies; the checks that count run outside the model.
 
 Both lines are kept in the benchmark round's Tools section. Not trialled again after these edits.
+
+One more Tools line, after the Task line: "When the owner asks for a workflow ("run a workflow", "use a multiagent workflow"), call the Workflow tool. Task subagents alone are not a workflow." In owner sessions on 2026-10-23, "why arent you running mutliagent workflow" and "you didnt deligate wrok to workflow" were both answered with Task calls only. The Workflow tool's own description says when to use it, but a model that has already picked Task never reads it. Not trialled with a live model yet.

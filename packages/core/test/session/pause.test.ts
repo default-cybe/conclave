@@ -98,6 +98,66 @@ describe('pause and resume a session', () => {
     }
   });
 
+  test('Resume after Stop: a new turn on the stored transcript with a continue reminder and no new user text', async () => {
+    const t = await startTestEngine({ script: [bash('sleep 20'), [{ text: 'continued' }]], approve: 'allow' });
+    try {
+      const s = await t.engine.createSession({ title: 'stop', cwd: t.cwd });
+      await t.engine.send(s.id, { text: 'go' });
+      expect(await until(() => t.engine.getMessages(s.id).some((m) => m.content.some((b) => b.type === 'tool_use')), 10_000)).toBe(true);
+      t.engine.abort(s.id);
+      expect(await until(() => t.engine.getSession(s.id)?.status === 'idle' && t.engine.getSession(s.id)?.meta?.stoppedTurn === true, 10_000)).toBe(true);
+      expect(t.requests.length).toBe(1);
+      await t.engine.resumeSession(s.id);
+      expect(await until(() => t.requests.length === 2 && t.engine.getSession(s.id)?.status === 'idle', 10_000)).toBe(true);
+      expect(t.requests[1]).toContain('has now resumed it');
+      expect(userTexts(t.engine.getMessages(s.id))).toEqual(['go']);
+      // the new turn used up the stop: a second Resume is refused
+      expect(t.engine.getSession(s.id)?.meta?.stoppedTurn).toBeUndefined();
+      await expect(t.engine.resumeSession(s.id)).rejects.toThrow(/not paused or stopped/);
+    } finally {
+      await t.close();
+    }
+  });
+
+  test('a restart that cut a turn: Resume on the main session continues it, a Task child gets none', async () => {
+    const t = await startTestEngine({ script: [[{ text: 'continued' }]] });
+    try {
+      const top = await t.engine.createSession({ title: 'top', cwd: t.cwd });
+      const child = await t.engine.createSession({ title: 'child', cwd: t.cwd, parentId: top.id });
+      // the hub went down mid-turn: boot finds both still running
+      for (const s of [top, child]) t.engine.repos.sessions.update({ ...t.engine.getSession(s.id)!, status: 'running' });
+      await t.engine.shutdown();
+      t.engine = await reopen(t);
+      expect(t.engine.getSession(top.id)?.meta?.stoppedTurn).toBe(true);
+      expect(t.engine.getSession(child.id)?.status).toBe('idle');
+      expect(t.engine.getSession(child.id)?.meta?.stoppedTurn).toBeUndefined();
+      await expect(t.engine.resumeSession(child.id)).rejects.toThrow(/not paused or stopped/);
+      await t.engine.resumeSession(top.id);
+      expect(await until(() => t.requests.length === 1 && t.engine.getSession(top.id)?.status === 'idle', 10_000)).toBe(true);
+      expect(t.requests[0]).toContain('has now resumed it');
+    } finally {
+      await t.close();
+    }
+  });
+
+  test('rewind of a running turn leaves nothing for Resume after Stop', async () => {
+    const t = await startTestEngine({ script: [bash('sleep 20')], approve: 'allow' });
+    try {
+      const s = await t.engine.createSession({ title: 'rewind', cwd: t.cwd });
+      await t.engine.send(s.id, { text: 'go' });
+      expect(await until(() => t.engine.getMessages(s.id).some((m) => m.content.some((b) => b.type === 'tool_use')), 10_000)).toBe(true);
+      await t.engine.rewind(s.id, t.engine.getMessages(s.id)[0].seq);
+      // the cut turn's catch has run by now
+      expect(await until(() => !t.engine.busyWork().some((w) => w.id === s.id), 10_000)).toBe(true);
+      await Bun.sleep(100);
+      expect(t.engine.getSession(s.id)?.status).toBe('idle');
+      expect(t.engine.getSession(s.id)?.meta?.stoppedTurn).toBeUndefined();
+      await expect(t.engine.resumeSession(s.id)).rejects.toThrow(/not paused or stopped/);
+    } finally {
+      await t.close();
+    }
+  });
+
   test('pausing a session with nothing running is refused', async () => {
     const t = await startTestEngine({ script: [[{ text: 'hi' }]] });
     try {

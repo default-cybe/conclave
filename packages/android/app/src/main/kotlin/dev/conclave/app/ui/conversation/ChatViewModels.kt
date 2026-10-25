@@ -477,6 +477,8 @@ class ChatThreadViewModel(
     fun removeAttachment(a: Attachment) = attachments.update { list -> list.filterNot { it === a } }
 
     fun stop() = action { hub.api { it.abort(sessionId) } }
+    fun pause() = action { hub.api { it.pauseSession(sessionId) } }
+    fun resume() = action { hub.api { it.resumeSession(sessionId) } }
 
     /**
      * Replaces [from] and everything after it with a new message (Edit and
