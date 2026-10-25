@@ -322,6 +322,8 @@ export interface SwitchEstimate {
   suggestBrief: boolean;
   /** Prices are known: false for a harness, an agent, or a plan with no per-token price. */
   priced: boolean;
+  /** The task's effective fallback policy (its own, its ancestors' and the config's; session/limit-tree.ts). Missing when it has none. */
+  fallbackPolicy?: { providers?: string[]; paid?: boolean; costUsd?: number };
 }
 
 /** What "Try the next model" started: the model ref and its words ("Opus 5.5 (personal)"). */

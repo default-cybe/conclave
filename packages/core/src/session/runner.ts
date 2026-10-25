@@ -34,6 +34,7 @@ import { ReadTool } from '../tools/read';
 import { maybeCompact, estimateRequestTokens, meteredTokens, partHash, type TokenMeter } from './compaction';
 import { applyClearing } from './context-edit';
 import { afterWokenTurn, handleLimit, limitFallback, nextAccount, switchBack } from './limits';
+import { recordAutoSwitch } from './limit-tree';
 import { OWNER_ID, isMember, runAs } from '../people/context';
 import { deviceFolder, runHarnessTurn } from './harness';
 import { LoopGuard, type Verdict } from './loop-guard';
@@ -221,6 +222,8 @@ export interface TurnHooks {
 
 /** How an agentLoop call starts (the "Try the next model" button). */
 export interface LoopOptions {
+  /** Automatic model selection to authorize when the prepared request is sent. */
+  autoSwitchFrom?: string;
   /** The reply that refused (already dropped): the loop starts on the refusal fallback entry after it. reply stands again when no entry answers. */
   refusal?: { served: Served; reply?: Message };
 }
@@ -1033,6 +1036,7 @@ export class SessionRunner {
       return done;
     };
     let currentModel = modelRef;
+    let autoSwitchFrom = opts.autoSwitchFrom;
     let resolved = engine.registryFor(this.session).resolve(currentModel);
     if (!this.depth) {
       // a harness that is off (imported chats keep claude-code/default): the turn goes on with the chat's own model when usable, else the account's default, instead of stopping
@@ -1062,6 +1066,7 @@ export class SessionRunner {
     let walkPending = false;
     const moveTo = (t: FallbackTarget) => {
       const reg = engine.registryFor(this.session);
+      autoSwitchFrom = currentModel;
       currentModel = t.ref;
       resolved = t.pin ? reg.resolveAt(t.pin.provider, t.pin.model) : reg.resolve(t.ref);
     };
@@ -1268,10 +1273,17 @@ export class SessionRunner {
             signal,
             userId: 'conclave',
           },
-          { sessionId: this.id, messageId: assistant.id, purpose: this.depth ? 'subagent' : 'turn', ...(walk?.current?.pin ? { pin: walk.current.pin } : {}) },
+          { sessionId: this.id, messageId: assistant.id, purpose: this.depth ? 'subagent' : 'turn', autoSwitchFrom, ...(walk?.current?.pin ? { pin: walk.current.pin } : {}) },
         );
+        autoSwitchFrom = undefined;
       } catch (err) {
         engine.removeMessage(assistant.id);
+        // Policy denials need an owner decision, not another refusal entry or an automatic retry.
+        if (err instanceof ProviderError && err.code === 'fallback_policy') {
+          engine.notice(this.id, `Task paused: ${err.message}`, 'warning');
+          this.parkPaused(true);
+          return end('paused', false);
+        }
         if (err instanceof ProviderError) {
           if (err.kind === 'aborted') throw err;
           // the API rejected the transcript shape despite the guard: one repair and retry per turn
@@ -1327,9 +1339,14 @@ export class SessionRunner {
             limited.push(currentModel);
             const outcome = await handleLimit(engine, this, currentModel, err, limited);
             if (outcome.fallback) {
+              autoSwitchFrom = currentModel;
               currentModel = outcome.fallback;
               resolved = engine.registryFor(this.session).resolve(currentModel);
-              if (resolved.acp) return end('harness', await runHarnessTurn(engine, this, this.session, resolved.provider, resolved.model, signal));
+              if (resolved.acp) {
+                // the wire never sees a harness turn: record the switch here (ideas item 8)
+                recordAutoSwitch(engine, this.id, autoSwitchFrom, currentModel, { harness: true, costUnknown: true });
+                return end('harness', await runHarnessTurn(engine, this, this.session, resolved.provider, resolved.model, signal));
+              }
               continue;
             }
             return end('rate_limit', false);
