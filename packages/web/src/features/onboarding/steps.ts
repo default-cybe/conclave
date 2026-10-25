@@ -1,8 +1,8 @@
 /**
- * The eleven setup steps (spec 11.11, plus subscription sign-in as step 2). Ids are the URL segment: /setup/<id>.
+ * The twelve setup steps (spec 11.11, plus subscription sign-in as step 2). Ids are the URL segment: /setup/<id>.
  * `line` is the one line under the name on the Welcome procedure strip.
  */
-export const STEP_IDS = ['hub', 'subscriptions', 'providers', 'agents', 'defaults', 'memory', 'import', 'devices', 'notifications', 'routines', 'done'] as const;
+export const STEP_IDS = ['hub', 'subscriptions', 'providers', 'extensions', 'agents', 'defaults', 'memory', 'import', 'devices', 'notifications', 'routines', 'done'] as const;
 export type StepId = (typeof STEP_IDS)[number];
 
 export interface StepDef {
@@ -29,6 +29,7 @@ export const STEPS: StepDef[] = [
     wide: true,
   },
   { id: 'providers', name: 'Providers', line: 'Keys and plans', title: 'Add your providers', lede: 'Each key is tested against the provider when you paste it. You can add more later in Settings.', skippable: true, wide: true },
+  { id: 'extensions', name: 'Extensions', line: 'Recommended set', title: 'Make Conclave better', lede: 'Install these extensions? You can remove any of them later in Extensions.', skippable: true },
   { id: 'agents', name: 'Coding agents', line: 'Optional engines', title: 'Coding agents as engines', lede: 'Optional. Conclave runs its own agent loop. Use Claude Code or Codex as the engine for a session, on the machine where each one is installed.', skippable: true, wide: true },
   { id: 'defaults', name: 'Defaults', line: 'Models per agent', title: 'Pick defaults', lede: 'What a new session uses when you do not choose. Any session can change it.', skippable: true },
   { id: 'memory', name: 'Memory', line: 'Basic Memory vault', title: 'Memory', lede: 'What Conclave remembers about you and your machines, and where it keeps the notes.', skippable: true },

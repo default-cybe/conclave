@@ -1,6 +1,6 @@
 /**
  * Welcome (spec 11.11): the brand moment. Hero wave, the wordmark, one
- * paragraph on what Conclave is, Start setup, and the eleven steps as a
+ * paragraph on what Conclave is, Start setup, and the twelve steps as a
  * procedure strip along the bottom.
  */
 import { useState } from 'react';
@@ -108,7 +108,7 @@ function ProcedureStrip({ done }: { done: StepId[] }) {
     <nav aria-label="Setup steps" className="border-t border-rule">
       {/* the list's left padding plus each cell's own 12px puts the first column on the page gutter, and every column keeps the same width.
           The first cell of a row reaches back over that padding so its rule and hover run to the window edge. */}
-      <ol className="m-0 grid list-none grid-cols-6 py-0 pr-0 pl-7 md:max-lg:pl-3 xl:grid-cols-11">
+      <ol className="m-0 grid list-none grid-cols-6 py-0 pr-0 pl-7 md:max-lg:pl-3 xl:grid-cols-12">
         {STEPS.map((s, i) => (
           <li
             key={s.id}
