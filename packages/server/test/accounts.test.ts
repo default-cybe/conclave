@@ -707,7 +707,8 @@ describe('builtin: a ChatGPT plan\'s own models reach CLIProxyAPI through its ca
     // the Accounts page: the plan's names, nothing it hides, no alias
     const listed = async () => ((await (await hub.api('/api/accounts')).json()) as AccountsStatus).accounts.find((a) => a.id === 'codex-me@example.test')?.models ?? [];
     await until(async () => (await listed()).find((m) => m.id === 'gpt-6.1-sol')?.name === 'GPT-6.1-Sol', 8000, 'the plan names on the Accounts page');
-    expect(await listed()).toContainEqual({ id: 'gpt-6-astra', name: 'GPT-6-Astra' });
+    // each model carries the vendor a per model order files it under
+    expect(await listed()).toContainEqual({ id: 'gpt-6-astra', name: 'GPT-6-Astra', vendor: 'openai' });
     for (const id of ['gpt-reserve', 'codex-auto-review', 'gpt-daybreak-blue-latest']) expect((await listed()).map((m) => m.id)).not.toContain(id);
     // approved for Daybreak Blue: the alias is its row, named for the program, run on gpt-6-sol with daybreak_blue
     expect(accountsOf(hub.engine)!.credentialOf('codex-me@example.test')?.daybreak).toEqual(['daybreak_blue']);
