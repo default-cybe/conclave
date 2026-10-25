@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Google (Antigravity) plans show real numbers in Accounts and Usage: the hub reads `loadCodeAssist` (the call the Antigravity editor makes on start) through CLIProxyAPI with the credential's own token, and shows the GOOGLE_ONE_AI credits balance and the plan tier (AI Pro, AI Ultra). Google still exposes no 5-hour or weekly usage to these clients, so those windows stay unreported and a 429 keeps showing as the account's cooldown.
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed

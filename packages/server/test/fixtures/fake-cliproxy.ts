@@ -351,6 +351,8 @@ async function management(req: Request, url: URL, api: 'v8' | 'v0'): Promise<Res
         if (tag && (body.header?.['If-None-Match'] ?? '') === tag) return json({ status_code: 304, header: { ETag: [tag] }, body: '' }, 200, mgmtHeaders);
         return answer(200, { models: list.map((m) => (typeof m === 'string' ? { slug: m, display_name: m, visibility: 'list', supported_in_api: true, minimal_client_version: '0.98.0' } : m)) }, tag ? { ETag: [tag] } : {});
       }
+      if (body.method === 'POST' && body.url === 'https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist')
+        return answer(a.acct.usage_status ?? 200, a.acct.usage ?? { currentTier: { id: 'GOOGLE_ONE_AI_PREMIUM' }, paidTier: { id: 'GOOGLE_ONE_AI_PREMIUM', availableCredits: [{ creditType: 'GOOGLE_ONE_AI', creditAmount: '96.5', minimumCreditAmountForUsage: '5' }] } });
       if (body.method === 'GET' && body.url === USAGE_URLS.codexUsage) return answer(a.acct.usage_status ?? 200, a.acct.usage ?? { plan_type: 'pro', rate_limit: { primary_window: { used_percent: 25, limit_window_seconds: 18_000, reset_after_seconds: 3600 }, secondary_window: { used_percent: 40, limit_window_seconds: 604_800, reset_after_seconds: 300_000 } } });
       return answer(599, { error: 'the fake answers only the usage addresses' });
     }

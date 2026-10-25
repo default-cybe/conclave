@@ -86,7 +86,7 @@ export interface RawCredential {
 }
 
 /** The only calls the hub makes through api-call, and nothing from a user or a model goes into them. */
-export type UsageCallKind = 'claude-usage' | 'claude-profile' | 'codex-usage' | 'codex-models';
+export type UsageCallKind = 'claude-usage' | 'claude-profile' | 'codex-usage' | 'codex-models' | 'antigravity-usage';
 
 /**
  * The Codex client version the hub names when it asks a ChatGPT plan for its
@@ -102,13 +102,15 @@ const CLAUDE_HEADERS = { Authorization: 'Bearer $TOKEN$', 'anthropic-beta': 'oau
  * fetch for any address with the credential's token put in, so the hub
  * builds every request from this table alone.
  */
-export const USAGE_CALLS: Record<UsageCallKind, { method: 'GET'; url: string; header: Record<string, string> }> = {
+export const USAGE_CALLS: Record<UsageCallKind, { method: 'GET' | 'POST'; url: string; header: Record<string, string>; body?: string }> = {
   'claude-usage': { method: 'GET', url: 'https://api.anthropic.com/api/oauth/usage', header: CLAUDE_HEADERS },
   'claude-profile': { method: 'GET', url: 'https://api.anthropic.com/api/oauth/profile', header: CLAUDE_HEADERS },
   'codex-usage': { method: 'GET', url: 'https://chatgpt.com/backend-api/wham/usage', header: { Authorization: 'Bearer $TOKEN$', Accept: 'application/json' } },
   // the plan's own model list, as the Codex app reads it: CLIProxyAPI lists a ChatGPT plan's models from its own catalog only
   // as Codex CLI asks: the token, the account id (added per call) and its originator
   'codex-models': { method: 'GET', url: `https://chatgpt.com/backend-api/codex/models?client_version=${CODEX_CLIENT_VERSION}`, header: { Authorization: 'Bearer $TOKEN$', Accept: 'application/json', originator: 'codex_cli_rs' } },
+  // the Antigravity editor's own startup call: the plan tier and the GOOGLE_ONE_AI credits balance (usage/readers/antigravity.ts)
+  'antigravity-usage': { method: 'POST', url: 'https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist', header: { Authorization: 'Bearer $TOKEN$', 'Content-Type': 'application/json', Accept: 'application/json' }, body: '{"metadata":{"ideType":"ANTIGRAVITY"}}' },
 };
 
 /** Throws unless the call is exactly one of USAGE_CALLS. */
@@ -383,7 +385,7 @@ export class Management {
     if (kind === 'codex-models' && opts.etag && ETAG.test(opts.etag)) header['If-None-Match'] = opts.etag;
     const api = await this.detect();
     if (api !== 'v8') throw new ManagementError('This CLIProxyAPI cannot read plan usage. Update it to version 8 or newer.', 404);
-    const r = await this.call<Record<string, unknown>>('POST', '/v8/management/requests/api-call', { auth_index: authIndex, method: call.method, url: call.url, header });
+    const r = await this.call<Record<string, unknown>>('POST', '/v8/management/requests/api-call', { auth_index: authIndex, method: call.method, url: call.url, header, ...(call.body !== undefined ? { data: call.body } : {}) });
     if (r.status !== 200) this.fail(r.status, r.data, 'read the plan\'s usage');
     const status = typeof r.data.status_code === 'number' ? r.data.status_code : 0;
     let json: unknown;

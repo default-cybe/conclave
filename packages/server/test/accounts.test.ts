@@ -147,6 +147,8 @@ describe('config and the management client', () => {
     // an account id that is not an id is left out, not passed on
     await m.usageCall('codex-usage', 'c3', { chatgptAccountId: 'x\r\nInjected: 1' });
     expect(seen.at(-1)!.body.header['Chatgpt-Account-Id']).toBeUndefined();
+    await m.usageCall('antigravity-usage', 'g7');
+    expect(seen.at(-1)!.body).toEqual({ auth_index: 'g7', method: 'POST', url: 'https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist', header: { Authorization: 'Bearer $TOKEN$', 'Content-Type': 'application/json', Accept: 'application/json' }, data: '{"metadata":{"ideType":"ANTIGRAVITY"}}' });
     answer = { status_code: 429, header: { 'Retry-After': ['120'] }, body: '{"error":"slow"}' };
     expect(await m.usageCall('claude-profile', 'a1b2')).toEqual({ status: 429, json: { error: 'slow' }, retryAfterMs: 120_000 });
     answer = { status_code: 502, header: {}, body: 'upstream down' };
@@ -165,6 +167,7 @@ describe('config and the management client', () => {
       'GET https://api.anthropic.com/api/oauth/profile',
       'GET https://chatgpt.com/backend-api/wham/usage',
       `GET https://chatgpt.com/backend-api/codex/models?client_version=${CODEX_CLIENT_VERSION}`,
+      'POST https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist',
     ]);
     // the Codex models address with any other query is refused too
     expect(() => assertAllowedCall({ method: 'GET', url: 'https://chatgpt.com/backend-api/codex/models?client_version=0.1.0' })).toThrow();

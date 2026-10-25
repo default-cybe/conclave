@@ -332,7 +332,7 @@ describe('builtin: the hub runs CLIProxyAPI', () => {
   beforeAll(async () => {
     process.env.MANAGEMENT_PASSWORD = 'must-not-reach-cliproxy';
     pins.push(await publish(rel, { version: '8.0.31' }));
-    hub = startHub({ cliproxy: { spawn: fake.spawn, pins, releaseBase: rel.url, platform: 'linux', arch: 'x64', backoffMs: [50, 100, 200], readyTimeoutMs: 15_000 } }, { models: { cliproxy: { mode: 'builtin' } } } as any);
+    hub = startHub({ cliproxy: { spawn: fake.spawn, pins, releaseBase: rel.url, platform: 'linux', arch: 'x64', backoffMs: [50, 100, 200], readyTimeoutMs: 15_000, credentialsMs: 500, usageMs: [200, 400] } }, { models: { cliproxy: { mode: 'builtin' } } } as any);
     hub.engine.bus.on((e) => {
       if (e.type === 'subscriptions.updated') events.push(e.status);
     });
@@ -520,6 +520,23 @@ describe('builtin: the hub runs CLIProxyAPI', () => {
       { path: '/v1beta/models/gemini-4-argon:streamGenerateContent', model: 'gemini-4-argon' },
       { path: '/v1/chat/completions', model: 'grok-4.7' },
     ]);
+  });
+
+  test('a Google (Antigravity) plan shows its credits balance and tier from loadCodeAssist', async () => {
+    const gfile = join(hub.engine.home, 'cliproxy', 'auth', 'antigravity-g2@example.test.json');
+    writeFileSync(gfile, JSON.stringify({ type: 'antigravity', email: 'g2@example.test', usage: { paidTier: { id: 'GOOGLE_ONE_AI_PREMIUM', availableCredits: [{ creditType: 'GOOGLE_ONE_AI', creditAmount: '96.5', minimumCreditAmountForUsage: '5' }] } } }));
+    try {
+      const acct = await until(async () => {
+        const r = await api('/api/accounts');
+        const a = r.body.accounts.find((x: { credential?: string }) => x.credential === 'antigravity-g2@example.test.json');
+        return a && a.windows.length ? a : undefined;
+      }, 10_000, 'the Google plan to read its usage');
+      expect(acct.vendor).toBe('gemini');
+      expect(acct.plan).toBe('AI Pro');
+      expect(acct.windows).toEqual([expect.objectContaining({ name: 'credits', remaining: 91.5 })]);
+    } finally {
+      rmSync(gfile, { force: true });
+    }
   });
 
   test('refresh and remove an account; the tokens in the refresh answer stay on the hub', async () => {
