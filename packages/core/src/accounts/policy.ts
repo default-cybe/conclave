@@ -14,7 +14,7 @@ import type { AccountRoute } from '../config/schema';
 import type { LimitWindow } from '../types';
 import { wirePattern } from '../providers/split';
 import { variantBase } from '../providers/model-id';
-import { annotateWindow, windowApplies, windowFull, windowScope } from './windows';
+import { annotateWindow, governing, windowFull, windowScope } from './windows';
 
 export interface AccountView {
   id: string;
@@ -93,7 +93,7 @@ export function reaches(a: Pick<AccountView, 'models'>, model?: string): boolean
 /** One account's state now, for a model when given (a weekly Opus window only blocks Opus). */
 export function assess(a: AccountView, now: number, model?: string): Verdict {
   const v: Verdict = { id: a.id, state: 'ready' };
-  const windows = a.windows.map((w) => (w.kind ? w : annotateWindow(w))).filter((w) => windowApplies(w, model));
+  const windows = governing(a.windows.map((w) => (w.kind ? w : annotateWindow(w))), model);
   const known = windows.filter((w) => w.usedPercent !== undefined && w.kind !== 'rate' && w.kind !== 'extra' && !(w.resetsAt !== undefined && w.resetsAt <= now));
   const fullest = [...known].sort((x, y) => (y.usedPercent ?? 0) - (x.usedPercent ?? 0))[0];
   if (fullest) v.window = fullest;

@@ -26,11 +26,15 @@ export interface ThinkingBlock {
   signature?: string;
   /** How long the model thought, in ms, from the request or the block's first delta to the next block. UI only; never sent to a provider. */
   durationMs?: number;
+  /** On replay only: the vendor whose account signed it (session/transcript.ts); the call drops it on another vendor's account. Never sent. */
+  signedBy?: string;
 }
 
 export interface RedactedThinkingBlock {
   type: 'redacted_thinking';
   data: string;
+  /** As ThinkingBlock.signedBy. Never sent. */
+  signedBy?: string;
 }
 
 export interface ImageBlock {
@@ -545,6 +549,8 @@ export interface LimitState {
   /** True when the provider is currently refusing requests. */
   blocked?: boolean;
   source: 'headers' | 'oauth' | 'logs' | 'api' | 'error' | 'ledger';
+  /** Why a signed in plan shows no windows ("Usage not reported by Google"): its vendor gives none to read. */
+  note?: string;
   /** A plan whose window starter is on: what it is doing (client/accounts.ts StarterDto), for clients that show limits only. */
   starter?: { state: string; nextAt?: number; startedAt?: number; until?: number; reason?: string };
 }

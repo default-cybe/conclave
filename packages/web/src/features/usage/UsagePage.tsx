@@ -787,7 +787,7 @@ function Limits({ wave }: { wave: boolean }) {
   const limits = useMemo(
     () =>
       Object.values(map)
-        .filter((l) => !mobile || l.windows.some((w) => !isRateWindow(w) || (w.usedPercent ?? 0) > 50))
+        .filter((l) => !mobile || !!l.note || l.windows.some((w) => !isRateWindow(w) || (w.usedPercent ?? 0) > 50))
         .sort((a, b) => limitPeak(b) - limitPeak(a)),
     [map, mobile],
   );

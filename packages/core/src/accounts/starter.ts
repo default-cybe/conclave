@@ -49,7 +49,7 @@ import { logger } from '../util/log';
 import { validZone, wallAt, zonedTime } from './period';
 import { bareModel } from './policy';
 import { vendorOfModel } from './vendors';
-import { annotateWindow, windowApplies, windowFull, windowScope } from './windows';
+import { annotateWindow, governing, windowFull, windowScope } from './windows';
 
 const log = logger('starter');
 
@@ -288,9 +288,8 @@ export function fiveHour(windows: LimitWindow[]): LimitWindow | undefined {
 
 /** A weekly or longer window used up for this model: every request fails until it resets. */
 export function usedUp(windows: LimitWindow[], model: string, now: number): LimitWindow | undefined {
-  return windows
-    .map(annotated)
-    .filter((w) => (w.kind === 'weekly' || w.kind === 'monthly') && windowApplies(w, model) && windowFull(w, now))
+  return governing(windows.map(annotated), model)
+    .filter((w) => (w.kind === 'weekly' || w.kind === 'monthly') && windowFull(w, now))
     .sort((a, b) => (b.resetsAt ?? Infinity) - (a.resetsAt ?? Infinity))[0];
 }
 

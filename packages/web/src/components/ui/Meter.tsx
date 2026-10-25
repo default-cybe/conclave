@@ -176,7 +176,7 @@ export function LimitGroup({ limit, compact, right, hideRate = true, className }
   const mark = limit.account ? name : limit.provider;
   // windows keep their natural order (5 hours, then week); groups sort by limitPeak
   const windows = limit.windows.filter((w) => !hideRate || !isRateWindow(w) || (w.usedPercent ?? 0) > 50);
-  if (!windows.length) return null;
+  if (!windows.length && !limit.note) return null;
   return (
     <div className={cn('py-3', className)}>
       <div className="mb-1.5 flex items-center text-[13px]" style={{ gap: logoGap(16) }}>
@@ -188,6 +188,12 @@ export function LimitGroup({ limit, compact, right, hideRate = true, className }
       {windows.map((w) => (
         <LimitRow key={w.name} window={w} plan={limit.label} blocked={limit.blocked && (w.usedPercent ?? 0) >= 99} compact={compact} />
       ))}
+      {!windows.length && (
+        <p className={cn('m-0 text-[12px]', limit.blocked ? 'text-fault' : 'text-fg-3')}>
+          {limit.blocked && 'Blocked. '}
+          {limit.note}
+        </p>
+      )}
     </div>
   );
 }

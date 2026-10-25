@@ -11,6 +11,8 @@ import { OWNER_ID, isMember } from '../people/context';
 import { splitAccount } from '../providers/split';
 import { refusalPlan, shortModelName, targetFor, usable } from './refusal-fallback';
 import { bareModel, ownModel } from '../accounts/policy';
+import { variantBase } from '../providers/model-id';
+import { forgetFallbackNotice } from './stream';
 import { PLAN_PROVIDER, entryServes } from '../people/plans';
 import type { AgentDef } from '../extensions/types';
 
@@ -215,10 +217,16 @@ export async function handleLimit(engine: Engine, runner: SessionRunner, modelRe
   const next = nextAccount(engine, sessionId, modelRef);
   if (next) {
     engine.notice(sessionId, `${next.from} hit its limit. Continuing on ${next.to}.`, 'warning');
-    // kept for the session, as a manual switch: later turns skip the plan at its limit
-    if (engine.repos.sessions.get(sessionId)?.model === modelRef) {
+    // kept for the session: later turns skip the plan at its limit, and go back once it resets (switchBack)
+    const s = engine.repos.sessions.get(sessionId);
+    if (s?.model === modelRef) {
       try {
         engine.updateSession(sessionId, { model: next.ref });
+        // a chain of failovers keeps the ref the owner chose
+        const prev = s.meta?.limitSwitch as LimitSwitch | undefined;
+        const chain = prev?.to === modelRef ? prev : undefined;
+        const until = chain ? chain.until : resetAt;
+        engine.patchMeta(sessionId, { limitSwitch: { from: chain?.from ?? modelRef, to: next.ref, at: chain?.at ?? Date.now(), ...(until ? { until } : {}) } });
       } catch (e) {
         log.warn(`${sessionId}: could not keep ${next.ref}: ${(e as Error).message}`);
       }
@@ -265,6 +273,77 @@ export async function handleLimit(engine: Engine, runner: SessionRunner, modelRe
   });
   log.info(`parked ${sessionId} for ${Math.round(waitMs / 1000)}s until ${new Date(resetAt).toISOString()}`);
   return { parked: true };
+}
+
+/** Session meta a usage-limit failover leaves (handleLimit): the ref the session ran on, and the one it moved to. */
+interface LimitSwitch {
+  from: string;
+  to: string;
+  /** When the session left the first plan. */
+  at?: number;
+  /** That plan's reset, when the limit said it. */
+  until?: number;
+}
+
+/** How long a session stays on the plan it moved to when the reset time is unknown: a short block that lifts must not bounce it back each turn. */
+const SWITCH_BACK_AFTER_MS = 15 * 60_000;
+
+/**
+ * At the start of a turn, for a session a usage-limit failover moved off a
+ * plan: the same model on the highest ready plan in the owner's order, when
+ * that ranks above the one it runs on now (its limit reset). The original
+ * ref when that plan is the one it left. Returns the new ref, else undefined.
+ * A session the owner switched by hand since is left alone and forgets the
+ * failover. Owner only, as nextAccount.
+ */
+export function switchBack(engine: Engine, sessionId: string): string | undefined {
+  const session = engine.repos.sessions.get(sessionId);
+  const ls = session?.meta?.limitSwitch as LimitSwitch | undefined;
+  if (!session || !ls?.from || !ls.to) return undefined;
+  if (session.model !== ls.to) {
+    engine.patchMeta(sessionId, { limitSwitch: undefined });
+    return undefined;
+  }
+  const accounts = accountsOf(engine);
+  if (!accounts || isMember(session.accountId)) return undefined;
+  // the first plan's reset passed, or a while went by since the failover
+  const t = Date.now();
+  if (!((ls.until !== undefined && t >= ls.until) || t - (ls.at ?? 0) >= SWITCH_BACK_AFTER_MS)) return undefined;
+  const gw = accounts.gateway ?? 'cliproxy';
+  const wireOf = (ref: string): string | undefined => {
+    try {
+      const r = engine.registryFor(session).resolve(ref);
+      return r.provider === gw ? r.model : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  const now = wireOf(session.model);
+  const from = wireOf(ls.from);
+  if (!now) return undefined;
+  // the model the owner chose, without the plan's prefix or effort variant (Antigravity's -high)
+  const bare = variantBase(splitAccount(now).model);
+  const current = accounts.accountFor(gw, now);
+  const left = from ? accounts.accountFor(gw, from) : undefined;
+  for (const a of accounts.readyAccounts(bare)) {
+    // nothing above the plan it runs on has room
+    if (a.id === current) return undefined;
+    if (a.kind !== 'subscription') continue;
+    const ref = a.id === left ? ls.from : a.prefix ? `${gw}/${a.prefix}/${bareModel(ownModel((a.models ?? []).map((m) => m.id), bare) ?? bare)}` : undefined;
+    if (!ref || !usable(engine, session, { index: -1, entry: { model: ref, account: a.id }, ref, pin: { provider: gw, model: ref.slice(gw.length + 1), account: a.id }, label: '' })) continue;
+    try {
+      engine.updateSession(sessionId, { model: ref });
+    } catch (e) {
+      log.warn(`${sessionId}: could not go back to ${ref}: ${(e as Error).message}`);
+      return undefined;
+    }
+    engine.patchMeta(sessionId, { limitSwitch: ref === ls.from ? undefined : { ...ls, to: ref } });
+    engine.notice(sessionId, `Back on ${a.label}, its limit reset.`, 'info');
+    forgetFallbackNotice(sessionId);
+    log.info(`${sessionId}: back on ${ref} from ${session.model}`);
+    return ref;
+  }
+  return undefined;
 }
 
 /** Handler for the durable "session.resume" job. */
