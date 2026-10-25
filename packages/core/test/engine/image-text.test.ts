@@ -11,6 +11,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PNG, b64 } from '../attachments/zipkit';
 import { startTestEngine, type RequestBody, type Step, type TestEngine } from './harness';
+import { VISION_MAX_PDFS_PER_REQUEST, visionModelFor } from '../../src/session/image-text';
 
 let t: TestEngine | undefined;
 afterEach(async () => {
@@ -54,6 +55,61 @@ describe('images for a model without vision', () => {
     expect(firstUser(t.requests[2])).toBe(firstUser(t.requests[0]));
     const rows = t.engine.repos.db.query("SELECT model FROM usage WHERE purpose = 'vision'").all() as Array<{ model: string }>;
     expect(rows.map((r) => r.model)).toEqual(['claude-sonnet-5-5', 'claude-sonnet-5-5']);
+  });
+
+  test('GLM gets an attached PDF as the vision model transcribed it, not "not readable"', async () => {
+    const pdf = Buffer.from('%PDF-1.4\n%%EOF\n').toString('base64');
+    t = await startTestEngine({
+      models: ['claude-sonnet-5-5', 'glm-5.3'],
+      script: [[{ text: 'It says 8812.' }]],
+      chore: (_b, text) => (text.includes('Transcribe all text in this PDF') && text.includes(pdf) ? [{ text: 'Invoice 8812' }] : undefined),
+    });
+    const s = await t.engine.createSession({ title: 'glm', agent: 'coder', cwd: t.cwd, model: 'mock/glm-5.3' });
+    const runner = t.engine.runnerFor(s.id);
+    await t.engine.send(s.id, { text: 'What does it say?', attachments: [{ mediaType: 'application/pdf', data: pdf, name: 'invoice.pdf' }] });
+    await Promise.race([runner.waitIdle(), Bun.sleep(30_000)]);
+    expect(t.requests.length).toBe(1);
+    expect(t.requests[0]).toContain('[PDF invoice.pdf (application/pdf), transcribed by mock/claude-sonnet-5-5:\\nInvoice 8812\\n]');
+    expect(t.requests[0]).not.toContain('not readable by this model');
+  });
+
+  test('a PDF transcription cut at the token limit says later pages are missing', async () => {
+    const pdf = Buffer.from('%PDF-1.4\n%%EOF\n').toString('base64');
+    t = await startTestEngine({
+      models: ['claude-sonnet-5-5', 'glm-5.3'],
+      script: [[{ text: 'Partial.' }]],
+      chore: (_b, text) => (text.includes('Transcribe all text in this PDF') ? { blocks: [{ text: 'Page 1 of 40' }], stop: 'max_tokens' } : undefined),
+    });
+    const s = await t.engine.createSession({ title: 'glm', agent: 'coder', cwd: t.cwd, model: 'mock/glm-5.3' });
+    const runner = t.engine.runnerFor(s.id);
+    await t.engine.send(s.id, { text: 'Summarize.', attachments: [{ mediaType: 'application/pdf', data: pdf, name: 'report.pdf' }] });
+    await Promise.race([runner.waitIdle(), Bun.sleep(30_000)]);
+    expect(t.requests[0]).toContain('Page 1 of 40\\n[transcription cut at 16000 tokens, later pages missing]\\n]');
+  });
+
+  test('PDFs past their own smaller cap keep a note; images still get theirs', async () => {
+    const pdfs = [1, 2, 3].map((i) => ({ mediaType: 'application/pdf', data: Buffer.from(`%PDF-1.4\n${i}\n%%EOF\n`).toString('base64'), name: `r${i}.pdf` }));
+    t = await startTestEngine({
+      models: ['claude-sonnet-5-5', 'glm-5.3'],
+      script: [[{ text: 'ok' }]],
+      chore: (b, text) => (text.includes('Transcribe all text in this PDF') ? [{ text: 'pdf text' }] : chore(b, text)),
+    });
+    const s = await t.engine.createSession({ title: 'glm', agent: 'coder', cwd: t.cwd, model: 'mock/glm-5.3' });
+    const runner = t.engine.runnerFor(s.id);
+    await t.engine.send(s.id, { text: 'Read all.', attachments: [...pdfs, { mediaType: 'image/png', data: b64(PNG), name: 'digits.png' }] });
+    await Promise.race([runner.waitIdle(), Bun.sleep(30_000)]);
+    expect(t.chores.filter((c) => c.includes('Transcribe all text in this PDF')).length).toBe(VISION_MAX_PDFS_PER_REQUEST);
+    expect(t.requests[0]).toContain(`[PDF r3.pdf (application/pdf) not readable by this model: more than ${VISION_MAX_PDFS_PER_REQUEST} new PDFs in one request]`);
+    expect(t.requests[0]).toContain('transcribed by mock/claude-sonnet-5-5:\\n4721\\n]');
+  });
+
+  test('a named vision model the catalog says cannot see is used for images, not PDFs', async () => {
+    // not in the catalog, so its vision is unknown: trusted for images when named
+    t = await startTestEngine({ models: ['glm-5.3', 'house-reader-1'], script: [[{ text: 'ok' }]], chore });
+    t.engine.config.update({ models: { ...t.engine.config.get().models, vision: 'mock/house-reader-1' }, smallModel: 'mock/glm-5.3', defaultModel: 'mock/glm-5.3' });
+    expect(visionModelFor(t.engine, undefined)).toBe('mock/house-reader-1');
+    // a PDF skips it for a model the catalog says sees
+    expect(visionModelFor(t.engine, undefined, true)).toBe('mock/claude-sonnet-5-5');
   });
 
   test('a model with vision still gets the image', async () => {

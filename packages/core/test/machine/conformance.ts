@@ -890,6 +890,41 @@ export const CASES: Case[] = [
         older: { error: { message: 'Conclave 0.0.0 is not newer than this daemon (V).', code: 'EUPTODATE' } },
       }),
   },
+  // ----- protocol 5: Conclave's turns appended to a Claude Code chat (import/writeback.ts)
+  {
+    name: 'importAppend: appends once, then refuses a changed file, a cut last line, an open chat and a wrong name',
+    rpc: ['importAppend'],
+    run: async (m, c) => {
+      const sid = '11111111-2222-4333-8444-555555555555';
+      const dir = join(c.out, 'wb-claude');
+      const path = join(dir, 'projects', '-p', `${sid}.jsonl`);
+      const first = '{"a":1}\n';
+      await m.writeFile(path, first);
+      const ask = (size: number, tail: string) => m.importAppend!({ path, sessionId: sid, text: '{"b":2}\n', expect: { size, tail } });
+      const ok = await ask(first.length, sha(first));
+      const text = await m.readText(path);
+      const changed = await ask(first.length, sha(first));
+      await m.writeFile(path, `${first}{"cut`);
+      const cut = await ask(first.length + 5, sha(`${first}{"cut`));
+      // a dead pid does not hold the chat; the test runner does
+      await m.writeFile(join(dir, 'sessions', '1.json'), JSON.stringify({ pid: 2 ** 31 - 2, sessionId: sid }));
+      const dead = await ask(first.length + 5, sha(`${first}{"cut`));
+      await m.writeFile(join(dir, 'sessions', '2.json'), JSON.stringify({ pid: process.pid, sessionId: sid }));
+      const busy = await ask(first.length + 5, sha(`${first}{"cut`));
+      const name = await outcome(() => m.importAppend!({ path: join(dir, 'x.jsonl'), sessionId: sid, text: 'x\n', expect: { size: 0, tail: '' } }));
+      return { ok: { ok: ok.ok, size: ok.ok && ok.size, mtime: ok.ok && typeof ok.mtime }, text, changed, cut, dead, busy: { ...busy, detail: 'detail' in busy && busy.detail === `sessions/2.json pid ${process.pid}` }, name };
+    },
+    check: (v) =>
+      expect((v as { ok: unknown }).ok).toEqual({
+        ok: { ok: true, size: 16, mtime: 'number' },
+        text: '{"a":1}\n{"b":2}\n',
+        changed: { ok: false, reason: 'changed' },
+        cut: { ok: false, reason: 'partialTail' },
+        dead: { ok: false, reason: 'partialTail' },
+        busy: { ok: false, reason: 'busy', detail: true },
+        name: { error: { message: 'importAppend needs a Claude Code session file named after its session id.', code: 'EINVAL' } },
+      }),
+  },
   // ----- Syncthing
   {
     name: 'syncthingFolders and syncthingStatus (the API key stays on the device)',

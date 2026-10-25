@@ -13,7 +13,8 @@ use tokio_tungstenite::tungstenite::{self, client::IntoClientRequest, protocol::
 
 /// 3 adds logTail (the daemon's recent log for the hub's logs export). 4 adds
 /// selfUpdate (the daemon replaces itself with the hub's version, update.rs).
-pub const PROTOCOL_VERSION: u64 = 4;
+/// 5 adds importAppend (Conclave's turns written into a Claude Code chat, import/writeback.rs).
+pub const PROTOCOL_VERSION: u64 = 5;
 pub const HEARTBEAT: Duration = Duration::from_millis(20_000);
 const MAX_BACKOFF_MS: f64 = 30_000.0;
 /// TCP, TLS and the upgrade together; then the next address is tried.

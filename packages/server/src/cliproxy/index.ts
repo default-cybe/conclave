@@ -50,6 +50,7 @@ import { prefixProblem } from '@conclave/core/accounts/prefix.ts';
 import { annotateWindow, mergeWindows } from '@conclave/core/accounts/windows.ts';
 import { mapClaudeOAuthUsage, mapClaudeProfile } from '@conclave/core/usage/readers/claude-oauth.ts';
 import { mapWhamUsage } from '@conclave/core/usage/readers/codex-usage.ts';
+import { antigravityProject, mapAntigravityQuota, mapAntigravityUsage } from '@conclave/core/usage/readers/antigravity.ts';
 import type { LimitWindow } from '@conclave/core/types.ts';
 import { markHubPrivate } from '@conclave/core/machine/private.ts';
 import { logger } from '@conclave/core/util/log.ts';
@@ -211,7 +212,7 @@ function daybreakOf(s: CredState | undefined): CyberProgram[] {
 }
 
 /** The plan's usage endpoint per credential type. */
-const USAGE_KIND: Record<string, 'claude-usage' | 'codex-usage'> = { claude: 'claude-usage', anthropic: 'claude-usage', codex: 'codex-usage' };
+const USAGE_KIND: Record<string, 'claude-usage' | 'codex-usage' | 'antigravity-usage'> = { claude: 'claude-usage', anthropic: 'claude-usage', codex: 'codex-usage', antigravity: 'antigravity-usage' };
 const DAY_MS = 86_400_000;
 const STATUS_WORDS: Record<string, string> = { error: 'Failing', refreshing: 'Refreshing its sign-in', pending: 'Waiting to sign in' };
 
@@ -1041,7 +1042,7 @@ export class CliproxyManager {
   }
 
   /**
-   * Read each Claude and ChatGPT account's plan usage through api-call (the
+   * Read each Claude, ChatGPT and Google (Antigravity) account's plan usage through api-call (the
    * allowlisted addresses only), when it is due: every 5 to 10 minutes per
    * account with jitter, longer after a 429 from the usage endpoint. `due`
    * (after a 429 on a call) and `force` (Refresh) read now; a backoff still holds.
@@ -1098,9 +1099,26 @@ export class CliproxyManager {
           continue;
         }
         const at = Date.now();
-        const windows = kind === 'claude-usage' ? mapClaudeOAuthUsage(r.json as Record<string, any>, at).windows : mapWhamUsage(r.json as Record<string, any>, at).windows;
+        // Antigravity credits are informational paid-spending balances, not subscription quota windows.
+        const mapped =
+          kind === 'claude-usage'
+            ? mapClaudeOAuthUsage(r.json as Record<string, any>, at)
+            : kind === 'antigravity-usage'
+              ? mapAntigravityUsage(r.json as Record<string, any>)
+              : mapWhamUsage(r.json as Record<string, any>, at);
+        const windows = [...mapped.windows];
+        if (kind === 'antigravity-usage') {
+          // the quota buckets; a failed read leaves the credits and plan as they are
+          const projectId = c.projectId ?? antigravityProject(r.json as Record<string, any>);
+          const answers = await Promise.all(
+            (['antigravity-quota-daily', 'antigravity-quota'] as const).map((q) =>
+              mgmt.usageCall(q, c.authIndex!, { projectId }).then((a) => (a.status >= 200 && a.status < 300 && a.json && typeof a.json === 'object' ? (a.json as Record<string, any>) : undefined), () => undefined),
+            ),
+          );
+          windows.push(...mapAntigravityQuota(answers));
+        }
         s.windows = windows.map((w) => annotateWindow(w, { source: 'oauth', observedAt: at }));
-        if (kind === 'codex-usage') s.plan = mapWhamUsage(r.json as Record<string, any>, at).plan ?? s.plan;
+        if (kind !== 'claude-usage') s.plan = (mapped as { plan?: string }).plan ?? s.plan;
         s.backoff = 0;
         s.usageError = undefined;
         s.usageNext = at + this.jitter();

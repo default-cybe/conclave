@@ -11,7 +11,7 @@ use std::path::Path;
 
 pub const READ_RANGE_MAX: u64 = 64 * 1024 * 1024;
 
-fn mtime_ms(m: &fs::Metadata) -> f64 {
+pub fn mtime_ms(m: &fs::Metadata) -> f64 {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
