@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- A model call that fails with a provider error (a 5xx, a 400, a network error or a timeout; not a sign-in error, a usage limit or a stop) in agent, chat or plan mode now retries once on the next model of the usage or refusal fallback list, for that turn only, with a visible "X failed, retrying on Y" notice. If that retry also fails, the "Retry with another model" button shows as before.
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed

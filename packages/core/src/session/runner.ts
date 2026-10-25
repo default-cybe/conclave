@@ -31,7 +31,7 @@ import { checkPermission, dangerousCommand } from './permissions';
 import { ReadTool } from '../tools/read';
 import { maybeCompact, estimateRequestTokens, meteredTokens, partHash, type TokenMeter } from './compaction';
 import { applyClearing } from './context-edit';
-import { afterWokenTurn, handleLimit, nextAccount, switchBack } from './limits';
+import { afterWokenTurn, handleLimit, limitFallback, nextAccount, switchBack } from './limits';
 import { OWNER_ID, isMember, runAs } from '../people/context';
 import { deviceFolder, runHarnessTurn } from './harness';
 import { LoopGuard, type Verdict } from './loop-guard';
@@ -272,6 +272,10 @@ export class SessionRunner {
   readonly id: string;
   private queue: Queued[] = [];
   private inferenceError?: ProviderError;
+  /** The model the failed inference ran on (a limit fallback may differ from the session's). */
+  private inferenceModel?: string;
+  /** Models that hit a usage limit earlier in the failed turn: the automatic retry skips them. */
+  private inferenceLimited: string[] = [];
   private retryNotice?: string;
   private steering: Steer[] = [];
   /** The waiting message whose turn is starting: listed until its user message is in the transcript, so apps never lose it. */
@@ -669,6 +673,7 @@ export class SessionRunner {
     try {
       for (let i = this.nextIndex(); i >= 0; i = this.nextIndex()) {
         const [next] = this.queue.splice(i, 1);
+        let retry: Queued | undefined;
         // a waiting message stays listed while its turn starts (hooks, recall), until its user message is stored
         if (next.pending) this.starting = next;
         this.current = next;
@@ -684,7 +689,7 @@ export class SessionRunner {
             this.engine.setStatus(this.id, 'running');
             // a resumed jury or debate turn goes on as the agent loop it was cut in
             const mode = this.session.mode === 'jury' || this.session.mode === 'debate' ? 'agent' : this.session.mode;
-            await this.agentLoop(this.session.model, mode, signal);
+            await this.agentLoop(next.input.model ?? this.session.model, mode, signal);
             if (this.session.status === 'running') this.engine.setStatus(this.id, 'idle');
             this.engine.afterTurn(this.id, Date.now() - this.turnStartedAt);
           });
@@ -698,11 +703,20 @@ export class SessionRunner {
             log.error(`turn failed in ${this.id}`, err);
             const msg = turnErrorText(this.engine, err);
             const canRetry = err === this.inferenceError && !this.inferenceError?.code && ['agent', 'chat', 'plan'].includes(this.session.mode);
-            const unsafe = err === this.inferenceError && !canRetry ? ' Alternate-model retry is unavailable for this session mode because its orchestration cannot safely resume at the failed inference.' : '';
-            const notice = this.engine.notice(this.id, `Error: ${msg}${unsafe}`, 'error', undefined, canRetry ? { type: 'provider_error', canRetry: true } : undefined);
-            if (canRetry) this.retryNotice = notice?.id;
-            this.engine.setStatus(this.id, 'error', msg);
-            this.engine.notifyEvent('errors', { title: 'Session error', body: oneLine(msg, 160), level: 'error', sessionId: this.id, link: `/s/${this.id}` });
+            // one automatic retry on the next fallback model for this turn only; a failed retry gets the button below
+            // a model the owner hid or turned off fails on purpose: it says so and never moves on its own
+            const from = canRetry && !next.inference && this.inferenceModel && !this.engine.harnessOff(this.inferenceModel) ? this.inferenceModel : undefined;
+            const to = from ? limitFallback(this.engine, this.session.accountId, from, [from, ...this.inferenceLimited], this.engine.agentFor(this.session)) : undefined;
+            if (from && to) {
+              this.engine.notice(this.id, `${this.engine.displayModel(from)} failed (${oneLine(msg, 160)}). Retrying on ${this.engine.displayModel(to)}.`, 'warning', undefined, { type: 'provider_retry', from, to });
+              retry = { input: { text: '', model: to }, auto: true, inference: true };
+            } else {
+              const unsafe = err === this.inferenceError && !canRetry ? ' Alternate-model retry is unavailable for this session mode because its orchestration cannot safely resume at the failed inference.' : '';
+              const notice = this.engine.notice(this.id, `Error: ${msg}${unsafe}`, 'error', undefined, canRetry ? { type: 'provider_error', canRetry: true } : undefined);
+              if (canRetry) this.retryNotice = notice?.id;
+              this.engine.setStatus(this.id, 'error', msg);
+              this.engine.notifyEvent('errors', { title: 'Session error', body: oneLine(msg, 160), level: 'error', sessionId: this.id, link: `/s/${this.id}` });
+            }
           }
           // it failed or stopped before its message was stored: the message waits again at the front, held so a failure does not repeat on its own
           if (this.starting) {
@@ -730,6 +744,8 @@ export class SessionRunner {
           this.queue.unshift(...late);
           this.emitQueue();
         }
+        // the retry answers the failed turn before any late steering gets its own turn
+        if (retry) this.queue.unshift(retry);
       }
     } finally {
       this.running = false;
@@ -1258,7 +1274,11 @@ export class SessionRunner {
             return end('rate_limit', false);
           }
         }
-        if (err instanceof ProviderError && err.kind !== 'auth' && err.kind !== 'aborted' && !err.code && mode === this.session.mode) this.inferenceError = err;
+        if (err instanceof ProviderError && err.kind !== 'auth' && err.kind !== 'aborted' && !err.code && mode === this.session.mode) {
+          this.inferenceError = err;
+          this.inferenceModel = currentModel;
+          this.inferenceLimited = [...limited];
+        }
         throw err;
       }
 
