@@ -9,9 +9,17 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Save drafts without asking: a per-account setting (off by default, Settings > Calendar and mail) that makes the Assistant's `MailDraft` save the draft straight into Drafts with no approval card. It never sends; sending still needs approval, and the email-reading agent still cannot draft.
+
 ### Changed
 
 - One notification per job. A workflow run, or a parent session and its subagents, now share one thread, through nested subagents and for failures too: each new notice replaces the last on your phone, the Android app and desktop (and alerts again) instead of adding to a pile.
+
+### Fixed
+
+- Discard or Clean up of a worktree no longer fails with "Directory not empty" when git removed the folder but a background git maintenance still held its `.git/worktrees` entry: the hub prunes the entry and finishes, branch included.
 
 ## [0.4.30] - 2026-10-25
 

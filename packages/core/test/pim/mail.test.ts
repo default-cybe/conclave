@@ -11,6 +11,7 @@ import { makePim } from './helpers';
 import { composeMessage, parseMessage } from '../../src/mail/mime';
 import { ImapClient, parseValues } from '../../src/mail/imap';
 import { MailDraftTool } from '../../src/tools/mail';
+import { builtinTools, filterTools, UNTRUSTED_DENY } from '../../src/tools';
 import { sendMail } from '../../src/mail/smtp';
 
 let imap: FakeImap | undefined;
@@ -195,6 +196,95 @@ describe('drafts and sending', () => {
     expect(p.mail!.subject).toContain('</system-reminder>');
     expect((await pim.approve(p.id)).status).toBe('applied');
     expect(told[0].text).not.toContain('</system-reminder>');
+  });
+
+  describe('Save drafts without asking', () => {
+    const ctxOf = (pim: unknown) => ({ host: { pim }, sessionId: 'ses_mail' }) as unknown as Parameters<typeof MailDraftTool.run>[1];
+
+    test('on: the draft is saved at once, never sent, no card, no notice, no session note', async () => {
+      const { pim, acc, told, notices } = await setup();
+      pim.updateAccount(acc.id, { autoDraft: true });
+      const out = await MailDraftTool.run({ to: ['ana@example.com'], subject: 'Hi', body: 'Hello.' }, ctxOf(pim));
+      expect(out.isError).toBeUndefined();
+      expect(out.content).toBe('Saved in the Drafts folder as a draft from owner@example.com to ana@example.com, subject "Hi". It was not sent.');
+      expect(out.content).not.toContain('Nothing happens until');
+      expect(imap!.boxes.get('Drafts')!.messages).toHaveLength(1);
+      expect(pim.proposals({ status: 'pending' })).toEqual([]);
+      expect(pim.proposals({ status: 'all' })[0]).toMatchObject({ status: 'applied', action: 'draft' });
+      expect(notices).toEqual([]);
+      expect(told).toEqual([]);
+    });
+
+    test('off (default): unchanged, a pending card and a notice', async () => {
+      const { pim, notices } = await setup();
+      const out = await MailDraftTool.run({ to: ['ana@example.com'], subject: 'Hi', body: 'Hello.' }, ctxOf(pim));
+      expect(out.content).toContain('Nothing happens until the owner approves');
+      expect(imap!.boxes.get('Drafts')!.messages).toEqual([]);
+      expect(pim.proposals({ status: 'pending' })).toHaveLength(1);
+      expect(notices).toHaveLength(1);
+    });
+
+    test('send: true stays a card that needs approval, nothing is sent', async () => {
+      const { pim, acc, notices } = await setup({ send: true });
+      pim.updateAccount(acc.id, { autoDraft: true });
+      const p = await pim.proposeMail({ to: 'ana@example.com', subject: 'Plan', body: 'x', send: true }, 'ses_mail');
+      expect(p).toMatchObject({ action: 'send', status: 'pending' });
+      expect(smtp!.sent).toEqual([]);
+      expect(imap!.boxes.get('Drafts')!.messages).toEqual([]);
+      expect(notices).toHaveLength(1);
+    });
+
+    test('drafts off: refused even with the setting on', async () => {
+      const { pim, acc } = await setup();
+      pim.updateAccount(acc.id, { autoDraft: true });
+      const store = (pim as unknown as { store: { saveAccount(a: unknown): void } }).store;
+      store.saveAccount({ ...pim.account(acc.id), kind: 'google', drafts: false });
+      await expect(pim.proposeMail({ to: 'ana@example.com', subject: 'Hi', body: 'x' })).rejects.toThrow(/may not save drafts/);
+      expect(pim.proposals()).toEqual([]);
+      expect(() => pim.updateAccount(acc.id, { autoDraft: true })).toThrow(/Turn drafts on first/);
+    });
+
+    test('IMAP with drafts off never auto-saves; turning drafts off clears the setting; the setting needs drafts', async () => {
+      const { pim, acc } = await setup();
+      pim.updateAccount(acc.id, { autoDraft: true });
+      expect(pim.updateAccount(acc.id, { drafts: false }).autoDraft).toBeUndefined();
+      expect(() => pim.updateAccount(acc.id, { autoDraft: true })).toThrow(/Turn drafts on first/);
+      // a stored row with both (an older state) still gets a card, not a save
+      const store = (pim as unknown as { store: { saveAccount(a: unknown): void } }).store;
+      store.saveAccount({ ...pim.account(acc.id), drafts: false, autoDraft: true });
+      const p = await pim.proposeMail({ to: 'ana@example.com', subject: 'Hi', body: 'x' });
+      expect(p.status).toBe('pending');
+      expect(imap!.boxes.get('Drafts')!.messages).toEqual([]);
+    });
+
+    test('plan mode writes nothing: the draft stays a card', async () => {
+      const { pim, acc, notices } = await setup();
+      pim.updateAccount(acc.id, { autoDraft: true });
+      const ctx = { host: { pim }, sessionId: 'ses_mail', session: { permissionMode: 'plan' } } as unknown as Parameters<typeof MailDraftTool.run>[1];
+      const out = await MailDraftTool.run({ to: ['ana@example.com'], subject: 'Hi', body: 'Hello.' }, ctx);
+      expect(out.content).toContain('Nothing happens until the owner approves');
+      expect(imap!.boxes.get('Drafts')!.messages).toEqual([]);
+      expect(pim.proposals({ status: 'pending' })).toHaveLength(1);
+      expect(notices).toHaveLength(1);
+    });
+
+    test('a failing save returns the failure and the proposal is failed', async () => {
+      const { pim, acc, told } = await setup();
+      pim.updateAccount(acc.id, { autoDraft: true });
+      imap!.stop();
+      const out = await MailDraftTool.run({ to: ['ana@example.com'], subject: 'Hi', body: 'Hello.' }, ctxOf(pim));
+      expect(out.isError).toBe(true);
+      expect(out.content).toContain('was not saved');
+      expect(out.content).toContain('It was not sent.');
+      expect(pim.proposals({ status: 'all' })[0]).toMatchObject({ status: 'failed' });
+      expect(pim.proposals({ status: 'pending' })).toEqual([]);
+      expect(told).toEqual([]);
+    });
+
+    test('MailDraft stays out of untrusted sessions', () => {
+      expect(UNTRUSTED_DENY).toContain('MailDraft');
+      expect(filterTools(builtinTools(), { untrusted: true, allow: ['MailDraft'] }).map((x) => x.name)).not.toContain('MailDraft');
+    });
   });
 
   test('a refused SMTP password (AUTH LOGIN) never shows up in the error, even base64-encoded', async () => {
