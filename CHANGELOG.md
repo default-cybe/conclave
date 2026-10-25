@@ -9,6 +9,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Changed
+
+- The web conversation opens a long chat with its latest rows only, as a session's transcript already does: older rows mount a chunk at a time as you scroll up and in idle time, rows off screen are skipped from layout, a #message link mounts its row and a few around it, the streaming tail stays mounted, and the scroll position holds while older rows mount. Short chats render as before.
+
 ### Added
 
 - Save drafts without asking: a per-account setting (off by default, Settings > Calendar and mail) that makes the Assistant's `MailDraft` save the draft straight into Drafts with no approval card. It never sends; sending still needs approval, and the email-reading agent still cannot draft.
