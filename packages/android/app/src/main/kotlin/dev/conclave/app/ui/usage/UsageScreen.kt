@@ -70,6 +70,7 @@ import dev.conclave.app.ui.theme.ConclaveType
 import dev.conclave.client.ConclaveApiException
 import dev.conclave.client.logic.ApiValue
 import dev.conclave.client.logic.Format
+import dev.conclave.client.logic.Home
 import dev.conclave.client.logic.StarterWords
 import dev.conclave.client.model.LimitState
 import dev.conclave.client.model.LimitWindow
@@ -488,7 +489,14 @@ private fun sourceName(source: String): String = when (source) {
 private fun Gauge(window: LimitWindow, modifier: Modifier = Modifier) {
     val now by rememberNow()
     val c = Conclave.colors
-    val used = window.usedPercent ?: window.limit?.takeIf { it > 0 }?.let { lim -> window.remaining?.let { 100.0 * (lim - it) / lim } }
+    val used = Home.percent(window, blocked = false)
+    if (used == null && window.remaining != null && window.limit == null) {
+        Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("${window.remaining} balance", style = ConclaveType.metaNum, color = c.fg)
+            Text(window.name, style = MaterialTheme.typography.labelMedium)
+        }
+        return
+    }
     // Neutral below 70%, amber from 70%, red from 90% (spec 10.9).
     val color = when {
         used == null -> c.edge
@@ -510,7 +518,7 @@ private fun Gauge(window: LimitWindow, modifier: Modifier = Modifier) {
                     drawArc(color, startAngle = 150f, sweepAngle = sweep, useCenter = false, topLeft = topLeft, size = arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
                 }
             }
-            Text(used?.let { "${it.toInt()}%" } ?: "n/a", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(used?.let { "$it%" } ?: "n/a", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
         Text(window.name, style = MaterialTheme.typography.labelMedium)
         window.resetsAt?.let { at ->

@@ -7,6 +7,7 @@ import { readClaudeCodeUsage, currentBlock, claudeCodeLimit, BLOCK_MS } from '..
 import { codexLimit, readCodexUsage, toSnapshot, windowName } from '../../src/usage/readers/codex-logs';
 import { mapClaudeOAuthUsage } from '../../src/usage/readers/claude-oauth';
 import { mapZaiQuota, zaiQuotaUrl } from '../../src/usage/readers/zai';
+import { mapAntigravityUsage } from '../../src/usage/readers/antigravity';
 import { scanKey } from '../../src/usage/readers/common';
 import { TestMachine } from '../acp/test-machine';
 import { PATHS, fixtureHome } from '../importers/fixture-home';
@@ -302,6 +303,23 @@ describe('API limit mappers', () => {
     expect(names([week, day])).toEqual([['7d', 60000], ['5h', 12000]]);
     // a reset within 6 hours is the 5 hour window, whatever its size
     expect(names([{ ...week, usage: 5000 }, { ...day, nextResetTime: now + 3_600_000 }])).toEqual([['7d', 5000], ['5h', 12000]]);
+  });
+
+  test('Antigravity loadCodeAssist: the credits balance and the tier, not 5h or weekly windows', () => {
+    const l = mapAntigravityUsage({
+      currentTier: { id: 'GOOGLE_ONE_AI_PREMIUM' },
+      paidTier: { id: 'GOOGLE_ONE_AI_PREMIUM', availableCredits: [{ creditType: 'GOOGLE_ONE_AI', creditAmount: '96.5', minimumCreditAmountForUsage: '5' }] },
+    });
+    expect(l).toEqual({ plan: 'AI Pro', windows: [{ name: 'credits', kind: 'extra', remaining: 96.5 }] });
+    // Below the paid-spending minimum, the raw balance remains informational.
+    expect(mapAntigravityUsage({ paidTier: { id: 'google_one_ai_premium', availableCredits: [{ creditType: 'GOOGLE_ONE_AI', creditAmount: 1, minimumCreditAmountForUsage: 5 }] } })).toEqual({
+      plan: 'AI Pro',
+      windows: [{ name: 'credits', kind: 'extra', remaining: 1 }],
+    });
+    // A tier without a credits list supplies the plan only; the balance stays unknown.
+    expect(mapAntigravityUsage({ currentTier: { id: 'INDIVIDUAL_STANDARD_NOCC' } })).toEqual({ plan: 'Standard', windows: [] });
+    expect(mapAntigravityUsage({ paidTier: { id: 'SOME_NEW_TIER' } })).toEqual({ plan: 'some new tier', windows: [] });
+    expect(mapAntigravityUsage(undefined)).toEqual({ windows: [] });
   });
 
   test('zaiQuotaUrl follows the configured host', () => {

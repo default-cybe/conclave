@@ -1,5 +1,5 @@
 import type { ProviderMessage, SystemBlock, ToolSpec } from '../providers/types';
-import type { Message, TextBlock, ToolResultBlock } from '../types';
+import type { Message, Session, TextBlock, ToolResultBlock } from '../types';
 import type { Engine } from '../engine/engine';
 import { activeMessages, isReminder, lastAssistantText } from './transcript';
 import { COMPACT_PROMPT, COMPACT_UPDATE_RULES, SUMMARY_HEADINGS } from './prompt';
@@ -364,6 +364,40 @@ function latchedUntil(meta: Record<string, unknown> | undefined): number {
   return typeof c?.latchedUntil === 'number' ? c.latchedUntil : 0;
 }
 
+function isLatched(meta: Record<string, unknown> | undefined, now: number, modelRef: string): boolean {
+  const c = meta?.compaction as { latchedUntil?: unknown; model?: unknown } | undefined;
+  if (typeof c?.latchedUntil !== 'number' || c.latchedUntil <= now) return false;
+  return !c.model || c.model === modelRef;
+}
+
+async function summaryCandidates(engine: Engine, modelRef: string, session: Session): Promise<string[]> {
+  const cfg = engine.config.get();
+  const accountId = session.accountId;
+  const out: string[] = [];
+  const add = (m?: string) => {
+    if (!m || out.includes(m) || !engine.isUsable(m, accountId)) return;
+    try {
+      if (engine.providersFor(accountId).resolve(m).acp) return;
+    } catch {
+      return;
+    }
+    out.push(m);
+  };
+  add(cfg.smallModel);
+  add(modelRef);
+  // limits imports regionTokens from this module; load its policy after module initialization.
+  const { limitFallback } = await import('./limits');
+  const tried = [...out];
+  const agent = engine.agentFor(session);
+  for (;;) {
+    const next = limitFallback(engine, accountId, modelRef, tried, agent);
+    if (!next || tried.includes(next)) break;
+    tried.push(next);
+    add(next);
+  }
+  return out;
+}
+
 /**
  * Summarize the conversation and replace it with a summary message. Everything
  * before the summary is skipped when building later requests (the rows stay).
@@ -450,11 +484,11 @@ async function compact(engine: Engine, sessionId: string, modelRef: string, sign
   const files = filesTouched(region, Array.isArray(prevMeta?.files) ? prevMeta.files : [], roots);
   const sections = [deterministicSections(quoted, omitted, files, roots[0]), anchorSection(anchorIndex(region))].filter(Boolean).join('\n\n');
 
-  const cfg = engine.config.get();
-  const summaryModel = engine.isUsable(cfg.smallModel) ? cfg.smallModel : modelRef;
+  const candidates = await summaryCandidates(engine, modelRef, session);
+  let usedModel: string | undefined;
   const now = Date.now();
-  const latched = trigger === 'auto' && latchedUntil(session.meta) > now;
-  engine.audit(sessionId, 'compaction:start', `${trigger} seq ${firstSeq}..${coversThroughSeq}, ${toSummarize.length} messages, ~${beforeTokens} tokens${latched ? ', latched (no model)' : `, model ${summaryModel}`}`);
+  const latched = trigger === 'auto' && isLatched(session.meta, now, modelRef);
+  engine.audit(sessionId, 'compaction:start', `${trigger} seq ${firstSeq}..${coversThroughSeq}, ${toSummarize.length} messages, ~${beforeTokens} tokens${latched ? ', latched (no model)' : `, model ${candidates[0] ?? 'none'}`}`);
 
   let summary: string | undefined;
   let failure: string | undefined;
@@ -472,34 +506,50 @@ async function compact(engine: Engine, sessionId: string, modelRef: string, sign
       `Conversation to summarize:\n\n${summarizerInput(region)}`,
       anchor ? `<recent-state-anchor>\n${truncateMiddle(anchor, 4_000, 'omitted').text}\n</recent-state-anchor>\nThis is the latest state of the work; it stays in context after the summary. Make the Next step agree with it.` : '',
     ].filter(Boolean).join('\n\n');
-    const ask = async (problems?: string[]): Promise<string> => {
+    let candidateIdx = 0;
+    const ask = async (problems?: string[]): Promise<{ text: string; model: string }> => {
       const retry = problems?.length ? `\n\nYour last summary missed: ${problems.join('; ')}. Write the whole summary again with every heading and these identifiers.` : '';
-      const res = await streamCompletion(
-        engine,
-        summaryModel,
-        {
-          system: [{ text: COMPACT_PROMPT + (extra ? `\n\nAlso keep these details:\n${extra}` : '') }],
-          messages: [{ role: 'user', content: [{ type: 'text', text: request + retry }] }],
-          maxTokens: 4000,
-          signal: AbortSignal.any([signal, AbortSignal.timeout(COMPACTION_TIMEOUT_MS)]),
-        },
-        { sessionId, purpose: 'compaction' },
-      );
-      return res.content.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('').trim();
+      let lastErr: unknown = new Error('no usable summary model');
+      for (let i = candidateIdx; i < candidates.length; i++) {
+        const candidate = candidates[i];
+        try {
+          const res = await streamCompletion(
+            engine,
+            candidate,
+            {
+              system: [{ text: COMPACT_PROMPT + (extra ? `\n\nAlso keep these details:\n${extra}` : '') }],
+              messages: [{ role: 'user', content: [{ type: 'text', text: request + retry }] }],
+              maxTokens: 4000,
+              signal: AbortSignal.any([signal, AbortSignal.timeout(COMPACTION_TIMEOUT_MS)]),
+            },
+            { sessionId, purpose: 'compaction' },
+          );
+          candidateIdx = i;
+          return { text: res.content.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('').trim(), model: candidate };
+        } catch (err) {
+          if (signal.aborted) throw err;
+          lastErr = err;
+          log.warn(`compaction summary model ${candidate} failed in ${sessionId}: ${(err as Error)?.message ?? String(err)}`);
+        }
+      }
+      throw lastErr;
     };
     const tooBig = (text: string) => estimateTokens(text) >= beforeTokens;
     try {
-      summary = await ask();
+      const first = await ask();
+      summary = first.text;
+      usedModel = first.model;
       if (!summary) failure = 'the summary model returned nothing';
       else if (tooBig(summary)) failure = `the summary (~${estimateTokens(summary)} tokens) was not smaller than what it replaces (~${beforeTokens} tokens)`;
       else {
         // the audit: one retry that lists what is missing, then the better of the two is kept
         audited = auditSummary(summary, region);
         if (audited.length) {
-          const again = await ask(audited).catch(() => '');
-          const problems = again && !tooBig(again) ? auditSummary(again, region) : undefined;
-          if (problems && problems.length < audited.length) {
-            summary = again;
+          const again = await ask(audited).catch(() => undefined);
+          const problems = again?.text && !tooBig(again.text) ? auditSummary(again.text, region) : undefined;
+          if (again && problems && problems.length < audited.length) {
+            summary = again.text;
+            usedModel = again.model;
             audited = problems;
           }
         }
@@ -511,7 +561,7 @@ async function compact(engine: Engine, sessionId: string, modelRef: string, sign
     }
     if (failure) {
       // latch: the next auto compactions skip the model for a while
-      engine.patchMeta(sessionId, { compaction: { latchedUntil: now + COMPACTION_LATCH_MS, reason: failure } });
+      engine.patchMeta(sessionId, { compaction: { latchedUntil: now + COMPACTION_LATCH_MS, reason: failure, model: modelRef } });
     } else if (latchedUntil(session.meta)) {
       engine.patchMeta(sessionId, { compaction: undefined });
     }
@@ -545,7 +595,7 @@ async function compact(engine: Engine, sessionId: string, modelRef: string, sign
     role: 'user',
     kind: 'summary',
     content: [{ type: 'text', text: body }],
-    model: degraded ? undefined : summaryModel,
+    model: degraded ? undefined : usedModel,
     meta: { ...opts.meta, ...(meta as unknown as Record<string, unknown>) },
   });
   const afterTokens = estimateTokens(body);

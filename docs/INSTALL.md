@@ -947,8 +947,11 @@ carries the daemon. Download the file for your system from the latest GitHub
 release:
 
 - **Mac with Apple silicon**: `Conclave_<version>_aarch64.dmg`. **Intel Mac**:
-  `Conclave_<version>_x64.dmg`. Drag Conclave to Applications. The app is not
-  notarized, so clear the download flag once:
+  `Conclave_<version>_x64.dmg`. Drag Conclave to Applications. The app is
+  signed ad hoc but not notarized, so the first open is blocked: open
+  **System Settings > Privacy & Security**, scroll to Security and choose
+  **Open Anyway** for Conclave, once. If an older build says it is damaged,
+  clear the download flag instead:
   `xattr -dr com.apple.quarantine /Applications/Conclave.app`
 - **Windows**: `Conclave_<version>_x64-setup.exe`. If SmartScreen warns,
   choose **More info**, then **Run anyway**.

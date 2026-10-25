@@ -20,7 +20,7 @@ import type { ProviderMessage, SystemBlock, ToolSpec } from '../providers/types'
 import { ProviderError } from '../providers/types';
 import type { Engine } from '../engine/engine';
 import { activeMessages, buildProviderMessages, lastAssistantText, reminder, isReminder } from './transcript';
-import { buildSystemPrompt, subagentCatalog, type PromptParts } from './prompt';
+import { buildSystemPrompt, subagentCatalog, TOOL_NOTE_TOOLS, type PromptParts } from './prompt';
 import { delegateCatalog } from '../engine/delegate';
 import { flattenLastToolTurn, isTranscriptShapeError } from './pairing';
 import { streamCompletion, type Served } from './stream';
@@ -309,6 +309,8 @@ export class SessionRunner {
   noteDelayMs = 2_000;
   /** Why the last agentLoop call ended. */
   lastStop?: LoopStop;
+  /** Set by stall(): the alert service cut a quiet subagent loop, with the tool that was running if any; driveSubagent (engine/subagent.ts) reads it. */
+  stalled?: { tool?: string };
   /** The checkpoint of the current turn (agent and loop mode), for the regression gate. */
   turnCheckpoint?: TurnCheckpoint;
   /** The system prompt, kept byte for byte between steps (systemFor). */
@@ -563,6 +565,20 @@ export class SessionRunner {
     for (const loop of this.activeLoops) loop.abort();
     this.engine.cancelPendingFor(this.id);
     if (changed && why === 'stop') this.emitQueue();
+  }
+
+  /**
+   * A subagent's loop made no progress past the stuck threshold
+   * (alerts/service.ts): end it so its caller fails over or reports to the
+   * parent. Queue and notes stay as they are. False when no caller-driven
+   * loop runs here (a turn the owner started), or the last cut did not end
+   * the loop (a tool that ignores its signal): the owner has to look then.
+   */
+  stall(tool?: string): boolean {
+    if (this.running || !this.activeLoops.size || this.stalled) return false;
+    this.stalled = tool ? { tool } : {};
+    for (const loop of this.activeLoops) loop.abort();
+    return true;
   }
 
   /** True while a turn or an agent loop runs for this session. */
@@ -1228,7 +1244,7 @@ export class SessionRunner {
           }
           engine.notice(this.id, refusalWords.failed(failed.label, why), 'warning', undefined, { type: 'refusal', outcome: 'failed', to: failed.label });
           // an entry at its limit: the same model on the owner's next ready plan first, then the next entry
-          const other = err instanceof ProviderError && (err.kind === 'rate_limit' || err.kind === 'quota') && failed.pin && !failed.accessPrograms ? nextAccount(engine, this.id, failed.ref) : undefined;
+          const other = err instanceof ProviderError && (err.kind === 'rate_limit' || err.kind === 'quota') && failed.pin && !failed.accessPrograms ? nextAccount(engine, this.id, failed.ref, { exact: true }) : undefined;
           if (other) {
             const gw = failed.pin!.provider;
             const t: FallbackTarget = { ...failed, ref: other.ref, label: other.to, pin: { provider: gw, model: other.ref.slice(gw.length + 1), account: other.account } };
@@ -1539,7 +1555,8 @@ export class SessionRunner {
    * The system prompt for a step. It is built once and then sent byte for
    * byte, so the cached prefix holds (HARNESS-REVIEW item 12). It is built
    * again after a compaction or /clear; when what it is built from changes
-   * (agent, model, mode, folder, device, the Skill tool, Ultra); when a
+   * (agent, model, mode, folder, device, the Skill tool, the tools the
+   * tool-use section names, Ultra); when a
    * memory it shows was removed or edited; and when the instruction files,
    * skills or the platform card's live state (tools, MCP servers, devices,
    * browser, accounts), read again once per user turn, say something else. New memories
@@ -1547,7 +1564,7 @@ export class SessionRunner {
    */
   private async systemFor(session: Session, agent: AgentDef, modelRef: string, mode: SessionMode, toolNames: string[]): Promise<SystemBlock[]> {
     const engine = this.engine;
-    const key = JSON.stringify([agent.name, agent.prompt, modelRef, mode, session.cwd, session.device, session.kind ?? '', !!session.ultra, !!session.meta?.workflow, toolNames.includes('Skill')]);
+    const key = JSON.stringify([agent.name, agent.prompt, modelRef, mode, session.cwd, session.device, session.kind ?? '', !!session.ultra, !!session.meta?.workflow, toolNames.includes('Skill'), TOOL_NOTE_TOOLS.filter((t) => toolNames.includes(t))]);
     const snap = this.prompt;
     let fresh: PromptParts | undefined;
     if (snap && !this.promptStale && snap.key === key && profileHolds(snap.parts.profile, engine.profileFor(session, agent))) {
