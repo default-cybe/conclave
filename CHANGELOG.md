@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+- A turn the loop guard stops now ends with a report: after the "Loop guard stopped the turn" notice, the model gets one call with tools disabled and is asked what it did, what it found and what is left. Subagents stopped this way used to return "(the subagent produced no final answer)".
+- The step-limit wrap-up call asks for the same final report (what was done, found and left).
+
 ## [0.4.28] - 2026-10-25
 
 ### Fixed

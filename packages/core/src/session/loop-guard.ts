@@ -43,8 +43,8 @@ export const COMPACTION_WINDOW = 3;
 
 /** A successful call of these tools is progress: failure streaks start over. */
 const PROGRESS_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
-/** Pollers: repeating them with the same result is how they work. */
-const POLLERS = new Set(['BashOutput']);
+/** Pollers: repeating them with the same result is how they work (a parent waits on a child for minutes). */
+const POLLERS = new Set(['BashOutput', 'TaskWait', 'TaskList', 'WorkflowStatus']);
 
 interface Entry {
   tool: string;
@@ -52,6 +52,7 @@ interface Entry {
   res: string;
   error: boolean;
   denied: boolean;
+  poll: boolean;
 }
 
 function stable(v: unknown): unknown {
@@ -75,11 +76,17 @@ export function callSignature(tool: string, input: unknown): string {
 
 /** Hash of a result's text. Stored-output ids differ on every call, so they are masked first. */
 export function resultHash(result: Pick<ToolResultBlock, 'content' | 'isError'>): string {
-  const text =
-    typeof result.content === 'string'
-      ? result.content
-      : result.content.map((b) => (b.type === 'text' ? b.text : `[${b.type}]`)).join('\n');
+  const text = resultText(result);
   return sha(`${result.isError ? 'E' : 'O'}:${text.replace(/\bout_[0-9a-z]{12,}\b/g, 'out_*')}`);
+}
+
+function resultText(result: Pick<ToolResultBlock, 'content'>): string {
+  return typeof result.content === 'string' ? result.content : result.content.map((b) => (b.type === 'text' ? b.text : `[${b.type}]`)).join('\n');
+}
+
+/** A poller, or TaskResult on a task that is not done yet (tools/background-tasks.ts). */
+function isPoll(tool: string, result: Pick<ToolResultBlock, 'content' | 'isError'>): boolean {
+  return POLLERS.has(tool) || (tool === 'TaskResult' && !result.isError && / is still running\./.test(resultText(result)));
 }
 
 const SEVERITY = { ok: 0, warn: 1, halt: 2 } as const;
@@ -131,6 +138,7 @@ export class LoopGuard {
       res: resultHash(result),
       error: !!result.isError,
       denied: !!result.meta?.denied,
+      poll: isPoll(tool, result),
     };
     const prevSame = [...this.history].reverse().find((e) => e.sig === entry.sig);
     this.history.push(entry);
@@ -164,8 +172,8 @@ export class LoopGuard {
     }
 
     // repeats and cycles, over the calls that are not pollers
-    if (!POLLERS.has(tool)) {
-      const seq = this.history.filter((e) => !POLLERS.has(e.tool));
+    if (!entry.poll) {
+      const seq = this.history.filter((e) => !e.poll);
       let run = 0;
       for (let i = seq.length - 1; i >= 0 && seq[i].sig === entry.sig && seq[i].res === entry.res; i--) run++;
       if (run >= REPEAT_HALT) {
