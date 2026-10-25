@@ -211,6 +211,24 @@ lxc.idmap: u 1001 101001 64535
 lxc.idmap: g 1001 101001 64535
 ```
 
+**A big drive for Move to hub.** Move to hub copies a session's whole folder
+(node_modules and build output too) to `projects.hubRoot` on the hub, by
+default `/srv/conclave-projects` when that folder is there and writable. Give
+it a folder of a big drive instead of the CT's root disk. On the Proxmox host,
+for CT 135 and a drive at `/mnt/external2`:
+
+```sh
+mkdir -p /mnt/external2/conclave-projects
+chown 101000:101000 /mnt/external2/conclave-projects   # uid 1000 in the unprivileged CT
+pct set 135 -mp0 /mnt/external2/conclave-projects,mp=/srv/conclave-projects
+pct reboot 135
+```
+
+Use the next free `mpN` if `mp0` is taken (`pct config 135`). With the uid
+1000 mapping above, chown to `1000:1000` instead. Check it in the CT with
+`df -h /srv/conclave-projects`; Devices, the hub, Projects drive shows the
+folder in use and takes another path.
+
 **Release or source.** `setup.sh` installs the newest GitHub release for the
 CT's CPU when there is one, with `scripts/install.sh`. Until the first
 release, or with `--from git`, it clones `main` from GitHub, runs

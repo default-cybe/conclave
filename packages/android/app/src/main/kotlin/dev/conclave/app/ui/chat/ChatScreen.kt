@@ -502,6 +502,7 @@ fun ChatScreen(
                 if (live.todos.isNotEmpty()) add(SheetAction("Todo list, $done of ${live.todos.size} done", onClick = then { showTodos = true }))
                 add(SheetAction("Workflow runs", onClick = then { onOpenWorkflowRuns(sessionId) }))
                 add(SheetAction("Compact context", onClick = then { vm.compact() }))
+                if (!s.isChat) add(SheetAction("Move to hub (copy folder)", onClick = then { vm.moveToHub() }))
             },
         )
     }
