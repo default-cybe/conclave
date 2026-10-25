@@ -115,11 +115,10 @@ describe('what groups', () => {
   test('workflows, subagents, cards and questions keep a row of their own and split the work around them', () => {
     for (const name of ['Workflow', 'Task', 'AskUserQuestion', 'PlaceSearch', 'Directions', 'MapImage', 'WatchReport']) expect(standsAlone(name)).toBe(true);
     for (const name of ['Bash', 'Read', 'Grep', 'Glob', 'Edit', 'Write', 'WebFetch', 'mcp__github__create_issue']) expect(standsAlone(name)).toBe(false);
-    // a subagent is one row of its own, as the Claude app shows it: never "ran 2 subagents" in a fold
+    // subagents side by side are one fan-out card: never "ran 2 subagents" in a fold
     expect(segment([call('Read', 'r'), call('Task', 't1'), call('Task', 't2'), th('x'), call('Bash', 'b')])).toEqual([
       { kind: 'one', item: 'r' },
-      { kind: 'one', item: 't1' },
-      { kind: 'one', item: 't2' },
+      { kind: 'fanout', key: undefined, items: ['t1', 't2'] },
       { kind: 'group', entries: [th('x'), call('Bash', 'b')] },
     ]);
     expect(segment([call('Read', 'r1'), call('Read', 'r2'), call('Workflow', 'w'), call('Bash', 'b')])).toEqual([

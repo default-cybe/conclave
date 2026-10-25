@@ -7,14 +7,14 @@
  */
 import type { Session } from '../types';
 import type { Engine } from './engine';
-import { continueSubagent, deliverSubagentResult, SUBAGENT_RESULT_MAX_CHARS } from './subagent';
+import { continueSubagent, deliverSubagentResult, subagentEndState, SUBAGENT_RESULT_MAX_CHARS } from './subagent';
 import { lastAssistantText, reminder } from '../session/transcript';
 import { truncateMiddle } from '../util/text';
 import { logger } from '../util/log';
 
 const log = logger('background');
 
-export type TaskState = 'running' | 'completed' | 'failed' | 'lost';
+export type TaskState = 'running' | 'completed' | 'failed' | 'limited' | 'lost';
 
 export interface TaskInfo {
   id: string;
@@ -44,7 +44,7 @@ function bg(s: Session): BackgroundMeta | undefined {
 
 function info(s: Session): TaskInfo {
   const b = bg(s) ?? {};
-  const state: TaskState = b.state === 'running' ? 'running' : b.state === 'lost' ? 'lost' : b.state === 'error' ? 'failed' : 'completed';
+  const state: TaskState = b.state === 'running' ? 'running' : b.state === 'lost' || b.state === 'limited' ? b.state : b.state === 'error' ? 'failed' : 'completed';
   return { id: s.id, agent: s.agent, description: s.title, state, ...(b.startedAt ? { startedAt: b.startedAt } : {}), ...(b.finishedAt ? { finishedAt: b.finishedAt } : {}) };
 }
 
@@ -104,7 +104,7 @@ export class BackgroundTasks {
     const child = this.engine.getSession(id)!;
     this.engine.patchMeta(id, { background: { ...bg(child), parentId, state: 'running', startedAt: Date.now(), finishedAt: undefined } });
     void continueSubagent(this.engine, id, text)
-      .then((r) => deliverSubagentResult(this.engine, parentId, id, r.error ? 'error' : 'completed', r.error ? `${r.text}\n\nError: ${r.error}` : r.text))
+      .then((r) => deliverSubagentResult(this.engine, parentId, id, subagentEndState(r), r.error ? `${r.text}\n\nError: ${r.error}` : r.text))
       .catch((err) => {
         log.warn('background task continue failed', err);
         deliverSubagentResult(this.engine, parentId, id, 'error', `Error: ${(err as Error)?.message ?? String(err)}`);

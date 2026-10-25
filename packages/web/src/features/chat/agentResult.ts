@@ -22,7 +22,7 @@ const WORKFLOW_RE = /<workflow_result run="([^"]*)" name="([^"]*)" status="([^"]
 const OLD_NOTICE = /^Background task (finished|failed): (.+?)\.?$/;
 
 function subagentState(s: string): AgentResultRef['state'] {
-  return s === 'completed' ? 'completed' : 'failed';
+  return s === 'completed' || s === 'limited' ? s : 'failed';
 }
 
 function workflowState(s: string): AgentResultRef['state'] {
@@ -78,7 +78,7 @@ export function reportFor(messages: readonly Message[], ref: AgentResultRef, aft
 /** "Message from subagent count widgets" or "Message from workflow deep-research", and the state word. */
 export function agentResultWords(ref: AgentResultRef): { title: string; state: string } {
   const title = `Message from ${ref.type === 'workflow' ? 'workflow' : 'subagent'} ${ref.label}`.trim();
-  return { title, state: ref.state === 'completed' ? 'done' : ref.state };
+  return { title, state: ref.state === 'completed' ? 'done' : ref.state === 'limited' ? 'stopped at a limit' : ref.state };
 }
 
 /** Where the task's own work opens: the subagent's session, or the run. */

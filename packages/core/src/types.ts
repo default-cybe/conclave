@@ -147,7 +147,8 @@ export interface AgentResultRef {
   label: string;
   /** The subagent's agent type. */
   agent?: string;
-  state: 'completed' | 'failed' | 'stopped';
+  /** limited: a subagent a usage limit stopped before it finished. */
+  state: 'completed' | 'failed' | 'stopped' | 'limited';
 }
 
 /**

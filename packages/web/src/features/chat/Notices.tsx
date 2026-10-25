@@ -20,7 +20,7 @@ import { LogRow } from './Log';
 import { Markdown } from './Markdown';
 import { fallbackModel, msgText } from './util';
 import { providerFailureNotice, TryNextModel } from './TryNextModel';
-import { AgentResultNotice } from './AgentResultRow';
+import { FanOutNotice } from './FanOutCard';
 import { noticeResult } from './agentResult';
 
 interface NoticeMeta {
@@ -46,11 +46,17 @@ function noticeWords(text: string, meta: NoticeMeta): string {
 
 export const NoticeLine = memo(function NoticeLine({ message, session, latest, enter }: { message: Message; session: Session; latest?: boolean; /** It arrived after the transcript loaded: fade in. */ enter?: boolean }) {
   // a background task that reported back: one row that opens to its report (AgentResultRow.tsx)
+  // folded into its fan-out card it draws nothing, or a small "updated" line (FanOutCard.tsx)
   if (noticeResult(message))
     return (
-      <LogRow time={hhmm(message.createdAt)} id={`msg-${message.id}`} className={cn(enter && 'anim-fade')}>
-        <AgentResultNotice message={message} />
-      </LogRow>
+      <FanOutNotice
+        message={message}
+        wrap={(row) => (
+          <LogRow time={hhmm(message.createdAt)} id={`msg-${message.id}`} className={cn(enter && 'anim-fade')}>
+            {row}
+          </LogRow>
+        )}
+      />
     );
   const text = msgText(message);
   const meta = (message.meta ?? {}) as NoticeMeta;
