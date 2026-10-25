@@ -65,6 +65,7 @@ const cfg = Bun.YAML.parse(readFileSync(configPath, 'utf8')) as {
   management?: { 'secret-key'?: string; 'allow-remote'?: boolean };
   access?: { 'api-keys'?: string[] };
   oauth?: { 'auth-dir'?: string };
+  plugins?: { enabled?: boolean; configs?: Record<string, { enabled: boolean; store?: { version: string } }> };
 };
 const host = cfg.server?.host || '127.0.0.1';
 const port = cfg.server?.port ?? 8317;
@@ -85,9 +86,18 @@ const MODELS: Record<string, Array<[string, string]>> = {
   'kimi-ai': [['kimi-k3', 'moonshot']],
   meta: [['muse-spark-1.3', 'meta']],
   devin: [['swe-2', 'devin']],
+  copilot: [['copilot-test-model', 'github']],
+  kiro4cpa: [['claude-kiro-test', 'kiro']],
 };
 const REDIRECT_PATH: Record<string, string> = { claude: '/callback', codex: '/auth/callback', antigravity: '/oauth-callback', devin: '/callback' };
-const DEVICE = new Set(['xai', 'kimi', 'kimi-ai', 'meta']);
+const DEVICE = new Set(['xai', 'kimi', 'kimi-ai', 'meta', 'copilot', 'kiro4cpa']);
+const STORE_SOURCE = 'https://raw.githubusercontent.com/router-for-me/CLIProxyAPI-Plugins-Store/main/registry.json';
+const STORE = [
+  { id: 'github-copilot', provider: 'copilot', version: '0.1.1', repository: 'https://github.com/syepes/CLIProxyAPI-plugin-github-copilot' },
+  { id: 'kiro4cpa', provider: 'kiro4cpa', version: '1.0.5', repository: 'https://github.com/AkkunYo/kiro4cpa-plugin' },
+];
+const pluginConfigs = () => cfg.plugins?.configs ?? {};
+const pluginEntries = () => STORE.filter((p) => pluginConfigs()[p.id]).map((p) => ({ id: p.id, supports_oauth: true, oauth_provider: p.provider, effective_enabled: cfg.plugins?.enabled === true && pluginConfigs()[p.id].enabled, enabled: pluginConfigs()[p.id].enabled, metadata: { name: p.provider, version: pluginConfigs()[p.id].store?.version } }));
 const KNOWN = new Set([...Object.keys(MODELS), ...(process.env.FAKE_CPA_PLUGIN === '1' ? ['qwen'] : [])]);
 
 interface Session {
@@ -212,7 +222,8 @@ function clientAuthorized(req: Request): boolean {
 }
 
 function startLogin(provider: string): Response {
-  if (!KNOWN.has(provider)) return json({ error: 'provider_not_found' }, 404, mgmtHeaders);
+  logMgmt({ path: 'auth-url', provider });
+  if (!KNOWN.has(provider) || (STORE.some((p) => p.provider === provider) && !pluginEntries().some((p) => p.oauth_provider === provider && p.effective_enabled))) return json({ error: 'provider_not_found' }, 404, mgmtHeaders);
   const state = `st-${crypto.randomUUID()}`;
   sessions.set(state, { provider, status: 'wait' });
   if (DEVICE.has(provider)) {
@@ -309,6 +320,19 @@ async function management(req: Request, url: URL, api: 'v8' | 'v0'): Promise<Res
   // callbacks need no key, only a pending state (as the real one)
   if (req.method === 'POST' && (p === '/oauth/callback' || p === '/oauth-callback')) return callback(req);
   if (!(await mgmtAuthorized(req))) return json({ error: secret ? 'invalid management key' : 'management disabled' }, secret ? 401 : 404);
+  if (p === '/plugin-store' && req.method === 'GET') return json({ sources: [{ id: 'official', url: STORE_SOURCE }], plugins: STORE.map((s) => ({ ...s, source_id: 'official', source_url: STORE_SOURCE, installed: !!pluginConfigs()[s.id], configured: !!pluginConfigs()[s.id] })) }, 200, mgmtHeaders);
+  const install = /^\/plugin-store\/([^/]+)\/install$/.exec(p);
+  if (install && req.method === 'POST') {
+    const entry = STORE.find((s) => s.id === install[1]);
+    const body = await req.json() as { version?: string };
+    logMgmt({ path: 'plugin-install', id: install[1], source: url.searchParams.get('source'), body });
+    if (!entry || body.version !== entry.version || url.searchParams.get('source') !== 'official') return json({ error: 'unreviewed install' }, 400);
+    cfg.plugins ??= { enabled: true };
+    cfg.plugins.configs ??= {};
+    cfg.plugins.configs[entry.id] = { enabled: true, store: { version: entry.version } };
+    writeFileSync(configPath, Bun.YAML.stringify(cfg));
+    return json({ status: 'installed', id: entry.id, version: entry.version, source_id: 'official', source_url: STORE_SOURCE, restart_required: false, ...(process.env.FAKE_CPA_INSTALL_RESPONSE ? JSON.parse(process.env.FAKE_CPA_INSTALL_RESPONSE) : {}) }, 200, mgmtHeaders);
+  }
   if (api === 'v8') {
     if (p === '/credentials' && req.method === 'GET') return credentialList();
     if (p === '/credentials/models' && req.method === 'GET') {
@@ -395,7 +419,7 @@ async function management(req: Request, url: URL, api: 'v8' | 'v0'): Promise<Res
     }
     if (p === '/plugins') {
       const plugins = process.env.FAKE_CPA_PLUGIN === '1' ? [{ id: 'qwen-login', supports_oauth: true, oauth_provider: 'qwen', enabled: true, effective_enabled: true, metadata: { name: 'Qwen' } }] : [];
-      return json({ plugins_dir: 'plugins', plugins }, 200, mgmtHeaders);
+      return json({ plugins_dir: 'plugins', plugins: [...plugins, ...pluginEntries()] }, 200, mgmtHeaders);
     }
   } else {
     if (p === '/auth-files' && req.method === 'GET') return credentialList();

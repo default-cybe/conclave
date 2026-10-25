@@ -6,9 +6,10 @@
  * It listens on 127.0.0.1 only, its management API refuses anything that is
  * not local (allow-remote false), the management key is stored as its
  * bcrypt hash, the control panel download and LAN discovery are off, and
- * plugins, request logs and usage statistics stay off.
+ * request logs and usage statistics stay off. Plugins are enabled, but are
+ * installed only when the owner chooses a plugin provider's sign-in.
  */
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export interface CliproxyFiles {
@@ -46,6 +47,11 @@ export interface ConfigInput {
   managementHash: string;
   clientKey: string;
   authDir: string;
+  /** Keep CLIProxyAPI's store-managed plugin entries across hub restarts. */
+  plugins?: Record<string, unknown>;
+  /** Static fallback hosts must not try to load saved native plugins: a
+   * ceiling only. When it is true it never re-enables a saved global off. */
+  pluginsEnabled?: boolean;
 }
 
 export function renderConfig(c: ConfigInput): string {
@@ -81,15 +87,26 @@ export function renderConfig(c: ConfigInput): string {
     '    request-log: false',
     '  usage:',
     '    usage-statistics-enabled: false',
-    'plugins:',
-    '  enabled: false',
+    `plugins: ${JSON.stringify({ ...c.plugins, enabled: c.pluginsEnabled === false ? false : (c.plugins?.enabled ?? true) })}`,
     '',
   ].join('\n');
 }
 
 export function writeConfig(files: CliproxyFiles, c: ConfigInput): void {
   ensurePrivateDirs(files);
-  writeFileSync(files.config, renderConfig(c), { mode: 0o600 });
+  let plugins: Record<string, unknown> | undefined;
+  if (existsSync(files.config)) {
+    // Preserve only the plugin block: all listener, key and logging settings
+    // are still regenerated. A damaged config must not silently lose entries.
+    const previous = Bun.YAML.parse(readFileSync(files.config, 'utf8')) as { plugins?: unknown } | null;
+    if (previous?.plugins && typeof previous.plugins === 'object' && !Array.isArray(previous.plugins)) {
+      plugins = previous.plugins as Record<string, unknown>;
+      // Older hubs always wrote exactly `plugins: {enabled: false}`; that is the old default, not an owner choice.
+      const keys = Object.keys(plugins);
+      if (keys.length === 1 && plugins.enabled === false) plugins = undefined;
+    }
+  }
+  writeFileSync(files.config, renderConfig({ ...c, plugins: c.plugins ?? plugins }), { mode: 0o600 });
   try {
     chmodSync(files.config, 0o600);
   } catch {

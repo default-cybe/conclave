@@ -11,8 +11,9 @@ import { join } from 'node:path';
 import type { SubscriptionsStatus } from '@conclave/core/client/index.ts';
 import { ProviderRegistry } from '@conclave/core/providers/registry.ts';
 import { CliproxyManager, cleanRoot, pastedCallback } from '../src/cliproxy';
-import { cliproxyEnv, renderConfig } from '../src/cliproxy/config';
-import { ReleaseError, assetFor, compareVersions, installRelease, parseChecksums, parseVersion, pinFor, type Pin } from '../src/cliproxy/release';
+import { cliproxyEnv, cliproxyFiles, renderConfig, writeConfig } from '../src/cliproxy/config';
+import { Management } from '../src/cliproxy/management';
+import { ReleaseError, assetFor, compareVersions, installRelease, parseChecksums, parseVersion, pinFor, pluginHostProblem, ensureManagedBinary, type Pin } from '../src/cliproxy/release';
 import { isProblem, message, scrub, type CliProcess, type CliSpawner } from '../src/cliproxy/runner';
 import { PidFile, processMatches } from '../src/remote/pids';
 import { OWNER, startHub, type TestHub } from './helpers';
@@ -134,10 +135,252 @@ function fakeSpawner(extra: () => Record<string, string>) {
 // Pure pieces
 // ---------------------------------------------------------------------------
 
+const OFFICIAL_STORE_URL = 'https://raw.githubusercontent.com/router-for-me/CLIProxyAPI-Plugins-Store/main/registry.json';
+const storeListing = () => ({ sources: [{ id: 'official', url: OFFICIAL_STORE_URL }], plugins: [
+  { id: 'github-copilot', source_id: 'official', source_url: OFFICIAL_STORE_URL, repository: 'https://github.com/syepes/CLIProxyAPI-plugin-github-copilot' },
+  { id: 'kiro4cpa', source_id: 'official', source_url: OFFICIAL_STORE_URL, repository: 'https://github.com/AkkunYo/kiro4cpa-plugin' },
+] });
+
+describe('plugin review regressions', () => {
+  test('unsupported Linux hosts keep the static subscription binary', () => {
+    for (const libc of [null, '2.17', '2.33']) {
+      expect(assetFor('8.0.32', 'linux', 'x64', libc)?.name).toBe('CLIProxyAPI_8.0.32_linux_amd64_no-plugin.tar.gz');
+    }
+    expect(assetFor('8.0.32', 'linux', 'arm64', '2.34')?.name).toBe('CLIProxyAPI_8.0.32_linux_aarch64.tar.gz');
+  });
+
+  test('fresh owner and member cards include installable subscriptions', async () => {
+    const hub = startHub({ cliproxy: { platform: 'linux', arch: 'x64', glibcVersion: '2.36' } as any });
+    try {
+      const owner = await hub.api('/api/subscriptions').then((r) => r.json());
+      expect(owner.accounts).toEqual([]);
+      expect(owner.providers.map((p: any) => p.id)).toContain('copilot');
+      expect(owner.providers.map((p: any) => p.id)).toContain('kiro4cpa');
+      const made = await hub.api('/api/people', { method: 'POST', json: { name: 'fresh-plugin-member', password: 'correct horse battery staple' } }).then((r) => r.json());
+      const member = (hub.engine.access.plans as any).status(made.person.id);
+      expect(member.providers.map((p: any) => p.id)).toContain('copilot');
+      expect(member.providers.map((p: any) => p.id)).toContain('kiro4cpa');
+    } finally { await hub.stop(); }
+  }, 10_000);
+
+  test('member-first startup upgrades the shared static receipt once', async () => {
+    const rel = releaseServer();
+    const pin = await publish(rel, { version: '8.0.32' });
+    const fake = fakeSpawner(() => ({}));
+    const hub = startHub({ cliproxy: { spawn: fake.spawn, pins: [pin], releaseBase: rel.url, platform: 'linux', arch: 'x64', glibcVersion: '2.36' } as any });
+    try {
+      const bin = join(hub.engine.home, 'bin', 'cli-proxy-api');
+      mkdirSync(join(hub.engine.home, 'bin'), { recursive: true });
+      writeFileSync(bin, program({ version: '8.0.32' }));
+      writeFileSync(`${bin}.json`, JSON.stringify({ version: '8.0.32', asset: 'CLIProxyAPI_8.0.32_linux_amd64_no-plugin.tar.gz', checks: { checksums: true, pin: true } }));
+      const ids: string[] = [];
+      for (const name of ['upgrade-one', 'upgrade-two']) {
+        const made = await hub.api('/api/people', { method: 'POST', json: { name, password: 'correct horse battery staple' } }).then((r) => r.json());
+        ids.push(made.person.id);
+      }
+      const plans = hub.engine.access.plans as any;
+      await Promise.all(ids.map((id) => plans.start(id)));
+      await until(() => ids.every((id) => plans.status(id).state === 'on'), 8000, 'member-first start');
+      expect(JSON.parse(readFileSync(`${bin}.json`, 'utf8')).asset).toBe(asset(pin.version));
+      expect(rel.seen.filter((p) => p.endsWith(`/${asset(pin.version)}`))).toHaveLength(1);
+      expect((await hub.api('/api/subscriptions').then((r) => r.json())).mode).toBe('off');
+      for (const id of ids) expect(plans.status(id).accounts).toEqual([]);
+    } finally { await hub.stop(); rel.stop(); }
+  }, 15_000);
+
+  test('offline migration keeps running the working static binary', async () => {
+    const home = mkdtempSync(join(scratch, 'offline-migrate-'));
+    mkdirSync(join(home, 'bin'), { recursive: true });
+    const bin = join(home, 'bin', 'cli-proxy-api');
+    writeFileSync(bin, program({ version: '8.0.32' }));
+    writeFileSync(`${bin}.json`, JSON.stringify({ version: '8.0.32', asset: 'CLIProxyAPI_8.0.32_linux_amd64_no-plugin.tar.gz', checks: { checksums: true, pin: true } }));
+    const pin = pinFor('8.0.32')!;
+    const got = await ensureManagedBinary({ home, pin, platform: 'linux', arch: 'x64', glibcVersion: '2.36', probe: async () => pin.version, fetch: (async () => { throw new Error('offline'); }) as unknown as typeof fetch });
+    expect(got.path).toBe(bin);
+    expect(got.version).toBe('8.0.32');
+  });
+
+  test('explicit owner binary overrides remain untouched for owner and member', async () => {
+    const explicit = join(scratch, 'explicit-binary');
+    writeFileSync(explicit, program({ version: '8.0.32' }));
+    const bytes = readFileSync(explicit);
+    const fake = fakeSpawner(() => ({}));
+    const hub = startHub({ cliproxy: { spawn: fake.spawn, platform: 'linux', arch: 'x64', glibcVersion: '2.36' } }, { models: { cliproxy: { binary: explicit } } } as any);
+    try {
+      const made = await hub.api('/api/people', { method: 'POST', json: { name: 'override-member', password: 'correct horse battery staple' } }).then((r) => r.json());
+      const plans = hub.engine.access.plans as any;
+      expect(plans.status(made.person.id).providers.some((p: any) => p.id === 'copilot')).toBe(false);
+      await Promise.all([hub.api('/api/subscriptions', { method: 'PUT', json: { mode: 'builtin' } }), plans.start(made.person.id)]);
+      await until(async () => (await hub.api('/api/subscriptions').then((r) => r.json())).state === 'on' && plans.status(made.person.id).state === 'on', 8000);
+      expect(fake.starts.filter((s) => s.cmd.includes('-config')).every((s) => s.cmd[0] === explicit)).toBe(true);
+      expect(readFileSync(explicit)).toEqual(bytes);
+      expect(existsSync(join(hub.engine.home, 'bin', 'cli-proxy-api'))).toBe(false);
+      const denied = await hub.api('/api/subscriptions/signin', { method: 'POST', json: { provider: 'copilot' } });
+      expect(denied.status).toBe(400);
+      expect((await denied.json()).error).toContain('explicit binary override');
+    } finally { await hub.stop(); }
+  }, 12_000);
+
+  test('pins the reviewed store version and official source', async () => {
+    let request: { body: unknown; source: string | null } | undefined;
+    let installed = false;
+    const f = (async (input: URL | string, init?: RequestInit) => {
+      const url = new URL(input);
+      if (url.pathname.endsWith('/credentials')) return Response.json({ files: [] });
+      if (url.pathname.endsWith('/plugins')) return Response.json({ plugins: installed ? [{ id: 'github-copilot', supports_oauth: true, effective_enabled: true, oauth_provider: 'copilot' }] : [] });
+      if (url.pathname.endsWith('/plugin-store')) return Response.json(storeListing());
+      if (url.pathname.endsWith('/install')) {
+        request = { body: JSON.parse(init!.body as string), source: url.searchParams.get('source') };
+        installed = true;
+        return Response.json({ status: 'installed', id: 'github-copilot', version: '0.1.1', source_id: 'official', source_url: 'https://raw.githubusercontent.com/router-for-me/CLIProxyAPI-Plugins-Store/main/registry.json' });
+      }
+      return new Response('', { status: 404 });
+    }) as typeof fetch;
+    await new Management('http://localhost:8317', 'key', f).ensureSubscriptionPlugin('copilot');
+    expect(request).toEqual({ body: { version: '0.1.1' }, source: 'official' });
+  }, 3000);
+});
+
+describe('subscription store plugins', () => {
+  test('keeps store entries after rewriting config without preserving listener settings', () => {
+    const files = cliproxyFiles(mkdtempSync(join(scratch, 'plugin-config-')));
+    const c = { port: 41001, managementHash: '$2b$10$hash', clientKey: 'client', authDir: files.auth };
+    writeConfig(files, c);
+    const previous = Bun.YAML.parse(readFileSync(files.config, 'utf8')) as any;
+    previous.plugins.configs = { 'github-copilot': { enabled: true, model_prefix: 'copilot/', store: { version: '0.1.1' } } };
+    previous.server.host = '0.0.0.0';
+    writeFileSync(files.config, Bun.YAML.stringify(previous));
+    writeConfig(files, c);
+    const next = Bun.YAML.parse(readFileSync(files.config, 'utf8')) as any;
+    expect(next.plugins).toEqual(previous.plugins);
+    expect(next.server.host).toBe('127.0.0.1');
+    expect(statSync(files.config).mode & 0o777).toBe(0o600);
+  });
+
+  test('plugin capability is a ceiling: saved global off survives restarts and static hosts', () => {
+    const base = { port: 41002, managementHash: '$2b$10$hash', clientKey: 'client', authDir: '/data/cliproxy/auth' };
+    // Fresh config: nothing saved yet, so plugins load.
+    expect((Bun.YAML.parse(renderConfig(base)) as any).plugins).toEqual({ enabled: true });
+    // Upgrade: the old hub's bare `enabled: false` is its default, not a choice.
+    const old = cliproxyFiles(mkdtempSync(join(scratch, 'plugin-legacy-')));
+    writeConfig(old, { ...base, authDir: old.auth });
+    const legacy = Bun.YAML.parse(readFileSync(old.config, 'utf8')) as any;
+    legacy.plugins = { enabled: false };
+    writeFileSync(old.config, Bun.YAML.stringify(legacy));
+    writeConfig(old, { ...base, authDir: old.auth, pluginsEnabled: true });
+    expect((Bun.YAML.parse(readFileSync(old.config, 'utf8')) as any).plugins.enabled).toBe(true);
+    // A saved global off with an individually enabled plugin stays off across a
+    // restart on a plugin-capable host: capability is a ceiling, not permission.
+    const files = cliproxyFiles(mkdtempSync(join(scratch, 'plugin-ceiling-')));
+    writeConfig(files, { ...base, authDir: files.auth });
+    const saved = Bun.YAML.parse(readFileSync(files.config, 'utf8')) as any;
+    saved.plugins = { enabled: false, entries: { 'github-copilot': { enabled: true }, custom: { arbitrary: 'field' } } };
+    writeFileSync(files.config, Bun.YAML.stringify(saved));
+    writeConfig(files, { ...base, authDir: files.auth, pluginsEnabled: true });
+    let next = Bun.YAML.parse(readFileSync(files.config, 'utf8')) as any;
+    expect(next.plugins.enabled).toBe(false);
+    expect(next.plugins.entries).toEqual(saved.plugins.entries);
+    // The same saved block stays off under a static ceiling too.
+    writeConfig(files, { ...base, authDir: files.auth, pluginsEnabled: false });
+    next = Bun.YAML.parse(readFileSync(files.config, 'utf8')) as any;
+    expect(next.plugins.enabled).toBe(false);
+    expect(next.plugins.entries).toEqual(saved.plugins.entries);
+    // A saved global on stays on for a capable host, and a static ceiling only lowers it.
+    saved.plugins.enabled = true;
+    writeFileSync(files.config, Bun.YAML.stringify(saved));
+    writeConfig(files, { ...base, authDir: files.auth, pluginsEnabled: true });
+    next = Bun.YAML.parse(readFileSync(files.config, 'utf8')) as any;
+    expect(next.plugins.enabled).toBe(true);
+    writeConfig(files, { ...base, authDir: files.auth, pluginsEnabled: false });
+    next = Bun.YAML.parse(readFileSync(files.config, 'utf8')) as any;
+    expect(next.plugins.enabled).toBe(false);
+    expect(next.plugins.entries).toEqual(saved.plugins.entries);
+  });
+
+  test('installs the known store ID once and waits for its OAuth provider', async () => {
+    const calls: string[] = [];
+    let installed = false;
+    const f = (async (input: URL | string, init?: RequestInit) => {
+      const path = new URL(input).pathname;
+      calls.push(`${init?.method} ${path}`);
+      if (path === '/v8/management/credentials') return Response.json({ files: [] });
+      if (path === '/v8/management/plugins') return Response.json({ plugins: installed ? [{ id: 'github-copilot', supports_oauth: true, effective_enabled: true, oauth_provider: 'copilot' }] : [] });
+      if (path === '/v0/management/plugin-store') return Response.json(storeListing());
+      if (path === '/v0/management/plugin-store/github-copilot/install') { installed = true; return Response.json({ status: 'installed', id: 'github-copilot', version: '0.1.1', source_id: 'official', source_url: OFFICIAL_STORE_URL, restart_required: false }); }
+      return new Response('', { status: 404 });
+    }) as typeof fetch;
+    const mgmt = new Management('http://localhost:8317', 'key', f);
+    await Promise.all([mgmt.ensureSubscriptionPlugin('copilot'), mgmt.ensureSubscriptionPlugin('copilot')]);
+    await mgmt.ensureSubscriptionPlugin('copilot');
+    expect(calls.filter((p) => p.includes('/install'))).toEqual(['POST /v0/management/plugin-store/github-copilot/install']);
+    await expect(mgmt.ensureSubscriptionPlugin('arbitrary')).rejects.toThrow(/no supported store plugin/);
+  });
+
+  test('preserves disabled, foreign and deliberately installed local plugins', async () => {
+    for (const existing of [
+      { id: 'github-copilot', enabled: false, effective_enabled: false },
+      { id: 'different-copilot', supports_oauth: true, oauth_provider: 'copilot', effective_enabled: false },
+    ]) {
+      const calls: string[] = [];
+      const f = (async (input: URL | string) => {
+        const path = new URL(input).pathname; calls.push(path);
+        return Response.json(path.endsWith('/credentials') ? { files: [] } : { plugins: [existing] });
+      }) as typeof fetch;
+      await expect(new Management('http://localhost:8317', 'key', f).ensureSubscriptionPlugin('copilot')).rejects.toThrow(/will not overwrite/);
+      expect(calls.some((p) => p.endsWith('/install'))).toBe(false);
+    }
+    const f = (async (input: URL | string) => Response.json(new URL(input).pathname.endsWith('/credentials') ? { files: [] } : { plugins: [{ id: 'deliberate-other-plugin', supports_oauth: true, effective_enabled: true, oauth_provider: 'copilot' }] })) as typeof fetch;
+    await new Management('http://localhost:8317', 'key', f).ensureSubscriptionPlugin('copilot');
+  });
+
+  test('does not overwrite an unregistered store-managed plugin or trust another registry', async () => {
+    for (const kind of ['installed', 'configured', 'wrong-source', 'wrong-repository']) {
+      const calls: string[] = [];
+      const listing = storeListing();
+      if (kind === 'wrong-source') listing.sources[0].url = 'https://other.example/registry.json';
+      if (kind === 'wrong-repository') listing.plugins[0].repository = 'https://github.com/other/plugin';
+      if (kind === 'installed' || kind === 'configured') Object.assign(listing.plugins[0], { [kind]: true });
+      const f = (async (input: URL | string) => {
+        const path = new URL(input).pathname; calls.push(path);
+        return Response.json(path.endsWith('/credentials') ? { files: [] } : path.endsWith('/plugin-store') ? listing : { plugins: [] });
+      }) as typeof fetch;
+      await expect(new Management('http://localhost:8317', 'key', f).ensureSubscriptionPlugin('copilot')).rejects.toThrow(/will not overwrite|official store/);
+      expect(calls.some((p) => p.endsWith('/install'))).toBe(false);
+    }
+  });
+
+  test('adapts real Copilot and Kiro login response shapes without exposing management resources', async () => {
+    const bodies: unknown[] = [];
+    const f = (async (input: URL | string, init?: RequestInit) => {
+      const url = new URL(input);
+      if (url.pathname.endsWith('/credentials')) return Response.json({ files: [] });
+      if (url.pathname.endsWith('/auth-url')) return Response.json(url.searchParams.get('provider') === 'copilot'
+        ? { url: 'https://github.com/login/device?user_code=WXYZ-1234', state: 'copilot-state' }
+        : { url: '/v0/resource/plugins/kiro4cpa/connect#state=kiro-state', state: 'kiro-state' });
+      if (url.pathname === '/v0/management/plugins/kiro4cpa/login/device') {
+        bodies.push(JSON.parse(init!.body as string));
+        return Response.json({ verificationUri: 'https://view.awsapps.com/start', userCode: 'AWS-CODE', expiresIn: 600 });
+      }
+      return new Response('', { status: 404 });
+    }) as typeof fetch;
+    const mgmt = new Management('http://localhost:8317', 'management-secret', f);
+    expect(await mgmt.authUrl('copilot')).toMatchObject({ flow: 'device', userCode: 'WXYZ-1234', state: 'copilot-state' });
+    const kiro = await mgmt.authUrl('kiro4cpa');
+    expect(kiro).toEqual({ url: 'https://view.awsapps.com/start', state: 'kiro-state', flow: 'device', userCode: 'AWS-CODE', expiresIn: 600 });
+    expect(bodies).toEqual([{ state: 'kiro-state', kind: 'builder' }]);
+    expect(JSON.stringify(kiro)).not.toContain('management-secret');
+  });
+
+  test('does not advertise a plugin that is configured but ineffective', async () => {
+    const f = (async (input: URL | string) => Response.json(new URL(input).pathname.endsWith('/credentials') ? { files: [] } : { plugins: [{ supports_oauth: true, enabled: true, effective_enabled: false, oauth_provider: 'copilot' }] })) as typeof fetch;
+    expect(await new Management('http://localhost:8317', 'key', f).oauthPlugins()).toEqual([]);
+  });
+});
+
 describe('release names, checksums and versions', () => {
   test('picks the release archive for each OS and CPU', () => {
-    expect(assetFor('8.0.32', 'linux', 'x64')?.name).toBe('CLIProxyAPI_8.0.32_linux_amd64_no-plugin.tar.gz');
-    expect(assetFor('8.0.32', 'linux', 'arm64')?.name).toBe('CLIProxyAPI_8.0.32_linux_aarch64_no-plugin.tar.gz');
+    expect(assetFor('8.0.32', 'linux', 'x64')?.name).toBe('CLIProxyAPI_8.0.32_linux_amd64.tar.gz');
+    expect(assetFor('8.0.32', 'linux', 'arm64')?.name).toBe('CLIProxyAPI_8.0.32_linux_aarch64.tar.gz');
     expect(assetFor('8.0.32', 'darwin', 'arm64')?.name).toBe('CLIProxyAPI_8.0.32_darwin_aarch64.tar.gz');
     expect(assetFor('8.0.32', 'win32', 'x64')).toEqual({ name: 'CLIProxyAPI_8.0.32_windows_amd64.zip', kind: 'zip', binary: 'cli-proxy-api.exe' });
     expect(assetFor('8.0.32', 'freebsd', 'x64')).toBeUndefined();
@@ -145,8 +388,8 @@ describe('release names, checksums and versions', () => {
   });
 
   test('reads checksums.txt, the version line and compares versions', () => {
-    const sums = parseChecksums(`${'a'.repeat(64)}  CLIProxyAPI_8.0.32_linux_amd64_no-plugin.tar.gz\n${'B'.repeat(64)}  checksums-of-something.zip\ngarbage line\n`);
-    expect(sums.get('CLIProxyAPI_8.0.32_linux_amd64_no-plugin.tar.gz')).toBe('a'.repeat(64));
+    const sums = parseChecksums(`${'a'.repeat(64)}  CLIProxyAPI_8.0.32_linux_amd64.tar.gz\n${'B'.repeat(64)}  checksums-of-something.zip\ngarbage line\n`);
+    expect(sums.get('CLIProxyAPI_8.0.32_linux_amd64.tar.gz')).toBe('a'.repeat(64));
     expect(sums.get('checksums-of-something.zip')).toBe('b'.repeat(64));
     expect(sums.size).toBe(2);
     expect(parseVersion('CLIProxyAPI Version: 8.0.32, Commit: 911f49c, BuiltAt: 2026-10-17')).toBe('8.0.32');
@@ -168,7 +411,7 @@ describe('release names, checksums and versions', () => {
     expect(parsed.management['disable-control-panel']).toBe(true);
     expect(parsed.access['api-keys']).toEqual(['cpk-client']);
     expect(parsed.oauth['auth-dir']).toBe('/data/cliproxy/auth');
-    expect(parsed.plugins.enabled).toBe(false);
+    expect(parsed.plugins.enabled).toBe(true);
     expect(parsed.observability.logs['request-log']).toBe(false);
   });
 
@@ -379,7 +622,7 @@ describe('builtin: the hub runs CLIProxyAPI', () => {
     expect(JSON.stringify(hub.engine.config.getUser())).not.toContain('127.0.0.1:');
     expect(events.some((e) => e.state === 'installing')).toBe(true);
     // the cards come from the running version's pin
-    expect(st.providers.map((x) => x.id)).toEqual(['claude', 'codex', 'antigravity', 'xai', 'kimi', 'meta']);
+    expect(st.providers.map((x) => x.id)).toEqual(['claude', 'codex', 'antigravity', 'xai', 'kimi', 'meta', 'copilot', 'kiro4cpa']);
   });
 
   test('the management API is not reachable through the hub', async () => {
@@ -786,6 +1029,146 @@ describe('external: one the owner already runs', () => {
     } finally {
       await hub.stop();
     }
+  });
+});
+
+describe('plugin managers with deterministic credentials', () => {
+  for (const provider of ['copilot', 'kiro4cpa']) test(`${provider}: fresh sign-ins refresh routing, survive restart and stay isolated`, async () => {
+    const rel = releaseServer();
+    const pin = await publish(rel, { version: '8.0.32' });
+    const log = join(scratch, `${provider}-manager.jsonl`);
+    const fake = fakeSpawner(() => ({ FAKE_CPA_DEVICE_MS: '40', FAKE_CPA_MGMT_LOG: log }));
+    const hub = startHub({ cliproxy: { spawn: fake.spawn, pins: [pin], releaseBase: rel.url, platform: 'linux', arch: 'x64', glibcVersion: '2.36', backoffMs: [20], catalogUrls: [] } });
+    const get = (token = OWNER) => hub.api('/api/subscriptions', { token }).then((r) => r.json());
+    const put = (token: string) => hub.api('/api/subscriptions', { token, method: 'PUT', json: { mode: 'builtin' } });
+    try {
+      expect((await get()).providers.map((p: any) => p.id)).toContain(provider);
+      expect((await get()).accounts).toEqual([]);
+      const members: Array<{ id: string; token: string }> = [];
+      for (const name of ['plugin-alice', 'plugin-bob']) {
+        const made = await hub.api('/api/people', { method: 'POST', json: { name, password: 'correct horse battery staple' } }).then((r) => r.json());
+        const login = await hub.api('/api/login', { token: null, method: 'POST', json: { account: name, password: 'correct horse battery staple', name: 'test' } }).then((r) => r.json());
+        members.push({ id: made.person.id, token: login.token });
+      }
+      const alice = members[0], bob = members[1];
+      expect((await get(alice.token)).providers.map((p: any) => p.id)).toContain(provider);
+      expect((await get(alice.token)).accounts).toEqual([]);
+      for (const token of [OWNER, alice.token, bob.token]) expect((await put(token)).status).toBe(200);
+      await until(async () => (await Promise.all([get(), get(alice.token), get(bob.token)])).every((s) => s.state === 'on'), 10_000, 'plugin managers');
+      const other = provider === 'copilot' ? 'kiro4cpa' : 'copilot';
+      for (const [token, id] of [[OWNER, provider], [alice.token, provider], [bob.token, other]]) {
+        expect((await get(token)).accounts).toEqual([]);
+        const res = await hub.api('/api/subscriptions/signin', { token, method: 'POST', json: { provider: id } });
+        const start = await res.json();
+        expect(res.status).toBe(200);
+        expect(start.flow).toBe('device');
+        await until(async () => {
+          const s = await hub.api(`/api/subscriptions/signin/${start.state}`, { token }).then((r) => r.json());
+          expect(s.status).not.toBe('error');
+          return s.status === 'ok';
+        }, 5000, `${id} fixture credential`);
+      }
+      const model = provider === 'copilot' ? 'copilot-test-model' : 'claude-kiro-test';
+      const otherModel = provider === 'copilot' ? 'claude-kiro-test' : 'copilot-test-model';
+      const plans = hub.engine.access.plans!;
+      await until(() => plans.entry(alice.id)?.config.models?.includes(model) && plans.entry(bob.id)?.config.models?.includes(otherModel), 5000, 'plugin model discovery');
+      expect(plans.entry(alice.id)!.config.models).not.toContain(otherModel);
+      expect(plans.entry(bob.id)!.config.models).not.toContain(model);
+      expect(plans.entry(alice.id)!.apiKey).not.toBe(plans.entry(bob.id)!.apiKey);
+      expect(plans.readyAccounts!(alice.id, otherModel)).toEqual([]);
+      expect(plans.readyAccounts!(bob.id, model)).toEqual([]);
+      const ownerModels = hub.engine.config.get().providers.cliproxy.models;
+      expect(ownerModels).toContain(model);
+      expect(ownerModels).not.toContain(otherModel);
+      // This is a deterministic transport/routing check, not live inference.
+      const reg = new ProviderRegistry(hub.engine.config);
+      try {
+        let text = '';
+        for await (const e of reg.get('cliproxy')!.stream({ model, system: [], messages: [{ role: 'user', content: [{ type: 'text', text: 'test' }] }], maxTokens: 16 })) if (e.type === 'text_delta') text += e.text;
+        expect(text).toContain(`Hello from ${model}`);
+      } finally { reg.dispose(); }
+      const folders = [join(hub.engine.home, 'cliproxy'), ...members.map((m) => join(hub.engine.home, 'accounts', m.id, 'cliproxy'))];
+      const configs = folders.map((d) => Bun.YAML.parse(readFileSync(join(d, 'config.yaml'), 'utf8')) as any);
+      expect(configs[0].oauth['auth-dir']).not.toBe(configs[1].oauth['auth-dir']);
+      for (const [i, folder] of folders.entries()) {
+        const old = Number(readFileSync(join(folder, 'pids'), 'utf8').trim().split('\n')[0]);
+        process.kill(old, 'SIGKILL');
+        const token = [OWNER, alice.token, bob.token][i];
+        await until(async () => existsSync(join(folder, 'pids')) && Number(readFileSync(join(folder, 'pids'), 'utf8').trim().split('\n')[0]) !== old && (await get(token)).state === 'on', 10_000, 'plugin restart');
+        const next = Bun.YAML.parse(readFileSync(join(folder, 'config.yaml'), 'utf8')) as any;
+        expect(next.plugins).toEqual(configs[i].plugins);
+        expect((await get(token)).accounts).toHaveLength(1);
+      }
+      await until(() => plans.entry(alice.id)?.config.models?.includes(model) && plans.entry(bob.id)?.config.models?.includes(otherModel), 5000, 'restored plugin routing');
+      const calls = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+      expect(calls.filter((c) => c.path === 'plugin-install')).toHaveLength(3);
+      for (const c of calls.filter((c) => c.path === 'plugin-install')) expect(c).toMatchObject({ source: 'official', body: { version: c.id === 'github-copilot' ? '0.1.1' : '1.0.5' } });
+    } finally { await hub.stop(); rel.stop(); }
+  }, 40_000);
+
+  test('wrong returned plugin identity/version/source prevents manager OAuth', async () => {
+    const rel = releaseServer();
+    const pin = await publish(rel, { version: '8.0.32' });
+    try {
+      for (const bad of [{ id: 'other-plugin' }, { version: '999.0.0' }, { source_id: 'other' }, { source_url: 'https://other.example/registry.json' }]) {
+        const log = join(scratch, `rejected-${crypto.randomUUID()}.jsonl`);
+        const fake = fakeSpawner(() => ({ FAKE_CPA_MGMT_LOG: log, FAKE_CPA_INSTALL_RESPONSE: JSON.stringify(bad) }));
+        const hub = startHub({ cliproxy: { spawn: fake.spawn, pins: [pin], releaseBase: rel.url, platform: 'linux', arch: 'x64', glibcVersion: '2.36' } }, { models: { cliproxy: { mode: 'builtin' } } } as any);
+        try {
+          await until(async () => (await hub.api('/api/subscriptions').then((r) => r.json())).state === 'on', 8000);
+          const response = await hub.api('/api/subscriptions/signin', { method: 'POST', json: { provider: 'copilot' } });
+          expect(response.status).toBe(409);
+          expect((await response.json()).error).toContain('unexpected plugin identity');
+          const calls = readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+          expect(calls.some((c) => c.path === 'plugin-install')).toBe(true);
+          expect(calls.some((c) => c.path === 'auth-url')).toBe(false);
+        } finally { await hub.stop(); }
+      }
+    } finally { rel.stop(); }
+  }, 30_000);
+
+  test('musl fallback preserves existing subscription access and rejects only plugin sign-ins', async () => {
+    const rel = releaseServer();
+    const pin = await publish(rel, { version: '8.0.32' });
+    const standard = asset(pin.version);
+    const fallback = assetFor(pin.version, 'linux', 'x64', null)!.name;
+    rel.files.set(`${pin.tag}/${fallback}`, rel.files.get(`${pin.tag}/${standard}`)!);
+    pin.assets[fallback] = pin.assets[standard];
+    const fake = fakeSpawner(() => ({ FAKE_CPA_DEVICE_MS: '30' }));
+    const hub = startHub({ cliproxy: { spawn: fake.spawn, pins: [pin], releaseBase: rel.url, platform: 'linux', arch: 'x64', glibcVersion: null } });
+    try {
+      const off = await hub.api('/api/subscriptions').then((r) => r.json());
+      expect(off.providers.some((p: any) => p.id === 'copilot')).toBe(false);
+      await hub.api('/api/subscriptions', { method: 'PUT', json: { mode: 'builtin' } });
+      await until(async () => (await hub.api('/api/subscriptions').then((r) => r.json())).state === 'on', 8000);
+      const receipt = JSON.parse(readFileSync(join(hub.engine.home, 'bin', 'cli-proxy-api.json'), 'utf8'));
+      expect(receipt.asset).toBe(fallback);
+      const config = Bun.YAML.parse(readFileSync(join(hub.engine.home, 'cliproxy', 'config.yaml'), 'utf8')) as any;
+      expect(config.plugins.enabled).toBe(false);
+      // Reuse the existing static receipt, without any migration download.
+      await ensureManagedBinary({ home: hub.engine.home, pin, platform: 'linux', arch: 'x64', glibcVersion: null, probe: async () => pin.version, fetch: (async () => { throw new Error('unexpected migration'); }) as unknown as typeof fetch });
+      for (const provider of ['copilot', 'kiro4cpa']) {
+        const no = await hub.api('/api/subscriptions/signin', { method: 'POST', json: { provider } });
+        expect(no.status).toBe(400);
+        expect((await no.json()).error).toContain('glibc 2.34');
+      }
+      const yes = await hub.api('/api/subscriptions/signin', { method: 'POST', json: { provider: 'xai' } }).then((r) => r.json());
+      await until(async () => (await hub.api(`/api/subscriptions/signin/${yes.state}`).then((r) => r.json())).status === 'ok', 5000);
+      expect(hub.engine.config.get().providers.cliproxy.models).toContain('grok-4.7');
+      expect(rel.seen.some((p) => p.endsWith(`/${standard}`))).toBe(false);
+    } finally { await hub.stop(); rel.stop(); }
+  }, 15_000);
+
+  test('unreviewed hosts and explicit binaries advertise no automatic plugin capability', () => {
+    for (const host of [{ platform: 'win32', arch: 'x64' }, { platform: 'darwin', arch: 'arm64' }, { platform: 'linux', arch: 'ia32' }, { platform: 'linux', arch: 'x64', glibcVersion: '2.33' }]) {
+      expect(pluginHostProblem(host)).toBeDefined();
+      const engine = createFakeEngine();
+      try { expect(new CliproxyManager({ engine, ...host }).status().providers.some((p) => p.id === 'copilot')).toBe(false); }
+      finally { engine.cleanup(); }
+    }
+    const engine = createFakeEngine({ models: { cliproxy: { binary: '/explicit/user-binary' } } } as any);
+    try { expect(new CliproxyManager({ engine, platform: 'linux', arch: 'x64', glibcVersion: '2.36' }).status().providers.some((p) => p.id === 'copilot')).toBe(false); }
+    finally { engine.cleanup(); }
   });
 });
 

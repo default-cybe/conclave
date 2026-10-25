@@ -11,6 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- GitHub Copilot and Kiro plans through CLIProxyAPI's plugins: the hub fetches the plugin build of CLIProxyAPI where the host can run it (`_no-plugin` asset otherwise), keeps the config's plugin block across rewrites, and lists both under Subscriptions for each member to sign in. Live sign-in is not yet verified. Upgraded hubs' old bare `plugins: {enabled: false}` is treated as unset so plugins turn on, an offline hub keeps running its working static binary instead of failing the migration, and plugin artifacts are trusted by the official store's claim plus the pinned version (no artifact hash).
 - Save drafts without asking: a per-account setting (off by default, Settings > Calendar and mail) that makes the Assistant's `MailDraft` save the draft straight into Drafts with no approval card. It never sends; sending still needs approval, and the email-reading agent still cannot draft.
 
 ## [0.4.30] - 2026-10-25
