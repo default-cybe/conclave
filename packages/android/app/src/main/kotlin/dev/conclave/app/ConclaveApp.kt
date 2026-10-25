@@ -18,10 +18,15 @@ import dev.conclave.app.notify.LiveConnectionService
 import dev.conclave.app.notify.Notifications
 import dev.conclave.app.notify.RefreshWorker
 import dev.conclave.app.update.AppUpdater
+import dev.conclave.client.logic.DraftStore
+import dev.conclave.client.model.EngineEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 /** Process-wide objects. Built once in [ConclaveApp.onCreate]. */
@@ -33,6 +38,13 @@ class AppContainer(context: Context) {
     val hub = HubRepository(appScope, settings, tokens, network.online, network.changes)
     /** The app's own updates from the public releases (update/AppUpdater.kt). */
     val updates = AppUpdater(context, appScope)
+    /** Each chat's unsent composer text and files, until sent, the chat is deleted, or sign out. */
+    val drafts = DraftStore(File(context.filesDir, "drafts"))
+
+    init {
+        // shortcut: a chat deleted while this phone was offline keeps its draft file, sign out clears it
+        appScope.launch { hub.events.collect { if (it is EngineEvent.SessionDeleted) drafts.clear(it.sessionId) } }
+    }
 }
 
 class ConclaveApp : Application() {
@@ -61,6 +73,7 @@ class ConclaveApp : Application() {
     suspend fun signOut() {
         setLiveService(false)
         container.hub.unpair()
+        withContext(Dispatchers.IO) { container.drafts.clearAll() }
     }
 
     /**
