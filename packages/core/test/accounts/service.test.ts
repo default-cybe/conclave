@@ -249,6 +249,27 @@ describe('the accounts service', () => {
     expect(ready('claude-haiku-5-5')).toEqual(['claude-a']);
   });
 
+  test("Antigravity's quota windows: a spent 3p window blocks its Claude and GPT models, a spent Gemini window its Gemini models", () => {
+    const now = { t: Date.now() };
+    const { svc, repos } = setup(now);
+    const models = [{ id: 'claude-opus-5-5' }, { id: 'gpt-6-astra' }, { id: 'gemini-3-pro' }];
+    const set = (windows: CliproxyCredentialFacts['windows']) =>
+      svc.setCliproxy({ provider: 'cliproxy', management: true, credentials: [cred('antigravity-g.json', { provider: 'antigravity', models, prefix: 'ag', plan: 'AI Pro', windows })] });
+    const ready = (m: string) => svc.readyAccounts(m).map((a) => a.id);
+    set([{ name: '5h 3p', usedPercent: 100, resetsAt: now.t + H }, { name: '7d gemini', usedPercent: 40, resetsAt: now.t + 50 * H }]);
+    expect(ready('claude-opus-5-5')).toEqual(['api-anthropic']);
+    expect(ready('gpt-6-astra')).toEqual([]);
+    expect(ready('gemini-3-pro')).toEqual(['antigravity-g']);
+    // windows to show: the note that Google reports nothing goes away
+    svc.publish();
+    const l = repos.usage.limits().find((x) => x.account === 'antigravity-g');
+    expect(l?.note).toBeUndefined();
+    expect(l?.windows.map((w) => w.name)).toEqual(['5h 3p', '7d gemini']);
+    set([{ name: '5h 3p', usedPercent: 10, resetsAt: now.t + H }, { name: '7d gemini', usedPercent: 100, resetsAt: now.t + 50 * H }]);
+    expect(ready('gemini-3-pro')).toEqual([]);
+    expect(ready('claude-opus-5-5')).toEqual(['antigravity-g', 'api-anthropic']);
+  });
+
   test('budgets are checked before they are saved', () => {
     expect(checkBudget({ usd: '25', resetDay: 22, tz: 'Europe/Berlin', hardStop: false })).toEqual({ usd: 25, period: 'month', resetDay: 22, tz: 'Europe/Berlin', hardStop: false });
     expect(checkBudget({ usd: 5, period: 'week', resetDay: 2, resetHour: 10 })).toEqual({ usd: 5, period: 'week', resetDay: 2, resetHour: 10 });

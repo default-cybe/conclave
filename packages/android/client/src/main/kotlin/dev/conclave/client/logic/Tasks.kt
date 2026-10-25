@@ -49,6 +49,13 @@ object Tasks {
     /** "1 running task", "2 running tasks". */
     fun pill(n: Int): String = if (n == 1) "1 running task" else "$n running tasks"
 
+    /** A fan-out card's header, as the web's fanOutWords: "4 subagents, 2 running, 1 failed". */
+    fun fanOutWords(total: Int, running: Int, failed: Int): String = listOfNotNull(
+        "$total ${if (total == 1) "subagent" else "subagents"}",
+        "$running running".takeIf { running > 0 },
+        "$failed failed".takeIf { failed > 0 },
+    ).joinToString(", ")
+
     /**
      * The subagent's session for a Task call: the one its result names, else
      * a child of [parentId] that carries a Delegate call's id or is titled

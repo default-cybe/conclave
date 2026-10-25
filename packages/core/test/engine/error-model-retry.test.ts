@@ -56,6 +56,115 @@ describe('provider inference retry', () => {
     } finally { await t.close(); }
   }, 30_000);
 
+  test('a provider 500 retries once on the next fallback model; a second failure offers the button', async () => {
+    const calls: string[] = [];
+    let otherFails = false;
+    const t = await startTestEngine({
+      script: [], extraProviders: { other: ['claude-sonnet-5-5'] },
+      overrides: { limits: { maxRetries: 0, fallbacks: { [FROM]: [TO] } } } as never,
+      route: (_body, _text, provider) => {
+        calls.push(provider);
+        if (provider === 'other' && !otherFails) return [{ text: 'answered by other' }];
+        return { status: 500, error: 'upstream exploded' };
+      },
+    });
+    try {
+      const s = await t.engine.createSession({ cwd: t.cwd, model: FROM });
+      await t.run(s.id, 'answer');
+      await t.engine.runnerFor(s.id).waitIdle();
+      expect(calls).toEqual(['mock', 'other']);
+      const msgs = t.engine.getMessages(s.id);
+      expect(msgs.find((m) => m.meta?.type === 'provider_retry')?.meta).toMatchObject({ from: FROM, to: TO });
+      expect(msgs.some((m) => m.meta?.type === 'provider_error')).toBe(false);
+      expect(JSON.stringify(msgs.at(-1)?.content)).toContain('answered by other');
+      expect(t.engine.requireSession(s.id)).toMatchObject({ status: 'idle', model: FROM });
+
+      calls.length = 0;
+      otherFails = true;
+      await t.run(s.id, 'again');
+      await t.engine.runnerFor(s.id).waitIdle();
+      expect(calls).toEqual(['mock', 'other']);
+      expect(t.engine.getMessages(s.id).at(-1)?.meta).toMatchObject({ type: 'provider_error', canRetry: true });
+      expect(t.engine.requireSession(s.id).status).toBe('error');
+    } finally { await t.close(); }
+  }, 30_000);
+
+  test('no fallback configured: the button shows straight away', async () => {
+    const calls: string[] = [];
+    const t = await startTestEngine({
+      script: [], extraProviders: { other: ['claude-sonnet-5-5'] },
+      overrides: { limits: { maxRetries: 0 } } as never,
+      route: (_body, _text, provider) => { calls.push(provider); return { status: 500, error: 'upstream exploded' }; },
+    });
+    try {
+      const s = await t.engine.createSession({ cwd: t.cwd, model: FROM });
+      await t.run(s.id, 'answer');
+      await t.engine.runnerFor(s.id).waitIdle();
+      expect(calls).toEqual(['mock']);
+      expect(t.engine.getMessages(s.id).some((m) => m.meta?.type === 'provider_retry')).toBe(false);
+      expect(t.engine.getMessages(s.id).at(-1)?.meta).toMatchObject({ type: 'provider_error', canRetry: true });
+    } finally { await t.close(); }
+  }, 30_000);
+
+  test('a source model the owner hid during the call never moves on its own', async () => {
+    const calls: string[] = [];
+    let hide = () => {};
+    const t = await startTestEngine({
+      script: [], extraProviders: { other: ['claude-sonnet-5-5'] },
+      overrides: { limits: { maxRetries: 0, fallbacks: { [FROM]: [TO] } } } as never,
+      route: (_body, _text, provider) => { calls.push(provider); hide(); return { status: 500, error: 'upstream exploded' }; },
+    });
+    try {
+      const s = await t.engine.createSession({ cwd: t.cwd, model: FROM });
+      hide = () => t.engine.config.update({ models: { ...t.engine.config.get().models, hidden: [FROM] } } as never);
+      await t.run(s.id, 'answer');
+      await t.engine.runnerFor(s.id).waitIdle();
+      expect(calls).toEqual(['mock']);
+      expect(t.engine.getMessages(s.id).some((m) => m.meta?.type === 'provider_retry')).toBe(false);
+      expect(t.engine.requireSession(s.id).status).toBe('error');
+    } finally { await t.close(); }
+  }, 30_000);
+
+  test('the automatic retry skips a model that hit its limit earlier in the turn', async () => {
+    const calls: string[] = [];
+    const t = await startTestEngine({
+      script: [], extraProviders: { other: ['claude-sonnet-5-5'] },
+      overrides: { limits: { maxRetries: 0, fallbacks: { [FROM]: [TO], [TO]: [FROM] } } } as never,
+      route: (_body, _text, provider) => { calls.push(provider); return provider === 'mock' ? 429 : { status: 500, error: 'upstream exploded' }; },
+    });
+    try {
+      const s = await t.engine.createSession({ cwd: t.cwd, model: FROM });
+      await t.run(s.id, 'answer');
+      await t.engine.runnerFor(s.id).waitIdle();
+      expect(calls).toEqual(['mock', 'other']);
+      expect(t.engine.getMessages(s.id).some((m) => m.meta?.type === 'provider_retry')).toBe(false);
+      expect(t.engine.getMessages(s.id).at(-1)?.meta).toMatchObject({ type: 'provider_error', canRetry: true });
+    } finally { await t.close(); }
+  }, 30_000);
+
+  test('steering sent during the failed call runs after the retry answers the turn', async () => {
+    const calls: string[] = [];
+    const t = await startTestEngine({
+      script: [], extraProviders: { other: ['claude-sonnet-5-5'] },
+      overrides: { limits: { maxRetries: 0, fallbacks: { [FROM]: [TO] } } } as never,
+      route: (_body, _text, provider) => {
+        calls.push(provider);
+        return provider === 'other' ? [{ text: `answered ${calls.length}` }] : { status: 500, error: 'upstream exploded', delayMs: 300 };
+      },
+    });
+    try {
+      const s = await t.engine.createSession({ cwd: t.cwd, model: FROM });
+      await t.engine.send(s.id, { text: 'answer' });
+      while (!calls.length) await Bun.sleep(10);
+      await t.engine.send(s.id, { text: 'also this', whenBusy: 'steer' });
+      await t.engine.runnerFor(s.id).waitIdle();
+      expect(calls).toEqual(['mock', 'other', 'mock', 'other']);
+      const texts = t.engine.getMessages(s.id).filter((m) => m.content.some((b) => b.type === 'text'))
+        .map((m) => (m.content.find((b) => b.type === 'text') as { text: string }).text);
+      expect(texts.filter((x) => ['answer', 'also this'].includes(x) || x.startsWith('answered'))).toEqual(['answer', 'answered 2', 'also this', 'answered 4']);
+    } finally { await t.close(); }
+  }, 30_000);
+
   test('disabled provider rejected without consuming a valid boundary', async () => {
     const t = await startTestEngine({ script: [], extraProviders: { other: ['claude-sonnet-5-5'] }, route: (_body, _text, provider) => provider === 'other' ? [{ text: 'continued' }] : 400 });
     try {

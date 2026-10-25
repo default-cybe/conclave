@@ -16,7 +16,9 @@ export function limitKey(l: Pick<LimitState, 'provider' | 'account'>): string {
 const DAY = 24 * HOUR;
 
 /** Model families a weekly window may be scoped to. Other scopes (oauth apps, cowork) only inform. */
-export const MODEL_SCOPES = ['opus', 'sonnet', 'fable', 'haiku'];
+export const MODEL_SCOPES = ['opus', 'sonnet', 'fable', 'haiku', 'gemini'];
+/** Scopes that cover models by other names: Antigravity's "3p" quota limits its Claude and GPT models. */
+const SCOPE_MODELS: Record<string, RegExp> = { '3p': /claude|gpt/ };
 
 const RATE = /^(requests|tokens|input-tokens|output-tokens)$|\/\s*(min|minute)\b|per[- ]minute/i;
 
@@ -68,6 +70,7 @@ export function windowApplies(w: LimitWindow, model?: string): boolean {
   if (w.kind === 'extra' || creditPool(w)) return false;
   const scope = windowScope(w.name);
   if (!scope) return true;
+  if (SCOPE_MODELS[scope]) return !!model && SCOPE_MODELS[scope].test(model.toLowerCase());
   if (!MODEL_SCOPES.includes(scope)) return false;
   return !!model && model.toLowerCase().includes(scope);
 }

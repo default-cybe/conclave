@@ -68,7 +68,8 @@ const COOLDOWN_WORDS: Record<string, string> = {
 function fullWords(w: LimitWindow): string {
   const scope = windowScope(w.name);
   const name = w.kind === 'session' ? '5 hour' : w.kind === 'weekly' ? 'Weekly' : w.kind === 'monthly' ? 'Monthly' : w.kind === 'rate' ? 'Rate' : w.name;
-  const of = scope ? ` ${scope[0].toUpperCase()}${scope.slice(1)}` : '';
+  // Antigravity's shared bucket for Claude and GPT models is scoped "3p"
+  const of = scope === '3p' ? ' Claude and GPT' : scope ? ` ${scope[0].toUpperCase()}${scope.slice(1)}` : '';
   return `${name}${of} limit reached`;
 }
 
@@ -102,7 +103,8 @@ export function assess(a: AccountView, now: number, model?: string): Verdict {
   if (a.budget && a.budget.hardStop !== false && a.budget.usd > 0 && a.budget.spentUsd >= a.budget.usd) {
     return { ...v, state: 'budget', reason: 'Budget spent', until: a.budget.periodEnd };
   }
-  const cooling = (a.cooldowns ?? []).filter((c) => c.until > now && (!c.model || !model || bareModel(c.model) === bareModel(model)));
+  // CLIProxyAPI keys a cooldown by the plan's own id: Antigravity's claude-opus-5-5-high also blocks claude-opus-5-5 there
+  const cooling = (a.cooldowns ?? []).filter((c) => c.until > now && (!c.model || !model || variantBase(bareModel(c.model)) === variantBase(bareModel(model))));
   if (cooling.length) {
     const last = cooling.reduce((x, y) => (y.until > x.until ? y : x));
     return { ...v, state: 'cooldown', reason: COOLDOWN_WORDS[last.reason] ?? 'Resting after errors', until: last.until };

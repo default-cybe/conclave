@@ -27,6 +27,8 @@ export interface IdleVerdict {
   since: number;
   /** The threshold in force. */
   thresholdMs: number;
+  /** A tool call still running past its own limit (one with none), when there is one. */
+  tool?: string;
 }
 
 export interface LoopVerdict {
@@ -164,7 +166,8 @@ export class StuckWatch {
       // a tool inside its own time limit is working, not stuck
       if ([...t.tools.values()].some((x) => now - x.startedAt < x.limitMs)) continue;
       t.idle = { since: t.lastProgress };
-      out.push({ sessionId, since: t.lastProgress, thresholdMs: limit });
+      const tool = [...t.tools.values()][0]?.name;
+      out.push({ sessionId, since: t.lastProgress, thresholdMs: limit, ...(tool ? { tool } : {}) });
     }
     return out;
   }

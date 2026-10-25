@@ -301,6 +301,23 @@ class WorkGroupsTest {
     }
 
     @Test
+    fun taskCallsOfOneMessageAreOneFanOutCard() {
+        fun task(id: String) = use(id, "Task", "description" to "Check $id", "subagent_type" to "explore", "prompt" to "Do it")
+        val entries = Work.pieces(
+            listOf(
+                assistant("a1", task("t1"), task("t2"), use("d1", "Delegate", "description" to "Build it", "prompt" to "Build"), read("r1", "a.dart"), task("t3")),
+                assistant("a2", task("t4"), use("w", "Workflow", "name" to "review-changes"), task("t5")),
+            ),
+        ).filterIsInstance<TurnPiece.Work>().single().entries
+        val segs = Work.segment(entries)
+        // a read splits the card; a new message starts a new one; a Workflow call is never in a card
+        assertEquals(listOf("FanOut", "One", "One", "One", "One", "One"), segs.map { it::class.simpleName })
+        assertEquals(listOf("t1", "t2", "d1"), (segs[0] as WorkSegment.FanOut).calls.map { it.use.id })
+        assertEquals("a1:0", segs[0].key)
+        assertEquals(listOf("r1", "t3", "t4", "w", "t5"), segs.drop(1).map { (it as WorkSegment.One).call.use.id })
+    }
+
+    @Test
     fun aWorkflowByAnyOtherNameIsStillAWorkflow() {
         assertEquals("Workflow", Work.name("Workflow"))
         assertEquals("Workflow", Work.name("mcp__conclave__Workflow"))
