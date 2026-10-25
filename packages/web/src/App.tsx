@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'rea
 import { Redirect, Route, Router, Switch, useLocation } from 'wouter';
 import { MOCK, connectClient, consumeHashToken, loadConnection, withoutConnectParam, type Connection } from './lib/api';
 import { loadAll, startLive, stopLive, useHub } from './store/store';
-import { isSetupPath, SETUP_ROUTE, useOnboarded } from './lib/onboarding';
+import { isSetupPath, setupRedirect, useOnboarded } from './lib/onboarding';
 import { onHubIdentityError } from './lib/identity';
 import { keepTrying, reachHub, useReach, type Reached } from './lib/reach';
 import { Shell } from './components/Shell';
@@ -150,9 +150,9 @@ export function App() {
   const owner = useIsOwner();
   const phone = useIsMobile();
   useEffect(() => {
-    if (phase === 'ready' && owner && onboarded === false && !isSetupPath(loc) && loc !== '/connect' && loc !== CONSENT_PATH && !INVITE_PATH.test(loc)) navigate(SETUP_ROUTE, { replace: true });
     // setup changes the hub's own settings: a member who opens it from a link goes Home
-    else if (phase === 'ready' && !owner && isSetupPath(loc)) navigate('/', { replace: true });
+    const to = phase === 'ready' && loc !== '/connect' && loc !== CONSENT_PATH && !INVITE_PATH.test(loc) ? setupRedirect(owner, onboarded, loc) : undefined;
+    if (to) navigate(to, { replace: true });
   }, [phase, owner, onboarded, loc, navigate]);
 
   if (phase === 'boot') return withSplash(launch ? <div className="h-full bg-bg" /> : <Splash />);
