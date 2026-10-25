@@ -11,6 +11,8 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- Tool preflight before a subagent or delegated job starts: a brief whose keywords need a shell or file changes is checked against the agent profile's tool list (and a read-only Delegate job's missing edit tools) and refused up front with words naming a better agent (coder, general-purpose), instead of starting on an agent that lacks the tool and failing mid-run. Keywords only, so an unsure match runs as before.
+
 - Save drafts without asking: a per-account setting (off by default, Settings > Calendar and mail) that makes the Assistant's `MailDraft` save the draft straight into Drafts with no approval card. It never sends; sending still needs approval, and the email-reading agent still cannot draft.
 
 ## [0.4.30] - 2026-10-25

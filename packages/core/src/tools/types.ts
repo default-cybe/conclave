@@ -42,6 +42,8 @@ export interface ToolHost {
     /** JSON Schema for the result: the child gets StructuredOutput and the call returns the validated object (engine/structured-task.ts). */
     schema?: unknown;
   }): Promise<{ sessionId: string; text: string; structured?: unknown; error?: string }>;
+  /** The agent's profile as this session's account sees it, for Task's capability preflight (engine/tool-check.ts). */
+  subagentTools?(agent: string): { name: string; tools?: string[]; disallowedTools?: string[] } | undefined;
   /** Ask the user multiple-choice questions and wait. */
   askUser(sessionId: string, questions: QuestionRequest['questions'], signal?: AbortSignal): Promise<Record<string, string>>;
   /** One-shot completion on any model (used by Consult, WebFetch summarizing). */
