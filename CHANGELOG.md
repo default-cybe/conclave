@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Added an end-to-end test for continuing a capped Claude Code chat in Conclave: import, a turn on another model, that model's usage limit failing over to the next one, and the turn written back into the Claude Code `.jsonl`.
+
 ## [0.4.30] - 2026-10-25
 
 ### Fixed
