@@ -15,7 +15,10 @@
  * - Stuck turns (alerts/stuck.ts): no progress for the threshold, or the same
  *   tool failing the same way 3 times in a row. One Inbox item with Stop and
  *   Keep waiting (the threshold doubles, counted from the answer); it clears
- *   itself when progress comes or the turn ends.
+ *   itself when progress comes or the turn ends. A quiet subagent or workflow
+ *   agent has nobody to answer in time, so no item: its call is cut, and it
+ *   fails over to its fallback model once, else reports the stall to its
+ *   parent (engine/subagent.ts driveSubagent).
  *
  * Everything lives in memory: a hub restart drops the alerts with the turns
  * they were about.
@@ -415,6 +418,12 @@ export class AlertService {
     const key = stuckKey(s.id, 'idle');
     if (this.open.has(key)) return;
     const text = `No progress in '${s.title}' for ${minutes(now - v.since)}`;
+    if (s.meta?.subagent && this.engine.runnerFor(s.id).stall(v.tool)) {
+      this.engine.audit(s.id, 'alert.stall', text);
+      // a fallback model gets a full threshold of its own
+      this.watch.progress(s.id, now);
+      return;
+    }
     this.add(key, { id: newId('alrt'), kind: 'stuck', reason: 'idle', sessionId: s.id, text, createdAt: now, updatedAt: now, sessions: [{ id: s.id, title: s.title }], since: v.since, thresholdMs: v.thresholdMs });
     this.engine.audit(s.id, 'alert.stuck', text);
     // the chat's name as the title, so the body does not say it again

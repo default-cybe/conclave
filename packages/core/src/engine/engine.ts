@@ -99,7 +99,7 @@ import { projectsOf } from '../projects/attached';
 import { workflowsOf } from '../workflows/attached';
 import { askOrigin } from './ask-origin';
 import { alertsOf } from '../alerts/attached';
-import { buildSystemPrompt, type PromptParts } from '../session/prompt';
+import { buildSystemPrompt, isClaudeModel, type PromptParts } from '../session/prompt';
 import { platformBlocksFor } from '../platform/facts';
 import { detectTestCommand, detectWorkspaceFacts, type WorkspaceFacts } from '../session/project';
 import { verifyCommandFor } from '../session/verify-gate';
@@ -2209,7 +2209,14 @@ export class Engine implements EngineApi {
     });
     // a member's session sees the skills that ship and plugin skills, not the owner's own
     const skills = this.isMemberSession(session) ? this.extensions.skills().filter((s) => SHARED_SOURCES.has(s.source)) : this.extensions.skills(session.cwd);
+    let claude: boolean;
+    try {
+      claude = isClaudeModel(this.registryFor(session).resolve(modelRef).model);
+    } catch {
+      claude = isClaudeModel(modelRef);
+    }
     return {
+      claude,
       session, agent, modelRef, mode, toolNames,
       platform: info?.platform ?? process.platform,
       hostname: info?.hostname,

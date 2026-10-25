@@ -100,6 +100,18 @@ class HomeTest {
     }
 
     @Test
+    fun rawCreditBalancesAndMissingNumbersHaveNoPercentage() {
+        for (balance in listOf(0.0, 1.234567, 96.512345)) {
+            val credits = LimitWindow("credits", remaining = balance)
+            assertNull(Home.percent(credits, blocked = false))
+            assertNull(Home.pressingLimit(listOf(LimitState("cliproxy", windows = listOf(credits))), 70))
+        }
+        assertNull(Home.percent(LimitWindow("5h"), blocked = false))
+        assertNull(Home.percent(LimitWindow("5h", limit = 100.0), blocked = false))
+        assertEquals(0, Home.percent(LimitWindow("5h", usedPercent = 0.0), blocked = false))
+    }
+
+    @Test
     fun runningLeavesOutChatsAndPutsResetsLast() {
         val list = listOf(
             Session("a", status = SessionStatus.WAITING_RESET, createdAt = 1),
