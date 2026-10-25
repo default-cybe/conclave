@@ -1244,7 +1244,7 @@ export class SessionRunner {
           }
           engine.notice(this.id, refusalWords.failed(failed.label, why), 'warning', undefined, { type: 'refusal', outcome: 'failed', to: failed.label });
           // an entry at its limit: the same model on the owner's next ready plan first, then the next entry
-          const other = err instanceof ProviderError && (err.kind === 'rate_limit' || err.kind === 'quota') && failed.pin && !failed.accessPrograms ? nextAccount(engine, this.id, failed.ref) : undefined;
+          const other = err instanceof ProviderError && (err.kind === 'rate_limit' || err.kind === 'quota') && failed.pin && !failed.accessPrograms ? nextAccount(engine, this.id, failed.ref, { exact: true }) : undefined;
           if (other) {
             const gw = failed.pin!.provider;
             const t: FallbackTarget = { ...failed, ref: other.ref, label: other.to, pin: { provider: gw, model: other.ref.slice(gw.length + 1), account: other.account } };
