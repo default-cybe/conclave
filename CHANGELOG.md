@@ -19,6 +19,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Settings > Models > Accounts: "Add an order for a model" offers every model a plan lists (a subscription or the Z.ai Coding Plan), not only models two or more plans share, and skips ids the hub cannot file under a vendor. A Z.ai order (a pay as you go key before the Coding Plan, say) now picks the first provider of a bare GLM call too. A Z.ai Coding Plan key at its limit hands the same call to the next Z.ai key in the order instead of waiting for the reset; a key over its hard budget is skipped. The Accounts API now tags each plan model with its vendor (`AccountDto.models[].vendor`).
 
+### Fixed
+
+- Subagents and workflow steps on the `deep` tier (debugger and other built-in profiles) now run on the session's model when it is already deep tier, else on a deep-tier defaultModel, before the catalog's own pick. Before, with no `models.tiers.deep` set, an Opus 5.5 session sent them to Claude Fable 5.1. `models.tiers.deep` still wins.
+
 ## [0.4.30] - 2026-10-25
 
 ### Fixed
