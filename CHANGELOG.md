@@ -21,6 +21,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Android: a shared PNG, JPEG, WebP or GIF file shows in the chat above its card, like the web. Animated GIF and WebP play on Android 9 and later and show their first frame below. Tap the image to open it. SVG never renders, and files over 20 MB stay a card only.
 - Google (Antigravity) plans show the raw paid-credit balance and plan tier (AI Pro, AI Ultra) in Accounts and Usage. The hub reads `loadCodeAssist` through CLIProxyAPI with the credential's own token. Credits remain informational, without an invented percentage or quota, and never block ordinary model access. Provider cooldowns still apply.
+- Harness parity for GPT, Gemini and GLM. `bun bench/checks/model-parity.ts` checks ten things per model on its own wire with no model calls: tool calls, Delegate, Workflow, ToolSearch, file reads, images, PDFs, zips, structured output and text attachments. GLM-5.3 now gets an attached PDF as text a vision model wrote, not "not readable": at most 2 new PDFs per request, only from a model the catalog says reads them, and a transcription cut at its 16,000-token limit says later pages are missing. `bun run test` now runs the parity check. Gemini 3 behind a Chat Completions gateway gets its thought signature back on tool calls. Models other than Claude get a short "Using Conclave's tools" section in the system prompt.
 
 ### Added
 
