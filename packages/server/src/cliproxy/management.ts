@@ -83,10 +83,12 @@ export interface RawCredential {
   chatgptAccountId?: string;
   /** ChatGPT accounts: the plan from the id token's claims (free, plus, pro, team). CLIProxyAPI picks the account's models by it. */
   planType?: string;
+  /** Antigravity accounts: the Cloud Code project id, when the listing carries it. Not a secret. */
+  projectId?: string;
 }
 
 /** The only calls the hub makes through api-call, and nothing from a user or a model goes into them. */
-export type UsageCallKind = 'claude-usage' | 'claude-profile' | 'codex-usage' | 'codex-models';
+export type UsageCallKind = 'claude-usage' | 'claude-profile' | 'codex-usage' | 'codex-models' | 'antigravity-usage' | 'antigravity-quota-daily' | 'antigravity-quota';
 
 /**
  * The Codex client version the hub names when it asks a ChatGPT plan for its
@@ -96,19 +98,28 @@ export type UsageCallKind = 'claude-usage' | 'claude-profile' | 'codex-usage' | 
 export const CODEX_CLIENT_VERSION = '0.164.0';
 
 const CLAUDE_HEADERS = { Authorization: 'Bearer $TOKEN$', 'anthropic-beta': 'oauth-2025-04-20', Accept: 'application/json' };
+/** CLIProxyAPI's own Antigravity client name: Cloud Code refuses clients below 2.23.0. */
+const ANTIGRAVITY_QUOTA_HEADERS = { Authorization: 'Bearer $TOKEN$', 'Content-Type': 'application/json', 'User-Agent': 'antigravity/hub/2.24.0 (aidev_client; os_type=darwin; arch=arm64; cl=1000335682)' };
+/** A Cloud Code project id, the only value that goes into the quota body. */
+const PROJECT_ID = /^[\w.:-]{1,128}$/;
 
 /**
  * The api-call allowlist: exact method and URL. api-call is an authenticated
  * fetch for any address with the credential's token put in, so the hub
  * builds every request from this table alone.
  */
-export const USAGE_CALLS: Record<UsageCallKind, { method: 'GET'; url: string; header: Record<string, string> }> = {
+export const USAGE_CALLS: Record<UsageCallKind, { method: 'GET' | 'POST'; url: string; header: Record<string, string>; body?: string }> = {
   'claude-usage': { method: 'GET', url: 'https://api.anthropic.com/api/oauth/usage', header: CLAUDE_HEADERS },
   'claude-profile': { method: 'GET', url: 'https://api.anthropic.com/api/oauth/profile', header: CLAUDE_HEADERS },
   'codex-usage': { method: 'GET', url: 'https://chatgpt.com/backend-api/wham/usage', header: { Authorization: 'Bearer $TOKEN$', Accept: 'application/json' } },
   // the plan's own model list, as the Codex app reads it: CLIProxyAPI lists a ChatGPT plan's models from its own catalog only
   // as Codex CLI asks: the token, the account id (added per call) and its originator
   'codex-models': { method: 'GET', url: `https://chatgpt.com/backend-api/codex/models?client_version=${CODEX_CLIENT_VERSION}`, header: { Authorization: 'Bearer $TOKEN$', Accept: 'application/json', originator: 'codex_cli_rs' } },
+  // the Antigravity editor's own startup call: the plan tier and the GOOGLE_ONE_AI credits balance (usage/readers/antigravity.ts)
+  'antigravity-usage': { method: 'POST', url: 'https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist', header: { Authorization: 'Bearer $TOKEN$', 'Content-Type': 'application/json', Accept: 'application/json' }, body: '{"metadata":{"ideType":"ANTIGRAVITY"}}' },
+  // the 5h and weekly quota buckets, from both hosts (one may leave the Gemini group out); the body names the project, added per call
+  'antigravity-quota-daily': { method: 'POST', url: 'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary', header: ANTIGRAVITY_QUOTA_HEADERS, body: '{}' },
+  'antigravity-quota': { method: 'POST', url: 'https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary', header: ANTIGRAVITY_QUOTA_HEADERS, body: '{}' },
 };
 
 /** Throws unless the call is exactly one of USAGE_CALLS. */
@@ -291,6 +302,7 @@ export class Management {
         const authIndex = str(x.auth_index) ?? (typeof x.auth_index === 'number' ? String(x.auth_index) : undefined);
         const chatgpt = str(claims.chatgpt_account_id);
         const plan = str(claims.plan_type)?.toLowerCase();
+        const project = str(x.project_id);
         return {
           name,
           ...(authIndex && AUTH_INDEX.test(authIndex) ? { authIndex } : {}),
@@ -315,6 +327,7 @@ export class Management {
           nextRetryAfter: time(x.next_retry_after),
           ...(chatgpt && /^[\w-]{1,80}$/.test(chatgpt) ? { chatgptAccountId: chatgpt } : {}),
           ...(plan && /^[a-z_-]{1,20}$/.test(plan) ? { planType: plan } : {}),
+          ...(project && PROJECT_ID.test(project) ? { projectId: project } : {}),
         };
       })
       .filter((x): x is RawCredential => !!x);
@@ -372,7 +385,7 @@ export class Management {
    * and the parsed JSON body; nothing of the request or the headers is kept
    * or logged, except Retry-After on a 429.
    */
-  async usageCall(kind: UsageCallKind, authIndex: string, opts: { chatgptAccountId?: string; etag?: string } = {}): Promise<{ status: number; json?: unknown; retryAfterMs?: number; etag?: string }> {
+  async usageCall(kind: UsageCallKind, authIndex: string, opts: { chatgptAccountId?: string; etag?: string; projectId?: string } = {}): Promise<{ status: number; json?: unknown; retryAfterMs?: number; etag?: string }> {
     const call = USAGE_CALLS[kind];
     if (!call) throw new ManagementError(`The hub does not send that call through CLIProxyAPI.`, 400);
     assertAllowedCall(call);
@@ -381,9 +394,11 @@ export class Management {
     if ((kind === 'codex-usage' || kind === 'codex-models') && opts.chatgptAccountId && /^[\w-]{1,80}$/.test(opts.chatgptAccountId)) header['Chatgpt-Account-Id'] = opts.chatgptAccountId;
     // the plan's model list again: a 304 when nothing changed
     if (kind === 'codex-models' && opts.etag && ETAG.test(opts.etag)) header['If-None-Match'] = opts.etag;
+    const quota = kind === 'antigravity-quota-daily' || kind === 'antigravity-quota';
+    const body = quota && opts.projectId && PROJECT_ID.test(opts.projectId) ? JSON.stringify({ project: opts.projectId }) : call.body;
     const api = await this.detect();
     if (api !== 'v8') throw new ManagementError('This CLIProxyAPI cannot read plan usage. Update it to version 8 or newer.', 404);
-    const r = await this.call<Record<string, unknown>>('POST', '/v8/management/requests/api-call', { auth_index: authIndex, method: call.method, url: call.url, header });
+    const r = await this.call<Record<string, unknown>>('POST', '/v8/management/requests/api-call', { auth_index: authIndex, method: call.method, url: call.url, header, ...(body !== undefined ? { data: body } : {}) });
     if (r.status !== 200) this.fail(r.status, r.data, 'read the plan\'s usage');
     const status = typeof r.data.status_code === 'number' ? r.data.status_code : 0;
     let json: unknown;
