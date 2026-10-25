@@ -68,7 +68,8 @@ const COOLDOWN_WORDS: Record<string, string> = {
 function fullWords(w: LimitWindow): string {
   const scope = windowScope(w.name);
   const name = w.kind === 'session' ? '5 hour' : w.kind === 'weekly' ? 'Weekly' : w.kind === 'monthly' ? 'Monthly' : w.kind === 'rate' ? 'Rate' : w.name;
-  const of = scope ? ` ${scope[0].toUpperCase()}${scope.slice(1)}` : '';
+  // Antigravity's shared bucket for Claude and GPT models is scoped "3p"
+  const of = scope === '3p' ? ' Claude and GPT' : scope ? ` ${scope[0].toUpperCase()}${scope.slice(1)}` : '';
   return `${name}${of} limit reached`;
 }
 

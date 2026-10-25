@@ -18,7 +18,7 @@ import type { LimitWindow } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { useIsMobile, useNow } from '@/lib/hooks';
 import { cn } from '@/lib/text';
-import { MANAGEMENT_NOTE, REFUSAL_HINT, REFUSAL_SWITCH, STATE_WORD, VENDOR_LOGO, budgetWords, nowLine, resetWords, rowWindows, sharedModels, shortNameSuggestions, useAccounts, usedOf, windowName } from '@/lib/accounts';
+import { MANAGEMENT_NOTE, REFUSAL_HINT, REFUSAL_SWITCH, STATE_WORD, VENDOR_LOGO, balanceWords, budgetWords, nowLine, resetWords, rowWindows, sharedModels, shortNameSuggestions, useAccounts, usedOf, windowName } from '@/lib/accounts';
 import { TONE_CLASS } from '@/lib/subscriptions';
 import { memberNow, toast } from '@/store/store';
 import { Logo, ModelMark } from '@/components/logo';
@@ -227,7 +227,7 @@ export function Meter({ w, now }: { w: LimitWindow; now: number }) {
   return (
     <div className="grid grid-cols-[72px_minmax(0,180px)_40px_minmax(0,1fr)] items-center gap-x-3 py-[3px] phone:grid-cols-[80px_minmax(0,1fr)_44px] phone:gap-y-0.5">
       <span className="text-[12px] text-fg-3 phone:text-[13px]">{name}</span>
-      {used === undefined ? <span className="text-[12px] text-fg-4">not read yet</span> : <LimitGauge value={used} label={name} segments={20} />}
+      {used === undefined ? <span className="text-[12px] text-fg-3">{balanceWords(w) ?? 'not read yet'}</span> : <LimitGauge value={used} label={name} segments={20} />}
       <span className={cn('num text-right text-[12.5px] font-[560]', used === undefined ? 'text-fg-4' : used >= 90 ? 'text-fault' : used >= 70 ? 'text-warn' : 'text-fg')}>{used === undefined ? '' : `${used}%`}</span>
       <span className="truncate text-[12px] text-fg-3 phone:col-span-2 phone:col-start-2 phone:text-[12.5px]">{note}</span>
     </div>

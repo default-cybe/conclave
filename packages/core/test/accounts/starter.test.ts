@@ -340,6 +340,32 @@ describe('the window starter', () => {
     expect(none.planned.get('claude-a')).toBeUndefined();
   });
 
+  test("Antigravity: its model's scoped 5 hour window (5h gemini) is the one it starts", async () => {
+    const now = T('2026-10-23T14:00:00Z');
+    // mapAntigravityQuota: an unstarted window has no reset; the 3p one runs for Claude and GPT
+    const quota = (at: number, gemini: Partial<LimitWindow>): LimitWindow[] => [
+      { name: '5h gemini', usedPercent: 0, observedAt: at, source: 'oauth', ...gemini },
+      { name: '5h 3p', usedPercent: 40, resetsAt: now + 2 * H, observedAt: at, source: 'oauth' },
+      { name: '7d gemini', usedPercent: 10, resetsAt: now + 3 * 86_400_000, observedAt: at, source: 'oauth' },
+    ];
+    const ag = (windows: LimitWindow[]) => claude({ id: 'ag', vendor: 'gemini', models: ['gemini-3.5-flash', 'claude-opus-5-5-high'], windows });
+    const h = harness({ facts: [ag(quota(now - MIN, {}))], now });
+    h.starter.plan();
+    expect(h.view('ag')).toMatchObject({ state: 'scheduled', nextAt: now - MIN });
+    await h.wake('ag');
+    expect(h.sent.map((s) => s.req.model)).toEqual(['gemini-3.5-flash']);
+    // two usage readings agree on the new reset: the Gemini window started
+    h.hooks.onRead = (_id, o) => {
+      if (o.usage) h.box.facts = [ag(quota(h.clock.t, { usedPercent: 1, resetsAt: now + 5 * H }))];
+    };
+    for (let i = 0; i < 4 && h.view('ag').state === 'checking'; i++) await h.wake('ag');
+    expect(h.view('ag')).toMatchObject({ state: 'scheduled', nextAt: now + 5 * H + 3 * S });
+    // an owner's Claude model goes by the 3p window instead
+    const own = ag(quota(now - MIN, {}));
+    own.starter = { enabled: true, model: 'claude-opus-5-5-high' };
+    expect(decide(own, [own], { failures: 0 }, now, 'UTC')).toMatchObject({ state: 'scheduled', nextAt: now + 2 * H + 3 * S });
+  });
+
   test('the request is "OK" only, at most 4 tokens out, no tools, and its usage row says starter', async () => {
     const reset = T('2026-10-23T14:00:00Z');
     const h = harness({ facts: [claude({ windows: [w5(reset, reset - 4 * H)] })], now: reset + 3 * S });
