@@ -24,7 +24,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'wouter';
 import { ChevronRight, ChevronUp } from 'lucide-react';
-import { Elapsed, Knot } from '@/components/motion';
+import { AgentGlyph, Elapsed, LIVE_ROWS, Pet, busiestKind, petState } from '@/components/motion';
 import { Popover } from '@/components/ui/Overlay';
 import { StateWord } from '@/components/ui/List';
 import { cn } from '@/lib/text';
@@ -63,8 +63,8 @@ export function RunningTasksView({ tasks, className }: { tasks: RunningTask[]; c
         onClick={() => setOpen((o) => !o)}
         className="inline-flex h-7 items-center gap-2 rounded-full border border-rule-2 bg-raise pr-2.5 pl-2.5 text-[12.5px] text-fg-2 transition-colors duration-[var(--dur-1)] hov:text-fg phone:h-9 phone:gap-2.5 phone:px-3.5 phone:text-[14px]"
       >
-        {/* a button never animates a Knot (spec 1.9) */}
-        <Knot state={waiting ? 'waiting' : 'tool'} size={12} still />
+        {/* the pet does what most of the jobs do (CHAT-AND-MOTION 1.11) */}
+        <Pet state={waiting ? 'waiting' : petState(busiestKind(tasks.map((t) => (t.kind === 'workflow' ? 'workflow' : t.agent))))} size={24} className="-my-1 text-fg-2" />
         <span className="num">
           {words}
           {waiting && <span className="text-warn">, waiting on you</span>}
@@ -85,7 +85,8 @@ export function TaskList({ tasks }: { tasks: RunningTask[] }) {
     <div className="flex flex-col">
       {!phone && <p className="m-0 border-b border-rule px-3 pt-2.5 pb-2 text-[12px] text-fg-3">{tasksWord(tasks.length)}</p>}
       <ul className="m-0 list-none p-0 [&>li+li]:border-t [&>li+li]:border-rule" aria-label="Running tasks">
-        {tasks.map((t) => (t.kind === 'workflow' ? <WorkflowTask key={t.key} task={t} /> : <SubagentTask key={t.key} task={t} />))}
+        {/* only the first three rows move (CHAT-AND-MOTION 1.9) */}
+        {tasks.map((t, i) => (t.kind === 'workflow' ? <WorkflowTask key={t.key} task={t} still={i >= LIVE_ROWS} /> : <SubagentTask key={t.key} task={t} still={i >= LIVE_ROWS} />))}
       </ul>
     </div>
   );
@@ -97,7 +98,7 @@ const TITLE = 'min-w-0 truncate text-[13.5px] text-fg phone:text-[15px]';
 const LINE = 'mt-0.5 flex items-baseline gap-3 text-[12.5px] phone:text-[14px]';
 
 /** A workflow: name, time, where it is, Open run; opened, its phases and agents. */
-function WorkflowTask({ task }: { task: RunningWorkflow }) {
+function WorkflowTask({ task, still }: { task: RunningWorkflow; still?: boolean }) {
   const { run } = task;
   const [open, setOpen] = useState(false);
   // the agents load when it opens, then follow the run's events
@@ -106,9 +107,10 @@ function WorkflowTask({ task }: { task: RunningWorkflow }) {
     <li data-task="workflow" className={ITEM}>
       <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={cn(HEAD, 'group/task')}>
         <span className={TITLE}>
+          <AgentGlyph type="workflow" state={task.waiting ? 'waiting' : 'running'} still={still} className="mr-1.5 inline align-[-2px]" />
           <span className="text-fg-2">Workflow</span> <span className="font-medium">{run.name}</span>
         </span>
-        <span className="text-[12px] phone:text-[13px]">{run.status === 'running' ? <Elapsed since={run.startedAt ?? run.createdAt} format="short" className="text-signal" /> : <StateWord tone={RUN_TONE[run.status]}>{RUN_WORD[run.status]}</StateWord>}</span>
+        <span className="cv-state text-[12px] phone:text-[13px]">{run.status === 'running' ? <Elapsed since={run.startedAt ?? run.createdAt} format="short" className="text-signal" /> : <StateWord tone={RUN_TONE[run.status]}>{RUN_WORD[run.status]}</StateWord>}</span>
         <ChevronRight aria-hidden strokeWidth={1.75} className={cn('size-3 self-center text-fg-4 transition-transform duration-[var(--dur-1)] group-hover/task:text-fg-2 phone:size-4', open && 'rotate-90')} />
       </button>
       <div className={LINE}>
@@ -130,13 +132,14 @@ function WorkflowTask({ task }: { task: RunningWorkflow }) {
 }
 
 /** A subagent: what it does, who does it, its time, what it is doing now, Open session. */
-function SubagentTask({ task }: { task: RunningSubagent }) {
+function SubagentTask({ task, still }: { task: RunningSubagent; still?: boolean }) {
   const now = useSubagentNow(true, task.childId);
   const lead = subagentLead(task);
   return (
     <li data-task="subagent" className={ITEM}>
       <div className={HEAD}>
         <span className={TITLE}>
+          <AgentGlyph type={task.handedTo ? 'delegate' : task.agent} state={task.waiting || now?.waiting ? 'waiting' : 'running'} still={still} className="mr-1.5 inline align-[-2px]" />
           <span className="text-fg-2">{lead.verb}</span> {lead.who && <span className="font-medium">{lead.who}: </span>}
           {task.description}
         </span>
