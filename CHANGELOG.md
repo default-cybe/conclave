@@ -11,6 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Changed
 
+- Android: a shared PNG, JPEG, WebP or GIF file shows in the chat above its card, like the web. Animated GIF and WebP play on Android 9 and later and show their first frame below. Tap the image to open it. SVG never renders, and files over 20 MB stay a card only.
 - Google (Antigravity) plans show the raw paid-credit balance and plan tier (AI Pro, AI Ultra) in Accounts and Usage. The hub reads `loadCodeAssist` through CLIProxyAPI with the credential's own token. Credits remain informational, without an invented percentage or quota, and never block ordinary model access. Provider cooldowns still apply.
 
 ### Added
