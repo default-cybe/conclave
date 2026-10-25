@@ -53,4 +53,10 @@ class AttachTest {
         assertEquals("1 file", Attach.filesWord(1))
         assertEquals("7 files", Attach.filesWord(7))
     }
+
+    @Test
+    fun aFileTheHubCouldNotReadAsksInsteadOfFailing() {
+        assertEquals("a.pdf could not be read. Send again to go without it.", Attach.lostWords("Attachment not included: a.pdf could not be read. Send again to go without it."))
+        assertNull(Attach.lostWords("Network error"))
+    }
 }

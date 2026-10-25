@@ -163,6 +163,9 @@ class ChatThreadViewModel(
     val draft = MutableStateFlow("")
     val attachments = MutableStateFlow<List<Attachment>>(emptyList())
 
+    /** A file the hub could not read: its words, while the owner chooses to send without it. */
+    val lossAsk = MutableStateFlow<String?>(null)
+
     /** Messages an edit or retry is replacing: hidden until the hub drops them. */
     private val hidden = MutableStateFlow<Set<String>>(emptySet())
 
@@ -384,7 +387,19 @@ class ChatThreadViewModel(
     private fun knownIds(): Set<String> = transcript.value.messages.map { it.id }.toSet()
 
     /** Sends the draft. While a reply runs it queues: it shows at once, Queued, and goes out when that reply ends. */
-    fun send() {
+    fun send() = send(loss = null)
+
+    /** The owner chose to send the message without the file the hub could not read. */
+    fun sendWithoutLost() {
+        lossAsk.value = null
+        send(loss = "drop")
+    }
+
+    fun dismissLossAsk() {
+        lossAsk.value = null
+    }
+
+    private fun send(loss: String?) {
         val text = draft.value.trim()
         val files = attachments.value
         if (text.isEmpty() && files.isEmpty()) return
@@ -408,7 +423,7 @@ class ChatThreadViewModel(
         attachments.value = emptyList()
         viewModelScope.launch {
             try {
-                val r = hub.api { it.send(sessionId, SendInput(text = text, attachments = files.ifEmpty { null })) }
+                val r = hub.api { it.send(sessionId, SendInput(text = text, attachments = files.ifEmpty { null }, attachmentLoss = loss)) }
                 // the hub was busy after all: it waits there, listed by session.queue, not as the bubble shown at send
                 if (r.queued && pending.value?.text == text) {
                     pending.value = null
@@ -422,7 +437,10 @@ class ChatThreadViewModel(
                 turnStartedAt.value = null
                 if (draft.value.isEmpty()) draft.value = text
                 if (attachments.value.isEmpty()) attachments.value = files
-                say(errorText(e) + " Your message is back in the box.")
+                val msg = errorText(e)
+                // the hub will not drop a file on its own: the choice is the owner's
+                val lost = Attach.lostWords(msg)
+                if (lost != null) lossAsk.value = lost else say(msg + " Your message is back in the box.")
             }
         }
     }
