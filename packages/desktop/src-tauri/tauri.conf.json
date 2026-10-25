@@ -35,7 +35,10 @@
     ],
     "externalBin": [
       "binaries/conclave-daemon"
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "-"
+    }
   },
   "plugins": {
     "updater": {
