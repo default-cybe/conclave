@@ -6,10 +6,11 @@
  *
  * - fast: models.tiers.fast, else smallModel.
  * - smart: models.tiers.smart, else the session's model.
- * - deep: models.tiers.deep, else the cheapest deep-tier catalog model of a
- *   configured provider (the session model's provider first, newest on a
- *   tie), else claude-code/opus when that harness is set up, else the
- *   session's model.
+ * - deep: models.tiers.deep, else the session's model when it is deep tier,
+ *   else defaultModel when it is deep tier, else the cheapest deep-tier
+ *   catalog model of a configured provider (the session model's provider
+ *   first, newest on a tie), else claude-code/opus when that harness is set
+ *   up, else the session's model.
  * - "provider/model" and ACP refs pass through when usable.
  * - A model that answered 404 model not found (engine/subagent.ts
  *   modelFallback) is skipped by the deep pick and by fast's smallModel for
@@ -17,6 +18,7 @@
  */
 import type { ConclaveConfig } from '../config/schema';
 import { catalogEntries, familyForProvider, findCatalogEntry } from '../providers/catalog';
+import { variantBase } from '../providers/model-id';
 import { resolveModelRef, tierOf, type ResolvedModelRef } from './model-ref';
 
 /** What the resolver needs from the engine. Engine satisfies it. */
@@ -95,13 +97,19 @@ export function deepTierModel(host: ModelHost, sessionModel: string): string | u
   return undefined;
 }
 
+/** Whether a provider/model ref is a deep-tier catalog model; account prefixes ("neu-claude/") and effort suffixes are ignored. */
+function isDeepModel(ref: string | undefined): ref is string {
+  return !!ref && findCatalogEntry(variantBase(ref.slice(ref.lastIndexOf('/') + 1)))?.tier === 'deep';
+}
+
 /** Resolve a model word for a session whose model is `sessionModel`. */
 export function agentModelRef(host: ModelHost, ref: string | undefined, sessionModel: string): ResolvedModelRef {
   const config = host.config.get();
-  // deep without a configured tier: the catalog's pick, even when it is also the default model
+  // deep without a configured tier: a deep session or default model the owner already runs, else the catalog's pick
   if (tierOf(ref) === 'deep') {
     const set = config.models?.tiers?.deep;
     if (!(set && usable(host, set))) {
+      for (const m of [sessionModel, config.defaultModel]) if (isDeepModel(m) && pickable(host, m)) return { model: m, tier: 'deep' };
       const deep = deepTierModel(host, sessionModel);
       if (deep) return { model: deep, tier: 'deep' };
     }

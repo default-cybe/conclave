@@ -6,9 +6,10 @@
  * - inherit or nothing: the session's model.
  * - fast: models.tiers.fast, else smallModel.
  * - smart: models.tiers.smart, else the session's model.
- * - deep: models.tiers.deep, else the first usable deep-tier model among the
- *   configured providers, else claude-code/opus when that harness is set up,
- *   else the session's model.
+ * - deep: models.tiers.deep, else (extensions/agent-model.ts) the session's
+ *   or default model when it is deep tier, else the first usable deep-tier
+ *   model among the configured providers, else claude-code/opus when that
+ *   harness is set up, else the session's model.
  * - Claude Code names: haiku is fast, sonnet is smart, opus and opusplan are deep.
  * - "provider/model" and ACP refs such as claude-code/sonnet or codex/default
  *   pass through.

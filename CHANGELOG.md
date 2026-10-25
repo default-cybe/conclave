@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Subagents and workflow steps on the `deep` tier (debugger and other built-in profiles) now run on the session's model when it is already deep tier, else on a deep-tier defaultModel, before the catalog's own pick. Before, with no `models.tiers.deep` set, an Opus 5.5 session sent them to Claude Fable 5.1. `models.tiers.deep` still wins.
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed
