@@ -5,6 +5,7 @@
 import type { WorkflowCall, WorkflowCallState, WorkflowRun, WorkflowRunStatus, WorkflowSource } from '@conclave/core/client';
 import type { StateTone } from '@/components/ui/List';
 import type { MarkState } from '@/components/motion';
+import { busiestKind, petState, type PetState } from '@/components/motion/agentGlyphs';
 import { compact, durationShort, usd } from '@/lib/format';
 
 export const RUN_WORD: Record<WorkflowRunStatus, string> = {
@@ -71,6 +72,17 @@ export function knotFor(run: WorkflowRun): MarkState {
   if (run.status === 'waiting_reset') return 'paused';
   if (run.status === 'failed') return 'failed';
   return 'done';
+}
+
+/** The pet's pose for a run's header: what most of its running agents do, or the run's state. */
+export function petFor(run: WorkflowRun, calls: readonly WorkflowCall[]): PetState {
+  if (run.status === 'waiting_reset') return 'parked';
+  if (run.status === 'paused' || run.status === 'interrupted') return 'waiting';
+  if (run.status === 'failed') return 'failed';
+  if (run.status === 'done') return 'done';
+  if (!isLive(run.status)) return 'idle';
+  if (calls.some((c) => c.state === 'running' && c.waiting)) return 'waiting';
+  return petState(busiestKind(calls.filter((c) => c.state === 'running' && c.kind === 'agent').map((c) => c.agentType)));
 }
 
 export const tokens = (n: number) => `${compact(n)} tokens`;

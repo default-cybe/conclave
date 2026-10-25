@@ -3,9 +3,10 @@
  * the "+" items and the send. Enter starts the session and opens it at
  * /s/:id.
  *
- * Assistant: the assistant agent on the hub. The row has the permission
- * mode at the left and the model with its effort at the right; no device or
- * folder.
+ * Assistant: the account's one assistant thread on the hub (GET
+ * /api/assistant/home); Enter sends into it and opens it, no new session.
+ * The row has the permission mode at the left and the model with its effort
+ * at the right; no device or folder.
  *
  * Code: the default coding agent (a custom one when picked under "+"). In
  * the desktop app it runs on the app's own computer; in a browser on the
@@ -30,6 +31,10 @@
  * starts in a new worktree of it on its own branch, on the device picked
  * (the hub unless you choose), so no folder is asked for.
  *
+ * Run in a worktree: when the folder is in a git repository, "+" (and the
+ * phone's options) offer a worktree of it on a new branch from its current
+ * one, so several sessions work on one repository without clashing.
+ *
  * A member (docs/design/ACCOUNTS.md 5) codes on devices of their own: the
  * hub never stands in, and with none paired the box says where to pair one
  * instead of starting.
@@ -52,7 +57,7 @@ import { LiveStatus } from '@/components/motion';
 import { AgentPicker } from '@/components/pickers/Pickers';
 import { DeviceFolderPicker, PermissionPicker } from '@/features/chat/pickers';
 import { ULTRA_LINE } from '@/features/workflows/UltraSwitch';
-import { keepSession, type Outgoing } from '@/features/conversation/actions';
+import { keepSession, sendToAssistant, type Outgoing } from '@/features/conversation/actions';
 import { SEND_EVENT, type ComposerTarget } from '@/features/conversation/ChatComposer';
 import { useAgentFollow } from '@/features/conversation/ComposerParts';
 import { OptionsButton } from '@/features/conversation/PhoneBox';
@@ -118,6 +123,24 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
   const repo: RepoPick | undefined = code && picks.repo ? { repo: picks.repo, ...(picks.base ? { base: picks.base } : {}) } : undefined;
   // a folder picked here (the home folder too), or the last session's; a repository needs none; the assistant works on the hub
   const placeSet = !code || picks.cwd !== undefined || !!setup.cwd || !!repo;
+  // "Run in a worktree" is offered only for a folder in a git repository: asked of the device once per folder
+  const gitKey = code && !repo && setup.cwd ? `${setup.device}\n${setup.cwd}` : '';
+  const [folderGit, setFolderGit] = useState<{ key: string; git: boolean; branch?: string }>();
+  useEffect(() => {
+    if (!gitKey) return;
+    let live = true;
+    const [device = '', cwd = ''] = gitKey.split('\n');
+    api()
+      .folderGit(device, cwd)
+      .then((r) => live && setFolderGit({ key: gitKey, git: r.git, ...(r.branch ? { branch: r.branch } : {}) }))
+      .catch(() => live && setFolderGit({ key: gitKey, git: false }));
+    return () => {
+      live = false;
+    };
+  }, [gitKey]);
+  const isGit = !!gitKey && folderGit?.key === gitKey && folderGit.git;
+  const worktreeOn = isGit && !!picks.worktree;
+  const worktreeDetail = `A new branch${folderGit?.branch ? ` from ${folderGit.branch}` : ''}, so sessions do not clash. Merge or discard it when done.`;
 
   const update = (p: Picks) => {
     setPicks(p);
@@ -161,6 +184,19 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
     const files = out.attachments.length > 0;
     setStarting(Date.now());
     try {
+      // Assistant is one thread per account: the message goes into it, no new session
+      if (!code) {
+        // only a model picked here switches the thread's; permission mode and effort stay the thread's own
+        const home = command ? await attempt(() => api().assistantHome()) : await sendToAssistant(out, { model: picks.assistantModel });
+        if (!home) return false;
+        if (command) {
+          keepSession(home);
+          const r = await attempt(() => api().command(home.id, out.text.trim()));
+          if (r?.output) toast({ title: `/${command}`, body: r.output, level: 'info' });
+        }
+        if (window.location.pathname === '/') navigate(`/s/${home.id}`);
+        return true;
+      }
       const common = {
         agent: setup.agent,
         model: setup.model,
@@ -169,7 +205,16 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
         ...(picks.permissionMode ? { permissionMode: picks.permissionMode } : {}),
         ...(thinking || picks.cyber ? { chat: { ...(thinking ? { thinking } : {}), ...(picks.cyber ? { cyber: picks.cyber } : {}) } } : {}),
       };
-      const s = await attempt(() => (repo ? api().createRepoSession({ ...common, repo: repo.repo, ...(repo.base ? { base: repo.base } : {}) }) : api().createSession({ ...common, cwd: setup.cwd })));
+      // a folder set by the first send has not been asked about yet: ask now
+      const inWorktree =
+        !!picks.worktree && code && !repo && !!setup.cwd && (folderGit?.key === gitKey ? folderGit.git : !!(await api().folderGit(setup.device, setup.cwd).catch(() => undefined))?.git);
+      const s = await attempt(() =>
+        repo
+          ? api().createRepoSession({ ...common, repo: repo.repo, ...(repo.base ? { base: repo.base } : {}) })
+          : inWorktree && setup.cwd
+            ? api().createWorktreeSession({ ...common, folder: setup.cwd })
+            : api().createSession({ ...common, cwd: setup.cwd }),
+      );
       if (!s) return false;
       keepSession(s);
       if (code && picks.ultra) {
@@ -224,6 +269,7 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
         // back from a repository (picked, or only asked for): the folder chip again, open when there is no repository to drop
         { label: 'A folder', checked: !repo && !wantRepo, onSelect: () => (repo ? pickRepo(undefined) : (setWantRepo(false), setTimeout(() => setFolderOpen(true), 0))) },
         { label: 'A GitHub repository', detail: 'A new worktree on its own branch', checked: !!repo || wantRepo, onSelect: () => setWantRepo(true) },
+        ...(isGit && !wantRepo ? [{ label: 'Run in a worktree', detail: worktreeDetail, checked: worktreeOn, keep: true, onSelect: () => update({ ...picks, worktree: !picks.worktree || undefined }) }] : []),
         { separator: true, label: '' },
         { label: 'Ultra', detail: ULTRA_LINE, checked: !!picks.ultra, keep: true, onSelect: () => update({ ...picks, ultra: !picks.ultra || undefined }) },
       ]
@@ -273,6 +319,20 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
             {code && <Row label={repo ? 'Device' : 'Device and folder'}>{field.device}</Row>}
             {code && <Row label="GitHub repository">{field.repo}</Row>}
             {repo && <Row label="Start from">{field.base}</Row>}
+            {isGit && (
+              <Row label="Run in a worktree">
+                <SelectMenu
+                  look="field"
+                  label="Run in a worktree"
+                  value={worktreeOn ? 'on' : 'off'}
+                  onChange={(v) => update({ ...picks, worktree: v === 'on' || undefined })}
+                  options={[
+                    { value: 'off', label: 'Off', text: 'Off', detail: 'Works in the folder itself.' },
+                    { value: 'on', label: 'On', text: 'On', detail: worktreeDetail },
+                  ]}
+                />
+              </Row>
+            )}
             <Row label="Permissions">
               <PermissionPicker look="field" value={permissionMode} onChange={(m) => update({ ...picks, permissionMode: m })} />
             </Row>
@@ -334,11 +394,11 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
       return false;
     },
     send,
-    sendLabel: 'Start session',
+    sendLabel: code ? 'Start session' : 'Send',
     placeholder: mobile ? (code ? 'Describe a task' : 'Ask your assistant') : 'Type / for commands',
     commands,
     note: starting ? (
-      <LiveStatus state="tool" label={repo ? `Making a worktree of ${repo.repo}` : 'Starting the session'} detail={code ? `${setup.agent ?? 'agent'} on ${deviceName}` : 'on the hub'} startedAt={starting} />
+      <LiveStatus state="tool" label={repo ? `Making a worktree of ${repo.repo}` : worktreeOn ? 'Making a worktree' : 'Starting the session'} detail={code ? `${setup.agent ?? 'agent'} on ${deviceName}` : 'on the hub'} startedAt={starting} />
     ) : resume && !mobile ? (
       <p className="truncate">
         Resume{' '}

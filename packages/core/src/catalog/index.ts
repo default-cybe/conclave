@@ -1,6 +1,7 @@
 /** Discover catalog (docs/design/ECOSYSTEM.md). */
 export * from './recommended';
 export * from './types';
+export * from './packs';
 export { CatalogService, recipeItem, suggestionItem, type CatalogServiceOptions } from './service';
 export { CatalogInstaller, CatalogError, fillPlaceholders, hrefFor, type CatalogHost } from './install';
 export { CatalogStore } from './store';

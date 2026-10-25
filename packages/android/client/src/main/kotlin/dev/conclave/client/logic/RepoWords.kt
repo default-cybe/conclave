@@ -75,6 +75,8 @@ object RepoWords {
      */
     fun actions(r: RepoSessionDto): RepoActions {
         if (r.cleaned) return RepoActions(push = false, openPr = false, viewPr = r.pr != null, cleanUp = false)
+        // a folder worktree with no GitHub origin, or GitHub not connected: nothing to push to
+        if (r.pullRequests == false) return RepoActions(push = false, openPr = false, viewPr = r.pr != null, cleanUp = r.canCleanUp)
         val commits = r.commits ?: 0
         val dirty = r.dirty ?: 0
         val live = r.pr != null && r.pr.state == PrState.OPEN
@@ -98,6 +100,21 @@ object RepoWords {
         else -> null
     }
 
+    /** A folder worktree ("Run in a worktree") with commits not merged yet: Merge into its base. */
+    fun canMerge(r: RepoSessionDto): Boolean = r.folder && !r.cleaned && r.online && r.canMerge
+
+    /** A folder worktree not merged or cleaned up yet: Discard drops the worktree and its branch. */
+    fun canDiscard(r: RepoSessionDto): Boolean = r.folder && !r.cleaned && r.online && !r.merged
+
+    /** What Discard loses, before it asks. */
+    fun discardBody(r: RepoSessionDto): String {
+        val commits = r.commits ?: 0
+        val dirty = r.dirty ?: 0
+        return "The worktree on ${r.deviceName.ifBlank { "the device" }} and ${branchShort(r.branch)} go." +
+            (if (commits > 0) " $commits ${if (commits == 1) "commit is" else "commits are"} not merged and are lost." else "") +
+            (if (dirty > 0) " ${dirtyWords(dirty)} They are lost." else "")
+    }
+
     /** Check now is offered while there is something on GitHub to read: an open pull request, or a pushed branch. */
     fun canCheck(r: RepoSessionDto): Boolean = !r.cleaned && (r.pr?.state == PrState.OPEN || r.pushed != "never")
 
@@ -113,6 +130,7 @@ object RepoWords {
     /** What Clean up does, before it asks. */
     fun cleanUpBody(r: RepoSessionDto): String {
         val dirty = r.dirty ?: 0
+        if (r.folder && r.pr == null) return "The worktree on ${r.deviceName.ifBlank { "the device" }} and ${branchShort(r.branch)} go." + (if (dirty > 0) " ${dirtyWords(dirty)} They are lost." else "")
         return "The worktree on ${r.deviceName.ifBlank { "the device" }} goes. ${branchShort(r.branch)} stays on GitHub." +
             (if (dirty > 0) " ${dirtyWords(dirty)} They are lost." else "") +
             (if (r.canCleanUp) "" else " The pull request is not merged or closed yet.")

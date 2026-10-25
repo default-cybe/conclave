@@ -283,6 +283,8 @@ export class Engine implements EngineApi {
    * listed here, and a question gets no answer; the turn goes on.
    */
   readonly unattended = new Map<string, { denied: Array<{ tool: string; input: string; rule?: string }> }>();
+  /** A routine's turn running in a session it does not own (the assistant home thread): session id to routine id, so its rules apply to that turn only. */
+  readonly routineTurns = new Map<string, string>();
   private toolCache: { tools: Tool[]; at: number } | null = null;
   /** Test command per session and folder, for the Environment block (session/project.ts). */
   private testCommands = new Map<string, Promise<string | undefined>>();
@@ -567,6 +569,30 @@ export class Engine implements EngineApi {
     return session;
   }
 
+  /** Home threads being made, by account, so two calls at once get the same one. */
+  private homeMaking = new Map<string, Promise<Session>>();
+
+  /**
+   * The account's one assistant thread (docs/DESIGN.md, Assistant home): the
+   * session with meta.home and the assistant agent, made pinned and titled
+   * "Assistant" the first time. Each account has its own.
+   */
+  async assistantHome(accountId: string): Promise<Session> {
+    const found = this.repos.sessions.list({ accountId, agent: 'assistant', home: true, limit: 1 })[0];
+    if (found) return found;
+    const making = this.homeMaking.get(accountId);
+    if (making) return making;
+    const p = (async () => {
+      const s = await this.createSession({ agent: 'assistant', title: 'Assistant' }, accountId);
+      this.repos.sessions.update({ ...s, pinned: true, meta: { ...s.meta, home: true } });
+      const home = this.requireSession(s.id);
+      this.bus.emit({ type: 'session.updated', session: home });
+      return home;
+    })().finally(() => this.homeMaking.delete(accountId));
+    this.homeMaking.set(accountId, p);
+    return p;
+  }
+
   /** Words for a model on a harness that is off (acp/harness-off.ts), or one the owner hid (models.hidden), else undefined. */
   harnessOff(model: string): string | undefined {
     if (isHiddenModel(this.config.get(), model)) return hiddenWords(model);
@@ -722,6 +748,8 @@ export class Engine implements EngineApi {
     const s = this.requireSession(id);
     const now = Date.now();
     const fork: Session = { ...s, id: newId('ses'), title: `${s.title} (fork)`, parentId: s.parentId, createdAt: now, updatedAt: now, status: 'idle', external: undefined };
+    // a fork of the assistant home thread is a normal session: the account keeps one home
+    if (fork.meta?.home) fork.meta = { ...fork.meta, home: undefined };
     const msgs = this.repos.messages.list(id).filter((m) => fromSeq === undefined || m.seq <= fromSeq);
     // new ids in the fork; a second opinion keeps pointing at its reply's copy
     const ids = new Map(msgs.map((m) => [m.id, newId('msg')]));
@@ -807,7 +835,8 @@ export class Engine implements EngineApi {
     const out: BusyWorkDto[] = [];
     const seen = new Set<string>();
     const add = (s: Session, kind: BusyWorkDto['kind']) => {
-      if (seen.has(s.id) || s.status === 'waiting_reset' || !on(s.device)) return;
+      // parked or paused work survives a restart (its status and queue are stored)
+      if (seen.has(s.id) || s.status === 'waiting_reset' || s.status === 'paused' || !on(s.device)) return;
       seen.add(s.id);
       out.push({ kind, id: s.id, name: s.title, device: s.device, status: s.status });
     };
@@ -881,6 +910,40 @@ export class Engine implements EngineApi {
 
   abort(id: string): void {
     this.runners.get(id)?.abort();
+  }
+
+  /**
+   * Pause: the tool call in progress finishes (one past 30 s is cut and
+   * answered as interrupted), then the session stops before its next model
+   * call with status paused, which a restart keeps. What is sent meanwhile
+   * queues. A session parked for a usage limit resumes on its own; Stop it.
+   */
+  pauseSession(id: string): Session {
+    const s = this.requireSession(id);
+    if (s.status === 'paused') return s;
+    const runner = this.runnerFor(id);
+    if (s.status === 'waiting_reset') throw new EngineError(409, 'This session waits for a usage limit and resumes on its own. Stop it instead.');
+    if (!runner.busy) throw new EngineError(409, 'Nothing is running in this session.');
+    runner.pause();
+    return this.requireSession(id);
+  }
+
+  /** Resume a paused session: its cut turn continues with no new message; a workflow agent's run or a Task child's report goes on. */
+  async resumeSession(id: string): Promise<Session> {
+    const s = this.requireSession(id);
+    const runner = this.runnerFor(id);
+    if (s.status !== 'paused') {
+      // pause asked, the turn not yet stopped: it just goes on
+      if (runner.isPaused) runner.unpause();
+      else throw new EngineError(409, 'This session is not paused.');
+      return this.requireSession(id);
+    }
+    const runId = (s.meta?.workflow as { runId?: string } | undefined)?.runId;
+    if (runId && (await workflowsOf(this)?.resumeAgent(runId, id))) return this.requireSession(id);
+    const sub = await import('./subagent');
+    if (sub.waitsForResume(s)) void sub.resumePausedSubagent(this, s).catch((err) => log.warn(`resume of ${id} failed`, err));
+    else runner.resumePaused();
+    return this.requireSession(id);
   }
 
   async rewind(id: string, seq: number, restoreFiles = false): Promise<Session> {
@@ -1579,6 +1642,9 @@ export class Engine implements EngineApi {
         if (b.type === 'tool_result' && b.toolUseId === toolUseId && !b.isError) meta = b.meta?.file as SharedFileMeta | undefined;
       }
     }
+    // the step stores its results only when every call in it is done (an AskUserQuestion can wait minutes); the card is shown already
+    const live = this.runners.get(sessionId)?.stepResults.get(toolUseId);
+    if (shareCall && !meta && live && !live.isError) meta = live.meta?.file as SharedFileMeta | undefined;
     if (!shareCall || !meta || typeof meta.path !== 'string' || typeof meta.device !== 'string') throw gone();
     const check = await checkShareable(meta.path, this.shareRoots(s).filter((r) => r.device === meta!.device), this.config.paths.home);
     if (!check.ok) throw check.code === 'missing' ? gone() : new EngineError(check.code === 'too_big' ? 413 : 403, check.message);

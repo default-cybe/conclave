@@ -14,7 +14,7 @@
  */
 
 /** One step of a turn's work, in the order it ran: a call, or a thought. */
-export type WorkEntry<C, T> = { type: 'call'; name: string; item: C } | { type: 'thought'; item: T };
+export type WorkEntry<C, T> = { type: 'call'; name: string; item: C; /** A Task call's card: the id of the message that made it (fanOut.ts). */ card?: string } | { type: 'thought'; item: T };
 
 export type Segment<C, T> =
   /** A call on its own row: a single call, or a card. */
@@ -22,7 +22,9 @@ export type Segment<C, T> =
   /** A lone thought, as it is. */
   | { kind: 'thought'; item: T }
   /** Two or more thoughts and calls in a row, as one summary row. */
-  | { kind: 'group'; entries: WorkEntry<C, T>[] };
+  | { kind: 'group'; entries: WorkEntry<C, T>[] }
+  /** The Task and Delegate calls of one message, as one card (FanOutCard.tsx). */
+  | { kind: 'fanout'; key?: string; items: C[] };
 
 /** Calls that are background work, cards or that need you: they keep a row of their own. */
 const ALONE = new Set(['Workflow', 'Task', 'AskUserQuestion', 'PlaceSearch', 'PlaceDetails', 'Directions', 'MapImage', 'WatchReport', 'WatchCreate']);
@@ -56,13 +58,25 @@ export function standsAlone(name: string): boolean {
 export function segment<C, T>(entries: readonly WorkEntry<C, T>[]): Segment<C, T>[] {
   const out: Segment<C, T>[] = [];
   let run: WorkEntry<C, T>[] = [];
+  const cards = new Map<string, Extract<Segment<C, T>, { kind: 'fanout' }>>();
   const flush = () => {
     if (run.length >= 2) out.push({ kind: 'group', entries: run });
     else if (run.length === 1) out.push(run[0].type === 'call' ? { kind: 'one', item: run[0].item } : { kind: 'thought', item: run[0].item });
     run = [];
   };
   for (const e of entries) {
-    if (e.type === 'call' && standsAlone(e.name)) {
+    if (e.type === 'call' && e.name === 'Task') {
+      flush();
+      // one card per message; calls without one join the card right before them
+      const last = out[out.length - 1];
+      const card = e.card !== undefined ? cards.get(e.card) : last?.kind === 'fanout' && last.key === undefined ? last : undefined;
+      if (card) card.items.push(e.item);
+      else {
+        const seg = { kind: 'fanout' as const, key: e.card, items: [e.item] };
+        out.push(seg);
+        if (e.card !== undefined) cards.set(e.card, seg);
+      }
+    } else if (e.type === 'call' && standsAlone(e.name)) {
       flush();
       out.push({ kind: 'one', item: e.item });
     } else run.push(e);

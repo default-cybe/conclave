@@ -51,7 +51,7 @@ import { AlertCard } from '@/components/inbox/AlertCard';
 import { alertText, alertWord } from '@/components/inbox/alertWords';
 import { HarnessName, ModelName } from '@/components/logo';
 import { DECISION_WORDS, logResolved, useRetained } from '@/features/home/inbox';
-import { GAP_OUT_MS, GapList, Roll } from '@/components/motion';
+import { GAP_OUT_MS, GapList, Pet, Roll } from '@/components/motion';
 import { SessionContext } from '@/features/home/SessionContext';
 import { MetaText } from '@/features/home/MetaText';
 import { PhoneInbox } from './PhoneInbox';
@@ -370,7 +370,8 @@ function Detail({ item, held, onTouch, onResolved }: { item: Item; held: boolean
   const deviceName = useHub((s) => (session?.device ? (s.devices[session.device]?.name ?? session.device) : undefined));
   return (
     <section aria-label="Selected request">
-      <div className="flex items-baseline gap-4">
+      <div className="flex items-center gap-3">
+        {!held && <Pet state="waiting" size={24} className="shrink-0 text-fg-2" />}
         <h2 className="t-title min-w-0 flex-1 truncate text-fg">{(from ? home?.title : session?.title) ?? 'Session'}</h2>
         <Link href={hrefOf(home ?? { id: homeOf(item) })} className="link shrink-0 text-[13px]">
           Open session

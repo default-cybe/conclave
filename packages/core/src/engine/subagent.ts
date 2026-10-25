@@ -150,7 +150,7 @@ export async function runSubagent(
     // the parent gets the TaskList, TaskWait, TaskResult and TaskContinue tools from now on (engine/background.ts)
     if (!parent.meta?.backgroundTasks) engine.patchMeta(parent.id, { backgroundTasks: true });
     void driveSubagent(engine, sub.id, prompt, runner.depth)
-      .then((r) => (r.resumeAt && !opts.workflow ? waitForReset(engine, parent.id, sub.id, r.resumeAt) : deliverSubagentResult(engine, parent.id, sub.id, r.error ? 'error' : 'completed', r.error ? `${r.text}\n\nError: ${r.error}` : r.text)))
+      .then((r) => (r.stop === 'paused' && !opts.workflow ? waitForResume(engine, parent.id, sub.id) : r.resumeAt && !opts.workflow ? waitForReset(engine, parent.id, sub.id, r.resumeAt) : deliverSubagentResult(engine, parent.id, sub.id, subagentEndState(r), r.error ? `${r.text}\n\nError: ${r.error}` : r.text)))
       .catch((err) => {
         log.warn('background subagent failed', err);
         deliverSubagentResult(engine, parent.id, sub.id, 'error', `Error: ${(err as Error)?.message ?? String(err)}`);
@@ -159,6 +159,15 @@ export async function runSubagent(
   }
 
   const { text, error, stop, resumeAt } = await driveSubagent(engine, sub.id, prompt, runner.depth, opts.signal);
+  // paused by the owner: like a limit, it goes on as a background task and reports after Resume
+  if (stop === 'paused' && !opts.workflow) {
+    waitForResume(engine, parent.id, sub.id);
+    return {
+      sessionId: sub.id,
+      text: `Subagent ${sub.id} was paused by the owner before it finished. It continues when the owner resumes it; its report then arrives in a <subagent_result> block, like a background task's. TaskList shows its state.`,
+      stop,
+    };
+  }
   // a workflow parks the call itself (workflows/agents.ts); a Task or Delegate child waits for the reset and reports then
   if (resumeAt && !opts.workflow) {
     waitForReset(engine, parent.id, sub.id, resumeAt);
@@ -177,7 +186,7 @@ export async function runSubagent(
  * workflow's StructuredOutput nudge, or a parked call that runs again after a
  * usage limit reset.
  */
-export async function continueSubagent(engine: Engine, sessionId: string, text: string, signal?: AbortSignal): Promise<SubagentResult> {
+export async function continueSubagent(engine: Engine, sessionId: string, text: string | undefined, signal?: AbortSignal): Promise<SubagentResult> {
   const session = engine.getSession(sessionId);
   if (!session) throw new Error('Subagent session gone');
   const parent = session.parentId ? engine.getSession(session.parentId) : undefined;
@@ -199,6 +208,34 @@ function waitForReset(engine: Engine, parentId: string, childId: string, resumeA
   if (!engine.getSession(parentId)?.meta?.backgroundTasks) engine.patchMeta(parentId, { backgroundTasks: true });
 }
 
+/** A Task or Delegate child the owner paused: the parent tracks it as a background task until Resume (resumePausedSubagent). */
+function waitForResume(engine: Engine, parentId: string, childId: string): void {
+  const child = engine.getSession(childId);
+  engine.patchMeta(childId, { background: { ...((child?.meta?.background as Record<string, unknown>) ?? {}), parentId, state: 'running', startedAt: child?.createdAt ?? Date.now(), paused: true } });
+  if (!engine.getSession(parentId)?.meta?.backgroundTasks) engine.patchMeta(parentId, { backgroundTasks: true });
+}
+
+/** Whether a paused session is a Task or Delegate child whose report its parent waits for (waitForResume). */
+export function waitsForResume(session: Session): boolean {
+  return !!session.parentId && (session.meta?.background as { paused?: boolean } | undefined)?.paused === true;
+}
+
+/** Resume: the child's cut turn goes on with no new message, and its report goes to the parent, or it pauses again. */
+export async function resumePausedSubagent(engine: Engine, child: Session): Promise<void> {
+  const parentId = child.parentId!;
+  let r: SubagentResult;
+  try {
+    r = await continueSubagent(engine, child.id, undefined);
+  } catch (err) {
+    r = { sessionId: child.id, text: '', error: (err as Error)?.message ?? String(err) };
+  }
+  if (r.stop === 'paused') return waitForResume(engine, parentId, child.id);
+  const bg = (engine.getSession(child.id)?.meta?.background as Record<string, unknown>) ?? {};
+  engine.patchMeta(child.id, { background: { ...bg, paused: false } });
+  if (r.resumeAt) return waitForReset(engine, parentId, child.id, r.resumeAt);
+  deliverSubagentResult(engine, parentId, child.id, r.error ? 'error' : 'completed', r.error ? `${r.text}\n\nError: ${r.error}` : r.text);
+}
+
 /** Whether a parked session is a Task or Delegate child waiting for its limit to reset (waitForReset). */
 export function waitsForParent(session: Session): boolean {
   return !!session.parentId && (session.meta?.background as { waitingReset?: boolean } | undefined)?.waitingReset === true;
@@ -217,7 +254,14 @@ export async function resumeParkedSubagent(engine: Engine, child: Session): Prom
   if (r.resumeAt) return waitForReset(engine, parentId, child.id, r.resumeAt);
   const bg = (engine.getSession(child.id)?.meta?.background as Record<string, unknown>) ?? {};
   engine.patchMeta(child.id, { background: { ...bg, waitingReset: false } });
-  deliverSubagentResult(engine, parentId, child.id, r.error ? 'error' : 'completed', r.error ? `${r.text}\n\nError: ${r.error}` : r.text);
+  deliverSubagentResult(engine, parentId, child.id, subagentEndState(r), r.error ? `${r.text}\n\nError: ${r.error}` : r.text);
+}
+
+/** How a subagent ended, for its <subagent_result>: an error is error, a usage limit that stopped it before it finished is limited, never completed. */
+export type SubagentEnd = 'completed' | 'error' | 'limited';
+
+export function subagentEndState(r: Pick<SubagentResult, 'error' | 'stop'>): SubagentEnd {
+  return r.error ? 'error' : r.stop === 'rate_limit' ? 'limited' : 'completed';
 }
 
 /** Longest part of a background result that goes into the parent; the full text stays in the child session. */
@@ -238,7 +282,7 @@ function defuseTags(text: string): string {
 }
 
 /** The note a parent session gets when a background subagent ends. */
-export function subagentResultBlock(child: Pick<Session, 'id' | 'agent' | 'title'>, state: 'completed' | 'error', text: string): ContentBlock {
+export function subagentResultBlock(child: Pick<Session, 'id' | 'agent' | 'title'>, state: SubagentEnd, text: string): ContentBlock {
   const cut = truncateMiddle(defuseTags(text), SUBAGENT_RESULT_MAX_CHARS, 'omitted');
   const body = cut.truncated ? `${cut.text}\n\n[The report was ${text.length} chars and was cut; the full text is in session ${child.id}.]` : cut.text;
   return reminder(
@@ -253,16 +297,16 @@ export function subagentResultBlock(child: Pick<Session, 'id' | 'agent' | 'title
  * its answer); the note waits for its next step. Deleted and archived parents
  * get nothing.
  */
-export function deliverSubagentResult(engine: Engine, parentId: string, childId: string, state: 'completed' | 'error', text: string): void {
+export function deliverSubagentResult(engine: Engine, parentId: string, childId: string, state: SubagentEnd, text: string): void {
   const child = engine.getSession(childId);
   if (child) engine.patchMeta(childId, { background: { ...((child.meta?.background as Record<string, unknown>) ?? {}), parentId, state, finishedAt: Date.now() } });
   const parent = engine.getSession(parentId);
   if (!parent || parent.archived || !child) return;
   const runner = engine.runnerFor(parentId);
   // the apps draw one row for the notice and the report ("Message from subagent ..."), not a notice and an empty bubble
-  const result: AgentResultRef = { type: 'subagent', id: childId, label: child.title, agent: child.agent, state: state === 'completed' ? 'completed' : 'failed' };
+  const result: AgentResultRef = { type: 'subagent', id: childId, label: child.title, agent: child.agent, state: state === 'error' ? 'failed' : state };
   runner.deliver({ block: subagentResultBlock(child, state, text), source: childId, wake: !parent.meta?.subagent, result });
-  engine.notice(parentId, `Background task ${state === 'completed' ? 'finished' : 'failed'}: ${child.title}`, state === 'completed' ? 'info' : 'warning', undefined, { kind: 'agent-result', agentResult: result });
+  engine.notice(parentId, `Background task ${state === 'completed' ? 'finished' : state === 'limited' ? 'stopped at a usage limit' : 'failed'}: ${child.title}`, state === 'completed' ? 'info' : 'warning', undefined, { kind: 'agent-result', agentResult: result });
 }
 
 function runnerDepthOf(engine: Engine, session: Session): number {
@@ -273,10 +317,11 @@ function runnerDepthOf(engine: Engine, session: Session): number {
 /** How many times SubagentStop hooks may send a subagent back to work. */
 const MAX_SUBAGENT_STOP_CONTINUES = 3;
 
+/** prompt undefined: Resume after Pause, the cut turn goes on from the stored transcript. */
 async function driveSubagent(
   engine: Engine,
   sessionId: string,
-  prompt: string,
+  prompt: string | undefined,
   depth: number,
   signal?: AbortSignal,
   followUp = false,
@@ -287,13 +332,16 @@ async function driveSubagent(
   const parent = session.parentId ? engine.getSession(session.parentId) : undefined;
   const ids = { agent_id: session.id, agent_type: session.agent };
 
-  // SubagentStart runs in the parent's context; its additionalContext joins the subagent's first message
-  const content: ContentBlock[] = [{ type: 'text', text: prompt }];
-  if (parent && !followUp) {
-    const start = await engine.runHook(parent, 'SubagentStart', ids, session.agent);
-    for (const ctx of start.additionalContext) content.push(reminder(ctx));
+  if (prompt === undefined) runner.unpause();
+  else {
+    // SubagentStart runs in the parent's context; its additionalContext joins the subagent's first message
+    const content: ContentBlock[] = [{ type: 'text', text: prompt }];
+    if (parent && !followUp) {
+      const start = await engine.runHook(parent, 'SubagentStart', ids, session.agent);
+      for (const ctx of start.additionalContext) content.push(reminder(ctx));
+    }
+    engine.addMessage(sessionId, { role: 'user', kind: 'normal', content });
   }
-  engine.addMessage(sessionId, { role: 'user', kind: 'normal', content });
   // running while it works, so its working time counts (session/limit-tree.ts) and the app shows it
   engine.setStatus(sessionId, 'running');
 
@@ -309,7 +357,13 @@ async function driveSubagent(
   for (let round = 0; ; round++) {
     try {
       await runner.agentLoop(model, 'agent', controller.signal);
+      if (runner.lastStop === 'paused') break;
     } catch (err) {
+      // Pause cut a call that ran past its grace time (runner.pause)
+      if (runner.isPaused && !controller.signal.aborted) {
+        runner.parkPaused(true);
+        break;
+      }
       const fallback = fellBack || controller.signal.aborted ? undefined : modelFallback(engine, model, parent, err);
       if (fallback) {
         // the profile's or tier's model is one the provider cannot serve: run on the parent's (or the hub default) instead of failing
@@ -337,10 +391,16 @@ async function driveSubagent(
   // idle also when a usage limit parked it: the caller decides (a workflow parks the call, workflows/agents.ts)
   const parked = engine.getSession(sessionId);
   const resumeAt = parked?.status === 'waiting_reset' ? parked.resumeAt : undefined;
-  engine.setStatus(sessionId, 'idle');
+  // paused stays paused until Resume; a pause asked when the work had ended has nothing left to hold
+  const paused = parked?.status === 'paused';
+  if (!paused) {
+    runner.unpause();
+    engine.setStatus(sessionId, 'idle');
+  }
+  const stop = paused ? 'paused' : runner.lastStop;
   // tell the caller how the subagent ended when it did not finish on its own
-  const how = runner.lastStop ? STOP_NOTES[runner.lastStop] : undefined;
-  return { text: how ? `${text}\n\n${how}` : text, error, stop: runner.lastStop, ...(resumeAt ? { resumeAt } : {}) };
+  const how = stop ? STOP_NOTES[stop] : undefined;
+  return { text: how ? `${text}\n\n${how}` : text, error, stop, ...(resumeAt ? { resumeAt } : {}) };
 }
 
 function oneLine(s: string): string {
@@ -369,6 +429,7 @@ const STOP_NOTES: Partial<Record<NonNullable<SessionRunner['lastStop']>, string>
   refusal: '(the subagent stopped because the model refused)',
   empty_reply: '(the subagent stopped because the model returned an empty reply)',
   rate_limit: '(the subagent stopped at a usage limit before it finished)',
+  paused: '(the subagent was paused by the owner before it finished)',
 };
 
 /**

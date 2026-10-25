@@ -15,6 +15,8 @@ export const DUR = {
   d3: 240,
   /** --dur-4: a live mark settling, a container growing */
   d4: 360,
+  /** --dur-blink: the pet's eyes closed in a blink */
+  blink: 140,
 } as const;
 
 export const LOOP = {

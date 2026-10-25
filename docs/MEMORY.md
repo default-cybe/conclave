@@ -429,13 +429,32 @@ sessions, which is how chats imported earlier without learning get learned
 threads, and chats with fewer than 2 prompts or 300 characters typed.
 
 **Never twice.** A ledger keeps one row per chat file. Its fingerprint is the
-tool, the tool's id where it is unique, and the first three message ids, so a
-Syncthing copy of a chat on another machine lands in the same session. A
-chat that grew gets the new messages appended. A chat that grew both there
-and in Conclave becomes a new session, "Continued in Claude Code on
-arch-desktop", next to the old one; histories are never mixed. Turns Conclave
-ran through the same Claude Code session are matched by text and not copied
-again. Sync under an imported session's title does the same for one chat.
+tool, the tool's chat id, and the first three message ids, so a Syncthing or
+claudesync copy of a chat on another machine lands in the same session, and a
+Claude Code chat resumed under a new id is its own session. Ledger rows from
+before the chat id was in the fingerprint still match a copy with the same
+id. A chat that grew gets the new messages appended. A chat that grew both
+there and in Conclave: when the tool's side has more new messages, they are
+appended and Conclave's own turns move to a child session, "<title>
+(Conclave branch)"; otherwise the tool's version becomes a new session,
+"Continued in Claude Code on arch-desktop", next to the old one. Histories
+are never mixed. Turns Conclave ran through the same Claude Code session are
+matched by text and not copied again. Sync under an imported session's title
+does the same for one chat.
+
+**Duplicates from older imports.** `POST /api/import/merge-duplicates` lists
+the Claude Code chats that have more than one session (same chat id and first
+message). With `{"apply": true}` it keeps the one with the most messages,
+points every ledger row at it and archives the others with
+`meta.import.duplicateOf`; nothing is deleted. Without `apply` it is a dry
+run. A row an older import marked ambiguous is matched again on the next
+import.
+
+**The folder.** A Claude Code chat's folder is read for the device that holds
+the file: when the `cwd` inside is another machine's path (a sync tool
+rewrote only some paths), the project folder name gives the path on this
+device, so `/home/default/CMU` in `-Users-default-MadX-CMU` becomes
+`/Users/default/MadX/CMU`.
 
 **The learning job** reads each chat in windows of at most 30k tokens: the
 owner's words, the final answer of each turn, the commentary, then tool
@@ -474,9 +493,13 @@ anthropic/claude-haiku-5-5 did not answer (...). The chats copied so far stay
 imported. Resume tries the rest again once it answers."
 
 **Resuming one.** An imported chat is an archived session on the device it
-came from, on the tool's own harness model, with the coder agent for a coding
-tool's chat. Send a message to go on; move it to another device first when the
-files are there (`docs/DESIGN.md` section 17).
+came from, with the coder agent for a coding tool's chat. It runs on the
+tool's own harness model only when that harness is on as an engine, else on
+your default model; the tool's session id is kept for a later resume. Send a
+message to go on; move it to another device first when the files are there
+(`docs/DESIGN.md` section 17). A harness turn in a folder the device does not
+have stops with "<folder> is not on <device>. Which device has this folder?"
+instead of a spawn error.
 
 **Undo** is offered for 30 days on every batch: it deletes the sessions the
 batch made, the messages it appended and the memories it learned, and clears
@@ -510,7 +533,12 @@ A reply from a device is checked before it is stored. A token in a chat's
 first prompt is redacted from its title and from the learning prompt.
 
 Where it can fail: the tools change their formats between releases; unknown
-line and content types are counted per scan so the drift shows. A
+line and content types are counted per scan so the drift shows. A folder name
+with `-`, a space or a dot in the part that differs between machines reads
+back wrong, so the stored folder can be off when the device does not have
+either path. A device daemon built before the chat id was in the fingerprint
+lists a copy on another machine as not imported until it is imported; the
+import still lands in the right session. A
 preference said once in a mood can still be wrong; To review and Undo keep
 that cheap. Uploads go up to 128 MB per request, so a big account's export
 goes up in its parts.

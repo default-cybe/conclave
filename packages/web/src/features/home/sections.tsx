@@ -597,7 +597,7 @@ export function FirstDay() {
   const [, navigate] = useLocation();
   return (
     <section aria-label="Get started">
-      <EmptyState action={{ label: 'Import sessions', onClick: () => navigate('/setup/import?again=1') }}>
+      <EmptyState pet action={{ label: 'Import sessions', onClick: () => navigate('/setup/import?again=1') }}>
         Sessions you start show up here. Switch the box above from Chat to Session to start one, or import past sessions from Claude Code and Codex.
       </EmptyState>
     </section>

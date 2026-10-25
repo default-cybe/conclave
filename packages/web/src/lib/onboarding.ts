@@ -13,6 +13,15 @@ export function isSetupPath(path: string): boolean {
   return SETUP_PATHS.some((p) => path === p || path.startsWith(p + '/'));
 }
 
+/**
+ * Where the app sends someone: an owner whose hub is not set up goes to setup;
+ * a member never sees setup (it changes the hub's own settings) and goes Home.
+ */
+export function setupRedirect(owner: boolean, onboarded: boolean | undefined, path: string): string | undefined {
+  if (!owner) return isSetupPath(path) ? '/' : undefined;
+  return onboarded === false && !isSetupPath(path) ? SETUP_ROUTE : undefined;
+}
+
 export function isOnboarded(config: HubConfig | undefined): boolean | undefined {
   if (!config) return undefined;
   return config.ui?.onboarded === true || !!config.setup?.completedAt;

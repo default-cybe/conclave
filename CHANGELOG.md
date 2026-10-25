@@ -7,6 +7,56 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [0.4.29] - 2026-10-25
+
+### Changed
+
+- Legacy .doc, .xls and .ppt are still refused, now with the LibreOffice command that converts them.
+- Web chat: the subagents one message starts are one card ("4 subagents, 1 failed, 1 limited") with a line per subagent (state, label, agent, model, time, first line of its report; tap for the full report and Open session). Result notices, TaskWait, TaskList, TaskResult and TaskContinue fold into it, a later notice leaves a small "updated" line, and no raw `ses_` ids show. A workflow row gets a phase bar and agent counts, and its WorkflowStatus calls fold into it.
+- Background tasks tell workflows, subagents and delegated jobs apart (web and Android). Each row leads with a kind icon and word: "Workflow · deep-research" with its phase, "Subagent · builder" with an icon per agent type, "Delegate · Code on MadX Arch". Rows show the subagent's model and the running time, and the list groups them by kind, workflows first.
+- The Map names each node in 2 to 5 words instead of its raw title: imported "Continued in Claude Code on ..." and "Session continued from prior context" titles, "New chat", pasted pages, paths, ids and the project name its folder already shows are dropped, and a title with nothing left reads like "Code chat on MacBook". The line under it says what it is, its state and when it last worked ("Code · idle · 3h ago"). The full title stays in the tooltip and the drawer.
+- The assistant is one conversation per account. Home's composer in Assistant mode, Plan my day and Goals send into it instead of starting a new session each time. Older assistant chats stay in the sidebar under History, and "New assistant chat" is gone.
+- The Morning brief posts into the assistant conversation. The Heartbeat still runs in its own session.
+- Android: Assistant is one continuous thread. Sending from Home in Assistant mode goes into the account's Assistant home session (`GET /api/assistant/home`) instead of starting a new session; the side panel lists it first as "Assistant", older assistant sessions under "History", and Assistant mode has no New. Hubs without the route (404) keep the old behavior.
+- Paused sessions, tasks and workflow runs do not hold up an automatic update.
+- A page change fades the new page in (240ms), and chat rows that arrive together fade in one after another.
+- Reduce motion shows each pet and glyph in a still pose; they pause off screen and in background tabs.
+### Added
+
+- Read opens Word, Excel and PowerPoint files (docx, xlsx, pptx) and OpenDocument files (odt, ods, odp) as Markdown: headings, paragraphs, lists and tables; one table per sheet (the first 500 rows, with a note); one section per slide with its notes. Long documents page with offset and limit. The files are unzipped on the hub with no new dependency, so they work on paired devices too.
+- Optional Docling server: set `documents.docling.url` (http or https, LAN is fine) and Read sends scanned PDFs, PDFs with tables, and docx, xlsx and pptx files to docling-serve for Markdown with OCR and table structure, falling back to the built-in readers on any error. Members' sessions never use it. `docs/research/DOCLING-MADX.md` has the commands to run it CPU-only in an LXC.
+- Scrapling is in the extension catalog as an MCP entry (`uvx --from scrapling scrapling mcp`). The plain Fetcher is the cheap default; StealthyFetcher gets past Turnstile and fingerprint checks but downloads its own browsers and uses about 2 GB RAM, so it stays opt-in and complements the built-in browser.
+- `POST /api/import/merge-duplicates`: lists Claude Code chats imported into more than one session; `{"apply": true}` keeps the copy with the most messages, points the ledger at it and archives the rest. A dry run by default.
+- Setup step 4, "Make Conclave better": install recommended extension packs in one go (Starter on by default; Security and CTF, Homelab, Study, Google and Microsoft optional). One form asks for every key the chosen extensions need, then each one installs through the Discover routes with a row per extension. Extensions without a key or a program the hub lacks are skipped with the reason, and running setup again skips what is installed. Members never see setup.
+- `GET /api/assistant/home` returns the caller's assistant conversation, made the first time, in the same shape as `GET /api/sessions/:id`.
+- Routines take `sessionPolicy: 'home'`: a run is one turn in the assistant conversation, marked as from the routine, and its rules and unattended refusals apply to that turn only. Webhook runs and watches never use it.
+- Pause and Resume for background work. Pause lets the tool call in progress finish (one still running after 30 seconds is cut and marked interrupted), then stops before the next model call. The session shows `paused` and stays paused across hub restarts. Resume goes on with the same turn, with no new message. Messages sent meanwhile queue. `POST /api/sessions/:id/pause` and `/resume`.
+- Pause and Resume sit next to Stop on each background task (web Details panel, Android task sheet), in the session menu and on the workflow card. Paused rows say "paused" with a pause icon.
+- Pausing a workflow run now also pauses its running agents, not only new ones. A run paused when the hub stops stays paused and runs again from its journal on Resume.
+- TaskList, TaskWait and TaskResult report a paused task. TaskWait returns on it, so a parent does not wait for work that waits for you.
+- Move to hub: the session menu's "Move to hub (copy folder)" (and `/move hub --copy`, and the Android session sheet) copies the session's whole project folder from its device to the hub's projects drive, byte for byte with node_modules, build output, `.env` and `.git`, then runs the session there. The folder on the device stays as it was. The copy streams with tar, shows bytes and files as it goes, can be cancelled, removes a partial copy, and refuses up front when the hub has no room.
+- Move back to <device>: shows what changed on the hub since the copy (text diffs, size changes for binaries) and marks files that changed on the device too as conflicts. Copy back all, or without conflicts; nothing on the device is deleted unless "Also delete files removed on the hub" is ticked. Then the session runs on the device again.
+- `projects.hubRoot` sets where copies go (Devices, the hub, Projects drive). Default `/srv/conclave-projects` when it is mounted and writable, else `~/conclave-projects`. docs/INSTALL.md shows how to bind-mount a big drive into the hub's LXC.
+- Run in a worktree: a Code session in any git folder, on any device, can get its own worktree on a new `conclave/` branch from the folder's current branch, so several agents work on one repository without clashing. The session's header shows the branch, commits ahead and uncommitted files, with Merge into the base (refused while either checkout has uncommitted changes or the merge conflicts; squash optional), Open pull request when the origin is on GitHub and GitHub is connected, Discard (asks first) and Clean up after the merge. In the web "+" menu and phone options, and on Android. Workflow worktrees now use the same code to make and merge worktrees.
+- A pet that shows what agents are doing: idle, thinking, researching, building, testing, reviewing, waiting, parked (asleep until a limit resets), done and failed. It sits on a workflow run's status line, the running tasks pill, the limit notice, the Inbox's open request and Home's first day empty state. Never in a chat reply.
+- Agent glyphs: one small mark per agent type (explore, researcher, builder, tester, reviewer, debugger, designer, verifier, general purpose, workflow, delegate) in workflow call rows, the running tasks list and Delegate lines. A light runs along it while the agent works; it turns grey when done, red when failed and amber when waiting. Only three rows move at once.
+- See every pet state and glyph at `/dev/motion`.
+
+### Fixed
+
+- Member calls never use the owner's plans (missing from 0.4.28).
+- Installing or updating a plugin now installs its Node dependencies (`npm ci`, or `npm install` without a package-lock, with `--omit=dev --ignore-scripts`, 2 minute limit), so hooks that `require()` a package (ECC's SessionStart and `js-yaml`) no longer fail with "Cannot find module". When that install fails, the plugin stays installed and Extensions > Plugins shows the command to run by hand.
+- A turn the loop guard stops now ends with a report: after the "Loop guard stopped the turn" notice, the model gets one call with tools disabled and is asked what it did, what it found and what is left. Subagents stopped this way used to return "(the subagent produced no final answer)".
+- The step-limit wrap-up call asks for the same final report (what was done, found and left).
+- Claude Code chats copied between machines (claudesync, Syncthing) no longer fail as "ambiguous: two imported sessions match this source". The fingerprint now holds the chat id, so a copy on another device joins its own session and a chat resumed under a new id is its own session. Rows an older import marked ambiguous are matched again.
+- A chat that grew in Claude Code by more messages than Conclave added syncs in: the source's messages are appended and Conclave's own turns move to a child session "<title> (Conclave branch)". "Continued in Claude Code on ..." is made only when the Conclave side is longer.
+- An imported Claude Code chat's folder is the path on the device that holds the file, taken from its project folder name when the file names another machine's path (`/home/default/CMU` on a Mac becomes `/Users/default/MadX/CMU`).
+- Imported chats run on your default model when their tool's harness is off as an engine (the default), instead of refusing every turn with "Claude Code is off". The tool's session id is kept.
+- A harness turn in a folder its device does not have asks which device has it, instead of failing with `posix_spawn ... ENOENT`.
+- A subagent that ends with no answer because of a usage limit now reports `limited` (an error: `failed`), not `completed`.
+- Model picker: a model's "via" choices now list every signed in plan that has it, also a plan of another vendor that lists only a variant. Opus 5.5 offers "via backup-gemini (Antigravity)", which picks that plan's own id (`cliproxy/backup-gemini/claude-opus-5-5-high`). Still one Opus 5.5 row. Web and Android.
+- A shared file card failed with "Could not get the file. unknown session ..." when its turn also asked a question or ran a long call: the hub stores a step's results only once every call in it is done, and the download looked only there. It now also finds the result in the running step, so Open and Save work as soon as the card shows, on Android and the web.
+- Toasts cut short ("Failed. A subagent runs where its parent session...") get an arrow-up button, "Show full message", that opens the whole text, selectable, with Copy on the web; an open toast stays until you fold or close it. The same on Android, where text past two lines was cut.
 ## [0.4.28] - 2026-10-25
 
 ### Fixed

@@ -63,6 +63,9 @@ object ModelPicks {
         return if (provider == "cliproxy") account.ifBlank { "Main accounts" } else ModelRefs.providerName(provider)
     }
 
+    /** A ref through one plan's prefix ("cliproxy/backup-gemini/claude-opus-5-5-high"). */
+    private fun onPlan(ref: String): Boolean = ref.startsWith("cliproxy/") && '/' in ref.removePrefix("cliproxy/")
+
     /**
      * Effort and thinking variants fold under their model's row as routes ("High", "Thinking"),
      * not rows of their own. A variant whose model is not listed becomes the row, named as the model.
@@ -87,13 +90,17 @@ object ModelPicks {
             val host = base[key]
             if (host != null) {
                 val now = out[host.ref] ?: host
-                val routes = now.routes.ifEmpty { listOf(Route(now.ref, "Default", first = true)) } + Route(r.ref, word)
+                val had = now.routes.ifEmpty { listOf(Route(now.ref, "Default", first = true)) }
+                // a plan the row does not reach yet that lists only a variant (Antigravity's claude-opus-5-5-high): one more route, by the variant's own id
+                val reached = had.map { routeLabel(it.ref) }.toMutableSet()
+                val plans = (listOf(r.ref) + r.model.choices.orEmpty()).filter { onPlan(it) && reached.add(routeLabel(it)) }
+                val routes = had + (if (r.ref in plans) emptyList() else listOf(Route(r.ref, word))) + plans.map { Route(it, routeLabel(it)) }
                 val next = now.copy(routes = routes)
                 out[host.ref] = next; base[key] = next
                 continue
             }
             // only the variant is listed: it is the row, under the model's name
-            val row = r.copy(label = r.label.replace(Regex("[\\s-]${m.groupValues[1]}$", RegexOption.IGNORE_CASE), ""), routes = listOf(Route(r.ref, word, first = true)))
+            val row = r.copy(label = r.label.replace(Regex("[\\s-]${m.groupValues[1]}$", RegexOption.IGNORE_CASE), ""), routes = listOf(Route(r.ref, word, first = true)) + r.model.choices.orEmpty().map { Route(it, routeLabel(it)) })
             base[key] = row
             out[r.ref] = row; order += r.ref
         }

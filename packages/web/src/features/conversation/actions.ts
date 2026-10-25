@@ -34,6 +34,28 @@ export function keepSession(s: Session) {
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Send into the account's one assistant thread (GET /api/assistant/home), the
+ * way Home, Plan my day and Goals talk to the assistant: no new session per
+ * message. While it works, the message waits in its queue. A model picked on
+ * Home switches the thread's model first, as on Android; permission mode and
+ * effort from Home are not applied. The thread, or undefined when the hub
+ * refused (the toast says why).
+ */
+export async function sendToAssistant(out: Outgoing | { text: string }, opts: { model?: string } = {}): Promise<Session | undefined> {
+  let home = await attempt(() => api().assistantHome());
+  if (!home) return undefined;
+  if (opts.model && opts.model !== home.model) {
+    const id = home.id;
+    home = await attempt(() => api().updateSession(id, { model: opts.model }));
+    if (!home) return undefined;
+  }
+  const thread = home;
+  keepSession(thread);
+  const sent = await attempt(() => api().send(thread.id, out));
+  return sent ? thread : undefined;
+}
+
 function pendingFor(out: Outgoing, known: Iterable<string>, hide: Iterable<string> = []): Pending {
   return {
     text: out.text,

@@ -432,7 +432,8 @@ pub fn convert(bytes: &[u8], subagent: bool, parent: Option<String>) -> Converte
     Converted {
         source: "claude-code",
         native_id,
-        native_id_unique: false,
+        // a main file is <sessionId>.jsonl, so its id goes in the fingerprint (importers/claude-code.ts); a subagent carries its parent's
+        native_id_unique: !is_sub,
         title: title.filter(|t| !t.is_empty()).map(|t| truncate_title(&t)),
         cwd,
         git_branch,
@@ -670,6 +671,9 @@ mod tests {
         .join("\n");
         let c = convert(lines.as_bytes(), false, None);
         assert_eq!(c.native_id.as_deref(), Some("s1"));
+        // the chat id is in the fingerprint of a main file, as the hub's (importers/claude-code.ts); not of a subagent transcript
+        assert!(c.native_id_unique);
+        assert!(!convert(lines.as_bytes(), true, Some("p".into())).native_id_unique);
         assert_eq!(c.messages.len(), 3);
         assert_eq!(content(&c.messages[1]).len(), 2);
         assert_eq!(c.messages[1]["stopReason"], "tool_use");

@@ -20,7 +20,11 @@ export { Shimmer, type ShimmerProps } from './Shimmer';
 export { Swap } from './Swap';
 export { LiveStatus, clockLeft, type LiveState, type LiveStatusProps } from './LiveStatus';
 export { Elapsed } from './Elapsed';
-export { useReducedMotion, usePageVisible, useOnscreen } from './useReducedMotion';
+export { useReducedMotion, usePageVisible, useOnscreen, useLiveSlot } from './useReducedMotion';
 export { usePresence, usePresenceList, useHeld, useArrivals, arrived } from './usePresence';
 export { DUR, LOOP, STREAM, SPRING } from './tokens';
+// the pet and the agent glyphs (docs/design/CHAT-AND-MOTION.md 1.11)
+export { Pet, type PetProps } from './Pet';
+export { AgentGlyph, type AgentGlyphProps } from './AgentGlyph';
+export { glyphKind, glyphState, petState, busiestKind, stillRows, GLYPH_KINDS, PET_STATES, LIVE_ROWS, type GlyphKind, type GlyphState, type PetState } from './agentGlyphs';
 export { EASE, spring, springCss } from './ease';

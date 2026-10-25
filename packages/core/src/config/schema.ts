@@ -667,6 +667,12 @@ export interface ConclaveConfig {
     searchRoots?: string[];
   };
 
+  /** Move to hub (projects/hubcopy.ts): a session's whole folder copied to the hub's disk. */
+  projects?: {
+    /** Where copies go, as <hubRoot>/<device>/<folder>. Default /srv/conclave-projects when it exists and is writable, else ~/conclave-projects. */
+    hubRoot?: string;
+  };
+
   /**
    * Repo sessions (docs/DESIGN.md 30). The token is the hub secret "github"
    * (Settings, GitHub, or `conclave github login`), else CONCLAVE_GITHUB_TOKEN.
@@ -683,6 +689,22 @@ export interface ConclaveConfig {
   };
   /** Places, directions and map images for the assistant (maps/service.ts, Settings > Maps). */
   maps?: MapsConfig;
+
+  /** How Read turns documents into text (tools/read.ts, tools/docling.ts). */
+  documents?: {
+    /**
+     * A docling-serve server (http or https, may be on the LAN). When set,
+     * Read sends it scanned PDFs, PDFs with tables and docx, xlsx and pptx
+     * files from the owner's sessions, never a member's, and falls back to
+     * the built-in readers when it fails. Unset by default.
+     */
+    docling?: {
+      /** Base URL, for example http://192.168.1.50:5001 (/v1/convert/file is added). */
+      url?: string;
+      /** Default 120000, docling-serve's own sync wait. */
+      timeoutMs?: number;
+    };
+  };
 
   /** Updates (docs/DESIGN.md, Updates; Settings > About). */
   updates?: {

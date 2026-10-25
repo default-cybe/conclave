@@ -6,7 +6,8 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { MapDelta, MapNode, MapSnapshot } from '@conclave/core/client';
-import { applyDelta, canStop, groupLine, hubKnot, hubState, nodeHref, replayTicks, shortId, stuckWords } from '../src/features/map/model';
+import { applyDelta, canStop, groupLine, hubKnot, hubState, mapLabel, modeWord, nodeHref, nodeMeta, replayTicks, shortId, stuckWords } from '../src/features/map/model';
+import { labelWords } from '../src/features/map/layout';
 import { clampView, fitView, pinch, toScreen, toWorld, wheelFactor, zoomAt, ZOOM_MAX, ZOOM_MIN } from '../src/features/map/view';
 import { CAP, emitRate, Quality, Streams } from '../src/features/map/streams';
 import type { LLink } from '../src/features/map/layout';
@@ -243,5 +244,51 @@ describe('streams', () => {
     for (let i = 0; i < 400; i++) q.update(1, 16);
     expect(q.q).toBe(1);
     expect(CAP.full).toBeGreaterThan(CAP.quiet);
+  });
+});
+
+describe('node labels', () => {
+  const code = { kind: 'session' as const, agent: 'coder' };
+  // titles from a real hub: imported chats, raw first prompts, headless runs, workflow steps
+  const cases: Array<[string, Partial<MapNode>, { group?: string; device?: string }, string]> = [
+    ['Continued in Claude Code on DefaulTs-MacBook-Pro-2.local', { ...code, cwd: '/home/default/CMU' }, { group: 'CMU', device: 'MacBook' }, 'Code chat on MacBook'],
+    ['project-t - Session continued from prior context', { ...code, cwd: '/home/x/project-t' }, { group: 'project-t', device: 'arch' }, 'Code chat on arch'],
+    ['New chat', { kind: 'chat', agent: 'chat' }, { device: 'madx' }, 'Chat on madx'],
+    ['conclave chat', { ...code, cwd: '/Users/default/MadX/CMU/conclave' }, { group: 'conclave', device: 'MacBook' }, 'Code chat on MacBook'],
+    ['Skip To Content Dashboard Kaivalya Ahir Account Dashboard Courses Groups Cale...', code, {}, 'Dashboard Kaivalya Ahir'],
+    ['Run `cat /home/conclave/work/tool-probe/fixtures/chat_d2.txt', { kind: 'subagent', agent: 'explore' }, {}, 'Run cat chat_d2.txt'],
+    ['AFFiNE 0.27.0, LXC 122 (/opt/affine, port 3010, db `affine`,', { kind: 'subagent', agent: 'coder' }, {}, 'AFFiNE 0.27.0, LXC 122'],
+    ['so this is the hook, to not use all the highend security words for security a...', code, {}, 'This is the hook'],
+    ['harness-parity-and-file-outputs / Build A: harness parity', { kind: 'subagent', agent: 'builder' }, {}, 'Build A: harness parity'],
+    ['pnahir-security-overhaul / correctness-review-2', { kind: 'subagent', agent: 'reviewer' }, {}, 'Correctness review 2'],
+    ['Read AFFiNE doc "see this chat 5544"', { kind: 'subagent', agent: 'explore' }, {}, 'Read AFFiNE doc'],
+    ['Fix review findings: harness parity', { kind: 'subagent', agent: 'builder' }, {}, 'Fix review findings'],
+    ['review-changes', { kind: 'workflow', agent: 'workflow' }, {}, 'Review changes'],
+  ];
+  for (const [title, n, where, want] of cases)
+    test(`${title.slice(0, 40)} -> ${want}`, () => {
+      expect(mapLabel({ title, kind: 'session', ...n } as MapNode, where)).toBe(want);
+    });
+
+  test('a short, clean title stays as it is; 2 to 5 words at most', () => {
+    expect(mapLabel({ title: 'Fix login redirect', ...code })).toBe('Fix login redirect');
+    for (const [title, n, where] of cases) {
+      const words = mapLabel({ title, kind: 'session', ...n } as MapNode, where).split(' ').length;
+      expect(words).toBeGreaterThanOrEqual(2);
+      expect(words).toBeLessThanOrEqual(5);
+    }
+  });
+
+  test('the line under it: mode, state, and when a resting node last worked', () => {
+    expect(modeWord({ kind: 'chat', agent: 'chat' })).toBe('Chat');
+    expect(modeWord({ kind: 'session', agent: 'assistant' })).toBe('Assistant');
+    expect(modeWord({ kind: 'session', agent: 'coder' })).toBe('Code');
+    expect(modeWord({ kind: 'subagent', agent: 'general-purpose' })).toBe('General purpose');
+    const snap = mapFixture(NOW);
+    const e2e = byId(snap)[I.e2e];
+    expect(nodeMeta(e2e, NOW)).toEqual({ mode: 'Tester', word: 'idle', when: '3h ago' });
+    expect(labelWords(byId(snap)[I.login], NOW).meta).toBe('Code · running');
+    // the full title is kept on the node: only the label is short
+    expect(e2e.title).toBe('fernway-web - Session continued from prior context');
   });
 });

@@ -125,12 +125,23 @@ describe('grouped by time', () => {
     expect(groups[0].rows[0].device).toBe('arch-desktop');
   });
 
-  test('chats and the assistant always go by time, pinned first, with no device', () => {
+  test('chats always go by time, pinned first, with no device', () => {
     const chats = sideGroups({ sessions, mode: 'chat', by: 'project', ctx, now: NOW });
     expect(chats.map((g) => g.label)).toEqual(['Pinned', 'Today']);
     expect(chats[1].rows[0]).toEqual({ id: 'chat1', title: 'Caddy certs', href: '/chat/chat1' });
-    const asst = sideGroups({ sessions, mode: 'assistant', by: 'device', ctx, now: NOW });
-    expect(asst.map((g) => g.label)).toEqual(['This week']);
+  });
+
+  test('the assistant is one thread on top; older assistant conversations are under History', () => {
+    const withHome = [...sessions, s('home', { agent: 'assistant', title: 'Assistant', pinned: true, meta: { home: true }, updatedAt: NOW - 3 * DAY })];
+    const asst = sideGroups({ sessions: withHome, mode: 'assistant', by: 'device', ctx, now: NOW });
+    expect(asst.map((g) => [g.key, titles(g)])).toEqual([
+      ['home', ['Assistant']],
+      ['history', ['Plan my week']],
+    ]);
+    expect(asst[1].label).toBe('History');
+    // no home thread yet: the old ones still list, under History
+    expect(sideGroups({ sessions, mode: 'assistant', by: 'time', ctx, now: NOW }).map((g) => g.label)).toEqual(['History']);
+    expect(NEW_WORDS.assistant).not.toBe('New assistant chat');
   });
 
   test('the buckets follow the calendar', () => {

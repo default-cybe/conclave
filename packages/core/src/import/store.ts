@@ -321,6 +321,18 @@ export class ImportStore {
     return (this.db.query('SELECT * FROM import_sources WHERE fingerprint = ? AND account_id = ?').all(fp, accountId) as Row[]).map(rowToLedger);
   }
 
+  /** Imported Claude Code sessions with their chat id, first imported message id and size, for mergeDuplicates. */
+  claudeChats(accountId: string = OWNER_ID): Array<{ id: string; nativeId: string; firstId: string | null; messages: number; updatedAt: number }> {
+    return this.db
+      .query(
+        `SELECT s.id AS id, lower(json_extract(s.meta, '$.import.id')) AS nativeId, s.updated_at AS updatedAt,
+           (SELECT json_extract(m.meta, '$.external.id') FROM messages m WHERE m.session_id = s.id AND json_extract(m.meta, '$.external.id') IS NOT NULL ORDER BY m.seq LIMIT 1) AS firstId,
+           (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS messages
+         FROM sessions s WHERE s.account_id = ? AND json_extract(s.meta, '$.import.source') = 'claude-code' AND COALESCE(json_extract(s.meta, '$.import.id'), '') != '' AND json_extract(s.meta, '$.import.duplicateOf') IS NULL`,
+      )
+      .all(accountId) as Array<{ id: string; nativeId: string; firstId: string | null; messages: number; updatedAt: number }>;
+  }
+
   ledgerBySession(sessionId: string): LedgerRow[] {
     return (this.db.query('SELECT * FROM import_sources WHERE session_id = ? ORDER BY updated_at DESC').all(sessionId) as Row[]).map(rowToLedger);
   }

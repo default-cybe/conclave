@@ -234,7 +234,7 @@ describe('a workflow and a subagent are never folded', () => {
     const items = [{ tool: bash('b1'), result: ok('b1') }, { tool: bash('b2'), result: ok('b2') }, { tool: wf() }, { tool: task, result: { ...ok('t9'), meta: { durationMs: 3000 } } }, { tool: bash('b3'), result: ok('b3') }];
     const out = html(<ToolGroup entries={asWork(items)} sessionId="s1" />);
     expect(out).toContain('data-workflow-row');
-    expect(out).toContain('data-subagent-row');
+    expect(out).toContain('data-fanout-line');
     expect(out).toContain('Ran 2 commands');
     expect(out).not.toContain('workflow and');
     expect(out).not.toContain('ran 1 subagent');
@@ -261,15 +261,16 @@ describe('a subagent while it runs', () => {
     // the time runs from when the call started (the clock reads whole seconds)
     const out = html(<ToolRow item={{ tool: task, run: { ...running, startedAt: Date.now() - 41_500 } }} sessionId="s1" />);
     expect(out).toContain('id="tool-t1"');
-    expect(out).toContain('>Subagent<');
-    expect(out).toContain('explore: Find all JWT usages');
-    expect(out).toContain('data-subagent-now');
-    expect(out).toContain(', starting');
+    // one Task is the fan-out card with one line
+    expect(out).toContain('1 subagent, 1 running');
+    expect(out).toContain('Find all JWT usages<span class="text-fg-3">, explore</span>');
+    expect(out).toContain('>Starting<');
     expect(out).toContain('41s');
-    // done: no doing-now words, the time it took
+    // done: the first line of its report, and the time it took
     const done = html(<ToolRow item={{ tool: task, result: { type: 'tool_result', toolUseId: 't1', content: 'Found 3.', meta: { durationMs: 41_000 } } }} sessionId="s1" />);
-    expect(done).not.toContain('data-subagent-now');
-    expect(done).toContain('done in 41s');
+    expect(done).not.toContain('Starting');
+    expect(done).toContain('>Found 3.<');
+    expect(done).toContain('41s');
     expect(done).toContain('data-state="done"');
   });
 
@@ -287,9 +288,9 @@ describe('a subagent while it runs', () => {
 
   test('on a phone the same one row, with its name', () => {
     const out = html(<PhoneWork entries={asWork([{ tool: task, run: running }])} sessionId="s1" live />);
-    expect(out).toContain('data-subagent-row');
-    expect(out).toContain('explore: Find all JWT usages');
-    expect(out).toContain(', starting');
+    expect(out).toContain('data-fanout-line');
+    expect(out).toContain('Find all JWT usages<span class="text-fg-3">, explore</span>');
+    expect(out).toContain('>Starting<');
   });
 
   test('the words: the call running now in the present, the last one in the past', () => {

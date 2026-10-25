@@ -10,6 +10,7 @@ export type { PluginInstallOptions } from './types';
 import { parseJsonc } from '../config';
 import { loadAgentsFromDir, loadCommandsFromDir, loadSkillFolder, loadSkillsFromDir, type ModelMapper } from './loader';
 import { logger } from '../util/log';
+import { shellQuote } from '../tools/util';
 
 const log = logger('plugins');
 
@@ -28,6 +29,8 @@ interface PluginState {
   hooks?: boolean;
   /** Manifest from a strict:false marketplace entry; replaces the plugin's own plugin.json. */
   manifest?: PluginManifest;
+  /** Set when installing the plugin's npm dependencies failed: the command to run by hand. */
+  depsCommand?: string;
 }
 
 /** Files whose change makes an update need review: manifests, hooks, MCP config, scripts and package files. */
@@ -116,6 +119,7 @@ export class PluginManager {
   private marketplacesDir: string;
   private statePath: string;
   private gitRun: GitRun;
+  private spawn: Spawn;
   private defaults: string[];
   private state: StateFile;
   private manifests = new Map<string, PluginManifest>();
@@ -125,7 +129,8 @@ export class PluginManager {
     this.marketplacesDir = join(this.root, '.marketplaces');
     this.statePath = join(this.root, 'state.json');
     // the catalog's git: no repo hooks, filters, LFS downloads or command transports, and a time limit
-    this.gitRun = gitRunner(opts.spawn ?? Bun.spawn);
+    this.spawn = opts.spawn ?? Bun.spawn;
+    this.gitRun = gitRunner(this.spawn);
     this.defaults = opts.defaultMarketplaces ?? DEFAULT_MARKETPLACES;
     mkdirSync(this.root, { recursive: true });
     this.state = this.readState();
@@ -168,8 +173,8 @@ export class PluginManager {
     return out;
   }
 
-  private extraOf(st: PluginState): Pick<InstalledPlugin, 'sha' | 'version' | 'hooksEnabled'> {
-    return { ...(st.sha ? { sha: st.sha } : {}), ...(st.version ? { version: st.version } : {}), hooksEnabled: st.hooks !== false };
+  private extraOf(st: PluginState): Pick<InstalledPlugin, 'sha' | 'version' | 'hooksEnabled' | 'depsCommand'> {
+    return { ...(st.sha ? { sha: st.sha } : {}), ...(st.version ? { version: st.version } : {}), hooksEnabled: st.hooks !== false, ...(st.depsCommand ? { depsCommand: st.depsCommand } : {}) };
   }
 
   private enabledPlugins(): Array<{ name: string; dir: string; manifest: PluginManifest }> {
@@ -373,7 +378,7 @@ export class PluginManager {
       throw err;
     }
     try {
-      return this.installFromDir(fetched.root, {
+      return await this.installFromDir(fetched.root, {
         ...opts,
         source,
         sha: opts.sha ?? fetched.sha,
@@ -390,8 +395,10 @@ export class PluginManager {
    * Install from a folder that is already on disk (a staged, previewed copy).
    * Copies it without .git, records the source, commit and a hash of the
    * hooks, MCP config and scripts. Reinstalling keeps the hooks switch.
+   * Then installs its npm dependencies; a failure keeps the plugin and records
+   * the command to run by hand.
    */
-  installFromDir(dir: string, opts: PluginInstallOptions): InstalledPlugin {
+  async installFromDir(dir: string, opts: PluginInstallOptions): Promise<InstalledPlugin> {
     if (!existsSync(dir)) throw new Error(`plugin folder not found: ${dir}`);
     const own = readManifest(dir, basename(dir));
     const manifest = opts.manifest ? { ...opts.manifest, name: opts.manifest.name || own.name } : own;
@@ -416,8 +423,42 @@ export class PluginManager {
     this.state.plugins[name] = st;
     this.writeState();
     this.manifests.set(name, opts.manifest ? { ...manifest, name } : readManifest(dest, name));
+    const depsCommand = await this.installDeps(dest);
+    if (depsCommand) {
+      st.depsCommand = depsCommand;
+      this.writeState();
+    }
     log.info(`installed plugin ${name} from ${opts.source}${opts.sha ? ` at ${opts.sha.slice(0, 7)}` : ''}`);
     return { name, dir: dest, manifest: this.manifests.get(name)!, enabled: st.enabled, source: opts.source, installedAt: st.installedAt, ...this.extraOf(st) };
+  }
+
+  /**
+   * npm dependencies of a plugin whose package.json lists some and that ships
+   * no node_modules (an update recopies the folder, so a changed lockfile
+   * always installs again). Lifecycle scripts never run. Returns the command
+   * to run by hand when the install fails.
+   */
+  private async installDeps(dir: string): Promise<string | undefined> {
+    const pkg = readJson<{ dependencies?: Record<string, string> }>(join(dir, 'package.json'));
+    if (!pkg?.dependencies || !Object.keys(pkg.dependencies).length || existsSync(join(dir, 'node_modules'))) return undefined;
+    // bun install --production refuses a migrated package-lock ("lockfile is frozen"), so npm does it;
+    // --git=git: a plugin's .npmrc could name another git binary, and the command line wins over it
+    const argv = ['npm', existsSync(join(dir, 'package-lock.json')) ? 'ci' : 'install', '--omit=dev', '--ignore-scripts', '--git=git'];
+    const command = `cd ${shellQuote(dir)} && ${argv.join(' ')}`;
+    try {
+      const proc = this.spawn(argv, { cwd: dir, env: process.env as Record<string, string>, stdout: 'pipe', stderr: 'pipe', stdin: 'ignore' });
+      const timer = setTimeout(() => proc.kill(), 120_000);
+      try {
+        const [, stderr, code] = await Promise.all([new Response(proc.stdout as ReadableStream).text(), new Response(proc.stderr as ReadableStream).text(), proc.exited]);
+        if (code === 0) return undefined;
+        log.warn(`npm dependencies of ${dir} failed (exit ${code}): ${stderr.trim().split('\n').slice(-3).join(' ')}. Run: ${command}`);
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (err) {
+      log.warn(`npm dependencies of ${dir} failed: ${(err as Error).message}. Run: ${command}`);
+    }
+    return command;
   }
 
   async removePlugin(name: string): Promise<boolean> {

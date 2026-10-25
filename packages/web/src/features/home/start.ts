@@ -91,6 +91,8 @@ export interface Picks {
   /** Code from GitHub (docs/DESIGN.md 30): owner/name, and the branch to start from (unset: the default branch). */
   repo?: string;
   base?: string;
+  /** "Run in a worktree": a folder in a git repository gets its own worktree on a new branch. */
+  worktree?: boolean;
 }
 
 const PERMISSION_MODES: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypass'];
@@ -109,7 +111,7 @@ export function readPicks(): Picks {
     const old = raw.v !== PICKS_VERSION;
     const device = old ? (cwd === undefined ? str(raw.device) : undefined) : str(raw.device);
     const cwdDevice = old ? (cwd !== undefined ? str(raw.device) : undefined) : str(raw.cwdDevice);
-    return { agent: str(raw.agent), model: str(raw.model), assistantModel: str(raw.assistantModel), device, cwd, cwdDevice, permissionMode: mode, thinking, cyber: isCyberProgram(raw.cyber) ? raw.cyber : undefined, ultra: raw.ultra === true || undefined, repo: str(raw.repo), base: str(raw.base) };
+    return { agent: str(raw.agent), model: str(raw.model), assistantModel: str(raw.assistantModel), device, cwd, cwdDevice, permissionMode: mode, thinking, cyber: isCyberProgram(raw.cyber) ? raw.cyber : undefined, ultra: raw.ultra === true || undefined, repo: str(raw.repo), base: str(raw.base), worktree: raw.worktree === true || undefined };
   } catch {
     return {};
   }

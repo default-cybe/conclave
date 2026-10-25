@@ -7,14 +7,14 @@
  */
 import type { Session } from '../types';
 import type { Engine } from './engine';
-import { continueSubagent, deliverSubagentResult, SUBAGENT_RESULT_MAX_CHARS } from './subagent';
+import { continueSubagent, deliverSubagentResult, subagentEndState, SUBAGENT_RESULT_MAX_CHARS } from './subagent';
 import { lastAssistantText, reminder } from '../session/transcript';
 import { truncateMiddle } from '../util/text';
 import { logger } from '../util/log';
 
 const log = logger('background');
 
-export type TaskState = 'running' | 'completed' | 'failed' | 'lost';
+export type TaskState = 'running' | 'paused' | 'completed' | 'failed' | 'limited' | 'lost';
 
 export interface TaskInfo {
   id: string;
@@ -44,7 +44,8 @@ function bg(s: Session): BackgroundMeta | undefined {
 
 function info(s: Session): TaskInfo {
   const b = bg(s) ?? {};
-  const state: TaskState = b.state === 'running' ? 'running' : b.state === 'lost' ? 'lost' : b.state === 'error' ? 'failed' : 'completed';
+  // paused by the owner: TaskWait returns on it, so a parent does not wait for work that waits for Resume
+  const state: TaskState = b.state === 'running' ? (s.status === 'paused' ? 'paused' : 'running') : b.state === 'lost' || b.state === 'limited' ? b.state : b.state === 'error' ? 'failed' : 'completed';
   return { id: s.id, agent: s.agent, description: s.title, state, ...(b.startedAt ? { startedAt: b.startedAt } : {}), ...(b.finishedAt ? { finishedAt: b.finishedAt } : {}) };
 }
 
@@ -101,10 +102,11 @@ export class BackgroundTasks {
     const task = this.get(parentId, id);
     if (!task) return `No background task ${id} in this session. TaskList shows yours.`;
     if (task.state === 'running') return `Task ${id} is still running. Wait for it with TaskWait, then continue it.`;
+    if (task.state === 'paused') return `Task ${id} is paused by the owner. It continues when the owner resumes it, and reports then.`;
     const child = this.engine.getSession(id)!;
     this.engine.patchMeta(id, { background: { ...bg(child), parentId, state: 'running', startedAt: Date.now(), finishedAt: undefined } });
     void continueSubagent(this.engine, id, text)
-      .then((r) => deliverSubagentResult(this.engine, parentId, id, r.error ? 'error' : 'completed', r.error ? `${r.text}\n\nError: ${r.error}` : r.text))
+      .then((r) => deliverSubagentResult(this.engine, parentId, id, subagentEndState(r), r.error ? `${r.text}\n\nError: ${r.error}` : r.text))
       .catch((err) => {
         log.warn('background task continue failed', err);
         deliverSubagentResult(this.engine, parentId, id, 'error', `Error: ${(err as Error)?.message ?? String(err)}`);

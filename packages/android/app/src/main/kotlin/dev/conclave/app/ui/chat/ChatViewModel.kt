@@ -35,6 +35,7 @@ import dev.conclave.client.model.SwitchEstimate
 import dev.conclave.client.model.ThinkingLevel
 import dev.conclave.client.model.WorkflowRun
 import dev.conclave.client.model.visibleText
+import dev.conclave.client.moveToHub
 import dev.conclave.client.workflowRuns
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -331,6 +332,9 @@ class ChatViewModel(hub: HubRepository, val sessionId: String) : HubViewModel(hu
     }
 
     fun compact() = action("Compacting") { hub.api { it.compact(sessionId) } }
+
+    /** Move to hub (copy folder): the hub copies the whole folder, then the session runs there; progress lands in the session. */
+    fun moveToHub() = action("Copying the folder to the hub") { hub.api { it.moveToHub(sessionId) } }
 
     /** Move to Chat: the session becomes a chat and opens where chats are. */
     fun moveToChat() = patch(SessionPatch(kind = SessionKind.CHAT))

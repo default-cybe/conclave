@@ -154,6 +154,8 @@ export interface EngineApi {
   getSession(id: string): Session | undefined;
   /** accountId: whose session; never taken from the request body. byPerson: started from an app, so a member's code session on the hub is refused up front. */
   createSession(input: CreateSessionInput, accountId?: string, opts?: { byPerson?: boolean }): Promise<Session>;
+  /** The account's one assistant thread (meta.home), made the first time; two calls at once get the same one. */
+  assistantHome(accountId: string): Promise<Session>;
   updateSession(id: string, patch: SessionPatch): Session;
   deleteSession(id: string): Promise<void>;
   forkSession(id: string, fromSeq?: number): Session;
@@ -176,6 +178,8 @@ export interface EngineApi {
   /** Tell the owner, if that kind of event notifies (config notifications.on). */
   notifyEvent(kind: keyof import('../config/schema').ConclaveConfig['notifications']['on'], notice: Omit<import('../types').Notice, 'id' | 'createdAt'>): void;
   abort(id: string): void;
+  pauseSession(id: string): Session;
+  resumeSession(id: string): Promise<Session>;
   rewind(id: string, seq: number, restoreFiles?: boolean): Promise<Session>;
   secondOpinion(id: string, input: SecondOpinionInput): Promise<void>;
   /** Switch the session's model; brief asks for a short handover (modes/handoff.ts). */

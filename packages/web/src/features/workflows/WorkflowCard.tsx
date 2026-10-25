@@ -26,9 +26,12 @@ import { cn } from '@/lib/text';
 import { compact, durationShort, usd } from '@/lib/format';
 import { agentDoing } from '@/lib/toolLine';
 import { resultText } from '@/features/chat/util';
+import { api } from '@/lib/api';
+import { attempt } from '@/store/store';
 import { runIdFor } from '@/features/chat/liveTasks';
 import { Chevron, ROW, ROW_BTN, RESULT, RunningTime, verbClass } from '@/features/chat/rowParts';
-import { callWord, cardPhases, isLive, phaseWords, resultLine, shownCalls, taskLine, workflowName, workflowRowState, type CardPhase } from './words';
+import { callWord, cardPhases, isLive, phaseLine, phaseWords, resultLine, shownCalls, taskLine, workflowName, workflowRowState, type CardPhase } from './words';
+import { Meter } from '@/components/ui/Meter';
 import { useRunDetail, useSessionRuns } from './data';
 
 export { workflowName };
@@ -89,6 +92,7 @@ export function WorkflowRowView({
   const since = run ? (run.startedAt ?? run.createdAt) : startedAt;
   const detail = st.detail && <span className={st.fault ? 'text-fault' : 'text-fg-3'}>{`${st.sep}${st.detail}`}</span>;
   const body = shown && <WorkflowDetail name={name} run={run} calls={calls} progress={progress} runResult={runResult} result={result} />;
+  const bar = run && run.phases.length > 0 && <PhaseBar run={run} calls={calls ?? []} className={layout === 'phone' ? 'mb-2' : 'mb-2 ml-[calc(64px*var(--log-scale,1)+12px)] phone:ml-[calc(52px*var(--log-scale,1)+12px)]'} />;
   const attrs = { id: toolId ? `tool-${toolId}` : undefined, 'data-workflow-row': '', 'data-state': run?.status ?? (st.live ? 'starting' : 'ended') };
 
   if (layout === 'phone') {
@@ -104,6 +108,7 @@ export function WorkflowRowView({
           {stat && <span className="num shrink-0 tx-14 text-fg-3">{stat}</span>}
           {expandable && <ChevronRight aria-hidden strokeWidth={2} className={cn('size-4 shrink-0 text-fg-4 transition-transform duration-[var(--dur-1)]', shown && 'rotate-90')} />}
         </button>
+        {bar}
         {body && <div className="mb-2 ml-1 border-l border-rule pl-3 anim-fade">{body}</div>}
       </div>
     );
@@ -132,6 +137,7 @@ export function WorkflowRowView({
       ) : (
         <div className={ROW}>{head}</div>
       )}
+      {bar}
       {body && <div className="mb-2 ml-4 border-l border-rule pl-4 anim-fade">{body}</div>}
     </div>
   );
@@ -181,11 +187,41 @@ export function WorkflowDetail({
       {footer && (
         <div className="flex items-center gap-3 border-t border-rule py-1.5 text-[12px] phone:text-[13px]">
           <span className="num min-w-0 truncate text-fg-3">{spendWords(run)}</span>
-          <Link href={`/workflows/runs/${run.id}`} className="link ml-auto shrink-0">
+          {(run.status === 'running' || run.status === 'paused') && (
+            <button type="button" className="link ml-auto shrink-0" onClick={() => void attempt(() => (run.status === 'paused' ? api().resumeWorkflow(run.id) : api().pauseWorkflow(run.id)))}>
+              {run.status === 'paused' ? 'Resume' : 'Pause'}
+            </button>
+          )}
+          <Link href={`/workflows/runs/${run.id}`} className={cn('link shrink-0', run.status !== 'running' && run.status !== 'paused' && 'ml-auto')}>
             Open run
           </Link>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Where the run is at a glance, under its row: one 3px meter per phase (done
+ * full, the current one in signal by its agents done, one with a failed agent
+ * in red, the rest empty) and the agent counts, "4 of 9 agents done, 1 failed".
+ */
+function PhaseBar({ run, calls, className }: { run: WorkflowRun; calls: WorkflowCall[]; className?: string }) {
+  const phases = cardPhases(run, calls).slice(0, run.phases.length);
+  const c = run.counts;
+  const settled = c.done + c.cached + c.skipped;
+  const words = [`${settled} of ${c.agents} ${c.agents === 1 ? 'agent' : 'agents'} done`, c.running ? `${c.running} running` : '', c.failed ? `${c.failed} failed` : ''].filter(Boolean).join(', ');
+  return (
+    <div data-phase-bar="" className={cn('flex items-center gap-3', className)}>
+      <div className="flex min-w-0 flex-1 gap-1" aria-label={phaseLine(run) ?? `${run.phases.length} phases`} role="group">
+        {phases.map((p, i) => {
+          // the current phase always shows a sliver of signal, so a phase with nothing done yet still reads as running
+          const value = p.state === 'done' ? 1 : p.state === 'next' ? 0 : Math.max(0.1, p.calls.length ? p.done / p.calls.length : 0);
+          const tone = p.failed ? 'fault' : p.state === 'current' ? 'signal' : 'neutral';
+          return <Meter key={`${p.title}${i}`} value={value} max={1} tone={tone} label={`${p.title}: ${p.state === 'next' ? 'pending' : p.state === 'current' ? 'running' : 'done'}`} className="min-w-6 flex-1" />;
+        })}
+      </div>
+      {c.agents > 0 && <span className="num shrink-0 tx-12 text-fg-3 phone:tx-13">{words}</span>}
     </div>
   );
 }

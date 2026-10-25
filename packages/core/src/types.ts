@@ -147,7 +147,8 @@ export interface AgentResultRef {
   label: string;
   /** The subagent's agent type. */
   agent?: string;
-  state: 'completed' | 'failed' | 'stopped';
+  /** limited: a subagent a usage limit stopped before it finished. */
+  state: 'completed' | 'failed' | 'stopped' | 'limited';
 }
 
 /**
@@ -176,6 +177,8 @@ export type SessionStatus =
   | 'waiting_approval'
   | 'waiting_input'
   | 'waiting_reset'
+  /** The owner paused it (engine.pauseSession): kept across restarts until Resume. */
+  | 'paused'
   | 'error';
 
 export type SessionMode = 'agent' | 'chat' | 'plan' | 'jury' | 'debate' | 'loop';
@@ -362,8 +365,8 @@ export interface Routine {
   cwd?: string;
   device?: string;
   enabled: boolean;
-  /** new: fresh session each run. reuse: append to one session. */
-  sessionPolicy: 'new' | 'reuse';
+  /** new: fresh session each run. reuse: append to one session. home: a turn in the account's assistant home thread (never a webhook's or a watch's run: those run as new). */
+  sessionPolicy: 'new' | 'reuse' | 'home';
   sessionId?: string;
   /** on_attention: when the run fails or its reply starts with STATUS: attention or problem. */
   notify: 'always' | 'on_error' | 'on_attention' | 'never';
@@ -857,6 +860,18 @@ export type EngineEvent =
       to: { device: string; cwd: string };
       via: import('./client/projects').LocationVia;
       level: import('./client/projects').MatchLevel;
+    }
+  /** Move to hub (to-hub) or Move back (back): progress twice a second at most, then done, failed or cancelled (projects/hubcopy.ts). */
+  | {
+      type: 'hubcopy.progress';
+      sessionId: string;
+      direction: 'to-hub' | 'back';
+      phase: 'measuring' | 'copying' | 'manifest' | 'done' | 'failed' | 'cancelled';
+      bytes: number;
+      files: number;
+      totalBytes?: number;
+      totalFiles?: number;
+      line?: string;
     }
   // ----- workflows (workflows/**) -----
   | { type: 'workflow.run'; run: import('./client/workflows').WorkflowRun }

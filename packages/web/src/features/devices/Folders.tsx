@@ -14,6 +14,8 @@ import { SectionHeading, TextAction } from '@/components/ui/Section';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { tildePath } from '../chat/FolderChooser';
 import { ShareProjectButton } from '../friends/ShareProject';
+import { Input } from '@/components/ui/Field';
+import { save } from '../settings/parts';
 
 export const VIA_WORDS: Record<LocationVia, string> = {
   origin: 'where it started',
@@ -24,6 +26,30 @@ export const VIA_WORDS: Record<LocationVia, string> = {
   search: 'found by search',
   chosen: 'chosen',
 };
+
+/** The hub only: config projects.hubRoot, where Move to hub puts copied folders. Empty uses the default. */
+function HubRoot({ shown, onSaved }: { shown: string; onSaved: () => void }) {
+  const configured = useHub((s) => (s.config as { projects?: { hubRoot?: string } } | undefined)?.projects?.hubRoot ?? '');
+  const [v, setV] = useState(configured);
+  return (
+    <div>
+      <SectionHeading>Projects drive</SectionHeading>
+      <p className="mt-2.5 mb-2 text-[12px] text-fg-3 phone:text-[13px]">
+        Move to hub copies a session&apos;s whole folder to <span className="mono">{shown}</span>/&lt;device&gt;/&lt;folder&gt;. Leave empty for /srv/conclave-projects when it is mounted, else ~/conclave-projects.
+      </p>
+      <Input
+        mono
+        value={v}
+        placeholder={shown}
+        aria-label="Projects folder on the hub"
+        onChange={(e) => setV(e.target.value)}
+        onBlur={() => {
+          if (v.trim() !== configured) void save({ projects: { hubRoot: v.trim() } }).then((ok) => ok && onSaved());
+        }}
+      />
+    </div>
+  );
+}
 
 export function Folders({ d }: { d: Device }) {
   const devices = useHub((s) => s.devices);
@@ -109,6 +135,8 @@ export function Folders({ d }: { d: Device }) {
           <div className="rows">{f.prefixes.map(pair)}</div>
         </div>
       )}
+
+      {f?.hubRoot !== undefined && <HubRoot shown={f.hubRoot} onSaved={data.reload} />}
 
       {f && (
         <p className="m-0 text-[13px] text-fg-2 phone:text-[14px]">

@@ -41,7 +41,8 @@ sealed class RunningTask {
 data class SubagentNow(val text: String, val waiting: Boolean = false)
 
 object Tasks {
-    private val BUSY = setOf(SessionStatus.RUNNING, SessionStatus.WAITING_APPROVAL, SessionStatus.WAITING_INPUT, SessionStatus.WAITING_RESET)
+    // a paused subagent stays listed until Resume
+    private val BUSY = setOf(SessionStatus.RUNNING, SessionStatus.WAITING_APPROVAL, SessionStatus.WAITING_INPUT, SessionStatus.WAITING_RESET, SessionStatus.PAUSED)
 
     fun busy(s: Session?): Boolean = s != null && s.status in BUSY
 
@@ -145,6 +146,10 @@ object Tasks {
         else -> "Subagent "
     }
 
+    /** "Haiku 5.5": the model a subagent runs on, its session's, else the one the call names. Null when neither says. */
+    fun model(use: ToolUseBlock, child: Session?): String? =
+        (child?.model?.ifBlank { null } ?: use.input.string("model")?.trim()?.ifEmpty { null })?.let { ModelRefs.displayName(it) }?.ifBlank { null }
+
     /** "explore, Haiku 5.5": the agent and the model it runs on, for the detail. */
     fun who(use: ToolUseBlock, result: ToolResultBlock?, child: Session?): String =
         listOfNotNull(agentOf(use, result, child), child?.model?.let { ModelRefs.displayName(it) }?.ifBlank { null } ?: use.input.string("model")?.ifBlank { null })
@@ -180,6 +185,7 @@ object Tasks {
      */
     fun now(child: Session?, messages: List<Message>, results: Map<String, ToolResultBlock>, running: Set<String> = emptySet(), progress: String? = null, asks: List<Ask> = emptyList()): SubagentNow {
         if (child == null) return SubagentNow(progress?.lines()?.lastOrNull { it.isNotBlank() }?.trim()?.let { ToolLines.cut(it, 80) } ?: "Starting")
+        if (child.status == SessionStatus.PAUSED) return SubagentNow("Paused")
         if (child.status == SessionStatus.WAITING_APPROVAL || child.status == SessionStatus.WAITING_INPUT || Asks.waitsIn(asks, child.id)) return SubagentNow("Waiting on you", waiting = true)
         val working = child.status == SessionStatus.RUNNING
         for (m in messages.asReversed()) {

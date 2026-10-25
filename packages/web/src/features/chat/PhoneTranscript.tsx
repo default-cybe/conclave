@@ -49,7 +49,8 @@ import { buildUnits } from './MessageList';
 import { PhonePending, storedWord } from './Pending';
 import { callMs, callStatus, editFiles, groupNow, Terminal, took, useSubagent, useSubagentNow, useToolState, useWaitingKey, webResults, workSteps, type ThoughtItem, type ToolItem, type WorkItem } from './ToolRows';
 import { groupState, pinned, segment, troubleWords, workName } from './toolGroups';
-import { subagentLead } from './liveTasks';
+import { FanOutCard, useFolded } from './FanOutCard';
+import { TASK_TOOLS, taskToolWords } from './fanOut';
 import { WorkflowRow } from '../workflows/WorkflowCard';
 import { MapsCards } from '../maps/MapsCard';
 import { WatchCards } from '../watches/WatchCards';
@@ -240,7 +241,8 @@ const Turn = memo(function Turn({
   done: boolean;
   working: boolean;
 }) {
-  const pieces = turnPieces(messages, streaming, results, tools);
+  const folded = useFolded(session.id);
+  const pieces = turnPieces(messages, streaming, results, tools, folded);
   if (!pieces.length) return null;
   // the work the turn is still at: no prose after it yet
   let lastProse = -1;
@@ -279,7 +281,9 @@ export function PhoneWork({ entries, sessionId, live }: { entries: WorkItem[]; s
   return (
     <div className="-my-0.5">
       {segs.map((g, i) =>
-        g.kind === 'one' ? (
+        g.kind === 'fanout' ? (
+          <FanOutCard key={`f:${g.items[0].tool.id}`} items={g.items} sessionId={sessionId} />
+        ) : g.kind === 'one' ? (
           <OneCall key={g.item.tool.id} item={g.item} sessionId={sessionId} />
         ) : g.kind === 'thought' ? (
           <PhoneThought key={g.item.key} item={g.item} />
@@ -351,60 +355,8 @@ function PhoneGroup({ entries, live }: { entries: WorkItem[]; live: boolean }) {
 function OneCall({ item, sessionId }: { item: ToolItem; sessionId: string }) {
   const kind = workName(item.tool.name, item.tool.input);
   if (kind === 'Workflow') return <WorkflowRow tool={item.tool} result={item.result ?? item.run?.result} sessionId={sessionId} startedAt={item.run?.startedAt} layout="phone" />;
-  if (kind === 'Task') return <PhoneSubagentRow item={item} sessionId={sessionId} />;
+  if (kind === 'Task') return <FanOutCard items={[item]} sessionId={sessionId} />;
   return <CallRow item={item} />;
-}
-
-/**
- * A Task call as one line: "Subagent explore: Find the auth code,
- * searching for jwt" and its time while it runs, "done" after. A tap opens
- * who ran it, its answer and a way to its session.
- */
-function PhoneSubagentRow({ item, sessionId }: { item: ToolItem; sessionId: string }) {
-  const [open, setOpen] = useState(false);
-  const sub = useSubagent(item, sessionId);
-  const lead = subagentLead(sub);
-  const running = sub.state === 'running';
-  const now = useSubagentNow(running, sub.childId);
-  const model = useHub((s) => (sub.childId ? s.sessions[sub.childId]?.model : undefined));
-  const res = item.result ?? item.run?.result;
-  const output = res && !sub.background ? resultText(res).trim() : '';
-  const ms = callMs(item);
-  let stat: ReactNode = null;
-  if (running) stat = <Elapsed since={sub.startedAt} format="short" className="text-signal" />;
-  else if (sub.state === 'failed') stat = <span className="text-fault">failed</span>;
-  else if (sub.state === 'done') stat = ms !== undefined && !sub.background ? took(ms) : 'done';
-  return (
-    <div id={`tool-${item.tool.id}`} data-subagent-row="" data-state={sub.state}>
-      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex min-h-11 w-full items-center gap-3 text-left tx-15 active:bg-hover">
-        <span className={cn('shrink-0', running ? 'text-signal' : 'text-fg-2')}>{lead.verb}</span>
-        <span className="min-w-0 flex-1 truncate text-fg-2">
-          {lead.who && `${lead.who}: `}
-          {sub.description}
-          {now && (
-            <span data-subagent-now="" className={now.waiting ? 'text-warn' : 'text-fg-3'}>
-              {`, ${lowerFirst(now.text)}`}
-            </span>
-          )}
-        </span>
-        {stat && <span className="num shrink-0 tx-14 text-fg-3">{stat}</span>}
-        <ChevronRight aria-hidden strokeWidth={2} className={cn('size-4 shrink-0 text-fg-4 transition-transform duration-[var(--dur-1)]', open && 'rotate-90')} />
-      </button>
-      {open && (
-        <div className="mb-2 ml-1 space-y-2 border-l border-rule pl-3 anim-fade">
-          {(sub.agent || model) && <p className="m-0 tx-14 text-fg-3">{[sub.agent, model && modelName(model)].filter(Boolean).join(', ')}</p>}
-          {output && <p className="m-0 tx-15 leading-[1.5] whitespace-pre-wrap text-fg-2">{output}</p>}
-          {sub.childId ? (
-            <Link href={`/s/${sub.childId}`} className="flex min-h-11 items-center text-[16px] text-fg underline decoration-rule-2 underline-offset-4">
-              {sub.handedTo ? 'Open the session' : "Open the subagent's session"}
-            </Link>
-          ) : (
-            !output && <p className="m-0 tx-14 text-fg-3">Starting.</p>
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 /** One call: the verb, the file name or the command, and what came of it ("+2 −0", "failed"). A tap opens what it did. */
@@ -413,7 +365,9 @@ function CallRow({ item }: { item: ToolItem }) {
   const { tool } = item;
   const { res, status } = useToolState(item);
   const files = useMemo(() => (/^(Edit|MultiEdit|Write|NotebookEdit)$/.test(tool.name) ? editFiles(tool, res) : []), [tool, res]);
-  const words = toolRowWords(tool);
+  // a task tool no card holds: words, never its session ids, and no sheet of them
+  const task = TASK_TOOLS.has(tool.name);
+  const words = task ? { ...taskToolWords(tool.name, tool.input, res ? resultText(res) : undefined), mono: false } : toolRowWords(tool);
   let stat: ReactNode = null;
   if (status === 'running')
     stat = (
@@ -426,7 +380,7 @@ function CallRow({ item }: { item: ToolItem }) {
   else if (status === 'denied') stat = 'denied';
   else if (files.length) stat = changeWords(files.reduce((n, f) => n + f.added, 0), files.reduce((n, f) => n + f.removed, 0));
   const output = res ? resultText(res) : (item.run?.progress ?? '');
-  const opens = files.length > 0 || !!output.trim();
+  const opens = !task && (files.length > 0 || !!output.trim());
   const row = (
     <>
       <span className="shrink-0 text-fg-2">{words.verb}</span>

@@ -109,14 +109,14 @@ describe('hub values stay on the hub', () => {
     });
   });
 
-  test('a plugin MCP server never gets the whole hub environment', () => {
+  test('a plugin MCP server never gets the whole hub environment', async () => {
     const home = tempHome();
     const dir = tmp('conclave-plugin-');
     mkdirSync(join(dir, '.claude-plugin'), { recursive: true });
     writeFileSync(join(dir, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'leaky' }));
     writeFileSync(join(dir, '.mcp.json'), JSON.stringify({ mcpServers: { s: { command: 'node', args: ['x.js'], inheritEnv: true, env: { K: '${secret:github-pat}' } } } }));
     const pm = new PluginManager({ dir: home.paths.plugins, defaultMarketplaces: [] });
-    pm.installFromDir(dir, { source: 'local' });
+    await pm.installFromDir(dir, { source: 'local' });
     const servers = pm.pluginMcpServers();
     const cfg = Object.values(servers)[0];
     expect(cfg.inheritEnv).toBeUndefined();

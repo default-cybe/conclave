@@ -110,9 +110,11 @@ import dev.conclave.app.ui.workflows.WorkflowRunScreen
 import dev.conclave.app.ui.workflows.WorkflowRunsScreen
 import dev.conclave.app.update.StartupUpdate
 import dev.conclave.client.logic.DeepLink
+import dev.conclave.client.logic.Drawer
 import dev.conclave.client.logic.HubAddress
 import dev.conclave.client.logic.Start
 import dev.conclave.client.logic.StartMode
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 object Routes {
@@ -350,7 +352,9 @@ private fun MainScaffold() {
         inChats = route == Routes.CHAT || route == Routes.CHATS,
         inCodeList = route == Routes.CODE,
     )
-    val newChat: () -> Unit = { startNew(newMode()) }
+    // a hub with the Assistant home thread: Assistant has no New, Home sends into that one thread
+    val hasHome by remember(hub) { hub.sessions.map { Drawer.homeOf(it) != null } }.collectAsStateWithLifecycle(false)
+    val newChat: (() -> Unit)? = if (hasHome && newMode() == StartMode.ASSISTANT) null else { { startNew(newMode()) } }
     val newWords = newMode().newWords
     // the Inbox in the top bar, with what waits there: the side panel no longer lists it
     val openInbox: () -> Unit = remember(nav) { { navigateTop(nav, Routes.INBOX) } }
