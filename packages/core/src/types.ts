@@ -98,6 +98,27 @@ export type ContentBlock =
 // Messages and sessions
 // ---------------------------------------------------------------------------
 
+/**
+ * How one attached file fared (docs/design/CHAT-AND-MOTION.md 2.5): picked
+ * under its name, prepared by the hub (a zip becomes what the session can
+ * use), and whether a request carried it. Inclusion is reported, never
+ * reading: the model may still have ignored it.
+ */
+export interface AttachmentReceipt {
+  /** The name it was picked under; a zip keeps it while its entries keep their own. */
+  name: string;
+  /** prepared: the hub turned it into content a request can carry. omitted: it never reached one. */
+  state: 'prepared' | 'omitted';
+  /** Why it was omitted, from preparation or from a request that cannot read it. */
+  reason?: string;
+  /** What it became (a saved zip's listing note, a zip's text and pictures), under their own names. */
+  as?: string[];
+  /** The kinds of content prepared: picture, PDF or text. */
+  parts?: Array<'image' | 'pdf' | 'text'>;
+  /** Set once a request carried it; false when that model could not read it. */
+  included?: boolean;
+}
+
 export type Role = 'user' | 'assistant';
 
 /**

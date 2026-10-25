@@ -82,4 +82,19 @@ describe('a zip with a message', () => {
     expect(t.engine.getMessages(chat.id).length).toBe(0);
     expect(t.requests.length).toBe(0);
   });
+
+  test('a file the hub cannot read is refused by name, then sent only by an explicit choice', async () => {
+    t = await startTestEngine({ script: [[{ text: 'ok' }]] });
+    const chat = await t.engine.createSession({ kind: 'chat' });
+    const gone = { mediaType: 'text/plain', path: '/nowhere/note.txt', name: 'note.txt' };
+    await expect(t.engine.send(chat.id, { text: 'x', attachments: [gone] })).rejects.toThrow('Attachment not included: note.txt could not be read');
+    expect(t.engine.getMessages(chat.id).length).toBe(0);
+
+    // the sender chose to go without it: the message goes on, its receipt says omitted
+    await t.engine.send(chat.id, { text: 'x', attachments: [gone], attachmentLoss: 'drop' });
+    expect(await until(() => t!.engine.getMessages(chat.id).some((m) => m.role === 'assistant'), 10_000)).toBe(true);
+    const m = t.engine.getMessages(chat.id).find((x) => x.role === 'user')!;
+    expect(m.meta?.attachments).toEqual([{ name: 'note.txt', state: 'omitted', reason: 'could not be read from the device' }]);
+    expect(userBlocks(t, chat.id).some((b) => b.type !== 'text')).toBe(false);
+  });
 });

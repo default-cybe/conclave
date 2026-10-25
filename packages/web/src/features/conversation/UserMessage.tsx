@@ -9,7 +9,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { X } from 'lucide-react';
-import type { ContentBlock, Message, QueuedMessage, Session } from '@conclave/core/types';
+import type { AttachmentReceipt, ContentBlock, Message, QueuedMessage, Session } from '@conclave/core/types';
 import { cn } from '@/lib/text';
 import { hhmm } from '@/lib/format';
 import { useCopy, useIsMobile } from '@/lib/hooks';
@@ -50,6 +50,18 @@ function filesOf(m: Message): string[] {
   return m.content.filter((b): b is Extract<ContentBlock, { type: 'document' }> => b.type === 'document').map((b) => b.title ?? 'Document');
 }
 
+function receiptsOf(m: Message): AttachmentReceipt[] {
+  return Array.isArray(m.meta?.attachments) ? (m.meta.attachments as AttachmentReceipt[]) : [];
+}
+
+/** How one attached file fared, in one quiet line. Included means the request carried it, never that the model read it. */
+function receiptWord(r: AttachmentReceipt): string {
+  if (r.state === 'omitted') return `${r.name}: not included (${r.reason})`;
+  if (r.included === false) return `${r.name}: left out of the request (${r.reason})`;
+  if (r.as && r.as.length > 1) return `${r.name}: included, expanded as ${r.as.join(', ')}`;
+  return r.included ? `${r.name}: included` : `${r.name}: attached`;
+}
+
 export const UserMessage = memo(function UserMessage({ message, session, after, queued }: { message: Message; session: Session; /** Replies an edit would remove. */ after: number; /** Waits for the running reply to end. */ queued?: boolean }) {
   // while an edit goes out, the bubble already shows the new text
   const replacing = useChatUi((s) => (s.pending[session.id]?.key === message.id ? s.pending[session.id]?.text : undefined));
@@ -70,6 +82,9 @@ export const UserMessage = memo(function UserMessage({ message, session, after, 
       }
     : undefined;
   const recalled = Array.isArray(message.meta?.recalled) ? (message.meta.recalled as string[]) : [];
+  // a row per attachment only when something needs saying; plain included files are the chips above
+  const receipts = receiptsOf(message);
+  const receiptLines = receipts.filter((r) => r.state === 'omitted' || r.included === false || (r.as && r.as.length > 1));
   // sent while a reply ran: "Queued" with the actions under the bubble, and on a phone on its own quiet line, where the waiting bubble said it (QueuedBubble)
   const busyWord = storedWord(message.meta?.whenBusy);
 
@@ -88,6 +103,13 @@ export const UserMessage = memo(function UserMessage({ message, session, after, 
   return (
     <div id={`cm-${message.id}`} className={cn('group/user relative flex flex-col items-end', leaving && 'cv-leave')}>
       <Attachments images={imagesOf(message)} files={filesOf(message)} />
+      {receiptLines.length > 0 && (
+        <div className="mb-1.5 flex flex-col items-end gap-0.5 text-[12px] text-fg-3 phone:text-[13px]">
+          {receiptLines.map((r, i) => (
+            <span key={`r${i}`}>{receiptWord(r)}</span>
+          ))}
+        </div>
+      )}
       {text && (
         <div ref={anchor} className={cn(BUBBLE, 'max-w-[min(85%,520px)] phone:max-w-[85%]')} onClick={onTap}>
           <BubbleText text={text} />

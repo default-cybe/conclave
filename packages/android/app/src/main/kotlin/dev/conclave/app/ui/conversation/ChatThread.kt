@@ -174,6 +174,7 @@ fun ChatThreadScreen(
     val loading by vm.loading.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val draft by vm.draft.collectAsStateWithLifecycle()
+    val lossAsk by vm.lossAsk.collectAsStateWithLifecycle()
     val attachments by vm.attachments.collectAsStateWithLifecycle()
     val pending by vm.pending.collectAsStateWithLifecycle()
     val startedAt by vm.turnStartedAt.collectAsStateWithLifecycle()
@@ -598,6 +599,16 @@ fun ChatThreadScreen(
                     }) { Text("Branch") }
                 }
             },
+        )
+    }
+    // the hub could not read a file: the owner chooses, it is never dropped silently
+    lossAsk?.let { words ->
+        AlertDialog(
+            onDismissRequest = vm::dismissLossAsk,
+            title = { Text("Send without it?") },
+            text = { Text(words) },
+            confirmButton = { TextButton(onClick = vm::sendWithoutLost) { Text("Send without it") } },
+            dismissButton = { TextButton(onClick = vm::dismissLossAsk) { Text("Cancel") } },
         )
     }
     userSheet?.let { m ->
