@@ -98,7 +98,7 @@ Keep to what a site allows a person:
 | `DayPlan` | Read the day or week (tasks, goals, sessions, routine runs); `save` stores today's plan | reading is read-only; saving asks |
 | `ProactivePrefs` | Read or change the preferences | reading is read-only; changing asks |
 | `CalendarList`, `CalendarFreeBusy` | Read events, find free time and meeting slots | read-only |
-| `CalendarEvent`, `MailDraft` | Propose an event change or a message | never writes: the owner approves the card |
+| `CalendarEvent`, `MailDraft` | Propose an event change or a message | never writes: the owner approves the card. With Save drafts without asking on for a mail account, a draft is saved at once and never sent; sending still needs approval |
 | `MailSearch`, `MailRead` | Search and read mail | only in the untrusted email agent |
 | `WatchReport` | Show what a search found as cards; in a watch run, report the items | read-only |
 | `WatchCreate` | Make a watch from the chat: schedule, search address, prompt, profile, fields, filters | asks in default mode, like `ScheduleRoutine` |
