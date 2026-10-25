@@ -15,6 +15,7 @@ import { variantBase } from '../providers/model-id';
 import { forgetFallbackNotice } from './stream';
 import { PLAN_PROVIDER, entryServes } from '../people/plans';
 import type { AgentDef } from '../extensions/types';
+import type { AccountDto } from '../client/accounts';
 
 const log = logger('limits');
 
@@ -49,8 +50,11 @@ export interface LimitOutcome {
  * member's session moves only between the member's own plans (people/plans.ts
  * readyAccounts), never to the owner's. A plan without a prefix gets the
  * bare id; CLIProxyAPI gives it to the first ready plan in the same order.
+ * An effort variant (Antigravity's claude-opus-5-5-high, prefixed or not)
+ * moves to the model itself on the owner's other plans, unless exact: the
+ * refusal walk passes it, as the model's other plans may be the one that refused.
  */
-export function nextAccount(engine: Engine, sessionId: string, modelRef: string): { ref: string; account: string; from: string; to: string } | undefined {
+export function nextAccount(engine: Engine, sessionId: string, modelRef: string, opts: { exact?: boolean } = {}): { ref: string; account: string; from: string; to: string } | undefined {
   const session = engine.repos.sessions.get(sessionId);
   if (!session) return undefined;
   const member = isMember(session.accountId) ? session.accountId! : undefined;
@@ -67,15 +71,19 @@ export function nextAccount(engine: Engine, sessionId: string, modelRef: string)
     return undefined;
   }
   const { account: prefix, model: bare } = splitAccount(wireModel);
-  // an id without a prefix: CLIProxyAPI already moves it between plans
-  if (!prefix) return undefined;
+  // an effort variant (Antigravity's claude-opus-5-5-high) moves to the model itself on the owner's other plans
+  const base = opts.exact ? bare : variantBase(bare);
+  // an id without a prefix: CLIProxyAPI already moves it between plans, except a variant only the plan at its limit lists
+  if (!prefix && (member || base === bare)) return undefined;
   // the plan's own name for the bare id (GPT-6.1-Sol), as the pickers show it
-  let name = bare;
-  try {
-    name = shortModelName(engine.registryFor(session).resolveAt(gw, bare).info.name);
-  } catch {
-    /* not listed bare: its id is its name */
-  }
+  const nameOf = (id: string): string => {
+    try {
+      return shortModelName(engine.registryFor(session).resolveAt(gw, id).info.name);
+    } catch {
+      return id; // not listed bare: its id is its name
+    }
+  };
+  const name = nameOf(bare);
   if (member) {
     // the member's own plans only: a wire their own CLIProxyAPI does not list would go to the hub's
     const entry = plans!.entry(member);
@@ -88,14 +96,17 @@ export function nextAccount(engine: Engine, sessionId: string, modelRef: string)
     }
     return undefined;
   }
-  const current = accounts!.accountFor(gw, wireModel);
-  for (const a of accounts!.readyAccounts(bare)) {
-    if (a.kind !== 'subscription' || a.id === current) continue;
-    const own = bareModel(ownModel((a.models ?? []).map((m) => m.id), bare) ?? bare);
+  const current = prefix ? accounts!.accountFor(gw, wireModel) : undefined;
+  const atLimit = atLimitFor(bare, prefix, current);
+  const plan = (current && accounts!.account(current)?.label) || prefix;
+  const toName = base === bare ? name : nameOf(base);
+  for (const a of accounts!.readyAccounts(base)) {
+    if (a.kind !== 'subscription' || atLimit(a)) continue;
+    const own = bareModel(ownModel((a.models ?? []).map((m) => m.id), base) ?? base);
     const wire = a.prefix ? `${a.prefix}/${own}` : own;
     const ref = `${gw}/${wire}`;
     if (!usable(engine, session, { index: -1, entry: { model: ref, account: a.id }, ref, pin: { provider: gw, model: wire, account: a.id }, label: '' })) continue;
-    return { ref, account: a.id, from: `${name} (${(current && accounts!.account(current)?.label) || prefix})`, to: `${name} (${a.label})` };
+    return { ref, account: a.id, from: plan ? `${name} (${plan})` : name, to: `${toName} (${a.label})` };
   }
   return undefined;
 }
@@ -110,7 +121,9 @@ export function nextAccount(engine: Engine, sessionId: string, modelRef: string)
  * fallback off. Owner only: both lists name the owner's models and plans.
  * With the usage fallback on (models.limitFallback), its list replaces the
  * refusal list here (usageChainFallback); an agent with the refusal fallback
- * off still gets no other model.
+ * off still gets no other model. An effort variant at its limit (Antigravity's
+ * claude-opus-5-5-high) first gets the model itself on the owner's other plans
+ * and keys, even for that agent: it is the same model, as in nextAccount.
  */
 export function limitFallback(engine: Engine, accountId: string | undefined, modelRef: string, tried: readonly string[] = [], agent?: Pick<AgentDef, 'refusalFallback'>): string | undefined {
   const cfg = engine.config.get();
@@ -135,6 +148,12 @@ export function limitFallback(engine: Engine, accountId: string | undefined, mod
   if (configured || isMember(accountId)) return configured;
   const accounts = accountsOf(engine);
   const session = { accountId: accountId ?? OWNER_ID };
+  // an effort variant at its limit (Antigravity's claude-opus-5-5-high): the model itself on the owner's other plans and keys first
+  const base = variantBase(bare);
+  if (base !== bare && accounts) {
+    const same = readyRef(engine, session, base, tried, atLimitFor(bare, prefix, prefix ? accounts.accountFor(resolved.provider, resolved.model) : undefined));
+    if (same) return same;
+  }
   const skip = new Set([bare, ...tried.map((r) => bareOf(engine, r))]);
   const chain = cfg.models?.limitFallback;
   if (chain?.enabled === true && Array.isArray(chain.models) && chain.models.length) {
@@ -166,24 +185,40 @@ function usageChainFallback(engine: Engine, session: { accountId: string }, bare
   const list = refs.filter((r): r is string => typeof r === 'string' && r.includes('/'));
   const ids = list.map((r) => bareModel(r));
   const accounts = accountsOf(engine);
-  const gw = accounts?.gateway ?? 'cliproxy';
   for (let i = ids.indexOf(bare) + 1; i < list.length; i++) {
     const model = ids[i];
     if (skip.has(model)) continue;
-    const ready = accounts ? accounts.readyAccounts(model) : [];
-    for (const a of ready) {
-      const p = a.kind === 'api' ? a.provider : gw;
-      if (!p) continue;
-      // a plan gets its own id (Antigravity lists claude-opus-5-5-high), as nextAccount sends
-      const wire = a.kind === 'subscription' && a.prefix ? `${a.prefix}/${bareModel(ownModel((a.models ?? []).map((m) => m.id), model) ?? model)}` : model;
-      const ref = `${p}/${wire}`;
-      if (tried.includes(ref) || !usable(engine, session, { index: -1, entry: { model: ref, account: a.id }, ref, pin: { provider: p, model: wire, account: a.id }, label: '' })) continue;
-      return ref;
-    }
+    const ref = readyRef(engine, session, model, tried);
+    if (ref) return ref;
     // no account order for it (a key the accounts do not track): the ref as written
-    if (!ready.length && !accounts?.routeOf(model) && !tried.includes(list[i]) && usable(engine, session, { index: -1, entry: { model: list[i] }, ref: list[i], label: '' })) return list[i];
+    if (!accounts?.readyAccounts(model).length && !accounts?.routeOf(model) && !tried.includes(list[i]) && usable(engine, session, { index: -1, entry: { model: list[i] }, ref: list[i], label: '' })) return list[i];
   }
   return undefined;
+}
+
+/** The model on the first ready plan or key of its account order, as a ref; not on an account `skip` names, nor a ref tried this turn. */
+function readyRef(engine: Engine, session: { accountId: string }, model: string, tried: readonly string[], skip: (a: AccountDto) => boolean = () => false): string | undefined {
+  const accounts = accountsOf(engine);
+  const gw = accounts?.gateway ?? 'cliproxy';
+  for (const a of accounts ? accounts.readyAccounts(model) : []) {
+    const p = a.kind === 'api' ? a.provider : gw;
+    if (!p || skip(a)) continue;
+    // a plan gets its own id (Antigravity lists claude-opus-5-5-high), as nextAccount sends
+    const wire = a.kind === 'subscription' && a.prefix ? `${a.prefix}/${bareModel(ownModel((a.models ?? []).map((m) => m.id), model) ?? model)}` : model;
+    const ref = `${p}/${wire}`;
+    if (tried.includes(ref) || !usable(engine, session, { index: -1, entry: { model: ref, account: a.id }, ref, pin: { provider: p, model: wire, account: a.id }, label: '' })) continue;
+    return ref;
+  }
+  return undefined;
+}
+
+/**
+ * The account a model at its limit ran on: the one its prefix names, else
+ * (an id without a prefix) every plan that lists that exact id, the ones
+ * CLIProxyAPI gives it to.
+ */
+function atLimitFor(bare: string, prefix: string | undefined, current: string | undefined): (a: AccountDto) => boolean {
+  return (a) => (prefix ? a.id === current : a.kind === 'subscription' && ownModel((a.models ?? []).map((m) => m.id), bare, true) !== undefined);
 }
 
 /** A ref's model id without provider or account prefix; '' when it does not resolve. */
@@ -324,12 +359,14 @@ export function switchBack(engine: Engine, sessionId: string): string | undefine
   // the model the owner chose, without the plan's prefix or effort variant (Antigravity's -high)
   const bare = variantBase(splitAccount(now).model);
   const current = accounts.accountFor(gw, now);
-  const left = from ? accounts.accountFor(gw, from) : undefined;
+  // the plan it left; an unprefixed variant (Antigravity's claude-opus-5-5-high) left the plan that lists that id
+  const f = from ? splitAccount(from) : undefined;
+  const left = f ? atLimitFor(f.model, f.account, f.account ? accounts.accountFor(gw, from!) : undefined) : () => false;
   for (const a of accounts.readyAccounts(bare)) {
     // nothing above the plan it runs on has room
     if (a.id === current) return undefined;
     if (a.kind !== 'subscription') continue;
-    const ref = a.id === left ? ls.from : a.prefix ? `${gw}/${a.prefix}/${bareModel(ownModel((a.models ?? []).map((m) => m.id), bare) ?? bare)}` : undefined;
+    const ref = left(a) ? ls.from : a.prefix ? `${gw}/${a.prefix}/${bareModel(ownModel((a.models ?? []).map((m) => m.id), bare) ?? bare)}` : undefined;
     if (!ref || !usable(engine, session, { index: -1, entry: { model: ref, account: a.id }, ref, pin: { provider: gw, model: ref.slice(gw.length + 1), account: a.id }, label: '' })) continue;
     try {
       engine.updateSession(sessionId, { model: ref });
