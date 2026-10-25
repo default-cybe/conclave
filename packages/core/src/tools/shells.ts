@@ -123,6 +123,10 @@ export class ShellRegistry {
     description?: string;
     env?: Record<string, string>;
     shell?: string;
+    /** Kill the shell after this long. */
+    timeoutMs?: number;
+    /** Called once when the shell ends on its own or at its timeout; not after KillShell or a dispose. */
+    onEnd?: (shell: BackgroundShell) => void;
   }): BackgroundShell {
     const id = `bash_${++this.counter}`;
     let proc: MachineProcess;
@@ -140,6 +144,17 @@ export class ShellRegistry {
       this.sessions.set(opts.sessionId, map);
     }
     map.set(id, shell);
+    let timedOut = false;
+    const timer = opts.timeoutMs
+      ? setTimeout(() => {
+          timedOut = true;
+          void shell.kill();
+        }, opts.timeoutMs)
+      : undefined;
+    void shell.done.then(() => {
+      if (timer) clearTimeout(timer);
+      if (opts.onEnd && (timedOut || shell.info.status !== 'killed')) opts.onEnd(shell);
+    });
     return shell;
   }
 

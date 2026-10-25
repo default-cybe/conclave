@@ -27,9 +27,10 @@ data class NoticePayload(
     val approvalId: String? = null,
     val sessionId: String? = null,
     val level: String? = null,
+    val thread: String? = null,
 ) {
     companion object {
-        fun of(n: Notice) = NoticePayload(n.title.ifBlank { "Conclave" }, n.body, n.link, n.approvalId, n.sessionId, n.level)
+        fun of(n: Notice) = NoticePayload(n.title.ifBlank { "Conclave" }, n.body, n.link, n.approvalId, n.sessionId, n.level, n.thread)
     }
 }
 
@@ -165,7 +166,8 @@ object Notifications {
             "routine" in text -> CHANNEL_ROUTINES
             else -> CHANNEL_SESSIONS
         }
-        val id = (payload.title + payload.body + (payload.link ?: "")).hashCode()
+        // a job's notices share an id, so each replaces the last
+        val id = (payload.thread ?: (payload.title + payload.body + (payload.link ?: ""))).hashCode()
         val builder = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_stat_conclave)
             .setContentTitle(payload.title)

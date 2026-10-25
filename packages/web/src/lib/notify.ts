@@ -232,11 +232,12 @@ export function deviceNotice(notice: Notice): void {
   onceAcrossWindows(notice.id, () => show(notice));
 }
 
-function show(n: Pick<Notice, 'title' | 'body'> & Partial<Pick<Notice, 'id' | 'link' | 'sessionId' | 'approvalId'>>): boolean {
+function show(n: Pick<Notice, 'title' | 'body'> & Partial<Pick<Notice, 'id' | 'link' | 'sessionId' | 'approvalId' | 'thread'>>): boolean {
   const N = nativeNotification();
   if (!N || N.permission !== 'granted') return false;
   try {
-    const note = new N(n.title || 'Conclave', { body: n.body, tag: n.approvalId ? `approval-${n.approvalId}` : n.id });
+    // renotify: a job's next notice replaces the last in place and still alerts
+    const note = new N(n.title || 'Conclave', { body: n.body, tag: n.approvalId ? `approval-${n.approvalId}` : n.thread ? `thread-${n.thread}` : n.id, ...(n.thread ? { renotify: true } : {}) });
     const to = n.link ?? (n.sessionId ? `/s/${n.sessionId}` : n.approvalId ? '/approvals' : undefined);
     // Tauri's notifications do not report clicks on every system; where they do, open the session
     note.onclick = () => {

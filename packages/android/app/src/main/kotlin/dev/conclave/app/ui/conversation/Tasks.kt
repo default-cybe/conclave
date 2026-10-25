@@ -81,6 +81,7 @@ import dev.conclave.client.logic.RunLive
 import dev.conclave.client.logic.RunReducer
 import dev.conclave.client.logic.RunningTask
 import dev.conclave.client.logic.StateTone
+import dev.conclave.client.logic.StopCards
 import dev.conclave.client.logic.SubagentNow
 import dev.conclave.client.logic.TaskGlyph
 import dev.conclave.client.logic.TaskKind
@@ -768,6 +769,7 @@ private fun FlowItem(t: RunningTask.Flow, result: ToolResultBlock?, onLeave: () 
 private fun AgentItem(t: RunningTask.Agent, result: ToolResultBlock?, progress: String?, onLeave: () -> Unit) {
     var open by rememberSaveable(t.key) { mutableStateOf(false) }
     val now = rememberSubagentNow(t.child, on = true, progress = progress)
+    val hub = LocalAppContainer.current.hub
     val agent = Tasks.agentOf(t.use, result, t.child)
     val handedTo = Tasks.handedTo(t.use, result, t.child)
     val kind = TaskKinds.kind(t)
@@ -783,7 +785,10 @@ private fun AgentItem(t: RunningTask.Agent, result: ToolResultBlock?, progress: 
         return
     }
     val head = (who?.let { "$it: " } ?: "") + Tasks.description(t.use)
-    ItemHead(kind, glyph, head, now?.text ?: "Starting", model, time, open = false, warn = now?.waiting == true) { open = true }
+    // a task whose session went quiet must not look alive (a paused one, or one waiting on you, is quiet on purpose); a busy one is not quiet
+    val last = t.child?.takeIf { it.status != SessionStatus.PAUSED && now?.waiting != true }?.let { StopCards.activity(maxOf(it.updatedAt, hub.lastActiveAt(it.id)), clock) }
+    val line = listOfNotNull(now?.text ?: "Starting", last?.first).joinToString(". ")
+    ItemHead(kind, glyph, head, line, model, time, open = false, warn = now?.waiting == true || last?.second == true) { open = true }
 }
 
 /**

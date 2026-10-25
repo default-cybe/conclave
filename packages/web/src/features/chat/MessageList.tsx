@@ -375,7 +375,7 @@ export function linkedCall(messages: readonly Message[], id: string): string | n
  * (.log-unit in index.css). Returns their average height, for pieces that
  * mount later.
  */
-function keepHeights(pieces: HTMLElement[]): number | null {
+export function keepHeights(pieces: HTMLElement[]): number | null {
   const cs = pieces.length ? getComputedStyle(pieces[0]) : null;
   const pad = cs ? parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) : 0;
   let sum = 0;
@@ -391,7 +391,7 @@ function keepHeights(pieces: HTMLElement[]): number | null {
 }
 
 /** Run `fn` when the browser is idle (soon, at the latest; Safari has no requestIdleCallback). */
-function whenIdle(fn: () => void): () => void {
+export function whenIdle(fn: () => void): () => void {
   if (typeof requestIdleCallback === 'function') {
     const id = requestIdleCallback(fn, { timeout: 1000 });
     return () => cancelIdleCallback(id);
@@ -407,7 +407,7 @@ function whenIdle(fn: () => void): () => void {
  * would move what is on screen, so the scroll offset takes the difference
  * back. Chromium and Firefox do this themselves (overflow-anchor).
  */
-function useAnchoring(scroller: RefObject<HTMLDivElement | null>, column: RefObject<HTMLDivElement | null>, on: boolean, stick: RefObject<boolean>) {
+export function useAnchoring(scroller: RefObject<HTMLDivElement | null>, column: RefObject<HTMLDivElement | null>, on: boolean, stick: RefObject<boolean>) {
   const observer = useRef<{ ro: ResizeObserver; watched: WeakSet<Element> } | null>(null);
   // each piece once, as it mounts (the first report only records its height: mounting above is KeepPlace's)
   const watch = () => {
@@ -454,7 +454,7 @@ type Place = { top: number; height: number };
  * after the commit. Where the browser's scroll anchoring already did that,
  * the offset is right and is left alone.
  */
-class KeepPlace extends Component<{ session: string; start: number; scroller: RefObject<HTMLDivElement | null> }, object, Place | null> {
+export class KeepPlace extends Component<{ session: string; start: number; scroller: RefObject<HTMLDivElement | null> }, object, Place | null> {
   override getSnapshotBeforeUpdate(prev: Readonly<{ session: string; start: number }>): Place | null {
     const el = this.props.scroller.current;
     return el && prev.session === this.props.session && this.props.start < prev.start ? { top: el.scrollTop, height: el.scrollHeight } : null;
