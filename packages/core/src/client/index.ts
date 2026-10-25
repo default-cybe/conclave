@@ -111,10 +111,10 @@ import type {
 } from './import';
 export type * from './import';
 // ----- folders across devices DTOs: block "projects", docs/design/ROUND-IMPORT-PATHS-WORKFLOWS.md 2.12 -----
-import type { DeviceFoldersDto, IdentifyResult, MoveInput, MoveResult, ProjectDto, SessionLocationDto } from './projects';
+import type { DeviceFoldersDto, HubBackInput, HubBackPreview, HubCopyPreview, IdentifyResult, MoveInput, MoveResult, ProjectDto, SessionLocationDto } from './projects';
 export type * from './projects';
 // ----- repo sessions on GitHub, docs/DESIGN.md 30 -----
-import type { CleanupInput, GithubBranchesDto, GithubRepoDto, GithubStatusDto, OpenPrInput, PrDraft, PushInput, PushResult, RepoSessionDto, RepoSessionInput } from './github';
+import type { CleanupInput, FolderGitDto, GithubBranchesDto, GithubRepoDto, GithubStatusDto, MergeInput, OpenPrInput, PrDraft, PushInput, PushResult, RepoSessionDto, RepoSessionInput, WorktreeSessionInput } from './github';
 export type * from './github';
 export { sessionRepo } from './github';
 // ----- workflow engine DTOs: block "workflows", docs/design/ROUND-IMPORT-PATHS-WORKFLOWS.md 3.17 -----
@@ -1754,6 +1754,8 @@ export class ConclaveClient {
   /** /btw: a side question about the session, answered apart from its transcript. */
   btw = (id: string, text: string) => this.request<{ answer: string }>('POST', `/api/sessions/${id}/btw`, { text });
   abort = (id: string) => this.request<{ ok: true }>('POST', `/api/sessions/${id}/abort`);
+  pauseSession = (id: string) => this.request<Session>('POST', `/api/sessions/${id}/pause`);
+  resumeSession = (id: string) => this.request<Session>('POST', `/api/sessions/${id}/resume`);
   rewind = (id: string, seq: number, restoreFiles = false) => this.request<Session>('POST', `/api/sessions/${id}/rewind`, { seq, restoreFiles });
   secondOpinion = (id: string, input: SecondOpinionInput) => this.request<{ ok: true }>('POST', `/api/sessions/${id}/second-opinion`, input);
   /** Switch the session's model. brief: a short handover (the default keeps the full history). */
@@ -1777,6 +1779,14 @@ export class ConclaveClient {
   // ----- folders across devices, docs/design/ROUND-IMPORT-PATHS-WORKFLOWS.md 2.12 -----
   /** Move a session to another device or folder. Not resolved: the result lists candidates for Choose folder. */
   moveSession = (id: string, input: MoveInput) => this.request<MoveResult>('POST', `/api/sessions/${id}/move`, input);
+  /** Move to hub: copy the session's whole folder to the hub, then run there. Starts it; hubcopy.progress events follow. */
+  moveToHub = (id: string) => this.request<{ line: string }>('POST', `/api/sessions/${id}/move`, { device: 'local', copy: true });
+  hubCopyPreview = (id: string) => this.request<HubCopyPreview>('GET', `/api/sessions/${id}/hub-copy`);
+  /** Cancel a running Move to hub or Move back. */
+  cancelHubCopy = (id: string) => this.request<{ cancelled: boolean }>('DELETE', `/api/sessions/${id}/hub-copy`);
+  hubBackPreview = (id: string) => this.request<HubBackPreview>('GET', `/api/sessions/${id}/hub-copy/back`);
+  /** Move back: copy the hub's changes to the device, then run there. */
+  moveBack = (id: string, input: HubBackInput) => this.request<{ line: string }>('POST', `/api/sessions/${id}/hub-copy/back`, input);
   /** Where the session runs, and what the location banner should say. refresh checks the copy again. */
   sessionLocation = (id: string, refresh = false) => this.request<SessionLocationDto>('GET', `/api/sessions/${id}/location`, undefined, { refresh: refresh || undefined });
   identifyFolder = (input: { device: string; path: string; sessionId?: string; projectId?: string }) => this.request<IdentifyResult>('POST', '/api/projects/identify', input);
@@ -1808,8 +1818,14 @@ export class ConclaveClient {
   /** A pull request title and body drafted from the session, to edit before opening it. */
   prDraft = (id: string) => this.request<PrDraft>('GET', `/api/sessions/${id}/repo/pr-draft`);
   openPullRequest = (id: string, input: OpenPrInput) => this.request<RepoSessionDto>('POST', `/api/sessions/${id}/repo/pr`, input);
-  /** Remove the worktree; the branch stays on GitHub. */
+  /** Remove the worktree; the branch stays on GitHub. discard drops the local branch too. */
   cleanupSession = (id: string, input: CleanupInput = {}) => this.request<RepoSessionDto>('POST', `/api/sessions/${id}/repo/cleanup`, input);
+  /** Whether a folder on a device is in a git repository ("Run in a worktree" is offered then). */
+  folderGit = (device: string, path: string) => this.request<FolderGitDto>('GET', '/api/worktrees/folder', undefined, { device, path });
+  /** A session in a new worktree of a git folder, on a new conclave/ branch from its current branch. */
+  createWorktreeSession = (input: WorktreeSessionInput) => this.request<Session>('POST', '/api/worktrees/sessions', input);
+  /** Merge a folder worktree's branch into its base in the main checkout. */
+  mergeSession = (id: string, input: MergeInput = {}) => this.request<RepoSessionDto>('POST', `/api/sessions/${id}/repo/merge`, input);
   deletePathPrefix = (id: string) => this.request<{ ok: true }>('DELETE', `/api/path-prefixes/${id}`);
   /** Sanitized: no reminders, memories, secrets or absolute paths. raw is the stored rows, for backups, and needs the owner token. */
   exportSession = (id: string, format: 'md' | 'json' = 'md', opts: ShareOptions & { raw?: boolean } = {}) =>
@@ -1950,6 +1966,8 @@ export class ConclaveClient {
   addGoalEntry = (id: string, entry: { text: string; date?: string }) => this.request<GoalEntry>('POST', `/api/goals/${id}/entries`, entry);
   deleteGoalEntry = (id: string, entryId: string) => this.request<{ ok: true }>('DELETE', `/api/goals/${id}/entries/${entryId}`);
   assistantSettings = () => this.request<AssistantSettingsDto>('GET', '/api/assistant');
+  /** The account's one assistant thread (meta.home), made the first time; the same session as GET /api/sessions/:id. */
+  assistantHome = () => this.request<Session>('GET', '/api/assistant/home');
   setAssistantPrefs = (patch: PrefsPatch) => this.request<AssistantSettingsDto>('PATCH', '/api/assistant/prefs', patch);
   setHeartbeat = (input: { enabled?: boolean; checklist?: string }) => this.request<AssistantSettingsDto>('PUT', '/api/assistant/heartbeat', input);
   setReflection = (input: { enabled?: boolean }) => this.request<AssistantSettingsDto>('PUT', '/api/assistant/reflection', input);

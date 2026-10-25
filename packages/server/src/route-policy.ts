@@ -91,6 +91,11 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'DELETE /api/sessions/:id': SESSION,
   'POST /api/sessions/:id/move': SESSION,
   'GET /api/sessions/:id/location': SESSION,
+  // Move to hub writes to the hub's own disk: the owner's only
+  'GET /api/sessions/:id/hub-copy': 'admin',
+  'DELETE /api/sessions/:id/hub-copy': 'admin',
+  'GET /api/sessions/:id/hub-copy/back': 'admin',
+  'POST /api/sessions/:id/hub-copy/back': 'admin',
   'POST /api/sessions/:id/fork': SESSION,
   'GET /api/sessions/:id/messages': SESSION,
   'POST /api/sessions/:id/messages': SESSION,
@@ -100,6 +105,8 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   // a side question: the same rule as sending a message
   'POST /api/sessions/:id/btw': SESSION,
   'POST /api/sessions/:id/abort': SESSION,
+  'POST /api/sessions/:id/pause': SESSION,
+  'POST /api/sessions/:id/resume': SESSION,
   'POST /api/sessions/:id/rewind': SESSION,
   'POST /api/sessions/:id/second-opinion': SESSION,
   'POST /api/sessions/:id/handoff': SESSION,
@@ -123,6 +130,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'GET /api/sessions/:id/repo/pr-draft': SESSION,
   'POST /api/sessions/:id/repo/pr': SESSION,
   'POST /api/sessions/:id/repo/cleanup': SESSION,
+  'POST /api/sessions/:id/repo/merge': SESSION,
   'GET /api/search': 'self',
 
   // ----- folders across devices -----
@@ -141,6 +149,9 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'GET /api/github/repos': 'self',
   'GET /api/github/repos/:owner/:name/branches': 'self',
   'POST /api/github/sessions': 'self',
+  // "Run in a worktree": the handlers check the device is the caller's
+  'GET /api/worktrees/folder': 'self',
+  'POST /api/worktrees/sessions': 'self',
 
   // ----- approvals and questions -----
   'GET /api/approvals': 'self',
@@ -239,6 +250,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/goals/:id/entries': own({ id: 'goal' }),
   'DELETE /api/goals/:id/entries/:entryId': own({ id: 'goal' }),
   'GET /api/assistant': 'self',
+  'GET /api/assistant/home': 'self',
   'PATCH /api/assistant/prefs': 'self',
   'PUT /api/assistant/heartbeat': 'self',
   'PUT /api/assistant/reflection': 'self',
@@ -315,6 +327,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/import/batches/:id/cancel': own({ id: 'importBatch' }),
   'POST /api/import/batches/:id/undo': own({ id: 'importBatch' }),
   'POST /api/import/upload': 'self',
+  'POST /api/import/merge-duplicates': 'self',
   'POST /api/import/sessions/:sessionId/sync': own({ sessionId: 'session' }),
   'GET /api/import/retention': 'self',
   'POST /api/import/retention': 'self',

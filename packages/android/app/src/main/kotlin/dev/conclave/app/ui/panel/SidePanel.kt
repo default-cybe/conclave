@@ -131,6 +131,11 @@ fun SidePanel(
     val delegated = remember(sessions, waitingIds, devices, searching, query) {
         Drawer.delegated(sessions, waitingIds, devices, query = if (searching) query else "")
     }
+    // Assistant mode: the hub makes its home thread on the first ask; an older hub answers null (404) and the list stays as it was
+    val hasHome = remember(sessions) { Drawer.homeOf(sessions) != null }
+    LaunchedEffect(mode, hasHome) {
+        if (mode == StartMode.ASSISTANT && !hasHome) runCatching { hub.api { it.assistantHome() } }.getOrNull()?.let { hub.putSession(it) }
+    }
     var delegatedFolded by rememberSaveable { mutableStateOf(false) }
     val finding = searching && query.isNotBlank()
     fun endSearch() {
@@ -141,12 +146,15 @@ fun SidePanel(
 
     Column(modifier.fillMaxHeight().statusBarsPadding().navigationBarsPadding().imePadding()) {
         Column(Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
-            PanelRow("New", selected = false, onClick = {
-                endSearch()
-                onNew()
-            }, strong = true, leading = {
-                Icon(Glyphs.NewChat, contentDescription = null, tint = c.fg2, modifier = Modifier.size(20.dp))
-            })
+            // the home thread is the one Assistant conversation: no New in Assistant mode then
+            if (!(mode == StartMode.ASSISTANT && hasHome)) {
+                PanelRow("New", selected = false, onClick = {
+                    endSearch()
+                    onNew()
+                }, strong = true, leading = {
+                    Icon(Glyphs.NewChat, contentDescription = null, tint = c.fg2, modifier = Modifier.size(20.dp))
+                })
+            }
             if (searching) {
                 SearchField(query, onChange = { query = it }, onClose = ::endSearch)
             } else {

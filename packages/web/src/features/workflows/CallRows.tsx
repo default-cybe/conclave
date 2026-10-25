@@ -11,7 +11,7 @@ import { MoreHorizontal } from 'lucide-react';
 import { IconButton } from '@/components/ui/Button';
 import { Menu, type MenuItem } from '@/components/ui/Overlay';
 import { StateWord } from '@/components/ui/List';
-import { Elapsed } from '@/components/motion';
+import { AgentGlyph, Elapsed, glyphState, stillRows } from '@/components/motion';
 import { modelName } from '@/lib/models';
 import { compact, usd } from '@/lib/format';
 import { cn } from '@/lib/text';
@@ -26,7 +26,7 @@ export interface CallActions {
 
 const GRID = 'grid w-full items-baseline gap-x-4';
 /** With the Last tool column, and without it (a run where no call used a tool yet). */
-const COLS = { tool: 'grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)_96px_minmax(0,1fr)_64px_64px_28px]', none: 'grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)_96px_64px_64px_28px]' };
+const COLS = { tool: 'grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)_112px_minmax(0,1fr)_64px_64px_28px]', none: 'grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)_112px_64px_64px_28px]' };
 
 /** A call with something for the Last tool column: a tool it used, or why it failed. */
 export function hasToolCell(call: WorkflowCall, progress: Record<number, string>): boolean {
@@ -59,17 +59,21 @@ export function CallHeader({ tools = true }: { tools?: boolean }) {
 
 export function CallRows({ run, calls, progress, actions, selected, tools = true }: { run: WorkflowRun; calls: WorkflowCall[]; progress: Record<number, string>; actions: CallActions; selected?: number; tools?: boolean }) {
   const top = calls.filter((c) => c.parentSeq === undefined || !calls.some((p) => p.seq === c.parentSeq));
+  // only the first three running rows on screen move (CHAT-AND-MOTION 1.9); the rest draw their still frame
+  const shown = callOrder(calls);
+  const flags = stillRows(shown.map(stateOf));
+  const still = new Set(shown.filter((_, i) => flags[i]).map((c) => c.seq));
   return (
     <div className="rows">
       {top.map((c) => (
         <div key={c.seq}>
-          <CallRow run={run} call={c} lastTool={progress[c.seq] ?? c.lastTool} actions={actions} selected={selected === c.seq} tools={tools} />
+          <CallRow run={run} call={c} lastTool={progress[c.seq] ?? c.lastTool} actions={actions} selected={selected === c.seq} tools={tools} still={still.has(c.seq)} />
           {c.kind === 'workflow' &&
             calls
               .filter((x) => x.parentSeq === c.seq)
               .map((x) => (
                 <div key={x.seq} className="border-t border-rule pl-6">
-                  <CallRow run={run} call={x} lastTool={progress[x.seq] ?? x.lastTool} actions={actions} selected={selected === x.seq} tools={tools} />
+                  <CallRow run={run} call={x} lastTool={progress[x.seq] ?? x.lastTool} actions={actions} selected={selected === x.seq} tools={tools} still={still.has(x.seq)} />
                 </div>
               ))}
         </div>
@@ -78,12 +82,21 @@ export function CallRows({ run, calls, progress, actions, selected, tools = true
   );
 }
 
+/** The calls in the order their rows draw: each top call, then a workflow's own calls under it. */
+export function callOrder(calls: WorkflowCall[]): WorkflowCall[] {
+  const top = calls.filter((c) => c.parentSeq === undefined || !calls.some((p) => p.seq === c.parentSeq));
+  return top.flatMap((c) => [c, ...(c.kind === 'workflow' ? calls.filter((x) => x.parentSeq === c.seq) : [])]);
+}
+
+/** The glyph state of a call; a call stopped with the run is done, not failed. */
+export const stateOf = (c: WorkflowCall) => (stoppedByRun(c) ? 'done' : glyphState(c.state, c.state === 'running' && !!c.waiting));
+
 /** A call cut short because the owner stopped the run: not a failure of the call. */
 function stoppedByRun(call: WorkflowCall): boolean {
   return call.state === 'failed' && call.error === 'the run was stopped';
 }
 
-function CallRow({ run, call, lastTool, actions, selected, tools }: { run: WorkflowRun; call: WorkflowCall; lastTool?: string; actions: CallActions; selected?: boolean; tools: boolean }) {
+function CallRow({ run, call, lastTool, actions, selected, tools, still }: { run: WorkflowRun; call: WorkflowCall; lastTool?: string; actions: CallActions; selected?: boolean; tools: boolean; still?: boolean }) {
   const phone = useIsMobile();
   const live = isLive(run.status);
   const state =
@@ -98,6 +111,8 @@ function CallRow({ run, call, lastTool, actions, selected, tools }: { run: Workf
     ) : (
       <StateWord tone={CALL_TONE[call.state]}>{call.kind === 'workflow' && call.state === 'done' ? 'done' : CALL_WORD[call.state]}</StateWord>
     );
+  // the glyph takes the still Knot's slot beside the state word: a mark, not an icon (SPEC 8.1)
+  const glyph = <AgentGlyph type={call.kind === 'workflow' ? 'workflow' : call.agentType} state={stateOf(call)} still={still} className="self-center" />;
   const menu: MenuItem[] = [
     { label: call.childSessionId ? 'Open transcript' : 'Open details', onSelect: () => actions.open(call) },
     ...(live && (call.state === 'queued' || call.state === 'running' || call.state === 'parked') ? [{ label: 'Skip', detail: 'It returns null to the script', onSelect: () => actions.skip(call) }] : []),
@@ -125,7 +140,10 @@ function CallRow({ run, call, lastTool, actions, selected, tools }: { run: Workf
           <span className="t-row block truncate text-fg">{label}</span>
           <span className="mt-0.5 block truncate text-[13px] text-fg-3">{[model, lastTool, call.inputTokens + call.outputTokens ? `${compact(call.inputTokens + call.outputTokens)} tokens` : '', call.costUsd ? usd(call.costUsd) : ''].filter(Boolean).join(', ')}</span>
         </button>
-        <span className="pt-0.5 text-[13px]">{state}</span>
+        <span className="cv-state inline-flex items-baseline gap-1.5 pt-0.5 text-[13px]">
+          {glyph}
+          {state}
+        </span>
         {more}
       </div>
     );
@@ -141,7 +159,10 @@ function CallRow({ run, call, lastTool, actions, selected, tools }: { run: Workf
         {model || <Missing />}
         {call.effort ? <span className="text-fg-3">, {call.effort}</span> : null}
       </span>
-      <span className="text-[12px]">{state}</span>
+      <span className="cv-state inline-flex min-w-0 items-baseline gap-1.5 text-[12px]">
+        {glyph}
+        {state}
+      </span>
       {tools && (
         <span className="min-w-0 truncate text-[12px] text-fg-3" title={failure ?? lastTool}>
           {failure ? <span className="text-fault">{failure}</span> : lastTool || <Missing />}

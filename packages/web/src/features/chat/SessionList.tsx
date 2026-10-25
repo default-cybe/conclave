@@ -21,6 +21,7 @@ import { hhmm, relTime } from '@/lib/format';
 import { useCoarsePointer, useIsMobile, useNow } from '@/lib/hooks';
 import { modelName } from '@/lib/models';
 import { openImportSheet } from '@/features/import/store';
+import { isDuplicateCopy } from '@/features/import/ImportedLine';
 import { Button, IconButton } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
 import { MOD } from '@/components/ui/Kbd';
@@ -76,7 +77,7 @@ export function SessionList({ activeId }: { activeId?: string }) {
   const groups = useMemo(() => {
     const needle = q.trim();
     // every conversation: chats too, which group under Chats by project; a search finds delegated work as well
-    let list = Object.values(sessions).filter((s) => (!underParent(s) || (!!needle && isDelegated(s))) && s.archived === showArchived && (!pinnedOnly || s.pinned));
+    let list = Object.values(sessions).filter((s) => (!underParent(s) || (!!needle && isDelegated(s))) && s.archived === showArchived && (!pinnedOnly || s.pinned) && !isDuplicateCopy(s));
     if (needle) list = list.filter((s) => fuzzy(needle, `${s.title} ${s.agent} ${modelName(s.model)} ${s.tags.join(' ')} ${devices[s.device]?.name ?? ''}`) >= 0);
     list.sort((a, b) => b.updatedAt - a.updatedAt);
     const out: Array<{ key: string; label: string; tone?: 'warn'; items: Session[] }> = [];

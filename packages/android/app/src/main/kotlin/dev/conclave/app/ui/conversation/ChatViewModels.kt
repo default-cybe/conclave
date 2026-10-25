@@ -9,6 +9,8 @@ import dev.conclave.app.ui.common.HubViewModel
 import dev.conclave.app.ui.common.errorText
 import dev.conclave.app.ui.motion.Motion
 import dev.conclave.client.createRepoSession
+import dev.conclave.client.createWorktreeSession
+import dev.conclave.client.folderGit
 import dev.conclave.client.logic.Asks
 import dev.conclave.client.logic.Attach
 import dev.conclave.client.logic.ChatItems
@@ -35,6 +37,7 @@ import dev.conclave.client.model.MessageKind
 import dev.conclave.client.model.PermissionMode
 import dev.conclave.client.model.QueuedMessage
 import dev.conclave.client.model.RepoSessionInput
+import dev.conclave.client.model.WorktreeSessionInput
 import dev.conclave.client.model.Role
 import dev.conclave.client.model.SecondOpinionInput
 import dev.conclave.client.model.SendInput
@@ -761,6 +764,16 @@ class ChatHomeViewModel(hub: HubRepository, private val settings: SettingsStore)
                 val later = files.isNotEmpty() || d.ultra
                 val prompt = if (later || command != null) null else text
                 val repo = d.repo
+                val cwd = setup.cwd
+                // "Run in a worktree": only when the folder is in a git repository; otherwise the folder itself
+                val inWorktree = repo == null && d.worktree && cwd != null &&
+                    try {
+                        hub.api { it.folderGit(setup.device, cwd) }.git
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        false
+                    }
                 var s = if (repo != null) {
                     // from GitHub (docs/DESIGN.md 30): a fresh worktree on a new branch, the prompt once it is ready
                     hub.api {
@@ -768,6 +781,20 @@ class ChatHomeViewModel(hub: HubRepository, private val settings: SettingsStore)
                             RepoSessionInput(
                                 repo = repo,
                                 base = d.base,
+                                device = setup.device,
+                                agent = setup.agent,
+                                model = setup.model,
+                                prompt = prompt,
+                                permissionMode = d.permissionMode,
+                                chat = chat,
+                            ),
+                        )
+                    }
+                } else if (inWorktree && cwd != null) {
+                    hub.api {
+                        it.createWorktreeSession(
+                            WorktreeSessionInput(
+                                folder = cwd,
                                 device = setup.device,
                                 agent = setup.agent,
                                 model = setup.model,
@@ -824,20 +851,26 @@ class ChatHomeViewModel(hub: HubRepository, private val settings: SettingsStore)
         sending.value = true
         viewModelScope.launch {
             try {
-                val input = CreateSessionInput(
-                    agent = Start.ASSISTANT_AGENT,
-                    model = model,
-                    device = "local",
-                    permissionMode = d.permissionMode,
-                    prompt = if (files.isEmpty() && command == null) text else null,
-                    chat = chat,
-                )
-                val s = hub.api { it.createSession(input) }
+                // the one Assistant thread; an older hub without it (null) gets a new session, as before
+                val home = hub.api { it.assistantHome() }
+                val s = if (home != null) {
+                    if (model != null && model != home.model) hub.api { it.updateSession(home.id, SessionPatch(model = model)) } else home
+                } else {
+                    val input = CreateSessionInput(
+                        agent = Start.ASSISTANT_AGENT,
+                        model = model,
+                        device = "local",
+                        permissionMode = d.permissionMode,
+                        prompt = if (files.isEmpty() && command == null) text else null,
+                        chat = chat,
+                    )
+                    hub.api { it.createSession(input) }
+                }
                 hub.putSession(s)
                 if (command != null) {
                     runCommand(s.id, command, text)
-                } else if (files.isNotEmpty()) {
-                    hub.api { it.send(s.id, SendInput(text = text, attachments = files)) }
+                } else if (home != null || files.isNotEmpty()) {
+                    hub.api { it.send(s.id, SendInput(text = text, attachments = files.ifEmpty { null })) }
                 }
                 draft.value = ""
                 attachments.value = emptyList()

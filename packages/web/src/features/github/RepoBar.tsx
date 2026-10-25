@@ -7,6 +7,10 @@
  *
  * The hub reads the pull request from GitHub every two minutes while it is
  * open; Check now reads it at once.
+ *
+ * A folder worktree ("Run in a worktree") has the same line with Merge into
+ * <base> and Discard; Push and Open pull request only when its origin is on
+ * GitHub and GitHub is connected.
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import type { PrDraft, RepoSessionDto } from '@conclave/core/client';
@@ -15,7 +19,7 @@ import { api } from '@/lib/api';
 import { attempt, toast, upsertSession } from '@/store/store';
 import { cn } from '@/lib/text';
 import { useIsMobile } from '@/lib/hooks';
-import { branchShort, ciTone, ciWords, prWords, repoActions, sessionRepo } from '@/lib/github';
+import { branchShort, ciTone, ciWords, prWords, repoActions, sessionRepo, worktreeActions } from '@/lib/github';
 import { Button, ButtonLink } from '@/components/ui/Button';
 import { Checkbox, Input, Textarea } from '@/components/ui/Field';
 import { ConfirmDialog, Dialog } from '@/components/ui/Overlay';
@@ -50,6 +54,8 @@ export function useRepoActions(session: Session, repo: RepoSessionDto | undefine
   const [commit, setCommit] = useState<{ message: string } | undefined>();
   const [pr, setPr] = useState<PrDraft & { draft: boolean; message: string }>();
   const [clean, setClean] = useState(false);
+  const [merge, setMerge] = useState<{ squash: boolean }>();
+  const [discard, setDiscard] = useState(false);
   const [busy, setBusy] = useState<string | false>(false);
   const size = mobile ? 'touch' : 'md';
   const dirty = repo?.dirty ?? 0;
@@ -82,12 +88,22 @@ export function useRepoActions(session: Session, repo: RepoSessionDto | undefine
     toast({ title: `Opened pull request #${r.pr?.number}.`, level: 'success' });
     await reload();
   };
-  const cleanUp = async () => {
+  const cleanUp = async (discard = false) => {
     const done = !!repo?.canCleanUp;
-    const r = await attempt(() => api().cleanupSession(session.id, done && !dirty ? {} : { force: true }));
+    const r = await attempt(() => api().cleanupSession(session.id, discard ? { discard: true, force: true } : done && !dirty ? {} : { force: true }));
     if (r) toast({ title: r.line, level: 'success' });
     await reload();
   };
+  const doMerge = async () => {
+    setBusy('merge');
+    const r = await attempt(() => api().mergeSession(session.id, merge?.squash ? { squash: true } : {}));
+    setBusy(false);
+    setMerge(undefined);
+    if (r) toast({ title: r.line, level: 'success' });
+    await reload();
+  };
+  const commits = repo?.commits ?? 0;
+  const folderGone = repo ? `The worktree on ${repo.deviceName} and ${branchShort(repo.branch)} go.` : '';
 
   const dialogs = (
     <>
@@ -163,12 +179,49 @@ export function useRepoActions(session: Session, repo: RepoSessionDto | undefine
           </div>
         )}
       </Dialog>
+      <Dialog
+        open={!!merge}
+        onClose={() => setMerge(undefined)}
+        title={repo ? `Merge into ${repo.base}?` : 'Merge?'}
+        description={repo ? `${commits} ${commits === 1 ? 'commit' : 'commits'} of ${branchShort(repo.branch)} go into ${repo.base} in ${repo.clonePath}. Refused if that checkout has uncommitted changes or the merge conflicts.` : undefined}
+        footer={
+          <>
+            <Button variant="quiet" size={size} onClick={() => setMerge(undefined)}>
+              Cancel
+            </Button>
+            <Button variant="solid" size={size} busy={busy === 'merge' ? 'Merging' : false} onClick={() => void doMerge()}>
+              Merge
+            </Button>
+          </>
+        }
+      >
+        <Checkbox checked={!!merge?.squash} onChange={(squash) => setMerge({ squash })} label="Squash into one commit" />
+      </Dialog>
+      <ConfirmDialog
+        open={discard}
+        onClose={() => setDiscard(false)}
+        tone="danger"
+        title="Discard this worktree?"
+        body={repo ? `${folderGone}${commits ? ` ${commits} ${commits === 1 ? 'commit is' : 'commits are'} not merged and are lost.` : ''}${dirty ? ` ${commitWords} They are lost.` : ''}` : undefined}
+        confirm="Discard"
+        busy="Discarding"
+        onConfirm={async () => {
+          await cleanUp(true);
+          setDiscard(false);
+        }}
+      />
       <ConfirmDialog
         open={clean}
         onClose={() => setClean(false)}
         tone={dirty ? 'danger' : 'neutral'}
         title="Clean up?"
-        body={repo ? `The worktree on ${repo.deviceName} goes. ${branchShort(repo.branch)} stays on GitHub.${dirty ? ` ${commitWords} They are lost.` : ''}${repo.canCleanUp ? '' : ' The pull request is not merged or closed yet.'}` : undefined}
+        body={
+          repo?.folder && !repo.pr
+            ? `${folderGone}${dirty ? ` ${commitWords} They are lost.` : ''}`
+            : repo
+              ? `The worktree on ${repo.deviceName} goes. ${branchShort(repo.branch)} stays on GitHub.${dirty ? ` ${commitWords} They are lost.` : ''}${repo.canCleanUp ? '' : ' The pull request is not merged or closed yet.'}`
+              : undefined
+        }
         confirm="Clean up"
         busy="Cleaning up"
         onConfirm={async () => {
@@ -178,7 +231,7 @@ export function useRepoActions(session: Session, repo: RepoSessionDto | undefine
       />
     </>
   );
-  return { startPush, startPr, startCleanUp: () => setClean(true), busy, dialogs };
+  return { startPush, startPr, startCleanUp: () => setClean(true), startMerge: () => setMerge({ squash: false }), startDiscard: () => setDiscard(true), busy, dialogs };
 }
 
 /** The line under the header (desktop) or over the composer (phones). */
@@ -190,23 +243,34 @@ export function RepoBar({ session }: { session: Session }) {
   const [checking, setChecking] = useState(false);
   if (!meta) return null;
   const can = repo ? repoActions(repo) : { push: false, openPr: false, viewPr: !!meta.pr, cleanUp: false };
+  const wt = repo ? worktreeActions(repo) : { merge: false, discard: false };
   const size = mobile ? 'touch' : 'sm';
-  const repoLink = (
-    <a href={repo?.url || `https://github.com/${meta.repo}`} target="_blank" rel="noreferrer" className="text-fg hov:underline">
+  const href = repo ? repo.url : meta.folder ? '' : `https://github.com/${meta.repo}`;
+  const repoLink = href ? (
+    <a href={href} target="_blank" rel="noreferrer" className="text-fg hov:underline">
       {meta.repo}
     </a>
+  ) : (
+    <span className="text-fg">{meta.repo}</span>
   );
   const branch = <span className="font-mono text-[12px] text-fg-2 phone:text-[13px]">{branchShort(meta.branch)}</span>;
   // the hub's sentence, else the summary the session carries
   const ci = ciWords(meta.ci);
   const line = repo?.line ?? [meta.pr ? `${prWords(meta.pr)}.` : '', ci ? `${ci}.` : ''].filter(Boolean).join(' ');
   // phones keep one action over the composer; the conversation sheet has the rest
-  const one = mobile ? (can.cleanUp ? 'cleanUp' : can.openPr ? 'openPr' : can.push ? 'push' : undefined) : undefined;
+  const one = mobile ? (can.cleanUp ? 'cleanUp' : wt.merge ? 'merge' : can.openPr ? 'openPr' : can.push ? 'push' : undefined) : undefined;
   if (mobile) can.cleanUp = one === 'cleanUp';
   if (mobile) can.openPr = one === 'openPr';
   if (mobile) can.push = one === 'push';
+  if (mobile) wt.merge = one === 'merge';
+  if (mobile) wt.discard = false;
   const buttons = (
     <>
+      {wt.merge && repo && (
+        <Button variant="solid" size={size} onClick={act.startMerge}>
+          Merge into {repo.base}
+        </Button>
+      )}
       {can.cleanUp && (
         <Button variant="solid" size={size} onClick={act.startCleanUp}>
           Clean up
@@ -220,6 +284,11 @@ export function RepoBar({ session }: { session: Session }) {
       {can.push && (
         <Button variant="outline" size={size} busy={act.busy === 'push' ? 'Pushing' : false} onClick={act.startPush}>
           Push
+        </Button>
+      )}
+      {wt.discard && (
+        <Button variant="quiet" size={size} onClick={act.startDiscard}>
+          Discard
         </Button>
       )}
       {meta.pr && !mobile && (
@@ -287,16 +356,19 @@ export function RepoSheetActions({ session, onClose, Action }: { session: Sessio
   const act = useRepoActions(session, repo, reload);
   if (!meta) return null;
   const can = repo ? repoActions(repo) : undefined;
+  const wt = repo ? worktreeActions(repo) : undefined;
   const later = (fn: () => void) => () => {
     onClose();
     setTimeout(fn, 0);
   };
   return (
     <>
+      {wt?.merge && <Action onClick={later(act.startMerge)}>Merge into {repo?.base}</Action>}
       {can?.push && <Action onClick={later(act.startPush)}>Push</Action>}
       {can?.openPr && <Action onClick={later(() => void act.startPr())}>Open pull request</Action>}
       {can?.viewPr && meta.pr && <Action onClick={() => window.open(meta.pr!.url, '_blank', 'noreferrer')}>View pull request</Action>}
       {can?.cleanUp && <Action onClick={later(act.startCleanUp)}>Clean up</Action>}
+      {wt?.discard && <Action onClick={later(act.startDiscard)}>Discard</Action>}
       {act.dialogs}
     </>
   );
@@ -318,7 +390,7 @@ export function useArchiveRepo(session: Session, archive: () => void | Promise<u
       open={open}
       onClose={() => setOpen(false)}
       title="Archive and clean up?"
-      description={meta ? `The worktree of ${meta.repo} is still there. Clean up removes it; ${branchShort(meta.branch)} stays on GitHub. Files that are not committed are lost.` : undefined}
+      description={meta ? `The worktree of ${meta.repo} is still there. Clean up removes it; ${meta.folder ? `${branchShort(meta.branch)} stays in the repository` : `${branchShort(meta.branch)} stays on GitHub`}. Files that are not committed are lost.` : undefined}
       footer={
         <>
           <Button

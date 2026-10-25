@@ -539,7 +539,9 @@ async function runRoutine(
   hooks?: { started?: (sessionId: string) => void; context?: string; from?: string },
 ): Promise<{ sessionId: string; summary?: string; error?: string; denied?: import('../types').RoutineRun['denied'] }> {
   const policy = routine.sessionPolicy;
-  let sessionId = policy === 'reuse' ? routine.sessionId : undefined;
+  // the assistant home thread takes only trusted runs: a webhook's or a watch's run gets its own session, untrusted
+  const home = policy === 'home' && run.trigger !== 'webhook' && !extra && !routine.watch;
+  let sessionId = policy === 'reuse' ? routine.sessionId : home ? (await engine.assistantHome(routine.accountId ?? OWNER_ID)).id : undefined;
   if (sessionId && !engine.getSession(sessionId)) sessionId = undefined;
   // scheduled and webhook runs: nobody is there to approve (ECOSYSTEM.md 5.3 item 5)
   const away = run.trigger !== 'manual' && routine.onApproval !== 'wait' ? { denied: [] as NonNullable<import('../types').RoutineRun['denied']> } : undefined;
@@ -569,17 +571,37 @@ async function runRoutine(
     // a webhook payload is text from outside: the run is an untrusted session from now on (session/untrusted.ts),
     // a reused session included, so it gets only the tools the routine names and leaves no trace in memory
     if (extra && engine.getSession(id)?.meta?.untrusted !== true) engine.patchMeta(id, { untrusted: true });
-    if (away) engine.unattended.set(id, away);
+    if (away && !home) engine.unattended.set(id, away);
     hooks?.started?.(id);
     let stopped: string | undefined;
     try {
       const runner = engine.runnerFor(id);
       // a built-in precheck's data, then a webhook's payload, each marked as data
       const text = [routine.prompt, hooks?.context ? hubDataBlock(hooks.from ?? routine.precheck ?? '', hooks.context) : '', extra ? payloadBlock(extra) : ''].filter(Boolean).join('\n\n');
-      await runner.enqueue({ text }, { auto: true });
-      stopped = await waitWithCaps(engine, id, routine, () => runner.waitIdle());
+      if (home) {
+        // in the home thread the run is one queued turn: its rules and the refusals nobody can approve hold for that turn only
+        let ended!: () => void;
+        const done = new Promise<void>((r) => (ended = r));
+        const turn = {
+          meta: { routine: { id: routine.id, name: routine.name, runId: run.id } },
+          start: () => {
+            engine.routineTurns.set(id, routine.id);
+            if (away) engine.unattended.set(id, away);
+          },
+          end: () => {
+            engine.routineTurns.delete(id);
+            if (away) engine.unattended.delete(id);
+            ended();
+          },
+        };
+        await runner.enqueue({ text }, { auto: true, turn });
+        stopped = await waitWithCaps(engine, id, routine, () => done);
+      } else {
+        await runner.enqueue({ text }, { auto: true });
+        stopped = await waitWithCaps(engine, id, routine, () => runner.waitIdle());
+      }
     } finally {
-      if (away) engine.unattended.delete(id);
+      if (away && !home) engine.unattended.delete(id);
     }
     const { lastAssistantText } = await import('../session/transcript');
     const summary = lastAssistantText(engine.repos.messages.list(id)).slice(0, 500);

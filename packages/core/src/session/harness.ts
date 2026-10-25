@@ -7,6 +7,8 @@ import { logger } from '../util/log';
 import { projectsOf } from '../projects/attached';
 import { RefusedMachine } from '../people/guard';
 import { harnessOffWords } from '../acp/harness-off';
+import { claudeDeviceCwd } from '../importers/claude-code';
+import type { Machine } from '../machine/types';
 
 const log = logger('harness');
 
@@ -28,6 +30,27 @@ export interface HarnessTurnHooks {
   onStop?: (reason: string, messageId: string) => void;
 }
 
+/**
+ * The session's folder on its device, before a turn. An imported chat can name
+ * another device's path (claudesync copies chats between a Mac and a PC): the
+ * same path under this device's home, or the Claude Code project folder the
+ * file sat in, is used when it is there, and kept on the session. Else the
+ * turn stops and asks which device or folder. A machine that cannot say
+ * (stat fails) lets the turn go on.
+ */
+export async function deviceFolder(engine: Engine, session: Session, machine: Machine): Promise<Session | undefined> {
+  if ((await machine.stat(machine.resolve(session.cwd, '/')).catch(() => undefined)) !== null) return session;
+  const name = engine.devices.list().find((d) => d.id === session.device)?.name ?? session.device;
+  const found = await claudeDeviceCwd(machine, (session.meta?.import as { path?: string } | undefined)?.path, session.cwd);
+  if (found) {
+    const next = engine.updateSession(session.id, { cwd: found }, { quiet: true });
+    engine.notice(session.id, `${session.cwd} is not on ${name}, so this session works in ${found} there now.`, 'info');
+    return next;
+  }
+  engine.notice(session.id, `${session.cwd} is not on ${name}. Which device has this folder? Move the session there, or change its folder, then send again.`, 'error');
+  return undefined;
+}
+
 export async function runHarnessTurn(engine: Engine, runner: SessionRunner, session: Session, harness: string, model: string, signal: AbortSignal, hooks: HarnessTurnHooks = {}): Promise<boolean> {
   const adapter = engine.acp;
   if (!adapter) {
@@ -47,6 +70,9 @@ export async function runHarnessTurn(engine: Engine, runner: SessionRunner, sess
     engine.notice(session.id, machine.reason, 'error');
     return false;
   }
+  const there = await deviceFolder(engine, session, machine);
+  if (!there) return false;
+  session = there;
   const storedId = session.external?.[harness];
   // a resume id only works where it was made: another device or folder starts a new harness session (2.1 bug 3)
   const madeAt = externalAt(session)[harness];

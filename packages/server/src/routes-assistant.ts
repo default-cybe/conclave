@@ -78,6 +78,9 @@ export function registerAssistantRoutes(app: Hono<HonoEnv>, ctx: ServerContext, 
 
   app.get('/api/assistant', (c) => c.json(svc(c).settings()));
 
+  // the caller's one assistant thread, the same session as GET /api/sessions/:id, made the first time
+  app.get('/api/assistant/home', async (c) => c.json(await ctx.engine.assistantHome(accountOf(c))));
+
   app.patch('/api/assistant/prefs', async (c) => {
     const body = await readJson<Record<string, unknown>>(c);
     const out = await svc(c).setPrefs(body as never);

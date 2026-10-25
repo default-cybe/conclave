@@ -5,6 +5,7 @@
  * and offers a switch.
  */
 import { memo, useRef, useState } from 'react';
+import { Pet } from '@/components/motion';
 import type { Message, Notice, Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { attempt, upsertSession, useHub } from '@/store/store';
@@ -20,7 +21,7 @@ import { LogRow } from './Log';
 import { Markdown } from './Markdown';
 import { fallbackModel, msgText } from './util';
 import { providerFailureNotice, TryNextModel } from './TryNextModel';
-import { AgentResultNotice } from './AgentResultRow';
+import { FanOutNotice } from './FanOutCard';
 import { noticeResult } from './agentResult';
 
 interface NoticeMeta {
@@ -46,11 +47,17 @@ function noticeWords(text: string, meta: NoticeMeta): string {
 
 export const NoticeLine = memo(function NoticeLine({ message, session, latest, enter }: { message: Message; session: Session; latest?: boolean; /** It arrived after the transcript loaded: fade in. */ enter?: boolean }) {
   // a background task that reported back: one row that opens to its report (AgentResultRow.tsx)
+  // folded into its fan-out card it draws nothing, or a small "updated" line (FanOutCard.tsx)
   if (noticeResult(message))
     return (
-      <LogRow time={hhmm(message.createdAt)} id={`msg-${message.id}`} className={cn(enter && 'anim-fade')}>
-        <AgentResultNotice message={message} />
-      </LogRow>
+      <FanOutNotice
+        message={message}
+        wrap={(row) => (
+          <LogRow time={hhmm(message.createdAt)} id={`msg-${message.id}`} className={cn(enter && 'anim-fade')}>
+            {row}
+          </LogRow>
+        )}
+      />
     );
   const text = msgText(message);
   const meta = (message.meta ?? {}) as NoticeMeta;
@@ -117,7 +124,11 @@ function LimitNotice({ message, session, enter }: { message: Message; session: S
   return (
     <LogRow time={hhmm(message.createdAt)} id={`msg-${message.id}`} className={cn(enter && 'anim-fade')}>
       <div className="py-1">
-        <p className="text-[14px] leading-[22px] font-medium text-warn phone:text-[15px]">{headline}</p>
+        <p className="flex items-center gap-2 text-[14px] leading-[22px] font-medium text-warn phone:text-[15px]">
+          {/* asleep until the reset (CHAT-AND-MOTION 1.11); the live line under the log counts down */}
+          <Pet state="parked" size={24} className="text-fg-2" />
+          {headline}
+        </p>
         <p className="mt-0.5 max-w-[64ch] text-[14px] leading-[1.45] text-fg-2 phone:text-[15px]">
           {/* the live line under the log says when, and counts down */}
           This session picks up where it stopped when the limit resets. Switch models to keep going now.

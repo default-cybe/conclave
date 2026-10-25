@@ -38,6 +38,7 @@ import { checkFreshness } from './freshness';
 import { gateReason, projectsExtension } from './extension';
 import { underParent } from '../session/delegated';
 import { readWork, workRoot, type SessionWork } from './adopt';
+import { HubCopies } from './hubcopy';
 
 const log = logger('projects');
 
@@ -116,7 +117,10 @@ export class ProjectsService {
   /** Work started in the background (a checkpoint after a move, the state at a turn end). */
   private bg = new Set<Promise<unknown>>();
 
-  private track(p: Promise<unknown>): void {
+  /** Move to hub and Move back (hubcopy.ts). */
+  readonly copies = new HubCopies(this);
+
+  track(p: Promise<unknown>): void {
     const done = p.catch(() => undefined).finally(() => this.bg.delete(done));
     this.bg.add(done);
   }
@@ -441,20 +445,35 @@ export class ProjectsService {
 
   async move(sessionId: string, input: MoveInput): Promise<MoveResult> {
     const s = this.engine.requireSession(sessionId);
-    if (this.moving.has(s.id)) throw new EngineError(409, 'This session is already moving. Wait for that move to finish.');
-    this.moving.add(s.id);
+    return this.withMoveLock(s.id, () => (input.copy ? this.copies.toHub(s, input) : this.moveNow(s, input)));
+  }
+
+  isMoving(sessionId: string): boolean {
+    return this.moving.has(sessionId);
+  }
+
+  /** Run one move of a session at a time. */
+  async withMoveLock<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
+    if (this.moving.has(sessionId)) throw new EngineError(409, 'This session is already moving. Wait for that move to finish.');
+    this.moving.add(sessionId);
     try {
-      return await this.moveNow(s, input);
+      return await fn();
     } finally {
-      this.moving.delete(s.id);
+      this.moving.delete(sessionId);
     }
   }
 
-  private async moveNow(s: Session, input: MoveInput): Promise<MoveResult> {
+  /** Throws when the session cannot move now. */
+  checkMovable(s: Session): void {
     if (s.kind === 'chat') throw new EngineError(400, 'A chat runs on the hub and has no folder to move.');
     if (underParent(s)) throw new EngineError(400, 'A subagent runs where its parent session runs. Move the parent session instead.');
     // tools of a running turn would switch devices halfway; a turn parked for an offline device may move
     if (this.engine.runnerFor(s.id).busy && !this.parked.has(s.id)) throw new EngineError(409, 'This session is in the middle of a turn. Wait for it to end or stop it, then move it.');
+  }
+
+  /** A move, inside withMoveLock. */
+  async moveNow(s: Session, input: MoveInput): Promise<MoveResult> {
+    this.checkMovable(s);
     const toDevice = input.device || s.device;
     const toName = this.deviceName(toDevice);
     const target = this.machine(toDevice);
@@ -771,6 +790,7 @@ export class ProjectsService {
       device,
       deviceName: this.deviceName(device),
       online: this.online(device),
+      ...(device === 'local' ? { hubRoot: this.copies.root() } : {}),
       locations: this.store.locationsOnDevice(device).map((l) => ({ ...l, deviceName: this.deviceName(device), projectName: names.get(l.projectId) ?? baseName(l.path) })),
       prefixes: this.store.prefixes(device),
       suggestions: this.suggestions(device),

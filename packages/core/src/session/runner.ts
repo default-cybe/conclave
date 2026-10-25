@@ -33,7 +33,7 @@ import { maybeCompact, estimateRequestTokens, meteredTokens, partHash, type Toke
 import { applyClearing } from './context-edit';
 import { afterWokenTurn, handleLimit, nextAccount, switchBack } from './limits';
 import { OWNER_ID, isMember, runAs } from '../people/context';
-import { runHarnessTurn } from './harness';
+import { deviceFolder, runHarnessTurn } from './harness';
 import { LoopGuard, type Verdict } from './loop-guard';
 import { restoreTurnCheckpoint, startTurnCheckpoint, type TurnCheckpoint } from './checkpoints';
 import { runJury } from '../modes/jury';
@@ -61,7 +61,10 @@ export const DEFAULT_SUBAGENT_MAX_STEPS = 100;
 const STEP_NOTE_AT = 0.8;
 
 /** Why the last agent loop ended, for callers that report it (subagents, routines). */
-export type LoopStop = 'done' | 'step_limit' | 'loop_capped' | 'output_limit' | 'refusal' | 'empty_reply' | 'rate_limit' | 'hook' | 'harness';
+export type LoopStop = 'done' | 'step_limit' | 'loop_capped' | 'output_limit' | 'refusal' | 'empty_reply' | 'rate_limit' | 'hook' | 'harness' | 'paused';
+
+/** How long Pause lets the call in progress run before it is cut like Stop (SessionRunner.pause). */
+export const PAUSE_GRACE_MS = 30_000;
 
 /** File tools after which nested instruction files and path rules for that file are shown (item 11). */
 const SCOPED_TOOLS = new Set(['Read', 'Edit', 'Write', 'MultiEdit']);
@@ -91,7 +94,12 @@ export function stepBudgetNote(used: number, max: number): string {
 }
 
 export function stepLimitReminder(max: number): string {
-  return `You reached the step limit for this turn (${max} steps). Do not call tools. Reply with what you finished, what is left, and the next step you recommend.`;
+  return `You reached the step limit for this turn (${max} steps). Do not call tools. Reply with a final report: what you did, what you found, what is left, and the next step you recommend.`;
+}
+
+/** Sent before the toolless final-answer call after the loop guard stopped the turn. */
+export function loopStopReminder(why: string): string {
+  return `The loop guard stopped your tool calls for this turn: ${why} Do not call tools. Reply with a final report: what you did, what you found, what is left, and what is blocking you.`;
 }
 
 /** No visible text and no tool calls. Thinking alone does not count as a reply. */
@@ -177,6 +185,20 @@ interface Queued {
   pending?: QueuedMessage;
   /** "Try the next model" on a refused reply: the turn runs again on the next refusal fallback entry, with no new user message. */
   refusal?: { served: Served; reply?: Message };
+  /** Work that owns this one turn only (a routine run in the assistant home thread). */
+  turn?: TurnHooks;
+}
+
+/**
+ * A turn that belongs to someone else's work in a shared session (a routine
+ * in the assistant home thread): meta marks its user message, start and end
+ * run around this turn alone, and end also runs when the turn never starts
+ * (Stop drops it). The person's messages never join it as steering.
+ */
+export interface TurnHooks {
+  meta?: Record<string, unknown>;
+  start?: () => void;
+  end?: () => void;
 }
 
 /** How an agentLoop call starts (the "Try the next model" button). */
@@ -263,6 +285,8 @@ export class SessionRunner {
   todos: Todo[] = [];
   shellCwd?: string;
   depth = 0;
+  /** The input whose turn runs now. */
+  private current?: Queued;
   /** Resolves when the current drain finishes (used by subagents and routines). */
   private idleWaiters: Array<() => void> = [];
   private turnStartedAt = 0;
@@ -301,8 +325,13 @@ export class SessionRunner {
   private scopedShown?: Set<string>;
   /** Read marks by path: the active messages' file tool results, then this runner's newer ones (item 17). */
   private marks?: Map<string, ReadMark>;
+  /** Results of the current step's calls, before the step stores them as one message (engine.sharedFile reads a card from here). */
+  readonly stepResults = new Map<string, ToolResultBlock>();
   /** Marks in messages at or below this seq do not count (the session moved since). */
   private marksAfterSeq = 0;
+  /** Pause was asked: the loop stops before its next model call (pause). */
+  private pausing = false;
+  private pauseTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     private engine: Engine,
@@ -323,20 +352,21 @@ export class SessionRunner {
    * person's message that waits is listed for apps (session.queue) under its
    * pendingId until it joins the transcript.
    */
-  async enqueue(input: SendInput, opts: { auto?: boolean; resume?: boolean } = {}): Promise<SendResult> {
-    if (this.running) {
-      if (input.whenBusy === 'steer' && !opts.auto) {
+  async enqueue(input: SendInput, opts: { auto?: boolean; resume?: boolean; turn?: TurnHooks } = {}): Promise<SendResult> {
+    // a paused session queues what is sent, as a busy one does; it runs after Resume
+    if (this.running || this.isPaused) {
+      if (this.running && input.whenBusy === 'steer' && !opts.auto && !this.current?.turn) {
         const pending = this.pendingFor(input, 'steer');
         this.steering.push({ input, pending });
         this.emitQueue();
         return { queued: true, pendingId: pending.id };
       }
       const pending = opts.auto ? undefined : this.pendingFor(input, 'queue');
-      this.queue.push({ input, auto: opts.auto, resume: opts.resume, pending });
+      this.queue.push({ input, auto: opts.auto, resume: opts.resume, pending, turn: opts.turn });
       if (pending) this.emitQueue();
       return { queued: true, ...(pending ? { pendingId: pending.id } : {}) };
     }
-    this.queue.push({ input, auto: opts.auto, resume: opts.resume });
+    this.queue.push({ input, auto: opts.auto, resume: opts.resume, turn: opts.turn });
     void this.drain();
     return { queued: false };
   }
@@ -448,6 +478,7 @@ export class SessionRunner {
    * for its own turn, and so does everything after it.
    */
   private queuedToSteering(): void {
+    if (this.current?.turn) return;
     const take: Steer[] = [];
     for (const q of this.queue) {
       if (!q.pending) continue;
@@ -462,7 +493,56 @@ export class SessionRunner {
 
   /** The first input that may run: a message Stop held waits for the owner. */
   private nextIndex(): number {
-    return this.closed ? -1 : this.queue.findIndex((q) => !q.pending?.held);
+    return this.closed || this.isPaused ? -1 : this.queue.findIndex((q) => !q.pending?.held);
+  }
+
+  /** Pause was asked, or the session is paused (kept across restarts as its status). */
+  get isPaused(): boolean {
+    return this.pausing || this.engine.repos.sessions.get(this.id)?.status === 'paused';
+  }
+
+  /**
+   * Pause (engine.pauseSession): the tool call in progress finishes and the
+   * loop stops before its next model call (runLoop). A call still running
+   * after graceMs is cut as Stop cuts it, and answered as interrupted.
+   */
+  pause(graceMs = PAUSE_GRACE_MS): void {
+    this.pausing = true;
+    if (!this.busy) return this.parkPaused(false);
+    if (this.pauseTimer) clearTimeout(this.pauseTimer);
+    this.pauseTimer = setTimeout(() => {
+      this.pauseTimer = undefined;
+      if (this.pausing) for (const loop of this.activeLoops) loop.abort();
+    }, graceMs);
+  }
+
+  /** The loop stopped for Pause: the session shows paused; turn says a turn was cut and Resume continues it. */
+  parkPaused(turn: boolean): void {
+    if (this.pauseTimer) clearTimeout(this.pauseTimer);
+    this.pauseTimer = undefined;
+    this.pausing = true;
+    if (turn) this.engine.patchMeta(this.id, { pausedTurn: true });
+    this.engine.setStatus(this.id, 'paused');
+    if (turn) this.engine.notice(this.id, 'Paused. Resume continues this turn.', 'info');
+  }
+
+  /** Clear Pause. Returns true when a turn was cut and should continue. */
+  unpause(): boolean {
+    if (this.pauseTimer) clearTimeout(this.pauseTimer);
+    this.pauseTimer = undefined;
+    this.pausing = false;
+    const s = this.engine.repos.sessions.get(this.id);
+    if (s?.status !== 'paused') return false;
+    const turn = s.meta?.pausedTurn === true;
+    if (turn) this.engine.patchMeta(this.id, { pausedTurn: undefined });
+    this.engine.setStatus(this.id, 'idle');
+    return turn;
+  }
+
+  /** Resume a paused session: a cut turn continues from its stored transcript with no new user message, then the queue runs. */
+  resumePaused(): void {
+    if (this.unpause()) this.queue.unshift({ input: { text: '' }, auto: true, inference: true });
+    void this.drain();
   }
 
   /**
@@ -474,6 +554,7 @@ export class SessionRunner {
     if (why === 'shutdown') this.closed = true;
     const late = this.steering.map((s): Queued => ({ input: { ...s.input, whenBusy: 'queue' }, pending: { ...s.pending, whenBusy: 'queue' } }));
     const waiting = [...late, ...this.queue.filter((q) => q.pending)];
+    for (const q of this.queue) if (!q.pending) q.turn?.end?.();
     const changed = waiting.length > 0 || this.queue.length > 0;
     this.queue = waiting.map((q) => (why === 'stop' ? { ...q, pending: { ...q.pending!, held: true } } : q));
     this.steering = [];
@@ -590,6 +671,8 @@ export class SessionRunner {
         const [next] = this.queue.splice(i, 1);
         // a waiting message stays listed while its turn starts (hooks, recall), until its user message is stored
         if (next.pending) this.starting = next;
+        this.current = next;
+        next.turn?.start?.();
         this.controller = new AbortController();
         const signal = this.controller.signal;
         try {
@@ -599,12 +682,16 @@ export class SessionRunner {
           await runAs(this.session.accountId ?? OWNER_ID, async () => {
             if (!next.inference) return this.turn(next, signal);
             this.engine.setStatus(this.id, 'running');
-            await this.agentLoop(this.session.model, this.session.mode, signal);
+            // a resumed jury or debate turn goes on as the agent loop it was cut in
+            const mode = this.session.mode === 'jury' || this.session.mode === 'debate' ? 'agent' : this.session.mode;
+            await this.agentLoop(this.session.model, mode, signal);
             if (this.session.status === 'running') this.engine.setStatus(this.id, 'idle');
             this.engine.afterTurn(this.id, Date.now() - this.turnStartedAt);
           });
         } catch (err) {
-          if (this.controller.signal.aborted) {
+          // Pause cut a call that ran past its grace time: the turn waits for Resume
+          if (this.pausing && !this.controller.signal.aborted) this.parkPaused(true);
+          else if (this.controller.signal.aborted) {
             this.engine.notice(this.id, 'Stopped', 'info');
             this.engine.setStatus(this.id, 'idle');
           } else {
@@ -624,7 +711,12 @@ export class SessionRunner {
             this.queue.unshift(this.closed ? q : { ...q, pending: { ...q.pending!, held: true } });
             this.emitQueue();
           }
+        } finally {
+          this.current = undefined;
+          next.turn?.end?.();
         }
+        // Pause asked while the turn ended on its own: the session stays paused and the queue waits
+        if (this.pausing && this.session.status !== 'paused') this.parkPaused(false);
         // a parked Task child a message woke: its parent still waits for the report (session/limits.ts)
         void afterWokenTurn(this.engine, this.id).catch((err) => log.warn(`${this.id}: woken subagent report failed`, err));
         // a turn that ended before it stored the message (a hook blocked it): the message leaves the list
@@ -734,6 +826,7 @@ export class SessionRunner {
     const userMeta: Record<string, unknown> = {};
     if (q.auto) userMeta.auto = true;
     if (q.resume) userMeta.resume = true;
+    if (q.turn?.meta) Object.assign(userMeta, q.turn.meta);
     // it waited while the session was busy: apps swap their pending bubble for this message
     if (q.pending) {
       userMeta.pendingIds = [q.pending.id];
@@ -837,7 +930,8 @@ export class SessionRunner {
       engine.setStatus(this.id, 'idle');
     }
 
-    engine.afterTurn(this.id, Date.now() - this.turnStartedAt);
+    // a paused turn has not finished
+    if (session.status !== 'paused') engine.afterTurn(this.id, Date.now() - this.turnStartedAt);
   }
 
   // -------------------------------------------------------------------------
@@ -871,6 +965,18 @@ export class SessionRunner {
     };
     let currentModel = modelRef;
     let resolved = engine.registryFor(this.session).resolve(currentModel);
+    if (!this.depth) {
+      // a harness that is off (imported chats keep claude-code/default): the turn goes on with the account's default model instead of stopping
+      const to = (isMember(this.session.accountId) ? engine.accountPrefs(this.session.accountId!).defaultModel : undefined) ?? engine.config.get().defaultModel;
+      if (resolved.acp && engine.harnessOff(currentModel) && !engine.harnessOff(to)) {
+        engine.notice(this.id, `${engine.displayModel(currentModel)} is off as an engine, so this session goes on with ${engine.displayModel(to)}.`, 'info');
+        if (this.session.model === currentModel) engine.updateSession(this.id, { model: to });
+        currentModel = to;
+        resolved = engine.registryFor(this.session).resolve(to);
+      }
+      // an imported chat can name another device's folder: map it on this device or ask (a harness turn checks in runHarnessTurn)
+      if (!resolved.acp && this.session.tags.includes('imported') && !(await deviceFolder(engine, this.session, engine.machineFor(this.session)))) return end('hook', false);
+    }
 
     // Refusal fallback (session/refusal-fallback.ts): after a refusal the provider signals, the same request runs on the
     // owner's next listed model and account. On its own when the owner turned it on; from "Try the next model" either way.
@@ -986,6 +1092,11 @@ export class SessionRunner {
     let tasksNoted = false;
     for (let iter = 0; iter < maxSteps; iter++) {
       if (signal.aborted) throw new Error('aborted');
+      // Pause: the calls of the last step have their results; the next model call waits for Resume
+      if (this.pausing) {
+        this.parkPaused(true);
+        return end('paused', false);
+      }
       if (iter > 0 && !(await this.stepGate(mode, iter, signal))) return end('hook', false);
       let session = this.session;
       const agent = engine.agentFor(session);
@@ -1288,12 +1399,16 @@ export class SessionRunner {
       // execute tool calls: consecutive concurrency-safe calls run together
       const results: ToolResultBlock[] = [];
       let batch: ToolUseBlock[] = [];
-      const run = (u: ToolUseBlock) => this.executeTool(u, toolMap, assistant.id, signal).catch((err) => {
-        if (signal.aborted) throw err;
-        // a failure outside the tool itself still answers the call
-        log.warn(`tool ${u.name} failed in ${this.id}`, err);
-        return this.errorResult(u, `Tool error: ${(err as Error)?.message ?? String(err)}`);
-      });
+      this.stepResults.clear();
+      const run = (u: ToolUseBlock) =>
+        this.executeTool(u, toolMap, assistant.id, signal)
+          .catch((err) => {
+            if (signal.aborted) throw err;
+            // a failure outside the tool itself still answers the call
+            log.warn(`tool ${u.name} failed in ${this.id}`, err);
+            return this.errorResult(u, `Tool error: ${(err as Error)?.message ?? String(err)}`);
+          })
+          .then((r) => (this.stepResults.set(r.toolUseId, r), r));
       const flush = async () => {
         if (!batch.length) return;
         const out = await Promise.all(batch.map(run));
@@ -1357,6 +1472,7 @@ export class SessionRunner {
         const use = byId.get(r.toolUseId);
         if (!use || r.meta?.loopGuard === 'refused') continue;
         const v = guard.after(use.name, use.input, r);
+        if (v.level !== 'ok') log.info(`loop guard ${v.level} ${v.code} in ${this.id}: ${use.name}`);
         if (v.level === 'halt' && !halt) halt = { verdict: v, use };
         else if (v.level === 'warn' && v.code && !guardWarned.has(v.code)) {
           guardWarned.add(v.code);
@@ -1371,8 +1487,8 @@ export class SessionRunner {
         guard.stop(halt.use.name, halt.use.input);
         const why = halt.verdict.message ?? 'The same calls keep repeating.';
         if (guard.unattended || guardHalts > 1) {
+          // the reason reaches the model once, in loopStopReminder before the final-answer call
           guardStop = why;
-          extra.push(reminder(`Loop guard: ${why} The turn was stopped.`));
         } else {
           // interactive: one strong warning first
           extra.push(reminder(`Loop guard: ${why} This is the last warning in this turn: if the loop guard trips again, the turn ends. Change your approach now, or stop and tell the user what is blocking you.`));
@@ -1395,6 +1511,8 @@ export class SessionRunner {
       if (guardStop) {
         engine.audit(this.id, 'loop_guard', `${halt?.verdict.code}: ${oneLine(guardStop, 200)}`);
         engine.notice(this.id, `Loop guard stopped the turn: ${guardStop}`, 'warning');
+        // no more tools, but one toolless call so the turn (and a subagent's result) ends with a report
+        await this.finalAnswerTurn(currentModel, mode, signal, loopStopReminder(guardStop), { loopGuard: halt?.verdict.code ?? 'stopped' });
         return end('loop_capped', false);
       }
       if (stopRequested) {
@@ -1404,7 +1522,7 @@ export class SessionRunner {
       if (this.session.status === 'waiting_reset') return end('rate_limit', false);
     }
     // at the cap: one more call that may not use tools, so the model reports instead of stopping mid-task
-    await this.wrapUpAtStepLimit(currentModel, mode, maxSteps, signal);
+    await this.finalAnswerTurn(currentModel, mode, signal, stepLimitReminder(maxSteps), { stepLimit: maxSteps });
     engine.notice(this.id, `Stopped after ${maxSteps} steps.`, 'warning');
     return end('step_limit', false);
   }
@@ -1505,13 +1623,13 @@ export class SessionRunner {
   }
 
   /**
-   * The step-limit wrap-up: a final reminder, then one call with the same tool
+   * The final-answer turn (step limit or loop-guard stop): a final reminder, then one call with the same tool
    * specs and toolChoice "none". The cached tools and system prompt hold; on
    * Anthropic the new tool choice means the messages are read again once. A provider that
    * rejects the tool choice gets one retry with tools left out. Tool calls in
    * the reply are dropped. Failures only log: the caller still posts the notice.
    */
-  private async wrapUpAtStepLimit(modelRef: string, mode: SessionMode, maxSteps: number, signal: AbortSignal): Promise<void> {
+  private async finalAnswerTurn(modelRef: string, mode: SessionMode, signal: AbortSignal, note: string, meta: Record<string, unknown>): Promise<void> {
     const engine = this.engine;
     if (signal.aborted) throw new Error('aborted');
     let resolved;
@@ -1521,7 +1639,7 @@ export class SessionRunner {
       return;
     }
     if (resolved.acp) return;
-    engine.addMessage(this.id, { role: 'user', kind: 'normal', content: [reminder(stepLimitReminder(maxSteps))], meta: { auto: true, stepLimit: maxSteps } });
+    engine.addMessage(this.id, { role: 'user', kind: 'normal', content: [reminder(note)], meta: { auto: true, ...meta } });
     const session = this.session;
     const agent = engine.agentFor(session);
     const tools = engine.toolsFor(session, agent, mode, this.depth);
@@ -1562,13 +1680,13 @@ export class SessionRunner {
         result = await call(toolSpecs.length > 0);
       } catch (err) {
         if (!(err instanceof ProviderError) || err.kind !== 'bad_request' || !toolSpecs.length) throw err;
-        log.info(`step limit wrap-up: tool choice rejected (${err.message}); retrying without tools`);
+        log.info(`final-answer turn: tool choice rejected (${err.message}); retrying without tools`);
         result = await call(false);
       }
     } catch (err) {
       engine.removeMessage(assistant.id);
       if (signal.aborted || (err instanceof ProviderError && err.kind === 'aborted')) throw err;
-      log.warn('step limit wrap-up failed', err);
+      log.warn('final-answer turn failed', err);
       return;
     }
     engine.addStats(this.id, result.usage);

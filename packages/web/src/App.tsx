@@ -1,8 +1,8 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Redirect, Route, Router, Switch, useLocation } from 'wouter';
+import { Children, isValidElement, lazy, Suspense, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { matchRoute, Redirect, Route, Router, Switch, useLocation, useRouter, type Parser } from 'wouter';
 import { MOCK, connectClient, consumeHashToken, loadConnection, withoutConnectParam, type Connection } from './lib/api';
 import { loadAll, startLive, stopLive, useHub } from './store/store';
-import { isSetupPath, SETUP_ROUTE, useOnboarded } from './lib/onboarding';
+import { isSetupPath, setupRedirect, useOnboarded } from './lib/onboarding';
 import { onHubIdentityError } from './lib/identity';
 import { keepTrying, reachHub, useReach, type Reached } from './lib/reach';
 import { Shell } from './components/Shell';
@@ -150,9 +150,9 @@ export function App() {
   const owner = useIsOwner();
   const phone = useIsMobile();
   useEffect(() => {
-    if (phase === 'ready' && owner && onboarded === false && !isSetupPath(loc) && loc !== '/connect' && loc !== CONSENT_PATH && !INVITE_PATH.test(loc)) navigate(SETUP_ROUTE, { replace: true });
     // setup changes the hub's own settings: a member who opens it from a link goes Home
-    else if (phase === 'ready' && !owner && isSetupPath(loc)) navigate('/', { replace: true });
+    const to = phase === 'ready' && loc !== '/connect' && loc !== CONSENT_PATH && !INVITE_PATH.test(loc) ? setupRedirect(owner, onboarded, loc) : undefined;
+    if (to) navigate(to, { replace: true });
   }, [phase, owner, onboarded, loc, navigate]);
 
   if (phase === 'boot') return withSplash(launch ? <div className="h-full bg-bg" /> : <Splash />);
@@ -212,6 +212,7 @@ export function App() {
       <Router hook={useAppLocation} searchHook={useAppSearch}>
         <Shell>
           <PageBoundary>
+            <PageFade>
             <Switch>
               <Route path="/" component={HomePage} />
               <Route path="/chat/:id?" component={ChatPageRoute} />
@@ -258,6 +259,7 @@ export function App() {
                 <Redirect to="/" />
               </Route>
             </Switch>
+            </PageFade>
           </PageBoundary>
         </Shell>
       </Router>
@@ -269,6 +271,31 @@ export function App() {
       <Toaster />
     </>,
   );
+}
+
+/**
+ * A page change fades the new page in over --dur-3, keyed by the route the
+ * Switch matches, so moving inside a page, or between two paths of one page
+ * (/approvals and /inbox), keeps its state. No exit and no travel (SPEC 7).
+ * The fill is backwards only, so nothing holds an opacity (and a stacking
+ * context) after it lands.
+ */
+function PageFade({ children }: { children: ReactElement<{ children: ReactNode }> }) {
+  const [loc] = useLocation();
+  const { parser } = useRouter();
+  return (
+    <div key={pageKey(children.props.children, loc, parser)} className="anim-page flex min-h-0 flex-1 flex-col">
+      {children}
+    </div>
+  );
+}
+
+/** The first route of a Switch that matches `path`; routes with one component share the first one's key. */
+export function pageKey(routes: ReactNode, path: string, parser: Parser): number {
+  const all = Children.toArray(routes).filter(isValidElement) as ReactElement<{ path?: string; component?: unknown }>[];
+  const i = all.findIndex((r) => matchRoute(parser, r.props.path ?? '', path)[0]);
+  const component = all[i]?.props.component;
+  return component ? all.findIndex((r) => r.props.component === component) : i;
 }
 
 /**

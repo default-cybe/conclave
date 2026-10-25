@@ -25,7 +25,9 @@ export const DEVICE_SOURCES: ImportSource[] = ['claude-code', 'codex', 'gemini']
 
 /**
  * Same on every device for the same conversation: the source, the native id
- * where the source's ids are unique, and the first 3 message ids.
+ * where the source's ids are unique, and the first 3 message ids. A Claude
+ * Code chat resumed under a new id starts with the same message ids, so the id
+ * keeps the two apart (older ledger rows left it out: ImportService.knownRows).
  */
 export function fingerprintOf(c: Pick<ConvertedSession, 'source' | 'nativeId' | 'nativeIdUnique'>, firstIds: string[]): string {
   return sha256Hex([c.source, c.nativeIdUnique ? (c.nativeId ?? '') : '', ...firstIds].join('\n')).slice(0, 32);

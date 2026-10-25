@@ -50,7 +50,9 @@ import { analyzeJury } from './Group';
 import { permissionMeta } from './modes';
 import { revealToolRow } from './ToolRows';
 import { agoText, msgText } from './util';
-import { subagentOf, taskCalls, tasksWord, useRunningTasks, type RunningTask } from './liveTasks';
+import { subagentOf, taskCalls, taskKind, tasksWord, useRunningTasks, type RunningTask } from './liveTasks';
+import { PausedWord, TaskTitle } from './RunningTasks';
+import { groupByKind } from '@/lib/taskKinds';
 import { backgroundShells, contextPercent, outputsWord, panelCards, sessionOutputs, type BackgroundShell, type CardId, type Output } from './panel';
 import { sessionMcpOff, ConnectorsSheet } from './sheets/Connectors';
 import { ContextSheet, CONTEXT_PARTS } from './sheets/ContextSheet';
@@ -650,9 +652,8 @@ function TasksCard({ session }: { session: Session }) {
       {n === 0 && finished.length === 0 && <p className={EMPTY}>Workflows, subagents and background shells it starts show up here while they run.</p>}
       {n > 0 && (
         <ul className="m-0 list-none p-0" aria-label={tasksWord(n)}>
-          {running.map((t) => (
-            <RunningRow key={t.key} task={t} />
-          ))}
+          {/* by kind, workflows first */}
+          {groupByKind(running, taskKind).flatMap((g) => g.items.map((t) => <RunningRow key={t.key} task={t} />))}
           {liveShells.map((sh) => (
             <ShellRow key={sh.id} sh={sh} />
           ))}
@@ -709,35 +710,78 @@ function StopButton({ label, onStop }: { label: string; onStop: () => Promise<un
   );
 }
 
+/** Pause or Resume next to Stop: paused work waits, kept across restarts, until Resume. */
+function PauseButton({ paused, label, onPause, onResume }: { paused: boolean; label: string; onPause: () => Promise<unknown>; onResume: () => Promise<unknown> }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      variant="quiet"
+      size="sm"
+      aria-label={`${paused ? 'Resume' : 'Pause'} ${label}`}
+      busy={busy ? (paused ? 'Resuming' : 'Pausing') : false}
+      onClick={async () => {
+        setBusy(true);
+        await (paused ? onResume() : onPause());
+        setBusy(false);
+      }}
+    >
+      {paused ? 'Resume' : 'Pause'}
+    </Button>
+  );
+}
+
 function RunningRow({ task }: { task: RunningTask }) {
+  const childStatus = useHub((s) => (task.kind === 'subagent' && task.childId ? s.sessions[task.childId]?.status : undefined));
   if (task.kind === 'workflow') {
     const r = task.run;
+    const canPause = r.status === 'running' || r.status === 'paused';
     return (
       <li>
-        <Line right={<StopButton label={`Stop the workflow ${r.name}`} onStop={() => attempt(() => api().stopWorkflow(r.id), `Stopping ${r.name}.`)} />}>
+        <Line
+          right={
+            <span className="flex gap-1">
+              {canPause && <PauseButton paused={r.status === 'paused'} label={`the workflow ${r.name}`} onPause={() => attempt(() => api().pauseWorkflow(r.id))} onResume={() => attempt(() => api().resumeWorkflow(r.id))} />}
+              <StopButton label={`Stop the workflow ${r.name}`} onStop={() => attempt(() => api().stopWorkflow(r.id), `Stopping ${r.name}.`)} />
+            </span>
+          }
+        >
           <Link href={`/workflows/runs/${r.id}`} className="block truncate text-fg hover:underline hover:decoration-rule-2 hover:underline-offset-3">
-            <span className="text-fg-2">Workflow</span> <span className="font-medium">{r.name}</span>
+            <TaskTitle task={task} />
           </Link>
-          <span className="block text-[12px]">{r.status === 'running' ? <Elapsed since={r.startedAt ?? r.createdAt} format="short" className="text-signal" /> : <StateWord tone={RUN_TONE[r.status]}>{RUN_WORD[r.status]}</StateWord>}</span>
+          <span className="block text-[12px]">{r.status === 'running' ? <Elapsed since={r.startedAt ?? r.createdAt} format="short" className="text-signal" /> : r.status === 'paused' ? <PausedWord /> : <StateWord tone={RUN_TONE[r.status]}>{RUN_WORD[r.status]}</StateWord>}</span>
         </Line>
       </li>
     );
   }
   return (
     <li>
-      <Line right={task.childId ? <StopButton label={`Stop the subagent ${task.description}`} onStop={() => attempt(() => api().abort(task.childId!), 'Stopping the subagent.')} /> : undefined}>
+      <Line
+        right={
+          task.childId ? (
+            <span className="flex gap-1">
+              {childStatus !== 'waiting_reset' && <PauseButton paused={childStatus === 'paused'} label={`the subagent ${task.description}`} onPause={() => attempt(() => api().pauseSession(task.childId!))} onResume={() => attempt(() => api().resumeSession(task.childId!))} />}
+              <StopButton label={`Stop the subagent ${task.description}`} onStop={() => attempt(() => api().abort(task.childId!), 'Stopping the subagent.')} />
+            </span>
+          ) : undefined
+        }
+      >
         {task.childId ? (
           <Link href={`/s/${task.childId}`} className="block truncate text-fg hover:underline hover:decoration-rule-2 hover:underline-offset-3">
-            <span className="text-fg-2">Subagent</span> {task.agent && <span className="font-medium">{task.agent}: </span>}
-            {task.description}
+            <TaskTitle task={task} />
           </Link>
         ) : (
           <span className="block truncate text-fg">
-            <span className="text-fg-2">Subagent</span> {task.agent && <span className="font-medium">{task.agent}: </span>}
-            {task.description}
+            <TaskTitle task={task} />
           </span>
         )}
-        <Elapsed since={task.startedAt} format="short" className="block text-[12px] text-signal" />
+        {childStatus === 'paused' ? (
+          <PausedWord className="flex" />
+        ) : (
+          <span className="block truncate text-[12px]">
+            {task.model && <span className="text-fg-3">{modelName(task.model)} · </span>}
+            <Elapsed since={task.startedAt} format="short" className="text-signal" />
+          </span>
+        )}
       </Line>
     </li>
   );

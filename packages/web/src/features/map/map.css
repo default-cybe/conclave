@@ -233,15 +233,7 @@ button.map-node .map-mark::after {
   color: var(--fg-3);
   font-variant-numeric: tabular-nums;
 }
-.map-id {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--fg-4);
-  margin-right: 6px;
-  letter-spacing: -0.01em;
-}
 /* a phone opens at zoom 1 (view.ts READ_K): every word of a label at 12px or more */
-.map-phone .map-id,
 .map-phone .map-conflict {
   font-size: 12px;
 }

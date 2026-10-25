@@ -19,7 +19,8 @@ const TEMPLATES: RoutineTemplate[] = [
     description: 'Weekdays 07:30: a plan for the day from calendar, tasks and goals, with one focus block and at most one question. Shows on Home.',
     schedule: '30 7 * * 1-5',
     mode: 'agent',
-    sessionPolicy: 'new',
+    // the plan lands in the assistant thread, where Home's Plan my day asks for it too
+    sessionPolicy: 'home',
     notify: 'always',
     // saving the plan is a write; the email agent it may ask reads mail only with these (an untrusted session asks for anything else)
     allow: ['DayPlan', 'MailSearch', 'MailRead'],
@@ -222,6 +223,7 @@ ${DATA_NOT_INSTRUCTIONS}`,
     agent: 'assistant',
     mode: 'agent',
     model: 'fast',
+    // not home: there it would run on the thread's model with its whole context, past maxCostUsd, and post every 30 minutes
     sessionPolicy: 'new',
     notify: 'on_attention',
     precheck: '@heartbeat',

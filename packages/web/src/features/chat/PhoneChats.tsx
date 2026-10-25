@@ -30,6 +30,7 @@ import { modelName } from '@/lib/models';
 import { hrefOf, liveState } from '@/lib/recents';
 import { usePageHeader } from '@/components/ui/Page';
 import { ImportSheet } from '@/features/import/ImportSheet';
+import { isDuplicateCopy } from '@/features/import/ImportedLine';
 import { ShareProjectButton } from '@/features/friends/ShareProject';
 import { isChat } from './util';
 
@@ -63,7 +64,7 @@ export function PhoneChats({ kind }: { kind: Kind }) {
   // the archived list leads back to the list
   usePageHeader(archived ? (kind === 'chats' ? 'Archived chats' : 'Archived sessions') : undefined, words.root);
 
-  const mine = (s: Session) => (kind === 'chats' ? isChat(s) : !isChat(s) && !underParent(s) && !(s.meta as { workflow?: unknown } | undefined)?.workflow);
+  const mine = (s: Session) => !isDuplicateCopy(s) && (kind === 'chats' ? isChat(s) : !isChat(s) && !underParent(s) && !(s.meta as { workflow?: unknown } | undefined)?.workflow);
   const all = useMemo(() => Object.values(sessions).filter(mine), [sessions, kind]); // eslint-disable-line react-hooks/exhaustive-deps
   const archivedCount = useMemo(() => all.filter((s) => s.archived).length, [all]);
   // a subagent's request waits on you in the conversation it shows in (lib/asks.ts)

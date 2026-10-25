@@ -29,15 +29,16 @@ import { isLive, workflowName } from '@/features/workflows/words';
 import { useSessionRuns } from '@/features/workflows/data';
 import { workName } from './toolGroups';
 import { runWaits, waitsIn, type Ask } from '@/lib/asks';
+import type { TaskKind } from '@/lib/taskKinds';
 
 /** "1 running task", "2 running tasks": the same words on the web and on Android. */
 export function tasksWord(n: number): string {
   return `${n} running ${n === 1 ? 'task' : 'tasks'}`;
 }
 
-const LIVE_SESSION: readonly SessionStatus[] = ['running', 'waiting_approval', 'waiting_input', 'waiting_reset'];
+const LIVE_SESSION: readonly SessionStatus[] = ['running', 'waiting_approval', 'waiting_input', 'waiting_reset', 'paused'];
 
-/** The session is at work: a turn runs, waits on you or waits for a limit. */
+/** The session is at work: a turn runs, waits on you, waits for a limit or is paused (it stays listed until Resume). */
 export function sessionLive(status: SessionStatus | undefined): boolean {
   return !!status && LIVE_SESSION.includes(status);
 }
@@ -97,6 +98,8 @@ export interface Subagent {
   description: string;
   /** A Delegate call: who does the job and where, "Code on MadX Arch". Rows say it in place of "Subagent explore". */
   handedTo?: string;
+  /** The model it runs on, "anthropic/claude-haiku-5-5": its session's, else the one the call names. */
+  model?: string;
 }
 
 /** Where a Delegate call's job runs, from its result's or its session's meta.delegate (meta.movedFrom once the session moved to the main list). */
@@ -146,13 +149,14 @@ export function subagentOf(call: { tool: ToolUseBlock; result?: ToolResultBlock;
     const who = str(tool.input?.to) === 'assistant' ? 'Assistant' : 'Code';
     handedTo = where ? `${who} on ${where}` : who;
   }
+  const model = str(child?.model) ?? str(tool.input?.model);
   const startedAt = call.run?.startedAt ?? child?.createdAt ?? call.at;
   let state: SubagentState;
   if (res && !(background && !res.isError)) state = res.isError ? 'failed' : 'done';
   else if (res) state = child && sessionLive(child.status) ? 'running' : 'done';
   else if (call.run?.status === 'running' || (child && sessionLive(child.status)) || sessionLive(ctx.status)) state = 'running';
   else state = 'pending';
-  return { state, childId, startedAt, background, agent, description, ...(handedTo ? { handedTo } : {}) };
+  return { state, childId, startedAt, background, agent, description, ...(handedTo ? { handedTo } : {}), ...(model ? { model } : {}) };
 }
 
 // ---------------------------------------------------------------------------
@@ -200,6 +204,11 @@ export interface RunningSubagent extends Subagent {
 }
 
 export type RunningTask = RunningWorkflow | RunningSubagent;
+
+/** A row's kind: a Delegate call is a subagent here, but its row says Delegate. */
+export function taskKind(t: RunningTask): TaskKind {
+  return t.kind === 'workflow' ? 'workflow' : t.handedTo ? 'delegate' : 'subagent';
+}
 
 export interface RunningInput {
   sessionId: string;
@@ -258,7 +267,7 @@ function subagentsKey(s: Pick<HubState, 'sessions' | 'tools' | 'approvals' | 'qu
   const waiting = asks.map((a) => `${a.sessionId}>${a.from?.workflow?.runId ?? ''}`).join(',');
   if (!calls.some((c) => c.kind === 'subagent')) return waiting;
   return `${runningSubagents({ sessionId, status: s.sessions[sessionId]?.status, calls, tools: s.tools, sessions: s.sessions, asks })
-    .map((t) => `${t.toolUseId}:${t.childId ?? ''}:${t.agent ?? ''}:${t.startedAt}:${t.waiting ? 1 : 0}`)
+    .map((t) => `${t.toolUseId}:${t.childId ?? ''}:${t.agent ?? ''}:${t.model ?? ''}:${t.startedAt}:${t.waiting ? 1 : 0}`)
     .join(' ')}|${waiting}`;
 }
 

@@ -451,6 +451,16 @@ class ConclaveClient(
 
     suspend fun getSession(id: String): Session = get(p("api", "sessions", id), Session.serializer())
 
+    /**
+     * GET /api/assistant/home: the account's one Assistant thread (meta.home),
+     * made on the first ask. Null on an older hub without the route (404).
+     */
+    suspend fun assistantHome(): Session? = try {
+        get(p("api", "assistant", "home"), Session.serializer())
+    } catch (e: ConclaveApiException) {
+        if (e.status == 404) null else throw e
+    }
+
     suspend fun createSession(input: CreateSessionInput): Session =
         send("POST", p("api", "sessions"), CreateSessionInput.serializer(), input, Session.serializer())
 
@@ -489,6 +499,11 @@ class ConclaveClient(
         send("POST", p("api", "sessions", id, "messages"), SendInput.serializer(), input, SendResult.serializer())
 
     suspend fun abort(id: String) = sendUnit("POST", p("api", "sessions", id, "abort"))
+
+    /** Pause: the call in progress finishes, then the session waits for Resume. */
+    suspend fun pauseSession(id: String) = sendUnit("POST", p("api", "sessions", id, "pause"))
+
+    suspend fun resumeSession(id: String) = sendUnit("POST", p("api", "sessions", id, "resume"))
 
     /** Messages waiting while the session is busy, in the order they will run (session.queue keeps it current). */
     suspend fun queue(id: String): List<QueuedMessage> =

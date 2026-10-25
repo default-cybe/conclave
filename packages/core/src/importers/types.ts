@@ -17,7 +17,11 @@ export interface ConvertedSession {
   source: ImportSource;
   /** The tool's own session id. */
   nativeId?: string;
-  /** False for Claude Code: its session ids repeat across project folders. */
+  /**
+   * The native id goes in the fingerprint. Claude Code ids can repeat across
+   * project folders, so its fingerprint keeps the first message ids too; false
+   * for a subagent transcript, which carries its parent's id.
+   */
   nativeIdUnique: boolean;
   title?: string;
   cwd?: string;

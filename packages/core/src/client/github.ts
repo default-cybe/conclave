@@ -64,6 +64,34 @@ export interface RepoSessionInput {
   chat?: Partial<ChatSettings>;
 }
 
+/**
+ * POST /api/worktrees/sessions: "Run in a worktree" on any git folder of a
+ * device. The session gets its own worktree on a new conclave/ branch from
+ * the folder's current branch, so several sessions work on one repository
+ * at once; Merge brings it back, Discard drops it.
+ */
+export interface WorktreeSessionInput extends Omit<RepoSessionInput, 'repo' | 'base'> {
+  /** A folder in the repository, on the device. */
+  folder: string;
+}
+
+/** GET /api/worktrees/folder: whether a folder on a device is in a git repository. */
+export interface FolderGitDto {
+  git: boolean;
+  /** The repository's top folder. */
+  root?: string;
+  /** The branch checked out there; unset on a detached commit. */
+  branch?: string;
+  /** owner/name when its origin is on GitHub. */
+  github?: string;
+}
+
+/** POST /api/sessions/:id/repo/merge. */
+export interface MergeInput {
+  /** One commit on the base instead of a merge of every commit. */
+  squash?: boolean;
+}
+
 export type PrState = 'open' | 'merged' | 'closed';
 /** The pull request's checks: check runs and commit statuses together. none: there are none. */
 export type CiState = 'pending' | 'success' | 'failure' | 'none';
@@ -81,6 +109,10 @@ export interface SessionRepoMeta {
   ci?: CiState;
   /** The worktree was removed (Clean up). */
   cleaned?: boolean;
+  /** A worktree of a git folder ("Run in a worktree"), not a GitHub repo session. */
+  folder?: boolean;
+  /** Merge brought the branch into its base. */
+  merged?: boolean;
 }
 
 /** GET /api/sessions/:id/repo: the repo session in full. */
@@ -115,8 +147,12 @@ export interface RepoSessionDto extends SessionRepoMeta {
   ciUrl?: string;
   /** When the hub last read the pull request. */
   checkedAt?: number;
-  /** Clean up is offered: the pull request was merged or closed and the worktree is still there. */
+  /** Clean up is offered: the pull request was merged or closed, or the branch was merged, and the worktree is still there. */
   canCleanUp: boolean;
+  /** Push and Open pull request can work: a GitHub repository, and GitHub is connected. Unset (an older hub): they can. */
+  pullRequests?: boolean;
+  /** Merge into the base is offered (a folder's worktree with commits not merged yet). */
+  canMerge?: boolean;
   /** The device is online, so git can run there. */
   online: boolean;
   /** One plain sentence about where things stand. */
@@ -163,6 +199,8 @@ export interface OpenPrInput {
 export interface CleanupInput {
   /** Remove the worktree even with uncommitted files in it, or before the pull request is merged or closed. */
   force?: boolean;
+  /** Discard: the local branch goes too, merged or not. With uncommitted files only with force. */
+  discard?: boolean;
 }
 
 /** The repository and branch of a session, when it is a repo session. */

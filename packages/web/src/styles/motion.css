@@ -13,6 +13,7 @@
   --dur-0: 80ms; /* press feedback, a copy icon turning into a check */
   /* --dur-1 120ms hover and press, --dur-2 180ms menus and entrances, --dur-3 240ms panels: in index.css */
   --dur-4: 360ms; /* a live mark settling, a container growing into a panel */
+  --dur-blink: 140ms; /* the pet's eyes closed in a blink (styles/pet.css) */
   --dur-spring: 620ms; /* the spring below, until it rests (visually done by about 300ms) */
   /* easing: --ease (out) lives in index.css */
   --ease-in: cubic-bezier(0.4, 0, 1, 1); /* exits */
@@ -262,6 +263,26 @@
 /* items that arrive together: set --n on each (0 to 4); later ones start 40ms apart */
 .anim-stagger {
   animation-delay: calc(min(var(--n, 0), 4) * var(--stagger));
+}
+
+/* a page change (App.tsx PageFade): the fade in --dur-3, held only before it starts */
+.anim-page {
+  animation: fade-in var(--dur-3) var(--ease) backwards;
+}
+
+/* chat rows that arrive in one update (ChatMessages): their own fade waits its turn; the row drops data-msg-n once it has entered */
+[data-msg-n] :is(.anim-fade, .anim-rise) {
+  animation-delay: calc(min(var(--n, 0), 4) * var(--stagger));
+}
+
+/* off screen or in a background tab: loops hold where they are (Pet, AgentGlyph) */
+[data-paused] * {
+  animation-play-state: paused;
+}
+
+/* a card's state word and its mark change color in --dur-3 (RunView, RunningTasks) */
+.cv-state {
+  transition: color var(--dur-3) var(--ease);
 }
 
 /* ------------------------------------------------------------------------ */

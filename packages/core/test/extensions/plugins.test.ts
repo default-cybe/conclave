@@ -1,4 +1,5 @@
 import { describe, test, expect, afterEach, beforeAll } from 'bun:test';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { defaultModelMapper } from '../../src/extensions/loader';
 import { PluginManager, parsePluginSource, expandRoot } from '../../src/extensions/plugins';
@@ -114,6 +115,71 @@ describe('install from a local git repo', () => {
 
     expect(await pm2.removePlugin('copy-plugin')).toBe(true);
     expect(pm2.plugins().length).toBe(0);
+  });
+});
+
+describe('plugin npm dependencies', () => {
+  /** A plugin whose package.json needs a local package; the package has a postinstall that must never run. */
+  function depsPlugin(lock: boolean): string {
+    const dir = td();
+    write(join(dir, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'deps-plugin' }));
+    write(join(dir, 'package.json'), JSON.stringify({ name: 'deps-plugin', version: '1.0.0', dependencies: { tiny: 'file:./tiny' } }));
+    write(join(dir, 'tiny', 'package.json'), JSON.stringify({ name: 'tiny', version: '1.0.0', main: 'index.js', scripts: { postinstall: 'touch ran-postinstall' } }));
+    write(join(dir, 'tiny', 'index.js'), 'module.exports = 42;\n');
+    if (lock)
+      write(
+        join(dir, 'package-lock.json'),
+        JSON.stringify({
+          name: 'deps-plugin',
+          version: '1.0.0',
+          lockfileVersion: 3,
+          requires: true,
+          packages: { '': { name: 'deps-plugin', version: '1.0.0', dependencies: { tiny: 'file:./tiny' } }, tiny: { name: 'tiny', version: '1.0.0', hasInstallScript: true }, 'node_modules/tiny': { resolved: 'tiny', link: true } },
+        }),
+      );
+    return dir;
+  }
+
+  for (const lock of [false, true]) {
+    test(`install and update get node_modules, with no install scripts (${lock ? 'npm ci' : 'npm install'})`, async () => {
+      const src = depsPlugin(lock);
+      const pm = new PluginManager({ dir: td(), defaultMarketplaces: [] });
+      for (let round = 0; round < 2; round++) {
+        const p = await pm.installPlugin(src);
+        expect(p.depsCommand).toBeUndefined();
+        // an update recopies the folder, so the second round installs again
+        expect(existsSync(join(p.dir, 'node_modules', 'tiny', 'index.js'))).toBe(true);
+        expect(existsSync(join(p.dir, 'tiny', 'ran-postinstall'))).toBe(false);
+      }
+    }, 60_000);
+  }
+
+  test('a plugin without package.json runs nothing', async () => {
+    const seen: string[][] = [];
+    const spawn = ((argv: string[], o: object) => (seen.push(argv), Bun.spawn(argv, o as never))) as unknown as typeof Bun.spawn;
+    const src = td();
+    write(join(src, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'plain' }));
+    const pm = new PluginManager({ dir: td(), defaultMarketplaces: [], spawn });
+    const p = await pm.installPlugin(src);
+    expect(seen).toEqual([]);
+    expect(existsSync(join(p.dir, 'node_modules'))).toBe(false);
+    expect(p.depsCommand).toBeUndefined();
+  });
+
+  test('a failed install keeps the plugin and records the command to run by hand', async () => {
+    const seen: Array<{ argv: string[]; cwd: string }> = [];
+    const spawn = ((argv: string[], o: { cwd: string }) => {
+      seen.push({ argv, cwd: o.cwd });
+      return Bun.spawn(['sh', '-c', 'echo boom >&2; exit 1'], { stdout: 'pipe', stderr: 'pipe' });
+    }) as unknown as typeof Bun.spawn;
+    const root = td();
+    const pm = new PluginManager({ dir: root, defaultMarketplaces: [], spawn });
+    const p = await pm.installPlugin(depsPlugin(true));
+    expect(seen.map((s) => s.argv)).toEqual([['npm', 'ci', '--omit=dev', '--ignore-scripts', '--git=git']]);
+    expect(seen[0].cwd).toBe(p.dir);
+    expect(p.depsCommand).toBe(`cd ${p.dir} && npm ci --omit=dev --ignore-scripts --git=git`);
+    const again = new PluginManager({ dir: root, defaultMarketplaces: [] }).plugins();
+    expect(again.map((x) => [x.name, x.enabled, x.depsCommand])).toEqual([['deps-plugin', true, p.depsCommand]]);
   });
 });
 

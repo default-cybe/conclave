@@ -85,6 +85,8 @@ export interface SessionFilter {
   search?: string;
   /** "chat" lists only chats; "agent" lists everything else (including sessions from before chats existed). */
   kind?: SessionKind;
+  /** Only the assistant home thread (meta.home, engine.assistantHome). */
+  home?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -162,6 +164,7 @@ export class SessionRepo {
     if (f.device) (where.push('device = $device'), (params.device = f.device));
     if (f.kind === 'chat') where.push(`kind = 'chat'`);
     else if (f.kind === 'agent') where.push(`(kind IS NULL OR kind <> 'chat')`);
+    if (f.home) where.push(`json_extract(meta, '$.home') = 1`);
     if (f.tag) (where.push(`EXISTS (SELECT 1 FROM json_each(sessions.tags) WHERE value = $tag)`), (params.tag = f.tag));
     if (f.search) {
       where.push(

@@ -101,6 +101,7 @@ const BUILTINS: Builtin[] = [
   { name: 'memory', description: 'What it remembers here, and the memory switch', sheet: 'memory', modes: BOTH },
   { name: 'mode', description: 'Agent, chat, plan, jury, debate or loop', arg: '[mode]', modes: BOTH },
   { name: 'model', description: 'Model and effort', arg: '[provider/model]', sheet: 'model', modes: BOTH },
+  { name: 'move', description: 'Copy this folder to the hub and run there', arg: 'hub --copy', modes: CODE },
   { name: 'new', description: 'New session with the same agent', modes: BOTH },
   { name: 'permissions', description: 'Permission mode and rules', sheet: 'permissions', modes: CODE },
   { name: 'resume', description: 'Open an earlier session', sheet: 'resume', modes: BOTH },

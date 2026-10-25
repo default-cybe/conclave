@@ -126,6 +126,104 @@ export interface MoveInput {
   withoutFiles?: boolean;
   /** Clone the project's remote into this folder first. */
   clone?: { url: string; into: string };
+  /**
+   * With device "local" (the hub): copy the session's whole project folder from
+   * its device into <projects.hubRoot>/<device>/<folder name> first, byte for
+   * byte, then run the session on the copy (projects/hubcopy.ts).
+   */
+  copy?: boolean;
+}
+
+/** One file or symlink of a copied folder, as it was right after the copy (projects/hubcopy.ts). */
+export interface ManifestEntry {
+  /** Path relative to the folder, "/" separated. */
+  p: string;
+  /** f: file, l: symlink. */
+  t: 'f' | 'l';
+  /** Size in bytes. */
+  s: number;
+  /** mtime in whole seconds. */
+  m: number;
+  /** sha256 hex of files under 50 MB. */
+  h?: string;
+  /** Symlink target. */
+  l?: string;
+}
+
+/** meta.hubCopy of a session that was copied to the hub: where it came from, for Move back. */
+export interface HubCopyRecord {
+  device: string;
+  deviceName: string;
+  /** The project folder on the device. */
+  root: string;
+  /** The session's cwd inside it ("" at the root). */
+  rel: string;
+  /** The copy on the hub. */
+  hubPath: string;
+  copiedAt: number;
+  /** The manifest file on the hub (a JSON array of ManifestEntry), kept next to the copies. */
+  manifest: string;
+  bytes: number;
+  files: number;
+}
+
+/** GET /api/sessions/:id/hub-copy: what Move to hub would copy, and where. */
+export interface HubCopyPreview {
+  device: string;
+  deviceName: string;
+  /** The folder copied (the project root on the device). */
+  path: string;
+  target: string;
+  /** du -sk of the folder, in bytes. */
+  bytes: number;
+  files: number;
+  freeBytes: number;
+  fits: boolean;
+  /** "1.2 GB, 48,113 files to /srv/conclave-projects/pc/portfolio", or why it cannot. */
+  line: string;
+  /** A copy or copy back is running now. */
+  running?: boolean;
+  /** Set once the session was copied: Move back is offered. */
+  record?: HubCopyRecord;
+}
+
+export type HubChange = 'added' | 'changed' | 'deleted';
+
+export interface HubBackFile {
+  path: string;
+  change: HubChange;
+  /** Changed on the device since the copy too: copying it back overwrites the device's change. */
+  conflict: boolean;
+  binary?: boolean;
+  /** Size on the device (before) and on the hub (after). */
+  before?: number;
+  after?: number;
+  /** Unified diff for text files (the first ones only). */
+  diff?: string;
+}
+
+/** GET /api/sessions/:id/hub-copy/back: what changed on the hub since the copy. */
+export interface HubBackPreview {
+  device: string;
+  deviceName: string;
+  online: boolean;
+  devicePath: string;
+  hubPath: string;
+  files: HubBackFile[];
+  conflicts: number;
+  /** Files that changed on the device only (not touched by a copy back). */
+  deviceOnly: number;
+  /** More files changed than are listed. */
+  truncated: boolean;
+  line: string;
+}
+
+/** POST /api/sessions/:id/hub-copy/back. */
+export interface HubBackInput {
+  /** Leave files that also changed on the device as the device has them. */
+  skipConflicts?: boolean;
+  /** Delete files on the device that were deleted on the hub. Default off: nothing on the device is deleted. */
+  deleteRemoved?: boolean;
 }
 
 export type MoveResult =
@@ -226,6 +324,8 @@ export interface DeviceFoldersDto {
   device: string;
   deviceName: string;
   online: boolean;
+  /** The hub only: where Move to hub puts copied folders (config projects.hubRoot or its default). */
+  hubRoot?: string;
   locations: Array<ProjectLocationDto & { projectName: string }>;
   prefixes: PathPrefixDto[];
   suggestions: MappingSuggestion[];
