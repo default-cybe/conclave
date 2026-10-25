@@ -40,6 +40,7 @@ describe('step budget', () => {
       expect(wrap.tool_choice).toEqual({ type: 'none' });
       expect(wrap.tools.length).toBeGreaterThan(0);
       expect(t.requests[3]).toContain('You reached the step limit for this turn (3 steps). Do not call tools.');
+      expect(t.requests[3]).toContain('what you did, what you found, what is left');
       // the note goes in once
       expect(t.requests[3].split('Step budget:').length - 1).toBe(1);
 
