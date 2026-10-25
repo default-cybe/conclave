@@ -13,6 +13,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Save drafts without asking: a per-account setting (off by default, Settings > Calendar and mail) that makes the Assistant's `MailDraft` save the draft straight into Drafts with no approval card. It never sends; sending still needs approval, and the email-reading agent still cannot draft.
 
+### Changed
+
+- A foreground Bash command that is only a wait (`gh run watch`, `gh pr checks --watch`, `watch`, `sleep` over 30 seconds) now starts in the background with a one-line notice, so queued messages are read instead of waiting behind it. The session gets a note with the exit code and the end of the output when it ends or hits its timeout (600 seconds unless `timeout` is set). Compound commands, poll loops and quoted text are left alone, and so are subagents, workflow steps, routines and headless runs, which need the result before they report.
+
 ## [0.4.30] - 2026-10-25
 
 ### Fixed
