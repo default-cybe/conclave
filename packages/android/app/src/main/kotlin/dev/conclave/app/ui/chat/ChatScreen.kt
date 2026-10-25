@@ -485,6 +485,9 @@ fun ChatScreen(
                     if (can.viewPr && prUrl != null) add(SheetAction("View pull request", onClick = then { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(prUrl))) } }))
                     if (RepoWords.canCheck(r)) add(SheetAction("Check now", onClick = then { repoVm.reload(refresh = true) }))
                     if (can.cleanUp) add(SheetAction("Clean up", onClick = then { repoAction(RepoAction.CLEAN_UP) }))
+                    // a folder worktree ("Run in a worktree"): Merge into its base, Discard
+                    if (RepoWords.canMerge(r)) add(SheetAction("Merge into ${r.base}", onClick = then { repoAsk = RepoAsk.MERGE }))
+                    if (RepoWords.canDiscard(r)) add(SheetAction("Discard", onClick = then { repoAsk = RepoAsk.DISCARD }))
                 }
                 add(
                     SheetAction("Archive", onClick = then {

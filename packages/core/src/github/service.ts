@@ -11,16 +11,18 @@
  * a file in the worktree, a transcript or a log.
  */
 import { posix } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { Engine } from '../engine/engine';
 import type { Machine } from '../machine/types';
 import type { Tool } from '../tools/types';
 import type { EngineEventEnvelope, Session } from '../types';
 import type {
   CleanupInput,
+  FolderGitDto,
   GithubBranchesDto,
   GithubRepoDto,
   GithubStatusDto,
+  MergeInput,
   OpenPrInput,
   PrDraft,
   PushInput,
@@ -28,13 +30,14 @@ import type {
   RepoSessionDto,
   RepoSessionInput,
   SessionRepoMeta,
+  WorktreeSessionInput,
 } from '../client/github';
 import { EngineError } from '../engine/errors';
 import { reminder } from '../session/transcript';
 import { projectsOf } from '../projects/attached';
 import { normalizeRemote } from '../projects/identity';
 import { trimSlash } from '../projects/store';
-import { syncthingMarkerAbove } from '../workflows/worktrees';
+import { addWorktree, mergeBranch, WorktreeError } from '../workflows/worktrees';
 import { logger } from '../util/log';
 import { DEFAULT_API_URL, DEFAULT_GIT_URL, GithubApi, GithubError, parseRepoName, type GithubUser, type RepoInfo } from './api';
 import { cloneScript, fetchScript, git, gitError, pushOutcome, pushScript, remoteFor, scrub, shq, validBranch, validSha, committedBy, withCommittedBy, withToken, type Remote } from './git';
@@ -80,6 +83,32 @@ function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
+/** A GitHub repo session, or a folder worktree whose origin is on GitHub: Push and pull requests can work. */
+function onGithub(row: RepoSessionRow): boolean {
+  return row.source !== 'folder' || !!row.url;
+}
+
+/** owner/name of a remote on github.com, else undefined. */
+export function githubName(remote: string): string | undefined {
+  const n = normalizeRemote(remote);
+  const m = n ? /^github\.com\/([\w.-]+)\/([\w.-]+)$/i.exec(n) : null;
+  return m ? `${m[1]}/${m[2]}` : undefined;
+}
+
+/** The compact form a session carries on meta.repo. */
+function metaOf(row: RepoSessionRow): SessionRepoMeta {
+  return {
+    repo: row.repo,
+    branch: row.branch,
+    base: row.base,
+    ...(row.prNumber && row.prUrl && row.prState ? { pr: { number: row.prNumber, url: row.prUrl, state: row.prState, ...(row.prDraft ? { draft: true } : {}) } } : {}),
+    ...(row.ci && row.ci !== 'none' ? { ci: row.ci } : {}),
+    ...(row.cleanedAt ? { cleaned: true } : {}),
+    ...(row.source === 'folder' ? { folder: true } : {}),
+    ...(row.mergedAt ? { merged: true } : {}),
+  };
+}
+
 export class GithubService {
   readonly store: RepoStore;
   private off: Array<() => void> = [];
@@ -106,7 +135,7 @@ export class GithubService {
         tools: (session, tools, depth) => {
           if (depth > 0 || session.kind === 'chat' || tools.some((t) => t.name === PULL_REQUEST_TOOL)) return;
           const row = this.store.get(session.id);
-          if (!row || row.cleanedAt || this.engine.isUntrusted(session)) return;
+          if (!row || row.cleanedAt || !onGithub(row) || this.engine.isUntrusted(session)) return;
           return [...tools, this.tool as unknown as Tool];
         },
       }),
@@ -477,23 +506,99 @@ export class GithubService {
 
     const root = await this.ensureClone(device, machine, info, token);
     const baseSha = await this.fetchBase(machine, root, info, base, token);
+    const defaultBranch = info.defaultBranch;
+    return this.startIn(machine, input, {
+      device,
+      root,
+      dir: posix.join(home, '.conclave', 'worktrees', 'gh', info.owner, info.name),
+      row: { repo: info.fullName, base, baseSha, defaultBranch, url: info.url },
+      reminder: (wt, branch, model) =>
+        `This session works in a git worktree of ${info.fullName} at ${wt}, on the branch ${branch}, made from ${base} at ${baseSha.slice(0, 7)}. Commit your work on this branch, authored by the owner's git identity only, with no Co-authored-by line for an AI. End each commit message with the trailer line "${committedBy(model)}", or your model id from your environment if it changed. When it is done and checked, the PullRequest tool pushes the branch and can open a pull request; the owner approves each call. Do not push yourself, do not switch branches, and never push to ${defaultBranch}.`,
+      audit: 'github.session',
+    });
+  }
 
+  /** Whether a folder on a device is in a git repository, with its top folder, branch and GitHub name. */
+  async folderGit(device: string, folder: string): Promise<FolderGitDto> {
+    const machine = this.machine(device || 'local');
+    const path = await this.expand(machine, folder);
+    if (!(await machine.stat(path).catch(() => null))) return { git: false };
+    const top = await git(machine, path, 'rev-parse --show-toplevel', 20_000).catch(() => undefined);
+    if (!top?.ok || !top.out.startsWith('/')) return { git: false };
+    const root = trimSlash(top.out);
+    const [cur, origin] = await Promise.all([git(machine, root, 'symbolic-ref --short -q HEAD', 20_000), git(machine, root, 'remote get-url origin', 20_000)]);
+    const gh = origin.ok ? githubName(origin.out) : undefined;
+    return { git: true, root, ...(cur.ok && cur.out ? { branch: cur.out } : {}), ...(gh ? { github: gh } : {}) };
+  }
+
+  private async expand(machine: Machine, folder: string): Promise<string> {
+    const f = folder.trim() || '~';
+    if (f === '~' || f.startsWith('~/')) return trimSlash(posix.join(await this.home(machine), f.slice(2)));
+    if (!f.startsWith('/')) throw new EngineError(400, 'folder must be an absolute path or start with ~/');
+    return trimSlash(posix.normalize(f)) || '/';
+  }
+
+  /**
+   * "Run in a worktree" on any git folder of a device: a new conclave/ branch
+   * from the folder's current branch, in a worktree under
+   * ~/.conclave/worktrees/dir/<name>-<hash>/ (outside the repository, so its
+   * tools never see a nested copy). The folder itself is not touched.
+   */
+  async startFolderSession(input: WorktreeSessionInput): Promise<Session> {
+    const device = input.device || 'local';
+    const machine = this.machine(device);
+    const where = await this.folderGit(device, input.folder ?? '');
+    if (!where.git || !where.root) throw new EngineError(400, `${input.folder} is not in a git repository on ${machine.name}.`);
+    const root = where.root;
+    if (!where.branch) throw new EngineError(409, `${root} is on a detached commit. Check out a branch there first; the worktree's branch merges back into it.`);
+    const base = where.branch;
+    const head = await git(machine, root, 'rev-parse --verify -q HEAD', 20_000);
+    if (!head.ok || !validSha(head.out)) throw new EngineError(409, `${root} has no commits yet. Make a first commit, then start the session.`);
+    const home = await this.home(machine);
+    const name = posix.basename(root) || 'repo';
+    const hash = createHash('sha256').update(root).digest('hex').slice(0, 8);
+    const gh = where.github;
+    return this.startIn(machine, input, {
+      device,
+      root,
+      dir: posix.join(home, '.conclave', 'worktrees', 'dir', `${name.replace(/[^\w.-]/g, '-')}-${hash}`),
+      row: { repo: gh ?? name, base, baseSha: head.out, defaultBranch: base, url: gh ? `https://github.com/${gh}` : '', source: 'folder' },
+      reminder: (wt, branch, model) =>
+        `This session works in its own git worktree of ${root} at ${wt}, on the branch ${branch}, made from ${base} at ${head.out.slice(0, 7)}. Other sessions may work in the same repository at once, each in its own worktree. Work and commit only here, on this branch, authored by the owner's git identity only, with no Co-authored-by line for an AI. End each commit message with the trailer line "${committedBy(model)}", or your model id from your environment if it changed. The owner merges the branch into ${base} or discards it from the session header. Do not switch branches, do not merge into ${base}, do not push, and do not edit the main checkout at ${root}.`,
+      audit: 'worktree.session',
+    });
+  }
+
+  /** A new conclave/ branch and its worktree under dir, then the session in it: GitHub repo sessions and folder worktrees alike. */
+  private async startIn(
+    machine: Machine,
+    input: Omit<WorktreeSessionInput, 'folder'>,
+    w: {
+      device: string;
+      root: string;
+      dir: string;
+      row: Pick<RepoSessionRow, 'repo' | 'base' | 'baseSha' | 'defaultBranch' | 'url' | 'source'>;
+      reminder: (wt: string, branch: string, model: string | undefined) => string;
+      audit: string;
+    },
+  ): Promise<Session> {
+    const { device, root } = w;
+    const { repo, base, baseSha } = w.row;
     // a new branch and a worktree for it, under ~/.conclave/worktrees, never inside a synced folder
     const slug = slugify(input.title || input.prompt || 'session', 32);
     let branch = '';
     for (let i = 0; i < 6 && !branch; i++) {
       const b = `conclave/${slug}-${suffix()}`;
-      const taken = this.store.branches(device, info.fullName).includes(b) || (await git(machine, root, `rev-parse --verify --quiet ${shq(`refs/heads/${b}`)}`, 20_000)).ok;
+      const taken = this.store.branches(device, root).includes(b) || (await git(machine, root, `rev-parse --verify --quiet ${shq(`refs/heads/${b}`)}`, 20_000)).ok;
       if (!taken) branch = b;
     }
     if (!branch || !validBranch(branch)) throw new EngineError(500, 'Could not pick a branch name.');
-    const wt = posix.join(home, '.conclave', 'worktrees', 'gh', info.owner, info.name, branch.slice('conclave/'.length).replace(/\//g, '-'));
-    const synced = await syncthingMarkerAbove(machine, posix.dirname(wt));
-    if (synced) throw new EngineError(409, `${synced} is a Syncthing folder. A worktree there would sync to your other machines.`);
-    if (await machine.stat(wt).catch(() => null)) throw new EngineError(409, `${wt} is already there.`);
-    await machine.mkdir(posix.dirname(wt));
-    const add = await git(machine, root, `worktree add --no-track -b ${shq(branch)} ${shq(wt)} ${baseSha}`, 10 * 60_000);
-    if (!add.ok) throw new EngineError(502, `git worktree add failed on ${machine.name}: ${gitError(add)}`);
+    const wt = posix.join(w.dir, branch.slice('conclave/'.length).replace(/\//g, '-'));
+    try {
+      await addWorktree(machine, { root, path: wt, branch, base: baseSha });
+    } catch (err) {
+      throw err instanceof WorktreeError ? new EngineError(err.status, err.message) : err;
+    }
 
     let session: Session;
     try {
@@ -511,18 +616,13 @@ export class GithubService {
       await git(machine, root, `branch -D ${shq(branch)}`).catch(() => undefined);
       throw err;
     }
-    this.store.insert({ sessionId: session.id, repo: info.fullName, device, clonePath: root, worktree: wt, branch, base, baseSha, defaultBranch: info.defaultBranch, url: info.url });
+    this.store.insert({ sessionId: session.id, device, clonePath: root, worktree: wt, branch, ...w.row });
     this.syncMeta(session.id);
     // the projects service learns the worktree as a folder of the repository's project, so checkpoints, the write gate, alerts and the Map see it
     await projectsOf(this.engine)?.recordState(session.id);
-    this.engine.runnerFor(session.id).deliver({
-      block: reminder(
-        `This session works in a git worktree of ${info.fullName} at ${wt}, on the branch ${branch}, made from ${base} at ${baseSha.slice(0, 7)}. Commit your work on this branch, authored by the owner's git identity only, with no Co-authored-by line for an AI. End each commit message with the trailer line "${committedBy(session.model)}", or your model id from your environment if it changed. When it is done and checked, the PullRequest tool pushes the branch and can open a pull request; the owner approves each call. Do not push yourself, do not switch branches, and never push to ${info.defaultBranch}.`,
-      ),
-      wake: false,
-    });
-    this.engine.notice(session.id, `Working in a new worktree of ${info.fullName} on ${branch}, from ${base} at ${baseSha.slice(0, 7)}.`, 'info');
-    this.engine.audit(session.id, 'github.session', `${info.fullName} ${branch} from ${base} on ${device}`);
+    this.engine.runnerFor(session.id).deliver({ block: reminder(w.reminder(wt, branch, session.model)), wake: false });
+    this.engine.notice(session.id, `Working in a new worktree of ${repo} on ${branch}, from ${base} at ${baseSha.slice(0, 7)}.`, 'info');
+    this.engine.audit(session.id, w.audit, `${repo} ${branch} from ${base} on ${device}`);
     if (input.prompt) await this.engine.send(session.id, { text: input.prompt });
     return this.engine.requireSession(session.id);
   }
@@ -543,6 +643,7 @@ export class GithubService {
   }
 
   private nameOf(row: RepoSessionRow): { owner: string; name: string } {
+    if (!onGithub(row)) throw new EngineError(409, `${row.clonePath} has no origin on GitHub, so there is nothing to push to. Merge the branch into ${row.base}, or discard it.`);
     const n = parseRepoName(row.repo);
     if (!n) throw new EngineError(500, `bad repository name ${row.repo}`);
     return n;
@@ -553,14 +654,7 @@ export class GithubService {
     const row = this.store.get(sessionId);
     const s = this.engine.repos.sessions.get(sessionId);
     if (!row || !s) return;
-    const meta: SessionRepoMeta = {
-      repo: row.repo,
-      branch: row.branch,
-      base: row.base,
-      ...(row.prNumber && row.prUrl && row.prState ? { pr: { number: row.prNumber, url: row.prUrl, state: row.prState, ...(row.prDraft ? { draft: true } : {}) } } : {}),
-      ...(row.ci && row.ci !== 'none' ? { ci: row.ci } : {}),
-      ...(row.cleanedAt ? { cleaned: true } : {}),
-    };
+    const meta = metaOf(row);
     if (JSON.stringify(s.meta?.repo) === JSON.stringify(meta)) return;
     const next = { ...s, meta: { ...(s.meta ?? {}), repo: meta } };
     this.engine.repos.sessions.update(next);
@@ -595,17 +689,9 @@ export class GithubService {
     const machine = this.engine.devices.get(row.device);
     const l = await this.local(row, machine).catch(() => ({}) as Awaited<ReturnType<GithubService['local']>>);
     const pushed: RepoSessionDto['pushed'] = !row.pushedSha ? 'never' : l.head && l.head !== row.pushedSha ? 'behind' : 'current';
-    const canCleanUp = !row.cleanedAt && (row.prState === 'merged' || row.prState === 'closed');
-    const meta: SessionRepoMeta = {
-      repo: row.repo,
-      branch: row.branch,
-      base: row.base,
-      ...(row.prNumber && row.prUrl && row.prState ? { pr: { number: row.prNumber, url: row.prUrl, state: row.prState, ...(row.prDraft ? { draft: true } : {}) } } : {}),
-      ...(row.ci && row.ci !== 'none' ? { ci: row.ci } : {}),
-      ...(row.cleanedAt ? { cleaned: true } : {}),
-    };
+    const canCleanUp = !row.cleanedAt && (row.prState === 'merged' || row.prState === 'closed' || !!row.mergedAt);
     return {
-      ...meta,
+      ...metaOf(row),
       sessionId,
       device: row.device,
       deviceName: this.deviceName(row.device),
@@ -625,6 +711,8 @@ export class GithubService {
       ...(row.ciUrl ? { ciUrl: row.ciUrl } : {}),
       ...(row.checkedAt ? { checkedAt: row.checkedAt } : {}),
       canCleanUp,
+      pullRequests: onGithub(row) && !!this.token().value,
+      canMerge: row.source === 'folder' && !row.cleanedAt && !row.mergedAt && row.prState !== 'merged' && !!l.commits,
       online: !!machine,
       line: this.line(row, l, pushed),
     };
@@ -633,6 +721,11 @@ export class GithubService {
   /** One plain sentence: where the branch and the pull request stand. */
   line(row: RepoSessionRow, l: { commits?: number; unpushed?: number; dirty?: number }, pushed: RepoSessionDto['pushed']): string {
     const dirty = l.dirty ? ` ${plural(l.dirty, 'file')} ${l.dirty === 1 ? 'is' : 'are'} not committed.` : '';
+    if (row.source === 'folder' && !row.prNumber) {
+      if (row.cleanedAt) return row.mergedAt ? `Merged into ${row.base} and cleaned up.` : 'Discarded. The worktree is gone.';
+      if (row.mergedAt) return `Merged into ${row.base}. Clean up removes the worktree and ${row.branch}.${dirty}`;
+      if (pushed === 'never') return `${l.commits ? `${plural(l.commits, 'commit')} ahead of ${row.base}.` : 'No commits yet.'}${dirty}`;
+    }
     if (row.cleanedAt) return `Cleaned up. The branch stays on GitHub.`;
     const pr = row.prNumber ? `Pull request #${row.prNumber}` : '';
     if (row.prState === 'merged') return `${pr} was merged. Clean up removes the worktree.`;
@@ -659,8 +752,8 @@ export class GithubService {
   private async pushNow(sessionId: string, input: PushInput): Promise<PushResult> {
     const row = this.requireRow(sessionId);
     if (row.cleanedAt) throw new EngineError(409, 'This session was cleaned up. Its worktree is gone.');
-    const token = this.requireToken();
     const { owner, name } = this.nameOf(row);
+    const token = this.requireToken();
     let info: RepoInfo | undefined;
     try {
       info = await this.api(token).repo(owner, name);
@@ -798,7 +891,7 @@ export class GithubService {
   /** Read the pull request and its checks from GitHub. A pull request opened on github.com for the branch is adopted. */
   async refresh(sessionId: string): Promise<void> {
     const row = this.requireRow(sessionId);
-    if (!this.token().value) return;
+    if (!this.token().value || !onGithub(row)) return;
     const { owner, name } = this.nameOf(row);
     const api = this.api();
     try {
@@ -835,10 +928,54 @@ export class GithubService {
   }
 
   // -------------------------------------------------------------------------
-  // Clean up
+  // Merge (a folder's worktree)
   // -------------------------------------------------------------------------
 
-  /** Remove the worktree; the branch stays on GitHub. Before a merge or close, or with uncommitted files, only with force. */
+  /**
+   * Merge the branch into its base in the main checkout (the folder the
+   * session started from). Refused while the worktree or the main checkout
+   * has uncommitted changes; a conflict is undone and refused.
+   */
+  async merge(sessionId: string, input: MergeInput = {}): Promise<RepoSessionDto> {
+    await this.locked(`session:${sessionId}`, async () => {
+      const row = this.requireRow(sessionId);
+      if (row.source !== 'folder') throw new EngineError(409, 'A GitHub repo session merges through its pull request.');
+      if (row.cleanedAt) throw new EngineError(409, 'This session was cleaned up. Its worktree is gone.');
+      if (row.mergedAt) throw new EngineError(409, `${row.branch} is already merged into ${row.base}.`);
+      const machine = this.machine(row.device);
+      const l = await this.local(row, machine);
+      if (l.head === undefined) throw new EngineError(409, `The worktree ${row.worktree} or its branch ${row.branch} is not on ${machine.name}.`);
+      if (l.dirty) throw new EngineError(409, `${plural(l.dirty, 'file')} in the worktree ${l.dirty === 1 ? 'is' : 'are'} not committed, so ${l.dirty === 1 ? 'it' : 'they'} would not be merged. Commit or discard ${l.dirty === 1 ? 'it' : 'them'} first.`);
+      if (!l.commits) throw new EngineError(409, `There are no commits on ${row.branch} beyond ${row.base} to merge.`);
+      const title = this.engine.getSession(sessionId)?.title;
+      const message = withCommittedBy(title && title !== 'New chat' ? title : `Squash merge ${row.branch}`, this.engine.getSession(sessionId)?.model);
+      let r: Awaited<ReturnType<typeof mergeBranch>>;
+      try {
+        r = await mergeBranch(machine, { root: row.clonePath, branch: row.branch, into: row.base, squash: !!input.squash, message });
+      } catch (err) {
+        throw err instanceof WorktreeError ? new EngineError(err.status, err.message) : err;
+      }
+      if (!r.ok) {
+        if (r.conflict) throw new EngineError(409, `${row.branch} conflicts with ${row.base} in ${row.clonePath}. Nothing was merged and the main checkout is as it was. Bring ${row.base} into the branch in the worktree (git merge ${row.base}), resolve it there, then merge again.`);
+        throw new EngineError(502, `Merging ${row.branch} into ${row.base} failed: ${r.output.split('\n').slice(-3).join(' ')}`);
+      }
+      this.store.update(sessionId, { mergedAt: Date.now() });
+      this.syncMeta(sessionId);
+      this.engine.notice(sessionId, `${input.squash ? 'Squash merged' : 'Merged'} ${plural(l.commits, 'commit')} of ${row.branch} into ${row.base}. Clean up removes the worktree and the branch.`, 'info');
+      this.engine.audit(sessionId, 'worktree.merge', `${row.clonePath} ${row.branch} into ${row.base}${input.squash ? ' (squash)' : ''}`);
+    });
+    return this.dto(sessionId);
+  }
+
+  // -------------------------------------------------------------------------
+  // Clean up and Discard
+  // -------------------------------------------------------------------------
+
+  /**
+   * Remove the worktree; a GitHub branch stays on GitHub. Before a merge or
+   * close, or with uncommitted files, only with force. discard removes the
+   * local branch too, merged or not; with uncommitted files it needs force.
+   */
   async cleanup(sessionId: string, input: CleanupInput = {}): Promise<RepoSessionDto> {
     await this.locked(`session:${sessionId}`, async () => {
       let row = this.requireRow(sessionId);
@@ -848,36 +985,47 @@ export class GithubService {
         await this.refresh(sessionId).catch((err) => log.debug(`refresh before clean up of ${sessionId} failed`, err));
         row = this.requireRow(sessionId);
       }
-      if (!input.force && row.prState !== 'merged' && row.prState !== 'closed') {
-        throw new EngineError(409, row.prNumber ? `Pull request #${row.prNumber} is still open. Clean up with force to remove the worktree anyway.` : 'There is no merged or closed pull request yet. Clean up with force to remove the worktree anyway.');
+      if (!input.force && !input.discard && row.prState !== 'merged' && row.prState !== 'closed' && !row.mergedAt) {
+        throw new EngineError(
+          409,
+          row.prNumber
+            ? `Pull request #${row.prNumber} is still open. Clean up with force to remove the worktree anyway.`
+            : row.source === 'folder'
+              ? `${row.branch} is not merged into ${row.base} yet. Merge it, or discard it.`
+              : 'There is no merged or closed pull request yet. Clean up with force to remove the worktree anyway.',
+        );
       }
       const machine = this.machine(row.device);
-      await this.removeWorktree(machine, row, !!input.force);
+      await this.removeWorktree(machine, row, !!input.force, !!input.discard || (row.source === 'folder' && !!row.mergedAt));
       this.store.update(sessionId, { cleanedAt: Date.now() });
       const s = this.engine.repos.sessions.get(sessionId);
       const projects = projectsOf(this.engine);
       if (projects && s?.projectId) projects.store.removeLocation(s.projectId, row.device, row.worktree);
       this.syncMeta(sessionId);
-      this.engine.notice(sessionId, `Cleaned up. The worktree is gone and ${row.branch} stays on GitHub.`, 'info');
-      this.engine.audit(sessionId, 'github.cleanup', `${row.repo} ${row.branch} ${row.worktree}`);
+      const words = input.discard ? `Discarded. The worktree and ${row.branch} are gone.` : row.source === 'folder' ? `Cleaned up. The worktree and ${row.branch} are gone.` : `Cleaned up. The worktree is gone and ${row.branch} stays on GitHub.`;
+      this.engine.notice(sessionId, words, 'info');
+      this.engine.audit(sessionId, input.discard ? 'worktree.discard' : 'github.cleanup', `${row.repo} ${row.branch} ${row.worktree}`);
     });
     return this.dto(sessionId);
   }
 
-  /** git worktree remove, then the local branch when GitHub has it as it is. The remote branch is never touched. */
-  private async removeWorktree(machine: Machine, row: RepoSessionRow, force: boolean): Promise<void> {
+  /**
+   * git worktree remove, then the local branch: with dropBranch always, else
+   * when GitHub has it as it is. The remote branch is never touched.
+   */
+  private async removeWorktree(machine: Machine, row: RepoSessionRow, force: boolean, dropBranch = false): Promise<void> {
     const there = await machine.stat(row.worktree).catch(() => null);
     if (there) {
       const status = await git(machine, row.worktree, 'status --porcelain', 60_000);
       const dirty = status.ok && status.out ? status.out.split('\n').length : 0;
-      if (dirty && !force) throw new EngineError(409, `${plural(dirty, 'file')} in the worktree ${dirty === 1 ? 'is' : 'are'} not committed. Commit ${dirty === 1 ? 'it' : 'them'}, or clean up with force.`);
+      if (dirty && !force) throw new EngineError(409, `${plural(dirty, 'file')} in the worktree ${dirty === 1 ? 'is' : 'are'} not committed. Commit ${dirty === 1 ? 'it' : 'them'}, or ${dropBranch ? 'discard' : 'clean up'} with force to lose ${dirty === 1 ? 'it' : 'them'}.`);
       const r = await git(machine, row.clonePath, `worktree remove ${force ? '--force ' : ''}${shq(row.worktree)}`, 120_000);
       if (!r.ok) throw new EngineError(502, `git worktree remove failed: ${gitError(r)}`);
     } else {
       await git(machine, row.clonePath, 'worktree prune', 60_000).catch(() => undefined);
     }
     const head = await git(machine, row.clonePath, `rev-parse --verify --quiet ${shq(`refs/heads/${row.branch}`)}`, 20_000);
-    if (head.ok && row.pushedSha && head.out === row.pushedSha) await git(machine, row.clonePath, `branch -D ${shq(row.branch)}`, 20_000);
+    if (head.ok && (dropBranch || (row.pushedSha && head.out === row.pushedSha))) await git(machine, row.clonePath, `branch -D ${shq(row.branch)}`, 20_000);
   }
 
   private onEvent(e: EngineEventEnvelope): void {

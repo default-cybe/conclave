@@ -11,21 +11,18 @@
  * - Afterwards: clean with no new commits removes the worktree and branch.
  *   Otherwise the leftovers are committed as "wf <runId> <label>", the branch
  *   is kept with its sha, and the worktree folder is removed.
+ *
+ * addWorktree and mergeBranch are shared with repo sessions (github/service.ts),
+ * GitHub ones and "Run in a worktree" on any git folder: one way to make a
+ * worktree and one way to merge it back.
  */
 import { posix } from 'node:path';
 import type { Machine } from '../machine/types';
 import type { WorktreeAction, WorktreeState } from '../client/workflows';
-import { withCommittedBy } from '../github/git';
+import { git, shq, withCommittedBy } from '../github/git';
 import { sha256 } from './store';
 
-export function shq(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`;
-}
-
-async function git(machine: Machine, cwd: string, args: string, timeoutMs = 60_000): Promise<{ ok: boolean; out: string; err: string; code: number | null }> {
-  const r = await machine.exec(`git ${args}`, { cwd, timeoutMs, maxOutputBytes: 2_000_000 });
-  return { ok: r.exitCode === 0, out: r.stdout.trim(), err: r.stderr.trim(), code: r.exitCode };
-}
+export { shq };
 
 export interface RepoInfo {
   root: string;
@@ -74,7 +71,71 @@ export interface Worktree {
   root: string;
 }
 
-export class WorktreeError extends Error {}
+/** Why a worktree could not be made or merged; status is the HTTP status a hub route answers with. */
+export class WorktreeError extends Error {
+  constructor(
+    message: string,
+    readonly status = 502,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * git worktree add of a new branch at path from base, never under a
+ * Syncthing folder. replace removes a worktree and branch left at the same
+ * place first (a workflow call's retry); otherwise a path that is there is refused.
+ */
+export async function addWorktree(machine: Machine, opts: { root: string; path: string; branch: string; base: string; replace?: boolean }): Promise<void> {
+  const marker = await syncthingMarkerAbove(machine, posix.dirname(opts.path));
+  if (marker) throw new WorktreeError(`${marker} is a Syncthing folder (.stfolder). A worktree there would sync to your other machines.`, 409);
+  if (opts.replace) {
+    await git(machine, opts.root, `worktree remove --force ${shq(opts.path)}`).catch(() => undefined);
+    await git(machine, opts.root, `branch -D ${shq(opts.branch)}`).catch(() => undefined);
+  } else if (await machine.stat(opts.path).catch(() => null)) {
+    throw new WorktreeError(`${opts.path} is already there.`, 409);
+  }
+  await machine.mkdir(posix.dirname(opts.path)).catch(() => {});
+  const r = await git(machine, opts.root, `worktree add --no-track -b ${shq(opts.branch)} ${shq(opts.path)} ${shq(opts.base)}`, 10 * 60_000);
+  if (!r.ok) throw new WorktreeError(`git worktree add failed on ${machine.name}: ${r.err || r.out}`);
+}
+
+/** `-c user.name -c user.email` for what the device's own git identity lacks, so a commit is not refused. */
+export async function identArgs(machine: Machine, cwd: string, fallback = { name: 'Conclave', email: 'workflows@conclave.local' }): Promise<string> {
+  const name = await git(machine, cwd, 'config user.name');
+  const email = await git(machine, cwd, 'config user.email');
+  return `${name.out ? '' : `-c ${shq(`user.name=${fallback.name}`)} `}${email.out ? '' : `-c ${shq(`user.email=${fallback.email}`)} `}`;
+}
+
+/**
+ * Merge a branch into the checkout at root. With into, root must be on that
+ * branch. Refused when root has uncommitted changes to tracked files; a
+ * conflict is undone, so root is as it was. squash makes one commit with message.
+ */
+export async function mergeBranch(
+  machine: Machine,
+  opts: { root: string; branch: string; into?: string; squash?: boolean; message?: string },
+): Promise<{ ok: boolean; output: string; conflict?: boolean }> {
+  if (opts.into) {
+    const cur = await git(machine, opts.root, 'symbolic-ref --short -q HEAD', 20_000);
+    if (cur.out !== opts.into) throw new WorktreeError(`The main checkout at ${opts.root} is on ${cur.out || 'a detached commit'}, not on ${opts.into}. Switch it back to ${opts.into}, then merge.`, 409);
+  }
+  const status = await git(machine, opts.root, 'status --porcelain --untracked-files=no', 60_000);
+  const dirty = status.ok && status.out ? status.out.split('\n').length : 0;
+  if (dirty) throw new WorktreeError(`The main checkout at ${opts.root} has ${dirty} uncommitted ${dirty === 1 ? 'change' : 'changes'}. Commit or stash ${dirty === 1 ? 'it' : 'them'} there first, then merge.`, 409);
+  const ident = await identArgs(machine, opts.root);
+  const r = await git(machine, opts.root, `${ident}merge ${opts.squash ? '--squash' : '--no-edit'} ${shq(opts.branch)}`, 120_000);
+  const conflict = !r.ok && /CONFLICT|unmerged|not possible because you have unmerged/i.test(`${r.out}\n${r.err}`);
+  if (r.ok && opts.squash) {
+    const c = await git(machine, opts.root, `${ident}commit -q --no-verify -m ${shq(opts.message || `Squash merge ${opts.branch}`)}`, 120_000);
+    if (c.ok) return { ok: true, output: r.out };
+    await git(machine, opts.root, 'reset -q --merge').catch(() => undefined);
+    return { ok: false, output: c.err || c.out };
+  }
+  // merge --abort needs MERGE_HEAD, which a squash never writes; reset --merge undoes both
+  if (!r.ok) await git(machine, opts.root, 'reset -q --merge').catch(() => undefined);
+  return { ok: r.ok, output: r.out || r.err, ...(conflict ? { conflict } : {}) };
+}
 
 export function worktreePath(home: string, root: string, runId: string, seq: number): string {
   return posix.join(home, '.conclave', 'worktrees', sha256(root).slice(0, 12), `${runId}-${seq}`);
@@ -87,15 +148,9 @@ export function worktreeBranch(runId: string, seq: number): string {
 /** Make a worktree for one call. Throws WorktreeError with a reason. */
 export async function createWorktree(machine: Machine, opts: { home: string; root: string; base: string; runId: string; seq: number }): Promise<Worktree> {
   const path = worktreePath(opts.home, opts.root, opts.runId, opts.seq);
-  const marker = await syncthingMarkerAbove(machine, posix.dirname(path));
-  if (marker) throw new WorktreeError(`refusing to make a worktree under ${marker}: it is a Syncthing folder (.stfolder), so the worktree would sync to other machines`);
   const branch = worktreeBranch(opts.runId, opts.seq);
-  await machine.mkdir(posix.dirname(path)).catch(() => {});
   // a branch left from an earlier attempt of the same call goes first
-  await git(machine, opts.root, `worktree remove --force ${shq(path)}`).catch(() => undefined);
-  await git(machine, opts.root, `branch -D ${shq(branch)}`).catch(() => undefined);
-  const r = await git(machine, opts.root, `worktree add ${shq(path)} -b ${shq(branch)} ${shq(opts.base)}`, 120_000);
-  if (!r.ok) throw new WorktreeError(`git worktree add failed: ${r.err || r.out}`);
+  await addWorktree(machine, { root: opts.root, path, branch, base: opts.base, replace: true });
   return { path, branch, base: opts.base, root: opts.root };
 }
 
@@ -105,9 +160,7 @@ export async function finishWorktree(machine: Machine, wt: Worktree, message: st
   if (status.ok && status.out) {
     await git(machine, wt.path, 'add -A');
     // the device's own git identity authors it; Conclave only when the device has none, so git does not refuse
-    const name = await git(machine, wt.path, 'config user.name');
-    const email = await git(machine, wt.path, 'config user.email');
-    const ident = `${name.out ? '' : '-c user.name=Conclave '}${email.out ? '' : '-c user.email=workflows@conclave.local '}`;
+    const ident = await identArgs(machine, wt.path);
     const c = await git(machine, wt.path, `${ident}commit -q --no-verify -m ${shq(withCommittedBy(message, model))}`);
     if (!c.ok) throw new WorktreeError(`could not commit the worktree's changes: ${c.err || c.out}`);
   }
@@ -163,9 +216,8 @@ export async function worktreeAction(
     return { ok: r.ok || /not found/i.test(r.err), output: r.out || r.err, state: 'discarded' };
   }
   if (action === 'merge') {
-    const r = await git(machine, opts.root, `-c user.name=Conclave -c user.email=workflows@conclave.local merge --no-edit ${shq(opts.branch)}`, 120_000);
-    if (!r.ok) await git(machine, opts.root, 'merge --abort').catch(() => undefined);
-    return { ok: r.ok, output: r.out || r.err, ...(r.ok ? { state: 'merged' as const } : {}) };
+    const r = await mergeBranch(machine, { root: opts.root, branch: opts.branch }).catch((err: Error) => ({ ok: false, output: err.message }));
+    return { ok: r.ok, output: r.output, ...(r.ok ? { state: 'merged' as const } : {}) };
   }
   const r = await git(machine, opts.root, `-c user.name=Conclave -c user.email=workflows@conclave.local cherry-pick ${shq(`${opts.base}..${opts.commit}`)}`, 120_000);
   if (!r.ok) await git(machine, opts.root, 'cherry-pick --abort').catch(() => undefined);

@@ -114,7 +114,7 @@ export type * from './import';
 import type { DeviceFoldersDto, IdentifyResult, MoveInput, MoveResult, ProjectDto, SessionLocationDto } from './projects';
 export type * from './projects';
 // ----- repo sessions on GitHub, docs/DESIGN.md 30 -----
-import type { CleanupInput, GithubBranchesDto, GithubRepoDto, GithubStatusDto, OpenPrInput, PrDraft, PushInput, PushResult, RepoSessionDto, RepoSessionInput } from './github';
+import type { CleanupInput, FolderGitDto, GithubBranchesDto, GithubRepoDto, GithubStatusDto, MergeInput, OpenPrInput, PrDraft, PushInput, PushResult, RepoSessionDto, RepoSessionInput, WorktreeSessionInput } from './github';
 export type * from './github';
 export { sessionRepo } from './github';
 // ----- workflow engine DTOs: block "workflows", docs/design/ROUND-IMPORT-PATHS-WORKFLOWS.md 3.17 -----
@@ -1808,8 +1808,14 @@ export class ConclaveClient {
   /** A pull request title and body drafted from the session, to edit before opening it. */
   prDraft = (id: string) => this.request<PrDraft>('GET', `/api/sessions/${id}/repo/pr-draft`);
   openPullRequest = (id: string, input: OpenPrInput) => this.request<RepoSessionDto>('POST', `/api/sessions/${id}/repo/pr`, input);
-  /** Remove the worktree; the branch stays on GitHub. */
+  /** Remove the worktree; the branch stays on GitHub. discard drops the local branch too. */
   cleanupSession = (id: string, input: CleanupInput = {}) => this.request<RepoSessionDto>('POST', `/api/sessions/${id}/repo/cleanup`, input);
+  /** Whether a folder on a device is in a git repository ("Run in a worktree" is offered then). */
+  folderGit = (device: string, path: string) => this.request<FolderGitDto>('GET', '/api/worktrees/folder', undefined, { device, path });
+  /** A session in a new worktree of a git folder, on a new conclave/ branch from its current branch. */
+  createWorktreeSession = (input: WorktreeSessionInput) => this.request<Session>('POST', '/api/worktrees/sessions', input);
+  /** Merge a folder worktree's branch into its base in the main checkout. */
+  mergeSession = (id: string, input: MergeInput = {}) => this.request<RepoSessionDto>('POST', `/api/sessions/${id}/repo/merge`, input);
   deletePathPrefix = (id: string) => this.request<{ ok: true }>('DELETE', `/api/path-prefixes/${id}`);
   /** Sanitized: no reminders, memories, secrets or absolute paths. raw is the stored rows, for backups, and needs the owner token. */
   exportSession = (id: string, format: 'md' | 'json' = 'md', opts: ShareOptions & { raw?: boolean } = {}) =>

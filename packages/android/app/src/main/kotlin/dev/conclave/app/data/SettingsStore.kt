@@ -93,6 +93,8 @@ data class CodeDefaults(
     val repo: String? = null,
     /** The branch a repo session starts from. Null: the repository's default branch. */
     val base: String? = null,
+    /** "Run in a worktree": a folder in a git repository gets its own worktree on a new branch. */
+    val worktree: Boolean = false,
     /** Effort for the next Assistant or Code session. Null runs at the agent's level. */
     val thinking: ThinkingLevel? = null,
     /** The model the Assistant switch starts with. Null: the assistant agent's own. */
@@ -132,6 +134,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         val mapStreams = stringPreferencesKey("map_streams")
         val codeRepo = stringPreferencesKey("code_repo")
         val codeBase = stringPreferencesKey("code_base")
+        val codeWorktree = booleanPreferencesKey("code_worktree")
         val codeThinking = stringPreferencesKey("code_thinking")
         val assistantModel = stringPreferencesKey("assistant_model")
         val startMode = stringPreferencesKey("start_mode")
@@ -173,6 +176,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
             ultra = p[Keys.codeUltra] ?: false,
             repo = p[Keys.codeRepo],
             base = p[Keys.codeBase],
+            worktree = p[Keys.codeWorktree] ?: false,
             thinking = ThinkingLevel.from(p[Keys.codeThinking]),
             assistantModel = p[Keys.assistantModel],
         ),
@@ -258,6 +262,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         p[Keys.codeUltra] = d.ultra
         if (d.repo != null) p[Keys.codeRepo] = d.repo else p.remove(Keys.codeRepo)
         if (d.base != null) p[Keys.codeBase] = d.base else p.remove(Keys.codeBase)
+        p[Keys.codeWorktree] = d.worktree
         if (d.thinking != null) p[Keys.codeThinking] = d.thinking.wire else p.remove(Keys.codeThinking)
         if (d.assistantModel != null) p[Keys.assistantModel] = d.assistantModel else p.remove(Keys.assistantModel)
     }
