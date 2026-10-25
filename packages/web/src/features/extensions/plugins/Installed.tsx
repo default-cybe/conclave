@@ -33,6 +33,7 @@ export function InstalledList({
 }) {
   const mobile = useIsMobile();
   const on = list?.filter((p) => p.enabled).length ?? 0;
+  const noDeps = list?.filter((p) => p.depsCommand) ?? [];
 
   const toggle = async (p: PluginDetailDto, v: boolean) => {
     onToggled(p.name, v);
@@ -49,6 +50,11 @@ export function InstalledList({
       {error && !list && (
         <Notice tone="fault" action={{ label: 'Retry', onClick: onReload }}>
           {`Failed. Could not load plugins: ${errText(error)} Check that the hub is running, then retry.`}
+        </Notice>
+      )}
+      {noDeps.length > 0 && (
+        <Notice tone="warn">
+          {`Could not install the Node packages of ${noDeps.map((p) => p.name).join(', ')}, so its hooks may fail. Run on the hub: ${noDeps.map((p) => p.depsCommand).join(' ; ')}`}
         </Notice>
       )}
       <LoadingRows loading={loading && !list} rows={3} />

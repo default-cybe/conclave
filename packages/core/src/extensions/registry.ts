@@ -313,7 +313,7 @@ export class Extensions implements ExtensionRegistry {
   }
 
   async installPluginFrom(dir: string, opts: PluginInstallOptions): Promise<InstalledPlugin> {
-    const p = this.pluginMgr.installFromDir(dir, opts);
+    const p = await this.pluginMgr.installFromDir(dir, opts);
     this.cache.clear();
     this.syncMcp();
     return p;
