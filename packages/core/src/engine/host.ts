@@ -49,6 +49,12 @@ export class EngineToolHost implements ToolHost {
     return this.engine.runSubagent(opts);
   }
 
+  /** Task's preflight (engine/tool-check.ts): the agent's tool lists as this session's account sees it. */
+  subagentTools(agent: string) {
+    const def = this.engine.agentNamed(agent, this.session.cwd, this.engine.accountOf(this.session));
+    return def ? { name: def.name, tools: def.tools, disallowedTools: def.disallowedTools } : undefined;
+  }
+
   askUser(sessionId: string, questions: QuestionRequest['questions'], signal?: AbortSignal) {
     return this.engine.askUser(sessionId, questions, signal ?? new AbortController().signal);
   }
