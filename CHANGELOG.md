@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- The Mac app is signed ad hoc, so macOS no longer calls a downloaded copy "damaged". The first open still needs Open Anyway in System Settings > Privacy & Security, since the app is not notarized.
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed
