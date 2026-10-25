@@ -25,6 +25,8 @@ like `## [0.4.16] - 2026-10-24`.
 - Android Usage: pull to refresh shows the stored numbers at once, then asks the hub to re-read plan usage (`POST /api/limits/refresh`) and reloads the summaries with the records it imported. Members, who may not force a re-read, keep the stored values with no error toast. Each limit card says how old its numbers are ("read from OAuth, updated 3m ago"). Opening the page still reads only the stored values.
 - Imported Claude Code chats keep the model they ran on (`meta.import.model`), and chats imported earlier get it on their next sync. With the Claude Code engine off, the chat goes on with that model when its provider is set up and still serves it, else the default model, both at import and on the first turn of a chat still on Claude Code. Chats an earlier import already put on the default model stay on it.
 - A model call that fails with a provider error (a 5xx, a 400, a network error or a timeout; not a sign-in error, a usage limit or a stop) in agent, chat or plan mode now retries once on the next model of the usage or refusal fallback list, for that turn only, with a visible "X failed, retrying on Y" notice. If that retry also fails, the "Retry with another model" button shows as before.
+- Android chat: the subagents one message starts are one card ("3 subagents, 2 running, 1 failed") with each subagent's named row under it, as on the web.
+- The base prompt tells agents that "run a workflow" means the Workflow tool; Task subagents alone are not a workflow.
 
 ### Added
 
