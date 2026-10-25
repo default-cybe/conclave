@@ -11,6 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Fixed
 
+- Compaction no longer gives up on the summary ("Compacted N messages without a summary") when the small model fails or is rate limited: it tries the session's model next, then the limit fallback chain, logging each model that fails. A failed-summary latch only skips the model for the session model it was set under.
 - The Mac app is signed ad hoc, so macOS no longer calls a downloaded copy "damaged". The first open still needs Open Anyway in System Settings > Privacy & Security, since the app is not notarized.
 - A chat on an effort variant only one plan lists (Antigravity's `claude-opus-5-5-high`) that hits its limit now moves to the model itself on the next ready plan or key in the owner's order (a Claude plan first) and keeps it for the session, before the usage fallback list or the refusal list offers another model. Before, it went straight to Gemini, GPT or GLM and never came back to Opus. A CLIProxyAPI cooldown on a variant now also blocks the model itself on that plan, so the session does not move back to a plan that is still at its limit.
 - A model call no longer sleeps on a long retry-after. A 529 or 503 that says come back in hours (CLIProxyAPI with a plan's credits spent) counts as a usage limit with its reset, and the retry loop waits at most 60 seconds; a longer wait fails over to the next account or model, or parks the session until the reset, and a subagent reports to its parent instead of hanging in running.
