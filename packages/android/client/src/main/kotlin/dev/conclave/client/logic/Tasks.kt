@@ -41,7 +41,8 @@ sealed class RunningTask {
 data class SubagentNow(val text: String, val waiting: Boolean = false)
 
 object Tasks {
-    private val BUSY = setOf(SessionStatus.RUNNING, SessionStatus.WAITING_APPROVAL, SessionStatus.WAITING_INPUT, SessionStatus.WAITING_RESET)
+    // a paused subagent stays listed until Resume
+    private val BUSY = setOf(SessionStatus.RUNNING, SessionStatus.WAITING_APPROVAL, SessionStatus.WAITING_INPUT, SessionStatus.WAITING_RESET, SessionStatus.PAUSED)
 
     fun busy(s: Session?): Boolean = s != null && s.status in BUSY
 
@@ -184,6 +185,7 @@ object Tasks {
      */
     fun now(child: Session?, messages: List<Message>, results: Map<String, ToolResultBlock>, running: Set<String> = emptySet(), progress: String? = null, asks: List<Ask> = emptyList()): SubagentNow {
         if (child == null) return SubagentNow(progress?.lines()?.lastOrNull { it.isNotBlank() }?.trim()?.let { ToolLines.cut(it, 80) } ?: "Starting")
+        if (child.status == SessionStatus.PAUSED) return SubagentNow("Paused")
         if (child.status == SessionStatus.WAITING_APPROVAL || child.status == SessionStatus.WAITING_INPUT || Asks.waitsIn(asks, child.id)) return SubagentNow("Waiting on you", waiting = true)
         val working = child.status == SessionStatus.RUNNING
         for (m in messages.asReversed()) {

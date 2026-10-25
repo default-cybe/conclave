@@ -100,6 +100,8 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   // a side question: the same rule as sending a message
   'POST /api/sessions/:id/btw': SESSION,
   'POST /api/sessions/:id/abort': SESSION,
+  'POST /api/sessions/:id/pause': SESSION,
+  'POST /api/sessions/:id/resume': SESSION,
   'POST /api/sessions/:id/rewind': SESSION,
   'POST /api/sessions/:id/second-opinion': SESSION,
   'POST /api/sessions/:id/handoff': SESSION,

@@ -117,6 +117,7 @@ object Lists {
         SessionStatus.WAITING_APPROVAL, SessionStatus.WAITING_INPUT -> "Waiting for you"
         SessionStatus.ERROR -> "Failed"
         SessionStatus.WAITING_RESET -> s.resumeAt?.takeIf { it > 0 }?.let { "Resumes ${clock(it)}" } ?: "Waiting for a limit"
+        SessionStatus.PAUSED -> "Paused"
         SessionStatus.IDLE -> null
     }
 }

@@ -177,6 +177,8 @@ export type SessionStatus =
   | 'waiting_approval'
   | 'waiting_input'
   | 'waiting_reset'
+  /** The owner paused it (engine.pauseSession): kept across restarts until Resume. */
+  | 'paused'
   | 'error';
 
 export type SessionMode = 'agent' | 'chat' | 'plan' | 'jury' | 'debate' | 'loop';

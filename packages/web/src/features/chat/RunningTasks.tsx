@@ -23,9 +23,10 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'wouter';
-import { ChevronRight, ChevronUp } from 'lucide-react';
+import { ChevronRight, ChevronUp, Pause } from 'lucide-react';
 import { Elapsed, Knot } from '@/components/motion';
 import { Popover } from '@/components/ui/Overlay';
+import { useHub } from '@/store/store';
 import { StateWord } from '@/components/ui/List';
 import { cn } from '@/lib/text';
 import { useIsMobile } from '@/lib/hooks';
@@ -152,7 +153,7 @@ function WorkflowTask({ task }: { task: RunningWorkflow }) {
         <span className={TITLE}>
           <TaskTitle task={task} />
         </span>
-        <span className="text-[12px] phone:text-[13px]">{run.status === 'running' ? <Elapsed since={run.startedAt ?? run.createdAt} format="short" className="text-signal" /> : <StateWord tone={RUN_TONE[run.status]}>{RUN_WORD[run.status]}</StateWord>}</span>
+        <span className="text-[12px] phone:text-[13px]">{run.status === 'running' ? <Elapsed since={run.startedAt ?? run.createdAt} format="short" className="text-signal" /> : run.status === 'paused' ? <PausedWord /> : <StateWord tone={RUN_TONE[run.status]}>{RUN_WORD[run.status]}</StateWord>}</span>
         <ChevronRight aria-hidden strokeWidth={1.75} className={cn('size-3 self-center text-fg-4 transition-transform duration-[var(--dur-1)] group-hover/task:text-fg-2 phone:size-4', open && 'rotate-90')} />
       </button>
       <div className={LINE}>
@@ -173,19 +174,34 @@ function WorkflowTask({ task }: { task: RunningWorkflow }) {
   );
 }
 
+/** "paused" with a pause icon, in fg-3: work the owner paused, waiting for Resume. */
+export function PausedWord({ className }: { className?: string }) {
+  return (
+    <span className={cn('inline-flex items-center gap-1 text-[12px] text-fg-3', className)}>
+      <Pause aria-hidden strokeWidth={1.75} className="size-3" />
+      paused
+    </span>
+  );
+}
+
 /** A subagent: what it does, who does it, its time, what it is doing now, Open session. */
 function SubagentTask({ task }: { task: RunningSubagent }) {
   const now = useSubagentNow(true, task.childId);
+  const paused = useHub((s) => (task.childId ? s.sessions[task.childId]?.status === 'paused' : false));
   return (
     <li data-task="subagent" className={ITEM}>
       <div className={HEAD}>
         <span className={TITLE}>
           <TaskTitle task={task} />
         </span>
-        <span className="text-[12px] phone:text-[13px]">
-          <ModelWord model={task.model} />
-          <Elapsed since={task.startedAt} format="short" className="text-signal" />
-        </span>
+        {paused ? (
+          <PausedWord className="phone:text-[13px]" />
+        ) : (
+          <span className="text-[12px] phone:text-[13px]">
+            <ModelWord model={task.model} />
+            <Elapsed since={task.startedAt} format="short" className="text-signal" />
+          </span>
+        )}
         <span aria-hidden />
       </div>
       <div className={LINE}>

@@ -26,6 +26,8 @@ import { cn } from '@/lib/text';
 import { compact, durationShort, usd } from '@/lib/format';
 import { agentDoing } from '@/lib/toolLine';
 import { resultText } from '@/features/chat/util';
+import { api } from '@/lib/api';
+import { attempt } from '@/store/store';
 import { runIdFor } from '@/features/chat/liveTasks';
 import { Chevron, ROW, ROW_BTN, RESULT, RunningTime, verbClass } from '@/features/chat/rowParts';
 import { callWord, cardPhases, isLive, phaseLine, phaseWords, resultLine, shownCalls, taskLine, workflowName, workflowRowState, type CardPhase } from './words';
@@ -185,7 +187,12 @@ export function WorkflowDetail({
       {footer && (
         <div className="flex items-center gap-3 border-t border-rule py-1.5 text-[12px] phone:text-[13px]">
           <span className="num min-w-0 truncate text-fg-3">{spendWords(run)}</span>
-          <Link href={`/workflows/runs/${run.id}`} className="link ml-auto shrink-0">
+          {(run.status === 'running' || run.status === 'paused') && (
+            <button type="button" className="link ml-auto shrink-0" onClick={() => void attempt(() => (run.status === 'paused' ? api().resumeWorkflow(run.id) : api().pauseWorkflow(run.id)))}>
+              {run.status === 'paused' ? 'Resume' : 'Pause'}
+            </button>
+          )}
+          <Link href={`/workflows/runs/${run.id}`} className={cn('link shrink-0', run.status !== 'running' && run.status !== 'paused' && 'ml-auto')}>
             Open run
           </Link>
         </div>
