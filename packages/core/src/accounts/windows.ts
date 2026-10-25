@@ -16,7 +16,7 @@ export function limitKey(l: Pick<LimitState, 'provider' | 'account'>): string {
 const DAY = 24 * HOUR;
 
 /** Model families a weekly window may be scoped to. Other scopes (oauth apps, cowork) only inform. */
-const MODEL_SCOPES = ['opus', 'sonnet', 'fable', 'haiku', 'gemini'];
+export const MODEL_SCOPES = ['opus', 'sonnet', 'fable', 'haiku', 'gemini'];
 /** Scopes that cover models by other names: Antigravity's "3p" quota limits its Claude and GPT models. */
 const SCOPE_MODELS: Record<string, RegExp> = { '3p': /claude|gpt/ };
 
@@ -73,6 +73,12 @@ export function windowApplies(w: LimitWindow, model?: string): boolean {
   if (SCOPE_MODELS[scope]) return !!model && SCOPE_MODELS[scope].test(model.toLowerCase());
   if (!MODEL_SCOPES.includes(scope)) return false;
   return !!model && model.toLowerCase().includes(scope);
+}
+
+/** The model family a scoped window limits ("claude-opus-5-5" -> "opus"), if any. */
+export function modelFamily(model: string): string | undefined {
+  const m = model.toLowerCase();
+  return MODEL_SCOPES.find((s) => m.includes(s));
 }
 
 /** Paid extra credits ("fable credits": a limit and what remains, no window kind): spent credits never block, the plan's windows do. */

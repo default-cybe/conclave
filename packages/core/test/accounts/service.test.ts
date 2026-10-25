@@ -216,17 +216,37 @@ describe('the accounts service', () => {
   test("a limit on another vendor's model blocks only that vendor's models on the plan (Antigravity keeps Claude and Gemini quotas apart)", () => {
     const now = { t: Date.now() };
     const { svc } = setup(now);
-    svc.setCliproxy({ provider: 'cliproxy', management: true, credentials: [cred('antigravity-g.json', { provider: 'antigravity', models: [{ id: 'claude-opus-5-5' }, { id: 'gemini-3-pro' }], prefix: 'ag' })] });
+    svc.setCliproxy({ provider: 'cliproxy', management: true, credentials: [cred('antigravity-g.json', { provider: 'antigravity', models: [{ id: 'claude-opus-5-5' }, { id: 'gemini-3-pro' }, { id: 'gemini-3-flash' }], prefix: 'ag' })] });
     const ready = (m: string) => svc.readyAccounts(m).map((a) => a.id);
     svc.noteLimit('cliproxy', 'ag/claude-opus-5-5');
     expect(ready('claude-opus-5-5')).toEqual(['api-anthropic']);
     expect(ready('gemini-3-pro')).toEqual(['antigravity-g']);
-    // a limit on the plan's own vendor still blocks the whole plan
+    // a limit on the plan's own vendor blocks that vendor's models: Antigravity's Gemini models share one quota, Claude keeps its own
     svc.clearBlock('antigravity-g');
     expect(ready('claude-opus-5-5')).toEqual(['antigravity-g', 'api-anthropic']);
     svc.noteLimit('cliproxy', 'ag/gemini-3-pro');
     expect(ready('gemini-3-pro')).toEqual([]);
+    expect(ready('gemini-3-flash')).toEqual([]);
+    expect(ready('claude-opus-5-5')).toEqual(['antigravity-g', 'api-anthropic']);
+    // the account itself reads limited, as before
+    expect(svc.status().accounts.find((a) => a.id === 'antigravity-g')?.state).toBe('limited');
+  });
+
+  test('a limit on one model family blocks only that family on the plan and on the API key; a spend cap blocks the whole key', () => {
+    const now = { t: Date.now() };
+    const { svc } = setup(now);
+    svc.setCliproxy({ provider: 'cliproxy', management: true, credentials: [cred('claude-a.json', { models: [{ id: 'claude-opus-5-5' }, { id: 'claude-sonnet-5-5' }, { id: 'claude-haiku-5-5' }] })] });
+    const ready = (m: string) => svc.readyAccounts(m).map((a) => a.id);
+    svc.noteLimit('cliproxy', 'claude-opus-5-5', { resetAt: now.t + H });
     expect(ready('claude-opus-5-5')).toEqual(['api-anthropic']);
+    expect(ready('claude-sonnet-5-5')).toEqual(['claude-a', 'api-anthropic']);
+    // the account card still says it hit a limit
+    expect(svc.status().accounts.find((a) => a.id === 'claude-a')?.state).toBe('limited');
+    svc.noteLimit('anthropic', 'claude-opus-5-5', { resetAt: now.t + H });
+    expect(ready('claude-opus-5-5')).toEqual([]);
+    expect(ready('claude-sonnet-5-5')).toEqual(['claude-a', 'api-anthropic']);
+    svc.noteLimit('anthropic', 'claude-sonnet-5-5', { spendCap: true, resetAt: now.t + H });
+    expect(ready('claude-haiku-5-5')).toEqual(['claude-a']);
   });
 
   test("Antigravity's quota windows: a spent 3p window blocks its Claude and GPT models, a spent Gemini window its Gemini models", () => {
