@@ -11,7 +11,9 @@
  *
  * MailDraft proposes a message: the owner approves its card (to, subject,
  * body) before the hub saves the draft, or sends it when the owner turned
- * sending on. Untrusted agents never get it (UNTRUSTED_DENY).
+ * sending on. With Save drafts without asking on for the account, a draft is
+ * saved at once and never sent; sending always waits for a card. Untrusted
+ * agents never get it (UNTRUSTED_DENY).
  */
 import { localDate, localHhmm } from '../assistant/time';
 import { localToEpoch } from '../calendar/ical';
@@ -160,7 +162,9 @@ export interface MailDraftInput {
 
 export const MailDraftTool: Tool<MailDraftInput> = {
   name: 'MailDraft',
-  description: `Propose a message. The owner gets a card with to, subject and body on Home and the phone; once they approve, the hub saves it in the account's drafts folder. send: true asks to send it instead, which only works when the owner turned sending on for the account. You hear back in this chat. Never say it was sent or saved before that.
+  description: `Save a message as a draft, or propose sending it. Normally the owner gets a card with to, subject and body on Home and the phone; once they approve, the hub saves it in the account's drafts folder. You hear back in this chat. Never say it was sent or saved before that.
+
+When the owner turned on "Save drafts without asking" for the account, the draft is saved at once, with no card, and the result says where. It is never sent. send: true always makes a card that needs approval, and only works when the owner turned sending on for the account.
 
 - to, cc: email addresses. subject: left out on a reply, it becomes "Re: " and the original's.
 - replyTo: a message id from the email agent's report, to answer in the same thread.
@@ -179,7 +183,7 @@ export const MailDraftTool: Tool<MailDraftInput> = {
     required: ['to', 'body'],
     additionalProperties: false,
   },
-  // a proposal writes nothing until the owner approves its card
+  // a proposal writes nothing until the owner approves its card; with autoDraft on it saves a draft at once, never sends
   readOnly: true,
   summarize: (i) => `Propose ${i.send ? 'sending' : 'a draft'} to ${(i.to ?? []).join(', ')}`,
   async run(input, ctx) {
@@ -187,10 +191,14 @@ export const MailDraftTool: Tool<MailDraftInput> = {
     if (!svc) return fail('Mail is not available on this hub.');
     if (!svc.mailAccounts().length) return fail(NONE);
     try {
-      const p = await svc.proposeMail(input, ctx.sessionId);
+      const p = await svc.proposeMail(input, ctx.sessionId, { noAuto: ctx.session?.permissionMode === 'plan' }); // plan mode writes nothing: a card instead
       const m = p.mail!;
+      const msg = `from ${m.from} to ${m.to.join(', ')}, subject "${m.subject}"`;
+      // a draft that is no longer pending was saved (or failed) at once: autoDraft
+      if (p.status === 'failed') return fail(defuseFrameworkTags(`The draft ${msg} was not saved: ${p.error ?? 'unknown error'}. It was not sent.`));
+      if (p.status === 'applied') return { content: defuseFrameworkTags(`${(p.result ?? 'Saved.').replace(/\.$/, '')} as a draft ${msg}. It was not sent.`) };
       // a reply's subject is the sender's, so it is mail text: framework tags defused
-      return { content: defuseFrameworkTags(`Proposed [${p.id}]: ${p.action === 'send' ? 'send' : 'save as a draft'} from ${m.from} to ${m.to.join(', ')}, subject "${m.subject}". Nothing happens until the owner approves it on Home or the phone; the result comes back to this chat.`) };
+      return { content: defuseFrameworkTags(`Proposed [${p.id}]: ${p.action === 'send' ? 'send' : 'save as a draft'} ${msg}. Nothing happens until the owner approves it on Home or the phone; the result comes back to this chat.`) };
     } catch (err) {
       return fail(err instanceof PimError ? err.message : `Could not make the proposal: ${(err as Error).message}`);
     }
