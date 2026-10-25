@@ -45,6 +45,8 @@ function fallbackNotice(engine: Engine, sessionId: string | undefined, dest: str
 }
 
 const log = logger('stream');
+/** Longest retry-after the retry loop sleeps on; a longer one is a usage limit. */
+const MAX_RETRY_WAIT_MS = 60_000;
 
 export interface StreamResult {
   content: ContentBlock[];
@@ -349,7 +351,12 @@ async function streamCall(
       }
       if (req.signal?.aborted || e.kind === 'aborted') throw new ProviderError('aborted', 'aborted');
       e.provider ??= resolved.provider;
-      if (e.retryable && attempt < maxRetries) {
+      // a wait past the cap is a usage limit, not a blip: the limit path below fails over or the runner parks, instead of sleeping for hours
+      if (e.retryable && e.retryAfterMs !== undefined && e.retryAfterMs > MAX_RETRY_WAIT_MS) {
+        e.kind = 'rate_limit';
+        e.resetAt ??= Date.now() + e.retryAfterMs;
+      }
+      if (e.retryable && attempt < maxRetries && (e.retryAfterMs ?? 0) <= MAX_RETRY_WAIT_MS) {
         const wait = e.retryAfterMs ?? Math.min(30_000, 1000 * 2 ** attempt) + Math.floor(Math.random() * 500);
         attempt++;
         log.warn(`${fullRef} ${e.kind}: retry ${attempt}/${maxRetries} in ${wait}ms`);

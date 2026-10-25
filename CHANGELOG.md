@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- A model call no longer sleeps on a long retry-after. A 529 or 503 that says come back in hours (CLIProxyAPI with a plan's credits spent) counts as a usage limit with its reset, and the retry loop waits at most 60 seconds; a longer wait fails over to the next account or model, or parks the session until the reset, and a subagent reports to its parent instead of hanging in running.
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed

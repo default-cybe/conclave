@@ -510,6 +510,8 @@ export function classifyHttpError(
     }
     if (resetAt !== undefined && retryAfterMs === undefined) retryAfterMs = Math.max(0, resetAt - now);
     if (resetAt === undefined && retryAfterMs !== undefined && retryAfterMs > LONG_WAIT_MS) resetAt = now + retryAfterMs;
+    // a 529/503 that says come back in hours is a usage limit (CLIProxyAPI with every credential cooling down), not a blip
+    if (kind === 'overloaded' && resetAt !== undefined) kind = 'rate_limit';
   }
 
   const label = info.type || info.code || info.status;
