@@ -145,6 +145,10 @@ object Tasks {
         else -> "Subagent "
     }
 
+    /** "Haiku 5.5": the model a subagent runs on, its session's, else the one the call names. Null when neither says. */
+    fun model(use: ToolUseBlock, child: Session?): String? =
+        (child?.model?.ifBlank { null } ?: use.input.string("model")?.trim()?.ifEmpty { null })?.let { ModelRefs.displayName(it) }?.ifBlank { null }
+
     /** "explore, Haiku 5.5": the agent and the model it runs on, for the detail. */
     fun who(use: ToolUseBlock, result: ToolResultBlock?, child: Session?): String =
         listOfNotNull(agentOf(use, result, child), child?.model?.let { ModelRefs.displayName(it) }?.ifBlank { null } ?: use.input.string("model")?.ifBlank { null })
