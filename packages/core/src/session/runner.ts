@@ -33,7 +33,7 @@ import { maybeCompact, estimateRequestTokens, meteredTokens, partHash, type Toke
 import { applyClearing } from './context-edit';
 import { afterWokenTurn, handleLimit, nextAccount } from './limits';
 import { OWNER_ID, isMember, runAs } from '../people/context';
-import { runHarnessTurn } from './harness';
+import { deviceFolder, runHarnessTurn } from './harness';
 import { LoopGuard, type Verdict } from './loop-guard';
 import { restoreTurnCheckpoint, startTurnCheckpoint, type TurnCheckpoint } from './checkpoints';
 import { runJury } from '../modes/jury';
@@ -868,6 +868,18 @@ export class SessionRunner {
     };
     let currentModel = modelRef;
     let resolved = engine.registryFor(this.session).resolve(currentModel);
+    if (!this.depth) {
+      // a harness that is off (imported chats keep claude-code/default): the turn goes on with the account's default model instead of stopping
+      const to = (isMember(this.session.accountId) ? engine.accountPrefs(this.session.accountId!).defaultModel : undefined) ?? engine.config.get().defaultModel;
+      if (resolved.acp && engine.harnessOff(currentModel) && !engine.harnessOff(to)) {
+        engine.notice(this.id, `${engine.displayModel(currentModel)} is off as an engine, so this session goes on with ${engine.displayModel(to)}.`, 'info');
+        if (this.session.model === currentModel) engine.updateSession(this.id, { model: to });
+        currentModel = to;
+        resolved = engine.registryFor(this.session).resolve(to);
+      }
+      // an imported chat can name another device's folder: map it on this device or ask (a harness turn checks in runHarnessTurn)
+      if (!resolved.acp && this.session.tags.includes('imported') && !(await deviceFolder(engine, this.session, engine.machineFor(this.session)))) return end('hook', false);
+    }
 
     // Refusal fallback (session/refusal-fallback.ts): after a refusal the provider signals, the same request runs on the
     // owner's next listed model and account. On its own when the owner turned it on; from "Try the next model" either way.
