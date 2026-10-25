@@ -80,7 +80,7 @@ describe('Claude Code', () => {
     expect(c.cwd).toBe('/home/kai/code/portfolio');
     expect(c.gitBranch).toBe('main');
     expect(c.kind).toBe('main');
-    expect(c.nativeIdUnique).toBe(false);
+    expect(c.nativeIdUnique).toBe(true);
     expect(c.unknown['line:mystery-telemetry']).toBe(1);
     const st = sessionStats(c.messages);
     expect(st.createdAt).toBe(Date.parse('2026-03-14T09:00:00.000Z'));
