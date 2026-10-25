@@ -333,6 +333,8 @@ impl MachineServer {
             "importRead" => self.reply(id, async move { blocking(move || crate::import::read(&params)).await }),
             // protocol 4: replace this binary with the hub's version (update.rs)
             "selfUpdate" => self.reply(id, async move { crate::update::self_update(params).await }),
+            // protocol 5: Conclave's turns appended to a Claude Code chat on this device (import/writeback.rs)
+            "importAppend" => self.reply(id, async move { blocking(move || crate::import::writeback::append(&params)).await }),
             other => {
                 let msg = json!({ "type": "result", "id": id, "error": { "message": format!("unknown method {other}") } });
                 send(&self.out, msg).await;

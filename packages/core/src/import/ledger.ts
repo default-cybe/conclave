@@ -98,7 +98,9 @@ export function planSync(source: ImportedMessage[], session: Message[], cursor: 
   if (k > 0 && !native.length) {
     const last = source[k - 1];
     const mine = have.get(externalId(last)!);
-    if (mine && mine.seq === lastImportedSeq && last.content.length > mine.content.length) grownLast = { messageId: mine.id, message: last };
+    // a message Conclave wrote into the file (writeback.ts) is Conclave's own: never replaced from it
+    const written = (mine?.meta?.external as { written?: boolean } | undefined)?.written;
+    if (mine && !written && mine.seq === lastImportedSeq && last.content.length > mine.content.length) grownLast = { messageId: mine.id, message: last };
   }
 
   if (!rest.length) return { state: 'unchanged', absorbed: [...absorbed], ...(grownLast ? { grownLast } : {}) };

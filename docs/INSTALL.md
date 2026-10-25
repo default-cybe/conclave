@@ -947,8 +947,11 @@ carries the daemon. Download the file for your system from the latest GitHub
 release:
 
 - **Mac with Apple silicon**: `Conclave_<version>_aarch64.dmg`. **Intel Mac**:
-  `Conclave_<version>_x64.dmg`. Drag Conclave to Applications. The app is not
-  notarized, so clear the download flag once:
+  `Conclave_<version>_x64.dmg`. Drag Conclave to Applications. The app is
+  signed ad hoc but not notarized, so the first open is blocked: open
+  **System Settings > Privacy & Security**, scroll to Security and choose
+  **Open Anyway** for Conclave, once. If an older build says it is damaged,
+  clear the download flag instead:
   `xattr -dr com.apple.quarantine /Applications/Conclave.app`
 - **Windows**: `Conclave_<version>_x64-setup.exe`. If SmartScreen warns,
   choose **More info**, then **Run anyway**.
@@ -1548,8 +1551,17 @@ folder. **Allow sending** adds SMTP; each message still needs your approval.
 - Every new event, change, delete and message is a **proposal**: a card on
   Home (web), Today (`/today` on phones) and the Android Today screen, with
   Approve and Decline. This holds in every permission mode and in routines.
+  The one exception is a draft with Save drafts without asking on (below),
+  and not in plan mode.
 - Saving a draft is the default. Sending happens only when you turned
   Sending on for the account and approved that message.
+- **Save drafts without asking** (per mail account, off by default, needs
+  Drafts on): `MailDraft` then saves the draft straight into Drafts, with no
+  card. It never sends. A message to send is still a card that needs your
+  approval, and only when Sending is on. The email-reading agent never gets
+  `MailDraft`. A draft saved this way can come from text in a message the
+  email agent reported, so with the setting on, look through Drafts before you
+  send anything. Nothing is ever sent without your approval.
 
 ## 12. Logs
 

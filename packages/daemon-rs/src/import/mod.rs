@@ -9,6 +9,7 @@ pub mod codex;
 pub mod gemini;
 pub mod render;
 pub mod secrets;
+pub mod writeback;
 
 use crate::errors::{Res, WireError};
 use crate::js::{self, as_str, len16, num, Obj};

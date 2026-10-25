@@ -14,7 +14,7 @@ const DEFAULT_BASE = 'https://generativelanguage.googleapis.com';
  * came from another model there is no signature; Google documents this value
  * as the way to skip validation for such transplanted history.
  */
-const SKIP_SIGNATURE = 'skip_thought_signature_validator';
+export const SKIP_SIGNATURE = 'skip_thought_signature_validator';
 
 type Wire = Record<string, unknown>;
 type Part = Record<string, unknown>;

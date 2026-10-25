@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ContentBlock, ImageBlock, Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../types';
+import type { ContentBlock, DocumentBlock, ImageBlock, Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../types';
 import type { ProviderMessage } from '../providers/types';
 import { sanitizeToolId } from '../util/ids';
 import { oneLine, truncateMiddle } from '../util/text';
@@ -32,8 +32,8 @@ export interface BuildOptions {
   imageText?: boolean;
 }
 
-/** An image's key in meta.imageText: a hash of its bytes (or its URL). */
-export function imageKey(b: ImageBlock): string {
+/** An image's or PDF's key in meta.imageText: a hash of its bytes (or its URL). */
+export function imageKey(b: ImageBlock | DocumentBlock): string {
   return createHash('sha256').update(b.data ?? b.url ?? '').digest('hex').slice(0, 32);
 }
 
@@ -190,7 +190,7 @@ export function buildProviderMessages(all: Message[], opts: BuildOptions): Provi
     // user
     const content: ContentBlock[] = [];
     const texts = opts.imageText ? (m.meta?.imageText as Record<string, string> | undefined) : undefined;
-    const asText = <B extends ContentBlock>(b: B): B | TextBlock => (texts && b.type === 'image' && texts[imageKey(b)] ? { type: 'text', text: texts[imageKey(b)] } : b);
+    const asText = <B extends ContentBlock>(b: B): B | TextBlock => (texts && (b.type === 'image' || b.type === 'document') && texts[imageKey(b)] ? { type: 'text', text: texts[imageKey(b)] } : b);
     for (const b of m.content) {
       if (b.type === 'tool_result') {
         if (flattened.has(b.toolUseId)) continue;

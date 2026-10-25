@@ -13,7 +13,7 @@
 import type { MachineInfo } from '../types';
 import type { DirEntry, ExecResult, FileStat, GlobOptions, GrepOptions, GrepResult, SpawnOptions } from './types';
 import type { SyncthingFolder, SyncthingStatus } from './syncthing';
-import type { ImportReadParams, ImportScanParams, ImportScanWire } from '../import/types';
+import type { ImportAppendParams, ImportAppendResult, ImportReadParams, ImportScanParams, ImportScanWire } from '../import/types';
 import type { ConvertedSession } from '../importers/types';
 import type { DaemonLogTail } from '../client/logs';
 import type { UpdateManifest } from '../update/manifest';
@@ -22,15 +22,17 @@ import type { UpdateManifest } from '../update/manifest';
  * Version 2 adds the RPCs readRange, importScan, importRead, syncthingFolders
  * and syncthingStatus. Version 3 adds logTail (the daemon's recent log, for
  * the hub's logs export). Version 4 adds selfUpdate (the daemon replaces its
- * own binary with the hub's version and restarts). The hub accepts any version from
+ * own binary with the hub's version and restarts). Version 5 adds importAppend
+ * (Conclave's turns written back into a Claude Code chat, import/writeback.ts).
+ * The hub accepts any version from
  * MIN_PROTOCOL_VERSION to PROTOCOL_VERSION and calls the newer RPCs only on
  * daemons that speak them.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 export const MIN_PROTOCOL_VERSION = 1;
 
 /** First version with each RPC added after version 1. */
-export const RPC_SINCE: Partial<Record<RpcMethod, number>> = { syncthingFolders: 2, syncthingStatus: 2, readRange: 2, importScan: 2, importRead: 2, logTail: 3, selfUpdate: 4 };
+export const RPC_SINCE: Partial<Record<RpcMethod, number>> = { syncthingFolders: 2, syncthingStatus: 2, readRange: 2, importScan: 2, importRead: 2, logTail: 3, selfUpdate: 4, importAppend: 5 };
 
 /** Both sides ping every HEARTBEAT_MS. A peer silent for HEARTBEAT_MS * 3 is treated as gone. */
 export const HEARTBEAT_MS = 20_000;
@@ -78,6 +80,8 @@ export interface RpcParams {
   // ----- version 4: the daemon updates itself (docs/DESIGN.md, Updates) -----
   /** The hub's version and that release's manifest; the daemon picks its own file from it and checks its signature. */
   selfUpdate: { version: string; manifest: UpdateManifest };
+  // ----- version 5: Conclave's turns appended to a Claude Code chat, checked on the device that holds it -----
+  importAppend: ImportAppendParams;
 }
 
 export interface RpcResults {
@@ -108,6 +112,7 @@ export interface RpcResults {
   logTail: DaemonLogTail;
   /** The new binary is in place and checked; the daemon restarts right after this answer. */
   selfUpdate: SelfUpdateResult;
+  importAppend: ImportAppendResult;
 }
 
 export interface SelfUpdateResult {
@@ -141,6 +146,7 @@ export const RPC_METHODS: RpcMethod[] = [
   'importRead',
   'logTail',
   'selfUpdate',
+  'importAppend',
 ];
 
 export interface WireError {

@@ -66,6 +66,11 @@ sealed class WorkSegment {
     data class Group(val entries: List<WorkEntry>) : WorkSegment() {
         override val key: String get() = entries.first().key
     }
+
+    /** Two or more Task calls of one message (a fan-out): one card, a row per subagent (the web's FanOutCard.tsx). */
+    data class FanOut(val calls: List<WorkEntry.Call>) : WorkSegment() {
+        override val key: String get() = calls.first().key
+    }
 }
 
 object Work {
@@ -142,7 +147,7 @@ object Work {
         return out
     }
 
-    /** A stretch as rows: calls that stand alone, groups of two or more, and lone calls and thoughts. */
+    /** A stretch as rows: calls that stand alone, fan-outs of Task calls, groups of two or more, and lone calls and thoughts. */
     fun segment(entries: List<WorkEntry>): List<WorkSegment> {
         val out = ArrayList<WorkSegment>()
         var run = ArrayList<WorkEntry>()
@@ -159,7 +164,14 @@ object Work {
         for (e in entries) {
             if (e is WorkEntry.Call && standsAlone(e.use)) {
                 flush()
-                out += WorkSegment.One(e)
+                // a Task call next to another of the same message joins its card
+                val prev = when (val last = out.lastOrNull()) {
+                    is WorkSegment.One -> listOf(last.call).takeIf { isTask(last.call.use) }
+                    is WorkSegment.FanOut -> last.calls
+                    else -> null
+                }
+                if (prev != null && isTask(e.use) && messageOf(prev.last()) == messageOf(e)) out[out.lastIndex] = WorkSegment.FanOut(prev + e)
+                else out += WorkSegment.One(e)
             } else {
                 run += e
             }
@@ -167,6 +179,9 @@ object Work {
         flush()
         return out
     }
+
+    /** The id of the message a call is in: its key is "messageId:blockIndex" ([pieces]). */
+    private fun messageOf(c: WorkEntry.Call): String = c.key.substringBeforeLast(':')
 
     /** The calls of a stretch, in order. */
     fun calls(entries: List<WorkEntry>): List<ToolUseBlock> = entries.filterIsInstance<WorkEntry.Call>().map { it.use }

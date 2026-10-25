@@ -2,7 +2,8 @@
  * Claude Code chats that a sync tool (claudesync) copied between a Mac and a
  * PC, imported from both: one session per chat id, never ambiguous; copies
  * that split are synced into the copy each file continues; the folder is one
- * checked on the device; imported chats go on with the owner's model; and the
+ * checked on the device; imported chats go on with their own model when it is
+ * usable, else the owner's; and the
  * merge that leaves one visible session per chat, with every copy that has
  * messages of its own as a branch of it.
  *
@@ -120,7 +121,8 @@ beforeAll(async () => {
   arch = mkdtempSync(join(tmpdir(), 'conclave-arch-'));
   // the Mac has the chat's folder under its own home
   mkdirSync(join(mac, 'CMU'), { recursive: true });
-  t = await startTestEngine({ script: [[{ text: 'ok' }]], overrides: { memory: { enabled: false }, limits: { maxRetries: 0 } } as never });
+  // the chats' own model (claude-opus-4-6) is usable here
+  t = await startTestEngine({ script: [[{ text: 'ok' }]], extraProviders: { anthropic: ['claude-opus-4-6'] }, overrides: { memory: { enabled: false }, limits: { maxRetries: 0 } } as never });
   svc = importOf(t.engine)!;
   device('mac', mac);
   device('arch', arch);
@@ -172,7 +174,7 @@ describe('one chat on two devices', () => {
   let macA: string;
   let macB: string;
 
-  test('a chat and its resumed copy on the Mac are two sessions in the Mac folder, with the owner model', async () => {
+  test("a chat and its resumed copy on the Mac are two sessions in the Mac folder, with the file's model", async () => {
     macA = put(mac, MAC_DIR, ID_A, pairs(ID_A, LINUX_CWD, 'a', 1, 3));
     macB = put(mac, MAC_DIR, ID_B, resumed(ID_B, LINUX_CWD));
     const b = await importAll('mac', [ID_A, ID_B]);
@@ -182,8 +184,9 @@ describe('one chat on two devices', () => {
     expect(sa.id).not.toBe(sb.id);
     expect(sb.parentId).toBeUndefined();
     expect(sa.cwd).toBe(join(mac, 'CMU'));
-    // Claude Code is off as an engine: the chat goes on with the owner's model, the resume id is kept
-    expect(sa.model).toBe(t.engine.config.get().defaultModel);
+    // Claude Code is off as an engine: the chat goes on with the file's model, which is usable here; the resume id is kept
+    expect(sa.model).toBe('anthropic/claude-opus-4-6');
+    expect(sa.meta?.import).toMatchObject({ model: 'anthropic/claude-opus-4-6' });
     expect(t.engine.harnessOff(sa.model)).toBeUndefined();
     expect(sa.external?.['claude-code']).toBe(ID_A);
   });
@@ -324,19 +327,46 @@ describe('merge: one visible session per chat, nothing with messages of its own 
 const bugPath = () => svc.store.ledgerForDevice('mac').find((l) => l.nativeId === ID_D && l.path.includes(BUG_DIR))!.path;
 
 describe('continue an imported chat', () => {
-  test('on a harness that is off: the turn runs on the default model with a notice, in the folder mapped on the device', async () => {
+  test("on a harness that is off: the turn runs on the chat's own model with a notice, in the folder mapped on the device", async () => {
     const s = imported().find((x) => x.external?.['claude-code'] === ID_A)!;
     // what older imports left: Claude Code as the model, the PC path as the folder
     t.engine.repos.sessions.update({ ...s, model: 'claude-code/default', cwd: LINUX_CWD });
     await t.run(s.id, 'go on');
     const after = get(s.id);
-    expect(after.model).toBe(t.engine.config.get().defaultModel);
+    expect(after.model).toBe('anthropic/claude-opus-4-6');
     expect(after.cwd).toBe(join(mac, 'CMU'));
     const msgs = t.engine.repos.messages.list(s.id);
     const notices = msgs.filter((m) => m.kind === 'notice').map((m) => JSON.stringify(m.content)).join('\n');
     expect(notices).toContain('is off as an engine, so this session goes on with');
     expect(notices).toContain(`${LINUX_CWD} is not on mac, so this session works in ${join(mac, 'CMU')} there now.`);
     expect(JSON.stringify(msgs[msgs.length - 1].content)).toContain('ok');
+  });
+
+  test("a file's model the provider no longer serves: the chat goes on with the owner's default, at import and on the turn", async () => {
+    const id = 'f6f6f6f6-0000-4000-8000-00000000000f';
+    // the anthropic provider is set up, but claude-3-5-sonnet-20241022 is retired: in neither its models list nor the catalog
+    const p = put(mac, MAC_DIR, id, pairs(id, LINUX_CWD, 'h', 1, 2).replaceAll('claude-opus-4-6', 'claude-3-5-sonnet-20241022'));
+    expect((await importAll('mac', [id])).failed).toBe(0);
+    const s = get(sessionOf('mac', p)!);
+    expect(s.meta?.import).toMatchObject({ model: 'anthropic/claude-3-5-sonnet-20241022' });
+    expect(s.model).toBe(t.engine.config.get().defaultModel);
+    t.engine.repos.sessions.update({ ...s, model: 'claude-code/default' });
+    await t.run(s.id, 'go on');
+    expect(get(s.id).model).toBe(t.engine.config.get().defaultModel);
+  });
+
+  test('a chat imported before the model was kept gets it on the next sync, and the turn goes on with it', async () => {
+    const id = 'a7a7a7a7-0000-4000-8000-00000000000a';
+    const p = put(mac, MAC_DIR, id, pairs(id, LINUX_CWD, 'k', 1, 2));
+    expect((await importAll('mac', [id])).failed).toBe(0);
+    const s = get(sessionOf('mac', p)!);
+    // what older imports left: Claude Code as the model, no model in meta.import
+    const { model: _, ...older } = s.meta!.import as { model?: string };
+    t.engine.repos.sessions.update({ ...s, model: 'claude-code/default', meta: { ...s.meta, import: older } });
+    await svc.syncSession(s.id);
+    expect(get(s.id).meta?.import).toMatchObject({ model: 'anthropic/claude-opus-4-6' });
+    await t.run(s.id, 'go on');
+    expect(get(s.id).model).toBe('anthropic/claude-opus-4-6');
   });
 
   test('a folder found nowhere on the device: asks which device or folder, no model call', async () => {
