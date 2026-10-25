@@ -1,6 +1,8 @@
 import type { DocumentBlock, ImageBlock, TextBlock } from '../types';
 import type { Tool, ToolContext, ToolOutput } from './types';
 import { parseNotebook, renderNotebook } from './notebook';
+import { LEGACY_OFFICE, OFFICE_EXT, officeToMarkdown } from './office';
+import { DOCLING_EXT, doclingConvert, doclingFor } from './docling';
 import { basename, dirname, extname, fail, formatBytes, joinPath, numberLines, outputBudget, readMarkOf, resolveAbsolute, shellQuote, splitLines, pathRule } from './util';
 
 export interface ReadInput {
@@ -19,6 +21,8 @@ const MAX_PDF_DOC_BYTES = 5 * 1024 * 1024;
 const LARGE_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_PDF_PAGES = 20;
 const PDF_DEFAULT_PAGES = 10;
+/** Office files and documents for Docling are loaded whole on the hub. */
+const MAX_OFFICE_BYTES = 64 * 1024 * 1024;
 
 const IMAGE_EXT: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
 
@@ -26,7 +30,7 @@ const BINARY_EXT = new Set([
   'zip', 'gz', 'tgz', 'tar', 'bz2', 'xz', 'zst', '7z', 'rar', 'exe', 'dll', 'so', 'dylib', 'a', 'o', 'obj', 'lib', 'class',
   'jar', 'war', 'pyc', 'pyo', 'wasm', 'bin', 'iso', 'dmg', 'img', 'mp3', 'mp4', 'm4a', 'mov', 'avi', 'mkv', 'wav', 'flac',
   'ogg', 'webm', 'ttf', 'otf', 'woff', 'woff2', 'eot', 'ico', 'bmp', 'tif', 'tiff', 'psd', 'heic', 'avif', 'sqlite',
-  'sqlite3', 'db', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp', 'deb', 'rpm', 'apk', 'ipa', 'pak',
+  'sqlite3', 'db', 'doc', 'xls', 'ppt', 'deb', 'rpm', 'apk', 'ipa', 'pak',
   'node', 'parquet', 'arrow', 'pt', 'pth', 'onnx', 'safetensors', 'npy', 'npz', 'pkl',
 ]);
 
@@ -36,6 +40,7 @@ const DESCRIPTION = `Read a file from the machine this session runs on.
 - Reads up to ${DEFAULT_LIMIT} lines from the start. Read a file whole unless it is longer than that; then pass offset (1-based start line) and limit.
 - Output is cat -n style: a line number and a tab start each line. They are not part of the file; never put them in an Edit old_string. Lines over 2000 characters are cut.
 - Images (png, jpg, gif, webp) come back as images. PDFs come back as text; past ${PDF_DEFAULT_PAGES} pages pass pages (for example "1-5"), at most ${MAX_PDF_PAGES} per call. Notebooks (.ipynb) come back with every cell and its outputs.
+- Word, Excel and PowerPoint files (docx, xlsx, pptx) and OpenDocument files (odt, ods, odp) come back as Markdown text with line numbers; use offset and limit for long ones. Legacy .doc, .xls and .ppt are not read.
 - To list a directory use Glob or Bash ls. Read several files in parallel in one turn.
 - Read a file before you Edit or Write over it.`;
 
@@ -68,6 +73,13 @@ export const ReadTool: Tool<ReadInput> = {
     const ext = extname(path);
     if (IMAGE_EXT[ext]) return readImage(ctx, path, st.size, st.mtimeMs, IMAGE_EXT[ext]);
     if (ext === 'pdf') return readPdf(ctx, path, st.size, st.mtimeMs, input.pages);
+    const offset = Math.max(1, Math.floor(input.offset ?? 1));
+    const limit = Math.max(1, Math.floor(input.limit ?? DEFAULT_LIMIT));
+    if (OFFICE_EXT.has(ext)) return readOffice(ctx, path, ext, st.size, offset, limit);
+    const to = LEGACY_OFFICE.get(ext);
+    if (to) {
+      return fail(`${path} is a legacy binary Office file (.${ext}), which Read does not open. Convert it with Bash (soffice --headless --convert-to ${to} --outdir /tmp ${shellQuote(path)}) and Read the .${to} copy.`);
+    }
     if (ext === 'ipynb') {
       try {
         const raw = await ctx.machine.readText(path);
@@ -82,9 +94,6 @@ export const ReadTool: Tool<ReadInput> = {
     if (BINARY_EXT.has(ext)) {
       return fail(`${path} is a binary file (.${ext}, ${formatBytes(st.size)}) and cannot be read as text. Use Bash with a suitable tool (file, unzip -l, xxd | head, sqlite3, ffprobe...) to inspect it.`);
     }
-
-    const offset = Math.max(1, Math.floor(input.offset ?? 1));
-    const limit = Math.max(1, Math.floor(input.limit ?? DEFAULT_LIMIT));
 
     if (st.size > LARGE_FILE_BYTES) return readLargeText(ctx, path, st.size, st.mtimeMs, offset, limit);
 
@@ -135,6 +144,46 @@ function formatLines(path: string, window: string[] | undefined, offset: number,
     content: notes.length ? `${text}\n\n(${notes.join(' ')})` : text,
     meta: { path, truncated: last < total || undefined, lines: total },
   };
+}
+
+async function readOffice(ctx: ToolContext, path: string, ext: string, size: number, offset: number, limit: number): Promise<ToolOutput> {
+  if (size > MAX_OFFICE_BYTES) {
+    return fail(`${path} is ${formatBytes(size)}, over the ${formatBytes(MAX_OFFICE_BYTES)} limit for Office files. Convert it with Bash (soffice --headless --convert-to pdf) or split it first.`);
+  }
+  const bytes = await ctx.machine.readFile(path);
+  let md: string | undefined;
+  let note = '';
+  const docling = DOCLING_EXT.has(ext) ? doclingFor(ctx) : undefined;
+  if (docling) {
+    try {
+      md = await doclingConvert(docling, bytes, basename(path), { signal: ctx.signal });
+    } catch (err) {
+      if (ctx.signal?.aborted) throw err;
+      note = `Docling failed (${(err as Error).message}); this is the built-in reader's text.`;
+    }
+  }
+  if (md === undefined) {
+    try {
+      md = officeToMarkdown(ext, bytes);
+    } catch (err) {
+      return fail(`Could not read ${path} as a .${ext} file: ${(err as Error).message}`);
+    }
+  }
+  // no read mark: Edit and Write work on text, and writing text over the zip would destroy the file
+  if (!md.trim()) return { content: `(The file ${path} has no text.)${note ? ` (${note})` : ''}`, meta: { path } };
+  const lines = splitLines(md);
+  const out = formatLines(path, lines, offset, limit, lines.length, false, outputBudget(ctx, MAX_OUTPUT_CHARS));
+  return note && typeof out.content === 'string' ? { ...out, content: `${out.content}\n\n(${note})` } : out;
+}
+
+/** pdftotext -layout output with a run of 3 or more lines in 3 or more columns. */
+function looksTabular(text: string): boolean {
+  let run = 0;
+  for (const line of text.split('\n')) {
+    run = (line.trim().match(/\S\s{2,}(?=\S)/g)?.length ?? 0) >= 2 ? run + 1 : 0;
+    if (run >= 3) return true;
+  }
+  return false;
 }
 
 /** UTF-8 (or UTF-16 with BOM) text, or null for binary data. */
@@ -230,7 +279,24 @@ async function readPdf(ctx: ToolContext, path: string, size: number, mtimeMs: nu
   const res = await ctx.machine
     .exec(`pdftotext -layout ${range} ${q} -`, { cwd: ctx.cwd, timeoutMs: 60_000, signal: ctx.signal, maxOutputBytes: 4 * 1024 * 1024 })
     .catch(() => undefined);
-  if (res && res.exitCode === 0 && res.stdout.trim()) {
+  const hasText = !!(res && res.exitCode === 0 && res.stdout.trim());
+  const docling = doclingFor(ctx);
+  let doclingNote = '';
+  if (docling && size <= MAX_OFFICE_BYTES && (!hasText || looksTabular(res!.stdout))) {
+    try {
+      const range: [number, number] | undefined = last ? [first, last] : undefined;
+      const md = await doclingConvert(docling, await ctx.machine.readFile(path), basename(path), { pages: range, signal: ctx.signal });
+      ctx.readState.set(path, mtimeMs);
+      const budget = outputBudget(ctx, MAX_OUTPUT_CHARS);
+      const cut = md.length > budget ? `\n\n(Output stopped at ${budget} characters to stay within the size budget. Pass a smaller pages range.)` : '';
+      const header = `PDF ${path}${total ? ` (${total} pages)` : ''}, pages ${first}-${last ?? total ?? '?'}, converted by Docling`;
+      return { content: `${header}\n\n${md.slice(0, budget)}${cut}${note ? `\n\n(${note})` : ''}`, meta: { path, readMark: readMarkOf(path, mtimeMs) } };
+    } catch (err) {
+      if (ctx.signal?.aborted) throw err;
+      doclingNote = ` Docling failed (${(err as Error).message}).`;
+    }
+  }
+  if (hasText && res) {
     ctx.readState.set(path, mtimeMs);
     const chunks = res.stdout.split('\f');
     const body = chunks
@@ -238,7 +304,7 @@ async function readPdf(ctx: ToolContext, path: string, size: number, mtimeMs: nu
       .filter(Boolean)
       .join('\n\n');
     const header = `PDF ${path}${total ? ` (${total} pages)` : ''}, pages ${first}-${last ?? first + chunks.length - 1}`;
-    return { content: `${header}\n\n${body}${note ? `\n\n(${note})` : ''}`, meta: { path, readMark: readMarkOf(path, mtimeMs) } };
+    return { content: `${header}\n\n${body}${note ? `\n\n(${note})` : ''}${doclingNote ? `\n\n(${doclingNote.trim()})` : ''}`, meta: { path, readMark: readMarkOf(path, mtimeMs) } };
   }
 
   // No text layer or no pdftotext: hand over the document itself when small.
@@ -249,7 +315,7 @@ async function readPdf(ctx: ToolContext, path: string, size: number, mtimeMs: nu
     const why = res && res.exitCode === 0 ? 'The PDF has no extractable text (probably scanned).' : 'pdftotext is not available on this machine.';
     return {
       content: [
-        { type: 'text', text: `PDF ${path} (${formatBytes(size)}). ${why} The document is attached.` },
+        { type: 'text', text: `PDF ${path} (${formatBytes(size)}). ${why}${doclingNote} The document is attached.` },
         // ToolOutput content is typed as text and image blocks; providers that support documents in tool results accept this block.
         doc as unknown as ImageBlock,
       ],
