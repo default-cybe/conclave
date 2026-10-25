@@ -11,7 +11,7 @@ import type { ToolResultBlock } from '../types';
  * files never look alike and a poll that keeps getting new output is fine.
  */
 
-export type LoopCode = 'repeat' | 'cycle' | 'same_error' | 'denied' | 'frequency' | 'after_compaction' | 'search_miss';
+export type LoopCode = 'repeat' | 'cycle' | 'same_error' | 'denied' | 'frequency' | 'after_compaction' | 'search_miss' | 'poll';
 
 export interface Verdict {
   level: 'ok' | 'warn' | 'halt';
@@ -38,12 +38,17 @@ export const DENIED_HALT = 3;
 export const FREQUENCY_WARN = 60;
 /** ToolSearch calls in a turn that loaded nothing (meta.toolSearchMiss): warn at this many, halt after. */
 export const SEARCH_MISS_WARN = 3;
+/** The same poller call with the same result this many times in a turn: warn, then halt. */
+export const POLL_WARN = 10;
+export const POLL_HALT = 15;
+/** A poll that blocked this long (TaskWait with timeoutSec) is honest waiting and does not count toward the poll budget. */
+export const POLL_WAIT_MS = 30_000;
 /** Calls watched after a compaction. */
 export const COMPACTION_WINDOW = 3;
 
 /** A successful call of these tools is progress: failure streaks start over. */
 const PROGRESS_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
-/** Pollers: repeating them with the same result is how they work (a parent waits on a child for minutes). */
+/** Pollers: repeating them with the same result is how they work (a parent waits on a child for minutes). Only the poll budget applies to them. */
 const POLLERS = new Set(['BashOutput', 'TaskWait', 'TaskList', 'WorkflowStatus']);
 
 interface Entry {
@@ -74,10 +79,17 @@ export function callSignature(tool: string, input: unknown): string {
   return `${tool}:${sha(JSON.stringify(stable(input ?? {})) ?? '')}`;
 }
 
-/** Hash of a result's text. Stored-output ids differ on every call, so they are masked first. */
+/** Hash of a result's text. Stored-output ids and BashOutput's <timestamp> differ on every call, so they are masked first. */
 export function resultHash(result: Pick<ToolResultBlock, 'content' | 'isError'>): string {
-  const text = resultText(result);
-  return sha(`${result.isError ? 'E' : 'O'}:${text.replace(/\bout_[0-9a-z]{12,}\b/g, 'out_*')}`);
+  const text = resultText(result)
+    .replace(/\bout_[0-9a-z]{12,}\b/g, 'out_*')
+    .replace(/<timestamp>[^<]*<\/timestamp>/g, '<timestamp>*</timestamp>');
+  return sha(`${result.isError ? 'E' : 'O'}:${text}`);
+}
+
+/** A poll's answer without the clock: WorkflowStatus elapsed times (42s, 3m 05s, 1h 02m) grow on every call. */
+function pollHash(result: Pick<ToolResultBlock, 'content' | 'isError'>): string {
+  return resultHash({ content: resultText(result).replace(/\b\d+[hms](?: \d{2}[ms])?\b/g, '*'), isError: result.isError });
 }
 
 function resultText(result: Pick<ToolResultBlock, 'content'>): string {
@@ -105,6 +117,8 @@ export class LoopGuard {
   private stopped = new Set<string>();
   private frequencyWarned = new Set<string>();
   private searchMisses = 0;
+  /** Per signature and result: identical polls that returned without a real wait. */
+  private polls = new Map<string, number>();
   private compactionWindowStart = -1;
 
   constructor(opts: LoopGuardOptions) {
@@ -186,6 +200,20 @@ export class LoopGuard {
         });
       }
       if (run < 2) v = worst(v, this.cycle(seq));
+    } else if (!entry.error && Number(result.meta?.durationMs ?? 0) < POLL_WAIT_MS) {
+      // pollers are exempt from repeats and cycles, but not from spinning on an unchanged answer
+      const key = `${entry.sig}|${pollHash(result)}`;
+      const n = (this.polls.get(key) ?? 0) + 1;
+      this.polls.set(key, n);
+      if (n >= POLL_HALT) {
+        v = worst(v, { level: 'halt', code: 'poll', message: `${tool} was polled with the same input ${n} times in this turn and got the same answer each time.` });
+      } else if (n >= POLL_WARN) {
+        v = worst(v, {
+          level: 'warn',
+          code: 'poll',
+          message: `You polled ${tool} with the same input ${n} times in this turn and nothing changed. Stop polling: TaskWait with timeoutSec blocks until a task finishes, background results are delivered to you when they are ready, or finish now and report.`,
+        });
+      }
     }
 
     // one tool used very often

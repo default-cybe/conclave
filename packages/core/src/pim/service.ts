@@ -277,13 +277,18 @@ export class PimService {
   }
 
   /** Change what an account is for: label, drafts, sending, and which calendars the assistant may read and write. */
-  updateAccount(id: string, patch: { label?: string; drafts?: boolean; send?: boolean; password?: string; calendars?: Array<{ remoteId: string; read?: boolean; write?: boolean }> }): PimAccountDto {
+  updateAccount(id: string, patch: { label?: string; drafts?: boolean; send?: boolean; autoDraft?: boolean; password?: string; calendars?: Array<{ remoteId: string; read?: boolean; write?: boolean }> }): PimAccountDto {
     const a = this.account(id);
     const next: PimAccount = { ...a };
     if (patch.label !== undefined) next.label = cleanText(patch.label, 80) || a.label;
     if (patch.drafts !== undefined) {
       if (patch.drafts && (a.kind === 'google' || a.kind === 'microsoft') && !this.hasDraftScope(a)) throw new PimError(400, 'Drafts need more access from the provider. Sign in again with drafts on.');
       next.drafts = !!patch.drafts;
+      if (!next.drafts) delete next.autoDraft;
+    }
+    if (patch.autoDraft !== undefined) {
+      if (patch.autoDraft && !next.drafts) throw new PimError(400, 'Turn drafts on first.');
+      next.autoDraft = !!patch.autoDraft;
     }
     if (patch.send !== undefined) {
       if (patch.send && a.kind === 'imap' && !a.smtp) throw new PimError(400, 'Add an SMTP server to send from this account.');
@@ -749,7 +754,7 @@ export class PimService {
   }
 
   /** The owner approved a card: write it, once. */
-  async approve(id: string): Promise<ProposalDto> {
+  async approve(id: string, quiet = false): Promise<ProposalDto> {
     const p = this.store.proposal(id);
     if (!p) throw new PimError(404, `unknown proposal ${id}`);
     if (p.status !== 'pending') return p;
@@ -758,11 +763,11 @@ export class PimService {
     try {
       const result = p.kind === 'event' ? await this.applyEvent(payload) : await this.applyMail(payload);
       this.store.decide(id, 'applied', { result });
-      if (p.sessionId) this.tell(p.sessionId, `The owner approved: ${p.summary}. ${result}`, `Approved: ${p.summary}. ${result}`);
+      if (p.sessionId && !quiet) this.tell(p.sessionId, `The owner approved: ${p.summary}. ${result}`, `Approved: ${p.summary}. ${result}`);
     } catch (err) {
       const msg = (err as Error).message;
       this.store.decide(id, 'failed', { error: msg });
-      if (p.sessionId) this.tell(p.sessionId, `The owner approved "${p.summary}", but it failed: ${msg}`, `Approved, but it failed: ${p.summary}. ${msg}`);
+      if (p.sessionId && !quiet) this.tell(p.sessionId, `The owner approved "${p.summary}", but it failed: ${msg}`, `Approved, but it failed: ${p.summary}. ${msg}`);
     }
     this.cache.clear();
     this.h.changed?.('proposals');
@@ -914,7 +919,7 @@ export class PimService {
   }
 
   /** Propose a message. The owner sees to, subject and body on the card; approving saves a draft, or sends when asked and allowed. */
-  async proposeMail(input: { to?: unknown; cc?: unknown; subject?: unknown; body?: unknown; replyTo?: unknown; send?: unknown; account?: unknown }, sessionId?: string): Promise<ProposalDto> {
+  async proposeMail(input: { to?: unknown; cc?: unknown; subject?: unknown; body?: unknown; replyTo?: unknown; send?: unknown; account?: unknown }, sessionId?: string, opts: { noAuto?: boolean } = {}): Promise<ProposalDto> {
     const list = (v: unknown) => (Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : []).map((x) => cleanText(x, 300)).filter(Boolean);
     let replyTo: MailLocator | undefined;
     let replySubject: string | undefined;
@@ -958,6 +963,8 @@ export class PimService {
       },
     };
     const p = this.store.addProposal({ kind: 'mail', ...(sessionId ? { sessionId } : {}), payload });
+    // autoDraft: save at once, never send; the tool result says so, so no card notice and no session note
+    if (account.autoDraft && account.drafts && !send && !opts.noAuto) return this.approve(p.id, true);
     this.h.notify?.({ title: send ? 'Message to send' : 'Draft to save', body: p.summary, link: '/', ...(sessionId ? { sessionId } : {}) });
     this.h.changed?.('proposals');
     return p;

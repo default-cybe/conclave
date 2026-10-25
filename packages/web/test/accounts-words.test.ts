@@ -18,6 +18,8 @@ const acct = (id: string, label: string, extra: Partial<AccountDto> = {}): Accou
 describe('account words', () => {
   test('window names', () => {
     expect(['5h', '7d', '7d opus', '7d sonnet', '7d fable', 'budget'].map((name) => windowName({ name }))).toEqual(['5 hours', 'Week', 'Week, Opus', 'Week, Sonnet', 'Fable', 'Budget']);
+    // Antigravity's quota: Gemini, and the Claude and GPT ("3p") models
+    expect(['5h gemini', '7d gemini', '5h 3p', '7d 3p'].map((name) => windowName({ name }))).toEqual(['5 hours, Gemini', 'Week, Gemini', '5 hours, Claude and GPT', 'Week, Claude and GPT']);
   });
 
   test('reset times: today as a time, this week with the day, later as a date', () => {

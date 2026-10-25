@@ -132,10 +132,10 @@ object Home {
         return if (m != null) m.groupValues[1] to m.groupValues[2] else clean to ""
     }
 
-    /** Used percent of a window, 0 to 100, blocked counting as full. */
-    fun percent(w: LimitWindow, blocked: Boolean): Int {
+    /** Used percent of a window, or null when unknown; blocked counts as full. */
+    fun percent(w: LimitWindow, blocked: Boolean): Int? {
         if (blocked) return 100
-        val used = w.usedPercent ?: w.limit?.takeIf { it > 0 }?.let { lim -> (1 - (w.remaining ?: 0.0) / lim) * 100 } ?: 0.0
+        val used = w.usedPercent ?: w.limit?.takeIf { it > 0 }?.let { lim -> w.remaining?.let { (1 - it / lim) * 100 } } ?: return null
         return used.roundToInt().coerceIn(0, 100)
     }
 

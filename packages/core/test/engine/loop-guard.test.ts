@@ -12,7 +12,7 @@ const notices = (msgs: Message[]) => msgs.filter((m) => m.kind === 'notice').map
 describe('loop guard pollers', () => {
   const still = { content: 'Nothing finished yet.\n- t1 running (general-purpose: build)', isError: false };
 
-  test('waiting on a running task with identical TaskWait, TaskList, WorkflowStatus and TaskResult calls is polling, not a loop', () => {
+  test('identical TaskWait, TaskList, WorkflowStatus and TaskResult polls are fine for a while, then warned at 10 and stopped at 15', () => {
     for (const [tool, input, result] of [
       ['TaskWait', { ids: ['t1'] }, still],
       ['TaskList', {}, { content: '1 background tasks:\n- t1 running (general-purpose: build)', isError: false }],
@@ -20,8 +20,17 @@ describe('loop guard pollers', () => {
       ['TaskResult', { id: 't1' }, { content: 'Task t1 is still running. Wait for it with TaskWait.', isError: false }],
     ] as const) {
       const g = new LoopGuard({ unattended: true });
-      for (let i = 0; i < 8; i++) expect(g.after(tool, input, result).level).toBe('ok');
+      const verdicts = Array.from({ length: 15 }, () => g.after(tool, input, result));
+      expect(verdicts.map((v) => v.level)).toEqual([...Array(9).fill('ok'), ...Array(5).fill('warn'), 'halt']);
+      expect(verdicts[14].code).toBe('poll');
     }
+  });
+
+  test('a TaskWait that blocked for its timeout is honest waiting, and a changed answer is a new poll', () => {
+    const g = new LoopGuard({ unattended: true });
+    for (let i = 0; i < 30; i++) expect(g.after('TaskWait', { ids: ['t1'] }, { ...still, meta: { durationMs: 60_000 } }).level).toBe('ok');
+    const out = new LoopGuard({ unattended: true });
+    for (let i = 0; i < 30; i++) expect(out.after('BashOutput', { bash_id: 'bash_1' }, { content: `<status>running</status>\n<stdout>\nline ${i}\n</stdout>\n<timestamp>${new Date(i * 1_000).toISOString()}</timestamp>`, isError: false }).level).toBe('ok');
   });
 
   test('a TaskResult that is not a still-running answer, and a real loop between waits, still halt', () => {

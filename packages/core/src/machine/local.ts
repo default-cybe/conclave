@@ -336,6 +336,12 @@ export class LocalMachine implements Machine {
     return deviceRead(this, params);
   }
 
+  async importAppend(params: import('../import/types').ImportAppendParams): Promise<import('../import/types').ImportAppendResult> {
+    assertNotHubPrivate(params.path);
+    const { appendSession } = await import('../import/writeback');
+    return appendSession(params);
+  }
+
   // -------------------------------------------------------------------------
   // Files
   // -------------------------------------------------------------------------

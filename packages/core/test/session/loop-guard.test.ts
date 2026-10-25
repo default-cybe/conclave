@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import { callSignature, FREQUENCY_WARN, LoopGuard, resultHash, type Verdict } from '../../src/session/loop-guard';
 import type { ToolResultBlock } from '../../src/types';
+import type { WorkflowStatusAgent, WorkflowStatusView } from '../../src/client/workflows';
+import { BashTool } from '../../src/tools/bash';
+import { BashOutputTool } from '../../src/tools/bash-output';
+import { shellRegistry } from '../../src/tools/shells';
+import { statusText } from '../../src/tools/workflow-status';
+import { makeCtx, tempDir } from '../tools/helpers';
 
 type Ev = [tool: string, input: Record<string, unknown>, out: string, opts?: { error?: boolean; denied?: boolean }];
 
@@ -94,9 +100,50 @@ describe('LoopGuard', () => {
     expect(run([read('y.ts'), read('z.ts'), read('w.ts')], g).every((v) => v.level === 'ok')).toBe(true);
   });
 
-  test('BashOutput is a poller and never trips repeat rules', () => {
-    const vs = run(Array.from({ length: 10 }, (): Ev => ['BashOutput', { bash_id: 'sh_1' }, '(no new output)']));
-    expect(vs.every((v) => v.level === 'ok')).toBe(true);
+  test('BashOutput is a poller: no repeat rules, only the poll budget at 10, despite its <timestamp>', async () => {
+    const { dir, cleanup } = tempDir();
+    try {
+      const ctx = makeCtx({ cwd: dir, sessionId: 'sess_poll' });
+      const id = String((await BashTool.run({ command: 'sleep 30', run_in_background: true }, ctx)).meta?.shellId);
+      const g = new LoopGuard({ unattended: true });
+      const vs: Verdict[] = [];
+      for (let i = 0; i < 10; i++) {
+        await Bun.sleep(2);
+        vs.push(g.after('BashOutput', { bash_id: id }, await BashOutputTool.run({ bash_id: id }, ctx)));
+      }
+      expect(vs.slice(0, 9).every((v) => v.level === 'ok')).toBe(true);
+      expect(vs[9]).toMatchObject({ level: 'warn', code: 'poll' });
+    } finally {
+      await shellRegistry.disposeAll();
+      cleanup();
+    }
+  });
+
+  test('WorkflowStatus polls count although the elapsed times grow', () => {
+    const agent = (elapsedMs: number): WorkflowStatusAgent => ({ seq: 1, label: 'review', state: 'running', elapsedMs, lastTool: 'Read' });
+    const view = (elapsedMs: number): WorkflowStatusView => ({
+      runId: 'wfr_1',
+      name: 'review',
+      status: 'running',
+      live: true,
+      background: true,
+      phaseIndex: 0,
+      phases: [{ title: 'Review', state: 'current', agents: [agent(elapsedMs - 1_000)] }],
+      counts: { agents: 1, queued: 0, running: 1, done: 0, cached: 0, failed: 0, skipped: 0, parked: 0 },
+      tokens: { input: 100, output: 10 },
+      costUsd: 0.01,
+      errors: [],
+      errorCount: 0,
+      logs: [{ n: 1, ts: 2_000, text: 'phase Review' }],
+      createdAt: 0,
+      startedAt: 0,
+      elapsedMs,
+    });
+    const g = new LoopGuard({ unattended: true });
+    const vs = Array.from({ length: 15 }, (_, i) => g.after('WorkflowStatus', {}, { content: statusText(view(5_000 + i * 61_500)), isError: false }));
+    expect(statusText(view(5_000))).not.toBe(statusText(view(66_500)));
+    expect(levels(vs)).toEqual([...Array(9).fill('ok'), ...Array(5).fill('warn'), 'halt']);
+    expect(vs[14].code).toBe('poll');
   });
 
   test('one tool used very often warns once', () => {

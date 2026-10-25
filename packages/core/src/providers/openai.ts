@@ -1,7 +1,8 @@
 import type { ContentBlock, ImageBlock, StopReason, Usage } from '../types';
-import { findCatalogEntry } from './catalog';
+import { findCatalogEntry, normalizeModelId } from './catalog';
 import { BaseProvider, budgetOf, dataUrl, documentsForWire, effortOf, parseToolInput, toolResultMedia, toolResultString, wantsThinking } from './common';
 import { classifyStreamError, parseRateLimitHeaders } from './errors';
+import { SKIP_SIGNATURE as GEMINI_SKIP_SIGNATURE } from './gemini';
 import { hostOf, openStream, trimSlash } from './http';
 import { OpenAIResponsesProvider } from './openai-responses';
 import { OPENAI_DEFAULT_BASE, listOpenAIModels, openaiEmbed, openaiHeaders, openaiUsage } from './openai-shared';
@@ -50,7 +51,11 @@ function assistantMessage(m: ProviderMessage, names: ToolNameMap, model: string)
     if (b.type === 'text' && b.text) text.push(b.text);
     else if (b.type === 'thinking' && b.thinking && ownSignature(b.signature, 'openai-chat', model)) reasoning.push(b.thinking);
     else if (b.type === 'tool_use') {
-      toolCalls.push({ id: b.id, type: 'function', function: { name: names.wire(b.name), arguments: JSON.stringify(b.input ?? {}) } });
+      const call: Wire = { id: b.id, type: 'function', function: { name: names.wire(b.name), arguments: JSON.stringify(b.input ?? {}) } };
+      // Gemini 3 behind a Chat Completions endpoint checks the thought signature on the first call of a turn; a call from another model gets the documented skip value
+      const sig = ownSignature(b.signature, 'openai-chat', model)?.payload || (!toolCalls.length && GEMINI3.test(normalizeModelId(model)) ? GEMINI_SKIP_SIGNATURE : '');
+      if (sig) call.extra_content = { google: { thought_signature: sig } };
+      toolCalls.push(call);
     }
   }
   if (!text.length && !toolCalls.length) return undefined;
@@ -99,6 +104,8 @@ export function chatMessages(req: ChatRequest, names: ToolNameMap, pdf = true, v
   return out;
 }
 
+const GEMINI3 = /^gemini-([3-9]|\d{2})/;
+
 /** Z.ai and its mainland twin (open.bigmodel.cn). */
 const ZAI_HOST = /(^|\.)z\.ai$|bigmodel\.cn$/;
 
@@ -128,6 +135,8 @@ interface ToolAcc {
   name: string;
   args: string;
   started: boolean;
+  /** Gemini's thought signature (extra_content.google.thought_signature), sent back with the call. */
+  sig?: string;
 }
 
 /**
@@ -250,6 +259,8 @@ class ChatStream {
         const acc = this.toolFor(tc);
         const fn = tc.function ?? {};
         if (fn.name && !acc.name) acc.name = fn.name;
+        const sig = tc.extra_content?.google?.thought_signature;
+        if (typeof sig === 'string' && sig) acc.sig = sig;
         const args = typeof fn.arguments === 'string' ? fn.arguments : fn.arguments ? JSON.stringify(fn.arguments) : '';
         if (!acc.started && acc.name) {
           acc.started = true;
@@ -278,6 +289,7 @@ class ChatStream {
         id: t.id || `call_${t.index}`,
         name: this.names.original(t.name),
         input: parseToolInput(t.args),
+        ...(t.sig ? { signature: tagSignature('openai-chat', this.model, t.sig) } : {}),
       });
     }
     const content = [...this.blocks.entries()].sort((a, b) => a[0] - b[0]).map(([, b]) => b);

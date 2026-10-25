@@ -356,6 +356,7 @@ async function driveSubagent(
   let fellBack = false;
   for (let round = 0; ; round++) {
     try {
+      runner.stalled = undefined;
       await runner.agentLoop(model, 'agent', controller.signal);
       if (runner.lastStop === 'paused') break;
     } catch (err) {
@@ -364,19 +365,26 @@ async function driveSubagent(
         runner.parkPaused(true);
         break;
       }
-      const fallback = fellBack || controller.signal.aborted ? undefined : modelFallback(engine, model, parent, err);
+      // the stuck alert cut a call that made no progress (alerts/service.ts): fail over once, else report the stall to the caller
+      // a tool that hung is not the model's fault, and a rerun could repeat its side effects: no failover then
+      const stalled = runner.stalled;
+      const fallback = fellBack || controller.signal.aborted || stalled?.tool ? undefined : stalled ? fallbackModel(engine, model, parent) : modelFallback(engine, model, parent, err);
       if (fallback) {
-        // the profile's or tier's model is one the provider cannot serve: run on the parent's (or the hub default) instead of failing
+        // the profile's or tier's model is one the provider cannot serve (or it went quiet): run on the parent's (or the hub default) instead of failing
         fellBack = true;
-        log.warn(`subagent ${sessionId}: ${model} not found, falling back to ${fallback}`);
+        log.warn(`subagent ${sessionId}: ${model} ${stalled ? 'stalled' : 'not found'}, falling back to ${fallback}`);
         engine.updateSession(sessionId, { model: fallback }, { quiet: true });
-        engine.notice(sessionId, `${model} is not available (${oneLine((err as Error).message)}), so this ran on ${fallback}.`, 'warning');
+        engine.notice(sessionId, `${model} ${stalled ? 'made no progress' : `is not available (${oneLine((err as Error).message)})`}, so this ran on ${fallback}.`, 'warning');
         model = fallback;
         round--;
         continue;
       }
       log.warn('subagent loop error', err);
-      error = (err as Error)?.message ?? String(err);
+      error = stalled?.tool
+        ? `the ${stalled.tool} tool made no progress past the stuck threshold, so the subagent was stopped`
+        : stalled
+          ? `${model} made no progress past the stuck threshold, so the subagent was stopped`
+          : ((err as Error)?.message ?? String(err));
       break;
     }
     if (!parent) break;
@@ -417,6 +425,11 @@ export function modelFallback(engine: Engine, model: string, parent: Session | u
   if (!(err instanceof ProviderError) || err.status !== 404 || !/model/i.test(err.message)) return undefined;
   // tier picks skip it for a while, so the next Task, workflow agent or delegated job does not spend a failed call on it
   markModelDead(engine, model);
+  return fallbackModel(engine, model, parent);
+}
+
+/** The model a subagent retries on: the parent's, else the hub default. Undefined when that is the same model, or the other side of a harness. */
+function fallbackModel(engine: Engine, model: string, parent: Session | undefined): string | undefined {
   const to = parent?.model ?? engine.config.get().defaultModel;
   if (!to || to === model || isHarnessModel(engine, to) !== isHarnessModel(engine, model)) return undefined;
   return to;

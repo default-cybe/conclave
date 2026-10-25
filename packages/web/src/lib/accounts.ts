@@ -72,8 +72,8 @@ export function windowName(w: Pick<LimitWindow, 'name'>): string {
   if (n === '7d') return 'Week';
   if (n === '7d fable') return 'Fable';
   if (n === 'budget') return 'Budget';
-  const m = /^7d (.+)$/.exec(n);
-  if (m) return `Week, ${m[1][0].toUpperCase()}${m[1].slice(1)}`;
+  const m = /^(5h|7d) (.+)$/.exec(n);
+  if (m) return `${m[1] === '5h' ? '5 hours' : 'Week'}, ${m[2] === '3p' ? 'Claude and GPT' : m[2][0].toUpperCase() + m[2].slice(1)}`;
   if (n === 'requests') return 'Requests per minute';
   if (n === 'tokens' || n === 'input-tokens' || n === 'output-tokens') return 'Tokens per minute';
   return n[0].toUpperCase() + n.slice(1);
@@ -81,7 +81,7 @@ export function windowName(w: Pick<LimitWindow, 'name'>): string {
 
 /** The windows a row shows: 5 hours, week, the model weeks, Fable, the budget. Rates and info-only weeks stay out. */
 export function rowWindows(a: Pick<AccountDto, 'windows'>): LimitWindow[] {
-  return a.windows.filter((w) => w.kind !== 'rate' && w.kind !== 'extra' && !/oauth apps|cowork|code review|credits/i.test(w.name));
+  return a.windows.filter((w) => balanceWords(w) !== undefined || (w.kind !== 'rate' && w.kind !== 'extra' && !/oauth apps|cowork|code review|credits/i.test(w.name)));
 }
 
 const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -96,6 +96,11 @@ export function resetWords(ts: number, now = Date.now()): string {
   if (d.toDateString() === today.toDateString()) return hm(d);
   if (ts - now < 7 * 86_400_000 && ts > now) return `${WEEKDAY[d.getDay()]} ${hm(d)}`;
   return `${d.getDate()} ${MONTH[d.getMonth()]}`;
+}
+
+/** A raw informational balance has no reported quota or percentage. */
+export function balanceWords(w: LimitWindow): string | undefined {
+  return w.kind === 'extra' && w.remaining !== undefined && w.limit === undefined && w.usedPercent === undefined ? `${w.remaining} balance` : undefined;
 }
 
 /** Percent used, rounded, or undefined when unknown. */

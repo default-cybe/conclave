@@ -51,6 +51,8 @@ export interface Machine {
   importScan?(params: import('../import/types').ImportScanParams): Promise<import('../import/types').ImportScanWire>;
   /** Read and convert one past session on this machine. */
   importRead?(params: import('../import/types').ImportReadParams): Promise<import('../importers/types').ConvertedSession>;
+  /** Append Conclave's rows to a Claude Code chat on this machine, unless Claude Code has it open (protocol 5). */
+  importAppend?(params: import('../import/types').ImportAppendParams): Promise<import('../import/types').ImportAppendResult>;
 
   /** A paired daemon's recent log (protocol 3), for the hub's logs export. The hub's own machine has none: its lines are in the files. */
   logTail?(lines?: number): Promise<import('../client/logs').DaemonLogTail>;

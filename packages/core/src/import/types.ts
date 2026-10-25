@@ -56,6 +56,22 @@ export interface ImportScanParams {
 
 export type ImportScanWire = ScanResult;
 
+/** importAppend (protocol 5): rows Conclave wrote for a Claude Code chat, appended on the device that holds the file (import/writeback.ts). */
+export interface ImportAppendParams {
+  /** A Claude Code session file, <sessionId>.jsonl. */
+  path: string;
+  sessionId: string;
+  /** The chat's folder: a Claude Code process running there counts as having the chat open. */
+  cwd?: string;
+  /** Whole JSONL lines, the last one ending in a newline. */
+  text: string;
+  /** The file as the hub read it: its size and the sha256 of its last 4096 bytes. Anything else refuses. */
+  expect: { size: number; tail: string };
+}
+
+/** busy: a Claude Code process has the chat open. changed: the file is not the one the hub read. partialTail: its last line is cut. */
+export type ImportAppendResult = { ok: true; size: number; mtime: number } | { ok: false; reason: 'busy' | 'changed' | 'partialTail'; detail?: string };
+
 export interface ImportReadParams {
   source: ImportSource;
   path: string;

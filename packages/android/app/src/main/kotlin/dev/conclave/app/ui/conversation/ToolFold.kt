@@ -83,7 +83,8 @@ private val PrettyJson = Json { prettyPrint = true }
  * opens what it did in a sheet: the thought, the command and its output,
  * the diff. A single call is its own row and opens its sheet; a lone
  * thought is drawn by [thought], as it was. A Workflow or Task call is a
- * compact row of its own (Tasks.kt) that splits the stretch around it.
+ * compact row of its own (Tasks.kt) that splits the stretch around it; the
+ * Task calls of one message are one fan-out card (FanOutCard).
  * Places and routes sit under the stretch, open or not.
  *
  * [live]: the turn works on this stretch now (no text after it yet).
@@ -120,6 +121,7 @@ fun TurnWork(
                             else -> CallRow(use, result, callLive, cwd, onForget, onOpenMemory)
                         }
                     }
+                    is WorkSegment.FanOut -> FanOutCard(seg.calls.map { it.use }, results, turnLive)
                     is WorkSegment.Lone -> thought(seg.thought)
                     is WorkSegment.Group -> WorkGroup(seg.entries, results, live && i == segments.lastIndex, turnLive, cwd, measured, onForget, onOpenMemory)
                 }
