@@ -46,6 +46,10 @@ data class SessionRepo(
     val ci: CiState? = null,
     /** The worktree was removed after the merge (Clean up). */
     val cleaned: Boolean = false,
+    /** A worktree of a git folder ("Run in a worktree"), not a GitHub repo session. */
+    val folder: Boolean = false,
+    /** Merge brought the branch into its base. */
+    val merged: Boolean = false,
 )
 
 /** The repository of a repo session, or null for any other session. */
@@ -149,8 +153,15 @@ data class RepoSessionDto(
     val prTitle: String? = null,
     val ciUrl: String? = null,
     val checkedAt: Long? = null,
-    /** Clean up is offered: the pull request was merged or closed and the worktree is still there. */
+    /** Clean up is offered: the pull request was merged or closed, or the branch was merged, and the worktree is still there. */
     val canCleanUp: Boolean = false,
+    /** A worktree of a git folder ("Run in a worktree"). */
+    val folder: Boolean = false,
+    val merged: Boolean = false,
+    /** Push and Open pull request can work. Null (an older hub): they can. */
+    val pullRequests: Boolean? = null,
+    /** Merge into the base is offered. */
+    val canMerge: Boolean = false,
     /** The device is online, so git can run there. */
     val online: Boolean = false,
     /** One plain sentence about where things stand. */
@@ -189,6 +200,31 @@ data class PrDraft(
 @Serializable
 data class OpenPrInput(val title: String, val body: String? = null, val draft: Boolean? = null)
 
-/** POST /api/sessions/:id/repo/cleanup: [force] removes the worktree with uncommitted files, or before the merge. */
+/**
+ * POST /api/sessions/:id/repo/cleanup: [force] removes the worktree with
+ * uncommitted files, or before the merge. [discard] drops the local branch too.
+ */
 @Serializable
-data class CleanupInput(val force: Boolean? = null)
+data class CleanupInput(val force: Boolean? = null, val discard: Boolean? = null)
+
+/** POST /api/sessions/:id/repo/merge: [squash] makes one commit on the base. */
+@Serializable
+data class MergeInput(val squash: Boolean? = null)
+
+/** GET /api/worktrees/folder: whether a folder on a device is in a git repository. */
+@Serializable
+data class FolderGit(val git: Boolean = false, val root: String? = null, val branch: String? = null, val github: String? = null)
+
+/** POST /api/worktrees/sessions: "Run in a worktree" on a git folder of a device. */
+@Serializable
+data class WorktreeSessionInput(
+    val folder: String,
+    val device: String? = null,
+    val agent: String? = null,
+    val model: String? = null,
+    val title: String? = null,
+    /** Sent as the first message once the worktree is ready. */
+    val prompt: String? = null,
+    val permissionMode: PermissionMode? = null,
+    val chat: ChatSettingsPatch? = null,
+)

@@ -42,6 +42,7 @@ import dev.conclave.app.ui.common.solidButtonColors
 import dev.conclave.app.ui.theme.CodeStyle
 import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
+import dev.conclave.client.folderGit
 import dev.conclave.client.github
 import dev.conclave.client.githubBranches
 import dev.conclave.client.githubRepos
@@ -49,6 +50,7 @@ import dev.conclave.client.logic.Panel
 import dev.conclave.client.logic.Paths
 import dev.conclave.client.logic.RepoWords
 import dev.conclave.client.logic.Start
+import dev.conclave.client.model.FolderGit
 import dev.conclave.client.model.GithubBranches
 import dev.conclave.client.model.GithubRepo
 import dev.conclave.client.model.GithubStatus
@@ -59,8 +61,8 @@ import kotlinx.coroutines.delay
  * Code's "+" on Home after the files (docs/DESIGN.md 40): the agent, only
  * when there are custom ones (the default coding agent hands work to its
  * subagents itself), the computer when there are several, where it works (a
- * folder or a GitHub repository) and Ultra. [onWhere] opens where it works,
- * on GitHub when true.
+ * folder or a GitHub repository), Run in a worktree when the folder is in a
+ * git repository, and Ultra. [onWhere] opens where it works, on GitHub when true.
  */
 @Composable
 fun CodePlus(d: CodeDefaults, setup: Start.Setup, onChange: (CodeDefaults) -> Unit, onWhere: (github: Boolean) -> Unit, dismiss: () -> Unit) {
@@ -103,6 +105,25 @@ fun CodePlus(d: CodeDefaults, setup: Start.Setup, onChange: (CodeDefaults) -> Un
         dismiss()
         onWhere(true)
     })
+    // offered only for a folder in a git repository, asked of the device
+    val cwd = if (d.repo == null) setup.cwd else null
+    var git by remember { mutableStateOf<FolderGit?>(null) }
+    LaunchedEffect(setup.device, cwd) {
+        git = null
+        if (cwd == null) return@LaunchedEffect
+        git = try {
+            hub.api { it.folderGit(setup.device, cwd) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
+    val g = git
+    if (cwd != null && g != null && g.git) {
+        val from = g.branch?.let { " from $it" } ?: ""
+        SwitchRow("Run in a worktree", "A new branch$from, so sessions do not clash. Merge or discard it when done.", d.worktree) { onChange(d.copy(worktree = it)) }
+    }
     HorizontalDivider(thickness = 1.dp, color = c.rule, modifier = Modifier.padding(top = 6.dp))
     SwitchRow("Ultra", ULTRA_LINE, d.ultra) { onChange(d.copy(ultra = it)) }
 }

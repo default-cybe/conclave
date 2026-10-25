@@ -30,7 +30,9 @@ import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
 import dev.conclave.client.cleanupSession
 import dev.conclave.client.logic.RepoWords
+import dev.conclave.client.mergeSession
 import dev.conclave.client.model.CleanupInput
+import dev.conclave.client.model.MergeInput
 import dev.conclave.client.model.OpenPrInput
 import dev.conclave.client.model.PrDraft
 import dev.conclave.client.model.PushInput
@@ -120,10 +122,26 @@ class RepoViewModel(hub: HubRepository, private val sessionId: String) : HubView
         say(r.line.ifBlank { "Cleaned up." })
         then()
     }
+
+    /** A folder worktree: merge its branch into the base in the main checkout; the hub refuses a dirty checkout or a conflict. */
+    fun merge(squash: Boolean, then: () -> Unit = {}) = run("merge") {
+        val r = hub.api { it.mergeSession(sessionId, MergeInput(if (squash) true else null)) }
+        repo.value = r
+        say(r.line.ifBlank { "Merged." })
+        then()
+    }
+
+    /** A folder worktree: drop the worktree and its branch, uncommitted files too (the dialog asked). */
+    fun discard(then: () -> Unit = {}) = run("clean") {
+        val r = hub.api { it.cleanupSession(sessionId, CleanupInput(force = true, discard = true)) }
+        repo.value = r
+        say(r.line.ifBlank { "Discarded." })
+        then()
+    }
 }
 
 /** A repo dialog that is open. */
-enum class RepoAsk { COMMIT, CLEAN, ARCHIVE }
+enum class RepoAsk { COMMIT, CLEAN, ARCHIVE, MERGE, DISCARD }
 
 /**
  * The dialogs of a repo session's actions: Commit and push, Open a pull
@@ -167,6 +185,42 @@ fun RepoDialogs(session: Session, vm: RepoViewModel, ask: RepoAsk?, onAsk: (Repo
                 onConfirm = {
                     onAsk(null)
                     vm.cleanUp(RepoWords.cleanUpForce(r))
+                },
+                onDismiss = { onAsk(null) },
+            )
+        }
+        RepoAsk.MERGE -> repo?.let { r ->
+            var squash by remember { mutableStateOf(false) }
+            val commits = r.commits ?: 0
+            AlertDialog(
+                onDismissRequest = { onAsk(null) },
+                title = { Text("Merge into ${r.base}?") },
+                text = {
+                    Column {
+                        Text("$commits ${if (commits == 1) "commit" else "commits"} of ${RepoWords.branchShort(r.branch)} go into ${r.base} in ${r.clonePath}. Refused if that checkout has uncommitted changes or the merge conflicts.")
+                        Row(Modifier.fillMaxWidth().clickable { squash = !squash }.heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = squash, onCheckedChange = { squash = it })
+                            Text("Squash into one commit", style = ConclaveType.body, color = c.fg)
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { vm.merge(squash, then = { onAsk(null) }) }, enabled = busy == null) {
+                        Swap(on = busy == "merge", off = { Text("Merge") }) { Text("Merging") }
+                    }
+                },
+                dismissButton = { TextButton(onClick = { onAsk(null) }) { Text("Cancel") } },
+            )
+        }
+        RepoAsk.DISCARD -> repo?.let { r ->
+            ConfirmDialog(
+                title = "Discard this worktree?",
+                text = RepoWords.discardBody(r),
+                confirmLabel = "Discard",
+                destructive = true,
+                onConfirm = {
+                    onAsk(null)
+                    vm.discard()
                 },
                 onDismiss = { onAsk(null) },
             )

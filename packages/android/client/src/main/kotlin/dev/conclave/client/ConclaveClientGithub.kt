@@ -1,6 +1,9 @@
 package dev.conclave.client
 
 import dev.conclave.client.model.CleanupInput
+import dev.conclave.client.model.FolderGit
+import dev.conclave.client.model.MergeInput
+import dev.conclave.client.model.WorktreeSessionInput
 import dev.conclave.client.model.GithubBranches
 import dev.conclave.client.model.GithubRepo
 import dev.conclave.client.model.GithubStatus
@@ -48,6 +51,18 @@ suspend fun ConclaveClient.prDraft(id: String): PrDraft = get(p("api", "sessions
 suspend fun ConclaveClient.openPullRequest(id: String, input: OpenPrInput): RepoSessionDto =
     send("POST", p("api", "sessions", id, "repo", "pr"), OpenPrInput.serializer(), input, RepoSessionDto.serializer())
 
-/** Remove the worktree; the branch stays on GitHub. */
+/** Remove the worktree; the branch stays on GitHub. With discard the local branch goes too. */
 suspend fun ConclaveClient.cleanupSession(id: String, input: CleanupInput = CleanupInput()): RepoSessionDto =
     send("POST", p("api", "sessions", id, "repo", "cleanup"), CleanupInput.serializer(), input, RepoSessionDto.serializer())
+
+/** Merge a folder worktree's branch into its base in the main checkout. */
+suspend fun ConclaveClient.mergeSession(id: String, input: MergeInput = MergeInput()): RepoSessionDto =
+    send("POST", p("api", "sessions", id, "repo", "merge"), MergeInput.serializer(), input, RepoSessionDto.serializer())
+
+/** Whether a folder on a device is in a git repository ("Run in a worktree" is offered then). */
+suspend fun ConclaveClient.folderGit(device: String, path: String): FolderGit =
+    get(p("api", "worktrees", "folder"), FolderGit.serializer(), mapOf("device" to device, "path" to path))
+
+/** A session in a new worktree of a git folder, on a new conclave/ branch from its current branch. */
+suspend fun ConclaveClient.createWorktreeSession(input: WorktreeSessionInput): Session =
+    send("POST", p("api", "worktrees", "sessions"), WorktreeSessionInput.serializer(), input, Session.serializer())
