@@ -11,6 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- Workflow launch forms and saved presets. A workflow can declare its args in `meta.args` (`{ question: { type: 'string', description: '...' } }`; checked on load) and the Run sheet (web) and the new Android workflow library render a typed form instead of the JSON box; undeclared workflows keep JSON. Any workflow's args can be saved as named presets on the hub (`GET/POST/DELETE /api/workflows/:id/presets`, per account) and picked again to rerun. `review-changes` and `deep-research` declare their args. A typed form keeps a "More args" JSON box (web and Android) for args the schema does not list, such as `votes` or `maxVerify`; picking a preset replaces the whole form, and Android has its own Save button. Saving and deleting a preset are both audited.
 - Save drafts without asking: a per-account setting (off by default, Settings > Calendar and mail) that makes the Assistant's `MailDraft` save the draft straight into Drafts with no approval card. It never sends; sending still needs approval, and the email-reading agent still cannot draft.
 
 ## [0.4.30] - 2026-10-25

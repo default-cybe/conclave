@@ -5,12 +5,15 @@ import dev.conclave.client.model.Session
 import dev.conclave.client.model.SessionPatch
 import dev.conclave.client.model.StartWorkflowInput
 import dev.conclave.client.model.WorkflowFinding
+import dev.conclave.client.model.WorkflowPreset
 import dev.conclave.client.model.WorkflowRun
 import dev.conclave.client.model.WorkflowRunDetail
 import dev.conclave.client.model.WorkflowRunStatus
 import dev.conclave.client.model.WorkflowSummary
 import dev.conclave.client.model.WorktreeActionResult
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -18,6 +21,22 @@ import kotlinx.serialization.json.put
 // calls as workflows ... judgeFinding in packages/core/src/client/index.ts.
 
 suspend fun ConclaveClient.workflows(): List<WorkflowSummary> = get(p("api", "workflows"), ListSerializer(WorkflowSummary.serializer()))
+
+/** Saved args presets for one workflow, for the launch form. */
+suspend fun ConclaveClient.workflowPresets(id: String): List<WorkflowPreset> =
+    get(p("api", "workflows", id, "presets"), ListSerializer(WorkflowPreset.serializer()))
+
+suspend fun ConclaveClient.saveWorkflowPreset(id: String, name: String, args: JsonElement?): WorkflowPreset =
+    sendJson(
+        "POST", p("api", "workflows", id, "presets"),
+        buildJsonObject {
+            put("name", name)
+            put("args", args ?: JsonNull)
+        },
+        WorkflowPreset.serializer(),
+    )
+
+suspend fun ConclaveClient.deleteWorkflowPreset(id: String, presetId: String) = sendUnit("DELETE", p("api", "workflows", id, "presets", presetId))
 
 suspend fun ConclaveClient.startWorkflow(input: StartWorkflowInput): WorkflowRun =
     send("POST", p("api", "workflows", "runs"), StartWorkflowInput.serializer(), input, WorkflowRun.serializer())

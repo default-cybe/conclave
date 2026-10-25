@@ -16,6 +16,7 @@ import type {
   WorkflowCall,
   WorkflowDetail,
   WorkflowFinding,
+  WorkflowPreset,
   WorkflowRun,
   WorkflowRunDetail,
   WorkflowRunsQuery,
@@ -424,6 +425,42 @@ export class WorkflowService {
     } catch {
       return undefined;
     }
+  }
+
+  // ----- saved launch presets -----
+
+  /** A preset belongs to a workflow in the caller's library: same existence and memberMay rule as startRun. */
+  private async presetWorkflow(id: string, accountId: string): Promise<void> {
+    const e = await this.registry.get(id);
+    if (!e || (isMember(accountId) && !memberMay(e.source))) throw new EngineError(404, `workflow ${id} not found`);
+  }
+
+  /** Saved args presets for one workflow, this account's. */
+  async listPresets(workflow: string, accountId = currentAccount() ?? OWNER_ID): Promise<WorkflowPreset[]> {
+    await this.presetWorkflow(workflow, accountId);
+    return this.store.presets(workflow, accountId);
+  }
+
+  /** Save (or replace by name) an args preset for a workflow. */
+  async savePreset(workflow: string, name: string, args: unknown, accountId = currentAccount() ?? OWNER_ID): Promise<WorkflowPreset> {
+    await this.presetWorkflow(workflow, accountId);
+    const trimmed = name.trim();
+    if (!trimmed || trimmed.length > 200) throw new EngineError(400, 'a preset name is required, at most 200 characters');
+    let size = 0;
+    try {
+      size = JSON.stringify(args ?? null)?.length ?? 0;
+    } catch {
+      throw new EngineError(400, 'args must be plain JSON');
+    }
+    if (args !== undefined && size > MAX_ARGS_CHARS) throw new EngineError(400, `args are larger than ${MAX_ARGS_CHARS / 1_000_000} MB of JSON; pass a file path and let the agents read it`);
+    const preset: WorkflowPreset = { id: newId('wfp'), workflow, name: trimmed, args: args ?? null, createdAt: Date.now() };
+    this.store.savePreset({ ...preset, accountId });
+    return preset;
+  }
+
+  async deletePreset(workflow: string, id: string, accountId = currentAccount() ?? OWNER_ID): Promise<void> {
+    await this.presetWorkflow(workflow, accountId);
+    this.store.deletePreset(workflow, id, accountId);
   }
 
   // ----- runs -----
