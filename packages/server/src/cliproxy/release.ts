@@ -17,6 +17,7 @@
  * cli-proxy-api.prev until the new one has started, for the rollback.
  */
 import { createHash } from 'node:crypto';
+import { logger } from '@conclave/core/util/log.ts';
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { looksExecutable, readHead, receiptPath } from '../remote/cloudflared';
@@ -47,8 +48,8 @@ export interface Pin {
 /**
  * Pinned releases, oldest first. To move to a new version: take its
  * checksums.txt and the archive sizes from the release page, add an entry
- * and update docs/INSTALL.md. Linux uses the no-plugin build: it is static,
- * so it runs on any libc, and the hub turns plugins off anyway.
+ * and update docs/INSTALL.md. Keep both Linux variants: the static build
+ * preserves existing subscriptions on musl and older/unknown glibc hosts.
  */
 export const PINS: Pin[] = [
   {
@@ -58,6 +59,8 @@ export const PINS: Pin[] = [
     assets: {
       'CLIProxyAPI_8.0.32_linux_amd64_no-plugin.tar.gz': { sha256: '2b48544067f25d8c8cb9db598baa4a741ed252292faacb22e67ef0a6f46257b7', size: 23362713 },
       'CLIProxyAPI_8.0.32_linux_aarch64_no-plugin.tar.gz': { sha256: 'ac44a4cc627bb53729e8b24020bac75e3aba68169cfd68eeaffb9a91f3d5566e', size: 21051593 },
+      'CLIProxyAPI_8.0.32_linux_amd64.tar.gz': { sha256: '082a4a38d9470c070ac85ab2d9c4a2aa51f9a7ee19831c3b811e26fe5b7480a7', size: 23480745 },
+      'CLIProxyAPI_8.0.32_linux_aarch64.tar.gz': { sha256: '76aac452dd224490ea5ea1ea0224199d7a410f14ef39a087b81893d15c62f363', size: 21158331 },
       'CLIProxyAPI_8.0.32_darwin_amd64.tar.gz': { sha256: 'c327f421d995692f6590a752abd449db5e71df61803b7041e4d3bd59cd1e1bd8', size: 23431584 },
       'CLIProxyAPI_8.0.32_darwin_aarch64.tar.gz': { sha256: '48fe6a391a01e730ee6ebe3f1609ff92578a97a7a9a44579013ca8f3a6d58d51', size: 21629235 },
       'CLIProxyAPI_8.0.32_windows_amd64.zip': { sha256: 'df364b1f2dc9fe357f6a481bfb8a4066c3e5f5ef4ad7abfe45e59b4cec547c18', size: 23752725 },
@@ -96,11 +99,40 @@ export interface CliAsset {
   binary: string;
 }
 
+export interface PluginHost {
+  platform?: string;
+  arch?: string;
+  /** null means musl/unknown. Undefined asks the runtime report. */
+  glibcVersion?: string | null;
+}
+
+export function runtimeGlibc(): string | null {
+  try {
+    const report = process.report?.getReport() as { header?: { glibcVersionRuntime?: string } };
+    return report?.header?.glibcVersionRuntime ?? null;
+  } catch { return null; }
+}
+
+/** Only reviewed Linux plugin artifacts are offered for automatic installation.
+ * Both amd64 and arm64 plugins need glibc 2.34. The main executable alone
+ * needs only 2.3.2 (amd64) / 2.17 (arm64); that does not imply plugin support.
+ */
+export function pluginHostProblem(host: PluginHost = {}): string | undefined {
+  if ((host.platform ?? process.platform) !== 'linux' || !['x64', 'arm64'].includes(host.arch ?? process.arch))
+    return 'Automatic Copilot and Kiro plugin installation is supported only on reviewed Linux x64/arm64 hosts. Use an external CLIProxyAPI with these plugins already enabled.';
+  const libc = host.glibcVersion === undefined ? runtimeGlibc() : host.glibcVersion;
+  if (!libc || !/^\d+\.\d+(?:\.\d+)?$/.test(libc) || compareVersions(libc, '2.34') < 0)
+    return 'Copilot and Kiro plugins require glibc 2.34 or newer, not musl or an unknown libc. Existing subscriptions still work with the static CLIProxyAPI build; use an external plugin-capable CLIProxyAPI for these two sign-ins.';
+}
+
 /** The release archive for this OS and CPU, or undefined when CLIProxyAPI publishes none the hub can run. */
-export function assetFor(version: string, platform: string = process.platform, arch: string = process.arch): CliAsset | undefined {
+export function assetFor(version: string, platform: string = process.platform, arch: string = process.arch, glibcVersion?: string | null): CliAsset | undefined {
   const cpu = ({ x64: 'amd64', arm64: 'aarch64' } as Record<string, string>)[arch];
   if (!cpu) return undefined;
-  if (platform === 'linux') return { name: `CLIProxyAPI_${version}_linux_${cpu}_no-plugin.tar.gz`, kind: 'tar.gz', binary: 'cli-proxy-api' };
+  if (platform === 'linux') {
+    const suffix = pluginHostProblem({ platform, arch, glibcVersion }) ? '_no-plugin' : '';
+    return { name: `CLIProxyAPI_${version}_linux_${cpu}${suffix}.tar.gz`, kind: 'tar.gz', binary: 'cli-proxy-api' };
+  }
   if (platform === 'darwin') return { name: `CLIProxyAPI_${version}_darwin_${cpu}.tar.gz`, kind: 'tar.gz', binary: 'cli-proxy-api' };
   if (platform === 'win32') return { name: `CLIProxyAPI_${version}_windows_${cpu}.zip`, kind: 'zip', binary: 'cli-proxy-api.exe' };
   return undefined;
@@ -183,7 +215,7 @@ export function installedBinary(home: string, platform: string = process.platfor
 /** Runs `<path> -h` and reads the version line. Undefined when it does not start. */
 export type VersionProbe = (path: string) => Promise<string | undefined>;
 
-export interface InstallOptions {
+export interface InstallOptions extends PluginHost {
   /** The hub home: the program goes in <home>/bin. */
   home: string;
   pin: Pin;
@@ -264,6 +296,37 @@ async function extract(archive: string, asset: CliAsset, dir: string): Promise<s
 
 /** The install running for each home: its temp files have fixed names, so a second caller waits for the first. */
 const installing = new Map<string, Promise<BinaryInfo>>();
+const ensuring = new Map<string, Promise<BinaryInfo>>();
+
+/** Owner and members share the managed executable, never their configs or keys.
+ * Lock the read/probe/migration decision too, so a late probe cannot initiate
+ * another migration after the first caller replaced the static receipt.
+ */
+export function ensureManagedBinary(opts: InstallOptions): Promise<BinaryInfo> {
+  const key = resolve(opts.home);
+  const running = ensuring.get(key);
+  if (running) return running;
+  const run = (async () => {
+    const have = installedBinary(opts.home, opts.platform);
+    const migrate = have?.receipt?.asset.includes('_no-plugin') && !pluginHostProblem(opts);
+    if (have && !migrate) {
+      const version = await opts.probe(have.path).catch(() => undefined);
+      if (version) return { ...have, version };
+    }
+    if (!migrate || !have) return installRelease(opts);
+    // An offline hub must keep running the working static copy, not go down.
+    try {
+      return await installRelease(opts);
+    } catch (err) {
+      const version = await opts.probe(have.path).catch(() => undefined);
+      if (!version) throw err;
+      logger('cliproxy').warn(`plugin-capable CLIProxyAPI not installed (${(err as Error).message}); keeping the static build`);
+      return { ...have, version };
+    }
+  })().finally(() => ensuring.delete(key));
+  ensuring.set(key, run);
+  return run;
+}
 
 /**
  * Download, check and install the pinned release. The copy it replaces is
@@ -285,7 +348,7 @@ async function install(opts: InstallOptions): Promise<BinaryInfo> {
   const f = opts.fetch ?? fetch;
   const base = (opts.base ?? RELEASE_BASE).replace(/\/+$/, '');
   const { pin } = opts;
-  const asset = assetFor(pin.version, platform, arch);
+  const asset = assetFor(pin.version, platform, arch, opts.glibcVersion);
   if (!asset) throw new ReleaseError(`CLIProxyAPI publishes no build for ${platform} ${arch}. Run one yourself and pick "I already run CLIProxyAPI".`);
   const pinned = pin.assets[asset.name];
   const bin = binDir(opts.home);

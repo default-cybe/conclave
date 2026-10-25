@@ -118,3 +118,23 @@ describe('the switch step', () => {
     expect(checked(out)).toEqual([true]);
   });
 });
+
+describe('the switch step under a task fallback policy (ideas item 8)', () => {
+  test('the policy line reads the effective policy from the hub, and a harness says it is external', () => {
+    const withPolicy: SwitchEstimate = { ...estimate, fallbackPolicy: { providers: ['cliproxy', 'mock'], paid: false, costUsd: 2 } };
+    const out = renderToStaticMarkup(<SwitchChoice session={session} model="anthropic/claude-sonnet-5-5" estimate={withPolicy} onDone={() => undefined} />);
+    expect(out).toContain('Automatic fallbacks in this task: only CLIProxy, Mock, no paid fallback, cost ceiling $2.');
+    // a zero ceiling allows no paid spend at all: it shows, unlike no ceiling
+    const zero = renderToStaticMarkup(<SwitchChoice session={session} model="anthropic/claude-sonnet-5-5" estimate={{ ...estimate, fallbackPolicy: { costUsd: 0 } }} onDone={() => undefined} />);
+    expect(zero).toContain('cost ceiling $0');
+    // the session's own meta is not read: the hub sends the effective policy
+    const metaOnly = { ...session, meta: { limits: { fallback: { paid: false } } } } as Session;
+    expect(renderToStaticMarkup(<SwitchChoice session={metaOnly} model="anthropic/claude-sonnet-5-5" estimate={estimate} onDone={() => undefined} />)).not.toContain('Automatic fallbacks');
+    // a task without a policy says nothing
+    expect(renderToStaticMarkup(<SwitchChoice session={session} model="anthropic/claude-sonnet-5-5" estimate={estimate} onDone={() => undefined} />)).not.toContain('Automatic fallbacks');
+    // an external harness is labelled: the hub does not manage or cap its requests
+    const harness = renderToStaticMarkup(<SwitchChoice session={session} model="claude-code/opus" estimate={estimate} onDone={() => undefined} />);
+    expect(harness).toContain('external harness');
+    expect(harness).toContain('Switch to Claude Code');
+  });
+});

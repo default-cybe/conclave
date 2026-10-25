@@ -789,6 +789,10 @@ function stopStreaming(streaming: Record<string, true>, ids: Iterable<string>): 
 /** Feature modules that follow events the store does not keep (import.batch, workflow.*). */
 const eventListeners = new Set<(e: EngineEventEnvelope) => void>();
 
+/** When each session last streamed text or ran a tool (hub time). `session.updatedAt` moves on neither, so a busy task would look quiet. */
+const lastActive = new Map<string, number>();
+export const lastActiveAt = (sessionId: string): number | undefined => lastActive.get(sessionId);
+
 /** Listen to every hub event. Returns the unsubscribe function. */
 export function onHubEvent(fn: (e: EngineEventEnvelope) => void): () => void {
   eventListeners.add(fn);
@@ -804,6 +808,7 @@ export function applyEvent(e: EngineEventEnvelope) {
     }
   }
   const s = get();
+  if (e.type === 'message.delta' || e.type === 'tool.started' || e.type === 'tool.progress' || e.type === 'tool.completed') lastActive.set(e.sessionId, e.ts);
   switch (e.type) {
     case 'session.created':
     case 'session.updated': {
@@ -812,6 +817,7 @@ export function applyEvent(e: EngineEventEnvelope) {
       break;
     }
     case 'session.deleted': {
+      lastActive.delete(e.sessionId);
       removeKey('sessions', e.sessionId);
       // its transcript goes too, or every resync would fetch it again from a hub that no longer has it
       const { [e.sessionId]: _m, ...messages } = get().messages;

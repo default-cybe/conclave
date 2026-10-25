@@ -1,6 +1,7 @@
 import type {
   AgentResultRef,
   ApprovalResponse,
+  AttachmentReceipt,
   ContentBlock,
   ImageBlock,
   Message,
@@ -26,12 +27,14 @@ import { flattenLastToolTurn, isTranscriptShapeError } from './pairing';
 import { streamCompletion, type Served } from './stream';
 import { transcribeImages } from './image-text';
 import { seesImages } from '../providers/common';
+import { pickedName } from '../attachments/prepare';
 import { refusalPlan, refusalStepOf, refusalWords, RefusalWalk, servedLabel, stepOfTarget, type FallbackTarget } from './refusal-fallback';
 import { checkPermission, dangerousCommand } from './permissions';
 import { ReadTool } from '../tools/read';
 import { maybeCompact, estimateRequestTokens, meteredTokens, partHash, type TokenMeter } from './compaction';
 import { applyClearing } from './context-edit';
 import { afterWokenTurn, handleLimit, limitFallback, nextAccount, switchBack } from './limits';
+import { recordAutoSwitch } from './limit-tree';
 import { OWNER_ID, isMember, runAs } from '../people/context';
 import { deviceFolder, runHarnessTurn } from './harness';
 import { LoopGuard, type Verdict } from './loop-guard';
@@ -52,6 +55,9 @@ import { loadPathRules, loadScopedInstructions, type InstructionFile, type PathR
 import { pendingSwitch, switchNote } from '../modes/switch-marker';
 import { movedToMain } from './delegated';
 import type { Machine } from '../machine/types';
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { checkShareable, usesOutputs } from '../files/share';
 
 const log = logger('runner');
 
@@ -216,6 +222,8 @@ export interface TurnHooks {
 
 /** How an agentLoop call starts (the "Try the next model" button). */
 export interface LoopOptions {
+  /** Automatic model selection to authorize when the prepared request is sent. */
+  autoSwitchFrom?: string;
   /** The reply that refused (already dropped): the loop starts on the refusal fallback entry after it. reply stands again when no entry answers. */
   refusal?: { served: Served; reply?: Message };
 }
@@ -326,6 +334,7 @@ export class SessionRunner {
   noteDelayMs = 2_000;
   /** Why the last agentLoop call ended. */
   lastStop?: LoopStop;
+  private canShare = false;
   /** Set by stall(): the alert service cut a quiet subagent loop, with the tool that was running if any; driveSubagent (engine/subagent.ts) reads it. */
   stalled?: { tool?: string };
   /** The checkpoint of the current turn (agent and loop mode), for the regression gate. */
@@ -755,7 +764,7 @@ export class SessionRunner {
               const notice = this.engine.notice(this.id, `Error: ${msg}${unsafe}`, 'error', undefined, canRetry ? { type: 'provider_error', canRetry: true } : undefined);
               if (canRetry) this.retryNotice = notice?.id;
               this.engine.setStatus(this.id, 'error', msg);
-              this.engine.notifyEvent('errors', { title: 'Session error', body: oneLine(msg, 160), level: 'error', sessionId: this.id, link: `/s/${this.id}` });
+              this.engine.notifyEvent('errors', { title: 'Session error', body: oneLine(msg, 160), level: 'error', sessionId: this.id, link: `/s/${this.id}`, thread: this.engine.askOrigin(this.id).rootSessionId });
             }
           }
           // it failed or stopped before its message was stored: the message waits again at the front, held so a failure does not repeat on its own
@@ -822,9 +831,12 @@ export class SessionRunner {
     // user content: text, attachments, then reminders (hooks, memory, todos)
     const content: ContentBlock[] = [];
     if (q.input.text) content.push({ type: 'text', text: q.input.text });
+    // one receipt per picked file (attachments/prepare.ts); one unreadable now is omitted, never silently dropped
+    const receipts: AttachmentReceipt[] = (q.input.attachmentReceipts ?? []).map((r) => ({ ...r }));
     for (const a of q.input.attachments ?? []) {
       const block = await engine.attachmentBlock(session, a);
       if (block) content.push(block);
+      else if (!receipts.some((r) => r.state === 'omitted' && r.name === pickedName(a))) receipts.push({ name: pickedName(a), state: 'omitted', reason: 'could not be read from the device' });
     }
 
     engine.setStatus(this.id, 'running');
@@ -889,6 +901,7 @@ export class SessionRunner {
       userMeta.whenBusy = 'queue';
     }
     if (recalled.length) userMeta.recalled = recalled;
+    if (receipts.length) userMeta.attachments = receipts;
     // notes from background subagents that finished while the session was idle (a retry has no message to carry them)
     const retry = q.refusal;
     const notes = retry ? [] : this.takeNotes();
@@ -1004,9 +1017,12 @@ export class SessionRunner {
     this.activeLoops.add(loop);
     this.loops++;
     this.lastStop = undefined;
+    this.canShare = false;
     try {
       return await runAs(this.session.accountId ?? OWNER_ID, () => this.runLoop(modelRef, mode, loop.signal, opts));
     } finally {
+      // every way the loop ends (done, abort, refusal, error) shows the files the turn left; once, so a Stop hook continue repeats nothing
+      if (!this.depth && this.canShare) await this.shareStrays().catch((err) => log.warn(`auto-share failed in ${this.id}`, err));
       this.activeLoops.delete(loop);
       signal.removeEventListener('abort', onAbort);
       if (!this.busy && this.pendingNotes.length) this.scheduleNoteTurn();
@@ -1020,6 +1036,7 @@ export class SessionRunner {
       return done;
     };
     let currentModel = modelRef;
+    let autoSwitchFrom = opts.autoSwitchFrom;
     let resolved = engine.registryFor(this.session).resolve(currentModel);
     if (!this.depth) {
       // a harness that is off (imported chats keep claude-code/default): the turn goes on with the chat's own model when usable, else the account's default, instead of stopping
@@ -1049,6 +1066,7 @@ export class SessionRunner {
     let walkPending = false;
     const moveTo = (t: FallbackTarget) => {
       const reg = engine.registryFor(this.session);
+      autoSwitchFrom = currentModel;
       currentModel = t.ref;
       resolved = t.pin ? reg.resolveAt(t.pin.provider, t.pin.model) : reg.resolve(t.ref);
     };
@@ -1159,6 +1177,8 @@ export class SessionRunner {
       const agent = engine.agentFor(session);
       const tools = engine.toolsFor(session, agent, mode, this.depth);
       const toolMap = new Map(tools.map((t) => [t.name, t]));
+      // an untrusted session or agent that lacks ShareFile gets no automatic cards (agentLoop)
+      this.canShare = toolMap.has('ShareFile');
       const toolSpecs = this.specsFor(tools, session);
 
       // after tool calls, what the person queued joins this turn as steering (as Claude Code does); a harness turn never gets here
@@ -1167,21 +1187,23 @@ export class SessionRunner {
       if (this.steering.length) {
         // read the attachments first: until each is stored it stays listed, so apps never lose it
         const steer = [...this.steering];
-        const built: Array<{ s: Steer; content: ContentBlock[] }> = [];
+        const built: Array<{ s: Steer; content: ContentBlock[]; receipts?: AttachmentReceipt[] }> = [];
         for (const s of steer) {
           const content: ContentBlock[] = s.input.text ? [{ type: 'text', text: s.input.text }] : [];
+          const receipts: AttachmentReceipt[] = (s.input.attachmentReceipts ?? []).map((r) => ({ ...r }));
           for (const a of s.input.attachments ?? []) {
             const block = await engine.attachmentBlock(session, a);
             if (block) content.push(block);
+            else if (!receipts.some((r) => r.state === 'omitted' && r.name === pickedName(a))) receipts.push({ name: pickedName(a), state: 'omitted', reason: 'could not be read from the device' });
           }
           content.push(reminder(STEER_NOTE));
-          built.push({ s, content });
+          built.push({ s, content, ...(receipts.length ? { receipts } : {}) });
         }
         if (signal.aborted) throw new Error('aborted');
         // one removed meanwhile stays out; what came in meanwhile joins the next step
         const still = built.filter((b) => this.steering.includes(b.s));
         this.steering = this.steering.filter((x) => !steer.includes(x));
-        for (const { s, content } of still) engine.addMessage(this.id, { role: 'user', kind: 'normal', content, meta: { whenBusy: 'steer', pendingIds: [s.pending.id] } });
+        for (const { s, content, receipts } of still) engine.addMessage(this.id, { role: 'user', kind: 'normal', content, meta: { whenBusy: 'steer', pendingIds: [s.pending.id], ...(receipts?.length ? { attachments: receipts } : {}) } });
         this.emitQueue();
       }
 
@@ -1196,6 +1218,9 @@ export class SessionRunner {
       const imageText = !seesImages(resolved.model, resolved.info, cfg.providers[resolved.provider]);
       if (imageText) await transcribeImages(engine, this.id, engine.sessionAccount(this.id), signal);
       const stored = engine.repos.messages.list(this.id);
+      // the receipts say whether this request carried each attachment; another model may differ
+      const pdf = engine.registryFor(this.session).get(resolved.provider)?.readsPdf?.(resolved.model) ?? true;
+      markAttachmentInclusion(engine, stored, !imageText, pdf);
       let messages: ProviderMessage[] = buildProviderMessages(stored, {
         modelRef: currentModel,
         toolNames: new Set(tools.map((t) => t.name)),
@@ -1248,10 +1273,17 @@ export class SessionRunner {
             signal,
             userId: 'conclave',
           },
-          { sessionId: this.id, messageId: assistant.id, purpose: this.depth ? 'subagent' : 'turn', ...(walk?.current?.pin ? { pin: walk.current.pin } : {}) },
+          { sessionId: this.id, messageId: assistant.id, purpose: this.depth ? 'subagent' : 'turn', autoSwitchFrom, ...(walk?.current?.pin ? { pin: walk.current.pin } : {}) },
         );
+        autoSwitchFrom = undefined;
       } catch (err) {
         engine.removeMessage(assistant.id);
+        // Policy denials need an owner decision, not another refusal entry or an automatic retry.
+        if (err instanceof ProviderError && err.code === 'fallback_policy') {
+          engine.notice(this.id, `Task paused: ${err.message}`, 'warning');
+          this.parkPaused(true);
+          return end('paused', false);
+        }
         if (err instanceof ProviderError) {
           if (err.kind === 'aborted') throw err;
           // the API rejected the transcript shape despite the guard: one repair and retry per turn
@@ -1307,9 +1339,14 @@ export class SessionRunner {
             limited.push(currentModel);
             const outcome = await handleLimit(engine, this, currentModel, err, limited);
             if (outcome.fallback) {
+              autoSwitchFrom = currentModel;
               currentModel = outcome.fallback;
               resolved = engine.registryFor(this.session).resolve(currentModel);
-              if (resolved.acp) return end('harness', await runHarnessTurn(engine, this, this.session, resolved.provider, resolved.model, signal));
+              if (resolved.acp) {
+                // the wire never sees a harness turn: record the switch here (ideas item 8)
+                recordAutoSwitch(engine, this.id, autoSwitchFrom, currentModel, { harness: true, costUnknown: true });
+                return end('harness', await runHarnessTurn(engine, this, this.session, resolved.provider, resolved.model, signal));
+              }
               continue;
             }
             return end('rate_limit', false);
@@ -1765,6 +1802,42 @@ export class SessionRunner {
   // Tool execution with hooks and permissions
   // -------------------------------------------------------------------------
 
+  /**
+   * Files the session left in its outputs folder that no ShareFile call covered get a card at turn end: a ShareFile call and its result are stored, so every client draws and downloads them like a shared file.
+   * shortcut: the top level of each outputs folder only, at most 10 files a turn, and only sessions that keep their files in an outputs folder (a project folder is not scanned), when a coding session needs cards, share the files its write calls made.
+   */
+  private async shareStrays(): Promise<void> {
+    const session = this.session;
+    if (!usesOutputs(session)) return;
+    const engine = this.engine;
+    const roots = engine.shareRoots(session);
+    const shared = new Set<string>();
+    for (const m of engine.repos.messages.list(this.id)) {
+      for (const b of m.content) if (b.type === 'tool_result' && !b.isError && typeof (b.meta?.file as { path?: unknown } | undefined)?.path === 'string') shared.add((b.meta!.file as { path: string }).path);
+    }
+    const uses: ToolUseBlock[] = [];
+    const results: ToolResultBlock[] = [];
+    for (const root of roots.filter((r) => r.outputs)) {
+      let names: string[];
+      try {
+        names = readdirSync(root.dir, { withFileTypes: true }).filter((e) => e.isFile() && !e.name.startsWith('.')).map((e) => e.name).sort();
+      } catch {
+        continue;
+      }
+      for (const name of names) {
+        if (uses.length >= 10) break;
+        const check = await checkShareable(join(root.dir, name), roots, engine.config.paths.home);
+        if (!check.ok || shared.has(check.file.path)) continue;
+        const id = newId('toolu');
+        uses.push({ type: 'tool_use', id, name: 'ShareFile', input: { path: join(root.dir, name) } });
+        results.push({ type: 'tool_result', toolUseId: id, content: `Shared ${check.file.name} with the owner as a file card.`, meta: { file: check.file } });
+      }
+    }
+    if (!uses.length) return;
+    engine.addMessage(this.id, { role: 'assistant', kind: 'normal', content: uses, model: session.model, meta: { auto: true } });
+    engine.addMessage(this.id, { role: 'user', kind: 'normal', content: results, meta: { auto: true } });
+  }
+
   /** An error result for a call, sent to clients like any other. */
   private errorResult(use: ToolUseBlock, text: string, meta?: Record<string, unknown>): ToolResultBlock {
     const r: ToolResultBlock = { type: 'tool_result', toolUseId: use.id, content: text, isError: true, ...(meta ? { meta } : {}) };
@@ -2124,4 +2197,30 @@ export function turnErrorText(engine: Engine, err: unknown): string {
   }
   if (err.kind === 'quota') return `${name} says the account is out of credit (${raw}). Add credit or switch model, then retry.`;
   return raw;
+}
+
+/**
+ * Records on the turn's user message whether this model's request carries
+ * each prepared attachment: a picture needs vision, a PDF a wire that takes
+ * it (providers/common.ts documentsForWire); text always goes. A row says
+ * included in the request, never that the model read it, and is rewritten
+ * when a failover or a switch changes the model's reach.
+ */
+function markAttachmentInclusion(engine: Engine, stored: Message[], vision: boolean, pdf: boolean): void {
+  const msg = [...stored].reverse().find((m) => m.role === 'user' && Array.isArray(m.meta?.attachments));
+  if (!msg) return;
+  const rows = msg.meta!.attachments as AttachmentReceipt[];
+  const reasonFor = (p: 'image' | 'pdf') => (p === 'image' ? 'this model cannot see pictures' : 'this model cannot read PDFs');
+  let changed = false;
+  const next = rows.map((r) => {
+    if (r.state !== 'prepared') return r;
+    const parts = r.parts ?? ['text'];
+    const carried = parts.some((p) => (p === 'image' ? vision : p === 'pdf' ? pdf : true));
+    const bad = parts.find((p) => p !== 'text') as 'image' | 'pdf' | undefined;
+    const reason = carried ? undefined : reasonFor(bad ?? 'image');
+    if (r.included === carried && r.reason === reason) return r;
+    changed = true;
+    return { ...r, included: carried, ...(reason ? { reason } : {}) };
+  });
+  if (changed) engine.updateMessage(msg.id, { meta: { ...msg.meta, attachments: next } });
 }
