@@ -663,6 +663,8 @@ export interface Notice {
   questionId?: string;
   /** The alert a notice is about (a file conflict, a stuck turn), for the same reason. */
   alertId?: string;
+  /** The job (a workflow run, or a parent session and its subagents) this belongs to. Notices of one job replace each other on a device instead of stacking. */
+  thread?: string;
   /** A watch's run: what changed, with the items for the in-app card (watches/service.ts). */
   watch?: import('./watches/types').WatchNotice;
   /**

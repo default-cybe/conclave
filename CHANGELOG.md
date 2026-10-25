@@ -23,6 +23,14 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Subagents and workflow steps on the `deep` tier (debugger and other built-in profiles) now run on the session's model when it is already deep tier, else on a deep-tier defaultModel, before the catalog's own pick. Before, with no `models.tiers.deep` set, an Opus 5.5 session sent them to Claude Fable 5.1. `models.tiers.deep` still wins.
 
+### Changed
+
+- One notification per job. A workflow run, or a parent session and its subagents, now share one thread, through nested subagents and for failures too: each new notice replaces the last on your phone, the Android app and desktop (and alerts again) instead of adding to a pile.
+
+### Fixed
+
+- Discard or Clean up of a worktree no longer fails with "Directory not empty" when git removed the folder but a background git maintenance still held its `.git/worktrees` entry: the hub prunes the entry and finishes, branch included.
+
 ## [0.4.30] - 2026-10-25
 
 ### Fixed
