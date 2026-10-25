@@ -28,6 +28,7 @@ import type {
 } from '@conclave/core/client';
 import type { Message, Session } from '@conclave/core/types';
 import type { MockCtx } from './index';
+import { FANOUT_SESSION, fanOutFixture } from './fanout';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -400,6 +401,13 @@ export function registerWorkflows(ctx: MockCtx): void {
         { id: 'm_wf_review', sessionId: 's_auth', seq: nextSeq, role: 'assistant', kind: 'normal', createdAt: at, model: 'anthropic/claude-sonnet-5-5', content: [{ type: 'tool_use', id: 'tu_wf_review', name: 'Workflow', input: { name: 'review-changes', estimate: { agents: 30, tokens: 1_200_000 } } }] },
         { id: 'm_wf_review_r', sessionId: 's_auth', seq: nextSeq + 1, role: 'user', kind: 'normal', createdAt: t0 + 34 * MIN, content: [{ type: 'tool_result', toolUseId: 'tu_wf_review', content: 'Workflow review-changes done. Run wfr_review1.', meta: { workflowRunId: 'wfr_review1' } }] },
       );
+    }
+    // a four-subagent fan-out and a three-phase workflow (mock/fanout.ts)
+    if (!ctx.db.sessions.has(FANOUT_SESSION)) {
+      const f = fanOutFixture(now);
+      for (const s of [f.session, ...f.children]) ctx.db.sessions.set(s.id, s);
+      ctx.db.messages.set(f.session.id, f.messages);
+      runs.set(f.run.id, { run: f.run, calls: f.calls, logs: [], findings: [] });
     }
   }
 

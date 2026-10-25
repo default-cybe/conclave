@@ -32,6 +32,7 @@ import { ActionText, AuthorLine, LogRow, REVEAL } from './Log';
 import { Markdown, StreamedMarkdown } from './Markdown';
 import { ToolGroup, type ThoughtItem, type WorkItem } from './ToolRows';
 import { workName } from './toolGroups';
+import { useFolded } from './FanOutCard';
 import { thoughtTime } from '@/lib/toolLine';
 import { msgText, readDismissed, writeDismissed } from './util';
 import { storedWord } from './Pending';
@@ -136,8 +137,10 @@ const isThought = (b: ContentBlock) => b.type === 'thinking' || b.type === 'reda
  * A turn's content as pieces in order: prose and other blocks one each, and
  * each stretch of thoughts and calls with no prose between them as one piece
  * of work. A lone thought (no call next to it) stays a block of its own.
+ * Calls in `folded` are drawn by a fan-out card (fanOut.ts) and left out;
+ * a Task call carries its message's id, the key of its card.
  */
-export function turnPieces(messages: Message[], streaming: Record<string, true>, results: TurnProps['results'], tools: TurnProps['tools']): Piece[] {
+export function turnPieces(messages: Message[], streaming: Record<string, true>, results: TurnProps['results'], tools: TurnProps['tools'], folded?: ReadonlySet<string>): Piece[] {
   const pieces: Piece[] = [];
   type Held = { entry: WorkItem; msg: Message; isLast: boolean; key: string };
   let run: Held[] = [];
@@ -152,7 +155,9 @@ export function turnPieces(messages: Message[], streaming: Record<string, true>,
     m.content.forEach((b, bi) => {
       const key = `${m.id}:${bi}`;
       const isLast = mi === messages.length - 1 && bi === m.content.length - 1;
-      if (b.type === 'tool_use') run.push({ entry: { type: 'call', name: workName(b.name, b.input), item: { tool: b, result: results[b.id], run: tools[b.id] } }, msg: m, isLast, key });
+      if (b.type === 'tool_use') {
+        if (!folded?.has(b.id)) run.push({ entry: { type: 'call', name: workName(b.name, b.input), item: { tool: b, result: results[b.id], run: tools[b.id] }, card: m.id }, msg: m, isLast, key });
+      }
       // a thought in a group may be the block that streams: the turn's last, in a message still being written
       else if (isThought(b)) run.push({ entry: { type: 'thought', item: { block: b, key, ...(streaming[m.id] && isLast ? { streaming: true } : {}) } }, msg: m, isLast, key });
       else if (b.type !== 'tool_result') {
@@ -223,7 +228,8 @@ export const AssistantTurn = memo(function AssistantTurn({ messages, session, st
   const isStreaming = messages.some((m) => streaming[m.id]);
   const text = messages.map(msgText).filter(Boolean).join('\n\n');
 
-  const pieces = turnPieces(messages, streaming, results, tools);
+  const folded = useFolded(session.id);
+  const pieces = turnPieces(messages, streaming, results, tools, folded);
   // the work the turn is still at: no prose (or other block that is not a thought) after it yet
   let lastProse = -1;
   pieces.forEach((p, i) => {

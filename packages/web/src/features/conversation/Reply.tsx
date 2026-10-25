@@ -37,7 +37,7 @@ import { FileCards, FileLine } from '@/features/files/FileCard';
 import { WatchCards, WatchLine } from '@/features/watches/WatchCards';
 import { mapsWorkingWords } from '@/features/maps/words';
 import { DelegateCallLine } from '@/features/chat/delegated';
-import { AgentResultNotice } from '@/features/chat/AgentResultRow';
+import { FanOutNotice } from '@/features/chat/FanOutCard';
 import { noticeResult } from '@/features/chat/agentResult';
 import { useModelThinks } from './ChatComposer';
 import { branchChat, forgetNote, patchChat, retryFrom } from './actions';
@@ -810,9 +810,14 @@ export const NoticeView = memo(function NoticeView({ message }: { message: Messa
   // a background task that reported back: one row that opens to its report
   if (noticeResult(message))
     return (
-      <div id={`cm-${message.id}`} className="anim-fade">
-        <AgentResultNotice message={message} />
-      </div>
+      <FanOutNotice
+        message={message}
+        wrap={(row) => (
+          <div id={`cm-${message.id}`} className="anim-fade">
+            {row}
+          </div>
+        )}
+      />
     );
   const words = noticeWords(noticeText(message));
   const error = isErrorNotice(message);

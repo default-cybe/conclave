@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { deliverSubagentResult, subagentResultBlock, SUBAGENT_RESULT_MAX_CHARS } from '../../src/engine/subagent';
+import { deliverSubagentResult, subagentEndState, subagentResultBlock, SUBAGENT_RESULT_MAX_CHARS } from '../../src/engine/subagent';
 import type { Message, TextBlock } from '../../src/types';
 import { firstUserText, startTestEngine, until, type Block } from './harness';
 
@@ -186,6 +186,26 @@ describe('background Task results', () => {
       await Bun.sleep(100);
       expect(t.requests.length).toBe(0);
       expect(runner.pendingNoteCount).toBe(1);
+    } finally {
+      await t.close();
+    }
+  }, 30_000);
+
+  test('a subagent a usage limit or an error stopped with no answer is limited or failed, never completed', async () => {
+    expect(subagentEndState({ stop: 'rate_limit' })).toBe('limited');
+    expect(subagentEndState({ error: 'boom', stop: 'rate_limit' })).toBe('error');
+    expect(subagentEndState({ stop: 'done' })).toBe('completed');
+    const t = await startTestEngine({ script: [[{ text: 'one' }]] });
+    try {
+      const s = await t.engine.createSession({ title: 'parent', cwd: t.cwd });
+      const child = await t.engine.createSession({ title: 'child', cwd: t.cwd });
+      t.engine.runnerFor(s.id).noteDelayMs = 10_000;
+      deliverSubagentResult(t.engine, s.id, child.id, subagentEndState({ stop: 'rate_limit' }), '(the subagent produced no final answer)');
+      expect((t.engine.getSession(child.id)!.meta?.background as { state: string }).state).toBe('limited');
+      expect(t.engine.backgroundTasks.get(s.id, child.id)?.state).toBe('limited');
+      const notice = t.engine.getMessages(s.id).find((m) => m.kind === 'notice')!;
+      expect((notice.meta?.agentResult as { state: string }).state).toBe('limited');
+      expect((subagentResultBlock(child, 'limited', 'x') as TextBlock).text).toContain('state="limited"');
     } finally {
       await t.close();
     }

@@ -7,6 +7,16 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Web chat: the subagents one message starts are one card ("4 subagents, 1 failed, 1 limited") with a line per subagent (state, label, agent, model, time, first line of its report; tap for the full report and Open session). Result notices, TaskWait, TaskList, TaskResult and TaskContinue fold into it, a later notice leaves a small "updated" line, and no raw `ses_` ids show. A workflow row gets a phase bar and agent counts, and its WorkflowStatus calls fold into it.
+
+### Fixed
+
+- A subagent that ends with no answer because of a usage limit now reports `limited` (an error: `failed`), not `completed`.
+
 ## [0.4.27] - 2026-10-24
 
 ### Changed
