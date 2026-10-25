@@ -232,6 +232,8 @@ describe('specialist agents keep their key lines', () => {
   test('BASE.md and modes.md carry the round 5 lines', () => {
     expect(BASE_PROMPT).toContain('Before you say how code behaves, open it.');
     expect(BASE_PROMPT).toContain('Do not start a subagent to verify or double-check your own work');
+    // "run a workflow" means the Workflow tool; agents answered it with Task calls only (2026-10-23 transcripts)
+    expect(BASE_PROMPT).toContain('When the owner asks for a workflow ("run a workflow", "use a multiagent workflow"), call the Workflow tool.');
     expect(MODE_NOTES.ultra).toStartWith('# Mode: ultra\nUltra is on.');
     expect(MODE_NOTES.workflow).toStartWith('# Mode: workflow\nYou are one step of a workflow.');
   });

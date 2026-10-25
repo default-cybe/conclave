@@ -44,6 +44,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -404,6 +405,30 @@ fun SubagentRow(use: ToolUseBlock, result: ToolResultBlock?, callLive: Boolean, 
     if (open) {
         DetailSheet(onDismiss = { open = false }) {
             SubagentDetail(use, result, child, running, now, onLeave = { open = false })
+        }
+    }
+}
+
+/**
+ * The Task calls of one message as one card (the web's FanOutCard.tsx): a
+ * header, "3 subagents, 2 running", then each subagent's own row, named by
+ * its agent and description.
+ */
+@Composable
+fun FanOutCard(uses: List<ToolUseBlock>, results: Map<String, ToolResultBlock>, turnLive: Boolean, modifier: Modifier = Modifier) {
+    val c = Conclave.colors
+    val running = uses.count { use -> key(use.id) { rememberSubagent(use, results[use.id], turnLive && results[use.id] == null).second } }
+    val failed = uses.count { results[it.id]?.isError == true }
+    Column(modifier.fillMaxWidth()) {
+        Text(
+            Tasks.fanOutWords(uses.size, running, failed),
+            style = ConclaveType.body.copy(fontSize = 14.sp),
+            color = if (running > 0) c.signal else c.fg2,
+            maxLines = 1,
+            modifier = Modifier.heightIn(min = 32.dp).padding(top = 8.dp),
+        )
+        Column(Modifier.padding(start = 12.dp)) {
+            uses.forEach { use -> key(use.id) { SubagentRow(use, results[use.id], turnLive && results[use.id] == null) } }
         }
     }
 }

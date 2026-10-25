@@ -54,6 +54,13 @@ class TasksTest {
     private fun turn(vararg blocks: dev.conclave.client.model.ContentBlock) = listOf(Message("a1", "s1", 1, Role.ASSISTANT, content = blocks.toList()))
 
     @Test
+    fun aFanOutCardSaysHowManySubagentsRunAndFailed() {
+        assertEquals("4 subagents, 2 running, 1 failed", Tasks.fanOutWords(4, 2, 1))
+        assertEquals("3 subagents", Tasks.fanOutWords(3, 0, 0))
+        assertEquals("1 subagent, 1 running", Tasks.fanOutWords(1, 1, 0))
+    }
+
+    @Test
     fun theRunningTasksAreTheLiveRunsAndTheSubagentsStillAtWork() {
         val child = Session("c1", title = "Find the auth code", agent = "explore", model = "anthropic/claude-haiku-5-5", status = SessionStatus.RUNNING, parentId = "s1", createdAt = 5)
         val runs = listOf(run("r1", toolUseId = "w1"), run("r0", WorkflowRunStatus.DONE, toolUseId = "w0"))
