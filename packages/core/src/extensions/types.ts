@@ -172,6 +172,8 @@ export interface InstalledPlugin {
   version?: string;
   /** False when the plugin's hooks are switched off (its skills, agents and commands stay). */
   hooksEnabled?: boolean;
+  /** Set when installing its npm dependencies failed: the command to run by hand. */
+  depsCommand?: string;
 }
 
 /** Options for installs that come from Discover or a pinned source. */
