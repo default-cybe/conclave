@@ -27,6 +27,7 @@ like `## [0.4.16] - 2026-10-24`.
 - A model call that fails with a provider error (a 5xx, a 400, a network error or a timeout; not a sign-in error, a usage limit or a stop) in agent, chat or plan mode now retries once on the next model of the usage or refusal fallback list, for that turn only, with a visible "X failed, retrying on Y" notice. If that retry also fails, the "Retry with another model" button shows as before.
 - Android chat: the subagents one message starts are one card ("3 subagents, 2 running, 1 failed") with each subagent's named row under it, as on the web.
 - The base prompt tells agents that "run a workflow" means the Workflow tool; Task subagents alone are not a workflow.
+- A 429 with no usage reading blocks only the quota it came from, not the whole account. An Opus limit leaves Sonnet and Haiku ready on the same Claude plan and on the Anthropic API key. A Gemini limit on Antigravity blocks its Gemini models, which share one quota, and leaves its Claude and GPT models ready. A spend cap still stops the whole key, and the account card still shows the limit.
 
 ### Added
 
