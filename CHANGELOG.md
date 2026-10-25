@@ -1,11 +1,10 @@
 ## [0.4.29] - 2026-10-25
 
-### Added
-
-- `GET /api/assistant/home` returns the caller's assistant conversation, made the first time, in the same shape as `GET /api/sessions/:id`.
-- Routines take `sessionPolicy: 'home'`: a run is one turn in the assistant conversation, marked as from the routine, and its rules and unattended refusals apply to that turn only. Webhook runs and watches never use it.
-
 ### Changed
 
-- The assistant is one conversation per account. Home's composer in Assistant mode, Plan my day and Goals send into it instead of starting a new session each time. Older assistant chats stay in the sidebar under History, and "New assistant chat" is gone.
-- The Morning brief posts into the assistant conversation. The Heartbeat still runs in its own session.
+- Android: Assistant is one continuous thread. Sending from Home in Assistant mode goes into the account's Assistant home session (`GET /api/assistant/home`) instead of starting a new session; the side panel lists it first as "Assistant", older assistant sessions under "History", and Assistant mode has no New. Hubs without the route (404) keep the old behavior.
+- Updates install by themselves when nothing is running. "Install updates automatically" is now on unless you turned it off (a saved `updates.auto: false` stays off), and `updates.window` picks when: `idle` (default) looks for a release every hour and installs once nothing ran on two checks in a row (10 minutes apart); `night` keeps 03:00 to 05:00, now also waiting for nothing to run.
+- "Nothing running" means no session running or waiting for an approval or an answer, no background task, no queued message waiting to be sent, no workflow run running or queued and no routine run going. A session parked for a usage limit does not count: its resume job is stored and survives the restart.
+- Device daemons update in the same window, each only when no session or task works on that device, before the hub restarts.
+- Update now refuses while work runs (409, "2 sessions running: ..."). Settings > About then offers Update anyway and Update when idle, a one-shot that installs that version once nothing runs, also with automatic updates off.
+- Android app updates: the app looks for an update at every start and, when it comes back, once an hour (was once a day). After you allow Conclave to install apps, the installer opens by itself, and a download checked earlier asks "Install now" at the next start. Skip this version and Don't show at startup work as before.
