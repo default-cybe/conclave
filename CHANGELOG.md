@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Loop guard: polling has a budget. The same TaskWait, TaskList, WorkflowStatus, BashOutput or still-running TaskResult call with the same answer is warned at 10 times in a turn and stopped at 15, then the agent writes its final report. A TaskWait that blocked 30 s or more is honest waiting and does not count.
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed

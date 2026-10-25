@@ -1484,7 +1484,8 @@ export class SessionRunner {
       let guardStop: string | undefined;
       if (halt) {
         guardHalts++;
-        guard.stop(halt.use.name, halt.use.input);
+        // a stopped poll would refuse a later honest blocking TaskWait with the same input; a second poll halt ends the turn anyway
+        if (halt.verdict.code !== 'poll') guard.stop(halt.use.name, halt.use.input);
         const why = halt.verdict.message ?? 'The same calls keep repeating.';
         if (guard.unattended || guardHalts > 1) {
           // the reason reaches the model once, in loopStopReminder before the final-answer call
