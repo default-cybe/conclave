@@ -6,7 +6,7 @@
  * and "Jump to latest" rises when you scroll away. What waits on you, the
  * chat's own and its subagents' (lib/asks.ts), sits at the end.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, startTransition, type CSSProperties, type ReactNode } from 'react';
 import type { Message, Session } from '@conclave/core/types';
 import { loadMessages, toolResultsFor, useHub, useQueue } from '@/store/store';
 import { pendingIdsOf } from '@/store/queue';
@@ -21,9 +21,12 @@ import { isContextOnly, isToolResultOnly } from '@/features/chat/util';
 import { asksBelow, asksOf } from '@/lib/asks';
 import { AskingRow, AsideView, FailedWords, NoticeView, Reply, SwitchView, isErrorNotice } from './Reply';
 import { TryNextModel } from '@/features/chat/TryNextModel';
+import { StopCardView } from '@/features/chat/StopCardView';
 import { PendingMessage, QueuedBubble, UserMessage } from './UserMessage';
 import { asideTargets, patchPending, rememberAside, setAsking, setPending, setScrolled, useChatUi, type Pending } from './state';
-import { buildUnits, livePhase, replyEnded, type Unit } from './units';
+import { KeepPlace, keepHeights, useAnchoring, whenIdle } from '@/features/chat/MessageList';
+import { fillDirection, grow, idleDirection, mountedRange, nearEdge, openSpan, partsOf, type Direction, type Span } from '@/features/chat/window';
+import { buildUnits, livePhase, replyEnded, rowIndexOf, type Unit } from './units';
 
 const EMPTY: Message[] = [];
 /** When this tab first saw each turn start: counters use the client clock, never the hub's. */
@@ -174,6 +177,19 @@ export function ChatMessages({ chatId, session }: { chatId: string; session?: Se
     return out;
   }, [units, showPending, waiting, pending?.key, lastUser, failed, resuming, lastUserIdx, queuedAtEnd, queued, startingId]);
   const rows = useStableRows(rowsNext);
+
+  // which rows are mounted (chat/window.ts, as the transcript's MessageList): a long chat opens
+  // with its latest rows, older ones mount a chunk at a time as you scroll up and in idle time,
+  // so it paints at once however long it is, and rows off screen are skipped once it has laid out
+  const [win, setWin] = useState<Win | null>(null);
+  let w = win;
+  if (loaded && w?.chat !== chatId) {
+    w = openWin(chatId, rows, messages, typeof location === 'undefined' ? '' : location.hash.slice(1));
+    setWin(w);
+  }
+  const mine = w?.chat === chatId ? w : null;
+  const [from, to] = mine ? mountedRange(mine.span, rows.length) : [0, rows.length];
+  const parts = useMemo(() => partsOf(mine?.core ?? null, from, to, rows.length), [mine?.core, from, to, rows.length]);
   // rows that arrive in one update fade in --stagger apart, 5 deep at most (--n, motion.css)
   const seen = useArrivals(() => rows.map((u) => u.key), loaded, chatId);
   const batch = useRef({ chatId, n: new Map<string, { n: number; at: number }>() });
@@ -222,6 +238,49 @@ export function ChatMessages({ chatId, session }: { chatId: string; session?: Se
     return () => cancelAnimationFrame(raf);
   }, [chatId, loaded]);
 
+  // opening (window.ts): mount more until the latest rows fill two screens, or the linked row has a
+  // screen above and below it, then rows off screen may be skipped at the height they have now
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    const box = content.current;
+    if (!mine || mine.core || !el || !box) return;
+    const pieces = [...box.querySelectorAll<HTMLElement>(':scope > .log-part > .log-unit')];
+    const target = mine.hash ? (document.getElementById(`cm-${mine.hash}`) ?? box.querySelector<HTMLElement>(`[data-ids~="${CSS.escape(mine.hash)}"]`)) : null;
+    const rect = box.getBoundingClientRect();
+    const at = target?.getBoundingClientRect();
+    const dir = fillDirection(mine.span, rows.length, { height: el.scrollHeight, viewport: el.clientHeight, ...(at && { above: at.top - rect.top, below: rect.bottom - at.bottom }) });
+    if (dir) {
+      setWin({ ...mine, span: grow(mine.span, dir, rows.length) });
+      return;
+    }
+    setWin({ ...mine, core: mine.span, guess: keepHeights(pieces) });
+  });
+
+  useAnchoring(scroller, content, !!mine?.core, stick);
+
+  // older rows mount a chunk at a time as the reader nears an edge, and in idle time until all of
+  // it is mounted and find in page covers the whole chat (not after every streamed chunk)
+  const view = useRef({ mine, count: rows.length });
+  useLayoutEffect(() => {
+    view.current = { mine, count: rows.length };
+  });
+  const growing = useRef(false);
+  useLayoutEffect(() => {
+    growing.current = false;
+  }, [mine]);
+  const growOne = (dir: Direction) => {
+    const { mine: m, count } = view.current;
+    if (growing.current || !m?.core || grow(m.span, dir, count) === m.span) return;
+    growing.current = true;
+    startTransition(() => setWin((x) => (x?.chat === m.chat ? { ...x, span: grow(x.span, dir, count) } : x)));
+  };
+  useEffect(() => {
+    const dir = mine?.core ? idleDirection(mine.span, rows.length) : null;
+    if (!dir) return;
+    return whenIdle(() => growOne(dir));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mine, rows.length]);
+
   // sending: your message rises to near the top of the view, and the reply grows under it
   const pendingKey = pending && !pending.arrived ? pending.at : undefined;
   useLayoutEffect(() => {
@@ -259,6 +318,9 @@ export function ChatMessages({ chatId, session }: { chatId: string; session?: Se
   const onScroll = () => {
     const el = scroller.current;
     if (!el) return;
+    const { mine: m, count } = view.current;
+    const edge = m && nearEdge(m.span, count, { top: el.scrollTop, height: el.scrollHeight, viewport: el.clientHeight });
+    if (edge) growOne(edge);
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     stick.current = near;
     if (near !== atBottom) setAtBottom(near);
@@ -269,6 +331,11 @@ export function ChatMessages({ chatId, session }: { chatId: string; session?: Se
   const jump = () => {
     stick.current = true;
     setAtBottom(true);
+    // after a link to an early row the latest rows may not be mounted: open at the end again
+    if (mine && mine.span.end !== null) {
+      setWin(openWin(chatId, rows, messages, ''));
+      return;
+    }
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: reduced ? 'auto' : 'smooth' });
   };
 
@@ -320,29 +387,39 @@ export function ChatMessages({ chatId, session }: { chatId: string; session?: Se
       {/* log-text: the conversation at the Text size of Settings, Appearance (index.css) */}
       <div ref={scroller} onScroll={onScroll} className="log-text min-h-0 flex-1 overflow-y-auto overscroll-contain" role="log" aria-label="Conversation" aria-busy={running || undefined}>
         <div className="@container mx-auto w-full max-w-[784px] px-8 pt-4 pb-10 phone:px-5 phone:pt-2 phone:pb-6">
-          <div ref={content} className="relative">
+          <div ref={content} data-skip-offscreen={!!mine?.core || undefined} className="relative">
+            <KeepPlace session={chatId} start={from} scroller={scroller} />
             <LoadingRows loading={!loaded && !pending && !!session} rows={3} />
-            {rows.map((u, i) => (
-              <div
-                key={u.key}
-                data-anchor={i === anchorIdx ? '' : undefined}
-                data-ids={u.kind === 'reply' ? u.messages.map((m) => m.id).join(' ') : undefined}
-                className={gapClass(rows[i - 1], u)}
-                data-msg-n={nOf(u.key)}
-                style={nOf(u.key) !== undefined ? ({ '--n': nOf(u.key) } as CSSProperties) : undefined}
-              >
-                {render(u, i)}
-                {i === askAfter && asking && (
-                  <div className="mt-6">
-                    <AskingRow model={asking.model} at={asking.at} still={running} />
-                  </div>
-                )}
+            {/* each chunk mounts into a part of its own, there before it (window.ts partsOf) */}
+            {parts.map(({ key: pk, from: a, to: b }) => (
+              <div key={pk} className="log-part contents" style={pk !== 'mid' && mine?.guess ? ({ '--log-unit-h': `${mine.guess}px` } as CSSProperties) : undefined}>
+                {rows.slice(a, b).map((u, j) => {
+                  const i = a + j;
+                  return (
+                    <div
+                      key={u.key}
+                      data-anchor={i === anchorIdx ? '' : undefined}
+                      data-ids={u.kind === 'reply' ? u.messages.map((m) => m.id).join(' ') : undefined}
+                      className={cn('log-unit', i === rows.length - 1 && 'log-unit-last', gapClass(rows[i - 1], u))}
+                      data-msg-n={nOf(u.key)}
+                      style={nOf(u.key) !== undefined ? ({ '--n': nOf(u.key) } as CSSProperties) : undefined}
+                    >
+                      {render(u, i)}
+                      {i === askAfter && asking && (
+                        <div className="mt-6">
+                          <AskingRow model={asking.model} at={asking.at} still={running} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ))}
             {unloaded && <LoadFailed chatId={chatId} />}
             {/* the last reply carries a failure or a limit next to its Knot; these are for a chat with no reply to carry it */}
             {failed && session && !carried && <ErrorLine session={session} user={lastUser} />}
             {resuming && session && !carried && <ResumeLine session={session} />}
+            {session && !pending && <StopCardView session={session} className="mt-4" />}
             {/* what waits on you sits at the end, like a permission prompt (a hook can ask, even in a chat, and so can a subagent) */}
             {session && <Asks sessionId={session.id} />}
           </div>
@@ -433,6 +510,24 @@ function useStableRows(next: Unit[]): Unit[] {
     prev.current = seen;
     return out;
   }, [next]);
+}
+
+/** The mounted rows of one chat (chat/window.ts): the span, the row a #message link opened at, and the span it filled to. */
+interface Win {
+  chat: string;
+  span: Span;
+  /** The row a #message link lands on, and the message. */
+  target: string | null;
+  hash: string | null;
+  /** Once filled and measured, the span the chat opened with; null while it opens. */
+  core: Span | null;
+  /** The average height of the rows it opened with, px. */
+  guess?: number | null;
+}
+
+function openWin(chat: string, rows: Unit[], messages: Message[], hash: string): Win {
+  const t = hash ? rowIndexOf(rows, messages, hash) : -1;
+  return { chat, span: openSpan(rows.length, t), target: t >= 0 ? rows[t].key : null, hash: t >= 0 ? hash : null, core: null };
 }
 
 /** Space above your message after a send, and the scroller's bottom padding (pt-4, pb-10). */

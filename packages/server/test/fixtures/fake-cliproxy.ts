@@ -101,6 +101,8 @@ interface Account {
   type: string;
   email?: string;
   prefix?: string;
+  /** The prefix (or, during a rename, prefixes) the model lists still use (CLIProxyAPI has not reloaded the auth file yet); absent: `prefix`. */
+  listed_prefix?: string | string[];
   disabled?: boolean;
   priority?: number;
   weight?: number;
@@ -174,7 +176,8 @@ function modelsOf(acct: Account): Array<[string, string]> {
 
 /** With a prefix, each model twice: bare (force-model-prefix is off) and prefixed. */
 function idsOf(acct: Account): Array<[string, string]> {
-  return modelsOf(acct).flatMap(([id, owner]): Array<[string, string]> => (acct.prefix ? [[id, owner], [`${acct.prefix}/${id}`, owner]] : [[id, owner]]));
+  const prefixes = [acct.listed_prefix ?? acct.prefix ?? []].flat().filter(Boolean);
+  return modelsOf(acct).flatMap(([id, owner]): Array<[string, string]> => [[id, owner], ...prefixes.map((p): [string, string] => [`${p}/${id}`, owner])]);
 }
 
 /** Every model some account that is on lists: what /v1/models gives and what a request may name. */

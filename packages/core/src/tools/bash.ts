@@ -1,7 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import type { Tool, ToolContext, ToolOutput } from './types';
 import { isReadOnlyCommand, suggestBashRule } from './bash-rules';
-import { shellRegistry } from './shells';
+import { shellRegistry, type BackgroundShell } from './shells';
+import { defuseFrameworkTags } from '../session/untrusted';
+import { isHeadless } from '../session/runner';
 import { clampInt, fail, outputBudget, truncateMiddleOut } from './util';
 import { KEEPS, KIND_NAMES, reduceOutput } from './compress';
 
@@ -153,7 +155,36 @@ async function runForeground(input: BashInput, ctx: ToolContext): Promise<ToolOu
   return { content, isError: res.timedOut || res.aborted || res.exitCode !== 0, meta };
 }
 
-function runBackground(input: BashInput, ctx: ToolContext): ToolOutput {
+const BLOCKING_WAIT_SLEEP_S = 30;
+// the whole command is one wait: no operator, quote-free redirect, substitution or second line, so nothing else rides along
+const BLOCKING_WAIT_RE = /^(gh run watch|gh pr checks|watch|sleep)(?:[ \t]([^;&|<>`$()\n]*))?$/;
+const SLEEP_UNIT_S: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
+
+/** A command that is nothing but a wait (CI watch, watch, long sleep): it runs in the background so queued messages are read. */
+export function isBlockingWait(command: unknown): boolean {
+  if (typeof command !== 'string') return false;
+  const m = BLOCKING_WAIT_RE.exec(command.trim());
+  if (!m) return false;
+  const args = m[2] ?? '';
+  if (m[1] === 'gh pr checks') return /(?:^|\s)--watch(?:\s|$)/.test(args);
+  if (m[1] !== 'sleep') return true;
+  let secs = 0;
+  for (const a of args.split(/\s+/).filter(Boolean)) {
+    const d = /^(\d+(?:\.\d+)?)([smhd]?)$/.exec(a);
+    if (d) secs += Number(d[1]) * (SLEEP_UNIT_S[d[2] || 's'] as number);
+  }
+  return secs > BLOCKING_WAIT_SLEEP_S;
+}
+
+/** What the session hears when a moved wait ends: its status and the end of its output, defused like any tool text. */
+function endedNote(shell: BackgroundShell): string {
+  const i = shell.info;
+  const tail = `${shell.stdout.all()}${shell.stderr.all()}`.replace(/\s+$/, '').slice(-2_000);
+  const how = i.exitCode === null ? i.status : `${i.status}, exit code ${i.exitCode}`;
+  return `The background command "${i.command.slice(0, 100)}" (${i.id}) ended: ${how}.${tail ? `\nEnd of its output:\n${defuseFrameworkTags(tail)}` : ''}`;
+}
+
+function runBackground(input: BashInput, ctx: ToolContext, moved = false): ToolOutput {
   try {
     const shell = shellRegistry.start({
       sessionId: ctx.sessionId,
@@ -162,6 +193,13 @@ function runBackground(input: BashInput, ctx: ToolContext): ToolOutput {
       cwd: ctx.cwd,
       description: input.description,
       env: bashEnv(ctx),
+      // a moved wait keeps the foreground cap as its kill deadline and tells the session when it ends
+      ...(moved
+        ? {
+            timeoutMs: clampInt(input.timeout, BASH_MAX_TIMEOUT_MS, 1_000, BASH_MAX_TIMEOUT_MS),
+            onEnd: (s: BackgroundShell) => ctx.host.shellEnded?.(ctx.sessionId, endedNote(s)),
+          }
+        : {}),
     });
     return {
       content: `Command running in background with id ${shell.info.id}. Use BashOutput with bash_id "${shell.info.id}" to read its output and KillShell to stop it.`,
@@ -186,13 +224,19 @@ export const BashTool: Tool<BashInput> = {
     required: ['command'],
     additionalProperties: false,
   },
-  readOnly: (input) => !input?.run_in_background && isReadOnlyCommand(input?.command),
+  readOnly: (input) => !input?.run_in_background && !isBlockingWait(input?.command) && isReadOnlyCommand(input?.command),
   ruleContent: (input) => (typeof input.command === 'string' ? input.command.trim() : undefined),
   summarize: (input) => input.description?.trim() || `Run: ${String(input.command ?? '').replace(/\s+/g, ' ').slice(0, 100)}`,
   suggestRule: (input) => suggestBashRule(input.command),
   async run(input, ctx) {
     if (typeof input.command !== 'string' || !input.command.trim()) return fail('command is required.');
     if (input.run_in_background) return runBackground(input, ctx);
+    // only where the owner's queued messages wait behind the turn; a subagent, workflow step or routine needs the wait's result before it reports
+    if (isBlockingWait(input.command) && !isHeadless(ctx.session, ctx.session.mode, ctx.depth)) {
+      const started = runBackground(input, ctx, true);
+      if (started.isError) return started;
+      return { ...started, content: `Note: this command only waits, so it was moved to the background to keep the chat free for queued messages.\n${started.content}` };
+    }
     return runForeground(input, ctx);
   },
 };

@@ -112,6 +112,14 @@ describe('Web Push', () => {
     expect(sent[0].payload.link).toBe('/s/s2');
   });
 
+  test('notices of one job share a tag so the device replaces instead of stacking', () => {
+    const base: Notice = { id: 'n', title: 'Workflow w', body: 'Finished', level: 'success', createdAt: 0, sessionId: 's1' };
+    expect(pushPayload({ ...base, thread: 'workflow-r1' }, undefined).tag).toBe('thread-workflow-r1');
+    expect(pushPayload({ ...base, id: 'm', thread: 'workflow-r1' }, undefined).tag).toBe('thread-workflow-r1');
+    expect(pushPayload(base, undefined).tag).toBe('session-s1');
+    expect(pushPayload({ ...base, thread: 't', approvalId: 'a1' }, undefined).tag).toBe('approval-a1');
+  });
+
   test('a long body is cut so the push fits, also in wide scripts', () => {
     const notice: Notice = { id: 'n', title: 'Routine: digest', body: '\u65e5\u672c\u8a9e'.repeat(900), level: 'info', createdAt: 0, sessionId: 's1' };
     const payload = pushPayload(notice, 'https://hub.example', (id, d) => `${id}${d}`);
