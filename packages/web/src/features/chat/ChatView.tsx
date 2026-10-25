@@ -308,7 +308,8 @@ function SessionMenu({ session }: { session: Session }) {
             // delegated work: a normal session of its kind from now on
             ...(isDelegated(session) ? [{ label: MOVE_TO_MAIN, onSelect: () => void moveToMainList(session.id) }, { separator: true, label: '' }] : []),
             // Pause lets the call in progress finish, then waits for Resume (kept across restarts)
-            ...(session.status === 'paused'
+            // after Stop or a restart cut the turn, Resume starts a turn that continues it
+            ...(session.status === 'paused' || (session.status === 'idle' && session.meta?.stoppedTurn)
               ? [{ label: 'Resume', onSelect: () => attempt(() => api().resumeSession(session.id)) }, { separator: true, label: '' }]
               : ['running', 'waiting_approval', 'waiting_input'].includes(session.status)
                 ? [{ label: 'Pause', detail: 'After the current tool call', onSelect: () => attempt(() => api().pauseSession(session.id)) }, { separator: true, label: '' }]

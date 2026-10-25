@@ -50,6 +50,7 @@ import { memoryRecallBudget } from '../engine/builtin-hooks';
 import { STOP_BLOCK_CAP } from '../extensions/hooks';
 import { loadPathRules, loadScopedInstructions, type InstructionFile, type PathRule } from '../extensions/instructions';
 import { pendingSwitch, switchNote } from '../modes/switch-marker';
+import { movedToMain } from './delegated';
 import type { Machine } from '../machine/types';
 
 const log = logger('runner');
@@ -88,6 +89,18 @@ const CONTINUE_AFTER_OUTPUT_LIMIT =
   'Your last reply hit the output token limit and was cut off. Continue exactly where it stopped, without repeating what you already wrote. Split long output into smaller parts.';
 /** Sent before the retry of an empty reply: the same request again tends to get the same empty reply. */
 export const CONTINUE_AFTER_EMPTY_REPLY = 'Your last reply was empty. Continue: answer the user, or take the next step of the task.';
+/** Sent when the owner resumes a turn that Stop or a hub restart cut (resumeStopped). */
+export const RESUME_AFTER_STOP =
+  'The user stopped your last turn and has now resumed it. Continue the task from where it stopped. Do not redo steps that already finished; a tool call marked interrupted did not complete.';
+
+/**
+ * Only the owner's own sessions get Resume after Stop: a Task child or a
+ * workflow agent resumes through its parent or run, and a plain turn there
+ * would report to no one.
+ */
+export function canResumeStopped(s: Pick<Session, 'parentId' | 'meta'>): boolean {
+  return (!s.parentId || movedToMain(s)) && !s.meta?.workflow;
+}
 
 export function stepBudgetNote(used: number, max: number): string {
   return `Step budget: you have used ${used} of ${max} steps in this turn. Save durable progress now (files, TodoWrite), then continue. Do not stop only because of this note.`;
@@ -551,6 +564,13 @@ export class SessionRunner {
     void this.drain();
   }
 
+  /** Resume after Stop (or a restart that cut the turn): a new turn on the stored transcript with a continue reminder, before held messages. */
+  resumeStopped(): void {
+    this.engine.addMessage(this.id, { role: 'user', kind: 'normal', content: [reminder(RESUME_AFTER_STOP)], meta: { auto: true } });
+    this.queue.unshift({ input: { text: '' }, auto: true, inference: true });
+    void this.drain();
+  }
+
   /**
    * Stop (or the hub shutting down). Auto inputs go; what a person sent waits
    * on, stored: after a Stop it is held until they send or remove it, at
@@ -693,6 +713,8 @@ export class SessionRunner {
         // a waiting message stays listed while its turn starts (hooks, recall), until its user message is stored
         if (next.pending) this.starting = next;
         this.current = next;
+        // any new turn ends what Resume after Stop could continue
+        if (this.session.meta?.stoppedTurn) this.engine.patchMeta(this.id, { stoppedTurn: undefined });
         next.turn?.start?.();
         this.controller = new AbortController();
         const signal = this.controller.signal;
@@ -714,6 +736,8 @@ export class SessionRunner {
           if (this.pausing && !this.controller.signal.aborted) this.parkPaused(true);
           else if (this.controller.signal.aborted) {
             this.engine.notice(this.id, 'Stopped', 'info');
+            // a message cut before it was stored is the owner's next ask: it waits held below, nothing to continue
+            if (!this.starting && canResumeStopped(this.session)) this.engine.patchMeta(this.id, { stoppedTurn: true });
             this.engine.setStatus(this.id, 'idle');
           } else {
             log.error(`turn failed in ${this.id}`, err);

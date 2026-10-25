@@ -29,6 +29,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Added
 
 - Window starter for Google (Antigravity) plans: it goes by the 5 hour window of the model it sends, so the cheapest Gemini Flash starts the `5h gemini` window right after its reset. An owner-picked Claude or GPT model goes by the `5h 3p` window. Before, these plans showed "No 5 hour window".
+- Resume now works after Stop too. A turn that Stop or a hub restart cut can go on from the session menu (web and Android): Resume starts a new turn on the stored transcript with a reminder to continue where it stopped. Subagent and workflow agent sessions do not get it (they resume through their parent or run), and a rewind clears it. The Android chat menu also gets Pause and Resume.
 
 ## [0.4.29] - 2026-10-25
 
