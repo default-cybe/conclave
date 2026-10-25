@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Android Usage: pull to refresh shows the stored numbers at once, then asks the hub to re-read plan usage (`POST /api/limits/refresh`) and reloads the summaries with the records it imported. Members, who may not force a re-read, keep the stored values with no error toast. Each limit card says how old its numbers are ("read from OAuth, updated 3m ago"). Opening the page still reads only the stored values.
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed
