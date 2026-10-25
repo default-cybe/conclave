@@ -12,6 +12,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Added
 
 - Save drafts without asking: a per-account setting (off by default, Settings > Calendar and mail) that makes the Assistant's `MailDraft` save the draft straight into Drafts with no approval card. It never sends; sending still needs approval, and the email-reading agent still cannot draft.
+- A chat's composer draft, its text and attached files, now survives a browser reload or the OS closing the app, in both the chat and the session composer. It is kept per chat in IndexedDB (text and files under separate keys, so typing never rewrites the files) until sent or cleared, saved when you switch chats or hide the page, and removed when the chat is deleted or you sign out. A draft the browser cannot store shows a toast. The Android composers on the Chat tab and the session screen keep their draft too, per chat in the app's own storage (text and files apart), so it survives Android closing the app; sending clears it, a failed send puts it back, and deleting the chat or signing out removes it (a chat screen closing after sign out cannot write it back). A draft the phone cannot store shows a toast instead of closing the app.
 
 ## [0.4.30] - 2026-10-25
 

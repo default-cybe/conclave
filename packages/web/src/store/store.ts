@@ -30,6 +30,7 @@ import type { AccountsStatus, AlertItem, AppDto, Attachment, FriendDto, HubInfo,
 import { limitKey } from '@conclave/core/accounts/windows';
 import type { AgentDef, CommandDef, SkillDef } from '@conclave/core/extensions/types';
 import { api, connectClient, loadConnection, webSocketImpl, type Connection } from '@/lib/api';
+import { dropDraft } from '@/features/chat/draft';
 import { reportHubError } from '@/lib/identity';
 import { clientLog } from '@/lib/clientLog';
 import { followMove, recoverAddress, rememberAddresses } from '@/lib/remote';
@@ -739,6 +740,7 @@ export function upsertSharedProject(p: SharedProjectDto, gone = false) {
 export const heldApprovals = new Set<string>();
 
 export function removeKey<K extends 'sessions' | 'tasks' | 'routines' | 'memories' | 'devices' | 'apps' | 'approvals' | 'questions' | 'alerts'>(k: K, id: string) {
+  if (k === 'sessions') void dropDraft(id);
   set((st) => {
     const next = { ...(st[k] as Record<string, unknown>) };
     delete next[id];

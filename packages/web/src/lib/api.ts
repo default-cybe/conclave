@@ -49,7 +49,7 @@ export function saveConnection(c: Connection) {
   } catch {
     /* private mode: keep it in memory only */
   }
-  void idbSet('auth', c);
+  void idbSet('auth', c).catch(() => {});
 }
 
 /** Resolves once the service worker's copy of the token is gone too. */
@@ -60,7 +60,7 @@ export function clearConnection(): Promise<void> {
     /* ignore */
   }
   client = null;
-  return idbSet('auth', null);
+  return idbSet('auth', null).catch(() => {});
 }
 
 /** Accept #token=...&hub=... once, save it, then strip it from the URL. */
@@ -143,14 +143,37 @@ function idb(): Promise<IDBDatabase | null> {
   });
 }
 
+export async function idbGet(key: string): Promise<unknown> {
+  const db = await idb();
+  if (!db) return undefined;
+  return new Promise((resolve) => {
+    const req = db.transaction('kv').objectStore('kv').get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => resolve(undefined);
+  });
+}
+
+/** Rejects when the write did not land: a full disk aborts the transaction, a value that cannot be cloned throws. */
 export async function idbSet(key: string, value: unknown) {
   const db = await idb();
   if (!db) return;
-  await new Promise<void>((resolve) => {
+  await new Promise<void>((resolve, reject) => {
     const tx = db.transaction('kv', 'readwrite');
     if (value === null) tx.objectStore('kv').delete(key);
     else tx.objectStore('kv').put(value, key);
     tx.oncomplete = () => resolve();
-    tx.onerror = () => resolve();
+    tx.onabort = () => reject(tx.error ?? new Error('IndexedDB write aborted'));
+  });
+}
+
+/** Delete every key that starts with the prefix. */
+export async function idbDropPrefix(prefix: string) {
+  const db = await idb();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction('kv', 'readwrite');
+    tx.objectStore('kv').delete(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => resolve();
   });
 }

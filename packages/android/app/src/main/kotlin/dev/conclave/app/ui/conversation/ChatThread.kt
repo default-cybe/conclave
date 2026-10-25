@@ -160,7 +160,7 @@ fun ChatThreadScreen(
 ) {
     val container = LocalAppContainer.current
     val hub = container.hub
-    val vm: ChatThreadViewModel = viewModel(key = "chat-thread:$sessionId") { ChatThreadViewModel(hub, container.settings, sessionId) }
+    val vm: ChatThreadViewModel = viewModel(key = "chat-thread:$sessionId") { ChatThreadViewModel(hub, container.settings, sessionId, container.drafts) }
     val session by vm.session.collectAsStateWithLifecycle()
     val units by vm.units.collectAsStateWithLifecycle()
     val live by vm.live.collectAsStateWithLifecycle()
