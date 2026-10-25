@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Settings > Models > Accounts: "Add an order for a model" offers every model a plan lists (a subscription or the Z.ai Coding Plan), not only models two or more plans share, and skips ids the hub cannot file under a vendor. A Z.ai order (a pay as you go key before the Coding Plan, say) now picks the first provider of a bare GLM call too. A Z.ai Coding Plan key at its limit hands the same call to the next Z.ai key in the order instead of waiting for the reset; a key over its hard budget is skipped.
+
 ## [0.4.29] - 2026-10-25
 
 ### Changed

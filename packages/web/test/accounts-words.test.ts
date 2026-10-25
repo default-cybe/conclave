@@ -43,21 +43,29 @@ describe('account words', () => {
     expect(nowLine({ vendor: 'anthropic', vendorName: 'Claude', account: 'a2', skipped: [] }, accounts, NOW)).toEqual({ lead: 'Now using Account 2.', why: [], tone: 'ok' });
   });
 
-  test('Per model offers models two or more plans list, from any vendor, until they have an order', () => {
+  test('Per model offers every model a plan lists, once, from any vendor, until it has an order', () => {
     const opus = { id: 'claude-opus-5-5', name: 'Claude Opus 5.5' };
+    const gemini = { id: 'gemini-3-pro', name: 'Gemini 3 Pro' };
+    const sonnet = { id: 'claude-sonnet-5-5', name: 'Sonnet' };
+    const glm = { id: 'glm-5.3', name: 'GLM-5.3' };
+    const v = (m: { id: string; name: string }, vendor: string) => ({ ...m, vendor });
     const accounts = [
-      acct('c', 'Claude', { models: [opus, { id: 'claude-sonnet-5-5', name: 'Sonnet' }] }),
-      acct('g', 'Antigravity', { vendor: 'gemini', vendorName: 'Gemini', models: [{ id: 'ag/claude-opus-5-5', name: 'Claude Opus 5.5' }, { id: 'gemini-3-pro', name: 'Gemini 3 Pro' }] }),
-      acct('k', 'Claude API key', { kind: 'api', models: [{ id: 'claude-sonnet-5-5', name: 'Sonnet' }] }),
+      acct('c', 'Claude', { models: [v(opus, 'anthropic'), v(sonnet, 'anthropic'), { id: 'daybreak', name: 'Daybreak' }] }),
+      acct('g', 'Antigravity', { vendor: 'gemini', vendorName: 'Gemini', models: [v({ id: 'ag/claude-opus-5-5', name: 'Claude Opus 5.5' }, 'anthropic'), v(gemini, 'gemini')] }),
+      // a plain key's models keep the registry's route: no order to offer, not even its whole catalog
+      acct('k', 'Claude API key', { kind: 'api', models: [v({ id: 'claude-haiku-5', name: 'Haiku' }, 'anthropic')] }),
+      // a plan paid with a key (the Z.ai Coding Plan) gets an order too
+      acct('z', 'Z.ai Coding Plan', { kind: 'api', vendor: 'zai', vendorName: 'GLM', subscription: 'zai-coding', models: [v(glm, 'zai')] }),
     ];
-    expect(sharedModels({ accounts, routes: [] })).toEqual([opus]);
-    expect(sharedModels({ accounts, routes: [{ vendor: 'anthropic', vendorName: 'Claude', match: 'claude-opus-5-5', order: ['g', 'c'] }] })).toEqual([]);
+    // daybreak has no vendor the hub can place: an order for it would be refused
+    expect(sharedModels({ accounts, routes: [] })).toEqual([opus, gemini, glm, sonnet]);
+    expect(sharedModels({ accounts, routes: [{ vendor: 'anthropic', vendorName: 'Claude', match: 'claude-opus-5-5', order: ['g', 'c'] }] })).toEqual([gemini, glm, sonnet]);
   });
 
   test('Per model groups a plan that lists only an effort or thinking variant with the model (Antigravity)', () => {
     const accounts = [
-      acct('g', 'Antigravity', { vendor: 'gemini', vendorName: 'Gemini', models: [{ id: 'claude-opus-5-5-high', name: 'Claude Opus 5.5 (High)' }, { id: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6 (Thinking)' }] }),
-      acct('c', 'Claude', { models: [{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5' }, { id: 'claude-opus-4-6', name: 'Claude Opus 4.6' }] }),
+      acct('g', 'Antigravity', { vendor: 'gemini', vendorName: 'Gemini', models: [{ id: 'claude-opus-5-5-high', name: 'Claude Opus 5.5 (High)', vendor: 'anthropic' }, { id: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6 (Thinking)', vendor: 'anthropic' }] }),
+      acct('c', 'Claude', { models: [{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5', vendor: 'anthropic' }, { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', vendor: 'anthropic' }] }),
     ];
     expect(sharedModels({ accounts, routes: [] })).toEqual([
       { id: 'claude-opus-4-6', name: 'Claude Opus 4.6' },

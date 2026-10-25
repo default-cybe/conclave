@@ -24,7 +24,7 @@ import type { AccountDto } from '../../src/client/accounts';
 const sse = (events: unknown[]) => new Response(events.map((e) => `data: ${typeof e === 'string' ? e : JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
 const calls: string[] = [];
 
-// personal-gpt is at its limit; every other plan answers
+// personal-gpt, personal-gem and personal-cl are at their limit; every other plan answers
 const cpa = Bun.serve({
   port: 0,
   async fetch(req) {
@@ -32,7 +32,20 @@ const cpa = Bun.serve({
     if (path === '/v1/models') return Response.json({ object: 'list', data: [] });
     const body = (await req.json().catch(() => ({}))) as any;
     if (Array.isArray(body.tools) && body.tools.length) calls.push(body.model);
-    if (String(body.model).startsWith('personal-gpt/')) {
+    // Claude ids take the Anthropic wire (anthropicWire below)
+    if (path === '/v1/messages') {
+      if (String(body.model).startsWith('personal-cl/')) return Response.json({ type: 'error', error: { type: 'rate_limit_error', message: 'The usage limit has been reached' } }, { status: 429, headers: { 'retry-after': '7200' } });
+      const ev = [
+        { type: 'message_start', message: { id: 'm1', model: body.model, usage: { input_tokens: 10, output_tokens: 0 } } },
+        { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ok' } },
+        { type: 'content_block_stop', index: 0 },
+        { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } },
+        { type: 'message_stop' },
+      ];
+      return new Response(ev.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+    }
+    if (/^personal-(gpt|gem)\//.test(String(body.model))) {
       return Response.json({ error: { type: 'usage_limit_reached', message: 'The usage limit has been reached' } }, { status: 429, headers: { 'retry-after': '7200' } });
     }
     // gpt-6-nano refuses: the refusal fallback walk starts
@@ -183,6 +196,80 @@ describe('a pinned plan at its limit moves to the next plan, same model', () => 
       engine.config.update({ limits: { fallbacks: {} } } as never);
     }
   });
+});
+
+describe('the same on Claude, Gemini and Z.ai, no switching by hand', () => {
+  test('two Claude plans: personal-cl at its limit, the turn continues on backup-cl and the session keeps it', async () => {
+    const cl = ['personal', 'backup'].map((id) => cred(`${id}-cl`, { name: `claude-${id}-cl.json`, provider: 'claude', models: [{ id: 'claude-opus-5-5' }] }));
+    accountsOf(engine)!.setCliproxy({ provider: 'cliproxy', management: true, refreshedAt: Date.now() - 1000, credentials: [...IDS.map((id) => cred(`${id}-gpt`)), ...cl] });
+    const models = [...(engine.config.get().providers as any).cliproxy.models];
+    engine.config.update({ providers: { cliproxy: { models: [...models, 'claude-opus-5-5', 'personal-cl/claude-opus-5-5', 'backup-cl/claude-opus-5-5'] } } } as never);
+    try {
+      const s = await engine.createSession({ cwd, title: 'claude', model: 'cliproxy/personal-cl/claude-opus-5-5' } as never);
+      const runner = engine.runnerFor(s.id);
+      await runner.enqueue({ text: 'hi' });
+      await Promise.race([runner.waitIdle(), Bun.sleep(15_000)]);
+      expect(calls).toEqual(['personal-cl/claude-opus-5-5', 'backup-cl/claude-opus-5-5']);
+      expect(notices(engine.getMessages(s.id)).filter((n) => /limit/i.test(n))).toHaveLength(1);
+      expect(engine.getSession(s.id)!.model).toBe('cliproxy/backup-cl/claude-opus-5-5');
+      expect(engine.getSession(s.id)!.status).not.toBe('waiting_reset');
+    } finally {
+      engine.config.update({ providers: { cliproxy: { models } } } as never);
+    }
+  }, 30_000);
+
+  test('two Antigravity plans: personal-gem at its limit, the turn continues on backup-gem and the session keeps it', async () => {
+    const gem = ['personal', 'backup'].map((id) => cred(`${id}-gem`, { name: `antigravity-${id}-gem.json`, provider: 'antigravity', models: [{ id: 'gemini-3.5-flash' }] }));
+    accountsOf(engine)!.setCliproxy({ provider: 'cliproxy', management: true, refreshedAt: Date.now() - 1000, credentials: [...IDS.map((id) => cred(`${id}-gpt`)), ...gem] });
+    const models = [...(engine.config.get().providers as any).cliproxy.models];
+    engine.config.update({ providers: { cliproxy: { models: [...models, 'gemini-3.5-flash', 'personal-gem/gemini-3.5-flash', 'backup-gem/gemini-3.5-flash'] } } } as never);
+    try {
+      const s = await engine.createSession({ cwd, title: 'gem', model: 'cliproxy/personal-gem/gemini-3.5-flash' } as never);
+      const runner = engine.runnerFor(s.id);
+      await runner.enqueue({ text: 'hi' });
+      await Promise.race([runner.waitIdle(), Bun.sleep(15_000)]);
+      expect(calls).toEqual(['personal-gem/gemini-3.5-flash', 'backup-gem/gemini-3.5-flash']);
+      expect(notices(engine.getMessages(s.id)).filter((n) => /limit/i.test(n))).toHaveLength(1);
+      expect(engine.getSession(s.id)!.model).toBe('cliproxy/backup-gem/gemini-3.5-flash');
+      expect(engine.getSession(s.id)!.status).not.toBe('waiting_reset');
+    } finally {
+      engine.config.update({ providers: { cliproxy: { models } } } as never);
+    }
+  }, 30_000);
+
+  test('the Z.ai Coding Plan at its limit: the same call continues on the next Z.ai key', async () => {
+    const real = globalThis.fetch;
+    const zai: string[] = [];
+    // the coding plan's endpoint says its 5 hours are used up; the pay as you go endpoint answers
+    globalThis.fetch = (async (input: any, init?: RequestInit) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (!url.startsWith('https://api.z.ai/')) return real(input, init);
+      zai.push(new URL(url).pathname);
+      if (url.includes('/coding/')) return Response.json({ error: { code: '1308', message: 'Usage limit reached for 5 hour' } }, { status: 429, headers: { 'retry-after': '7200' } });
+      return sse([{ id: 'z1', choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] }, '[DONE]']);
+    }) as typeof fetch;
+    const before = structuredClone(engine.config.getUser().providers);
+    engine.config.update({
+      providers: {
+        zai: { type: 'openai', baseUrl: 'https://api.z.ai/api/coding/paas/v4', apiKey: 'zai-plan-test-key', enabled: true, models: ['glm-5.3'], subscription: 'zai-coding' },
+        'zai-paygo': { type: 'openai', baseUrl: 'https://api.z.ai/api/paas/v4', apiKey: 'zai-paygo-test-key', enabled: true, models: ['glm-5.3'] },
+      },
+    } as never);
+    try {
+      const s = await engine.createSession({ cwd, title: 'zai', model: 'zai/glm-5.3' } as never);
+      const runner = engine.runnerFor(s.id);
+      await runner.enqueue({ text: 'hi' });
+      await Promise.race([runner.waitIdle(), Bun.sleep(15_000)]);
+      expect(zai).toEqual(['/api/coding/paas/v4/chat/completions', '/api/paas/v4/chat/completions']);
+      expect(engine.getSession(s.id)!.status).not.toBe('waiting_reset');
+      expect(notices(engine.getMessages(s.id)).filter((n) => /at its limit/i.test(n))).toEqual([expect.stringContaining('for this call.')]);
+    } finally {
+      globalThis.fetch = real;
+      // the plan and its keys must not reach later tests (accts, keyPlan)
+      engine.config.replace({ ...engine.config.getUser(), providers: before });
+      accountsOf(engine)!.clearBlock('api-zai');
+    }
+  }, 30_000);
 });
 
 describe('back on the first plan once its limit resets', () => {
