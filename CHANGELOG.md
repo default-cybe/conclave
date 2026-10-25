@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- One notification per job. A workflow run, or a parent session and its subagents, now share one thread, through nested subagents and for failures too: each new notice replaces the last on your phone, the Android app and desktop (and alerts again) instead of adding to a pile.
+
 ## [0.4.30] - 2026-10-25
 
 ### Fixed
