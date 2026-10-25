@@ -395,6 +395,7 @@ A plugin is a folder with `.claude-plugin/plugin.json` (Codex's `.codex-plugin/p
 - Installing shows what the plugin adds. Plugins with hooks or MCP servers run code on the hub; read them first.
 - Hooks can be turned off per plugin in its detail (`PATCH /api/plugins/<name> {"hooks": false}`). Its skills, commands and agents still load. This suits ponytail and caveman when you want their skills without a node process on every prompt.
 - Update re-fetches from the recorded source and keeps the enabled flag. Disable keeps the files; remove deletes them and the plugin's data folder.
+- A plugin whose `package.json` lists `dependencies` and ships no `node_modules` gets them on install and update: `npm ci --omit=dev --ignore-scripts` (`npm install` when there is no package-lock), as the hub's user, in the plugin folder, with a 2 minute limit. Install scripts never run. If it fails, the plugin stays installed and Extensions > Plugins shows the command to run by hand.
 
 OpenCode JS plugins and Gemini CLI extensions do not load.
 
