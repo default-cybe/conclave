@@ -60,6 +60,13 @@ object FileCards {
         "application/vnd.openxmlformats-officedocument.presentationml.presentation" to "PowerPoint deck",
     )
 
+    /** Largest file the card shows inline; bigger ones stay a card only. */
+    const val INLINE_MAX = 20L * 1024 * 1024
+
+    /** Raster types the card shows inline (FileCard.tsx). SVG and HTML never render. */
+    fun inlineImage(mediaType: String): Boolean =
+        mediaType in setOf("image/png", "image/jpeg", "image/webp", "image/gif")
+
     /** "PDF, 14.2 KB". */
     fun facts(c: FileCardData): String = "${KIND[c.mediaType] ?: "File"}, ${sizeWords(c.size)}"
 
