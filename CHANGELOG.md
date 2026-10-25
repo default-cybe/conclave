@@ -11,6 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- Files the model saves in a chat's (or the Assistant's) outputs folder without calling `ShareFile` now get a file card at the end of the turn, so every client shows them as downloads, however the turn ends. Sessions with a project folder do not get this; they still share with `ShareFile`.
 - Save drafts without asking: a per-account setting (off by default, Settings > Calendar and mail) that makes the Assistant's `MailDraft` save the draft straight into Drafts with no approval card. It never sends; sending still needs approval, and the email-reading agent still cannot draft.
 
 ## [0.4.30] - 2026-10-25
