@@ -72,6 +72,46 @@ export async function claudeCodeFiles(machine: Machine, root?: string): Promise<
   return out;
 }
 
+/**
+ * Where a chat's folder can be on the device whose disk holds the file, best
+ * first: the file's cwd, the same path under this device's home (a sync tool
+ * such as claudesync copies a Mac chat to Linux and rewrites only some paths),
+ * then the project folder's name read back as a path, keeping a tail of the
+ * cwd it ends with. The name is ambiguous ('-' stands for '/', '-', ' ' and
+ * '.'), so every one is a guess the caller checks on the device. A path that
+ * encodes to the folder name goes first: the chat was started there, and a
+ * home-swapped cwd can be a real but wrong folder (/Users/u/CMU for a chat in
+ * -Users-u-MadX-CMU).
+ */
+export function claudeCwdCandidates(path: string | undefined, cwd: string | undefined, home: string | undefined): string[] {
+  const out: string[] = cwd ? [cwd] : [];
+  const rest = cwd?.match(/^\/(?:home|Users)\/[^/]+(\/.*)?$/);
+  if (rest && home) out.push(home + (rest[1] ?? ''));
+  const at = path?.lastIndexOf('/projects/') ?? -1;
+  const dir = at < 0 ? '' : path!.slice(at + 10).split('/')[0];
+  const enc = (p: string) => p.replace(/[^a-zA-Z0-9]/g, '-');
+  if (dir.startsWith('-')) {
+    const parts = (cwd ?? '').split('/').filter(Boolean);
+    for (let i = 1; i < parts.length; i++) {
+      const tail = `/${parts.slice(i).join('/')}`;
+      const e = enc(tail);
+      if (dir.length > e.length && dir.endsWith(e)) out.push(dir.slice(0, -e.length).replace(/-/g, '/') + tail);
+    }
+    out.push(dir.replace(/-/g, '/'));
+  }
+  const all = [...new Set(out)];
+  return [...all.filter((p) => enc(p) === dir), ...all.filter((p) => enc(p) !== dir)];
+}
+
+/** The first of claudeCwdCandidates that is a folder on the machine, else undefined: never an unchecked guess. */
+export async function claudeDeviceCwd(machine: Machine, path: string | undefined, cwd: string | undefined): Promise<string | undefined> {
+  for (const p of claudeCwdCandidates(path, cwd, machine.resolve('~', '/'))) {
+    const st = await machine.stat(p).catch(() => null);
+    if (st && st.type !== 'file') return p;
+  }
+  return undefined;
+}
+
 /** Strip harness wrappers: system reminders go entirely, persisted output keeps its body. */
 export function stripWrappers(text: string): string {
   return text
@@ -291,7 +331,8 @@ export function convertClaudeCode(text: string | Uint8Array, opts: { subagent?: 
   return {
     source: 'claude-code',
     nativeId,
-    nativeIdUnique: false,
+    // a main file is <sessionId>.jsonl; a subagent transcript carries its parent's id
+    nativeIdUnique: !isSub,
     title: title ? truncateTitle(title) : undefined,
     cwd,
     gitBranch,
