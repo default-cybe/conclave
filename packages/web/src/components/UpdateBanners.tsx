@@ -33,7 +33,7 @@ import { Button, buttonClass } from '@/components/ui/Button';
 import { Checkbox } from '@/components/ui/Field';
 import { Dialog } from '@/components/ui/Overlay';
 import { LiveStatus } from '@/components/motion';
-import { busyMessage, hubBanner, jobRunning, jobWords, popupFor, popupTitle, RELOAD_WORDS, showReload, updateDot, type UpdatePrefs } from '@/lib/updates';
+import { bundleStale, bundleWords, busyMessage, hubBanner, jobRunning, jobWords, popupFor, popupTitle, RELOAD_WORDS, showReload, updateDot, type UpdatePrefs } from '@/lib/updates';
 
 const SKIP_KEY = 'conclave.update.skip';
 /** The old banner's Later: the version it was put off for counts as skipped. */
@@ -128,8 +128,24 @@ export function ReloadBanner() {
   useEffect(() => {
     if (version && !loaded) setLoaded(version);
   }, [version, loaded]);
-  if (!showReload(loaded, version, closedFor)) return null;
+  // the iPhone app reloads its own old bundle: BundleBanner covers it
+  if (location.protocol === 'capacitor:' || !showReload(loaded, version, closedFor)) return null;
   return <ReloadLine size={mobile ? 'touch' : 'sm'} onReload={() => location.reload()} onLater={() => setClosedFor(version)} />;
+}
+
+/** The iPhone app (capacitor://) runs the web code it was built with: on another version than the hub it says to rebuild or reinstall. */
+export function BundleBanner() {
+  const version = useHub((s) => s.hub?.version);
+  const mobile = useIsMobile();
+  const [closedFor, setClosedFor] = useState<string>();
+  if (!version || !bundleStale(location.protocol === 'capacitor:', __BUNDLED_VERSION__, version, closedFor)) return null;
+  return (
+    <BannerLine words={bundleWords(__BUNDLED_VERSION__, version)}>
+      <Button variant="ghost" size={mobile ? 'touch' : 'sm'} onClick={() => setClosedFor(version)}>
+        Later
+      </Button>
+    </BannerLine>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -363,6 +379,7 @@ export function UpdateBanners() {
   return (
     <>
       <ReloadBanner />
+      <BundleBanner />
       <HubUpdatePopup />
     </>
   );

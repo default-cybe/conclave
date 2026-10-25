@@ -11,6 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- The iPhone app checks its bundled web version against the hub's. When they differ (the hub updated, the app did not), a line at the top says the app has an older version and to rebuild or reinstall it; Later hides it until the hub's version changes again. The app's version is the last git release tag at build time; a build without tags skips the check, and the app no longer also shows the reload line.
 - Save drafts without asking: a per-account setting (off by default, Settings > Calendar and mail) that makes the Assistant's `MailDraft` save the draft straight into Drafts with no approval card. It never sends; sending still needs approval, and the email-reading agent still cannot draft.
 
 ### Changed

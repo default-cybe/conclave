@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Router } from 'wouter';
 import { ApiError, type DeviceUpdateDto, type UpdateJobDto, type UpdateStatusDto } from '@conclave/core/client';
-import { busyMessage, bannerWords, cannotWords, compareVersions, deviceUpdateView, hubBanner, installWords, jobRunning, jobWords, latestWords, notesLine, popupFor, popupTitle, showReload, updateDot, updateWaiting, versionChanged } from '../src/lib/updates';
+import { bundleStale, bundleWords, busyMessage, bannerWords, cannotWords, compareVersions, deviceUpdateView, hubBanner, installWords, jobRunning, jobWords, latestWords, notesLine, popupFor, popupTitle, showReload, updateDot, updateWaiting, versionChanged } from '../src/lib/updates';
 import { ReloadLine, UpdatePopupBody } from '../src/components/UpdateBanners';
 
 function status(p: Partial<UpdateStatusDto> = {}): UpdateStatusDto {
@@ -47,6 +47,20 @@ describe('Conclave was updated. Reload', () => {
     expect(html).toContain('Conclave was updated.');
     expect(html).toContain('Reload');
     expect(html).toContain('role="status"');
+  });
+});
+
+describe('the iPhone app and the hub on another version', () => {
+  test('shows only in the app, on a mismatch, once per hub version', () => {
+    expect(bundleStale(true, '0.4.1', '0.5.0', undefined)).toBe(true);
+    expect(bundleStale(true, '0.5.0', '0.5.0', undefined)).toBe(false);
+    expect(bundleStale(false, '0.4.1', '0.5.0', undefined)).toBe(false);
+    expect(bundleStale(true, '0.4.1', undefined, undefined)).toBe(false);
+    expect(bundleStale(true, '0.4.1', '0.5.0', '0.5.0')).toBe(false);
+    expect(bundleStale(true, '0.4.1', '0.6.0', '0.5.0')).toBe(true);
+    // no git tag at build time: the bundled version is '' and the check is skipped
+    expect(bundleStale(true, '', '0.5.0', undefined)).toBe(false);
+    expect(bundleWords('0.4.1', '0.5.0')).toBe('This app has Conclave 0.4.1, the hub runs 0.5.0. Rebuild or reinstall the app to match.');
   });
 });
 
