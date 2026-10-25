@@ -271,8 +271,11 @@ fun ChatImage(block: ImageBlock, maxHeight: Dp, modifier: Modifier = Modifier) {
 }
 
 /** A bitmap no more than about [target] px on its long side, or null when the data is not an image. */
-internal fun decodeScaled(data: String, target: Int): ImageBitmap? = runCatching {
-    val bytes = java.util.Base64.getDecoder().decode(data)
+internal fun decodeScaled(data: String, target: Int): ImageBitmap? =
+    runCatching { java.util.Base64.getDecoder().decode(data) }.getOrNull()?.let { decodeScaled(it, target) }
+
+/** The same from raw bytes (a shared file's preview in FileCards.kt). */
+internal fun decodeScaled(bytes: ByteArray, target: Int): ImageBitmap? = runCatching {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
     var sample = 1
