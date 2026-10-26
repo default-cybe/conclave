@@ -32,6 +32,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Fixed
 
+- WebFetch of `reddit.com` threads and listings now requests `old.reddit.com` `.json` endpoints with the Conclave `User-Agent`, retries once through the configured proxy in Settings > Browser when Reddit blocks the hub's address, and falls back to the hub's browser (including through the proxy) when HTTP stays blocked. A member's session never uses the owner's proxy or browser.
 - Subagents and workflow steps on the `deep` tier (debugger and other built-in profiles) now run on the session's model when it is already deep tier, else on a deep-tier defaultModel, before the catalog's own pick. Before, with no `models.tiers.deep` set, an Opus 5.5 session sent them to Claude Fable 5.1. `models.tiers.deep` still wins.
 - Discard or Clean up of a worktree no longer fails with "Directory not empty" when git removed the folder but a background git maintenance still held its `.git/worktrees` entry: the hub prunes the entry and finishes, branch included.
 - The workflow test "a call the owner skipped stays skipped when the run resumes" no longer fails under full-suite load: scripted replies are held by a promise the test releases, and it waits on call state events instead of polling against 3 s timers.
