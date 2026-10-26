@@ -92,6 +92,58 @@ describe('the first level', () => {
   });
 });
 
+// a custom provider serving fine-tunes on catalog names, next to the Z.ai plan's own GLM-5.3
+const CUSTOM: ModelGroup[] = [
+  group('zai', [model('zai', 'glm-5.3', 'GLM-5.3'), model('zai', 'glm-5.3-flash', 'GLM-5.3 Flash')]),
+  group(
+    'experientiallabs',
+    [
+      model('experientiallabs', 'glm-5.3-uncensored', 'GLM-5.3 Uncensored', { inputPrice: 0, outputPrice: 0 }),
+      model('experientiallabs', 'glm-5.3-flash-uncensored', 'GLM-5.3 Flash Uncensored', { inputPrice: 0, outputPrice: 0 }),
+      model('experientiallabs', 'deepseek-v4.1-flash-uncensored', 'deepseek-v4.1-flash-uncensored', { inputPrice: 0, outputPrice: 0 }),
+    ],
+    { name: 'Experiential Labs' },
+  ),
+];
+
+describe('a custom provider', () => {
+  test('its models are rows of their own under the maker, by their own names, saying whose they are', () => {
+    registerModelNames(CUSTOM.flatMap((g) => g.models));
+    const zai = buildPicker(input({ models: CUSTOM, sessions: {} })).groups.find((g) => g.key === 'zai')!;
+    expect(zai.rows.map((r) => [r.ref, rowName(r), r.source])).toEqual([
+      ['zai/glm-5.3', 'GLM-5.3', undefined],
+      ['zai/glm-5.3-flash', 'GLM-5.3 Flash', undefined],
+      ['experientiallabs/glm-5.3-uncensored', 'GLM-5.3 Uncensored', 'Experiential Labs'],
+      ['experientiallabs/glm-5.3-flash-uncensored', 'GLM-5.3 Flash Uncensored', 'Experiential Labs'],
+    ]);
+    const deepseek = buildPicker(input({ models: [group('experientiallabs', CUSTOM[1].models)], sessions: {} })).groups.find((g) => g.key === 'deepseek')!;
+    // no config name: its id
+    expect(deepseek.rows.map((r) => [rowName(r), r.source])).toEqual([['DeepSeek V4.1 Flash Uncensored', 'Experientiallabs']]);
+  });
+
+  test('a plan row that says its own "via", with no other routes, names no source', () => {
+    const p = buildPicker(input({ models: [group('cliproxy', [plan('claude-sonnet-5-5', 'Claude Sonnet 5.5', { via: 'your Claude plans' })], { name: 'CLIProxyAPI' })], sessions: {} }));
+    const row = p.groups.find((g) => g.key === 'anthropic')!.rows[0];
+    expect(row.ref).toBe('cliproxy/claude-sonnet-5-5');
+    expect(row.routes).toBeUndefined();
+    expect(row.source).toBeUndefined();
+  });
+
+  test('the row says "via" the provider', async () => {
+    const v = await mount({ value: 'experientiallabs/glm-5.3-uncensored', models: CUSTOM });
+    try {
+      const row = v.options().find((o) => o.getAttribute('aria-selected') === 'true')!;
+      expect(row.textContent).toContain('GLM-5.3 Uncensoredvia Experiential Labs');
+      // the two custom rows say it, Z.ai's own do not
+      const vias = v.options().filter((o) => o.textContent?.includes('via Experiential Labs'));
+      expect(vias.map((o) => o.textContent?.split('via')[0])).toEqual(expect.arrayContaining(['GLM-5.3 Uncensored', 'GLM-5.3 Flash Uncensored']));
+      expect(vias.length).toBe(2);
+    } finally {
+      await v.unmount();
+    }
+  });
+});
+
 describe('inside a maker, and searching', () => {
   const p: Picker = buildPicker(input());
 

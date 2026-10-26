@@ -27,27 +27,71 @@
 
 /* ---- the pet ---------------------------------------------------------- */
 
+/* the body is tinted, not filled, so it reads on --bg, --bg-raise and the wave */
+.cv-pet .p-loop {
+  fill: currentColor;
+  fill-opacity: 0.08;
+}
+.cv-pet .p-shadow {
+  stroke-width: 1;
+  opacity: 0.2;
+  transform-origin: 14px 23px;
+}
+.cv-pet .p-curl {
+  stroke-width: 1.4;
+  transform-origin: 14px 5px;
+}
+.cv-pet .p-eye {
+  fill: currentColor;
+  stroke: none;
+}
+.cv-pet .p-glint {
+  fill: var(--bg);
+  stroke: none;
+}
+.cv-pet .p-face {
+  stroke-width: 1.25;
+}
+.cv-pet .p-thin {
+  stroke-width: 1.1;
+}
+.cv-pet .p-fault {
+  stroke: var(--fault);
+}
+.cv-pet .p-warn {
+  stroke: var(--warn);
+}
+.cv-pet .p-hand {
+  fill: var(--warn);
+  stroke: none;
+}
+
+/* breath from the seat; the arm and its prop stay put */
 .cv-pet .p-body {
-  transform-origin: 16px 17px;
+  transform-origin: 14px 20.5px;
   animation: pet-breath var(--loop-breath) var(--ease-sine) infinite;
 }
 .cv-pet:is([data-state='done'], [data-state='failed']) .p-body {
   animation: none;
 }
 .cv-pet .p-blink {
-  transform-origin: 16px 5.5px;
+  transform-origin: 14px 12.6px;
 }
 /* three 5.3s blink cycles, the third a double blink; a blink is --dur-blink (140ms, 0.88%) */
-.cv-pet[data-state='idle'] .p-blink {
+.cv-pet:is([data-state='idle'], [data-state='waiting']) .p-blink {
   animation: pet-blink 15.9s linear infinite;
 }
-.cv-pet .p-fault {
-  stroke: var(--fault);
+/* the arm swings round the shoulder (PET_SHOULDER) */
+.cv-pet .p-swing {
+  transform-origin: 23.3px 14.6px;
 }
 
-/* thinking: eyes up and right, the light runs round the body */
+/* thinking: eyes up and right, the curl lights, the light runs round the body */
 .cv-pet[data-state='thinking'] .p-look {
-  transform: translate(0.6px, -0.7px);
+  transform: translate(0.6px, -0.8px);
+}
+.cv-pet[data-state='thinking'] .p-curl {
+  stroke: var(--signal);
 }
 .cv-pet .p-light {
   stroke: var(--signal);
@@ -56,14 +100,20 @@
   animation: pet-lap var(--loop-knot) var(--ease-morph) infinite;
 }
 
-/* researching: the magnifier sweeps 4px each way */
-.cv-pet .p-lens {
+/* researching: the magnifier sweeps and the eyes follow it */
+.cv-pet[data-state='researching'] .p-look {
+  transform: translateX(0.7px);
+  animation: pet-follow var(--loop-knot-tool) var(--ease-sine) infinite;
+}
+.cv-pet[data-state='researching'] .p-swing {
   animation: pet-sweep var(--loop-knot-tool) var(--ease-sine) infinite;
 }
 
-/* building: the arm taps 12deg in --dur-2, a block steps in on each of the first three taps */
-.cv-pet .p-arm {
-  transform-origin: 26px 11px;
+/* building: eyes on the work, the hammer taps in --dur-2, a block steps in on each of the first three taps */
+.cv-pet[data-state='building'] .p-look {
+  transform: translate(0.6px, 0.5px);
+}
+.cv-pet[data-state='building'] .p-swing {
   animation: pet-tap calc(var(--loop-knot) / 4) var(--ease) infinite;
 }
 .cv-pet .p-block {
@@ -82,45 +132,80 @@
   animation: pet-b3 var(--loop-knot) var(--ease) infinite;
 }
 
-/* testing: three ticks draw one after the other and stay, then a rest */
+/* testing: eyes on the list, three ticks draw one after the other and stay, then a rest */
+.cv-pet[data-state='testing'] .p-look {
+  transform: translate(0.7px, -0.3px);
+}
 .cv-pet .p-tick {
   stroke: var(--ok);
+  stroke-width: 1.25;
   stroke-dasharray: 1;
   stroke-dashoffset: 0;
   animation: pet-tick var(--loop-knot) var(--ease) infinite;
   animation-delay: calc(var(--i) * var(--dur-3));
 }
 
-/* reviewing: two lens rings, the eyes scan 2px */
-.cv-pet .p-rings {
-  stroke-width: 1;
-}
+/* reviewing: round glasses; the eyes scan inside them */
 .cv-pet[data-state='reviewing'] .p-look {
   animation: pet-scan var(--loop-knot-tool) var(--ease-sine) infinite;
 }
 
-/* waiting: eyes up at a raised hand, in amber */
+/* waiting: eyes up, the amber hand waves twice, then holds up */
 .cv-pet[data-state='waiting'] .p-look {
   transform: translate(0.5px, -0.8px);
 }
-.cv-pet .p-hand {
-  stroke: var(--warn);
+.cv-pet[data-state='waiting'] .p-swing {
+  animation: pet-wave var(--loop-knot) var(--ease-sine) infinite;
 }
 
-/* parked: three z's fade in one at a time, 2px of rise, no flight */
+/* parked: asleep and slumped, the curl droops, three z's fade in one at a time */
+.cv-pet[data-state='parked'] .p-body {
+  transform: scale(1.02, 0.95);
+  animation: pet-sleep calc(var(--loop-breath) * 1.5) var(--ease-sine) infinite;
+}
+.cv-pet[data-state='parked'] .p-curl {
+  transform: rotate(40deg);
+}
 .cv-pet .p-z {
   stroke-width: 1;
   animation: pet-z var(--loop-knot) var(--ease) infinite;
   animation-delay: calc(var(--i) * var(--loop-knot) / 6);
 }
 
-/* done: one 4px rise and settle */
+/* done: one hop off its shadow and a squash on landing; two sparkles pop */
 .cv-pet[data-state='done'] .p-all {
-  animation: pet-rise var(--dur-4) var(--ease);
+  transform-origin: 14px 21px;
+  animation: pet-hop calc(var(--dur-4) * 2) var(--ease);
 }
-/* failed: the shoulders tilt 10deg each way, once */
-.cv-pet[data-state='failed'] .p-body {
-  animation: pet-tilt var(--dur-3) var(--ease);
+.cv-pet[data-state='done'] .p-shadow {
+  animation: pet-shadow calc(var(--dur-4) * 2) var(--ease);
+}
+.cv-pet .p-spark {
+  fill: var(--ok);
+  stroke: var(--ok);
+  stroke-width: 0.6;
+  animation: pet-pop var(--dur-4) var(--ease) backwards;
+  animation-delay: calc(var(--dur-3) + var(--i) * var(--dur-1));
+}
+
+/* failed: eyes down, sad brows, a frown; it droops once and a sweat drop appears */
+.cv-pet[data-state='failed'] .p-look {
+  transform: translateY(0.6px);
+}
+.cv-pet[data-state='failed'] .p-curl {
+  transform: rotate(-30deg);
+}
+.cv-pet[data-state='failed'] .p-all {
+  transform-origin: 14px 21px;
+  animation: pet-droop var(--dur-4) var(--ease);
+}
+.cv-pet .p-drop {
+  fill: currentColor;
+  fill-opacity: 0.25;
+  stroke-width: 1;
+  opacity: 0.7;
+  animation: pet-drip var(--dur-4) var(--ease) backwards;
+  animation-delay: var(--dur-3);
 }
 
 @keyframes pet-breath {
@@ -130,6 +215,15 @@
   }
   50% {
     transform: scaleY(1.03);
+  }
+}
+@keyframes pet-sleep {
+  0%,
+  100% {
+    transform: scale(1.02, 0.95);
+  }
+  50% {
+    transform: scale(1.03, 0.92);
   }
 }
 @keyframes pet-blink {
@@ -164,13 +258,26 @@
   0%,
   50%,
   100% {
-    transform: translateX(0);
+    transform: rotate(0);
   }
   25% {
-    transform: translateX(4px);
+    transform: rotate(-9deg);
   }
   75% {
-    transform: translateX(-4px);
+    transform: rotate(7deg);
+  }
+}
+@keyframes pet-follow {
+  0%,
+  50%,
+  100% {
+    transform: translateX(0.7px);
+  }
+  25% {
+    transform: translate(0.7px, -0.5px);
+  }
+  75% {
+    transform: translate(0.7px, 0.4px);
   }
 }
 @keyframes pet-tap {
@@ -180,7 +287,21 @@
     transform: rotate(0);
   }
   12% {
-    transform: rotate(12deg);
+    transform: rotate(-22deg);
+  }
+}
+@keyframes pet-wave {
+  0%,
+  40%,
+  100% {
+    transform: rotate(0);
+  }
+  10%,
+  30% {
+    transform: rotate(14deg);
+  }
+  20% {
+    transform: rotate(-6deg);
   }
 }
 @keyframes pet-b1 {
@@ -250,10 +371,10 @@
     transform: translateX(0);
   }
   25% {
-    transform: translateX(1px);
+    transform: translateX(0.8px);
   }
   75% {
-    transform: translateX(-1px);
+    transform: translateX(-0.8px);
   }
 }
 @keyframes pet-z {
@@ -271,17 +392,51 @@
     transform: translateY(-2px);
   }
 }
-@keyframes pet-rise {
+@keyframes pet-hop {
+  0% {
+    transform: none;
+  }
+  20% {
+    transform: scale(1.04, 0.92);
+  }
   50% {
-    transform: translateY(-4px);
+    transform: translateY(-4px) scale(0.97, 1.04);
+  }
+  80% {
+    transform: scale(1.03, 0.95);
+  }
+  100% {
+    transform: none;
   }
 }
-@keyframes pet-tilt {
-  33% {
-    transform: rotate(10deg);
+@keyframes pet-shadow {
+  50% {
+    transform: scaleX(0.7);
+    opacity: 0.1;
   }
-  66% {
-    transform: rotate(-10deg);
+}
+@keyframes pet-pop {
+  from {
+    opacity: 0;
+    transform: scale(0);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.3);
+  }
+}
+@keyframes pet-droop {
+  40% {
+    transform: rotate(-6deg) scaleY(0.94);
+  }
+  70% {
+    transform: rotate(3deg);
+  }
+}
+@keyframes pet-drip {
+  from {
+    opacity: 0;
+    transform: translateY(-1.5px);
   }
 }
 

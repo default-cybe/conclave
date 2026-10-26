@@ -3,12 +3,13 @@ import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } fro
 import { Box, Static, Text, useAnimation, useApp, useInput, usePaste, useWindowSize } from 'ink';
 import { join } from 'node:path';
 import type { FileEntryDto } from '@conclave/core/client/index.ts';
-import { tui as p, truncate } from '../ansi';
+import { inkColor as c, tui as p, truncate, visible } from '../ansi';
 import { isActiveStatus } from '../events';
+import { effortLabel } from '@conclave/core/providers/effort.ts';
 import { formatDuration } from '../render/format';
 import { renderTodos } from '../render/tools';
 import { matchCommands, matchFiles, slashToken, atToken, splitPathQuery, type Suggestion, type CommandInfo } from './complete';
-import type { ChatController } from './controller';
+import { asksIn, type ChatController } from './controller';
 import * as ed from './editor';
 import type { History } from './history';
 import { Picker } from './Picker';
@@ -75,11 +76,11 @@ function InputView({ edit, width, borderColor, busy }: { edit: ed.Edit; width: n
   if (lines.length > MAX_INPUT_ROWS) start = Math.max(0, Math.min(row - Math.floor(MAX_INPUT_ROWS / 2), lines.length - MAX_INPUT_ROWS));
   const end = Math.min(lines.length, start + MAX_INPUT_ROWS);
   return (
-    <Box borderStyle="round" borderColor={borderColor} paddingX={1} flexDirection="column" width={width}>
+    <Box borderStyle="round" borderColor={c(borderColor)} paddingX={1} flexDirection="column" width={width}>
       {start > 0 && <Text dimColor>{`  ↑ ${start} more lines`}</Text>}
       {lines.slice(start, end).map((l, k) => {
         const i = start + k;
-        const prefix = i === 0 ? <Text color={busy ? 'gray' : 'cyan'}>{'> '}</Text> : <Text>{'  '}</Text>;
+        const prefix = i === 0 ? <Text color={c(busy ? 'gray' : 'cyan')}>{'> '}</Text> : <Text>{'  '}</Text>;
         if (i !== row) return <Text key={i}>{prefix}{l}</Text>;
         const ch = [...l.slice(col)][0] ?? ' ';
         return (
@@ -103,7 +104,7 @@ function Suggestions({ items, selected, width }: { items: Suggestion[]; selected
     <Box flexDirection="column" paddingX={2}>
       {items.map((s, i) => (
         <Text key={s.value + i} wrap="truncate-end">
-          <Text color={i === selected ? 'cyan' : undefined} bold={i === selected}>
+          <Text color={c(i === selected ? 'cyan' : undefined)} bold={i === selected}>
             {(s.kind === 'dir' ? '▸ ' : '  ') + truncate(s.label, labelW - 2).padEnd(labelW)}
           </Text>
           {s.hint ? <Text dimColor>{truncate(s.hint, Math.max(10, width - labelW - 8))}</Text> : null}
@@ -142,8 +143,8 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
 
   const session = snap.session;
   const active = isActiveStatus(session?.status);
-  const approval = snap.approvals.find((a) => !session || a.sessionId === session.id);
-  const question = snap.questions.find((q) => !session || q.sessionId === session.id);
+  const approval = snap.approvals.find((a) => !session || asksIn(a, session.id));
+  const question = snap.questions.find((q) => !session || asksIn(q, session.id));
   const overlay = approval ? 'approval' : question ? 'question' : picker ? 'picker' : null;
   const cwd = session?.cwd ?? snap.draft.cwd;
   const device = session?.device ?? snap.draft.device;
@@ -358,8 +359,10 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
   // ----- layout
   const inputRows = Math.min(MAX_INPUT_ROWS, edit.value.split('\n').length) + 2;
   const todosShown = active && snap.todos.length ? Math.min(6, snap.todos.length) : 0;
+  const queueShown = Math.min(3, snap.queue.length);
+  const queueRows = queueShown ? 1 + queueShown + (snap.queue.length > queueShown ? 1 : 0) : 0;
   // rows used below the live items: gaps, working line, input or overlay, suggestions, two status lines
-  const chrome = 1 + (active ? 2 : 0) + todosShown + 1 + (overlay ? 14 : inputRows) + suggestions.length + 2;
+  const chrome = 1 + (active ? 2 : 0) + todosShown + queueRows + 1 + (overlay ? 14 : inputRows) + suggestions.length + 2;
   const budget = Math.max(4, (rows || 24) - chrome - 2);
   const prevCommitted = snap.committed[snap.committed.length - 1];
   const liveText = useLiveText(snap.live, prevCommitted, width, snap.showThinking, cwd, frame, budget);
@@ -372,24 +375,29 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
     working = `${p.fg('#C792EA')(SPINNER[frame % SPINNER.length])} ${p.fg('#C792EA')(label)} ${p.dim(`(${el ? el + ' · ' : ''}esc to interrupt)`)}`;
   }
 
+  const effort = ctl.currentEffort();
   const header = headerLine(
     {
       model: ctl.currentModel(),
+      effort: effort ? effortLabel(effort, ctl.modelEffort()).toLowerCase() : undefined,
       agent: session?.agent ?? snap.draft.agent,
       mode: session?.mode ?? snap.draft.mode,
       permissionMode,
-      device,
-      cwd,
-      hubStatus: snap.hubStatus,
     },
     p,
     width - 2,
   );
   const footer = footerLine(
-    { session, model: ctl.currentModel(), lastUsage: snap.lastUsage, contextWindow: snap.contextWindow, limits: snap.limits, subscriptions: snap.subscriptions, now },
+    { device, cwd, hubStatus: snap.hubStatus, session, model: ctl.currentModel(), lastUsage: snap.lastUsage, contextWindow: snap.contextWindow, limits: snap.limits, subscriptions: snap.subscriptions, now },
     p,
     width - 2,
   );
+  const queueLines = queueShown
+    ? [
+        ...snap.queue.slice(0, queueShown).map((q) => truncate(`${p.dim(q.held ? '⏸ ' : '↳ ')}${visible(q.text).replace(/\s+/g, ' ')}${q.held ? p.dim(' · held') : ''}`, width - 2)),
+        ...(snap.queue.length > queueShown ? [p.dim(`  +${snap.queue.length - queueShown} more · /queue`)] : []),
+      ]
+    : [];
 
   return (
     <>
@@ -406,6 +414,11 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
         {todosShown ? (
           <Box marginLeft={2} flexDirection="column">
             <Text>{renderTodos(snap.todos.slice(0, 6), p).join('\n')}</Text>
+          </Box>
+        ) : null}
+        {queueLines.length ? (
+          <Box marginTop={1} paddingX={1} flexDirection="column">
+            <Text>{queueLines.join('\n')}</Text>
           </Box>
         ) : null}
         <Box marginTop={1} flexDirection="column">

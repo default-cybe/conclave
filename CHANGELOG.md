@@ -9,9 +9,29 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Terminal chat (`conclave`): `/effort` picks how hard the model thinks (the levels the model has), and the status row shows it. Messages sent while a turn runs show above the input until they run, and `/queue` lists them to remove one or send a held one. A turn that ends on a provider error, a usage limit, a refusal or a hub restart prints the "Why this turn stopped" card the web chat shows. Approvals and questions from subagents and workflow agents now show in the chat you are in, with who asks. Workflow and Delegate calls get their own titles.
+
+### Changed
+
+- Terminal chat: the two status rows are laid out left and right (model, effort, agent and mode against the permission mode; the folder against context, tokens, cost and limits), the hub shows only when it is not connected, and a bare `/` lists commands in their listed order instead of by name length.
+- The pet is redrawn as a soft dome with a curl of the Knot's rope on top, dot eyes, a mouth and one arm for its prop, on web and Android. Each state has its own face and posture (a magnifier, a hammer and blocks, glasses, a waving amber hand, asleep with z's, a hop with sparkles when done, a frown and a sweat drop when failed). It now also sits beside the chat header's Waiting on you, Resumes and Failed words, beside the reason of a failed chat on desktop and phone, in the Inbox and workflow runs empty states, and on the setup Done step; `/dev/motion` shows it in each place.
+
 ### Fixed
 
+- The pet and the agent glyphs stop moving off screen and in a background tab: each pose's own animation rule set the play state back to running, so their loops kept going.
+- A picture you attached to your own message opens full size: on the web a click or tap on its thumbnail (Chat page and session log) shows it fitted to the screen with Download, and Escape, Close or a click outside shuts it; on Android a tap opens it full screen with pinch to zoom, and a tap, Back or Close shuts it. Before, the thumbnails did nothing.
+- A device with a large Claude Code or Codex transcript no longer drops off every 10 minutes ("Received too big message"): the usage scan reads device logs in 8 MB pieces from where it stopped, skips a single line over 8 MB, keeps its progress when a read fails and waits longer before each retry (20 minutes, doubling, up to a day). Every file read from a device now travels in replies of at most 32 MB, a daemon without range reads is not asked for a bigger file, and the Rust daemon answers a reply that would pass the hub's 64 MB limit with an error instead of sending it. A tool call on a device that dropped in the last minute waits up to 20 seconds for it to reconnect before failing with "is offline".
 - Android: pasting a picture into the message box (long-press Paste, keyboard paste, Gboard clipboard or image suggestions) now attaches it like one from Photos, with the same 15-file and 45 MB limits. Text still pastes as text.
+
+## [0.4.35] - 2026-10-26
+
+### Fixed
+
+- A provider model that only starts with a catalog id (`glm-5.3-uncensored` on a custom provider) keeps the rest of its id in its name ("GLM-5.3 Uncensored", "GLM-5.3 Flash Uncensored") and the catalog's capabilities, and shows no price unless the provider is that vendor's own API: before, it took the catalog model's name and price, and read as a copy of Z.ai's GLM-5.3. Exact ids, aliases, dates and effort variants (`-high`) are unchanged. In the web and Android model pickers a row from a provider that is not the maker's own says whose it is ("via Experiential Labs", the provider's config name).
+- Terminal chat: `NO_COLOR` now turns off the colors of borders, pickers and approval keys too, hub context (`<system-reminder>` blocks) no longer shows as your own words, and code blocks wrap on narrow terminals when color is off.
+- Terminal chat: when a turn ends, a background subagent's or workflow agent's approval or question stays on screen until it is answered, the stop card no longer repeats a notice already shown, a reconnect reads the messages before it says why the turn stopped (a Stop from another device no longer reads as a hub restart) and refetches the waiting messages, and a steer message waits as "joins the running turn".
 
 ## [0.4.34] - 2026-10-26
 

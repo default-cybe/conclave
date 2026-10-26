@@ -28,7 +28,7 @@ import { ConfirmDialog, Dialog, MenuList, Popover } from '@/components/ui/Overla
 import { Docked } from '@/components/ui/Toast';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { usePageHeader } from '@/components/ui/Page';
-import { Elapsed } from '@/components/motion';
+import { Elapsed, Pet, sessionPet } from '@/components/motion';
 import { ModelList } from '@/components/pickers/ModelPicker';
 import { isTyping } from '@/components/Shell';
 import { PhoneBar } from '@/components/PhoneFrame';
@@ -254,7 +254,9 @@ function ChatHeader({ session }: { session: Session }) {
             {MOVE_TO_MAIN}
           </Button>
         )}
-        <div className="shrink-0 text-[13px]">
+        <div className="flex shrink-0 items-center gap-1.5 text-[13px]">
+          {/* the pet says what the word says: waiting on you, asleep until the reset, failed (CHAT-AND-MOTION 1.11) */}
+          {sessionPet(session.status) && <Pet state={sessionPet(session.status)} size={24} className="-my-1 text-fg-2" />}
           <HeaderState session={session} />
         </div>
         <div className="-mr-2 flex shrink-0 items-center gap-0.5">

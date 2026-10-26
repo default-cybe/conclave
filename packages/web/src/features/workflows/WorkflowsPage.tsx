@@ -128,7 +128,7 @@ function RunsList() {
       />
       {error && <Notice tone="fault">Failed. {error}</Notice>}
       <LoadingRows loading={!data && !error} rows={6} />
-      {data && !data.length && <EmptyState action={{ label: 'Open the library', onClick: () => navigate('/workflows') }}>Runs show up here with their state, agents and cost.</EmptyState>}
+      {data && !data.length && <EmptyState pet action={{ label: 'Open the library', onClick: () => navigate('/workflows') }}>Runs show up here with their state, agents and cost.</EmptyState>}
       {data && data.length > 0 &&
         (phone ? (
           <div className="rows border-t border-rule-2">

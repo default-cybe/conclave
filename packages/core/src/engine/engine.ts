@@ -94,7 +94,7 @@ import { builtinTools, filterTools } from '../tools';
 import { QUEUE_KEY, SessionRunner, canResumeStopped, type StoredQueued } from '../session/runner';
 import { fallbackPolicyFor } from '../session/limit-tree';
 import { RunnerExtensions } from '../session/runner-ext';
-import { OfflineMachine } from '../projects/offline';
+import { OfflineMachine, waitForReturn } from '../projects/offline';
 import { checkMcpOff, mcpOff, sessionAllowsServerTool } from '../session/connectors';
 import { projectsOf } from '../projects/attached';
 import { workflowsOf } from '../workflows/attached';
@@ -1835,7 +1835,8 @@ export class Engine implements EngineApi {
     if (m) return m;
     if (!session.device || session.device === 'local') return this.deps.localMachine;
     const d = this.devices.list().find((x) => x.id === session.device);
-    return new OfflineMachine(session.device, d?.name ?? session.device, d?.info);
+    // a daemon that reconnects within seconds (a socket drop) does not fail the call (projects/offline.ts)
+    return new OfflineMachine(session.device, d?.name ?? session.device, d?.info, () => waitForReturn(this.devices, this.bus, session.device!));
   }
   machineById(id: string): Machine {
     const m = this.devices.get(id);

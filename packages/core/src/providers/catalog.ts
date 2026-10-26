@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import type { Usage } from '../types';
 import type { ModelOverride, ProviderType } from '../config/schema';
 import { hostOf, type FetchFn } from './http';
-import { normalizeModelId } from './model-id';
+import { MODEL_VARIANT, normalizeModelId } from './model-id';
 import type { ModelInfo } from './types';
 
 /** Model vendor, used to pick catalog entries for a provider and LiteLLM key prefixes. */
@@ -169,9 +169,21 @@ export { normalizeModelId };
 
 /** Catalog entry for an id, by exact name, alias, or longest prefix ("glm-4.7-x" -> glm-4.7). */
 export function findCatalogEntry(id: string): CatalogEntry | undefined {
+  return catalogMatch(id)?.entry;
+}
+
+// the efforts MODEL_VARIANT leaves out (effort.ts EFFORTS): kept out of the shared regex, where "gpt-5.1-codex-max" is a model of its own
+const EFFORT_TAIL = /-(max|ultra)$/;
+
+/**
+ * findCatalogEntry plus what the id has past the entry's name: "uncensored"
+ * for "glm-5.3-uncensored". Empty for an exact or alias match and for an
+ * effort or thinking variant ("-high", "-max"), which is the same model.
+ */
+export function catalogMatch(id: string): { entry: CatalogEntry; rest: string } | undefined {
   const n = normalizeModelId(id);
   const exact = BY_KEY.get(n);
-  if (exact) return exact;
+  if (exact) return { entry: exact, rest: '' };
   let best: CatalogEntry | undefined;
   let bestLen = 0;
   for (const [key, entry] of BY_KEY) {
@@ -182,7 +194,7 @@ export function findCatalogEntry(id: string): CatalogEntry | undefined {
       bestLen = key.length;
     }
   }
-  return best;
+  return best ? { entry: best, rest: n.slice(bestLen).replace(MODEL_VARIANT, '').replace(EFFORT_TAIL, '').replace(/^[-:]+/, '') } : undefined;
 }
 
 export function catalogEntries(family?: ModelFamily): CatalogEntry[] {
@@ -338,6 +350,12 @@ export interface LookupOptions {
   type?: ProviderType;
   /** Per-model overrides from config. */
   override?: Partial<ModelOverride>;
+  /**
+   * The family the provider's own API is (familyForProvider), or 'other' for a
+   * custom one. Set, a catalog match by prefix ("glm-5.3-uncensored") on a
+   * provider that is not that vendor's API gets no prices: they are not its prices.
+   */
+  servedBy?: ModelFamily | 'any' | 'other';
 }
 
 /**
@@ -347,7 +365,12 @@ export interface LookupOptions {
  */
 export function lookupModel(provider: string, id: string, opts: LookupOptions = {}): ModelInfo {
   const modelId = id.trim();
-  const entry = findCatalogEntry(modelId);
+  const match = catalogMatch(modelId);
+  const entry = match?.entry;
+  // another model built on the entry (a fine-tune on a custom provider): its name keeps the rest of the id
+  const rest = match?.rest ?? '';
+  // a router ('any') serves the vendor's models under their names: the vendor price stands
+  const unpriced = !!rest && !!opts.servedBy && opts.servedBy !== 'any' && opts.servedBy !== entry?.family;
   const lite = liteLookup(entry ? entry.id : normalizeModelId(modelId), entry?.family) ?? (entry ? undefined : liteLookup(modelId.toLowerCase()));
 
   const info: ModelInfo = entry
@@ -355,7 +378,7 @@ export function lookupModel(provider: string, id: string, opts: LookupOptions = 
         id: modelId,
         ref: `${provider}/${modelId}`,
         provider,
-        name: entry.name,
+        name: rest ? `${entry.name} ${titleWords(rest)}` : entry.name,
         contextWindow: entry.contextWindow,
         maxOutput: entry.maxOutput,
         vision: entry.vision,
@@ -386,7 +409,10 @@ export function lookupModel(provider: string, id: string, opts: LookupOptions = 
         cacheWritePrice: 0,
       };
 
-  if (lite) {
+  if (unpriced) {
+    info.inputPrice = info.outputPrice = info.cacheReadPrice = info.cacheWritePrice = 0;
+    delete info.cacheWrite1hPrice;
+  } else if (lite) {
     if (lite.inputPrice !== undefined) info.inputPrice = lite.inputPrice;
     if (lite.outputPrice !== undefined) info.outputPrice = lite.outputPrice;
     if (lite.cacheReadPrice !== undefined) info.cacheReadPrice = lite.cacheReadPrice;
@@ -400,6 +426,15 @@ export function lookupModel(provider: string, id: string, opts: LookupOptions = 
     if (opts.override.inputPrice !== undefined && opts.override.cacheWrite1hPrice === undefined && info.cacheWrite1hPrice !== undefined) info.cacheWrite1hPrice = info.inputPrice * 2;
   }
   return info;
+}
+
+/** "flash-uncensored" -> "Flash Uncensored" */
+function titleWords(s: string): string {
+  return s
+    .split(/[-_:\s]+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(' ');
 }
 
 function stripUndefined<T extends object>(o: T): Partial<T> {

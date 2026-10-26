@@ -224,7 +224,7 @@ function InboxPage() {
         fromFriends ? (
           friendsSection(cn('max-w-[760px]', fromOffers && 'mt-10'))
         ) : fromOffers ? null : (
-          <EmptyState className="max-w-[720px] pt-0 text-pretty">{filter === 'all' ? 'Nothing is waiting on you. Approvals and questions from running sessions land here, with alerts about stuck sessions or two chats editing one file, and notes and shares from friends.' : filter === 'approvals' ? 'No approvals waiting.' : filter === 'alerts' ? 'No alerts. A session that stops making progress, or two chats editing one file, shows up here.' : 'No questions waiting.'}</EmptyState>
+          <EmptyState pet="done" className="max-w-[720px] pt-0 text-pretty">{filter === 'all' ? 'Nothing is waiting on you. Approvals and questions from running sessions land here, with alerts about stuck sessions or two chats editing one file, and notes and shares from friends.' : filter === 'approvals' ? 'No approvals waiting.' : filter === 'alerts' ? 'No alerts. A session that stops making progress, or two chats editing one file, shows up here.' : 'No questions waiting.'}</EmptyState>
         )
       ) : wide ? (
         <div className="grid grid-cols-[420px_minmax(0,1fr)] border-t border-rule">

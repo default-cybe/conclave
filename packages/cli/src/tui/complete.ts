@@ -57,7 +57,8 @@ export function matchCommands(cmds: CommandInfo[], query: string, limit = 8): Su
     else if (q.length > 2 && (c.description ?? '').toLowerCase().includes(q)) score = 3;
     if (score >= 0) scored.push([score, c]);
   }
-  scored.sort((a, b) => a[0] - b[0] || a[1].name.length - b[1].name.length || a[1].name.localeCompare(b[1].name));
+  // a bare "/" lists commands in their own order (most used first); a query ranks short matches first
+  if (q) scored.sort((a, b) => a[0] - b[0] || a[1].name.length - b[1].name.length || a[1].name.localeCompare(b[1].name));
   const seen = new Set<string>();
   const out: Suggestion[] = [];
   for (const [, c] of scored) {

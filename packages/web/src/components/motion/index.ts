@@ -26,5 +26,5 @@ export { DUR, LOOP, STREAM, SPRING } from './tokens';
 // the pet and the agent glyphs (docs/design/CHAT-AND-MOTION.md 1.11)
 export { Pet, type PetProps } from './Pet';
 export { AgentGlyph, type AgentGlyphProps } from './AgentGlyph';
-export { glyphKind, glyphState, petState, busiestKind, stillRows, GLYPH_KINDS, PET_STATES, LIVE_ROWS, type GlyphKind, type GlyphState, type PetState } from './agentGlyphs';
+export { glyphKind, glyphState, petState, sessionPet, busiestKind, stillRows, GLYPH_KINDS, PET_STATES, LIVE_ROWS, type GlyphKind, type GlyphState, type PetState } from './agentGlyphs';
 export { EASE, spring, springCss } from './ease';

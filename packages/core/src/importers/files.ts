@@ -6,8 +6,12 @@
 import { zstdDecompressSync } from 'node:zlib';
 import type { Machine } from '../machine/types';
 
-/** Limits on what a reader loads into memory: one session file, on disk or decompressed. Tests lower it. */
-export const IMPORT_LIMITS = { maxSessionBytes: 512 * 1024 * 1024 };
+/**
+ * Limits on what a reader loads into memory: one session file, on disk or
+ * decompressed, and the piece an incremental log scan reads at a time
+ * (usage/readers/common.ts). Tests lower them.
+ */
+export const IMPORT_LIMITS = { maxSessionBytes: 512 * 1024 * 1024, scanChunkBytes: 8 * 1024 * 1024 };
 
 export interface FoundFile {
   path: string;

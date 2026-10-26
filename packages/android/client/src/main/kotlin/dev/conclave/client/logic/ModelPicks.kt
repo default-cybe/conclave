@@ -145,7 +145,8 @@ object ModelPicks {
                 }
                 val maker = makerOf(m) ?: g.provider
                 // the row is the model's name; the route words are its detail, the other routes a choice behind it
-                val via = m.via ?: if (maker != g.provider) ModelRefs.providerName(g.provider) else null
+                // a custom provider goes by its config name ("Experiential Labs"), else the known name or its id
+                val via = m.via ?: if (maker != g.provider) g.name.takeIf { it.isNotBlank() && it != g.provider } ?: ModelRefs.providerName(g.provider) else null
                 val routes = m.choices.orEmpty().let { c -> if (c.isEmpty()) emptyList() else listOf(Route(m.fullRef, routeLabel(m.fullRef), first = true)) + c.map { Route(it, routeLabel(it)) } }
                 byMaker.getOrPut(maker) { mutableListOf() } += Row(m.fullRef, m, label(m), via, harness = false, routes = routes)
             }

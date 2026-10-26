@@ -12,6 +12,7 @@ import {
   normalizeModelId,
   refreshPricingFromLiteLLM,
 } from '../../src/providers/catalog';
+import { OpenAIProvider } from '../../src/providers/openai';
 import { ToolNameMap, wireToolName, GEMINI_TOOL_NAME_RULES } from '../../src/providers/tool-names';
 
 afterEach(() => clearLiteLLMData());
@@ -44,6 +45,31 @@ describe('normalizeModelId and fuzzy lookup', () => {
     expect(info).toMatchObject({ id: 'GLM-5', ref: 'zai/GLM-5', provider: 'zai', name: 'GLM-5', inputPrice: 1, outputPrice: 3.2, caching: 'automatic', thinking: true });
     const claude = lookupModel('anthropic', 'claude-opus-5-5');
     expect(claude).toMatchObject({ contextWindow: 1_000_000, maxOutput: 128_000, inputPrice: 4, outputPrice: 20, cacheReadPrice: 0.2, cacheWritePrice: 5, caching: 'explicit', tier: 'deep' });
+  });
+
+  test('another model on a catalog name (a custom provider fine-tune) keeps its name and capabilities, not the vendor price', () => {
+    const custom = new OpenAIProvider({ id: 'experientiallabs', config: { type: 'openai', baseUrl: 'https://api.experientiallabs.ai/v1' }, apiKey: 'k' });
+    const glm = custom.model('glm-5.3-uncensored');
+    expect(glm).toMatchObject({ name: 'GLM-5.3 Uncensored', inputPrice: 0, outputPrice: 0, cacheReadPrice: 0, contextWindow: 1_000_000, tools: true, thinking: true, tier: 'deep' });
+    expect(findCatalogEntry('glm-5.3-uncensored')?.family).toBe('zai');
+    expect(custom.model('glm-5.3-flash-uncensored')).toMatchObject({ name: 'GLM-5.3 Flash Uncensored', inputPrice: 0, vision: true });
+    // the vendor's own API, an exact id, a variant and a date keep the catalog's name and price
+    const zai = new OpenAIProvider({ id: 'zai', config: { type: 'openai', baseUrl: 'https://api.z.ai/api/coding/paas/v4' }, apiKey: 'k' });
+    expect(zai.model('glm-5.3')).toMatchObject({ name: 'GLM-5.3', inputPrice: 1.4, outputPrice: 4.4 });
+    expect(custom.model('glm-5.3')).toMatchObject({ name: 'GLM-5.3', inputPrice: 1.4 });
+    expect(custom.model('claude-opus-5-5-high')).toMatchObject({ name: 'Claude Opus 5.5', inputPrice: 4 });
+    expect(custom.model('claude-sonnet-4-5-20250929').name).toBe('Claude Sonnet 4.5');
+    expect(zai.model('glm-4.7-turbo')).toMatchObject({ name: 'GLM-4.7 Turbo', inputPrice: 0.6 });
+    // every effort is a variant, and Ollama's ":latest" is the model itself
+    expect(custom.model('claude-opus-5-5-max')).toMatchObject({ name: 'Claude Opus 5.5', inputPrice: 4 });
+    expect(custom.model('claude-opus-5-5-ultra').name).toBe('Claude Opus 5.5');
+    expect(normalizeModelId('glm-5.3:latest')).toBe('glm-5.3');
+    expect(custom.model('glm-5.3:latest')).toMatchObject({ name: 'GLM-5.3', inputPrice: 1.4 });
+    // a router serves the vendor's models: a prefix match keeps the vendor price
+    const router = new OpenAIProvider({ id: 'openrouter', config: { type: 'openai', baseUrl: 'https://openrouter.ai/api/v1' }, apiKey: 'k' });
+    const air = router.model('z-ai/glm-4.7-air');
+    expect(air.inputPrice).toBeGreaterThan(0);
+    expect(air.inputPrice).toBe(zai.model('glm-4.7').inputPrice);
   });
 
   test('unknown models get defaults that depend on the wire type', () => {
