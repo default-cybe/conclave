@@ -16,12 +16,22 @@ export interface WorkflowPhaseDto {
   model?: string;
 }
 
+/** A workflow's declared arg, for launch forms (meta.args). */
+export type WorkflowArgType = 'string' | 'number' | 'boolean';
+export interface WorkflowArgFieldDto {
+  type: WorkflowArgType;
+  description?: string;
+  [key: string]: unknown;
+}
+
 /** The script's `export const meta`. Unknown keys are kept. */
 export interface WorkflowMetaDto {
   name: string;
   description: string;
   whenToUse?: string;
   phases?: WorkflowPhaseDto[];
+  /** Declared args the script reads as `args`; drives the typed launch form. */
+  args?: Record<string, WorkflowArgFieldDto>;
   /** 'conclave': the script uses the Conclave layer (opts.conclave, lib, meta.permissions) and does not run in Claude Code. */
   runtime?: string;
   permissions?: { allow?: string[]; deny?: string[] };
@@ -43,7 +53,18 @@ export interface WorkflowSummary {
   /** False when the script cannot load here; error says why. */
   runnable: boolean;
   error?: string;
+  /** The declared args of meta, when the script has any: the launch form is built from it. */
+  argsSchema?: Record<string, WorkflowArgFieldDto>;
   lastRun?: { id: string; status: WorkflowRunStatus; createdAt: number; finishedAt?: number };
+}
+
+/** A saved args preset for one workflow (GET /api/workflows/:id/presets). */
+export interface WorkflowPreset {
+  id: string;
+  workflow: string;
+  name: string;
+  args: unknown;
+  createdAt: number;
 }
 
 export interface WorkflowDetail extends WorkflowSummary {

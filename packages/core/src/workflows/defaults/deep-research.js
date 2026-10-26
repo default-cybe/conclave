@@ -3,6 +3,10 @@ export const meta = {
   description: 'Research a question on the web: sub-questions by angle, searchers that open every page they cite, two fact-checkers per claim who never see the draft, one writer, and a completeness critic',
   whenToUse: 'For a question that needs several sources, a comparison, or the current state of something. args: { question: string, depth?: "quick" | "normal" | "thorough" }',
   runtime: 'conclave',
+  args: {
+    question: { type: 'string', description: 'The question to research.' },
+    depth: { type: 'string', description: 'quick, normal or thorough. Default: normal.' },
+  },
   phases: [
     { title: 'Frame', detail: 'sub-questions and angles, the owner\'s setup from memory' },
     { title: 'Search', detail: 'one searcher per sub-question, at most 5 at once' },
