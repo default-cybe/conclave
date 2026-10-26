@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Delegate takes a `model`: when the owner names one for the job ("do it on Opus 5.5"), the delegated Code or Assistant session runs on it. Left out, the session runs on its agent's own model as before. A named model that cannot run on the hub is refused with the reason, never swapped for another.
+
 ## [0.4.37] - 2026-10-26
 
 ### Added

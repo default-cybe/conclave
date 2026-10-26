@@ -165,6 +165,63 @@ describe('Delegate from a chat', () => {
     expect(t.requests[0]).toContain('Offline now, so nothing runs there: MadX Arch.');
   });
 
+  test('a model the caller names runs the job; with none the agent keeps its own model', async () => {
+    t = await startTestEngine({
+      models: ['claude-sonnet-5-5', 'claude-opus-5-5'],
+      script: [[delegateCall({ device: 'madx arch', model: 'mock/claude-opus-5-5' })], [{ text: 'done' }], [delegateCall({ device: 'madx arch' })], [{ text: 'done' }]],
+      route: (body) => (isChild(body) ? [{ text: 'OK' }] : undefined),
+    });
+    madx(t);
+    const chat = await t.engine.createSession({ kind: 'chat' });
+    await t.run(chat.id, 'ask code on opus');
+    await t.run(chat.id, 'ask code again');
+    const kids = t.engine.listSessions({ parentId: chat.id }).sort((a, b) => a.createdAt - b.createdAt);
+    expect(kids).toHaveLength(2);
+    expect(kids[0].model).toBe('mock/claude-opus-5-5');
+    expect(kids[1].model).toBe(t.engine.config.get().defaultModel);
+    expect(t.requests.some((r) => isChild(JSON.parse(r)) && JSON.parse(r).model === 'claude-opus-5-5')).toBe(true);
+  });
+
+  test('a named model that cannot run is refused, never swapped for another', async () => {
+    t = await startTestEngine({ script: [[delegateCall({ device: 'madx arch', model: 'nope/not-a-model' })], [{ text: 'no' }]] });
+    madx(t);
+    const chat = await t.engine.createSession({ kind: 'chat' });
+    await t.run(chat.id, 'ask code on that model');
+    const res = toolResults(t.engine, chat.id).find((r) => r.name === 'Delegate')!;
+    expect(res.isError).toBe(true);
+    expect(res.content).toContain('The model nope/not-a-model cannot run here: it is not set up on this hub.');
+    // refused, so the words never claim it falls back
+    expect(res.content).not.toContain('using the session model');
+    expect(t.engine.listSessions({ parentId: chat.id })).toHaveLength(0);
+  });
+
+  test('a named model on a harness that is off says where to turn it on', async () => {
+    t = await startTestEngine({ script: [[delegateCall({ device: 'madx arch', model: 'claude-code/opus' })], [{ text: 'no' }]] });
+    t.engine.config.update({ providers: { 'claude-code': { type: 'acp', name: 'Claude Code', command: 'claude', enabled: false } } } as never);
+    madx(t);
+    const chat = await t.engine.createSession({ kind: 'chat' });
+    await t.run(chat.id, 'ask code on claude code');
+    const res = toolResults(t.engine, chat.id).find((r) => r.name === 'Delegate')!;
+    expect(res.isError).toBe(true);
+    expect(res.content).toContain('Claude Code is off as an engine. Turn it on in Settings, Providers');
+    expect(t.engine.listSessions({ parentId: chat.id })).toHaveLength(0);
+  });
+
+  test('a named model the provider does not know fails the job, never moves to the parent model', async () => {
+    t = await startTestEngine({
+      models: ['claude-sonnet-5-5', 'claude-opus-5-5'],
+      script: [[delegateCall({ device: 'madx arch', model: 'mock/claude-opus-5-5' })], [{ text: 'it failed' }]],
+      route: (body) => (isChild(body) ? { status: 404, type: 'not_found_error', error: 'model: claude-opus-5-5' } : undefined),
+    });
+    madx(t);
+    const chat = await t.engine.createSession({ kind: 'chat' });
+    await t.run(chat.id, 'ask code on opus');
+    const [kid] = t.engine.listSessions({ parentId: chat.id });
+    expect(kid.model).toBe('mock/claude-opus-5-5');
+    expect(t.requests.some((r) => isChild(JSON.parse(r)) && JSON.parse(r).model === 'claude-sonnet-5-5')).toBe(false);
+    expect(toolResults(t.engine, chat.id).find((r) => r.name === 'Delegate')!.content).toContain('claude-opus-5-5');
+  });
+
   test('a folder that is not there is refused before anything starts', async () => {
     t = await startTestEngine({ script: [[delegateCall({ device: 'madx arch', folder: '~/nope' })], [{ text: 'no' }]] });
     madx(t);

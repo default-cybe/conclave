@@ -117,7 +117,7 @@ export function agentModelRef(host: ModelHost, ref: string | undefined, sessionM
   // fast without a usable configured tier is smallModel: skip it while it is remembered dead
   if (tierOf(ref) === 'fast') {
     const set = config.models?.tiers?.fast;
-    if (!(set && usable(host, set)) && isModelDead(host, config.smallModel)) return { model: sessionModel, tier: 'fast' };
+    if (!(set && usable(host, set)) && isModelDead(host, config.smallModel)) return { model: sessionModel, tier: 'fast', note: `fast tier: ${config.smallModel} did not answer recently, using the session model` };
   }
   return resolveModelRef(ref, { config, sessionModel, isUsable: (r) => usable(host, r) });
 }

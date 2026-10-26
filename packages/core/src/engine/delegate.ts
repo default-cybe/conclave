@@ -137,9 +137,21 @@ export async function runDelegate(engine: Engine, parentId: string, req: Delegat
   const capability = missingTools(`${req.prompt}\n${req.title}`, def, req.readOnly ? 'read-only' : undefined);
   if (capability) throw new Error(capability);
 
-  // the model a new session of this agent gets, as createSession picks it
+  // the model a new session of this agent gets, as createSession picks it; a model the owner named wins
   const base = engine.config.get().defaultModel;
-  const model = def.model ? agentModelRef(engine, def.model, base).model : base;
+  let model = def.model ? agentModelRef(engine, def.model, base).model : base;
+  if (req.model) {
+    // a harness that is off, or a model the owner hid, says where to turn it on before the generic refusal
+    const hidden = engine.harnessOff(req.model);
+    if (hidden) throw new Error(hidden);
+    const named = agentModelRef(engine, req.model, base);
+    // never run a job the owner pinned to one model on another
+    if (named.note) {
+      const why = named.tier ? `no usable ${named.tier} model is set up on this hub` : 'it is not set up on this hub';
+      throw new Error(`The model ${req.model} cannot run here: ${why}. Name a model from the model picker as provider/model, or leave model out.`);
+    }
+    model = named.model;
+  }
   const off = engine.harnessOff(model);
   if (off) throw new Error(off);
 
@@ -165,7 +177,8 @@ export async function runDelegate(engine: Engine, parentId: string, req: Delegat
       permissionMode,
       readOnly: req.readOnly,
       tags: ['delegated'],
-      meta: { delegate: { ...place, toolUseId: req.toolUseId } },
+      // a model the owner named is never swapped on a 404 or a stall (subagent.ts driveSubagent)
+      meta: { delegate: { ...place, toolUseId: req.toolUseId }, ...(req.model ? { pinnedModel: true } : {}) },
       // a chat with memory off hands on a job that leaves no trace either
       ...(chatUsesMemory(parent) ? {} : { chat: { webSearch: true, memory: false } }),
     },
