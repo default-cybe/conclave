@@ -11,8 +11,8 @@ import type { ChatSettings, PermissionMode } from '../types';
 export interface GithubStatusDto {
   /** A token is set and GitHub accepted it. */
   connected: boolean;
-  /** Where the token comes from: the hub secret "github", or CONCLAVE_GITHUB_TOKEN. */
-  source?: 'secret' | 'env';
+  /** Where the token comes from: the hub secret "github", the GitHub MCP server's secret "github-pat", or CONCLAVE_GITHUB_TOKEN. */
+  source?: 'secret' | 'mcp' | 'env';
   login?: string;
   name?: string;
   avatarUrl?: string;

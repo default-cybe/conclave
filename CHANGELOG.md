@@ -16,6 +16,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Fixed
 
 - Android: pasting a picture into the message box (long-press Paste, keyboard paste, Gboard clipboard or image suggestions) now attaches it like one from Photos, with the same 15-file and 45 MB limits. Text still pastes as text.
+- Settings > GitHub no longer says there is no token when you gave one while installing the GitHub MCP server. Repo sessions now use that token (the hub secret `github-pat`) when no `github` token is saved, and Settings and `conclave github status` say it is shared with the MCP server. Disconnect leaves the MCP server's token alone, and Connect a separate token saves a `github` token that takes over, for example a write token when the MCP token is read only.
 
 ## [0.4.36] - 2026-10-26
 

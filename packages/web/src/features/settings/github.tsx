@@ -26,6 +26,7 @@ export function GithubSection() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [confirmOff, setConfirmOff] = useState(false);
+  const [replace, setReplace] = useState(false);
   useEffect(() => {
     void githubStatus(true).then(setStatus);
   }, []);
@@ -39,6 +40,7 @@ export function GithubSection() {
       const st = await api().githubConnect(token.trim());
       setStatus(st);
       setToken('');
+      setReplace(false);
       void githubStatus(true);
       toast({ title: `Connected as @${st.login}.`, level: 'success' });
     } catch (e) {
@@ -47,18 +49,26 @@ export function GithubSection() {
     setBusy(false);
   };
 
+  const help = status.source === 'env' ? 'From CONCLAVE_GITHUB_TOKEN where the hub runs.' : status.source === 'mcp' ? 'Shared with the GitHub MCP server: the hub secret "github-pat". Sessions never see it.' : 'The token is the hub secret "github". Sessions never see it.';
+
   return (
     <div className="space-y-9">
       <Group title="Connection">
-        {status.connected ? (
-          <SettingRow label={<Outcome word="Connected" tone="ok">as @{status.login}{status.name ? ` (${status.name})` : ''}</Outcome>} help={status.source === 'env' ? 'From CONCLAVE_GITHUB_TOKEN where the hub runs.' : 'The token is the hub secret "github". Sessions never see it.'}>
-            {status.source !== 'env' && (
+        {status.connected && (
+          <SettingRow label={<Outcome word="Connected" tone="ok">as @{status.login}{status.name ? ` (${status.name})` : ''}</Outcome>} help={help}>
+            {status.source === 'secret' && (
               <Button variant="outline" size={size} onClick={() => setConfirmOff(true)}>
                 Disconnect
               </Button>
             )}
+            {status.source === 'mcp' && !replace && (
+              <Button variant="outline" size={size} onClick={() => setReplace(true)}>
+                Connect a separate token
+              </Button>
+            )}
           </SettingRow>
-        ) : (
+        )}
+        {(!status.connected || replace) && (
           <>
             {status.error && <SettingRow label={<Outcome word="Not working" tone="fault">{status.error}</Outcome>} />}
             <SettingRow

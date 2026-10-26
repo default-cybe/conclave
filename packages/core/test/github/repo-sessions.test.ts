@@ -88,6 +88,17 @@ describe('the GitHub connection', () => {
     expect((await svc.status()).connected).toBe(false);
     await expect(svc.repos()).rejects.toThrow(/Connect GitHub first/);
   });
+
+  test('the GitHub MCP server token (github-pat) connects too; disconnect leaves it; a saved "github" token wins', async () => {
+    const { t, svc } = await setup();
+    svc.disconnect();
+    t.engine.config.setSecret('values', 'github-pat', TOKEN);
+    expect(await svc.status()).toMatchObject({ connected: true, source: 'mcp', login: 'sam-rivera' });
+    expect(svc.disconnect()).toEqual({ connected: false, source: 'mcp' });
+    expect(t.engine.config.secretValue('github-pat')).toBe(TOKEN);
+    await svc.connect(TOKEN);
+    expect(await svc.status()).toMatchObject({ connected: true, source: 'secret' });
+  });
 });
 
 describe('clones and worktrees', () => {
