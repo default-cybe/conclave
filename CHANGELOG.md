@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Kiro sign-in with Google or GitHub: a second Kiro row under Subscriptions (provider `kiro4cpa-social`, same pinned kiro4cpa 1.0.5 plugin) starts the plugin's social login on the hub, opens only Kiro's `https://app.kiro.dev` page, and takes the pasted `127.0.0.1:3128/oauth/callback` address to the plugin's `login/social/complete` route (the plugin checks its own state). The account lists as Kiro, not Google. Live Google or GitHub sign-in is not yet verified.
+
 ## [0.4.31] - 2026-10-26
 
 ### Added

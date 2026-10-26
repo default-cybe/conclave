@@ -252,8 +252,11 @@ export class Management {
     this.fail(v0.status, v0.data, 'list the accounts');
   }
 
-  async authUrl(provider: string): Promise<AuthStart> {
+  async authUrl(card: string): Promise<AuthStart> {
     const api = await this.detect();
+    // kiro4cpa-social is the kiro4cpa sign-in finished with Google or GitHub
+    const social = card === 'kiro4cpa-social';
+    const provider = social ? 'kiro4cpa' : card;
     const r =
       api === 'v8'
         ? await this.call<Record<string, unknown>>('GET', '/v8/management/oauth/auth-url', undefined, { provider })
@@ -267,12 +270,26 @@ export class Management {
     // key. Start its Builder ID device flow on the server instead; never send
     // that page, a loopback URL, or the management key to the browser.
     if (provider === 'kiro4cpa' && url.startsWith('/v0/resource/plugins/kiro4cpa/connect#')) {
+      if (social) {
+        const start = await this.call<Record<string, unknown>>('POST', '/v0/management/plugins/kiro4cpa/login/social/start', { state });
+        if (start.status !== 200) this.fail(start.status, start.data, 'start Kiro Google or GitHub sign-in');
+        url = str(start.data.url);
+        let portal: URL | undefined;
+        try {
+          portal = new URL(url ?? '');
+        } catch {
+          /* checked below */
+        }
+        if (!url || portal?.protocol !== 'https:' || portal.hostname !== 'app.kiro.dev') throw new ManagementError('Kiro sent no valid sign-in address.', 502);
+        return { url, state, flow: 'redirect' };
+      }
       const device = await this.call<Record<string, unknown>>('POST', '/v0/management/plugins/kiro4cpa/login/device', { state, kind: 'builder' });
       if (device.status !== 200) this.fail(device.status, device.data, 'start Kiro Builder ID sign-in');
       url = str(device.data.verificationUri);
       if (!url || !/^https:\/\//i.test(url)) throw new ManagementError('Kiro sent no valid device authorization address.', 502);
       return { url, state, flow: 'device', userCode: str(device.data.userCode), expiresIn: typeof device.data.expiresIn === 'number' ? device.data.expiresIn : undefined };
     }
+    if (social) throw new ManagementError('This Kiro plugin cannot sign in with Google or GitHub. Update it.', 502);
     if (!/^https?:\/\//i.test(url)) throw new ManagementError('CLIProxyAPI sent a sign-in address that is not a web page.', 502);
     const device = r.data.flow === 'device' || !!str(r.data.user_code) || provider === 'copilot' || provider === 'kiro4cpa';
     const expiresIn = typeof r.data.expires_in === 'number' ? r.data.expires_in : undefined;
@@ -291,6 +308,7 @@ export class Management {
 
   /** The address the provider redirected to (a remote sign-in, pasted from the browser bar). */
   async callback(provider: string, state: string, redirectUrl: string): Promise<void> {
+    if (provider === 'kiro4cpa-social') return this.kiroSocialCallback(state, redirectUrl);
     const api = await this.detect();
     const path = api === 'v8' ? '/v8/management/oauth/callback' : '/v0/management/oauth-callback';
     const r = await this.call<Record<string, unknown>>('POST', path, { provider, state, redirect_url: redirectUrl });
@@ -300,6 +318,21 @@ export class Management {
     if (r.status === 409) throw new ManagementError(said === 'oauth flow is already completed' ? 'That sign-in already finished.' : `That sign-in cannot take an address now${said ? ` (${said})` : ''}. Start it again.`, 409);
     if (r.status === 400) throw new ManagementError(`CLIProxyAPI did not take that address${said ? ` (${said})` : ''}. Paste the whole address from the browser bar.`, 400);
     this.fail(r.status, r.data, 'finish the sign-in');
+  }
+
+  /** The kiro4cpa plugin exchanges the code itself and marks CPA's sign-in done; CPA then saves the account. */
+  private async kiroSocialCallback(state: string, callbackUrl: string): Promise<void> {
+    const path = new URL(callbackUrl).pathname;
+    if (path !== '/oauth/callback' && path !== '/signin/callback') throw new ManagementError('That is not the address Kiro sent you back to. Paste the one with /oauth/callback in it.', 400);
+    const r = await this.call<Record<string, unknown>>('POST', '/v0/management/plugins/kiro4cpa/login/social/complete', { state, callbackUrl });
+    if (r.status === 200) return;
+    const said = str(r.data.error);
+    if (r.status === 404 && said) throw new ManagementError('That sign-in ended. Start it again.', 409);
+    if (r.status === 409) throw new ManagementError('That sign-in cannot take an address now. Start it again.', 409);
+    // the plugin's mismatch message names the state (its other text is Chinese)
+    if (r.status === 400 && said && /state/i.test(said)) throw new ManagementError('That address belongs to another sign-in. Start again and paste the address from that tab.', 400);
+    if (r.status === 400) throw new ManagementError(`Kiro did not take that address${said ? ` (${said})` : ''}. Paste the whole address from the browser bar.`, 400);
+    this.fail(r.status, r.data, 'finish the Kiro sign-in');
   }
 
   async cancel(state: string): Promise<void> {

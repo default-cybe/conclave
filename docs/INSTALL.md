@@ -706,6 +706,10 @@ matched.
   paste it into the box under the row, and press **Finish sign-in**.
 - **Grok, Kimi, Muse**: the page asks for a short code, which Conclave shows.
   The row updates when you are done.
+- **Kiro** (under "More", through the kiro4cpa plugin) has two rows: AWS
+  Builder ID works like Grok, with a code. Google or GitHub opens Kiro's
+  page, which ends on a `127.0.0.1:3128` page that does not load; paste its
+  address as for Claude. Both rows add the same Kiro account type.
 
 You can sign in to more than one account of the same plan. They are used
 in your order (below), one at a time. An account with a short name (set in

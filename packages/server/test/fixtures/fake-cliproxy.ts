@@ -104,6 +104,9 @@ interface Session {
   provider: string;
   status: 'wait' | 'ok' | 'error';
   error?: string;
+  /** kiro4cpa: the login method picked on its routes, and its own social state. */
+  method?: string;
+  socialState?: string;
 }
 const sessions = new Map<string, Session>();
 
@@ -229,6 +232,8 @@ function startLogin(provider: string): Response {
   if (!KNOWN.has(provider) || (STORE.some((p) => p.provider === provider) && !pluginEntries().some((p) => p.oauth_provider === provider && p.effective_enabled))) return json({ error: 'provider_not_found' }, 404, mgmtHeaders);
   const state = `st-${crypto.randomUUID()}`;
   sessions.set(state, { provider, status: 'wait' });
+  // the real kiro4cpa opens its connect page; the login routes below pick the method
+  if (provider === 'kiro4cpa') return json({ status: 'ok', url: `/v0/resource/plugins/kiro4cpa/connect#state=${state}`, state }, 200, mgmtHeaders);
   if (DEVICE.has(provider)) {
     setTimeout(() => {
       const s = sessions.get(state);
@@ -241,6 +246,45 @@ function startLogin(provider: string): Response {
   const redirect = `http://localhost:${cbPort}${REDIRECT_PATH[provider] ?? '/callback'}`;
   const url = `https://${provider}.example.test/oauth/authorize?client_id=fake&response_type=code&redirect_uri=${encodeURIComponent(redirect)}&state=${state}`;
   return json({ status: 'ok', url, state }, 200, mgmtHeaders);
+}
+
+/** kiro4cpa's login routes as v1.0.5 answers them (connect_handler.go), with its messages. */
+function kiroLogin(route: string, body: { state?: string; kind?: string; callbackUrl?: string }): Response {
+  logMgmt({ path: `kiro-${route}`, body });
+  const s = sessions.get(body.state ?? '');
+  if (!s || s.provider !== 'kiro4cpa') return json({ error: '登录会话不存在或已过期，请回到面板重新发起登录' }, 404, mgmtHeaders);
+  const method = route === 'device' ? `device-${body.kind}` : 'social';
+  if (s.status !== 'wait' || (s.method && s.method !== method)) return json({ error: '该登录会话已使用其他方式，请回到面板重新发起登录' }, 409, mgmtHeaders);
+  s.method = method;
+  if (route === 'device') {
+    setTimeout(() => {
+      if (s.status !== 'wait') return;
+      saveAccount('kiro4cpa', 'kiro4cpa-device@example.test');
+      s.status = 'ok';
+    }, deviceMs);
+    return json({ userCode: 'AWS-CODE', verificationUri: 'https://view.awsapps.com/start/#/device?user_code=AWS-CODE', expiresIn: 600 }, 200, mgmtHeaders);
+  }
+  if (route === 'social/start') {
+    s.socialState = `ss-${crypto.randomUUID()}`;
+    const q = new URLSearchParams({ state: s.socialState, code_challenge: 'fake', code_challenge_method: 'S256', redirect_uri: 'http://127.0.0.1:3128', redirect_from: 'KiroIDE' });
+    return json({ url: `https://app.kiro.dev/signin?${q}`, redirectUri: 'http://127.0.0.1:3128' }, 200, mgmtHeaders);
+  }
+  if (!s.socialState) return json({ error: '请先点击“打开 Kiro 登录页”' }, 409, mgmtHeaders);
+  let u: URL;
+  try {
+    u = new URL((body.callbackUrl ?? '').trim());
+  } catch {
+    return json({ error: '请粘贴浏览器地址栏中完整的回调地址' }, 400, mgmtHeaders);
+  }
+  if (u.pathname !== '/oauth/callback' && u.pathname !== '/signin/callback') return json({ error: '回调地址路径不正确，应为 /oauth/callback' }, 400, mgmtHeaders);
+  if (!u.searchParams.get('code')) return json({ error: '回调地址缺少 code' }, 400, mgmtHeaders);
+  if (u.searchParams.get('state') !== s.socialState) return json({ error: '回调地址的 state 与本次登录不匹配，请重新打开 Kiro 登录页' }, 400, mgmtHeaders);
+  // the plugin completes its session; CPA's poll of the plugin then saves a kiro4cpa auth file
+  setTimeout(() => {
+    saveAccount('kiro4cpa', `kiro-${u.searchParams.get('login_option') ?? 'google'}@example.test`);
+    s.status = 'ok';
+  }, 150);
+  return json({ ok: true }, 200, mgmtHeaders);
 }
 
 async function callback(req: Request): Promise<Response> {
@@ -336,6 +380,8 @@ async function management(req: Request, url: URL, api: 'v8' | 'v0'): Promise<Res
     writeFileSync(configPath, Bun.YAML.stringify(cfg));
     return json({ status: 'installed', id: entry.id, version: entry.version, source_id: 'official', source_url: STORE_SOURCE, restart_required: false, ...(process.env.FAKE_CPA_INSTALL_RESPONSE ? JSON.parse(process.env.FAKE_CPA_INSTALL_RESPONSE) : {}) }, 200, mgmtHeaders);
   }
+  const kiro = /^\/plugins\/kiro4cpa\/login\/(device|social\/start|social\/complete)$/.exec(p);
+  if (kiro && api === 'v0' && req.method === 'POST') return kiroLogin(kiro[1], (await req.json().catch(() => ({}))) as Record<string, string>);
   if (api === 'v8') {
     if (p === '/credentials' && req.method === 'GET') return credentialList();
     if (p === '/credentials/models' && req.method === 'GET') {
