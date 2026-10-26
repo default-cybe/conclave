@@ -8,8 +8,9 @@ import dev.conclave.client.motion.PetState
 import dev.conclave.client.motion.busiestKind
 import dev.conclave.client.motion.glyphKind
 import dev.conclave.client.motion.glyphState
-import dev.conclave.client.motion.knotLoop
+import dev.conclave.client.model.SessionStatus
 import dev.conclave.client.motion.petState
+import dev.conclave.client.motion.sessionPet
 import dev.conclave.client.motion.stillRows
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -57,6 +58,15 @@ class GlyphsTest {
     }
 
     @Test
+    fun aChatsStatusPicksThePetOrNone() {
+        assertEquals(PetState.WAITING, sessionPet(SessionStatus.WAITING_APPROVAL))
+        assertEquals(PetState.WAITING, sessionPet(SessionStatus.WAITING_INPUT))
+        assertEquals(PetState.PARKED, sessionPet(SessionStatus.WAITING_RESET))
+        assertEquals(PetState.FAILED, sessionPet(SessionStatus.ERROR))
+        for (s in listOf(SessionStatus.RUNNING, SessionStatus.IDLE, SessionStatus.PAUSED, null)) assertNull(sessionPet(s))
+    }
+
+    @Test
     fun theBusiestKindWinsTiesGoToTheFirst() {
         assertEquals(GlyphKind.RESEARCHER, busiestKind(listOf("web-searcher", "tester", "researcher")))
         assertEquals(GlyphKind.TESTER, busiestKind(listOf("tester", "reviewer")))
@@ -74,11 +84,9 @@ class GlyphsTest {
     @Test
     fun everyKindHasAStrokeAndThePetABody() {
         for (k in GlyphKind.entries) assertTrue(k == GlyphKind.GENERAL_PURPOSE || GLYPH_PATHS.getValue(k).startsWith("M"))
-        // the body is the knot's loop mapped into the pet's 32x24 box: 4..28 by 3..17 (it starts on the knot's first point, not the corner)
-        val xs = PET_BODY.filterIndexed { i, _ -> i % 2 == 0 }
-        val ys = PET_BODY.filterIndexed { i, _ -> i % 2 == 1 }
-        assertTrue(xs.all { it in 4f..28f })
-        assertTrue(ys.all { it in 3f..17f })
-        assertEquals(knotLoop(4f, 3f, 24f, 14f).size, PET_BODY.size)
+        // the body is one closed path in the left 4..24 of the 32x24 box, so props on the right never cover the face
+        assertTrue(PET_BODY.startsWith("M") && PET_BODY.endsWith("Z"))
+        val xs = Regex("(-?[\\d.]+) (-?[\\d.]+)").findAll(PET_BODY).map { it.groupValues[1].toFloat() }.toList()
+        assertTrue(xs.isNotEmpty() && xs.all { it in 4f..24f })
     }
 }

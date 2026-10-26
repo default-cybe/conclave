@@ -16,9 +16,11 @@ like `## [0.4.16] - 2026-10-24`.
 ### Changed
 
 - Terminal chat: the two status rows are laid out left and right (model, effort, agent and mode against the permission mode; the folder against context, tokens, cost and limits), the hub shows only when it is not connected, and a bare `/` lists commands in their listed order instead of by name length.
+- The pet is redrawn as a soft dome with a curl of the Knot's rope on top, dot eyes, a mouth and one arm for its prop, on web and Android. Each state has its own face and posture (a magnifier, a hammer and blocks, glasses, a waving amber hand, asleep with z's, a hop with sparkles when done, a frown and a sweat drop when failed). It now also sits beside the chat header's Waiting on you, Resumes and Failed words, beside the reason of a failed chat on desktop and phone, in the Inbox and workflow runs empty states, and on the setup Done step; `/dev/motion` shows it in each place.
 
 ### Fixed
 
+- The pet and the agent glyphs stop moving off screen and in a background tab: each pose's own animation rule set the play state back to running, so their loops kept going.
 - A picture you attached to your own message opens full size: on the web a click or tap on its thumbnail (Chat page and session log) shows it fitted to the screen with Download, and Escape, Close or a click outside shuts it; on Android a tap opens it full screen with pinch to zoom, and a tap, Back or Close shuts it. Before, the thumbnails did nothing.
 - A device with a large Claude Code or Codex transcript no longer drops off every 10 minutes ("Received too big message"): the usage scan reads device logs in 8 MB pieces from where it stopped, skips a single line over 8 MB, keeps its progress when a read fails and waits longer before each retry (20 minutes, doubling, up to a day). Every file read from a device now travels in replies of at most 32 MB, a daemon without range reads is not asked for a bigger file, and the Rust daemon answers a reply that would pass the hub's 64 MB limit with an error instead of sending it. A tool call on a device that dropped in the last minute waits up to 20 seconds for it to reconnect before failing with "is offline".
 

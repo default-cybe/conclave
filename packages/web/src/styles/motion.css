@@ -276,8 +276,9 @@
 }
 
 /* off screen or in a background tab: loops hold where they are (Pet, AgentGlyph) */
+/* !important: each pose's `animation` shorthand resets the play state, with a more specific selector */
 [data-paused] * {
-  animation-play-state: paused;
+  animation-play-state: paused !important;
 }
 
 /* a card's state word and its mark change color in --dur-3 (RunView, RunningTasks) */

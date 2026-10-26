@@ -9,7 +9,12 @@ import { Check, Clock, Copy, FileText, Globe, PenLine, Search, SquareTerminal } 
 import { Button, IconButton } from '../ui/Button';
 import { OnOff, Segmented } from '../ui/Field';
 import { Page, PageHeader } from '../ui/Page';
+import { EmptyState } from '../ui/EmptyState';
+import { RunningTasksView } from '@/features/chat/RunningTasks';
+import type { RunningTask } from '@/features/chat/liveTasks';
 import { Markdown } from '@/features/chat/Markdown';
+import { ErrorBody } from '@/features/chat/Notices';
+import type { Session } from '@conclave/core/types';
 import { Greeting } from '@/features/conversation/Greeting';
 import { toast } from '@/store/store';
 import { cn } from '@/lib/text';
@@ -146,9 +151,19 @@ export function MotionGallery() {
 
 /** The pet in every state, at 64 and at 24. */
 function PetDemo() {
+  const [n, setN] = useState(0);
   return (
-    <Demo id="pet" title="Pet" note="Every state at 64 and 24. Never in a chat reply.">
-      <div className="grid grid-cols-5 gap-x-4 gap-y-5 phone:grid-cols-2" data-motion-pets>
+    <Demo
+      id="pet"
+      title="Pet"
+      note="Every state at 64 and 24. Never in a chat reply."
+      actions={
+        <Button size="sm" variant="outline" onClick={() => setN((v) => v + 1)} data-act="pet-replay">
+          Replay
+        </Button>
+      }
+    >
+      <div key={n} className="grid grid-cols-5 gap-x-4 gap-y-5 phone:grid-cols-2" data-motion-pets>
         {PET_STATES.map((st) => (
           <div key={st} className="flex items-end gap-3">
             <Pet state={st} size={64} className="text-fg" />
@@ -159,7 +174,76 @@ function PetDemo() {
           </div>
         ))}
       </div>
+      <PetPlaces />
     </Demo>
+  );
+}
+
+const PILL_TASKS = (waiting: boolean): RunningTask[] => [
+  { kind: 'subagent', key: 't:1', toolUseId: 't1', state: 'running', childId: 'c1', background: true, agent: 'builder', description: 'Fix the upload test', startedAt: Date.now() - 99_000, waiting: false },
+  { kind: 'subagent', key: 't:2', toolUseId: 't2', state: 'running', childId: 'c2', background: true, agent: 'coder', description: 'Refactor auth', startedAt: Date.now() - 61_000, waiting },
+];
+
+// the chat's own failure presentation (Notices.tsx), so the gallery shows what a failed chat draws
+const FAILED = { id: 'gallery-failed', status: 'error', error: 'The provider is overloaded', model: 'anthropic/claude-sonnet-5-5' } as Session;
+
+/** Where the pet goes, with the words it sits beside (CHAT-AND-MOTION 1.11). */
+function PetPlaces() {
+  const tile = 'min-w-0 rounded-[var(--r-3)] border border-rule p-4';
+  const cap = 'mb-3 text-[12px] text-fg-3';
+  return (
+    <div className="mt-8 grid grid-cols-3 gap-4 phone:grid-cols-1" data-pet-places>
+      <div className={tile}>
+        <p className={cap}>Running tasks, the busiest job</p>
+        <RunningTasksView tasks={PILL_TASKS(false)} className="mx-0 px-0 phone:px-0" />
+        <RunningTasksView tasks={PILL_TASKS(true)} className="mx-0 mt-2 px-0 phone:px-0" />
+      </div>
+      <div className={tile}>
+        <p className={cap}>The chat header</p>
+        <div className="space-y-2.5 text-[13px]">
+          <p className="flex items-center gap-1.5">
+            <Pet state="waiting" size={24} className="-my-1 text-fg-2" />
+            <span className="state-word text-warn">Waiting on you</span>
+          </p>
+          <p className="flex items-center gap-1.5">
+            <Pet state="parked" size={24} className="-my-1 text-fg-2" />
+            <span className="text-fg-2">
+              Resumes <span className="num">15:42</span>
+              <span className="num ml-2 text-fg-3">in 2h 10m</span>
+            </span>
+          </p>
+          <p className="flex items-center gap-1.5">
+            <Pet state="failed" size={24} className="-my-1 text-fg-2" />
+            <span className="state-word text-fault">Failed</span>
+          </p>
+        </div>
+      </div>
+      <div className={tile}>
+        <p className={cap}>The limit notice, asleep until the reset</p>
+        <p className="flex items-center gap-2 text-[14px] leading-[22px] font-medium text-warn">
+          <Pet state="parked" size={24} className="text-fg-2" />
+          Claude Max 5 hour limit reached.
+        </p>
+        <p className="mt-0.5 text-[14px] leading-[1.45] text-fg-2">This session picks up where it stopped when the limit resets.</p>
+      </div>
+      <div className={tile}>
+        <p className={cap}>A run, or setup, is done</p>
+        <div className="flex items-end gap-3">
+          <Pet state="done" size={64} className="text-fg" />
+          <p className="mb-1 text-[14px] text-fg">Done. 6 agents, all passed.</p>
+        </div>
+      </div>
+      <div className={tile}>
+        <p className={cap}>A chat failed</p>
+        <ErrorBody session={FAILED} lastPrompt="Fix the upload test" />
+      </div>
+      <div className={tile}>
+        <p className={cap}>Inbox, nothing waiting</p>
+        <EmptyState pet="done" className="pt-0 pb-0">
+          Nothing is waiting on you.
+        </EmptyState>
+      </div>
+    </div>
   );
 }
 

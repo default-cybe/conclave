@@ -18,7 +18,7 @@ import { callOrder, stateOf } from '../src/features/workflows/CallRows';
 import { shared, useLiveSlot } from '../src/components/motion/useReducedMotion';
 import { AgentGlyph } from '../src/components/motion/AgentGlyph';
 import { Pet } from '../src/components/motion/Pet';
-import { GLYPH_KINDS, GLYPH_PATHS, PET_STATES, busiestKind, glyphKind, glyphState, petState, stillRows } from '../src/components/motion/agentGlyphs';
+import { GLYPH_KINDS, GLYPH_PATHS, PET_STATES, busiestKind, glyphKind, glyphState, petState, sessionPet, stillRows } from '../src/components/motion/agentGlyphs';
 import { DUR } from '../src/components/motion/tokens';
 import { petFor } from '../src/features/workflows/words';
 
@@ -62,6 +62,14 @@ describe('state', () => {
     expect(petState(undefined)).toBe('thinking');
     expect(petState('builder', 'waiting')).toBe('waiting');
     expect(petState('builder', 'failed')).toBe('failed');
+  });
+
+  test("a chat's status: waiting on you, asleep until the reset, failed; the rest draw no pet", () => {
+    expect(sessionPet('waiting_approval')).toBe('waiting');
+    expect(sessionPet('waiting_input')).toBe('waiting');
+    expect(sessionPet('waiting_reset')).toBe('parked');
+    expect(sessionPet('error')).toBe('failed');
+    for (const s of ['running', 'idle', 'stopped', undefined]) expect(sessionPet(s)).toBeUndefined();
   });
 
   test('the busiest kind wins, ties go to the first', () => {
@@ -220,6 +228,20 @@ describe('render', () => {
     expect(renderToStaticMarkup(<Pet state="parked" />).match(/p-z/g)).toHaveLength(3);
   });
 
+  test('the face says the state: dot eyes while awake, shut asleep, ^^ done with 2 sparkles, a fault frown failed', () => {
+    expect(renderToStaticMarkup(<Pet state="idle" />).match(/class="p-eye"/g)).toHaveLength(2);
+    expect(renderToStaticMarkup(<Pet state="parked" />)).not.toContain('p-eye');
+    const done = renderToStaticMarkup(<Pet state="done" />);
+    expect(done).not.toContain('p-eye');
+    expect(done.match(/p-spark/g)).toHaveLength(2);
+    const failed = renderToStaticMarkup(<Pet state="failed" />);
+    expect(failed).toContain('p-face p-fault');
+    expect(failed).toContain('p-drop');
+    // the arm and its prop only for jobs that hold one
+    for (const s of ['researching', 'building', 'waiting'] as const) expect(renderToStaticMarkup(<Pet state={s} />)).toContain('p-swing');
+    expect(renderToStaticMarkup(<Pet state="idle" />)).not.toContain('p-swing');
+  });
+
   test('reduced motion (the server render reads it as on) and still draw the key pose', () => {
     // useReducedMotion answers true without a window, as on a first paint under reduce
     expect(renderToStaticMarkup(<Pet state="researching" />)).toContain('data-still=""');
@@ -243,7 +265,57 @@ describe('css', () => {
 
   test('still drops every animation; paused holds them', () => {
     expect(pet).toMatch(/\[data-still\] \*\s*\{\s*animation: none !important;/);
-    expect(motion).toMatch(/\[data-paused\] \*\s*\{\s*animation-play-state: paused;/);
+    expect(motion).toMatch(/\[data-paused\] \*\s*\{\s*animation-play-state: paused !important;/);
+  });
+
+  test('off screen every pet and glyph animation computes to paused, whatever its own rule says', () => {
+    // a small cascade: the style rules of motion.css then pet.css (index.css order), !important first, then specificity, then order
+    const req = createRequire(createRequire(join(import.meta.dir, '../../core/package.json')).resolve('linkedom'));
+    const cssom = req('cssom');
+    const what = createRequire(req.resolve('css-select'))('css-what');
+    type Sel = { type: string; name?: string; data?: unknown };
+    const spec = (seq: Sel[]): number =>
+      seq.reduce((n, t) => {
+        if (t.type === 'pseudo' && Array.isArray(t.data)) return n + Math.max(...(t.data as Sel[][]).map(spec));
+        if (t.type === 'attribute' || t.type === 'pseudo') return n + (t.name === 'id' ? 10_000 : 100);
+        return n + (t.type === 'tag' || t.type === 'pseudo-element' ? 1 : 0);
+      }, 0);
+    const rules = [motion, pet].flatMap((src) => [...cssom.parse(src).cssRules].filter((r: { selectorText?: string; style?: CSSStyleDeclaration }) => r.selectorText && (r.style!.getPropertyValue('animation') || r.style!.getPropertyValue('animation-play-state'))));
+    const playState = (el: Element) => {
+      let best: { imp: boolean; spec: number; i: number; v: string } | undefined;
+      let moves = false;
+      rules.forEach((r: { selectorText: string; style: { getPropertyValue(p: string): string; getPropertyPriority(p: string): string } }, i: number) => {
+        for (const sel of what.parse(r.selectorText) as Sel[][]) {
+          if (sel.some((t) => t.type === 'pseudo-element') || !el.matches(what.stringify([sel]))) continue;
+          for (const p of ['animation', 'animation-play-state']) {
+            const v = r.style.getPropertyValue(p);
+            if (!v) continue;
+            if (p === 'animation' && v !== 'none') moves = true;
+            // the shorthand resets the play state to running unless it names one
+            const cand = { imp: r.style.getPropertyPriority(p) === 'important', spec: spec(sel), i, v: /\bpaused\b/.test(v) ? 'paused' : 'running' };
+            if (!best || cand.imp > best.imp || (cand.imp === best.imp && (cand.spec > best.spec || (cand.spec === best.spec && cand.i >= best.i)))) best = cand;
+          }
+        }
+      });
+      return moves ? best?.v : undefined;
+    };
+    const { parseHTML } = req('linkedom');
+    const html = [...PET_STATES.map((s) => renderToStaticMarkup(<Pet state={s} />)), ...GLYPH_KINDS.map((k) => renderToStaticMarkup(<AgentGlyph type={k} state="running" />))].join('');
+    const { document: doc } = parseHTML(`<!doctype html><html><body>${html}</body></html>`);
+    const seen = new Set<string>();
+    for (const svg of doc.querySelectorAll('svg')) {
+      // as on screen and moving, then scrolled away
+      svg.removeAttribute('data-still');
+      svg.setAttribute('data-paused', '');
+      for (const el of svg.querySelectorAll('*')) {
+        const st = playState(el);
+        if (st === undefined) continue;
+        seen.add(`${svg.getAttribute('data-state')} ${el.getAttribute('class')}`);
+        expect(`${svg.getAttribute('data-state')} ${el.getAttribute('class')} ${st}`).toBe(`${svg.getAttribute('data-state')} ${el.getAttribute('class')} paused`);
+      }
+    }
+    // waiting's wave, parked's sleep, researching's follow and a glyph's light among them
+    for (const k of ['waiting p-swing p-warn', 'parked p-body', 'researching p-look', 'running g-light']) expect([...seen]).toContain(k);
   });
 
   test('the key poses are the base styles: 2 blocks, ticks drawn, the light 3/4 along', () => {
