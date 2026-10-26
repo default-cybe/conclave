@@ -2,7 +2,7 @@
 import React from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { ApprovalRequest, ApprovalResponse, QuestionRequest } from '@conclave/core/types.ts';
-import { tui as p, visible } from '../ansi';
+import { inkColor as c, tui as p, visible } from '../ansi';
 import { approvalPreview, toolTitle } from '../render/tools';
 import { useRefState } from './Picker';
 
@@ -47,13 +47,15 @@ export function ApprovalBox({
 
   const t = toolTitle(approval.tool, approval.input, cwd);
   const preview = approvalPreview(approval.tool, approval.input, p, width - 8);
+  const from = askFrom(approval);
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor={c('yellow')} paddingX={1}>
       <Text>
-        <Text color="yellow" bold>
+        <Text color={c('yellow')} bold>
           Permission needed
         </Text>
         <Text dimColor>
+          {from ? ` · ${from}` : ''}
           {approval.harness ? ` · from ${approval.harness}` : ''}
           {queued > 0 ? ` · ${queued} more waiting` : ''}
         </Text>
@@ -69,7 +71,7 @@ export function ApprovalBox({
       <Box marginTop={1} flexDirection="column">
         {denying ? (
           <Text>
-            <Text color="red">Deny with message: </Text>
+            <Text color={c('red')}>Deny with message: </Text>
             {message}
             <Text inverse> </Text>
             <Text dimColor> (enter send · esc back)</Text>
@@ -77,17 +79,18 @@ export function ApprovalBox({
         ) : (
           <>
             <Text>
-              <Text color="green" bold>
+              <Text color={c('green')} bold>
                 y
               </Text>{' '}
               allow once{'   '}
-              <Text color="green" bold>
+              <Text color={c('green')} bold>
                 s
               </Text>{' '}
-              allow for this session{approval.noAlways ? null : '   '}
+              allow for this {approval.from ? 'subagent' : 'session'}
+              {approval.noAlways ? null : '   '}
               {approval.noAlways ? null : (
                 <>
-                  <Text color="green" bold>
+                  <Text color={c('green')} bold>
                     a
                   </Text>{' '}
                   always allow{approval.suggestedRule ? <Text dimColor> ({visible(approval.suggestedRule)})</Text> : null}
@@ -95,11 +98,11 @@ export function ApprovalBox({
               )}
             </Text>
             <Text>
-              <Text color="red" bold>
+              <Text color={c('red')} bold>
                 n
               </Text>{' '}
               deny{'   '}
-              <Text color="red" bold>
+              <Text color={c('red')} bold>
                 d
               </Text>{' '}
               deny with message{'   '}
@@ -110,6 +113,13 @@ export function ApprovalBox({
       </Box>
     </Box>
   );
+}
+
+/** "Subagent email asks", "Workflow research, agent search 3, asks": who asks when it is not this session (web lib/asks.ts askFromLine). */
+export function askFrom(r: Pick<ApprovalRequest, 'from'>): string | undefined {
+  const f = r.from;
+  if (!f) return undefined;
+  return visible(f.workflow ? `Workflow ${f.workflow.name}, agent ${f.label}, asks` : `Subagent ${f.agent} asks`);
 }
 
 const OTHER = '__other__';
@@ -176,12 +186,13 @@ export function QuestionBox({ question, onAnswer, onAbort }: { question: Questio
 
   if (!q) return <Text dimColor>No question</Text>;
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor={c('magenta')} paddingX={1}>
       <Text>
-        <Text color="magenta" bold>
+        <Text color={c('magenta')} bold>
           {q.header ?? 'Question'}
         </Text>
         {question.questions.length > 1 ? <Text dimColor>{` ${qi + 1}/${question.questions.length}`}</Text> : null}
+        {askFrom(question) ? <Text dimColor>{` · ${askFrom(question)}`}</Text> : null}
       </Text>
       <Text wrap="wrap">{q.question}</Text>
       <Box flexDirection="column" marginTop={1}>
@@ -191,7 +202,7 @@ export function QuestionBox({ question, onAnswer, onAbort }: { question: Questio
           const box = q.multiSelect && label !== OTHER ? (picked.has(i) ? '[x] ' : '[ ] ') : '';
           return (
             <Text key={i} wrap="truncate-end">
-              <Text color={active ? 'magenta' : undefined}>{active ? '❯ ' : '  '}</Text>
+              <Text color={c(active ? 'magenta' : undefined)}>{active ? '❯ ' : '  '}</Text>
               <Text dimColor>{`${i + 1}. `}</Text>
               {box}
               <Text bold={active}>{label === OTHER ? 'Other (type an answer)' : label}</Text>
@@ -202,7 +213,7 @@ export function QuestionBox({ question, onAnswer, onAbort }: { question: Questio
       </Box>
       {typing !== null ? (
         <Text>
-          <Text color="magenta">Answer: </Text>
+          <Text color={c('magenta')}>Answer: </Text>
           {typing}
           <Text inverse> </Text>
         </Text>

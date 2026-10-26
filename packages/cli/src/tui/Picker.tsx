@@ -1,7 +1,7 @@
 /** Searchable list: type to filter, arrows to move, enter to pick, esc to cancel. */
 import React, { useMemo, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
-import { truncate } from '../ansi';
+import { inkColor as c, truncate } from '../ansi';
 import type { PickerItem, PickerSpec } from './slash';
 
 const VISIBLE = 10;
@@ -65,7 +65,7 @@ export function Picker({ spec, width, onClose }: { spec: PickerSpec; width: numb
   const shown = filtered.slice(start, start + VISIBLE);
   const inner = Math.max(20, width - 4);
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1} width={Math.min(width, 100)}>
+    <Box flexDirection="column" borderStyle="round" borderColor={c('cyan')} paddingX={1} width={Math.min(width, 100)}>
       <Text>
         <Text bold>{spec.title}</Text>
         <Text dimColor> {query ? `· ${query}` : '· type to search'}</Text>
@@ -76,12 +76,12 @@ export function Picker({ spec, width, onClose }: { spec: PickerSpec; width: numb
         const hintRoom = Math.max(0, inner - it.label.length - 6);
         return (
           <Text key={it.value + ':' + i} wrap="truncate-end">
-            <Text color={active ? 'cyan' : undefined}>{active ? '❯ ' : '  '}</Text>
-            {it.color ? <Text color={it.color}>● </Text> : null}
-            <Text bold={active} color={active ? 'cyan' : undefined}>
+            <Text color={c(active ? 'cyan' : undefined)}>{active ? '❯ ' : '  '}</Text>
+            {it.color ? <Text color={c(it.color)}>● </Text> : null}
+            <Text bold={active} color={c(active ? 'cyan' : undefined)}>
               {it.label}
             </Text>
-            {it.current ? <Text color="green"> ✓</Text> : null}
+            {it.current ? <Text color={c('green')}> ✓</Text> : null}
             {it.hint && hintRoom > 8 ? <Text dimColor> {truncate(it.hint, hintRoom)}</Text> : null}
           </Text>
         );
