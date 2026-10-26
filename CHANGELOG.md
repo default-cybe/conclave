@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- A picture you attached to your own message opens full size: on the web a click or tap on its thumbnail (Chat page and session log) shows it fitted to the screen with Download, and Escape, Close or a click outside shuts it; on Android a tap opens it full screen with pinch to zoom, and a tap, Back or Close shuts it. Before, the thumbnails did nothing.
+
 ## [0.4.35] - 2026-10-26
 
 ### Fixed
