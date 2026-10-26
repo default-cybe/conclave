@@ -14,7 +14,7 @@ import { attempt, useHub, useIsOwner } from '@/store/store';
 import { useDelayed, useIsDesktop, useIsMobile, useIsWide, useLoad, useNow } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { compact, duration, hhmm, longDate, shortDate, usd } from '@/lib/format';
-import { harnessId, splitRef } from '@/lib/models';
+import { harnessId, modelName, splitRef } from '@/lib/models';
 import { Page, PageHeader } from '@/components/ui/Page';
 import { Input, Segmented } from '@/components/ui/Field';
 import { Section, SectionHeading, TextAction, Notice } from '@/components/ui/Section';
@@ -235,6 +235,7 @@ export default function UsagePage() {
     </>
   );
   const recentRows = u && !empty && <Recent rows={recent.data} plans={planProviders} onOpen={(id) => navigate(`/s/${id}`)} />;
+  const switches = <AutoSwitches from={from} to={to} onOpen={(id) => navigate(`/s/${id}`)} />;
   // a quiet past range is not a first day: offer the default range back instead of a first session
   const emptyState =
     empty &&
@@ -269,6 +270,7 @@ export default function UsagePage() {
               {byModel}
               {breakdown}
               {recentRows}
+              {switches}
             </div>
           </div>
           <aside className="min-w-0 border-l border-rule pt-[30px] pl-7" aria-label="Limits">
@@ -293,6 +295,7 @@ export default function UsagePage() {
         {byModel}
         {breakdown}
         {recentRows}
+        {switches}
       </div>
     </Page>
   );
@@ -1028,5 +1031,52 @@ function Recent({ rows, onOpen, plans }: { rows: UsageRecord[] | undefined; onOp
         </div>
       )}
     </section>
+  );
+}
+
+/** One automatic switch the hub recorded (session meta autoSwitches, session/limit-tree.ts recordAutoSwitch). */
+interface AutoSwitchRow {
+  at: number;
+  from: string;
+  to: string;
+  estimateUsd?: number;
+  paid?: boolean;
+  harness?: boolean;
+  sessionId: string;
+}
+
+/**
+ * Automatic switches in the range (ideas item 8): where a limit, a refusal or
+ * a dead model moved a task, and about what the first call after the move
+ * cost. A harness destination reads as external: the hub does not manage or
+ * cap its requests.
+ */
+function AutoSwitches({ from, to, onOpen }: { from: number; to: number; onOpen: (id: string) => void }) {
+  const sessions = useHub((s) => s.sessions);
+  const rows = useMemo(
+    () =>
+      Object.values(sessions)
+        .flatMap((s) => ((s.meta?.autoSwitches as AutoSwitchRow[] | undefined) ?? []).map((x) => ({ ...x, sessionId: s.id })))
+        .filter((x) => x.at >= from && x.at <= to)
+        .sort((a, b) => b.at - a.at)
+        .slice(0, 25),
+    [sessions, from, to],
+  );
+  if (!rows.length) return null;
+  return (
+    <Section title="Automatic switches" count={rows.length} rows={false} className="min-w-0">
+      <ul className="m-0 list-none space-y-1.5 p-0">
+        {rows.map((r, i) => (
+          <li key={i} className="flex min-w-0 items-baseline justify-between gap-3 text-[13px]">
+            <button type="button" className="link min-w-0 truncate text-left" onClick={() => onOpen(r.sessionId)}>
+              {r.harness || harnessId(r.to) ? `${modelName(r.to)} (external harness)` : modelName(r.to)} ← {modelName(r.from) || r.from}
+            </button>
+            <span className="shrink-0 text-fg-3">
+              {r.estimateUsd !== undefined ? `about ${usd(r.estimateUsd)}${r.paid ? ', paid' : ''}` : r.paid ? 'paid' : ''} · {ageWords(r.at, Date.now())}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Section>
   );
 }

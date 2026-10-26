@@ -490,7 +490,7 @@ export class AlertService {
   }
 
   private notify(kind: 'fileConflict' | 'stuck', title: string, body: string, sessionId: string, alertId: string): void {
-    this.engine.notifyEvent(kind, { title, body, level: 'warning', sessionId, link: `/s/${sessionId}`, alertId });
+    this.engine.notifyEvent(kind, { title, body, level: 'warning', sessionId, link: `/s/${sessionId}`, alertId, thread: this.engine.askOrigin(sessionId).rootSessionId });
   }
 }
 

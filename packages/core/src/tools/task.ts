@@ -1,6 +1,7 @@
 import type { Tool } from './types';
 import { fail } from './util';
 import { assertOutputSchema } from './schema';
+import { missingTools } from '../engine/tool-check';
 
 export interface TaskInput {
   description: string;
@@ -33,7 +34,7 @@ When not to use it:
 Writing the prompt (the subagent sees nothing of this conversation, so the brief must stand alone):
 - State the goal and why it matters, and what done looks like.
 - Include everything it needs: file paths, names, error messages, constraints, decisions already made, and what you already tried or ruled out.
-- Say whether it should only research and report, or also change code.
+- Say whether it should only research and report, or also change code. A shell job on an agent with no Bash (or an edit job on a read-only one) is refused before it starts.
 - Say exactly what to return (e.g. "a list of file:line locations with one-line explanations", "a summary under 200 words").
 - Prefer one clear, complete brief over a vague one; a vague brief gets a vague result.
 
@@ -67,6 +68,13 @@ export const TaskTool: Tool<TaskInput> = {
     if (ctx.depth >= MAX_TASK_DEPTH) return fail('Task is not available here: subagents cannot start more subagents at this depth. Do the work directly.');
     if (typeof input.prompt !== 'string' || !input.prompt.trim()) return fail('prompt is required: write a complete brief for the subagent.');
     const agent = (input.subagent_type || '').trim() || 'general-purpose';
+    // idea-9: the brief against the agent's tools, before anything starts; keywords only, so a brief it is unsure about runs.
+    // A plan-mode parent's child inherits the read-only mode (subagent.ts): the shell goes too, not just file editing.
+    const def = ctx.host.subagentTools?.(agent);
+    if (def) {
+      const missing = missingTools(input.prompt, def, ctx.session.permissionMode === 'plan' ? 'plan' : undefined);
+      if (missing) return fail(missing);
+    }
     const schema = input.schema && typeof input.schema === 'object' && Object.keys(input.schema).length ? input.schema : undefined;
     if (schema) {
       if (input.run_in_background) return fail('schema needs a foreground Task: leave run_in_background off.');

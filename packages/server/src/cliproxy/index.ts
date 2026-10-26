@@ -59,7 +59,7 @@ import { isLoopbackHost } from '../oauth/checks';
 import { PidFile, processMatches } from '../remote/pids';
 import { catchRedirect, type Catcher, type CatchOptions } from './catcher';
 import { cliproxyEnv, cliproxyFiles, ensurePrivateDirs, writeConfig, type CliproxyFiles } from './config';
-import { Management, ManagementError, codexModels, listModels, splitPrefixed, type CodexModel, type RawCredential } from './management';
+import { Management, ManagementError, SUBSCRIPTION_PLUGINS, codexModels, listModels, splitPrefixed, type CodexModel, type RawCredential } from './management';
 import { RETIRED_ALIASES, type CyberProgram } from '@conclave/core/providers/access-programs.ts';
 import { CATALOG_MS, codexSection, dropCatalogs, fetchCatalog, withExtras, writeCatalog, type Catalog, type CatalogExtra } from './catalog';
 import {
@@ -69,7 +69,9 @@ import {
   compareVersions,
   dropPrevious,
   installRelease,
-  installedBinary,
+  ensureManagedBinary,
+  pluginHostProblem,
+  type PluginHost,
   newestPin,
   parseVersion,
   pinFor,
@@ -107,12 +109,20 @@ export const PROVIDER_INFO: Record<string, { name: string; plan: string; flow: '
   meta: { name: 'Muse', plan: 'Muse Code, with a Meta login', flow: 'device' },
   'kimi-ai': { name: 'Kimi', plan: 'Kimi Code plan on kimi.ai', flow: 'device', more: true },
   devin: { name: 'Devin', plan: 'A Devin account', flow: 'redirect', more: true },
+  copilot: { name: 'GitHub Copilot', plan: 'GitHub Copilot subscription, through a CLIProxyAPI plugin', flow: 'device', more: true },
+  kiro4cpa: { name: 'Kiro', plan: 'Kiro with AWS Builder ID, through a CLIProxyAPI plugin', flow: 'device', more: true },
 };
+
+/** Cards for a runtime not started yet; capability comes from the managed host. */
+export function subscriptionCards(pin: Pin, installable: boolean): SubscriptionProviderDto[] {
+  const ids = [...pin.providers, ...(installable ? Object.keys(SUBSCRIPTION_PLUGINS) : [])];
+  return [...new Set(ids)].map((id) => ({ id, ...PROVIDER_INFO[id], accounts: 0 }));
+}
 
 /** Account types CLIProxyAPI lists under another name than the sign-in that made them. */
 const ACCOUNT_PROVIDER: Record<string, string> = { anthropic: 'claude', 'gemini-cli': 'antigravity' };
 
-export interface CliproxyOptions {
+export interface CliproxyOptions extends PluginHost {
   engine: EngineApi;
   fetch?: typeof fetch;
   /** Starts CLIProxyAPI and runs its -h (tests pass a fake). */
@@ -123,6 +133,8 @@ export interface CliproxyOptions {
   releaseBase?: string;
   platform?: string;
   arch?: string;
+  /** Members share only this managed binary home, not its config or secrets. */
+  binaryHome?: string;
   /** Waits before starting it again after it stopped or failed. */
   backoffMs?: number[];
   readyTimeoutMs?: number;
@@ -181,6 +193,8 @@ interface CredState {
    * says (8.0.32 keeps it in the auth file only).
    */
   prefix?: string;
+  /** The prefix the hub last wrote, and when: it stands until the model list shows it (CLIProxyAPI lists the old ids for a while) or PREFIX_SETTLE_MS pass. */
+  wrote?: { prefix: string; at: number };
   /** A ChatGPT plan's own model list (the Codex app's, catalog.ts), hidden ones marked. */
   own?: CodexModel[];
   /** When the plan's own list was last read, and its entity tag (a 304 keeps the list). */
@@ -214,6 +228,8 @@ function daybreakOf(s: CredState | undefined): CyberProgram[] {
 /** The plan's usage endpoint per credential type. */
 const USAGE_KIND: Record<string, 'claude-usage' | 'codex-usage' | 'antigravity-usage'> = { claude: 'claude-usage', anthropic: 'claude-usage', codex: 'codex-usage', antigravity: 'antigravity-usage' };
 const DAY_MS = 86_400_000;
+/** How long a short name the hub wrote outlasts a model list that does not show it yet. */
+const PREFIX_SETTLE_MS = 5 * 60_000;
 const STATUS_WORDS: Record<string, string> = { error: 'Failing', refreshing: 'Refreshing its sign-in', pending: 'Waiting to sign in' };
 
 /** "http://host:8317/v1/" -> "http://host:8317". Undefined for anything that is not a plain http(s) base. */
@@ -581,22 +597,16 @@ export class CliproxyManager {
       if (!version) throw new ReleaseError(`${override} does not start as CLIProxyAPI (\`-h\` printed no version). Fix models.cliproxy.binary.`);
       return { path: override, version, managed: false, verified: false };
     }
-    const home = this.engine.config.paths.home;
-    const have = installedBinary(home, this.opts.platform);
-    if (have) {
-      const version = await this.probe(have.path);
-      if (version) return { ...have, version };
-      log.warn(`${have.path} does not start; downloading it again`);
-    }
+    const home = this.opts.binaryHome ?? this.engine.config.paths.home;
     const pin = newestPin(this.pins);
-    this.setState('installing', `Downloading CLIProxyAPI ${pin.version}`);
-    return installRelease({
+    return ensureManagedBinary({
       home,
       pin,
       base: this.opts.releaseBase,
       fetch: this.opts.fetch,
       platform: this.opts.platform,
       arch: this.opts.arch,
+      glibcVersion: this.opts.glibcVersion,
       probe: (p) => this.probe(p),
       onProgress: (done, total) => {
         const now = Date.now();
@@ -636,7 +646,7 @@ export class CliproxyManager {
     const managementHash = await Bun.password.hash(keys.mgmt, { algorithm: 'bcrypt', cost: 10 });
     // close() may have run (and its folder been removed) during the awaits: write nothing, start nothing
     if (gen !== this.gen || this.closing) return;
-    writeConfig(this.files, { port, managementHash, clientKey: keys.client, authDir: this.files.auth });
+    writeConfig(this.files, { port, managementHash, clientKey: keys.client, authDir: this.files.auth, pluginsEnabled: !bin.receipt?.asset.includes('_no-plugin') });
     // the config starts on CLIProxyAPI's own catalog; the plans' own models go in again once they are read
     this.catalog.path = undefined;
     this.catalog.added.clear();
@@ -1152,9 +1162,12 @@ export class CliproxyManager {
       s.modelsAt = Date.now();
       try {
         // a plan with a short name has each model twice ("gpt-6-astra", "work/gpt-6-astra"): that is how the hub learns the name
-        const split = splitPrefixed(await mgmt.credentialModels(c.name));
+        // the name the hub wrote or last saw wins while CLIProxyAPI lists the old one next to it
+        const split = splitPrefixed(await mgmt.credentialModels(c.name), s.wrote?.prefix ?? s.prefix);
         const models = split.models.map((m) => ({ id: m.id, ...(m.name ? { name: m.name } : {}) }));
-        const prefix = split.prefix ?? '';
+        const listed = split.prefix ?? '';
+        if (s.wrote && (listed === s.wrote.prefix || Date.now() - s.wrote.at >= PREFIX_SETTLE_MS)) s.wrote = undefined;
+        const prefix = s.wrote?.prefix ?? listed;
         if (JSON.stringify(models) !== JSON.stringify(s.models) || prefix !== s.prefix) {
           s.models = models;
           s.prefix = prefix;
@@ -1365,6 +1378,7 @@ export class CliproxyManager {
     }
     // the credentials list does not carry it: the hub knows it now, and the models read below confirms it
     this.cred(f.name).prefix = prefix;
+    this.cred(f.name).wrote = { prefix, at: Date.now() };
     await this.readCredentials().catch((err) => log.debug(`credentials after a short name: ${(err as Error).message}`));
     await this.readModels().catch((err) => log.warn(`model list after a short name: ${(err as Error).message}`));
     return prefix;
@@ -1431,9 +1445,16 @@ export class CliproxyManager {
     }
   }
 
+  private pluginInstallProblem(): string | undefined {
+    return this.cfg().binary
+      ? 'This CLIProxyAPI is an explicit binary override. Enable the plugins in that runtime yourself, or remove the override to use the managed plugin-capable release.'
+      : pluginHostProblem(this.opts);
+  }
+
   private providerCards(): SubscriptionProviderDto[] {
     const pin = pinFor(this.version ?? this.binary?.version, this.pins);
-    const ids = [...pin.providers, ...this.plugins.map((p) => p.id).filter((id) => !pin.providers.includes(id))];
+    const installable = this.mode() === 'builtin' && !this.pluginInstallProblem() ? Object.keys(SUBSCRIPTION_PLUGINS) : [];
+    const ids = [...new Set([...pin.providers, ...this.plugins.map((p) => p.id), ...installable])];
     return ids.map((id) => {
       const info = PROVIDER_INFO[id];
       const plugin = this.plugins.find((p) => p.id === id);
@@ -1506,7 +1527,7 @@ export class CliproxyManager {
 
   /** Off: the cards of the version this hub would install, so the page can say what turning it on gives. */
   private offCards(): SubscriptionProviderDto[] {
-    return newestPin(this.pins).providers.map((id) => ({ id, ...PROVIDER_INFO[id], accounts: 0 }));
+    return subscriptionCards(newestPin(this.pins), !this.pluginInstallProblem());
   }
 
   // -------------------------------------------------------------------------
@@ -1577,6 +1598,7 @@ export class CliproxyManager {
           fetch: this.opts.fetch,
           platform: this.opts.platform,
           arch: this.opts.arch,
+          glibcVersion: this.opts.glibcVersion,
           probe: (p) => this.probe(p),
           onProgress: (done, total) => {
             const now = Date.now();
@@ -1646,10 +1668,16 @@ export class CliproxyManager {
     if (typeof provider !== 'string' || !provider.trim()) throw new HttpError(400, 'provider is required');
     const id = provider.trim().toLowerCase();
     const mgmt = this.requireMgmt();
+    const plugin = Object.hasOwn(SUBSCRIPTION_PLUGINS, id);
+    if (plugin && this.mode() === 'builtin' && !this.plugins.some((p) => p.id === id)) {
+      const problem = this.pluginInstallProblem();
+      if (problem) throw new HttpError(400, problem);
+    }
     if (!this.providerCards().some((p) => p.id === id)) throw new HttpError(400, `This CLIProxyAPI does not sign in to ${id}. Pick one of the cards.`);
     await this.syncAccounts();
     let start;
     try {
+      if (this.mode() === 'builtin' && plugin) await mgmt.ensureSubscriptionPlugin(id);
       start = await mgmt.authUrl(id);
     } catch (err) {
       this.wrap(err);

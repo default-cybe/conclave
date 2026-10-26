@@ -170,6 +170,25 @@ describe('Run in a worktree on a git folder', () => {
     expect(existsSync(join(repo, 'x.txt'))).toBe(false);
   }, 30_000);
 
+  test('Discard still finishes when git removed the folder but not its .git/worktrees entry', async () => {
+    const { t, d, svc, repo } = await setup();
+    const s = await svc.startFolderSession({ folder: repo, device: 'pc' });
+    const row = svc.row(s.id)!;
+    plan = commitStep('x.txt', 'x\n', 'Add x');
+    await t.run(s.id, 'x');
+    // as on CI: a detached auto-maintenance writes into the entry while git deletes it
+    const exec = d.pc.exec.bind(d.pc);
+    d.pc.exec = (async (cmd: string, opts: never) => {
+      if (!cmd.includes('worktree remove')) return exec(cmd, opts);
+      sh(`rm -rf ${row.worktree}`, repo);
+      return { exitCode: 255, stdout: '', stderr: `error: failed to delete '.git/worktrees/x': Directory not empty` };
+    }) as typeof d.pc.exec;
+    const done = await svc.cleanup(s.id, { discard: true });
+    expect(done).toMatchObject({ cleaned: true });
+    expect(sh('git worktree list --porcelain', repo)).not.toContain(row.worktree);
+    expect(() => sh(`git rev-parse --verify -q refs/heads/${row.branch}`, repo)).toThrow();
+  }, 30_000);
+
   test('a folder whose origin is on GitHub opens a pull request through the same code', async () => {
     const { t, d, fake, svc } = await setup();
     await svc.connect(TOKEN);

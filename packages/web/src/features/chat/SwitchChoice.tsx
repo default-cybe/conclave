@@ -12,11 +12,22 @@ import type { SwitchEstimate } from '@conclave/core/client';
 import { api } from '@/lib/api';
 import { attempt } from '@/store/store';
 import { compact } from '@/lib/format';
-import { modelName } from '@/lib/models';
+import { harnessLabel, isHarness, modelName, providerName } from '@/lib/models';
 import { Button } from '@/components/ui/Button';
 import { Radio } from '@/components/ui/Field';
 import { ModelList } from '@/components/pickers/ModelPicker';
 import { briefSaving, priceLine, rememberBrief, rememberedBrief, switchEstimate, switchSession, usdWords } from './switch';
+
+/** What a task's effective fallback policy allows, in one line (the hub's SwitchEstimate.fallbackPolicy); undefined when the task has none. */
+export function fallbackPolicyWords(p: SwitchEstimate['fallbackPolicy']): string | undefined {
+  if (!p) return undefined;
+  const parts = [
+    p.providers?.length ? `only ${p.providers.map((id) => providerName(id)).join(', ')}` : 'any provider',
+    p.paid === false ? 'no paid fallback' : undefined,
+    typeof p.costUsd === 'number' && p.costUsd >= 0 ? `cost ceiling $${p.costUsd}` : undefined,
+  ].filter(Boolean);
+  return `Automatic fallbacks in this task: ${parts.join(', ')}.`;
+}
 
 export function SwitchChoice({
   session,
@@ -36,7 +47,8 @@ export function SwitchChoice({
 }) {
   const [brief, setBrief] = useState(() => !!estimate.brief && rememberedBrief());
   const [busy, setBusy] = useState<'switch' | 'ask' | null>(null);
-  const name = modelName(model);
+  const name = isHarness(model) ? `${harnessLabel(model)} (${modelName(model)})` : modelName(model);
+  const policy = fallbackPolicyWords(estimate.fallbackPolicy);
   const saving = briefSaving(estimate);
   const go = async () => {
     setBusy('switch');
@@ -65,6 +77,12 @@ export function SwitchChoice({
       <p className="m-0 text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">
         This chat holds about {compact(estimate.tokens)} tokens. {name} reads them with no cache on its first reply.
       </p>
+      {isHarness(model) && (
+        <p className="m-0 text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">
+          {harnessLabel(model)} is an external harness: the hub does not manage its requests, so its fallback policy and cost ceiling do not reach it.
+        </p>
+      )}
+      {policy && <p className="m-0 text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">{policy}</p>}
       <div role="radiogroup" aria-label="How to switch">
         <Radio name="switch-how" checked={!brief} onChange={() => setBrief(false)} label="Full history" description={`${priceLine(estimate.full)}.`} className="phone:py-2" />
         {estimate.brief && (

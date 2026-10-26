@@ -43,7 +43,7 @@ function setup(now: number) {
     updatedAt: now,
     source: 'api',
   });
-  return { svc, repos };
+  return { svc, repos, config };
 }
 
 describe('the Z.ai Coding Plan', () => {
@@ -61,13 +61,27 @@ describe('the Z.ai Coding Plan', () => {
     // the MCP tool quota does not stop coding calls
     expect(a!.state).toBe('ready');
 
-    // GLM keeps its route: no plan order applies, calls on zai are this account's
-    expect(svc.providersFor('glm-5.3')).toBeUndefined();
+    // GLM keeps its route: the plan's order is just zai, calls on zai are this account's
+    expect(svc.providersFor('glm-5.3')).toEqual(['zai']);
     expect(svc.accountFor('zai', 'glm-5.3')).toBe('api-zai');
 
     // publish keeps the reader's state and adds no second one
     svc.publish();
     expect(repos.usage.limits().map((l) => `${l.provider}:${l.account ?? ''}`)).toEqual(['zai:']);
+  });
+
+  test('a per model order with a pay as you go key first sends the bare model there first', () => {
+    const now = Date.parse('2026-10-23T09:00:00Z');
+    const { svc, config } = setup(now);
+    config.update({ providers: { 'zai-paygo': { type: 'openai', baseUrl: 'https://api.z.ai/api/paas/v4', enabled: true, models: ['glm-5.3'] } } } as never);
+    config.setSecret('providers', 'zai-paygo', 'test-key-not-real');
+    const paygo = svc.status().accounts.find((x) => x.provider === 'zai-paygo')!;
+    expect(paygo).toMatchObject({ vendor: 'zai', kind: 'api' });
+    expect(svc.providersFor('glm-5.3')![0]).toBe('zai');
+
+    svc.setOrder({ vendor: '', match: 'glm-5.3', order: [paygo.id, 'api-zai'] });
+    expect(svc.providersFor('glm-5.3')).toEqual(['zai-paygo', 'zai']);
+    expect(svc.routeOf('glm-5.3')!.map((s) => s.provider)).toEqual(['zai-paygo', 'zai']);
   });
 
   test('has a window starter: the cheapest GLM, sent on the zai provider right after the 5 hour reset', () => {

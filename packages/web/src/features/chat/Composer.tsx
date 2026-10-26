@@ -51,6 +51,7 @@ import { downloadExport, isReminder } from './util';
 import { sessionRepo } from '@/lib/github';
 import { findSlash, INIT_PROMPT, menuList, PHONE_TOP_COMMANDS, pickAction, SECTION_WORDS, slashItems, slashMode, type SheetId, type SlashItem } from './slash';
 import { SessionSheets } from './sheets/SessionSheets';
+import { useDraft } from './useDraft';
 
 type FileEntry = { name: string; path: string; type: 'dir' | 'file'; size?: number };
 
@@ -100,10 +101,14 @@ export function Composer({ session }: { session: Session }) {
     setText(drafts.get(session.id) ?? '');
     setFiles([]);
   }, [session.id]);
-
   useEffect(() => {
     drafts.set(session.id, text);
   }, [text, session.id]);
+  // the stored draft (text and files) comes back after a reload
+  useDraft(session.id, text, files, (d) => {
+    setText((t) => t || d.text);
+    setFiles((f) => (f.length ? f : d.files));
+  });
 
   useEffect(() => {
     const open = () => setSheet(true);

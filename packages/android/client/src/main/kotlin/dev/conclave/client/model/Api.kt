@@ -517,6 +517,8 @@ data class SendInput(
      * The hub makes one when it is missing or taken.
      */
     val pendingId: String? = null,
+    /** "drop": the sender chose to go without a file the hub could not read (the 409 named it). */
+    val attachmentLoss: String? = null,
 )
 
 /**

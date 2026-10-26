@@ -92,6 +92,7 @@ import { harnessOffWords } from '../acp/harness-off';
 import type { Tool } from '../tools/types';
 import { builtinTools, filterTools } from '../tools';
 import { QUEUE_KEY, SessionRunner, canResumeStopped, type StoredQueued } from '../session/runner';
+import { fallbackPolicyFor } from '../session/limit-tree';
 import { RunnerExtensions } from '../session/runner-ext';
 import { OfflineMachine } from '../projects/offline';
 import { checkMcpOff, mcpOff, sessionAllowsServerTool } from '../session/connectors';
@@ -147,7 +148,7 @@ import { open as fsOpen } from 'node:fs/promises';
 import { checkShareable, expandHome, outputsDir, usesOutputs, SHARE_MAX_BYTES, type ShareRoot, type SharedFileMeta } from '../files/share';
 import { SqliteMemory } from '../memory/store';
 import { MemoryConnections, MemoryConnectionService } from '../memory/connections';
-import { prepareAttachments, type ZipHost } from '../attachments/prepare';
+import { ATTACHMENT_LOST, prepareAttachments, type ZipHost } from '../attachments/prepare';
 import { mediaTypeFor } from '../attachments/limits';
 
 const log = logger('engine');
@@ -777,8 +778,13 @@ export class Engine implements EngineApi {
     const fs = friendShareOf(s);
     if (fs?.role === 'reference') throw new EngineError(409, `This is a reference from ${fs.name}'s hub. It is read only; fork the share to continue it.`);
     // 15 files at most, and a zip turned into what the session can use (attachments/prepare.ts)
-    const attachments = await prepareAttachments(input.attachments, this.zipHost(s));
-    return this.runnerFor(id).enqueue(attachments === input.attachments ? input : { ...input, attachments });
+    const prepared = await prepareAttachments(input.attachments, this.zipHost(s));
+    // a file the hub could not read is never dropped silently: the sender chooses to go without it
+    if (prepared.lost.length && input.attachmentLoss !== 'drop') {
+      const names = prepared.lost.join(', ');
+      throw new EngineError(409, `${ATTACHMENT_LOST}${names} could not be read. Send again to go without ${prepared.lost.length === 1 ? 'it' : 'them'}.`);
+    }
+    return this.runnerFor(id).enqueue({ ...input, attachments: prepared.attachments, ...(prepared.receipts.length ? { attachmentReceipts: prepared.receipts } : {}) });
   }
 
   /**
@@ -1046,7 +1052,9 @@ export class Engine implements EngineApi {
   switchEstimate(id: string, model: string): import('../modes/switch-cost').SwitchEstimate {
     const s = this.requireSession(id);
     if (!this.isUsableRef(model)) throw new EngineError(400, this.harnessOff(model) ?? `Model ${model} is not available`);
-    return estimateSwitch(this, s, model);
+    // the effective fallback policy (its own, its ancestors' and the config's), for the switch step's line
+    const fallbackPolicy = fallbackPolicyFor(this, s);
+    return { ...estimateSwitch(this, s, model), ...(fallbackPolicy ? { fallbackPolicy } : {}) };
   }
 
   /** Summarize older messages now. instructions: what the summary must keep (/compact <instructions>). False when there was nothing to compact. */
@@ -2000,7 +2008,7 @@ export class Engine implements EngineApi {
         .extract(id, this.repos.messages.list(id), { project: s.cwd, agent: s.agent })
         .catch((err) => log.debug('memory extract failed', err));
     }
-    this.notifyEvent('sessionDone', { title: s.title, body: 'Session finished a turn', level: 'success', sessionId: id, link: `/s/${id}` });
+    this.notifyEvent('sessionDone', { title: s.title, body: 'Session finished a turn', level: 'success', sessionId: id, link: `/s/${id}`, thread: this.askOrigin(id).rootSessionId });
     this.retitle(s);
   }
 

@@ -10,6 +10,7 @@
 import { shownName, type MeDto } from '@conclave/core/client';
 import { api, clearConnection, loadConnection, saveConnection, type Connection } from './api';
 import { useHub } from '@/store/store';
+import { dropAllDrafts } from '@/features/chat/draft';
 
 const KEY = 'conclave.accounts';
 
@@ -96,6 +97,8 @@ export async function signOut(): Promise<void> {
   const rest = savedAccounts().filter((c) => !cur || !same(c, cur));
   keep(rest);
   await clearConnection();
+  // a draft holds whole attachments: the next person on this browser must not find it
+  await dropAllDrafts();
   if (rest[0]) switchAccount(rest[0]);
   else window.location.assign('/?connect=1');
 }

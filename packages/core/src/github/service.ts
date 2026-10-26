@@ -1020,7 +1020,15 @@ export class GithubService {
       const dirty = status.ok && status.out ? status.out.split('\n').length : 0;
       if (dirty && !force) throw new EngineError(409, `${plural(dirty, 'file')} in the worktree ${dirty === 1 ? 'is' : 'are'} not committed. Commit ${dirty === 1 ? 'it' : 'them'}, or ${dropBranch ? 'discard' : 'clean up'} with force to lose ${dirty === 1 ? 'it' : 'them'}.`);
       const r = await git(machine, row.clonePath, `worktree remove ${force ? '--force ' : ''}${shq(row.worktree)}`, 120_000);
-      if (!r.ok) throw new EngineError(502, `git worktree remove failed: ${gitError(r)}`);
+      // git deletes the folder first; its .git/worktrees entry can then fail ("Directory not empty") while
+      // a detached auto-maintenance from the agent's last commit still writes there. Prune finishes the job.
+      if (!r.ok && (await machine.stat(row.worktree).catch(() => null))) throw new EngineError(502, `git worktree remove failed: ${gitError(r)}`);
+      for (let i = 0; !r.ok && i < 5; i++) {
+        await git(machine, row.clonePath, 'worktree prune', 60_000);
+        const list = await git(machine, row.clonePath, 'worktree list --porcelain', 20_000);
+        if (list.ok && !list.out.split('\n').includes(`worktree ${row.worktree}`)) break;
+        await Bun.sleep(200);
+      }
     } else {
       await git(machine, row.clonePath, 'worktree prune', 60_000).catch(() => undefined);
     }

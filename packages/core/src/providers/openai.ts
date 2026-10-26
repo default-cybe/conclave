@@ -311,6 +311,10 @@ class ChatStream {
  */
 export class OpenAIProvider extends BaseProvider {
   readonly type = 'openai' as const;
+  /** The Chat Completions wire takes PDFs only from a model that reads more than text (chatMessages' pdf flag). */
+  readsPdf(id: string): boolean {
+    return this.model(id).vision;
+  }
   private responses?: OpenAIResponsesProvider;
 
   get baseUrl(): string {

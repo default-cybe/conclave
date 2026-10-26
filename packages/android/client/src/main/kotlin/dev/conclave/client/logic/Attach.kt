@@ -54,6 +54,12 @@ object Attach {
         else -> null
     }
 
+    /** The hub's 409 when a send would lose a file it could not read (core attachments/prepare.ts ATTACHMENT_LOST). */
+    const val LOST = "Attachment not included: "
+
+    /** The words to ask "Send without it?" with, when [error] is that 409; null for any other error. */
+    fun lostWords(error: String): String? = if (error.startsWith(LOST)) error.removePrefix(LOST) else null
+
     /** "7 files", "1 file": the count the attachment row shows once it scrolls. */
     fun filesWord(n: Int): String = if (n == 1) "1 file" else "$n files"
 }

@@ -2,6 +2,7 @@ package dev.conclave.app.ui.chat
 
 import androidx.lifecycle.viewModelScope
 import dev.conclave.app.data.HubRepository
+import dev.conclave.app.ui.common.ComposerDraft
 import dev.conclave.app.ui.common.HubViewModel
 import dev.conclave.app.ui.common.errorText
 import dev.conclave.app.ui.conversation.attachmentsOf
@@ -10,6 +11,7 @@ import dev.conclave.client.logic.Asks
 import dev.conclave.client.logic.Attach
 import dev.conclave.client.logic.ChatItem
 import dev.conclave.client.logic.ChatItems
+import dev.conclave.client.logic.DraftStore
 import dev.conclave.client.logic.ModelRefs
 import dev.conclave.client.logic.PendingQueue
 import dev.conclave.client.logic.Transcript
@@ -49,18 +51,27 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-class ChatViewModel(hub: HubRepository, val sessionId: String) : HubViewModel(hub) {
+class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStore) : HubViewModel(hub) {
     private val transcript = MutableStateFlow(Transcript(sessionId))
     private val _session = MutableStateFlow(hub.sessions.value.firstOrNull { it.id == sessionId })
     val session: StateFlow<Session?> = _session
 
+    companion object {
+        /** The hub's 409 when a send would lose a file it could not read. */
+        const val ATTACHMENT_LOST = "Attachment not included: "
+    }
+
     val loading = MutableStateFlow(true)
     val error = MutableStateFlow<String?>(null)
 
-    /** Composer draft lives here so it survives configuration changes. */
+    /** Composer draft lives here so it survives configuration changes, and on disk ([DraftStore]) so it survives Android closing the app. */
     val draft = MutableStateFlow("")
     val attachments = MutableStateFlow<List<Attachment>>(emptyList())
+    private val saved = ComposerDraft(viewModelScope, drafts, sessionId, draft, attachments) { say(it) }
     val sending = MutableStateFlow(false)
+
+    /** A file the hub could not read: its words, while the owner chooses to send without it. */
+    val lossAsk = MutableStateFlow<String?>(null)
 
     val items: StateFlow<List<ChatItem>> = transcript
         .map { ChatItems.build(it.messages) }
@@ -93,10 +104,18 @@ class ChatViewModel(hub: HubRepository, val sessionId: String) : HubViewModel(hu
         load()
     }
 
+    override fun onCleared() {
+        saved.flush()
+        super.onCleared()
+    }
+
     private fun onEvent(e: EngineEvent) {
         when (e) {
             is EngineEvent.SessionUpdated -> if (e.session.id == sessionId) _session.value = e.session
-            is EngineEvent.SessionDeleted -> if (e.sessionId == sessionId) error.value = "This chat was deleted"
+            is EngineEvent.SessionDeleted -> if (e.sessionId == sessionId) {
+                saved.forget()
+                error.value = "This chat was deleted"
+            }
             // moved to another device or folder: the session (and the move line in the transcript) come again
             is EngineEvent.SessionMoved -> if (e.sessionId == sessionId) load(quiet = true)
             is EngineEvent.ConfigUpdated -> load(quiet = true)
@@ -170,11 +189,40 @@ class ChatViewModel(hub: HubRepository, val sessionId: String) : HubViewModel(hu
                 draft.value = ""
                 attachments.value = emptyList()
             } catch (e: Exception) {
+                val msg = errorText(e)
+                // the hub will not drop a file on its own: the choice is the owner's
+                if (msg.startsWith(ATTACHMENT_LOST)) lossAsk.value = msg.removePrefix(ATTACHMENT_LOST)
+                else say(msg)
+            } finally {
+                sending.value = false
+            }
+        }
+    }
+
+    /** The owner chose to send the message without the file the hub could not read. */
+    fun sendWithoutLost() {
+        val text = draft.value.trim()
+        val files = attachments.value
+        lossAsk.value = null
+        if (text.isEmpty() && files.isEmpty()) return
+        sending.value = true
+        viewModelScope.launch {
+            try {
+                hub.api {
+                    it.send(sessionId, SendInput(text = text, attachments = files.ifEmpty { null }, attachmentLoss = "drop"))
+                }
+                draft.value = ""
+                attachments.value = emptyList()
+            } catch (e: Exception) {
                 say(errorText(e))
             } finally {
                 sending.value = false
             }
         }
+    }
+
+    fun dismissLossAsk() {
+        lossAsk.value = null
     }
 
     private fun sendQueued(text: String, files: List<Attachment>) {

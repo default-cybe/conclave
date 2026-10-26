@@ -74,7 +74,7 @@ export function pushPayload(notice: Notice, publicUrl: string | undefined, sign?
     approvalId: notice.approvalId,
     ...approvalLinks(notice, publicUrl, sign),
     sessionId: notice.sessionId,
-    tag: notice.approvalId ? `approval-${notice.approvalId}` : notice.sessionId ? `session-${notice.sessionId}` : undefined,
+    tag: notice.approvalId ? `approval-${notice.approvalId}` : notice.thread ? `thread-${notice.thread}` : notice.sessionId ? `session-${notice.sessionId}` : undefined,
   };
   // long bodies in wide scripts are three bytes a character; shorten until it fits
   let raw = payload.body as string;
