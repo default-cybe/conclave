@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- A provider model that only starts with a catalog id (`glm-5.3-uncensored` on a custom provider) keeps the rest of its id in its name ("GLM-5.3 Uncensored", "GLM-5.3 Flash Uncensored") and the catalog's capabilities, and shows no price unless the provider is that vendor's own API: before, it took the catalog model's name and price, and read as a copy of Z.ai's GLM-5.3. Exact ids, aliases, dates and effort variants (`-high`) are unchanged. In the web and Android model pickers a row from a provider that is not the maker's own says whose it is ("via Experiential Labs", the provider's config name).
+
 ## [0.4.34] - 2026-10-26
 
 ### Added

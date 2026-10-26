@@ -76,6 +76,8 @@ export interface Row {
   family?: string;
   /** Every way to reach the model, the row's own first, when there is more than one. */
   routes?: Route[];
+  /** The provider's name when it is not the maker's own and the row has no routes to tell it ("Experiential Labs"). */
+  source?: string;
 }
 
 /** A row of the first level: a maker (or "Coding agents") and its models. */
@@ -329,7 +331,11 @@ export function buildPicker({ models, sessions, devices, secrets, limits, harnes
       const list = byMaker.get(maker) ?? [];
       // the other ways to the same model: a choice behind the row, never rows of their own
       const routes = m.choices?.length ? [{ ref: m.ref, label: routeLabel(m.ref), first: true }, ...m.choices.map((ref): Route => ({ ref, label: planLabel(ref, maker, accounts) }))] : undefined;
-      const row: Row = { ref: m.ref, model: m, group: providerName(maker), groupKey: maker, disabled: !g.enabled, family: familyOf(m.id).family || undefined, ...(routes ? { routes } : {}) };
+      // a model of another provider (a custom one, a router) says whose it is: "GLM-5.3" alone reads as Z.ai's
+      const own = g.provider === maker || VENDOR_MAKER[g.provider] === maker;
+      // a row with routes or its own "via" already says how it is reached
+      const source = own || routes || m.via ? undefined : g.name && g.name !== g.provider ? g.name : providerName(g.provider);
+      const row: Row = { ref: m.ref, model: m, group: providerName(maker), groupKey: maker, disabled: !g.enabled, family: familyOf(m.id).family || undefined, ...(routes ? { routes } : {}), ...(source ? { source } : {}) };
       list.push(row);
       rowOf.set(m.ref, row);
       byMaker.set(maker, list);
@@ -747,7 +753,7 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
                   <span className="min-w-0 flex-1 truncate font-medium">
                     {rowName(r)}
                     {level === 'search' && r.groupKey !== 'harness' && <span className="ml-2 text-[12px] font-normal text-fg-3">{r.group}</span>}
-                    {through && <span className="ml-2 text-[12px] font-normal text-fg-3">via {through}</span>}
+                    {(through ?? r.source) && <span className="ml-2 text-[12px] font-normal text-fg-3">via {through ?? r.source}</span>}
                   </span>
                   {r.routes && !multiple && !r.disabled && (
                     <button
