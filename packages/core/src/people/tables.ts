@@ -36,6 +36,8 @@ export const ACCOUNT_TABLES = [
   'oauth_codes',
   // calendar and mail proposals (pim/store.ts)
   'pim_proposals',
+  // saved launch presets (workflows/store.ts): each account's own per workflow
+  'workflow_presets',
 ] as const;
 
 /** Child table to the parent table whose account_id scopes it. */

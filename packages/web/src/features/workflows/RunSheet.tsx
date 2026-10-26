@@ -1,11 +1,11 @@
 /**
- * Start a workflow from the library (spec 3.18): what it is for, its args
- * as JSON, where it runs, a budget, and Start. A dialog on desktop, a sheet
- * on phones.
+ * Start a workflow from the library (spec 3.18): what it is for, its args, where it runs, a budget, and Start.
+ * A workflow that declares its args (meta.args) gets a typed form instead of the JSON box; any workflow's
+ * args can be saved as a named preset and picked again. A dialog on desktop, a sheet on phones.
  */
 import { useEffect, useState } from 'react';
 import { useLocation } from 'wouter';
-import type { WorkflowSummary } from '@conclave/core/client';
+import type { WorkflowPreset, WorkflowSummary } from '@conclave/core/client';
 import { Dialog, Sheet } from '@/components/ui/Overlay';
 import { Button } from '@/components/ui/Button';
 import { Field, Input, Textarea } from '@/components/ui/Field';
@@ -13,11 +13,16 @@ import { DevicePicker } from '@/components/pickers/Pickers';
 import { api } from '@/lib/api';
 import { attempt } from '@/store/store';
 import { useIsMobile } from '@/lib/hooks';
+import { ArgsForm, argsFromValues, valuesFromArgs, type ArgValues } from './args-form';
 import { SOURCE_WORD } from './words';
 
 export function RunSheet({ workflow, onClose }: { workflow: WorkflowSummary | undefined; onClose: () => void }) {
   const phone = useIsMobile();
   const [, navigate] = useLocation();
+  const schema = workflow?.argsSchema;
+  const [values, setValues] = useState<ArgValues>({});
+  // schema mode: JSON for the args the schema does not name (a preset's extras, or ones typed by hand)
+  const [extras, setExtras] = useState('');
   const [args, setArgs] = useState('');
   const [device, setDevice] = useState('local');
   const [cwd, setCwd] = useState('');
@@ -25,24 +30,84 @@ export function RunSheet({ workflow, onClose }: { workflow: WorkflowSummary | un
   const [busy, setBusy] = useState(false);
   const [argsError, setArgsError] = useState<string>();
   const [budgetError, setBudgetError] = useState<string>();
+  const [presets, setPresets] = useState<WorkflowPreset[]>();
+  const [presetName, setPresetName] = useState('');
 
+  const reloadPresets = (id: string) => {
+    void attempt(() => api().workflowPresets(id)).then((r) => r && setPresets(r));
+  };
   useEffect(() => {
+    setValues({});
+    setExtras('');
     setArgs('');
     setArgsError(undefined);
     setBudget('');
     setBudgetError(undefined);
+    setPresetName('');
+    if (workflow?.id) {
+      setPresets(undefined);
+      reloadPresets(workflow.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workflow?.id]);
 
   if (!workflow) return null;
-  const start = async () => {
-    let parsed: unknown;
+
+  // { args } to start or save with, or { error } when the box or a field is bad; no args is not an error
+  const parsedArgs = (): { args?: unknown; error?: string } => {
+    if (schema) {
+      let more: unknown = {};
+      if (extras.trim()) {
+        try {
+          more = JSON.parse(extras);
+        } catch {
+          more = undefined;
+        }
+      }
+      if (!more || typeof more !== 'object' || Array.isArray(more)) return { error: 'More args must be a JSON object, for example {"votes": 3}.' };
+      const { args: built, error } = argsFromValues(schema, values, more as Record<string, unknown>);
+      if (error) return { error };
+      return { args: built };
+    }
     if (args.trim()) {
       try {
-        parsed = JSON.parse(args);
+        return { args: JSON.parse(args) };
       } catch {
-        setArgsError('Args must be JSON, for example {"question": "Caddy or Traefik?"}. Strings need double quotes.');
-        return;
+        return { error: 'Args must be JSON, for example {"question": "Caddy or Traefik?"}. Strings need double quotes.' };
       }
+    }
+    return {};
+  };
+
+  const applyPreset = (p: WorkflowPreset) => {
+    setArgsError(undefined);
+    if (schema) {
+      const { values: v, extras: e } = valuesFromArgs(schema, p.args);
+      setValues(v);
+      setExtras(Object.keys(e).length ? JSON.stringify(e, null, 2) : '');
+    } else setArgs(p.args === null || p.args === undefined ? '' : JSON.stringify(p.args, null, 2));
+  };
+
+  const savePreset = async () => {
+    if (!presetName.trim()) return;
+    const { args: built, error } = parsedArgs();
+    if (error) {
+      setArgsError(error);
+      return;
+    }
+    const saved = await attempt(() => api().saveWorkflowPreset(workflow.id, presetName, built ?? null));
+    if (saved) {
+      setPresetName('');
+      reloadPresets(workflow.id);
+    }
+  };
+
+  const start = async () => {
+    setArgsError(undefined);
+    const { args: parsed, error } = parsedArgs();
+    if (error) {
+      setArgsError(error);
+      return;
     }
     let tokens: number | undefined;
     if (budget.trim()) {
@@ -73,9 +138,51 @@ export function RunSheet({ workflow, onClose }: { workflow: WorkflowSummary | un
         {!workflow.portable && ', uses the Conclave layer, so it does not run in Claude Code'}
         {workflow.phases.length ? `. Phases: ${workflow.phases.map((p) => p.title).join(', ')}.` : ''}
       </p>
-      <Field label="Args" help="JSON the script reads as args. Leave it empty when the workflow needs none." error={argsError}>
-        <Textarea mono minRows={3} maxRows={10} value={args} onChange={(e) => (setArgs(e.target.value), setArgsError(undefined))} placeholder='{"question": "..."}' />
-      </Field>
+      {presets && presets.length > 0 && (
+        <Field label="Presets" help="Fill the form from a saved set of args.">
+          <div className="flex flex-wrap gap-2">
+            {presets.map((p) => (
+              <span key={p.id} className="inline-flex items-center overflow-hidden rounded-[var(--r-1)] border border-edge">
+                <button type="button" className="px-2 py-1 text-[12px] text-fg-2 hov:bg-sunk hov:text-fg" onClick={() => applyPreset(p)}>
+                  {p.name}
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Delete preset ${p.name}`}
+                  className="border-l border-edge px-1.5 py-1 text-[12px] text-fg-3 hov:bg-sunk hov:text-fault"
+                  onClick={() => {
+                    void attempt(() => api().deleteWorkflowPreset(workflow.id, p.id)).then((ok) => ok && reloadPresets(workflow.id));
+                  }}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        </Field>
+      )}
+      {schema ? (
+        <>
+          <Field label="Args" help="The workflow's declared args. Empty fields are left out." error={argsError}>
+            <ArgsForm schema={schema} values={values} set={(name, v) => (setValues((s) => ({ ...s, [name]: v })), setArgsError(undefined))} />
+          </Field>
+          <Field label="More args" help="JSON for args the form does not list. The fields above win on the same name." optional>
+            <Textarea mono minRows={2} maxRows={8} value={extras} onChange={(e) => (setExtras(e.target.value), setArgsError(undefined))} placeholder='{"votes": 3}' />
+          </Field>
+        </>
+      ) : (
+        <Field label="Args" help="JSON the script reads as args. Leave it empty when the workflow needs none." error={argsError}>
+          <Textarea mono minRows={3} maxRows={10} value={args} onChange={(e) => (setArgs(e.target.value), setArgsError(undefined))} placeholder='{"question": "..."}' />
+        </Field>
+      )}
+      <div className="flex items-end gap-2">
+        <Field label="Save as preset" help="Give these args a name to rerun them." className="flex-1">
+          <Input value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="weekly triage" />
+        </Field>
+        <Button variant="quiet" onClick={savePreset} size={phone ? 'touch' : 'md'} disabled={!presetName.trim()}>
+          Save
+        </Button>
+      </div>
       <div className="grid grid-cols-2 gap-3 phone:grid-cols-1">
         <Field label="Device">
           <DevicePicker look="field" value={device} onChange={setDevice} onlineOnly />

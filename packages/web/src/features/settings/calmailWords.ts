@@ -16,6 +16,7 @@ export function accountKind(a: Pick<PimAccountDto, 'kind' | 'preset' | 'mail' | 
 }
 
 export const AUTO_DRAFT_HELP = 'The Assistant saves a draft straight into Drafts. It never sends; sending still needs your approval.';
+export const SIGNATURE_HELP = 'HTML signature added to the end of every draft (and its plain-text words to the text part). Allowed tags: table, tr, td, span, b, strong, a, br, div, p, and color/font styles.';
 
 const SCOPE: Array<[RegExp, string]> = [
   [/gmail\.readonly$/, 'read mail'],
