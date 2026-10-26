@@ -2,8 +2,10 @@
  * Chat state outside React. Talks to the hub only through ConclaveClient
  * (HTTP + WebSocket) and publishes immutable snapshots for the UI.
  */
-import type { Attachment, ConclaveClient, HubInfo, ModelGroup, SendInput } from '@conclave/core/client/index.ts';
+import type { Attachment, ConclaveClient, HubInfo, ModelGroup, SendInput, SessionPatch } from '@conclave/core/client/index.ts';
 import type { AgentDef, CommandDef } from '@conclave/core/extensions/types.ts';
+import { clampEffort, type EffortSetting, type ModelEffort } from '@conclave/core/providers/effort.ts';
+import { stopCard } from '@conclave/core/session/stop-card.ts';
 import type {
   ApprovalRequest,
   ApprovalResponse,
@@ -11,12 +13,13 @@ import type {
   LimitState,
   PermissionMode,
   QuestionRequest,
+  QueuedMessage,
   Session,
   SessionMode,
   Todo,
   Usage,
 } from '@conclave/core/types.ts';
-import { tui as p, truncate } from '../ansi';
+import { tui as p } from '../ansi';
 import { DedupeNotes, eventSessionId, isActiveStatus } from '../events';
 import { describeError } from '../commands/shared';
 import { shortenPath } from '../render/format';
@@ -30,6 +33,8 @@ export interface Draft {
   mode?: SessionMode;
   /** Undefined lets the hub use config.permissions.mode. */
   permissionMode?: PermissionMode;
+  /** Effort for the session it starts (Session.chat.thinking); undefined runs at the agent's. */
+  effort?: EffortSetting;
   device: string;
   cwd: string;
 }
@@ -47,6 +52,8 @@ export interface Snapshot {
   approvals: ApprovalRequest[];
   questions: QuestionRequest[];
   todos: Todo[];
+  /** Messages sent while the session works, waiting their turn (session.queue). */
+  queue: QueuedMessage[];
   limits: LimitState[];
   lastUsage?: Usage;
   contextWindow?: number;
@@ -68,6 +75,11 @@ export interface ControllerOptions {
 }
 
 export const PERMISSION_MODES: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypass'];
+
+/** The request shows in this session: it asks here, or a subagent or workflow agent under it asks (same rule as web lib/asks.ts asksIn). */
+export function asksIn(r: Pick<ApprovalRequest, 'sessionId' | 'rootSessionId' | 'from'>, sessionId: string): boolean {
+  return r.sessionId === sessionId || r.rootSessionId === sessionId || !!r.from?.chain?.includes(sessionId);
+}
 
 const IMAGE_EXT: Record<string, string> = {
   png: 'image/png',
@@ -123,6 +135,7 @@ export class ChatController {
       approvals: [],
       questions: [],
       todos: [],
+      queue: [],
       limits: [],
       staticKey: 0,
       showThinking: false,
@@ -186,6 +199,18 @@ export class ChatController {
 
   currentDevice(): string {
     return this.snap.session?.device ?? this.snap.draft.device;
+  }
+
+  /** What the current model offers for effort, from the hub's model list; undefined when it has no Effort control. */
+  modelEffort(ref = this.currentModel()): ModelEffort | undefined {
+    for (const g of this.models) for (const m of g.models) if (m.ref === ref) return m.effort?.levels.length || m.effort?.off ? m.effort : undefined;
+    return undefined;
+  }
+
+  /** The effort the session runs at, as the model takes it; undefined is the agent's level. */
+  currentEffort(): EffortSetting | undefined {
+    const s = this.snap.session;
+    return clampEffort(s ? s.chat?.thinking : this.snap.draft.effort, this.modelEffort());
   }
 
   private contextWindowFor(ref: string | undefined): number | undefined {
@@ -321,7 +346,13 @@ export class ChatController {
     }
     const sid = eventSessionId(ev);
     const cur = this.snap.session;
-    if (!cur || sid !== cur.id) return;
+    if (!cur) return;
+    // a subagent's or workflow agent's ask carries its own session: show it here, where the owner is
+    if (ev.type === 'approval.requested' && asksIn(ev.approval, cur.id)) return this.addApproval(ev.approval);
+    if (ev.type === 'question.asked' && asksIn(ev.question, cur.id)) return this.set({ questions: [...this.snap.questions.filter((q) => q.id !== ev.question.id), ev.question] }, true);
+    if (ev.type === 'approval.resolved' && this.snap.approvals.some((a) => a.id === ev.id)) return this.dropApproval(ev.id);
+    if (ev.type === 'question.answered' && this.snap.questions.some((q) => q.id === ev.id)) return this.set({ questions: this.snap.questions.filter((q) => q.id !== ev.id) }, true);
+    if (sid !== cur.id) return;
     switch (ev.type) {
       case 'session.updated':
         this.applySession(ev.session);
@@ -350,26 +381,11 @@ export class ChatController {
       case 'tool.completed':
         this.store.toolCompleted(ev.toolUseId, ev.result);
         break;
-      case 'approval.requested': {
-        const approvals = [...this.snap.approvals.filter((a) => a.id !== ev.approval.id), ev.approval];
-        this.store.setWaiting(approvals.map((a) => a.toolUseId));
-        this.set({ approvals }, true);
-        return;
-      }
-      case 'approval.resolved': {
-        const approvals = this.snap.approvals.filter((a) => a.id !== ev.id);
-        this.store.setWaiting(approvals.map((a) => a.toolUseId));
-        this.set({ approvals }, true);
-        return;
-      }
-      case 'question.asked':
-        this.set({ questions: [...this.snap.questions.filter((q) => q.id !== ev.question.id), ev.question] }, true);
-        return;
-      case 'question.answered':
-        this.set({ questions: this.snap.questions.filter((q) => q.id !== ev.id) }, true);
-        return;
       case 'todo.updated':
         this.set({ todos: ev.todos });
+        return;
+      case 'session.queue':
+        this.set({ queue: ev.queue }, true);
         return;
       case 'notice': {
         const n = ev.notice;
@@ -384,6 +400,29 @@ export class ChatController {
     this.emit();
   };
 
+  private addApproval(a: ApprovalRequest): void {
+    const approvals = [...this.snap.approvals.filter((x) => x.id !== a.id), a];
+    this.store.setWaiting(approvals.map((x) => x.toolUseId));
+    this.set({ approvals }, true);
+  }
+
+  private dropApproval(id: string): void {
+    const approvals = this.snap.approvals.filter((a) => a.id !== id);
+    this.store.setWaiting(approvals.map((a) => a.toolUseId));
+    this.set({ approvals }, true);
+  }
+
+  /** The "Why this turn stopped" item, or undefined when the turn ended cleanly. Your own Stop is already said by "Interrupted". */
+  private stopItem(s: Session): Omit<Extract<Item, { kind: 'stop' }>, 'id' | 'final'> | undefined {
+    const msgs = this.store.getMessages();
+    const c = stopCard(s, msgs);
+    if (!c || c.kind === 'stopped') return undefined;
+    // the notice or refused reply the card cites is already in the transcript: do not print it twice
+    const cited = c.evidence.replace(/…$/, '');
+    const shown = !!cited && msgs.some((m) => (m.kind === 'notice' || m.role === 'assistant') && m.content.some((b) => b.type === 'text' && b.text.includes(cited)));
+    return { kind: 'stop', title: c.title, evidence: shown ? '' : c.evidence, next: c.next, tone: c.kind === 'provider' || c.kind === 'refusal' ? 'error' : c.kind === 'limit' ? 'warning' : 'info' };
+  }
+
   private applySession(s: Session): void {
     const prev = this.snap.session;
     const wasActive = isActiveStatus(prev?.status);
@@ -394,25 +433,32 @@ export class ChatController {
     if (!active) {
       patch.turnStartedAt = undefined;
       if (wasActive) {
-        // drop stale prompts when a turn ends
+        // drop this session's stale prompts when its turn ends; background children may still be waiting (approval.resolved removes theirs)
         patch.approvals = this.snap.approvals.filter((a) => a.sessionId !== s.id);
         patch.questions = this.snap.questions.filter((q) => q.sessionId !== s.id);
       }
     }
     if (prev && prev.model !== s.model) this.store.addLocal({ kind: 'notice', text: `Model: ${prev.model} -> ${s.model}`, level: 'info' });
-    if (s.status === 'error' && s.error && prev?.status !== 'error' && this.seenErrors.fresh(s.error)) this.store.addLocal({ kind: 'notice', text: s.error, level: 'error' });
+    // the turn ended: say why when it did not end cleanly (same card as the web chat)
+    const card = wasActive && !active ? this.stopItem(s) : undefined;
+    if (card) {
+      if (s.error) this.seenErrors.fresh(s.error);
+      this.store.addLocal(card);
+    } else if (s.status === 'error' && s.error && prev?.status !== 'error' && this.seenErrors.fresh(s.error)) this.store.addLocal({ kind: 'notice', text: s.error, level: 'error' });
     this.snap = { ...this.snap, ...patch };
     this.emit(!active || !wasActive);
   }
 
-  /** After a WebSocket resync: refetch the session and its messages. */
+  /** After a WebSocket resync: refetch the session, its messages and its queue. */
   private async resync(): Promise<void> {
     const s = this.snap.session;
     if (!s) return;
     try {
-      const [session, msgs] = await Promise.all([this.client.getSession(s.id), this.client.messages(s.id)]);
-      this.applySession(session);
+      const [session, msgs, queue] = await Promise.all([this.client.getSession(s.id), this.client.messages(s.id), this.client.queue(s.id).catch(() => undefined)]);
+      // messages first: the stop card judges the turn from them
       for (const m of msgs) this.store.upsert(m, false);
+      if (queue) this.snap = { ...this.snap, queue };
+      this.applySession(session);
       this.emit();
     } catch {
       /* next event will try again */
@@ -429,7 +475,7 @@ export class ChatController {
     if (!this.creating) {
       const d = this.snap.draft;
       this.creating = this.client
-        .createSession({ agent: d.agent, model: d.model, mode: d.mode, permissionMode: d.permissionMode, cwd: d.cwd, device: d.device })
+        .createSession({ agent: d.agent, model: d.model, mode: d.mode, permissionMode: d.permissionMode, cwd: d.cwd, device: d.device, ...(d.effort ? { chat: { thinking: d.effort } } : {}) })
         .then((s) => {
           this.snap = { ...this.snap, session: s };
           this.store.setActive(isActiveStatus(s.status));
@@ -445,12 +491,21 @@ export class ChatController {
 
   async send(text: string, extra: Partial<SendInput> = {}): Promise<void> {
     if (!text.trim()) return;
+    let pendingId: string | undefined;
+    const unlist = () => this.set({ queue: this.snap.queue.filter((q) => q.id !== pendingId) }, true);
     try {
       const s = await this.ensureSession();
-      if (isActiveStatus(s.status)) this.info(p.dim(`⏳ Queued: ${truncate(text.replace(/\s+/g, ' '), 80)}`));
       const attachments = attachmentsFor(text, s.cwd);
-      await this.client.send(s.id, { text, ...(attachments.length ? { attachments } : {}), ...extra });
+      // busy: show it waiting at once; the hub's session.queue event replaces the list
+      if (isActiveStatus(this.snap.session?.status)) {
+        pendingId = `tui-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+        this.set({ queue: [...this.snap.queue, { id: pendingId, text, at: Date.now(), whenBusy: extra.whenBusy ?? 'queue' }] }, true);
+      }
+      const res = await this.client.send(s.id, { text, ...(attachments.length ? { attachments } : {}), ...(pendingId ? { pendingId } : {}), ...extra });
+      // it ran at once after all (the turn ended meanwhile): nothing waits
+      if (pendingId && res && !res.queued) unlist();
     } catch (e) {
+      if (pendingId) unlist();
       this.error(e);
     }
   }
@@ -467,9 +522,7 @@ export class ChatController {
   }
 
   async resolveApproval(a: ApprovalRequest, response: ApprovalResponse): Promise<void> {
-    const approvals = this.snap.approvals.filter((x) => x.id !== a.id);
-    this.store.setWaiting(approvals.map((x) => x.toolUseId));
-    this.set({ approvals }, true);
+    this.dropApproval(a.id);
     try {
       await this.client.resolveApproval(a.id, response);
     } catch (e) {
@@ -486,10 +539,11 @@ export class ChatController {
     }
   }
 
-  async patchSession(patch: Partial<Pick<Session, 'model' | 'agent' | 'mode' | 'permissionMode' | 'device' | 'cwd' | 'modeConfig' | 'title'>>): Promise<void> {
+  async patchSession(patch: Partial<Pick<SessionPatch, 'model' | 'agent' | 'mode' | 'permissionMode' | 'device' | 'cwd' | 'modeConfig' | 'title' | 'chat'>>): Promise<void> {
     const s = this.snap.session;
     if (!s) {
       const d = { ...this.snap.draft };
+      if (patch.chat && 'thinking' in patch.chat) d.effort = patch.chat.thinking ?? undefined;
       for (const [k, v] of Object.entries(patch)) if (k in d || ['model', 'agent', 'mode', 'permissionMode', 'device', 'cwd'].includes(k)) (d as Record<string, unknown>)[k] = v;
       this.set({ draft: d }, true);
       if (patch.modeConfig) {
@@ -517,19 +571,20 @@ export class ChatController {
   newSession(): void {
     this.store.clear();
     this.lastUsage = undefined;
-    this.snap = { ...this.snap, session: undefined, approvals: [], questions: [], todos: [], turnStartedAt: undefined };
+    this.snap = { ...this.snap, session: undefined, approvals: [], questions: [], todos: [], queue: [], turnStartedAt: undefined };
     this.store.setActive(false);
     this.banner();
     this.rerender();
   }
 
   async resume(id: string): Promise<void> {
-    const [s, msgs, approvals, questions, todos] = await Promise.all([
+    const [s, msgs, approvals, questions, todos, queue] = await Promise.all([
       this.client.getSession(id),
       this.client.messages(id),
       this.client.approvals().catch(() => [] as ApprovalRequest[]),
       this.client.questions().catch(() => [] as QuestionRequest[]),
       this.client.todos(id).catch(() => [] as Todo[]),
+      this.client.queue(id).catch(() => [] as QueuedMessage[]),
     ]);
     this.store.clear();
     const active = isActiveStatus(s.status);
@@ -537,16 +592,19 @@ export class ChatController {
     this.banner();
     this.store.load(msgs, active);
     this.lastUsage = [...msgs].reverse().find((m) => m.role === 'assistant' && m.kind === 'normal' && m.usage)?.usage;
-    const mine = approvals.filter((a) => a.sessionId === id);
+    const mine = approvals.filter((a) => asksIn(a, id));
     this.store.setWaiting(mine.map((a) => a.toolUseId));
     this.store.addLocal({ kind: 'notice', text: `Resumed "${s.title || 'untitled'}" · ${msgs.length} messages · ${s.id}`, level: 'info' });
+    const card = isActiveStatus(s.status) ? undefined : this.stopItem(s);
+    if (card) this.store.addLocal(card);
     this.snap = {
       ...this.snap,
       session: s,
       draft: { ...this.snap.draft, cwd: s.cwd, device: s.device },
       approvals: mine,
-      questions: questions.filter((q) => q.sessionId === id),
+      questions: questions.filter((q) => asksIn(q, id)),
       todos,
+      queue,
       turnStartedAt: active ? Date.now() : undefined,
     };
     this.rerender();
