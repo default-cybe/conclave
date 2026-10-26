@@ -32,3 +32,9 @@ export const MODEL_VARIANT = /-(minimal|low|medium|high|xhigh|thinking)$/i;
 export function variantBase(id: string): string {
   return id.replace(MODEL_VARIANT, '');
 }
+
+/** The hub's model a plan's own id stands for: variant dropped, and Kiro's dotted Claude version dashed ("claude-opus-5.5" -> "claude-opus-5-5"). */
+export function modelBase(id: string): string {
+  const base = variantBase(id);
+  return /^claude-/i.test(base) ? base.replace(/\./g, '-') : base;
+}

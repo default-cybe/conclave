@@ -7,6 +7,18 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Settings > Models > Accounts: a plan's row has Refresh (the Subscriptions refresh, shown when CLIProxyAPI can refresh it) and, when it is not working or its sign-in is gone, Sign in again (that provider's sign-in, both Kiro sign-ins for Kiro).
+- `DELETE /api/accounts/:id` and a Remove action for a saved plan whose sign-in CLIProxyAPI no longer lists (`gone: true` on the account). Owner for the hub's plans, a member for their own; a plan still signed in is refused (409) and stays removable in Subscriptions.
+
+### Fixed
+
+- Removing a sign-in in Subscriptions also drops its saved account, its place in every vendor and per model order, and refusal fallback entries pinned to it. Before, the account stayed on Accounts as "Not signed in" for good (three removed Gemini sign-ins). A saved plan CLIProxyAPI stops listing is never dropped on read, so a restart cannot lose the order.
+- Kiro's dotted model ids (`claude-opus-5.5`) join the hub's model (`claude-opus-5-5`): its per model order, failover, cooldowns and Per model list. Calls still send Kiro's own id.
+
 ## [0.4.32] - 2026-10-26
 
 ### Added

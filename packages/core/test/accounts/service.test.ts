@@ -206,6 +206,58 @@ describe('the accounts service', () => {
     expect(ready('claude-opus-5-5')).toEqual(['antigravity-g', 'api-anthropic']);
   });
 
+  test("a plan that lists Kiro's dotted id (claude-opus-5.5) joins claude-opus-5-5's order, and the call keeps the plan's own id", () => {
+    const now = { t: Date.now() };
+    const { svc } = setup(now);
+    svc.setCliproxy({
+      provider: 'cliproxy',
+      management: true,
+      credentials: [cred('claude-a.json', { models: [{ id: 'claude-opus-5-5' }] }), cred('kiro4cpa-k.json', { provider: 'kiro4cpa', models: [{ id: 'claude-opus-5.5' }, { id: 'claude-sonnet-5.5' }, { id: 'gpt-5.6-sol' }], prefix: 'kiro' })],
+    });
+    const ready = (m: string) => svc.readyAccounts(m).map((a) => a.id);
+    expect(ready('claude-opus-5-5')).toEqual(['claude-a', 'kiro4cpa-k', 'api-anthropic']);
+    expect(ready('claude-sonnet-5-5')).toEqual(['kiro4cpa-k', 'api-anthropic']);
+    svc.setOrder({ vendor: '', match: 'claude-opus-5-5', order: ['kiro4cpa-k', 'claude-a'] });
+    expect(svc.status().routes.find((r) => r.match)?.order).toEqual(['kiro4cpa-k', 'claude-a', 'api-anthropic']);
+    // the wire names Kiro's own id, not the hub's
+    expect(svc.planWire('claude-opus-5-5')).toMatchObject({ wire: 'kiro/claude-opus-5.5', account: 'kiro4cpa-k' });
+    // a cooldown on Kiro's id blocks the hub's model there
+    svc.setCliproxy({
+      provider: 'cliproxy',
+      management: true,
+      credentials: [cred('claude-a.json', { models: [{ id: 'claude-opus-5-5' }] }), cred('kiro4cpa-k.json', { provider: 'kiro4cpa', models: [{ id: 'claude-opus-5.5' }], prefix: 'kiro', cooldowns: [{ model: 'claude-opus-5.5', reason: 'quota', until: now.t + H }] })],
+    });
+    expect(ready('claude-opus-5-5')).toEqual(['claude-a', 'api-anthropic']);
+  });
+
+  test('forget: the saved plan, its place in every order and refusal fallback entries pinned to it go; a gone plan stays until then', () => {
+    const now = { t: Date.now() };
+    const { svc, config } = setup(now);
+    const opus = [{ id: 'claude-opus-5-5' }];
+    svc.setCliproxy({ provider: 'cliproxy', management: true, credentials: [cred('claude-a.json', { models: opus }), cred('antigravity-g.json', { provider: 'antigravity', models: opus, prefix: 'ag' })] });
+    svc.patch('antigravity-g', { label: 'Gemini 3' });
+    svc.setOrder({ vendor: '', match: 'claude-opus-5-5', order: ['antigravity-g', 'claude-a'] });
+    const user = structuredClone(config.getUser()) as Record<string, any>;
+    user.models = { ...user.models, refusalFallback: { entries: [{ model: 'cliproxy/ag/claude-opus-5-5', account: 'antigravity-g' }, 'cliproxy/claude-opus-5-5'] }, limitFallback: { enabled: true } };
+    config.replace(user);
+    // CLIProxyAPI no longer lists it: shown, saved and marked gone, the order untouched
+    svc.setCliproxy({ provider: 'cliproxy', management: true, credentials: [cred('claude-a.json', { models: opus })] });
+    expect(svc.account('antigravity-g')).toMatchObject({ label: 'Gemini 3', saved: true, gone: true, state: 'error' });
+    expect(svc.account('claude-a')?.gone).toBeUndefined();
+    expect((config.getUser() as any).models.routes[0].order).toEqual(['antigravity-g', 'claude-a']);
+    // CLIProxyAPI not read (management unknown): never called gone
+    svc.setCliproxy({ provider: 'cliproxy', management: false, credentials: [cred('claude-a.json', { models: opus })] });
+    expect(svc.account('antigravity-g')?.gone).toBeUndefined();
+    svc.setCliproxy({ provider: 'cliproxy', management: true, credentials: [cred('claude-a.json', { models: opus })] });
+    const st = svc.forget('antigravity-g');
+    expect(st.accounts.map((a) => a.id)).not.toContain('antigravity-g');
+    const models = (config.getUser() as any).models;
+    expect(models.accounts.map((a: { id: string }) => a.id)).not.toContain('antigravity-g');
+    expect(models.routes).toEqual([{ vendor: 'anthropic', match: 'claude-opus-5-5', order: ['claude-a'] }]);
+    expect(models.refusalFallback.entries).toEqual(['cliproxy/claude-opus-5-5']);
+    expect(models.limitFallback).toEqual({ enabled: true });
+  });
+
   test('a per model order for a model no vendor is known for is refused', () => {
     const now = { t: Date.now() };
     const { svc } = setup(now);

@@ -102,6 +102,8 @@ export interface AccountDto {
   observedAt?: number;
   /** Listed in models.accounts. False: found by the hub and shown with defaults. */
   saved: boolean;
+  /** subscription: saved, but CLIProxyAPI no longer lists its sign-in. Kept until DELETE /api/accounts/:id removes it. */
+  gone?: boolean;
   /** subscription: the window starter, its settings and what it is doing. */
   starter?: StarterDto;
 }

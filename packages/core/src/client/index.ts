@@ -2249,6 +2249,8 @@ export class ConclaveClient {
   setAccountOrder = (input: AccountOrderInput) => this.request<AccountsStatus>('PUT', '/api/accounts/order', input);
   /** Label, pause (enabled false) and the budget of an API key. */
   updateAccount = (id: string, patch: AccountPatch) => this.request<AccountsStatus>('PATCH', `/api/accounts/${encodeURIComponent(id)}`, patch);
+  /** Remove a saved plan CLIProxyAPI no longer lists: its entry, its place in every order, refusal fallback entries pinned to it. */
+  removeAccount = (id: string) => this.request<AccountsStatus>('DELETE', `/api/accounts/${encodeURIComponent(id)}`);
   /** Clear CLIProxyAPI's cooldown on a signed in account so the next call tries it. */
   tryAccountNow = (id: string) => this.request<AccountsStatus>('POST', `/api/accounts/${encodeURIComponent(id)}/try`);
   /** A signed in plan's short name (its CLIProxyAPI prefix: ids also as neu/claude-opus-5-5). Empty removes it. */

@@ -10,6 +10,7 @@
  *   PUT    /api/accounts/order        { vendor, match?, order } the owner's order; the hub writes CLIProxyAPI priorities
  *   PATCH  /api/accounts/:id          { label?, enabled?, budget?, starter?, refusal? } pause pauses the credential in CLIProxyAPI too; starter is the window starter;
  *                                     refusal: "Use when a model refuses" (a plan without a short name gets the suggested one first)
+ *   DELETE /api/accounts/:id          remove a saved plan CLIProxyAPI no longer lists (gone): its entry, order places, refusal fallback pins
  *   POST   /api/accounts/:id/try      clear CLIProxyAPI's cooldown on a signed in account ("Try now")
  *   PUT    /api/accounts/:id/prefix   { prefix } a plan's short name, written to CLIProxyAPI as its prefix; empty removes it
  */
@@ -95,6 +96,19 @@ export function registerAccountRoutes(app: Hono<HonoEnv>, ctx: ServerContext): v
     ].filter(Boolean);
     if (parts.length) audit(c, 'accounts.update', `${name(id)}: ${parts.join(', ')}`);
     return c.json(accounts.status());
+  });
+
+  // a signed in plan is removed in Subscriptions (removeAccount forgets it there too); this clears one whose sign-in is already gone
+  app.delete('/api/accounts/:id', (c) => {
+    const id = c.req.param('id');
+    const { accounts, name } = mine(c);
+    const a = accounts.account(id);
+    if (!a) throw new HttpError(404, 'That account is not here any more. Reload the list.');
+    if (!a.gone) throw new HttpError(409, a.kind === 'api' ? 'An API key goes away with its key, in Settings > Providers.' : 'This plan is still signed in. Remove it in Settings > Subscriptions.');
+    const label = name(id);
+    const status = accounts.forget(id);
+    audit(c, 'accounts.remove', label);
+    return c.json(status);
   });
 
   app.post('/api/accounts/:id/try', async (c) => {

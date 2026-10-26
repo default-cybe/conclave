@@ -415,6 +415,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/accounts/refresh': 'self',
   'PUT /api/accounts/order': 'self',
   'PATCH /api/accounts/:id': 'self',
+  'DELETE /api/accounts/:id': 'self',
   'POST /api/accounts/:id/try': 'self',
   'PUT /api/accounts/:id/prefix': 'self',
 

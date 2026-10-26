@@ -375,6 +375,8 @@ export class AccountsService {
       ...(f?.cooldowns?.length ? { cooldowns: f.cooldowns.filter((c) => c.until > now) } : {}),
       ...(f?.observedAt ? { observedAt: f.observedAt } : {}),
       saved: a.saved,
+      // kept until the owner removes it: a CLIProxyAPI restart or a gap in its list must not lose the order
+      ...(a.saved && a.cfg.kind === 'subscription' && !f && this.cliproxy?.management ? { gone: true } : {}),
       ...(starter ? { starter } : {}),
     };
   }
@@ -766,13 +768,14 @@ export class AccountsService {
   // Owner changes: written to models.accounts and models.routes
   // -------------------------------------------------------------------------
 
-  private save(edit: (accounts: AccountConfig[], routes: AccountRoute[]) => void): void {
+  private save(edit: (accounts: AccountConfig[], routes: AccountRoute[], models: Record<string, any>) => void): void {
     // every account the page shows is saved, so its id and place stay put
     const accounts: AccountConfig[] = this.accts().map((a) => structuredClone(a.cfg));
     const routes: AccountRoute[] = structuredClone(this.routes());
-    edit(accounts, routes);
     const user = structuredClone(this.deps.config.getUser()) as Record<string, any>;
-    user.models = { ...(user.models ?? {}), accounts, routes };
+    const models: Record<string, any> = { ...(user.models ?? {}) };
+    edit(accounts, routes, models);
+    user.models = { ...models, accounts, routes };
     this.deps.config.replace(user);
     this.cache = undefined;
   }
@@ -844,6 +847,25 @@ export class AccountsService {
       }
     });
     if (starterOn) this.starterView?.onEnable();
+    this.changed();
+    return this.status();
+  }
+
+  /**
+   * Forget an account: its saved entry, its place in every order, and any
+   * refusal fallback entry pinned to it. For a sign-in removed in
+   * Subscriptions, or a saved one CLIProxyAPI no longer lists (Remove).
+   * One CLIProxyAPI still lists comes back with defaults on the next read.
+   */
+  forget(id: string): AccountsStatus {
+    this.save((accounts, routes, models) => {
+      const i = accounts.findIndex((a) => a.id === id);
+      if (i >= 0) accounts.splice(i, 1);
+      // a per model order left empty stays: the owner added that model
+      for (const r of routes) if (Array.isArray(r.order)) r.order = r.order.filter((x) => x !== id);
+      const rf = models.refusalFallback;
+      if (Array.isArray(rf?.entries)) models.refusalFallback = { ...rf, entries: rf.entries.filter((e: { account?: unknown }) => e?.account !== id) };
+    });
     this.changed();
     return this.status();
   }
