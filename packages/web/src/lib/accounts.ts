@@ -11,6 +11,7 @@ import type { LimitFallbackConfig, RefusalFallbackConfig } from '@conclave/core/
 import { parseRefusalEntries } from '@conclave/core/session/refusal-entries';
 import { suggestPrefixes } from '@conclave/core/accounts/prefix';
 import { modelBase } from '@conclave/core/providers/model-id';
+import { annotateWindow, governing, windowFull } from '@conclave/core/accounts/windows';
 import type { LogoId } from '@/components/logo';
 import { api } from './api';
 import { useHub } from '@/store/store';
@@ -154,6 +155,99 @@ export function limitFallbackRoute(models: { limitFallback?: LimitFallbackConfig
 }
 
 // ---------------------------------------------------------------------------
+// The plan a session is on (the context ring under the composer)
+// ---------------------------------------------------------------------------
+
+/** Why a session runs this model on this plan. */
+export type PlanReason = { kind: 'default' } | { kind: 'picked' } | { kind: 'switched'; from: string; was?: AccountDto } | { kind: 'fallback'; from: string };
+
+export interface SessionPlan {
+  /** The plan or key the next call goes to, as the hub picks it (core AccountsService.accountFor). */
+  current?: AccountDto;
+  /** The model id names the plan by its short name (cliproxy/neu/claude-opus-5-5), or the key's own provider: not chosen by the order. */
+  pinned: boolean;
+  reason: PlanReason;
+  /** The other plans and keys that serve this model, in the owner's order for it. */
+  others: AccountDto[];
+}
+
+/** The gateway whose ids carry a plan's short name (as ModelPicker's PLAN_GATEWAY). */
+const PLAN_GATEWAY = 'cliproxy';
+const bareId = (id: string) => id.slice(id.lastIndexOf('/') + 1);
+// core wirePattern (providers/split.ts), copied: that module pulls in the provider SDKs
+const globTest = (glob: string, s: string) => new RegExp(`^${glob.trim().split('*').map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`, 'i').test(s);
+
+/**
+ * Which plan or key a session's model runs on and why, and which others
+ * could serve it, from GET /api/accounts. Mirrors core accountFor: a key
+ * whose provider is the model's, else on the gateway the plan named by the
+ * prefix, else the first plan in the owner's order for the model (routeFor)
+ * that is ready for this model. Why: a
+ * sticky usage fallback (meta.limitFallback), an account failover
+ * (meta.limitSwitch), a model other than the agent's or hub's default, else
+ * the default.
+ * shortcut: the hub keeps a session on the plan it last used while it stays ready; this shows the order's pick, upgrade when the hub sends the session's account.
+ */
+export function sessionPlan(model: string | undefined, meta: Record<string, unknown> | undefined, defaultModel: string | undefined, status: Pick<AccountsStatus, 'accounts' | 'routes'> | undefined, now = Date.now()): SessionPlan | undefined {
+  const here = model && status ? routeOf(model, status, now) : undefined;
+  if (!model || !status || !here) return undefined;
+  const { current, pinned, ordered } = here;
+  const lf = meta?.limitFallback as { from?: string; to?: string } | undefined;
+  const ls = meta?.limitSwitch as { from?: string; to?: string } | undefined;
+  // the plan it left: the one a prefix or key names, else (a bare ref, the owner's usual pick) the first plan in the order not ready for it, else the first
+  const left = ls?.from ? routeOf(ls.from, status, now) : undefined;
+  const was = left && (left.pinned ? left.current : (left.plans.find((a) => !left.ready(a)) ?? left.plans[0]));
+  const reason: PlanReason =
+    lf?.to === model && lf.from
+      ? { kind: 'fallback', from: lf.from }
+      : ls?.to === model && ls.from
+        ? { kind: 'switched', from: ls.from, ...(was ? { was } : {}) }
+        : defaultModel && defaultModel !== model
+          ? { kind: 'picked' }
+          : { kind: 'default' };
+  return { current, pinned, reason, others: ordered.filter((a) => a !== current) };
+}
+
+/** core accountFor for one model ref, with the plans and keys that serve it in order; undefined when none stands behind it. */
+function routeOf(model: string, status: Pick<AccountsStatus, 'accounts' | 'routes'>, now: number) {
+  const slash = model.indexOf('/');
+  if (slash < 0) return undefined;
+  const provider = model.slice(0, slash);
+  const wire = model.slice(slash + 1);
+  const key = status.accounts.find((a) => a.kind === 'api' && a.provider === provider);
+  // only the gateway's ids name a plan by a prefix, and only its calls go to plans; elsewhere a prefix is the vendor (OpenRouter's "anthropic/")
+  if (!key && provider !== PLAN_GATEWAY) return undefined;
+  const cut = wire.lastIndexOf('/');
+  const prefix = key || cut < 0 ? '' : wire.slice(0, cut);
+  const bare = bareId(wire);
+  const base = modelBase(bare).toLowerCase();
+  const vendor = key?.vendor ?? status.accounts.flatMap((a) => a.models).find((m) => m.vendor && modelBase(bareId(m.id)).toLowerCase() === base)?.vendor;
+  // core reaches(): a plan whose model list is not read yet serves its vendor's every model
+  const lists = (a: AccountDto) => a.models.some((m) => modelBase(bareId(m.id)).toLowerCase() === base) || (a.kind === 'subscription' && !a.models.length && !!vendor && a.vendor === vendor);
+  const serving = status.accounts.filter((a) => lists(a) || (a.kind === 'api' && (a === key || a.vendor === vendor)));
+  const routes = status.routes.filter((r) => r.vendor === vendor);
+  const order = (routes.find((r) => r.match && globTest(r.match, bare)) ?? routes.find((r) => !r.match))?.order ?? [];
+  // core ordered(): the order's ids, then the rest (plans before keys); another vendor's plan the order leaves out goes before the first key
+  const rank = (a: AccountDto) => (order.includes(a.id) ? order.indexOf(a.id) : order.length + (a.kind === 'api' ? 1 : 0));
+  const loose = (a: AccountDto) => a.kind === 'subscription' && a.vendor !== vendor && !order.includes(a.id);
+  const rest = serving.filter((a) => !loose(a)).sort((x, y) => rank(x) - rank(y));
+  const firstKey = rest.findIndex((a) => a.kind === 'api');
+  const ordered = [...rest];
+  ordered.splice(firstKey < 0 ? ordered.length : firstKey, 0, ...serving.filter(loose));
+  const plans = ordered.filter((a) => a.kind === 'subscription');
+  // state comes from core assess() with no model, which skips scoped windows ("7d opus") and model cooldowns: check those for this model, as accountFor does
+  const ready = (a: AccountDto) =>
+    a.enabled &&
+    (a.state === 'ready' || a.state === 'unknown') &&
+    !governing(a.windows.map((w) => (w.kind ? w : annotateWindow(w))), bare).some((w) => windowFull(w, now)) &&
+    !(a.cooldowns ?? []).some((c) => c.until > now && (!c.model || modelBase(bareId(c.model)).toLowerCase() === base));
+  const current = key ?? (prefix ? status.accounts.find((a) => a.kind === 'subscription' && a.prefix === prefix) : (plans.find(ready) ?? plans[0]));
+  // a harness, or a provider no plan or key stands behind: nothing to say
+  if (!current && !serving.length) return undefined;
+  return { current, pinned: !!key || !!prefix, ordered, plans, ready };
+}
+
+// ---------------------------------------------------------------------------
 // Short names (CLIProxyAPI prefixes, core/src/accounts/prefix.ts)
 // ---------------------------------------------------------------------------
 
@@ -170,8 +264,8 @@ export const MANAGEMENT_NOTE = "Short names and Use when a model refuses need CL
 export const REFUSAL_SWITCH = 'Use when a model refuses';
 export const REFUSAL_HINT = 'A refused reply is tried again here first, same model.';
 
-/** How a marked account is named in the Refusal fallback line: a plan by its short name, a key by its label. */
-function markedName(a: AccountDto): string {
+/** How a marked account is named in the Refusal fallback line (and the context ring): a plan by its short name, a key by its label. */
+export function markedName(a: AccountDto): string {
   return a.kind === 'subscription' ? (a.prefix ?? a.label) : a.label;
 }
 
