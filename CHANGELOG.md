@@ -21,6 +21,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Fixed
 
 - A picture you attached to your own message opens full size: on the web a click or tap on its thumbnail (Chat page and session log) shows it fitted to the screen with Download, and Escape, Close or a click outside shuts it; on Android a tap opens it full screen with pinch to zoom, and a tap, Back or Close shuts it. Before, the thumbnails did nothing.
+- A device with a large Claude Code or Codex transcript no longer drops off every 10 minutes ("Received too big message"): the usage scan reads device logs in 8 MB pieces from where it stopped, skips a single line over 8 MB, keeps its progress when a read fails and waits longer before each retry (20 minutes, doubling, up to a day). Every file read from a device now travels in replies of at most 32 MB, a daemon without range reads is not asked for a bigger file, and the Rust daemon answers a reply that would pass the hub's 64 MB limit with an error instead of sending it. A tool call on a device that dropped in the last minute waits up to 20 seconds for it to reconnect before failing with "is offline".
 
 ## [0.4.35] - 2026-10-26
 

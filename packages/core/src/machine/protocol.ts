@@ -37,6 +37,13 @@ export const RPC_SINCE: Partial<Record<RpcMethod, number>> = { syncthingFolders:
 /** Both sides ping every HEARTBEAT_MS. A peer silent for HEARTBEAT_MS * 3 is treated as gone. */
 export const HEARTBEAT_MS = 20_000;
 
+/**
+ * Most raw file bytes one reply may carry. Base64 makes it 4/3 bigger, and the
+ * hub closes a daemon socket on a message over 64 MB (server/src/app.ts
+ * maxPayloadLength), so larger reads go in pieces.
+ */
+export const MAX_READ_BYTES = 32 * 1024 * 1024;
+
 /** Default timeout for RPCs other than exec with its own timeout. */
 export const RPC_TIMEOUT_MS = 60_000;
 
