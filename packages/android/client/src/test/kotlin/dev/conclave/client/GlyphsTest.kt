@@ -74,9 +74,11 @@ class GlyphsTest {
     @Test
     fun everyKindHasAStrokeAndThePetABody() {
         for (k in GlyphKind.entries) assertTrue(k == GlyphKind.GENERAL_PURPOSE || GLYPH_PATHS.getValue(k).startsWith("M"))
-        // the body is a closed loop mapped into the pet's 32x24 box
-        assertEquals(4f, PET_BODY[0])
-        assertEquals(3f, PET_BODY[1])
+        // the body is the knot's loop mapped into the pet's 32x24 box: 4..28 by 3..17 (it starts on the knot's first point, not the corner)
+        val xs = PET_BODY.filterIndexed { i, _ -> i % 2 == 0 }
+        val ys = PET_BODY.filterIndexed { i, _ -> i % 2 == 1 }
+        assertTrue(xs.all { it in 4f..28f })
+        assertTrue(ys.all { it in 3f..17f })
         assertEquals(knotLoop(4f, 3f, 24f, 14f).size, PET_BODY.size)
     }
 }

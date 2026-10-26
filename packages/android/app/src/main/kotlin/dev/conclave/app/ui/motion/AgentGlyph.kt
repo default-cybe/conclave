@@ -12,15 +12,17 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
-import androidx.compose.ui.graphics.PathParser
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.PathParser
+import androidx.compose.ui.graphics.asComposePath
 import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.client.motion.GLYPH_LIGHT_LEN
 import dev.conclave.client.motion.GLYPH_LIGHT_STILL
@@ -67,7 +69,7 @@ fun AgentGlyph(
     val described = if (label != null) Modifier.semantics { contentDescription = label } else Modifier
     Canvas(modifier.size(size).onscreen(onscreen).then(described)) {
         tick.longValue
-        val k = size.width / 16f
+        val k = size.value / 16f
         val base = if (state == GlyphState.DONE) c.fg3 else c.fg2.copy(alpha = 0.35f)
         val light = when (state) {
             GlyphState.WAITING -> c.warn
@@ -114,5 +116,5 @@ private fun glyphPath(kind: GlyphKind): Path {
         p.close()
         return p
     }
-    return PathParser().parsePathString(GLYPH_PATHS.getValue(kind)).toPath()
+    return PathParser.createPathFromPathData(GLYPH_PATHS.getValue(kind)).asComposePath()
 }

@@ -12,7 +12,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathMeasure
-import androidx.compose.ui.graphics.PathParser
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -22,6 +21,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.PathParser
+import androidx.compose.ui.graphics.asComposePath
 import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.client.motion.Loop
 import dev.conclave.client.motion.PET_BODY
@@ -64,7 +65,7 @@ fun Pet(
     Canvas(modifier.size(size, size * 3 / 4).onscreen(onscreen).then(described)) {
         tick.longValue
         val t = tick.longValue / 1_000_000f
-        val k = size.width / 32f
+        val k = size.value / 32f
         val stroke = Stroke(width = 1.2f, cap = StrokeCap.Round, join = StrokeJoin.Round)
         withTransform({ scale(k, k, pivot = Offset.Zero) }) {
             // the breath: the body and its eyes rise and fall a little (skipped for the two settled states)
@@ -97,7 +98,7 @@ private fun body(): Path = bodyPath
 private val cache = HashMap<String, Path>()
 
 /** The web's SVG path strings (the legs and the props), parsed once each. */
-private fun parse(d: String): Path = cache.getOrPut(d) { PathParser().parsePathString(d).toPath() }
+private fun parse(d: String): Path = cache.getOrPut(d) { PathParser.createPathFromPathData(d).asComposePath() }
 
 /** The light round the body while it thinks: one 22% segment, one lap per LOOP_KNOT_TOOL. */
 private fun DrawScope.light(stroke: Stroke, color: Color, head: Float) {
@@ -119,7 +120,10 @@ private fun DrawScope.light(stroke: Stroke, color: Color, head: Float) {
 /** The eyes on the body: open with a blink, shut when parked, arcs when done, flat in the fault color when failed. */
 private fun DrawScope.eyes(state: PetState, c: dev.conclave.app.ui.theme.ConclaveColors, stroke: Stroke, t: Float, breath: Float) {
     val open = Path()
-    for (x in PET_EYES) open.moveTo(x, 4.7f).lineTo(x, 6.3f)
+    for (x in PET_EYES) {
+        open.moveTo(x, 4.7f)
+        open.lineTo(x, 6.3f)
+    }
     when (state) {
         PetState.PARKED -> drawPath(parse(PET_EYES.joinToString("") { x -> "M${x - 0.9f} 5.8H${x + 0.9f}" }), c.fg3, style = stroke)
         PetState.DONE -> drawPath(parse(PET_EYES.joinToString("") { x -> "M${x - 1f} 6Q$x 4.2 ${x + 1f} 6" }), c.fg3, style = stroke)
