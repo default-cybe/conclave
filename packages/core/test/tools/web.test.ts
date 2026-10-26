@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
-import { WebFetchTool, clearWebFetchCache, normalizeUrl, redditJsonUrl, redditToMarkdown, setWebFetchLookup } from '../../src/tools/webfetch';
+import { WebFetchTool, clearWebFetchCache, normalizeUrl, redditJsonUrl, redditToMarkdown, setWebFetchBrowser, setWebFetchLookup } from '../../src/tools/webfetch';
+import { setHubCountryLookup, setProxySource } from '../../src/tools/blocked';
+import { runAs } from '../../src/people/context';
+import type { BrowserProxyConfig } from '../../src/browser/proxy-provider';
 import { WebSearchTool, parseDuckDuckGo, pickProvider, searchOnce, webSearch, type SearchProviderId } from '../../src/tools/websearch';
 import { patchSearchSettings, searchSettings, setSearchKey, testSearch } from '../../src/tools/search-settings';
 import { SEARCH_PROVIDERS } from '../../src/tools/search-providers';
@@ -150,9 +153,10 @@ function fakeFetch(handler: (url: string, init: RequestInit) => Response): { cal
 }
 
 describe('WebFetch on Reddit', () => {
-  test('rewrites reddit pages to the JSON form on www', () => {
-    expect(redditJsonUrl(new URL('https://old.reddit.com/r/Proxmox/comments/abc123/macos_vm/'))?.href).toBe('https://www.reddit.com/r/Proxmox/comments/abc123/macos_vm.json?raw_json=1');
-    expect(redditJsonUrl(new URL('https://www.reddit.com/r/Proxmox/search.json?q=macos&restrict_sr=1'))?.href).toBe('https://www.reddit.com/r/Proxmox/search.json?q=macos&restrict_sr=1&raw_json=1');
+  test('rewrites reddit pages to the JSON form on old.reddit.com', () => {
+    expect(redditJsonUrl(new URL('https://www.reddit.com/r/Proxmox/comments/abc123/macos_vm/'))?.href).toBe('https://old.reddit.com/r/Proxmox/comments/abc123/macos_vm.json?raw_json=1');
+    expect(redditJsonUrl(new URL('https://old.reddit.com/r/Proxmox/comments/abc123/macos_vm/'))?.href).toBe('https://old.reddit.com/r/Proxmox/comments/abc123/macos_vm.json?raw_json=1');
+    expect(redditJsonUrl(new URL('https://www.reddit.com/r/Proxmox/search.json?q=macos&restrict_sr=1'))?.href).toBe('https://old.reddit.com/r/Proxmox/search.json?q=macos&restrict_sr=1&raw_json=1');
     expect(redditJsonUrl(new URL('https://www.reddit.com/r/Proxmox/s/xyz'))).toBeUndefined();
     expect(redditJsonUrl(new URL('https://example.com/r/Proxmox/'))).toBeUndefined();
   });
@@ -168,17 +172,133 @@ describe('WebFetch on Reddit', () => {
     expect(redditToMarkdown({ kind: 'Listing', data: { children: [THREAD[0].data.children[0]] } })).toContain('- **macOS VM on Proxmox**');
   });
 
-  test('fetches the JSON with the Conclave User-Agent', async () => {
+  test('fetches the JSON on old.reddit.com with the Conclave User-Agent', async () => {
     const f = fakeFetch(() => Response.json(THREAD));
     try {
       const out = await WebFetchTool.run({ url: 'https://www.reddit.com/r/Proxmox/comments/abc123/macos_vm/' }, makeCtx({ cwd: '/' }));
       expect(out.isError).toBeFalsy();
-      expect(f.calls[0].url).toBe('https://www.reddit.com/r/Proxmox/comments/abc123/macos_vm.json?raw_json=1');
+      expect(f.calls[0].url).toBe('https://old.reddit.com/r/Proxmox/comments/abc123/macos_vm.json?raw_json=1');
       expect(f.calls[0].headers['user-agent']).toMatch(/^Conclave(\/\S+)? \(\+https:\/\/conclave\.dymnitguys\.com\)$/);
       expect(text(out)).toContain('Title: macOS VM on Proxmox');
       expect(text(out)).toContain('**u/carol**');
     } finally {
       f.restore();
+    }
+  });
+
+  test('tries old.reddit.com .json with Conclave User-Agent, then the configured proxy, then the browser against a fake server', async () => {
+    const DI: BrowserProxyConfig = { provider: 'dataimpulse', dataimpulse: { login: '${secret:di.login}', password: '${secret:di.password}', country: 'JP' } };
+    const SECRETS: Record<string, string> = { 'di.login': 'kai8f2', 'di.password': 'pw42' };
+    const seen: Array<{ path: string; host: string; ua: string; proxy?: string }> = [];
+    let allowProxyHttp = false;
+    const redditSrv = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch(req) {
+        const u = new URL(req.url);
+        const proxy = req.headers.get('x-test-proxy') || undefined;
+        seen.push({ path: `${u.pathname}${u.search}`, host: req.headers.get('x-test-host') ?? '', ua: req.headers.get('user-agent') ?? '', proxy });
+        if (proxy && allowProxyHttp) return Response.json(THREAD);
+        return new Response('<html>blocked by network security</html>', { status: 403, statusText: 'Blocked', headers: { 'content-type': 'text/html' } });
+      },
+    });
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: any, init: RequestInit & { proxy?: string } = {}) => {
+      const u = new URL(String(input));
+      if (u.hostname === '151.101.1.140' || u.hostname.endsWith('reddit.com')) {
+        const headers = new Headers(init.headers);
+        headers.set('x-test-host', headers.get('host') || u.hostname);
+        if (init.proxy) headers.set('x-test-proxy', init.proxy);
+        const srvUrl = new URL(`${u.pathname}${u.search}`, `http://127.0.0.1:${redditSrv.port}`);
+        return realFetch(srvUrl.href, { ...init, headers, proxy: undefined });
+      }
+      return realFetch(input, init);
+    }) as typeof fetch;
+    setWebFetchLookup(async () => ['151.101.1.140']);
+    setHubCountryLookup(async () => 'US');
+    setProxySource({ cfg: () => DI, read: (n) => SECRETS[n] });
+
+    const navs: Array<{ sessionId: string; url: string; proxied: boolean; country?: string }> = [];
+    let browserProxied = false;
+    let browserCountry: string | undefined;
+    let browserBody = () => `<pre>${JSON.stringify(THREAD)}</pre>`;
+    let browserStatus = () => 200;
+    let lastBrowserUrl = '';
+    setWebFetchBrowser({
+      async navigate(sessionId, url) {
+        lastBrowserUrl = url;
+        navs.push({ sessionId, url, proxied: browserProxied, country: browserCountry });
+        return { url, status: browserStatus() };
+      },
+      async page() {
+        return { url: () => lastBrowserUrl, content: async () => browserBody() };
+      },
+      async useProxy(_sid, want) {
+        browserProxied = want !== false;
+        browserCountry = typeof want === 'string' ? want : undefined;
+      },
+      proxied: () => browserProxied,
+    });
+
+    try {
+      // 1) Proxy succeeds: old.reddit.com .json direct -> proxy retry succeeds; browser is not touched.
+      allowProxyHttp = true;
+      const viaProxy = await WebFetchTool.run({ url: 'https://www.reddit.com/r/Proxmox/comments/abc123/macos_vm/' }, makeCtx({ cwd: '/' }));
+      expect(viaProxy.isError).toBeFalsy();
+      expect(seen.filter((s) => s.host === 'old.reddit.com')[0]).toMatchObject({
+        path: '/r/Proxmox/comments/abc123/macos_vm.json?raw_json=1',
+        host: 'old.reddit.com',
+        proxy: undefined,
+      });
+      expect(seen[0].ua).toMatch(/^Conclave(\/\S+)? \(\+https:\/\/conclave\.dymnitguys\.com\)$/);
+      expect(seen.find((s) => s.proxy)?.proxy).toBe('http://kai8f2__cr.us:pw42@gw.dataimpulse.com:823');
+      expect(navs).toHaveLength(0);
+      expect(text(viaProxy)).toContain("Reddit blocked the hub's address; fetched through the proxy (US).");
+      expect(text(viaProxy)).toContain('**u/carol**');
+
+      // 2) Both direct and HTTP proxy blocked -> falls back to browser, reads thread JSON from browser tab.
+      clearWebFetchCache();
+      seen.length = 0;
+      allowProxyHttp = false;
+      const viaBrowser = await WebFetchTool.run({ url: 'https://www.reddit.com/r/Proxmox/comments/abc123/macos_vm/' }, makeCtx({ cwd: '/' }));
+      expect(viaBrowser.isError).toBeFalsy();
+      expect(seen.some((s) => !s.proxy && s.host === 'old.reddit.com')).toBe(true);
+      expect(seen.some((s) => !!s.proxy && s.host === 'old.reddit.com')).toBe(true);
+      expect(navs).toHaveLength(1);
+      expect(navs[0].url).toBe('https://old.reddit.com/r/Proxmox/comments/abc123/macos_vm.json?raw_json=1');
+      expect(text(viaBrowser)).toContain('Reddit blocked HTTP; loaded in the browser.');
+      expect(text(viaBrowser)).toContain('Title: macOS VM on Proxmox');
+      expect(text(viaBrowser)).toContain('**u/carol**');
+
+      // 3) Browser direct also blocked -> browser retries through proxy, then HTML page if JSON is blocked.
+      clearWebFetchCache();
+      navs.length = 0;
+      browserProxied = false;
+      browserStatus = () => (browserProxied ? 200 : 403);
+      browserBody = () =>
+        browserProxied
+          ? '<!doctype html><html><head><title>macOS VM on Proxmox</title></head><body><article><h1>macOS VM on Proxmox</h1><p>OpenCore works well on Proxmox VE with passthrough.</p></article></body></html>'
+          : '<html>blocked by network security</html>';
+      const viaBrowserProxy = await WebFetchTool.run({ url: 'https://www.reddit.com/r/Proxmox/comments/abc123/macos_vm/' }, makeCtx({ cwd: '/' }));
+      expect(viaBrowserProxy.isError).toBeFalsy();
+      expect(navs[0]).toMatchObject({ proxied: false, url: 'https://old.reddit.com/r/Proxmox/comments/abc123/macos_vm.json?raw_json=1' });
+      expect(navs[1]).toMatchObject({ proxied: true, country: 'US', url: 'https://old.reddit.com/r/Proxmox/comments/abc123/macos_vm.json?raw_json=1' });
+      expect(text(viaBrowserProxy)).toContain('Reddit blocked HTTP; loaded in the browser through the proxy (US).');
+      expect(text(viaBrowserProxy)).toContain('OpenCore works well on Proxmox VE');
+
+      // 4) Member session never uses the owner's proxy or browser.
+      clearWebFetchCache();
+      navs.length = 0;
+      const memberOut = await runAs('alice', () => WebFetchTool.run({ url: 'https://www.reddit.com/r/Proxmox/comments/abc123/macos_vm/' }, makeCtx({ cwd: '/' })));
+      expect(memberOut.isError).toBe(true);
+      expect(navs).toHaveLength(0);
+    } finally {
+      globalThis.fetch = realFetch;
+      setWebFetchLookup();
+      setHubCountryLookup();
+      setProxySource();
+      setWebFetchBrowser();
+      redditSrv.stop(true);
     }
   });
 

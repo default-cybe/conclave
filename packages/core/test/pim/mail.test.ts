@@ -8,7 +8,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { createServer } from 'node:net';
 import { startFakeImap, startFakeSmtp, type FakeImap, type FakeSmtp } from './fake-imap';
 import { makePim } from './helpers';
-import { composeMessage, parseMessage } from '../../src/mail/mime';
+import { applySignature, bodyToHtml, composeMessage, parseMessage, sanitizeSignatureHtml } from '../../src/mail/mime';
 import { ImapClient, parseValues } from '../../src/mail/imap';
 import { MailDraftTool } from '../../src/tools/mail';
 import { builtinTools, filterTools, UNTRUSTED_DENY } from '../../src/tools';
@@ -283,7 +283,109 @@ describe('drafts and sending', () => {
 
     test('MailDraft stays out of untrusted sessions', () => {
       expect(UNTRUSTED_DENY).toContain('MailDraft');
-      expect(filterTools(builtinTools(), { untrusted: true, allow: ['MailDraft'] }).map((x) => x.name)).not.toContain('MailDraft');
+      expect(filterTools(builtinTools(), { untrusted: true, allow: ['MailSearch', 'MailRead', 'MailDraft'] }).map((x) => x.name).sort()).toEqual(['MailRead', 'MailSearch']);
+    });
+  });
+
+  describe('HTML signature on drafts', () => {
+    const carnegieSig = [
+      '<table style="font-family: Arial, sans-serif; font-size: 13px; line-height: 19px; color: #222">',
+      '<tr><td><b style="font-size: 14px; color: #111">Kaivalya Ahir</b><br>',
+      '<span>M.S. Information Technology, Information Security · May 2027</span><br>',
+      '<b style="color: #C41230">Carnegie Mellon University</b> <span style="color: #999">|</span> <b>Information Networking Institute</b><br>',
+      '<a href="mailto:kahir@andrew.cmu.edu" style="color: #1a56b8; text-decoration: none">kahir@andrew.cmu.edu</a> <span style="color: #999">|</span> ',
+      '<a href="https://kaivalyaahir.com" style="color: #1a56b8; text-decoration: none">kaivalyaahir.com</a> <span style="color: #999">|</span> ',
+      '<a href="https://linkedin.com/in/kaivalya-ahir" style="color: #1a56b8; text-decoration: none">LinkedIn</a> <span style="color: #999">|</span> ',
+      '<a href="https://github.com/default-cybe" style="color: #1a56b8; text-decoration: none">GitHub</a> <span style="color: #999">|</span> ',
+      '<a href="https://kaivalyaahir.com/#disclosures" style="color: #1a56b8; text-decoration: none">Disclosures</a>',
+      '</td></tr></table>',
+    ].join('');
+
+    test('sanitizer keeps allowed tags, hrefs (http/https/mailto) and color/font styles, and drops scripts, handlers and other URLs', () => {
+      const dirty = [
+        '<script>alert(1)</script>',
+        '<style>body{display:none}</style>',
+        '<div onclick="evil()" style="color: #C41230; font-family: Arial, sans-serif; font-size: 13px; font-weight: bold; line-height: 19px; background: url(https://evil.example/x); position: fixed">',
+        '<p><strong onmouseover="x">Name</strong> &amp; <b>Role</b><br/></p>',
+        '<table><tr><td><span><a href="https://kaivalyaahir.com" style="color: #1a56b8; text-decoration: none" target="_blank">Site</a></span> ',
+        '<a href="http://example.com/a">HTTP</a> ',
+        '<a href="mailto:kahir@andrew.cmu.edu">Mail</a> ',
+        '<a href="javascript:alert(1)">BadJS</a> ',
+        '<a href="&#106;avascript:alert(1)">EncodedJS</a> ',
+        '<a href="data:text/html,<script>alert(1)</script>">BadData</a> ',
+        '<img src="https://evil.example/p.png" onerror="alert(1)">',
+        '</td></tr></table></div>',
+      ].join('');
+      const clean = sanitizeSignatureHtml(dirty);
+      expect(clean).not.toContain('<script');
+      expect(clean).not.toContain('alert(1)');
+      expect(clean).not.toContain('<style');
+      expect(clean).not.toContain('onclick');
+      expect(clean).not.toContain('onmouseover');
+      expect(clean).not.toContain('onerror');
+      expect(clean).not.toContain('<img');
+      expect(clean).not.toContain('target=');
+      expect(clean).not.toContain('javascript:');
+      expect(clean).not.toContain('data:');
+      expect(clean).not.toContain('background');
+      expect(clean).not.toContain('position');
+      expect(clean).toContain('style="color:#C41230;font-family:Arial, sans-serif;font-size:13px;font-weight:bold;line-height:19px"');
+      expect(clean).toContain('<a href="https://kaivalyaahir.com" style="color:#1a56b8;text-decoration:none">Site</a>');
+      expect(clean).toContain('<a href="http://example.com/a">HTTP</a>');
+      expect(clean).toContain('<a href="mailto:kahir@andrew.cmu.edu">Mail</a>');
+      expect(clean).toContain('<a>BadJS</a>');
+      expect(clean).toContain('<a>EncodedJS</a>');
+      expect(clean).toContain('<br>');
+    });
+
+    test('bodyToHtml and applySignature build multipart/alternative with escaped paragraphs and plain-text footer', async () => {
+      expect(bodyToHtml('Hi <Ana> & Co,\nLine 2\n\nBest,')).toBe('<p>Hi &lt;Ana&gt; &amp; Co,<br>Line 2</p>\n<p>Best,</p>');
+      const signed = applySignature('Hi Ana,\n\nBest,', carnegieSig);
+      expect(signed.text).toContain('Hi Ana,\n\nBest,\n\nKaivalya Ahir\nM.S. Information Technology, Information Security · May 2027\nCarnegie Mellon University | Information Networking Institute\nkahir@andrew.cmu.edu | kaivalyaahir.com (https://kaivalyaahir.com) | LinkedIn (https://linkedin.com/in/kaivalya-ahir) | GitHub (https://github.com/default-cybe) | Disclosures (https://kaivalyaahir.com/#disclosures)');
+      expect(signed.html).toContain('<p>Hi Ana,</p>\n<p>Best,</p>\n<table style="font-family:Arial, sans-serif;font-size:13px;line-height:19px;color:#222">');
+      expect(signed.html).toContain('<a href="mailto:kahir@andrew.cmu.edu" style="color:#1a56b8;text-decoration:none">kahir@andrew.cmu.edu</a>');
+
+      const { raw } = composeMessage({
+        from: { address: 'kahir@andrew.cmu.edu' },
+        to: [{ address: 'ana@example.com' }],
+        subject: 'Hello',
+        body: signed.text,
+        html: signed.html,
+      });
+      expect(raw).toMatch(/Content-Type: multipart\/alternative; boundary="conclave_[0-9a-f]+"/);
+      expect(raw).toContain('Content-Type: text/plain; charset=utf-8');
+      expect(raw).toContain('Content-Type: text/html; charset=utf-8');
+      const parsed = await parseMessage(raw);
+      expect(parsed.text).toBe(signed.text);
+    });
+
+    test('IMAP saveDraft with account signature writes multipart/alternative with text and HTML parts', async () => {
+      const { pim, acc } = await setup();
+      const updated = pim.updateAccount(acc.id, { signature: `${carnegieSig}<script>evil()</script>`, autoDraft: true });
+      expect(updated.signature).toContain('Carnegie Mellon University');
+      expect(updated.signature).not.toContain('<script');
+
+      const ctx = { host: { pim }, sessionId: 'ses_mail' } as unknown as Parameters<typeof MailDraftTool.run>[1];
+      const out = await MailDraftTool.run({ to: ['ana@example.com'], subject: 'Follow-up', body: 'Thanks for meeting today.\n\nBest,' }, ctx);
+      expect(out.isError).toBeUndefined();
+      const [d] = imap!.boxes.get('Drafts')!.messages;
+      expect(d.raw).toMatch(/Content-Type: multipart\/alternative; boundary="conclave_[0-9a-f]+"/);
+      const parts = d.raw.split(/--conclave_[0-9a-f]+/);
+      const htmlPartB64 = parts.find((p) => p.includes('Content-Type: text/html'))!.split('\r\n\r\n')[1]!.trim();
+      const decodedHtml = Buffer.from(htmlPartB64.replace(/\s+/g, ''), 'base64').toString('utf8');
+      expect(decodedHtml).toContain('<p>Thanks for meeting today.</p>\r\n<p>Best,</p>');
+      expect(decodedHtml).toContain('<b style="color:#C41230">Carnegie Mellon University</b>');
+      expect(decodedHtml).not.toContain('<script');
+      const parsed = await parseMessage(d.raw);
+      expect(parsed.text).toContain('Thanks for meeting today.\n\nBest,\n\nKaivalya Ahir');
+      expect(parsed.text).toContain('Carnegie Mellon University | Information Networking Institute');
+
+      // clearing the signature falls back to text/plain
+      expect(pim.updateAccount(acc.id, { signature: '   ' }).signature).toBeUndefined();
+      await MailDraftTool.run({ to: ['ana@example.com'], subject: 'Plain', body: 'Just text.' }, ctx);
+      const [, plainDraft] = imap!.boxes.get('Drafts')!.messages;
+      expect(plainDraft.raw).toContain('Content-Type: text/plain; charset=utf-8');
+      expect(plainDraft.raw).not.toContain('multipart/alternative');
     });
   });
 

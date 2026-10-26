@@ -12,7 +12,7 @@ import { buildEvent, DRAFT_MAX, excludeOccurrence, expand, localToEpoch, updateE
 import { freeSlots, mergeBusy, suggestSlots, type Interval } from '../calendar/freebusy';
 import { CALDAV_PRESETS, type BusyBlock, type CalEvent, type CalendarInfo, type CaldavPreset, type EventDraft, type FreeSlot } from '../calendar/types';
 import { GmailProvider, GraphProvider, ImapProvider, MailError, type MailProvider } from '../mail/providers';
-import { parseAddress } from '../mail/mime';
+import { applySignature, parseAddress, sanitizeSignatureHtml } from '../mail/mime';
 import { MAIL_PRESETS, type MailAddress, type MailMessage, type MailQuery, type MailSecurity, type MailSummary } from '../mail/types';
 import { DEFAULT_ENDPOINTS, OAuthError, type OAuthEndpoints, type TokenSet } from '../mail/oauth';
 import type { ShippedOAuthClients } from '../mail/oauth-clients';
@@ -276,8 +276,8 @@ export class PimService {
     return this.accounts().find((a) => a.id === id)!;
   }
 
-  /** Change what an account is for: label, drafts, sending, and which calendars the assistant may read and write. */
-  updateAccount(id: string, patch: { label?: string; drafts?: boolean; send?: boolean; autoDraft?: boolean; password?: string; calendars?: Array<{ remoteId: string; read?: boolean; write?: boolean }> }): PimAccountDto {
+  /** Change what an account is for: label, drafts, sending, signature, and which calendars the assistant may read and write. */
+  updateAccount(id: string, patch: { label?: string; drafts?: boolean; send?: boolean; autoDraft?: boolean; signature?: string; password?: string; calendars?: Array<{ remoteId: string; read?: boolean; write?: boolean }> }): PimAccountDto {
     const a = this.account(id);
     const next: PimAccount = { ...a };
     if (patch.label !== undefined) next.label = cleanText(patch.label, 80) || a.label;
@@ -295,6 +295,11 @@ export class PimService {
       if (patch.send && a.kind === 'microsoft' && !(a.scopes ?? []).some((s) => /Mail\.Send$/i.test(s))) throw new PimError(400, 'Sending needs Mail.Send. Sign in again with sending on.');
       if (patch.send && a.kind === 'google' && !this.hasDraftScope(a)) throw new PimError(400, 'Sending needs gmail.compose. Sign in again with drafts on.');
       next.send = !!patch.send;
+    }
+    if (patch.signature !== undefined) {
+      const sig = sanitizeSignatureHtml(patch.signature);
+      if (sig) next.signature = sig;
+      else delete next.signature;
     }
     if (patch.password !== undefined && (a.kind === 'caldav' || a.kind === 'imap')) {
       const p = patch.password.trim();
@@ -979,7 +984,8 @@ export class PimService {
       const orig = await provider.read(p.replyTo.ref).catch(() => undefined);
       reply = { ref: p.replyTo.ref, ...(orig?.messageId ? { messageId: orig.messageId } : {}), ...(orig?.references ? { references: orig.references } : {}), ...(orig?.threadRef ? { threadRef: orig.threadRef } : {}) };
     }
-    const out = { from: { address: m.from }, to: m.to.map((address) => ({ address })), cc: m.cc.map((address) => ({ address })), subject: m.subject, body: m.body, ...(reply ? { reply } : {}) };
+    const signed = applySignature(m.body, account.signature);
+    const out = { from: { address: m.from }, to: m.to.map((address) => ({ address })), cc: m.cc.map((address) => ({ address })), subject: m.subject, body: signed.text, ...(signed.html ? { html: signed.html } : {}), ...(reply ? { reply } : {}) };
     if (p.dto.action === 'send') {
       if (!account.send) throw new PimError(403, 'Sending is off for this account now.');
       return `Sent: ${await provider.send(out)}.`;

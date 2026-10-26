@@ -155,7 +155,7 @@ export function registerPim(ctx: MockCtx) {
   on('PATCH', '/api/pim/accounts/:id', async ({ params, body }) => {
     await sleep(150);
     const a = accounts.find((x) => x.id === params[0]) ?? fail(404, 'unknown account');
-    const next: PimAccountDto = { ...a, ...(typeof body.send === 'boolean' ? { send: body.send } : {}), ...(typeof body.drafts === 'boolean' ? { drafts: body.drafts } : {}), ...(typeof body.autoDraft === 'boolean' ? { autoDraft: body.autoDraft } : {}) };
+    const next: PimAccountDto = { ...a, ...(typeof body.send === 'boolean' ? { send: body.send } : {}), ...(typeof body.drafts === 'boolean' ? { drafts: body.drafts } : {}), ...(typeof body.autoDraft === 'boolean' ? { autoDraft: body.autoDraft } : {}), ...(typeof body.signature === 'string' ? { signature: body.signature.trim() || undefined } : {}) };
     if (Array.isArray(body.calendars)) next.calendars = (a.calendars ?? []).map((c) => {
       const p = body.calendars.find((x: { remoteId: string }) => x.remoteId === c.remoteId);
       if (!p) return c;

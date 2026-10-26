@@ -118,6 +118,20 @@ describe('Google', () => {
     const parsed = await parseMessage(cloud!.google.drafts[0].raw);
     expect(parsed).toMatchObject({ subject: 'Re: Lunch Thursday?', inReplyTo: '<LunchThursday@x>', text: 'Yes, 12 works.' });
     expect(cloud!.google.sent).toEqual([]);
+
+    // with an HTML signature on the Gmail account, saveDraft sends multipart/alternative raw MIME
+    pim.updateAccount(acc.id, { signature: '<table style="font-family: Arial; font-size: 13px; color: #222"><tr><td><b>Kaivalya Ahir</b><br><a href="https://kaivalyaahir.com" style="color: #1a56b8">kaivalyaahir.com</a></td></tr></table>' });
+    const pSig = await pim.proposeMail({ to: 'ana@example.com', body: 'See you at 12.\n\nBest,', replyTo: found[0].id });
+    expect((await pim.approve(pSig.id)).status).toBe('applied');
+    expect(cloud!.google.drafts).toHaveLength(2);
+    const sigRaw = cloud!.google.drafts[1].raw;
+    expect(sigRaw).toMatch(/Content-Type: multipart\/alternative; boundary="conclave_[0-9a-f]+"/);
+    const sigHtmlB64 = sigRaw.split(/--conclave_[0-9a-f]+/).find((part) => part.includes('Content-Type: text/html'))!.split('\r\n\r\n')[1]!.trim();
+    const sigHtml = Buffer.from(sigHtmlB64.replace(/\s+/g, ''), 'base64').toString('utf8');
+    expect(sigHtml).toContain('<p>See you at 12.</p>\r\n<p>Best,</p>');
+    expect(sigHtml).toContain('<a href="https://kaivalyaahir.com" style="color:#1a56b8">kaivalyaahir.com</a>');
+    const sigParsed = await parseMessage(cloud!.google.drafts[1].raw);
+    expect(sigParsed.text).toBe('See you at 12.\n\nBest,\n\nKaivalya Ahir\nkaivalyaahir.com (https://kaivalyaahir.com)');
   });
 
   test('a desktop redirect that is not an address is the caller\'s mistake, said in words', () => {
@@ -461,6 +475,17 @@ describe('Microsoft', () => {
     await pim.approve(p.id);
     expect(cloud!.microsoft.drafts).toEqual([expect.objectContaining({ replyTo: 'AAMk1', comment: 'Thanks.' })]);
     expect(cloud!.microsoft.sent).toEqual([]);
+
+    // with an HTML signature on the Microsoft account, a reply draft creates the reply first and PATCHes its body with the reply + signature prepended above the quoted thread
+    pim.updateAccount(acc.id, { signature: '<b style="color: #C41230">Kaivalya Ahir</b>' });
+    const pSig = await pim.proposeMail({ to: 'prof@uni.example', body: 'On my way.\n\nBest,', replyTo: list[0].id });
+    await pim.approve(pSig.id);
+    expect(cloud!.microsoft.drafts).toHaveLength(2);
+    expect(cloud!.microsoft.drafts[1].comment).toBeUndefined();
+    expect(cloud!.microsoft.drafts[1].body).toEqual({
+      contentType: 'HTML',
+      content: '<p>On my way.</p>\n<p>Best,</p>\n<b style="color:#C41230">Kaivalya Ahir</b>\n<p>Room <b>3.12</b></p>',
+    });
 
     // an hour later the hub refreshes and keeps the rotated refresh token
     now += 2 * 3_600_000;

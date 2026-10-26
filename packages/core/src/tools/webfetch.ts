@@ -1,5 +1,5 @@
 import { lookup } from 'node:dns/promises';
-import { currentAccount, isMember } from '../people/context';
+import { isMember, currentAccount } from '../people/context';
 import { isLocalName, isPrivateAddress, PRIVATE_REFUSED } from '../people/net';
 import { isIP } from 'node:net';
 import { Readability } from '@mozilla/readability';
@@ -7,7 +7,7 @@ import { parseHTML } from 'linkedom';
 import TurndownService from 'turndown';
 import type { Tool, ToolContext } from './types';
 import { fail, formatBytes, outputBudget, withTimeout, wrapUntrusted } from './util';
-import { looksBlocked, proxiedLine, retryProxy, siteName } from './blocked';
+import { looksBlocked, proxiedLine, retryCountry, retryProxy, siteName } from './blocked';
 
 export interface WebFetchInput {
   url: string;
@@ -340,7 +340,9 @@ async function fetchPage(start: URL, signal: AbortSignal, headers: Record<string
         return { error: `${current.href} redirected to an invalid location: ${location}` };
       }
       if (next.protocol === 'http:' && !isLocalHost(next.hostname)) next.protocol = 'https:';
-      if (!sameSite(next, current)) return { redirect: { from: current.href, to: next.href, status: res.status } };
+      if (!sameSite(next, current) || (/(^|\.)reddit\.com$/i.test(current.hostname) && /\/login\b|\/account\/login/.test(next.pathname))) {
+        return { redirect: { from: current.href, to: next.href, status: res.status } };
+      }
       current = next;
       continue;
     }
@@ -388,17 +390,95 @@ const REDDIT_MAX_BODY = 3000;
 
 /**
  * The JSON form of a reddit.com page (thread, subreddit, search, user), on
- * www.reddit.com since old.reddit.com now sends visitors without an account
- * to a login page. undefined for other sites and for share links (/s/).
+ * old.reddit.com. undefined for other sites and for share links (/s/).
  */
 export function redditJsonUrl(u: URL): URL | undefined {
   if (!/(^|\.)reddit\.com$/i.test(u.hostname)) return undefined;
   if (!/^\/(r|u|user|comments)\//i.test(u.pathname) || /\/s\//.test(u.pathname)) return undefined;
   const j = new URL(u.href);
-  j.hostname = 'www.reddit.com';
+  j.hostname = 'old.reddit.com';
   if (!j.pathname.endsWith('.json')) j.pathname = `${j.pathname.replace(/\/+$/, '')}.json`;
   j.searchParams.set('raw_json', '1');
   return j;
+}
+
+export interface WebFetchBrowser {
+  navigate(sessionId: string, url: string): Promise<{ url: string; status?: number }>;
+  page(sessionId: string): Promise<{ url(): string; content(): Promise<string>; title?(): Promise<string> }>;
+  useProxy(sessionId: string, want: boolean | string): Promise<unknown>;
+  proxied(sessionId: string): boolean;
+}
+
+let fetchBrowser: WebFetchBrowser | undefined;
+/** The hub's browser manager, for WebFetch's Reddit fallback when HTTP and the proxy are blocked (engine/create.ts; tests). */
+export function setWebFetchBrowser(b?: WebFetchBrowser): void {
+  fetchBrowser = b;
+}
+
+/** Read a Reddit page in the session's browser when HTTP (and the proxy) could not get the JSON. */
+async function fetchRedditInBrowser(target: URL, jsonUrl: URL, ctx: ToolContext): Promise<{ page: Page; note: string } | { why: string }> {
+  const b = fetchBrowser;
+  if (!b) return { why: '' };
+  if (isMember(ctx.session?.accountId ?? currentAccount())) return { why: "The hub's browser belongs to the owner, so a member's request does not fall back to it." };
+  const sid = ctx.sessionId || 'webfetch';
+  const readTab = async (u: URL): Promise<{ raw: string; status: number; url: string; blocked?: string }> => {
+    const nav = await b.navigate(sid, u.href);
+    const pg = await b.page(sid);
+    const raw = await pg.content();
+    const url = pg.url() || nav.url;
+    const status = nav.status ?? 200;
+    const login = /\/login\b|\/account\/login/.test(url) ? 'sent to the login page' : undefined;
+    return { raw, status, url, blocked: login ?? looksBlocked({ status, url, body: raw }) };
+  };
+  try {
+    let viaProxy: string | undefined;
+    let tab = await readTab(jsonUrl);
+    if (tab.blocked && !b.proxied(sid)) {
+      const pick = await retryCountry(ctx.session?.accountId ?? currentAccount());
+      if (!('skip' in pick)) {
+        try {
+          await b.useProxy(sid, pick.country ?? true);
+          viaProxy = pick.country;
+          tab = await readTab(jsonUrl);
+        } catch {
+          /* keep the unproxied result */
+        }
+      }
+    }
+    const note = `Reddit blocked HTTP; loaded in the browser${viaProxy ? ` through the proxy (${viaProxy})` : ''}.`;
+    const bodyText = tab.raw
+      .replace(/^[\s\S]*?<pre[^>]*>/i, '')
+      .replace(/<\/pre>[\s\S]*$/i, '')
+      .trim();
+    for (const candidate of [bodyText, tab.raw.trim()]) {
+      if (!candidate.startsWith('{') && !candidate.startsWith('[')) continue;
+      try {
+        const md = redditToMarkdown(JSON.parse(candidate));
+        if (md) {
+          return {
+            page: { url: tab.url, status: 200, statusText: 'OK', contentType: 'application/json', bytes: Buffer.byteLength(md), title: md.match(/^# (.+)$/m)?.[1], text: md, cutAtLimit: false },
+            note,
+          };
+        }
+      } catch {
+        /* try the HTML page */
+      }
+    }
+    if (tab.blocked) {
+      const html = new URL(target.href);
+      html.hostname = 'old.reddit.com';
+      tab = await readTab(html);
+    }
+    if (tab.blocked) return { why: `The browser was blocked too (${tab.blocked}).` };
+    const { title, markdown } = htmlToMarkdown(tab.raw, tab.url);
+    if (!markdown.trim()) return { why: 'The browser page had no readable text.' };
+    return {
+      page: { url: tab.url, status: tab.status, statusText: 'OK', contentType: 'text/html', bytes: Buffer.byteLength(tab.raw), title, text: markdown, cutAtLimit: false },
+      note,
+    };
+  } catch (err) {
+    return { why: `The browser fallback failed: ${(err as Error).message}` };
+  }
 }
 
 /** What WebFetch says when Reddit refuses the hub. */
@@ -536,6 +616,16 @@ export const WebFetchTool: Tool<WebFetchInput> = {
             out = again;
             note = proxiedLine(siteName(u.href), p.country);
           }
+        }
+      }
+      // Reddit still blocked after old.reddit.com .json and the proxy: try the browser
+      if (reddit && blockedBy(out)) {
+        const b = await fetchRedditInBrowser(u, reddit, ctx);
+        if ('page' in b) {
+          out = { page: b.page };
+          note = b.note;
+        } else if (b.why) {
+          note = [note, b.why].filter(Boolean).join(' ');
         }
       }
       if (typeof out === 'string') return fail(`${out}${note ? ` ${note}` : ''}`);
