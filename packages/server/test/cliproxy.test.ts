@@ -371,6 +371,39 @@ describe('subscription store plugins', () => {
     expect(JSON.stringify(kiro)).not.toContain('management-secret');
   });
 
+  test('Kiro with Google or GitHub: the portal address, then the pasted address goes to the plugin', async () => {
+    const calls: Array<{ path: string; body: unknown }> = [];
+    let portal = 'https://app.kiro.dev/signin?state=social-1&redirect_uri=http%3A%2F%2F127.0.0.1%3A3128';
+    let complete: [number, unknown] = [200, { ok: true }];
+    const f = (async (input: URL | string, init?: RequestInit) => {
+      const url = new URL(input);
+      if (url.pathname.endsWith('/credentials')) return Response.json({ files: [] });
+      if (url.pathname.endsWith('/auth-url')) return Response.json({ url: '/v0/resource/plugins/kiro4cpa/connect#state=kiro-state', state: 'kiro-state', provider: url.searchParams.get('provider') });
+      calls.push({ path: url.pathname, body: JSON.parse(init!.body as string) });
+      if (url.pathname === '/v0/management/plugins/kiro4cpa/login/social/start') return Response.json({ url: portal, redirectUri: 'http://127.0.0.1:3128' });
+      if (url.pathname === '/v0/management/plugins/kiro4cpa/login/social/complete') return Response.json(complete[1], { status: complete[0] });
+      return new Response('', { status: 404 });
+    }) as typeof fetch;
+    const mgmt = new Management('http://localhost:8317', 'management-secret', f);
+    const start = await mgmt.authUrl('kiro4cpa-social');
+    expect(start).toEqual({ url: portal, state: 'kiro-state', flow: 'redirect' });
+    expect(calls).toEqual([{ path: '/v0/management/plugins/kiro4cpa/login/social/start', body: { state: 'kiro-state' } }]);
+    // only Kiro's https portal goes to the browser
+    for (const bad of ['http://app.kiro.dev/signin', 'https://evil.example/signin', '/v0/resource/plugins/kiro4cpa/connect#state=x', 'http://127.0.0.1:3128/']) {
+      portal = bad;
+      await expect(mgmt.authUrl('kiro4cpa-social')).rejects.toThrow(/no valid sign-in address/);
+    }
+    calls.length = 0;
+    const pasted = 'http://127.0.0.1:3128/oauth/callback?code=c&state=social-1&login_option=google';
+    await mgmt.callback('kiro4cpa-social', 'kiro-state', pasted);
+    expect(calls).toEqual([{ path: '/v0/management/plugins/kiro4cpa/login/social/complete', body: { state: 'kiro-state', callbackUrl: pasted } }]);
+    await expect(mgmt.callback('kiro4cpa-social', 'kiro-state', 'http://127.0.0.1:3128/other?code=c&state=social-1')).rejects.toThrow(/\/oauth\/callback/);
+    complete = [400, { error: '回调地址的 state 与本次登录不匹配，请重新打开 Kiro 登录页' }];
+    await expect(mgmt.callback('kiro4cpa-social', 'kiro-state', pasted)).rejects.toThrow(/another sign-in/);
+    complete = [404, { error: '登录会话不存在或已过期，请回到面板重新发起登录' }];
+    await expect(mgmt.callback('kiro4cpa-social', 'kiro-state', pasted)).rejects.toThrow(/ended/);
+  });
+
   test('does not advertise a plugin that is configured but ineffective', async () => {
     const f = (async (input: URL | string) => Response.json(new URL(input).pathname.endsWith('/credentials') ? { files: [] } : { plugins: [{ supports_oauth: true, enabled: true, effective_enabled: false, oauth_provider: 'copilot' }] })) as typeof fetch;
     expect(await new Management('http://localhost:8317', 'key', f).oauthPlugins()).toEqual([]);
@@ -444,6 +477,8 @@ describe('release names, checksums and versions', () => {
     expect(() => pastedCallback('http://localhost:54545/callback', 's1')).toThrow(/no sign-in code/);
     expect(() => pastedCallback('http://localhost:54545/callback?code=x&state=other', 's1')).toThrow(/another sign-in/);
     expect(() => pastedCallback('', 's1')).toThrow(/Paste/);
+    // Kiro's social address carries the plugin's own state; the plugin checks it
+    expect(pastedCallback('127.0.0.1:3128/oauth/callback?code=x&state=plugin-own', undefined)).toBe('http://127.0.0.1:3128/oauth/callback?code=x&state=plugin-own');
   });
 
   test('an external address is cut to its base', () => {
@@ -622,7 +657,7 @@ describe('builtin: the hub runs CLIProxyAPI', () => {
     expect(JSON.stringify(hub.engine.config.getUser())).not.toContain('127.0.0.1:');
     expect(events.some((e) => e.state === 'installing')).toBe(true);
     // the cards come from the running version's pin
-    expect(st.providers.map((x) => x.id)).toEqual(['claude', 'codex', 'antigravity', 'xai', 'kimi', 'meta', 'copilot', 'kiro4cpa']);
+    expect(st.providers.map((x) => x.id)).toEqual(['claude', 'codex', 'antigravity', 'xai', 'kimi', 'meta', 'copilot', 'kiro4cpa', 'kiro4cpa-social']);
   });
 
   test('the management API is not reachable through the hub', async () => {
@@ -1033,6 +1068,52 @@ describe('external: one the owner already runs', () => {
 });
 
 describe('plugin managers with deterministic credentials', () => {
+  test('kiro4cpa-social: sign in to Kiro with Google by pasting the 127.0.0.1:3128 address', async () => {
+    const rel = releaseServer();
+    const pin = await publish(rel, { version: '8.0.32' });
+    const fake = fakeSpawner(() => ({}));
+    const hub = startHub({ cliproxy: { spawn: fake.spawn, pins: [pin], releaseBase: rel.url, platform: 'linux', arch: 'x64', glibcVersion: '2.36', backoffMs: [20], catalogUrls: [] } });
+    const get = () => hub.api('/api/subscriptions').then((r) => r.json());
+    try {
+      expect((await get()).providers.find((p: any) => p.id === 'kiro4cpa-social')).toMatchObject({ name: 'Kiro', plan: 'Kiro with a Google or GitHub login, through a CLIProxyAPI plugin', flow: 'redirect', more: true });
+      expect((await hub.api('/api/subscriptions', { method: 'PUT', json: { mode: 'builtin' } })).status).toBe(200);
+      await until(async () => (await get()).state === 'on', 10_000, 'builtin');
+      const res = await hub.api('/api/subscriptions/signin', { method: 'POST', json: { provider: 'kiro4cpa-social' } });
+      const start = await res.json();
+      expect(res.status).toBe(200);
+      // the plugin was installed for this card, and the browser gets only Kiro's portal
+      expect((await get()).providers.map((p: any) => p.id)).toEqual(expect.arrayContaining(['kiro4cpa', 'kiro4cpa-social']));
+      expect(start).toMatchObject({ provider: 'kiro4cpa-social', flow: 'redirect', caught: false, callbackHost: '127.0.0.1:3128' });
+      const portal = new URL(start.url);
+      expect(portal.origin).toBe('https://app.kiro.dev');
+      const socialState = portal.searchParams.get('state')!;
+      expect(socialState).not.toBe(start.state);
+      const paste = (url: string) => hub.api(`/api/subscriptions/signin/${start.state}/callback`, { method: 'POST', json: { url } });
+      const wrong = await paste(`127.0.0.1:3128/somewhere?code=c&state=${socialState}`);
+      expect(wrong.status).toBe(400);
+      expect((await wrong.json()).error).toContain('/oauth/callback');
+      const other = await paste('127.0.0.1:3128/oauth/callback?code=c&state=someone-else');
+      expect(other.status).toBe(400);
+      expect((await other.json()).error).toContain('another sign-in');
+      const done = await paste(`127.0.0.1:3128/oauth/callback?code=c&state=${socialState}&login_option=google`).then((r) => r.json());
+      const finished = done.status === 'ok' ? done : await until(async () => {
+        const s = await hub.api(`/api/subscriptions/signin/${start.state}`).then((r) => r.json());
+        return s.status !== 'wait' && s;
+      }, 5000, 'kiro social sign-in');
+      // a Google login to Kiro is a Kiro account, never an Antigravity (Gemini) one
+      expect(finished).toMatchObject({ status: 'ok', account: { provider: 'kiro4cpa', providerName: 'Kiro', label: 'kiro-google@example.test' } });
+      const st = await get();
+      expect(st.accounts.map((a: any) => a.provider)).toEqual(['kiro4cpa']);
+      await until(() => hub.engine.config.get().providers.cliproxy.models?.includes('claude-kiro-test'), 5000, 'kiro models');
+      expect(hub.engine.config.get().providers.cliproxy.models).not.toContain('gemini-4-argon');
+      const audit = hub.engine.repos.audit.list({ limit: 20 });
+      expect(audit.find((a) => a.action === 'subscriptions.signin')?.detail).toBe('Kiro kiro-google@example.test');
+    } finally {
+      await hub.stop();
+      rel.stop();
+    }
+  }, 30_000);
+
   for (const provider of ['copilot', 'kiro4cpa']) test(`${provider}: fresh sign-ins refresh routing, survive restart and stay isolated`, async () => {
     const rel = releaseServer();
     const pin = await publish(rel, { version: '8.0.32' });

@@ -111,12 +111,17 @@ export const PROVIDER_INFO: Record<string, { name: string; plan: string; flow: '
   devin: { name: 'Devin', plan: 'A Devin account', flow: 'redirect', more: true },
   copilot: { name: 'GitHub Copilot', plan: 'GitHub Copilot subscription, through a CLIProxyAPI plugin', flow: 'device', more: true },
   kiro4cpa: { name: 'Kiro', plan: 'Kiro with AWS Builder ID, through a CLIProxyAPI plugin', flow: 'device', more: true },
+  'kiro4cpa-social': { name: 'Kiro', plan: 'Kiro with a Google or GitHub login, through a CLIProxyAPI plugin', flow: 'redirect', more: true },
 };
+
+/** Cards that sign in through another provider's plugin; their accounts are listed under that provider. */
+export const SIGN_IN_VIA: Record<string, string> = { 'kiro4cpa-social': 'kiro4cpa' };
+const withVia = (ids: string[]) => ids.flatMap((id) => [id, ...Object.keys(SIGN_IN_VIA).filter((k) => SIGN_IN_VIA[k] === id)]);
 
 /** Cards for a runtime not started yet; capability comes from the managed host. */
 export function subscriptionCards(pin: Pin, installable: boolean): SubscriptionProviderDto[] {
   const ids = [...pin.providers, ...(installable ? Object.keys(SUBSCRIPTION_PLUGINS) : [])];
-  return [...new Set(ids)].map((id) => ({ id, ...PROVIDER_INFO[id], accounts: 0 }));
+  return [...new Set(withVia(ids))].map((id) => ({ id, ...PROVIDER_INFO[id], accounts: 0 }));
 }
 
 /** Account types CLIProxyAPI lists under another name than the sign-in that made them. */
@@ -265,7 +270,7 @@ function redirectOf(authUrl: string): URL | undefined {
  * redirect did not load. Browsers hide the http:// part, so it may be
  * missing. It must point at localhost and carry code or error.
  */
-export function pastedCallback(raw: unknown, state: string): string {
+export function pastedCallback(raw: unknown, state: string | undefined): string {
   if (typeof raw !== 'string' || !raw.trim()) throw new HttpError(400, 'Paste the address from the browser bar.');
   const text = raw.trim();
   if (text.length > 8192) throw new HttpError(400, 'That is longer than any sign-in address. Copy the address from the browser bar again.');
@@ -280,7 +285,7 @@ export function pastedCallback(raw: unknown, state: string): string {
   const error = u.searchParams.get('error') ?? u.searchParams.get('error_description');
   if (!code && !error) throw new HttpError(400, 'That address has no sign-in code in it. Paste the address of the page that did not load, after the provider sent you back.');
   const s = u.searchParams.get('state');
-  if (s && s !== state) throw new HttpError(400, 'That address belongs to another sign-in. Start again and paste the address from that tab.');
+  if (s && state && s !== state) throw new HttpError(400, 'That address belongs to another sign-in. Start again and paste the address from that tab.');
   return u.toString();
 }
 
@@ -1454,7 +1459,7 @@ export class CliproxyManager {
   private providerCards(): SubscriptionProviderDto[] {
     const pin = pinFor(this.version ?? this.binary?.version, this.pins);
     const installable = this.mode() === 'builtin' && !this.pluginInstallProblem() ? Object.keys(SUBSCRIPTION_PLUGINS) : [];
-    const ids = [...new Set([...pin.providers, ...this.plugins.map((p) => p.id), ...installable])];
+    const ids = [...new Set(withVia([...pin.providers, ...this.plugins.map((p) => p.id), ...installable]))];
     return ids.map((id) => {
       const info = PROVIDER_INFO[id];
       const plugin = this.plugins.find((p) => p.id === id);
@@ -1667,9 +1672,10 @@ export class CliproxyManager {
   async startSignIn(provider: unknown, local: boolean, actor: string): Promise<SignInStartDto> {
     if (typeof provider !== 'string' || !provider.trim()) throw new HttpError(400, 'provider is required');
     const id = provider.trim().toLowerCase();
+    const via = SIGN_IN_VIA[id] ?? id;
     const mgmt = this.requireMgmt();
-    const plugin = Object.hasOwn(SUBSCRIPTION_PLUGINS, id);
-    if (plugin && this.mode() === 'builtin' && !this.plugins.some((p) => p.id === id)) {
+    const plugin = Object.hasOwn(SUBSCRIPTION_PLUGINS, via);
+    if (plugin && this.mode() === 'builtin' && !this.plugins.some((p) => p.id === via)) {
       const problem = this.pluginInstallProblem();
       if (problem) throw new HttpError(400, problem);
     }
@@ -1677,7 +1683,7 @@ export class CliproxyManager {
     await this.syncAccounts();
     let start;
     try {
-      if (this.mode() === 'builtin' && plugin) await mgmt.ensureSubscriptionPlugin(id);
+      if (this.mode() === 'builtin' && plugin) await mgmt.ensureSubscriptionPlugin(via);
       start = await mgmt.authUrl(id);
     } catch (err) {
       this.wrap(err);
@@ -1689,7 +1695,8 @@ export class CliproxyManager {
       if (r) {
         s.callbackHost = r.host;
         const port = Number(r.port || (r.protocol === 'https:' ? 443 : 80));
-        if (local && isLoopbackHost(r.hostname)) {
+        // Kiro's social redirect carries the plugin's own state on another path: always pasted
+        if (local && isLoopbackHost(r.hostname) && via === id) {
           if (this.mode() === 'builtin' && port === this.port) s.caught = true; // CLIProxyAPI itself answers there
           else if (r.protocol === 'http:') {
             const catcher = (this.opts.catcher ?? catchRedirect)({
@@ -1758,7 +1765,7 @@ export class CliproxyManager {
     await this.syncModels().catch(() => undefined);
     await this.syncAccounts();
     const added = this.accounts.filter((a) => !s.before.has(a.name));
-    s.account = added.find((a) => a.provider === s.provider) ?? added[0];
+    s.account = added.find((a) => a.provider === (SIGN_IN_VIA[s.provider] ?? s.provider)) ?? added[0];
     // the new account's models, plan usage and place in the order
     void this.refreshModels()
       .then(() => this.refreshUsage())
@@ -1787,7 +1794,8 @@ export class CliproxyManager {
     const s = this.session(state);
     if (s.status !== 'wait') return this.dto(s);
     if (s.flow !== 'redirect') throw new HttpError(400, 'This sign-in finishes on the provider\'s page with the code. There is no address to paste.');
-    const url = pastedCallback(pasted, state);
+    // a Kiro social address carries the plugin's own state; the plugin checks it
+    const url = pastedCallback(pasted, SIGN_IN_VIA[s.provider] ? undefined : state);
     try {
       await s.mgmt.callback(s.provider, state, url);
     } catch (err) {
