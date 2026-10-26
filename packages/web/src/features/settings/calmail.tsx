@@ -13,12 +13,12 @@ import { api } from '@/lib/api';
 import { useIsMobile } from '@/lib/hooks';
 import { toast } from '@/store/store';
 import { Button, ButtonLink } from '@/components/ui/Button';
-import { Checkbox, Field, Input, OnOff, Segmented } from '@/components/ui/Field';
+import { Checkbox, Field, Input, OnOff, Segmented, Textarea } from '@/components/ui/Field';
 import { CodeBlock } from '@/components/ui/Code';
 import { ConfirmDialog } from '@/components/ui/Overlay';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { errText, Group, Outcome, SettingRow, agoWords } from './parts';
-import { AUTO_DRAFT_HELP, accountKind, checkWords, googleChoice, googleWaitWords, hubOrigin, pastedCallback, scopeWords } from './calmailWords';
+import { AUTO_DRAFT_HELP, SIGNATURE_HELP, accountKind, checkWords, googleChoice, googleWaitWords, hubOrigin, pastedCallback, scopeWords } from './calmailWords';
 
 export function CalMailSection() {
   const [s, setS] = useState<PimSettingsDto>();
@@ -65,6 +65,10 @@ function AccountRow({ a, reload }: { a: PimAccountDto; reload: () => Promise<voi
   const size = mobile ? 'touch' : 'sm';
   const [busy, setBusy] = useState<string>();
   const [removing, setRemoving] = useState(false);
+  const [sig, setSig] = useState(a.signature ?? '');
+  useEffect(() => {
+    setSig(a.signature ?? '');
+  }, [a.signature]);
   const check = checkWords(a);
   const run = async (key: string, fn: () => Promise<unknown>, ok?: string) => {
     setBusy(key);
@@ -130,6 +134,21 @@ function AccountRow({ a, reload }: { a: PimAccountDto; reload: () => Promise<voi
           </SettingRow>
           <SettingRow label="Sending" help="Off: the assistant can only save drafts. On: an approved message may go out at once. Each message still needs your approval.">
             <OnOff label="Sending" size={size} checked={!!a.send} disabled={!!busy} onChange={(v) => void run('send', () => api().updatePimAccount(a.id, { send: v }), v ? 'Sending is on. Each message still waits for your approval.' : undefined)} />
+          </SettingRow>
+          <SettingRow label="Signature" help={SIGNATURE_HELP} stack htmlFor={`sig-${a.id}`}>
+            <div className="space-y-2">
+              <Textarea id={`sig-${a.id}`} mono minRows={3} maxRows={8} value={sig} onChange={(e) => setSig(e.target.value)} placeholder="<table>…</table>" spellCheck={false} />
+              {sig !== (a.signature ?? '') && (
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="solid" size={size} busy={busy === 'signature' ? 'Saving' : false} onClick={() => void run('signature', () => api().updatePimAccount(a.id, { signature: sig }), 'Signature saved.')}>
+                    Save signature
+                  </Button>
+                  <Button variant="outline" size={size} disabled={!!busy} onClick={() => setSig(a.signature ?? '')}>
+                    Cancel
+                  </Button>
+                </div>
+              )}
+            </div>
           </SettingRow>
         </div>
       )}

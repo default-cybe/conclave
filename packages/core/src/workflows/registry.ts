@@ -16,7 +16,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, posix } from 'node:path';
 import type { Machine } from '../machine/types';
-import type { WorkflowMetaDto, WorkflowSource, WorkflowSummary } from '../client/workflows';
+import type { WorkflowArgFieldDto, WorkflowMetaDto, WorkflowSource, WorkflowSummary } from '../client/workflows';
 import { MAX_SCRIPT_BYTES, parseScript, WorkflowLoadError } from './meta';
 import { evalMeta } from './sandbox';
 import { DEFAULT_WORKFLOWS } from './defaults';
@@ -50,6 +50,16 @@ export async function loadMeta(script: string): Promise<{ meta: WorkflowMetaDto;
   if (m.phases !== undefined) {
     if (!Array.isArray(m.phases) || m.phases.some((p) => !p || typeof p !== 'object' || typeof (p as { title?: unknown }).title !== 'string')) {
       throw new WorkflowLoadError('meta.phases must be a list of { title, detail? }');
+    }
+  }
+  if (m.args !== undefined) {
+    if (!m.args || typeof m.args !== 'object' || Array.isArray(m.args)) throw new WorkflowLoadError('meta.args must be an object of { name: { type: \'string\' | \'number\' | \'boolean\', description? } }');
+    for (const [k, v] of Object.entries(m.args as Record<string, unknown>)) {
+      const bad = (why: string) => new WorkflowLoadError(`meta.args.${k} ${why}`);
+      if (!v || typeof v !== 'object' || Array.isArray(v)) throw bad('must be { type, description? }');
+      const f = v as { type?: unknown; description?: unknown };
+      if (f.type !== 'string' && f.type !== 'number' && f.type !== 'boolean') throw bad("type must be 'string', 'number' or 'boolean'");
+      if (f.description !== undefined && typeof f.description !== 'string') throw bad('description must be a string');
     }
   }
   return { meta: m as WorkflowMetaDto, body: parsed.body };
@@ -197,6 +207,7 @@ export function summaryOf(e: LibraryEntry, lastRun?: WorkflowSummary['lastRun'])
     description: e.meta?.description ?? (e.error ? `Cannot load: ${e.error}` : ''),
     ...(e.meta?.whenToUse ? { whenToUse: e.meta.whenToUse } : {}),
     phases: e.meta?.phases ?? [],
+    ...(Object.keys(e.meta?.args ?? {}).length ? { argsSchema: e.meta?.args as Record<string, WorkflowArgFieldDto> } : {}),
     source: e.source,
     ...(e.path && !e.path.startsWith('builtin:') ? { path: e.path } : {}),
     portable: e.meta?.runtime !== 'conclave',

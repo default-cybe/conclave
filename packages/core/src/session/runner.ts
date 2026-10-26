@@ -33,7 +33,7 @@ import { checkPermission, dangerousCommand } from './permissions';
 import { ReadTool } from '../tools/read';
 import { maybeCompact, estimateRequestTokens, meteredTokens, partHash, type TokenMeter } from './compaction';
 import { applyClearing } from './context-edit';
-import { afterWokenTurn, handleLimit, limitFallback, nextAccount, switchBack } from './limits';
+import { afterWokenTurn, handleLimit, limitFallback, nextAccount, switchBack, switchBackModel } from './limits';
 import { recordAutoSwitch } from './limit-tree';
 import { OWNER_ID, isMember, runAs } from '../people/context';
 import { deviceFolder, runHarnessTurn } from './harness';
@@ -226,6 +226,8 @@ export interface LoopOptions {
   autoSwitchFrom?: string;
   /** The reply that refused (already dropped): the loop starts on the refusal fallback entry after it. reply stands again when no entry answers. */
   refusal?: { served: Served; reply?: Message };
+  /** One-turn model override (q.input.model): a limit fallback stays for this turn only. */
+  oneTurnModel?: boolean;
 }
 
 /** A steering message: it joins the running turn at its next step. */
@@ -736,7 +738,7 @@ export class SessionRunner {
             this.engine.setStatus(this.id, 'running');
             // a resumed jury or debate turn goes on as the agent loop it was cut in
             const mode = this.session.mode === 'jury' || this.session.mode === 'debate' ? 'agent' : this.session.mode;
-            await this.agentLoop(next.input.model ?? this.session.model, mode, signal);
+            await this.agentLoop(next.input.model ?? this.session.model, mode, signal, next.input.model ? { oneTurnModel: true } : undefined);
             if (this.session.status === 'running') this.engine.setStatus(this.id, 'idle');
             this.engine.afterTurn(this.id, Date.now() - this.turnStartedAt);
           });
@@ -817,8 +819,8 @@ export class SessionRunner {
     // a fork of a friend's share: its first turn runs guarded, and the owner's own message after it lifts the guard
     const guarded = friendGuardTurn(engine, session, !q.auto && !q.forNotes && !q.resume && !!q.input.text.trim());
     if (guarded) session = guarded;
-    // a usage-limit failover moved the session off a plan: back to the owner's first ready plan, between turns only
-    const back = !q.input.model && !q.refusal ? switchBack(engine, this.id) : undefined;
+    // a usage-limit failover moved the session off a plan or model: back to the owner's first ready one, between turns only
+    const back = !q.input.model && !q.refusal ? (switchBack(engine, this.id) ?? switchBackModel(engine, this.id)) : undefined;
     if (back) session = { ...session, model: back };
     const mode = q.input.mode ?? session.mode;
     const modelRef = q.input.model ?? session.model;
@@ -965,7 +967,7 @@ export class SessionRunner {
       } else {
         // a new task gets the loop's whole iteration budget; its own follow-ups are auto turns
         if (mode === 'loop' && !q.auto && session.meta?.loop) engine.patchMeta(this.id, { loop: undefined });
-        const done = await this.agentLoop(modelRef, mode, signal, retry ? { refusal: retry } : undefined);
+        const done = await this.agentLoop(modelRef, mode, signal, retry || q.input.model ? { ...(retry ? { refusal: retry } : {}), ...(q.input.model ? { oneTurnModel: true } : {}) } : undefined);
         outcome = this.lastStop === 'harness' ? (done ? 'done' : 'error') : (this.lastStop ?? (done ? 'done' : 'stopped'));
         if (done && mode === 'loop') {
           const next = await loopCheck(engine, this.session, signal);
@@ -1337,7 +1339,7 @@ export class SessionRunner {
         if (err instanceof ProviderError) {
           if (err.kind === 'rate_limit' || err.kind === 'quota') {
             limited.push(currentModel);
-            const outcome = await handleLimit(engine, this, currentModel, err, limited);
+            const outcome = await handleLimit(engine, this, currentModel, err, limited, { sticky: !opts.oneTurnModel && !opts.refusal && !walk?.current });
             if (outcome.fallback) {
               autoSwitchFrom = currentModel;
               currentModel = outcome.fallback;
