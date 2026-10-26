@@ -39,7 +39,7 @@ function money(n: number, step: number): string {
   return `$${Math.round(n)}`;
 }
 
-function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
+export function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
   const ref = useRef<T>(null);
   const [w, setW] = useState(0);
   useLayoutEffect(() => {
