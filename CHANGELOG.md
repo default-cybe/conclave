@@ -11,6 +11,16 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- The context ring under the composer now says which model and plan or key the conversation runs on (a plan by its short name, such as neu-claude, a key by its label, such as Z.ai Coding Plan) and why: the default, picked, moved to another plan at a limit, or the usage fallback. It also lists the other plans and keys that serve the model, each with its 5 hour and week windows and reset times as on Usage. A plan whose window for this model alone is full (7d opus) or that rests for this model is passed over, as the hub does; only CLIProxyAPI models go to plans by your order, and a model on another provider shows its own key or nothing. It shows the first ready plan in your order, not yet the one the hub keeps the conversation on after a move, and the Android app's context sheet does not show any of this yet.
+
+### Fixed
+
+- Android: pasting a picture into the message box (long-press Paste, keyboard paste, Gboard clipboard or image suggestions) now attaches it like one from Photos, with the same 15-file and 45 MB limits. Text still pastes as text.
+
+## [0.4.36] - 2026-10-26
+
+### Added
+
 - Terminal chat (`conclave`): `/effort` picks how hard the model thinks (the levels the model has), and the status row shows it. Messages sent while a turn runs show above the input until they run, and `/queue` lists them to remove one or send a held one. A turn that ends on a provider error, a usage limit, a refusal or a hub restart prints the "Why this turn stopped" card the web chat shows. Approvals and questions from subagents and workflow agents now show in the chat you are in, with who asks. Workflow and Delegate calls get their own titles.
 
 ### Changed
@@ -23,7 +33,6 @@ like `## [0.4.16] - 2026-10-24`.
 - The pet and the agent glyphs stop moving off screen and in a background tab: each pose's own animation rule set the play state back to running, so their loops kept going.
 - A picture you attached to your own message opens full size: on the web a click or tap on its thumbnail (Chat page and session log) shows it fitted to the screen with Download, and Escape, Close or a click outside shuts it; on Android a tap opens it full screen with pinch to zoom, and a tap, Back or Close shuts it. Before, the thumbnails did nothing.
 - A device with a large Claude Code or Codex transcript no longer drops off every 10 minutes ("Received too big message"): the usage scan reads device logs in 8 MB pieces from where it stopped, skips a single line over 8 MB, keeps its progress when a read fails and waits longer before each retry (20 minutes, doubling, up to a day). Every file read from a device now travels in replies of at most 32 MB, a daemon without range reads is not asked for a bigger file, and the Rust daemon answers a reply that would pass the hub's 64 MB limit with an error instead of sending it. A tool call on a device that dropped in the last minute waits up to 20 seconds for it to reconnect before failing with "is offline".
-- Android: pasting a picture into the message box (long-press Paste, keyboard paste, Gboard clipboard or image suggestions) now attaches it like one from Photos, with the same 15-file and 45 MB limits. Text still pastes as text.
 
 ## [0.4.35] - 2026-10-26
 

@@ -29,6 +29,10 @@ import { harnessId, modelName } from '@/lib/models';
 import { effortLabel, effortMenu, shownEffort, useModelEffort, type EffortSetting, type ModelEffort as EffortLevels } from '@/lib/effort';
 import { MenuList, Popover, type MenuItem } from '@/components/ui/Overlay';
 import { Segmented } from '@/components/ui/Field';
+import { LimitRow } from '@/components/ui/Meter';
+import { windowApplies } from '@conclave/core/accounts/windows';
+import type { AccountDto } from '@conclave/core/client';
+import { STATE_WORD, markedName, rowWindows, sessionPlan, useAccounts, type PlanReason } from '@/lib/accounts';
 import { PickerButton, SelectMenu } from '@/components/ui/Select';
 import { ModelList } from '@/components/pickers/ModelPicker';
 import { SwitchModelList } from '@/features/chat/SwitchChoice';
@@ -230,11 +234,68 @@ function useContextUse(session: Session | undefined, model: string | undefined) 
   }, [messages, groups, session, model]);
 }
 
-/** A 14px ring filled by the share of the context window in use; a click says the numbers. */
+const TONE_TEXT: Record<string, string> = { ok: 'text-ok', warn: 'text-warn', fault: 'text-fault', dim: 'text-fg-3', live: 'text-fg' };
+
+/** "neu-claude, Max 20x": a plan by its short name and its plan, a key by its label. */
+const planWords = (a: AccountDto) => [markedName(a), a.plan].filter(Boolean).join(', ');
+
+/** One plan or key: its name, its state when not ready, and the windows that limit this model (as on Usage). */
+function PlanLimits({ a, model }: { a: AccountDto; model: string }) {
+  const state = STATE_WORD[a.state];
+  const windows = rowWindows(a).filter((w) => windowApplies(w, model));
+  return (
+    <div className="py-1.5">
+      <div className="flex items-baseline justify-between gap-3 text-[13px] phone:text-[15px]">
+        <span className="min-w-0 truncate text-fg">{planWords(a)}</span>
+        {state.tone !== 'ok' && <span className={cn('shrink-0 text-[12px] phone:text-[13px]', TONE_TEXT[state.tone])}>{state.word}</span>}
+      </div>
+      {windows.map((w) => (
+        <LimitRow key={w.name} window={w} plan={planWords(a)} blocked={a.state === 'limited' && (w.usedPercent ?? 0) >= 99} />
+      ))}
+    </div>
+  );
+}
+
+/** The plan or key the session's model runs on, why, and the others that serve it (GET /api/accounts). */
+function PlanSection({ session, model }: { session?: Session; model: string }) {
+  const { status } = useAccounts();
+  const agentModel = useHub((s) => s.agents.find((a) => a.name === session?.agent)?.model);
+  const hubDefault = useHub((s) => s.hub?.defaultModel);
+  const plan = sessionPlan(model, session?.meta, agentModel ?? hubDefault, status);
+  if (!plan) return null;
+  const bare = model.slice(model.lastIndexOf('/') + 1);
+  const why = (r: PlanReason) =>
+    r.kind === 'fallback' ? `Usage fallback: ${modelName(r.from)} hit its limit. It goes back once that is ready.` : r.kind === 'switched' ? `${r.was ? markedName(r.was) : modelName(r.from)} hit its limit, so it moved here until that resets.` : r.kind === 'picked' ? 'Picked for this conversation.' : 'The default model.';
+  const route = plan.current && !plan.pinned ? ' First ready plan in your order.' : '';
+  return (
+    <div className="border-b border-rule p-3">
+      <dl className="m-0 space-y-1.5 text-[13px] phone:text-[15px]">
+        <Row k="Model">{modelName(model)}</Row>
+        <Row k="On">{plan.current ? planWords(plan.current) : 'No plan or key ready'}</Row>
+      </dl>
+      <p className="m-0 mt-1 text-[12px] text-fg-3 phone:text-[13px]">
+        {why(plan.reason)}
+        {route}
+      </p>
+      {plan.current && <PlanLimits a={plan.current} model={bare} />}
+      {plan.others.length > 0 && (
+        <>
+          <div className="mt-2 text-[12px] text-fg-3 phone:text-[13px]">Also serves it</div>
+          {plan.others.map((a) => (
+            <PlanLimits key={a.id} a={a} model={bare} />
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** A 14px ring filled by the share of the context window in use; a click says the numbers, and the plan the model runs on. */
 export function ContextRing({ session, model }: { session?: Session; model?: string }) {
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const u = useContextUse(session, model);
+  const running = session?.model ?? model;
   const r = 5.25;
   const c = 2 * Math.PI * r;
   const pct = Math.round(u.share * 100);
@@ -247,7 +308,8 @@ export function ContextRing({ session, model }: { session?: Session; model?: str
           <circle cx="7" cy="7" r={r} fill="none" stroke={u.share > 0.8 ? 'var(--warn)' : 'currentColor'} strokeWidth="1.5" strokeDasharray={c} strokeDashoffset={c * (1 - u.share)} strokeLinecap="round" />
         </svg>
       </button>
-      <Popover anchor={ref} open={open} onClose={() => setOpen(false)} placement="top-end" width={260} label="Context" sheetTitle="Context">
+      <Popover anchor={ref} open={open} onClose={() => setOpen(false)} placement="top-end" width={340} maxHeight={520} label="Context" sheetTitle="Context">
+        {running && <PlanSection session={session} model={running} />}
         <dl className="m-0 space-y-1.5 p-3 text-[13px] phone:text-[15px]">
           <Row k="Context">{u.window ? `${compact(u.used)} of ${compact(u.window)}${u.used ? `, ${pct}%` : ''}` : u.used ? compact(u.used) : 'Nothing used yet'}</Row>
           {session && (
