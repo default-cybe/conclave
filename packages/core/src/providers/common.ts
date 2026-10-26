@@ -30,7 +30,8 @@ export abstract class BaseProvider implements Provider {
   abstract listModels(): Promise<ModelInfo[]>;
 
   model(id: string): ModelInfo {
-    return lookupModel(this.id, id, { type: this.opts.config.type, override: this.opts.config.modelOverrides?.[id] });
+    const { type, baseUrl, modelOverrides } = this.opts.config;
+    return lookupModel(this.id, id, { type, override: modelOverrides?.[id], servedBy: familyForProvider(type, baseUrl) ?? 'other' });
   }
 
   protected seesImages(id: string, info: ModelInfo): boolean {
