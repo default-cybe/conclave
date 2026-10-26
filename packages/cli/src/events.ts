@@ -18,6 +18,7 @@ export function eventSessionId(ev: EngineEvent): string | undefined {
     case 'approval.resolved':
     case 'question.answered':
     case 'todo.updated':
+    case 'session.queue':
     case 'checkpoint.created':
     case 'regression.checked':
       return ev.sessionId;

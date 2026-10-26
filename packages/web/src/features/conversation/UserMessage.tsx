@@ -15,6 +15,7 @@ import { hhmm } from '@/lib/format';
 import { useCopy, useIsMobile } from '@/lib/hooks';
 import { Button } from '@/components/ui/Button';
 import { Dialog, MenuList, Popover } from '@/components/ui/Overlay';
+import { ImageThumb } from '@/components/ui/ImageViewer';
 import { Swap } from '@/components/motion';
 import { pendingPreview, removeQueued, useHub } from '@/store/store';
 import { msgText } from '@/features/chat/util';
@@ -31,7 +32,7 @@ function Attachments({ images, files }: { images: string[]; files: string[] }) {
   return (
     <div className="mb-1.5 flex flex-wrap justify-end gap-2">
       {images.map((src, i) => (
-        <img key={i} src={src} alt="Attached image" className="max-h-40 max-w-[240px] rounded-[var(--r-2)] border border-rule object-cover" />
+        <ImageThumb key={i} src={src} className="max-h-40 max-w-[240px] rounded-[var(--r-2)] border border-rule object-cover" />
       ))}
       {files.map((f, i) => (
         <span key={`f${i}`} className="flex h-10 items-center rounded-[var(--r-2)] border border-rule px-3 text-[13px] text-fg-2">

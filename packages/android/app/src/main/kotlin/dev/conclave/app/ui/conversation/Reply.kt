@@ -10,6 +10,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -24,6 +27,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,6 +47,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -53,6 +58,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -74,6 +81,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import dev.conclave.app.ui.common.ModelName
 import dev.conclave.app.ui.motion.Fold
 import dev.conclave.app.ui.motion.Knot
@@ -204,11 +213,14 @@ fun UserBubble(
     onOpenMemory: () -> Unit = {},
 ) {
     val c = Conclave.colors
+    var shown by remember { mutableStateOf<ImageBlock?>(null) }
+    shown?.let { FullImage(it, onDismiss = { shown = null }) }
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val max = maxWidth * 0.85f
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
             images.forEach { img ->
-                Box(Modifier.padding(bottom = 6.dp).widthIn(max = max)) { ChatImage(img, maxHeight = 160.dp) }
+                val open = if (img.data.isNullOrBlank()) Modifier else Modifier.clickable(onClickLabel = "Open full screen") { shown = img }
+                Box(Modifier.padding(bottom = 6.dp).widthIn(max = max)) { ChatImage(img, maxHeight = 160.dp, modifier = open) }
             }
             files.forEach { name ->
                 Text(name, style = ConclaveType.meta, color = c.fg2, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = max).padding(bottom = 6.dp).clip(RoundedCornerShape(12.dp)).background(c.surface2).padding(horizontal = 12.dp, vertical = 8.dp))
@@ -267,6 +279,42 @@ fun ChatImage(block: ImageBlock, maxHeight: Dp, modifier: Modifier = Modifier) {
         )
     } else if (data.isNullOrBlank()) {
         Text("Image", style = ConclaveType.meta, color = c.fg3, modifier = modifier.border(1.dp, c.rule, RoundedCornerShape(5.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
+    }
+}
+
+/** An image you attached, over everything and fitted to the screen: pinch to zoom, a tap, Back or Close shuts it. */
+@Composable
+private fun FullImage(block: ImageBlock, onDismiss: () -> Unit) {
+    val data = block.data
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black).clickable(onClickLabel = "Close", onClick = onDismiss), contentAlignment = Alignment.Center) {
+            val target = maxOf(constraints.maxWidth, constraints.maxHeight)
+            val bitmap by produceState<ImageBitmap?>(null, data, target) {
+                value = if (data.isNullOrBlank()) null else withContext(Dispatchers.Default) { decodeScaled(data, target) }
+            }
+            var scale by remember { mutableFloatStateOf(1f) }
+            var offset by remember { mutableStateOf(Offset.Zero) }
+            val zoom = rememberTransformableState { z, pan, _ ->
+                scale = (scale * z).coerceIn(1f, 5f)
+                offset = if (scale == 1f) Offset.Zero else offset + pan
+            }
+            bitmap?.let {
+                Image(
+                    bitmap = it,
+                    contentDescription = "Attached image",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize().transformable(zoom).graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        translationX = offset.x
+                        translationY = offset.y
+                    },
+                )
+            }
+            IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(8.dp)) {
+                Icon(Icons.Outlined.Close, contentDescription = "Close", tint = Color.White)
+            }
+        }
     }
 }
 

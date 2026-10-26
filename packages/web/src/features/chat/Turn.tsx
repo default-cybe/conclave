@@ -28,6 +28,7 @@ import { ConfirmDialog, MenuList, Popover } from '@/components/ui/Overlay';
 import { ModelList } from '@/components/pickers/ModelPicker';
 import { Fold, InkReveal, Swap, arrived } from '@/components/motion';
 import { BUBBLE, BubbleText } from '@/components/ui/Bubble';
+import { ImageThumb } from '@/components/ui/ImageViewer';
 import { ActionText, AuthorLine, LogRow, REVEAL } from './Log';
 import { Markdown, StreamedMarkdown } from './Markdown';
 import { ToolGroup, type ThoughtItem, type WorkItem } from './ToolRows';
@@ -78,7 +79,7 @@ export const UserMessage = memo(function UserMessage({ message, session, enter }
         {(images.length > 0 || docs.length > 0) && (
           <div className="mb-1.5 flex flex-wrap justify-end gap-2">
             {images.map((img, i) => (
-              <img key={i} src={img.url ?? `data:${img.mediaType};base64,${img.data}`} alt="Attached image" className="max-h-40 max-w-[240px] rounded-[var(--r-2)] border border-rule object-cover" />
+              <ImageThumb key={i} src={img.url ?? `data:${img.mediaType};base64,${img.data}`} className="max-h-40 max-w-[240px] rounded-[var(--r-2)] border border-rule object-cover" />
             ))}
             {docs.map((d, i) => (
               <span key={i} className="flex h-10 items-center rounded-[var(--r-2)] border border-rule px-3 text-[13px] text-fg-2">

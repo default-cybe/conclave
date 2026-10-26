@@ -41,6 +41,7 @@ import { LoadingRows } from '@/components/ui/EmptyState';
 import { ModelList } from '@/components/pickers/ModelPicker';
 import { Elapsed, GapList, Knot, LiveStatus, usePresence } from '@/components/motion';
 import { BubbleText } from '@/components/ui/Bubble';
+import { ImageThumb } from '@/components/ui/ImageViewer';
 import { BlockView, SecondOpinion, turnPieces } from './Turn';
 import { Markdown } from './Markdown';
 import { DebateGroup, JuryGroup } from './Group';
@@ -195,7 +196,7 @@ export const Bubble = memo(function Bubble({ message }: { message: Message }) {
       {images.length > 0 && (
         <div className="flex flex-wrap justify-end gap-2">
           {images.map((img, i) => (
-            <img key={i} src={img.url ?? `data:${img.mediaType};base64,${img.data}`} alt="Attached image" className="max-h-40 max-w-[240px] rounded-[14px] object-cover" />
+            <ImageThumb key={i} src={img.url ?? `data:${img.mediaType};base64,${img.data}`} className="max-h-40 max-w-[240px] rounded-[14px] object-cover" />
           ))}
         </div>
       )}
