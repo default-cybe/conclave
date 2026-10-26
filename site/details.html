@@ -240,10 +240,10 @@
           <p>A session is an agent at work in a folder, on the hub or on any PC or Mac you pair. The agent loop runs on the hub and the tools run on the computer you pick. The desktop app carries the small program that lets the hub use that computer, and it connects out, so no port opens.</p>
           <ul>
             <li>Conclave's own agent loop gives any model file, shell, search, web, browser and subagent tools, with permission rules, hooks, skills, compaction and prompt caching.</li>
-            <li>Claude Code, Codex, Gemini CLI and OpenCode run inside Conclave too, over the Agent Client Protocol, in the same transcript as any other model. Their permission prompts become Conclave approvals.</li>
+            <li>Claude Code, Codex, Gemini CLI and OpenCode run inside Conclave too, over the Agent Client Protocol, in the same transcript as any other model. Their permission prompts become Conclave approvals. Chats imported from Claude Code sync both ways: a Conclave turn is written back, so <code>claude --resume</code> shows it.</li>
             <li>A checkpoint before each turn, so any change is one click to undo, even outside a git repository.</li>
             <li>After a turn that edited files, the project's check runs on that computer before the turn may end. A failure sends the agent back with the output, up to 3 times.</li>
-            <li>Sessions hand you the files they make, such as a PDF, an image or a zip, as a file card with a preview and Download.</li>
+            <li>Sessions hand you the files they make, such as a PDF, an image or a zip, as a file card with a preview and Download. A file the model saves into a chat's outputs folder gets one too at the end of the turn.</li>
             <li>The slash menu of Claude Code, with your commands and skills.</li>
           </ul>
         </div>
@@ -418,7 +418,7 @@
         <div class="card wide">
           <svg class="tk tk-wait" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#k"/></svg>
           <h4>The assistant</h4>
-          <p>Goals with a progress history, a morning brief, an evening wrap-up and a weekly review. It reads your calendars (Nextcloud, iCloud, Google, Outlook) and mail, finds free time, and proposes events and drafts that wait for your OK. Places, directions and when to leave, through OpenStreetMap or Google Maps. Routine messages wait for the hours you set.</p>
+          <p>Goals with a progress history, a morning brief, an evening wrap-up and a weekly review. It reads your calendars (Nextcloud, iCloud, Google, Outlook) and mail, finds free time, and proposes events and drafts that wait for your OK (or, per account, save straight to Drafts without asking; sending always needs you). Places, directions and when to leave, through OpenStreetMap or Google Maps. Routine messages wait for the hours you set.</p>
         </div>
         <div class="card">
           <svg class="tk tk-tool" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#k"/></svg>
@@ -433,7 +433,7 @@
         <div class="card">
           <svg class="tk tk-paused" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#k"/></svg>
           <h4>Usage and limits</h4>
-          <p>5 hour and weekly windows, spend per model, account and key, cache savings, and a budget per API key. At a limit, a session goes on with the same model on your next plan or key, then with the next model on your fallback list, or waits and goes on when it resets.</p>
+          <p>5 hour and weekly windows, spend per model, account and key, cache savings, and a budget per API key. At a limit, a session goes on with the same model on your next plan or key, then with the next model on your fallback list, or waits and goes on when it resets. A per-task policy can pin where a task may go and cap what its whole tree may spend; a switch that would break it parks the task instead.</p>
         </div>
         <div class="card">
           <svg class="tk" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#k"/></svg>
@@ -443,7 +443,7 @@
         <div class="card wide">
           <svg class="tk" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#k"/></svg>
           <h4>Models and plans</h4>
-          <p>Anthropic, OpenAI, Gemini, Z.ai GLM, OpenRouter, DeepSeek, Kimi, Qwen, Ollama, LM Studio and any OpenAI-compatible endpoint. Sign in with your Claude, ChatGPT and Google plans, set their order, and fall back to an API key.</p>
+          <p>Anthropic, OpenAI, Gemini, Z.ai GLM, OpenRouter, DeepSeek, Kimi, Qwen, Ollama, LM Studio and any OpenAI-compatible endpoint. Sign in with your Claude, ChatGPT, Google, Grok, Kimi and Muse plans, and with GitHub Copilot and Kiro plans through CLIProxyAPI's plugins (new), set their order, and fall back to an API key.</p>
         </div>
         <div class="card">
           <svg class="tk" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><use href="#k"/></svg>
@@ -1025,9 +1025,9 @@
         <li>Tools run as the hub's user. The guard on the hub's secrets stops mistakes and instructions from web pages, not a script that tries hard.</li>
         <li>Alerts live in memory, so a hub restart drops them. A file changed by a shell command does not count as a conflict.</li>
         <li>The share review finds what looks like a secret. A password written out in plain words still goes unless you spot it.</li>
-        <li>Android cannot start a repo session or a workflow from the library yet.</li>
+        <li>Android cannot start a repo session yet.</li>
         <li>Repo sessions and applying a friend's code need a POSIX shell and git on the device. Windows devices are not supported there.</li>
-        <li>The desktop apps are not signed yet, so macOS and Windows warn the first time you open them.</li>
+        <li>The Windows desktop app is not signed yet, so Windows warns the first time you open it. The Mac app is signed ad hoc, so macOS no longer calls it damaged, but it is not notarized: the first open still needs Open Anyway.</li>
         <li>The check that keeps memory to facts works in English only.</li>
       </ul>
     </div>
@@ -1047,8 +1047,8 @@
         <ul class="next">
           <li class="card" style="--i:0">A native iPhone app. Today an iPhone adds the web app to its home screen.</li>
           <li class="card" style="--i:1">Sign in with Microsoft for Outlook and Microsoft 365 without your own app registration.</li>
-          <li class="card" style="--i:2">Signed desktop apps, so macOS and Windows stop warning on first open.</li>
-          <li class="card" style="--i:3">Repo sessions and workflows started from Android.</li>
+          <li class="card" style="--i:2">Notarized Mac and signed Windows apps, so neither warns on first open.</li>
+          <li class="card" style="--i:3">Repo sessions started from Android.</li>
         </ul>
       </div>
     </div>

@@ -27,9 +27,9 @@ It is a hub you run on a home server, a Proxmox box or your desktop. The hub hol
 - **Its own harness for every model.** Built from Claude Code's public design: Read, Write, Edit, Bash, Glob, Grep, WebFetch, WebSearch, Task and Skill tools, permission rules, hooks, skills, subagents, auto-compaction and prompt caching. GLM, GPT, Gemini or a local model get the same tools Claude gets.
 - **A verify gate.** After a turn that edited files, the project's check runs on the session's own device before the turn may end. A failure sends the agent back with the last 40 lines, up to 3 times per user turn.
 - **Several models in one chat.** Ask a second opinion on any message, run a jury (juror names can be hidden from the judge), a debate, or loop until a command such as `bun test` passes.
-- **Vendor CLIs in the same transcript.** Claude Code, Codex, Gemini CLI and OpenCode run as engines over the Agent Client Protocol (ACP). A Codex turn can be followed by a GLM turn in the same chat, and their permission prompts become Conclave approvals.
-- **Limits do not stop work.** A usage limit moves the session to your next plan or key for the same model, in your account order, then to the next model on your Usage fallback list. Long waits pause the session and resume it when the window resets.
-- **Subscriptions, not only API keys.** Sign in to Claude, ChatGPT, Google, Grok, Kimi and Muse plans through [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), which the hub runs for you.
+- **Vendor CLIs in the same transcript.** Claude Code, Codex, Gemini CLI and OpenCode run as engines over the Agent Client Protocol (ACP). A Codex turn can be followed by a GLM turn in the same chat, and their permission prompts become Conclave approvals. Chats imported from Claude Code sync both ways: a Conclave turn is written back to the `.jsonl`, so `claude --resume` shows it.
+- **Limits do not stop work.** A usage limit moves the session to your next plan or key for the same model, in your account order, then to the next model on your Usage fallback list. A per-task fallback policy can pin where a task may go and cap what its whole tree may spend; a switch that would break it parks the task instead. Long waits pause the session and resume it when the window resets.
+- **Subscriptions, not only API keys.** Sign in to Claude, ChatGPT, Google, Grok, Kimi and Muse plans through [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI), which the hub runs for you. GitHub Copilot and Kiro plans work too, through CLIProxyAPI's plugins (new; live sign-in not yet verified in the wild).
 - **Agents that watch each other.** A write to a file that another live session wrote in the last 10 minutes gets a conflict warning (or an approval). A turn with no progress for 5 minutes raises a stuck alert with Stop and Keep waiting.
 - **Workflows in code.** Scripts use Claude Code's workflow API and run in QuickJS compiled to WebAssembly, with no file system, process or network. A journal lets a run resume after a crash or an edit, replaying finished calls.
 
@@ -41,7 +41,8 @@ It is a hub you run on a home server, a Proxmox box or your desktop. The hub hol
 - **Bring your people.** Family or friends get their own accounts, chats, memory, keys, devices and plans on your hub. You can set a monthly budget on yours.
 - **One memory.** Every model and device shares what it learned about you and your projects, with a Basic Memory adapter.
 - **Routines that run themselves.** Morning briefs, server checks, or a daily look for new listings on a site. Missed runs catch up after downtime.
-- **Files back from agents.** The ShareFile tool turns a PDF, image, spreadsheet or zip a session made into a file card with a preview and a Download button.
+- **Files back from agents.** The ShareFile tool turns a PDF, image, spreadsheet or zip a session made into a file card with a preview and a Download button. A file the model saves into a chat's outputs folder gets one too at the end of the turn.
+- **Attachments with receipts.** Each file you attach is tracked: the chat says whether the request carried it, and a file the hub cannot read is never dropped silently.
 - **Updates when idle.** The hub installs a new release by itself once nothing is running.
 - **Every device.** Web app, desktop app (Windows, Mac, Linux), Android app, iPhone home screen app and a terminal app.
 - **Self-hosted and in control.** Docker, Proxmox LXC or a plain Linux box. Permission rules, a dangerous-command guard, checkpoints you can undo, and an audit log.
@@ -117,7 +118,7 @@ Full setup, remote access (built-in tunnel, your Cloudflare domain, Tailscale or
 | Android | [conclave-android.apk](https://github.com/default-cybe/conclave/releases/latest/download/conclave-android.apk) |
 | iPhone | Open your hub in Safari, then Share, then Add to Home Screen. |
 
-Every file has a `.sha256` next to it. The desktop apps are not signed yet: on a Mac, right click the app and choose Open the first time; on Windows, choose More info, then Run anyway. Hub archives and the standalone device program are on the [releases page](https://github.com/default-cybe/conclave/releases/latest).
+Every file has a `.sha256` next to it. The Mac app is signed ad hoc, so macOS no longer calls a downloaded copy damaged; it is not notarized, so the first open still needs Open Anyway in System Settings > Privacy & Security. The Windows app is not signed yet: choose More info, then Run anyway. Hub archives and the standalone device program are on the [releases page](https://github.com/default-cybe/conclave/releases/latest).
 
 ## How it works
 
