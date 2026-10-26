@@ -1,5 +1,5 @@
 /**
- * Step 11, Done (spec 11.11): an ambient wave band, then what is set up, one
+ * Step 11, Done (spec 11.11): the pet's done hop beside an ambient wave band, then what is set up, one
  * row per step with its logos and a Change link back to it. Open Home writes
  * ui.onboarded and setup.completedAt.
  */
@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/Button';
 import { Kbd } from '@/components/ui/Kbd';
 import { TextAction } from '@/components/ui/Section';
 import { Wave } from '@/components/wave';
+import { Pet } from '@/components/motion';
 import { StepFrame, useFlow } from '../StepLayout';
 import { andList, errText, TAP } from '../parts';
 import { loginPlans, useSetupFacts } from '../progress';
@@ -81,7 +82,11 @@ export function DoneStep() {
 
   return (
     <StepFrame summary={`Saved on ${hub?.name ?? 'the hub'}. Other devices see the same setup.`} onContinue={open} continueLabel="Open Home" continueBusy="Opening" hideContinue>
-      <Wave variant="hero" gap={6} radius={1.2} amplitude={0.85} speed={0.8} className="-mt-2 mb-6 h-[112px] phone:h-20" />
+      {/* the pet hops once: setup is done (CHAT-AND-MOTION 1.11) */}
+      <div className="-mt-2 mb-6 flex items-end gap-4">
+        <Pet state="done" size={64} className="mb-1 text-fg" />
+        <Wave variant="hero" gap={6} radius={1.2} amplitude={0.85} speed={0.8} className="h-[112px] min-w-0 flex-1 phone:h-20" />
+      </div>
 
       <div className="rows border-y border-rule">
         <Row

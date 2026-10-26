@@ -1,5 +1,7 @@
 package dev.conclave.client.motion
 
+import dev.conclave.client.model.SessionStatus
+
 /*
  * The agent glyphs and the pet (docs/design/CHAT-AND-MOTION.md 1.11), the
  * pure half, a port of packages/web/src/components/motion/agentGlyphs.ts:
@@ -137,11 +139,27 @@ fun glyphPoints(kind: GlyphKind): FloatArray? = when (kind) {
     else -> null
 }
 
-/** The pet's body, a squat trefoil "bean" from the Knot's loop, in its 32x24 box. */
-val PET_BODY: FloatArray by lazy { knotLoop(4f, 3f, 24f, 14f) }
+/**
+ * The pet in its 32x24 box, the web's strings verbatim: a soft dome ("mochi")
+ * on a flat seat, a curl on top that is one turn of the Knot's rope, two dot
+ * eyes. The body keeps the left 4..24 so the props get 24..32.
+ */
+const val PET_BODY = "M8.2 20.5C5.3 20.5 4 18.9 4 16.3C4 10 8.5 5 14 5C19.5 5 24 10 24 16.3C24 18.9 22.7 20.5 19.8 20.5Z"
+const val PET_CURL = "M14 5C13.5 3.3 14.6 1.9 16 2.1C17.3 2.3 17.4 3.9 16.1 4.2"
+const val PET_FEET = "M9.2 21.7H11.4M16.6 21.7H18.8"
+const val PET_SHADOW = "M6.5 23H21.5"
 
-/** The pet's four legs with knees, in the same 32x24 box. */
-const val PET_LEGS = "M7 15.5L5 19L4.5 22.5M11 17L10 19.8L10.8 22.5M21 17L22 19.8L21.2 22.5M25 15.5L27 19L27.5 22.5"
+/** The eyes' x and y on the body; what is drawn for them depends on the state. */
+val PET_EYES = floatArrayOf(11f, 17f)
+const val PET_EYE_Y = 12.6f
 
-/** The eyes' x on the body; the stroke drawn for them depends on the state. */
-val PET_EYES = floatArrayOf(14.3f, 17.7f)
+/** Where the arm leaves the body; props swing round it. */
+val PET_SHOULDER = floatArrayOf(23.3f, 14.6f)
+
+/** A chat's status as the pet's pose, for the places that say it with the pet; null draws none. */
+fun sessionPet(status: SessionStatus?): PetState? = when (status) {
+    SessionStatus.WAITING_APPROVAL, SessionStatus.WAITING_INPUT -> PetState.WAITING
+    SessionStatus.WAITING_RESET -> PetState.PARKED
+    SessionStatus.ERROR -> PetState.FAILED
+    else -> null
+}

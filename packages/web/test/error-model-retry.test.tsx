@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { Message, Session } from '@conclave/core/types';
 import { TryNextModel } from '../src/features/chat/TryNextModel';
 import { ErrorBody } from '../src/features/chat/Notices';
+import { MessageList } from '../src/features/chat/MessageList';
+import { PhoneTranscript } from '../src/features/chat/PhoneTranscript';
 import { useHub } from '../src/store/store';
 
 const notice = { id: 'error1', sessionId: 's1', kind: 'notice', role: 'system', content: [], meta: { type: 'provider_error', canRetry: true } } as unknown as Message;
@@ -26,6 +28,20 @@ describe('provider retry action', () => {
     expect(error).toContain('expired when the hub restarted');
     expect(render(session, expired)).toBe('');
     initial.messages = {};
+  });
+
+  test('a failed chat shows the failed pet beside its reason, on desktop and on a phone', () => {
+    const initial = useHub.getInitialState();
+    const failed = { ...session, id: 's2', error: 'The provider is overloaded' } as Session;
+    initial.messages = { s2: [] };
+    initial.messagesLoaded = { s2: true };
+    for (const List of [MessageList, PhoneTranscript]) {
+      const html = renderToStaticMarkup(<List session={failed} />);
+      expect(html).toMatch(/role="alert"><p[^>]*><svg[^>]*class="cv-pet[^"]*" data-state="failed"/);
+      expect(html).toContain('The provider is overloaded.');
+    }
+    initial.messages = {};
+    initial.messagesLoaded = {};
   });
 
   test('offers alternate model only on latest provider failure while idle', () => {

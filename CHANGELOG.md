@@ -7,6 +7,16 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- The pet is redrawn as a soft dome with a curl of the Knot's rope on top, dot eyes, a mouth and one arm for its prop, on web and Android. Each state has its own face and posture (a magnifier, a hammer and blocks, glasses, a waving amber hand, asleep with z's, a hop with sparkles when done, a frown and a sweat drop when failed). It now also sits beside the chat header's Waiting on you, Resumes and Failed words, beside the reason of a failed chat on desktop and phone, in the Inbox and workflow runs empty states, and on the setup Done step; `/dev/motion` shows it in each place.
+
+### Fixed
+
+- The pet and the agent glyphs stop moving off screen and in a background tab: each pose's own animation rule set the play state back to running, so their loops kept going.
+
 ## [0.4.35] - 2026-10-26
 
 ### Fixed

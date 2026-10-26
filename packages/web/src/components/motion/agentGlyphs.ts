@@ -149,5 +149,22 @@ export const GLYPH_MOTION: Record<GlyphKind, 'travel' | 'draw' | 'hop' | 'tighte
   delegate: 'travel',
 };
 
-/** The pet's body, a squat trefoil "bean" from the Knot's loop, in its 32x24 box. */
-export const PET_BODY = knotLoop(4, 3, 24, 14);
+/**
+ * The pet in its 32x24 box: a soft dome ("mochi") on a flat seat, a curl on
+ * top that is one turn of the Knot's rope, two dot eyes. The body keeps the
+ * left 4..24 so the props get 24..32 and never cover the face.
+ */
+export const PET_BODY = 'M8.2 20.5C5.3 20.5 4 18.9 4 16.3C4 10 8.5 5 14 5C19.5 5 24 10 24 16.3C24 18.9 22.7 20.5 19.8 20.5Z';
+export const PET_CURL = 'M14 5C13.5 3.3 14.6 1.9 16 2.1C17.3 2.3 17.4 3.9 16.1 4.2';
+export const PET_EYES = [11, 17] as const;
+export const PET_EYE_Y = 12.6;
+/** Where the arm leaves the body; props swing round it. */
+export const PET_SHOULDER = [23.3, 14.6] as const;
+
+/** A chat's status as the pet's pose, for the places that say it with the pet (the header's state word); undefined draws none. */
+export function sessionPet(status: string | undefined): PetState | undefined {
+  if (status === 'waiting_approval' || status === 'waiting_input') return 'waiting';
+  if (status === 'waiting_reset') return 'parked';
+  if (status === 'error') return 'failed';
+  return undefined;
+}
