@@ -143,6 +143,14 @@ export const err = createPainter({ enabled: colorEnabledFor(process.stderr) });
 /** Painter for Ink output. The TUI only runs on a TTY, so only NO_COLOR turns it off. */
 export const tui = createPainter({ enabled: !process.env.NO_COLOR });
 
+/**
+ * A color for an Ink color or borderColor prop. Ink's chalk ignores NO_COLOR,
+ * so every Ink color goes through here; bold, dim and inverse stay.
+ */
+export function inkColor(color: string | undefined, painter: Painter = tui): string | undefined {
+  return painter.enabled ? color : undefined;
+}
+
 const ANSI_RE = /\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 
 export function stripAnsi(s: string): string {

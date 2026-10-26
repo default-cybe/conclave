@@ -283,7 +283,7 @@ function renderTable(rows: string[], sep: string, width: number, p: Painter): st
 
 function renderCode(code: string[], lang: string, width: number, p: Painter, opts: MarkdownOptions): string[] {
   while (code.length && code[code.length - 1].trim() === '') code.pop();
-  if (!p.enabled) return code.map((l) => '  ' + l);
+  if (!p.enabled) return code.flatMap((l) => wrapAnsi(l, Math.max(10, width - 2)).split('\n').map((w) => '  ' + w));
   const l = normalizeLang(lang);
   const state: { inBlock?: boolean } = {};
   const bg = p.bg(opts.codeBg ?? MD_COLORS.codeBg);

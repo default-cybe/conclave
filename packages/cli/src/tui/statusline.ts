@@ -1,17 +1,33 @@
-/** Header and footer lines under the input. Pure so they can be tested. */
+/**
+ * The two status rows under the input, each with a left and a right side.
+ * Row one: model, effort, agent and mode; the permission mode on the right.
+ * Row two: where tools run (and the hub, when it is not connected); context,
+ * tokens, cost and the nearest limit on the right. Pure so they can be tested.
+ */
 import type { LimitState, LimitWindow, PermissionMode, Session, Usage } from '@conclave/core/types.ts';
-import { truncate, type Painter } from '../ansi';
+import { truncate, width as strWidth, type Painter } from '../ansi';
 import { formatCost, formatDuration, formatTokens, shortenPath } from '../render/format';
 import { modelColor, providerOf, shortModel } from '../render/models';
 
 export interface HeaderInput {
   model?: string;
+  /** Effort label ("high"); empty runs at the agent's. */
+  effort?: string;
   agent?: string;
   mode?: string;
   permissionMode?: PermissionMode;
-  device: string;
-  cwd: string;
-  hubStatus: 'connecting' | 'open' | 'closed';
+}
+
+/** Left and right on one row; on a narrow terminal the right side keeps its room and the left is cut. */
+export function spread(left: string, right: string, width: number): string {
+  const lw = strWidth(left);
+  const rw = strWidth(right);
+  if (!right) return truncate(left, width);
+  if (!left) return ' '.repeat(Math.max(0, width - rw)) + truncate(right, width);
+  if (lw + rw + 2 <= width) return left + ' '.repeat(width - lw - rw) + right;
+  const room = width - rw - 2;
+  if (room >= 12) return truncate(left, room) + '  ' + right;
+  return truncate(left, width);
 }
 
 export function permissionLabel(m: PermissionMode | undefined, p: Painter): string {
@@ -29,19 +45,20 @@ export function permissionLabel(m: PermissionMode | undefined, p: Painter): stri
 
 export function headerLine(h: HeaderInput, p: Painter, width: number): string {
   const sep = p.dim(' · ');
-  const hub = h.hubStatus === 'open' ? p.green('●') + p.dim(' hub') : h.hubStatus === 'connecting' ? p.yellow('◌ connecting') : p.red('● hub offline');
-  const parts = [
+  const left = [
     p.fg(modelColor(h.model))('●') + ' ' + p.bold(shortModel(h.model)),
+    h.effort ? p.dim(h.effort) : '',
     h.agent ? p.dim('@') + h.agent : '',
-    h.mode && h.mode !== 'agent' ? p.yellow(h.mode) : p.dim(h.mode ?? 'agent'),
-    permissionLabel(h.permissionMode, p),
-    p.dim(`${h.device}:`) + shortenPath(h.cwd, 32),
-    hub,
+    h.mode && h.mode !== 'agent' ? p.yellow(h.mode) : '',
   ].filter(Boolean);
-  return truncate(parts.join(sep), width);
+  const right = permissionLabel(h.permissionMode, p) + (width >= 70 ? p.dim(' (shift+tab)') : '');
+  return spread(left.join(sep), right, width);
 }
 
 export interface FooterInput {
+  device?: string;
+  cwd?: string;
+  hubStatus?: 'connecting' | 'open' | 'closed';
   session?: Session;
   model?: string;
   lastUsage?: Usage;
@@ -82,6 +99,15 @@ export function tightestLimit(limits: LimitState[], model: string | undefined, s
 
 export function footerLine(f: FooterInput, p: Painter, width: number): string {
   const sep = p.dim(' · ');
+  const hub = f.hubStatus === 'connecting' ? p.yellow('◌ connecting') : f.hubStatus === 'closed' ? p.red('● hub offline') : '';
+  const where = f.cwd ? p.dim(`${f.device ?? 'local'}:`) + shortenPath(f.cwd, 40) : '';
+  const left = [hub, where].filter(Boolean).join(sep);
+  return spread(left, usageLine(f, p), width);
+}
+
+/** The right side of row two: limit countdown, context, tokens, cost, cache and the nearest limit. */
+export function usageLine(f: FooterInput, p: Painter): string {
+  const sep = p.dim(' · ');
   const parts: string[] = [];
   const s = f.session;
   if (s?.status === 'waiting_reset') {
@@ -107,6 +133,6 @@ export function footerLine(f: FooterInput, p: Painter, width: number): string {
     const reset = t.window.resetsAt ? ` · resets ${formatDuration(t.window.resetsAt - f.now)}` : '';
     parts.push(c(`${label} ${t.window.name} ${Math.round(t.pct)}%${reset}`));
   }
-  if (!parts.length) return p.dim('/help for commands · @ mentions files · shift+tab permissions');
-  return truncate(parts.join(sep), width);
+  if (!parts.length) return p.dim('/help for commands');
+  return parts.join(sep);
 }

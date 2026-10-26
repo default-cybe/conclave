@@ -52,6 +52,10 @@ export function toolTitle(name: string, input: Record<string, unknown> = {}, cwd
     case 'Task':
     case 'Agent':
       return { name: s(input.subagent_type) ? `Task(${s(input.subagent_type)})` : 'Task', detail: s(input.description) || firstLine(s(input.prompt)) };
+    case 'Workflow':
+      return { name: 'Workflow', detail: s(input.name) || displayPath(s(input.scriptPath), cwd) || (input.resumeFromRunId ? `resume ${s(input.resumeFromRunId)}` : 'script') };
+    case 'Delegate':
+      return { name: s(input.to) ? `Delegate(${s(input.to)})` : 'Delegate', detail: s(input.description) || firstLine(s(input.prompt)) };
     case 'TodoWrite':
       return { name: 'Update todos', detail: '' };
     case 'Skill':

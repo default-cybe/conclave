@@ -2,6 +2,7 @@
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { SessionMode } from '@conclave/core/types.ts';
+import { effortChoices, effortLabel, isEffortSetting } from '@conclave/core/providers/effort.ts';
 import { tui as p, truncate } from '../ansi';
 import { formatCost, formatDuration, formatTokens, relativeTime, shortenPath, worth } from '../render/format';
 import { modelColor, shortModel } from '../render/models';
@@ -142,6 +143,58 @@ export const BUILTINS: BuiltinCommand[] = [
     run: async (host, arg) => {
       if (arg) return host.ctl.patchSession({ model: arg.trim() });
       await modelPicker(host, 'Model', (ref) => host.ctl.patchSession({ model: ref }));
+    },
+  },
+  {
+    name: 'effort',
+    args: '[level|default]',
+    description: 'How hard the model thinks',
+    run: async (host, arg) => {
+      const { ctl } = host;
+      if (!ctl.models.length) await ctl.refreshMeta();
+      const e = ctl.modelEffort();
+      if (!e) return ctl.notice(`${shortModel(ctl.currentModel())} has no effort control.`, 'warning');
+      const set = (v: string) => ctl.patchSession({ chat: { thinking: v === 'default' ? null : (v as never) } });
+      const a = arg.trim().toLowerCase();
+      if (a) {
+        if (a !== 'default' && !isEffortSetting(a)) return ctl.notice(`Unknown effort "${a}". Use ${[...effortChoices(e), 'default'].join(', ')}.`, 'warning');
+        return set(a);
+      }
+      const cur = ctl.currentEffort();
+      host.openPicker({
+        title: `Effort · ${shortModel(ctl.currentModel())}`,
+        items: [
+          { label: "Agent's default", value: 'default', hint: e.default ? `the model's default is ${effortLabel(e.default, e).toLowerCase()}` : '', current: !cur },
+          ...effortChoices(e).map((s) => ({ label: effortLabel(s, e), value: s, hint: s === e.default ? 'model default' : '', current: s === cur })),
+        ],
+        onSelect: (it) => set(it.value),
+      });
+    },
+  },
+  {
+    name: 'queue',
+    description: 'Messages waiting for the running turn',
+    run: (host) => {
+      const { ctl } = host;
+      const s = ctl.session;
+      const queue = ctl.getSnapshot().queue;
+      if (!s || !queue.length) return ctl.notice('Nothing is waiting.');
+      host.openPicker({
+        title: 'Waiting messages',
+        items: queue.map((q) => ({ label: truncate(q.text.replace(/\s+/g, ' '), 70), value: q.id, hint: q.held ? 'held by Stop' : q.whenBusy === 'steer' ? 'joins the running turn' : `queued ${relativeTime(q.at)}` })),
+        altKey: 'x',
+        hint: 'enter send a held one now · x remove · esc close',
+        onSelect: async (it, remove) => {
+          const q = queue.find((x) => x.id === it.value);
+          try {
+            if (remove) await ctl.client.unqueue(s.id, it.value);
+            else if (q?.held) await ctl.client.sendQueued(s.id, it.value);
+            else ctl.notice('It runs when the current turn ends.');
+          } catch (e) {
+            ctl.error(e);
+          }
+        },
+      });
     },
   },
   {
