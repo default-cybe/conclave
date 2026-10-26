@@ -1,14 +1,16 @@
 /**
  * Usage (spec 11.8): what the range cost, where it went, and how close each
- * plan is to its limits right now. Range drives the stats, the cost chart and
- * the breakdowns; limits are live and sit in their own column on desktop.
+ * plan is to its limits right now. "Now" answers the live questions first
+ * (which account takes the next call, what happens at a limit); range drives
+ * the stats, the cost chart and the breakdowns; limits are live and sit in
+ * their own column on desktop.
  */
 import { useMemo, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
 import type { LimitState, UsageRecord } from '@conclave/core/types';
 import type { UsageBucketDto, UsageSummary } from '@conclave/core/client';
 import { api } from '@/lib/api';
-import { attempt, useHub } from '@/store/store';
+import { attempt, useHub, useIsOwner } from '@/store/store';
 import { useDelayed, useIsDesktop, useIsMobile, useIsWide, useLoad, useNow } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { compact, duration, hhmm, longDate, shortDate, usd } from '@/lib/format';
@@ -22,10 +24,11 @@ import { limitKey } from '@conclave/core/accounts/windows';
 import { Table, type Column } from '@/components/ui/Table';
 import { EmptyState, LoadingRows } from '@/components/ui/EmptyState';
 import { Button } from '@/components/ui/Button';
-import { HarnessName, ModelName } from '@/components/logo';
+import { CompanyMark, HarnessName, ModelName, logoGap } from '@/components/logo';
 import { LiveStatus } from '@/components/motion';
-import { useAccounts } from '@/lib/accounts';
+import { useAccounts, nowLine, limitFallbackRoute } from '@/lib/accounts';
 import { CostColumns, type ColumnDatum } from './charts';
+import Recap from './Recap';
 import { planServed, savedDetail, savedSentence, worth, type Valued } from './value';
 
 type Range = 'today' | '7d' | '30d' | 'month' | 'custom';
@@ -220,7 +223,10 @@ export default function UsagePage() {
     </Notice>
   );
 
+  const now = <Now />;
   const stats = u && !empty && <Stats u={u} prev={prev.data} range={range} days={days} mobile={mobile} wide={wide} />;
+  // self-contained: its own data, so it sits wherever the page puts it
+  const recap = u && !empty && <Recap />;
   const savings = month && <PlanSavings totals={month.totals} />;
   const cost = u && !empty && <CostSection range={range} data={columns.data} truncated={columns.truncated} dim={usage.loading} rows={u} />;
   const byModel = u && !empty && <ByModel u={u} plans={planProviders} mobile={mobile} />;
@@ -259,8 +265,10 @@ export default function UsagePage() {
             <div className="space-y-8">
               {loading}
               {failed}
+              {now}
               {savings}
               {stats}
+              {recap}
               {emptyState}
               {cost}
               {byModel}
@@ -282,17 +290,88 @@ export default function UsagePage() {
       <div className="space-y-8">
         {loading}
         {failed}
+        {now}
         {savings}
         {stats}
+        {recap}
         {emptyState}
-        {cost}
         {limits}
+        {cost}
         {byModel}
         {breakdown}
         {recentRows}
         {switches}
       </div>
     </Page>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Now (what the next call uses, and why)
+// ---------------------------------------------------------------------------
+
+const TONE_TEXT: Record<string, string> = { ok: 'text-fg', warn: 'text-warn', fault: 'text-fault', dim: 'text-fg-3', live: 'text-fg' };
+
+/**
+ * The owner's live questions first: which account each vendor's next call
+ * uses, why the ones before it were passed over, and where a model at its
+ * limit everywhere goes next. Same data as the Limits column, said plainly.
+ */
+function Now() {
+  const [, navigate] = useLocation();
+  const { status } = useAccounts();
+  const config = useHub((s) => s.config);
+  // a member's limits never fall back on the owner's lists (core limitFallback), and the settings page is the owner's
+  const owner = useIsOwner();
+  const route = limitFallbackRoute(config?.models as Parameters<typeof limitFallbackRoute>[0]);
+  const list = status?.now ?? [];
+  if (!status || list.length === 0) return null;
+  const fallback =
+    route.kind === 'usage' ? (
+      <>
+        the next model on your usage fallback list:{' '}
+        {route.models.map((m, i) => (
+          <span key={`${m}#${i}`}>
+            {i > 0 && <span className="text-fg-3">{i === route.models.length - 1 ? ', then ' : ', '}</span>}
+            <ModelName model={m} logo={false} className="text-fg-2" />
+          </span>
+        ))}
+      </>
+    ) : route.kind === 'refusal' ? (
+      'the next model on your Refusal fallback list'
+    ) : null;
+  return (
+    <section aria-labelledby="usage-now">
+      <SectionHeading id="usage-now">Now</SectionHeading>
+      <div className="rows">
+        {list.map((n) => {
+          const line = nowLine(n, status.accounts);
+          return (
+            <div key={n.vendor} className="py-3">
+              <div className="flex items-start text-[14px] phone:text-[15px]" style={{ gap: logoGap(16) }}>
+                <CompanyMark provider={n.vendor} size={16} tone="brand" className="mt-[3px] shrink-0" />
+                <p className={cn('m-0 min-w-0 flex-1', TONE_TEXT[line.tone])}>{line.lead}</p>
+              </div>
+              {line.why.length > 0 && (
+                <div className="mt-1 space-y-0.5 pl-[28px] text-[12px] text-fg-3 phone:text-[13px]">
+                  {line.why.map((w, i) => (
+                    <p key={i} className="m-0">{w}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {owner && (
+          <div className="flex items-baseline justify-between gap-3 py-3 text-[12px] text-fg-3 phone:text-[13px]">
+            <p className="m-0 min-w-0">{fallback ? <>Hub default fallback: at its limit on every account, a model goes to {fallback}.</> : 'Hub default fallback: at its limit on every account, no other model takes over, since no fallback list is set.'}</p>
+            <TextAction label="Change" onClick={() => navigate('/settings/usage')} />
+          </div>
+        )}
+        {/* the lines above read the hub defaults; core routing can differ per model, agent or task */}
+        <p className="m-0 py-2 text-[12px] text-fg-3 phone:text-[13px]">These are the hub defaults. A model's own account order, an agent's own fallback or a task's fallback policy can send a call elsewhere.</p>
+      </div>
+    </section>
   );
 }
 

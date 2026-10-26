@@ -11,7 +11,7 @@ import { useNow } from '@/lib/hooks';
 import { durationShort, hhmm } from '@/lib/format';
 import { CompanyMark, logoGap } from '../logo';
 import { Roll } from '../motion/Roll';
-import { balanceWords, budgetWords, usedOf } from '@/lib/accounts';
+import { balanceWords, budgetWords, resetWords, usedOf } from '@/lib/accounts';
 
 /** Thresholds from hub config ui.limitWarn / ui.limitFault (defaults 70 and 90). */
 export function useLimitThresholds(): { warn: number; fault: number } {
@@ -97,8 +97,8 @@ export function isRateWindow(w: LimitWindow): boolean {
 
 /**
  * One window: name (72px column), gauge, percent right aligned in the fill
- * color; under it the reset line ("resets in 1h 22m", "396 of 600 left", or
- * the blocked sentence).
+ * color; under it the reset line ("resets 15:40 (in 1h 22m)", "396 of 600
+ * left", or the blocked sentence).
  */
 export function LimitRow({ window: w, plan, blocked, compact, className }: { window: LimitWindow; plan: string; blocked?: boolean; compact?: boolean; className?: string }) {
   const t = useLimitThresholds();
@@ -107,7 +107,9 @@ export function LimitRow({ window: w, plan, blocked, compact, className }: { win
   const pct = balance !== undefined ? undefined : blocked ? 100 : usedOf(w);
   const tone = pct === undefined ? 'neutral' : limitTone(pct, t, blocked);
   const name = windowLabel(w.name);
+  // the clock time answers "when" at a glance; the countdown says how far away it is
   const until = w.resetsAt ? durationShort(w.resetsAt - now) : undefined;
+  const at = until && w.resetsAt ? <> {resetWords(w.resetsAt, now)} (in <Roll value={until} direction="down" />)</> : null;
   let reset: ReactNode = null;
   if (blocked && w.resetsAt)
     reset = (
@@ -119,9 +121,10 @@ export function LimitRow({ window: w, plan, blocked, compact, className }: { win
     reset = (
       <>
         {budgetWords(w)}
-        {until && (
+        {at && (
           <>
-            , resets in <Roll value={until} direction="down" />
+            , resets
+            {at}
           </>
         )}
       </>
@@ -130,9 +133,10 @@ export function LimitRow({ window: w, plan, blocked, compact, className }: { win
     reset = (
       <>
         <Roll value={w.remaining} /> of <span className="num">{w.limit.toLocaleString('en-US')}</span> left
-        {until && (
+        {at && (
           <>
-            , resets in <Roll value={until} direction="down" />
+            , resets
+            {at}
           </>
         )}
       </>
@@ -140,7 +144,8 @@ export function LimitRow({ window: w, plan, blocked, compact, className }: { win
   else if (until && ((pct !== undefined && pct >= t.warn) || !compact))
     reset = (
       <>
-        resets in <Roll value={until} direction="down" />
+        resets
+        {at}
       </>
     );
   // the numbers roll in the direction they move (Roll): the percent up as it is used, the reset time down

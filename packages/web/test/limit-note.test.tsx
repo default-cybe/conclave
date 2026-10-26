@@ -34,6 +34,12 @@ describe('informational balances', () => {
     }
   });
 
+  test('the reset line names the clock time, then the countdown', () => {
+    const resetsAt = Date.now() + 83 * 60_000;
+    const html = renderToStaticMarkup(<LimitRow window={{ name: '5h', usedPercent: 22, resetsAt }} plan="Plan" />);
+    expect(html).toMatch(/resets \d{2}:\d{2} \(in /);
+  });
+
   test('unknown percentages stay unknown, including a limit without remaining', () => {
     for (const window of [{ name: '5h' }, { name: '5h', limit: 100 }]) {
       const html = renderToStaticMarkup(<LimitRow window={window} plan="Plan" />);

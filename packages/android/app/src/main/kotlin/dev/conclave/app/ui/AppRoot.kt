@@ -106,6 +106,7 @@ import dev.conclave.app.ui.tasks.TasksScreen
 import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.usage.UsageScreen
 import dev.conclave.app.ui.workflows.LocalOpenWorkflowRun
+import dev.conclave.app.ui.workflows.WorkflowLibraryScreen
 import dev.conclave.app.ui.workflows.WorkflowRunScreen
 import dev.conclave.app.ui.workflows.WorkflowRunsScreen
 import dev.conclave.app.update.StartupUpdate
@@ -150,6 +151,9 @@ object Routes {
 
     /** Workflow runs, newest first; with ?session= only that session's runs. */
     const val WORKFLOW_RUNS = "workflow-runs?session={session}"
+
+    /** The workflow library and its launch form. */
+    const val WORKFLOW_LIBRARY = "workflow-library"
 
     /** One workflow run: phases, agents, the result. */
     const val WORKFLOW_RUN = "workflow-run/{id}"
@@ -586,11 +590,12 @@ private fun AppNavHost(nav: NavHostController, modifier: Modifier) {
                     },
                 ),
             ) { entry ->
-                WorkflowRunsScreen(sessionId = entry.arguments?.getString("session"), onBack = back, onOpenRun = openRun)
+                WorkflowRunsScreen(sessionId = entry.arguments?.getString("session"), onBack = back, onOpenRun = openRun, onLaunch = { nav.navigate(Routes.WORKFLOW_LIBRARY) })
             }
             composable(Routes.WORKFLOW_RUN, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
                 WorkflowRunScreen(runId = entry.arguments?.getString("id").orEmpty(), onBack = back, onOpenSession = openChat)
             }
+            composable(Routes.WORKFLOW_LIBRARY) { WorkflowLibraryScreen(onBack = back, onOpenRun = openRun) }
             composable(Routes.DEVICES) { DevicesScreen(onBack = back) }
             composable(Routes.SETTINGS) {
                 SettingsScreen(

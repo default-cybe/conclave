@@ -77,6 +77,13 @@ data class WorkflowLastRun(
     val finishedAt: Long? = null,
 )
 
+/** One declared arg of a workflow's meta.args; drives the typed launch form. */
+@Serializable
+data class WorkflowArgField(
+    val type: String = "string",
+    val description: String? = null,
+)
+
 /** GET /api/workflows: one row of the library. */
 @Serializable
 data class WorkflowSummary(
@@ -86,6 +93,8 @@ data class WorkflowSummary(
     val description: String = "",
     val whenToUse: String? = null,
     val phases: List<WorkflowPhase> = emptyList(),
+    /** The declared args of meta, when the script has any: the launch form is built from it. */
+    val argsSchema: Map<String, WorkflowArgField>? = null,
     val source: WorkflowSource = WorkflowSource.USER,
     val path: String? = null,
     /** False when the script uses the Conclave layer. */
@@ -94,6 +103,16 @@ data class WorkflowSummary(
     val runnable: Boolean = true,
     val error: String? = null,
     val lastRun: WorkflowLastRun? = null,
+)
+
+/** A saved args preset for one workflow (GET /api/workflows/:id/presets). */
+@Serializable
+data class WorkflowPreset(
+    val id: String,
+    val workflow: String = "",
+    val name: String = "",
+    val args: JsonElement? = null,
+    val createdAt: Long = 0,
 )
 
 @Serializable

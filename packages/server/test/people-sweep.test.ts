@@ -153,6 +153,10 @@ async function seed(name: Who, token: string, accountId: string): Promise<Seeded
   const proposal = pimFor(engine, accountId)!.store.addProposal({ kind: 'event', sessionId: s.id, payload: { dto: { kind: 'event', action: 'create', summary: `${M} dentist on Friday` } } });
   keep('proposal', proposal.id);
 
+  // a saved launch preset on a built-in workflow, this account's own (routes-workflows.ts)
+  const preset = await ok(token, 'POST', '/api/workflows/deep-research/presets', { name: `${M} preset`, args: { question: `zebra ${M}` } });
+  keep('preset', preset.id);
+
   // a connected app (claude.ai) that this account allowed
   const store = new OAuthStore(engine.repos.db);
   const client = store.register({ name: `${M} connector`, redirectUris: ['https://claude.ai/api/mcp/auth_callback'], applicationType: 'web', authMethod: 'none' }).client;
@@ -369,6 +373,7 @@ describe('ids of someone else', () => {
       grants: (engine.repos.db.query('SELECT COUNT(*) AS n FROM oauth_grants WHERE account_id = ?').get(s.accountId) as { n: number }).n,
       pim: JSON.stringify(engine.repos.kv.get(accountKey(s.accountId, 'pim.accounts'), null)),
       proposals: JSON.stringify(engine.repos.db.query('SELECT id, status FROM pim_proposals WHERE account_id = ?').all(s.accountId)),
+      presets: JSON.stringify(engine.repos.db.query('SELECT id FROM workflow_presets WHERE account_id = ?').all(s.accountId)),
     };
   }
 
@@ -464,6 +469,8 @@ describe('ids of someone else', () => {
     // each account's calendar list and proposals are its own
     expect((await ok<any>(a, 'GET', '/api/pim')).accounts.map((x: any) => x.id)).toEqual([who.alice.ids.pimAccount]);
     expect((await ok<any[]>(a, 'GET', '/api/proposals')).map((x) => x.id)).toEqual([who.alice.ids.proposal]);
+    // launch presets are per account: alice lists her own only
+    expect((await ok<any[]>(a, 'GET', '/api/workflows/deep-research/presets')).map((x) => x.id)).toEqual([who.alice.ids.preset]);
   });
 });
 
