@@ -13,6 +13,16 @@ like `## [0.4.16] - 2026-10-24`.
 
 - The context ring under the composer now says which model and plan or key the conversation runs on (a plan by its short name, such as neu-claude, a key by its label, such as Z.ai Coding Plan) and why: the default, picked, moved to another plan at a limit, or the usage fallback. It also lists the other plans and keys that serve the model, each with its 5 hour and week windows and reset times as on Usage. A plan whose window for this model alone is full (7d opus) or that rests for this model is passed over, as the hub does; only CLIProxyAPI models go to plans by your order, and a model on another provider shows its own key or nothing. It shows the first ready plan in your order, not yet the one the hub keeps the conversation on after a move, and the Android app's context sheet does not show any of this yet.
 
+### Fixed
+
+- A picture you attached to your own message opens full size: on the web a click or tap on its thumbnail (Chat page and session log) shows it fitted to the screen with Download, and Escape, Close or a click outside shuts it; on Android a tap opens it full screen with pinch to zoom, and a tap, Back or Close shuts it. Before, the thumbnails did nothing.
+
+## [0.4.35] - 2026-10-26
+
+### Fixed
+
+- A provider model that only starts with a catalog id (`glm-5.3-uncensored` on a custom provider) keeps the rest of its id in its name ("GLM-5.3 Uncensored", "GLM-5.3 Flash Uncensored") and the catalog's capabilities, and shows no price unless the provider is that vendor's own API: before, it took the catalog model's name and price, and read as a copy of Z.ai's GLM-5.3. Exact ids, aliases, dates and effort variants (`-high`) are unchanged. In the web and Android model pickers a row from a provider that is not the maker's own says whose it is ("via Experiential Labs", the provider's config name).
+
 ## [0.4.34] - 2026-10-26
 
 ### Added

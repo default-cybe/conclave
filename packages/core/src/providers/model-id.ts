@@ -6,7 +6,7 @@
 /**
  * Canonical lowercase form of a model id: drops vendor prefixes
  * ("anthropic/", "models/", Bedrock "us.anthropic."), snapshot dates,
- * "-latest", OpenRouter variants (":free") and "[1m]" style suffixes.
+ * "-latest" (Ollama's ":latest"), OpenRouter variants (":free") and "[1m]" style suffixes.
  */
 export function normalizeModelId(id: string): string {
   let s = id.trim().toLowerCase();
@@ -19,7 +19,7 @@ export function normalizeModelId(id: string): string {
   s = s.replace(/@\d{8}$/, '');
   s = s.replace(/-\d{8}$/, '');
   s = s.replace(/-\d{4}-\d{2}-\d{2}$/, '');
-  s = s.replace(/-latest$/, '');
+  s = s.replace(/[-:]latest$/, '');
   // OpenRouter writes Claude versions with dots: claude-sonnet-4.5
   if (s.startsWith('claude-')) s = s.replace(/\./g, '-');
   return s;
