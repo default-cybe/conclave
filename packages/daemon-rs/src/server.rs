@@ -43,6 +43,20 @@ fn result_msg(id: &Value, r: Result<Value, WireError>) -> Value {
     }
 }
 
+/// The hub closes the socket on a message over 64 MB (server/src/app.ts maxPayloadLength).
+pub const MAX_REPLY_BYTES: usize = 60 * 1024 * 1024;
+
+/// A result frame, or an E2BIG error in its place when it would not fit through the hub's socket.
+fn reply_text(id: &Value, r: Result<Value, WireError>, max: usize) -> String {
+    let text = result_msg(id, r).to_string();
+    if text.len() <= max {
+        return text;
+    }
+    let mb = |n: usize| n / 1_048_576;
+    let e = WireError::coded(format!("the reply is too large to send ({} MB; the limit is {} MB)", mb(text.len()), mb(max)), "E2BIG");
+    result_msg(id, Err(e)).to_string()
+}
+
 fn str_param(p: &Value, k: &str) -> Result<String, WireError> {
     match p.get(k) {
         Some(Value::String(s)) => Ok(s.clone()),
@@ -165,7 +179,7 @@ impl MachineServer {
             if state.lock().unwrap().closed {
                 return;
             }
-            send(&out, result_msg(&id, r)).await;
+            let _ = out.send(reply_text(&id, r, MAX_REPLY_BYTES)).await;
         });
     }
 
@@ -382,5 +396,22 @@ impl MachineServer {
             let _ = p.kill.send(Sig::Term);
         }
         s.procs.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn too_large_reply_becomes_an_error() {
+        let id = json!(7);
+        let small = reply_text(&id, Ok(json!("abc")), 100);
+        assert_eq!(serde_json::from_str::<Value>(&small).unwrap()["result"], "abc");
+        let big = reply_text(&id, Ok(json!("x".repeat(200))), 100);
+        let v: Value = serde_json::from_str(&big).unwrap();
+        assert_eq!(v["id"], 7);
+        assert_eq!(v["error"]["code"], "E2BIG");
+        assert!(v.get("result").is_none());
     }
 }

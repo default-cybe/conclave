@@ -13,6 +13,7 @@ import type {
   SpawnOptions,
 } from './types';
 import {
+  MAX_READ_BYTES,
   RPC_TIMEOUT_MS,
   decodeBase64,
   encodeBase64,
@@ -94,7 +95,7 @@ export class RemoteMachine implements Machine {
       this.syncthingFolders = () => this.call('syncthingFolders', {}, { timeoutMs: 10_000 });
       this.syncthingStatus = (folderId: string) => this.call('syncthingStatus', { folderId }, { timeoutMs: 10_000 });
       // chat import: a scan of a few thousand files can take minutes on a slow disk
-      this.readRange = async (path: string, offset: number, length: number) => decodeBase64(await this.call('readRange', { path, offset, length }));
+      this.readRange = (path: string, offset: number, length: number) => this.readPieces(path, offset, length);
       this.importScan = (params: ImportScanParams) => this.call('importScan', params, { timeoutMs: 10 * 60_000 });
       this.importRead = (params: ImportReadParams) => this.call('importRead', params, { timeoutMs: 5 * 60_000 });
     }
@@ -247,11 +248,49 @@ export class RemoteMachine implements Machine {
   }
 
   async readFile(path: string): Promise<Uint8Array> {
-    return decodeBase64(await this.call('readFile', { path }));
+    return (await this.wholeInPieces(path)) ?? decodeBase64(await this.call('readFile', { path }));
   }
 
-  readText(path: string): Promise<string> {
-    return this.call('readText', { path });
+  async readText(path: string): Promise<string> {
+    // the daemon's readText is the bytes decoded with U+FFFD for bad ones, as Buffer does
+    const bytes = await this.wholeInPieces(path);
+    return bytes ? Buffer.from(bytes).toString('utf8') : this.call('readText', { path });
+  }
+
+  /** The whole file through readRange, or undefined when the daemon has none and a one-reply read fits. */
+  private async wholeInPieces(path: string): Promise<Uint8Array | undefined> {
+    if (this.readRange) {
+      try {
+        return await this.readPieces(path, 0, Infinity);
+      } catch (err) {
+        // a daemon serving a machine without readRange (machine/daemon.ts notImplemented)
+        if ((err as { code?: string }).code !== 'ENOSYS') throw err;
+      }
+    }
+    await this.refuseLarge(path);
+    return undefined;
+  }
+
+  /** readRange in replies of at most MAX_READ_BYTES: one reply over the hub's websocket limit closes the connection. */
+  private async readPieces(path: string, offset: number, length: number): Promise<Uint8Array> {
+    const parts: Uint8Array[] = [];
+    let got = 0;
+    while (got < length) {
+      const want = Math.min(MAX_READ_BYTES, length - got);
+      const b = decodeBase64(await this.call('readRange', { path, offset: offset + got, length: want }));
+      parts.push(b);
+      got += b.byteLength;
+      if (b.byteLength < want) break;
+    }
+    return parts.length === 1 ? parts[0] : Buffer.concat(parts);
+  }
+
+  /** A daemon without readRange sends a file in one reply: refuse one that would not fit. */
+  private async refuseLarge(path: string): Promise<void> {
+    const st = await this.stat(path);
+    if (st && st.size > MAX_READ_BYTES) {
+      throw Object.assign(new Error(`${path} is too large to read from ${this.name} (${Math.round(st.size / 1048576)} MB; this daemon sends at most ${MAX_READ_BYTES / 1048576} MB at once, update it)`), { code: 'E2BIG' });
+    }
   }
 
   async writeFile(path: string, data: string | Uint8Array): Promise<void> {
