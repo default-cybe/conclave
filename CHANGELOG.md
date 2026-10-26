@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- The context ring under the composer now says which model and plan or key the conversation runs on (a plan by its short name, such as neu-claude, a key by its label, such as Z.ai Coding Plan) and why: the default, picked, moved to another plan at a limit, or the usage fallback. It also lists the other plans and keys that serve the model, each with its 5 hour and week windows and reset times as on Usage. A plan whose window for this model alone is full (7d opus) or that rests for this model is passed over, as the hub does; only CLIProxyAPI models go to plans by your order, and a model on another provider shows its own key or nothing. It shows the first ready plan in your order, not yet the one the hub keeps the conversation on after a move, and the Android app's context sheet does not show any of this yet.
+
 ## [0.4.34] - 2026-10-26
 
 ### Added
