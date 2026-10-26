@@ -371,7 +371,8 @@ async function driveSubagent(
       // the stuck alert cut a call that made no progress (alerts/service.ts): fail over once, else report the stall to the caller
       // a tool that hung is not the model's fault, and a rerun could repeat its side effects: no failover then
       const stalled = runner.stalled;
-      const picked = fellBack || controller.signal.aborted || stalled?.tool ? undefined : stalled ? fallbackModel(engine, model, parent) : modelFallback(engine, model, parent, err);
+      // a delegated job on a model the owner named fails rather than move to another (meta.pinnedModel, delegate.ts)
+      const picked = fellBack || controller.signal.aborted || stalled?.tool || session.meta?.pinnedModel === true ? undefined : stalled ? fallbackModel(engine, model, parent) : modelFallback(engine, model, parent, err);
       // the task's fallback policy (ideas item 8): a destination it does not allow leaves the error standing
       const check = picked ? checkFallback(engine, session, picked, undefined, undefined, true) : undefined;
       const fallback = picked && check?.ok ? picked : undefined;

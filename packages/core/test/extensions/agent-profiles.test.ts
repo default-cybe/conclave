@@ -160,7 +160,7 @@ describe('model tiers resolve per session', () => {
     // fast without a tier is smallModel, skipped while dead
     const small = host({ providers: proxy });
     markModelDead(small, 'anthropic/claude-haiku-5-5');
-    expect(agentModelRef(small, 'fast', 's/m')).toEqual({ model: 's/m', tier: 'fast' });
+    expect(agentModelRef(small, 'fast', 's/m')).toEqual({ model: 's/m', tier: 'fast', note: 'fast tier: anthropic/claude-haiku-5-5 did not answer recently, using the session model' });
   });
 
   test('deep without a tier keeps a deep session model, else a deep defaultModel, before the catalog pick', () => {

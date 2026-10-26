@@ -14,6 +14,7 @@ export interface DelegateInput {
   prompt: string;
   description?: string;
   agent?: string;
+  model?: string;
   device?: string;
   folder?: string;
   readOnly?: boolean;
@@ -27,6 +28,8 @@ export interface DelegateRequest {
   /** The new session's title: the description, else the brief's first line. */
   title: string;
   agent?: string;
+  /** The model the owner named for the job; unset means the agent's own model. */
+  model?: string;
   device?: string;
   folder?: string;
   readOnly: boolean;
@@ -67,6 +70,7 @@ const DESCRIPTION = `Hand a job to a Code or Assistant session on one of the own
 
 - to: "code" works in a folder with files and a shell. "assistant" does mail, calendar, the browser and the owner's day.
 - agent: for code, explore (read-only search, the default when readOnly) or coder (changes, the default otherwise). For the assistant, leave it out.
+- model: only when the owner names a model for this job ("provider/model" from the model picker, or fast, smart, deep). Left out, the session runs on its agent's own model. A named model that is not usable here is refused, never swapped for another.
 - device: a name from the list below; the hub when left out. folder: where to work on it, as a path or ~/...; its home folder when left out.
 - prompt: the full brief. The session sees nothing of this conversation, so give the exact paths, names and words the owner used, what to look for, and what to return.
 - readOnly: true unless the owner asked for changes. A read-only session gets no file-editing tools. It runs in this session's permission mode either way.
@@ -84,6 +88,7 @@ export const DelegateTool: Tool<DelegateInput> = {
       prompt: { type: 'string', description: 'The full, self-contained brief' },
       description: { type: 'string', description: 'Short label (3-6 words) for the row and the new session title' },
       agent: { type: 'string', description: 'Agent to run: explore or coder for code; default by readOnly' },
+      model: { type: 'string', description: 'Only when the owner names one: "provider/model" or a tier word (fast, smart, deep); default the agent\'s own model' },
       device: { type: 'string', description: 'Device name from the list; default the hub' },
       folder: { type: 'string', description: 'Folder on that device; default its home folder' },
       readOnly: { type: 'boolean', description: 'Default true; false only when the owner asked for changes' },
@@ -105,6 +110,7 @@ export const DelegateTool: Tool<DelegateInput> = {
         prompt: input.prompt,
         title: delegateTitle(input),
         ...(input.agent?.trim() ? { agent: input.agent.trim() } : {}),
+        ...(typeof input.model === 'string' && input.model.trim() ? { model: input.model.trim() } : {}),
         ...(input.device?.trim() ? { device: input.device.trim() } : {}),
         ...(input.folder?.trim() ? { folder: input.folder.trim() } : {}),
         readOnly: input.readOnly !== false,
