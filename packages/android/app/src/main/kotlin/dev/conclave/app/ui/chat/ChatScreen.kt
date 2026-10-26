@@ -156,7 +156,7 @@ fun ChatScreen(
 ) {
     val container = LocalAppContainer.current
     val hub = container.hub
-    val vm: ChatViewModel = viewModel(key = "chat:$sessionId") { ChatViewModel(hub, sessionId) }
+    val vm: ChatViewModel = viewModel(key = "chat:$sessionId") { ChatViewModel(hub, sessionId, container.drafts) }
     val session by vm.session.collectAsStateWithLifecycle()
     val items by vm.items.collectAsStateWithLifecycle()
     val live by vm.live.collectAsStateWithLifecycle()

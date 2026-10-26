@@ -5,6 +5,7 @@ import dev.conclave.app.data.ChatDefaults
 import dev.conclave.app.data.CodeDefaults
 import dev.conclave.app.data.HubRepository
 import dev.conclave.app.data.SettingsStore
+import dev.conclave.app.ui.common.ComposerDraft
 import dev.conclave.app.ui.common.HubViewModel
 import dev.conclave.app.ui.common.errorText
 import dev.conclave.app.ui.motion.Motion
@@ -17,6 +18,7 @@ import dev.conclave.client.logic.ChatItems
 import dev.conclave.client.logic.ChatList
 import dev.conclave.client.logic.ChatUnit
 import dev.conclave.client.logic.ChatUnits
+import dev.conclave.client.logic.DraftStore
 import dev.conclave.client.logic.Effort
 import dev.conclave.client.logic.PendingQueue
 import dev.conclave.client.logic.Start
@@ -153,6 +155,7 @@ class ChatThreadViewModel(
     hub: HubRepository,
     private val settings: SettingsStore,
     val sessionId: String,
+    drafts: DraftStore,
 ) : HubViewModel(hub) {
     private val transcript = MutableStateFlow(Transcript(sessionId))
     private val _session = MutableStateFlow(hub.sessions.value.firstOrNull { it.id == sessionId })
@@ -160,8 +163,10 @@ class ChatThreadViewModel(
 
     val loading = MutableStateFlow(true)
     val error = MutableStateFlow<String?>(null)
+    /** Kept on disk too ([ComposerDraft]), so they survive Android closing the app. */
     val draft = MutableStateFlow("")
     val attachments = MutableStateFlow<List<Attachment>>(emptyList())
+    private val saved = ComposerDraft(viewModelScope, drafts, sessionId, draft, attachments) { say(it) }
 
     /** A file the hub could not read: its words, while the owner chooses to send without it. */
     val lossAsk = MutableStateFlow<String?>(null)
@@ -228,10 +233,18 @@ class ChatThreadViewModel(
         load()
     }
 
+    override fun onCleared() {
+        saved.flush()
+        super.onCleared()
+    }
+
     private fun onEvent(e: EngineEvent) {
         when (e) {
             is EngineEvent.SessionUpdated -> if (e.session.id == sessionId) onSession(e.session)
-            is EngineEvent.SessionDeleted -> if (e.sessionId == sessionId) error.value = "This chat was deleted. Start a new one from Chats."
+            is EngineEvent.SessionDeleted -> if (e.sessionId == sessionId) {
+                saved.forget()
+                error.value = "This chat was deleted. Start a new one from Chats."
+            }
             is EngineEvent.ConfigUpdated -> load(quiet = true)
             is EngineEvent.MessageCreated -> if (e.message.sessionId == sessionId) onMessage(e.message)
             is EngineEvent.MessageDeleted -> if (e.sessionId == sessionId) onDeleted(e.messageId)
@@ -675,6 +688,7 @@ class ChatThreadViewModel(
 
     fun delete(onDeleted: () -> Unit) = action {
         hub.api { it.deleteSession(sessionId) }
+        saved.forget()
         hub.sessions.update { list -> list.filterNot { it.id == sessionId } }
         onDeleted()
     }

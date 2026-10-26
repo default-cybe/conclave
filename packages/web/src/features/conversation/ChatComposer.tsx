@@ -34,6 +34,7 @@ import { Sheet, type MenuItem } from '@/components/ui/Overlay';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Rim, SendStopButton, type RimState } from '@/components/motion';
 import { isReminder } from '@/features/chat/util';
+import { useDraft } from '@/features/chat/useDraft';
 import { canDictate, DictateButton } from './Dictate';
 import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPicked, type EffortFollow } from './ComposerParts';
 import { AddButton, fitField, OptionsButton, PHONE_FIELD, PhoneBox, PhoneSend } from './PhoneBox';
@@ -212,6 +213,11 @@ export function ChatComposer({
   useEffect(() => {
     drafts.set(chatId, text);
   }, [text, chatId]);
+  // the stored draft (text and files) comes back after a reload
+  useDraft(chatId, text, files, (d) => {
+    setText((t) => t || d.text);
+    setFiles((f) => (f.length ? f : d.files));
+  });
   // a Stop dropped messages that were queued behind the reply: they come back here to send again
   useEffect(() => {
     if (restore === undefined) return;
