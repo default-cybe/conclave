@@ -35,6 +35,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Fixed
 
+- The web screenshot script reaches the Map page on a phone again (the Map row lives in Settings' More list, not the panel index) and dismisses the "Conclave x.y.z is ready" popup that would sit over every shot, so the eight map screenshots regenerate correctly.
 - Android retry and edit now pick your last message that actually has text, skipping the hub's context-only user rows (a Stop hook's feedback, say) the same way the web does, so a retry no longer resends an empty message or rewinds to a row you never wrote.
 - WebFetch of `reddit.com` threads and listings now requests `old.reddit.com` `.json` endpoints with the Conclave `User-Agent`, retries once through the configured proxy in Settings > Browser when Reddit blocks the hub's address, and falls back to the hub's browser (including through the proxy) when HTTP stays blocked. A member's session never uses the owner's proxy or browser.
 - Subagents and workflow steps on the `deep` tier (debugger and other built-in profiles) now run on the session's model when it is already deep tier, else on a deep-tier defaultModel, before the catalog's own pick. Before, with no `models.tiers.deep` set, an Opus 5.5 session sent them to Claude Fable 5.1. `models.tiers.deep` still wins.

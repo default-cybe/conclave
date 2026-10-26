@@ -566,7 +566,19 @@ async function mapShots(browser, opts, mobile, shoot) {
   try {
     await page.goto(`${info.url}/#token=${encodeURIComponent(info.token)}`);
     await settle(page);
-    if (mobile) await viaPanel(page, 'Map');
+    // on a phone the Map row is in Settings' More list (nav.ts PHONE_PAGES)
+    if (mobile) {
+      await openPanel(page);
+      // a phone reaches Settings from the account row at the panel's foot, and
+      // the Map row is in Settings' More list (nav.ts PHONE_PAGES), not the index
+      await page.locator('[data-panel]').getByRole('button', { name: /^Account:/ }).click();
+      await page.waitForTimeout(400);
+      await page.getByRole('menuitem', { name: 'Settings' }).click();
+      await page.waitForTimeout(400);
+      await page.getByRole('link', { name: /^More\b/ }).click();
+      await page.waitForTimeout(400);
+      await page.getByRole('link', { name: /^Map\b/ }).click();
+    }
     else await page.goto(`${info.url}/map`);
     await settle(page);
     // the streams fill the links in about three seconds
@@ -585,6 +597,9 @@ async function settle(page) {
   await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(700);
+  // the owner's "Conclave x.y.z is ready" popup at app start would sit over every shot
+  const pop = page.getByRole('dialog', { name: /is ready/ });
+  if (await pop.isVisible().catch(() => false)) await page.keyboard.press('Escape');
 }
 
 const browser = await chromium.launch({ executablePath });
