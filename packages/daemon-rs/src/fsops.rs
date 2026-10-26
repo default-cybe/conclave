@@ -9,7 +9,8 @@ use std::fs;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
 
-pub const READ_RANGE_MAX: u64 = 64 * 1024 * 1024;
+/// Base64 of 32 MB stays under the hub's 64 MB message limit (MAX_READ_BYTES in machine/protocol.ts).
+pub const READ_RANGE_MAX: u64 = 32 * 1024 * 1024;
 
 pub fn mtime_ms(m: &fs::Metadata) -> f64 {
     #[cfg(unix)]
@@ -135,7 +136,7 @@ pub fn read_text(path: &str) -> Res<Value> {
     Ok(Value::String(read_text_string(path)?))
 }
 
-/// Up to `length` bytes from `offset` (at most 64 MB).
+/// Up to `length` bytes from `offset` (at most READ_RANGE_MAX).
 pub fn read_range(path: &str, offset: f64, length: f64) -> Res<Value> {
     let mut f = open_read(path)?;
     let want = if length.is_nan() { 0.0 } else { length.clamp(0.0, READ_RANGE_MAX as f64) } as u64;

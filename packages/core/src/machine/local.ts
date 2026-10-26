@@ -317,9 +317,17 @@ export class LocalMachine implements Machine {
     assertNotHubPrivate(path);
     const fh = await fs.open(path, 'r');
     try {
-      const want = Math.max(0, Math.min(length, 64 * 1024 * 1024));
+      const size = (await fh.stat()).size;
+      // a size of 0 is also what /proc files show, so those get the whole ask
+      const want = Math.max(0, Math.min(length, 64 * 1024 * 1024, size > 0 ? size - Math.max(0, offset) : Infinity));
       const buf = Buffer.alloc(want);
-      const { bytesRead } = await fh.read(buf, 0, want, Math.max(0, offset));
+      // fill the buffer: a short read means end of file to callers that read in pieces (machine/remote.ts)
+      let bytesRead = 0;
+      while (bytesRead < want) {
+        const n = (await fh.read(buf, bytesRead, want - bytesRead, Math.max(0, offset) + bytesRead)).bytesRead;
+        if (n === 0) break;
+        bytesRead += n;
+      }
       return new Uint8Array(buf.buffer, buf.byteOffset, bytesRead);
     } finally {
       await fh.close();
