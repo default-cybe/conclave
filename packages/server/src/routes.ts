@@ -54,6 +54,7 @@ import { registerImportRoutes } from './routes-import';
 import { registerWorkflowRoutes } from './routes-workflows';
 import { appDevices, registerDaemonRoutes, registerDevice, removeDevice } from './routes-daemon';
 import { importOffersOf } from '@conclave/core/import/registry.ts';
+import { probeModel, probeModels, providerPatchProblem, removedProviders } from './provider-probe';
 
 const PAIRING_TTL_MS = 10 * 60_000;
 const ok = { ok: true as const };
@@ -656,6 +657,10 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     return c.json(await engine.testProvider(id));
   });
 
+  // Settings > Providers > Custom provider: { type, baseUrl, apiKey } probed as typed, nothing saved (provider-probe.ts)
+  app.post('/api/providers/probe', async (c) => c.json(await probeModels(await readJson(c))));
+  app.post('/api/providers/probe-model', async (c) => c.json(await probeModel(await readJson(c))));
+
   app.get('/api/agents', (c) => c.json(engine.agentsFor(accountOf(c))));
 
   app.put('/api/agents/:name', async (c) => {
@@ -1069,7 +1074,15 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
       const bad = browserConfigProblems(deepMerge(structuredClone(engine.config.get().browser), patch.browser));
       if (bad.length) throw badRequest(bad.join(' '));
     }
-    engine.config.update(patch);
+    const badProvider = providerPatchProblem(patch.providers, engine.config.get().providers, (s) => engine.config.expand(s));
+    if (badProvider) throw badRequest(badProvider);
+    const removed = removedProviders(patch.providers);
+    if (removed.length) {
+      // deepMerge keeps a null: remove the entries from the user config the way routes-browser writeBrowser does
+      const user = deepMerge(structuredClone(engine.config.getUser()) as Record<string, any>, patch);
+      for (const id of removed) delete user.providers?.[id];
+      engine.config.replace(user);
+    } else engine.config.update(patch);
     engine.bus.emit({ type: 'config.updated' });
     audit(c, 'config.update', Object.keys(patch).join(','));
     return c.json(ok);
