@@ -195,8 +195,27 @@ async function streamCall(
     return (acct ? accounts?.vendorOf(acct) : undefined) ?? vendorOfModel(splitAccount(resolved.model).model);
   };
 
-  /** The next provider in the owner's account order after `from` refused, or undefined. */
-  const fallback = (from: string, why: string): boolean => {
+  /** A failover inside this call that stuck: keep it for the session (session/limits.ts switchBack), when this call runs the session's own model. */
+  const stickFailover = (resetAt?: number): void => {
+    if (!target.sessionId || member || target.pin) return;
+    const s = engine.repos.sessions.get(target.sessionId);
+    if (!s || isMember(s.accountId) || s.model !== modelRef) return;
+    const dest = `${resolved.provider}/${resolved.model}`;
+    try {
+      engine.updateSession(target.sessionId, { model: dest });
+      // a chain of failovers keeps the ref the owner chose
+      const prev = s.meta?.limitSwitch as { from: string; to: string; at?: number; until?: number } | undefined;
+      const chain = prev?.to === modelRef ? prev : undefined;
+      const until = resetAt ?? chain?.until;
+      engine.patchMeta(target.sessionId, { limitSwitch: { from: chain?.from ?? modelRef, to: dest, at: chain?.at ?? Date.now(), ...(until ? { until } : {}) } });
+      log.info(`${target.sessionId}: keeping ${dest} for the session`);
+    } catch (e) {
+      log.warn(`${target.sessionId}: could not keep ${dest}: ${(e as Error).message}`);
+    }
+  };
+
+  /** The next provider in the owner's account order after `from` refused, or undefined. `resetAt`: the window that caused it, when known. */
+  const fallback = (from: string, why: string, resetAt?: number): boolean => {
     // a pinned call stays on its account: the refusal fallback moves to its next entry instead
     if (target.pin) return false;
     // the gateway refused: its next ready plan in the order this call has not tried takes it, one by one, before any key
@@ -212,6 +231,7 @@ async function streamCall(
       switchFrom = `${from}/${base}`;
       fallbackNotice(engine, target.sessionId, plan.account, `${why} Using ${plan.label} for this call.`);
       log.info(`${from}/${base}: ${why} trying ${resolved.model}`);
+      stickFailover(resetAt);
       hold();
       return true;
     }
@@ -244,6 +264,7 @@ async function streamCall(
     log.info(`${from}/${resolved.model}: ${why} falling back to ${next}`);
     resolved = destination;
     provider = p;
+    stickFailover(resetAt);
     hold();
     return true;
   };
@@ -425,7 +446,7 @@ async function streamCall(
           // the accounts block it until the reset and read CLIProxyAPI again; the next account in the order takes the call
           accounts.noteLimit(resolved.provider, resolved.model, { resetAt, spendCap: e.code === 'spend_cap' });
           const why = e.code === 'spend_cap' ? `${engine.providerLabel(resolved.provider)} reached its spend limit.` : accounts.hasAccounts(resolved.provider) ? 'Your signed in plans are at their limit.' : `${engine.providerLabel(resolved.provider)} is at its limit.`;
-          if (fallback(resolved.provider, why)) {
+          if (fallback(resolved.provider, why, resetAt)) {
             fullRef = `${resolved.provider}/${resolved.model}`;
             attempt = 0;
             continue;
