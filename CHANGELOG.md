@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Android: pasting a picture into the message box (long-press Paste, keyboard paste, Gboard clipboard or image suggestions) now attaches it like one from Photos, with the same 15-file and 45 MB limits. Text still pastes as text.
+
 ## [0.4.34] - 2026-10-26
 
 ### Added

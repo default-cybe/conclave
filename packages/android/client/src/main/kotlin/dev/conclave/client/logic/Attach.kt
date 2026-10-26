@@ -41,6 +41,9 @@ object Attach {
         else -> type
     }
 
+    /** A pasted or keyboard-sent item the composer takes as a file: any picture, a keyboard GIF too. Text stays text. */
+    fun isPastedImage(mediaType: String?): Boolean = mediaType.orEmpty().trim().lowercase().startsWith("image/")
+
     /** How many more files fit after [current]. */
     fun room(current: Int): Int = (MAX - current).coerceAtLeast(0)
 

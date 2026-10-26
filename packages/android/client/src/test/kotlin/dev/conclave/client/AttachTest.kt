@@ -49,6 +49,17 @@ class AttachTest {
     }
 
     @Test
+    fun aPastedPictureIsAFileAndTextIsNot() {
+        assertTrue(Attach.isPastedImage("image/png"))
+        assertTrue(Attach.isPastedImage("image/gif"))
+        assertTrue(Attach.isPastedImage("Image/JPEG"))
+        assertFalse(Attach.isPastedImage("text/plain"))
+        assertFalse(Attach.isPastedImage("application/pdf"))
+        assertFalse(Attach.isPastedImage(""))
+        assertFalse(Attach.isPastedImage(null))
+    }
+
+    @Test
     fun theCountOnceTheRowScrolls() {
         assertEquals("1 file", Attach.filesWord(1))
         assertEquals("7 files", Attach.filesWord(7))

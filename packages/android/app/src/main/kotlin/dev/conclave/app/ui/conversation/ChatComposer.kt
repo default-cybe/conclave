@@ -6,9 +6,12 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.content.consume
+import androidx.compose.foundation.content.contentReceiver
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,6 +25,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.TextFieldDecorator
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AttachFile
@@ -34,12 +41,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -134,6 +143,7 @@ class ComposerModel(
  * the device, the mode, Ultra); "/" lists the hub's commands. The Rim on
  * the box's edge says what the reply is doing.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatComposer(
     m: ComposerModel,
@@ -196,6 +206,30 @@ fun ChatComposer(
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) launchCamera() else onError("Camera permission denied")
     }
+    // the field holds its own text so it can take pasted pictures (contentReceiver needs a TextFieldState)
+    val field = rememberTextFieldState(m.draft)
+    val draftNow = rememberUpdatedState(m.draft)
+    val onDraftNow = rememberUpdatedState(m.onDraft)
+    // what the field sent up and the draft has not echoed back yet: an echo is not a change from outside
+    val sent = remember { ArrayDeque<String>() }
+    LaunchedEffect(field) {
+        snapshotFlow { field.text.toString() }.collect { text ->
+            if (text == draftNow.value) return@collect
+            sent.addLast(text)
+            if (sent.size > 64) sent.removeFirst()
+            onDraftNow.value(text)
+        }
+    }
+    LaunchedEffect(m.draft) {
+        val echo = sent.indexOf(m.draft)
+        if (echo >= 0) {
+            repeat(echo + 1) { sent.removeFirst() }
+        } else if (m.draft != field.text.toString()) {
+            // set from outside: voice, a slash command, cleared after Send, another chat's draft
+            sent.clear()
+            field.setTextAndPlaceCursorAtEnd(m.draft)
+        }
+    }
     val voice = rememberVoiceInput(
         onText = { partial -> m.onDraft(listOf(voiceBase, partial).filter { it.isNotBlank() }.joinToString(" ")) },
         onFinal = { final -> m.onDraft(listOf(voiceBase, final).filter { it.isNotBlank() }.joinToString(" ")) },
@@ -233,17 +267,34 @@ fun ChatComposer(
             // one row that scrolls sideways at a fixed height: the field below stays on screen with 15 files
             AttachmentStrip(m.attachments, onRemove = m.onRemove, modifier = Modifier.padding(end = 10.dp, bottom = 6.dp))
             BasicTextField(
-                value = m.draft,
-                onValueChange = m.onDraft,
+                state = field,
                 textStyle = ConclaveType.chat.copy(color = c.fg),
                 cursorBrush = SolidColor(c.signal),
-                minLines = minLines,
-                maxLines = maxOf(6, minLines),
+                lineLimits = TextFieldLineLimits.MultiLine(minHeightInLines = minLines, maxHeightInLines = maxOf(6, minLines)),
                 enabled = enabled,
-                modifier = Modifier.fillMaxWidth().padding(end = 10.dp).heightIn(min = 26.dp).semantics { contentDescription = m.placeholder },
-                decorationBox = { inner ->
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = 10.dp)
+                    .heightIn(min = 26.dp)
+                    .semantics { contentDescription = m.placeholder }
+                    // a picture pasted or sent by the keyboard joins like one from Photos; text pastes as text
+                    .contentReceiver { content ->
+                        val pictures = mutableListOf<Uri>()
+                        val rest = content.consume { item ->
+                            val uri: Uri? = item.uri
+                            if (uri != null && Attach.isPastedImage(context.contentResolver.getType(uri))) {
+                                pictures += uri
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        add(pictures)
+                        rest
+                    },
+                decorator = TextFieldDecorator { inner ->
                     Box {
-                        if (m.draft.isEmpty()) Text(m.placeholder, style = ConclaveType.chat, color = c.fg3, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (field.text.isEmpty()) Text(m.placeholder, style = ConclaveType.chat, color = c.fg3, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         inner()
                     }
                 },
