@@ -8,6 +8,7 @@
  * paragraphs commit while the model keeps writing.
  */
 import type { ContentBlock, Message, ToolResultBlock } from '@conclave/core/types.ts';
+import { isReminder } from '@conclave/core/session/transcript.ts';
 
 export type ToolStatus = 'pending' | 'running' | 'waiting' | 'done' | 'error' | 'interrupted';
 
@@ -31,9 +32,11 @@ export type Item =
     }
   | { kind: 'notice'; id: string; final: true; text: string; level: 'info' | 'success' | 'warning' | 'error' }
   | { kind: 'summary'; id: string; final: true; text: string }
+  /** "Why this turn stopped" (core session/stop-card.ts). */
+  | { kind: 'stop'; id: string; final: true; title: string; evidence: string; next: string; tone: 'error' | 'warning' | 'info' }
   | { kind: 'info'; id: string; final: true; text: string; gap?: boolean };
 
-export type LocalItem = Extract<Item, { kind: 'info' | 'notice' | 'banner' | 'user' }>;
+export type LocalItem = Extract<Item, { kind: 'info' | 'notice' | 'banner' | 'user' | 'stop' }>;
 
 type Entry = { type: 'msg'; id: string; seq: number } | { type: 'local'; item: Item } | { type: 'tool'; id: string };
 
@@ -274,7 +277,8 @@ export class TranscriptStore {
     const streaming = this.streaming.has(m.id);
     const texts = (blocks: ContentBlock[]) =>
       blocks
-        .filter((b) => b.type === 'text')
+        // hub context for the model (recalled notes, hook output, task results) is not the owner's words
+        .filter((b) => b.type === 'text' && !isReminder(b))
         .map((b) => (b as { text: string }).text)
         .join('\n');
     if (m.kind === 'notice') {

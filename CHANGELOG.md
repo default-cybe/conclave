@@ -9,6 +9,14 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Terminal chat (`conclave`): `/effort` picks how hard the model thinks (the levels the model has), and the status row shows it. Messages sent while a turn runs show above the input until they run, and `/queue` lists them to remove one or send a held one. A turn that ends on a provider error, a usage limit, a refusal or a hub restart prints the "Why this turn stopped" card the web chat shows. Approvals and questions from subagents and workflow agents now show in the chat you are in, with who asks. Workflow and Delegate calls get their own titles.
+
+### Changed
+
+- Terminal chat: the two status rows are laid out left and right (model, effort, agent and mode against the permission mode; the folder against context, tokens, cost and limits), the hub shows only when it is not connected, and a bare `/` lists commands in their listed order instead of by name length.
+
 ### Fixed
 
 - A picture you attached to your own message opens full size: on the web a click or tap on its thumbnail (Chat page and session log) shows it fitted to the screen with Download, and Escape, Close or a click outside shuts it; on Android a tap opens it full screen with pinch to zoom, and a tap, Back or Close shuts it. Before, the thumbnails did nothing.
@@ -18,6 +26,8 @@ like `## [0.4.16] - 2026-10-24`.
 ### Fixed
 
 - A provider model that only starts with a catalog id (`glm-5.3-uncensored` on a custom provider) keeps the rest of its id in its name ("GLM-5.3 Uncensored", "GLM-5.3 Flash Uncensored") and the catalog's capabilities, and shows no price unless the provider is that vendor's own API: before, it took the catalog model's name and price, and read as a copy of Z.ai's GLM-5.3. Exact ids, aliases, dates and effort variants (`-high`) are unchanged. In the web and Android model pickers a row from a provider that is not the maker's own says whose it is ("via Experiential Labs", the provider's config name).
+- Terminal chat: `NO_COLOR` now turns off the colors of borders, pickers and approval keys too, hub context (`<system-reminder>` blocks) no longer shows as your own words, and code blocks wrap on narrow terminals when color is off.
+- Terminal chat: when a turn ends, a background subagent's or workflow agent's approval or question stays on screen until it is answered, the stop card no longer repeats a notice already shown, a reconnect reads the messages before it says why the turn stopped (a Stop from another device no longer reads as a hub restart) and refetches the waiting messages, and a steer message waits as "joins the running turn".
 
 ## [0.4.34] - 2026-10-26
 

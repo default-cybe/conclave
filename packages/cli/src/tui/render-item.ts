@@ -75,6 +75,11 @@ export function renderItem(item: Item, ctx: RenderCtx): string {
       const color = item.level === 'error' ? p.red : item.level === 'warning' ? p.yellow : item.level === 'success' ? p.green : p.dim;
       return color(wrapAnsi(`· ${item.text}`, w));
     }
+    case 'stop': {
+      const color = item.tone === 'error' ? p.red : item.tone === 'warning' ? p.yellow : p.cyan;
+      const body = [...(item.evidence ? [p.dim(wrapAnsi(item.evidence, w - 4))] : []), wrapAnsi(item.next, w - 4)].join('\n');
+      return color(p.bold(wrapAnsi(`■ Why this turn stopped: ${item.title}`, w))) + '\n' + indentLines(body, '  ', '  ');
+    }
     case 'summary': {
       const first = item.text.split('\n').find((l) => l.trim()) ?? '';
       return p.dim(`※ Earlier conversation compacted`) + (first ? '\n' + p.dim(truncate(`  ${first}`, w)) : '');
