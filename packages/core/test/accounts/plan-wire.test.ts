@@ -190,6 +190,9 @@ describe('a plan that lists only a variant', () => {
       const first = engine.getMessages(s.id).filter((m) => m.role === 'assistant' && m.kind === 'normal').at(-1)!;
       expect(first.content.some((b) => b.type === 'thinking')).toBe(true);
       expect(first.meta?.signedBy).toBe('gemini');
+      // the intra-call failover stuck the session to the Antigravity wire (session/stream.ts); a manual pick puts it back
+      engine.updateSession(s.id, { model: 'anthropic/claude-sonnet-5-5' });
+      engine.patchMeta(s.id, { limitSwitch: undefined });
       // a Claude plan has room again: the next turn goes there, without Antigravity's thinking
       feed();
       refused = new Set();

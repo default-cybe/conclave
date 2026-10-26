@@ -124,6 +124,7 @@ import type {
   StartWorkflowInput,
   WorkflowDetail,
   WorkflowFinding,
+  WorkflowPreset,
   WorkflowRun,
   WorkflowRunDetail,
   WorkflowRunsQuery,
@@ -2093,7 +2094,7 @@ export class ConclaveClient {
   pimSettings = () => this.request<PimSettingsDto>('GET', '/api/pim');
   addCaldav = (input: { preset?: CaldavPreset; serverUrl: string; username: string; password: string; label?: string }) => this.request<PimAccountDto>('POST', '/api/pim/accounts/caldav', input);
   addImap = (input: { preset?: string; host: string; port?: number; security?: MailSecurity; username: string; password: string; address?: string; label?: string; draftsFolder?: string; smtp?: { host: string; port?: number; security?: MailSecurity }; send?: boolean }) => this.request<PimAccountDto>('POST', '/api/pim/accounts/imap', input);
-  updatePimAccount = (id: string, patch: { label?: string; drafts?: boolean; send?: boolean; autoDraft?: boolean; password?: string; calendars?: Array<{ remoteId: string; read?: boolean; write?: boolean }> }) => this.request<PimAccountDto>('PATCH', `/api/pim/accounts/${id}`, patch);
+  updatePimAccount = (id: string, patch: { label?: string; drafts?: boolean; send?: boolean; autoDraft?: boolean; signature?: string; password?: string; calendars?: Array<{ remoteId: string; read?: boolean; write?: boolean }> }) => this.request<PimAccountDto>('PATCH', `/api/pim/accounts/${id}`, patch);
   testPimAccount = (id: string) => this.request<PimAccountDto>('POST', `/api/pim/accounts/${id}/test`);
   removePimAccount = (id: string) => this.request<{ revoked: boolean; note?: string }>('DELETE', `/api/pim/accounts/${id}`);
   setOAuthClients = (input: { googleWebClientId?: string; googleWebSecret?: string; googleDesktopClientId?: string; googleDesktopSecret?: string; microsoftClientId?: string }) => this.request<PimSettingsDto>('PUT', '/api/pim/oauth/clients', input);
@@ -2208,6 +2209,10 @@ export class ConclaveClient {
   // ----- workflows: block "workflows", docs/design/ROUND-IMPORT-PATHS-WORKFLOWS.md 3.17 -----
   workflows = () => this.request<WorkflowSummary[]>('GET', '/api/workflows');
   workflow = (id: string) => this.request<WorkflowDetail>('GET', `/api/workflows/${encodeURIComponent(id)}`);
+  /** Saved args presets for one workflow, for the launch form. */
+  workflowPresets = (id: string) => this.request<WorkflowPreset[]>('GET', `/api/workflows/${encodeURIComponent(id)}/presets`);
+  saveWorkflowPreset = (id: string, name: string, args: unknown) => this.request<WorkflowPreset>('POST', `/api/workflows/${encodeURIComponent(id)}/presets`, { name, args });
+  deleteWorkflowPreset = (id: string, presetId: string) => this.request<{ ok: true }>('DELETE', `/api/workflows/${encodeURIComponent(id)}/presets/${encodeURIComponent(presetId)}`);
   startWorkflow = (input: StartWorkflowInput) => this.request<WorkflowRun>('POST', '/api/workflows/runs', input);
   workflowRuns = (q: WorkflowRunsQuery = {}) => this.request<WorkflowRun[]>('GET', '/api/workflows/runs', undefined, q as Query);
   workflowRun = (id: string) => this.request<WorkflowRunDetail>('GET', `/api/workflows/runs/${encodeURIComponent(id)}`);

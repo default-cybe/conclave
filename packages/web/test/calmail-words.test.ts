@@ -2,7 +2,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { GoogleOAuthStatus, ProposalDto } from '@conclave/core/client';
 import { approveWords, clock, eventRange, eventWhen, inviteWords, nextEventLine, outcomeWords, proposalQuestion } from '../src/features/home/proposalWords';
-import { AUTO_DRAFT_HELP, accountKind, checkWords, googleChoice, googleWaitWords, hubOrigin, onHubMachine, pastedCallback, scopeWords } from '../src/features/settings/calmailWords';
+import { AUTO_DRAFT_HELP, SIGNATURE_HELP, accountKind, checkWords, googleChoice, googleWaitWords, hubOrigin, onHubMachine, pastedCallback, scopeWords } from '../src/features/settings/calmailWords';
 
 const Z = 'Europe/Berlin';
 const t = (iso: string) => Date.parse(iso);
@@ -67,6 +67,7 @@ describe('settings words', () => {
 
   test('the auto-draft toggle says drafts are never sent', () => {
     expect(AUTO_DRAFT_HELP).toBe('The Assistant saves a draft straight into Drafts. It never sends; sending still needs your approval.');
+    expect(SIGNATURE_HELP).toContain('HTML signature added to the end of every draft');
   });
 
   test('which Google sign-in fits where the page is open', () => {

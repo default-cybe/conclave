@@ -3,6 +3,10 @@ export const meta = {
   description: 'Review a change: five finder lenses each run twice, citations checked in code, a three-vote refuter panel per finding, and failing tests for the worst ones',
   whenToUse: 'Before you merge or commit a change. args: { base?: a branch or commit to diff against (default: uncommitted changes against HEAD), focus?: what to look at hardest, votes?: 3, maxVerify?: 20, worktreeFrom?: a call seq whose kept commit to review (from another workflow) }',
   runtime: 'conclave',
+  args: {
+    base: { type: 'string', description: 'A branch, tag or commit to diff against. Empty: the uncommitted changes against HEAD.' },
+    focus: { type: 'string', description: 'What to look at hardest.' },
+  },
   phases: [
     { title: 'Scope', detail: 'the diff, staged, unstaged and untracked changes, changed files' },
     { title: 'Find', detail: 'five lenses, each run twice with the file order reversed' },

@@ -38,7 +38,8 @@ export type OwnedKind =
   | 'workflowRun'
   | 'alert'
   | 'pimAccount'
-  | 'proposal';
+  | 'proposal'
+  | 'preset';
 
 export type Rule = 'public' | 'admin' | 'self' | 'hub' | { own: Record<string, OwnedKind> };
 
@@ -339,6 +340,10 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   // ----- workflows -----
   'GET /api/workflows': 'self',
   'GET /api/workflows/:id': 'self',
+  // preset handlers filter by the caller's account; workflow ids name library entries, not owned rows
+  'GET /api/workflows/:id/presets': 'self',
+  'POST /api/workflows/:id/presets': 'self',
+  'DELETE /api/workflows/:id/presets/:presetId': 'self',
   'GET /api/workflows/runs': 'self',
   'POST /api/workflows/runs': 'self',
   'GET /api/workflows/runs/:id': own({ id: 'workflowRun' }),
@@ -628,6 +633,8 @@ export function ownerOf(ctx: ServerContext, kind: OwnedKind, id: string): string
       return col('SELECT s.account_id FROM workflow_runs w JOIN sessions s ON s.id = w.session_id WHERE w.id = ?');
     case 'proposal':
       return col('SELECT account_id FROM pim_proposals WHERE id = ?');
+    case 'preset':
+      return col('SELECT account_id FROM workflow_presets WHERE id = ?');
     case 'pimAccount':
       return pimAccountOwner(db, id);
     case 'alert': {

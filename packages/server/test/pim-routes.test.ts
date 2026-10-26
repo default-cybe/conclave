@@ -62,8 +62,9 @@ describe('pim routes', () => {
     expect(secrets.get(`pim.${acc.id}.password`)).toBe(dav.password);
     // the owner turns writing on for Work
     const work = acc.calendars.find((c: { name: string }) => c.name === 'Work');
-    const patched = await (await hub.api(`/api/pim/accounts/${acc.id}`, { method: 'PATCH', json: { calendars: [{ remoteId: work.remoteId, write: true }] } })).json();
+    const patched = await (await hub.api(`/api/pim/accounts/${acc.id}`, { method: 'PATCH', json: { calendars: [{ remoteId: work.remoteId, write: true }], signature: '<b style="color: #C41230" onclick="evil()">CMU</b><script>x</script>' } })).json();
     expect(patched.calendars.find((c: { name: string }) => c.name === 'Work').write).toBe(true);
+    expect(patched.signature).toBe('<b style="color:#C41230">CMU</b>');
     const audit = hub.engine.repos.audit.list({ limit: 20 }).map((a: { action: string; detail: string }) => `${a.action} ${a.detail}`).join('\n');
     expect(audit).toContain('pim.account.add');
     expect(audit).not.toContain(dav.password);

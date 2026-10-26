@@ -20,6 +20,7 @@ import type {
   WorkflowLogLine,
   WorkflowMetaDto,
   WorkflowPhaseDto,
+  WorkflowPreset,
   WorkflowRun,
   WorkflowRunStatus,
   WorkflowSource,
@@ -128,6 +129,16 @@ CREATE TABLE IF NOT EXISTS workflow_findings (
 );
 CREATE INDEX IF NOT EXISTS workflow_findings_run ON workflow_findings(run_id);
 CREATE INDEX IF NOT EXISTS workflow_findings_dismissed ON workflow_findings(workflow, project, verdict);
+CREATE TABLE IF NOT EXISTS workflow_presets (
+  id TEXT PRIMARY KEY,
+  workflow TEXT NOT NULL,
+  account_id TEXT NOT NULL DEFAULT 'owner',
+  name TEXT NOT NULL,
+  args TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE (workflow, account_id, name)
+);
+CREATE INDEX IF NOT EXISTS workflow_presets_workflow ON workflow_presets(workflow, account_id, created_at DESC);
 `;
 
 type Row = Record<string, any>;
@@ -366,6 +377,16 @@ function rowToFinding(r: Row): WorkflowFinding {
   };
 }
 
+export function rowToPreset(r: Row): WorkflowPreset {
+  return {
+    id: r.id,
+    workflow: r.workflow,
+    name: r.name,
+    args: json<unknown>(r.args, null),
+    createdAt: r.created_at,
+  };
+}
+
 export class WorkflowStore {
   constructor(readonly db: Db) {
     db.exec(SCHEMA);
@@ -601,6 +622,25 @@ export class WorkflowStore {
 
   setVerdict(id: string, verdict: FindingVerdict, reason: string | undefined, at: number): void {
     this.db.query('UPDATE workflow_findings SET verdict = ?, reason = ?, decided_at = ? WHERE id = ?').run(verdict, reason ?? null, at, id);
+  }
+
+  // ----- saved launch presets -----
+
+  presets(workflow: string, accountId = 'owner'): WorkflowPreset[] {
+    return (this.db.query('SELECT * FROM workflow_presets WHERE workflow = ? AND account_id = ? ORDER BY created_at DESC').all(workflow, accountId) as Row[]).map(rowToPreset);
+  }
+
+  /** Insert or replace by (workflow, account, name). Returns the stored preset. */
+  savePreset(p: WorkflowPreset & { accountId?: string }): WorkflowPreset {
+    const account = p.accountId ?? 'owner';
+    this.db
+      .query('INSERT OR REPLACE INTO workflow_presets (id, workflow, account_id, name, args, created_at) VALUES (?,?,?,?,?,?)')
+      .run(p.id, p.workflow, account, p.name, JSON.stringify(p.args), p.createdAt);
+    return { id: p.id, workflow: p.workflow, name: p.name, args: p.args, createdAt: p.createdAt };
+  }
+
+  deletePreset(workflow: string, id: string, accountId = 'owner'): void {
+    this.db.query('DELETE FROM workflow_presets WHERE workflow = ? AND id = ? AND account_id = ?').run(workflow, id, accountId);
   }
 }
 

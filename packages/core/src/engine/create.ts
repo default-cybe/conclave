@@ -59,7 +59,7 @@ import type { KvRepo } from '../storage/repos';
 import { guardMachine } from '../people/guard';
 import { WatchService, attachWatches, isWatch, watchExtension } from '../watches';
 import { builtinTools } from '../tools';
-import { setConclaveVersion } from '../tools/webfetch';
+import { setConclaveVersion, setWebFetchBrowser } from '../tools/webfetch';
 import { setProxySource } from '../tools/blocked';
 
 const log = logger('create');
@@ -210,6 +210,7 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
   const acp = new AcpAdapter((id) => config.get().providers[id]);
 
   const browser = new BrowserManager({ config });
+  setWebFetchBrowser(browser);
   const optInTools = browserTools(browser);
   // watches (watches/service.ts): made once the engine exists
   let watches: WatchService | undefined;

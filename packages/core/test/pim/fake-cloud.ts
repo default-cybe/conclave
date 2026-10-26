@@ -257,12 +257,18 @@ export function startFakeCloud(opts: { googleEmail?: string; msEmail?: string } 
             ms.sent.push(id);
             return new Response(null, { status: 202 });
           }
+          if (!action && req.method === 'PATCH') {
+            const d = ms.drafts.find((x) => x.id === id);
+            if (!d) return json({ error: { message: 'not found' } }, 404);
+            Object.assign(d, JSON.parse(body) as Record<string, unknown>);
+            return json(d);
+          }
           const m = ms.messages.find((x) => x.id === id);
           if (!m) return json({ error: { message: 'not found' } }, 404);
           if (action === '/attachments') return json({ value: m.attachments ?? [] });
           if (action === '/createReply' && req.method === 'POST') {
-            const b = JSON.parse(body) as { comment: string; message?: Record<string, unknown> };
-            const d = { id: `msd-${++n}`, replyTo: id, comment: b.comment, ...(b.message ?? {}) };
+            const b = JSON.parse(body) as { comment?: string; message?: Record<string, unknown> };
+            const d = { id: `msd-${++n}`, replyTo: id, ...(b.comment !== undefined ? { comment: b.comment } : {}), ...(m.body ? { body: m.body } : {}), ...(b.message ?? {}) };
             ms.drafts.push(d);
             return json(d, 201);
           }

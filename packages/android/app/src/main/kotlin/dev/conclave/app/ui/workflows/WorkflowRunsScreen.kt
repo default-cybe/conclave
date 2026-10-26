@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountTree
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -53,7 +54,7 @@ import dev.conclave.client.model.WorkflowRunStatus
  * A run opens its view. With [sessionId] only that session's runs.
  */
 @Composable
-fun WorkflowRunsScreen(sessionId: String?, onBack: () -> Unit, onOpenRun: (String) -> Unit) {
+fun WorkflowRunsScreen(sessionId: String?, onBack: () -> Unit, onOpenRun: (String) -> Unit, onLaunch: () -> Unit = {}) {
     val hub = LocalAppContainer.current.hub
     val vm: RunsViewModel = viewModel(key = "runs:${sessionId.orEmpty()}") { RunsViewModel(hub, sessionId) }
     val runs by vm.runs.collectAsStateWithLifecycle()
@@ -65,7 +66,15 @@ fun WorkflowRunsScreen(sessionId: String?, onBack: () -> Unit, onOpenRun: (Strin
 
     Scaffold(
         topBar = {
-            TopBar(title, onBack = onBack)
+            TopBar(
+                title,
+                onBack = onBack,
+                actions = {
+                    IconButton(onClick = onLaunch) {
+                        Icon(Icons.Outlined.PlayArrow, contentDescription = "Run a workflow")
+                    }
+                },
+            )
         },
         snackbarHost = { ToastHost(snackbar) },
     ) { padding ->

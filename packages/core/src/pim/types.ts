@@ -64,6 +64,8 @@ export interface PimAccount {
   send?: boolean;
   /** MailDraft saves a draft at once, without a card. Never sends. Needs drafts. */
   autoDraft?: boolean;
+  /** Sanitized HTML signature appended to saved drafts and sent mail. */
+  signature?: string;
   calendars?: CalendarPick[];
   lastCheck?: { at: number; ok: boolean; detail: string };
 }
