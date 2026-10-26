@@ -178,8 +178,8 @@ function SignInPanel({ p, phase, onPaste, onCancel, onShowPaste }: { p: Subscrip
   );
 }
 
-/** A subscription row: logo, name and plan, who is signed in, Sign in. The sign-in opens under it. */
-function ProviderLine({ p, status, ensureOn }: { p: SubscriptionProviderDto; status: SubscriptionsStatus; ensureOn: () => Promise<SubscriptionsStatus | undefined> }) {
+/** A subscription row: logo, name and plan, who is signed in, Sign in. The sign-in opens under it. Accounts reuses it for Sign in again (`action`). */
+export function ProviderLine({ p, status, ensureOn, action: actionWord }: { p: SubscriptionProviderDto; status: SubscriptionsStatus; ensureOn: () => Promise<SubscriptionsStatus | undefined>; action?: string }) {
   const mobile = useIsMobile();
   const size = useCtl();
   const [phase, setPhase] = useState<Phase>({ at: 'idle' });
@@ -277,7 +277,7 @@ function ProviderLine({ p, status, ensureOn }: { p: SubscriptionProviderDto; sta
       </span>
     ) : (
       <Button variant="outline" size={size} onClick={() => void begin()} disabled={!usable} title={usable ? undefined : status.managementNote}>
-        {accounts.length ? 'Add account' : 'Sign in'}
+        {actionWord ?? (accounts.length ? 'Add account' : 'Sign in')}
       </Button>
     );
 

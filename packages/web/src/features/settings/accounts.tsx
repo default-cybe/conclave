@@ -10,33 +10,38 @@
  * (./starter.tsx). Every plan and key has "Use when a model refuses": a
  * refused reply goes to it first, same model, before the Refusal fallback
  * list (a plan without a short name gets the suggested one from the hub).
+ * A plan's row has Refresh and, when it stopped working, Sign in again (the
+ * Subscriptions sign-in); a saved plan whose sign-in is gone has Remove.
  */
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react';
-import type { AccountBudget, AccountDto, AccountRouteDto, AccountsStatus } from '@conclave/core/client';
+import type { AccountBudget, AccountDto, AccountRouteDto, AccountsStatus, SubscriptionsStatus } from '@conclave/core/client';
 import type { LimitWindow } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { useIsMobile, useNow } from '@/lib/hooks';
 import { cn } from '@/lib/text';
-import { MANAGEMENT_NOTE, REFUSAL_HINT, REFUSAL_SWITCH, STATE_WORD, VENDOR_LOGO, balanceWords, budgetWords, nowLine, resetWords, rowWindows, sharedModels, shortNameSuggestions, useAccounts, usedOf, windowName } from '@/lib/accounts';
-import { TONE_CLASS } from '@/lib/subscriptions';
-import { memberNow, toast } from '@/store/store';
+import { MANAGEMENT_NOTE, REFUSAL_HINT, REFUSAL_SWITCH, STATE_WORD, VENDOR_LOGO, balanceWords, budgetWords, nowLine, planActions, resetWords, rowWindows, sharedModels, shortNameSuggestions, useAccounts, usedOf, windowName } from '@/lib/accounts';
+import { TONE_CLASS, useSubscriptions } from '@/lib/subscriptions';
+import { ProviderLine, ensureBuiltinOn } from '@/components/subscriptions/Subscriptions';
+import { memberNow, toast, useHub } from '@/store/store';
 import { Logo, ModelMark } from '@/components/logo';
 import { LiveStatus } from '@/components/motion';
 import { Button, ButtonLink, IconButton } from '@/components/ui/Button';
 import { Checkbox, Field, Input, OnOff, Segmented, Select } from '@/components/ui/Field';
 import { LimitGauge } from '@/components/ui/Meter';
-import { Dialog, Menu } from '@/components/ui/Overlay';
+import { ConfirmDialog, Dialog, Menu } from '@/components/ui/Overlay';
 import { TextAction } from '@/components/ui/Section';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { agoWords, errText, Group } from './parts';
 import { ShortNameRow, UnnamedPlans } from './shortname';
 import { StarterRow } from './starter';
 
-type Busy = { id: string; what: 'up' | 'down' | 'pause' | 'try' } | null;
+type Busy = { id: string; what: 'up' | 'down' | 'pause' | 'try' | 'refresh' } | null;
 
 export function AccountsSection() {
   const { status, set, error } = useAccounts(true);
+  const subs = useSubscriptions().status;
+  const [removeFor, setRemoveFor] = useState<AccountDto | null>(null);
   const now = useNow(30_000);
   const [busy, setBusy] = useState<Busy>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -124,6 +129,18 @@ export function AccountsSection() {
         onMove={(by) => move(r, a.id, by)}
         onPause={() => void run({ id: a.id, what: 'pause' }, () => api().updateAccount(a.id, { enabled: !a.enabled }), a.enabled ? `${a.label} is paused.` : `${a.label} is back in the order.`)}
         onTry={() => void run({ id: a.id, what: 'try' }, () => api().tryAccountNow(a.id), `${a.label}: the next call tries it.`)}
+        subs={subs}
+        onRefresh={(name) =>
+          void run(
+            { id: a.id, what: 'refresh' },
+            async () => {
+              useHub.setState({ subscriptions: { ...(await api().refreshSubscriptionAccount(name)), local: subs?.local } });
+              return api().accounts();
+            },
+            `${a.label}: refreshed.`,
+          )
+        }
+        onRemove={() => setRemoveFor(a)}
         onBudget={() => setBudgetFor(a)}
         onRename={() => setRenameFor(a)}
         noted={!!status.starterNoted}
@@ -187,6 +204,22 @@ export function AccountsSection() {
 
       {budgetFor && <BudgetDialog a={budgetFor} onClose={() => setBudgetFor(null)} onSaved={set} />}
       {renameFor && <RenameDialog a={renameFor} onClose={() => setRenameFor(null)} onSaved={set} />}
+      <ConfirmDialog
+        open={!!removeFor}
+        onClose={() => setRemoveFor(null)}
+        onConfirm={async () => {
+          try {
+            if (removeFor) set(await api().removeAccount(removeFor.id));
+            setRemoveFor(null);
+          } catch (e) {
+            toast({ title: `Failed. ${errText(e)}`, level: 'error' });
+          }
+        }}
+        busy="Removing"
+        title={`Remove ${removeFor?.label ?? 'this plan'}?`}
+        body="CLIProxyAPI no longer has its sign-in. It leaves every order here, and refusal fallback entries for it go too. Signing in to it again brings it back."
+        confirm="Remove"
+      />
     </div>
   );
 }
@@ -245,6 +278,9 @@ function AccountRow({
   onMove,
   onPause,
   onTry,
+  subs,
+  onRefresh,
+  onRemove,
   onBudget,
   onRename,
   noted,
@@ -262,6 +298,9 @@ function AccountRow({
   onMove: (by: -1 | 1) => void;
   onPause: () => void;
   onTry: () => void;
+  subs?: SubscriptionsStatus;
+  onRefresh: (credential: string) => void;
+  onRemove: () => void;
   onBudget: () => void;
   onRename: () => void;
   /** The window starter's note was shown once already. */
@@ -278,6 +317,7 @@ function AccountRow({
   const sub = a.kind === 'subscription';
   const canPause = !sub || (management && !!a.credential);
   const canTry = sub && management && (a.state === 'cooldown' || a.state === 'limited');
+  const acts = planActions(a, subs);
   const detail = sub
     ? [a.plan && `${a.vendorName} ${a.plan}`, a.email && a.email !== a.label && a.email, a.prefix && `ids also as ${a.prefix}/`].filter(Boolean).join(' · ')
     : [a.subscription ? `${a.plan} · API key` : `${a.vendorName} API key`, a.budget ? `Budget $${a.budget.usd} a ${a.budget.period ?? 'month'}` : 'No budget'].filter((x, i) => i > 0 || x !== a.label).join(' · ');
@@ -286,9 +326,11 @@ function AccountRow({
     ...(!first ? [{ label: 'Move up', onSelect: () => onMove(-1) }] : []),
     ...(!last ? [{ label: 'Move down', onSelect: () => onMove(1) }] : []),
     ...(canTry ? [{ label: 'Try now', onSelect: onTry }] : []),
+    ...(acts.refresh ? [{ label: 'Refresh', onSelect: () => onRefresh(acts.refresh!) }] : []),
     ...(canPause ? [{ label: a.enabled ? 'Pause' : 'Resume', onSelect: onPause }] : []),
     ...(!sub && !a.subscription ? [{ label: a.budget ? 'Change budget' : 'Set a budget', onSelect: onBudget }] : []),
     { label: 'Rename', onSelect: onRename },
+    ...(acts.remove ? [{ label: 'Remove', danger: true, onSelect: onRemove }] : []),
   ];
   return (
     <div className={cn('py-3', !a.enabled && 'opacity-70')}>
@@ -322,6 +364,16 @@ function AccountRow({
                 Try now
               </Button>
             )}
+            {acts.refresh && (
+              <Button variant="quiet" size="sm" busy={busy === 'refresh' ? 'Refreshing' : false} onClick={() => onRefresh(acts.refresh!)}>
+                Refresh
+              </Button>
+            )}
+            {acts.remove && (
+              <Button variant="danger" size="sm" onClick={onRemove}>
+                Remove
+              </Button>
+            )}
             {canPause && (
               <Button variant="quiet" size="sm" busy={busy === 'pause' ? (a.enabled ? 'Pausing' : 'Resuming') : false} onClick={onPause}>
                 {a.enabled ? 'Pause' : 'Resume'}
@@ -351,6 +403,13 @@ function AccountRow({
         )}
       </div>
       <div className="mt-2 pl-[52px] phone:pl-[46px]">
+        {subs && acts.signIn.length > 0 && (
+          <div className="max-w-[560px]">
+            {acts.signIn.map((p) => (
+              <ProviderLine key={p.id} p={p} status={subs} ensureOn={() => ensureBuiltinOn(subs)} action="Sign in again" />
+            ))}
+          </div>
+        )}
         {windows.length > 0 && (
           <div className="max-w-[560px]">
             {windows.map((w) => (

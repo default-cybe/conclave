@@ -5,12 +5,12 @@
  * or token here.
  */
 import { useEffect, useState } from 'react';
-import type { AccountDto, AccountNowDto, AccountState, AccountsStatus, StarterDto } from '@conclave/core/client';
+import type { AccountDto, AccountNowDto, AccountState, AccountsStatus, StarterDto, SubscriptionProviderDto, SubscriptionsStatus } from '@conclave/core/client';
 import type { LimitWindow } from '@conclave/core/types';
 import type { LimitFallbackConfig, RefusalFallbackConfig } from '@conclave/core/config/schema';
 import { parseRefusalEntries } from '@conclave/core/session/refusal-entries';
 import { suggestPrefixes } from '@conclave/core/accounts/prefix';
-import { variantBase } from '@conclave/core/providers/model-id';
+import { modelBase } from '@conclave/core/providers/model-id';
 import type { LogoId } from '@/components/logo';
 import { api } from './api';
 import { useHub } from '@/store/store';
@@ -216,7 +216,7 @@ export function sharedModels(status: Pick<AccountsStatus, 'accounts' | 'routes'>
       // setAccountOrder rejects a model the hub cannot place ("Unknown model")
       if (!m.vendor) continue;
       const own = m.id.slice(m.id.lastIndexOf('/') + 1);
-      const id = variantBase(own);
+      const id = modelBase(own);
       // a variant's name says its level ("Claude Opus 5.5 (High)"); the model's own entry names it when a plan lists it
       const name = id === own ? m.name || id : (m.name || id).replace(/\s*\([^)]*\)$/, '');
       const e = seen.get(id.toLowerCase()) ?? { id, name };
@@ -225,6 +225,24 @@ export function sharedModels(status: Pick<AccountsStatus, 'accounts' | 'routes'>
     }
   }
   return [...seen.entries()].filter(([k]) => !taken.has(k)).map(([, e]) => e).sort((x, y) => x.name.localeCompare(y.name));
+}
+
+/**
+ * What a plan's row on Accounts offers besides the order, from the
+ * Subscriptions status: Refresh (its credential, when CLIProxyAPI can
+ * refresh it), Sign in again (the sign-ins that make its kind of account,
+ * when it is not working or its sign-in is gone), and Remove (only a saved
+ * plan whose sign-in CLIProxyAPI no longer lists).
+ */
+export function planActions(a: AccountDto, subs: Pick<SubscriptionsStatus, 'accounts' | 'providers'> | undefined): { refresh?: string; signIn: SubscriptionProviderDto[]; remove: boolean } {
+  if (a.kind !== 'subscription' || !a.credential) return { signIn: [], remove: false };
+  const cred = subs?.accounts.find((s) => s.name === a.credential);
+  // a credential CLIProxyAPI no longer lists keeps its file name: "antigravity-me@gmail.com.json"
+  const provider = cred?.provider ?? [...(subs?.providers ?? [])].sort((x, y) => y.id.length - x.id.length).find((p) => a.credential!.startsWith(`${p.id}-`))?.id;
+  const broken = !!a.gone || a.state === 'error' || cred?.state === 'error' || cred?.state === 'disabled';
+  // Kiro signs in with Builder ID (kiro4cpa) or Google and GitHub (kiro4cpa-social): both make a kiro4cpa account
+  const signIn = broken && provider ? (subs?.providers ?? []).filter((p) => p.id === provider || p.id.startsWith(`${provider}-`)) : [];
+  return { ...(cred?.canRefresh ? { refresh: cred.name } : {}), signIn, remove: !!a.gone };
 }
 
 /** Vendors with two or more signed in plans that have no short name: CLIProxyAPI picks among them. */

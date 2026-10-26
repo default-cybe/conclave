@@ -13,7 +13,7 @@ import type { AccountState } from '../client/accounts';
 import type { AccountRoute } from '../config/schema';
 import type { LimitWindow } from '../types';
 import { wirePattern } from '../providers/split';
-import { variantBase } from '../providers/model-id';
+import { modelBase } from '../providers/model-id';
 import { annotateWindow, governing, windowFull, windowScope } from './windows';
 
 export interface AccountView {
@@ -79,10 +79,10 @@ export function bareModel(model: string): string {
   return i < 0 ? model : model.slice(i + 1);
 }
 
-/** The plan's own id for a model: the id, else an effort or thinking variant it lists instead (Antigravity's "claude-opus-5-5-high"). With exact, only the id. */
+/** The plan's own id for a model: the id, else an effort or thinking variant it lists instead (Antigravity's "claude-opus-5-5-high") or its dotted id (Kiro's "claude-opus-5.5"). With exact, only the id. */
 export function ownModel(models: string[], model: string, exact = false): string | undefined {
   const want = bareModel(model).toLowerCase();
-  return models.find((m) => bareModel(m).toLowerCase() === want) ?? (exact ? undefined : models.find((m) => variantBase(bareModel(m)).toLowerCase() === want));
+  return models.find((m) => bareModel(m).toLowerCase() === want) ?? (exact ? undefined : models.find((m) => modelBase(bareModel(m)).toLowerCase() === want));
 }
 
 /** Whether the account offers the model, or a variant of it. Unknown lists offer everything. */
@@ -103,8 +103,8 @@ export function assess(a: AccountView, now: number, model?: string): Verdict {
   if (a.budget && a.budget.hardStop !== false && a.budget.usd > 0 && a.budget.spentUsd >= a.budget.usd) {
     return { ...v, state: 'budget', reason: 'Budget spent', until: a.budget.periodEnd };
   }
-  // CLIProxyAPI keys a cooldown by the plan's own id: Antigravity's claude-opus-5-5-high also blocks claude-opus-5-5 there
-  const cooling = (a.cooldowns ?? []).filter((c) => c.until > now && (!c.model || !model || variantBase(bareModel(c.model)) === variantBase(bareModel(model))));
+  // CLIProxyAPI keys a cooldown by the plan's own id: Antigravity's claude-opus-5-5-high (Kiro's claude-opus-5.5) also blocks claude-opus-5-5 there
+  const cooling = (a.cooldowns ?? []).filter((c) => c.until > now && (!c.model || !model || modelBase(bareModel(c.model)) === modelBase(bareModel(model))));
   if (cooling.length) {
     const last = cooling.reduce((x, y) => (y.until > x.until ? y : x));
     return { ...v, state: 'cooldown', reason: COOLDOWN_WORDS[last.reason] ?? 'Resting after errors', until: last.until };

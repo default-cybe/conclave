@@ -6,8 +6,8 @@
  *   bun test packages/web/test/accounts-words.test.ts
  */
 import { describe, expect, test } from 'bun:test';
-import type { AccountDto, AccountNowDto } from '@conclave/core/client';
-import { budgetWords, nowLine, resetWords, rowWindows, sharedModels, usedOf, windowName } from '../src/lib/accounts';
+import type { AccountDto, AccountNowDto, SubscriptionAccountDto, SubscriptionProviderDto } from '@conclave/core/client';
+import { budgetWords, nowLine, planActions, resetWords, rowWindows, sharedModels, usedOf, windowName } from '../src/lib/accounts';
 
 // Monday 19 October 2026, 09:00 local
 const NOW = new Date(2026, 9, 19, 9, 0).getTime();
@@ -73,5 +73,28 @@ describe('account words', () => {
       { id: 'claude-opus-4-6', name: 'Claude Opus 4.6' },
       { id: 'claude-opus-5-5', name: 'Claude Opus 5.5' },
     ]);
+  });
+
+  test("Per model offers Kiro's dotted claude-opus-5.5 as Opus 5.5, once", () => {
+    const accounts = [
+      acct('k', 'Kiro', { vendor: 'kiro4cpa', vendorName: 'Kiro4cpa', models: [{ id: 'claude-opus-5.5', name: 'Claude Opus 5.5', vendor: 'anthropic' }] }),
+      acct('c', 'Claude', { models: [{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5', vendor: 'anthropic' }] }),
+    ];
+    expect(sharedModels({ accounts, routes: [] })).toEqual([{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5' }]);
+  });
+
+  test('a plan row: Refresh when CLIProxyAPI can, Sign in again when it stopped working, Remove only once its sign-in is gone', () => {
+    const prov = (id: string): SubscriptionProviderDto => ({ id, name: id, plan: '', flow: 'redirect', accounts: 0 });
+    const cred = (name: string, provider: string, extra: Partial<SubscriptionAccountDto> = {}): SubscriptionAccountDto => ({ name, provider, providerName: provider, state: 'active', canRefresh: true, ...extra });
+    const providers = [prov('claude'), prov('antigravity'), prov('kiro4cpa'), prov('kiro4cpa-social')];
+    const subs = { providers, accounts: [cred('claude-a.json', 'claude'), cred('kiro4cpa-k.json', 'kiro4cpa', { state: 'error' }), cred('claude-r.json', 'claude', { canRefresh: false })] };
+    expect(planActions(acct('claude-a', 'A', { credential: 'claude-a.json' }), subs)).toEqual({ refresh: 'claude-a.json', signIn: [], remove: false });
+    expect(planActions(acct('claude-r', 'R', { credential: 'claude-r.json' }), subs)).toEqual({ signIn: [], remove: false });
+    // Kiro not working: both Kiro sign-ins (Builder ID, Google or GitHub)
+    expect(planActions(acct('kiro4cpa-k', 'K', { credential: 'kiro4cpa-k.json', state: 'unknown' }), subs).signIn.map((p) => p.id)).toEqual(['kiro4cpa', 'kiro4cpa-social']);
+    // the owner's three Gemini rows: saved, CLIProxyAPI lists them no more
+    const gone = planActions(acct('antigravity-me@gmail.com', 'Gemini 3', { vendor: 'gemini', credential: 'antigravity-me@gmail.com.json', state: 'error', detail: 'Not signed in', gone: true }), subs);
+    expect(gone).toEqual({ signIn: [prov('antigravity')], remove: true });
+    expect(planActions(acct('api-anthropic', 'Key', { kind: 'api' }), subs)).toEqual({ signIn: [], remove: false });
   });
 });

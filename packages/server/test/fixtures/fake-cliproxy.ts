@@ -117,6 +117,8 @@ interface Account {
   /** The prefix (or, during a rename, prefixes) the model lists still use (CLIProxyAPI has not reloaded the auth file yet); absent: `prefix`. */
   listed_prefix?: string | string[];
   disabled?: boolean;
+  /** Listed as runtime_only: CLIProxyAPI cannot refresh it. */
+  runtime_only?: boolean;
   priority?: number;
   weight?: number;
   note?: string;
@@ -334,7 +336,7 @@ function credentialList(): Response {
       status_message: '',
       disabled: !!acct.disabled,
       unavailable: cooldowns.length > 0,
-      runtime_only: false,
+      runtime_only: !!acct.runtime_only,
       source: 'file',
       email: acct.email,
       account_type: 'oauth',

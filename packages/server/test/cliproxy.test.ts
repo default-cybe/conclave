@@ -888,13 +888,68 @@ describe('builtin: the hub runs CLIProxyAPI', () => {
     const codex = st.accounts.find((a) => a.provider === 'codex')!;
     const r = await api(`/api/subscriptions/accounts/${encodeURIComponent(codex.name)}/refresh`, { method: 'POST' });
     expect(r.status).toBe(200);
+    // saved: a label, its place in the openai order and in a per model order, and a refusal fallback entry pinned to it
+    const id = (await api('/api/accounts')).body.accounts.find((a: { credential?: string }) => a.credential === codex.name).id as string;
+    expect((await api(`/api/accounts/${encodeURIComponent(id)}`, { method: 'PATCH', json: { label: 'Work ChatGPT' } })).status).toBe(200);
+    expect((await api('/api/accounts/order', { method: 'PUT', json: { vendor: 'openai', order: [id] } })).status).toBe(200);
+    expect((await api('/api/accounts/order', { method: 'PUT', json: { vendor: 'openai', match: 'gpt-6-astra', order: [id] } })).status).toBe(200);
+    const user = structuredClone(hub.engine.config.getUser()) as Record<string, any>;
+    user.models = { ...user.models, refusalFallback: { entries: [{ model: 'cliproxy/gpt-6-astra', account: id }, { model: 'cliproxy/claude-opus-5-5' }] } };
+    hub.engine.config.replace(user);
     const removed = await api(`/api/subscriptions/accounts/${encodeURIComponent(codex.name)}`, { method: 'DELETE' });
     expect(removed.body.accounts.some((a: { name: string }) => a.name === codex.name)).toBe(false);
+    const models = hub.engine.config.getUser().models as Record<string, any>;
+    expect(models.accounts.map((a: { id: string }) => a.id)).not.toContain(id);
+    expect(models.routes.flatMap((x: { order: string[] }) => x.order)).not.toContain(id);
+    expect(models.routes.find((x: { match?: string }) => x.match === 'gpt-6-astra')).toEqual({ vendor: 'openai', match: 'gpt-6-astra', order: [] });
+    expect(models.refusalFallback.entries).toEqual([{ model: 'cliproxy/claude-opus-5-5' }]);
+    expect((await api('/api/accounts')).body.accounts.some((a: { id: string }) => a.id === id)).toBe(false);
     expect(removed.body.models.map((g: { label: string }) => g.label)).toEqual(['Main accounts']);
     expect(hub.engine.config.get().providers.cliproxy.models).not.toContain('neu/gpt-6-astra');
     const audit = hub.engine.repos.audit.list({ limit: 30 });
     expect(audit.find((a) => a.action === 'subscriptions.remove')?.detail).toBe('ChatGPT you@example.test');
     expect((await api('/api/subscriptions/accounts/nobody.json', { method: 'DELETE' })).status).toBe(404);
+  });
+
+  test('a credential CLIProxyAPI cannot refresh is refused in words, before CLIProxyAPI is asked', async () => {
+    const name = 'claude-runtime@example.test.json';
+    const file = join(hub.engine.home, 'cliproxy', 'auth', name);
+    writeFileSync(file, JSON.stringify({ type: 'claude', email: 'runtime@example.test', runtime_only: true }));
+    try {
+      await until(async () => (await status()).accounts.find((a) => a.name === name && a.canRefresh === false), 10_000, 'the runtime-only credential');
+      const r = await api(`/api/subscriptions/accounts/${encodeURIComponent(name)}/refresh`, { method: 'POST' });
+      expect(r.status).toBe(409);
+      expect(r.body.error).toBe('This account cannot be refreshed. Remove it and sign in again.');
+    } finally {
+      rmSync(file, { force: true });
+    }
+  });
+
+  test('a saved plan whose sign-in CLIProxyAPI no longer lists stays, marked gone, until the owner removes it', async () => {
+    const name = 'antigravity-stale@example.test.json';
+    const file = join(hub.engine.home, 'cliproxy', 'auth', name);
+    writeFileSync(file, JSON.stringify({ type: 'antigravity', email: 'stale@example.test' }));
+    const id = 'antigravity-stale@example.test';
+    await until(async () => (await api('/api/accounts')).body.accounts.find((a: { id: string }) => a.id === id), 10_000, 'the Google plan');
+    expect((await api(`/api/accounts/${encodeURIComponent(id)}`, { method: 'PATCH', json: { label: 'Gemini 3' } })).status).toBe(200);
+    // still signed in: Remove is in Subscriptions, not here
+    const live = await api(`/api/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    expect(live.status).toBe(409);
+    expect(live.body.error).toContain('still signed in');
+    // its sign-in goes outside the hub (or CLIProxyAPI lists it no more): kept, never wiped on read
+    rmSync(file, { force: true });
+    const gone = await until(async () => {
+      const a = (await api('/api/accounts/refresh', { method: 'POST' })).body.accounts.find((x: { id: string }) => x.id === id);
+      return a?.gone ? a : undefined;
+    }, 10_000, 'the plan to be marked gone');
+    expect(gone).toMatchObject({ label: 'Gemini 3', saved: true, state: 'error', detail: 'Not signed in' });
+    expect((hub.engine.config.getUser().models as any).accounts.some((a: { id: string }) => a.id === id)).toBe(true);
+    const removed = await api(`/api/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    expect(removed.status).toBe(200);
+    expect(removed.body.accounts.some((a: { id: string }) => a.id === id)).toBe(false);
+    expect((hub.engine.config.getUser().models as any).accounts.some((a: { id: string }) => a.id === id)).toBe(false);
+    expect(hub.engine.repos.audit.list({ limit: 30 }).find((a) => a.action === 'accounts.remove')?.detail).toBe('Gemini 3');
+    expect((await api(`/api/accounts/${encodeURIComponent(id)}`, { method: 'DELETE' })).status).toBe(404);
   });
 
   test('when it dies the hub starts it again', async () => {
@@ -1559,9 +1614,10 @@ describe("two members' own plans", () => {
       await as(alice, `/api/subscriptions/accounts/${encodeURIComponent(bob.name)}/refresh`, { method: 'POST' }),
       await as(alice, `/api/accounts/${encodeURIComponent(bob.account)}`, { method: 'PATCH', json: { label: 'x' } }),
       await as(alice, `/api/accounts/${encodeURIComponent(bob.account)}/try`, { method: 'POST' }),
+      await as(alice, `/api/accounts/${encodeURIComponent(bob.account)}`, { method: 'DELETE' }),
     ];
-    // observed 2026-10-23: DELETE 404, refresh 404, PATCH 404, try 404 (her own plans do not have his)
-    expect(tries.map((t) => t.status)).toEqual([404, 404, 404, 404]);
+    // observed 2026-10-23: DELETE 404, refresh 404, PATCH 404, try 404 (her own plans do not have his); Remove on Accounts too
+    expect(tries.map((t) => t.status)).toEqual([404, 404, 404, 404, 404]);
     for (const t of tries) {
       expect(t.text).not.toContain(bob.email);
       if (t.status === 200) expect(t.text).not.toContain(bob.name);

@@ -1829,6 +1829,9 @@ export class CliproxyManager {
     } catch (err) {
       this.wrap(err);
     }
+    // the saved account, its place in every order and refusal fallback entries pinned to it go too
+    const id = this.accountService.status().accounts.find((x) => x.credential === name)?.id;
+    if (id) this.accountService.forget(id);
     this.audit('subscriptions.remove', `${a.providerName}${a.label ? ` ${a.label}` : ''}`, actor);
     await this.sync();
     return this.status();
