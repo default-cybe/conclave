@@ -1860,6 +1860,10 @@ export class ConclaveClient {
   /** Ask each account (CLIProxyAPI) and harness for its model list again: the new list, and what could not be asked. */
   refreshModels = () => this.request<{ groups: ModelGroup[]; failed: string[] }>('POST', '/api/models/refresh');
   testProvider = (provider: string) => this.request<{ ok: boolean; detail: string; latencyMs?: number }>('POST', `/api/providers/${provider}/test`);
+  /** An endpoint's model ids, probed as typed and not saved (Settings > Providers > Custom provider). */
+  probeProvider = (p: { type: 'openai' | 'anthropic'; baseUrl: string; apiKey?: string }) => this.request<{ ok: boolean; models: string[]; detail?: string }>('POST', '/api/providers/probe', p);
+  /** One tiny real request (1 token) to one model on that endpoint. */
+  probeProviderModel = (p: { type: 'openai' | 'anthropic'; baseUrl: string; apiKey?: string; model: string }) => this.request<{ ok: boolean; detail: string; latencyMs?: number }>('POST', '/api/providers/probe-model', p);
   agents = () => this.request<AgentDef[]>('GET', '/api/agents');
   saveAgent = (def: Partial<AgentDef> & { name: string }, scope: 'user' | 'project' = 'user') => this.request<AgentDef>('PUT', `/api/agents/${encodeURIComponent(def.name)}`, { ...def, scope });
   deleteAgent = (name: string) => this.request<{ ok: true }>('DELETE', `/api/agents/${encodeURIComponent(name)}`);

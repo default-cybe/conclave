@@ -52,6 +52,30 @@ export function providerInfo(id: string): ProviderInfo | undefined {
   return PROVIDERS.find((p) => p.id === id);
 }
 
+/**
+ * A config id for a custom provider from its name: lowercase a-z0-9 and
+ * dashes, never a built-in id, a harness or cliproxy, and not taken
+ * ("Experiential Labs" is experiential-labs, then experiential-labs-2).
+ */
+export function customProviderId(name: string, taken: readonly string[]): string {
+  const stem = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '') || 'custom';
+  const used = new Set([...taken, ...PROVIDERS.map((p) => p.id), ...HARNESS_LOGINS.map((h) => h.id), 'cliproxy']);
+  if (!used.has(stem)) return stem;
+  for (let i = 2; ; i++) if (!used.has(`${stem}-${i}`)) return `${stem}-${i}`;
+}
+
+/** Why the custom provider form cannot probe yet, or undefined. */
+export function customProviderProblem(f: { name: string; baseUrl: string }): string | undefined {
+  if (!f.name.trim()) return 'Give it a name.';
+  try {
+    const u = new URL(f.baseUrl.trim());
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'The base URL must start with http:// or https://.';
+  } catch {
+    return 'Enter the base URL, like https://api.example.com/v1.';
+  }
+  return undefined;
+}
+
 /** Placeholder for the key field: "Paste a key that starts with sk-or-". */
 export function keyPlaceholder(p: ProviderInfo | undefined): string {
   if (!p || p.signIn === 'none') return 'No key needed';

@@ -14,13 +14,13 @@ import { reloadConfig, reloadModels, toast, useHub } from '@/store/store';
 import { useIsMobile } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { contextLabel } from '@/lib/models';
-import { HARNESS_LOGINS, PROVIDERS, providerInfo } from '@/lib/providers';
+import { HARNESS_LOGINS, PROVIDERS, customProviderId, customProviderProblem, providerInfo } from '@/lib/providers';
 import { ProviderHeader, ProviderRow, PROVIDER_COLS } from '@/components/providers/ProviderRow';
 import { CompanyMark, HarnessMark, ModelName } from '@/components/logo';
 import { LiveStatus } from '@/components/motion';
 import { Button, IconButton } from '@/components/ui/Button';
-import { Checkbox, Input, OnOff } from '@/components/ui/Field';
-import { ConfirmDialog, Menu, type MenuItem } from '@/components/ui/Overlay';
+import { Checkbox, Field, Input, OnOff, Segmented } from '@/components/ui/Field';
+import { ConfirmDialog, Dialog, Menu, type MenuItem } from '@/components/ui/Overlay';
 import { errText, Group, Outcome, save } from './parts';
 
 interface ProviderCfg {
@@ -45,6 +45,8 @@ export function ProvidersSection() {
   const [open, setOpen] = useState<string | null>(null);
   const [added, setAdded] = useState<string[]>([]);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [dropping, setDropping] = useState<string | null>(null);
+  const [custom, setCustom] = useState(false);
   const providers = (config?.providers ?? {}) as Record<string, ProviderCfg>;
 
   const harness = HARNESS_LOGINS.filter((l) => providers[l.id]?.type === 'acp' || !providers[l.id]);
@@ -76,10 +78,12 @@ export function ProvidersSection() {
       },
     ];
     if (keys.includes(id)) items.push({ separator: true, label: '' }, { label: 'Remove key', danger: true, onSelect: () => setRemoving(id) });
+    if (!providerInfo(id) && id !== 'cliproxy') items.push({ separator: true, label: '' }, { label: 'Remove provider', danger: true, onSelect: () => setDropping(id) });
     return items;
   };
 
   const removingName = removing ? (providers[removing]?.name ?? providerInfo(removing)?.name ?? removing) : '';
+  const droppingName = dropping ? (providers[dropping]?.name ?? dropping) : '';
 
   return (
     <div className="space-y-9">
@@ -97,12 +101,12 @@ export function ProvidersSection() {
             API keys
           </h2>
           <span className="num text-[13px] font-[450] text-fg-3">{keyed.length}</span>
-          {addable.length > 0 && (
-            <span className="ml-auto">
-              <Menu
-                width={300}
-                label="Add a provider"
-                items={addable.map((p) => ({
+          <span className="ml-auto">
+            <Menu
+              width={300}
+              label="Add a provider"
+              items={[
+                ...addable.map((p) => ({
                   label: p.name,
                   lead: <CompanyMark provider={p.id} size={16} tone="brand" fallbackName={p.name} />,
                   detail: p.description,
@@ -110,15 +114,17 @@ export function ProvidersSection() {
                     setAdded((a) => [...a, p.id]);
                     setTimeout(() => document.querySelector<HTMLInputElement>(`[aria-label="${p.name} API key"]`)?.focus(), 80);
                   },
-                }))}
-                trigger={({ ref, props }) => (
-                  <button ref={ref} type="button" className="text-[12px] font-[450] text-fg-3 hover:text-fg phone:text-[13px]" {...props}>
-                    Add a provider
-                  </button>
-                )}
-              />
-            </span>
-          )}
+                })),
+                ...(addable.length ? [{ separator: true, label: '' }] : []),
+                { label: 'Custom provider (OpenAI or Anthropic compatible)', detail: 'Any endpoint with a base URL and a key', onSelect: () => setCustom(true) },
+              ]}
+              trigger={({ ref, props }) => (
+                <button ref={ref} type="button" className="text-[12px] font-[450] text-fg-3 hover:text-fg phone:text-[13px]" {...props}>
+                  Add a provider
+                </button>
+              )}
+            />
+          </span>
         </div>
         <ProviderHeader className="pt-2.5" />
         <div className="rows">
@@ -174,7 +180,215 @@ export function ProvidersSection() {
           }
         }}
       />
+
+      <ConfirmDialog
+        open={!!dropping}
+        onClose={() => setDropping(null)}
+        title={`Remove ${droppingName}?`}
+        body={`Its entry and its key leave the hub. Sessions on ${droppingName} models stop.`}
+        confirm="Remove provider"
+        busy="Removing"
+        onConfirm={async () => {
+          const id = dropping!;
+          try {
+            if (keys.includes(id)) await api().setSecret('providers', id, null);
+          } catch (e) {
+            toast({ title: `Could not remove the key. ${errText(e)}`, level: 'error' });
+            return;
+          }
+          // null removes the entry (PATCH /api/config)
+          if (await save({ providers: { [id]: null } })) {
+            if (open === id) setOpen(null);
+            await reloadConfig();
+            void reloadModels();
+          }
+        }}
+      />
+
+      <CustomProviderDialog open={custom} onClose={() => setCustom(false)} taken={Object.keys(providers)} />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Add a custom provider: endpoint and key, find or type models, test each
+// ---------------------------------------------------------------------------
+
+type Wire = 'openai' | 'anthropic';
+type ModelCheck = { state: 'testing' } | { state: 'ok' } | { state: 'bad'; detail: string };
+
+function CustomProviderDialog({ open, onClose, taken }: { open: boolean; onClose: () => void; taken: string[] }) {
+  const [name, setName] = useState('');
+  const [type, setType] = useState<Wire>('openai');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [key, setKey] = useState('');
+  const [found, setFound] = useState<string[] | null>(null);
+  const [note, setNote] = useState<string | undefined>();
+  const [finding, setFinding] = useState(false);
+  const [manual, setManual] = useState<string[]>([]);
+  const [extra, setExtra] = useState('');
+  const [checks, setChecks] = useState<Record<string, ModelCheck>>({});
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [tried, setTried] = useState(false);
+
+  const problem = customProviderProblem({ name, baseUrl });
+  const target = { type, baseUrl: baseUrl.trim(), apiKey: key.trim() || undefined };
+  const models = [...new Set([...(found ?? []), ...manual])];
+  // only models that answered their test are saved
+  const passed = chosen.filter((m) => checks[m]?.state === 'ok');
+
+  // a test speaks for one endpoint and key: changing them starts over
+  const reset = () => {
+    setFound(null);
+    setNote(undefined);
+    setChecks({});
+    setChosen([]);
+  };
+  const close = () => {
+    onClose();
+    setName('');
+    setType('openai');
+    setBaseUrl('');
+    setKey('');
+    setManual([]);
+    setExtra('');
+    setTried(false);
+    reset();
+  };
+
+  const find = async () => {
+    setTried(true);
+    if (problem) return;
+    setFinding(true);
+    try {
+      const r = await api().probeProvider(target);
+      setFound(r.models);
+      setNote(r.ok ? undefined : r.detail);
+    } catch (e) {
+      setFound([]);
+      setNote(errText(e));
+    }
+    setFinding(false);
+  };
+
+  const test = async (model: string) => {
+    setChecks((c) => ({ ...c, [model]: { state: 'testing' } }));
+    let next: ModelCheck;
+    try {
+      const r = await api().probeProviderModel({ ...target, model });
+      next = r.ok ? { state: 'ok' } : { state: 'bad', detail: r.detail };
+    } catch (e) {
+      next = { state: 'bad', detail: errText(e) };
+    }
+    setChecks((c) => ({ ...c, [model]: next }));
+    setChosen((c) => (next.state === 'ok' ? [...new Set([...c, model])] : c.filter((m) => m !== model)));
+  };
+
+  const add = async () => {
+    const id = customProviderId(name, taken);
+    setAdding(true);
+    const ok = await save({ providers: { [id]: { type, name: name.trim(), baseUrl: target.baseUrl, models: passed } } });
+    if (ok && target.apiKey) {
+      try {
+        await api().setSecret('providers', id, target.apiKey);
+      } catch (e) {
+        toast({ title: `${name.trim()} was added, but its key was not saved. ${errText(e)}`, level: 'error' });
+      }
+    }
+    setAdding(false);
+    if (!ok) return;
+    await reloadConfig();
+    void reloadModels();
+    toast({ title: `${name.trim()} added with ${passed.length} ${passed.length === 1 ? 'model' : 'models'}.` });
+    close();
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={close}
+      width={560}
+      title="Add a custom provider"
+      description="Any endpoint that speaks the OpenAI or Anthropic API."
+      footer={
+        <>
+          <Button variant="quiet" onClick={close}>
+            Cancel
+          </Button>
+          <Button variant="solid" disabled={!passed.length || !!problem} busy={adding ? 'Adding' : false} onClick={() => void add()}>
+            {passed.length ? `Add with ${passed.length} ${passed.length === 1 ? 'model' : 'models'}` : 'Add'}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Field label="Name" error={tried && !name.trim() ? problem : undefined}>
+          <Input value={name} placeholder="Experiential Labs" onChange={(e) => setName(e.target.value)} />
+        </Field>
+        <Field label="API style">
+          <Segmented<Wire>
+            label="API style"
+            value={type}
+            onChange={(v) => (setType(v), reset())}
+            options={[
+              { value: 'openai', label: 'OpenAI compatible' },
+              { value: 'anthropic', label: 'Anthropic compatible' },
+            ]}
+          />
+        </Field>
+        <Field
+          label="Base URL"
+          help={type === 'openai' ? 'Up to the version, like https://api.example.com/v1. Models come from /models.' : 'Without /v1, like https://api.example.com. Models come from /v1/models.'}
+          error={tried && name.trim() ? problem : undefined}
+        >
+          <Input mono value={baseUrl} placeholder={type === 'openai' ? 'https://api.example.com/v1' : 'https://api.example.com'} onChange={(e) => (setBaseUrl(e.target.value), reset())} onKeyDown={(e) => e.key === 'Enter' && void find()} />
+        </Field>
+        <Field label="API key" optional>
+          <Input mono type="password" autoComplete="off" spellCheck={false} value={key} placeholder="Paste a key" onChange={(e) => (setKey(e.target.value), reset())} />
+        </Field>
+        <Button variant="outline" size="sm" busy={finding ? 'Finding models' : false} onClick={() => void find()}>
+          Find models
+        </Button>
+
+        {note && <p className="m-0 text-[12px] leading-[1.4] text-fg-3 phone:text-[13px]">{note}</p>}
+        {models.length > 0 && (
+          <div className="rows">
+            {models.map((m) => {
+              const ck = checks[m];
+              return (
+                <div key={m} className="py-1.5">
+                  <div className="flex items-center gap-3">
+                    <Checkbox mono checked={chosen.includes(m)} disabled={ck?.state !== 'ok'} onChange={(v) => setChosen((c) => (v ? [...c, m] : c.filter((x) => x !== m)))} label={m} className="min-w-0 flex-1 py-0" />
+                    {ck?.state === 'ok' && <Outcome word="Works" tone="ok" />}
+                    {ck?.state === 'bad' && <Outcome word="Model is not valid" tone="fault" />}
+                    <Button size="sm" variant="outline" busy={ck?.state === 'testing' ? 'Testing' : false} onClick={() => void test(m)}>
+                      Test
+                    </Button>
+                  </div>
+                  {ck?.state === 'bad' && <p className="m-0 mt-1 pl-6 text-[12px] leading-[1.4] text-fault phone:text-[13px]">{ck.detail}</p>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const v = extra.trim();
+            setExtra('');
+            if (v && !models.includes(v)) setManual((m) => [...m, v]);
+          }}
+        >
+          <Input mono size="sm" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="Add a model id by hand" aria-label="Model id to add" />
+          <Button type="submit" size="sm" variant="outline" disabled={!extra.trim()}>
+            Add id
+          </Button>
+        </form>
+        <p className="m-0 text-[12px] leading-[1.4] text-fg-3 phone:text-[13px]">Test sends one tiny request to the model, a few tokens on your key. Only models that answer can be added.</p>
+      </div>
+    </Dialog>
   );
 }
 

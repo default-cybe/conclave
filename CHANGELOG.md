@@ -7,6 +7,16 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Settings > Providers > Add a provider > Custom provider (OpenAI or Anthropic compatible): name, API style, base URL and key, Find models lists the endpoint's models, ids can be added by hand, and Test sends each one tiny request; only models that answer are saved. Custom provider rows get Remove provider (entry and key). Owner only `POST /api/providers/probe` and `/api/providers/probe-model` probe an endpoint without saving it.
+
+### Changed
+
+- `PATCH /api/config` refuses a new provider entry with a bad id, an unsupported type or a non-http(s) `baseUrl`, and `providers.<id>: null` removes an entry.
+
 ## [0.4.33] - 2026-10-26
 
 ### Added

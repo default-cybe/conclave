@@ -576,6 +576,19 @@ example `conclave secret anthropic`.
    tool lists. A config that names the old address moves to the new one when
    the hub loads it.
 
+   Any other OpenAI or Anthropic compatible endpoint: in **Settings >
+   Providers**, open **Add a provider** and pick **Custom provider (OpenAI or
+   Anthropic compatible)**. Give it a name, the API style, the base URL
+   (`https://api.example.com/v1` for OpenAI style, without `/v1` for
+   Anthropic style) and the key, then **Find models** to list what the
+   endpoint offers. Add ids it does not list by hand. **Test** sends each
+   model one tiny request (a few tokens on your key); only models that answer
+   can be added, and **Add** saves the provider, its key on the hub, and
+   those models as `<id>/<model>` in the pickers. Its row menu has **Remove
+   provider**, which drops the entry and its key. The same by hand:
+   `conclave config set providers.<id> '{"type":"openai","name":"...","baseUrl":"https://...","models":["..."]}'`
+   and `conclave secret <id>`.
+
    Keys set as environment variables on the hub (`ANTHROPIC_API_KEY` and the
    like) and the hub's own `CONCLAVE_TOKEN` are never passed to the shells,
    hooks and tools that sessions start, so a session cannot read them. If you

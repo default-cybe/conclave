@@ -167,6 +167,9 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   // asks CLIProxyAPI and starts each harness that is on, to read its model list
   'POST /api/models/refresh': 'admin',
   'POST /api/providers/:provider/test': 'admin',
+  // probe an endpoint the owner typed (Custom provider): owner only, the owner can already point a provider anywhere
+  'POST /api/providers/probe': 'admin',
+  'POST /api/providers/probe-model': 'admin',
   'GET /api/agents': 'self',
   'PUT /api/agents/:name': 'admin',
   'DELETE /api/agents/:name': 'admin',
