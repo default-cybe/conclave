@@ -11,7 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Changed
 
-- Usage restructured around the live questions: a "Now" section opens the page (which account each vendor's next call uses, why the ones before were passed over, and, for the owner, where a model at its limit everywhere goes: the usage fallback list, else the Refusal fallback list, else nowhere, with a link to Usage fallback), phone order puts Limits before the history, and every limit window's reset line names the clock time ("resets 15:40 (in 1h 22m)") instead of only the countdown.
+- Usage restructured around the live questions: a "Now" section opens the page with the hub defaults (which account each vendor's next call uses by default, why the ones before were passed over, and, for the owner, the hub default fallback for a model at its limit everywhere: the usage fallback list, else the Refusal fallback list, else nowhere, with a link to Usage fallback). It says these are defaults: a model's own account order, an agent's own fallback or a task's fallback policy can route a call elsewhere, and the section does not show that per-call route; phone order puts Limits before the history, and every limit window's reset line names the clock time ("resets 15:40 (in 1h 22m)") instead of only the countdown.
 
 ### Added
 

@@ -356,10 +356,12 @@ function Now() {
         })}
         {owner && (
           <div className="flex items-baseline justify-between gap-3 py-3 text-[12px] text-fg-3 phone:text-[13px]">
-            <p className="m-0 min-w-0">{fallback ? <>At its limit on every account, a model goes to {fallback}.</> : 'At its limit on every account, no other model takes over: no fallback list is set.'}</p>
+            <p className="m-0 min-w-0">{fallback ? <>Hub default fallback: at its limit on every account, a model goes to {fallback}.</> : 'Hub default fallback: at its limit on every account, no other model takes over, since no fallback list is set.'}</p>
             <TextAction label="Change" onClick={() => navigate('/settings/usage')} />
           </div>
         )}
+        {/* the lines above read the hub defaults; core routing can differ per model, agent or task */}
+        <p className="m-0 py-2 text-[12px] text-fg-3 phone:text-[13px]">These are the hub defaults. A model's own account order, an agent's own fallback or a task's fallback policy can send a call elsewhere.</p>
       </div>
     </section>
   );
