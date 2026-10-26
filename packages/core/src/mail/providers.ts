@@ -36,6 +36,7 @@ export interface Outgoing {
   cc: MailAddress[];
   subject: string;
   body: string;
+  html?: string;
   reply?: { ref: string; messageId?: string; references?: string; threadRef?: string };
 }
 
@@ -200,7 +201,7 @@ export class GmailProvider implements MailProvider {
   }
 
   private raw(m: Outgoing): string {
-    const { raw } = composeMessage({ from: m.from, to: m.to, cc: m.cc, subject: m.subject, body: m.body, inReplyTo: m.reply?.messageId, references: m.reply?.references });
+    const { raw } = composeMessage({ from: m.from, to: m.to, cc: m.cc, subject: m.subject, body: m.body, ...(m.html ? { html: m.html } : {}), inReplyTo: m.reply?.messageId, references: m.reply?.references });
     return Buffer.from(raw, 'utf8').toString('base64url');
   }
 
@@ -345,11 +346,16 @@ export class GraphProvider implements MailProvider {
 
   private async draft(m: Outgoing): Promise<string> {
     const rcpt = (list: MailAddress[]) => list.map((a) => ({ emailAddress: { address: a.address, ...(a.name ? { name: a.name } : {}) } }));
+    const body = m.html ? { contentType: 'HTML', content: m.html } : { contentType: 'Text', content: m.body };
     if (m.reply) {
-      const d = await this.call<{ id: string }>(`/me/messages/${encodeURIComponent(m.reply.ref)}/createReply`, { method: 'POST', body: JSON.stringify({ message: { toRecipients: rcpt(m.to), ccRecipients: rcpt(m.cc) }, comment: m.body }) });
+      const d = await this.call<GraphMessage>(`/me/messages/${encodeURIComponent(m.reply.ref)}/createReply`, { method: 'POST', body: JSON.stringify({ message: { toRecipients: rcpt(m.to), ccRecipients: rcpt(m.cc) }, ...(m.html ? {} : { comment: m.body }) }) });
+      if (m.html) {
+        const quoted = d.body?.content ?? '';
+        await this.call(`/me/messages/${encodeURIComponent(d.id)}`, { method: 'PATCH', body: JSON.stringify({ body: { contentType: 'HTML', content: quoted ? `${m.html}\n${quoted}` : m.html } }) });
+      }
       return d.id;
     }
-    const d = await this.call<{ id: string }>('/me/messages', { method: 'POST', body: JSON.stringify({ subject: m.subject, body: { contentType: 'Text', content: m.body }, toRecipients: rcpt(m.to), ccRecipients: rcpt(m.cc) }) });
+    const d = await this.call<{ id: string }>('/me/messages', { method: 'POST', body: JSON.stringify({ subject: m.subject, body, toRecipients: rcpt(m.to), ccRecipients: rcpt(m.cc) }) });
     return d.id;
   }
 
@@ -507,7 +513,7 @@ export class ImapProvider implements MailProvider {
   }
 
   private raw(m: Outgoing): string {
-    return composeMessage({ from: m.from, to: m.to, cc: m.cc, subject: m.subject, body: m.body, inReplyTo: m.reply?.messageId, references: m.reply?.references }).raw;
+    return composeMessage({ from: m.from, to: m.to, cc: m.cc, subject: m.subject, body: m.body, ...(m.html ? { html: m.html } : {}), inReplyTo: m.reply?.messageId, references: m.reply?.references }).raw;
   }
 
   async saveDraft(m: Outgoing): Promise<string> {

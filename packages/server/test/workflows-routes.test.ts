@@ -34,6 +34,9 @@ function stub(): void {
     skip: rec('skip'),
     worktree: async (...args: unknown[]) => rec('worktree', { ok: true, state: 'kept', output: 'diff' })(...args),
     judgeFinding: rec('judgeFinding', { id: 'wff_1', verdict: 'dismissed' }),
+    listPresets: rec('listPresets', [{ id: 'wfp_1', workflow: 'review-changes', name: 'main', args: { base: 'main' }, createdAt: 1 }]),
+    savePreset: async (...args: unknown[]) => rec('savePreset', { id: 'wfp_2', workflow: 'review-changes', name: 'nightly', args: {}, createdAt: 2 })(...args),
+    deletePreset: rec('deletePreset'),
   };
   setWorkflows(hub.engine, svc as unknown as WorkflowService);
 }
@@ -70,6 +73,28 @@ describe('with a workflow service', () => {
     const ok = await hub.api('/api/workflows/runs', { method: 'POST', json: { name: 'review-changes', args: { base: 'main' }, budget: { tokens: 500000.7, costUsd: 3 }, background: true } });
     expect(ok.status).toBe(201);
     expect(calls.find((c) => c.method === 'startRun')?.args[0]).toEqual({ name: 'review-changes', args: { base: 'main' }, budget: { tokens: 500000, costUsd: 3 }, background: true });
+  });
+
+  test('launch presets: list, save (a bad body is a 400), delete', async () => {
+    calls.length = 0;
+    const list = await hub.api('/api/workflows/review-changes/presets');
+    expect(list.status).toBe(200);
+    expect(calls.find((c) => c.method === 'listPresets')?.args).toEqual(['review-changes', 'owner']);
+    expect((await hub.api('/api/workflows/review-changes/presets', { method: 'POST', json: { name: '' } })).status).toBe(400);
+    expect((await hub.api('/api/workflows/review-changes/presets', { method: 'POST', json: { args: { base: 'main' } } })).status).toBe(400);
+    expect((await hub.api('/api/workflows/review-changes/presets', { method: 'POST', json: { name: 'nightly', args: [1, 2] } })).status).toBe(400);
+    const saved = await hub.api('/api/workflows/review-changes/presets', { method: 'POST', json: { name: ' nightly ', args: { base: 'main' } } });
+    expect(saved.status).toBe(201);
+    expect(calls.find((c) => c.method === 'savePreset')?.args).toEqual(['review-changes', 'nightly', { base: 'main' }, 'owner']);
+    expect((await hub.api('/api/workflows/review-changes/presets/wfp_1', { method: 'DELETE' })).status).toBe(204);
+    expect(calls.find((c) => c.method === 'deletePreset')?.args).toEqual(['review-changes', 'wfp_1', 'owner']);
+    const actions = hub.engine.repos.audit.list({ limit: 20 }).map((a) => `${a.action} ${a.detail}`);
+    expect(actions).toContain('workflow.preset.save review-changes: nightly');
+    expect(actions).toContain('workflow.preset.delete review-changes: wfp_1');
+    // a plugin id with a colon goes through encoded, like the detail route
+    const one = await hub.api(`/api/workflows/${encodeURIComponent('claude-security:scan')}/presets`);
+    expect(one.status).toBe(200);
+    expect(calls.filter((c) => c.method === 'listPresets').at(-1)?.args[0]).toBe('claude-security:scan');
   });
 
   test('controls, skip, rerun, worktree actions and verdicts', async () => {

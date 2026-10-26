@@ -143,4 +143,22 @@ export function registerWorkflowRoutes(app: Hono<HonoEnv>, ctx: ServerContext, a
     }
     return c.json(await svc().detail(id, sessionQuery(c)));
   });
+
+  // saved launch presets for one workflow; the owner's phone reruns them
+  app.get('/api/workflows/:id/presets', async (c) => c.json(await svc().listPresets(c.req.param('id'), accountOf(c))));
+
+  app.post('/api/workflows/:id/presets', async (c) => {
+    const body = await readJson<{ name?: unknown; args?: unknown }>(c);
+    if (typeof body.name !== 'string' || !body.name.trim()) throw badRequest('name is required');
+    if (body.args !== undefined && (typeof body.args !== 'object' || Array.isArray(body.args))) throw badRequest('args must be a JSON object');
+    const preset = await svc().savePreset(c.req.param('id'), body.name.trim(), body.args, accountOf(c));
+    audit(c, 'workflow.preset.save', `${preset.workflow}: ${preset.name}`);
+    return c.json(preset, 201);
+  });
+
+  app.delete('/api/workflows/:id/presets/:presetId', async (c) => {
+    await svc().deletePreset(c.req.param('id'), c.req.param('presetId'), accountOf(c));
+    audit(c, 'workflow.preset.delete', `${c.req.param('id')}: ${c.req.param('presetId')}`);
+    return c.body(null, 204);
+  });
 }

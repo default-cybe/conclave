@@ -1,5 +1,6 @@
 package dev.conclave.client
 
+import dev.conclave.client.logic.AgentResults
 import dev.conclave.client.logic.ChatList
 import dev.conclave.client.logic.ChatLive
 import dev.conclave.client.logic.ChatSources
@@ -191,6 +192,25 @@ class ChatUnitsTest {
         assertEquals(4, reply.lastSeq)
         assertEquals(3, reply.blocks.size)
         assertEquals("openai/gpt-5.5", (units[3] as ChatUnit.Switch).model)
+    }
+
+    @Test
+    fun contextOnlyUserMessagesAreNotRetryOrEditTargets() {
+        val reminder = m("c1", 3, Role.USER, TextBlock("<system-reminder>\nHook feedback\n</system-reminder>"))
+        assertTrue(AgentResults.isContextOnly(reminder))
+        val units = ChatUnits.build(
+            listOf(
+                user("u1", 1, "can caddy get certs?"),
+                m("a1", 2, Role.ASSISTANT, TextBlock("Yes."), model = "anthropic/sonnet"),
+                reminder,
+                m("a2", 4, Role.ASSISTANT, TextBlock("Done."), model = "anthropic/sonnet"),
+            ),
+        )
+        // the reminder folds into the reply, so retry and edit point at u1
+        assertEquals(listOf("u1", "a1"), units.map { it.key })
+        val reply = units[1] as ChatUnit.Reply
+        assertEquals("u1", reply.user?.id)
+        assertEquals(listOf("a1", "c1", "a2"), reply.messages.map { it.id })
     }
 
     @Test

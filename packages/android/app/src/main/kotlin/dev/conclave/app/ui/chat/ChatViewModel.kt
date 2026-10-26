@@ -7,6 +7,7 @@ import dev.conclave.app.ui.common.HubViewModel
 import dev.conclave.app.ui.common.errorText
 import dev.conclave.app.ui.conversation.attachmentsOf
 import dev.conclave.client.ConclaveApiException
+import dev.conclave.client.logic.AgentResults
 import dev.conclave.client.logic.Asks
 import dev.conclave.client.logic.Attach
 import dev.conclave.client.logic.ChatItem
@@ -395,14 +396,14 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
     /** Retry the last turn: the hub drops it, and your last message goes again. */
     fun retryLast() = action {
         check(dev.conclave.client.logic.NextModel.providerFailure(transcript.value.messages) == null) { "Use Retry with another model. Replaying this turn could repeat completed operations." }
-        val user = transcript.value.messages.lastOrNull { it.role == Role.USER && it.kind == MessageKind.NORMAL && !ChatItems.isToolResultsOnly(it) } ?: return@action
+        val user = transcript.value.messages.lastOrNull { it.role == Role.USER && it.kind == MessageKind.NORMAL && !ChatItems.isToolResultsOnly(it) && !AgentResults.isContextOnly(it) } ?: return@action
         retryFrom(user)
     }
 
     /** Retry under an earlier turn: the message it answers goes again, and the turns after it leave. [first]: the turn's first message. */
     fun retryBefore(first: Message) = action {
         check(dev.conclave.client.logic.NextModel.providerFailure(transcript.value.messages) == null) { "Use Retry with another model. Replaying this turn could repeat completed operations." }
-        val user = transcript.value.messages.lastOrNull { it.seq < first.seq && it.role == Role.USER && it.kind == MessageKind.NORMAL && !ChatItems.isToolResultsOnly(it) } ?: return@action
+        val user = transcript.value.messages.lastOrNull { it.seq < first.seq && it.role == Role.USER && it.kind == MessageKind.NORMAL && !ChatItems.isToolResultsOnly(it) && !AgentResults.isContextOnly(it) } ?: return@action
         retryFrom(user)
     }
 
