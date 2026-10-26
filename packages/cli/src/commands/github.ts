@@ -20,7 +20,7 @@ function statusLines(st: GithubStatusDto): string[] {
   if (st.connected) {
     const who = st.name ? `@${st.login} (${st.name})` : `@${st.login}`;
     const repos = st.repos !== undefined ? ` It can see ${st.repos} ${st.repos === 1 ? 'repository' : 'repositories'}.` : '';
-    const from = st.source === 'env' ? p.dim(' (from CONCLAVE_GITHUB_TOKEN)') : '';
+    const from = st.source === 'env' ? p.dim(' (from CONCLAVE_GITHUB_TOKEN)') : st.source === 'mcp' ? p.dim(' (shared with the GitHub MCP server: secret github-pat)') : '';
     return [`${p.green('✓')} Connected as ${who}.${repos}${from}`, ...(st.apiUrl ? [p.dim(`API: ${st.apiUrl}`)] : [])];
   }
   if (st.error) return [`${p.red('✗')} ${st.error}`];
@@ -44,6 +44,7 @@ export async function githubCommand(args: ParsedArgs): Promise<number> {
       if (bool(args, 'json')) return json(st), 0;
       print(`${p.green('✓')} Removed the GitHub token from the hub.`);
       if (st.source === 'env') print(p.dim('CONCLAVE_GITHUB_TOKEN is still set where the hub runs.'));
+      if (st.source === 'mcp') print(p.dim('The GitHub MCP server token (secret github-pat) is still set; the hub uses it.'));
       return 0;
     }
     case 'status': {

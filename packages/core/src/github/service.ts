@@ -49,6 +49,8 @@ const log = logger('github');
 
 /** The secret's name in secrets.json (values). */
 export const GITHUB_SECRET = 'github';
+/** The GitHub MCP server's token (catalog/recommended.ts); used when no "github" secret is saved. */
+export const MCP_GITHUB_SECRET = 'github-pat';
 const TOKEN_ENV = 'CONCLAVE_GITHUB_TOKEN';
 const REPOS_TTL_MS = 2 * 60_000;
 const USER_TTL_MS = 5 * 60_000;
@@ -191,11 +193,14 @@ export class GithubService {
   // -------------------------------------------------------------------------
 
   /** The token and where it comes from. Only this module reads it. */
-  private token(): { value?: string; source?: 'secret' | 'env' } {
+  private token(): { value?: string; source?: 'secret' | 'mcp' | 'env' } {
     // each account has its own token (docs/design/ACCOUNTS.md); the hub's environment is the owner's
     const acct = currentAccount() ?? OWNER_ID;
     const secret = this.engine.accountSecrets.value(acct, GITHUB_SECRET);
     if (secret) return { value: secret, source: 'secret' };
+    // accountSecrets is per account: a member only ever sees their own github-pat
+    const mcp = this.engine.accountSecrets.value(acct, MCP_GITHUB_SECRET);
+    if (mcp) return { value: mcp, source: 'mcp' };
     if (isMember(acct)) return {};
     const env = process.env[TOKEN_ENV];
     if (env) return { value: env, source: 'env' };
