@@ -28,6 +28,7 @@ import { CompanyMark, HarnessName, ModelName, logoGap } from '@/components/logo'
 import { LiveStatus } from '@/components/motion';
 import { useAccounts, nowLine, limitFallbackRoute } from '@/lib/accounts';
 import { CostColumns, type ColumnDatum } from './charts';
+import Recap from './Recap';
 import { planServed, savedDetail, savedSentence, worth, type Valued } from './value';
 
 type Range = 'today' | '7d' | '30d' | 'month' | 'custom';
@@ -224,6 +225,8 @@ export default function UsagePage() {
 
   const now = <Now />;
   const stats = u && !empty && <Stats u={u} prev={prev.data} range={range} days={days} mobile={mobile} wide={wide} />;
+  // self-contained: its own data, so it sits wherever the page puts it
+  const recap = u && !empty && <Recap />;
   const savings = month && <PlanSavings totals={month.totals} />;
   const cost = u && !empty && <CostSection range={range} data={columns.data} truncated={columns.truncated} dim={usage.loading} rows={u} />;
   const byModel = u && !empty && <ByModel u={u} plans={planProviders} mobile={mobile} />;
@@ -265,6 +268,7 @@ export default function UsagePage() {
               {now}
               {savings}
               {stats}
+              {recap}
               {emptyState}
               {cost}
               {byModel}
@@ -289,6 +293,7 @@ export default function UsagePage() {
         {now}
         {savings}
         {stats}
+        {recap}
         {emptyState}
         {limits}
         {cost}

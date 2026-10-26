@@ -12,6 +12,7 @@ import dev.conclave.app.ui.motion.Motion
 import dev.conclave.client.createRepoSession
 import dev.conclave.client.createWorktreeSession
 import dev.conclave.client.folderGit
+import dev.conclave.client.logic.AgentResults
 import dev.conclave.client.logic.Asks
 import dev.conclave.client.logic.Attach
 import dev.conclave.client.logic.ChatItems
@@ -588,7 +589,7 @@ class ChatThreadViewModel(
             say("Use Retry with another model. Replaying this turn could repeat completed operations.")
             return
         }
-        val user = transcript.value.messages.lastOrNull { it.role == Role.USER && it.kind == MessageKind.NORMAL && !ChatItems.isToolResultsOnly(it) } ?: return
+        val user = transcript.value.messages.lastOrNull { it.role == Role.USER && it.kind == MessageKind.NORMAL && !ChatItems.isToolResultsOnly(it) && !AgentResults.isContextOnly(it) } ?: return
         replaceFrom(user, user.content.visibleText(), attachmentsOf(user))
     }
 

@@ -72,7 +72,9 @@ import dev.conclave.app.ui.common.LocalAppContainer
 import dev.conclave.app.ui.common.StateWordText
 import dev.conclave.app.ui.common.rememberNow
 import dev.conclave.app.ui.common.toneColor
+import dev.conclave.app.ui.motion.AgentGlyph
 import dev.conclave.app.ui.motion.Knot
+import dev.conclave.app.ui.motion.Pet
 import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
 import dev.conclave.app.ui.workflows.LocalOpenWorkflowRun
@@ -99,7 +101,12 @@ import dev.conclave.client.model.WorkflowCall
 import dev.conclave.client.model.WorkflowCallState
 import dev.conclave.client.model.WorkflowRun
 import dev.conclave.client.model.WorkflowRunStatus
+import dev.conclave.client.motion.GlyphState
 import dev.conclave.client.motion.KnotState
+import dev.conclave.client.motion.LIVE_ROWS
+import dev.conclave.client.motion.PetState
+import dev.conclave.client.motion.busiestKind
+import dev.conclave.client.motion.petState
 import dev.conclave.client.pauseWorkflow
 import dev.conclave.client.resumeWorkflow
 import dev.conclave.client.workflowRun
@@ -718,7 +725,14 @@ fun RunningTasksLine(tasks: List<RunningTask>, work: SessionWork, results: Map<S
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Knot(KnotState.TOOL, size = 12.dp, still = true)
+        // the pet does what most of the jobs do (CHAT-AND-MOTION 1.11)
+        val kinds = tasks.map {
+            when (it) {
+                is RunningTask.Flow -> "workflow"
+                is RunningTask.Agent -> Tasks.agentOf(it.use, results[it.use.id], it.child)
+            }
+        }
+        Pet(state = petState(busiestKind(kinds)), size = 24.dp)
         Spacer(Modifier.width(8.dp))
         Text(Tasks.pill(tasks.size), style = ConclaveType.meta, color = c.fg2)
         Spacer(Modifier.width(2.dp))
@@ -730,14 +744,16 @@ fun RunningTasksLine(tasks: List<RunningTask>, work: SessionWork, results: Map<S
                 Text(Tasks.pill(tasks.size).replaceFirstChar { it.uppercaseChar() }, style = ConclaveType.title, color = c.fg)
                 // by kind, workflows first; a heading per kind when there are several
                 val groups = TaskKinds.grouped(tasks)
+                // only the first LIVE_ROWS rows move (CHAT-AND-MOTION 1.9)
+                val liveKeys = remember(tasks) { groups.flatMap { it.second }.map { it.key }.take(LIVE_ROWS).toSet() }
                 groups.forEach { (kind, items) ->
                     if (groups.size > 1) Text(kind.group, style = ConclaveType.meta.copy(fontWeight = FontWeight.Medium), color = c.fg3, modifier = Modifier.padding(top = 4.dp))
                     items.forEachIndexed { i, t ->
                         if (i > 0) HorizontalDivider(thickness = 1.dp, color = c.rule)
                         androidx.compose.runtime.key(t.key) {
                             when (t) {
-                                is RunningTask.Flow -> FlowItem(t, results[t.use?.id], onLeave = { open = false })
-                                is RunningTask.Agent -> AgentItem(t, results[t.use.id], work.progress[t.use.id], onLeave = { open = false })
+                                is RunningTask.Flow -> FlowItem(t, results[t.use?.id], still = t.key !in liveKeys, onLeave = { open = false })
+                                is RunningTask.Agent -> AgentItem(t, results[t.use.id], work.progress[t.use.id], still = t.key !in liveKeys, onLeave = { open = false })
                             }
                         }
                     }
@@ -749,38 +765,39 @@ fun RunningTasksLine(tasks: List<RunningTask>, work: SessionWork, results: Map<S
 
 /** A running workflow in the sheet: its name, where it is and "3 of 6 agents running"; a tap shows its phases and agents. */
 @Composable
-private fun FlowItem(t: RunningTask.Flow, result: ToolResultBlock?, onLeave: () -> Unit) {
+private fun FlowItem(t: RunningTask.Flow, result: ToolResultBlock?, still: Boolean, onLeave: () -> Unit) {
     var open by rememberSaveable(t.key) { mutableStateOf(false) }
     val name = t.use?.let { WorkflowWords.workflowName(it.input) } ?: t.run.name.ifBlank { "workflow" }
     val clock by rememberNow(1_000)
     // a workflow's agents each pick their own model: no model word
     val time = Format.durationShort(clock - (t.run.startedAt ?: t.run.createdAt))
     if (open) {
-        ItemHead(TaskKind.WORKFLOW, TaskGlyph.FLOW, name, null, null, time, open = true) { open = false }
+        ItemHead(TaskKind.WORKFLOW, "workflow", name, null, null, time, open = true) { open = false }
         WorkflowDetail(name, t.run, result, callLive = true, onLeave = onLeave)
         return
     }
     val where = listOfNotNull(WorkflowWords.phaseLine(t.run), WorkflowWords.agentsRunning(t.run)).joinToString(". ")
-    ItemHead(TaskKind.WORKFLOW, TaskGlyph.FLOW, name, where, null, time, open = false) { open = true }
+    ItemHead(TaskKind.WORKFLOW, "workflow", name, where, null, time, open = false, still = still) { open = true }
 }
 
 /** A running subagent in the sheet: what it was asked, its agent and what it is doing now; a tap shows the rest. */
 @Composable
-private fun AgentItem(t: RunningTask.Agent, result: ToolResultBlock?, progress: String?, onLeave: () -> Unit) {
+private fun AgentItem(t: RunningTask.Agent, result: ToolResultBlock?, progress: String?, still: Boolean, onLeave: () -> Unit) {
     var open by rememberSaveable(t.key) { mutableStateOf(false) }
     val now = rememberSubagentNow(t.child, on = true, progress = progress)
     val hub = LocalAppContainer.current.hub
     val agent = Tasks.agentOf(t.use, result, t.child)
     val handedTo = Tasks.handedTo(t.use, result, t.child)
     val kind = TaskKinds.kind(t)
-    val glyph = TaskKinds.glyph(kind, agent)
     val model = Tasks.model(t.use, t.child)
     val clock by rememberNow(1_000)
     val time = t.child?.createdAt?.takeIf { it > 0 }?.let { Format.durationShort(clock - it) }
     // "explore: Find the auth code", a delegated job "Code on MadX Arch: Find names"
     val who = handedTo ?: agent
+    // a delegated job gets the delegate's glyph, not the agent it was handed to (the web's TaskTitle)
+    val agentType = if (handedTo != null) "delegate" else agent
     if (open) {
-        ItemHead(kind, glyph, who ?: Tasks.description(t.use), null, model, time, open = true) { open = false }
+        ItemHead(kind, agentType, who ?: Tasks.description(t.use), null, model, time, open = true) { open = false }
         SubagentDetail(t.use, result, t.child, running = true, now = now, onLeave = onLeave)
         return
     }
@@ -788,22 +805,29 @@ private fun AgentItem(t: RunningTask.Agent, result: ToolResultBlock?, progress: 
     // a task whose session went quiet must not look alive (a paused one, or one waiting on you, is quiet on purpose); a busy one is not quiet
     val last = t.child?.takeIf { it.status != SessionStatus.PAUSED && now?.waiting != true }?.let { StopCards.activity(maxOf(it.updatedAt, hub.lastActiveAt(it.id)), clock) }
     val line = listOfNotNull(now?.text ?: "Starting", last?.first).joinToString(". ")
-    ItemHead(kind, glyph, head, line, model, time, open = false, warn = now?.waiting == true || last?.second == true) { open = true }
+    ItemHead(kind, agentType, head, line, model, time, open = false, warn = now?.waiting == true || last?.second == true, still = still) { open = true }
 }
 
 /**
- * An item's first lines: its kind's icon, "Workflow · deep-research" (or
+ * An item's first lines: its agent's glyph (the general-purpose stroke when unnamed), "Workflow · deep-research" (or
  * "Subagent · explore: Find the auth code"), what it does now, then its model
  * and time at the right and its chevron; a tap opens or closes it.
  */
 @Composable
-private fun ItemHead(kind: TaskKind, glyph: TaskGlyph, title: String, detail: String?, model: String?, time: String?, open: Boolean, warn: Boolean = false, onClick: () -> Unit) {
+private fun ItemHead(kind: TaskKind, agentType: String?, title: String, detail: String?, model: String?, time: String?, open: Boolean, warn: Boolean = false, still: Boolean = false, onClick: () -> Unit) {
     val c = Conclave.colors
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(5.dp)).clickable(onClick = onClick).padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(taskIcon(glyph), contentDescription = null, modifier = Modifier.size(18.dp), tint = c.fg3)
+        // the agent's glyph takes the slot the icon had; a row waiting on you holds amber
+        AgentGlyph(
+            type = agentType,
+            state = if (warn) GlyphState.WAITING else GlyphState.RUNNING,
+            size = 18.dp,
+            still = still,
+            label = kind.label,
+        )
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(

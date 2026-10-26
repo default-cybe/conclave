@@ -13,7 +13,7 @@ import { createEngine } from '../../src/engine';
 import type { Engine } from '../../src/engine/engine';
 import { accountsOf } from '../../src/accounts/attached';
 import type { CliproxyCredentialFacts } from '../../src/accounts/service';
-import { handleLimit, limitFallback, nextAccount, resumeAfterReset, switchBack } from '../../src/session/limits';
+import { handleLimit, limitFallback, nextAccount, resumeAfterReset, switchBack, switchBackModel } from '../../src/session/limits';
 import { completeText } from '../../src/session/stream';
 import { runSubagent } from '../../src/engine/subagent';
 import { ProviderError } from '../../src/providers/types';
@@ -35,6 +35,8 @@ const cpa = Bun.serve({
     // Claude ids take the Anthropic wire (anthropicWire below)
     if (path === '/v1/messages') {
       if (String(body.model).startsWith('personal-cl/')) return Response.json({ type: 'error', error: { type: 'rate_limit_error', message: 'The usage limit has been reached' } }, { status: 429, headers: { 'retry-after': '7200' } });
+      // the bare Opus id reaches only the vendor's own plans, and both are at their limit
+      if (body.model === 'claude-opus-5-5') return Response.json({ type: 'error', error: { type: 'rate_limit_error', message: 'The usage limit has been reached' } }, { status: 429, headers: { 'retry-after': '7200' } });
       const ev = [
         { type: 'message_start', message: { id: 'm1', model: body.model, usage: { input_tokens: 10, output_tokens: 0 } } },
         { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
@@ -369,7 +371,7 @@ describe('no plan left for the model: the refusal fallback list is the default l
     await withChain([{ model: 'cliproxy/gpt-6-sol' }, { model: 'cliproxy/gpt-6-mini' }], async () => {
       // the same model (another plan of it) is skipped: no plan of it is ready
       expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/gpt-6-mini' });
-      expect(notices(engine.getMessages(s.id)).at(-1)).toBe('cliproxy/personal-gpt/gpt-6-sol hit its limit. Falling back to cliproxy/gpt-6-mini for this turn.');
+      expect(notices(engine.getMessages(s.id)).at(-1)).toBe('cliproxy/personal-gpt/gpt-6-sol hit its limit. Falling back to cliproxy/gpt-6-mini until a higher model on the list is ready.');
       // configured limits.fallbacks still win
       engine.config.update({ limits: { fallbacks: { 'cliproxy/personal-gpt/gpt-6-sol': ['cliproxy/gpt-6-nano'] } } } as never);
       expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/gpt-6-nano' });
@@ -448,16 +450,110 @@ describe('the usage fallback list (models.limitFallback): by model, each on its 
     await withUsage(CHAIN, async () => {
       // nano is first in the list and first in the refusal list; sol sits in the middle, so mini comes next, on backup (personal is out for mini)
       expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/backup-gpt/gpt-6-mini' });
-      expect(notices(engine.getMessages(s.id)).at(-1)).toBe('cliproxy/personal-gpt/gpt-6-sol hit its limit. Falling back to cliproxy/backup-gpt/gpt-6-mini for this turn.');
+      expect(notices(engine.getMessages(s.id)).at(-1)).toBe('cliproxy/personal-gpt/gpt-6-sol hit its limit. Falling back to cliproxy/backup-gpt/gpt-6-mini until a higher model on the list is ready.');
       // mini tried this turn too: nothing below it, it parks
       expect(await handleLimit(engine, { id: s.id, turnCheckpoint: undefined } as never, 'cliproxy/personal-gpt/gpt-6-sol', limitErr(), ['cliproxy/backup-gpt/gpt-6-mini'])).toEqual({ parked: true });
     });
     // a model not on the list starts from the top
+    const t = await engine.createSession({ cwd, title: 'usage unlisted', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
     solBlocked();
     await withUsage(['cliproxy/gpt-6-mini', 'cliproxy/gpt-6-nano'], async () => {
-      expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/backup-gpt/gpt-6-mini' });
+      expect(await limit(t.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/backup-gpt/gpt-6-mini' });
     });
   });
+
+  test('sticky model fallback: sticks across turns, header model equals what ran, switches back to a higher list model or from, manual pick ends it, members untouched', async () => {
+    const ALL = [{ id: 'gpt-6-sol' }, { id: 'gpt-6-mini' }, { id: 'gpt-6-nano' }];
+    const out = (model: string) => ({ reason: 'quota', model, until: Date.now() + 3_600_000 });
+    const feedModels = (blocked: string[]) =>
+      feed({
+        personal: { models: ALL, cooldowns: [...blocked.map(out), out('gpt-6-mini')] },
+        backup: { models: ALL, cooldowns: blocked.map(out) },
+        spare: { models: ALL, cooldowns: blocked.map(out) },
+      });
+    const LIST = ['cliproxy/gpt-6-sol', 'cliproxy/gpt-6-nano', 'cliproxy/gpt-6-mini'];
+    const settleModel = (id: string) => {
+      const lf = engine.getSession(id)!.meta?.limitFallback as Record<string, unknown>;
+      engine.patchMeta(id, { limitFallback: { from: lf.from, to: lf.to, at: Date.now() - 16 * 60_000 } });
+    };
+
+    await withUsage(LIST, async () => {
+      // sol and nano are limited on every plan; mini is ready on backup-gpt
+      feedModels(['gpt-6-sol', 'gpt-6-nano']);
+      const s = await engine.createSession({ cwd, title: 'sticky', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
+      const runner = engine.runnerFor(s.id);
+      await runner.enqueue({ text: 'turn 1' });
+      await Promise.race([runner.waitIdle(), Bun.sleep(15_000)]);
+
+      // header model (session.model) equals what ran, and meta.limitFallback records from/to/at
+      const last1 = engine.getMessages(s.id).filter((m) => m.role === 'assistant' && m.kind === 'normal').at(-1)!;
+      expect(last1.model).toBe('cliproxy/backup-gpt/gpt-6-mini');
+      expect(engine.getSession(s.id)!.model).toBe(last1.model!);
+      expect(engine.getSession(s.id)!.meta?.limitFallback).toMatchObject({
+        from: 'cliproxy/personal-gpt/gpt-6-sol',
+        to: 'cliproxy/backup-gpt/gpt-6-mini',
+      });
+      expect(typeof (engine.getSession(s.id)!.meta?.limitFallback as { at?: unknown })?.at).toBe('number');
+
+      // turn 2: sticks to backup-gpt/gpt-6-mini with no failed retry of the limited model
+      calls.length = 0;
+      await runner.enqueue({ text: 'turn 2' });
+      await Promise.race([runner.waitIdle(), Bun.sleep(15_000)]);
+      expect(calls).toEqual(['backup-gpt/gpt-6-mini']);
+      expect(engine.getSession(s.id)!.model).toBe('cliproxy/backup-gpt/gpt-6-mini');
+
+      // a ready model higher on the list (nano) but below from (sol) is taken at turn start, even before from's reset gate
+      feedModels(['gpt-6-sol']);
+      expect(switchBackModel(engine, s.id)).toBe('cliproxy/backup-gpt/gpt-6-nano');
+      expect(engine.getSession(s.id)!.model).toBe('cliproxy/backup-gpt/gpt-6-nano');
+      expect(engine.getSession(s.id)!.meta?.limitFallback).toMatchObject({
+        from: 'cliproxy/personal-gpt/gpt-6-sol',
+        to: 'cliproxy/backup-gpt/gpt-6-nano',
+      });
+      expect(notices(engine.getMessages(s.id)).at(-1)).toContain('Back on');
+
+      // from (sol) is ready on backup-gpt, gated until reset or 15 min passes
+      feedModels([]);
+      expect(switchBackModel(engine, s.id)).toBeUndefined();
+      settleModel(s.id);
+      calls.length = 0;
+      await runner.enqueue({ text: 'turn 3' });
+      await Promise.race([runner.waitIdle(), Bun.sleep(15_000)]);
+      expect(calls).toEqual(['backup-gpt/gpt-6-sol']);
+      expect(engine.getSession(s.id)!.model).toBe('cliproxy/backup-gpt/gpt-6-sol');
+      expect(engine.getSession(s.id)!.meta?.limitFallback).toBeUndefined();
+
+      // manual pick ends it
+      feedModels(['gpt-6-sol', 'gpt-6-nano']);
+      const hand = await engine.createSession({ cwd, title: 'manual', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
+      expect(await limit(hand.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/backup-gpt/gpt-6-mini' });
+      expect(engine.getSession(hand.id)!.meta?.limitFallback).toBeDefined();
+      engine.updateSession(hand.id, { model: 'cliproxy/spare-gpt/gpt-6-sol' });
+      feedModels([]);
+      settleModel(hand.id);
+      expect(switchBackModel(engine, hand.id)).toBeUndefined();
+      expect(engine.getSession(hand.id)!.model).toBe('cliproxy/spare-gpt/gpt-6-sol');
+      expect(engine.getSession(hand.id)!.meta?.limitFallback).toBeUndefined();
+
+      // one-turn override does not overwrite session.model or switchBackModel
+      feedModels(['gpt-6-sol', 'gpt-6-nano']);
+      const over = await engine.createSession({ cwd, title: 'override', model: 'cliproxy/spare-gpt/gpt-6-mini' } as never);
+      expect(await handleLimit(engine, { id: over.id, turnCheckpoint: undefined } as never, 'cliproxy/personal-gpt/gpt-6-sol', limitErr(), [], { sticky: false })).toEqual({ fallback: 'cliproxy/backup-gpt/gpt-6-mini' });
+      expect(engine.getSession(over.id)!.model).toBe('cliproxy/spare-gpt/gpt-6-mini');
+      expect(engine.getSession(over.id)!.meta?.limitFallback).toBeUndefined();
+
+      // members untouched
+      engine.config.update({ limits: { fallbacks: { 'cliproxy/personal-gpt/gpt-6-sol': ['cliproxy/spare-gpt/gpt-6-mini'] } } } as never);
+      const mem = await engine.createSession({ cwd, title: 'member-model', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never, 'acc_alice');
+      expect(await limit(mem.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/spare-gpt/gpt-6-mini' });
+      expect(engine.repos.sessions.get(mem.id)!.model).toBe('cliproxy/personal-gpt/gpt-6-sol');
+      expect(engine.repos.sessions.get(mem.id)!.meta?.limitFallback).toBeUndefined();
+      engine.patchMeta(mem.id, { limitFallback: { from: 'cliproxy/personal-gpt/gpt-6-sol', to: 'cliproxy/personal-gpt/gpt-6-sol', at: 0 } });
+      feedModels([]);
+      expect(switchBackModel(engine, mem.id)).toBeUndefined();
+      clearFallbacks();
+    });
+  }, 30_000);
 
   test('the next model on a plan that lists only a variant of it gets the plan\'s own id', async () => {
     const s = await engine.createSession({ cwd, title: 'usage variant', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
@@ -673,6 +769,109 @@ describe("an effort variant at its limit (Antigravity's claude-opus-5-5-high)", 
       engine.config.update({ models: { accounts: [...claudeAccounts, ...gptAccounts], limitFallback: { enabled: false, models: [] } }, providers: { anthropic: { enabled: false } } } as never);
     }
   });
+});
+
+describe('switchBackModel beyond the usage list: the refusal list and untracked providers', () => {
+  const ALL = [{ id: 'gpt-6-sol' }, { id: 'gpt-6-mini' }, { id: 'gpt-6-nano' }];
+  const out = (model: string) => ({ reason: 'quota', model, until: Date.now() + 3_600_000 });
+  const settleModel = (id: string) => {
+    const lf = engine.getSession(id)!.meta?.limitFallback as Record<string, unknown>;
+    engine.patchMeta(id, { limitFallback: { from: lf.from, to: lf.to, at: Date.now() - 16 * 60_000 } });
+  };
+
+  test('a session that fell back down the refusal list steps up to a ready higher entry', async () => {
+    const s = await engine.createSession({ cwd, title: 'refusal step-up', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never);
+    await withChain([{ model: 'cliproxy/gpt-6-sol' }, { model: 'cliproxy/gpt-6-mini' }, { model: 'cliproxy/gpt-6-nano' }], async () => {
+      // sol and mini are out everywhere: the walk lands on nano
+      feed({ personal: { models: ALL, cooldowns: [out('gpt-6-sol'), out('gpt-6-mini')] }, backup: { models: ALL, cooldowns: [out('gpt-6-sol'), out('gpt-6-mini')] }, spare: { models: ALL, cooldowns: [out('gpt-6-sol'), out('gpt-6-mini')] } });
+      expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/gpt-6-nano' });
+      expect(engine.getSession(s.id)!.model).toBe('cliproxy/gpt-6-nano');
+      // mini is ready again, sol still out: one entry up the refusal list, before from's reset gate
+      feed({ personal: { models: ALL, cooldowns: [out('gpt-6-sol')] }, backup: { models: ALL, cooldowns: [out('gpt-6-sol')] }, spare: { models: ALL, cooldowns: [out('gpt-6-sol')] } });
+      expect(switchBackModel(engine, s.id)).toBe('cliproxy/personal-gpt/gpt-6-mini');
+      expect(engine.getSession(s.id)!.meta?.limitFallback).toMatchObject({ from: 'cliproxy/personal-gpt/gpt-6-sol', to: 'cliproxy/personal-gpt/gpt-6-mini' });
+    });
+  });
+
+  test('a fallback to a provider the accounts do not track goes back to it once it can be called', async () => {
+    const before = structuredClone(engine.config.getUser().providers);
+    engine.config.update({ providers: { zai: { type: 'openai', baseUrl: 'https://api.z.ai/api/coding/paas/v4', apiKey: 'zai-test-key', enabled: true, models: ['glm-5.3'] } } } as never);
+    engine.config.update({ limits: { fallbacks: { 'zai/glm-5.3': ['cliproxy/gpt-6-mini'] } } } as never);
+    try {
+      feed();
+      const s = await engine.createSession({ cwd, title: 'untracked', model: 'zai/glm-5.3' } as never);
+      expect(await limit(s.id, 'zai/glm-5.3')).toEqual({ fallback: 'cliproxy/gpt-6-mini' });
+      expect(engine.getSession(s.id)!.model).toBe('cliproxy/gpt-6-mini');
+      settleModel(s.id);
+      expect(switchBackModel(engine, s.id)).toBe('zai/glm-5.3');
+      expect(engine.getSession(s.id)!.meta?.limitFallback).toBeUndefined();
+    } finally {
+      engine.config.update({ limits: { fallbacks: {} } } as never);
+      engine.config.replace({ ...engine.config.getUser(), providers: before });
+    }
+  });
+
+  test('an account failover that ends in a model fallback keeps the original ref and its reset', async () => {
+    const TWO = [{ id: 'gpt-6-sol' }, { id: 'gpt-6-mini' }];
+    const s = await engine.createSession({ cwd, title: 'switch then model', model: 'cliproxy/spare-gpt/gpt-6-sol' } as never);
+    // spare-gpt hits its limit: the same model continues on personal-gpt (limitSwitch)
+    feed({ spare: { cooldowns: [out('gpt-6-sol')] } });
+    expect(await limit(s.id, 'cliproxy/spare-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/personal-gpt/gpt-6-sol' });
+    expect(engine.getSession(s.id)!.meta?.limitSwitch).toMatchObject({ from: 'cliproxy/spare-gpt/gpt-6-sol', to: 'cliproxy/personal-gpt/gpt-6-sol' });
+    // every plan of the model is out now: the refusal list offers mini on backup-gpt (limitFallback)
+    await withChain([{ model: 'cliproxy/gpt-6-mini' }], async () => {
+      feed({ personal: { models: TWO, cooldowns: [out('gpt-6-sol'), out('gpt-6-mini')] }, backup: { models: TWO, cooldowns: [out('gpt-6-sol')] }, spare: { models: TWO, cooldowns: [out('gpt-6-sol'), out('gpt-6-mini')] } });
+      expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/gpt-6-mini' });
+      // the original ref is kept and the account failover folded in, not left stale beside it
+      const lf = engine.getSession(s.id)!.meta?.limitFallback as Record<string, unknown>;
+      expect(lf.from).toBe('cliproxy/spare-gpt/gpt-6-sol');
+      expect(typeof lf.until).toBe('number');
+      expect(engine.getSession(s.id)!.meta?.limitSwitch).toBeUndefined();
+      // and the session goes back to the model once the window passes
+      settleModel(s.id);
+      feed();
+      expect(switchBackModel(engine, s.id)).toBe('cliproxy/personal-gpt/gpt-6-sol');
+      expect(engine.getSession(s.id)!.meta?.limitFallback).toBeUndefined();
+    });
+  });
+});
+
+describe('an intra-call plan failover on a bare model ref', () => {
+  test('the session keeps the plan the call moved to, and the next turn starts there', async () => {
+    const gptAccounts = IDS.map((id) => ({ id, label: `${id}-gpt`, vendor: 'openai', kind: 'subscription', credential: `codex-${id}-gpt.json` }));
+    const models = [...(engine.config.get().providers as any).cliproxy.models];
+    engine.config.update({
+      models: { accounts: [{ id: 'neu', label: 'NEU Claude', vendor: 'anthropic', kind: 'subscription', credential: 'neu.json' }, { id: 'ag', label: 'Antigravity', vendor: 'gemini', kind: 'subscription', credential: 'ag.json' }, ...gptAccounts] },
+      providers: { cliproxy: { models: [...models, 'claude-opus-5-5', 'ag/claude-opus-5-5-high'] } },
+    } as never);
+    // the bare Opus id reaches the NEU plan; Antigravity lists only its own -high id
+    accountsOf(engine)!.setCliproxy({
+      provider: 'cliproxy',
+      management: true,
+      refreshedAt: Date.now() - 1000,
+      credentials: [
+        { ...cred('neu'), name: 'neu.json', provider: 'claude', models: [{ id: 'claude-opus-5-5' }] },
+        { ...cred('ag'), name: 'ag.json', provider: 'antigravity', models: [{ id: 'claude-opus-5-5-high' }] },
+        ...IDS.map((id) => cred(`${id}-gpt`)),
+      ],
+    });
+    try {
+      const s = await engine.createSession({ cwd, title: 'bare failover', model: 'cliproxy/claude-opus-5-5' } as never);
+      const runner = engine.runnerFor(s.id);
+      await runner.enqueue({ text: 'hi' });
+      await Promise.race([runner.waitIdle(), Bun.sleep(15_000)]);
+      expect(calls).toEqual(['claude-opus-5-5', 'ag/claude-opus-5-5-high']);
+      expect(engine.getSession(s.id)!.model).toBe('cliproxy/ag/claude-opus-5-5-high');
+      expect(engine.getSession(s.id)!.meta?.limitSwitch).toMatchObject({ from: 'cliproxy/claude-opus-5-5', to: 'cliproxy/ag/claude-opus-5-5-high' });
+      // the next turn starts there, not on the limited bare id again
+      calls.length = 0;
+      await runner.enqueue({ text: 'again' });
+      await Promise.race([runner.waitIdle(), Bun.sleep(15_000)]);
+      expect(calls).toEqual(['ag/claude-opus-5-5-high']);
+    } finally {
+      engine.config.update({ models: { accounts: gptAccounts }, providers: { cliproxy: { models } } } as never);
+    }
+  }, 30_000);
 });
 
 describe('a refusal fallback entry at its limit tries the next plan of its model first', () => {
