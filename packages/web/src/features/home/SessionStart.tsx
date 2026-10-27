@@ -29,7 +29,9 @@
  *
  * From GitHub (docs/DESIGN.md 30): with a repository picked, the session
  * starts in a new worktree of it on its own branch, on the device picked
- * (the hub unless you choose), so no folder is asked for.
+ * (the hub unless you choose), so no folder is asked for. An open issue of
+ * it (picked, or a pasted link) becomes the session's task and name; the
+ * hub puts the issue in the first message, after what you typed.
  *
  * Run in a worktree: when the folder is in a git repository, "+" (and the
  * phone's options) offer a worktree of it on a new branch from its current
@@ -62,7 +64,8 @@ import { keepSession, sendToAssistant, type Outgoing } from '@/features/conversa
 import { SEND_EVENT, type ComposerTarget } from '@/features/conversation/ChatComposer';
 import { useAgentFollow } from '@/features/conversation/ComposerParts';
 import { OptionsButton } from '@/features/conversation/PhoneBox';
-import { BranchPicker, RepoList, RepoPicker, type RepoPick } from '@/features/github/RepoPicker';
+import { sameRepo } from '@/lib/github';
+import { BranchPicker, IssuePicker, RepoList, RepoPicker, type IssuePick, type RepoPick } from '@/features/github/RepoPicker';
 import { ASSISTANT_AGENT, CODE_AGENT, CODE_NEEDS_DEVICE, commandOf, customAgent, lastOwnSession, needsOwnDevice, placeName, readPicks, savePicks, sessionSetup, startCommands, startEffort, type Picks } from './start';
 import { startSurface, useThisComputer } from './here';
 import { DeviceChip, FolderChip, computerList, deviceItems, useComputers } from './Where';
@@ -91,6 +94,8 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
   const [folderOpen, setFolderOpen] = useState(false);
   const [moreOptions, setMoreOptions] = useState(false);
   const [wantRepo, setWantRepo] = useState(false);
+  // an issue is for the next session only, so it is not kept with the picks
+  const [issuePick, setIssuePick] = useState<IssuePick>();
   // a design direction for this one session (not kept for the next); Match a reference is /design in the session, it needs a URL or a screenshot
   const [design, setDesign] = useState<DesignDirection>();
   // the box clears at once; until the session opens, a line under it says it is starting
@@ -124,6 +129,7 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
   const thinking = startEffort(picks.thinking, effort);
   const follow = useAgentFollow(setup.agent, setup.model, code);
   const repo: RepoPick | undefined = code && picks.repo ? { repo: picks.repo, ...(picks.base ? { base: picks.base } : {}) } : undefined;
+  const issue = repo && sameRepo(issuePick?.repo, repo.repo) ? issuePick : undefined;
   // a folder picked here (the home folder too), or the last session's; a repository needs none; the assistant works on the hub
   const placeSet = !code || picks.cwd !== undefined || !!setup.cwd || !!repo;
   // "Run in a worktree" is offered only for a folder in a git repository: asked of the device once per folder
@@ -181,6 +187,12 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
     update({ ...picks, repo: v?.repo, base: v?.base, ...(v && !picks.repo ? { device: member ? setup.device : 'local', cwd: undefined, cwdDevice: undefined } : {}) });
   };
   const pickBase = (base: string | undefined) => update({ ...picks, base });
+  // an issue of another repository (a pasted link) picks that repository too
+  // (the same one in other letter case keeps the pick and its branch)
+  const pickIssue = (v: IssuePick | undefined) => {
+    if (v && !sameRepo(v.repo, picks.repo)) pickRepo({ repo: v.repo });
+    setIssuePick(v && picks.repo && sameRepo(v.repo, picks.repo) ? { ...v, repo: picks.repo } : v);
+  };
 
   const send = async (out: Outgoing): Promise<boolean> => {
     const command = commandOf(out.text, commands);
@@ -214,13 +226,14 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
         !!picks.worktree && code && !repo && !!setup.cwd && (folderGit?.key === gitKey ? folderGit.git : !!(await api().folderGit(setup.device, setup.cwd).catch(() => undefined))?.git);
       const s = await attempt(() =>
         repo
-          ? api().createRepoSession({ ...common, repo: repo.repo, ...(repo.base ? { base: repo.base } : {}) })
+          ? api().createRepoSession({ ...common, repo: repo.repo, ...(repo.base ? { base: repo.base } : {}), ...(issue ? { issue: issue.number } : {}) })
           : inWorktree && setup.cwd
             ? api().createWorktreeSession({ ...common, folder: setup.cwd })
             : api().createSession({ ...common, cwd: setup.cwd }),
       );
       if (!s) return false;
       keepSession(s);
+      setIssuePick(undefined);
       if (code && picks.ultra) {
         const on = await attempt(() => api().updateSession(s.id, { ultra: true }));
         if (on) upsertSession(on);
@@ -293,8 +306,9 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
       {code &&
         (repo || wantRepo ? (
           <>
-            <RepoPicker look="text" value={repo} onChange={pickRepo} className="h-[24px] text-[12px]" />
+            <RepoPicker look="text" value={repo} onChange={pickRepo} onIssue={pickIssue} className="h-[24px] text-[12px]" />
             {repo && <BranchPicker look="text" repo={repo.repo} value={repo.base} onChange={pickBase} className="h-[24px] text-[12px]" />}
+            {repo && <IssuePicker look="text" repo={repo.repo} value={issue} onChange={pickIssue} className="h-[24px] text-[12px]" />}
           </>
         ) : (
           <FolderChip device={setup.device} cwd={picks.cwd ?? setup.cwd} onCwd={chooseCwd} open={folderOpen} onOpenChange={folderChip} />
@@ -306,8 +320,9 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
   const field = {
     agent: <AgentPicker look="field" value={setup.agent} onChange={pickAgent} />,
     device: <DeviceFolderPicker look="field" device={setup.device} cwd={setup.cwd} onDevice={pickDevice} onCwd={repo ? undefined : pickCwd} showCwd={!repo} />,
-    repo: <RepoPicker look="field" value={repo} onChange={pickRepo} />,
+    repo: <RepoPicker look="field" value={repo} onChange={pickRepo} onIssue={pickIssue} />,
     base: repo ? <BranchPicker look="field" repo={repo.repo} value={repo.base} onChange={pickBase} /> : null,
+    issue: repo ? <IssuePicker look="field" repo={repo.repo} value={issue} onChange={pickIssue} /> : null,
   };
 
   return {
@@ -330,6 +345,7 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
             {code && <Row label={repo ? 'Device' : 'Device and folder'}>{field.device}</Row>}
             {code && <Row label="GitHub repository">{field.repo}</Row>}
             {repo && <Row label="Start from">{field.base}</Row>}
+            {repo && <Row label="Issue">{field.issue}</Row>}
             {isGit && (
               <Row label="Run in a worktree">
                 <SelectMenu
@@ -420,10 +436,11 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
     },
     send,
     sendLabel: code ? 'Start session' : 'Send',
-    placeholder: mobile ? (code ? 'Describe a task' : 'Ask your assistant') : 'Type / for commands',
+    sendEmpty: !!issue,
+    placeholder: issue ? `Add a note for #${issue.number}` : mobile ? (code ? 'Describe a task' : 'Ask your assistant') : 'Type / for commands',
     commands,
     note: starting ? (
-      <LiveStatus state="tool" label={repo ? `Making a worktree of ${repo.repo}` : worktreeOn ? 'Making a worktree' : 'Starting the session'} detail={code ? `${setup.agent ?? 'agent'} on ${deviceName}` : 'on the hub'} startedAt={starting} />
+      <LiveStatus state="tool" label={repo ? `Making a worktree of ${repo.repo}${issue ? ` for #${issue.number}` : ''}` : worktreeOn ? 'Making a worktree' : 'Starting the session'} detail={code ? `${setup.agent ?? 'agent'} on ${deviceName}` : 'on the hub'} startedAt={starting} />
     ) : resume && !mobile ? (
       <p className="truncate">
         Resume{' '}

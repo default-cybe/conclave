@@ -62,6 +62,24 @@ export interface RepoSessionInput {
   prompt?: string;
   permissionMode?: PermissionMode;
   chat?: Partial<ChatSettings>;
+  /**
+   * An issue of the repository to work on: its title, body and last comments
+   * go into the first message (wrapped as untrusted text), with "Fixes #N"
+   * guidance, and the session is named after it unless title is set.
+   */
+  issue?: number;
+}
+
+/** GET /api/github/repos/:owner/:name/issues: one open issue. */
+export interface GithubIssueDto {
+  number: number;
+  title: string;
+  labels: string[];
+  url: string;
+  author?: string;
+  comments: number;
+  /** Last update, epoch ms. */
+  updatedAt?: number;
 }
 
 /**
@@ -70,7 +88,7 @@ export interface RepoSessionInput {
  * the folder's current branch, so several sessions work on one repository
  * at once; Merge brings it back, Discard drops it.
  */
-export interface WorktreeSessionInput extends Omit<RepoSessionInput, 'repo' | 'base'> {
+export interface WorktreeSessionInput extends Omit<RepoSessionInput, 'repo' | 'base' | 'issue'> {
   /** A folder in the repository, on the device. */
   folder: string;
 }

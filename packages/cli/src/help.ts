@@ -152,7 +152,7 @@ export const HELP: Record<string, CommandHelp> = {
   },
   sessions: {
     usage:
-      'conclave sessions [ls | show <id> | rm <id> | export <id> | send <id> --to <friend>]\nconclave sessions new --repo owner/name [--base main] [--device x] [task]\nconclave sessions push|pr|cleanup|repo <id>',
+      'conclave sessions [ls | show <id> | rm <id> | export <id> | send <id> --to <friend>]\nconclave sessions new --repo owner/name [--base main] [--issue N] [--device x] [task]\nconclave sessions push|pr|cleanup|repo <id>',
     summary: 'List, show, start, delete, export or send sessions',
     details: [
       'new      with --repo: a repo session in a fresh worktree of a GitHub repository on its own conclave/ branch',
@@ -184,6 +184,7 @@ export const HELP: Record<string, CommandHelp> = {
       ['--dry-run [--show]', 'Send: the review only; --show prints the finds in full'],
       ['--repo OWNER/NAME', 'New: the GitHub repository'],
       ['--base BRANCH', 'New: the branch to start from (default: the default branch)'],
+      ['--issue N', 'New: an open issue of the repository as the task; the task words become a note before it'],
       ['--message M', 'Push: commit uncommitted files with this message first'],
       ['--title T, --body B, --draft', 'Pr: the title and body (default: drafted from the session), as a draft'],
       ['--yes', 'Pr: open it without asking'],

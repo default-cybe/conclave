@@ -9,7 +9,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import type { RepoSessionDto } from '@conclave/core/client';
 import type { ApprovalRequest } from '@conclave/core/types';
 import { approvalLine, approvalTitle } from '../src/components/inbox/ApprovalCard';
-import { branchShort, canFixChecks, ciTone, ciWords, prWords, repoActions, repoWhere, sessionRepo } from '../src/lib/github';
+import { branchShort, canFixChecks, ciTone, ciWords, parseIssueRef, prWords, repoActions, repoWhere, sameRepo, sessionRepo } from '../src/lib/github';
 import { readPicks, savePicks, sessionSetup } from '../src/features/home/start';
 
 function dto(p: Partial<RepoSessionDto> = {}): RepoSessionDto {
@@ -135,5 +135,23 @@ describe('the repository pick on Home', () => {
     m.set('conclave.quickstart', JSON.stringify({ repo: 42, base: '' }));
     expect(readPicks().repo).toBeUndefined();
     expect(readPicks().base).toBeUndefined();
+  });
+});
+
+describe('a pasted issue', () => {
+  test('a link, owner/name#N, or a number of the picked repository', () => {
+    expect(parseIssueRef('https://github.com/acme/widgets/issues/128')).toEqual({ repo: 'acme/widgets', issue: 128 });
+    expect(parseIssueRef('  github.com/acme/widgets/issues/12#issuecomment-9 ')).toEqual({ repo: 'acme/widgets', issue: 12 });
+    expect(parseIssueRef('acme/widgets#7')).toEqual({ repo: 'acme/widgets', issue: 7 });
+    expect(parseIssueRef('#5', 'acme/docs')).toEqual({ repo: 'acme/docs', issue: 5 });
+    expect(parseIssueRef('5')).toBeUndefined();
+    expect(parseIssueRef('https://github.com/acme/widgets/pull/3')).toBeUndefined();
+    expect(parseIssueRef('login bug', 'acme/docs')).toBeUndefined();
+  });
+
+  test('repository names compare without case', () => {
+    expect(sameRepo('Acme/Widgets', 'acme/widgets')).toBe(true);
+    expect(sameRepo('acme/widgets', 'acme/docs')).toBe(false);
+    expect(sameRepo(undefined, 'acme/docs')).toBe(false);
   });
 });
