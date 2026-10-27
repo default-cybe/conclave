@@ -13,6 +13,21 @@ like `## [0.4.16] - 2026-10-24`.
 
 - The chat makes files itself instead of handing them to a Code session. It writes text, Markdown, CSV, JSON, HTML and SVG with Write and Read, both confined to the chat's outputs folder on the hub (a path outside it, through `..` or a symlink, is refused), and a new opt-in RenderFile tool turns an HTML, SVG or Markdown file there into a PDF (A4 or Letter) or PNG with the hub's Chromium, then ShareFile hands it over. Rendering is offline: every request except files in the outputs folder is aborted, JavaScript and service workers are off, inputs are capped at 5 MB and outputs at 25 MB, and a render stops after 30 seconds. The chat still has no shell, and delegates only work that needs the owner's devices or files, a shell, code to run, mail, calendar or the browser. The assistant gets RenderFile too; untrusted agents and members' sessions do not. Without a browser installed on the hub, RenderFile says so.
 
+## [0.4.40] - 2026-10-27
+
+### Added
+
+- Android: share anything to Conclave. The app now shows in the share sheet for any file and for several files at once (PDFs, documents, zips, pictures from Files, Gallery or Drive), not only text and single images. Before anything opens, a "Share to" page asks where it goes: a new Chat, Assistant or Code conversation (Code asks for its folder as usual), or any existing chat or session, searchable, newest first and marked by mode. The files land in that conversation's box, unsent, so you can type and send. Back drops the share. A file the hub cannot read (video, audio, Office files), one over 8 MB, or more than 15 files or 45 MB together is named on that page with the reason instead of being dropped silently. A share made while the app is locked or not yet paired waits until it is open.
+
+### Fixed
+
+- Claude Code import keeps the whole history of a chat compacted many times. Newer Claude Code builds re-write a preserved tail of messages after a compaction and point the compact boundary at it, so the import stopped at that compaction and dropped everything before it. When a boundary's link back is missing, dead or loops, the import (hub and Rust daemon) now goes on from the last message written before the boundary. Each message shows once, and chats that imported fine before import the same.
+
+### Changed
+
+- Memory > Map is now a mind map of all your memory: the brain in the middle, your areas (People, Projects, Homelab, Courses and more, taken from your folders and tags) around it, and the items of an area as plain labels joined by curves. Open an item to see its links, double click to center on it, search reaches every item and draws the path inside the tree, and the scrubber fades what came later. The map now loads every item, not the first 1,000.
+- New chats and sessions get a name as soon as the first message arrives, before the agent works: the first line of the message at once, then the title model's name from that message alone, while the turn runs. The name then keeps up with the work: after a big step (a turn that edited files, changed the todo list or plan, was compacted, or ran 6 or more tools), or after 6 turns, the title model is asked again with the current title and the recent messages, and keeps it when the topic has not moved. It asks at most once per 3 turns and once per 2 minutes. A title you set is never changed, subagents are not named, and headless runs are still named from their prompt with no model call. The web and Android show the new name live.
+
 ## [0.4.39] - 2026-10-27
 
 ### Added

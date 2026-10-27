@@ -939,7 +939,7 @@ export class SessionRunner {
       this.starting = undefined;
       this.emitQueue();
     }
-    // a headless run is named here from its prompt, so it does not end before its title is written; other sessions are named after the first answer (engine.retitle)
+    // named here from the prompt before the agent works; the title model runs alongside, the turn does not wait (engine.generateTitle)
     if (isFirstTurn && !retry) void engine.generateTitle(this.id);
 
     // checkpoint before anything can change files (a chat has no file tools); it runs while the

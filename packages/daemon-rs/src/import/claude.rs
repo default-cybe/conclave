@@ -183,14 +183,27 @@ fn active_lines(lines: &[Line], keep_sidechain: bool) -> Vec<usize> {
     let mut chain: HashSet<Option<&str>> = HashSet::new();
     let mut chain_order: Vec<usize> = Vec::new();
     let mut cur = Some(leaf);
+    // a compact boundary passed whose earlier history the walk has not reached yet
+    let mut open: Option<usize> = None;
     for _ in 0..1_000_000 {
+        if cur.is_none_or(|c| chain.contains(&lines[c].uuid())) {
+            // the boundary's back link is missing, dead or loops (newer builds re-write a preserved tail after it): go on from the newest line written before it
+            let before = open.take().unwrap_or(0);
+            cur = (0..before).rev().find(|&i| {
+                let x = &lines[i];
+                matches!(x.s("type"), Some("user" | "assistant")) && !truthy(x.v.get("isSidechain")) && x.uuid().is_some_and(|u| !chain.contains(&Some(u)) && !retracted.contains(u))
+            });
+        }
         let Some(c) = cur else { break };
         let u = lines[c].uuid();
-        if chain.contains(&u) {
-            break;
-        }
         chain.insert(u);
         chain_order.push(c);
+        if open.is_some_and(|b| c < b) {
+            open = None;
+        }
+        if lines[c].s("subtype") == Some("compact_boundary") {
+            open = Some(c);
+        }
         let next = lines[c].s("parentUuid").or_else(|| lines[c].s("logicalParentUuid"));
         cur = next.and_then(|n| by_uuid.get(n).copied());
     }
@@ -214,10 +227,15 @@ fn active_lines(lines: &[Line], keep_sidechain: bool) -> Vec<usize> {
             }
         }
     }
+    // a uuid written twice (a preserved message re-written after a boundary) shows once, at its first place
+    let mut seen: HashSet<&str> = HashSet::new();
     msg_lines
         .into_iter()
         .filter(|&i| {
             let l = &lines[i];
+            if l.uuid().is_some_and(|u| !seen.insert(u)) {
+                return false;
+            }
             if chain.contains(&l.uuid()) {
                 return true;
             }
@@ -681,5 +699,48 @@ mod tests {
         assert_eq!(c.title.as_deref(), Some("first prompt"));
         assert_eq!(c.unknown.get("line:weird-line"), Some(&json!(1)));
         assert_eq!(c.messages[0]["createdAt"], json!(1_735_689_600_000i64));
+    }
+
+    // June, a rewound prompt, compaction 1, September, compaction 2 (b2), then the lines after b2
+    fn compacted(b2: &str, after: &[&str]) -> Vec<String> {
+        let mut lines = vec![
+            r#"{"type":"user","uuid":"u1","parentUuid":null,"message":{"role":"user","content":"June prompt"}}"#.to_string(),
+            r#"{"type":"assistant","uuid":"a1","parentUuid":"u1","message":{"id":"ma1","model":"claude-x","content":[{"type":"text","text":"June reply"}]}}"#.to_string(),
+            r#"{"type":"user","uuid":"x1","parentUuid":"u1","message":{"role":"user","content":"rewound prompt"}}"#.to_string(),
+            r#"{"type":"system","subtype":"compact_boundary","uuid":"b1","parentUuid":null,"logicalParentUuid":"a1"}"#.to_string(),
+            r#"{"type":"user","uuid":"s1","parentUuid":"b1","isCompactSummary":true,"message":{"role":"user","content":"summary 1"}}"#.to_string(),
+            r#"{"type":"user","uuid":"u2","parentUuid":"s1","message":{"role":"user","content":"Sept prompt"}}"#.to_string(),
+            r#"{"type":"assistant","uuid":"a2","parentUuid":"u2","message":{"id":"ma2","model":"claude-x","content":[{"type":"text","text":"Sept reply"}]}}"#.to_string(),
+            format!(r#"{{"type":"system","subtype":"compact_boundary","uuid":"b2","parentUuid":null{b2}}}"#),
+        ];
+        lines.extend(after.iter().map(|s| s.to_string()));
+        lines.push(r#"{"type":"last-prompt","leafUuid":"u3"}"#.to_string());
+        let c = convert(lines.join("\n").as_bytes(), false, None);
+        c.messages.iter().map(|m| format!("{}:{}", m["kind"].as_str().unwrap(), content(m)[0]["text"].as_str().unwrap())).collect()
+    }
+
+    const WHOLE: [&str; 8] = ["normal:June prompt", "normal:June reply", "summary:summary 1", "normal:Sept prompt", "normal:Sept reply", "summary:summary 2", "normal:Oct prompt", "normal:Oct reply"];
+    const S2: &str = r#"{"type":"user","uuid":"s2","parentUuid":"b2","isCompactSummary":true,"message":{"role":"user","content":"summary 2"}}"#;
+    const A3: &str = r#"{"type":"assistant","uuid":"a3","parentUuid":"u3","message":{"id":"ma3","model":"claude-x","content":[{"type":"text","text":"Oct reply"}]}}"#;
+
+    #[test]
+    fn boundary_with_preserved_tail_after_it_keeps_whole_history_once() {
+        // the tail p1 hangs off the summary, a preserved reply is re-written under it, and the boundary points at p1
+        let tail = [
+            S2,
+            r#"{"type":"attachment","uuid":"p1","parentUuid":"s2","attachment":{"type":"file"}}"#,
+            r#"{"type":"assistant","uuid":"a2","parentUuid":"p1","message":{"id":"ma2","model":"claude-x","content":[{"type":"text","text":"Sept reply"}]}}"#,
+            r#"{"type":"user","uuid":"u3","parentUuid":"a2","message":{"role":"user","content":"Oct prompt"}}"#,
+            A3,
+        ];
+        assert_eq!(compacted(r#","logicalParentUuid":"p1","compactMetadata":{"preservedSegment":{"tailUuid":"p1"}}"#, &tail), WHOLE);
+    }
+
+    #[test]
+    fn boundary_with_missing_dead_or_healthy_logical_parent() {
+        let plain = [S2, r#"{"type":"user","uuid":"u3","parentUuid":"s2","message":{"role":"user","content":"Oct prompt"}}"#, A3];
+        assert_eq!(compacted("", &plain), WHOLE);
+        assert_eq!(compacted(r#","logicalParentUuid":"gone""#, &plain), WHOLE);
+        assert_eq!(compacted(r#","logicalParentUuid":"a2""#, &plain), WHOLE);
     }
 }

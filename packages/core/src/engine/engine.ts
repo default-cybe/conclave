@@ -152,8 +152,16 @@ import { ATTACHMENT_LOST, prepareAttachments, type ZipHost } from '../attachment
 import { mediaTypeFor } from '../attachments/limits';
 
 const log = logger('engine');
-/** The turn after which an auto title is revised once, when the topic is clearer. */
-const TITLE_REVISE_TURN = 3;
+/** A session still called New chat after its start is named again after each of its first turns, up to this one. */
+const TITLE_RETRY_TURNS = 3;
+/** An auto title is revised at most once per this many turns and per this many ms (each call counts on Usage). */
+const TITLE_MIN_TURNS = 3;
+const TITLE_MIN_MS = 120_000;
+/** A turn with this many tool calls is a big step; after this many turns any turn is. */
+const TITLE_BIG_TOOLS = 6;
+const TITLE_EVERY_TURNS = 6;
+/** Tools whose use makes a turn a big step: file edits and plan or todo changes. */
+const TITLE_BIG_TOOL_NAMES = new Set([...FILE_WRITE_TOOLS, 'TodoWrite', 'ExitPlanMode']);
 
 type ThinkingEffort = Effort;
 /** Where the Effort levels harness models offered are kept (noteHarnessEffort). */
@@ -2015,23 +2023,46 @@ export class Engine implements EngineApi {
 
   /**
    * After a turn: a session still called New chat is named from its first
-   * exchange; at turn TITLE_REVISE_TURN its title is revised once. Only a title
-   * this hub wrote (meta.titleAuto) is revised, never one the owner gave.
+   * exchange; after a big step (bigStep) or every TITLE_EVERY_TURNS turns its
+   * title is revised, at most once per TITLE_MIN_TURNS turns and TITLE_MIN_MS.
+   * Only a title this hub wrote (meta.titleAuto) is revised, never one the owner gave.
    */
   private retitle(s: Session): void {
+    if (s.meta?.subagent) return;
     const fresh = s.title === 'New chat';
-    if (!fresh && (s.meta?.titleAuto !== s.title || s.meta?.titleRevised)) return;
+    if (!fresh && s.meta?.titleAuto !== s.title) return;
     const turns = (Number(s.meta?.titleTurns) || 0) + 1;
     this.patchMeta(s.id, { titleTurns: turns });
-    if (fresh ? turns <= TITLE_REVISE_TURN : turns >= TITLE_REVISE_TURN) void this.generateTitle(s.id, { afterTurn: true, revise: turns >= TITLE_REVISE_TURN });
+    if (fresh) {
+      if (turns <= TITLE_RETRY_TURNS) void this.generateTitle(s.id, { afterTurn: true });
+      return;
+    }
+    const since = turns - (Number(s.meta?.titleTurn) || 0);
+    if (since < TITLE_MIN_TURNS || Date.now() - (Number(s.meta?.titleAt) || 0) < TITLE_MIN_MS) return;
+    if (since >= TITLE_EVERY_TURNS || this.bigStep(s.id)) void this.generateTitle(s.id, { afterTurn: true, revise: true });
   }
 
-  /** At a turn start only headless runs are named; others wait for the first answer (afterTurn). */
+  /** The turn that just ended edited files, changed the plan or todos, was compacted, or ran TITLE_BIG_TOOLS tools. */
+  private bigStep(id: string): boolean {
+    const tail = this.repos.messages.tail(id, 200);
+    // the owner's message that began it: tool results are user messages too
+    const start = tail.findLastIndex((m) => m.role === 'user' && m.kind === 'normal' && !m.content.some((b) => b.type === 'tool_result'));
+    const turn = tail.slice(start + 1);
+    if (turn.some((m) => m.kind === 'summary')) return true;
+    const uses = turn.flatMap((m) => m.content.filter((b) => b.type === 'tool_use') as Array<{ name: string }>);
+    return uses.length >= TITLE_BIG_TOOLS || uses.some((u) => TITLE_BIG_TOOL_NAMES.has(u.name));
+  }
+
+  /**
+   * At the first turn's start a session is named from its prompt at once, then
+   * (not headless runs) by the model from that message alone. After a turn
+   * (afterTurn) it is named, or with revise renamed, from the recent exchange.
+   */
   async generateTitle(id: string, opts: { afterTurn?: boolean; revise?: boolean } = {}): Promise<void> {
     const s = this.repos.sessions.get(id);
-    if (!s) return;
+    if (!s || s.meta?.subagent) return;
     // the title this call may replace: New chat, or for a revision the hub's own title
-    const was = s.title === 'New chat' ? s.title : opts.revise && s.meta?.titleAuto === s.title ? s.title : undefined;
+    let was = s.title === 'New chat' ? s.title : opts.revise && s.meta?.titleAuto === s.title ? s.title : undefined;
     if (!was) return;
     try {
       const { completeText } = await import('../session/stream');
@@ -2050,12 +2081,22 @@ export class Engine implements EngineApi {
         if (t) this.updateSession(id, { title: t });
         return;
       }
-      if (!opts.afterTurn) return;
+      if (!opts.afterTurn) {
+        // a name at once, before the agent works; the model's replaces it below
+        const first = this.repos.messages.list(id, { limit: 3 }).find((m) => m.role === 'user');
+        const t = first ? promptTitle(textOf(first)) : '';
+        if (t) {
+          this.updateSession(id, { title: t });
+          this.patchMeta(id, { titleAuto: t });
+          was = t;
+        }
+      }
+      this.patchMeta(id, { titleAt: Date.now(), titleTurn: Number(this.repos.sessions.get(id)?.meta?.titleTurns) || 0 });
       const msgs = this.repos.messages.list(id);
       const users = msgs.filter((m) => m.role === 'user' && m.kind === 'normal').map(textOf).filter(Boolean);
       const answer = [...msgs].reverse().find((m) => m.role === 'assistant' && textOf(m));
       if (!users[0]) return;
-      const prompt = titleRequest(users[0], answer ? textOf(answer) : '', opts.revise ? users.slice(1).slice(-3) : [], was === 'New chat' ? undefined : was);
+      const prompt = titleRequest(users[0], answer ? textOf(answer) : '', opts.revise ? users.slice(1).slice(-3) : [], opts.revise ? was : undefined);
       // no stop sequence: the API rejects one that is only whitespace, and cleanTitle keeps the first line
       const ask = { system: TITLE_SYSTEM, prompt, maxTokens: 60, purpose: 'title', sessionId: id };
       let title = await completeText(this, ask).catch((err) => {
@@ -2067,10 +2108,11 @@ export class Engine implements EngineApi {
       const clean = cleanTitle(title);
       // the owner may have renamed it while the model ran
       if (clean && this.repos.sessions.get(id)?.title === was) {
-        if (clean !== was) this.updateSession(id, { title: clean });
-        this.patchMeta(id, { titleAuto: clean });
+        if (clean !== was) {
+          this.updateSession(id, { title: clean });
+          this.patchMeta(id, { titleAuto: clean });
+        }
       }
-      if (opts.revise) this.patchMeta(id, { titleRevised: true });
     } catch (err) {
       log.debug('title generation failed', err);
     }
