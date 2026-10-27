@@ -104,8 +104,43 @@ const TOOL_NOTES: Array<[string, string]> = [
   ['StructuredOutput', 'When StructuredOutput is in your tools, end by calling it with the result.'],
 ];
 
-/** The tools the tool-use section has a line for: a change in which of them a session has changes the prompt. */
-export const TOOL_NOTE_TOOLS = TOOL_NOTES.map(([tool]) => tool).filter(Boolean);
+/** The tools the tool-use section and the file-delivery note depend on: a change in which of them a session has changes the prompt. */
+export const TOOL_NOTE_TOOLS = [...new Set([...TOOL_NOTES.map(([tool]) => tool).filter(Boolean), 'ShareFile', 'Write'])];
+
+/**
+ * How whole files reach the owner: saved, then shared with ShareFile as a
+ * card, never pasted as one huge code block. Written for the tools the
+ * session has: an agent that can write saves the file itself, a chat hands
+ * the writing to Delegate, and an agent that can neither says so instead of
+ * claiming a file. Undefined for an agent that writes files but has no
+ * ShareFile (a project agent, an untrusted one): its files stay where it works.
+ */
+export function fileDeliveryNote(toolNames: string[]): string | undefined {
+  const share = toolNames.includes('ShareFile');
+  const write = toolNames.includes('Write') || toolNames.includes('Bash');
+  const delegate = toolNames.includes('Delegate');
+  if (!share) {
+    if (write || delegate) return undefined;
+    return '# Files you deliver\nYou cannot save or share files in this session. When the owner asks for a file, give the content in your reply and say in one line that you could not save it as a file. Never say a file was saved, attached or shared.';
+  }
+  const bash = toolNames.includes('Bash');
+  const saveWith = !bash ? 'Write' : toolNames.includes('Write') ? 'Write, or Bash for binary files such as PNG' : 'Bash';
+  const how = write
+    ? `Save it with ${saveWith}, then call ShareFile with its path.`
+    : delegate
+      ? 'You cannot write files yourself: hand the job to Delegate with readOnly false, asking it to save the file and report its full path, then call ShareFile with that path.'
+      : undefined;
+  const lines = how
+    ? [
+        `- When the owner asks for a whole file to take away (a complete program, a full source or config file, a document), give it as a file with a fitting name and extension, such as backup.sh, nginx.conf or report.md. ${how} This is not for changes to a project you are working in; edit those files in place.`,
+        '- Then answer in a few lines: what the file is and how to run or use it. Do not paste the whole file into the reply as well.',
+        '- Keep short commands, diffs, small snippets and teaching examples inline as code blocks.',
+        `- A chart or graph is a file too: make it as a PNG or SVG image${write && !bash ? ' (SVG, since Write saves text)' : ''} and share it. Use only tools the device already has. Share its source or data as well only when the owner asks for them.`,
+        '- A file reaches the owner only as a ShareFile card. Until ShareFile returns one, do not say a file is saved, attached or ready to download; if saving or sharing fails or is denied, say so.',
+      ]
+    : ['- You cannot create files in this session; ShareFile only shares a file that already exists in a folder it allows. When the owner asks for a new file, give the content in your reply and say in one line that you could not save it as a file. Never say a file was saved or attached without a ShareFile card.'];
+  return `# Files you deliver\n${lines.join('\n')}`;
+}
 
 /** True for a Claude model id ("claude-opus-5-5", "anthropic/claude-opus-5-5"): the catalog's family, else the name. */
 export function isClaudeModel(id: string): boolean {
@@ -165,6 +200,8 @@ export function buildSystemPrompt(p: PromptParts): SystemBlock[] {
 
   if (p.agent.prompt.trim()) blocks.push({ text: `# Your role: ${p.agent.name}\n${p.agent.prompt.trim()}` });
   if (p.conclave?.card) blocks.push({ text: p.conclave.card });
+  const files = fileDeliveryNote(p.toolNames);
+  if (files) blocks.push({ text: files });
 
   if (p.projectInstructions.length) {
     const body = p.projectInstructions.map((f) => `Contents of ${f.path}:\n\n${f.content.trim()}`).join('\n\n---\n\n');

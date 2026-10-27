@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { BUILTIN_AGENTS, builtinAgentDefault, builtinAgents } from '../../src/extensions/builtin-agents';
-import { BASE_PROMPT, MODE_NOTES, basePromptFor, buildSystemPrompt, parseModeNotes } from '../../src/session/prompt';
+import { BASE_PROMPT, MODE_NOTES, TOOL_NOTE_TOOLS, basePromptFor, buildSystemPrompt, fileDeliveryNote, parseModeNotes } from '../../src/session/prompt';
 import { createEngine } from '../../src/engine';
 import type { Session } from '../../src/types';
 import { cleanup, tempDir } from '../extensions/_helpers';
@@ -93,6 +93,48 @@ describe('base prompt and mode notes come from BASE.md and modes.md', () => {
       expect(await has('mock/glm-5.3')).toBe(true);
     } finally {
       await t.close();
+    }
+  });
+
+  test('the file-delivery note follows the tools: save and share, delegate and share, or say it cannot', () => {
+    const writer = fileDeliveryNote(['Read', 'Write', 'Bash', 'ShareFile'])!;
+    expect(writer).toStartWith('# Files you deliver\n');
+    expect(writer).toContain('Save it with Write, or Bash for binary files such as PNG, then call ShareFile with its path.');
+    expect(writer).toContain('Do not paste the whole file into the reply as well.');
+    expect(writer).toContain('Keep short commands, diffs, small snippets and teaching examples inline');
+    expect(writer).toContain('make it as a PNG or SVG image and share it. Use only tools the device already has.');
+    expect(writer).toContain('Share its source or data as well only when the owner asks for them.');
+    expect(writer).toContain('edit those files in place');
+    expect(writer).toContain('Until ShareFile returns one, do not say a file is saved, attached or ready to download');
+    expect(writer).not.toContain('Delegate');
+    // Write alone saves text only, so charts are SVG
+    expect(fileDeliveryNote(['Write', 'ShareFile'])).toContain('Save it with Write, then');
+    expect(fileDeliveryNote(['Write', 'ShareFile'])).toContain('PNG or SVG image (SVG, since Write saves text)');
+    expect(fileDeliveryNote(['Bash', 'ShareFile'])).toContain('Save it with Bash, then');
+    // a chat writes nothing itself: Delegate makes the file, ShareFile shares the path it reports
+    const chat = fileDeliveryNote(['WebSearch', 'Delegate', 'ShareFile'])!;
+    expect(chat).toContain('You cannot write files yourself: hand the job to Delegate with readOnly false');
+    expect(chat).toContain('then call ShareFile with that path.');
+    expect(chat).not.toContain('Save it with');
+    // ShareFile with no way to make a file, or no tools at all: say so, claim nothing
+    expect(fileDeliveryNote(['ShareFile'])).toContain('You cannot create files in this session');
+    expect(fileDeliveryNote(['ShareFile'])).not.toContain('Save it');
+    for (const tools of [[], ['WebSearch', 'Read']]) expect(fileDeliveryNote(tools)).toContain('You cannot save or share files in this session.');
+    // writers without ShareFile (project agents, untrusted sessions) get no note naming it
+    for (const tools of [['Write'], ['Bash'], ['Delegate']]) expect(fileDeliveryNote(tools)).toBeUndefined();
+    // the runner's prompt cache key tracks these tools
+    for (const tool of ['ShareFile', 'Write', 'Bash', 'Delegate']) expect(TOOL_NOTE_TOOLS).toContain(tool);
+  });
+
+  test('the file-delivery note goes after the role and the platform card, for Claude and other models alike', () => {
+    const agent = BUILTIN_AGENTS.find((a) => a.name === 'coder')!;
+    const session = { id: 's', cwd: '/repo', agent: 'coder', mode: 'agent' } as Session;
+    for (const modelRef of ['anthropic/claude-opus-5-5', 'zai/glm-5.3']) {
+      const texts = buildSystemPrompt({ session, agent, modelRef, mode: 'agent', toolNames: ['Write', 'ShareFile'], platform: 'linux', isGitRepo: true, deviceName: 'hub', projectInstructions: [], profile: [], skills: [], subagents: [], date: '2026-10-26', conclave: { card: '# Conclave\ncard', live: '# Live\nnow' } }).map((b) => b.text);
+      const role = texts.findIndex((t) => t.startsWith('# Your role: coder'));
+      expect(texts[role + 1]).toBe('# Conclave\ncard');
+      expect(texts[role + 2]).toStartWith('# Files you deliver\n');
+      expect(texts.at(-1)).toBe('# Live\nnow');
     }
   });
 
@@ -218,7 +260,8 @@ describe('specialist agents keep their key lines', () => {
       const words = by[name].prompt.split(/\s+/).length;
       expect({ name, short: words <= 360 }).toEqual({ name, short: true });
     }
-    const texts: Array<[string, string]> = [...BUILTIN_AGENTS.map((a) => [a.name, a.prompt] as [string, string]), ['BASE', BASE_PROMPT], ['modes', readFileSync(join(DIR, 'modes.md'), 'utf8')]];
+    const notes = [['Write', 'Bash', 'ShareFile'], ['Write', 'ShareFile'], ['Delegate', 'ShareFile'], ['ShareFile'], []].map((tools) => ['files', fileDeliveryNote(tools)!] as [string, string]);
+    const texts: Array<[string, string]> = [...BUILTIN_AGENTS.map((a) => [a.name, a.prompt] as [string, string]), ['BASE', BASE_PROMPT], ['modes', readFileSync(join(DIR, 'modes.md'), 'utf8')], ...notes];
     for (const [name, text] of texts) {
       expect({ name, caps: /\b(MUST|CRITICAL|IMPORTANT|NEVER|ALWAYS)\b/.test(text) }).toEqual({ name, caps: false });
       for (const line of text.split('\n')) {

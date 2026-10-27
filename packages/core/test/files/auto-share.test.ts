@@ -60,6 +60,8 @@ test('a session with a project folder gets no automatic cards', async () => {
     writeFileSync(join(t.cwd, 'b.pdf'), 'pdf!');
     await t.run(s.id, 'go');
     expect(cards(t, s.id).length).toBe(0);
+    // the agent is told to save and share whole files itself, not to wait for a scan
+    expect(t.requests[0]).toContain('then call ShareFile with its path.');
   } finally {
     await t.close();
   }
@@ -76,6 +78,9 @@ test('an untrusted session, which has no ShareFile, gets no automatic cards', as
     writeFileSync(join(dir, 'a.pdf'), 'pdf!');
     await t.run(s.id, 'go');
     expect(cards(t, s.id).length).toBe(0);
+    // its file note says it cannot save or share, and never tells it to call ShareFile
+    expect(t.requests[0]).toContain('You cannot save or share files in this session.');
+    expect(t.requests[0]).not.toContain('then call ShareFile with');
   } finally {
     await t.close();
   }

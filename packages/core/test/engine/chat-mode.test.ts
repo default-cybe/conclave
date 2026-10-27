@@ -20,6 +20,9 @@ describe('the chat agent', () => {
     expect(chat.memory).toBe('global');
     expect([...(chat.tools ?? [])].sort()).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch']);
     expect(chat.prompt).toContain('Continue as a session');
+    // file work goes through Delegate, and a file is attached only once ShareFile returns a card
+    expect(chat.prompt).toContain('Leave readOnly on unless they asked for changes or for a file to be made.');
+    expect(chat.prompt).toContain('until ShareFile returns a card, do not say the file is attached');
     expect(chat.prompt).not.toMatch(/[\u2013\u2014]/);
   });
 });
@@ -101,6 +104,9 @@ describe('chat sessions in the engine', () => {
     await t.run(chat.id, 'what listens on 8080 on madx?');
     expect(toolNames(t.requests[0])).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch']);
     expect(engine.checkpoints(chat.id)).toEqual([]);
+    // the chat writes nothing itself: its file note hands file work to Delegate
+    expect(t.requests[0]).toContain('hand the job to Delegate with readOnly false');
+    expect(t.requests[0]).not.toContain('Save it with Write');
     // the chore model answers "ok"; the title is set after the first reply
     expect(await until(() => engine.getSession(chat.id)?.title !== 'New chat')).toBe(true);
 

@@ -57,4 +57,14 @@ describe('ShareFile', () => {
     expect(builtinTools().some((x) => x.name === 'ShareFile')).toBe(true);
     expect(UNTRUSTED_DENY).toContain('ShareFile');
   });
+
+  test('the description tells any model when to share a whole file and when not to claim one', () => {
+    const d = ShareFileTool.description;
+    expect(d).toContain('a complete program, a full source, config or document file, or a chart or graph saved as a PNG or SVG image');
+    expect(d).toContain('reply in a few lines instead of pasting the whole file');
+    expect(d).toContain('Keep short commands, diffs and small examples inline.');
+    expect(d).toContain('do not say a file is shared or attached before that');
+    // the folder limits stay stated
+    expect(d).toContain('Only files in the session folder, the outputs folder, or the folder of a job you delegated can be shared, at most 30 MB each.');
+  });
 });

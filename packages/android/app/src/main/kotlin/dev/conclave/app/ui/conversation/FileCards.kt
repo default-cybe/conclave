@@ -1,11 +1,19 @@
 package dev.conclave.app.ui.conversation
 
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.graphics.ImageDecoder
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.Drawable
 import android.os.Build
+import android.view.View
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.ImageView
 import androidx.annotation.RequiresApi
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -17,6 +25,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -53,6 +62,7 @@ import dev.conclave.client.logic.FileCards
 import dev.conclave.client.model.ToolResultBlock
 import dev.conclave.client.model.ToolUseBlock
 import dev.conclave.client.sessionFile
+import java.io.ByteArrayInputStream
 import java.io.File
 import java.nio.ByteBuffer
 import kotlinx.coroutines.CancellationException
@@ -69,7 +79,10 @@ import kotlinx.coroutines.withContext
  * and hands the FileProvider link to the app for the type; Save asks where
  * with the system's create-document picker. A PNG, JPEG, WebP or GIF up to
  * 20 MB also shows above the title (FileCard.tsx); an animated GIF or WebP
- * plays on Android 9+ and is its first frame below.
+ * plays on Android 9+ and is its first frame below. An SVG up to 2 MB (a
+ * generated chart or graph) draws in a locked-down WebView (inertWebView):
+ * one base64 data: <img> (FileCards.svgDocument), no script, no network, no
+ * files, no navigation, destroyed when the card leaves. Anything else is a card.
  */
 @Composable
 fun FileCardsView(uses: List<ToolUseBlock>, results: Map<String, ToolResultBlock>) {
@@ -83,9 +96,10 @@ fun FileCardsView(uses: List<ToolUseBlock>, results: Map<String, ToolResultBlock
 
 private val CardShape = RoundedCornerShape(5.dp)
 private val PreviewHeight = 384.dp
+private val SvgHeight = 240.dp
 
-/** A card's inline image: a still bitmap, or on API 28+ an animated drawable. */
-private class Preview(val still: ImageBitmap? = null, val animated: Drawable? = null)
+/** A card's inline image: a still bitmap, on API 28+ an animated drawable, or an SVG's page (FileCards.svgDocument). */
+private class Preview(val still: ImageBitmap? = null, val animated: Drawable? = null, val svg: String? = null)
 
 /** Animated GIF/WebP first; anything else (or a still WebP/GIF) through decodeScaled. Null when not an image. */
 private fun decodePreview(bytes: ByteArray, mediaType: String, target: Int): Preview? {
@@ -140,12 +154,17 @@ private fun FileCard(sessionId: String, card: FileCardData) {
         context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, card.mediaType).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
     }
     val showInline = FileCards.inlineImage(card.mediaType) && card.size <= FileCards.INLINE_MAX
+    val showSvg = FileCards.inlineSvg(card)
     val target = with(LocalDensity.current) { (PreviewHeight * 2).roundToPx() }
-    val preview by produceState<Preview?>(null, card.toolUseId, showInline) {
-        if (!showInline) return@produceState
+    val preview by produceState<Preview?>(null, card.toolUseId, showInline, showSvg) {
+        if (!showInline && !showSvg) return@produceState
         value = try {
             val (bytes, _) = hub.api { it.sessionFile(sessionId, card.toolUseId) }
-            withContext(Dispatchers.Default) { decodePreview(bytes, card.mediaType, target) }.also { if (it == null) error = "Could not show the image." }
+            when {
+                // grown past the cap since it was shared: a card only
+                showSvg -> if (bytes.size > FileCards.SVG_MAX) null else withContext(Dispatchers.Default) { Preview(svg = FileCards.svgDocument(bytes, card.title ?: card.name)) }
+                else -> withContext(Dispatchers.Default) { decodePreview(bytes, card.mediaType, target) }.also { if (it == null) error = "Could not show the image." }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -163,7 +182,7 @@ private fun FileCard(sessionId: String, card: FileCardData) {
         }
     }
     Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().border(1.dp, c.rule2, CardShape).padding(horizontal = 16.dp, vertical = 12.dp)) {
-        preview?.let { PreviewImage(it, card.title ?: card.name, onClick = { open() }) }
+        preview?.let { PreviewImage(it, card.title ?: card.name, onClick = { open() }, onFail = { error = "Could not show the image." }) }
         Text(card.title ?: card.name, style = ConclaveType.rowTitle, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
             (if (card.title != null) "${card.name}, " else "") + FileCards.facts(card),
@@ -184,13 +203,25 @@ private fun FileCard(sessionId: String, card: FileCardData) {
     }
 }
 
-/** The image above a card's title: full width, at most [PreviewHeight] tall, the card's corners. Tap opens it. */
+/** The image above a card's title: full width, at most [PreviewHeight] tall, the card's corners. Tap opens a raster one. */
 @Composable
-private fun PreviewImage(preview: Preview, description: String, onClick: () -> Unit) {
+private fun PreviewImage(preview: Preview, description: String, onClick: () -> Unit, onFail: () -> Unit) {
     val modifier = Modifier.padding(bottom = 10.dp).fillMaxWidth().heightIn(max = PreviewHeight).clip(CardShape)
     val still = preview.still
     val animated = preview.animated
-    if (still != null) {
+    val svg = preview.svg
+    if (svg != null) {
+        val fail by rememberUpdatedState(onFail)
+        AndroidView(
+            factory = { ctx ->
+                // no WebView on this phone (or it failed to start): the card alone, with Open and Save
+                runCatching { inertWebView(ctx).apply { contentDescription = description; loadDataWithBaseURL(null, svg, "text/html", "utf-8", null) } }
+                    .getOrElse { fail(); View(ctx) }
+            },
+            onRelease = { (it as? WebView)?.apply { stopLoading(); destroy() } },
+            modifier = modifier.height(SvgHeight),
+        )
+    } else if (still != null) {
         Image(bitmap = still, contentDescription = description, contentScale = ContentScale.Fit, modifier = modifier.clickable(onClick = onClick))
     } else if (animated != null) {
         val tap by rememberUpdatedState(onClick)
@@ -210,4 +241,38 @@ private fun PreviewImage(preview: Preview, description: String, onClick: () -> U
             modifier = modifier,
         )
     }
+}
+
+/**
+ * A WebView that can only draw the page it is handed: no JavaScript, no DOM
+ * storage, no file or content access, no network, no mixed content, no new
+ * windows, every navigation refused and every request but data: answered
+ * empty. No JavaScript bridge, ever. Long press does nothing (no save-image menu).
+ */
+private fun inertWebView(ctx: Context): WebView = WebView(ctx).apply {
+    settings.apply {
+        javaScriptEnabled = false
+        javaScriptCanOpenWindowsAutomatically = false
+        setSupportMultipleWindows(false)
+        domStorageEnabled = false
+        allowFileAccess = false
+        allowContentAccess = false
+        blockNetworkLoads = true
+        blockNetworkImage = true
+        mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+        cacheMode = WebSettings.LOAD_NO_CACHE
+        setGeolocationEnabled(false)
+        setSupportZoom(false)
+    }
+    webViewClient = object : WebViewClient() {
+        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = true
+
+        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+            if (request.url.scheme == "data") null else WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
+    }
+    setBackgroundColor(Color.TRANSPARENT)
+    isVerticalScrollBarEnabled = false
+    isHorizontalScrollBarEnabled = false
+    isLongClickable = false
+    setOnLongClickListener { true }
 }

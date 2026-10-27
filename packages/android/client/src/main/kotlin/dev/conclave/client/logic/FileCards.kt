@@ -63,9 +63,35 @@ object FileCards {
     /** Largest file the card shows inline; bigger ones stay a card only. */
     const val INLINE_MAX = 20L * 1024 * 1024
 
-    /** Raster types the card shows inline (FileCard.tsx). SVG and HTML never render. */
+    /** Raster types the card shows inline (FileCard.tsx). SVG has its own path ([svgDocument]); HTML never renders. */
     fun inlineImage(mediaType: String): Boolean =
         mediaType in setOf("image/png", "image/jpeg", "image/webp", "image/gif")
+
+    /** Largest SVG the card draws inline (words.ts SVG_PREVIEW_MAX); bigger ones stay a card only. */
+    const val SVG_MAX = 2L * 1024 * 1024
+
+    /** An SVG the card draws inline, in the locked-down WebView, when it is small enough. */
+    fun inlineSvg(c: FileCardData): Boolean = c.mediaType == "image/svg+xml" && c.size <= SVG_MAX
+
+    /** The page's policy: nothing loads but the one data: image, and no script at all. */
+    const val SVG_CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'"
+
+    /**
+     * The page that draws an SVG: one <img> whose source is the bytes as base64
+     * data:image/svg+xml, so the SVG is only ever an image (no script, no loads)
+     * and its bytes never become markup. The description is escaped for the alt.
+     */
+    fun svgDocument(bytes: ByteArray, description: String): String {
+        val data = java.util.Base64.getEncoder().encodeToString(bytes)
+        return "<!doctype html><html><head><meta charset=\"utf-8\">" +
+            "<meta http-equiv=\"Content-Security-Policy\" content=\"$SVG_CSP\">" +
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">" +
+            "<style>html,body{margin:0;height:100%;background:transparent}img{display:block;width:100%;height:100%;object-fit:contain}</style>" +
+            "</head><body><img alt=\"${escapeAttr(description)}\" src=\"data:image/svg+xml;base64,$data\"></body></html>"
+    }
+
+    private fun escapeAttr(s: String): String =
+        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;")
 
     /** "PDF, 14.2 KB". */
     fun facts(c: FileCardData): String = "${KIND[c.mediaType] ?: "File"}, ${sizeWords(c.size)}"
