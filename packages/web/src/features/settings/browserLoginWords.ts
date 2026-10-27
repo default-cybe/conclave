@@ -2,7 +2,7 @@
  * Words and rows for Settings > Browser, Sites and logins (sitesLogins.tsx).
  * Pure, so tests read them.
  */
-import type { BrowserLoginDto, BrowserProfileDto } from '@conclave/core/client';
+import type { BrowserCookieImportResult, BrowserLoginDto, BrowserProfileDto } from '@conclave/core/client';
 import { agoWords } from './parts';
 
 /** The line under the group's title: what it is, and where the passwords are. */
@@ -69,6 +69,21 @@ export function deleteProfileWords(p: Pick<BrowserProfileDto, 'name' | 'logins' 
   }
   if (p.open) parts.push('Its browser is open now and closes first.');
   return parts.join(' ');
+}
+
+/** The warning in Import cookies. */
+export const IMPORT_COOKIES_WARNING = 'The file holds your sign-ins to those sites. Delete it after the import.';
+
+/** The line in Import cookies: where the file comes from. */
+export const IMPORT_COOKIES_HELP =
+  'Export cookies from your own browser (Cookie-Editor: Export, JSON) and pick the file. JSON from Cookie-Editor or EditThisCookie, a Playwright storage state and cookies.txt all work, up to 5 MB. The hub adds them to this profile and does not keep the file.';
+
+/** What Import cookies added: "Added 12 cookies to default for 2 sites: facebook.com (9), github.com (3). Left out 1 expired." */
+export function importWords(r: Pick<BrowserCookieImportResult, 'added' | 'expired' | 'invalid' | 'sites'>, profile: string): string {
+  const shown = r.sites.slice(0, 5).map((s) => `${s.domain} (${s.cookies})`);
+  const more = r.sites.length > 5 ? `, and ${r.sites.length - 5} more` : '';
+  const left = [r.expired ? `${r.expired} expired` : '', r.invalid ? `${r.invalid} unusable` : ''].filter(Boolean).join(' and ');
+  return `Added ${r.added} cookie${r.added === 1 ? '' : 's'} to ${profile} for ${r.sites.length} site${r.sites.length === 1 ? '' : 's'}: ${shown.join(', ')}${more}.${left ? ` Left out ${left}.` : ''}`;
 }
 
 /** The confirm before Forget. */

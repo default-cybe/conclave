@@ -4,9 +4,12 @@
  * mock/browser.ts. The hub as the owner has it: default with a GitHub login
  * (with a 2FA key) and gumtree.com.au signed in, marketplace signed in to
  * Facebook with a saved login and a watch on it. A password or 2FA key sent
- * here is dropped at once: the answer only says that one is saved.
+ * here is dropped at once: the answer only says that one is saved. Import
+ * cookies parses the file with the hub's own parser and answers counts per
+ * site; the cookies themselves are dropped.
  */
-import type { BrowserLoginDto, BrowserLoginInput, BrowserStatusDto } from '@conclave/core/client';
+import type { BrowserCookieImportResult, BrowserLoginDto, BrowserLoginInput, BrowserStatusDto } from '@conclave/core/client';
+import { cookiesPerSite, CookieFileError, parseCookieFile } from '@conclave/core/browser/cookies';
 import type { MockCtx } from './index';
 
 const HOUR = 3_600_000;
@@ -58,7 +61,8 @@ export function withLogins(st: BrowserStatusDto, s: State): BrowserStatusDto {
       .filter((p) => !s.deleted.has(p.name))
       .map((p) => ({
         ...p,
-        sites: [...p.sites, ...(s.sites.get(p.name) ?? [])].filter((x) => !s.forgotten.has(`${p.name}\0${x.host}`)),
+        // an imported site may already be listed: the newer line wins
+        sites: [...(s.sites.get(p.name) ?? []), ...p.sites].filter((x, i, all) => !s.forgotten.has(`${p.name}\0${x.host}`) && all.findIndex((y) => y.host === x.host) === i),
         logins: [...s.logins.values()].filter((l) => l.profile === p.name),
         isDefault: p.name === 'default',
         usedBy: s.usedBy.get(p.name) ?? [],
@@ -121,6 +125,26 @@ export function registerBrowserLogins(ctx: MockCtx, status: () => BrowserStatusD
     await sleep(900);
     s.forgotten.add(`${params[0]}\0${host}`);
     return status();
+  });
+
+  on('POST', '/api/browser/profiles/:name/cookies', async ({ params, body }: { params: string[]; body?: { file?: unknown } }): Promise<BrowserCookieImportResult> => {
+    const name = params[0];
+    if (!status().profiles.some((p) => p.name === name)) fail(404, `There is no browser profile ${name}.`);
+    if (typeof body?.file !== 'string') fail(400, 'file must be the text of the cookie export');
+    let r: ReturnType<typeof parseCookieFile>;
+    try {
+      r = parseCookieFile(body!.file as string);
+    } catch (err) {
+      if (err instanceof CookieFileError) fail(400, err.message);
+      throw err;
+    }
+    await sleep(700);
+    const sites = cookiesPerSite(r!.cookies);
+    const now = Date.now();
+    const list = (s.sites.get(name) ?? []).filter((x) => !sites.some((y) => y.domain === x.host));
+    s.sites.set(name, [...sites.slice(0, 50).map((x) => ({ host: x.domain, at: now })), ...list]);
+    for (const x of sites) s.forgotten.delete(`${name}\0${x.domain}`);
+    return { format: r!.format, added: r!.cookies.length, expired: r!.expired, invalid: r!.invalid, sites };
   });
 
   on('DELETE', '/api/browser/profiles/:name', async ({ params, query }: { params: string[]; query: URLSearchParams }) => {

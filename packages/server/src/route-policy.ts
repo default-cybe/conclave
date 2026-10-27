@@ -543,6 +543,8 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'PUT /api/browser/logins/:id': 'admin',
   'DELETE /api/browser/logins/:id': 'admin',
   'POST /api/browser/profiles/:name/forget': 'admin',
+  // imported cookies are sign-ins: the owner only
+  'POST /api/browser/profiles/:name/cookies': 'admin',
   'DELETE /api/browser/profiles/:name': 'admin',
 
   // ----- updates: the hub's install and its devices' daemons are the owner's (docs/DESIGN.md, Updates) -----

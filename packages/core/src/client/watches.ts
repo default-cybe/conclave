@@ -37,4 +37,5 @@ export type {
   BrowserLoginDto,
   BrowserLoginInput,
   BrowserProfileUserDto,
+  BrowserCookieImportResult,
 } from '../browser/types';

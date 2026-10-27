@@ -77,6 +77,7 @@ export { DISPLAY_NAME_MAX, OWNER_DEFAULT_NAME, displayNameProblem, shownName, ti
 export type * from './pim';
 import type { CaldavPreset, MailSecurity, OAuthClientKind, OAuthFlowDto, PimAccountDto, PimSettingsDto, PimWants, ProposalDto, ProposalStatus } from './pim';
 import type {
+  BrowserCookieImportResult,
   BrowserInputEvent,
   BrowserLoginInput,
   BrowserProfileUpdate,
@@ -2045,6 +2046,8 @@ export class ConclaveClient {
   deleteBrowserLogin = (id: string) => this.request<BrowserStatusDto>('DELETE', `/api/browser/logins/${encodeURIComponent(id)}`);
   /** Clear a site's cookies and storage in a profile. A saved login stays. */
   forgetBrowserSite = (profile: string, host: string) => this.request<BrowserStatusDto>('POST', `/api/browser/profiles/${encodeURIComponent(profile)}/forget`, { host });
+  /** Import a cookie export's text into a profile. Answers counts per site, never a cookie. */
+  importBrowserCookies = (profile: string, file: string) => this.request<BrowserCookieImportResult>('POST', `/api/browser/profiles/${encodeURIComponent(profile)}/cookies`, { file });
   /** Delete a profile with its folder and saved logins. close: close it first when a session has it open; without, that answers 409. */
   deleteBrowserProfile = (name: string, close = false) => this.request<BrowserStatusDto>('DELETE', `/api/browser/profiles/${encodeURIComponent(name)}`, undefined, close ? { close: 1 } : undefined);
 
