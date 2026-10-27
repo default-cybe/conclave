@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { createTwoFilesPatch } from 'diff';
 import type { PathMap, ReadMark, ToolContext, ToolOutput } from './types';
 import { defuseFrameworkTags } from '../session/untrusted';
+import { insideFolder } from '../files/share';
 
 /** Error result the model can act on. */
 export function fail(message: string, meta?: ToolOutput['meta']): ToolOutput {
@@ -42,6 +43,18 @@ export function mapOldPath(ctx: { pathMap?: PathMap }, path: string): string {
 export function resolveAbsolute(ctx: PathCtx, p: unknown, param = 'file_path'): { path: string } | { error: string } {
   if (typeof p !== 'string' || !p.trim()) return { error: `${param} is required and must be a non-empty string.` };
   return { path: resolveLoose(ctx, p) };
+}
+
+/**
+ * A chat's file tools reach only its outputs folder on the hub (files/share.ts):
+ * a chat reads web pages, so a page must not steer it to the owner's files.
+ * Returns the refusal, or undefined when the path may be used (or the session is not a chat).
+ */
+export function chatRefusal(ctx: Pick<ToolContext, 'session' | 'host'>, path: string): string | undefined {
+  if (ctx.session?.kind !== 'chat') return undefined;
+  const dir = ctx.host.outputsDir?.();
+  if (!dir) return 'Refused: this chat has no outputs folder to keep files in.';
+  return insideFolder(dir, path) ? undefined : `Refused: a chat reads and writes files only in its outputs folder (${dir}). Use a plain file name such as report.md.`;
 }
 
 /** What permission rules judge for a path parameter: the very path resolveAbsolute gives the tool. */
