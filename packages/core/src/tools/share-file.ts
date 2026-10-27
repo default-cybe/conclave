@@ -23,7 +23,7 @@ function sizeText(n: number): string {
 
 export const ShareFileTool: Tool<ShareFileInput> = {
   name: 'ShareFile',
-  description: `Give the owner a file you made, as a file card they can open and download in the chat. Save the file first (Write, or Bash for binary files such as PDF, PNG, DOCX or ZIP), then call ShareFile with its path.
+  description: `Give the owner a file you made, as a file card they can open and download in the chat. Save the file first (Write; RenderFile for a PDF or PNG from HTML, SVG or Markdown; or Bash for binary files such as DOCX or ZIP), then call ShareFile with its path.
 
 Use it when the owner asks for a whole file: a complete program, a full source, config or document file, or a chart or graph saved as a PNG or SVG image. Give the file a fitting name and extension, then reply in a few lines instead of pasting the whole file. Keep short commands, diffs and small examples inline. The owner has the file only once this tool returns a card; do not say a file is shared or attached before that.
 

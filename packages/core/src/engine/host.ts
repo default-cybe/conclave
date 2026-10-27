@@ -23,6 +23,9 @@ import { runDelegate } from './delegate';
 import type { DelegateRequest } from '../tools/delegate';
 import { savedSearchKey } from '../tools/search-settings';
 import { checkShareable, outputsDir } from '../files/share';
+import type { BrowserManager } from '../browser/manager';
+import { loadPlaywright } from '../browser/runtime';
+import type { RenderBrowser } from '../tools/render-file';
 import { mkdirSync } from 'node:fs';
 
 /** ToolHost bound to one running session. Tools call this, never the engine directly. */
@@ -231,5 +234,17 @@ export class EngineToolHost implements ToolHost {
     const dir = outputsDir(this.engine.config.paths.home, this.session.id);
     mkdirSync(dir, { recursive: true });
     return dir;
+  }
+
+  /** RenderFile: a fresh headless Chromium per call from the hub's browser install (browser/manager.ts finds it). */
+  async renderBrowser(): Promise<RenderBrowser | { error: string }> {
+    const b = (this.engine as unknown as { browser?: BrowserManager }).browser;
+    const executable = b?.executable();
+    if (!b || !executable) return { error: 'No browser is installed on this hub yet, so files cannot be rendered. The owner can install one in Settings, Browser, Engines.' };
+    try {
+      return { chromium: (await loadPlaywright(b.runtimeDir())).chromium as unknown as RenderBrowser['chromium'], executable };
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) };
+    }
   }
 }

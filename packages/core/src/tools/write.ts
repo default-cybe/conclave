@@ -1,5 +1,5 @@
 import type { Tool, ToolOutput } from './types';
-import { detectLineEnding, diffStats, fail, fromLf, readMarkOf, resolveAbsolute, splitLines, staleCheck, unifiedDiff, pathRule } from './util';
+import { chatRefusal, detectLineEnding, diffStats, fail, fromLf, readMarkOf, resolveAbsolute, splitLines, staleCheck, unifiedDiff, pathRule } from './util';
 
 export interface WriteInput {
   file_path: string;
@@ -35,6 +35,8 @@ export const WriteTool: Tool<WriteInput> = {
     const r = resolveAbsolute(ctx, input.file_path);
     if ('error' in r) return fail(r.error);
     const path = r.path;
+    const refusal = chatRefusal(ctx, path);
+    if (refusal) return fail(refusal, { writeRefused: true });
     if (typeof input.content !== 'string') return fail('content must be a string.');
 
     const st = await ctx.machine.stat(path);
