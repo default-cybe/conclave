@@ -287,6 +287,8 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'DELETE /api/memory/:id': own({ id: 'memory' }),
   'GET /api/memory/digest': 'self',
   'PUT /api/memory/digest': 'self',
+  // the memory map reads the hub's Basic Memory connection too: the owner only
+  'GET /api/memory/graph': 'admin',
   'GET /api/memory/connections': 'self',
   'GET /api/memory/connections/presets': 'self',
   'POST /api/memory/connections/test': 'self',

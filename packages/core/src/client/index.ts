@@ -190,6 +190,9 @@ export type * from './shared-projects';
 // ----- the Map: a live view of the hub, docs/DESIGN.md 29 -----
 import type { MapQuery, MapSnapshot } from './map';
 export type * from './map';
+// ----- the memory map: GET /api/memory/graph -----
+import type { MemoryGraph } from './memory-graph';
+export type * from './memory-graph';
 // ----- hub logs: daily files, app lines and the export, docs/DESIGN.md 33 -----
 import type { ClientLogBatch, ClientLogResult, LogErrorsReport, LogsExportQuery, LogsStatus, LogsTailQuery, LogsTailResult } from './logs';
 export type * from './logs';
@@ -2124,6 +2127,8 @@ export class ConclaveClient {
   memoryStats = () => this.request<{ total: number; byKind: Record<string, number>; external?: string }>('GET', '/api/memory/stats');
   /** Same route as memoryStats, typed with the connection list. */
   memoryOverview = () => this.request<MemoryStatsDto>('GET', '/api/memory/stats');
+  /** The memory map: Conclave memories and Basic Memory notes with their real links (owner only). */
+  memoryGraph = (limit?: number) => this.request<MemoryGraph>('GET', '/api/memory/graph', undefined, limit ? { limit } : undefined);
 
   // ----- memory connections -----
   memoryConnections = () => this.request<MemoryConnectionInfo[]>('GET', '/api/memory/connections');

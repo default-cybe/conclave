@@ -1043,6 +1043,8 @@ on('PATCH', '/api/memory/:id', ({ params, body }) => {
   emit({ type: 'memory.updated', entry: { ...m } });
   return m;
 });
+// the memory map: the builder needs the hub's SQLite, so the mock is empty unless a page sets window.__MEMORY_GRAPH__ (screenshots feed a real one)
+on('GET', '/api/memory/graph', ({ query }) => ((g) => (typeof g === 'function' ? g(Number(query.get('limit')) || 300) : g))((globalThis as { __MEMORY_GRAPH__?: unknown }).__MEMORY_GRAPH__) ?? ({ nodes: [], edges: [], basicMemory: { state: 'none' }, total: 0, limit: 300 }));
 on('DELETE', '/api/memory/:id', ({ params }) => {
   db.memories.delete(params[0]);
   emit({ type: 'memory.deleted', id: params[0] });

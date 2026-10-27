@@ -16,6 +16,7 @@
 import type { McpServerConfig } from '../../config/schema';
 import { BasicMemoryMcp, noteInFolder, type ExternalMemoryHit, type ExternalNote } from '../external';
 import { noteText } from '../text';
+import { parseBmActivity, type BmGraphData } from '../graph';
 import { McpEndpoint, serverSpecFromOptions } from './mcp-client';
 import type { AdapterDeps, ConnectionTestResult, MemoryAdapter, PulledNote, ResolvedConnection } from './types';
 import { optNum, optStr, optStrArr, TestRun, withTimeout } from './util';
@@ -120,6 +121,28 @@ export class BasicMemoryAdapter implements MemoryAdapter {
       if (!hasMore || !hits.length) break;
     }
     return out;
+  }
+
+  /**
+   * Notes and their links for the memory map: recent_activity pages of
+   * entities and of relations, read only. shortcut: the server lists one
+   * year at most and this stops at `maxRows` of each; page by folder if a
+   * store outgrows it.
+   */
+  async graph(opts: { maxRows?: number } = {}): Promise<BmGraphData> {
+    const max = opts.maxRows ?? 3000;
+    const size = 100;
+    const all = async (type: 'entity' | 'relation') => {
+      const rows: unknown[] = [];
+      for (let page = 1; rows.length < max; page++) {
+        const got = await this.bm.activityPage(type, page, size);
+        rows.push(...got);
+        if (got.length < size) break;
+      }
+      return rows;
+    };
+    const [entities, relations] = await Promise.all([all('entity'), all('relation')]);
+    return { connection: this.id, name: this.name, folder: this.folder ?? 'conclave', ...parseBmActivity(entities, relations) };
   }
 
   async test(): Promise<ConnectionTestResult> {
