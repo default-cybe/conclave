@@ -56,6 +56,48 @@ describe('Claude Code transcript conversion', () => {
   });
 });
 
+describe('Claude Code compaction boundaries', () => {
+  const u = (uuid: string, parentUuid: string | null, text: string, extra: object = {}) => ({ type: 'user', uuid, parentUuid, sessionId: 's', message: { role: 'user', content: text }, ...extra });
+  const a = (uuid: string, parentUuid: string, text: string) => ({ type: 'assistant', uuid, parentUuid, sessionId: 's', message: { id: 'm' + uuid, role: 'assistant', model: 'claude-x', content: [{ type: 'text', text }] } });
+  const boundary = (uuid: string, extra: object) => ({ type: 'system', subtype: 'compact_boundary', uuid, parentUuid: null, content: 'Conversation compacted', ...extra });
+  const att = (uuid: string, parentUuid: string) => ({ type: 'attachment', uuid, parentUuid, attachment: { type: 'file' } });
+  // June, a rewound prompt, compaction 1, September, compaction 2, October
+  const file = (b2: object, afterB2: object[]) =>
+    [
+      u('u1', null, 'June prompt'),
+      a('a1', 'u1', 'June reply'),
+      u('x1', 'u1', 'rewound prompt'),
+      boundary('b1', { logicalParentUuid: 'a1' }),
+      u('s1', 'b1', 'summary 1', { isCompactSummary: true }),
+      u('u2', 's1', 'Sept prompt'),
+      a('a2', 'u2', 'Sept reply'),
+      boundary('b2', b2),
+      ...afterB2,
+      { type: 'last-prompt', leafUuid: 'u3', sessionId: 's' },
+    ]
+      .map((l) => JSON.stringify(l))
+      .join('\n');
+  const texts = (text: string) => convertClaudeCode(text).messages.map((m) => `${m.kind}:${(m.content[0] as { text: string }).text}`);
+  const whole = ['normal:June prompt', 'normal:June reply', 'summary:summary 1', 'normal:Sept prompt', 'normal:Sept reply', 'summary:summary 2', 'normal:Oct prompt', 'normal:Oct reply'];
+  const plain = [u('s2', 'b2', 'summary 2', { isCompactSummary: true }), u('u3', 's2', 'Oct prompt'), a('a3', 'u3', 'Oct reply')];
+
+  test('a boundary whose logical parent is a preserved tail written after it, looping back, keeps the whole history once', () => {
+    // the tail p1 hangs off the summary, a preserved reply is re-written under it, and the boundary points at p1
+    const tail = [u('s2', 'b2', 'summary 2', { isCompactSummary: true }), att('p1', 's2'), a('a2', 'p1', 'Sept reply'), u('u3', 'a2', 'Oct prompt'), a('a3', 'u3', 'Oct reply')];
+    const b2 = { logicalParentUuid: 'p1', compactMetadata: { preservedSegment: { tailUuid: 'p1' } } };
+    expect(texts(file(b2, tail))).toEqual(whole);
+  });
+
+  test('a boundary with no logical parent, or a dead one, continues from the line before it', () => {
+    expect(texts(file({}, plain))).toEqual(whole);
+    expect(texts(file({ logicalParentUuid: 'gone' }, plain))).toEqual(whole);
+  });
+
+  test('a healthy boundary imports as before', () => {
+    expect(texts(file({ logicalParentUuid: 'a2' }, plain))).toEqual(whole);
+  });
+});
+
 describe('Codex transcript conversion', () => {
   test('groups assistant items and maps tool calls and outputs', () => {
     const msgs = convertCodex(read(PATHS.codexC)).messages;

@@ -196,9 +196,23 @@ function activeLines(lines: Line[], keepSidechain: boolean): Line[] {
   }
   const chain = new Set<string>();
   let cur: Line | undefined = leaf;
-  for (let guard = 0; cur && guard < 1_000_000; guard++) {
-    if (chain.has(cur.uuid)) break;
+  // a compact boundary passed whose earlier history the walk has not reached yet
+  let open: Line | undefined;
+  for (let guard = 0; guard < 1_000_000; guard++) {
+    if (!cur || chain.has(cur.uuid)) {
+      // the boundary's back link is missing, dead or loops (newer builds re-write a preserved tail after it): go on from the newest line written before it
+      const b = open;
+      open = undefined;
+      cur = undefined;
+      for (let i = (b?._i ?? 0) - 1; i >= 0 && !cur; i--) {
+        const x = lines[i];
+        if ((x.type === 'user' || x.type === 'assistant') && !x.isSidechain && typeof x.uuid === 'string' && !chain.has(x.uuid) && !retracted.has(x.uuid)) cur = x;
+      }
+      if (!cur) break;
+    }
     chain.add(cur.uuid);
+    if (open && cur._i < open._i) open = undefined;
+    if (cur.subtype === 'compact_boundary') open = cur;
     const next: string | undefined = typeof cur.parentUuid === 'string' ? cur.parentUuid : typeof cur.logicalParentUuid === 'string' ? cur.logicalParentUuid : undefined;
     cur = next ? byUuid.get(next) : undefined;
   }
@@ -211,7 +225,13 @@ function activeLines(lines: Line[], keepSidechain: boolean): Line[] {
       if (Array.isArray(l.message.content)) for (const b of l.message.content) if (b?.type === 'tool_use' && b.id) toolIds.add(String(b.id));
     }
   }
+  // a uuid written twice (a preserved message re-written after a boundary) shows once, at its first place
+  const seen = new Set<string>();
   return msgLines.filter((l) => {
+    if (typeof l.uuid === 'string') {
+      if (seen.has(l.uuid)) return false;
+      seen.add(l.uuid);
+    }
     if (chain.has(l.uuid)) return true;
     if (l.type === 'assistant' && typeof l.message?.id === 'string' && msgIds.has(l.message.id)) return true;
     if (l.type === 'user' && Array.isArray(l.message?.content)) {
