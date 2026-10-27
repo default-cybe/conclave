@@ -56,6 +56,7 @@ const LIBRARY: LibEntry[] = [
   { id: 'ui-pass', description: 'A designer builds the change and takes screenshots; a fresh visual verifier that sees only the screenshots decides', whenToUse: 'For a visual change in the web app. args: { brief }', phases: ['Build', 'Look', 'Fix', 'Check'], source: 'builtin' },
   { id: 'migrate', description: 'Discover the sites, pilot one unit, then escalating batches in worktrees with a circuit breaker', whenToUse: 'For the same change across many packages. args: { goal, check, units? }', phases: ['Discover', 'Pilot', 'Approve', 'Migrate', 'Report'], source: 'builtin' },
   { id: 'compare-harnesses', description: 'One task with several harnesses in separate worktrees, checked, and scored blind', whenToUse: 'To compare harnesses or models on a real task. args: { task, check, arms? }', phases: ['Run', 'Check', 'Judge', 'Report'], source: 'builtin' },
+  { id: 'race', description: 'Race several agents on one task in separate worktrees, check each, and keep the best passing change', whenToUse: 'When a task has more than one plausible solution. args: { task, check, n?, arms? }', phases: ['Run', 'Check', 'Judge', 'Report'], source: 'builtin' },
   { id: 'claude-security:scan', description: 'Claude Security scan pipeline: inventory, threat-model, research and sweep, then a three-lens adversarial panel', whenToUse: 'Run by the Security Lead from the scan job.', phases: ['Inventory', 'Threat model', 'Research', 'Sweep', 'Panel'], source: 'plugin', portable: true, path: '~/.conclave/plugins/claude-security/workflows/scan.js' },
   { id: 'nightly-deps', description: 'Check outdated dependencies in every repo under ~/code and open one branch per repo with the safe bumps', whenToUse: 'From the nightly routine. args: { root? }', phases: ['List', 'Bump', 'Check'], source: 'user', path: '~/.conclave/workflows/nightly-deps.js' },
 ];
@@ -233,6 +234,41 @@ export function registerWorkflows(ctx: MockCtx): void {
       { id: 'm_wfc_4', sessionId: 's_wfchild_1', seq: 4, role: 'assistant', kind: 'normal', createdAt: t0 + 9000, model: 'anthropic/claude-opus-5-5', content: [{ type: 'text', text: 'One candidate: `jwtVerify` at auth.ts:88 gets no `clockTolerance`, and the old code checked `exp` itself only when `iat` was set. Reporting it with the trigger.' }, { type: 'tool_use', id: 'tu_c2', name: 'StructuredOutput', input: { findings: [] } }] },
     ]);
     calls[0].resultPreview = '{"findings":[{"file":"packages/server/src/auth.ts","line":88,"title":"Expired tokens pass","priority":"P1"}],"read":["packages/server/src/auth.ts"]}';
+
+    // ----- a finished race, its winner waiting for Keep winner -----
+    {
+      const qid = 'wfr_race1';
+      const tq = now - 50 * MIN;
+      const racers: CallSeed[] = [
+        { label: 'racer 1', phase: 'Run', state: 'done', agentType: 'coder', model: 'anthropic/claude-sonnet-5-5', lastTool: 'Bash bun test packages/core/test/util', worktree: { branch: `conclave/wf/${qid}/1`, commit: '3be81f02c4', state: 'kept', files: 2 } },
+        { label: 'racer 2', phase: 'Run', state: 'done', agentType: 'coder', model: 'anthropic/claude-opus-5-5', lastTool: 'Bash bun test packages/core/test/util', worktree: { branch: `conclave/wf/${qid}/2`, commit: 'c09d7a51e8', state: 'kept', files: 5 } },
+        { label: 'racer 3', phase: 'Run', state: 'done', agentType: 'coder', model: 'openai/gpt-5.5', lastTool: 'Bash bun test packages/core/test/util', worktree: { branch: `conclave/wf/${qid}/3`, commit: '71f4ea9b20', state: 'kept', files: 3 } },
+        ...[1, 2, 3].map((j) => ({ label: `judge ${j}a`, phase: 'Judge', state: 'done' as const, model: 'anthropic/claude-sonnet-5-5' })),
+      ];
+      const qcalls = racers.map((s, i) => call(i + 1, s, tq + i * 15_000));
+      const race: MockRun = {
+        run: { id: qid, name: 'race', description: LIBRARY.find((e) => e.id === 'race')!.description, source: 'builtin', status: 'done', sessionId: 's_auth', device: 'arch-desktop', cwd: '~/code/conclave', phases: phasesOf(['Run', 'Check', 'Judge', 'Report']), phaseIndex: 3, phaseTitle: 'Report', inputTokens: 0, outputTokens: 0, costUsd: 0, counts: counts(qcalls), scriptPath: `~/.conclave/workflows/runs/${qid}.js`, portable: false, createdAt: tq, startedAt: tq + 900, finishedAt: tq + 21 * MIN },
+        calls: qcalls,
+        logs: [{ n: 1, ts: tq + 18 * MIN, text: 'racer 3 failed the check: 2 tests in packages/core/test/util/duration.test.ts' }],
+        findings: [],
+        result: {
+          task: 'Parse durations like 1h30m in the routine scheduler',
+          race: {
+            winner: 1,
+            reasons: ['Smallest change that does the task: one parser and its tests, no new options.', 'Handles 90m and 1h30m the same way and rejects a bare number with a clear error.'],
+            votes: [3, 0],
+            arms: [
+              { arm: 'racer 1', ran: true, seq: 1, model: 'anthropic/claude-sonnet-5-5', passed: true, files: 2, score: 8.7 },
+              { arm: 'racer 2', ran: true, seq: 2, model: 'anthropic/claude-opus-5-5', passed: true, files: 5, score: 6.2 },
+              { arm: 'racer 3', ran: true, seq: 3, model: 'openai/gpt-5.5', passed: false, files: 3 },
+            ],
+          },
+          report: '**racer 1** wins.\n\n- racer 1: check passed, score 8.7\n- racer 2: check passed, score 6.2\n- racer 3: check failed\n\nNothing is merged yet. Keep winner applies its branch; the other branches are deleted only after that.',
+        },
+      };
+      totals(race);
+      runs.set(qid, race);
+    }
 
     // ----- the running deep-research run -----
     const t1 = now - 6 * MIN;
@@ -554,6 +590,24 @@ export function registerWorkflows(ctx: MockCtx): void {
     c.worktree = { ...c.worktree, state: action === 'discard' ? 'discarded' : 'merged' };
     emitCall(r, c);
     return { ok: true, state: c.worktree.state, output: action === 'discard' ? `Deleted branch ${c.worktree.branch}.` : `Merged ${c.worktree.branch}.` };
+  });
+  ctx.on('POST', '/api/workflows/runs/:id/keep', async ({ params, body }) => {
+    const r = find(params[0]);
+    const race = (r.result as { race?: { winner: number | null; arms: Array<{ seq?: number }> } } | undefined)?.race;
+    if (!race || race.winner === null) return ctx.fail(409, 'This run has no race winner to keep.');
+    await ctx.sleep(400);
+    let discarded = 0;
+    for (const c of r.calls) {
+      if (!c.worktree || !race.arms.some((a) => a.seq === c.seq)) continue;
+      if (c.seq === race.winner) c.worktree = { ...c.worktree, state: 'merged' };
+      else if (c.worktree.state === 'kept') {
+        c.worktree = { ...c.worktree, state: 'discarded' };
+        discarded++;
+      }
+      emitCall(r, c);
+    }
+    const pr = body?.how === 'pr' ? { number: 214, url: 'https://github.com/sam-rivera/portfolio/pull/214' } : undefined;
+    return { ok: true, output: pr ? `Opened pull request #${pr.number}.` : 'Applied the winner.', discarded, ...(pr ? { pr } : {}) };
   });
   ctx.on('POST', '/api/workflows/runs/:id/findings/:fid', ({ params, body }) => {
     const r = find(params[0]);

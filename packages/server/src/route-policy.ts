@@ -362,6 +362,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/workflows/runs/:id/rerun': own({ id: 'workflowRun' }),
   'POST /api/workflows/runs/:id/calls/:seq/skip': own({ id: 'workflowRun' }),
   'POST /api/workflows/runs/:id/calls/:seq/worktree': own({ id: 'workflowRun' }),
+  'POST /api/workflows/runs/:id/keep': own({ id: 'workflowRun' }),
   'POST /api/workflows/runs/:id/findings/:findingId': own({ id: 'workflowRun' }),
 
   // ----- gateway keys serve the owner's CLIs -----

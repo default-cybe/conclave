@@ -1,7 +1,8 @@
 /**
  * One workflow run (spec 3.18): a status sentence on top with the pet while
  * it works and the current step under it, the phases in meta order with one
- * row per call, the narrator log, the result, findings and kept branches.
+ * row per call, the narrator log, a race's winner, the result, findings and
+ * kept branches.
  * A row opens the agent's transcript in a side panel.
  */
 import { useEffect, useMemo, useState } from 'react';
@@ -27,6 +28,7 @@ import { useRunDetail } from './data';
 import { CallHeader, CallRows, hasToolCell } from './CallRows';
 import { Findings } from './Findings';
 import { Worktrees } from './Worktrees';
+import { Race, raceOf } from './Race';
 import { byPhase, isLive, petFor, statusParts } from './words';
 
 export function RunView({ id }: { id: string }) {
@@ -187,6 +189,7 @@ export function RunView({ id }: { id: string }) {
           </section>
         ))}
 
+        <Race detail={detail} onKept={reload} />
         <ResultSection detail={detail} />
 
         <Findings runId={run.id} findings={detail.findings} refutedRate={detail.refutedRate} onChange={setFinding} />
@@ -231,7 +234,8 @@ export function RunView({ id }: { id: string }) {
 function ResultSection({ detail }: { detail: WorkflowRunDetail }) {
   const r = detail.result;
   if (r === undefined || r === null) return null;
-  const report = typeof r === 'string' ? r : typeof (r as { report?: unknown }).report === 'string' ? ((r as { report: string }).report as string) : undefined;
+  // a race's report says what the Winner section shows already
+  const report = typeof r === 'string' ? r : !raceOf(r) && typeof (r as { report?: unknown }).report === 'string' ? ((r as { report: string }).report as string) : undefined;
   const rest = typeof r === 'object' ? r : undefined;
   return (
     <section aria-labelledby="wf-result">

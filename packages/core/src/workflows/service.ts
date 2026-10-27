@@ -12,6 +12,9 @@ import type { Machine } from '../machine/types';
 import type { AgentResultRef, ContentBlock, Session } from '../types';
 import type {
   FindingVerdict,
+  KeepWinnerHow,
+  KeepWinnerResult,
+  RaceResult,
   StartWorkflowInput,
   WorkflowCall,
   WorkflowDetail,
@@ -40,6 +43,7 @@ import { DEFAULTS, Semaphore, SemaphoreMap, budgetWord, count, type RunCaps } fr
 import type { StepState } from './agents';
 import { repoInfo, worktreeAction as runWorktreeAction, pruneWorktrees } from './worktrees';
 import { setWorkflows } from './attached';
+import { githubOf } from '../github/attached';
 import { MAX_SCRIPT_BYTES, MINIMAL_WORKFLOW_EXAMPLE, WorkflowLoadError } from './meta';
 import { OWNER_ID, currentAccount, isMember } from '../people/context';
 import type { SANDBOX_LIMITS } from './sandbox';
@@ -100,6 +104,14 @@ function cardText(description: string): string {
   const cut = d.slice(0, 140);
   const at = cut.lastIndexOf(' ');
   return `${(at > 60 ? cut.slice(0, at) : cut).replace(/[,;:\s]+$/, '')}…`;
+}
+
+/** The race block of a run's result (race.js), or undefined when the run was no race. */
+export function raceOf(result: unknown): RaceResult | undefined {
+  const r = (result as { race?: RaceResult } | null | undefined)?.race;
+  if (!r || typeof r !== 'object' || !Array.isArray(r.arms)) return undefined;
+  const winner = Number.isInteger(r.winner) && r.arms.some((a) => a.seq === r.winner) ? r.winner : null;
+  return { winner, reasons: Array.isArray(r.reasons) ? r.reasons.filter((x) => typeof x === 'string') : [], arms: r.arms };
 }
 
 function workflowResultBlock(run: RunRow, text: string): ContentBlock {
@@ -970,6 +982,51 @@ export class WorkflowService {
     }
     if (row.sessionId && action !== 'diff') this.engine.audit(row.sessionId, `workflow.worktree.${action}`, `${call.worktreeBranch} (${res.ok ? 'ok' : 'failed'})`);
     return { ok: res.ok, state, output: res.output };
+  }
+
+  /**
+   * The owner keeps a race's winner: its branch is merged into the run's
+   * checkout (the session's worktree), and with 'pr' a pull request opens
+   * from the session's branch. Only after that are the other racers'
+   * branches deleted. Never runs on its own; a retry after a failed pull
+   * request skips the merge that already happened.
+   */
+  async keepWinner(id: string, how: KeepWinnerHow): Promise<KeepWinnerResult> {
+    const row = this.requireRun(id);
+    if (this.live.has(id)) throw new EngineError(409, 'The race is still running. Keep the winner once it is done.');
+    const race = raceOf(row.result);
+    if (!race || race.winner === null) throw new EngineError(409, 'This run has no race winner to keep.');
+    const gh = how === 'pr' ? githubOf(this.engine) : undefined;
+    if (how === 'pr' && (!row.sessionId || !gh?.row(row.sessionId))) throw new EngineError(409, 'A pull request needs the run to belong to a repo session. Apply the winner instead.');
+    const winner = this.store.getCall(id, race.winner);
+    if (winner?.worktreeState !== 'merged') {
+      const merged = await this.worktree(id, race.winner, 'merge');
+      if (!merged.ok) return { ok: false, output: merged.output, discarded: 0 };
+    }
+    let pr: KeepWinnerResult['pr'];
+    if (gh && row.sessionId) {
+      const task = typeof (row.result as { task?: unknown })?.task === 'string' ? (row.result as { task: string }).task : row.name;
+      try {
+        const open = gh.row(row.sessionId);
+        // a pull request already open for the branch gets the winner by a push
+        if (open?.prNumber && open.prState === 'open') {
+          await gh.push(row.sessionId);
+          pr = { number: open.prNumber, url: open.prUrl ?? '' };
+        } else {
+          const dto = await gh.openPr(row.sessionId, { title: oneLine(task, 72), body: `Kept from the race ${id}.\n\n${race.reasons.map((r) => `- ${r}`).join('\n')}`.trim() });
+          if (dto.pr) pr = { number: dto.pr.number, url: dto.pr.url };
+        }
+      } catch (err) {
+        return { ok: false, output: `The winner is applied, but the pull request did not open: ${(err as Error).message}`, discarded: 0 };
+      }
+    }
+    let discarded = 0;
+    for (const a of race.arms) {
+      if (!a.seq || a.seq === race.winner || this.store.getCall(id, a.seq)?.worktreeState !== 'kept') continue;
+      if ((await this.worktree(id, a.seq, 'discard').catch(() => undefined))?.ok) discarded++;
+    }
+    if (row.sessionId) this.engine.audit(row.sessionId, 'workflow.race.keep', `${row.name} (${id}) call ${race.winner}${pr ? ` as #${pr.number}` : ''}, ${discarded} discarded`);
+    return { ok: true, output: pr ? `Opened pull request #${pr.number}.` : 'Applied the winner.', discarded, ...(pr ? { pr } : {}) };
   }
 
   judgeFinding(runId: string, findingId: string, verdict: FindingVerdict, reason?: string): WorkflowFinding {
