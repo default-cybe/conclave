@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- The skills list in every session's system prompt now fits a token budget (`agents.skillTokens`, default 6000; 0 lists everything as before). Over it, the agent's own `skills:` list, project and hub skills, and skills that match the agent or the session's first message keep their descriptions; the rest are listed by name, one line per plugin, and still load by name. The Skill tool takes `query` to search skills or list a plugin's. The choice holds for the whole session, so the prompt cache keeps hitting. On a hub with 440 skills the section goes from about 36,000 to about 5,600 tokens.
+
 ## [0.4.41] - 2026-10-27
 
 ### Added
