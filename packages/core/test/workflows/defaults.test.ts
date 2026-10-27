@@ -34,7 +34,7 @@ beforeAll(async () => {
 });
 afterAll(async () => t?.close());
 
-test('all twelve default workflows load, are Conclave scripts, and compile in the sandbox', async () => {
+test('all thirteen default workflows load, are Conclave scripts, and compile in the sandbox', async () => {
   expect(DEFAULT_WORKFLOWS.map((d) => d.file.replace(/\.js$/, ''))).toEqual([
     'review-changes',
     'deep-research',
@@ -48,6 +48,7 @@ test('all twelve default workflows load, are Conclave scripts, and compile in th
     'ui-pass',
     'migrate',
     'compare-harnesses',
+    'race',
   ]);
   for (const d of DEFAULT_WORKFLOWS) {
     const { meta, body } = await loadMeta(d.script);
@@ -66,7 +67,7 @@ test('all twelve default workflows load, are Conclave scripts, and compile in th
     expect(d.script).not.toMatch(/[–—]/);
   }
   const library = await svcOf(t.engine).library();
-  expect(library.filter((w) => w.source === 'builtin').length).toBe(12);
+  expect(library.filter((w) => w.source === 'builtin').length).toBe(13);
   expect(library.every((w) => w.runnable)).toBe(true);
 });
 
@@ -116,6 +117,68 @@ test('review-changes finds, cites, refutes and proves a bug in an uncommitted ch
     expect(svc.store.findings(run.id).map((f) => f.file)).toEqual(['src/a.ts']);
     // nothing ran in the owner's tree
     expect(git('status --porcelain').stdout.toString().trim()).toBe('M src/a.ts');
+  } finally {
+    (t.engine as unknown as { homeCache: Map<string, string> }).homeCache.delete('local');
+    answers.length = 0;
+    cleanup(repo, home);
+  }
+});
+
+test('race checks each racer, judges the passing ones, and keeps the winner only when the owner asks', async () => {
+  const repo = tempDir('conclave-wf-race-');
+  const home = tempDir('conclave-wf-racehome-');
+  try {
+    const git = (cmd: string) => Bun.spawnSync(['bash', '-c', `git -c user.name=t -c user.email=t@t ${cmd}`], { cwd: repo });
+    git('init -q -b main');
+    writeFileSync(join(repo, 'README.md'), 'hello\n');
+    git('add -A');
+    git('commit -q -m init');
+    (t.engine as unknown as { homeCache: Map<string, string> }).homeCache.set('local', home);
+    // racer 1 and 2 write an answer (the check passes), racer 3 writes the wrong file (it fails)
+    const order = new Map<string, number>();
+    answers.push([
+      'Do this task in the repository',
+      (body) => {
+        const cwd = workingDir(body)!;
+        if (!order.has(cwd)) order.set(cwd, order.size + 1);
+        if (afterToolResult(body)) return [{ text: 'done' }];
+        const i = order.get(cwd)!;
+        return [{ tool: 'Write', input: { file_path: join(cwd, i === 3 ? 'wrong.txt' : 'answer.txt'), content: i === 1 ? 'short answer\n' : 'long winded answer\n' } }];
+      },
+    ]);
+    // the judges prefer the short answer in either order
+    answers.push([
+      'Score each candidate',
+      (body) => {
+        const text = firstUserText(body);
+        const best = text.indexOf('short answer') < text.indexOf('long winded') ? 'A' : 'B';
+        const other = best === 'A' ? 'B' : 'A';
+        return so({ scores: [{ id: best, score: 9, reason: 'Smallest change that does the task.' }, { id: other, score: 5, reason: 'Wordy.' }], best })(body);
+      },
+    ]);
+    const svc = svcOf(t.engine);
+    const s = await t.engine.createSession({ cwd: repo, permissionMode: 'acceptEdits' });
+    const run = await svc.wait((await svc.startRun({ name: 'race', sessionId: s.id, args: { task: 'write answer.txt', check: 'test -f answer.txt' } })).id);
+    expect(run.error).toBeUndefined();
+    const r = run.result as { race: { winner: number; reasons: string[]; arms: Array<{ seq: number; passed: boolean }> } };
+    const winner = svc.store.getCall(run.id, r.race.winner)!;
+    expect(git(`show ${winner.worktreeBranch}:answer.txt`).stdout.toString()).toBe('short answer\n');
+    expect(r.race.reasons).toContain('Smallest change that does the task.');
+    expect(r.race.arms.filter((a) => a.passed).length).toBe(2);
+    // nothing merged and every branch kept until the owner chooses
+    expect(Bun.file(join(repo, 'answer.txt')).size).toBe(0);
+    const racers = r.race.arms.map((a) => a.seq);
+    expect(racers.every((q) => svc.store.getCall(run.id, q)?.worktreeState === 'kept')).toBe(true);
+
+    await expect(svc.keepWinner(run.id, 'pr')).rejects.toThrow(/repo session/);
+    const kept = await svc.keepWinner(run.id, 'apply');
+    expect(kept).toMatchObject({ ok: true, discarded: 2 });
+    expect(await Bun.file(join(repo, 'answer.txt')).text()).toBe('short answer\n');
+    expect(svc.store.getCall(run.id, r.race.winner)?.worktreeState).toBe('merged');
+    for (const q of racers.filter((q) => q !== r.race.winner)) {
+      expect(svc.store.getCall(run.id, q)?.worktreeState).toBe('discarded');
+      expect(git(`rev-parse --verify --quiet conclave/wf/${run.id}/${q}`).exitCode).not.toBe(0);
+    }
   } finally {
     (t.engine as unknown as { homeCache: Map<string, string> }).homeCache.delete('local');
     answers.length = 0;

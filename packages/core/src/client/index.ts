@@ -73,7 +73,7 @@ export { SEARCH_PROVIDERS } from './websearch';
 // ----- accounts: several people on one hub, docs/design/ACCOUNTS.md -----
 import type { AccountRef, InviteDto, InviteInfo, MeDto, MePatch, PersonCreated, PersonDto, PersonInput, PersonPatch, WorkspaceCode } from './people';
 export type * from './people';
-export { DISPLAY_NAME_MAX, OWNER_DEFAULT_NAME, displayNameProblem, shownName, tidyDisplayName } from './people';
+export { DISPLAY_NAME_MAX, OWNER_DEFAULT_NAME, SPLIT_MAX, displayNameProblem, shownName, tidyDisplayName } from './people';
 export type * from './pim';
 import type { CaldavPreset, MailSecurity, OAuthClientKind, OAuthFlowDto, PimAccountDto, PimSettingsDto, PimWants, ProposalDto, ProposalStatus } from './pim';
 import type {
@@ -123,6 +123,8 @@ export { sessionRepo } from './github';
 // ----- workflow engine DTOs: block "workflows", docs/design/ROUND-IMPORT-PATHS-WORKFLOWS.md 3.17 -----
 import type {
   FindingVerdict,
+  KeepWinnerHow,
+  KeepWinnerResult,
   StartWorkflowInput,
   WorkflowDetail,
   WorkflowFinding,
@@ -203,6 +205,8 @@ export type * from './updates';
 // ----- hook recipes DTOs: block "hook recipes", docs/design/ECOSYSTEM.md 2.2 -----
 import type { HookRecipe, RecipeTarget } from '../extensions/hook-recipes';
 import type { RecipeTestResult } from '../catalog/types';
+// ----- design direction for UI work: /design in a session -----
+import type { DesignInput } from '../session/design-directions';
 
 // ---------------------------------------------------------------------------
 // Request / response shapes
@@ -254,6 +258,8 @@ export interface SessionPatch {
   ultra?: boolean;
   /** MCP servers whose tools this session leaves out (/mcp in a session). null or [] turns them all back on. */
   mcpOff?: string[] | null;
+  /** Design direction for UI work (/design, session/design-brief.ts). null clears it. Refused on chats. */
+  design?: DesignInput | null;
 }
 
 /** What fills a session's context now (/context), in tokens counted like a request (chars / 4). */
@@ -450,6 +456,8 @@ export interface McpStatus {
   plugin?: string;
   transport?: 'stdio' | 'http' | 'sse';
   enabled?: boolean;
+  /** A server with auth "oauth": signed in, or waiting for the owner to press Connect. */
+  auth?: 'connected' | 'needs-auth';
 }
 
 export interface UsageSummary {
@@ -1940,6 +1948,9 @@ export class ConclaveClient {
   addMcpServer = (name: string, config: McpServerConfig) => this.request<McpStatus>('POST', '/api/mcp', { name, config, scope: 'user' });
   updateMcpServer = (name: string, patch: { enabled?: boolean; config?: McpServerConfig }) => this.request<McpStatus>('PATCH', `/api/mcp/${encodeURIComponent(name)}`, patch);
   removeMcpServer = (name: string) => this.request<{ ok: true }>('DELETE', `/api/mcp/${encodeURIComponent(name)}`);
+  /** OAuth Connect: the address to open; the browser comes back to the hub's callback. */
+  startMcpOAuth = (name: string) => this.request<{ authorizeUrl: string }>('POST', `/api/mcp/${encodeURIComponent(name)}/oauth/start`, {});
+  disconnectMcpOAuth = (name: string) => this.request<McpStatus>('DELETE', `/api/mcp/${encodeURIComponent(name)}/oauth`);
   /** Parse another CLI's MCP config for a preview. Nothing is saved. */
   importMcp = (from: McpImportFormat, text: string) => this.request<Record<string, McpServerConfig>>('POST', '/api/mcp/import', { from, text });
   mcpConnectPlan = (name: string) => this.request<McpConnectStepDto[]>('GET', `/api/mcp/${encodeURIComponent(name)}/connect`);
@@ -2248,6 +2259,7 @@ export class ConclaveClient {
   rerunWorkflow = (id: string, fromSeq: number) => this.request<WorkflowRun>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/rerun`, { fromSeq });
   skipWorkflowCall = (id: string, seq: number) => this.request<WorkflowRun>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/calls/${seq}/skip`);
   workflowWorktree = (id: string, seq: number, action: WorktreeAction) => this.request<WorktreeActionResult>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/calls/${seq}/worktree`, { action });
+  keepRaceWinner = (id: string, how: KeepWinnerHow) => this.request<KeepWinnerResult>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/keep`, { how });
   judgeFinding = (id: string, findingId: string, verdict: FindingVerdict, reason?: string) =>
     this.request<WorkflowFinding>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/findings/${encodeURIComponent(findingId)}`, { verdict, reason });
 

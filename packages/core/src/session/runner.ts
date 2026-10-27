@@ -53,11 +53,12 @@ import { memoryRecallBudget } from '../engine/builtin-hooks';
 import { STOP_BLOCK_CAP } from '../extensions/hooks';
 import { loadPathRules, loadScopedInstructions, type InstructionFile, type PathRule } from '../extensions/instructions';
 import { pendingSwitch, switchNote } from '../modes/switch-marker';
+import { designTurnBlocks } from './design-brief';
 import { movedToMain } from './delegated';
 import type { Machine } from '../machine/types';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkShareable, usesOutputs } from '../files/share';
+import { checkShareable, outputsDir, usesOutputs } from '../files/share';
 
 const log = logger('runner');
 
@@ -75,6 +76,8 @@ export const PAUSE_GRACE_MS = 30_000;
 
 /** File tools after which nested instruction files and path rules for that file are shown (item 11). */
 const SCOPED_TOOLS = new Set(['Read', 'Edit', 'Write', 'MultiEdit']);
+/** File tools that work in a chat's outputs folder instead of the hub user's home. */
+const CHAT_FILE_TOOLS = new Set(['Read', 'Write', 'RenderFile']);
 /** Longest part of one scoped instruction file shown on a tool result. */
 const SCOPED_FILE_CHARS = 4_000;
 
@@ -929,6 +932,8 @@ export class SessionRunner {
       if (switched.from !== modelRef) content.push(reminder(switchNote(modelLabel(engine, switched.from))));
       engine.patchMeta(this.id, { switched: undefined });
     }
+    // the design direction for UI work, when it changed, and again after /clear or a compaction (session/design-brief.ts)
+    if (!retry) content.push(...designTurnBlocks(engine, this.id, startSource === 'clear' || startSource === 'compact'));
     // a retry on the next model adds nothing: the turn runs again on the same stored messages
     const userMsg = retry
       ? ([...engine.repos.messages.list(this.id)].reverse().find((m) => m.role === 'user' && m.kind === 'normal') ?? { seq: 0 })
@@ -1884,7 +1889,8 @@ export class SessionRunner {
     const machine = engine.machineFor(session);
     // an untrusted session (session/untrusted.ts): only allow rules let a call through, hooks cannot answer for the owner
     const untrusted = engine.isUntrusted(session);
-    const cwd = tool.name === 'Bash' ? (this.shellCwd ?? session.cwd) : session.cwd;
+    // a chat's file tools work in its outputs folder (tools/util.ts chatRefusal), so a relative name lands there and rules judge that path
+    const cwd = tool.name === 'Bash' ? (this.shellCwd ?? session.cwd) : session.kind === 'chat' && CHAT_FILE_TOOLS.has(tool.name) ? outputsDir(engine.config.paths.home, session.id) : session.cwd;
 
     // PreToolUse hooks
     const pre = await engine.runHook(session, 'PreToolUse', { tool_name: tool.name, tool_input: input, tool_use_id: use.id }, tool.name);

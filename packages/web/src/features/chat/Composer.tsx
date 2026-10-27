@@ -26,6 +26,7 @@ import type { Attachment } from '@conclave/core/client';
 import { api } from '@/lib/api';
 import { askBtw, attempt, sendQueued, toast, upsertSession, useHub } from '@/store/store';
 import { BtwCards } from './Pending';
+import { CommentTray } from './CommentTray';
 import { openNewChat, openPalette } from '@/store/ui';
 import { cn, fuzzyFilter } from '@/lib/text';
 import { bytes, hhmm } from '@/lib/format';
@@ -43,11 +44,11 @@ import { AgentPicker, DEFAULT_DEBATE, DEFAULT_JURY, DEFAULT_LOOP, DebatersPicker
 import { moveSessionTo } from './FolderChooser';
 import { MODES } from './modes';
 import { ULTRA_LINE, UltraSwitch } from '../workflows/UltraSwitch';
-import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPicked, useAgentFollow, type StripFile } from '@/features/conversation/ComposerParts';
+import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPicked, StatusLine, useAgentFollow, type StripFile } from '@/features/conversation/ComposerParts';
 import { DeviceChip, FolderChip, deviceItems, useComputers } from '@/features/home/Where';
 import { useThisComputer } from '@/features/home/here';
 import { CODE_AGENT, customAgent, modeOf } from '@/features/home/start';
-import { downloadExport, isReminder } from './util';
+import { COMPOSE_EVENT, downloadExport, isReminder, type ComposeDetail } from './util';
 import { sessionRepo } from '@/lib/github';
 import { findSlash, INIT_PROMPT, menuList, PHONE_TOP_COMMANDS, pickAction, SECTION_WORDS, slashItems, slashMode, type SheetId, type SlashItem } from './slash';
 import { SessionSheets } from './sheets/SessionSheets';
@@ -64,7 +65,7 @@ const MAX_BYTES = 12 * 1024 * 1024;
 /** Phones: the session menu asks the composer to open its sheet of pickers (agent, model, device, mode). */
 export const SESSION_SETTINGS_EVENT = 'conclave:session-settings';
 
-export function Composer({ session }: { session: Session }) {
+export function Composer({ session, narrow }: { session: Session; /** A column of Side by side: no folder or device chips (the session page has them). */ narrow?: boolean }) {
   const commands = useHub((s) => s.commands);
   const skills = useHub((s) => s.skills);
   const agentDef = useHub((s) => s.agents.find((a) => a.name === session.agent));
@@ -118,13 +119,14 @@ export function Composer({ session }: { session: Session }) {
 
   useEffect(() => {
     const onCompose = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (typeof detail === 'string' && detail) setText(detail);
+      const { text, sessionId } = ((e as CustomEvent).detail ?? {}) as ComposeDetail;
+      if (sessionId && sessionId !== session.id) return;
+      if (text) setText(text);
       requestAnimationFrame(() => box.current?.focus());
     };
-    window.addEventListener('conclave:compose', onCompose);
-    return () => window.removeEventListener('conclave:compose', onCompose);
-  }, []);
+    window.addEventListener(COMPOSE_EVENT, onCompose);
+    return () => window.removeEventListener(COMPOSE_EVENT, onCompose);
+  }, [session.id]);
 
   // grow to 12 lines (6 on phones), then scroll
   useLayoutEffect(() => {
@@ -486,6 +488,7 @@ export function Composer({ session }: { session: Session }) {
       >
         {menuBox}
         <BtwCards sessionId={session.id} />
+        <CommentTray session={session} />
         <PhoneBox
           rim={rim}
           attachments={<AttachmentStrip phone files={files} onRemove={(i) => setFiles((x) => x.filter((_, k) => k !== i))} />}
@@ -532,6 +535,7 @@ export function Composer({ session }: { session: Session }) {
             />
           }
         />
+        <StatusLine session={session} phone />
         <Sheet open={sheet} onClose={() => setSheet(false)} title="Options">
           <div className="space-y-4 px-4 pb-4">
             {empty && <Segmented size="touch" full label="Mode" value={session.mode} onChange={setMode} options={MODES.map((m) => ({ value: m.value, label: m.label }))} />}
@@ -557,8 +561,8 @@ export function Composer({ session }: { session: Session }) {
       {session.mode === 'jury' && <JurorsPicker look="text" value={cfg.jury} onChange={(jury) => void patch({ modeConfig: { ...cfg, jury } })} className="h-[24px] text-[12px]" />}
       {session.mode === 'debate' && <DebatersPicker look="text" value={cfg.debate} onChange={(debate) => void patch({ modeConfig: { ...cfg, debate } })} className="h-[24px] text-[12px]" />}
       {session.mode === 'loop' && <LoopPicker look="text" value={cfg.loop} onChange={(loop) => void patch({ modeConfig: { ...cfg, loop } })} className="h-[24px] text-[12px]" />}
-      {code && !sessionRepo(session) && <FolderChip device={session.device} cwd={session.cwd} onCwd={(cwd) => void patch({ cwd })} />}
-      {code && session.device !== here && computers.length > 1 && <DeviceChip device={session.device} onDevice={(id) => void moveSessionTo(session, id)} />}
+      {code && !narrow && !sessionRepo(session) && <FolderChip device={session.device} cwd={session.cwd} onCwd={(cwd) => void patch({ cwd })} />}
+      {code && !narrow && session.device !== here && computers.length > 1 && <DeviceChip device={session.device} onDevice={(id) => void moveSessionTo(session, id)} />}
     </>
   );
 
@@ -581,6 +585,7 @@ export function Composer({ session }: { session: Session }) {
       {menuBox}
       {sheets}
       <BtwCards sessionId={session.id} />
+      <CommentTray session={session} />
 
       <div className={cn('relative rounded-[var(--r-2)] border bg-sunk transition-[border-color] duration-[var(--dur-1)] has-[textarea:focus]:border-edge', drag ? 'border-signal' : 'border-rule-2')}>
         <Rim state={rim} />
@@ -633,6 +638,7 @@ export function Composer({ session }: { session: Session }) {
           </>
         }
       />
+      <StatusLine session={session} />
     </div>
   );
 }

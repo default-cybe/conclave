@@ -33,6 +33,7 @@ function stub(): void {
     rerun: async (...args: unknown[]) => rec('rerun')(...args),
     skip: rec('skip'),
     worktree: async (...args: unknown[]) => rec('worktree', { ok: true, state: 'kept', output: 'diff' })(...args),
+    keepWinner: async (...args: unknown[]) => rec('keepWinner', { ok: true, output: 'Applied the winner.', discarded: 2 })(...args),
     judgeFinding: rec('judgeFinding', { id: 'wff_1', verdict: 'dismissed' }),
     listPresets: rec('listPresets', [{ id: 'wfp_1', workflow: 'review-changes', name: 'main', args: { base: 'main' }, createdAt: 1 }]),
     savePreset: async (...args: unknown[]) => rec('savePreset', { id: 'wfp_2', workflow: 'review-changes', name: 'nightly', args: {}, createdAt: 2 })(...args),
@@ -108,6 +109,10 @@ describe('with a workflow service', () => {
     const wt = await hub.api('/api/workflows/runs/wfr_1/calls/2/worktree', { method: 'POST', json: { action: 'merge' } });
     expect(wt.status).toBe(200);
     expect(calls.find((c) => c.method === 'worktree')?.args).toEqual(['wfr_1', 2, 'merge']);
+    expect((await hub.api('/api/workflows/runs/wfr_1/keep', { method: 'POST', json: { how: 'merge' } })).status).toBe(400);
+    const kept = await hub.api('/api/workflows/runs/wfr_1/keep', { method: 'POST', json: { how: 'apply' } });
+    expect(kept.status).toBe(200);
+    expect(calls.find((c) => c.method === 'keepWinner')?.args).toEqual(['wfr_1', 'apply']);
     expect((await hub.api('/api/workflows/runs/wfr_1/findings/wff_1', { method: 'POST', json: { verdict: 'maybe' } })).status).toBe(400);
     const v = await hub.api('/api/workflows/runs/wfr_1/findings/wff_1', { method: 'POST', json: { verdict: 'dismissed', reason: 'intended' } });
     expect(v.status).toBe(200);

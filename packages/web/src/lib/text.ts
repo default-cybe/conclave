@@ -44,6 +44,20 @@ export interface DiffLine {
   newNo?: number;
 }
 
+/**
+ * The numbers a run of diff lines spans. All removed: the old file's numbers.
+ * Otherwise the new file's, taken from the added and context lines only, so a
+ * range never mixes old and new numbers.
+ */
+export function diffSpan(lines: DiffLine[]): { line?: number; endLine?: number; removed?: boolean } {
+  const body = lines.filter((l) => l.type === 'add' || l.type === 'del' || l.type === 'ctx');
+  const removed = body.length > 0 && body.every((l) => l.type === 'del');
+  const nums = (removed ? body.map((l) => l.oldNo) : body.filter((l) => l.type !== 'del').map((l) => l.newNo)).filter((n): n is number => typeof n === 'number');
+  const line = nums[0];
+  const last = nums[nums.length - 1];
+  return { ...(line !== undefined ? { line } : {}), ...(last !== undefined && last !== line ? { endLine: last } : {}), ...(removed ? { removed } : {}) };
+}
+
 export interface DiffFile {
   path: string;
   lines: DiffLine[];

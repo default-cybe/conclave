@@ -213,15 +213,16 @@ function PhaseBar({ run, calls, className }: { run: WorkflowRun; calls: Workflow
   const words = [`${settled} of ${c.agents} ${c.agents === 1 ? 'agent' : 'agents'} done`, c.running ? `${c.running} running` : '', c.failed ? `${c.failed} failed` : ''].filter(Boolean).join(', ');
   return (
     <div data-phase-bar="" className={cn('flex items-center gap-3', className)}>
-      <div className="flex min-w-0 flex-1 gap-1" aria-label={phaseLine(run) ?? `${run.phases.length} phases`} role="group">
+      {/* narrow (a Side by side column): the meters keep their width and the words wrap */}
+      <div className="flex flex-1 gap-1" aria-label={phaseLine(run) ?? `${run.phases.length} phases`} role="group">
         {phases.map((p, i) => {
           // the current phase always shows a sliver of signal, so a phase with nothing done yet still reads as running
           const value = p.state === 'done' ? 1 : p.state === 'next' ? 0 : Math.max(0.1, p.calls.length ? p.done / p.calls.length : 0);
           const tone = p.failed ? 'fault' : p.state === 'current' ? 'signal' : 'neutral';
-          return <Meter key={`${p.title}${i}`} value={value} max={1} tone={tone} label={`${p.title}: ${p.state === 'next' ? 'pending' : p.state === 'current' ? 'running' : 'done'}`} className="min-w-6 flex-1" />;
+          return <Meter key={`${p.title}${i}`} value={value} max={1} tone={tone} label={`${p.title}: ${p.state === 'next' ? 'pending' : p.state === 'current' ? 'running' : 'done'}`} className="min-w-3 flex-1" />;
         })}
       </div>
-      {c.agents > 0 && <span className="num shrink-0 tx-12 text-fg-3 phone:tx-13">{words}</span>}
+      {c.agents > 0 && <span className="num min-w-0 tx-12 text-fg-3 phone:tx-13">{words}</span>}
     </div>
   );
 }

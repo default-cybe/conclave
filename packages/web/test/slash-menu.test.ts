@@ -29,15 +29,16 @@ describe('per mode', () => {
     const code = names(builtinCommands('code'));
     for (const n of ['help', 'clear', 'compact', 'context', 'cost', 'model', 'agents', 'mcp', 'hooks', 'permissions', 'memory', 'resume', 'review', 'init', 'export', 'status', 'skills']) expect(code).toContain(n);
     const sheets = builtinCommands('code').filter((b) => b.sheet).map((b) => b.name);
-    expect(sheets.sort()).toEqual(['agents', 'context', 'cost', 'help', 'hooks', 'mcp', 'memory', 'model', 'permissions', 'resume', 'skills', 'status']);
+    expect(sheets.sort()).toEqual(['agents', 'context', 'cost', 'design', 'help', 'hooks', 'mcp', 'memory', 'model', 'permissions', 'resume', 'skills', 'status']);
     expect(SHEET_TITLES.mcp).toBe('Connectors');
+    expect(SHEET_TITLES.design).toBe('Design direction');
     expect(code).toEqual([...code].sort());
   });
 
   test('Chat mode keeps a smaller set without the coding commands', () => {
     const chat = names(builtinCommands('chat'));
     for (const n of ['help', 'model', 'clear', 'compact', 'export', 'memory', 'resume', 'cost', 'status']) expect(chat).toContain(n);
-    for (const n of ['mcp', 'hooks', 'permissions', 'agents', 'skills', 'init', 'review', 'device', 'cwd', 'context', 'jury', 'debate']) expect(chat).not.toContain(n);
+    for (const n of ['mcp', 'hooks', 'permissions', 'agents', 'skills', 'init', 'review', 'device', 'cwd', 'context', 'jury', 'debate', 'design']) expect(chat).not.toContain(n);
     expect(chat.length).toBeLessThan(builtinCommands('code').length);
   });
 

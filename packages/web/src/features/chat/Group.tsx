@@ -18,7 +18,7 @@ import { Knot, LiveStatus, arrived } from '@/components/motion';
 import { AuthorLine, LogRow } from './Log';
 import { Markdown, StreamedMarkdown } from './Markdown';
 import { took } from './ToolRows';
-import { jurorSummary, msgText, splitVerdict, verdictWord } from './util';
+import { COMPOSE_EVENT, jurorSummary, msgText, splitVerdict, verdictWord, type ComposeDetail } from './util';
 
 export interface GroupUnit {
   kind: 'group';
@@ -177,7 +177,7 @@ export function JuryGroup({ unit, session, streaming, enter }: { unit: GroupUnit
                 <Button
                   variant="quiet"
                   onClick={() => {
-                    window.dispatchEvent(new CustomEvent('conclave:compose', { detail: '' }));
+                    window.dispatchEvent(new CustomEvent<ComposeDetail>(COMPOSE_EVENT, { detail: { sessionId: session.id } }));
                   }}
                 >
                   Ask {followWord} a follow-up
