@@ -9,7 +9,9 @@
 import { describe, expect, test } from 'bun:test';
 import type { MemoryGraph, MemoryGraphNode } from '@conclave/core/client';
 import { BRAIN, CAP_AREA, areaId, buildTree, chainTo, indexGraph, layoutAll, layoutTree, nodeLabel, nodeWords, pathInto, searchItems, visibleLabels, type MapState, type MLayout, type ScreenLabel, type TNode } from '../src/features/memory/graph-model';
-import { FISSURE, RX, RY, edgeOn, layoutBrain } from '../src/features/memory/brain-model';
+import { edgeOn, layoutLinks } from '../src/features/memory/link-model';
+import { angleTime, areaAtAngle, itemAtAngle, layoutHud, timeAngle } from '../src/features/memory/ring-model';
+import { CORE_R, holoStats, layoutHolo, linkCurve, pickEdges, timeX } from '../src/features/memory/holo-model';
 
 const node = (id: string, over: Partial<MemoryGraphNode> = {}): MemoryGraphNode => ({ id, kind: 'note', source: 'basic-memory', title: id, area: 'Other', degree: 0, ...over });
 
@@ -238,67 +240,23 @@ describe('memory map expand all', () => {
   });
 });
 
-describe('memory map brain view', () => {
+describe('memory map links (Rings and 3D)', () => {
   const g = world();
   const ix = indexGraph(g);
-  const L = layoutBrain(g, ix);
+  const L = layoutLinks(g, ix);
 
-  test('every item sits once in its area arc, on the outline', () => {
+  test('every item once, inside its area', () => {
     expect(L.items.length).toBe(g.nodes.length);
     expect(new Set(L.items.map((i) => i.id)).size).toBe(g.nodes.length);
-    for (const a of L.areas) {
-      expect(a.t0).toBeLessThan(a.t1);
-      for (let i = a.from; i < a.to; i++) {
-        const it = L.items[i];
-        expect(g.nodes[it.node].area).toBe(a.name);
-        expect(it.side).toBe(a.side);
-        expect(it.t).toBeGreaterThan(a.t0);
-        expect(it.t).toBeLessThan(a.t1);
-        // on the half-ellipse of its hemisphere
-        expect(((Math.abs(it.x) - FISSURE) / RX) ** 2 + (it.y / RY) ** 2).toBeCloseTo(1, 3);
-        expect(Math.sign(it.x)).toBe(it.side);
-      }
-    }
-    // arcs on one side do not overlap
-    for (const s of [1, -1]) {
-      const arcs = L.areas.filter((a) => a.side === s).sort((a, b) => a.t0 - b.t0);
-      for (let i = 1; i < arcs.length; i++) expect(arcs[i].t0).toBeGreaterThanOrEqual(arcs[i - 1].t1);
-    }
+    for (const [k, a] of L.areas.entries()) for (let i = a.from; i < a.to; i++) (expect(g.nodes[L.items[i].node].area).toBe(a.name), expect(L.items[i].area).toBe(k));
   });
 
-  test('records on the left, what they are about on the right', () => {
-    const nodes = [node('c1', { area: 'Conversations' }), node('p1', { area: 'People' }), node('h1', { area: 'Homelab' })];
-    const b = layoutBrain(graph(nodes, [['c1', 'p1', 'mentions']]), indexGraph(graph(nodes, [])));
-    expect(b.areas.find((a) => a.name === 'Conversations')!.side).toBe(-1);
-    expect(b.areas.find((a) => a.name === 'People')!.side).toBe(1);
-  });
-
-  test('only edges that exist are drawn, each once', () => {
+  test('only edges that exist, each once', () => {
     const real = new Set(g.edges.map(([a, b, l]) => `${g.nodes[a].id}|${g.nodes[b].id}|${g.labels[l]}`));
     expect(L.edges.length).toBe(g.edges.length);
     for (const e of L.edges) expect(real.has(`${L.items[e.a].id}|${L.items[e.b].id}|${e.label}`)).toBe(true);
     expect(new Set(L.edges.map((e) => `${e.a}|${e.b}|${e.label}`)).size).toBe(L.edges.length);
     for (const e of L.edges) expect(e.cross).toBe(L.items[e.a].area !== L.items[e.b].area);
-  });
-
-  test('bundled paths start and end at their items', () => {
-    for (const e of L.edges) {
-      const A = L.items[e.a];
-      const B = L.items[e.b];
-      const p = e.pts;
-      expect(p[0]).toBeCloseTo(A.ix, 2);
-      expect(p[1]).toBeCloseTo(A.iy, 2);
-      expect(p[p.length - 2]).toBeCloseTo(B.ix, 2);
-      expect(p[p.length - 1]).toBeCloseTo(B.iy, 2);
-      expect((p.length - 2) % 6).toBe(0);
-    }
-    // a link across hemispheres passes near the middle: it bundles through the centre
-    const across = L.edges.find((e) => L.items[e.a].side !== L.items[e.b].side);
-    if (across) {
-      let near = Infinity;
-      for (let i = 0; i < across.pts.length; i += 2) near = Math.min(near, Math.hypot(across.pts[i], across.pts[i + 1]));
-      expect(near).toBeLessThan(RX * 0.5);
-    }
   });
 
   test('filters remove edges: hidden relations, across areas only, items stepped back', () => {
@@ -314,13 +272,113 @@ describe('memory map brain view', () => {
     const gone = L.edges.filter((e) => edgeOn(L, e, { hidden: new Set(), crossOnly: false, gone: (i) => i === madx }));
     expect(gone.some((e) => L.items[e.a].node === madx || L.items[e.b].node === madx)).toBe(false);
   });
+});
 
-  test('builds fast for 3,000 items and links', () => {
-    const nodes = Array.from({ length: 3000 }, (_, i) => node(`n${i}`, { area: ['People', 'Projects', 'Homelab', 'Conversations', 'Courses', 'Conclave'][i % 6] }));
-    const big = graph(nodes, Array.from({ length: 3300 }, (_, i) => [`n${i % 3000}`, `n${(i * 13 + 5) % 3000}`, 'links to'] as [string, string, string]));
+describe('memory map rings', () => {
+  const node2 = (id: string, area: string, at: number, degree: number): MemoryGraphNode => ({ id, kind: 'fact', source: 'conclave', title: id, area, at, degree });
+  const g: MemoryGraph = {
+    nodes: [node2('a1', 'People', 3, 2), node2('a2', 'People', 1, 1), node2('b1', 'Homelab', 2, 2), node2('c1', 'Courses', 5, 1)],
+    edges: [[0, 2, 0], [1, 0, 0], [2, 3, 0]],
+    labels: ['links to'],
+    basicMemory: { state: 'none' },
+  };
+  const ix = indexGraph(g);
+  const L = layoutLinks(g, ix);
+  const H = layoutHud(L, ix);
+  test('one curve per real link, starting and ending on the ring', () => {
+    expect(H.pts.length).toBe(L.edges.length);
+    for (const [k, e] of L.edges.entries()) {
+      const p = H.pts[k];
+      expect(Math.hypot(p[0], p[1])).toBeCloseTo(397, 0);
+      expect(Math.atan2(p[1], p[0])).toBeCloseTo(Math.atan2(Math.sin(H.angle[e.a]), Math.cos(H.angle[e.a])), 4);
+    }
+  });
+  test('items in an area run oldest first, and every item is found at its angle', () => {
+    const people = H.areas.find((a) => a.name === 'People')!;
+    expect(people.items.map((i) => L.items[i].id)).toEqual(['a2', 'a1']);
+    for (let i = 0; i < L.items.length; i++) {
+      expect(itemAtAngle(H, H.angle[i], 0.01)).toBe(i);
+      expect(areaAtAngle(H, H.angle[i])?.i).toBe(L.items[i].area);
+    }
+  });
+  test('the bezel maps time to angle and back', () => {
+    for (const t of [1, 2.5, 5]) expect(angleTime(timeAngle(t, 1, 5), 1, 5)).toBeCloseTo(t, 6);
+    expect(H.bins.reduce((s, n) => s + n, 0)).toBe(4);
+  });
+});
+
+describe('memory map 3D', () => {
+  const AREAS = ['People', 'Projects', 'Homelab', 'Conversations', 'Courses', 'Conclave', 'Services', 'Vendors', 'Devices', 'Security', 'Topics', 'Other'];
+  const DAY = 86_400_000;
+  // ~3,000 items over 12 areas and two years, a few undated, and ~3,200 links
+  const nodes = Array.from({ length: 2980 }, (_, i) => node(`n${i}`, { title: `Item ${i}`, area: AREAS[(i * 7) % 12], at: i % 113 === 0 ? undefined : 1.7e12 + ((i * 7919) % 2980) * DAY * 0.25 }));
+  // links across areas, and inside them (n and n + 12 share an area)
+  const big = graph(nodes, Array.from({ length: 3236 }, (_, i) => (i % 2 ? [`n${i % 2980}`, `n${(i * 13 + 5) % 2980}`, i % 3 ? 'links to' : 'mentions'] : [`n${(i * 5) % 2968}`, `n${((i * 5) % 2968) + 12}`, 'links to']) as [string, string, string]));
+  const ix = indexGraph(big);
+  const L = layoutLinks(big, ix);
+  const dist = (p: Float32Array, i: number, c: Float32Array, a: number) => Math.hypot(p[i * 3] - c[a * 3], p[i * 3 + 1] - c[a * 3 + 1], p[i * 3 + 2] - c[a * 3 + 2]);
+
+  test('Clusters: every item inside its own area ball, nearer its own centre than any other', () => {
     const t0 = performance.now();
-    const b = layoutBrain(big, indexGraph(big));
-    expect(b.edges.length).toBeGreaterThan(3000);
+    const H = layoutHolo(L, big.nodes, 'clusters');
     expect(performance.now() - t0).toBeLessThan(800);
+    for (let i = 0; i < L.items.length; i++) {
+      const a = L.items[i].area;
+      const d = dist(H.pos, i, H.centers, a);
+      expect(d).toBeLessThanOrEqual(H.radius[a] + 1e-3);
+      for (let b = 0; b < L.areas.length; b++) if (b !== a) expect(dist(H.pos, i, H.centers, b)).toBeGreaterThan(d);
+      for (let c = 0; c < 3; c++) expect(Number.isFinite(H.pos[i * 3 + c])).toBe(true);
+    }
+    // balls do not overlap, and none swallows the core
+    for (let a = 0; a < L.areas.length; a++) {
+      expect(Math.hypot(H.centers[a * 3], H.centers[a * 3 + 1], H.centers[a * 3 + 2]) - H.radius[a]).toBeGreaterThan(CORE_R);
+      for (let b = a + 1; b < L.areas.length; b++) expect(Math.hypot(H.centers[a * 3] - H.centers[b * 3], H.centers[a * 3 + 1] - H.centers[b * 3 + 1], H.centers[a * 3 + 2] - H.centers[b * 3 + 2])).toBeGreaterThan(H.radius[a] + H.radius[b]);
+    }
+  });
+
+  test('Clusters: linked items sit closer than unlinked ones in the same area', () => {
+    const H = layoutHolo(L, big.nodes, 'clusters');
+    let linked = 0;
+    let n = 0;
+    for (const e of L.edges) if (!e.cross) ((linked += dist(H.pos, e.a, H.pos, e.b)), n++);
+    let rand = 0;
+    let m = 0;
+    for (const a of L.areas) for (let i = a.from; i + 7 < a.to; i += 3) ((rand += dist(H.pos, i, H.pos, i + 7)), m++);
+    expect(linked / n).toBeLessThan(rand / m);
+  });
+
+  test('Timeline: x follows the dates, undated items wait before the start', () => {
+    const H = layoutHolo(L, big.nodes, 'timeline');
+    const dated = L.items.map((it, i) => [big.nodes[it.node].at, H.pos[i * 3]] as const).filter(([t]) => t);
+    dated.sort((a, b) => a[0]! - b[0]!);
+    for (let k = 1; k < dated.length; k++) expect(dated[k][1]).toBeGreaterThanOrEqual(dated[k - 1][1]);
+    const first = dated[0][1];
+    for (const [i, it] of L.items.entries()) if (!big.nodes[it.node].at) expect(H.pos[i * 3]).toBeLessThan(first);
+    // month ticks run left to right, on the axis
+    for (let k = 1; k < H.ticks.length; k++) expect(H.ticks[k].x).toBeGreaterThanOrEqual(H.ticks[k - 1].x);
+    expect(timeX(H.times, H.lo, H.hi, H.lo)).toBeLessThan(timeX(H.times, H.lo, H.hi, H.hi));
+  });
+
+  test('only real edges are drawn: each curve starts and ends on its items, filters remove edges', () => {
+    const H = layoutHolo(L, big.nodes, 'clusters');
+    const on = L.edges.map((e) => edgeOn(L, e, { hidden: new Set(['mentions']), crossOnly: false }));
+    const deg = L.items.map((it) => big.nodes[it.node].degree);
+    const all = pickEdges(L, on, 1e9, deg);
+    expect(all.length).toBe(on.filter(Boolean).length);
+    for (const e of all) expect(L.edges[e].label).not.toBe('mentions');
+    const capped = pickEdges(L, on, 500, deg);
+    expect(capped.length).toBe(500);
+    for (const e of capped) expect(on[e]).toBe(true);
+    const seg = 6;
+    const out = new Float32Array(seg * 6);
+    for (const e of all.slice(0, 200)) {
+      linkCurve(H, L, e, seg, out, 0);
+      const { a, b } = L.edges[e];
+      for (let c = 0; c < 3; c++) expect(out[c]).toBeCloseTo(H.pos[a * 3 + c], 3);
+      for (let c = 0; c < 3; c++) expect(out[out.length - 3 + c]).toBeCloseTo(H.pos[b * 3 + c], 3);
+    }
+    const st = holoStats(L, big.nodes, on, () => false);
+    expect(st.links).toBe(all.length);
+    expect(st.items).toBe(L.items.length);
   });
 });
