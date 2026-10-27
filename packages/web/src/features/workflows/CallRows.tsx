@@ -13,9 +13,10 @@ import { Menu, type MenuItem } from '@/components/ui/Overlay';
 import { StateWord } from '@/components/ui/List';
 import { AgentGlyph, Elapsed, glyphState, stillRows } from '@/components/motion';
 import { modelName } from '@/lib/models';
-import { compact, usd } from '@/lib/format';
+import { compact } from '@/lib/format';
 import { cn } from '@/lib/text';
 import { useIsMobile } from '@/lib/hooks';
+import { callCostWord } from '@/features/chat/panel';
 import { CALL_TONE, CALL_WORD, isLive } from './words';
 
 export interface CallActions {
@@ -120,6 +121,8 @@ function CallRow({ run, call, lastTool, actions, selected, tools, still }: { run
   ];
   const label = call.label ?? (call.kind === 'workflow' ? 'workflow' : `call ${call.seq}`);
   const model = call.model ? modelName(call.model) : call.kind === 'agent' ? '' : call.kind;
+  const tokens = call.inputTokens + call.outputTokens;
+  const cost = callCostWord(call.costUsd, tokens, call.model);
 
   const more = (
     <Menu
@@ -138,7 +141,8 @@ function CallRow({ run, call, lastTool, actions, selected, tools, still }: { run
       <div className={cn('flex items-start gap-3 py-2.5', selected && 'bg-raise')}>
         <button type="button" onClick={() => actions.open(call)} className="min-w-0 flex-1 text-left">
           <span className="t-row block truncate text-fg">{label}</span>
-          <span className="mt-0.5 block truncate text-[13px] text-fg-3">{[model, lastTool, call.inputTokens + call.outputTokens ? `${compact(call.inputTokens + call.outputTokens)} tokens` : '', call.costUsd ? usd(call.costUsd) : ''].filter(Boolean).join(', ')}</span>
+          <span className="mt-0.5 block truncate text-[13px] text-fg-3">{/* the status line's order, the last tool after it, so a long path is what gets cut */}
+            {[model, tokens ? `${compact(tokens)} tokens` : '', cost, lastTool].filter(Boolean).join(', ')}</span>
         </button>
         <span className="cv-state inline-flex items-baseline gap-1.5 pt-0.5 text-[13px]">
           {glyph}
@@ -147,7 +151,6 @@ function CallRow({ run, call, lastTool, actions, selected, tools, still }: { run
         {more}
       </div>
     );
-  const tokens = call.inputTokens + call.outputTokens;
   const failure = call.state === 'failed' && call.error && !stoppedByRun(call) ? call.error : undefined;
   return (
     <div className={cn(GRID, tools ? COLS.tool : COLS.none, 'py-[var(--row-py)]', selected && 'bg-raise')}>
@@ -169,7 +172,7 @@ function CallRow({ run, call, lastTool, actions, selected, tools, still }: { run
         </span>
       )}
       <span className="num text-right text-[12px] text-fg-2">{tokens ? compact(tokens) : <Missing />}</span>
-      <span className="num text-right text-[12px] text-fg-2">{call.costUsd ? usd(call.costUsd) : <Missing />}</span>
+      <span className="num text-right text-[12px] text-fg-2">{cost || <Missing />}</span>
       {more}
     </div>
   );

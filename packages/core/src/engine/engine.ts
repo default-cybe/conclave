@@ -1499,6 +1499,15 @@ export class Engine implements EngineApi {
   removeMcpServer(name: string): boolean {
     return ext.removeMcpServer(this, name);
   }
+  startMcpOAuth(name: string, redirectUrl: string): Promise<{ authorizeUrl: string }> {
+    return ext.startMcpOAuth(this, name, redirectUrl);
+  }
+  finishMcpOAuth(input: { state: string; code?: string; error?: string }): Promise<McpStatus> {
+    return ext.finishMcpOAuth(this, input);
+  }
+  disconnectMcpOAuth(name: string): Promise<McpStatus> {
+    return ext.disconnectMcpOAuth(this, name);
+  }
   importMcp(from: McpImportFormat, text: string): Record<string, McpServerConfig> {
     return ext.importMcp(from, text);
   }

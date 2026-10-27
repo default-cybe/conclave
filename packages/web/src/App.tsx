@@ -17,6 +17,7 @@ import { useIsOwner } from './lib/people';
 import { ConnectScreen } from './features/connect/ConnectScreen';
 import { StrangerScreen } from './features/connect/StrangerScreen';
 import { ChatsPage } from './features/chat/ChatsPage';
+import { SplitPage } from './features/chat/SplitPage';
 import { ChatsRedirect, SessionRoute } from './features/conversation/routes';
 import HomePage from './features/home/HomePage';
 // loads on demand like the pages below; once Home has preloaded it, sending from Home opens it with no blank frame
@@ -216,6 +217,7 @@ export function App() {
             <Switch>
               <Route path="/" component={HomePage} />
               <Route path="/chat/:id?" component={ChatPageRoute} />
+              <Route path="/sessions/split" component={SplitPage} />
               <Route path="/sessions" component={ChatsPage} />
               <Route path="/chats" component={ChatsRedirect} />
               <Route path="/s/:id" component={SessionRoute} />

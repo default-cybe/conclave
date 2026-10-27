@@ -36,6 +36,7 @@ import { ApprovalCard } from '@/components/inbox/ApprovalCard';
 import { QuestionCard } from '@/components/inbox/QuestionCard';
 import { Checkbox } from '@/components/ui/Field';
 import { CodeBlock, Diff } from '@/components/ui/Code';
+import { commentTo } from './CommentTray';
 import { ConfirmDialog, MenuList, Popover, Sheet } from '@/components/ui/Overlay';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { ModelList } from '@/components/pickers/ModelPicker';
@@ -289,7 +290,7 @@ export function PhoneWork({ entries, sessionId, live }: { entries: WorkItem[]; s
         ) : g.kind === 'thought' ? (
           <PhoneThought key={g.item.key} item={g.item} />
         ) : (
-          <PhoneGroup key={g.entries.find((e) => e.type === 'call')?.item.tool.id ?? i} entries={g.entries} live={live && i === segs.length - 1} />
+          <PhoneGroup key={g.entries.find((e) => e.type === 'call')?.item.tool.id ?? i} entries={g.entries} sessionId={sessionId} live={live && i === segs.length - 1} />
         ),
       )}
       {/* places, routes and maps sit under the calls, open or not */}
@@ -300,7 +301,7 @@ export function PhoneWork({ entries, sessionId, live }: { entries: WorkItem[]; s
 }
 
 /** Two or more thoughts and calls as one sentence with their state and a chevron; open, them in order. */
-function PhoneGroup({ entries, live }: { entries: WorkItem[]; live: boolean }) {
+function PhoneGroup({ entries, sessionId, live }: { entries: WorkItem[]; sessionId: string; live: boolean }) {
   const calls = useMemo(() => entries.flatMap((e) => (e.type === 'call' ? [e.item] : [])), [entries]);
   const ids = useMemo(() => calls.map((c) => c.tool.id), [calls]);
   const waitingKey = useWaitingKey(ids);
@@ -333,7 +334,7 @@ function PhoneGroup({ entries, live }: { entries: WorkItem[]; live: boolean }) {
             ? entries.map((e) =>
                 e.type === 'call' ? (
                   <li key={e.item.tool.id}>
-                    <CallRow item={e.item} />
+                    <CallRow item={e.item} sessionId={sessionId} />
                   </li>
                 ) : (
                   <li key={e.item.key}>
@@ -343,7 +344,7 @@ function PhoneGroup({ entries, live }: { entries: WorkItem[]; live: boolean }) {
               )
             : held.map((c) => (
                 <li key={c.tool.id}>
-                  <CallRow item={c} />
+                  <CallRow item={c} sessionId={sessionId} />
                 </li>
               ))}
         </ul>
@@ -357,11 +358,11 @@ function OneCall({ item, sessionId }: { item: ToolItem; sessionId: string }) {
   const kind = workName(item.tool.name, item.tool.input);
   if (kind === 'Workflow') return <WorkflowRow tool={item.tool} result={item.result ?? item.run?.result} sessionId={sessionId} startedAt={item.run?.startedAt} layout="phone" />;
   if (kind === 'Task') return <FanOutCard items={[item]} sessionId={sessionId} />;
-  return <CallRow item={item} />;
+  return <CallRow item={item} sessionId={sessionId} />;
 }
 
 /** One call: the verb, the file name or the command, and what came of it ("+2 −0", "failed"). A tap opens what it did. */
-function CallRow({ item }: { item: ToolItem }) {
+function CallRow({ item, sessionId }: { item: ToolItem; sessionId: string }) {
   const [open, setOpen] = useState(false);
   const { tool } = item;
   const { res, status } = useToolState(item);
@@ -399,7 +400,7 @@ function CallRow({ item }: { item: ToolItem }) {
       </button>
       <Sheet open={open} onClose={() => setOpen(false)} title={<CallTitle tool={tool} />}>
         <div className="px-4 pb-4">
-          <CallBody item={item} files={files} output={output} />
+          <CallBody item={item} files={files} output={output} sessionId={sessionId} />
         </div>
       </Sheet>
     </>
@@ -416,14 +417,14 @@ function CallTitle({ tool }: { tool: ToolUseBlock }) {
   );
 }
 
-function CallBody({ item, files, output }: { item: ToolItem; files: ReturnType<typeof editFiles>; output: string }) {
+function CallBody({ item, files, output, sessionId }: { item: ToolItem; files: ReturnType<typeof editFiles>; output: string; sessionId: string }) {
   const { tool } = item;
   const res = item.result ?? item.run?.result;
   if (files.length)
     return (
       <div className="space-y-3">
         {files.map((f, i) => (
-          <Diff key={`${f.path}${i}`} file={f} header={files.length > 1} />
+          <Diff key={`${f.path}${i}`} file={f} header={files.length > 1} onComment={commentTo(sessionId)} />
         ))}
       </div>
     );

@@ -1,9 +1,10 @@
 /**
  * Branches a run kept (spec 3.18): branch, files changed, and the owner's
  * Diff, Merge, Cherry-pick and Discard. Each change to the repository is
- * an owner action with a confirm and an audit entry on the hub.
+ * an owner action with a confirm and an audit entry on the hub. A diff's
+ * lines take comments for the session that started the run (CommentTray).
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { WorkflowCall, WorktreeAction } from '@conclave/core/client';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog, Dialog } from '@/components/ui/Overlay';
@@ -11,13 +12,17 @@ import { SectionHeading } from '@/components/ui/Section';
 import { StateWord } from '@/components/ui/List';
 import { Diff } from '@/components/ui/Code';
 import { api } from '@/lib/api';
-import { attempt, toast } from '@/store/store';
+import { parseDiff } from '@/lib/text';
+import { attempt, toast, useHub } from '@/store/store';
+import { CommentTray, commentTo } from '../chat/CommentTray';
 
 const STATE_WORD = { live: 'in use', kept: 'kept', removed: 'removed', merged: 'merged', discarded: 'discarded' } as const;
 
-export function Worktrees({ runId, calls, onChange }: { runId: string; calls: WorkflowCall[]; onChange: (seq: number, state: NonNullable<WorkflowCall['worktree']>['state']) => void }) {
+export function Worktrees({ runId, sessionId, calls, onChange }: { runId: string; sessionId?: string; calls: WorkflowCall[]; onChange: (seq: number, state: NonNullable<WorkflowCall['worktree']>['state']) => void }) {
   const kept = calls.filter((c) => c.worktree && c.worktree.state !== 'removed');
   const [diff, setDiff] = useState<{ call: WorkflowCall; text: string }>();
+  const files = useMemo(() => (diff ? parseDiff(diff.text) : []), [diff]);
+  const session = useHub((s) => (sessionId ? s.sessions[sessionId] : undefined));
   const [confirm, setConfirm] = useState<{ call: WorkflowCall; action: WorktreeAction }>();
   const [busy, setBusy] = useState<string>();
   if (!kept.length) return null;
@@ -84,7 +89,20 @@ export function Worktrees({ runId, calls, onChange }: { runId: string; calls: Wo
       </div>
       {diff && (
         <Dialog open onClose={() => setDiff(undefined)} title={diff.call.worktree!.branch} width={760}>
-          {diff.text.trim() ? <Diff diff={diff.text} maxLines={400} header={false} /> : <p className="text-[13px] text-fg-3">The branch has no changes against where it started.</p>}
+          {files.length ? (
+            <div className="space-y-4">
+              {files.map((f, i) => (
+                <Diff key={`${f.path}${i}`} file={f} verb="Changed" maxLines={400} header={files.length > 1} onComment={session ? commentTo(session.id, diff.call.worktree!.branch) : undefined} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-[13px] text-fg-3">The branch has no changes against where it started.</p>
+          )}
+          {session && (
+            <div className="sticky bottom-0 mt-3 bg-raise">
+              <CommentTray session={session} />
+            </div>
+          )}
         </Dialog>
       )}
       {confirm && (
