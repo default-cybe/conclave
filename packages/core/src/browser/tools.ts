@@ -13,6 +13,19 @@ const EVAL_MAX_CHARS = 10_000;
 const MAX_WAIT_SECONDS = 60;
 /** Function source ("() => x", "async function () {}") gets called; anything else is an expression. */
 const FUNCTION_SOURCE = /^\s*(async\s+)?(function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)/;
+/** Viewport sizes browser_screenshot takes, in CSS pixels: a small phone up to a wide desktop. */
+const SHOT_WIDTH = [320, 2560] as const;
+const SHOT_HEIGHT = [320, 4000] as const;
+
+/** Why a browser_screenshot input is out of range, or undefined. */
+function shotInputError(input: { width?: unknown; height?: unknown; color_scheme?: unknown }): string | undefined {
+  for (const [name, [lo, hi]] of [['width', SHOT_WIDTH], ['height', SHOT_HEIGHT]] as const) {
+    const v = input[name];
+    if (v !== undefined && (typeof v !== 'number' || !Number.isInteger(v) || v < lo || v > hi)) return `${name} must be a whole number from ${lo} to ${hi}.`;
+  }
+  if (input.color_scheme !== undefined && input.color_scheme !== 'light' && input.color_scheme !== 'dark') return 'color_scheme must be "light" or "dark".';
+  return undefined;
+}
 
 /** Strip Playwright call logs and color codes so errors stay short. */
 function cleanError(err: unknown): string {
@@ -483,18 +496,27 @@ export function browserTools(manager: BrowserManager): Tool[] {
     }),
   };
 
-  const screenshot: Tool<{ full_page?: boolean }> = {
+  const screenshot: Tool<{ full_page?: boolean; width?: number; height?: number; color_scheme?: 'light' | 'dark' }> = {
     name: 'browser_screenshot',
-    description: 'Take a JPEG screenshot of the current tab (viewport by default). Use browser_snapshot to find refs for actions.',
+    description:
+      'Take a JPEG screenshot of the current tab (viewport by default). width, height and color_scheme apply to this shot only (a phone is about 390 wide, a desktop 1280); the tab goes back to its size and theme after. Use browser_snapshot to find refs for actions.',
     inputSchema: {
       type: 'object',
-      properties: { full_page: { type: 'boolean', description: 'Capture the whole scrollable page.' } },
+      properties: {
+        full_page: { type: 'boolean', description: 'Capture the whole scrollable page.' },
+        width: { type: 'integer', minimum: SHOT_WIDTH[0], maximum: SHOT_WIDTH[1], description: `Viewport width in CSS pixels for this shot (${SHOT_WIDTH[0]}-${SHOT_WIDTH[1]}).` },
+        height: { type: 'integer', minimum: SHOT_HEIGHT[0], maximum: SHOT_HEIGHT[1], description: `Viewport height in CSS pixels for this shot (${SHOT_HEIGHT[0]}-${SHOT_HEIGHT[1]}).` },
+        color_scheme: { type: 'string', enum: ['light', 'dark'], description: 'prefers-color-scheme for this shot.' },
+      },
     },
     readOnly: true,
     optIn: true,
-    summarize: (input) => (input.full_page ? 'Full page screenshot' : 'Screenshot'),
+    summarize: (input) =>
+      [input.full_page ? 'Full page screenshot' : 'Screenshot', input.width || input.height ? `${input.width ?? ''}x${input.height ?? ''}` : '', input.color_scheme ?? ''].filter(Boolean).join(' '),
     run: guard(async (input, ctx) => {
-      const shot = await manager.screenshot(ctx.sessionId, { fullPage: !!input.full_page });
+      const bad = shotInputError(input);
+      if (bad) return { content: bad, isError: true };
+      const shot = await manager.screenshot(ctx.sessionId, { fullPage: !!input.full_page, width: input.width, height: input.height, colorScheme: input.color_scheme });
       const image: ImageBlock = { type: 'image', mediaType: shot.mediaType, data: shot.data };
       const label: TextBlock = { type: 'text', text: `Screenshot of ${shot.url}${shot.note ? `. ${shot.note}` : ''}` };
       return { content: [label, image], meta: { url: shot.url, bytes: shot.bytes } };

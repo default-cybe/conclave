@@ -18,6 +18,9 @@ export const VENDOR_NAMES: Record<string, string> = {
   qwen: 'Qwen',
   minimax: 'MiniMax',
   devin: 'Devin',
+  // CLIProxyAPI plugin credential types, which are their own vendor
+  kiro4cpa: 'Kiro',
+  copilot: 'GitHub Copilot',
 };
 
 /** CLIProxyAPI credential type -> vendor. */

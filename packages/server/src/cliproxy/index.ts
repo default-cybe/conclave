@@ -51,6 +51,7 @@ import { annotateWindow, mergeWindows } from '@conclave/core/accounts/windows.ts
 import { mapClaudeOAuthUsage, mapClaudeProfile } from '@conclave/core/usage/readers/claude-oauth.ts';
 import { mapWhamUsage } from '@conclave/core/usage/readers/codex-usage.ts';
 import { antigravityProject, mapAntigravityQuota, mapAntigravityUsage } from '@conclave/core/usage/readers/antigravity.ts';
+import { mapKiroQuota } from '@conclave/core/usage/readers/kiro.ts';
 import type { LimitWindow } from '@conclave/core/types.ts';
 import { markHubPrivate } from '@conclave/core/machine/private.ts';
 import { logger } from '@conclave/core/util/log.ts';
@@ -232,6 +233,12 @@ function daybreakOf(s: CredState | undefined): CyberProgram[] {
 
 /** The plan's usage endpoint per credential type. */
 const USAGE_KIND: Record<string, 'claude-usage' | 'codex-usage' | 'antigravity-usage'> = { claude: 'claude-usage', anthropic: 'claude-usage', codex: 'codex-usage', antigravity: 'antigravity-usage' };
+/**
+ * Credential types whose plugin reads the plan's usage itself (management.ts pluginQuota), by plugin id.
+ * Copilot is not here: its plugin (0.1.1) has no quota provider, and api-call cannot put its GitHub token
+ * in (CLIProxyAPI's $TOKEN$ reads access_token, the plugin keeps github_access_token), so it shows "Usage not reported".
+ */
+const QUOTA_PLUGIN: Record<string, string> = { kiro4cpa: SUBSCRIPTION_PLUGINS.kiro4cpa.id };
 const DAY_MS = 86_400_000;
 /** How long a short name the hub wrote outlasts a model list that does not show it yet. */
 const PREFIX_SETTLE_MS = 5 * 60_000;
@@ -1058,7 +1065,7 @@ export class CliproxyManager {
 
   /**
    * Read each Claude, ChatGPT and Google (Antigravity) account's plan usage through api-call (the
-   * allowlisted addresses only), when it is due: every 5 to 10 minutes per
+   * allowlisted addresses only), and each Kiro account's through its plugin's quota read, when it is due: every 5 to 10 minutes per
    * account with jitter, longer after a 429 from the usage endpoint. `due`
    * (after a 429 on a call) and `force` (Refresh) read now; a backoff still holds.
    */
@@ -1096,12 +1103,13 @@ export class CliproxyManager {
     for (const c of this.raw) {
       if (opts.only && c.name !== opts.only) continue;
       const kind = USAGE_KIND[c.provider];
-      if (!kind || !c.authIndex || c.disabled) continue;
+      const plugin = QUOTA_PLUGIN[c.provider];
+      if ((!kind && !plugin) || !c.authIndex || c.disabled) continue;
       const s = this.cred(c.name);
       const held = s.backoff > 0 && now < s.usageNext;
       if (held || (!opts.force && !opts.due && now < s.usageNext)) continue;
       try {
-        const r = await mgmt.usageCall(kind, c.authIndex, { chatgptAccountId: c.chatgptAccountId });
+        const r = kind ? await mgmt.usageCall(kind, c.authIndex, { chatgptAccountId: c.chatgptAccountId }) : await mgmt.pluginQuota(plugin, c.authIndex);
         if (r.status === 429) {
           s.backoff = Math.min(60 * 60_000, Math.max(10 * 60_000, s.backoff * 2));
           s.usageNext = Date.now() + Math.max(s.backoff, r.retryAfterMs ?? 0);
@@ -1115,8 +1123,9 @@ export class CliproxyManager {
         }
         const at = Date.now();
         // Antigravity credits are informational paid-spending balances, not subscription quota windows.
-        const mapped =
-          kind === 'claude-usage'
+        const mapped = !kind
+          ? mapKiroQuota(r.json as Record<string, any>)
+          : kind === 'claude-usage'
             ? mapClaudeOAuthUsage(r.json as Record<string, any>, at)
             : kind === 'antigravity-usage'
               ? mapAntigravityUsage(r.json as Record<string, any>)

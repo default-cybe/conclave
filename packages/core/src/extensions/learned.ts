@@ -45,6 +45,8 @@ export interface LearnedSkill {
   /** Last time an agent loaded it with Skill, epoch ms. */
   lastUsedAt?: number;
   uses?: number;
+  /** The verify gate's first check in turns that loaded it: passed and failed counts. */
+  checks?: { pass: number; fail: number };
 }
 
 export class LearnedSkillError extends Error {
@@ -67,6 +69,17 @@ export interface UseStore {
 }
 
 const USE_KEY = 'skills.learned.used';
+const CHECK_KEY = 'skills.learned.checks';
+
+/**
+ * What the check counts say about a skill. They are outcomes of turns that
+ * loaded it, not its effect: no turn ran the same task without it, so the
+ * line never says helped, hurt or no effect.
+ */
+export function checkLine(c: { pass: number; fail: number } | undefined): string {
+  if (!c || c.pass + c.fail === 0) return 'no checked turns yet';
+  return `check passed first time in ${c.pass} of ${c.pass + c.fail} checked turns; effect not graded (no runs without it to compare)`;
+}
 
 function day(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
@@ -145,7 +158,7 @@ export function addPitfall(body: string, pitfall: string): string {
   return `${[...lines.slice(0, at), line, ...lines.slice(at)].join('\n').trim()}\n`;
 }
 
-function readSkill(dir: string, name: string, uses: Record<string, { at: number; n: number }>): LearnedSkill | undefined {
+function readSkill(dir: string, name: string, uses: Record<string, { at: number; n: number }>, checks: Record<string, { pass: number; fail: number }> = {}): LearnedSkill | undefined {
   const path = join(dir, name, 'SKILL.md');
   let text: string;
   try {
@@ -168,6 +181,7 @@ function readSkill(dir: string, name: string, uses: Record<string, { at: number;
     dir: join(dir, name),
     path,
     ...(u ? { lastUsedAt: u.at, uses: u.n } : {}),
+    ...(checks[name] ? { checks: checks[name] } : {}),
   };
 }
 
@@ -219,17 +233,22 @@ export class LearnedSkills {
     return this.uses?.get<Record<string, { at: number; n: number }>>(USE_KEY, {}) ?? {};
   }
 
+  private checkMap(): Record<string, { pass: number; fail: number }> {
+    return this.uses?.get<Record<string, { pass: number; fail: number }>>(CHECK_KEY, {}) ?? {};
+  }
+
   list(): LearnedSkill[] {
     const uses = this.useMap();
+    const checks = this.checkMap();
     return safeList(this.dir)
-      .map((n) => readSkill(this.dir, n, uses))
+      .map((n) => readSkill(this.dir, n, uses, checks))
       .filter((s): s is LearnedSkill => !!s)
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   get(name: string): LearnedSkill | undefined {
     if (!NAME_RE.test(name)) return undefined;
-    return readSkill(this.dir, name, this.useMap());
+    return readSkill(this.dir, name, this.useMap(), this.checkMap());
   }
 
   private write(s: Pick<LearnedSkill, 'name' | 'description' | 'body' | 'sessionId' | 'project' | 'created' | 'enabled' | 'disabledReason'>): LearnedSkill {
@@ -306,6 +325,15 @@ export class LearnedSkills {
     const prev = map[name];
     map[name] = { at: this.now(), n: (prev?.n ?? 0) + 1 };
     this.uses.set(USE_KEY, map);
+  }
+
+  /** The verify gate's first check after the skill was loaded in a turn. */
+  recordCheck(name: string, ok: boolean): void {
+    if (!this.uses || !this.get(name)) return;
+    const map = this.checkMap();
+    const prev = map[name] ?? { pass: 0, fail: 0 };
+    map[name] = { pass: prev.pass + (ok ? 1 : 0), fail: prev.fail + (ok ? 0 : 1) };
+    this.uses.set(CHECK_KEY, map);
   }
 
   private require(name: string): LearnedSkill {

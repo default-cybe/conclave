@@ -475,6 +475,21 @@ export class Management {
     return { status, ...(json !== undefined ? { json } : {}), ...(retryAfterMs !== undefined ? { retryAfterMs } : {}), ...(etag ? { etag } : {}) };
   }
 
+  /**
+   * A plugin's own quota read for one account (GET /v8/management/plugins/:id/quota):
+   * the plugin asks its vendor with the token it keeps and answers CLIProxyAPI's
+   * normalized quota shape. Only the pinned plugins; the status is the plugin's
+   * answer (502 when its vendor failed, 404 when it has no quota provider).
+   */
+  async pluginQuota(pluginId: string, authIndex: string): Promise<{ status: number; json?: unknown; retryAfterMs?: number }> {
+    if (!Object.values(SUBSCRIPTION_PLUGINS).some((p) => p.id === pluginId)) throw new ManagementError('The hub does not read that plugin\'s quota.', 400);
+    if (!AUTH_INDEX.test(authIndex)) throw new ManagementError('That account has no index CLIProxyAPI knows.', 400);
+    const api = await this.detect();
+    if (api !== 'v8') throw new ManagementError('This CLIProxyAPI cannot read plan usage. Update it to version 8 or newer.', 404);
+    const r = await this.call<Record<string, unknown>>('GET', `/v8/management/plugins/${pluginId}/quota`, undefined, { auth_index: authIndex });
+    return { status: r.status, json: r.data };
+  }
+
   async remove(name: string): Promise<void> {
     const api = await this.detect();
     const r = await this.call<Record<string, unknown>>('DELETE', api === 'v8' ? '/v8/management/credentials' : '/v0/management/auth-files', undefined, { name });
