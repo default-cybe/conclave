@@ -11,8 +11,9 @@
     "dev": "bun run --filter @conclave/server dev",
     "dev:web": "bun run --filter @conclave/web dev",
     "build": "bun run --filter @conclave/web build && bun run --filter @conclave/cli build",
-    "test": "bun test packages/core packages/server packages/cli scripts/proxmox scripts/lxc scripts/releases bench/test/model-parity.test.ts packages/web/test/composer-draft.test.tsx",
+    "test": "bun test packages/core packages/server packages/cli scripts/proxmox scripts/lxc scripts/releases scripts/check-styles.test.ts bench/test/model-parity.test.ts packages/web/test/composer-draft.test.tsx",
     "typecheck": "bunx tsc -p packages/core --noEmit && bunx tsc -p packages/server --noEmit && bunx tsc -p packages/cli --noEmit",
+    "lint:styles": "bun scripts/check-styles.ts",
     "conclave": "bun packages/cli/src/index.ts"
   },
   "devDependencies": {
