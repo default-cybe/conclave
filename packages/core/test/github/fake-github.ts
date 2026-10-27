@@ -33,6 +33,10 @@ export interface FakeCheck {
   name: string;
   status: 'queued' | 'in_progress' | 'completed';
   conclusion?: 'success' | 'failure' | 'neutral' | 'cancelled' | 'skipped' | 'timed_out';
+  /** The Actions job log, served at /actions/jobs/<id>/logs as a redirect to storage. */
+  log?: string;
+  /** The app that ran the check, by slug: github-actions unless set. */
+  app?: string;
 }
 
 interface FakeRepo {
@@ -214,6 +218,11 @@ export class FakeGithub {
       this.setChecks(input.sha ?? '*', input.runs ?? []);
       return json(200, { ok: true });
     }
+    // short-lived log storage the logs endpoint redirects to: no token needed, and none should come
+    if (req.method === 'GET' && (c = /^\/__fake\/logs\/(\d+)$/.exec(url.pathname))) {
+      const log = [...this.checks.values()].flat()[Number(c[1]) - 1]?.log;
+      return log === undefined ? json(404, { message: 'Not Found' }) : new Response(log, { headers: { 'content-type': 'text/plain' } });
+    }
     if (!url.pathname.startsWith('/api/')) return json(404, { message: 'Not Found' });
     if (auth !== `Bearer ${this.token}` && auth !== `token ${this.token}`) return json(401, { message: 'Bad credentials' });
     const path = url.pathname.slice(4);
@@ -266,7 +275,13 @@ export class FakeGithub {
     }
     if ((m = /^\/repos\/([^/]+)\/([^/]+)\/commits\/([0-9a-f]+)\/check-runs$/.exec(path)) && req.method === 'GET') {
       const runs = this.checks.get(m[3]) ?? this.checks.get('*') ?? [];
-      return json(200, { total_count: runs.length, check_runs: runs.map((c, i) => ({ id: i + 1, name: c.name, status: c.status, conclusion: c.conclusion ?? null, html_url: `https://github.test/checks/${i + 1}` })) });
+      const all = [...this.checks.values()].flat();
+      return json(200, { total_count: runs.length, check_runs: runs.map((c) => ({ id: all.indexOf(c) + 1, app: { slug: c.app ?? 'github-actions' }, name: c.name, status: c.status, conclusion: c.conclusion ?? null, html_url: `https://github.test/checks/${all.indexOf(c) + 1}` })) });
+    }
+    if ((m = /^\/repos\/([^/]+)\/([^/]+)\/actions\/jobs\/(\d+)\/logs$/.exec(path)) && req.method === 'GET') {
+      const c = [...this.checks.values()].flat()[Number(m[3]) - 1];
+      if (c?.log === undefined) return json(404, { message: 'Not Found' });
+      return new Response(null, { status: 302, headers: { location: `${this.url}/__fake/logs/${m[3]}` } });
     }
     if ((m = /^\/repos\/([^/]+)\/([^/]+)\/commits\/([0-9a-f]+)\/status$/.exec(path)) && req.method === 'GET') {
       return json(200, { state: 'pending', statuses: [] });

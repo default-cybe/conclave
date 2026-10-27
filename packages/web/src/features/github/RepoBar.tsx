@@ -2,6 +2,8 @@
  * A repo session in its view (docs/DESIGN.md 30): one line under the
  * header with the repository, the branch and where it stands ("Pull request
  * #3 is open. Checks passed."), and Push, Open pull request and Clean up.
+ * When a check of the open pull request failed, Fix failing checks sends
+ * the agent the failed jobs with their links and log tails.
  * Phones get the same line over the composer, and rows and actions in the
  * conversation sheet. Archiving a repo session offers Clean up too.
  *
@@ -19,7 +21,7 @@ import { api } from '@/lib/api';
 import { attempt, toast, upsertSession } from '@/store/store';
 import { cn } from '@/lib/text';
 import { useIsMobile } from '@/lib/hooks';
-import { branchShort, ciTone, ciWords, prWords, repoActions, sessionRepo, worktreeActions } from '@/lib/github';
+import { branchShort, canFixChecks, ciTone, ciWords, prWords, repoActions, sessionRepo, worktreeActions } from '@/lib/github';
 import { Button, ButtonLink } from '@/components/ui/Button';
 import { Checkbox, Input, Textarea } from '@/components/ui/Field';
 import { ConfirmDialog, Dialog } from '@/components/ui/Overlay';
@@ -101,6 +103,12 @@ export function useRepoActions(session: Session, repo: RepoSessionDto | undefine
     setMerge(undefined);
     if (r) toast({ title: r.line, level: 'success' });
     await reload();
+  };
+  const fixChecks = async () => {
+    setBusy('fix');
+    const r = await attempt(() => api().fixChecks(session.id));
+    setBusy(false);
+    if (r) toast({ title: `Sent ${r.checks} failed ${r.checks === 1 ? 'check' : 'checks'} to the agent.`, level: 'success' });
   };
   const commits = repo?.commits ?? 0;
   const folderGone = repo ? `The worktree on ${repo.deviceName} and ${branchShort(repo.branch)} go.` : '';
@@ -231,7 +239,7 @@ export function useRepoActions(session: Session, repo: RepoSessionDto | undefine
       />
     </>
   );
-  return { startPush, startPr, startCleanUp: () => setClean(true), startMerge: () => setMerge({ squash: false }), startDiscard: () => setDiscard(true), busy, dialogs };
+  return { startPush, startPr, fixChecks, startCleanUp: () => setClean(true), startMerge: () => setMerge({ squash: false }), startDiscard: () => setDiscard(true), busy, dialogs };
 }
 
 /** The line under the header (desktop) or over the composer (phones). */
@@ -244,6 +252,8 @@ export function RepoBar({ session }: { session: Session }) {
   if (!meta) return null;
   const can = repo ? repoActions(repo) : { push: false, openPr: false, viewPr: !!meta.pr, cleanUp: false };
   const wt = repo ? worktreeActions(repo) : { merge: false, discard: false };
+  // the agent is busy while it runs: the message would wait behind its turn
+  let fix = !!repo && canFixChecks(repo) && session.status !== 'running';
   const size = mobile ? 'touch' : 'sm';
   const href = repo ? repo.url : meta.folder ? '' : `https://github.com/${meta.repo}`;
   const repoLink = href ? (
@@ -258,7 +268,8 @@ export function RepoBar({ session }: { session: Session }) {
   const ci = ciWords(meta.ci);
   const line = repo?.line ?? [meta.pr ? `${prWords(meta.pr)}.` : '', ci ? `${ci}.` : ''].filter(Boolean).join(' ');
   // phones keep one action over the composer; the conversation sheet has the rest
-  const one = mobile ? (can.cleanUp ? 'cleanUp' : wt.merge ? 'merge' : can.openPr ? 'openPr' : can.push ? 'push' : undefined) : undefined;
+  const one = mobile ? (can.cleanUp ? 'cleanUp' : wt.merge ? 'merge' : fix ? 'fix' : can.openPr ? 'openPr' : can.push ? 'push' : undefined) : undefined;
+  if (mobile) fix = one === 'fix';
   if (mobile) can.cleanUp = one === 'cleanUp';
   if (mobile) can.openPr = one === 'openPr';
   if (mobile) can.push = one === 'push';
@@ -274,6 +285,11 @@ export function RepoBar({ session }: { session: Session }) {
       {can.cleanUp && (
         <Button variant="solid" size={size} onClick={act.startCleanUp}>
           Clean up
+        </Button>
+      )}
+      {fix && (
+        <Button variant="solid" size={size} busy={act.busy === 'fix' ? 'Sending' : false} onClick={() => void act.fixChecks()}>
+          Fix failing checks
         </Button>
       )}
       {can.openPr && (
@@ -364,6 +380,7 @@ export function RepoSheetActions({ session, onClose, Action }: { session: Sessio
   return (
     <>
       {wt?.merge && <Action onClick={later(act.startMerge)}>Merge into {repo?.base}</Action>}
+      {repo && canFixChecks(repo) && session.status !== 'running' && <Action onClick={later(() => void act.fixChecks())}>Fix failing checks</Action>}
       {can?.push && <Action onClick={later(act.startPush)}>Push</Action>}
       {can?.openPr && <Action onClick={later(() => void act.startPr())}>Open pull request</Action>}
       {can?.viewPr && meta.pr && <Action onClick={() => window.open(meta.pr!.url, '_blank', 'noreferrer')}>View pull request</Action>}

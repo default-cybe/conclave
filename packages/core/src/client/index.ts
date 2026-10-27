@@ -1842,6 +1842,8 @@ export class ConclaveClient {
   /** A pull request title and body drafted from the session, to edit before opening it. */
   prDraft = (id: string) => this.request<PrDraft>('GET', `/api/sessions/${id}/repo/pr-draft`);
   openPullRequest = (id: string, input: OpenPrInput) => this.request<RepoSessionDto>('POST', `/api/sessions/${id}/repo/pr`, input);
+  /** Send the agent one message with the pull request's failed checks and the tails of their logs. */
+  fixChecks = (id: string) => this.request<{ checks: number }>('POST', `/api/sessions/${id}/repo/fix-checks`, {});
   /** Remove the worktree; the branch stays on GitHub. discard drops the local branch too. */
   cleanupSession = (id: string, input: CleanupInput = {}) => this.request<RepoSessionDto>('POST', `/api/sessions/${id}/repo/cleanup`, input);
   /** Whether a folder on a device is in a git repository ("Run in a worktree" is offered then). */

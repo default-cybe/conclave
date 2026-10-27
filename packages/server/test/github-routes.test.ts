@@ -138,6 +138,18 @@ describe('a repo session on a paired device, through the API', () => {
     expect(opened.status).toBe(200);
     expect(opened.body.pr).toEqual({ number: 1, url: 'https://github.com/acme/widgets/pull/1', state: 'open' });
 
+    // Fix failing checks: nothing failed yet, then one failed Actions job goes to the agent
+    const none = await api(`/api/sessions/${s.id}/repo/fix-checks`, { method: 'POST', json: {} });
+    expect(none.status).toBe(409);
+    expect(none.body.error).toContain('No check has failed');
+    fake.setChecks(pushed.body.sha, [{ name: 'test', status: 'completed', conclusion: 'failure', log: 'expected 42, got 41' }]);
+    plan = [[{ text: 'Fixing.' }]];
+    const fixed = await api(`/api/sessions/${s.id}/repo/fix-checks`, { method: 'POST', json: {} });
+    expect(fixed.status).toBe(200);
+    expect(fixed.body).toEqual({ checks: 1 });
+    await waitFor(() => t.engine.requireSession(s.id).status !== 'running', 5000, 'fix turn done');
+    fake.setChecks(pushed.body.sha, []);
+
     expect((await api(`/api/sessions/${s.id}/repo/cleanup`, { method: 'POST', json: {} })).status).toBe(409);
     fake.merge(1);
     repo = (await api<RepoSessionDto>(`/api/sessions/${s.id}/repo?refresh=1`)).body;
