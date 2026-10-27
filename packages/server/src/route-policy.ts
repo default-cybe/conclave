@@ -529,6 +529,12 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/browser/signin/:id/input': 'admin',
   'POST /api/browser/signin/:id/done': 'admin',
   'DELETE /api/browser/signin/:id': 'admin',
+  // a chat session's live view and Take over: the owner only, and only that session's page
+  'GET /api/browser/sessions/:session': 'admin',
+  'GET /api/browser/sessions/:session/frame': 'admin',
+  'DELETE /api/browser/sessions/:session/frame': 'admin',
+  'POST /api/browser/sessions/:session/input': 'admin',
+  'POST /api/browser/sessions/:session/control': 'admin',
   // installs on the hub as its user, and the proxy whose login is the hub's secret: the owner only
   'POST /api/browser/setup': 'admin',
   // the root helper's one action, as root through sudo: the owner only, audited

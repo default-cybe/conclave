@@ -9,6 +9,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Watch and take over the assistant's browser. While a session's browser tool runs, or its page is open on the hub, a line above the composer says so, on the web and at phone width. Watch shows that session's page live. Take over lets you click, scroll and type in it; the session's next browser tool call waits until you press Give back, and is then told the page may have changed. Closing the view, or a minute without it, gives the browser back. Only the owner can watch or take over, only that session's page is shown, input is refused unless you hold it, and the take over and give back are in the audit log. Android does not have it yet.
+
 ### Changed
 
 - Whole files now come as downloadable file cards instead of huge code blocks. The system prompt and the ShareFile description tell the model to save a complete program, config file, document, or a chart or graph as a PNG or SVG, share it with ShareFile, and answer in a few lines, keeping short commands, diffs and examples inline. A chat hands the writing to Delegate with readOnly off, and a session that cannot save or share files is told to say so. This is guidance to the model only: nothing checks that it follows it, and ShareFile's folder, ownership and size checks are unchanged. File cards on the web and Android now also draw an SVG up to 2 MB inline, and the web caps inline PNG, JPEG, GIF and WebP at 20 MB like Android. The web draws an SVG only as an `<img>` from a `data:` URL with no Open button. Android draws it in a WebView with JavaScript, network, file access and navigation turned off. Text, code, CSV and PDF files no longer preview inside the card; a PDF still has Open, and Download and Save keep the original bytes.

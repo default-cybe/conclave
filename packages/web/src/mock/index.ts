@@ -37,6 +37,7 @@ import { registerWebSearch } from './websearch';
 import { registerLogs } from './logs';
 import { registerUpdates } from './updates';
 import { registerBrowser } from './browser';
+import { registerBrowserLive } from './browserLive';
 import { mockIdentity, OWNER_TOKEN, registerIdentity, scenarioError, seedAddresses } from './identity';
 
 const MIN = 60_000;
@@ -552,6 +553,7 @@ registerWebSearch(ctx);
 registerLogs(ctx);
 registerUpdates(ctx);
 registerBrowser(ctx);
+registerBrowserLive(ctx);
 // the hub's key, its password and logging in with it; the offline and stranger scenarios
 registerIdentity(ctx);
 // friends: other owners' hubs, requests, a key change, notes both ways

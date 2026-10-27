@@ -37,6 +37,7 @@ import { InlineModel, MetaText } from './Log';
 import { Composer } from './Composer';
 import { TodoStrip } from './TodoStrip';
 import { RunningTasks } from './RunningTasks';
+import { BrowserLive } from './BrowserLive';
 import { ImportedLine } from '@/features/import/ImportedLine';
 import { LocationBanner } from './LocationBanner';
 import { modeOf } from '@/features/home/start';
@@ -101,6 +102,7 @@ export function ChatView({ session }: { session: Session }) {
         <Docked>
           <RepoBar session={session} />
           <LocationBanner session={session} />
+          <BrowserLive sessionId={session.id} />
           <RunningTasks sessionId={session.id} />
           <Composer session={session} />
         </Docked>
@@ -118,6 +120,7 @@ export function ChatView({ session }: { session: Session }) {
       <Docked>
         {todos && !panelShown && <TodoStrip todos={todos} />}
         <LocationBanner session={session} />
+        <BrowserLive sessionId={session.id} />
         <RunningTasks sessionId={session.id} />
         <Composer session={session} />
       </Docked>

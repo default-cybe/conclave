@@ -317,6 +317,8 @@ export class BrowserManager implements BrowserTakeover {
   readonly logins: LoginVault;
   /** Per session, the saved passwords the hub filled there: no tool result shows them (hideSecrets). */
   private filled = new Map<string, Set<string>>();
+  /** Sessions whose browser the owner took over in the live view, with the browser tool calls waiting for Give back. */
+  private ownerHeld = new Map<string, Set<() => void>>();
 
   constructor(opts: BrowserManagerOptions) {
     this.config = opts.config;
@@ -1222,6 +1224,7 @@ export class BrowserManager implements BrowserTakeover {
 
   /** Close every tab a session owns, in every profile, and its proxied browser. */
   async closeSession(sessionId: string): Promise<void> {
+    this.giveBack(sessionId);
     this.sessionProxy.delete(sessionId);
     this.filled.delete(sessionId);
     await this.closeProxied(sessionId);
@@ -1579,6 +1582,65 @@ export class BrowserManager implements BrowserTakeover {
     const old = st.cdp;
     st.cdp = undefined;
     void old?.then((c) => c.detach()).catch(() => {});
+  }
+
+  // -------------------------------------------------------------------------
+  // The owner's live view of a session's browser: Take over and Give back
+  // -------------------------------------------------------------------------
+
+  /** True when the session has a tab open now, in the browser its tools use. Opens nothing. */
+  hasPage(sessionId: string): boolean {
+    const s = this.stateNow(sessionId)?.sessions.get(sessionId);
+    return !!s?.tabs.some((t) => !t.page.isClosed());
+  }
+
+  /** The owner holds the session's browser: its browser tool calls wait (waitForOwner) until giveBack. */
+  takeControl(sessionId: string): void {
+    if (!this.ownerHeld.has(sessionId)) this.ownerHeld.set(sessionId, new Set());
+  }
+
+  ownerHolds(sessionId: string): boolean {
+    return this.ownerHeld.has(sessionId);
+  }
+
+  /** The owner hands the browser back: waiting tool calls go on, and the next result says the page may have changed. */
+  giveBack(sessionId: string): void {
+    const waiters = this.ownerHeld.get(sessionId);
+    if (!waiters) return;
+    this.ownerHeld.delete(sessionId);
+    const s = this.stateNow(sessionId)?.sessions.get(sessionId);
+    if (s) {
+      // refs from before may point at other elements now; the next report is a full snapshot
+      for (const t of s.tabs) {
+        t.refs = new Map();
+        t.lastTree = undefined;
+      }
+      addNote(s, 'The owner used this browser and gave it back. The page may have changed: take a new browser_snapshot before using refs.');
+    }
+    for (const done of [...waiters]) done();
+  }
+
+  /**
+   * Wait while the owner holds the session's browser. Resolves at once when
+   * they do not; rejects when the call is stopped. True when it waited.
+   */
+  async waitForOwner(sessionId: string, signal?: AbortSignal): Promise<boolean> {
+    const waiters = this.ownerHeld.get(sessionId);
+    if (!waiters) return false;
+    await new Promise<void>((resolve, reject) => {
+      const done = () => {
+        signal?.removeEventListener('abort', stop);
+        resolve();
+      };
+      const stop = () => {
+        waiters.delete(done);
+        reject(new Error('Stopped while the owner had the browser.'));
+      };
+      if (signal?.aborted) return stop();
+      waiters.add(done);
+      signal?.addEventListener('abort', stop, { once: true });
+    });
+    return true;
   }
 
   /** Apply one viewer input event to the session's active tab in `profile`. */

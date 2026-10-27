@@ -637,5 +637,19 @@ export function browserTools(manager: BrowserManager): Tool[] {
   // browser_links and browser_login are last so the order of the tools before them stays cache-stable
   const tools = [navigate, snapshot, click, type, press, select, hover, wait, back, tabs, screenshot, evaluate, profile, links, login] as Tool[];
   // a saved password the hub filled never shows in a result: not in a snapshot, a page's text, a script's answer or an address
-  return tools.map((t) => ({ ...t, run: async (input, ctx) => hideIn(manager, ctx.sessionId, await t.run(input, ctx)) }));
+  // while the owner holds the browser (live view, Take over) a call waits for Give back, like an approval
+  return tools.map((t) => ({
+    ...t,
+    run: async (input, ctx) => {
+      if (manager.ownerHolds(ctx.sessionId)) {
+        ctx.progress?.('Waiting: the owner has the browser');
+        try {
+          await manager.waitForOwner(ctx.sessionId, ctx.signal);
+        } catch (err) {
+          return { content: `Browser error: ${cleanError(err)}`, isError: true };
+        }
+      }
+      return hideIn(manager, ctx.sessionId, await t.run(input, ctx));
+    },
+  }));
 }
