@@ -1,0 +1,38 @@
+[
+  {
+    "file": "packages/web/src/features/conversation/Preview.tsx",
+    "rule": "hex",
+    "match": "background:#fff",
+    "reason": "The SVG preview is a sandboxed document of its own, not app chrome; app tokens do not reach inside the iframe and an SVG is drawn on white."
+  },
+  {
+    "file": "packages/web/src/features/chat/ToolRows.tsx",
+    "rule": "glyph",
+    "match": "(✓|✔|PASS|pass|ok)",
+    "reason": "A regex that reads test output for pass lines; the glyphs are input to match, not icons drawn by the app."
+  },
+  {
+    "file": "packages/web/src/features/chat/ToolRows.tsx",
+    "rule": "glyph",
+    "match": "(✗|✕|×|FAIL|fail|error|Error|ERROR)",
+    "reason": "A regex that reads test output for fail lines; the glyphs are input to match, not icons drawn by the app."
+  },
+  {
+    "file": "packages/web/src/features/chat/PhoneTranscript.tsx",
+    "rule": "pill",
+    "match": "rounded-full bg-surface-2 px-4",
+    "reason": "Existing Jump to latest button floating over the phone transcript (docs/design/CHAT-AND-MOTION.md 115); it is a control, not a tag. docs/design/SPEC.md 832 calls it a quiet button, so reshaping it is for the owner to decide."
+  },
+  {
+    "file": "packages/web/src/features/chat/RunningTasks.tsx",
+    "rule": "pill",
+    "match": "rounded-full border border-rule-2 bg-raise",
+    "reason": "Existing running tasks button above the composer, matched by Android (Tasks.kt RoundedCornerShape 18.dp). CHAT-AND-MOTION.md 609 calls it a line, so the reshape is for the owner to decide on both platforms."
+  },
+  {
+    "file": "packages/web/src/features/chat/BrowserLive.tsx",
+    "rule": "pill",
+    "match": "rounded-full border border-rule-2 bg-raise",
+    "reason": "Same shape as the running tasks button it sits next to, on purpose; reshape it together with that one."
+  }
+]
