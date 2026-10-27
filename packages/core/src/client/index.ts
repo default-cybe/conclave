@@ -73,7 +73,7 @@ export { SEARCH_PROVIDERS } from './websearch';
 // ----- accounts: several people on one hub, docs/design/ACCOUNTS.md -----
 import type { AccountRef, InviteDto, InviteInfo, MeDto, MePatch, PersonCreated, PersonDto, PersonInput, PersonPatch, WorkspaceCode } from './people';
 export type * from './people';
-export { DISPLAY_NAME_MAX, OWNER_DEFAULT_NAME, displayNameProblem, shownName, tidyDisplayName } from './people';
+export { DISPLAY_NAME_MAX, OWNER_DEFAULT_NAME, SPLIT_MAX, displayNameProblem, shownName, tidyDisplayName } from './people';
 export type * from './pim';
 import type { CaldavPreset, MailSecurity, OAuthClientKind, OAuthFlowDto, PimAccountDto, PimSettingsDto, PimWants, ProposalDto, ProposalStatus } from './pim';
 import type {
