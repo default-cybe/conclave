@@ -1,5 +1,6 @@
 /**
- * Memory (spec 11.7) in four tabs: Notes (/memory), Connections (other
+ * Memory (spec 11.7) in five tabs: Notes (/memory), Map (the mind map of
+ * all memory, MemoryMap.tsx), Connections (other
  * memory stores), Import and export (other tools' memory files, markdown
  * out), and Share (Conclave memory for Claude Code, Codex, OpenCode and
  * Gemini CLI over MCP). /memory/connections#share lands on Share.
@@ -12,6 +13,7 @@ import { useIsMobile, useNow } from '@/lib/hooks';
 import { Page, PageHeader } from '@/components/ui/Page';
 import { Button } from '@/components/ui/Button';
 import { Tabs } from '@/components/ui/Tags';
+import { cn } from '@/lib/text';
 import { NotesTab } from './Notes';
 import { ConnectionsTab } from './Connections';
 import { ImportExportTab } from './ImportExport';
@@ -67,9 +69,10 @@ export default function MemoryPage() {
     ) : undefined;
 
   return (
-    <Page width="wide">
-      <PageHeader title="Memory" sub={sub} actions={actions}>
-        <p className="-mt-2 mb-4 min-h-[17px] text-[12px] text-fg-2 phone:min-h-[19px] phone:text-[13px]">
+    // the map fills the room under the tabs instead of scrolling
+    <Page width="wide" scroll={current !== 'map'} className={current === 'map' ? 'flex flex-col' : undefined} innerClassName={current === 'map' ? 'flex min-h-0 flex-1 flex-col !pb-0' : undefined}>
+      <PageHeader title="Memory" sub={current === 'map' ? undefined : sub} actions={actions} className={current === 'map' ? '!pb-3 phone:!pb-2' : undefined}>
+        <p className={cn('-mt-2 mb-4 min-h-[17px] text-[12px] text-fg-2 phone:min-h-[19px] phone:text-[13px]', current === 'map' && 'phone:hidden')}>
           {store.text}
           {store.problem && <span className="text-fault"> {store.problem}</span>}
           {current !== 'connections' && conns.list && (

@@ -192,7 +192,7 @@ fun SessionsScreen(
 
 /** The search field at the top of a list: a quiet rounded field, X to clear. */
 @Composable
-private fun SearchField(value: String, onChange: (String) -> Unit, placeholder: String) {
+internal fun SearchField(value: String, onChange: (String) -> Unit, placeholder: String) {
     val c = Conclave.colors
     Row(
         Modifier
@@ -231,7 +231,7 @@ private fun SearchField(value: String, onChange: (String) -> Unit, placeholder: 
 }
 
 @Composable
-private fun GroupLabel(text: String) {
+internal fun GroupLabel(text: String) {
     Text(text, style = ConclaveType.meta, color = Conclave.colors.fg3, modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 4.dp))
 }
 

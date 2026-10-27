@@ -1,345 +1,642 @@
 /**
- * Memory > Map: Conclave memories and Basic Memory notes in one graph
- * (GET /api/memory/graph). Filled marks are Conclave memories, rings are
- * Basic Memory notes, a filled mark in a ring is a memory mirrored as a
- * note; small squares are the tags and sessions memories share. Edges are
- * only real links, drawn faint until a node is picked; then its links and
- * neighbors stand out and the rest steps back. Labels never overlap (see
- * graph-model.ts placeLabels); more show as the owner zooms in. Drag to pan,
- * wheel or + and - to zoom, arrows pan, Tab walks the nodes, Enter opens
- * one. The map is still: nothing animates.
+ * Memory > Map: the owner's whole memory as a mind map (GET /api/memory/graph,
+ * every item once). The brain sits in the middle, the areas of his life and
+ * work around it (People, Homelab, Courses, ...), and an open area shows its
+ * best linked items with a plain "k more" row. Any item can become the
+ * center (double click, Enter, Center here): its links stand around it in
+ * groups by relation, the view glides there in 450 ms, the trail leads back
+ * to the brain, and Escape steps back. Rings past the first fold into
+ * counts until they fit or the owner zooms in. Search counts its hits
+ * ("2 of 18"); Enter and Shift+Enter step through them and pull each one
+ * into the tree along its path from what is on the map. The scrubber steps
+ * back what changed after a day. Text only: there are no marks
+ * (graph-model.ts, MemoryCanvas.tsx).
  */
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type WheelEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'wouter';
-import { X } from 'lucide-react';
+import { Minus, Plus, X } from 'lucide-react';
 import type { MemoryGraph, MemoryGraphNode } from '@conclave/core/client';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/text';
-import { useIsMobile } from '@/lib/hooks';
-import { Input } from '@/components/ui/Field';
-import { IconButton } from '@/components/ui/Button';
-import { Sheet } from '@/components/ui/Overlay';
+import { useBreakpoint } from '@/lib/hooks';
+import { Button } from '@/components/ui/Button';
+import { Input, Segmented } from '@/components/ui/Field';
 import { FilterLinks } from '@/components/ui/Tags';
-import { EmptyState, LoadingRows } from '@/components/ui/EmptyState';
-import { FIRST_LIMIT, labelBudget, layoutGraph, linksOf, markRadius, nextLimit, nodeLabel, nodeWords, placeLabels, statusLine, visibleIds, type KindFilter, type SourceFilter } from './graph-model';
+import { Sheet } from '@/components/ui/Overlay';
+import type { Measure } from '@/features/map/layout';
+import type { Insets } from '@/features/map/view';
+import { BRAIN, MORE_STEP, ROW, ROW_PHONE, areaId, buildTree, chainTo, indexGraph, layoutTree, nodeLabel, nodeWords, pathInto, searchItems, type Indexed, type PNode } from './graph-model';
+import { MemoryCanvas, READ_K } from './MemoryCanvas';
+import { TimeScrubber } from './TimeScrubber';
+import '@/features/map/map.css';
+import './memory-map.css';
+
+type Source = 'all' | 'conclave' | 'basic-memory';
+type Pair = readonly [string, string];
+
+const add = <T,>(s: ReadonlySet<T>, v: T) => new Set([...s, v]);
+const del = <T,>(s: ReadonlySet<T>, v: T) => new Set([...s].filter((x) => x !== v));
+const num = (n: number) => n.toLocaleString('en-US');
+const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
+
+/** Text widths from the real fonts, as the Map measures them (MapPage useMeasure). */
+function useMeasure(): Measure | undefined {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let on = true;
+    void document.fonts?.ready.then(() => on && setReady(true));
+    return () => {
+      on = false;
+    };
+  }, []);
+  return useMemo(() => {
+    if (!ready) return undefined;
+    const ctx = document.createElement('canvas').getContext('2d');
+    if (!ctx) return undefined;
+    const family = getComputedStyle(document.documentElement).getPropertyValue('--sans').trim() || 'sans-serif';
+    const cache = new Map<string, number>();
+    return (text, font) => {
+      const key = font + '\u0000' + text;
+      const hit = cache.get(key);
+      if (hit !== undefined) return hit;
+      ctx.font = font === 'name' ? `600 14px ${family}` : font === 'title' ? `500 13px ${family}` : `400 12px ${family}`;
+      const w = Math.ceil(ctx.measureText(text).width * (font === 'name' ? 1.06 : 1.04)) + 12;
+      cache.set(key, w);
+      return w;
+    };
+  }, [ready]);
+}
 
 export function MemoryMapTab() {
-  const mobile = useIsMobile();
-  const [g, setG] = useState<MemoryGraph | null>(null);
-  const [limit, setLimit] = useState(FIRST_LIMIT);
-  const [loading, setLoading] = useState(false);
+  const [g, setG] = useState<MemoryGraph>();
   const [error, setError] = useState<string>();
-  const [source, setSource] = useState<SourceFilter>('all');
-  const [kind, setKind] = useState<KindFilter>('all');
-  const [q, setQ] = useState('');
-  const [sel, setSel] = useState<string>();
-  const [view, setView] = useState({ x: 0, y: 0, k: 1 });
-  const [size, setSize] = useState({ w: 0, h: 0 });
-  const box = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
-
   useEffect(() => {
     let alive = true;
-    setLoading(true);
     api()
-      .memoryGraph(limit)
-      .then((r) => alive && (setG(r), setSel(undefined)))
-      .catch((e: Error) => alive && setError(e.message))
-      .finally(() => alive && setLoading(false));
+      .memoryGraph()
+      .then((x) => alive && setG(x))
+      .catch((e: Error) => alive && setError(e.message));
     return () => {
       alive = false;
     };
-  }, [limit]);
+  }, []);
+  const ix = useMemo(() => (g ? indexGraph(g) : undefined), [g]);
+  if (error) return <Centered>The memory map did not load: {error}</Centered>;
+  if (!g || !ix) return <Centered>Loading memory</Centered>;
+  if (!g.nodes.length) return <Centered>No memory yet. Notes you add, and a linked Basic Memory, show here.</Centered>;
+  return <MemoryMindMap g={g} ix={ix} />;
+}
 
-  const pos = useMemo(() => (g ? layoutGraph(g) : new Map()), [g]);
-  const byId = useMemo(() => new Map((g?.nodes ?? []).map((n) => [n.id, n])), [g]);
-  const shown = useMemo(() => (g ? visibleIds(g, { source, kind, q }) : new Set<string>()), [g, source, kind, q]);
-  const near = useMemo(() => new Set(g && sel ? linksOf(g, sel).map((l) => l.id) : []), [g, sel]);
-  const labelled = useMemo(() => {
-    const byDegree = (ids: Iterable<string>) => [...ids].map((id) => byId.get(id)).filter((n): n is MemoryGraphNode => !!n && shown.has(n.id) && n.kind !== 'session').sort((a, b) => b.degree - a.degree);
-    // a picked node labels itself and its neighbors only, so its star reads alone
-    const order = sel ? [byId.get(sel)!, ...byDegree(near)] : byDegree(shown);
-    return placeLabels(order.map((n) => ({ id: n.id, text: nodeLabel(n) })), pos, view.k, sel ? 80 : q.trim() ? 60 : labelBudget(view.k), size.w ? { x: view.x, y: view.y, ...size } : undefined);
-  }, [shown, byId, sel, near, q, pos, view, size]);
+function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
+  const phone = useBreakpoint() === 'phone';
+  const measure = useMeasure();
+  const [trail, setTrail] = useState<string[]>([BRAIN]);
+  const [depth, setDepth] = useState(1);
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set(['mentions']));
+  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const [more, setMore] = useState<ReadonlyMap<string, number>>(new Map());
+  const [pulled, setPulled] = useState<Pair[]>([]);
+  // the path search drew: replaced at every step, not piled up
+  const [found, setFound] = useState<{ pairs: Pair[]; target: string }>();
+  const [area, setArea] = useState<string>();
+  const [sel, setSel] = useState<string>();
+  const [hover, setHover] = useState<string>();
+  const [q, setQ] = useState('');
+  const [hit, setHit] = useState(-1);
+  const [at, setAt] = useState<number>();
+  const [source, setSource] = useState<Source>('all');
+  const [unfold, setUnfold] = useState(false);
+  const [fit, setFit] = useState(0);
+  const [zoom, setZoom] = useState({ n: 0, factor: 1 });
+  const [reveal, setReveal] = useState<{ ids: string[]; n: number; center?: boolean }>();
+  const [note, setNote] = useState<string>();
+  const [filters, setFilters] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const headRef = useRef<HTMLDivElement>(null);
+  const footRef = useRef<HTMLDivElement>(null);
+  const boxH = useHeight(boxRef, 600);
+  const headH = useHeight(headRef, 120);
+  const footH = useHeight(footRef, 70);
+  const show = (ids: string[], center?: boolean) => setReveal((r) => ({ ids, n: (r?.n ?? 0) + 1, center }));
+  const center = trail.at(-1)!;
+  const atBrain = center === BRAIN;
 
-  useEffect(() => {
-    const el = box.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }));
-    ro.observe(el);
-    return () => ro.disconnect();
+  // rows ring 1 may use so a hub opens on one screen at the zoom where labels read
+  const roomRows = Math.max(12, Math.floor((boxH - headH - footH - 24) / ((phone ? ROW_PHONE : ROW) * READ_K)));
+  const budget = phone ? roomRows : roomRows * 2;
+  const extra = useMemo(() => [...pulled, ...(found?.pairs ?? [])], [pulled, found]);
+  const tree = useMemo(() => buildTree(ix, { center, depth, hidden, dismissed, open, more, extra, unfold, budget }), [ix, center, depth, hidden, dismissed, open, more, extra, unfold, budget]);
+  const layout = useMemo(() => layoutTree(tree.root, ix, { measure, sides: phone ? 'right' : 'both', phone }), [tree, ix, measure, phone]);
+  const path = useMemo(() => (found && layout.byId.has(found.target) ? chainTo(layout, found.target) : undefined), [found, layout]);
+  const hits = useMemo(() => searchItems(ix, q, tree.items), [ix, q, tree.items]);
+  const hitSet = useMemo(() => new Set(hits.map((h) => h.id)), [hits]);
+
+  const labelOf = (id: string) => (id === BRAIN ? 'Brain' : nodeLabel(ix.byId.get(id)!));
+  const centerNode = atBrain ? undefined : ix.byId.get(center);
+
+  // ----- what the owner does ----------------------------------------------------------
+  const reset = () => {
+    setMore(new Map());
+    setPulled([]);
+    setFound(undefined);
+    setHover(undefined);
+    setNote(undefined);
+  };
+  const recenter = (id: string) => {
+    if (id === center) return;
+    if (atBrain) setArea(ix.byId.get(id)?.area);
+    setTrail((t) => [...t.filter((x) => x !== id), id]);
+    setOpen(new Set());
+    reset();
+    setSel(id);
+    show([id], true);
+  };
+  const back = (i: number) => {
+    const id = trail[i];
+    setTrail((t) => t.slice(0, i + 1));
+    // back at the brain the area the owner came from is open again
+    setOpen(id === BRAIN && area ? new Set([areaId(area)]) : new Set());
+    reset();
+    setSel(id === BRAIN ? undefined : id);
+    show(id === BRAIN && area ? [areaId(area)] : [id], id !== BRAIN || !area);
+  };
+  const toArea = (name: string) => {
+    setArea(name);
+    setTrail([BRAIN]);
+    setOpen(new Set([areaId(name)]));
+    reset();
+    setSel(undefined);
+    show([areaId(name)]);
+  };
+  const pick = (p: PNode) => {
+    setNote(undefined);
+    const k = p.t.kind;
+    if (k === 'more') {
+      setMore((m) => new Map(m).set(p.t.key!, (m.get(p.t.key!) ?? 0) + MORE_STEP));
+      return show([p.parent!]);
+    }
+    if (k === 'brain') return setFit((f) => f + 1);
+    if (k === 'area' || k === 'group') {
+      // a group around an item is open while it shows items
+      const on = k === 'group' ? !p.t.children.some((c) => c.kind === 'node') : !open.has(p.id);
+      setOpen((o) => (on ? add(o, p.id) : del(o, p.id)));
+      if (on && k === 'area') setArea(p.t.via);
+      return show([p.id]);
+    }
+    setSel(p.id);
+    if (k === 'node' && !open.has(p.id)) setOpen((o) => add(o, p.id));
+    show([p.id]);
+  };
+  const pull = (from: string, to: string) => {
+    setSel(to);
+    if (!tree.items.has(to)) setPulled((e) => [...e, [from, to] as const]);
+    show([to]);
+  };
+  /** Pull `id` into the tree along its shortest path from what is on the map, and draw that path. */
+  const pathTo = (id: string) => {
+    const pairs = pathInto(ix, center, tree.items, id);
+    if (!pairs) return setNote(`Nothing links ${labelOf(center)} to ${labelOf(id)}.`);
+    setFound({ pairs, target: id });
+    setSel(id);
+    if (atBrain) setArea(ix.byId.get(id)?.area);
+    setNote(pairs.length ? `The violet line is the path from ${labelOf(center)} to ${labelOf(id)}.` : undefined);
+    // the whole path, from the center out, comes into view
+    show(pairs.length ? [center, ...new Set(pairs.flat())] : [id]);
+  };
+  const step = (dir: 1 | -1) => {
+    if (!hits.length) return;
+    const i = (hit + dir + hits.length) % hits.length;
+    setHit(i);
+    pathTo(hits[i].id);
+  };
+  const dismiss = (id: string) => {
+    setDismissed((d) => add(d, id));
+    if (sel === id) setSel(undefined);
+  };
+  const dismissOthers = (id: string) => {
+    const keep = new Set([...chainTo(layout, id), ...layout.nodes.filter((p) => p.parent === id).map((p) => p.id)]);
+    setDismissed((d) => new Set([...d, ...[...tree.items].filter((x) => !keep.has(x))]));
+  };
+  const toggleRelation = (label: string) => setHidden((h) => (h.has(label) ? del(h, label) : add(h, label)));
+  const setDepthTo = (d: number) => setDepth(Math.max(1, Math.min(3, d)));
+  const zoomBy = (factor: number) => setZoom((z) => ({ n: z.n + 1, factor }));
+
+  const onKey = (e: React.KeyboardEvent): boolean => {
+    if (e.key === '[' || e.key === ']') {
+      setDepthTo(depth + (e.key === ']' ? 1 : -1));
+      return true;
+    }
+    if (e.key === 'Escape') {
+      if (sel) setSel(undefined);
+      else if (trail.length > 1) back(trail.length - 2);
+      else if (open.size) setOpen(new Set());
+      return true;
+    }
+    if (e.key === 'Enter' && sel && sel !== center && ix.byId.has(sel) && !(e.target as HTMLElement).closest('button')) {
+      recenter(sel);
+      return true;
+    }
+    return false;
+  };
+
+  // ----- what shows ------------------------------------------------------------------
+  const selected = sel ? ix.byId.get(sel) : undefined;
+  const drawer = !!selected && !phone;
+  const insets: Insets = phone ? { top: headH + 8, right: 12, bottom: selected ? Math.round(boxH * 0.5) : footH + 8, left: 12 } : { top: headH + 16, right: drawer ? 384 : 32, bottom: footH + 12, left: 32 };
+  const span = useMemo(() => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const n of g.nodes) if (n.at) (lo = Math.min(lo, n.at)), (hi = Math.max(hi, n.at)); // prettier-ignore
+    return { lo, hi };
   }, [g]);
-
-  // fit the drawing to the box once a graph is laid out
-  useEffect(() => {
-    const el = box.current;
-    if (!el || !pos.size) return;
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; // prettier-ignore
-    for (const p of pos.values()) (x0 = Math.min(x0, p.x)), (y0 = Math.min(y0, p.y)), (x1 = Math.max(x1, p.x)), (y1 = Math.max(y1, p.y));
-    const { width, height } = el.getBoundingClientRect();
-    const k = Math.min(2, Math.max(0.15, Math.min(width / (x1 - x0 + 160), height / (y1 - y0 + 60))));
-    setView({ k, x: width / 2 - ((x0 + x1) / 2) * k, y: height / 2 - ((y0 + y1) / 2) * k });
-  }, [pos]);
-
-  // a picked node moves to the middle of what the drawer leaves free (at once: the map never animates)
-  useEffect(() => {
-    const p = sel ? pos.get(sel) : undefined;
-    const el = box.current;
-    if (!p || !el) return;
-    // on a phone the sheet covers the bottom: bring the map to the top so its star shows above it
-    if (mobile) el.scrollIntoView({ block: 'start', behavior: 'instant' });
-    const { width, height } = el.getBoundingClientRect();
-    const free = mobile ? width : width - 340;
-    setView((v) => ({ ...v, x: free / 2 - p.x * v.k, y: (mobile ? height * 0.27 : height / 2) - p.y * v.k }));
-  }, [sel, pos, mobile]);
-
-  const zoom = (f: number, cx?: number, cy?: number) =>
-    setView((v) => {
-      const r = box.current?.getBoundingClientRect();
-      const px = cx ?? (r?.width ?? 0) / 2;
-      const py = cy ?? (r?.height ?? 0) / 2;
-      const k = Math.min(4, Math.max(0.1, v.k * f));
-      return { k, x: px - ((px - v.x) * k) / v.k, y: py - ((py - v.y) * k) / v.k };
-    });
-
-  const onWheel = (e: WheelEvent) => {
-    const r = box.current!.getBoundingClientRect();
-    zoom(Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
+  const faded = (p: PNode) => {
+    const n = p.item;
+    if (!n) return false;
+    if (at !== undefined && n.at && n.at > at) return true;
+    return source !== 'all' && n.source !== source && n.source !== 'both';
   };
-  const onDown = (e: PointerEvent) => {
-    if ((e.target as Element).closest('[data-node]')) return;
-    drag.current = { x: e.clientX, y: e.clientY, moved: false };
-    (e.currentTarget as Element).setPointerCapture(e.pointerId);
-  };
-  const onMove = (e: PointerEvent) => {
-    const d = drag.current;
-    if (!d) return;
-    const [mx, my] = [e.clientX - d.x, e.clientY - d.y];
-    if (Math.abs(mx) + Math.abs(my) > 2) d.moved = true;
-    d.x = e.clientX;
-    d.y = e.clientY;
-    setView((v) => ({ ...v, x: v.x + mx, y: v.y + my }));
-  };
-  const onUp = () => {
-    if (drag.current && !drag.current.moved) setSel(undefined);
-    drag.current = null;
-  };
-  const onKey = (e: KeyboardEvent) => {
-    const step = 60;
-    const keys: Record<string, () => void> = {
-      '+': () => zoom(1.25),
-      '=': () => zoom(1.25),
-      '-': () => zoom(0.8),
-      ArrowLeft: () => setView((v) => ({ ...v, x: v.x + step })),
-      ArrowRight: () => setView((v) => ({ ...v, x: v.x - step })),
-      ArrowUp: () => setView((v) => ({ ...v, y: v.y + step })),
-      ArrowDown: () => setView((v) => ({ ...v, y: v.y - step })),
-      Escape: () => setSel(undefined),
-    };
-    if (!keys[e.key] || (e.target as Element).closest('input')) return;
-    e.preventDefault();
-    keys[e.key]();
-  };
+  const existed = at === undefined ? g.nodes.length : g.nodes.filter((n) => !n.at || n.at <= at).length;
+  const relations = ix.labels.slice(0, phone ? 14 : 9);
+  const offline = g.basicMemory.state === 'offline';
 
-  if (error) return <EmptyState>The memory map did not load: {error}</EmptyState>;
-  if (!g) return <LoadingRows loading rows={4} />;
-  if (!g.nodes.length) return <EmptyState>Nothing to map yet. Notes show here once sessions save memories.</EmptyState>;
+  const crumbs: Array<{ label: string; go?: () => void }> = [{ label: 'Brain', go: trail.length > 1 || open.size ? () => (trail.length > 1 ? back(0) : (setOpen(new Set()), setSel(undefined), setFit((f) => f + 1))) : undefined }];
+  const crumbArea = trail.length > 1 ? ix.byId.get(trail[1])?.area : area && open.has(areaId(area)) ? area : undefined;
+  if (crumbArea) crumbs.push({ label: crumbArea, go: trail.length > 1 ? () => toArea(crumbArea) : undefined });
+  trail.slice(1).forEach((id, i) => crumbs.push({ label: labelOf(id), go: i + 2 < trail.length ? () => back(i + 1) : undefined }));
+  const trailNav = (
+    <nav aria-label="Where you are" className="flex min-w-0 items-baseline gap-1.5 overflow-hidden text-[13px] whitespace-nowrap phone:text-[14px]">
+      {crumbs.slice(-4).map((c, i, all) => {
+        const last = i === all.length - 1;
+        return (
+          <span key={`${c.label}-${i}`} className={cn('flex min-w-0 items-baseline gap-1.5', last ? 'shrink-0' : 'shrink')}>
+            {i > 0 && <span className="text-fg-4">/</span>}
+            {c.go ? (
+              <button type="button" className="tap truncate text-fg-3 hov:text-fg" onClick={c.go}>
+                {c.label}
+              </button>
+            ) : (
+              <span className="truncate font-medium text-fg" aria-current="location">
+                {c.label}
+              </span>
+            )}
+          </span>
+        );
+      })}
+    </nav>
+  );
 
-  const selected = sel ? byId.get(sel) : undefined;
-  const more = nextLimit(g.limit, g.total);
-  const edges = g.edges.filter((e) => shown.has(e.from) && shown.has(e.to));
-  const hot = sel ? edges.filter((e) => e.from === sel || e.to === sel) : [];
-  const line = (e: MemoryGraph['edges'][number], i: number, on: boolean) => {
-    const a = pos.get(e.from)!;
-    const b = pos.get(e.to)!;
-    const dashed = e.kind === 'tag' || e.kind === 'session';
-    return (
-      <line
-        key={i}
-        x1={a.x}
-        y1={a.y}
-        x2={b.x}
-        y2={b.y}
-        stroke={on ? 'var(--fg-2)' : 'var(--rule-2)'}
-        strokeOpacity={on ? 1 : sel ? 0.18 : 0.55}
-        strokeWidth={(on ? 1.3 : 0.6) / view.k}
-        strokeDasharray={dashed ? `${3 / view.k} ${3 / view.k}` : undefined}
-      />
-    );
-  };
-  const detail = selected && <Detail g={g} n={selected} byId={byId} onSelect={setSel} onClose={() => setSel(undefined)} sheet={mobile} />;
+  const folded = !atBrain && layout.nodes.some((p) => p.t.kind === 'node' && p.count && p.t.depth >= 1 && depth > p.t.depth);
+  const sentence = (
+    <p className={cn('m-0 text-[13px] phone:text-[14px]', offline ? 'text-warn' : 'text-fg-2')} aria-live="polite">
+      {note ??
+        (atBrain ? (
+          <>
+            <span className="num">{num(g.nodes.length)}</span> items in <span className="num">{ix.areas.length}</span> areas
+            {offline ? '. Basic Memory is offline, so only Conclave memory is shown' : open.size ? '' : '. Open an area to see what is in it'}.
+          </>
+        ) : (
+          <>
+            <span className="num">{tree.items.size - 1}</span> items around {labelOf(center)}, which has <span className="num">{centerNode?.degree ?? 0}</span> links
+            {hidden.size ? `. ${[...hidden].map(cap).join(', ')} hidden` : ''}
+            {folded ? '. Deeper links fold into counts until you zoom in' : ''}.
+          </>
+        ))}
+    </p>
+  );
+
+  const searchBox = (
+    <Input
+      value={q}
+      onChange={(e) => (setQ(e.target.value), setHit(-1))}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          step(e.shiftKey ? -1 : 1);
+        } else if (e.key === 'Escape') {
+          setQ('');
+          setFound(undefined);
+          setNote(undefined);
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+      placeholder="Search memory"
+      aria-label="Search memory. Enter goes to the next match, Shift+Enter to the one before."
+      enterKeyHint="search"
+      suffix={q.trim().length >= 2 ? <span className="num text-[12px] whitespace-nowrap text-fg-3" aria-live="polite">{hits.length ? `${hit >= 0 ? `${hit + 1} of ` : ''}${num(hits.length)}` : 'none'}</span> : undefined}
+      className={phone ? 'text-[15px]' : undefined}
+    />
+  );
+
+  const depthControl = <Segmented label="Depth" size="sm" value={String(depth)} onChange={(v) => setDepthTo(Number(v))} options={[1, 2, 3].map((d) => ({ value: String(d), label: String(d), title: `${d} ${d === 1 ? 'link' : 'links'} out` }))} />;
+  const zoomButtons = (
+    <div className="flex items-center">
+      <ZoomButton label="Zoom out" onClick={() => zoomBy(0.8)} phone={phone}>
+        <Minus className="size-4" strokeWidth={1.75} aria-hidden />
+      </ZoomButton>
+      <ZoomButton label="Zoom in" onClick={() => zoomBy(1.25)} phone={phone}>
+        <Plus className="size-4" strokeWidth={1.75} aria-hidden />
+      </ZoomButton>
+    </div>
+  );
+  const relationFilter = (
+    <div role="group" aria-label="Relations" className="flex flex-wrap items-baseline gap-x-3.5 gap-y-1">
+      {!phone && <span className="text-[12.5px] text-fg-3">Relations</span>}
+      {relations.map(({ label, count }) => {
+        const on = !hidden.has(label);
+        return (
+          <button key={label} type="button" aria-pressed={on} onClick={() => toggleRelation(label)} className={cn('tap text-[13px] font-medium whitespace-nowrap transition-colors duration-[var(--dur-1)] phone:text-[14px]', on ? 'text-fg' : 'text-fg-4 hov:text-fg-2')}>
+            <span className={on ? 'underline decoration-1 underline-offset-[3px]' : 'line-through decoration-1'}>{label}</span>
+            <span className="num ml-1 font-[450] text-fg-3">{num(count)}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+  const sourceFilter = (
+    <FilterLinks
+      label="Source"
+      value={source}
+      onChange={setSource}
+      options={[
+        { value: 'all', label: 'Both stores' },
+        { value: 'conclave', label: 'Conclave' },
+        { value: 'basic-memory', label: 'Basic Memory' },
+      ]}
+    />
+  );
+  const legend = 'A tick under a title: Conclave memory. Dashed: also in Basic Memory. None: a Basic Memory note.';
+
+  const detail = selected && (
+    <Detail
+      n={selected}
+      ix={ix}
+      center={center}
+      onMap={tree.items}
+      hidden={hidden}
+      open={open.has(selected.id)}
+      phone={phone}
+      onClose={() => setSel(undefined)}
+      onCenter={() => recenter(selected.id)}
+      onToggle={() => setOpen((o) => (o.has(selected.id) ? del(o, selected.id) : add(o, selected.id)))}
+      onDismiss={() => dismiss(selected.id)}
+      onDismissOthers={() => dismissOthers(selected.id)}
+      onPath={() => pathTo(selected.id)}
+      onPull={(id) => pull(selected.id, id)}
+    />
+  );
 
   return (
-    <div className="space-y-4" onKeyDown={onKey}>
-      <div className="space-y-3">
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the map" aria-label="Search the map" enterKeyHint="search" className="text-[14px]" />
-        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2">
-          <FilterLinks
-            label="Source"
-            value={source}
-            onChange={setSource}
-            options={[
-              { value: 'all', label: 'Both' },
-              { value: 'conclave', label: 'Conclave' },
-              { value: 'basic-memory', label: 'Basic Memory' },
-            ]}
-          />
-          <span aria-hidden className="hidden h-3.5 w-px self-center bg-rule-2 sm:block" />
-          <FilterLinks
-            label="Kind"
-            value={kind}
-            onChange={setKind}
-            options={[
-              { value: 'all', label: 'All' },
-              { value: 'fact', label: 'Facts' },
-              { value: 'procedure', label: 'Procedures' },
-              { value: 'profile', label: 'Profile' },
-              { value: 'episode', label: 'Episodes' },
-              { value: 'note', label: 'Notes' },
-            ]}
-          />
-        </div>
-        <p className={cn('m-0 text-[12px] phone:text-[13px]', g.basicMemory.state === 'offline' ? 'text-warn' : 'text-fg-3')} role="status">
-          {statusLine(g, [...shown].filter((id) => !id.startsWith('tag:') && !id.startsWith('ses:')).length)}
-          {more && (
-            <>
-              {' '}
-              <button type="button" className="link" disabled={loading} onClick={() => setLimit(more)}>
-                {loading ? 'Loading' : `Show up to ${more.toLocaleString('en-US')}`}
-              </button>
-            </>
-          )}
-        </p>
+    <div ref={boxRef} className="relative -mx-[var(--gutter)] min-h-[420px] flex-1 overflow-hidden border-t border-rule bg-bg">
+      <MemoryCanvas
+        layout={layout}
+        ix={ix}
+        items={tree.items}
+        selected={sel}
+        hover={hover}
+        onHover={setHover}
+        onPick={pick}
+        onCenter={recenter}
+        onBlank={() => (setSel(undefined), setNote(undefined))}
+        path={path}
+        hits={hitSet}
+        faded={faded}
+        insets={insets}
+        fit={fit}
+        zoom={zoom}
+        reveal={reveal}
+        onUnfold={setUnfold}
+        onKey={onKey}
+        className="absolute inset-0"
+      />
+
+      {/* solid bands above and below, so a tall tree passes under them, not through the words */}
+      <div ref={headRef} className={cn('absolute top-0 left-0 z-[5] border-b border-rule bg-bg', phone ? 'right-0 space-y-2 px-4 pt-2 pb-2' : 'space-y-2 px-8 pt-3 pb-3')} style={phone ? undefined : { right: drawer ? 360 : 0 }}>
+        {phone ? (
+          <>
+            {searchBox}
+            {trailNav}
+            {note && sentence}
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-4">
+              <div className="min-w-0 flex-1">{trailNav}</div>
+              <div className="flex shrink-0 items-center gap-3">
+                {!atBrain && (
+                  <>
+                    <span className="text-[12.5px] text-fg-3">Depth</span>
+                    {depthControl}
+                  </>
+                )}
+                {zoomButtons}
+                <Button variant="quiet" size="sm" onClick={() => setFit((f) => f + 1)} title="Fit (0)">
+                  Fit
+                </Button>
+              </div>
+            </div>
+            {sentence}
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              <div className="w-[280px] shrink-0">{searchBox}</div>
+              {relationFilter}
+              {sourceFilter}
+            </div>
+          </>
+        )}
       </div>
-      <div className="relative">
-        <div
-          ref={box}
-          className="relative h-[min(68vh,720px)] min-h-[360px] touch-none overflow-hidden border-y border-rule bg-bg-sunk outline-none focus-visible:ring-2 focus-visible:ring-signal phone:-mx-4"
-          tabIndex={0}
-          aria-label="Memory map. Drag or use the arrow keys to move, plus and minus to zoom, Tab to walk the items."
-          onWheel={onWheel}
-          onPointerDown={onDown}
-          onPointerMove={onMove}
-          onPointerUp={onUp}
-        >
-          <svg className="absolute inset-0 h-full w-full select-none" role="group" aria-label={`${shown.size} items`}>
-            <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
-              {edges.map((e, i) => (sel && (e.from === sel || e.to === sel) ? null : line(e, i, false)))}
-              {hot.map((e, i) => line(e, -1 - i, true))}
-              {g.nodes.map((n) =>
-                shown.has(n.id) ? <Mark key={n.id} n={n} p={pos.get(n.id)!} k={view.k} selected={n.id === sel} dim={!!sel && n.id !== sel && !near.has(n.id)} onSelect={() => setSel(n.id === sel ? undefined : n.id)} /> : null,
-              )}
-              {/* labels on top of every mark, so no mark covers one */}
-              <g aria-hidden className="pointer-events-none">
-                {[...labelled].map((id) => {
-                  const n = byId.get(id)!;
-                  const p = pos.get(id)!;
-                  return (
-                    <text key={id} x={p.x + markRadius(p.r, view.k) / view.k + 4 / view.k} y={p.y} dominantBaseline="central" fontSize={12 / view.k} fill={id === sel ? 'var(--fg)' : 'var(--fg-2)'} stroke="var(--bg-sunk)" strokeWidth={4 / view.k} paintOrder="stroke" style={{ fontWeight: id === sel ? 560 : 450 }}>
-                      {nodeLabel(n)}
-                    </text>
-                  );
-                })}
-              </g>
-            </g>
-          </svg>
-          <div className="absolute right-2 bottom-2 flex gap-1">
-            <IconButton label="Zoom in" size="sm" onClick={() => zoom(1.25)}>
-              <span aria-hidden className="text-[15px] leading-none">+</span>
-            </IconButton>
-            <IconButton label="Zoom out" size="sm" onClick={() => zoom(0.8)}>
-              <span aria-hidden className="text-[15px] leading-none">−</span>
-            </IconButton>
+
+      <div ref={footRef} className={cn('absolute bottom-0 left-0 z-[5] border-t border-rule bg-bg', phone ? 'right-0 px-4 pb-[calc(var(--safe-b)+6px)]' : 'px-8 pt-2 pb-2')} style={phone ? undefined : { right: drawer ? 360 : 0 }}>
+        {phone ? (
+          <div className="flex items-center justify-between gap-2 pt-2">
+            {atBrain ? <span className="min-w-0 truncate text-[13px] text-fg-3">{num(g.nodes.length)} items</span> : depthControl}
+            <div className="flex items-center gap-1.5">
+              {zoomButtons}
+              <Button variant="outline" size="sm" onClick={() => setFilters(true)}>
+                Filters{hidden.size || source !== 'all' ? ` (${hidden.size + (source !== 'all' ? 1 : 0)})` : ''}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setFit((f) => f + 1)}>
+                Fit
+              </Button>
+            </div>
           </div>
-          <p className="pointer-events-none absolute bottom-2 left-3 m-0 text-[11px] text-fg-3 phone:text-[12px]">Filled: Conclave. Ring: Basic Memory. Both: mirrored.</p>
-        </div>
-        {!mobile && detail}
+        ) : (
+          <p className={cn('m-0 text-[12px] text-fg-3 transition-opacity duration-[var(--dur-2)]', at !== undefined && 'opacity-0')}>{legend} Click opens, double click centers, Esc steps back.</p>
+        )}
+        {span.hi > span.lo && <TimeScrubber from={span.lo} to={span.hi} at={at} onChange={setAt} phone={phone} shown={`${num(existed)} existed`} />}
       </div>
-      {mobile && (
-        <Sheet open={!!selected} onClose={() => setSel(undefined)} label="Selected item">
+
+      {drawer && (
+        <aside aria-label={`${nodeLabel(selected)}, details`} className="anim-right absolute inset-y-0 right-0 z-10 flex w-[360px] max-w-full flex-col border-l border-rule bg-bg">
           {detail}
+        </aside>
+      )}
+      {/* phones: a half-height panel, not a modal sheet, so the map above it still pans and takes taps */}
+      {phone && selected && (
+        <aside aria-label={`${nodeLabel(selected)}, details`} className="anim-sheet absolute inset-x-0 bottom-0 z-10 flex h-[50%] flex-col rounded-t-[var(--r-3)] border-t border-rule-2 bg-raise pb-safe">
+          <button type="button" aria-label="Close" onClick={() => setSel(undefined)} className="absolute top-1 right-2 grid size-11 place-items-center rounded-[var(--r-1)] text-fg-3 hov:bg-hover hov:text-fg">
+            <X className="size-5" strokeWidth={1.75} aria-hidden />
+          </button>
+          <div className="flex min-h-0 flex-1 flex-col pt-4">{detail}</div>
+        </aside>
+      )}
+      {phone && (
+        <Sheet open={filters} onClose={() => setFilters(false)} title="Filters">
+          <div className="space-y-4 px-4 pb-4">
+            {sentence}
+            <div>
+              <h3 className="m-0 mb-1.5 text-[13px] font-medium text-fg-3">Relations</h3>
+              {relationFilter}
+            </div>
+            <div>
+              <h3 className="m-0 mb-1.5 text-[13px] font-medium text-fg-3">Source</h3>
+              {sourceFilter}
+            </div>
+            <p className="m-0 text-[13px] text-fg-3">{legend}</p>
+          </div>
         </Sheet>
       )}
     </div>
   );
 }
 
-function Mark({ n, p, k, selected, dim, onSelect }: { n: MemoryGraphNode; p: { x: number; y: number; r: number }; k: number; selected: boolean; dim: boolean; onSelect: () => void }) {
-  const hub = n.kind === 'tag' || n.kind === 'session';
-  // world units; on screen it is markRadius(p.r, k)
-  const r = markRadius(p.r, k) / k;
-  const text = nodeLabel(n);
+/** An element's height, kept up to date. */
+function useHeight(ref: React.RefObject<HTMLElement | null>, guess: number): number {
+  const [h, setH] = useState(guess);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setH(Math.round(el.getBoundingClientRect().height)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return h;
+}
+
+function Centered({ children }: { children: ReactNode }) {
   return (
-    <g
-      data-node
-      role="button"
-      tabIndex={0}
-      aria-pressed={selected}
-      aria-label={`${text}. ${nodeWords(n)}. ${n.degree} links.`}
-      className="cursor-pointer outline-none [&:focus-visible>.ring]:stroke-signal"
-      opacity={dim ? 0.18 : 1}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') (e.preventDefault(), onSelect());
-      }}
-    >
-      <title>{n.title}</title>
-      {hub ? (
-        <rect x={p.x - r * 0.8} y={p.y - r * 0.8} width={r * 1.6} height={r * 1.6} fill="var(--fg-4)" />
-      ) : (
-        <>
-          {n.source !== 'conclave' && <circle cx={p.x} cy={p.y} r={r} fill="var(--bg-sunk)" stroke="var(--fg-3)" strokeWidth={1.2 / k} />}
-          {n.source !== 'basic-memory' && <circle cx={p.x} cy={p.y} r={n.source === 'both' ? r * 0.55 : r} fill="var(--fg)" />}
-        </>
-      )}
-      <circle className="ring" cx={p.x} cy={p.y} r={r + 4 / k} fill="transparent" stroke={selected ? 'var(--signal)' : 'transparent'} strokeWidth={2 / k} />
-    </g>
+    <div className="grid min-h-[320px] flex-1 place-items-center px-6 text-center text-[14px] text-fg-3" role="status">
+      {children}
+    </div>
   );
 }
 
-function Detail({ g, n, byId, onSelect, onClose, sheet }: { g: MemoryGraph; n: MemoryGraphNode; byId: Map<string, MemoryGraphNode>; onSelect: (id: string) => void; onClose: () => void; sheet: boolean }) {
-  const links = linksOf(g, n.id);
+function ZoomButton({ label, onClick, children, phone }: { label: string; onClick: () => void; children: ReactNode; phone: boolean }) {
   return (
-    <aside aria-label="Selected item" className={cn('overflow-y-auto', sheet ? 'max-h-[42dvh] px-5 pb-4' : 'absolute top-0 right-0 h-full w-[340px] border-l border-rule bg-bg px-5 py-4')}>
-      <div className="flex items-start gap-2">
+    <button type="button" aria-label={label} title={label} onClick={onClick} className={cn('grid place-items-center rounded-[var(--r-1)] text-fg-3 transition-colors duration-[var(--dur-1)] hov:bg-hover hov:text-fg', phone ? 'size-9' : 'size-[26px]')}>
+      {children}
+    </button>
+  );
+}
+
+const when = (t?: number) => (t ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : undefined);
+
+function Detail(props: {
+  n: MemoryGraphNode;
+  ix: Indexed;
+  center: string;
+  onMap: Set<string>;
+  hidden: ReadonlySet<string>;
+  open: boolean;
+  phone: boolean;
+  onClose: () => void;
+  onCenter: () => void;
+  onToggle: () => void;
+  onDismiss: () => void;
+  onDismissOthers: () => void;
+  onPath: () => void;
+  onPull: (id: string) => void;
+}) {
+  const { n, ix, center, onMap, hidden, open, phone } = props;
+  const [all, setAll] = useState<ReadonlySet<string>>(new Set());
+  const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => scroller.current?.scrollTo({ top: 0 }), [n.id]);
+  const groups = new Map<string, string[]>();
+  for (const l of ix.nbrs.get(n.id) ?? []) groups.set(l.label, [...(groups.get(l.label) ?? []), l.id]);
+  const order = [...groups].sort((a, b) => Number(hidden.has(a[0])) - Number(hidden.has(b[0])) || b[1].length - a[1].length);
+  const isCenter = n.id === center;
+  const size = phone ? 'touch' : 'sm';
+  return (
+    <>
+      <div className={cn('flex shrink-0 items-start gap-2', phone ? 'pr-14 pb-1 pl-4' : 'px-5 pt-4 pb-1')}>
         <div className="min-w-0 flex-1">
-          <p className="m-0 text-[12px] text-fg-3 phone:text-[13px]">{nodeWords(n)}</p>
-          <p className="t-prose m-0 mt-1 break-words text-fg">{n.kind === 'tag' ? `#${n.title}` : n.title}</p>
+          <div className="text-[12px] text-fg-3 phone:text-[13px]">
+            {nodeWords(n)}
+            {n.area ? `, ${n.area}` : ''}
+            {isCenter ? ', the center' : onMap.has(n.id) ? '' : ', not on the map'}
+          </div>
+          <h2 className="t-title m-0 mt-0.5 line-clamp-4 break-words text-fg">{n.title}</h2>
+          <div className="mt-1 text-[13px] text-fg-3 phone:text-[14px]">
+            <span className="num">{n.degree}</span> links{when(n.at) && `, changed ${when(n.at)}`}
+          </div>
         </div>
-        <IconButton label="Close" size={sheet ? 'touch' : 'sm'} onClick={onClose}>
-          <X />
-        </IconButton>
+        {!phone && (
+          <button type="button" aria-label="Close" onClick={props.onClose} className="-mr-2 grid size-8 shrink-0 place-items-center rounded-[var(--r-1)] text-fg-3 hov:bg-hover hov:text-fg">
+            <X className="size-4" strokeWidth={1.75} aria-hidden />
+          </button>
+        )}
       </div>
-      <div className="mt-2 flex flex-wrap gap-x-4 text-[13px]">
+      <div className={cn('flex shrink-0 flex-wrap items-center gap-2', phone ? 'px-4 pt-2' : 'px-5 pt-2')}>
+        {!isCenter && (
+          <Button variant="solid" size={size} onClick={props.onCenter}>
+            Center here
+          </Button>
+        )}
+        {!isCenter && onMap.has(n.id) && (
+          <Button variant="outline" size={size} onClick={props.onToggle}>
+            {open ? 'Show fewer' : 'Open links'}
+          </Button>
+        )}
+        {!isCenter && !onMap.has(n.id) && (
+          <Button variant="outline" size={size} onClick={props.onPath}>
+            Show the path
+          </Button>
+        )}
+      </div>
+      <div className={cn('flex shrink-0 flex-wrap gap-x-4 gap-y-1 text-[13px] phone:text-[14px]', phone ? 'px-4 pt-2' : 'px-5 pt-2.5')}>
+        {!isCenter && onMap.has(n.id) && (
+          <button type="button" className="link" onClick={props.onDismiss}>
+            Dismiss
+          </button>
+        )}
+        {onMap.has(n.id) && (
+          <button type="button" className="link" onClick={props.onDismissOthers}>
+            Dismiss the rest
+          </button>
+        )}
         {n.memoryId && (
           <Link href={`/memory?focus=${n.memoryId}`} className="link">
             Open in Notes
           </Link>
         )}
-        {n.sessionId && (
-          <Link href={`/s/${n.sessionId}`} className="link">
-            Open the session
-          </Link>
-        )}
       </div>
-      <h3 className="mt-5 mb-1 text-[13px] font-[560] text-fg">
-        Links <span className="num font-normal text-fg-3">{links.length}</span>
-      </h3>
-      {links.length === 0 && <p className="m-0 text-[13px] text-fg-2">No links in either store.</p>}
-      <ul className="m-0 list-none p-0">
-        {links.slice(0, 60).map((l, i) => {
-          const o = byId.get(l.id);
-          return o ? (
-            <li key={i} className="border-b border-rule py-1.5 text-[13px] phone:py-2.5 phone:text-[14px]">
-              <span className="text-fg-3">{l.label} </span>
-              <button type="button" className="link text-left" onClick={() => onSelect(l.id)}>
-                {nodeLabel(o)}
-              </button>
-            </li>
-          ) : null;
+      <div ref={scroller} className={cn('min-h-0 flex-1 overflow-y-auto', phone ? 'px-4 pb-3' : 'px-5 pb-4')}>
+        {order.map(([label, ids]) => {
+          const cut = all.has(label) ? ids : ids.slice(0, 6);
+          return (
+            <section key={label} className="mt-4 border-t border-rule pt-3">
+              <h3 className="m-0 mb-1 text-[12px] font-medium text-fg-3 phone:text-[13px]">
+                {label} <span className="num font-normal">{ids.length}</span>
+                {hidden.has(label) && <span className="font-normal">, hidden on the map</span>}
+              </h3>
+              <ul className="m-0 list-none p-0">
+                {cut.map((id) => (
+                  <li key={id}>
+                    <button type="button" onClick={() => props.onPull(id)} className="-mx-2 flex w-[calc(100%+16px)] items-baseline gap-3 rounded-[var(--r-1)] px-2 py-1 text-left hov:bg-hover phone:py-2">
+                      <span className="min-w-0 flex-1 truncate text-[13.5px] text-fg phone:text-[15px]">{nodeLabel(ix.byId.get(id)!)}</span>
+                      <span className="shrink-0 text-[12px] text-fg-3 phone:text-[13px]">{id === center ? 'center' : onMap.has(id) ? 'on the map' : 'add'}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {ids.length > cut.length && (
+                <button type="button" className="mt-0.5 text-[12.5px] text-fg-3 underline decoration-rule-2 underline-offset-2 hov:text-fg phone:text-[14px]" onClick={() => setAll((a) => add(a, label))}>
+                  {ids.length - cut.length} more
+                </button>
+              )}
+            </section>
+          );
         })}
-      </ul>
-      {links.length > 60 && <p className="m-0 mt-1 text-[12px] text-fg-3">And {links.length - 60} more.</p>}
-    </aside>
+      </div>
+    </>
   );
 }

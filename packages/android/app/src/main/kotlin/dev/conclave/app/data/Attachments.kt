@@ -19,6 +19,11 @@ object Attachments {
     private const val MAX_EDGE = 1600
     private const val MAX_BYTES = 8 * 1024 * 1024
 
+    /** A shared file's type and name, read before its bytes, so a file the hub cannot take is never read. */
+    suspend fun typeAndName(context: Context, uri: Uri): Pair<String?, String> = withContext(Dispatchers.IO) {
+        context.contentResolver.getType(uri) to displayName(context, uri)
+    }
+
     suspend fun fromUri(context: Context, uri: Uri): Attachment = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
         val type = resolver.getType(uri) ?: "application/octet-stream"

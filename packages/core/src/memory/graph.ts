@@ -9,16 +9,57 @@
  * tag node, so a common tag is a star and not a tangle) and the session a
  * memory came from. A fact or procedure Conclave mirrored as its own note
  * (perFactPermalink) and a note imported from the server are one node.
+ *
+ * Every item goes out, once, with edges as index triples, so search and
+ * paths on the map reach all of it (about 3,000 items are a few hundred KB).
  */
-import type { MemoryGraph, MemoryGraphEdge, MemoryGraphEdgeKind, MemoryGraphNode } from '../client/memory-graph';
+import type { MemoryGraph, MemoryGraphEdgeKind, MemoryGraphNode } from '../client/memory-graph';
 import type { MemoryEntry } from '../types';
 import { noteKeyOf, notePlace, perFactPermalink } from './connections/grouped';
 import { IMPORTED_TAG, SOURCE_TAG_PREFIX, isActive } from './store';
 
-/** Most nodes a map draws by default; the route takes up to MAX_LIMIT. */
-export const GRAPH_LIMIT = 300;
-export const GRAPH_MAX_LIMIT = 1000;
 const TEXT_MAX = 600;
+
+/**
+ * The map's first ring: areas of the owner's life and work, chosen from his
+ * Basic Memory folders (people 323, services 147, courses 150, ...). Small
+ * folders that belong together fold into one area (nodes, containers and
+ * homelab are Homelab). A folder no rule names becomes an area of its own
+ * once it has AREA_MIN notes, else Other.
+ */
+const AREA_RULES: Array<[string, RegExp]> = [
+  ['People', /^((entities\/)?people|profile)$/],
+  ['Projects', /^(entities\/)?projects$/],
+  ['Courses', /^entities\/courses$/],
+  ['Homelab', /^(homelab|entities\/(nodes|containers|domains))$/],
+  ['Services', /^entities\/services$/],
+  ['Devices', /^entities\/devices$/],
+  ['Vendors', /^entities\/(vendors|accounts)$/],
+  ['Security', /^entities\/(cves|incidents|certs)$/],
+  ['Conversations', /^conversations(\/|$)/],
+  ['Conclave', /^conclave(\/|$)/],
+  ['Topics', /^(areas|topics)$/],
+];
+export const AREA_MIN = 20;
+
+/** "entities/cooking" reads as "Cooking"; a year keeps the part before it. */
+const folderWord = (folder: string) => {
+  const w = folder.split('/').filter((p) => p && !/^\d+$/.test(p) && p !== 'entities').pop() ?? '';
+  return w ? w[0].toUpperCase() + w.slice(1).replace(/[-_]+/g, ' ') : '';
+};
+
+/** Areas for every node: a note by its folder, a profile memory under People, the rest of Conclave's own under Conclave. */
+export function assignAreas(nodes: MemoryGraphNode[]): void {
+  const ruled = (f: string) => AREA_RULES.find(([, re]) => re.test(f))?.[0];
+  const sizes = new Map<string, number>();
+  for (const n of nodes) if (n.folder !== undefined && !ruled(n.folder)) sizes.set(folderWord(n.folder), (sizes.get(folderWord(n.folder)) ?? 0) + 1);
+  for (const n of nodes) {
+    if (n.folder !== undefined) {
+      const w = folderWord(n.folder);
+      n.area = ruled(n.folder) ?? (w && (sizes.get(w) ?? 0) >= AREA_MIN ? w : 'Other');
+    } else n.area = n.kind === 'profile' ? 'People' : 'Conclave';
+  }
+}
 
 /** A note as Basic Memory's recent_activity lists it. */
 export interface BmNoteRow {
@@ -111,19 +152,17 @@ export interface BuildGraphInput {
   bm?: BmGraphData;
   /** Basic Memory is linked but did not answer. */
   bmOffline?: { name: string; error: string };
-  limit?: number;
 }
 
 export function buildMemoryGraph(input: BuildGraphInput): MemoryGraph {
-  const limit = Math.max(1, Math.min(GRAPH_MAX_LIMIT, Math.floor(input.limit ?? GRAPH_LIMIT)));
   const bm = input.bm;
   const nodes = new Map<string, MemoryGraphNode>();
-  const edges = new Map<string, MemoryGraphEdge>();
+  const edges = new Map<string, { from: string; to: string; label: string }>();
   const addEdge = (from: string, to: string, kind: MemoryGraphEdgeKind, label: string) => {
     if (from === to) return;
     const [a, b] = from < to ? [from, to] : [to, from];
     const key = `${a}|${b}|${kind}`;
-    if (!edges.has(key)) edges.set(key, { from, to, kind, label });
+    if (!edges.has(key)) edges.set(key, { from, to, label });
   };
 
   // ----- Basic Memory notes -------------------------------------------------------
@@ -131,7 +170,7 @@ export function buildMemoryGraph(input: BuildGraphInput): MemoryGraph {
   const byTitle = new Map<string, MemoryGraphNode>();
   for (const n of bm?.notes ?? []) {
     const folder = n.path.includes('/') ? n.path.slice(0, n.path.lastIndexOf('/')) : '';
-    const node: MemoryGraphNode = { id: `bm:${n.permalink}`, kind: 'note', source: 'basic-memory', title: n.title, note: { permalink: n.permalink, path: n.path, folder }, degree: 0, ...(n.at ? { at: n.at } : {}) };
+    const node: MemoryGraphNode = { id: `bm:${n.permalink}`, kind: 'note', source: 'basic-memory', title: n.title, folder, area: '', degree: 0, ...(n.at ? { at: n.at } : {}) };
     nodes.set(node.id, node);
     if (n.path) byStem.set(stem(n.path), node);
     byTitle.set(n.title.toLowerCase(), node);
@@ -166,7 +205,7 @@ export function buildMemoryGraph(input: BuildGraphInput): MemoryGraph {
       id = mirror.id;
     } else {
       id = `mem:${e.id}`;
-      nodes.set(id, { id, source: 'conclave', at: e.updatedAt, degree: 0, ...own });
+      nodes.set(id, { id, source: 'conclave', area: '', at: e.updatedAt, degree: 0, ...own });
     }
     if (bm && !e.tags.includes(IMPORTED_TAG)) {
       const key = noteKeyOf(e);
@@ -184,12 +223,12 @@ export function buildMemoryGraph(input: BuildGraphInput): MemoryGraph {
   for (const [t, ids] of tagMembers) {
     if (new Set(ids).size < 2) continue;
     const id = `tag:${t}`;
-    nodes.set(id, { id, kind: 'tag', source: 'conclave', title: t, degree: 0 });
+    nodes.set(id, { id, kind: 'tag', source: 'conclave', title: t, area: '', degree: 0 });
     for (const m of ids) addEdge(m, id, 'tag', 'tagged');
   }
   for (const [s, ids] of sessionMembers) {
     const id = `ses:${s}`;
-    nodes.set(id, { id, kind: 'session', source: 'conclave', title: input.sessionTitle?.(s)?.trim() || 'A past session', sessionId: s, degree: 0 });
+    nodes.set(id, { id, kind: 'session', source: 'conclave', title: input.sessionTitle?.(s)?.trim() || 'A past session', sessionId: s, area: '', degree: 0 });
     for (const m of ids) addEdge(m, id, 'session', 'from session');
   }
 
@@ -205,59 +244,16 @@ export function buildMemoryGraph(input: BuildGraphInput): MemoryGraph {
     nodes.get(e.to)!.degree++;
   }
 
-  // ----- the cap: the owner's memories first, then the best linked notes ------------------
-  const chosen = pick([...nodes.values()], edges, limit, bm ? Math.ceil(limit / 2) : limit);
-  const out = [...chosen].map((id) => nodes.get(id)!);
+  const out = [...nodes.values()];
+  assignAreas(out);
+  const index = new Map(out.map((n, i) => [n.id, i]));
+  const labels: string[] = [];
+  const labelIx = new Map<string, number>();
+  const ix = (l: string) => labelIx.get(l) ?? (labelIx.set(l, labels.push(l) - 1), labels.length - 1);
   return {
     nodes: out,
-    edges: [...edges.values()].filter((e) => chosen.has(e.from) && chosen.has(e.to)),
+    edges: [...edges.values()].map((e) => [index.get(e.from)!, index.get(e.to)!, ix(e.label)]),
+    labels,
     basicMemory: bm ? { state: 'ok', name: bm.name } : input.bmOffline ? { state: 'offline', name: input.bmOffline.name, error: input.bmOffline.error } : { state: 'none' },
-    total: nodes.size,
-    limit,
   };
-}
-
-/**
- * Which nodes stay under the cap. Memories rank by kind (profile first),
- * importance, use and age, and take up to `memoryShare` places; notes and
- * the rest rank by links, then by age. A tag joins once two chosen nodes
- * carry it and a session once one does, and each takes a place.
- */
-function pick(all: MemoryGraphNode[], edges: Map<string, MemoryGraphEdge>, limit: number, memoryShare: number): Set<string> {
-  const hubsOf = new Map<string, string[]>();
-  for (const e of edges.values()) {
-    if (e.kind !== 'tag' && e.kind !== 'session') continue;
-    hubsOf.set(e.from, [...(hubsOf.get(e.from) ?? []), e.to]);
-  }
-  const isHub = (n: MemoryGraphNode) => n.kind === 'tag' || n.kind === 'session';
-  const content = all.filter((n) => !isHub(n));
-  const memories = content.filter((n) => n.memoryId);
-  const rest = content.filter((n) => !n.memoryId);
-  const kindRank = (n: MemoryGraphNode) => (n.kind === 'profile' ? 0 : 1);
-  memories.sort((a, b) => kindRank(a) - kindRank(b) || b.degree - a.degree || (b.at ?? 0) - (a.at ?? 0) || (a.id < b.id ? -1 : 1));
-  rest.sort((a, b) => b.degree - a.degree || (b.at ?? 0) - (a.at ?? 0) || (a.id < b.id ? -1 : 1));
-
-  const chosen = new Set<string>();
-  const members = new Map<string, number>();
-  const add = (n: MemoryGraphNode) => {
-    chosen.add(n.id);
-    for (const h of hubsOf.get(n.id) ?? []) {
-      const c = (members.get(h) ?? 0) + 1;
-      members.set(h, c);
-      if (chosen.size < limit && !chosen.has(h) && (h.startsWith('ses:') || c >= 2)) chosen.add(h);
-    }
-  };
-  let mem = 0;
-  for (const n of memories) {
-    if (chosen.size >= limit || mem >= memoryShare) break;
-    add(n);
-    mem++;
-  }
-  const leftover = memories.slice(mem);
-  // notes by links; memories past their share only after the notes
-  for (const n of [...rest, ...leftover]) {
-    if (chosen.size >= limit) break;
-    add(n);
-  }
-  return chosen;
 }

@@ -36,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.conclave.app.data.CodeDefaults
 import dev.conclave.app.data.HubProblem
+import dev.conclave.app.data.SharePayload
 import dev.conclave.app.ui.common.LocalAppContainer
 import dev.conclave.app.ui.common.Mark
 import dev.conclave.app.ui.common.MessagesEffect
@@ -57,13 +58,13 @@ import dev.conclave.app.ui.motion.rememberToasts
 import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
 import dev.conclave.client.ConnectionState
-import dev.conclave.client.logic.Attach
 import dev.conclave.client.logic.ChatList
 import dev.conclave.client.logic.ContextUse
 import dev.conclave.client.logic.Effort
 import dev.conclave.client.logic.HubAddresses
 import dev.conclave.client.logic.Panel
 import dev.conclave.client.logic.RepoWords
+import dev.conclave.client.logic.ShareIn
 import dev.conclave.client.logic.Start
 import dev.conclave.client.logic.StartMode
 import dev.conclave.client.logic.TodayWords
@@ -113,7 +114,6 @@ fun HomeScreen(
     val info by hub.hubInfo.collectAsStateWithLifecycle()
     val approvals by hub.approvals.collectAsStateWithLifecycle()
     val questions by hub.questions.collectAsStateWithLifecycle()
-    val share by hub.pendingShare.collectAsStateWithLifecycle()
     val problem by hub.problem.collectAsStateWithLifecycle()
     val snackbar = rememberToasts()
     val scope = rememberCoroutineScope()
@@ -134,16 +134,16 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         hub.moved.collect { url -> snackbar.showSnackbar("Connected through ${HubAddresses.host(url)}.") }
     }
-    // text or an image shared to Conclave starts a chat with it
-    LaunchedEffect(share) {
-        val s = share ?: return@LaunchedEffect
-        if (s.text.isNotBlank()) chat.draft.value = listOf(chat.draft.value, s.text).filter { it.isNotBlank() }.joinToString("\n")
-        val before = chat.attachments.value.size
-        s.attachments.forEach { chat.addAttachment(it) }
-        hub.pendingShare.value = null
-        // 15 at most in one message: the rest stays out, and the line says why
-        if (chat.attachments.value.size < before + s.attachments.size) {
-            snackbar.showSnackbar(if (before + s.attachments.size > Attach.MAX) Attach.TOO_MANY else Attach.TOO_LARGE)
+    // text or files shared to Conclave, sent to a new conversation in the "Share to" picker: in the box, not sent
+    LaunchedEffect(Unit) {
+        hub.pendingShare.collect { s ->
+            if (s != null && s.to == SharePayload.HOME && hub.pendingShare.compareAndSet(s, null)) {
+                chat.draft.value = ShareIn.draft(chat.draft.value, s.text)
+                // 15 at most and 45 MB together in one message: the rest stays out, and the line says why
+                val (all, refused) = ShareIn.merge(chat.attachments.value, s.attachments)
+                chat.attachments.value = all
+                if (refused != null) snackbar.showSnackbar(refused)
+            }
         }
     }
     // "/" in the box lists the hub's commands (Assistant and Code)

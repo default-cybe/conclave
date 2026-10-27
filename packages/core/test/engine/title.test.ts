@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { startTestEngine, until } from './harness';
+import { startTestEngine, until, type RequestBody, type Step } from './harness';
 import { TITLE_SYSTEM, cleanTitle, promptTitle } from '../../src/session/prompt';
 
 /**
@@ -21,68 +21,116 @@ describe('titles', () => {
     expect(promptTitle('\nYou are working in the repository in the current directory.\n\nFix it.')).toBe('You are working in the repository in the current directory');
   });
 
-  test('the title call puts the instruction in system and wraps the text, with no stop sequence (the API rejects a whitespace one)', async () => {
+  const isTitle = (body: RequestBody) => JSON.stringify(body.system ?? '').includes('You name conversations');
+  const titleChores = (t: { chores: string[] }) => t.chores.filter((c) => c.includes('You name conversations'));
+  // a message with "Track" makes the turn change the todo list (a big step); others are answered at once
+  const route = (body: RequestBody): Step => {
+    const last = (body.messages as Array<{ content: string | Array<{ type: string; text?: string }> }>).at(-1)!;
+    const parts = typeof last.content === 'string' ? [{ type: 'text', text: last.content }] : last.content;
+    return parts.some((p) => p.type === 'text' && p.text?.includes('Track'))
+      ? [{ tool: 'TodoWrite', input: { todos: [{ content: 'fix export', status: 'in_progress', activeForm: 'Fixing export' }] } }]
+      : [{ text: 'Done.' }];
+  };
+
+  test('the first message names the session from the prompt at once, then the model from that message alone, while the turn runs', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
     const t = await startTestEngine({
-      script: [[{ text: 'Done.' }]],
-      chore: (body) => (JSON.stringify(body.system ?? '').includes('You name conversations') ? [{ text: '# Cents rounding fix.' }] : undefined),
+      script: [{ blocks: [{ text: 'Done.' }], gate }],
+      chore: (body) => (isTitle(body) ? { blocks: [{ text: '# Cents rounding fix.' }], delayMs: 500 } : undefined),
     });
     try {
       const s = await t.engine.createSession({ title: 'New chat', cwd: t.cwd });
-      await t.run(s.id, 'The March report total is one cent short. Please find the cause and fix it.');
-      expect(await until(() => t.engine.getSession(s.id)!.title !== 'New chat')).toBe(true);
-      expect(t.engine.getSession(s.id)!.title).toBe('Cents rounding fix');
-      const ask = JSON.parse(t.chores.find((c) => c.includes('You name conversations'))!);
+      const text = 'The March report total is one cent short. Please find the cause and fix it.';
+      const run = t.run(s.id, text);
+      // before the first answer, and before the title model answers
+      expect(await until(() => t.engine.getSession(s.id)!.title === promptTitle(text))).toBe(true);
+      expect(t.engine.getSession(s.id)!.status).toBe('running');
+      expect(await until(() => t.engine.getSession(s.id)!.title === 'Cents rounding fix')).toBe(true);
+      expect(t.engine.getSession(s.id)!.status).toBe('running');
+      expect(t.engine.getSession(s.id)!.meta?.titleAuto).toBe('Cents rounding fix');
+      release();
+      await run;
+      await Bun.sleep(100);
+      // the first answer asks nothing more
+      expect(titleChores(t).length).toBe(1);
+      const ask = JSON.parse(titleChores(t)[0]);
       expect(ask.system[0].text).toBe(TITLE_SYSTEM);
       expect(ask.stop_sequences).toBeUndefined();
       expect(ask.max_tokens).toBe(60);
       const user = ask.messages[0].content[0].text as string;
-      // the first exchange: the owner's message and the first answer
-      expect(user.startsWith('<conversation>\nUser: The March report')).toBe(true);
-      expect(user).toContain('\n\nAssistant: Done.\n</conversation>');
-      expect(user.endsWith('</conversation>\n\nReply with only the title.')).toBe(true);
+      // the owner's message alone
+      expect(user).toBe(`<conversation>\nUser: ${text}\n</conversation>\n\nReply with only the title.`);
     } finally {
       await t.close();
     }
   }, 30_000);
 
-  test('a reply that starts on the task keeps New chat', async () => {
+  test('a model reply that starts on the task keeps the prompt title', async () => {
     const t = await startTestEngine({ script: [[{ text: 'Done.' }]], chore: () => [{ text: "I'll start by reading the report code" }] });
     try {
       const s = await t.engine.createSession({ title: 'New chat', cwd: t.cwd });
       await t.run(s.id, 'Fix the report.');
-      await until(() => t.chores.length >= 2, 2_000);
+      await until(() => titleChores(t).length >= 1, 2_000);
       await Bun.sleep(100);
-      expect(t.engine.getSession(s.id)!.title).toBe('New chat');
+      expect(t.engine.getSession(s.id)!.title).toBe('Fix the report');
     } finally {
       await t.close();
     }
   }, 30_000);
 
-  const titleChores = (t: { chores: string[] }) => t.chores.filter((c) => c.includes('You name conversations'));
-
-  test('the title is revised once after turn 3, with the later messages and the current title', async () => {
-    const names = ['Cents rounding fix', 'Ledger export cents rounding', 'Third title never asked'];
+  test('the title is revised after a big step, with the later messages and the current title, not after a small turn or within the limits', async () => {
+    const names = ['Cents rounding fix', 'Ledger export cents rounding', 'Ledger export cents rounding'];
     let n = 0;
-    const t = await startTestEngine({
-      script: [[{ text: 'Done.' }]],
-      chore: (body) => (JSON.stringify(body.system ?? '').includes('You name conversations') ? [{ text: names[n++] }] : undefined),
-    });
+    const t = await startTestEngine({ script: [[{ text: 'Done.' }]], route, chore: (body) => (isTitle(body) ? [{ text: names[n++] }] : undefined) });
+    const title = () => t.engine.getSession(s.id)!.title;
+    const s = await t.engine.createSession({ title: 'New chat', cwd: t.cwd });
+    // as if the last title call was long ago
+    const later = () => t.engine.patchMeta(s.id, { titleAt: 0 });
     try {
-      const s = await t.engine.createSession({ title: 'New chat', cwd: t.cwd });
       await t.run(s.id, 'The March report total is one cent short.');
-      expect(await until(() => t.engine.getSession(s.id)!.title === 'Cents rounding fix')).toBe(true);
+      expect(await until(() => title() === 'Cents rounding fix')).toBe(true);
+      // a big step one turn after the last title call: too soon
+      await t.run(s.id, 'Track the ledger export.');
+      later();
+      // three turns on, long after: a small turn asks nothing
       await t.run(s.id, 'It comes from the ledger export.');
       await Bun.sleep(100);
       expect(titleChores(t).length).toBe(1);
-      await t.run(s.id, 'Fix the ledger export rounding too.');
-      expect(await until(() => t.engine.getSession(s.id)!.title === 'Ledger export cents rounding')).toBe(true);
+      later();
+      await t.run(s.id, 'Track the ledger export rounding fix too.');
+      expect(await until(() => title() === 'Ledger export cents rounding')).toBe(true);
       const ask = JSON.parse(titleChores(t)[1]).messages[0].content[0].text as string;
-      expect(ask).toContain('User: Fix the ledger export rounding too.');
+      expect(ask).toContain('User: Track the ledger export rounding fix too.');
       expect(ask).toContain('titled "Cents rounding fix" now');
-      await t.run(s.id, 'Thanks.');
+      // three turns on, but within two minutes of the last call: no call for the big step
+      for (const text of ['five', 'six', 'Track seven']) await t.run(s.id, text);
       await Bun.sleep(100);
       expect(titleChores(t).length).toBe(2);
-      expect(t.engine.getSession(s.id)!.title).toBe('Ledger export cents rounding');
+      // once the time has passed it asks; the same title is kept as it was
+      later();
+      await t.run(s.id, 'Track eight');
+      expect(await until(() => titleChores(t).length === 3)).toBe(true);
+      await Bun.sleep(100);
+      expect(title()).toBe('Ledger export cents rounding');
+      expect(t.engine.getSession(s.id)!.meta?.titleAuto).toBe('Ledger export cents rounding');
+    } finally {
+      await t.close();
+    }
+  }, 30_000);
+
+  test('a subagent session is never titled', async () => {
+    const t = await startTestEngine({ script: [[{ text: 'Done.' }]], route, chore: (body) => (isTitle(body) ? [{ text: 'Cents rounding fix' }] : undefined) });
+    try {
+      const s = await t.engine.createSession({ title: 'New chat', cwd: t.cwd });
+      t.engine.patchMeta(s.id, { subagent: true });
+      for (const text of ['Fix the report.', 'Track it', 'three', 'Track four']) {
+        t.engine.patchMeta(s.id, { titleAt: 0 });
+        await t.run(s.id, text);
+      }
+      await Bun.sleep(100);
+      expect(titleChores(t).length).toBe(0);
+      expect(t.engine.getSession(s.id)!.title).toBe('New chat');
     } finally {
       await t.close();
     }
@@ -91,14 +139,19 @@ describe('titles', () => {
   test('a title the owner gave is never revised', async () => {
     const t = await startTestEngine({
       script: [[{ text: 'Done.' }]],
-      chore: (body) => (JSON.stringify(body.system ?? '').includes('You name conversations') ? [{ text: 'Cents rounding fix' }] : undefined),
+      route,
+      chore: (body) => (isTitle(body) ? [{ text: 'Cents rounding fix' }] : undefined),
     });
     try {
       const s = await t.engine.createSession({ title: 'New chat', cwd: t.cwd });
       await t.run(s.id, 'The March report total is one cent short.');
       expect(await until(() => t.engine.getSession(s.id)!.title === 'Cents rounding fix')).toBe(true);
       t.engine.updateSession(s.id, { title: 'March report' });
-      for (const text of ['two', 'three', 'four']) await t.run(s.id, text);
+      // big steps, long after the last title call
+      for (const text of ['Track two', 'Track three', 'Track four', 'Track five']) {
+        t.engine.patchMeta(s.id, { titleAt: 0 });
+        await t.run(s.id, text);
+      }
       await Bun.sleep(100);
       expect(titleChores(t).length).toBe(1);
       expect(t.engine.getSession(s.id)!.title).toBe('March report');

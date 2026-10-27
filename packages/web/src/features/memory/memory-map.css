@@ -1,0 +1,120 @@
+/*
+  Memory > Map: a mind map of text. No marks: every item is a label, and the
+  links (the canvas) run from one label's edge to the next. Violet means
+  focus only: the path and search hits. A short tick under the start of a
+  title tells the store: solid for a Conclave memory, dashed for one
+  mirrored to Basic Memory, none for a Basic Memory note.
+*/
+
+.mm-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 4px;
+  white-space: nowrap;
+  border-radius: 3px;
+  cursor: pointer;
+  transition:
+    transform 450ms var(--ease),
+    opacity var(--dur-3) var(--ease);
+}
+.mm-label[data-align='end'] {
+  justify-content: flex-end;
+}
+.mm-label[data-align='center'] {
+  justify-content: center;
+}
+.mm-label[data-new] {
+  animation: fade-in var(--dur-3) var(--ease) both;
+}
+.mm-label:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
+.mm-label[data-dim] {
+  opacity: 0.3;
+}
+.mm-label[data-faded] {
+  opacity: 0.18;
+}
+.mm-label[data-dim][data-faded] {
+  opacity: 0.1;
+}
+
+.mm-title {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg);
+}
+.mm-label .mm-title,
+.mm-label .mm-count {
+  line-height: 18px;
+}
+/* the brain, the areas and the center */
+.mm-f-name {
+  font-size: 14px;
+  font-weight: 600;
+  font-stretch: 104%;
+  letter-spacing: -0.005em;
+}
+.mm-label[data-kind='brain'] .mm-f-name {
+  font-size: 17px;
+}
+.mm-f-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+.mm-label[data-kind='node'] .mm-title {
+  color: var(--fg-2);
+}
+/* a relation group around an item: the relation in words, quieter than an item */
+.mm-f-meta {
+  font-size: 12px;
+  color: var(--fg-3);
+}
+.mm-count {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+/* "212 more": a plain text row, no pill (DESIGN.md 13) */
+.mm-title.mm-more {
+  color: var(--fg-3);
+  font-weight: 400;
+  text-decoration: underline 1px var(--rule-2);
+  text-underline-offset: 3px;
+}
+
+.mm-label[data-src] .mm-title::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 10px;
+  border-bottom: 1.5px solid var(--fg-3);
+}
+.mm-label[data-src='both'] .mm-title::after {
+  border-bottom-style: dashed;
+  width: 12px;
+}
+
+.mm-label:hover .mm-title,
+.mm-label[data-selected] .mm-title,
+.mm-label[data-path] .mm-title {
+  color: var(--fg);
+}
+.mm-label[data-selected] .mm-title {
+  text-decoration: underline 1.5px var(--fg);
+  text-underline-offset: 3px;
+}
+.mm-label[data-hit] .mm-title,
+.mm-label[data-path][data-kind='node'] .mm-title {
+  text-decoration: underline 1.5px var(--signal);
+  text-underline-offset: 3px;
+}

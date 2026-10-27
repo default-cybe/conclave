@@ -68,6 +68,8 @@ describe('loading a transcript', () => {
         return [msg('a', 'user', 1)];
       },
       todos: async () => [],
+      // loadMessages asks for the queue too: unmocked it is a real fetch to hub.test, whose DNS lookup can stall past the 5s timeout
+      queue: async () => [],
     });
     await Promise.all([loadMessages('s1'), loadMessages('s1'), loadMessages('s1')]);
     expect(calls).toBe(1);
@@ -80,6 +82,7 @@ describe('loading a transcript', () => {
     Object.assign(api(), {
       messages: () => new Promise<Message[]>((r) => answers.push(r)),
       todos: async () => [],
+      queue: async () => [],
     });
     const old = loadMessages('s1');
     const fresh = loadMessages('s1', true);
@@ -98,6 +101,7 @@ describe('loading a transcript', () => {
     Object.assign(api(), {
       messages: () => new Promise<Message[]>((r) => (answer = r)),
       todos: async () => [],
+      queue: async () => [],
     });
     const loading = loadMessages('s9');
     applyEvent({ type: 'message.created', message: { ...msg('u1', 'user', 1), sessionId: 's9' }, seq: ++seq, ts: 2000 });
@@ -117,6 +121,7 @@ describe('loading a transcript', () => {
     Object.assign(api(), {
       messages: () => new Promise<Message[]>((r) => (answer = r)),
       todos: async () => [],
+      queue: async () => [],
     });
     const loading = loadMessages('s8', true);
     // its last update arrives late, after the load went out
@@ -143,7 +148,7 @@ describe('tool output', () => {
 describe('a deleted session', () => {
   test('takes its transcript with it, so a resync does not fetch it again', async () => {
     await connectClient({ baseUrl: 'http://hub.test', token: 't' });
-    Object.assign(api(), { messages: async () => [msg('a', 'user', 1)], todos: async () => [] });
+    Object.assign(api(), { messages: async () => [msg('a', 'user', 1)], todos: async () => [], queue: async () => [] });
     await loadMessages('s1');
     send({ type: 'session.deleted', sessionId: 's1' });
     const s = useHub.getState();
