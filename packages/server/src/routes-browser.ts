@@ -15,6 +15,18 @@
  * The view is not read-only: signing in posts a form. Nothing typed is
  * logged or audited; the audit says which profile signed in where.
  *
+ * The live view of a chat session's browser (the line above the composer,
+ * features/chat/BrowserLive.tsx): the same frames, of the tab that session's
+ * browser tools use, and nothing else. Input is taken only while the owner
+ * holds the browser (Take over); the session's browser tool calls then wait
+ * until Give back (BrowserManager.waitForOwner).
+ *
+ *   GET    /api/browser/sessions/:session          BrowserLiveDto, opens nothing
+ *   GET    /api/browser/sessions/:session/frame    ?after=seq -> SignInFrameDto, 204, or 404 with no tab open
+ *   POST   /api/browser/sessions/:session/input    { events } -> 409 unless the owner holds it
+ *   POST   /api/browser/sessions/:session/control  { take: boolean } -> BrowserLiveDto
+ *   DELETE /api/browser/sessions/:session/frame    stops the frames, gives the browser back
+ *
  * Engines, the install and proxies (browser/setup.ts, browser/proxy-*.ts):
  *
  *   POST   /api/browser/setup                 { target, steps } -> BrowserSetupResult: Install on the hub
@@ -78,7 +90,7 @@ import {
 import type { ConclaveConfig } from '@conclave/core/config/schema.ts';
 import { deepMerge } from '@conclave/core/config/index.ts';
 import { logger } from '@conclave/core/util/log.ts';
-import type { BrowserStatusDto, SignInFrameDto, SignInViewDto } from '@conclave/core/watches/types.ts';
+import type { BrowserLiveDto, BrowserStatusDto, SignInFrameDto, SignInViewDto } from '@conclave/core/watches/types.ts';
 import type { HonoEnv, ServerContext } from './context';
 import { HttpError, qBool, readJson } from './http';
 import type { AuditFn } from './routes-extensions';
@@ -87,6 +99,8 @@ const log = logger('browser');
 
 /** A view nobody looked at or typed into for this long is closed. */
 export const VIEW_IDLE_MS = 10 * 60_000;
+/** A session's live view polls about twice a second; this long without a poll closes it (and gives the browser back). */
+export const LIVE_IDLE_MS = 60_000;
 const MAX_VIEWS = 3;
 /** Without a screencast frame for this long, a frame request takes a screenshot. */
 const STALE_MS = 1_500;
@@ -111,6 +125,8 @@ function stepError(err: unknown, fallback: number, what: string): HttpError {
 
 interface View {
   id: string;
+  /** Set for a chat session's live view: the browser session is that session's, not the view's own. */
+  session?: string;
   profile: string;
   url: string;
   seq: number;
@@ -129,6 +145,7 @@ export class SignInViews {
   constructor(
     private browser: () => BrowserManager | undefined,
     private idleMs = VIEW_IDLE_MS,
+    private liveIdleMs = LIVE_IDLE_MS,
   ) {}
 
   private manager(): BrowserManager {
@@ -156,7 +173,7 @@ export class SignInViews {
     }
     // one view per profile: a second one would fight over the same page
     for (const v of this.views.values()) if (v.profile === profile) await this.close(v.id);
-    if (this.views.size >= MAX_VIEWS) throw new HttpError(409, `At most ${MAX_VIEWS} sign-in views can be open. Close one first.`);
+    if ([...this.views.values()].filter((v) => !v.session).length >= MAX_VIEWS) throw new HttpError(409, `At most ${MAX_VIEWS} sign-in views can be open. Close one first.`);
     const id = `signin-${randomBytes(6).toString('hex')}`;
     const view: View = { id, profile, url, seq: 0, frameAt: 0, lastUsed: Date.now() };
     this.views.set(id, view);
@@ -181,6 +198,46 @@ export class SignInViews {
     return { id, profile, url };
   }
 
+  /**
+   * The live view of a chat session's tab: the one its browser tools use, in
+   * its profile (or its proxied browser). Opens no browser and no tab: 404
+   * when the session has none open.
+   */
+  async live(sessionId: string): Promise<View> {
+    const b = this.manager();
+    const id = `live-${sessionId}`;
+    let v = this.views.get(id);
+    // the session switched profile: watch the new one
+    if (v && v.profile !== b.profileFor(sessionId)) {
+      await this.close(id, { keepHold: true });
+      v = undefined;
+    }
+    if (!b.hasPage(sessionId)) {
+      if (v) await this.close(id, { keepHold: true });
+      throw new HttpError(404, 'This session has no browser page open.');
+    }
+    if (v) {
+      v.lastUsed = Date.now();
+      return v;
+    }
+    const view: View = { id, session: sessionId, profile: b.profileFor(sessionId), url: '', seq: 0, frameAt: 0, lastUsed: Date.now() };
+    this.views.set(id, view);
+    this.tick();
+    const onFrame = (f: ScreencastFrame) => {
+      view.frame = { seq: ++view.seq, url: f.url, width: f.width, height: f.height, data: f.data };
+      view.frameAt = Date.now();
+    };
+    try {
+      const starting = b.startScreencast(view.profile, sessionId, onFrame);
+      starting.then((stop) => (this.views.get(id) === view ? undefined : stop()), () => undefined);
+      view.stop = await bounded('watching the page', START_MS, starting);
+    } catch (err) {
+      await this.close(id, { keepHold: true });
+      throw stepError(err, 502, 'The page cannot be watched');
+    }
+    return view;
+  }
+
   /** The newest frame after `after`, or undefined when there is none newer. */
   async frame(id: string, after: number): Promise<SignInFrameDto | undefined> {
     const v = this.view(id);
@@ -199,9 +256,9 @@ export class SignInViews {
   }
 
   private async shoot(b: BrowserManager, v: View): Promise<SignInFrameDto> {
-    const page = await b.page(v.id, v.profile);
+    const page = await b.page(v.session ?? v.id, v.profile);
     const vp = page.viewportSize() ?? { width: 1280, height: 800 };
-    const shot = await b.screenshot(v.id, { maxBytes: 600_000 });
+    const shot = await b.screenshot(v.session ?? v.id, { maxBytes: 600_000 });
     v.frame = { seq: ++v.seq, url: shot.url, width: vp.width, height: vp.height, data: shot.data };
     v.frameAt = Date.now();
     return v.frame;
@@ -209,16 +266,18 @@ export class SignInViews {
 
   async input(id: string, events: unknown): Promise<void> {
     const v = this.view(id);
+    const b = this.manager();
+    // a session's page takes the owner's input only while they hold it
+    if (v.session && !b.ownerHolds(v.session)) throw new HttpError(409, 'Take over first: the assistant is using this browser.');
     if (!Array.isArray(events) || !events.length) throw new HttpError(400, 'events must be a list of input events');
     if (events.length > 60) throw new HttpError(400, 'At most 60 events at once');
     for (const ev of events) {
       const bad = validateInputEvent(ev);
       if (bad) throw new HttpError(400, `Invalid input event: ${bad}`);
     }
-    const b = this.manager();
     for (const ev of events as BrowserInputEvent[]) {
       try {
-        await bounded(`a ${ev.type} event`, ev.type === 'navigate' ? LOAD_MS : INPUT_MS, b.dispatchInput(v.profile, id, ev));
+        await bounded(`a ${ev.type} event`, ev.type === 'navigate' ? LOAD_MS : INPUT_MS, b.dispatchInput(v.profile, v.session ?? id, ev));
       } catch (err) {
         throw stepError(err, 502, 'The page did not take the input');
       }
@@ -248,7 +307,7 @@ export class SignInViews {
     return { profile: v.profile, sites: [...hosts] };
   }
 
-  async close(id: string): Promise<void> {
+  async close(id: string, opts: { keepHold?: boolean } = {}): Promise<void> {
     const v = this.views.get(id);
     if (!v) return;
     this.views.delete(id);
@@ -258,6 +317,11 @@ export class SignInViews {
       /* already stopped */
     }
     const b = this.browser();
+    // a session's page stays with the session; a view nobody watches gives the browser back
+    if (v.session) {
+      if (!opts.keepHold) b?.giveBack(v.session);
+      return;
+    }
     if (b) await bounded('closing the view', CLOSE_MS, b.closeSession(id)).catch((err) => log.warn(`sign-in view ${id}: ${(err as Error).message}`));
   }
 
@@ -276,17 +340,22 @@ export class SignInViews {
     if (this.timer) return;
     this.timer = setInterval(() => {
       const now = Date.now();
-      for (const v of this.views.values()) if (now - v.lastUsed > this.idleMs) void this.close(v.id);
+      for (const v of this.views.values()) if (now - v.lastUsed > (v.session ? this.liveIdleMs : this.idleMs)) void this.close(v.id);
       if (!this.views.size && this.timer) {
         clearInterval(this.timer);
         this.timer = undefined;
       }
-    }, Math.max(1_000, Math.min(60_000, this.idleMs / 4)));
+    }, Math.max(1_000, Math.min(60_000, this.idleMs / 4, this.liveIdleMs / 4)));
     (this.timer as { unref?: () => void }).unref?.();
   }
 
   size(): number {
     return this.views.size;
+  }
+
+  /** A view's newest frame, if it has one. Takes nothing. */
+  latest(id: string): SignInFrameDto | undefined {
+    return this.views.get(id)?.frame;
   }
 }
 
@@ -734,6 +803,66 @@ export function registerBrowserRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
   app.delete('/api/browser/signin/:id', async (c) => {
     await views.close(c.req.param('id'));
     return c.json({ ok: true });
+  });
+
+  // ----- a chat session's live view: Watch, Take over, Give back -----
+
+  /** The session in the path, which must be one on this hub. */
+  const sessionParam = (raw: string): string => {
+    if (!engine.sessionAccount(raw)) throw new HttpError(404, 'There is no such session.');
+    return raw;
+  };
+  const liveDto = (b: BrowserManager, sid: string): BrowserLiveDto => {
+    const open = b.hasPage(sid);
+    const frame = open ? views.latest(`live-${sid}`) : undefined;
+    return { open, held: b.ownerHolds(sid), ...(open ? { profile: b.profileFor(sid) } : {}), ...(frame?.url ? { url: frame.url } : {}) };
+  };
+
+  app.get('/api/browser/sessions/:session', (c) => {
+    const b = browserOf(engine);
+    const sid = sessionParam(c.req.param('session'));
+    if (!b) return c.json({ open: false, held: false } satisfies BrowserLiveDto);
+    return c.json(liveDto(b, sid), 200, { 'cache-control': 'no-store' });
+  });
+
+  app.get('/api/browser/sessions/:session/frame', async (c) => {
+    const sid = sessionParam(c.req.param('session'));
+    const after = Number(c.req.query('after') ?? 0) || 0;
+    const v = await views.live(sid);
+    const f = await views.frame(v.id, after);
+    if (!f) return c.body(null, 204);
+    return c.json(f, 200, { 'cache-control': 'no-store' });
+  });
+
+  app.delete('/api/browser/sessions/:session/frame', async (c) => {
+    const sid = sessionParam(c.req.param('session'));
+    await views.close(`live-${sid}`);
+    browserOf(engine)?.giveBack(sid);
+    return c.json({ ok: true });
+  });
+
+  app.post('/api/browser/sessions/:session/input', async (c) => {
+    const sid = sessionParam(c.req.param('session'));
+    const body = await readJson<{ events?: unknown }>(c);
+    const v = await views.live(sid);
+    await views.input(v.id, body.events);
+    return c.json({ ok: true });
+  });
+
+  app.post('/api/browser/sessions/:session/control', async (c) => {
+    const b = manager();
+    const sid = sessionParam(c.req.param('session'));
+    const body = await readJson<{ take?: unknown }>(c);
+    if (typeof body.take !== 'boolean') throw new HttpError(400, 'take must be true or false');
+    if (body.take) {
+      if (!b.hasPage(sid)) throw new HttpError(404, 'This session has no browser page open.');
+      b.takeControl(sid);
+      audit(c, 'browser.takeover', `session ${sid}`);
+    } else if (b.ownerHolds(sid)) {
+      b.giveBack(sid);
+      audit(c, 'browser.giveback', `session ${sid}`);
+    }
+    return c.json(liveDto(b, sid));
   });
 
   return views;

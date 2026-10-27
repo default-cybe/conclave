@@ -18,6 +18,7 @@ export type {
   BrowserStatusDto,
   SignInViewDto,
   SignInFrameDto,
+  BrowserLiveDto,
 } from '../watches/types';
 export type { BrowserInputEvent } from '../browser/input';
 export type {

@@ -34,6 +34,7 @@ import { canSend, SendToFriendDialog } from '@/features/friends/SendToFriend';
 import { FriendShareLine } from '@/features/friends/FriendShareLine';
 import { branchChat, patchChat, stopChat } from './actions';
 import { ChatComposer, FILES_EVENT } from './ChatComposer';
+import { BrowserLive } from '@/features/chat/BrowserLive';
 import { ChatMessages } from './ChatMessages';
 import { ContinueDialog } from './ContinueDialog';
 import { PreviewPanel, PreviewSheet } from './Preview';
@@ -140,6 +141,7 @@ export default function ChatPage() {
         <FriendShareLine session={session} className="mx-auto w-full max-w-[784px] shrink-0 px-8 py-1.5 phone:px-5" />
         <ChatMessages chatId={id} session={session} />
         <Docked>
+          <BrowserLive sessionId={id} narrow />
           <ChatComposer chatId={id} session={session} autoFocus />
         </Docked>
       </>

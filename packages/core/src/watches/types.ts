@@ -224,3 +224,12 @@ export interface SignInFrameDto {
   /** JPEG, base64. */
   data: string;
 }
+
+/** A chat session's browser, for its live view: whether a tab is open, and whether the owner holds it. */
+export interface BrowserLiveDto {
+  open: boolean;
+  /** The owner took over: the session's browser tools wait until Give back. */
+  held: boolean;
+  url?: string;
+  profile?: string;
+}

@@ -87,6 +87,7 @@ import type {
   BrowserSetupResult,
   BrowserSetupTarget,
   BrowserStatusDto,
+  BrowserLiveDto,
   SignInFrameDto,
   SignInViewDto,
   WatchDetailDto,
@@ -2029,6 +2030,16 @@ export class ConclaveClient {
   /** Signed in: the hub remembers the sites for the profile and closes the view. */
   signInDone = (id: string) => this.request<BrowserStatusDto>('POST', `/api/browser/signin/${encodeURIComponent(id)}/done`);
   closeSignIn = (id: string) => this.request<{ ok: true }>('DELETE', `/api/browser/signin/${encodeURIComponent(id)}`);
+  /** A chat session's browser: whether it has a tab open and whether the owner holds it. Opens nothing. */
+  browserLive = (sessionId: string) => this.request<BrowserLiveDto>('GET', `/api/browser/sessions/${encodeURIComponent(sessionId)}`);
+  /** The newest frame of the session's tab after `after`, or undefined when there is none newer. */
+  browserLiveFrame = (sessionId: string, after: number) => this.request<SignInFrameDto | undefined>('GET', `/api/browser/sessions/${encodeURIComponent(sessionId)}/frame`, undefined, { after });
+  /** Input to the session's tab; only while the owner holds it (browserControl take). */
+  browserLiveInput = (sessionId: string, events: BrowserInputEvent[]) => this.request<{ ok: true }>('POST', `/api/browser/sessions/${encodeURIComponent(sessionId)}/input`, { events });
+  /** Take over (the session's browser tools wait) or give back. */
+  browserControl = (sessionId: string, take: boolean) => this.request<BrowserLiveDto>('POST', `/api/browser/sessions/${encodeURIComponent(sessionId)}/control`, { take });
+  /** Stop watching: the frames stop and a held browser goes back to the agent. */
+  closeBrowserLive = (sessionId: string) => this.request<{ ok: true }>('DELETE', `/api/browser/sessions/${encodeURIComponent(sessionId)}/frame`);
   /** Install on the hub: run the steps the owner confirmed, exactly as shown. */
   browserSetup = (target: BrowserSetupTarget, steps: string[]) => this.request<BrowserSetupResult>('POST', '/api/browser/setup', { target, steps });
   /** Install system libraries: the root helper's browser-deps, the line the owner confirmed. */
