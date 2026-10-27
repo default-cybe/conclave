@@ -22,6 +22,8 @@ import {
   type BrowserProfileInfo,
 } from './engine';
 import { fillSavedLogin, LoginRefused, type FillOutcome } from './autofill';
+import { cookiesPerSite, parseCookieFile, type PlaywrightCookie } from './cookies';
+import type { BrowserCookieImportResult } from './types';
 import { InputState, validateInputEvent, type BrowserInputEvent } from './input';
 import { LoginVault, originMatches, siteHost, siteOrigin, type SavedLogin } from './logins';
 import type { ProxyEntry } from './proxy-list';
@@ -297,6 +299,9 @@ export class BrowserManager implements BrowserTakeover {
   private readonly launcher?: Pick<BrowserType, 'launchPersistentContext'>;
   private profiles = new Map<string, ProfileState>();
   private launching = new Map<string, Promise<ProfileState>>();
+  /** Import and Forget runs holding a profile's browser (withProfile), and the profiles one of them started. */
+  private holds = new Map<string, number>();
+  private heldOpened = new Set<string>();
   private sessionProfiles = new Map<string, string>();
   /** "profile\0session" keys whose pages were dropped by an idle close. */
   private reset = new Set<string>();
@@ -1028,10 +1033,7 @@ export class BrowserManager implements BrowserTakeover {
       this.dropSignIn(name, host);
       return { cookies: 0 };
     }
-    const wasOpen = this.profiles.has(name);
-    const p = await this.ensureProfile(name);
-    let cookies = 0;
-    try {
+    const cookies = await this.withProfile(name, async (p) => {
       const applies = (domain: string) => {
         const d = domain.replace(/^\./, '').toLowerCase();
         return d === host || d.endsWith(`.${host}`) || (d.includes('.') && host.endsWith(`.${d}`));
@@ -1039,7 +1041,6 @@ export class BrowserManager implements BrowserTakeover {
       const all = await bounded('reading the cookies', CDP_MS, p.context.cookies());
       const hit = all.filter((c) => applies(c.domain));
       for (const domain of new Set(hit.map((c) => c.domain))) await bounded('clearing the cookies', CDP_MS, p.context.clearCookies({ domain }));
-      cookies = hit.length;
       // what the site stored, for each origin it may have used
       const hosts = new Set([host, `www.${host}`, ...hit.map((c) => c.domain.replace(/^\./, '')).filter((d) => d === host || d.endsWith(`.${host}`))]);
       let page = p.context.pages().find((x) => !x.isClosed());
@@ -1056,12 +1057,95 @@ export class BrowserManager implements BrowserTakeover {
         await bounded('detaching', CDP_MS, cdp.detach()).catch(() => {});
         if (made) await this.closePage(page).catch(() => {});
       }
-    } finally {
-      if (!wasOpen && ![...p.sessions.values()].some((s) => s.tabs.length)) await this.closeProfile(p);
-    }
+      return hit.length;
+    });
     this.dropSignIn(name, host);
     log.info(`forgot ${host} in browser profile "${name}" (${cookies} cookies)`);
     return { cookies };
+  }
+
+  /**
+   * Import cookies the owner exported from his own browser (cookies.ts has
+   * the formats) into a profile, and list their sites as signed in. Starts
+   * the profile's browser when it is closed, and closes it again after, like
+   * Forget. The file is parsed here and kept nowhere; no value is logged.
+   */
+  async importCookies(profile: string, file: string, progress: { added: number } = { added: 0 }): Promise<BrowserCookieImportResult> {
+    const name = validateProfileName(profile);
+    const parsed = parseCookieFile(file);
+    const added: PlaywrightCookie[] = [];
+    let refused = 0;
+    const took = (cs: PlaywrightCookie[]) => {
+      added.push(...cs);
+      progress.added = added.length;
+    };
+    try {
+      await this.withProfile(name, async (p) => {
+        for (let i = 0; i < parsed.cookies.length; i += 500) {
+          const batch = parsed.cookies.slice(i, i + 500);
+          try {
+            await bounded('adding the cookies', CDP_MS, p.context.addCookies(batch));
+            took(batch);
+          } catch (err) {
+            if (err instanceof BrowserStepTimeout) throw err;
+            // one cookie the browser refuses fails its batch: add those one by one
+            for (const c of batch) {
+              try {
+                await bounded('adding a cookie', CDP_MS, p.context.addCookies([c]));
+                took([c]);
+              } catch (e) {
+                if (e instanceof BrowserStepTimeout) throw e;
+                refused++;
+              }
+            }
+          }
+        }
+        // Chromium evicts past its per-domain limit without an error (live test: 600 for one domain, 166 kept), so count what it holds
+        const key = (c: Pick<PlaywrightCookie, 'name' | 'domain' | 'path' | 'value'>) => `${c.name}\0${c.domain}\0${c.path}\0${c.value}`;
+        const held = new Set((await bounded('reading the cookies', CDP_MS, p.context.cookies())).map(key));
+        const kept = added.filter((c) => held.has(key(c)));
+        refused += added.length - kept.length;
+        added.splice(0, added.length, ...kept);
+        progress.added = added.length;
+      });
+    } catch (err) {
+      // counts only: what got in before the failure is in the profile now
+      log.warn(`importing cookies into browser profile "${name}" failed after ${added.length} added: ${errText(err)}`);
+      throw err;
+    } finally {
+      // the sites list caps at 50; the ones with most cookies end up newest
+      for (const s of cookiesPerSite(added).slice(0, 50).reverse()) {
+        try {
+          this.recordSignIn(name, s.domain);
+        } catch {
+          /* not a host the list takes */
+        }
+      }
+    }
+    const sites = cookiesPerSite(added);
+    log.info(`imported ${added.length} cookies for ${sites.length} sites into browser profile "${name}" (${parsed.expired} expired, ${parsed.invalid + refused} unusable)`);
+    return { format: parsed.format, added: added.length, expired: parsed.expired, invalid: parsed.invalid + refused, sites };
+  }
+
+  /**
+   * Run fn on a profile's browser for Import or Forget. A browser this
+   * started (it was neither open nor starting) closes after the last such
+   * run lets go, unless a session registered on it meanwhile.
+   */
+  private async withProfile<T>(name: string, fn: (p: ProfileState) => Promise<T>): Promise<T> {
+    if (!this.profiles.has(name) && !this.launching.has(name)) this.heldOpened.add(name);
+    this.holds.set(name, (this.holds.get(name) ?? 0) + 1);
+    try {
+      return await fn(await this.ensureProfile(name));
+    } finally {
+      const left = (this.holds.get(name) ?? 1) - 1;
+      if (left > 0) this.holds.set(name, left);
+      else {
+        this.holds.delete(name);
+        const p = this.profiles.get(name);
+        if (this.heldOpened.delete(name) && p && !p.sessions.size) await this.closeProfile(p);
+      }
+    }
   }
 
   /** Sessions with tabs open in a profile right now. */

@@ -42,6 +42,7 @@
  *   PUT    /api/browser/logins/:id            BrowserLoginInput -> BrowserStatusDto: change one
  *   DELETE /api/browser/logins/:id            -> BrowserStatusDto
  *   POST   /api/browser/profiles/:name/forget { host } -> BrowserStatusDto: clear the site's cookies and storage
+ *   POST   /api/browser/profiles/:name/cookies { file } -> BrowserCookieImportResult: Import cookies; counts per site only
  *   DELETE /api/browser/profiles/:name        ?close=1 -> BrowserStatusDto: delete a profile; 409 while open without close
  *
  * All the owner's (route-policy.ts). The proxy's login and password, and a
@@ -57,6 +58,8 @@ import {
   BrowserSetupError,
   BrowserStepTimeout,
   browserConfigProblems,
+  COOKIE_FILE_MAX,
+  CookieFileError,
   cloakInstalled,
   LoginUnreadable,
   normalizeUrl,
@@ -70,6 +73,7 @@ import {
   SECRET_REF,
   validateInputEvent,
   validateProfileName,
+  type BrowserCookieImportResult,
   type BrowserInputEvent,
   type BrowserLoginDto,
   type BrowserLoginInput,
@@ -715,6 +719,41 @@ export function registerBrowserRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
     }
     audit(c, 'browser.forget', `${name}: ${body.host.trim()} (${r.cookies} cookies)`);
     return c.json(await answer());
+  });
+
+  // Import cookies: the file's text in, counts per site out. The file is not kept and no value is echoed or logged.
+  app.post('/api/browser/profiles/:name/cookies', async (c) => {
+    const b = manager();
+    const name = profileParam(c.req.param('name'));
+    if (!b.listProfiles().includes(name)) throw new HttpError(404, `There is no browser profile ${name}.`);
+    // JSON escaping can double a file's size
+    const body = await readJson<{ file?: unknown }>(c, COOKIE_FILE_MAX * 2 + 1024);
+    if (typeof body.file !== 'string') throw new HttpError(400, 'file must be the text of the cookie export');
+    let r: BrowserCookieImportResult;
+    // what got in so far: a failed or timed-out import is audited with it, never a value
+    const progress = { added: 0 };
+    const job = b.importCookies(name, body.file, progress);
+    let settled = false;
+    job.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+    try {
+      r = await bounded('importing the cookies', START_MS, job);
+    } catch (err) {
+      if (err instanceof CookieFileError) throw new HttpError(400, err.message);
+      audit(c, 'browser.cookies.import', `${name}: failed after ${progress.added} cookies added`);
+      // bounded does not stop the import: audit where it ends up too
+      if (!settled) {
+        job.then(
+          (late) => audit(c, 'browser.cookies.import', `${name}: finished after the answer timed out, ${late.added} cookies for ${late.sites.length} site${late.sites.length === 1 ? '' : 's'}`),
+          () => audit(c, 'browser.cookies.import', `${name}: stopped after the answer timed out, ${progress.added} cookies added`),
+        );
+      }
+      throw stepError(err, 502, 'Could not import the cookies');
+    }
+    audit(c, 'browser.cookies.import', `${name}: ${r.added} cookies for ${r.sites.length} site${r.sites.length === 1 ? '' : 's'}`);
+    return c.json(r);
   });
 
   app.delete('/api/browser/profiles/:name', async (c) => {
