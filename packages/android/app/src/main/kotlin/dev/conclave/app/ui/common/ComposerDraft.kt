@@ -32,6 +32,9 @@ class ComposerDraft(
     /** The store's sign-in this draft belongs to: after sign out every save is refused. */
     @Volatile private var generation = -1
 
+    /** True once the saved draft is read: a share into this chat waits for it, so it adds to the draft instead of losing it. */
+    val ready = MutableStateFlow(false)
+
     init {
         scope.launch(Dispatchers.IO) {
             generation = drafts.generation
@@ -41,6 +44,7 @@ class ComposerDraft(
             text.compareAndSet("", t)
             files.compareAndSet(emptyList(), f)
             keep = true
+            ready.value = true
             // a send clears the box and a failed send puts it back, so both reach the disk from here
             launch { text.dropWhile { it == t }.collectLatest { delay(300); save { drafts.saveText(sessionId, it, generation) } } }
             launch { files.dropWhile { it == f }.collect { save { drafts.saveFiles(sessionId, it, generation) } } }

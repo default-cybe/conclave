@@ -61,16 +61,13 @@
                 <data android:scheme="conclave" />
             </intent-filter>
 
-            <!-- Share text or images into a new chat -->
+            <!-- Share text, links and any files: the "Share to" picker asks which chat they go to.
+                 Any type, so Conclave shows for every share; files the hub cannot read get a line saying so. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/*" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="image/*" />
+                <data android:mimeType="*/*" />
             </intent-filter>
 
             <meta-data

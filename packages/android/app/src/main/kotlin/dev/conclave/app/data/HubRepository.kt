@@ -107,8 +107,22 @@ sealed class HubProblem {
 /** After a password login: the hub's fingerprint, shown once to compare with the hub's Settings. */
 data class NewSignIn(val hubName: String?, val fingerprint: String)
 
-/** Text and images handed to the app with ACTION_SEND, waiting for a new chat. */
-data class SharePayload(val text: String, val attachments: List<Attachment>)
+/**
+ * Text and files handed to the app with ACTION_SEND or ACTION_SEND_MULTIPLE.
+ * [notes] say which files were left out and why. [to] is where it goes: null
+ * while the "Share to" picker asks, [HOME] for a new conversation on Home,
+ * else the id of the chat or session whose composer takes it.
+ */
+data class SharePayload(
+    val text: String,
+    val attachments: List<Attachment>,
+    val notes: List<String> = emptyList(),
+    val to: String? = null,
+) {
+    companion object {
+        const val HOME = "home"
+    }
+}
 
 /**
  * Single source of truth for the hub connection: the paired client, the live

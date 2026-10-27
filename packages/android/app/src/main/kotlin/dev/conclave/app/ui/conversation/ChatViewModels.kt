@@ -22,6 +22,7 @@ import dev.conclave.client.logic.ChatUnits
 import dev.conclave.client.logic.DraftStore
 import dev.conclave.client.logic.Effort
 import dev.conclave.client.logic.PendingQueue
+import dev.conclave.client.logic.ShareIn
 import dev.conclave.client.logic.Start
 import dev.conclave.client.logic.StartMode
 import dev.conclave.client.logic.Transcript
@@ -59,6 +60,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -507,6 +509,15 @@ class ChatThreadViewModel(
     /** 15 at most (Attach.MAX): the composer says so before it gets here, this keeps it true. */
     fun addAttachment(a: Attachment) = attachments.update { if (Attach.refusal(it, a) == null) it + a else it }
     fun removeAttachment(a: Attachment) = attachments.update { list -> list.filterNot { it === a } }
+
+    /** Text and files shared from another app into this chat, once its saved draft is read so neither is lost; the line for files left out, or null. */
+    suspend fun addShared(text: String, files: List<Attachment>): String? {
+        saved.ready.first { it }
+        draft.value = ShareIn.draft(draft.value, text)
+        val (all, refused) = ShareIn.merge(attachments.value, files)
+        attachments.value = all
+        return refused
+    }
 
     fun stop() = action { hub.api { it.abort(sessionId) } }
     fun pause() = action { hub.api { it.pauseSession(sessionId) } }

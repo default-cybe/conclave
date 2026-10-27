@@ -58,6 +58,7 @@ import androidx.navigation.navArgument
 import dev.conclave.app.ConclaveApp
 import dev.conclave.app.data.AuthState
 import dev.conclave.app.data.HubProblem
+import dev.conclave.app.data.SharePayload
 import dev.conclave.app.ui.agents.AgentDetailScreen
 import dev.conclave.app.ui.agents.AgentsScreen
 import dev.conclave.app.ui.approvals.InboxScreen
@@ -98,6 +99,7 @@ import dev.conclave.app.ui.pairing.PairingScreen
 import dev.conclave.app.ui.panel.SidePanel
 import dev.conclave.app.ui.routines.RoutinesScreen
 import dev.conclave.app.ui.sessions.SessionsScreen
+import dev.conclave.app.ui.sessions.ShareTargetScreen
 import dev.conclave.app.ui.settings.ReflectScreen
 import dev.conclave.app.ui.settings.RemoteScreen
 import dev.conclave.app.ui.settings.SettingsPage
@@ -252,6 +254,7 @@ private fun MainScaffold() {
     val backStack by nav.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
     val pendingLink by hub.pendingLink.collectAsStateWithLifecycle()
+    val share by hub.pendingShare.collectAsStateWithLifecycle()
     val problem by hub.problem.collectAsStateWithLifecycle()
     val newSignIn by hub.newSignIn.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -320,7 +323,7 @@ private fun MainScaffold() {
                 hub.pendingLink.value = null
             }
             DeepLink.NewChat -> {
-                // Home set to Chat; a shared text or image waits there in the composer
+                // Home set to Chat (a shared file asks where it goes first: ShareTargetScreen below)
                 startNew(StartMode.CHAT)
                 hub.pendingLink.value = null
             }
@@ -419,6 +422,25 @@ private fun MainScaffold() {
                         AppNavHost(nav, Modifier.fillMaxSize())
                     }
                 }
+            }
+            // text or files shared from another app: where they go, asked before anything opens. Only composed
+            // here, so a share made while locked or unpaired waits in pendingShare until the app is open.
+            val sh = share
+            if (sh != null && sh.to == null) {
+                ShareTargetScreen(
+                    share = sh,
+                    // Home in that mode takes it into its box; Code asks for its folder there as it always does
+                    onNew = { m ->
+                        hub.pendingShare.value = sh.copy(to = SharePayload.HOME)
+                        startNew(m)
+                    },
+                    onOpen = { s ->
+                        hub.pendingShare.value = sh.copy(to = s.id)
+                        // the open one takes it where it is; another opens over Home
+                        if (s.id != openId) openFromPanel(nav, if (s.isChat) Routes.chat(s.id) else Routes.session(s.id))
+                    },
+                    onCancel = { hub.pendingShare.value = null },
+                )
             }
             // another machine at the hub's address: nothing was sent; over everything until an address proves the key
             val p = problem
