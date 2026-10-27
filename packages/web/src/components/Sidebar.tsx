@@ -60,6 +60,8 @@ type Icon = ComponentType<{ className?: string; strokeWidth?: number; 'aria-hidd
 const ROW = 'relative flex h-8 w-full min-w-0 items-center gap-2.5 rounded-[8px] px-2.5 text-left text-[13.5px] transition-colors duration-[var(--dur-1)] focus-visible:-outline-offset-2';
 const ROW_IDLE = 'text-fg-2 hov:bg-side-hover hov:text-fg';
 const ROW_ON = 'bg-side-active text-fg';
+/** A reply came after it was last opened (core session/unread.ts). */
+export const UNREAD = 'font-semibold text-fg';
 
 /** The pages with a row of their own, after Search and New. */
 const ROWS: Array<{ to: string; label: string; Icon: Icon; match?: (p: string) => boolean }> = [
@@ -361,7 +363,8 @@ function Row({ r, active, phone, onPick, actions }: { r: SideRow; active: boolea
         aria-current={active ? 'page' : undefined}
         className={cn(ROW, 'gap-2 pr-2', phone ? 'min-h-11 text-[15px]' : 'group-hover/row:pr-8 group-focus-within/row:pr-8', active ? ROW_ON : ROW_IDLE)}
       >
-        <span className="min-w-0 flex-1 truncate">{r.title}</span>
+        <span className={cn('min-w-0 flex-1 truncate', r.unread && UNREAD)}>{r.title}</span>
+        {r.unread && <span className="sr-only">, new reply</span>}
         {(r.device || r.state) && (
           <span className={cn('flex max-w-[45%] shrink-0 items-center gap-2', !phone && 'group-hover/row:hidden group-focus-within/row:hidden')}>
             {r.device && <span className={cn('min-w-0 truncate text-fg-4', phone ? 'text-[13px]' : 'text-[12px]')}>{r.device}</span>}
@@ -424,7 +427,8 @@ function DelegatedItem({ r, active, phone, onPick, actions }: { r: DelegatedRow;
         )}
       >
         <span className="flex min-w-0 items-center gap-2">
-          <span className="min-w-0 flex-1 truncate">{r.title}</span>
+          <span className={cn('min-w-0 flex-1 truncate', r.unread && UNREAD)}>{r.title}</span>
+          {r.unread && <span className="sr-only">, new reply</span>}
           {r.state && (
             <span className={cn('flex shrink-0 items-center', !phone && 'group-hover/row:hidden group-focus-within/row:hidden')}>
               <StateDot state={r.state} />

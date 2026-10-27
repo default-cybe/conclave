@@ -47,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -66,6 +67,7 @@ import dev.conclave.app.ui.theme.ConclaveType
 import dev.conclave.client.logic.Format
 import dev.conclave.client.logic.Lists
 import dev.conclave.client.logic.Panel
+import dev.conclave.client.logic.Unread
 import dev.conclave.client.model.Session
 import dev.conclave.client.model.SessionStatus
 
@@ -259,7 +261,8 @@ private fun ListRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     Panel.title(session),
-                    style = ConclaveType.body.copy(fontSize = 16.sp),
+                    // a reply came after it was last opened (logic/Unread.kt)
+                    style = ConclaveType.body.copy(fontSize = 16.sp, fontWeight = if (Unread.isUnread(session)) FontWeight.SemiBold else null),
                     color = c.fg,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

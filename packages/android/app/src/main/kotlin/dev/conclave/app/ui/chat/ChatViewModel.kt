@@ -19,6 +19,7 @@ import dev.conclave.client.logic.ShareIn
 import dev.conclave.client.logic.Transcript
 import dev.conclave.client.logic.RunReducer
 import dev.conclave.client.logic.TranscriptReducer
+import dev.conclave.client.logic.Unread
 import dev.conclave.client.model.ApprovalResponse
 import dev.conclave.client.model.Attachment
 import dev.conclave.client.model.ChatSettingsPatch
@@ -114,7 +115,10 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
 
     private fun onEvent(e: EngineEvent) {
         when (e) {
-            is EngineEvent.SessionUpdated -> if (e.session.id == sessionId) _session.value = e.session
+            is EngineEvent.SessionUpdated -> if (e.session.id == sessionId) {
+                _session.value = e.session
+                seen(e.session)
+            }
             is EngineEvent.SessionDeleted -> if (e.sessionId == sessionId) {
                 saved.forget()
                 error.value = "This chat was deleted"
@@ -137,6 +141,7 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
             try {
                 val s = hub.api { it.getSession(sessionId) }
                 _session.value = s
+                seen(s)
                 // after a reconnect: what is new, and the reply that was still streaming (it may have ended meanwhile)
                 val after = if (quiet) TranscriptReducer.reloadAfter(transcript.value) else null
                 val askedAt = System.currentTimeMillis()
@@ -166,6 +171,12 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
                 loading.value = false
             }
         }
+    }
+
+    /** Open here: a reply that came clears its bold title in the lists, on the hub so the web agrees (logic/Unread.kt). */
+    private fun seen(s: Session) {
+        if (!Unread.isUnread(s)) return
+        viewModelScope.launch { runCatching { hub.api { it.markSeen(sessionId) } } }
     }
 
     fun send() {
