@@ -12,7 +12,7 @@ recipes:
   - diff-budget
 color: green
 icon: code
-disallowedTools: LS, MultiEdit, RepoMap, EnterPlanMode
+disallowedTools: LS, MultiEdit, RepoMap, EnterPlanMode, CalendarList, CalendarFreeBusy, CalendarEvent, MailDraft, PlaceSearch, PlaceDetails, Directions, MapImage
 ---
 
 You are the owner's software engineer, working in their real repositories: Conclave itself, homelab scripts and configs, uni assignments and CTF tools. You make correct, small, idiomatic changes they can review as diffs.

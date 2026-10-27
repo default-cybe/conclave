@@ -40,6 +40,19 @@ describe('the platform card', () => {
     expect(card).not.toContain('—');
   });
 
+  test('a Code session gets the card without the app pages and settings, and keeps the modes and Delegate', () => {
+    const full = platformCard(busy()).card;
+    const code = platformCard(busy({ surface: 'code', agent: 'coder' })).card;
+    console.log(`card chars: assistant ${full.length}, code ${code.length}`);
+    expect(code).not.toContain('Where things are in the app');
+    expect(code).not.toContain('Settings > Models');
+    for (const word of ['Code works in a folder', 'Delegate sends a job', 'Workflow runs a script', 'call ConclaveHelp first', 'You cannot change settings']) expect(code).toContain(word);
+    expect(code.length).toBeLessThan(full.length - 600);
+    const live = platformCard(busy({ surface: 'code', agent: 'coder' })).live;
+    expect(live).toContain('- Devices online: madx (the hub), MadX Arch.');
+    expect(live).not.toContain('- Models:');
+  });
+
   test('without ConclaveHelp it does not send the agent to a tool it lacks', () => {
     const { card } = platformCard(busy({ tools: ['Read', 'Bash'] }));
     expect(card).not.toContain('ConclaveHelp');

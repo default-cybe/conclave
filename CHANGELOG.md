@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Code sessions carry less that is not about code. The coder no longer gets CalendarList, CalendarFreeBusy, CalendarEvent, MailDraft, PlaceSearch, PlaceDetails, Directions and MapImage (its `disallowedTools`); mail, calendar and browser work still goes to the assistant through Delegate, and ShareFile and ConclaveHelp stay. The platform card in a Code session leaves out the app's pages, the settings and the accounts and models line; the modes, Delegate, devices and the "Files you deliver" note stay. A coder request is about 8,500 characters of tool definitions and 900 of system prompt smaller. Chat and the assistant keep everything.
+
 ## [0.4.41] - 2026-10-27
 
 ### Added
