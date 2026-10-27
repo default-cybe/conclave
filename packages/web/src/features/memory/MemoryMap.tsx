@@ -11,6 +11,13 @@
  * into the tree along its path from what is on the map. The scrubber steps
  * back what changed after a day. Text only: there are no marks
  * (graph-model.ts, MemoryCanvas.tsx).
+ *
+ * Expand all (E) opens every area with every item at once, read by
+ * semantic zoom; Collapse all goes back to the brain and its areas. The
+ * Brain view (Tree / Brain) shows how memories connect across areas: two
+ * hemispheres of lobes with every real link bundled through the middle
+ * (brain-model.ts, BrainCanvas.tsx). Filters, search, the scrubber and
+ * the drawer work in both.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'wouter';
@@ -25,7 +32,9 @@ import { FilterLinks } from '@/components/ui/Tags';
 import { Sheet } from '@/components/ui/Overlay';
 import type { Measure } from '@/features/map/layout';
 import type { Insets } from '@/features/map/view';
-import { BRAIN, MORE_STEP, ROW, ROW_PHONE, areaId, buildTree, chainTo, indexGraph, layoutTree, nodeLabel, nodeWords, pathInto, searchItems, type Indexed, type PNode } from './graph-model';
+import { BRAIN, MORE_STEP, ROW, ROW_PHONE, areaId, buildTree, chainTo, indexGraph, layoutAll, layoutTree, nodeLabel, nodeWords, pathInto, searchItems, type Indexed, type PNode } from './graph-model';
+import { edgeOn, layoutBrain, RECORDS, type BrainLayout } from './brain-model';
+import { BrainCanvas } from './BrainCanvas';
 import { MemoryCanvas, READ_K } from './MemoryCanvas';
 import { TimeScrubber } from './TimeScrubber';
 import '@/features/map/map.css';
@@ -33,6 +42,7 @@ import './memory-map.css';
 
 type Source = 'all' | 'conclave' | 'basic-memory';
 type Pair = readonly [string, string];
+type Mode = 'tree' | 'brain';
 
 const add = <T,>(s: ReadonlySet<T>, v: T) => new Set([...s, v]);
 const del = <T,>(s: ReadonlySet<T>, v: T) => new Set([...s].filter((x) => x !== v));
@@ -109,9 +119,15 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
   const [unfold, setUnfold] = useState(false);
   const [fit, setFit] = useState(0);
   const [zoom, setZoom] = useState({ n: 0, factor: 1 });
-  const [reveal, setReveal] = useState<{ ids: string[]; n: number; center?: boolean }>();
+  const [reveal, setReveal] = useState<{ ids: string[]; n: number; center?: boolean; all?: boolean }>();
   const [note, setNote] = useState<string>();
   const [filters, setFilters] = useState(false);
+  const [mode, setMode] = useState<Mode>('tree');
+  const [all, setAll] = useState(false);
+  const [crossOnly, setCrossOnly] = useState(false);
+  // brain view: the item or area under the pointer, and an area tapped or clicked to keep it lit
+  const [bHover, setBHover] = useState<string>();
+  const [bArea, setBArea] = useState<string>();
   const boxRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<HTMLDivElement>(null);
   const footRef = useRef<HTMLDivElement>(null);
@@ -126,8 +142,18 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
   const roomRows = Math.max(12, Math.floor((boxH - headH - footH - 24) / ((phone ? ROW_PHONE : ROW) * READ_K)));
   const budget = phone ? roomRows : roomRows * 2;
   const extra = useMemo(() => [...pulled, ...(found?.pairs ?? [])], [pulled, found]);
-  const tree = useMemo(() => buildTree(ix, { center, depth, hidden, dismissed, open, more, extra, unfold, budget }), [ix, center, depth, hidden, dismissed, open, more, extra, unfold, budget]);
-  const layout = useMemo(() => layoutTree(tree.root, ix, { measure, sides: phone ? 'right' : 'both', phone }), [tree, ix, measure, phone]);
+  const expanded = all && atBrain;
+  const tree = useMemo(() => buildTree(ix, { center, depth, hidden, dismissed, open, more, extra, unfold, budget, all: expanded }), [ix, center, depth, hidden, dismissed, open, more, extra, unfold, budget, expanded]);
+  const layout = useMemo(() => (expanded ? layoutAll(tree.root, ix, { measure, phone }) : layoutTree(tree.root, ix, { measure, sides: phone ? 'right' : 'both', phone })), [tree, ix, measure, phone, expanded]);
+  // the brain view's layout and bundles: once, the first time it is shown
+  const brainRef = useRef<{ g: MemoryGraph; l: BrainLayout }>(undefined);
+  if (mode === 'brain' && brainRef.current?.g !== g) {
+    const t0 = performance.now();
+    brainRef.current = { g, l: layoutBrain(g, ix) };
+    performance.clearMeasures('memory-brain:layout');
+    performance.measure('memory-brain:layout', { start: t0, end: performance.now() });
+  }
+  const brain = mode === 'brain' ? brainRef.current?.l : undefined;
   const path = useMemo(() => (found && layout.byId.has(found.target) ? chainTo(layout, found.target) : undefined), [found, layout]);
   const hits = useMemo(() => searchItems(ix, q, tree.items), [ix, q, tree.items]);
   const hitSet = useMemo(() => new Set(hits.map((h) => h.id)), [hits]);
@@ -200,7 +226,7 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
     setFound({ pairs, target: id });
     setSel(id);
     if (atBrain) setArea(ix.byId.get(id)?.area);
-    setNote(pairs.length ? `The violet line is the path from ${labelOf(center)} to ${labelOf(id)}.` : undefined);
+    setNote(undefined);
     // the whole path, from the center out, comes into view
     show(pairs.length ? [center, ...new Set(pairs.flat())] : [id]);
   };
@@ -208,7 +234,9 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
     if (!hits.length) return;
     const i = (hit + dir + hits.length) % hits.length;
     setHit(i);
-    pathTo(hits[i].id);
+    // the brain view lights the hit and its links where they are; the tree pulls it in
+    if (mode === 'brain') setBArea(undefined);
+    else pathTo(hits[i].id);
   };
   const dismiss = (id: string) => {
     setDismissed((d) => add(d, id));
@@ -219,10 +247,28 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
     setDismissed((d) => new Set([...d, ...[...tree.items].filter((x) => !keep.has(x))]));
   };
   const toggleRelation = (label: string) => setHidden((h) => (h.has(label) ? del(h, label) : add(h, label)));
-  const setDepthTo = (d: number) => setDepth(Math.max(1, Math.min(3, d)));
+  // a new depth grows rings that can land under the drawer: bring what grew from the picked item (or the center) into the room
+  const setDepthTo = (d: number) => {
+    const next = Math.max(1, Math.min(3, d));
+    if (next === depth) return;
+    setDepth(next);
+    if (!atBrain) show([sel && sel !== BRAIN ? sel : center]);
+  };
+  const toggleAll = () => {
+    const on = !expanded;
+    setAll(on);
+    if (on && !atBrain) setTrail([BRAIN]);
+    if (!on) setOpen(new Set());
+    reset();
+    setReveal((r) => ({ ids: [], n: (r?.n ?? 0) + 1, all: true }));
+  };
   const zoomBy = (factor: number) => setZoom((z) => ({ n: z.n + 1, factor }));
 
   const onKey = (e: React.KeyboardEvent): boolean => {
+    if ((e.key === 'e' || e.key === 'E') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      toggleAll();
+      return true;
+    }
     if (e.key === '[' || e.key === ']') {
       setDepthTo(depth + (e.key === ']' ? 1 : -1));
       return true;
@@ -230,6 +276,7 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
     if (e.key === 'Escape') {
       if (sel) setSel(undefined);
       else if (trail.length > 1) back(trail.length - 2);
+      else if (expanded) toggleAll();
       else if (open.size) setOpen(new Set());
       return true;
     }
@@ -257,6 +304,14 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
     return source !== 'all' && n.source !== source && n.source !== 'both';
   };
   const existed = at === undefined ? g.nodes.length : g.nodes.filter((n) => !n.at || n.at <= at).length;
+  // brain view: the same filters, by node index
+  const gone = useMemo(() => (i: number) => {
+    const n = g.nodes[i];
+    return (at !== undefined && !!n.at && n.at > at) || (source !== 'all' && n.source !== source && n.source !== 'both');
+  }, [g, at, source]); // prettier-ignore
+  const brainFilter = useMemo(() => ({ hidden, crossOnly }), [hidden, crossOnly]);
+  const brainOn = useMemo(() => brain?.edges.filter((e) => edgeOn(brain, e, { ...brainFilter, gone })), [brain, brainFilter, gone]);
+  const bFocus = bHover ?? bArea;
   const relations = ix.labels.slice(0, phone ? 14 : 9);
   const offline = g.basicMemory.state === 'offline';
 
@@ -287,10 +342,31 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
   );
 
   const folded = !atBrain && layout.nodes.some((p) => p.t.kind === 'node' && p.count && p.t.depth >= 1 && depth > p.t.depth);
+  // a search path in words: every step of it, each one goes there (a phone shows the end of a long one)
+  const chain = found?.pairs.length && !note && mode === 'tree' ? [found.pairs[0][0], ...found.pairs.map((p) => p[1])] : undefined;
+  const pathNav = chain && (
+    <nav aria-label="Path" className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-[13px] phone:text-[14px]">
+      <span className="text-fg-3">Path</span>
+      {chain.map((id, i) => (
+        <span key={id} className="flex items-baseline gap-x-1.5">
+          {i > 0 && <span className="text-fg-4">›</span>}
+          <button type="button" className={cn('tap hov:text-fg', i === chain.length - 1 ? 'font-medium text-fg' : 'text-fg-2')} onClick={() => show([id])}>
+            {id.startsWith('area:') ? id.slice(5) : labelOf(id)}
+          </button>
+        </span>
+      ))}
+    </nav>
+  );
   const sentence = (
     <p className={cn('m-0 text-[13px] phone:text-[14px]', offline ? 'text-warn' : 'text-fg-2')} aria-live="polite">
       {note ??
-        (atBrain ? (
+        (brain && brainOn ? (
+          <BrainWords l={brain} on={brainOn} focus={bFocus} ix={ix} />
+        ) : expanded ? (
+          <>
+            All <span className="num">{num(g.nodes.length)}</span> items in <span className="num">{ix.areas.length}</span> areas. The most linked read first; zoom in for the rest.
+          </>
+        ) : atBrain ? (
           <>
             <span className="num">{num(g.nodes.length)}</span> items in <span className="num">{ix.areas.length}</span> areas
             {offline ? '. Basic Memory is offline, so only Conclave memory is shown' : open.size ? '' : '. Open an area to see what is in it'}.
@@ -365,7 +441,38 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
       ]}
     />
   );
-  const legend = 'A tick under a title: Conclave memory. Dashed: also in Basic Memory. None: a Basic Memory note.';
+  const crossFilter = brain && (
+    <button type="button" aria-pressed={crossOnly} onClick={() => setCrossOnly((c) => !c)} className={cn('tap text-[13px] font-medium whitespace-nowrap phone:text-[14px]', crossOnly ? 'text-fg' : 'text-fg-3 hov:text-fg')}>
+      <span className={crossOnly ? 'underline decoration-1 underline-offset-[3px]' : undefined}>Across areas only</span>
+    </button>
+  );
+  const legend =
+    mode === 'brain'
+      ? 'Each tick on the outline is an item, longer the more it links; each curve is a real link, bundled through its areas, crossing the middle between the halves.'
+      : 'A tick under a title: Conclave memory. Dashed: also in Basic Memory. None: a Basic Memory note.';
+  const switchMode = (m: Mode) => {
+    setMode(m);
+    setBHover(undefined);
+    setBArea(undefined);
+    setHover(undefined);
+  };
+  const modeToggle = (
+    <div role="group" aria-label="View" className="flex shrink-0 items-baseline gap-1.5 text-[13px] phone:text-[14px]">
+      {(['tree', 'brain'] as const).map((m, i) => (
+        <span key={m} className="flex items-baseline gap-1.5">
+          {i > 0 && <span className="text-fg-4">/</span>}
+          <button type="button" aria-pressed={mode === m} onClick={() => switchMode(m)} className={cn('tap', mode === m ? 'font-medium text-fg' : 'text-fg-3 hov:text-fg')}>
+            {cap(m)}
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+  const expandButton = (
+    <Button variant="quiet" size="sm" onClick={toggleAll} title={expanded ? 'Collapse all (E)' : 'Expand all (E)'}>
+      {expanded ? 'Collapse all' : 'Expand all'}
+    </Button>
+  );
 
   const detail = selected && (
     <Detail
@@ -376,69 +483,102 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
       hidden={hidden}
       open={open.has(selected.id)}
       phone={phone}
+      brain={!!brain}
       onClose={() => setSel(undefined)}
-      onCenter={() => recenter(selected.id)}
+      onCenter={() => (switchMode('tree'), recenter(selected.id))}
       onToggle={() => setOpen((o) => (o.has(selected.id) ? del(o, selected.id) : add(o, selected.id)))}
       onDismiss={() => dismiss(selected.id)}
       onDismissOthers={() => dismissOthers(selected.id)}
       onPath={() => pathTo(selected.id)}
-      onPull={(id) => pull(selected.id, id)}
+      onPull={(id) => (brain ? setSel(id) : pull(selected.id, id))}
     />
   );
 
   return (
     <div ref={boxRef} className="relative -mx-[var(--gutter)] min-h-[420px] flex-1 overflow-hidden border-t border-rule bg-bg">
-      <MemoryCanvas
-        layout={layout}
-        ix={ix}
-        items={tree.items}
-        selected={sel}
-        hover={hover}
-        onHover={setHover}
-        onPick={pick}
-        onCenter={recenter}
-        onBlank={() => (setSel(undefined), setNote(undefined))}
-        path={path}
-        hits={hitSet}
-        faded={faded}
-        insets={insets}
-        fit={fit}
-        zoom={zoom}
-        reveal={reveal}
-        onUnfold={setUnfold}
-        onKey={onKey}
-        className="absolute inset-0"
-      />
+      {brain ? (
+        <BrainCanvas
+          ix={ix}
+          layout={brain}
+          filter={brainFilter}
+          gone={gone}
+          hits={hitSet}
+          hit={hit >= 0 ? hits[hit]?.id : undefined}
+          selected={sel}
+          hover={bFocus}
+          onHover={setBHover}
+          onPick={(id) => (setSel(id), setBArea(undefined))}
+          onArea={(name) => setBArea((a) => (a === areaId(name) ? undefined : areaId(name)))}
+          onBlank={() => (setSel(undefined), setBArea(undefined))}
+          insets={insets}
+          fit={fit}
+          zoom={zoom}
+          phone={phone}
+          measure={measure}
+          className="absolute inset-0"
+        />
+      ) : (
+        <MemoryCanvas
+          layout={layout}
+          ix={ix}
+          items={tree.items}
+          selected={sel}
+          hover={hover}
+          onHover={setHover}
+          onPick={pick}
+          onCenter={recenter}
+          onBlank={() => (setSel(undefined), setNote(undefined))}
+          path={path}
+          hits={hitSet}
+          faded={faded}
+          insets={insets}
+          fit={fit}
+          zoom={zoom}
+          reveal={reveal}
+          onUnfold={setUnfold}
+          onKey={onKey}
+          measure={measure}
+          className="absolute inset-0"
+        />
+      )}
 
       {/* solid bands above and below, so a tall tree passes under them, not through the words */}
       <div ref={headRef} className={cn('absolute top-0 left-0 z-[5] border-b border-rule bg-bg', phone ? 'right-0 space-y-2 px-4 pt-2 pb-2' : 'space-y-2 px-8 pt-3 pb-3')} style={phone ? undefined : { right: drawer ? 360 : 0 }}>
         {phone ? (
           <>
-            {searchBox}
-            {trailNav}
-            {note && sentence}
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">{searchBox}</div>
+              {modeToggle}
+            </div>
+            {!brain && crumbs.length > 1 && trailNav}
+            {pathNav}
+            {(note || (brain && bFocus)) && sentence}
           </>
         ) : (
           <>
             <div className="flex items-center gap-4">
-              <div className="min-w-0 flex-1">{trailNav}</div>
+              <div className="min-w-0 flex-1">{brain ? <span className="text-[13px] font-medium text-fg">How memories connect across areas</span> : trailNav}</div>
               <div className="flex shrink-0 items-center gap-3">
-                {!atBrain && (
+                {!brain && !atBrain && (
                   <>
                     <span className="text-[12.5px] text-fg-3">Depth</span>
                     {depthControl}
                   </>
                 )}
+                {!brain && expandButton}
                 {zoomButtons}
                 <Button variant="quiet" size="sm" onClick={() => setFit((f) => f + 1)} title="Fit (0)">
                   Fit
                 </Button>
+                <span className="h-4 w-px bg-rule-2" aria-hidden />
+                {modeToggle}
               </div>
             </div>
-            {sentence}
+            {pathNav ?? sentence}
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
               <div className="w-[280px] shrink-0">{searchBox}</div>
               {relationFilter}
+              {crossFilter}
               {sourceFilter}
             </div>
           </>
@@ -448,7 +588,7 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
       <div ref={footRef} className={cn('absolute bottom-0 left-0 z-[5] border-t border-rule bg-bg', phone ? 'right-0 px-4 pb-[calc(var(--safe-b)+6px)]' : 'px-8 pt-2 pb-2')} style={phone ? undefined : { right: drawer ? 360 : 0 }}>
         {phone ? (
           <div className="flex items-center justify-between gap-2 pt-2">
-            {atBrain ? <span className="min-w-0 truncate text-[13px] text-fg-3">{num(g.nodes.length)} items</span> : depthControl}
+            {brain ? <span className="min-w-0 truncate text-[13px] text-fg-3">{num(g.nodes.length)} items</span> : atBrain ? expandButton : depthControl}
             <div className="flex items-center gap-1.5">
               {zoomButtons}
               <Button variant="outline" size="sm" onClick={() => setFilters(true)}>
@@ -460,7 +600,7 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
             </div>
           </div>
         ) : (
-          <p className={cn('m-0 text-[12px] text-fg-3 transition-opacity duration-[var(--dur-2)]', at !== undefined && 'opacity-0')}>{legend} Click opens, double click centers, Esc steps back.</p>
+          <p className={cn('m-0 text-[12px] text-fg-3 transition-opacity duration-[var(--dur-2)]', at !== undefined && 'opacity-0')}>{legend} {brain ? 'Hover lights an item or area, click opens.' : 'Click opens, double click centers, E expands all, Esc steps back.'}</p>
         )}
         {span.hi > span.lo && <TimeScrubber from={span.lo} to={span.hi} at={at} onChange={setAt} phone={phone} shown={`${num(existed)} existed`} />}
       </div>
@@ -486,6 +626,7 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
             <div>
               <h3 className="m-0 mb-1.5 text-[13px] font-medium text-fg-3">Relations</h3>
               {relationFilter}
+              {crossFilter && <div className="mt-2">{crossFilter}</div>}
             </div>
             <div>
               <h3 className="m-0 mb-1.5 text-[13px] font-medium text-fg-3">Source</h3>
@@ -510,6 +651,42 @@ function useHeight(ref: React.RefObject<HTMLElement | null>, guess: number): num
     return () => ro.disconnect();
   }, [ref]);
   return h;
+}
+
+/** The brain view's sentence: what is drawn, or what the lit area or item links to. */
+function BrainWords({ l, on, focus, ix }: { l: BrainLayout; on: BrainLayout['edges']; focus?: string; ix: Indexed }) {
+  const cross = on.filter((e) => e.cross).length;
+  const area = focus?.startsWith('area:') ? l.areas.findIndex((a) => areaId(a.name) === focus) : -1;
+  const item = focus && area < 0 ? l.byId.get(focus) : undefined;
+  if (area >= 0 || item !== undefined) {
+    const mine = (i: number) => (area >= 0 ? l.items[i].area === area : i === item);
+    const to = new Map<number, number>();
+    let n = 0;
+    for (const e of on)
+      for (const [a, b] of [[e.a, e.b], [e.b, e.a]] as const)
+        if (mine(a)) {
+          n++;
+          const other = l.items[b].area;
+          if (other !== (area >= 0 ? area : l.items[a].area)) to.set(other, (to.get(other) ?? 0) + 1);
+        }
+    const top = [...to].sort((x, y) => y[1] - x[1]).slice(0, 3);
+    const name = area >= 0 ? l.areas[area].name : nodeLabel(ix.byId.get(focus!)!);
+    const size = area >= 0 ? `${num(l.areas[area].to - l.areas[area].from)} items, ` : `${l.areas[l.items[item!].area].name}, `;
+    return (
+      <>
+        {name}: {size}
+        <span className="num">{num(n)}</span> {n === 1 ? 'link' : 'links'} shown
+        {top.length ? `, most to ${top.map(([a, c]) => `${l.areas[a].name} ${num(c)}`).join(', ')}` : ''}.
+      </>
+    );
+  }
+  const left = l.hemi[-1].names.filter((x) => RECORDS.includes(x));
+  return (
+    <>
+      <span className="num">{num(l.items.length)}</span> items, <span className="num">{num(on.length)}</span> links shown, <span className="num">{num(cross)}</span> across areas.
+      {left.length ? ` Left: what was said (${left.join(', ')}). Right: what it is about.` : ''}
+    </>
+  );
 }
 
 function Centered({ children }: { children: ReactNode }) {
@@ -538,6 +715,8 @@ function Detail(props: {
   hidden: ReadonlySet<string>;
   open: boolean;
   phone: boolean;
+  /** Opened from the brain view: no tree to open links in or dismiss from; Center here goes to the tree. */
+  brain?: boolean;
   onClose: () => void;
   onCenter: () => void;
   onToggle: () => void;
@@ -546,7 +725,10 @@ function Detail(props: {
   onPath: () => void;
   onPull: (id: string) => void;
 }) {
-  const { n, ix, center, onMap, hidden, open, phone } = props;
+  const { n, ix, hidden, open, phone } = props;
+  const center = props.brain ? '' : props.center;
+  // the brain view draws every item: all of them are on it
+  const onMap = props.brain ? new Set<string>() : props.onMap;
   const [all, setAll] = useState<ReadonlySet<string>>(new Set());
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => scroller.current?.scrollTo({ top: 0 }), [n.id]);
@@ -562,7 +744,7 @@ function Detail(props: {
           <div className="text-[12px] text-fg-3 phone:text-[13px]">
             {nodeWords(n)}
             {n.area ? `, ${n.area}` : ''}
-            {isCenter ? ', the center' : onMap.has(n.id) ? '' : ', not on the map'}
+            {isCenter ? ', the center' : onMap.has(n.id) || props.brain ? '' : ', not on the map'}
           </div>
           <h2 className="t-title m-0 mt-0.5 line-clamp-4 break-words text-fg">{n.title}</h2>
           <div className="mt-1 text-[13px] text-fg-3 phone:text-[14px]">
@@ -586,7 +768,7 @@ function Detail(props: {
             {open ? 'Show fewer' : 'Open links'}
           </Button>
         )}
-        {!isCenter && !onMap.has(n.id) && (
+        {!isCenter && !onMap.has(n.id) && !props.brain && (
           <Button variant="outline" size={size} onClick={props.onPath}>
             Show the path
           </Button>
@@ -623,7 +805,7 @@ function Detail(props: {
                   <li key={id}>
                     <button type="button" onClick={() => props.onPull(id)} className="-mx-2 flex w-[calc(100%+16px)] items-baseline gap-3 rounded-[var(--r-1)] px-2 py-1 text-left hov:bg-hover phone:py-2">
                       <span className="min-w-0 flex-1 truncate text-[13.5px] text-fg phone:text-[15px]">{nodeLabel(ix.byId.get(id)!)}</span>
-                      <span className="shrink-0 text-[12px] text-fg-3 phone:text-[13px]">{id === center ? 'center' : onMap.has(id) ? 'on the map' : 'add'}</span>
+                      <span className="shrink-0 text-[12px] text-fg-3 phone:text-[13px]">{props.brain ? ix.byId.get(id)?.area : id === center ? 'center' : onMap.has(id) ? 'on the map' : 'add'}</span>
                     </button>
                   </li>
                 ))}

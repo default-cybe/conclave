@@ -115,6 +115,8 @@ export interface MapState {
   unfold?: boolean;
   /** Rows that fit the screen at the zoom where labels read: ring 1 aims at it, and deeper rings unfold only within it. */
   budget?: number;
+  /** Expand all: around the brain every area is open with every item (layoutAll places them). */
+  all?: boolean;
 }
 
 export type TKind = 'brain' | 'area' | 'focus' | 'group' | 'node' | 'more';
@@ -186,9 +188,9 @@ export function buildTree(ix: Indexed, s: MapState): { root: TNode; items: Set<s
       root.children.push(t);
       const pulled = (forced.get(id) ?? []).filter((v) => !items.has(v));
       for (const v of pulled) add(t, v, 2);
-      if (!s.open.has(id)) continue;
+      if (!s.open.has(id) && !s.all) continue;
       const rest = a.ids.filter(free);
-      const cap = shownOf(id, CAP_AREA);
+      const cap = s.all ? rest.length : shownOf(id, CAP_AREA);
       for (const v of rest.slice(0, cap)) add(t, v, 2);
       moreRow(t, id, rest.length - Math.min(cap, rest.length));
     }
@@ -304,6 +306,10 @@ export interface MLayout {
   /** Tree links, parent to child. */
   links: Array<{ from: string; to: string }>;
   bounds: { x: number; y: number; w: number; h: number };
+  /** Expand all: each area's items stand in columns beside it; x is the bracket the columns hang off, y0 to y1 their rows. */
+  blocks?: Array<{ id: string; side: 1 | -1; x: number; y0: number; y1: number }>;
+  /** Expand all: the items most linked first, the order labels claim room in (visibleLabels). */
+  rank?: PNode[];
 }
 
 /** Rows: a leaf's height. Phones get room for a finger. */
@@ -415,6 +421,170 @@ export function layoutTree(root: TNode, ix: Indexed, opts: { measure?: Measure; 
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; // prettier-ignore
   for (const p of nodes) (x0 = Math.min(x0, p.x)), (y0 = Math.min(y0, p.y - p.h / 2)), (x1 = Math.max(x1, p.x + p.w)), (y1 = Math.max(y1, p.y + p.h / 2)); // prettier-ignore
   return { nodes, byId, links, bounds: { x: x0 - 8, y: y0 - 8, w: x1 - x0 + 16, h: y1 - y0 + 16 } };
+}
+
+// ---------------------------------------------------------------------------
+// Expand all: every item at once
+// ---------------------------------------------------------------------------
+
+/** Expand all's grid: a column's pitch, a row's pitch, the gap between areas. */
+export const ALL_COL = 232;
+export const ALL_COL_PHONE = 176;
+export const ALL_ROW = 22;
+const ALL_GAP = 40;
+
+/**
+ * Expand all (buildTree with `all`): the brain in the middle, the areas
+ * around it as in the tree, and each area's items in columns beside it,
+ * most linked first, filling a column before the next. Every item has a
+ * cell of its own, so no two labels overlap at any zoom. The number of
+ * columns is the one that makes the whole as wide for its height as the
+ * room (`aspect`, width over height), so Fit frames it with the least
+ * empty space.
+ */
+export function layoutAll(root: TNode, ix: Indexed, opts: { measure?: Measure; phone?: boolean; aspect?: number } = {}): MLayout {
+  const measure = opts.measure ?? approx;
+  const col = opts.phone ? ALL_COL_PHONE : ALL_COL;
+  const gap = opts.phone ? COL_GAP_PHONE : COL_GAP;
+  const nodes: PNode[] = [];
+  const byId = new Map<string, PNode>();
+  const links: MLayout['links'] = [];
+  const blocks: NonNullable<MLayout['blocks']> = [];
+  const areas = root.children;
+  // the biggest area first on the right, then each next on the side with fewer items, so both sides end level
+  const sides = new Map<TNode, 1 | -1>();
+  const load = { [1]: 0, [-1]: 0 };
+  for (const a of [...areas].sort((x, y) => y.children.length - x.children.length)) {
+    const sd: 1 | -1 = opts.phone || load[1] <= load[-1] ? 1 : -1;
+    sides.set(a, sd);
+    load[sd] += a.children.length + 2 * (ALL_GAP / ALL_ROW);
+  }
+  const sideOf = (i: number) => sides.get(areas[i])!;
+  const brainW = Math.ceil(measure('Brain', 'name') * 1.22) + measure(num(root.count ?? 0), 'meta') - 6;
+  const areaW = (t: TNode) => measure(t.via!, 'name') + measure(num(t.count ?? 0), 'meta') - 6;
+  const innerX = brainW / 2 + gap * 0.8;
+  const wideArea = Math.max(0, ...areas.map(areaW));
+  const blockX = innerX + wideArea + gap;
+  const rowsOf = (n: number, c: number) => Math.max(1, Math.ceil(n / c));
+  const height = (c: number) => Math.max(...([1, -1] as const).map((sd) => areas.reduce((h, a, i) => (sideOf(i) === sd ? h + rowsOf(a.children.length, c) * ALL_ROW + ALL_GAP : h), 0)));
+  const width = (c: number) => (opts.phone ? 1 : 2) * (blockX + c * col);
+  // the column count whose shape is closest to the room's
+  const aspect = opts.aspect ?? (opts.phone ? 0.6 : 1.8);
+  let cols = 1;
+  for (let c = 1, best = Infinity; c <= 80; c++) {
+    const miss = Math.abs(Math.log(width(c) / height(c) / aspect));
+    if (miss < best) (best = miss), (cols = c);
+  }
+
+  const put = (t: TNode, x: number, y: number, w: number, side: 1 | -1 | 0, parent: string | undefined, words: Pick<PNode, 'title' | 'count' | 'font'>) => {
+    const p: PNode = { id: t.id, t, item: t.item ? ix.byId.get(t.item) : undefined, x, y, w, h: LABEL_H, side, parent, ...words };
+    nodes.push(p);
+    byId.set(p.id, p);
+    if (parent && t.kind === 'area') links.push({ from: parent, to: t.id });
+    return p;
+  };
+  put(root, -brainW / 2, 0, brainW, 0, undefined, { title: 'Brain', count: num(root.count ?? 0), font: 'name' });
+  for (const sd of [1, -1] as const) {
+    const mine = areas.filter((_, i) => sideOf(i) === sd);
+    const total = mine.reduce((h, a) => h + rowsOf(a.children.length, cols) * ALL_ROW + ALL_GAP, -ALL_GAP);
+    let y = -total / 2;
+    for (const a of mine) {
+      const rows = rowsOf(a.children.length, cols);
+      const h = rows * ALL_ROW;
+      const w = areaW(a);
+      // the area's name at its first row, so a tall block reads from the top
+      put(a, sd === 1 ? innerX : -innerX - w, y + ALL_ROW / 2, w, sd, BRAIN, { title: a.via!, count: num(a.count ?? 0), font: 'name' });
+      blocks.push({ id: a.id, side: sd, x: sd * (blockX - 10), y0: y + ALL_ROW / 2, y1: y + h - ALL_ROW / 2 });
+      a.children.forEach((c, i) => {
+        const n = ix.byId.get(c.item!)!;
+        const title = nodeLabel(n);
+        const w = Math.min(col - 12, measure(title, 'title'));
+        const cx = blockX + Math.floor(i / rows) * col;
+        put(c, sd === 1 ? cx : -cx - w, y + (i % rows) * ALL_ROW + ALL_ROW / 2, w, sd, a.id, { title, font: 'title' });
+      });
+      y += h + ALL_GAP;
+    }
+  }
+  const rank = nodes.filter((p) => p.t.kind === 'node').sort((a, b) => byRank(a.item!, b.item!));
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; // prettier-ignore
+  for (const p of nodes) (x0 = Math.min(x0, p.x)), (y0 = Math.min(y0, p.y - p.h / 2)), (x1 = Math.max(x1, p.x + p.w)), (y1 = Math.max(y1, p.y + p.h / 2)); // prettier-ignore
+  return { nodes, byId, links, blocks, rank, bounds: { x: x0 - 8, y: y0 - 8, w: x1 - x0 + 16, h: y1 - y0 + 16 } };
+}
+
+/** A label drawn at screen size over the canvas: where, how wide, and the px its text is set in. */
+export interface ScreenLabel {
+  p: PNode;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  px: number;
+}
+
+/** Text sizes on screen: an item's title, an area's name, the brain's. Never under 11 (DESIGN.md type scale). */
+export const PX = { title: 13, name: 14, brain: 17 } as const;
+// a title cut shorter than this reads as noise: leave the bar
+const SHORTEST = 84;
+
+/**
+ * Expand all's semantic zoom: which labels show at this view, in screen
+ * pixels. The brain and the areas always, at their own size; items in
+ * rank order wherever their cell is on screen, tall enough for a line
+ * and wide enough for a few words, and free. Text stays 13px on screen
+ * (never under 11), so far out only the hubs read and the rest are ticks
+ * on the canvas; zooming in gives every row room. No two boxes overlap.
+ */
+export function visibleLabels(l: MLayout, v: { x: number; y: number; k: number }, w: number, h: number, measure: Measure = approx, must?: ReadonlySet<string>): ScreenLabel[] {
+  const out: ScreenLabel[] = [];
+  const cell = 48;
+  const grid = new Map<number, ScreenLabel[]>();
+  const keyOf = (cx: number, cy: number) => cx * 4096 + cy;
+  const free = (b: ScreenLabel) => {
+    for (let cx = Math.floor(b.x / cell); cx <= Math.floor((b.x + b.w) / cell); cx++)
+      for (let cy = Math.floor(b.y / cell); cy <= Math.floor((b.y + b.h) / cell); cy++)
+        for (const o of grid.get(keyOf(cx, cy)) ?? []) if (b.x < o.x + o.w && o.x < b.x + b.w && b.y < o.y + o.h && o.y < b.y + b.h) return false;
+    return true;
+  };
+  const claim = (b: ScreenLabel) => {
+    out.push(b);
+    for (let cx = Math.floor(b.x / cell); cx <= Math.floor((b.x + b.w) / cell); cx++)
+      for (let cy = Math.floor(b.y / cell); cy <= Math.floor((b.y + b.h) / cell); cy++) {
+        const k = keyOf(cx, cy);
+        const list = grid.get(k);
+        if (list) list.push(b);
+        else grid.set(k, [b]);
+      }
+  };
+  const onScreen = (b: ScreenLabel) => b.x + b.w > 0 && b.x < w && b.y + b.h > 0 && b.y < h;
+  const item = (p: PNode, forced: boolean) => {
+    // within its own cell (p.w is less than a column's pitch) unless picked or found
+    const bw = forced ? Math.max(p.w, measure(p.title, 'title')) : p.w * Math.min(1, v.k);
+    if (bw < SHORTEST && !forced) return;
+    const sx = p.side === -1 ? (p.x + p.w) * v.k + v.x - bw : p.x * v.k + v.x;
+    const b = { p, x: sx, y: p.y * v.k + v.y - 9, w: bw, h: 18, px: PX.title };
+    if (onScreen(b) && free(b)) claim(b);
+  };
+  // the picked and found items first: they read even where an area's name would sit
+  for (const id of must ?? []) {
+    const p = l.byId.get(id);
+    if (p?.t.kind === 'node') item(p, true);
+  }
+  // brain and areas: their full name at their own size, where the layout put it; far out, where
+  // that runs into the brain, an area's name stands over the top of its columns instead
+  for (const p of l.nodes) {
+    if (p.t.kind !== 'brain' && p.t.kind !== 'area') continue;
+    const px = p.t.kind === 'brain' ? PX.brain : PX.name;
+    // the brain keeps its right end by the areas' bracket, so far out it does not run off a phone's left edge
+    const sx = p.side === 1 ? p.x * v.k + v.x : (p.x + p.w) * v.k + v.x - p.w;
+    const b = { p, x: sx, y: p.y * v.k + v.y - 10, w: p.w, h: 20, px };
+    const blk = l.blocks?.find((k) => k.id === p.id);
+    const over = blk && { ...b, x: blk.side === 1 ? blk.x * v.k + v.x + 6 : blk.x * v.k + v.x - 6 - p.w, y: (blk.y0 - ALL_ROW / 2) * v.k + v.y - 22 };
+    if (onScreen(b) && free(b)) claim(b);
+    else if (over && onScreen(over) && free(over)) claim(over);
+  }
+  // far out, rows closer than 9px: only the picked and found items, the rest are ticks
+  if (ALL_ROW * v.k >= 9) for (const p of l.rank ?? []) if (!must?.has(p.id)) item(p, false);
+  return out;
 }
 
 /** The ids from the center to a node, both ends included. */

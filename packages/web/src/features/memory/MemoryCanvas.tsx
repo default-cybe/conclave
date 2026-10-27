@@ -7,14 +7,20 @@
  * reduced motion). Hover lights an item's links, cross links too, and steps
  * the rest back. Zoom buttons and keys zoom around the focus (the picked
  * item, else the center), not the middle of the screen.
+ *
+ * Expand all (a layout with blocks) is a semantic zoom: the canvas draws
+ * every item as a faint bar where its title would be, and only the labels
+ * that have room at this zoom are in the DOM, at screen size
+ * (visibleLabels), redrawn as the view moves.
  */
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, type CSSProperties } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { useReducedMotion, usePageVisible } from '@/components/motion';
 import { dprNow, isDark, onFrame, tokenRGB, useColorVersion } from '@/components/motion/frame';
 import { EASE } from '@/components/motion/ease';
 import { cn } from '@/lib/text';
 import { clampView, fitView, pinch, wheelFactor, zoomAt, type Insets, type View } from '@/features/map/view';
-import { inX, outX, type Indexed, type MLayout, type PNode } from './graph-model';
+import type { Measure } from '@/features/map/layout';
+import { inX, outX, visibleLabels, type Indexed, type MLayout, type PNode } from './graph-model';
 
 const MOVE_MS = 450;
 /** The smallest words on the map are 12px: below this zoom they read under 11px, so no automatic view goes there. */
@@ -22,6 +28,8 @@ export const READ_K = 11 / 12;
 /** Rings past the first unfold from this zoom, and fold again below UNFOLD_OFF. */
 const UNFOLD_ON = 1.3;
 const UNFOLD_OFF = 1.15;
+/** Expand all zooms out this far, so Fit frames ~3,000 items. */
+const ALL_MIN_K = 0.03;
 type P = { x: number; y: number };
 type RGB = [number, number, number];
 const rgba = (c: RGB, a: number) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
@@ -45,14 +53,15 @@ export interface MemoryCanvasProps {
   fit: number;
   zoom: { n: number; factor: number };
   /** Bring these into the free room after the next layout (what just opened); center: a new center goes to the middle. */
-  reveal?: { ids: string[]; n: number; center?: boolean };
+  reveal?: { ids: string[]; n: number; center?: boolean; all?: boolean };
   onUnfold: (on: boolean) => void;
+  measure?: Measure;
   className?: string;
   onKey?: (e: React.KeyboardEvent) => boolean;
 }
 
 export function MemoryCanvas(props: MemoryCanvasProps) {
-  const { layout, ix, items, selected, hover, onHover, onPick, onCenter, onBlank, path, hits, faded, insets, fit, zoom, reveal, onUnfold, className, onKey } = props;
+  const { layout, ix, items, selected, hover, onHover, onPick, onCenter, onBlank, path, hits, faded, insets, fit, zoom, reveal, onUnfold, measure, className, onKey } = props;
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const layer = useRef<HTMLDivElement>(null);
@@ -72,6 +81,15 @@ export function MemoryCanvas(props: MemoryCanvasProps) {
   const unfolded = useRef(false);
   const unfoldRef = useRef(onUnfold);
   unfoldRef.current = onUnfold;
+  // expand all: the screen-size labels follow the view, one render a frame at most
+  const [, setTick] = useState(0);
+  const ticking = useRef(false);
+  const labelled = useRef(new Set<string>());
+  const hitsRef = useRef(hits);
+  hitsRef.current = hits;
+  const fadedRef = useRef(faded);
+  fadedRef.current = faded;
+  const minK = () => (layoutRef.current.blocks ? ALL_MIN_K : undefined);
 
   // ----- the view ----------------------------------------------------------------
   const applyView = useCallback((v: View) => {
@@ -80,6 +98,10 @@ export function MemoryCanvas(props: MemoryCanvasProps) {
     if (layer.current) layer.current.style.transform = `translate(${c.x}px, ${c.y}px) scale(${c.k})`;
     const on = unfolded.current ? c.k >= UNFOLD_OFF : c.k >= UNFOLD_ON;
     if (on !== unfolded.current) (unfolded.current = on), unfoldRef.current(on);
+    if (layoutRef.current.blocks && !ticking.current) {
+      ticking.current = true;
+      requestAnimationFrame(() => ((ticking.current = false), setTick((t) => t + 1)));
+    }
     wake.current();
   }, []);
 
@@ -104,7 +126,7 @@ export function MemoryCanvas(props: MemoryCanvasProps) {
   const fitAll = useCallback((): View => {
     const { w, h } = size.current;
     const ins = insetsRef.current;
-    return fitView(layoutRef.current.bounds, w, h, ins, 1);
+    return fitView(layoutRef.current.bounds, w, h, ins, 1, minK());
   }, []);
   const centerAt = useCallback((k: number): View => {
     const { w, h } = size.current;
@@ -175,7 +197,8 @@ export function MemoryCanvas(props: MemoryCanvasProps) {
       if (!old && was.size) fresh.current.add(id);
       from.set(id, old ?? (par ? was.get(par) : undefined) ?? p);
     }
-    anim.current = { from, to, start: t, dur: reduced || !was.size ? 0 : MOVE_MS };
+    // into and out of expand all the labels change system: no glide
+    anim.current = { from, to, start: t, dur: reduced || !was.size || !!layout.blocks || !!layoutRef.current.blocks ? 0 : MOVE_MS };
     layoutRef.current = layout;
     wake.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,10 +206,12 @@ export function MemoryCanvas(props: MemoryCanvasProps) {
 
   // what was just opened comes into the free room, moving as little as it must
   useEffect(() => {
-    if (!reveal || !reveal.ids.length) return;
+    if (!reveal || (!reveal.ids.length && !reveal.all)) return;
     const l = layoutRef.current;
     const { w, h } = size.current;
     const ins = insetsRef.current;
+    // expand all and collapse all: everything
+    if (reveal.all) return panTo(fitAll());
     // a new center: the whole tree when it reads, else the center in the middle at the zoom the owner had
     if (reveal.center) {
       const all = fitAll();
@@ -194,9 +219,10 @@ export function MemoryCanvas(props: MemoryCanvasProps) {
       return;
     }
     const want = new Set(reveal.ids);
-    // one node opened: it and what grew out of it; a path: the chain
+    // one node opened: it and everything that grew out of it (a deeper depth grows two rings); a path: the chain
     const one = reveal.ids.length === 1;
-    const ps = l.nodes.filter((p) => want.has(p.id) || (one && p.parent && want.has(p.parent)));
+    const under = (p: PNode): boolean => !!p.parent && (want.has(p.parent) || under(l.byId.get(p.parent)!));
+    const ps = l.nodes.filter((p) => want.has(p.id) || (one && under(p)));
     if (!ps.length) return;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; // prettier-ignore
     for (const p of ps) (x0 = Math.min(x0, p.x)), (y0 = Math.min(y0, p.y - p.h)), (x1 = Math.max(x1, p.x + p.w)), (y1 = Math.max(y1, p.y + p.h)); // prettier-ignore
@@ -282,6 +308,7 @@ export function MemoryCanvas(props: MemoryCanvasProps) {
           ctx.strokeStyle = isPath ? rgba(C.signal, 0.9) : isLit ? rgba(C.fg, 0.55) : rgba(C.rule2, hot.current.dim ? 0.6 : 1);
           ctx.stroke();
         }
+        if (l.blocks) drawBlocks(ctx, l, v, size.current, C, p);
         // links between items on the map that the tree does not draw: only for the hovered item
         const cross = hot.current.cross;
         const from = cross && cross === lit ? at(cross) : undefined;
@@ -304,6 +331,38 @@ export function MemoryCanvas(props: MemoryCanvasProps) {
           }
       }
       if (!anim.current && stop) (stop(), (stop = null));
+    };
+    /** Expand all: a bracket per area, and a faint bar where each title without a label would read. */
+    const drawBlocks = (ctx: CanvasRenderingContext2D, l: MLayout, v: View, s: { w: number; h: number }, C: NonNullable<typeof colors.current>, p: Map<string, P>) => {
+      ctx.lineWidth = 1 / v.k;
+      ctx.strokeStyle = rgba(C.rule2, 1);
+      ctx.beginPath();
+      for (const b of l.blocks!) {
+        const a = l.byId.get(b.id)!;
+        ctx.moveTo(outX(a, b.side) + b.side * 3, b.y0);
+        ctx.lineTo(b.x, b.y0);
+        ctx.lineTo(b.x, Math.max(b.y0, b.y1));
+      }
+      ctx.stroke();
+      // world box on screen, culled
+      const wx0 = -v.x / v.k, wy0 = -v.y / v.k, wx1 = (s.w - v.x) / v.k, wy1 = (s.h - v.y) / v.k; // prettier-ignore
+      const bar = Math.min(2.5 / v.k, 8);
+      const shown = labelled.current;
+      const { lit } = hot.current;
+      const groups: Array<[string, PNode[]]> = [[rgba(C.fg, C.dark ? 0.2 : 0.16), []], [rgba(C.fg, 0.05), []], [rgba(C.signal, 0.9), []]];
+      for (const n of l.rank ?? []) {
+        const q = p.get(n.id) ?? n;
+        if (shown.has(n.id) || q.x > wx1 || q.x + n.w < wx0 || q.y > wy1 || q.y < wy0) continue;
+        groups[n.id === lit || hitsRef.current.has(n.id) ? 2 : fadedRef.current(n) ? 1 : 0][1].push(n);
+      }
+      for (const [color, ns] of groups) {
+        ctx.fillStyle = color;
+        for (const n of ns) {
+          const q = p.get(n.id) ?? n;
+          const w = Math.max(4, (n.w - 10) * 0.9);
+          ctx.fillRect(n.side === -1 ? q.x + n.w - 4 - w : q.x + 4, q.y - bar / 2, w, bar);
+        }
+      }
     };
     wake.current = () => {
       if (stop || !visible) return;
@@ -336,7 +395,7 @@ export function MemoryCanvas(props: MemoryCanvasProps) {
   const firstZoom = useRef(zoom.n);
   useEffect(() => {
     if (zoom.n === firstZoom.current) return;
-    panTo(zoomAt(view.current, ...focusPoint(), zoom.factor), 200);
+    panTo(zoomAt(view.current, ...focusPoint(), zoom.factor, minK()), 200);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom, panTo]);
 
@@ -347,7 +406,7 @@ export function MemoryCanvas(props: MemoryCanvasProps) {
       e.preventDefault();
       const r = el.getBoundingClientRect();
       if (e.shiftKey && !e.ctrlKey) applyView({ ...view.current, x: view.current.x - (e.deltaY || e.deltaX) });
-      else applyView(zoomAt(view.current, e.clientX - r.left, e.clientY - r.top, wheelFactor(e.deltaY, e.deltaMode, e.ctrlKey)));
+      else applyView(zoomAt(view.current, e.clientX - r.left, e.clientY - r.top, wheelFactor(e.deltaY, e.deltaMode, e.ctrlKey), minK()));
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
@@ -376,7 +435,7 @@ export function MemoryCanvas(props: MemoryCanvasProps) {
       const other = ps.get(ids[0] === e.pointerId ? ids[1] : ids[0])!;
       ps.set(e.pointerId, next);
       if (drag.current) drag.current.moved = true;
-      applyView(pinch(view.current, prev, other, next, other));
+      applyView(pinch(view.current, prev, other, next, other, minK()));
       return;
     }
     const d = drag.current;
@@ -403,9 +462,9 @@ export function MemoryCanvas(props: MemoryCanvasProps) {
     if (onKey?.(e)) return;
     const v = view.current;
     const keys: Record<string, () => View | 'fit'> = {
-      '+': () => zoomAt(v, ...focusPoint(), 1.25),
-      '=': () => zoomAt(v, ...focusPoint(), 1.25),
-      '-': () => zoomAt(v, ...focusPoint(), 0.8),
+      '+': () => zoomAt(v, ...focusPoint(), 1.25, minK()),
+      '=': () => zoomAt(v, ...focusPoint(), 1.25, minK()),
+      '-': () => zoomAt(v, ...focusPoint(), 0.8, minK()),
       '0': () => 'fit',
       ArrowLeft: () => ({ ...v, x: v.x + 60 }),
       ArrowRight: () => ({ ...v, x: v.x - 60 }),
@@ -433,6 +492,30 @@ export function MemoryCanvas(props: MemoryCanvasProps) {
     if (lp?.parent) near.add(lp.parent);
   }
 
+  // expand all: the labels that have room at this view, at screen size
+  const all = !!layout.blocks;
+  const shown = all ? visibleLabels(layout, view.current, size.current.w, size.current.h, measure, new Set([...(selected ? [selected] : []), ...(lit ? [lit] : []), ...[...hits].slice(0, 24)])) : [];
+  labelled.current = new Set(shown.map((b) => b.p.id));
+  // the canvas leaves out the bars under the labels this render placed
+  useEffect(() => {
+    if (all) wake.current();
+  });
+  const label = (p: PNode, key = p.id) => (
+    <Label
+      key={key}
+      p={p}
+      selected={selected === p.id}
+      dim={!!lit && !near.has(p.id) && !onPath.has(p.id)}
+      faded={faded(p)}
+      path={onPath.has(p.id)}
+      hit={!!p.item && hits.has(p.item.id)}
+      fresh={!all && fresh.current.has(p.id)}
+      onPick={onPick}
+      onCenter={onCenter}
+      onHover={onHover}
+    />
+  );
+
   return (
     <div
       ref={wrap}
@@ -457,22 +540,13 @@ export function MemoryCanvas(props: MemoryCanvasProps) {
     >
       <canvas ref={canvas} aria-hidden className="pointer-events-none absolute inset-0" />
       <div ref={layer} className="map-layer" role="group" aria-label={`${items.size} items on the map`}>
-        {layout.nodes.map((p) => (
-          <Label
-            key={p.id}
-            p={p}
-            selected={selected === p.id}
-            dim={!!lit && !near.has(p.id) && !onPath.has(p.id)}
-            faded={faded(p)}
-            path={onPath.has(p.id)}
-            hit={!!p.item && hits.has(p.item.id)}
-            fresh={fresh.current.has(p.id)}
-            onPick={onPick}
-            onCenter={onCenter}
-            onHover={onHover}
-          />
-        ))}
+        {!all && layout.nodes.map((p) => label(p))}
       </div>
+      {all && (
+        <div className="mm-overlay" role="group" aria-label={`All ${items.size} items. ${shown.length} labels have room at this zoom; zoom in for more.`}>
+          {shown.map((b) => label({ ...b.p, x: b.x, y: b.y + b.h / 2, w: b.w, h: b.h }))}
+        </div>
+      )}
     </div>
   );
 }

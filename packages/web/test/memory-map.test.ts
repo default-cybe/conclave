@@ -8,7 +8,8 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { MemoryGraph, MemoryGraphNode } from '@conclave/core/client';
-import { BRAIN, CAP_AREA, areaId, buildTree, chainTo, indexGraph, layoutTree, nodeLabel, nodeWords, pathInto, searchItems, type MapState, type MLayout, type TNode } from '../src/features/memory/graph-model';
+import { BRAIN, CAP_AREA, areaId, buildTree, chainTo, indexGraph, layoutAll, layoutTree, nodeLabel, nodeWords, pathInto, searchItems, visibleLabels, type MapState, type MLayout, type ScreenLabel, type TNode } from '../src/features/memory/graph-model';
+import { FISSURE, RX, RY, edgeOn, layoutBrain } from '../src/features/memory/brain-model';
 
 const node = (id: string, over: Partial<MemoryGraphNode> = {}): MemoryGraphNode => ({ id, kind: 'note', source: 'basic-memory', title: id, area: 'Other', degree: 0, ...over });
 
@@ -170,5 +171,156 @@ describe('memory map tree', () => {
     expect(l.nodes.length).toBeGreaterThan(10);
     expect(searchItems(ix, 'note 2999', new Set()).map((n) => n.id)).toEqual(['n2999']);
     expect(performance.now() - t0).toBeLessThan(500);
+  });
+});
+
+/** Screen boxes that overlap. */
+function screenOverlaps(ls: ScreenLabel[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < ls.length; i++)
+    for (let j = i + 1; j < ls.length; j++) {
+      const a = ls[i];
+      const b = ls[j];
+      if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) out.push(`${a.p.id} / ${b.p.id}`);
+    }
+  return out;
+}
+
+describe('memory map expand all', () => {
+  test('expand all opens every area with every item, each once', () => {
+    const g = world();
+    const ix = indexGraph(g);
+    const t = buildTree(ix, state({ all: true }));
+    for (const a of t.root.children) expect(a.children.filter((c) => c.kind === 'node').length).toBe(ix.areas.find((x) => areaId(x.name) === a.id)!.ids.length);
+    expect(flat(t.root).some((n) => n.kind === 'more')).toBe(false);
+    for (const n of g.nodes) expect(t.items.has(n.id)).toBe(true);
+    const l = layoutAll(t.root, ix);
+    expect(l.blocks!.length).toBe(ix.areas.length);
+    expect(l.rank!.length).toBe(g.nodes.length);
+    expect(overlaps(l)).toEqual([]);
+  });
+
+  test('labels never overlap and are never under 11px, at any zoom, on a desktop and a phone', () => {
+    const nodes = Array.from({ length: 3000 }, (_, i) => node(`n${i}`, { title: `A memory about thing number ${i}`, area: ['People', 'Projects', 'Homelab', 'Conversations', 'Courses'][i % 5] }));
+    const g = graph(nodes, Array.from({ length: 2000 }, (_, i) => [`n${i}`, `n${(i * 7 + 3) % 3000}`, 'links to'] as [string, string, string]));
+    const ix = indexGraph(g);
+    const t = buildTree(ix, state({ all: true }));
+    for (const phone of [false, true]) {
+      const l = layoutAll(t.root, ix, { phone });
+      const [w, h] = phone ? [390, 600] : [1440, 700];
+      let shownFar = 0;
+      for (const k of [0.04, 0.2, 0.45, 0.8, 1, 1.6, 3]) {
+        let items = 0;
+        // centred on the brain and on a corner of the busiest block
+        for (const at of [{ x: 0, y: 0 }, { x: l.bounds.x + l.bounds.w * 0.8, y: l.bounds.y + 40 }]) {
+          const v = { k, x: w / 2 - at.x * k, y: h / 2 - at.y * k };
+          const ls = visibleLabels(l, v, w, h);
+          expect(screenOverlaps(ls)).toEqual([]);
+          for (const b of ls) expect(b.px).toBeGreaterThanOrEqual(11);
+          if (k === 0.04) shownFar = Math.max(shownFar, ls.filter((b) => b.p.t.kind === 'node').length);
+          items = Math.max(items, ls.filter((b) => b.p.t.kind === 'node').length);
+        }
+        // close in, a screen of rows reads
+        if (k >= 1) expect(items).toBeGreaterThan(10);
+      }
+      // far out only the brain and the areas: items are ticks
+      expect(shownFar).toBe(0);
+    }
+  });
+
+  test('a picked or found item shows its label far out, still without overlap', () => {
+    const g = world();
+    const ix = indexGraph(g);
+    const l = layoutAll(buildTree(ix, state({ all: true })).root, ix);
+    const ls = visibleLabels(l, { k: 0.05, x: 700, y: 350 }, 1440, 700, undefined, new Set(['madx']));
+    expect(ls.some((b) => b.p.id === 'madx')).toBe(true);
+    expect(screenOverlaps(ls)).toEqual([]);
+  });
+});
+
+describe('memory map brain view', () => {
+  const g = world();
+  const ix = indexGraph(g);
+  const L = layoutBrain(g, ix);
+
+  test('every item sits once in its area arc, on the outline', () => {
+    expect(L.items.length).toBe(g.nodes.length);
+    expect(new Set(L.items.map((i) => i.id)).size).toBe(g.nodes.length);
+    for (const a of L.areas) {
+      expect(a.t0).toBeLessThan(a.t1);
+      for (let i = a.from; i < a.to; i++) {
+        const it = L.items[i];
+        expect(g.nodes[it.node].area).toBe(a.name);
+        expect(it.side).toBe(a.side);
+        expect(it.t).toBeGreaterThan(a.t0);
+        expect(it.t).toBeLessThan(a.t1);
+        // on the half-ellipse of its hemisphere
+        expect(((Math.abs(it.x) - FISSURE) / RX) ** 2 + (it.y / RY) ** 2).toBeCloseTo(1, 3);
+        expect(Math.sign(it.x)).toBe(it.side);
+      }
+    }
+    // arcs on one side do not overlap
+    for (const s of [1, -1]) {
+      const arcs = L.areas.filter((a) => a.side === s).sort((a, b) => a.t0 - b.t0);
+      for (let i = 1; i < arcs.length; i++) expect(arcs[i].t0).toBeGreaterThanOrEqual(arcs[i - 1].t1);
+    }
+  });
+
+  test('records on the left, what they are about on the right', () => {
+    const nodes = [node('c1', { area: 'Conversations' }), node('p1', { area: 'People' }), node('h1', { area: 'Homelab' })];
+    const b = layoutBrain(graph(nodes, [['c1', 'p1', 'mentions']]), indexGraph(graph(nodes, [])));
+    expect(b.areas.find((a) => a.name === 'Conversations')!.side).toBe(-1);
+    expect(b.areas.find((a) => a.name === 'People')!.side).toBe(1);
+  });
+
+  test('only edges that exist are drawn, each once', () => {
+    const real = new Set(g.edges.map(([a, b, l]) => `${g.nodes[a].id}|${g.nodes[b].id}|${g.labels[l]}`));
+    expect(L.edges.length).toBe(g.edges.length);
+    for (const e of L.edges) expect(real.has(`${L.items[e.a].id}|${L.items[e.b].id}|${e.label}`)).toBe(true);
+    expect(new Set(L.edges.map((e) => `${e.a}|${e.b}|${e.label}`)).size).toBe(L.edges.length);
+    for (const e of L.edges) expect(e.cross).toBe(L.items[e.a].area !== L.items[e.b].area);
+  });
+
+  test('bundled paths start and end at their items', () => {
+    for (const e of L.edges) {
+      const A = L.items[e.a];
+      const B = L.items[e.b];
+      const p = e.pts;
+      expect(p[0]).toBeCloseTo(A.ix, 2);
+      expect(p[1]).toBeCloseTo(A.iy, 2);
+      expect(p[p.length - 2]).toBeCloseTo(B.ix, 2);
+      expect(p[p.length - 1]).toBeCloseTo(B.iy, 2);
+      expect((p.length - 2) % 6).toBe(0);
+    }
+    // a link across hemispheres passes near the middle: it bundles through the centre
+    const across = L.edges.find((e) => L.items[e.a].side !== L.items[e.b].side);
+    if (across) {
+      let near = Infinity;
+      for (let i = 0; i < across.pts.length; i += 2) near = Math.min(near, Math.hypot(across.pts[i], across.pts[i + 1]));
+      expect(near).toBeLessThan(RX * 0.5);
+    }
+  });
+
+  test('filters remove edges: hidden relations, across areas only, items stepped back', () => {
+    const all = L.edges.filter((e) => edgeOn(L, e, { hidden: new Set(), crossOnly: false })).length;
+    expect(all).toBe(L.edges.length);
+    const noOwns = L.edges.filter((e) => edgeOn(L, e, { hidden: new Set(['owns']), crossOnly: false }));
+    expect(noOwns.some((e) => e.label === 'owns')).toBe(false);
+    expect(noOwns.length).toBe(L.edges.length - g.edges.filter(([, , l]) => g.labels[l] === 'owns').length);
+    const cross = L.edges.filter((e) => edgeOn(L, e, { hidden: new Set(), crossOnly: true }));
+    expect(cross.every((e) => e.cross)).toBe(true);
+    expect(cross.length).toBeLessThan(all);
+    const madx = g.nodes.findIndex((n) => n.id === 'madx');
+    const gone = L.edges.filter((e) => edgeOn(L, e, { hidden: new Set(), crossOnly: false, gone: (i) => i === madx }));
+    expect(gone.some((e) => L.items[e.a].node === madx || L.items[e.b].node === madx)).toBe(false);
+  });
+
+  test('builds fast for 3,000 items and links', () => {
+    const nodes = Array.from({ length: 3000 }, (_, i) => node(`n${i}`, { area: ['People', 'Projects', 'Homelab', 'Conversations', 'Courses', 'Conclave'][i % 6] }));
+    const big = graph(nodes, Array.from({ length: 3300 }, (_, i) => [`n${i % 3000}`, `n${(i * 13 + 5) % 3000}`, 'links to'] as [string, string, string]));
+    const t0 = performance.now();
+    const b = layoutBrain(big, indexGraph(big));
+    expect(b.edges.length).toBeGreaterThan(3000);
+    expect(performance.now() - t0).toBeLessThan(800);
   });
 });
