@@ -37,7 +37,8 @@ describe('informational balances', () => {
   test('the reset line names the clock time, then the countdown', () => {
     const resetsAt = Date.now() + 83 * 60_000;
     const html = renderToStaticMarkup(<LimitRow window={{ name: '5h', usedPercent: 22, resetsAt }} plan="Plan" />);
-    expect(html).toMatch(/resets \d{2}:\d{2} \(in /);
+    // 83 minutes ahead crosses midnight late in the day, and a reset on another day names its weekday
+    expect(html).toMatch(/resets (?:[A-Z][a-z]{2} )?\d{2}:\d{2} \(in /);
   });
 
   test('unknown percentages stay unknown, including a limit without remaining', () => {
