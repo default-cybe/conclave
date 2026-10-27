@@ -316,6 +316,12 @@ export interface McpServerConfig {
   inheritEnv?: boolean;
   /** Longest a tool call on this server may take, in ms. Progress from the server resets it, up to 5 times this. Default 120,000. */
   timeoutMs?: number;
+  /**
+   * oauth: the hub signs in to an http or sse server with OAuth (discovery,
+   * dynamic client registration, PKCE) when the owner presses Connect. The
+   * tokens are sealed in secrets.json as mcp.<name>.oauth (extensions/mcp-oauth.ts).
+   */
+  auth?: 'oauth';
 }
 
 /**

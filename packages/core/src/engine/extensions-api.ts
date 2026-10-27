@@ -50,6 +50,7 @@ import { filterTools, untrustedOffers } from '../tools';
 import { checkPermission, dangerousCommand } from '../session/permissions';
 import { mcpFromClaude, mcpFromCodexToml, mcpFromGemini, mcpFromOpenCode, readForeignHooks } from '../extensions/compat';
 import { mcpConnectPlan } from '../extensions/cli-sync';
+import { oauthFailure } from '../extensions/mcp-oauth';
 import { oneLine } from '../util/text';
 import type { Engine } from './engine';
 import { EngineError } from './errors';
@@ -792,6 +793,7 @@ function validateServerConfig(cfg: unknown): McpServerConfig {
   }
   if (c.args !== undefined && (!Array.isArray(c.args) || c.args.some((a) => typeof a !== 'string'))) throw new EngineError(400, 'config.args must be a list of strings');
   if (c.type !== undefined && !['stdio', 'http', 'sse'].includes(c.type)) throw new EngineError(400, 'config.type must be stdio, http or sse');
+  if (c.auth !== undefined && (c.auth !== 'oauth' || !c.url)) throw new EngineError(400, 'config.auth must be "oauth", on an http or sse server');
   return c;
 }
 
@@ -820,6 +822,8 @@ export function updateMcpServer(engine: Engine, name: string, patch: { enabled?:
   if (next.enabled === true) delete next.enabled;
   const user = engine.config.getUser();
   engine.config.replace({ ...user, mcpServers: { ...(user.mcpServers ?? {}), [name]: next } });
+  // a sign-in belongs to the address it was made for: a new URL or auth starts from Connect
+  if (found.config.url !== next.url || found.config.auth !== next.auth) engine.mcpManager?.signOut(name);
   engine.invalidateMcpTools();
   if (next.enabled !== false) void engine.mcpManager?.ensure(name).catch(() => undefined);
   return statusOf(engine, name);
@@ -834,8 +838,51 @@ export function removeMcpServer(engine: Engine, name: string): boolean {
   if (!(name in servers)) throw new EngineError(400, `${name} is not in config.json, so it cannot be removed here`);
   delete servers[name];
   engine.config.replace({ ...user, mcpServers: servers });
+  // a removed server keeps no tokens behind
+  engine.mcpManager?.signOut(name);
   engine.invalidateMcpTools();
   return true;
+}
+
+function oauthServer(engine: Engine, name: string): McpServerConfig {
+  const { config } = requireServer(engine, name);
+  if (config.auth !== 'oauth' || !config.url) throw new EngineError(400, `${name} does not sign in with OAuth. Set "auth": "oauth" on an http server first.`);
+  return config;
+}
+
+/** Start an OAuth sign-in for a server: returns the address the owner opens. redirectUrl is the hub's public callback. */
+export async function startMcpOAuth(engine: Engine, name: string, redirectUrl: string): Promise<{ authorizeUrl: string }> {
+  const cfg = oauthServer(engine, name);
+  const mcp = engine.mcpManager;
+  if (!mcp) throw new EngineError(501, 'MCP is not available on this hub');
+  try {
+    return await mcp.oauth.start(name, engine.config.expand(cfg.url!), redirectUrl);
+  } catch (err) {
+    throw new EngineError(502, `could not start the sign-in with ${name}: ${oauthFailure(err)}`);
+  }
+}
+
+/** Finish a sign-in from the public callback, then connect the server. Unknown or used states are refused. */
+export async function finishMcpOAuth(engine: Engine, input: { state: string; code?: string; error?: string }): Promise<McpStatus> {
+  const mcp = engine.mcpManager;
+  if (!mcp) throw new EngineError(501, 'MCP is not available on this hub');
+  const server = mcp.oauth.serverOf(input.state);
+  if (!server) throw new EngineError(400, 'This address only finishes a sign-in started in Conclave. Press Connect again.');
+  try {
+    await mcp.oauth.finish(input.state, input.code, input.error);
+  } catch (err) {
+    throw new EngineError(400, oauthFailure(err));
+  }
+  return restartMcp(engine, server);
+}
+
+/** Forget a server's tokens and registration. The server then waits for Connect. */
+export async function disconnectMcpOAuth(engine: Engine, name: string): Promise<McpStatus> {
+  oauthServer(engine, name);
+  const mcp = engine.mcpManager;
+  if (!mcp) throw new EngineError(501, 'MCP is not available on this hub');
+  mcp.signOut(name);
+  return restartMcp(engine, name);
 }
 
 export function importMcp(from: McpImportFormat, text: string): Record<string, McpServerConfig> {

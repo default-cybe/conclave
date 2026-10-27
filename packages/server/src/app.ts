@@ -118,6 +118,8 @@ const PUBLIC_ROUTES: Array<[string, RegExp]> = [
   ['POST', /^\/api\/invite\/[^/]+$/],
   // Google sends the browser back here; the state is checked against a sign-in the owner started (routes-pim.ts)
   ['GET', /^\/api\/pim\/oauth\/google\/callback$/],
+  // an MCP server's sign-in page sends the browser back here; same state check (extensions/mcp-oauth.ts)
+  ['GET', /^\/api\/mcp\/oauth\/callback$/],
 ];
 
 function isLocalOrigin(origin: string): boolean {

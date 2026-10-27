@@ -488,6 +488,8 @@ export function registerExtensionRuntime(ctx: MockCtx) {
       proxmox: { command: 'pve-mcp', args: ['--host', 'pve.lan'], env: { PVE_TOKEN: '${secret:PVE_API_TOKEN}' } },
       playwright: { command: 'npx', args: ['@playwright/mcp@latest', '--headless'] },
       homeassistant: { type: 'sse', url: 'http://ha.lan:8123/mcp_server/sse', headers: { Authorization: 'Bearer ${secret:HASS_TOKEN}' }, enabled: false },
+      notion: { type: 'http', url: 'https://mcp.notion.com/mcp', auth: 'oauth' },
+      linear: { type: 'http', url: 'https://mcp.linear.app/mcp', auth: 'oauth' },
     };
   }
   cfg.hooks ??= {};
@@ -524,6 +526,8 @@ export function registerExtensionRuntime(ctx: MockCtx) {
   /** Live server state by name (status overrides; tools come from TOOLS). */
   const live = new Map<string, { status: McpStatus['status']; error?: string }>();
   if (!FRESH) live.set('playwright', { status: 'failed', error: 'Executable not found in $PATH: "npx"' });
+  /** OAuth servers the owner has connected. Linear starts signed in, Notion waits for Connect. */
+  const signedIn = new Set<string>(FRESH ? [] : ['linear']);
 
   const runs: HookRunDto[] = FRESH ? [] : seedRuns();
 
@@ -1226,7 +1230,8 @@ export function registerExtensionRuntime(ctx: MockCtx) {
     const t = transportOf(s.config);
     const l = live.get(s.name);
     const off = s.config.enabled === false;
-    const status: McpStatus['status'] = off ? 'disabled' : (l?.status ?? 'connected');
+    const signedOut = s.config.auth === 'oauth' && !signedIn.has(s.name);
+    const status: McpStatus['status'] = off ? 'disabled' : signedOut ? 'failed' : (l?.status ?? 'connected');
     const count = status === 'connected' ? (TOOLS[s.name]?.length ?? 3) : 0;
     return {
       name: s.name,
@@ -1238,6 +1243,7 @@ export function registerExtensionRuntime(ctx: MockCtx) {
       ...(s.plugin ? { plugin: s.plugin } : {}),
       transport: t,
       enabled: status !== 'disabled',
+      ...(s.config.auth === 'oauth' ? { auth: signedOut ? ('needs-auth' as const) : ('connected' as const) } : {}),
     };
   }
 
@@ -1328,6 +1334,23 @@ export function registerExtensionRuntime(ctx: MockCtx) {
     live.delete(s!.name);
     changed();
     return { ok: true };
+  });
+
+  // OAuth Connect: the mock signs in at once, as if the owner pressed Allow in the other tab
+  on('POST', '/api/mcp/:name/oauth/start', async ({ params }) => {
+    const s = requireServer(params[0]);
+    if (s.config.auth !== 'oauth') fail(400, `${s.name} does not sign in with OAuth. Set "auth": "oauth" on an http server first.`);
+    await sleep(300);
+    signedIn.add(s.name);
+    setTimeout(changed, 400);
+    return { authorizeUrl: `${new URL(s.config.url!).origin}/authorize?state=mock` };
+  });
+
+  on('DELETE', '/api/mcp/:name/oauth', ({ params }) => {
+    const s = requireServer(params[0]);
+    signedIn.delete(s.name);
+    changed();
+    return statusOf(s);
   });
 
   on('POST', '/api/mcp/:name/restart', async ({ params }) => {
