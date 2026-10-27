@@ -44,7 +44,7 @@ import { AgentPicker, DEFAULT_DEBATE, DEFAULT_JURY, DEFAULT_LOOP, DebatersPicker
 import { moveSessionTo } from './FolderChooser';
 import { MODES } from './modes';
 import { ULTRA_LINE, UltraSwitch } from '../workflows/UltraSwitch';
-import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPicked, useAgentFollow, type StripFile } from '@/features/conversation/ComposerParts';
+import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPicked, StatusLine, useAgentFollow, type StripFile } from '@/features/conversation/ComposerParts';
 import { DeviceChip, FolderChip, deviceItems, useComputers } from '@/features/home/Where';
 import { useThisComputer } from '@/features/home/here';
 import { CODE_AGENT, customAgent, modeOf } from '@/features/home/start';
@@ -535,6 +535,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
             />
           }
         />
+        <StatusLine session={session} phone />
         <Sheet open={sheet} onClose={() => setSheet(false)} title="Options">
           <div className="space-y-4 px-4 pb-4">
             {empty && <Segmented size="touch" full label="Mode" value={session.mode} onChange={setMode} options={MODES.map((m) => ({ value: m.value, label: m.label }))} />}
@@ -637,6 +638,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
           </>
         }
       />
+      <StatusLine session={session} />
     </div>
   );
 }

@@ -19,7 +19,7 @@ import { Link } from 'wouter';
 import type { Message } from '@conclave/core/types';
 import { useHub } from '@/store/store';
 import { cn } from '@/lib/text';
-import { durationShort } from '@/lib/format';
+import { compact, durationShort } from '@/lib/format';
 import { modelName } from '@/lib/models';
 import { thoughtTime } from '@/lib/toolLine';
 import { Elapsed } from '@/components/motion';
@@ -29,6 +29,7 @@ import { resultText } from './util';
 import { AgentResultNotice } from './AgentResultRow';
 import { Chevron, GROUP_BODY, RESULT, ROW, ROW_BTN, RunningTime } from './rowParts';
 import { subagentOf, type Subagent } from './liveTasks';
+import { callCostWord } from './panel';
 import { callMs, useSubagentNow, type ToolItem } from './ToolRows';
 import { fanOutIndex, fanOutWords, firstLine, lineState, type ChildNews, type LineState } from './fanOut';
 
@@ -108,8 +109,14 @@ function FanOutLine({ item, sub, news, state, took, report }: { item: ToolItem; 
   const running = state === 'running';
   const now = useSubagentNow(running, sub.childId);
   const model = useHub((s) => (sub.childId ? s.sessions[sub.childId]?.model : undefined));
+  // its session's tokens and bill, as the composer's status line says them: one string, so other events do not draw the line again
+  const used = useHub((s) => {
+    const st = sub.childId ? s.sessions[sub.childId]?.stats : undefined;
+    const tokens = st ? st.inputTokens + st.cacheReadTokens + st.outputTokens : 0;
+    return st && tokens ? `${compact(tokens)} tokens, ${callCostWord(st.costUsd, tokens, model)}` : '';
+  });
   const detail = lineDetail(state, report, now);
-  const meta = [sub.handedTo ?? sub.agent, model && modelName(model), news && news.round > 1 ? `round ${news.round}` : ''].filter(Boolean).join(', ');
+  const meta = [sub.handedTo ?? sub.agent, model && modelName(model), used, news && news.round > 1 ? `round ${news.round}` : ''].filter(Boolean).join(', ');
   const label = news?.label ?? sub.description;
   return (
     <div id={`tool-${item.tool.id}`} data-fanout-line="" data-state={state}>
