@@ -273,6 +273,18 @@ export class BasicMemoryMcp implements ExternalMemory {
     return { hits, hasMore };
   }
 
+  /**
+   * One page of recent_activity rows of one type (entity or relation) over
+   * the last year, the longest the server allows. Read only; the memory map
+   * builds its graph from them (memory/graph.ts parseBmActivity).
+   */
+  async activityPage(type: 'entity' | 'relation', page: number, pageSize: number): Promise<unknown[]> {
+    const { data } = await this.callJson('recent_activity', this.withProject({ type: [type], timeframe: '365d', page, page_size: pageSize }));
+    if (Array.isArray(data)) return data;
+    const d = data && typeof data === 'object' ? (data as Record<string, unknown>) : undefined;
+    return Array.isArray(d?.results) ? d.results : [];
+  }
+
   /** Full markdown of one note by title, permalink or memory:// url. */
   async read(identifier: string): Promise<string> {
     const { text } = await this.call('read_note', this.withProject({ identifier }));

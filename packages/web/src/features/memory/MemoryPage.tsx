@@ -16,13 +16,15 @@ import { NotesTab } from './Notes';
 import { ConnectionsTab } from './Connections';
 import { ImportExportTab } from './ImportExport';
 import { ShareTab } from './Share';
+import { MemoryMapTab } from './MemoryMap';
 import { useConnectionList } from './store';
 import { storeWords } from './words';
 
-type TabId = 'notes' | 'connections' | 'import' | 'share';
+type TabId = 'notes' | 'map' | 'connections' | 'import' | 'share';
 
 const TABS: Array<{ id: TabId; label: string; href: string }> = [
   { id: 'notes', label: 'Notes', href: '/memory' },
+  { id: 'map', label: 'Map', href: '/memory/map' },
   { id: 'connections', label: 'Connections', href: '/memory/connections' },
   { id: 'import', label: 'Import and export', href: '/memory/import' },
   { id: 'share', label: 'Share', href: '/memory/share' },
@@ -83,6 +85,7 @@ export default function MemoryPage() {
       </PageHeader>
       {current === 'notes' && <NotesTab adding={adding} setAdding={setAdding} store={store.text} />}
       {current === 'connections' && <ConnectionsTab adding={addConn} setAdding={setAddConn} />}
+      {current === 'map' && <MemoryMapTab />}
       {current === 'import' && <ImportExportTab />}
       {current === 'share' && <ShareTab />}
     </Page>

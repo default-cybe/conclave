@@ -93,6 +93,7 @@ export type MemoryAdminApi = Pick<
   | 'exportMarkdown'
   | 'exportMarkdownTo'
   | 'groupNotes'
+  | 'graph'
 >;
 
 /** Device registry: the hub machine plus connected daemons. Implemented in machine/registry.ts. */
