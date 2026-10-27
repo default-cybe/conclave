@@ -193,7 +193,7 @@ export function RunView({ id }: { id: string }) {
         <ResultSection detail={detail} />
 
         <Findings runId={run.id} findings={detail.findings} refutedRate={detail.refutedRate} onChange={setFinding} />
-        <Worktrees runId={run.id} calls={detail.calls} onChange={setWorktree} />
+        <Worktrees runId={run.id} sessionId={run.sessionId} calls={detail.calls} onChange={setWorktree} />
 
         {detail.logs.length > 0 && (
           <section aria-labelledby="wf-log">

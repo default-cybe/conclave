@@ -26,13 +26,14 @@ import { ServerForm } from './mcp/ServerForm';
 import { ToolsDrawer } from './mcp/ToolsDrawer';
 import { scrollBehavior } from './hooks/model';
 import { SourceBadge } from './shared/SourceBadge';
-import { advice, target, transportOf } from './mcp/parts';
+import { advice, openAuthorize, target, transportOf } from './mcp/parts';
 import { errText } from '@/features/settings/parts';
 
 type TestState = { busy: true } | ({ busy: false } & McpTestResult) | { busy: false; ok: false; error: string; ms?: undefined; tools?: undefined };
 
 export function StatusWord({ st }: { st: McpStatus }) {
   if (st.status === 'connecting') return <LiveStatus state="tool" label="Connecting" still />;
+  if (st.status !== 'disabled' && st.auth === 'needs-auth') return <StateWord tone="dim">not connected</StateWord>;
   if (st.status === 'failed') return <StateWord tone="fault">failed</StateWord>;
   if (st.status === 'disabled') return <StateWord tone="dim">off</StateWord>;
   return <StateWord tone="ok">connected</StateWord>;
@@ -54,6 +55,8 @@ export function McpServersTab() {
   const [tools, setTools] = useState<string | null>(null);
   const [connect, setConnect] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [signing, setSigning] = useState<Record<string, boolean>>({});
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const reload = useRef(load.reload);
   reload.current = load.reload;
 
@@ -117,6 +120,23 @@ export function McpServersTab() {
     }
   };
 
+  // the sign-in opens in a new tab and comes back to the hub; this page follows config.updated, and re-reads on focus
+  const signIn = async (name: string) => {
+    const tab = window.open('about:blank', '_blank');
+    if (tab) tab.opener = null;
+    setSigning((s) => ({ ...s, [name]: true }));
+    const r = await attempt(() => api().startMcpOAuth(name));
+    setSigning((s) => ({ ...s, [name]: false }));
+    if (!r) return tab?.close();
+    if (!openAuthorize(tab, r.authorizeUrl, window.location)) return toast({ title: `${name} gave a sign-in page that is not https. Conclave did not open it.` });
+    toast({ title: `Sign in to ${name} in the new tab, then come back here.` });
+  };
+  useEffect(() => {
+    const onFocus = () => reload.current();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
+
   const setEnabled = async (name: string, enabled: boolean) => {
     const st = await attempt(() => api().updateMcpServer(name, { enabled }));
     if (st) {
@@ -128,10 +148,11 @@ export function McpServersTab() {
   const total = list?.length ?? 0;
   const counts = {
     connected: list?.filter((s) => s.status === 'connected').length ?? 0,
-    failed: list?.filter((s) => s.status === 'failed').length ?? 0,
+    failed: list?.filter((s) => s.status === 'failed' && s.auth !== 'needs-auth').length ?? 0,
+    signIn: list?.filter((s) => s.status !== 'disabled' && s.auth === 'needs-auth').length ?? 0,
     off: list?.filter((s) => s.status === 'disabled').length ?? 0,
   };
-  const parts = [<>{plural(total, 'server')}</>, counts.connected ? <>{counts.connected} connected</> : null, counts.failed ? <span className="text-fault">{counts.failed} failed</span> : null, counts.off ? <>{counts.off} off</> : null].filter(Boolean);
+  const parts = [<>{plural(total, 'server')}</>, counts.connected ? <>{counts.connected} connected</> : null, counts.failed ? <span className="text-fault">{counts.failed} failed</span> : null, counts.signIn ? <>{counts.signIn} not connected</> : null, counts.off ? <>{counts.off} off</> : null].filter(Boolean);
 
   return (
     <div className="space-y-7 phone:space-y-8">
@@ -174,7 +195,11 @@ export function McpServersTab() {
             const own = st.origin !== 'plugin';
             const off = st.status === 'disabled';
             const t = tests[st.name];
+            const oauth = cfg?.auth === 'oauth' && !off;
+            const needsAuth = oauth && st.auth === 'needs-auth';
+            const connectLabel = signing[st.name] ? 'Opening sign-in' : needsAuth && st.error ? 'Reconnect' : needsAuth ? 'Connect' : 'Reconnect';
             const items: MenuItem[] = [
+              ...(oauth ? [{ label: connectLabel, onSelect: () => void signIn(st.name) }, ...(needsAuth ? [] : [{ label: 'Disconnect', onSelect: () => setDisconnecting(st.name) }])] : []),
               { label: 'Tools', disabled: st.status !== 'connected', detail: st.status === 'connected' ? undefined : 'Connect it first', onSelect: () => setTools(st.name) },
               { label: 'Test', disabled: off, onSelect: () => void test(st.name) },
               { label: 'Restart', disabled: off, onSelect: () => void restart(st.name) },
@@ -189,7 +214,7 @@ export function McpServersTab() {
                 { label: 'Remove', danger: true, onSelect: () => setRemoving(st.name) },
               );
             else items.push({ label: `From plugin ${st.plugin ?? ''}, read only`, detail: 'Turn the plugin off to stop it', disabled: true }, { label: 'Open the plugin', onSelect: () => navigate(`/extensions/plugins?plugin=${encodeURIComponent(st.plugin ?? '')}`) });
-            const failed = st.status === 'failed';
+            const failed = st.status === 'failed' && !needsAuth;
             return (
               <div
                 key={st.name}
@@ -220,6 +245,18 @@ export function McpServersTab() {
                       )}
                     </div>
                     {cfg && <div className="mt-0.5 truncate font-mono text-[12px] text-fg-3" title={target(cfg)}>{target(cfg)}</div>}
+                    {oauth && (
+                      <div className="mt-2 text-[13px] leading-[1.45] text-fg-2 phone:text-[14px]">
+                        {needsAuth ? (st.error ?? `Not connected. Press Connect and sign in to ${st.name} in your browser.`) : <><span className="text-ok">Signed in</span> with OAuth. The hub refreshes the sign-in by itself.</>}
+                      </div>
+                    )}
+                    {oauth && mobile && (
+                      <div className="mt-2">
+                        <Button variant={needsAuth ? 'solid' : 'outline'} size="touch" onClick={() => void signIn(st.name)} disabled={signing[st.name]}>
+                          {connectLabel}
+                        </Button>
+                      </div>
+                    )}
                     {failed && (
                       <div className="mt-2 text-[13px] leading-[1.45] phone:text-[14px]">
                         <div className="text-fault">{st.error ?? 'Failed to start.'}</div>
@@ -244,6 +281,8 @@ export function McpServersTab() {
                     )}
                     {!mobile && (
                       <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+                        {oauth && <TextAction label={connectLabel} onClick={() => void signIn(st.name)} />}
+                        {oauth && !needsAuth && <TextAction label="Disconnect" onClick={() => setDisconnecting(st.name)} />}
                         {st.status === 'connected' && <TextAction label="Tools" onClick={() => setTools(st.name)} />}
                         {!off && <TextAction label={t?.busy ? 'Testing' : 'Test'} onClick={() => void test(st.name)} />}
                         {!off && <TextAction label={restarting[st.name] ? 'Restarting' : 'Restart'} onClick={() => void restart(st.name)} />}
@@ -286,6 +325,22 @@ export function McpServersTab() {
       />
       <ToolsDrawer server={tools} open={!!tools} onClose={() => setTools(null)} />
       <ConnectDrawer server={connect} open={!!connect} onClose={() => setConnect(null)} />
+      <ConfirmDialog
+        open={!!disconnecting}
+        onClose={() => setDisconnecting(null)}
+        title={`Disconnect ${disconnecting ?? ''}?`}
+        confirm="Disconnect"
+        busy="Disconnecting"
+        onConfirm={async () => {
+          const name = disconnecting!;
+          const st = await attempt(() => api().disconnectMcpOAuth(name));
+          if (st) {
+            patch(st);
+            toast({ title: `${name} is disconnected. The hub forgot its sign-in.` });
+          }
+        }}
+        body={<>The hub forgets the sign-in and the tools leave new sessions. The server stays in your list; press Connect to sign in again. To cut access at the source too, remove Conclave in the app's own connection settings.</>}
+      />
       <ConfirmDialog
         open={!!removing}
         onClose={() => setRemoving(null)}

@@ -4,6 +4,7 @@ import type { AgentDef } from '../extensions/types';
 import type { SessionRunner } from '../session/runner';
 import { newId } from '../util/ids';
 import { lastAssistantText, reminder, renderTranscript } from '../session/transcript';
+import { designerBlocks } from '../session/design-brief';
 import { truncateMiddle } from '../util/text';
 import { logger } from '../util/log';
 import { defuseFrameworkTags } from '../session/untrusted';
@@ -340,6 +341,8 @@ async function driveSubagent(
     if (parent && !followUp) {
       const start = await engine.runHook(parent, 'SubagentStart', ids, session.agent);
       for (const ctx of start.additionalContext) content.push(reminder(ctx));
+      // the owner's design direction goes to the designer with its brief (session/design-brief.ts)
+      if (session.agent === 'designer') content.push(...designerBlocks(engine, parent.id));
     }
     engine.addMessage(sessionId, { role: 'user', kind: 'normal', content });
   }
