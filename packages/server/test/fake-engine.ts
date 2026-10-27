@@ -359,6 +359,13 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
       repos.sessions.update(next);
       return next;
     },
+    markSeen(id) {
+      rec('markSeen', id);
+      const s = sessionOr404(id);
+      const next = { ...s, meta: { ...s.meta, seenAt: Date.now() } };
+      repos.sessions.update(next);
+      return next;
+    },
     forkSession(id, fromSeq) {
       rec('forkSession', id, fromSeq);
       return { ...sessionOr404(id), id: newId('ses'), parentId: id };

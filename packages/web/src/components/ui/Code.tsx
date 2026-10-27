@@ -3,12 +3,15 @@
  * inputs, the approval card and floating layers: bg-sunk, a rule border,
  * r-2, mono 12.5/1.6. Inside the approval card pass `bare` (fill, no border).
  */
-import { useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Check, Copy } from 'lucide-react';
-import { cn, parseDiff, type DiffFile } from '@/lib/text';
+import { cn, diffSpan, parseDiff, type DiffFile, type DiffLine } from '@/lib/text';
 import { useCopy, useIsMobile } from '@/lib/hooks';
 import { highlight, langFromPath } from '@/lib/highlight';
 import { Swap } from '../motion/Swap';
+import { Button } from './Button';
+import { Textarea } from './Field';
+import { useEscape } from './Overlay';
 
 const BOX = 'rounded-[var(--r-2)] bg-sunk t-code text-fg';
 
@@ -122,7 +125,10 @@ export function InlineCode({ children, className }: { children: ReactNode; class
 /**
  * A diff: a header row above the box (verb, mono path, +n −n), then the
  * lines with numbers (fg-3), a sign gutter and syntax colors. Collapses to
- * `maxLines` with "Show all N lines".
+ * `maxLines` with "Show all N lines". With `onComment` each line number is
+ * a button: it opens a comment box under the line, and Shift with it picks
+ * the range from the line already picked. On a phone, with the box still
+ * empty, a tap on another number picks the range (touch has no Shift).
  */
 export function Diff({
   diff,
@@ -132,6 +138,7 @@ export function Diff({
   bare,
   header = true,
   action,
+  onComment,
   className,
 }: {
   /** A unified diff (first file is shown) */
@@ -143,15 +150,50 @@ export function Diff({
   header?: boolean;
   /** A quiet action at the right of the header ("View file"). */
   action?: ReactNode;
+  /** The owner commented on these lines (hunk rows left out). */
+  onComment?: (path: string, lines: DiffLine[], text: string) => void;
   className?: string;
 }) {
   const f = useMemo(() => file ?? (diff ? parseDiff(diff)[0] : undefined), [file, diff]);
   const [all, setAll] = useState(false);
+  // the picked lines, as indexes into what is shown; the box opens under the last
+  const [pick, setPick] = useState<{ from: number; to: number } | null>(null);
+  const [note, setNote] = useState('');
+  const table = useRef<HTMLTableElement>(null);
+  const mobile = useIsMobile();
+  const close = (back: number) => {
+    setPick(null);
+    setNote('');
+    table.current?.querySelector<HTMLButtonElement>(`[data-line="${back}"]`)?.focus();
+  };
+  // the box is the top layer: Esc closes it, not the dialog or sheet the diff sits in
+  useEscape(!!pick, () => pick && close(Math.max(pick.from, pick.to)));
   if (!f) return null;
   const lang = langFromPath(f.path);
   const lines = f.lines.filter((l) => l.type !== 'meta');
   const long = lines.length > maxLines && !all;
   const shown = long ? lines.slice(0, maxLines) : lines;
+  const lo = pick ? Math.min(pick.from, pick.to) : -1;
+  const hi = pick ? Math.max(pick.from, pick.to) : -1;
+  const choose = (i: number, range: boolean) => {
+    if (pick && pick.from === i && pick.to === i) {
+      setPick(null);
+      setNote('');
+    } else setPick(range && pick ? { from: pick.from, to: i } : { from: i, to: i });
+  };
+  const add = () => {
+    if (!note.trim() || !onComment) return;
+    onComment(f.path, shown.slice(lo, hi + 1), note);
+    close(hi);
+  };
+  const boxKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      add();
+    }
+  };
+  const at = pick ? diffSpan(shown.slice(lo, hi + 1)) : {};
+  const span = at.line === undefined ? 'these lines' : `${at.endLine === undefined ? `line ${at.line}` : `lines ${at.line}-${at.endLine}`}${at.removed ? ' (removed)' : ''}`;
   return (
     <div className={className}>
       {header && (
@@ -166,7 +208,7 @@ export function Diff({
       )}
       <div className={cn(BOX, !bare && 'border border-rule', 'overflow-hidden')}>
         <div className="overflow-x-auto py-1.5">
-          <table className="w-full border-collapse">
+          <table ref={table} className="w-full border-collapse">
             <tbody>
               {shown.map((l, i) => {
                 if (l.type === 'hunk')
@@ -178,15 +220,55 @@ export function Diff({
                     </tr>
                   );
                 const html = highlight(l.text, lang);
+                const picked = i >= lo && i <= hi;
                 return (
-                  <tr key={i} style={{ background: l.type === 'add' ? 'var(--add-bg)' : l.type === 'del' ? 'var(--del-bg)' : undefined }}>
-                    <td className="w-9 min-w-9 pr-1 text-right align-top text-fg-3 select-none">{l.type === 'del' ? l.oldNo : (l.newNo ?? '')}</td>
+                  <Fragment key={i}>
+                  <tr style={{ background: l.type === 'add' ? 'var(--add-bg)' : l.type === 'del' ? 'var(--del-bg)' : undefined }} className={cn(picked && 'shadow-[inset_2px_0_0_var(--signal)]')}>
+                    <td className="w-9 min-w-9 pr-1 text-right align-top text-fg-3 select-none">
+                      {onComment ? (
+                        <button
+                          type="button"
+                          data-line={i}
+                          aria-label={`Comment on line ${lineNo(l)}`}
+                          aria-pressed={picked}
+                          title="Comment on this line. Shift picks a range."
+                          onClick={(e) => choose(i, e.shiftKey || (mobile && !note.trim()))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && e.shiftKey) {
+                              e.preventDefault();
+                              choose(i, true);
+                            }
+                          }}
+                          className={cn('-my-px w-full rounded-[3px] pr-0.5 text-right font-mono phone:min-h-6 transition-colors duration-[var(--dur-1)] hov:bg-hover hov:text-fg', picked && 'text-fg')}
+                        >
+                          {lineNo(l) ?? ''}
+                        </button>
+                      ) : (
+                        lineNo(l) ?? ''
+                      )}
+                    </td>
                     <td className={cn('w-3.5 min-w-3.5 text-center align-top select-none', l.type === 'add' ? 'text-ok' : l.type === 'del' ? 'text-fault' : 'text-fg-4')}>
                       {l.type === 'add' ? '+' : l.type === 'del' ? '−' : ''}
                     </td>
                     {/* phones wrap long lines: a line cut at the screen's edge reads as cut off, and nothing says the box scrolls */}
                     <td className="pr-3 whitespace-pre phone:whitespace-pre-wrap phone:[overflow-wrap:anywhere]">{html ? <span className="hljs" dangerouslySetInnerHTML={{ __html: html }} /> : l.text || ' '}</td>
                   </tr>
+                  {onComment && i === hi && (
+                    <tr>
+                      <td colSpan={3} className="px-3 py-2 font-sans tracking-normal">
+                        <Textarea autoFocus minRows={2} maxRows={8} value={note} onChange={(e) => setNote(e.target.value)} onKeyDown={boxKey} aria-label={`Comment on ${span}`} placeholder={mobile && lo === hi ? `Comment on ${span}. Tap another number for a range.` : `Comment on ${span}`} className="w-full max-w-[640px]" />
+                        <div className="mt-1.5 flex items-center gap-1">
+                          <Button variant="solid" size="sm" aria-disabled={!note.trim() || undefined} onClick={add}>
+                            Add comment
+                          </Button>
+                          <Button variant="quiet" size="sm" onClick={() => close(hi)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>
@@ -200,4 +282,9 @@ export function Diff({
       </div>
     </div>
   );
+}
+
+/** The number a diff line shows: the old file's for a removed line, else the new file's. */
+function lineNo(l: DiffLine | undefined): number | undefined {
+  return l?.type === 'del' ? l.oldNo : l?.newNo;
 }

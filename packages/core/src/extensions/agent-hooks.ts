@@ -205,10 +205,27 @@ export function agentHookConfig(def: AgentDef | undefined, event: HookEvent, asS
   return groups.length ? { [event]: groups } : undefined;
 }
 
-/** Two hook configs as one. */
+/** The recipe a handler came from: its tag, or the recipe script it runs. */
+function recipeIdOf(h: { recipe?: string; command?: string }): string | undefined {
+  return h.recipe ?? (typeof h.command === 'string' ? /\/recipes\/([\w.-]+)\.sh\b/.exec(h.command)?.[1] : undefined);
+}
+
+/**
+ * Two hook configs as one. A recipe group in `b` (the agent's) is dropped when
+ * `a` (the global hooks) already runs that recipe on the same event, so a
+ * recipe installed globally and also listed in an agent's `recipes:` runs once.
+ * Fail-closed recipes (write-scope) are kept: their tunables are the agent's own.
+ */
 export function mergeHookConfigs(a: HooksConfig, b: HooksConfig | undefined): HooksConfig {
   if (!b) return a;
   const out: HooksConfig = { ...a };
-  for (const [ev, groups] of Object.entries(b) as Array<[HookEvent, HookMatcher[]]>) out[ev] = [...(out[ev] ?? []), ...(groups ?? [])];
+  for (const [ev, groups] of Object.entries(b) as Array<[HookEvent, HookMatcher[]]>) {
+    const have = new Set((out[ev] ?? []).flatMap((g) => (Array.isArray(g?.hooks) ? g.hooks : []).map((h) => recipeIdOf(h as RuntimeHookCommand))).filter((id): id is string => !!id));
+    const add = (groups ?? []).filter((g) => {
+      const ids = (g.hooks ?? []).map((h) => recipeIdOf(h as RuntimeHookCommand));
+      return !ids.length || !ids.every((id) => !!id && have.has(id) && !FAIL_CLOSED.has(id));
+    });
+    out[ev] = [...(out[ev] ?? []), ...add];
+  }
   return out;
 }

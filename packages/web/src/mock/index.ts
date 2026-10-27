@@ -272,7 +272,9 @@ function updateMessage(m: Message) {
 function patchSession(id: string, patch: Partial<Session>) {
   const s = db.sessions.get(id);
   if (!s) return;
-  Object.assign(s, patch, { updatedAt: Date.now() });
+  // a turn stopped: unread until opened, as on the hub (core engine setStatus, session/unread.ts)
+  const done = s.status === 'running' && patch.status && patch.status !== 'running' && patch.status !== 'paused';
+  Object.assign(s, patch, { updatedAt: Date.now() }, done ? { meta: { ...s.meta, ...patch.meta, doneAt: Date.now() } } : {});
   emit({ type: 'session.updated', session: structuredClone(s) });
   return s;
 }
@@ -563,6 +565,16 @@ seedAddresses();
 const hub = { name: 'madx', version: '0.1.0', startedAt: D.NOW - 3 * 24 * 3_600_000, devices: D.devices.length, publicUrl: 'https://madx.tail4e2a.ts.net:7420', defaultModel: 'anthropic/claude-sonnet-5-5', features: ['acp', 'gateway', 'push', 'memory', 'extensions', 'memory-connections', 'mcp-server', 'project-trust', 'subscriptions'] };
 
 on('GET', '/api/info', async () => ({ ...hub, fingerprint: (await mockIdentity()).fingerprint }));
+// the owner's account; its layout of Side by side starts with three sessions (?split=0 starts empty)
+const mePrefs: { splitView?: string[] } = FRESH || new URLSearchParams(location.search).get('split') === '0' ? {} : { splitView: ['s_auth', 's_backup', 's_os'] };
+on('GET', '/api/me', () => ({ id: 'owner', name: 'owner', role: 'owner', people: false, hubMachine: true, passwordSet: false, providers: [], preferences: { ...mePrefs } }));
+on('PATCH', '/api/me', ({ body }) => {
+  if (body && 'splitView' in body) {
+    if (body.splitView?.length) mePrefs.splitView = [...new Set(body.splitView as string[])];
+    else delete mePrefs.splitView;
+  }
+  return { ok: true };
+});
 on('POST', '/api/pair', async ({ body }) => {
   if (!/^[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(String(body?.code ?? '').toUpperCase())) throw new HttpError(400, 'Invalid or expired code');
   const identity = await mockIdentity();
@@ -659,6 +671,17 @@ on('PATCH', '/api/sessions/:id', ({ params, body }) => {
     delete patch.mcpOff;
     patch.meta = meta;
   }
+  // the design direction rides in meta; the screenshot's bytes stay out of it (core session/design-brief.ts)
+  if ('design' in patch) {
+    const meta = { ...(patch.meta ?? db.sessions.get(params[0])?.meta ?? {}) } as Record<string, unknown>;
+    const d = patch.design as { direction: string; url?: string; image?: { name?: string; mediaType: string } | null } | null;
+    const kept = (meta.design as { image?: unknown } | undefined)?.image;
+    const image = d?.direction !== 'reference' || d.image === null ? undefined : d.image ? { name: d.image.name ?? 'screenshot', mediaType: d.image.mediaType } : kept;
+    if (d) meta.design = { direction: d.direction, ...(d.direction === 'reference' && d.url ? { url: d.url } : {}), ...(image ? { image } : {}) };
+    else delete meta.design;
+    delete patch.design;
+    patch.meta = meta;
+  }
   if (patch.chat) patch.chat = { ...(db.sessions.get(params[0])?.chat ?? {}), ...patch.chat, ...(patch.chat.thinking === null ? { thinking: undefined } : {}) };
   return patchSession(params[0], patch) ?? notFound();
 });
@@ -678,6 +701,14 @@ on('POST', '/api/sessions/:id/main-list', ({ params }) => {
   db.sessions.set(next.id, next);
   emit({ type: 'session.updated', session: structuredClone(next) });
   return next;
+});
+// the owner opened it: no longer unread, and it keeps its place in the lists (core session/unread.ts)
+on('POST', '/api/sessions/:id/seen', ({ params }) => {
+  const s = db.sessions.get(params[0]);
+  if (!s) return notFound();
+  s.meta = { ...s.meta, seenAt: Date.now() };
+  emit({ type: 'session.updated', session: structuredClone(s) });
+  return s;
 });
 on('POST', '/api/sessions/:id/fork', ({ params, body }) => {
   const src = getSession(params[0]);

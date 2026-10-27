@@ -45,7 +45,9 @@ export function NewChatSheet() {
     const { config, devices } = useHub.getState();
     const byDefault = config?.defaultDevice as string | undefined;
     setDevice(preset?.device ?? a?.device ?? (byDefault && devices[byDefault]?.online ? byDefault : 'local'));
-    setMode({ mode: a?.mode ?? 'agent' });
+    // a mode asked for (the palette's "New session in Jury") opens with that mode's defaults
+    const m = preset?.mode ?? a?.mode ?? 'agent';
+    setMode({ mode: m, ...(m === 'jury' ? { jury: DEFAULT_JURY } : m === 'debate' ? { debate: DEFAULT_DEBATE } : m === 'loop' ? { loop: DEFAULT_LOOP } : {}) });
     setPerm(a?.permissionMode ?? 'default');
     setPrompt(preset?.prompt ?? '');
     setCwd('');

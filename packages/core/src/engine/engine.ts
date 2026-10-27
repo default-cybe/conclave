@@ -126,6 +126,7 @@ import { EngineError } from './errors';
 import { handoff as handoffModel } from '../modes/handoff';
 import { estimateSwitch } from '../modes/switch-cost';
 import { nextSwitch } from '../modes/switch-marker';
+import { checkDesign, designImageKey, readDesign, type DesignInput } from '../session/design-brief';
 import { ProjectTrust } from './settings-sources';
 import * as ext from './extensions-api';
 import type { BackupOptions, HubBackup, RestoreOptions, RestoreResult } from '../client';
@@ -676,6 +677,23 @@ export class Engine implements EngineApi {
       else delete meta.mcpOff;
       next.meta = Object.keys(meta).length ? meta : undefined;
     }
+    // design direction for UI work (session/design-brief.ts): the next user message carries the brief
+    let design: DesignInput | null | undefined;
+    if ('design' in patch) {
+      if (kind === 'chat' && patch.design) throw new EngineError(400, 'A design direction is for Code sessions. Continue the chat as a session first.');
+      try {
+        design = patch.design ? checkDesign(patch.design, !!readDesign(s.meta)?.image) : null;
+      } catch (err) {
+        throw new EngineError(400, (err as Error).message);
+      }
+      const meta: Record<string, unknown> = { ...(next.meta ?? {}) };
+      const kept = readDesign(s.meta)?.image;
+      const image = design?.image === undefined ? kept : design.image ? { name: design.image.name ?? 'screenshot', mediaType: design.image.mediaType } : undefined;
+      if (design) meta.design = { direction: design.direction, ...(design.url ? { url: design.url } : {}), ...(image ? { image } : {}) };
+      else delete meta.design;
+      if (design || readDesign(s.meta)) meta.designPending = true;
+      next.meta = Object.keys(meta).length ? meta : undefined;
+    }
     // a new model on a session with history: its next request says it took over (modes/switch-marker.ts)
     if (patch.model && patch.model !== s.model && s.stats.messages > 0) {
       const meta: Record<string, unknown> = { ...(next.meta ?? {}) };
@@ -693,6 +711,8 @@ export class Engine implements EngineApi {
       if (keep) next.chat = chat;
       else delete next.chat;
     }
+    if (design?.image) this.repos.kv.set(designImageKey(id), design.image.data);
+    else if ('design' in patch && !readDesign(next.meta)?.image) this.repos.kv.delete(designImageKey(id));
     this.repos.sessions.update(next);
     this.bus.emit({ type: 'session.updated', session: next });
     // a new folder or device: the shell, read state and path allow rules start over (2.1 bug 2)
@@ -746,6 +766,7 @@ export class Engine implements EngineApi {
     if (runner?.started && session) await this.runHook(session, 'SessionEnd', { reason: 'other' }, 'other');
     this.runners.delete(id);
     this.repos.sessions.delete(id);
+    this.repos.kv.delete(designImageKey(id));
     this.bus.emit({ type: 'session.deleted', sessionId: id, accountId: this.accountOf(session) });
   }
 
@@ -1906,10 +1927,23 @@ export class Engine implements EngineApi {
   setStatus(id: string, status: SessionStatus, error?: string): void {
     const s = this.repos.sessions.get(id);
     if (!s || (s.status === status && !error)) return;
-    const next = { ...s, status, error: status === 'error' ? error : undefined, resumeAt: status === 'waiting_reset' ? s.resumeAt : undefined, updatedAt: Date.now(), meta: this.clock(s, status) };
+    let meta = this.clock(s, status);
+    // a turn stopped with something for the owner to read: unread until they open it (session/unread.ts); Pause is theirs
+    if (s.status === 'running' && status !== 'running' && status !== 'paused') meta = { ...meta, doneAt: Date.now() };
+    const next = { ...s, status, error: status === 'error' ? error : undefined, resumeAt: status === 'waiting_reset' ? s.resumeAt : undefined, updatedAt: Date.now(), meta };
     this.repos.sessions.update(next);
     this.bus.emit({ type: 'session.updated', session: next });
   }
+
+  /** The owner opened it: meta.seenAt, without moving it in the lists (updatedAt stays). */
+  markSeen(id: string): Session {
+    const s = this.requireSession(id);
+    const next = { ...s, meta: { ...s.meta, seenAt: Date.now() } };
+    this.repos.sessions.update(next);
+    this.bus.emit({ type: 'session.updated', session: next });
+    return next;
+  }
+
   parkForReset(id: string, resumeAt: number): void {
     const s = this.repos.sessions.get(id);
     if (!s) return;
@@ -2224,7 +2258,7 @@ export class Engine implements EngineApi {
     const base = this.toolsFor(session, agent, mode, depth);
     if (mode === 'chat' || !this.deps.mcpTools) return base;
     const mcp = await this.deps.mcpTools().catch(() => []);
-    const allowed = mcp.filter((t) => (!agent.mcpServers || agent.mcpServers.some((srv) => t.name.startsWith(`mcp__${srv}`))) && sessionAllowsServerTool(session, t.name));
+    const allowed = mcp.filter((t) => (!agent.mcpServers || agent.mcpServers.some((srv) => t.name.startsWith(`mcp__${srv}__`))) && sessionAllowsServerTool(session, t.name));
     // base went through the same rules in toolsFor; an untrusted session sees only the MCP tools its routine or agent names
     const untrusted = narrowsTools(session, agent.untrusted);
     const extra = filterTools(allowed, { planMode: mode === 'plan', untrusted, ...(untrusted ? { allow: agent.tools, grants: routineOf(this, session)?.allow ?? [] } : {}) }).filter((t) => sessionAllowsTool(session, t.name));

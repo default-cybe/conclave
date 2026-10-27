@@ -131,6 +131,15 @@ describe('grouped by time', () => {
     expect(chats[1].rows[0]).toEqual({ id: 'chat1', title: 'Caddy certs', href: '/chat/chat1' });
   });
 
+  test('a chat that finished after it was last opened is unread; seen since, it is not', () => {
+    const list = [s('c_new', { kind: 'chat', meta: { doneAt: NOW - MIN, seenAt: NOW - HOUR } }), s('c_seen', { kind: 'chat', updatedAt: NOW - 40 * MIN, meta: { doneAt: NOW - HOUR, seenAt: NOW - MIN } })];
+    const rows = sideGroups({ sessions: list, mode: 'chat', by: 'time', ctx, now: NOW })[0].rows;
+    expect(rows.map((r) => [r.id, !!r.unread])).toEqual([
+      ['c_new', true],
+      ['c_seen', false],
+    ]);
+  });
+
   test('the assistant is one thread on top; older assistant conversations are under History', () => {
     const withHome = [...sessions, s('home', { agent: 'assistant', title: 'Assistant', pinned: true, meta: { home: true }, updatedAt: NOW - 3 * DAY })];
     const asst = sideGroups({ sessions: withHome, mode: 'assistant', by: 'device', ctx, now: NOW });

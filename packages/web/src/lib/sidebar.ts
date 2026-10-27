@@ -21,6 +21,7 @@
  */
 import type { Session } from '@conclave/core/types';
 import { delegateMark, isDelegated, underParent } from '@conclave/core/session/delegated';
+import { isUnread } from '@conclave/core/session/unread';
 import { CHATS, deviceName, groupSessions, type GroupContext } from './grouping';
 import { hrefOf, liveState } from './recents';
 import { sessionRepo } from './github';
@@ -59,6 +60,8 @@ export interface SideRow {
   href: string;
   /** running: a small dot in signal. waiting: amber, an approval or a question waits on the owner. */
   state?: 'running' | 'waiting';
+  /** A reply came after the owner last opened it: the title is bold (core session/unread.ts). */
+  unread?: boolean;
   /** The device, only when the list is not grouped by device, and only for Code. */
   device?: string;
 }
@@ -106,7 +109,7 @@ function repoOf(items: Session[]): string | undefined {
 }
 
 function rowOf(s: Session, waiting: ReadonlySet<string>, device?: string): SideRow {
-  return { id: s.id, title: s.title || (s.kind === 'chat' ? 'New chat' : 'New session'), href: hrefOf(s), state: liveState(s, waiting), ...(device ? { device } : {}) };
+  return { id: s.id, title: s.title || (s.kind === 'chat' ? 'New chat' : 'New session'), href: hrefOf(s), state: liveState(s, waiting), ...(isUnread(s) ? { unread: true } : {}), ...(device ? { device } : {}) };
 }
 
 /** The + of a project group: its newest session's place. */

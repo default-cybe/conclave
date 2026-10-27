@@ -3,14 +3,17 @@
  * dialog 15vh from the top; a 48px input with only a rule under it; results
  * in groups (Actions, Chats, Sessions, Pages, Agents, Models, Memory). Typing
  * ">" limits to actions, "@" to chats and sessions, "#" to memory. On phones a full height
- * sheet opened from Search in the drawer.
+ * sheet opened from Search in the drawer. Words match in any order, and the
+ * commands used lately come first (lib/palette.ts).
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation } from 'wouter';
 import { ChevronLeft } from 'lucide-react';
 import type { SessionMode } from '@conclave/core/types';
-import { cn, fuzzyFilter } from '@/lib/text';
+import type { WorkflowSummary } from '@conclave/core/client';
+import { cn } from '@/lib/text';
+import { loadRecent, rankItems, rememberCommand } from '@/lib/palette';
 import { useHub, attempt, upsertSession } from '@/store/store';
 import { closePalette, openNewChat, openShortcuts, resolvedTheme, toggleContext, toggleTheme, useUi } from '@/store/ui';
 import { api } from '@/lib/api';
@@ -29,7 +32,7 @@ import { RUN_SETUP_AGAIN } from '@/lib/onboarding';
 import { isDelegated } from '@conclave/core/session/delegated';
 import { delegateWho } from '@/lib/sidebar';
 
-type Group = 'Recent' | 'Actions' | 'Chats' | 'Sessions' | 'Pages' | 'Agents' | 'Models' | 'Memory' | 'Messages' | 'Mode' | 'Run routine';
+type Group = 'Recent' | 'Actions' | 'Chats' | 'Sessions' | 'Pages' | 'Agents' | 'Models' | 'Memory' | 'Messages' | 'Mode' | 'Run routine' | 'Run workflow';
 
 interface Item {
   id: string;
@@ -45,6 +48,8 @@ interface Item {
   keep?: boolean;
   /** shown with an empty query */
   top?: boolean;
+  /** Under Recent: the group it came from, so using it again is remembered as the same command. */
+  from?: Group;
 }
 
 /** Extensions tabs as pages: [route, label, extra words to match]. */
@@ -80,7 +85,7 @@ const SETTINGS_SECTIONS: Array<[string, string, string]> = [
 /** The settings a member has (docs/design/ACCOUNTS.md 10); the rest are the hub owner's. */
 const MEMBER_SETTINGS = new Set(['account', 'providers', 'notifications', 'assistant', 'appearance', 'audit', 'about']);
 
-const ORDER: Group[] = ['Recent', 'Actions', 'Chats', 'Sessions', 'Pages', 'Agents', 'Models', 'Memory', 'Messages', 'Mode', 'Run routine'];
+const ORDER: Group[] = ['Recent', 'Actions', 'Chats', 'Sessions', 'Pages', 'Agents', 'Models', 'Memory', 'Messages', 'Mode', 'Run routine', 'Run workflow'];
 
 export function CommandPalette() {
   const open = useUi((s) => s.paletteOpen);
@@ -117,6 +122,22 @@ function Palette() {
   useFocusTrap(boxRef, true, { initial: inputRef });
 
   const close = closePalette;
+  // read once per open: what was used lately on this device
+  const [recent] = useState(loadRecent);
+  // the workflow library, fetched only when its list is open
+  const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
+  useEffect(() => {
+    if (mode !== 'workflow') return;
+    let live = true;
+    api()
+      .workflows()
+      .then((w) => live && setWorkflows(w.filter((x) => x.runnable)))
+      .catch(() => live && setWorkflows([]));
+    return () => {
+      live = false;
+    };
+  }, [mode]);
+  const keyOf = (i: Item) => `${i.from ?? i.group}:${i.id}`;
 
   useEffect(() => {
     setQ(useUi.getState().paletteQuery ?? '');
@@ -148,7 +169,7 @@ function Palette() {
 
   const items = useMemo<Item[]>(() => {
     const go = (to: string) => () => navigate(to);
-    const sub = (m: 'model' | 'agent' | 'mode' | 'routine') => () => set({ paletteMode: m, paletteQuery: undefined });
+    const sub = (m: 'model' | 'agent' | 'mode' | 'routine' | 'workflow') => () => set({ paletteMode: m, paletteQuery: undefined });
 
     if (mode === 'model') {
       const list: Item[] = [];
@@ -214,6 +235,10 @@ function Palette() {
         run: () => void attempt(() => api().runRoutine(r.id), `Started ${r.name}.`),
       }));
     }
+    if (mode === 'workflow') {
+      // the library's run sheet opens on it, for its arguments (features/workflows/WorkflowsPage.tsx)
+      return workflows.map((w) => ({ id: w.name, group: 'Run workflow' as const, text: `${w.name} ${w.description}`, label: w.name, detail: w.description, run: go(`/workflows?run=${encodeURIComponent(w.name)}`) }));
+    }
 
     const list: Item[] = [];
     // actions
@@ -227,6 +252,9 @@ function Palette() {
     if (owner) action('setup', 'Run setup again', go(RUN_SETUP_AGAIN), undefined, true);
     action('inbox', 'Open inbox', go('/approvals'), <Kbd>G I</Kbd>, true);
     action('import', 'Import past chats', go('/sessions?import=1'));
+    // a new session that starts in a mode (the New session dialog opens on it)
+    for (const m of MODES.filter((x) => x.value !== 'agent' && x.value !== 'chat')) list.push({ id: `new:${m.value}`, group: 'Actions', label: `New ${m.label.toLowerCase()} session`, text: `New ${m.label} session mode ${m.description}`, run: () => openNewChat({ mode: m.value }) });
+    action('split', 'Sessions side by side', go('/sessions/split'));
     action('shortcuts', 'Keyboard shortcuts', () => openShortcuts(), <Kbd>?</Kbd>);
     // extensions
     if (owner) {
@@ -237,6 +265,7 @@ function Palette() {
       action('ext:sync', 'Sync skills and agents to other CLIs', go('/extensions/sources#sync'));
     }
     action('run', 'Run a routine now', sub('routine'), undefined, false, true);
+    action('workflow', 'Run a workflow', sub('workflow'), undefined, false, true);
     if (chatId) action('model', 'Switch model for this chat', sub('model'), <Kbd>{MOD === '⌘' ? '⇧⌘M' : 'Ctrl ⇧ M'}</Kbd>, true, true);
     else if (onChat) action('model', 'Switch model for the next chat', sub('model'), <Kbd>{MOD === '⌘' ? '⇧⌘M' : 'Ctrl ⇧ M'}</Kbd>, true, true);
     if (current) {
@@ -322,12 +351,11 @@ function Palette() {
       list.push({ id: `mem:${m.id}`, group: 'Memory', text: m.content, label: m.content, detail: m.kind, run: go(`/memory?focus=${m.id}`) });
     }
     return list;
-  }, [mode, models, agents, routines, sessions, memories, current, chatId, onChat, navigate, set, owner]);
+  }, [mode, models, agents, routines, workflows, sessions, memories, current, chatId, onChat, navigate, set, owner]);
 
   const filtered = useMemo(() => {
     if (mode !== 'root') {
-      const base = fuzzyFilter(items, query, (i) => i.text);
-      return base.slice(0, 80);
+      return rankItems(items, query, (i) => i.text, keyOf, recent).slice(0, 80);
     }
     let pool = items;
     if (prefix === '>') pool = items.filter((i) => i.group === 'Actions');
@@ -337,13 +365,17 @@ function Palette() {
     if (!query) {
       if (prefix) out = pool.slice(0, 40);
       else {
+        // commands used lately first, then the newest conversations, then the usual actions
+        const used = recent.flatMap((k) => pool.filter((i) => keyOf(i) === k && i.group !== 'Chats' && i.group !== 'Sessions')).slice(0, 5);
+        const shown = new Set(used.map((i) => i.id));
         out = [
-          ...pool.filter((i) => (i.group === 'Chats' || i.group === 'Sessions') && i.top).map((i) => ({ ...i, group: 'Recent' as const })),
-          ...pool.filter((i) => i.group === 'Actions' && i.top).slice(0, 6),
+          ...used.map((i) => ({ ...i, group: 'Recent' as const, from: i.group })),
+          ...pool.filter((i) => (i.group === 'Chats' || i.group === 'Sessions') && i.top).map((i) => ({ ...i, group: 'Recent' as const, from: i.group })),
+          ...pool.filter((i) => i.group === 'Actions' && i.top && !shown.has(i.id)).slice(0, 6),
         ];
       }
     } else {
-      const base = fuzzyFilter(prefix ? pool : pool.filter((i) => i.group !== 'Memory' || query.length >= 2), query, (i) => i.text);
+      const base = rankItems(prefix ? pool : pool.filter((i) => i.group !== 'Memory' || query.length >= 2), query, (i) => i.text, keyOf, recent);
       const cap: Partial<Record<Group, number>> = { Chats: 6, Sessions: 8, Models: 6, Memory: 5, Agents: 5 };
       const count: Partial<Record<Group, number>> = {};
       out = base.filter((i) => {
@@ -363,7 +395,8 @@ function Palette() {
     // with a query, the group holding the best match comes first ("ext" puts Pages above a loose session match)
     const order = query ? [...new Set([...out.map((i) => i.group), ...ORDER])] : ORDER;
     return order.flatMap((g) => all.filter((i) => i.group === g));
-  }, [items, query, prefix, hits, navigate, mode, sessions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, query, prefix, hits, navigate, mode, sessions, recent]);
 
   useEffect(() => setSel(0), [q, mode]);
   useEffect(() => {
@@ -372,6 +405,8 @@ function Palette() {
 
   const choose = (i: Item | undefined) => {
     if (!i) return;
+    // conversations and message hits are recent by their own time; commands, pages, agents and models are remembered
+    if (!['Chats', 'Sessions', 'Messages', 'Memory'].includes(i.from ?? i.group)) rememberCommand(keyOf(i));
     i.run();
     if (!i.keep) close();
   };
@@ -396,7 +431,7 @@ function Palette() {
     }
   };
 
-  const placeholder = { root: 'Search or run a command', model: 'Pick a model', agent: 'Pick an agent', mode: 'Pick a mode', search: 'Search messages', routine: 'Run a routine' }[mode];
+  const placeholder = { root: 'Search or run a command', model: 'Pick a model', agent: 'Pick an agent', mode: 'Pick a mode', search: 'Search messages', routine: 'Run a routine', workflow: 'Run a workflow' }[mode];
   let last: Group | '' = '';
   const listId = 'palette-list';
 

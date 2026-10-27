@@ -292,6 +292,8 @@ tool=$(jq -r '.tool_name' <<<"$in")
 targets=$(jq -r '[.tool_input.file_path, .tool_input.notebook_path, .tool_input.path, .tool_input.pattern, .tool_input.glob, .tool_input.command] | map(select(type=="string")) | join("\\n")' <<<"$in")
 re='(^|[/[:space:]"'"'"'=])(\\.env(\\.[A-Za-z0-9_-]+)?|id_(rsa|dsa|ecdsa|ed25519)(\\.[a-z]+)?|[^/[:space:]]+\\.(pem|key|p12|pfx|kdbx)|\\.netrc|\\.git-credentials|\\.npmrc|\\.pypirc|credentials(\\.json)?|secrets\\.json|\\.credentials\\.json|auth\\.json)([[:space:]"'"'"';|&)]|$)|\\.ssh/|\\.aws/|\\.gnupg/|\\.kube/config|\\.config/gcloud/|\\.docker/config\\.json'
 allow='\\.env\\.(example|sample|template|dist)([[:space:]]|$)'
+# a single-quoted jq filter is a key path, not a file name: '.hooks|to_entries[]|.key' is not a .key file; the files jq reads are still checked
+[ "$tool" = "Bash" ] && targets=$(sed -E "s/(^|[|;&([:space:]])jq(([[:space:]]+-[-A-Za-z]+)*)[[:space:]]+'[^']*'/\\1jq\\2/g" <<<"$targets")
 while IFS= read -r t; do
   [ -z "$t" ] && continue
   [[ "$t" =~ $re ]] || continue
@@ -314,6 +316,11 @@ exit 0
       { name: 'denies cat .env', event: 'PreToolUse', matcherValue: 'Bash', input: { tool_name: 'Bash', tool_input: { command: 'cat .env | head' } }, expect: { blocked: true } },
       { name: 'passes .env.example', event: 'PreToolUse', matcherValue: 'Read', input: { tool_name: 'Read', tool_input: { file_path: 'app/.env.example' } }, expect: { blocked: false } },
       { name: 'passes src/keyboard.ts', event: 'PreToolUse', matcherValue: 'Read', input: { tool_name: 'Read', tool_input: { file_path: 'src/keyboard.ts' } }, expect: { blocked: false } },
+      { name: 'passes a jq key path on config.json', event: 'PreToolUse', matcherValue: 'Bash', input: { tool_name: 'Bash', tool_input: { command: "jq '.hooks|to_entries[]|.key' config.json" } }, expect: { blocked: false } },
+      { name: 'passes jq -r keys on config.json', event: 'PreToolUse', matcherValue: 'Bash', input: { tool_name: 'Bash', tool_input: { command: "jq -r '.mcpServers|keys[]' /var/lib/conclave/config.json" } }, expect: { blocked: false } },
+      { name: 'denies jq on secrets.json', event: 'PreToolUse', matcherValue: 'Bash', input: { tool_name: 'Bash', tool_input: { command: "jq 'keys' secrets.json" } }, expect: { blocked: true } },
+      { name: 'denies jq on a .key file', event: 'PreToolUse', matcherValue: 'Bash', input: { tool_name: 'Bash', tool_input: { command: "jq -r '.key' tls/server.key" } }, expect: { blocked: true } },
+      { name: 'denies cat server.key', event: 'PreToolUse', matcherValue: 'Bash', input: { tool_name: 'Bash', tool_input: { command: 'cat certs/server.key' } }, expect: { blocked: true } },
     ],
   },
   {
@@ -331,7 +338,9 @@ re='(\\.claude|\\.conclave|\\.codex|\\.gemini|\\.cursor)/(settings(\\.local)?\\.
 [[ "$t" =~ $re ]] || exit 0
 tool=$(jq -r '.tool_name' <<<"$in")
 if [ "$tool" = "Bash" ]; then
-  grep -qE '(>|>>|tee|sed[[:space:]]+-i|rm|mv|cp|chmod|truncate|jq[^|]*>)' <<<"$t" || exit 0
+  # reads pass: drop redirects to /dev/null and fd copies (2>&1), then look for a write as a whole command word
+  w=$(sed -E 's#[0-9]*>>?[[:space:]]*/dev/null|[0-9]*>&[0-9-]+##g' <<<"$t")
+  grep -qE '>|(^|[[:space:];|&(])(tee|rm|mv|cp|chmod|chown|truncate|ln|dd)([[:space:]]|$)|(^|[[:space:];|&(])sed[[:space:]](.*[[:space:]])?(-[A-Za-z]*i|--in-place)' <<<"$w" || exit 0
 fi
 echo "Refused: \${BASH_REMATCH[0]} holds the agent's own guardrails. Tell the user what you want changed." >&2
 exit 2
@@ -345,6 +354,12 @@ exit 2
       { name: 'refuses Write of .claude/settings.json', event: 'PreToolUse', matcherValue: 'Write', input: { tool_name: 'Write', tool_input: { file_path: '/p/.claude/settings.json', content: '{}' } }, expect: { blocked: true } },
       { name: 'allows cat of settings', event: 'PreToolUse', matcherValue: 'Bash', input: { tool_name: 'Bash', tool_input: { command: 'cat .claude/settings.json' } }, expect: { blocked: false } },
       { name: 'refuses sed -i on hooks.json', event: 'PreToolUse', matcherValue: 'Bash', input: { tool_name: 'Bash', tool_input: { command: "sed -i 's/x/y/' hooks/hooks.json" } }, expect: { blocked: true } },
+      { name: 'allows ls of the hooks folder with stderr dropped', event: 'PreToolUse', matcherValue: 'Bash', input: { tool_name: 'Bash', tool_input: { command: 'ls -la ~/.conclave/hooks/ 2>/dev/null' } }, expect: { blocked: false } },
+      { name: 'allows cat of a hook script', event: 'PreToolUse', matcherValue: 'Bash', input: { tool_name: 'Bash', tool_input: { command: 'cat ~/.claude/hooks/format.sh 2>&1 | head' } }, expect: { blocked: false } },
+      { name: 'allows jq of permissions', event: 'PreToolUse', matcherValue: 'Bash', input: { tool_name: 'Bash', tool_input: { command: "jq '.permissions' .claude/settings.json" } }, expect: { blocked: false } },
+      { name: 'refuses a redirect into settings', event: 'PreToolUse', matcherValue: 'Bash', input: { tool_name: 'Bash', tool_input: { command: "echo '{}' > .claude/settings.json" } }, expect: { blocked: true } },
+      { name: 'refuses rm of a hook script', event: 'PreToolUse', matcherValue: 'Bash', input: { tool_name: 'Bash', tool_input: { command: 'rm -f .conclave/hooks/guard.sh' } }, expect: { blocked: true } },
+      { name: 'refuses jq written back over config', event: 'PreToolUse', matcherValue: 'Bash', input: { tool_name: 'Bash', tool_input: { command: "jq '.hooks={}' .conclave/config.json > /tmp/c && mv /tmp/c .conclave/config.json" } }, expect: { blocked: true } },
     ],
   },
   {

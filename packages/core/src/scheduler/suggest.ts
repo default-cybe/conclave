@@ -107,7 +107,7 @@ const ROLE_MATCH: Record<Exclude<DeviceRole, 'each' | 'hub'>, (d: Device) => boo
 };
 
 /**
- * The device a role means on this hub: hub is the hub itself (madx), proxmox
+ * The device a role means on this hub: hub is the hub itself (conclave), proxmox
  * the Proxmox host (pve), workstation the main desktop (arch-desktop), laptop
  * the Mac. Matched by name, then by what the device reports. A workstation
  * falls back to the first online device that is not the hub, then the hub. A

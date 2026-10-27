@@ -486,6 +486,9 @@ class ConclaveClient(
     /** Move to main list: delegated work becomes a normal session of its kind; parentId stays (docs/DESIGN.md 43). */
     suspend fun moveToMainList(id: String): Session = sendJson("POST", p("api", "sessions", id, "main-list"), null, Session.serializer())
 
+    /** The owner opened it: no longer unread (logic/Unread.kt). */
+    suspend fun markSeen(id: String): Session = sendJson("POST", p("api", "sessions", id, "seen"), null, Session.serializer())
+
     suspend fun forkSession(id: String, fromSeq: Long? = null): Session = sendJson(
         "POST", p("api", "sessions", id, "fork"),
         buildJsonObject { if (fromSeq != null) put("fromSeq", fromSeq) },

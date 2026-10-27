@@ -36,6 +36,7 @@ import { SECTION_WORDS, SHEET_TITLES, sectionsOf, type SheetId, type SlashItem }
 import { SessionSheet, SheetRouter } from './SessionSheet';
 import { ConnectorsSheet } from './Connectors';
 import { ContextSheet } from './ContextSheet';
+import { DesignSheet } from './DesignSheet';
 
 /** What the session's folder is: its project's name, else the folder. */
 function useWhere(session: Session): string {
@@ -107,6 +108,7 @@ export function SessionSheets({
   else if (shown === 'cost') body = <CostSheet session={session} />;
   else if (shown === 'status') body = <StatusSheet session={session} />;
   else if (shown === 'resume') body = <ResumeSheet session={session} onClose={onClose} />;
+  else if (shown === 'design') body = <DesignSheet session={session} onClose={onClose} />;
   else body = <HelpSheet items={items} onPick={onPick} />;
   return (
     <SessionSheet open={!!sheet} onClose={onClose} title={SHEET_TITLES[shown]} sub={shown === 'help' ? undefined : `${session.title || 'This session'}, ${where}`}>

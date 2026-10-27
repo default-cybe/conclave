@@ -38,6 +38,9 @@ jobs:
       - name: File names that clash on macOS and Windows
         run: bun scripts/check-case.ts
 
+      - name: Styles docs/DESIGN.md bans in the web app
+        run: bun run lint:styles
+
       - name: Typecheck
         run: bun run typecheck
 
