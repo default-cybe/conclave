@@ -113,6 +113,8 @@ export interface ToolHost {
   shareCheck?(path: string): Promise<import('../files/share').ShareCheck>;
   /** The session's outputs folder on the hub (<home>/outputs/<sessionId>), made on first use. */
   outputsDir?(): string;
+  /** playwright-core's chromium and the hub's browser binary, for RenderFile (tools/render-file.ts); an error when the hub has none. */
+  renderBrowser?(): Promise<import('./render-file').RenderBrowser | { error: string }>;
 }
 
 export interface ToolContext {
