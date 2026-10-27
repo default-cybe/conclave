@@ -11,6 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Fixed
 
+- Android: a picture in a Code session (one you sent, a screenshot an agent read, or a tool's image) now opens full screen on a tap, with pinch to zoom, like on the Chat page. Before, only Chat page pictures opened; Code sessions draw messages with their own image view, which had no tap.
 - Kiro plans now show their monthly credit on Usage and in the composer's context ring: used and left, the limit and the reset. The hub reads it through the kiro4cpa plugin's quota provider in CLIProxyAPI, which asks Kiro's getUsageLimits with the account's own token. GitHub Copilot plans say "Usage not reported by GitHub Copilot", because its plugin has no quota read and CLIProxyAPI cannot put its GitHub token into a usage call. Plugin accounts are now named Kiro and GitHub Copilot instead of Kiro4cpa and Copilot.
 
 ### Changed
