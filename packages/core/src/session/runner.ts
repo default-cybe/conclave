@@ -53,6 +53,7 @@ import { memoryRecallBudget } from '../engine/builtin-hooks';
 import { STOP_BLOCK_CAP } from '../extensions/hooks';
 import { loadPathRules, loadScopedInstructions, type InstructionFile, type PathRule } from '../extensions/instructions';
 import { pendingSwitch, switchNote } from '../modes/switch-marker';
+import { designTurnBlocks } from './design-brief';
 import { movedToMain } from './delegated';
 import type { Machine } from '../machine/types';
 import { readdirSync } from 'node:fs';
@@ -931,6 +932,8 @@ export class SessionRunner {
       if (switched.from !== modelRef) content.push(reminder(switchNote(modelLabel(engine, switched.from))));
       engine.patchMeta(this.id, { switched: undefined });
     }
+    // the design direction for UI work, when it changed, and again after /clear or a compaction (session/design-brief.ts)
+    if (!retry) content.push(...designTurnBlocks(engine, this.id, startSource === 'clear' || startSource === 'compact'));
     // a retry on the next model adds nothing: the turn runs again on the same stored messages
     const userMsg = retry
       ? ([...engine.repos.messages.list(this.id)].reverse().find((m) => m.role === 'user' && m.kind === 'normal') ?? { seq: 0 })
