@@ -173,6 +173,7 @@ Item 3 removes about 6 of the 10 failed tool calls left in run 4.
 - Item 1: `session/regression-gate.ts`, on for coder, builder and tester. A turn a usage limit parks keeps its checkpoint, so the resumed run compares with the code from before the user turn, after a hub restart too. The `failingTest` and `NOT_RUN` rules moved to `util/test-run.ts`, shared with workflows and the bench.
 - Item 2: `own_tests` and `regression_gate` on every result line, two rows in the per arm table (PROTOCOL.md section 9, version 5).
 - Item 3: the Environment block says "use python3" when the device has no `python` (Python projects only) and names the check the verify gate runs at stop, or "no type checker found".
+- Item 4 (2026-10-27): `agents-defaults/coder.md` drops the `git stash` check command (the regression gate does it) and the "Read, not cat" sentence (the Bash tool description and the Read-before-Edit check cover it). Not yet measured.
 
 **Status (2026-10-27):** item 6 is built as outcome tracking only, not grading. The verify gate counts its first check in each turn that loaded a learned skill (`extensions/learned.ts` recordCheck, `session/verify-gate.ts`), and SkillManage list shows "passed first time in N of M checked turns; effect not graded". Helped, hurt or no effect needs a comparison without the skill (an A/B over the bench) or the owner's feedback; neither exists yet. Memories are not tracked: they enter the prompt by recall, not by a load an outcome could be tied to.
 

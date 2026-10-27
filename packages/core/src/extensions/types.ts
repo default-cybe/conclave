@@ -76,7 +76,8 @@ export interface AgentDef {
    * running this agent, as "id" or "id NAME=value ...". "verify-gate" turns on
    * the built-in check on the session's device (session/verify-gate.ts), and
    * "regression-gate" the run of a turn's changed tests on the code from
-   * before the turn (session/regression-gate.ts).
+   * before the turn (session/regression-gate.ts), and "visual-check" a
+   * reminder to look at screenshots after a UI edit (session/visual-check.ts).
    */
   recipes?: string[];
   /** New sessions with this agent start with Ultra on (docs/WORKFLOWS.md). */

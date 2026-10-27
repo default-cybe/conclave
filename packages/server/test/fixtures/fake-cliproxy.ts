@@ -128,7 +128,7 @@ interface Account {
   /** Canned answer of the usage address for this account. */
   usage?: unknown;
   usage_status?: number;
-  /** antigravity: retrieveUserQuotaSummary answers of the daily and prod hosts. */
+  /** antigravity: retrieveUserQuotaSummary answers of the daily and prod hosts; kiro4cpa: its plugin's quota answer (plugins/kiro4cpa/quota). */
   quota_daily?: unknown;
   quota?: unknown;
   profile?: unknown;
@@ -409,6 +409,15 @@ async function management(req: Request, url: URL, api: 'v8' | 'v0'): Promise<Res
       writeAccount(a.name, { ...a.acct, cooldowns: [] });
       logMgmt({ path: 'cooldown-reset', name: a.name });
       return json({ status: 'ok', auth_index: body.auth_index, models: [] }, 200, mgmtHeaders);
+    }
+    // a plugin's quota provider (8.0.32 GET plugins/:id/quota): kiro4cpa has one, github-copilot 0.1.1 has none
+    const pq = /^\/plugins\/([^/]+)\/quota$/.exec(p);
+    if (pq && req.method === 'GET') {
+      const a = accounts().find((x) => indexOf(x.name) === url.searchParams.get('auth_index'));
+      logMgmt({ path: 'plugin-quota', id: pq[1], name: a?.name });
+      if (!a) return json({ error: 'auth not found' }, 404, mgmtHeaders);
+      if (pq[1] !== 'kiro4cpa' || a.acct.type !== 'kiro4cpa' || !a.acct.quota) return json({ error: 'quota provider not found for plugin' }, 404, mgmtHeaders);
+      return json(a.acct.quota, 200, mgmtHeaders);
     }
     if (p === '/requests/api-call' && req.method === 'POST') {
       const body = (await req.json().catch(() => ({}))) as { auth_index?: string; method?: string; url?: string; header?: Record<string, string>; data?: string };
