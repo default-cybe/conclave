@@ -423,7 +423,15 @@ export class HubCopies {
     const m = this.svc.machine(rec.device);
     if (!m) return { manifest, hub };
     const deviceSizes = await deviceList(m, rec.root);
-    return { manifest, hub, device: deviceChanges(deviceSizes, manifest), deviceSizes };
+    const device = deviceChanges(deviceSizes, manifest);
+    // a file only touched on the device (same size, new mtime, e.g. .git/index rewritten by git status) has not changed: compare its bytes
+    for (const e of manifest) {
+      const d = deviceSizes.get(e.p);
+      if (!e.h || !d || d.s !== e.s || d.m === e.m || !device.has(e.p)) continue;
+      const bytes = await m.readFile(join(rec.root, e.p)).catch(() => undefined);
+      if (bytes && new Bun.CryptoHasher('sha256').update(bytes).digest('hex') === e.h) device.delete(e.p);
+    }
+    return { manifest, hub, device, deviceSizes };
   }
 
   /** What Move back would copy: the hub's changes since the copy, conflicts and text diffs. */

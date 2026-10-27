@@ -34,7 +34,7 @@ Change files only with Edit, MultiEdit or Write. Bash is for the dev or mock ser
 
 Check your work by looking at it:
 - Start the project's mock or dev server on a free port and open the changed screen.
-- Take 4 screenshots: 390 and 1440 pixels wide, in light and in dark. The browser tools capture the window at its current size, so for the widths and themes use the project's screenshot script, or a short Playwright script through Bash when Playwright is installed, and open each image with Read. If you cannot set a width or a theme, say which ones you could not take. Look at each one before you report. Fix overflow, clipped text, horizontal scroll at 390, low contrast, and anything that does not match the screens around it.
+- Take 4 screenshots: 390 and 1440 pixels wide, in light and in dark. browser_screenshot takes `width` and `color_scheme` ('light' or 'dark') for each shot; the project's screenshot script, or a short Playwright script through Bash opened with Read, works too. If you cannot set a width or a theme, say which ones you could not take. Look at each one before you report. Fix overflow, clipped text, horizontal scroll at 390, low contrast, and anything that does not match the screens around it.
 - Run the type check and the build when the project has them.
 - Stop the server you started.
 

@@ -20,6 +20,7 @@ tools:
 recipes:
   - verify-gate
   - regression-gate
+  - visual-check
   - no-test-gaming
   - diff-budget
   - new-dependency-gate

@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { LearnedSkills, addPitfall, learnedTextProblem, loadLearnedSkills, replaceSection } from '../../src/extensions/learned';
+import { LearnedSkills, addPitfall, checkLine, learnedTextProblem, loadLearnedSkills, replaceSection } from '../../src/extensions/learned';
 import { Extensions } from '../../src/extensions/registry';
 import { ConfigStore } from '../../src/config';
 import { ROUTINE_TEMPLATES } from '../../src/scheduler/templates';
@@ -71,6 +71,22 @@ describe('the learned skills store', () => {
     expect(s.list()[0]).toMatchObject({ uses: 2 });
     expect(s.remove('pbs-restore-test')).toBe(true);
     expect(s.list()).toEqual([]);
+  });
+
+  test('check counts are outcomes only: never a helped, hurt or no effect grade', () => {
+    const { s } = store();
+    s.create({ name: 'pbs-restore-test', description: 'Test that a PBS backup restores, on a throwaway LXC.', body: BODY });
+    expect(s.get('pbs-restore-test')!.checks).toBeUndefined();
+    expect(checkLine(undefined)).toBe('no checked turns yet');
+    s.recordCheck('pbs-restore-test', true);
+    s.recordCheck('pbs-restore-test', false);
+    s.recordCheck('pbs-restore-test', true);
+    s.recordCheck('no-such-skill', true);
+    expect(s.get('pbs-restore-test')!.checks).toEqual({ pass: 2, fail: 1 });
+    expect(s.list().map((x) => x.name)).toEqual(['pbs-restore-test']);
+    const text = checkLine(s.get('pbs-restore-test')!.checks);
+    expect(text).toBe('check passed first time in 2 of 3 checked turns; effect not graded (no runs without it to compare)');
+    expect(text).not.toMatch(/helped|hurt|no effect/);
   });
 
   test('Markdown only: no command lines, file includes, frontmatter, secrets or bad names', () => {
@@ -157,6 +173,33 @@ describe('SkillManage in a turn', () => {
     expect(results.find((r) => r.name === 'Skill')!.content).toContain('Restore the newest snapshot');
     expect(results.find((r) => r.name === 'SkillManage' && r.content.includes('learned skills:'))!.content).toMatch(/pbs-restore-test: .*last used \d{4}-\d{2}-\d{2} \(1 times\)/);
   });
+
+  test('the verify gate counts its first check in a turn that loaded the skill, not the retry', async () => {
+    const steps: Step[] = [];
+    t = await startTestEngine({ script: [[{ text: 'unused' }]], approve: 'allow', route: () => steps.shift() });
+    const cwd = t.cwd;
+    writeFileSync(join(cwd, 'package.json'), JSON.stringify({ name: 'p', scripts: { typecheck: "grep -q fixed status.txt || (echo 'not fixed' && exit 1)" } }));
+    writeFileSync(join(cwd, 'bun.lock'), '');
+    t.engine.trust.set(cwd, true);
+    new LearnedSkills(t.engine.config.paths.home).create({ name: 'pbs-restore-test', description: 'Test that a PBS backup restores, on a throwaway LXC.', body: BODY });
+    await t.engine.extensions.reload();
+    const w = (content: string): Step => [{ tool: 'Write', input: { file_path: join(cwd, 'status.txt'), content } }];
+    // turn 1: load, broken edit (first check fails), fixed edit (retry passes, not counted)
+    steps.push([{ tool: 'Skill', input: { skill: 'pbs-restore-test' } }], w('broken\n'), [{ text: 'Done.' }], w('fixed\n'), [{ text: 'Done.' }]);
+    // turn 2: an edit without loading the skill counts nothing on it
+    steps.push(w('fixed\nagain\n'), [{ text: 'Done.' }]);
+    // turn 3: load, good edit, first check passes
+    steps.push([{ tool: 'Skill', input: { skill: 'pbs-restore-test' } }], w('fixed\n'), [{ text: 'Done.' }]);
+    steps.push([{ tool: 'SkillManage', input: { action: 'list' } }], [{ text: 'listed' }]);
+    const s = await t.engine.createSession({ cwd, agent: 'coder' });
+    await t.run(s.id, 'one');
+    await t.run(s.id, 'two');
+    await t.run(s.id, 'three');
+    await t.run(s.id, 'list skills');
+    expect(new LearnedSkills(t.engine.config.paths.home, t.engine.repos.kv).get('pbs-restore-test')!.checks).toEqual({ pass: 1, fail: 1 });
+    const list = toolResults(t.engine, s.id).find((r) => r.name === 'SkillManage')!.content;
+    expect(list).toContain('check passed first time in 1 of 2 checked turns; effect not graded');
+  }, 60_000);
 
   test('skills.learn auto saves without the approval card', async () => {
     t = await startTestEngine({ script: [create, [{ text: 'saved' }]], overrides: { skills: { learn: 'auto' } } as never });
