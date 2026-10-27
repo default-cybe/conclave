@@ -175,6 +175,8 @@ Item 3 removes about 6 of the 10 failed tool calls left in run 4.
 - Item 3: the Environment block says "use python3" when the device has no `python` (Python projects only) and names the check the verify gate runs at stop, or "no type checker found".
 - Item 4 (2026-10-27): `agents-defaults/coder.md` drops the `git stash` check command (the regression gate does it) and the "Read, not cat" sentence (the Bash tool description and the Read-before-Edit check cover it). Not yet measured.
 
+**Status (2026-10-27):** item 6 is built as outcome tracking only, not grading. The verify gate counts its first check in each turn that loaded a learned skill (`extensions/learned.ts` recordCheck, `session/verify-gate.ts`), and SkillManage list shows "passed first time in N of M checked turns; effect not graded". Helped, hurt or no effect needs a comparison without the skill (an A/B over the bench) or the owner's feedback; neither exists yet. Memories are not tracked: they enter the prompt by recall, not by a load an outcome could be tied to.
+
 **Validate.** The 12 bug runs first, then all 36, one change per set,
 against PROTOCOL.md section 13.
 
