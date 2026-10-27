@@ -9,6 +9,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Kiro plans now show their monthly credit on Usage and in the composer's context ring: used and left, the limit and the reset. The hub reads it through the kiro4cpa plugin's quota provider in CLIProxyAPI, which asks Kiro's getUsageLimits with the account's own token. GitHub Copilot plans say "Usage not reported by GitHub Copilot", because its plugin has no quota read and CLIProxyAPI cannot put its GitHub token into a usage call. Plugin accounts are now named Kiro and GitHub Copilot instead of Kiro4cpa and Copilot.
+
 ### Changed
 
 - Whole files now come as downloadable file cards instead of huge code blocks. The system prompt and the ShareFile description tell the model to save a complete program, config file, document, or a chart or graph as a PNG or SVG, share it with ShareFile, and answer in a few lines, keeping short commands, diffs and examples inline. A chat hands the writing to Delegate with readOnly off, and a session that cannot save or share files is told to say so. This is guidance to the model only: nothing checks that it follows it, and ShareFile's folder, ownership and size checks are unchanged. File cards on the web and Android now also draw an SVG up to 2 MB inline, and the web caps inline PNG, JPEG, GIF and WebP at 20 MB like Android. The web draws an SVG only as an `<img>` from a `data:` URL with no Open button. Android draws it in a WebView with JavaScript, network, file access and navigation turned off. Text, code, CSV and PDF files no longer preview inside the card; a PDF still has Open, and Download and Save keep the original bytes.
