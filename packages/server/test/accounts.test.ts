@@ -267,9 +267,11 @@ describe('accounts on the hub', () => {
     writeFileSync(join(dir, 'config.yaml'), `server:\n  host: "127.0.0.1"\n  port: ${port}\nmanagement:\n  allow-remote: false\n  secret-key: "ext-mgmt-key"\naccess:\n  api-keys:\n    - "ext-client-key"\noauth:\n  auth-dir: "${auth}"\n`);
     mkdirSync(auth);
     const reset = new Date(Date.now() + 2 * 3600_000).toISOString();
-    // Account 1: 5 hours only; Account 2: a 20x plan, its week resets Tuesday
+    // a fixed date here expired on its day and dropped the 7d windows
+    const week = new Date(Date.now() + 3 * 86400_000).toISOString();
+    // Account 1: 5 hours only; Account 2: a 20x plan, its week resets in 3 days
     write('claude-one@example.test.json', { type: 'claude', email: 'one@example.test', signals: { 'Anthropic-Ratelimit-Unified-5h-Utilization': '0.4', 'Anthropic-Ratelimit-Unified-5h-Reset': String(Math.floor(Date.now() / 1000) + 7200) }, usage: { five_hour: { utilization: 41, resets_at: reset } } });
-    write('claude-two@example.test.json', { type: 'claude', email: 'two@example.test', usage: { five_hour: { utilization: 5, resets_at: reset }, seven_day: { utilization: 55, resets_at: '2026-10-27T10:00:00Z' }, seven_day_opus: { utilization: 20, resets_at: '2026-10-27T10:00:00Z' }, iguana_necktie: { utilization: 3, resets_at: '2026-10-27T10:00:00Z' } } });
+    write('claude-two@example.test.json', { type: 'claude', email: 'two@example.test', usage: { five_hour: { utilization: 5, resets_at: reset }, seven_day: { utilization: 55, resets_at: week }, seven_day_opus: { utilization: 20, resets_at: week }, iguana_necktie: { utilization: 3, resets_at: week } } });
     write('codex-me@example.test.json', { type: 'codex', email: 'me@example.test', chatgpt_account_id: 'acct-777' });
     proc = Bun.spawn([process.execPath, FAKE, '-config', join(dir, 'config.yaml')], { env: { ...process.env, FAKE_CPA_VERSION: '8.0.32', FAKE_CPA_MGMT_LOG: mgmtLog, FAKE_CPA_LOG: callLog }, stdout: 'ignore', stderr: 'ignore' });
     await until(() => fetch(`http://127.0.0.1:${port}/healthz`).then((r) => r.ok, () => false), 5000, 'the fake');
