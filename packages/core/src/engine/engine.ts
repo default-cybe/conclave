@@ -2245,7 +2245,7 @@ export class Engine implements EngineApi {
     const base = this.toolsFor(session, agent, mode, depth);
     if (mode === 'chat' || !this.deps.mcpTools) return base;
     const mcp = await this.deps.mcpTools().catch(() => []);
-    const allowed = mcp.filter((t) => (!agent.mcpServers || agent.mcpServers.some((srv) => t.name.startsWith(`mcp__${srv}`))) && sessionAllowsServerTool(session, t.name));
+    const allowed = mcp.filter((t) => (!agent.mcpServers || agent.mcpServers.some((srv) => t.name.startsWith(`mcp__${srv}__`))) && sessionAllowsServerTool(session, t.name));
     // base went through the same rules in toolsFor; an untrusted session sees only the MCP tools its routine or agent names
     const untrusted = narrowsTools(session, agent.untrusted);
     const extra = filterTools(allowed, { planMode: mode === 'plan', untrusted, ...(untrusted ? { allow: agent.tools, grants: routineOf(this, session)?.allow ?? [] } : {}) }).filter((t) => sessionAllowsTool(session, t.name));

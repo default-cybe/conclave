@@ -21,6 +21,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - The chat makes files itself instead of handing them to a Code session. It writes text, Markdown, CSV, JSON, HTML and SVG with Write and Read, both confined to the chat's outputs folder on the hub (a path outside it, through `..` or a symlink, is refused), and a new opt-in RenderFile tool turns an HTML, SVG or Markdown file there into a PDF (A4 or Letter) or PNG with the hub's Chromium, then ShareFile hands it over. Rendering is offline: every request except files in the outputs folder is aborted, JavaScript and service workers are off, inputs are capped at 5 MB and outputs at 25 MB, and a render stops after 30 seconds. The chat still has no shell, and delegates only work that needs the owner's devices or files, a shell, code to run, mail, calendar or the browser. The assistant gets RenderFile too; untrusted agents and members' sessions do not. Without a browser installed on the hub, RenderFile says so.
 
+### Fixed
+
+- Hook and prompt fixes. A recipe installed as a global hook and also listed in an agent's `recipes:` (no-test-gaming, new-dependency-gate and diff-budget on coder, builder, refactorer and tester) now runs once instead of twice; the agent keeps its recipe on hubs without the global hook, and write-scope keeps the agent's own tunables. The secrets firewall no longer takes a single-quoted jq filter such as `'.hooks|to_entries[]|.key'` for a `.key` file, while the files jq reads are still checked. The guardrail config guard lets reads of hooks and settings through (`ls`, `cat`, `jq`, `2>/dev/null`, `2>&1`) and still refuses writes (redirects, `tee`, `sed -i`, `rm`, `mv`, `cp`, `chmod`); before, words like "permissions" or a dropped stderr counted as writes. An agent's `mcpServers` filter in tool listings now matches the whole server name, so `semgrep` no longer lets `semgrep2` through. The sysadmin prompt, the homelab guide and the scheduled-checks prompt now say the hub runs on the device named conclave, an LXC container (CT 135) on pve, and that madx is a separate server.
+
 ## [0.4.40] - 2026-10-27
 
 ### Added
