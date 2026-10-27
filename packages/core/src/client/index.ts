@@ -2138,8 +2138,8 @@ export class ConclaveClient {
   memoryStats = () => this.request<{ total: number; byKind: Record<string, number>; external?: string }>('GET', '/api/memory/stats');
   /** Same route as memoryStats, typed with the connection list. */
   memoryOverview = () => this.request<MemoryStatsDto>('GET', '/api/memory/stats');
-  /** The memory map: Conclave memories and Basic Memory notes with their real links (owner only). */
-  memoryGraph = (limit?: number) => this.request<MemoryGraph>('GET', '/api/memory/graph', undefined, limit ? { limit } : undefined);
+  /** The memory map: every Conclave memory and Basic Memory note with their real links (owner only). */
+  memoryGraph = () => this.request<MemoryGraph>('GET', '/api/memory/graph');
 
   // ----- memory connections -----
   memoryConnections = () => this.request<MemoryConnectionInfo[]>('GET', '/api/memory/connections');

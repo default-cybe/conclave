@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Memory > Map is now a mind map of all your memory: the brain in the middle, your areas (People, Projects, Homelab, Courses and more, taken from your folders and tags) around it, and the items of an area as plain labels joined by curves. Open an item to see its links, double click to center on it, search reaches every item and draws the path inside the tree, and the scrubber fades what came later. The map now loads every item, not the first 1,000.
+
 ## [0.4.39] - 2026-10-27
 
 ### Added
