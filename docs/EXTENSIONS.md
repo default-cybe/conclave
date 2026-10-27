@@ -420,6 +420,67 @@ Servers connect on first use and reconnect with backoff. Per server you can rest
 
 Servers in a project's `.mcp.json` are counted in the trust check but Conclave does not start them yet; add them to your config instead.
 
+### Connecting an app (OAuth)
+
+Some hosted servers, like Notion and Linear, want you to sign in instead of pasting a token. Add them from Discover (or set `"auth": "oauth"` on an http server), then press **Connect** on the server's row in Extensions > MCP servers. A new tab opens the app's own sign-in page; after you allow, it lands on the hub at `/api/mcp/oauth/callback` and the row turns to "connected". **Reconnect** signs in again, **Disconnect** makes the hub forget the sign-in (remove Conclave in the app's settings too to cut access at the source).
+
+- Connect needs the hub's public address (`server.publicUrl`, set by remote access in Settings). The app sends your browser back there.
+- The hub does discovery, dynamic client registration and PKCE itself. Tokens are sealed with AES-256-GCM in `secrets.json` as `mcp.<name>.oauth`, under the same key as browser logins, and refresh on their own. A refresh token is used once, so Notion's rotation does not end the connection.
+- When the sign-in lapses or is revoked, the row says "not connected" and the hub stops dialing the server until you press Connect. It does not retry in a loop.
+- Apps that need a client id registered ahead of time (Slack, Google Drive, Dropbox) are not covered yet.
+- The sign-in is tied to the server's URL. Changing the URL or turning OAuth off on a server, or removing it, forgets the sign-in; press Connect again.
+- Discovery, registration and token addresses must be https on a public address. The hub refuses metadata that points at its own network or a cloud metadata service.
+
+#### Notion, one time
+
+1. Discover > Notion > Install.
+2. Extensions > MCP servers > notion > **Connect**. Sign in to Notion in the new tab, pick the pages and workspaces Conclave may reach, and press Allow.
+3. Return to Conclave. The row says "connected" and the tools reach new sessions.
+4. About every 6 months, or whenever the row says "not connected", press **Reconnect** and sign in again.
+
+#### Linear, one time
+
+1. Discover > Linear > Install.
+2. Extensions > MCP servers > linear > **Connect**. Sign in to Linear in the new tab, pick the workspace and press Authorize.
+3. Return to Conclave. The row says "connected".
+4. About every 6 months, or whenever the row says "not connected", press **Reconnect** and sign in again.
+
+### AFFiNE
+
+AFFiNE 0.27 has no way to write pages over its API: no personal tokens, no Markdown import, and its official MCP write tools only ship in canary builds. Pages are CRDT data, so writing to its database corrupts them. The Discover entry "AFFiNE (community server)" uses [dawncr0w/affine-mcp-server](https://github.com/dawncr0w/affine-mcp-server), which writes through AFFiNE's sync protocol.
+
+The image is `ghcr.io/dawncr0w/affine-mcp-server`. Its tags have no `v`: release v3.10.2 is the tag `3.10.2`, digest `sha256:15be037da22cd41e9abea94ae1219b47abcbd1b4c7ad804a36676a5e7b02d906` (amd64 and arm64, checked 2026-10-27). Before you update, read the release notes and pin the new digest.
+
+Once, on Madx (next to AFFiNE):
+
+1. Run the server pinned by digest, on the LAN only (bind the port to Madx's LAN address, never a tunnel or a public route):
+
+   ```sh
+   docker run -d --name affine-mcp --restart unless-stopped \
+     -p <madx-lan-ip>:3000:3000 \
+     -e MCP_TRANSPORT=http \
+     -e AFFINE_BASE_URL=<AFFiNE address> \
+     -e AFFINE_MCP_AUTH_MODE=bearer \
+     -e AFFINE_MCP_HTTP_TOKEN=<long random token, e.g. openssl rand -hex 32> \
+     -v affine-mcp-config:/home/affine/.config/affine-mcp \
+     ghcr.io/dawncr0w/affine-mcp-server@sha256:15be037da22cd41e9abea94ae1219b47abcbd1b4c7ad804a36676a5e7b02d906
+   ```
+
+   The image runs as the user `affine`; the volume keeps its saved AFFiNE login across restarts. `AFFINE_BASE_URL` must be https unless you also set `AFFINE_ALLOW_INSECURE_HTTP=true`.
+2. Sign in to AFFiNE in a browser through Authentik, open the dev tools, and copy the `Cookie` request header of a request to AFFiNE (the Authentik session included).
+3. Log the server in with the cookie on stdin, never on the command line:
+
+   ```sh
+   docker exec -it affine-mcp node bin/affine-mcp login --url <AFFiNE address> --cookie-stdin --workspace-id <workspace id>
+   ```
+
+   Paste the cookie at the hidden prompt. Add `--force` to replace a saved login. Then `docker restart affine-mcp` so the server reads the saved login.
+4. In Conclave, Settings > Secrets: save the token from step 1 as the secret `affine-mcp-token`.
+5. Discover > AFFiNE (community server) > Install, with the address `http://<madx-lan-ip>:3000/mcp` and the same token.
+6. Test: ask an agent to create one page with `create_doc_from_markdown`, check it in AFFiNE, then add a line with `append_markdown` and check again.
+
+The server holds a full AFFiNE session: anyone with its token can read and write every workspace. Keep it off the internet, and run step 3 again when the AFFiNE session expires.
+
 | Conclave / Claude Code | Codex | OpenCode | Gemini CLI |
 | --- | --- | --- | --- |
 | `mcpServers.<name>` in JSON | `[mcp_servers.<name>]` in `config.toml` | `mcp.<name>` with `type: local` or `remote` | `mcpServers.<name>` |
