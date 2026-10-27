@@ -9,6 +9,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Web: a status line per agent, like the terminal app's status rows. Under the composer of a session or a chat one quiet line says the model, the plan or key it runs on, how full the context is, the tokens and cost so far ("plan" when a plan pays), and whether it is running, waiting on you, waiting for a reset or idle. On phones it leaves out the plan and a tap opens the plan, limits and context sheet; the context ring's popover says the state too. Subagent lines and the Background tasks card add each subagent's tokens and cost, and workflow agent rows say "plan" for a call a plan paid instead of a dash.
+
 ### Changed
 
 - The chat makes files itself instead of handing them to a Code session. It writes text, Markdown, CSV, JSON, HTML and SVG with Write and Read, both confined to the chat's outputs folder on the hub (a path outside it, through `..` or a symlink, is refused), and a new opt-in RenderFile tool turns an HTML, SVG or Markdown file there into a PDF (A4 or Letter) or PNG with the hub's Chromium, then ShareFile hands it over. Rendering is offline: every request except files in the outputs folder is aborted, JavaScript and service workers are off, inputs are capped at 5 MB and outputs at 25 MB, and a render stops after 30 seconds. The chat still has no shell, and delegates only work that needs the owner's devices or files, a shell, code to run, mail, calendar or the browser. The assistant gets RenderFile too; untrusted agents and members' sessions do not. Without a browser installed on the hub, RenderFile says so.

@@ -13,7 +13,7 @@
  * at a fixed height (AttachmentStrip), so the field never leaves the screen
  * however many files there are; 15 at most (core attachments/limits.ts).
  */
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Link } from 'wouter';
 import { FileArchive, FileText, Plus, X } from 'lucide-react';
 import type { Session } from '@conclave/core/types';
@@ -25,7 +25,7 @@ import { cn } from '@/lib/text';
 import { bytes, compact, usd } from '@/lib/format';
 import { worthLine } from '@/features/usage/value';
 import { useIsMobile } from '@/lib/hooks';
-import { harnessId, modelName } from '@/lib/models';
+import { modelName } from '@/lib/models';
 import { effortLabel, effortMenu, shownEffort, useModelEffort, type EffortSetting, type ModelEffort as EffortLevels } from '@/lib/effort';
 import { MenuList, Popover, type MenuItem } from '@/components/ui/Overlay';
 import { Segmented } from '@/components/ui/Field';
@@ -33,6 +33,7 @@ import { LimitRow } from '@/components/ui/Meter';
 import { windowApplies } from '@conclave/core/accounts/windows';
 import type { AccountDto } from '@conclave/core/client';
 import { STATE_WORD, markedName, rowWindows, sessionPlan, useAccounts, type PlanReason } from '@/lib/accounts';
+import { contextPercent, costWord, stateWord, statusParts } from '@/features/chat/panel';
 import { PickerButton, SelectMenu } from '@/components/ui/Select';
 import { ModelList } from '@/components/pickers/ModelPicker';
 import { SwitchModelList } from '@/features/chat/SwitchChoice';
@@ -229,8 +230,8 @@ function useContextUse(session: Session | undefined, model: string | undefined) 
     const used = last ? last.inputTokens + (last.cacheReadTokens ?? 0) + (last.cacheWriteTokens ?? 0) : 0;
     const window = info?.contextWindow ?? 0;
     const st = session?.stats;
-    const free = !!session && (harnessId(session.model) || (info && !info.inputPrice && !info.outputPrice));
-    return { used, window, share: window ? Math.min(1, used / window) : 0, tokensIn: st ? st.inputTokens + st.cacheReadTokens : 0, tokensOut: st?.outputTokens ?? 0, cost: `${st?.costUsd ? usd(st.costUsd) : free ? 'plan' : usd(0)}${worthLine(st) ? `, ${worthLine(st)}` : ''}` };
+    const word = st ? costWord(st, session?.model, info) : usd(0);
+    return { used, window, share: window ? Math.min(1, used / window) : 0, tokensIn: st ? st.inputTokens + st.cacheReadTokens : 0, tokensOut: st?.outputTokens ?? 0, word, cost: `${word}${worthLine(st) ? `, ${worthLine(st)}` : ''}` };
   }, [messages, groups, session, model]);
 }
 
@@ -295,7 +296,6 @@ export function ContextRing({ session, model }: { session?: Session; model?: str
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const u = useContextUse(session, model);
-  const running = session?.model ?? model;
   const r = 5.25;
   const c = 2 * Math.PI * r;
   const pct = Math.round(u.share * 100);
@@ -308,23 +308,76 @@ export function ContextRing({ session, model }: { session?: Session; model?: str
           <circle cx="7" cy="7" r={r} fill="none" stroke={u.share > 0.8 ? 'var(--warn)' : 'currentColor'} strokeWidth="1.5" strokeDasharray={c} strokeDashoffset={c * (1 - u.share)} strokeLinecap="round" />
         </svg>
       </button>
-      <Popover anchor={ref} open={open} onClose={() => setOpen(false)} placement="top-end" width={340} maxHeight={520} label="Context" sheetTitle="Context">
-        {running && <PlanSection session={session} model={running} />}
-        <dl className="m-0 space-y-1.5 p-3 text-[13px] phone:text-[15px]">
-          <Row k="Context">{u.window ? `${compact(u.used)} of ${compact(u.window)}${u.used ? `, ${pct}%` : ''}` : u.used ? compact(u.used) : 'Nothing used yet'}</Row>
-          {session && (
-            <>
-              <Row k="Tokens">{`${compact(u.tokensIn)} in, ${compact(u.tokensOut)} out`}</Row>
-              <Row k="Cost">{u.cost}</Row>
-            </>
-          )}
-        </dl>
-        <div className="border-t border-rule px-3 py-2 text-[12px] phone:text-[13px]">
-          <Link href="/usage" className="link" onClick={() => setOpen(false)}>
-            Usage
-          </Link>
-        </div>
-      </Popover>
+      <ContextDetails anchor={ref} open={open} onClose={() => setOpen(false)} session={session} model={model} />
+    </>
+  );
+}
+
+/** The ring's popover (a sheet on phones): the plan and its limits, context, tokens, cost and state, and Usage. */
+function ContextDetails({ anchor, open, onClose, session, model }: { anchor: RefObject<HTMLElement | null>; open: boolean; onClose: () => void; session?: Session; model?: string }) {
+  const u = useContextUse(session, model);
+  const running = session?.model ?? model;
+  const pct = Math.round(u.share * 100);
+  return (
+    <Popover anchor={anchor} open={open} onClose={onClose} placement="top-end" width={340} maxHeight={520} label="Context" sheetTitle="Context">
+      {running && <PlanSection session={session} model={running} />}
+      <dl className="m-0 space-y-1.5 p-3 text-[13px] phone:text-[15px]">
+        <Row k="Context">{u.window ? `${compact(u.used)} of ${compact(u.window)}${u.used ? `, ${pct}%` : ''}` : u.used ? compact(u.used) : 'Nothing used yet'}</Row>
+        {session && (
+          <>
+            <Row k="Tokens">{`${compact(u.tokensIn)} in, ${compact(u.tokensOut)} out`}</Row>
+            <Row k="Cost">{u.cost}</Row>
+            <Row k="State">{stateWord(session.status, session.resumeAt).word}</Row>
+          </>
+        )}
+      </dl>
+      <div className="border-t border-rule px-3 py-2 text-[12px] phone:text-[13px]">
+        <Link href="/usage" className="link" onClick={onClose}>
+          Usage
+        </Link>
+      </div>
+    </Popover>
+  );
+}
+
+const STATE_TONE: Record<string, string> = { live: 'text-signal', warn: 'text-warn', fault: 'text-fault', dim: 'text-fg-3' };
+
+/**
+ * One quiet line under the composer, like the terminal app's status row:
+ * model, the plan it runs on, context used, tokens and cost this session,
+ * and the state at the right. Same numbers as the ring and the Context card;
+ * the account list loads once when nothing loaded it yet (useAccounts).
+ * Phones have no ring: there the line leaves out the plan so it stays one
+ * line, and a tap opens the ring's sheet, which has the plan and its limits.
+ */
+export function StatusLine({ session, phone = false }: { session: Session; phone?: boolean }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const u = useContextUse(session, undefined);
+  const { status: accounts } = useAccounts();
+  const agentModel = useHub((s) => s.agents.find((a) => a.name === session.agent)?.model);
+  const hubDefault = useHub((s) => s.hub?.defaultModel);
+  const plan = sessionPlan(session.model, session.meta, agentModel ?? hubDefault, accounts)?.current;
+  const parts = statusParts({ model: session.model, plan: plan && !phone ? planWords(plan) : undefined, contextPct: contextPercent(u.used, u.window), tokens: u.tokensIn + u.tokensOut, cost: u.word });
+  const state = stateWord(session.status, session.resumeAt);
+  const line = (
+    <>
+      <span className="num min-w-0 flex-1 truncate">{parts.join(' · ')}</span>
+      <span className={cn('shrink-0', STATE_TONE[state.tone])}>{state.word}</span>
+    </>
+  );
+  if (!phone)
+    return (
+      <div data-status-line="" className="flex min-h-[20px] items-baseline gap-2 px-0.5 text-[12px] text-fg-3">
+        {line}
+      </div>
+    );
+  return (
+    <>
+      <button ref={ref} type="button" data-status-line="" aria-haspopup="dialog" aria-expanded={open} aria-label={`${parts.join(', ')}, ${state.word}. Plan and context`} onClick={() => setOpen(true)} className="flex min-h-11 w-full items-center gap-2 px-1.5 text-left text-[12px] text-fg-3">
+        {line}
+      </button>
+      <ContextDetails anchor={ref} open={open} onClose={() => setOpen(false)} session={session} />
     </>
   );
 }

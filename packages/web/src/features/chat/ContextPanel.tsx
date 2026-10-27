@@ -53,7 +53,7 @@ import { agoText, msgText } from './util';
 import { subagentOf, taskCalls, taskKind, tasksWord, useRunningTasks, type RunningTask } from './liveTasks';
 import { PausedWord, TaskTitle } from './RunningTasks';
 import { groupByKind } from '@/lib/taskKinds';
-import { backgroundShells, contextPercent, outputsWord, panelCards, sessionOutputs, type BackgroundShell, type CardId, type Output } from './panel';
+import { backgroundShells, callCostWord, contextPercent, costWord, outputsWord, panelCards, sessionOutputs, type BackgroundShell, type CardId, type Output } from './panel';
 import { sessionMcpOff, ConnectorsSheet } from './sheets/Connectors';
 import { ContextSheet, CONTEXT_PARTS } from './sheets/ContextSheet';
 import { SessionSheet } from './sheets/SessionSheet';
@@ -252,8 +252,7 @@ function ContextCard({ session, onDetails }: { session: Session; onDetails: () =
   const cachePct = cacheBase ? Math.round((session.stats.cacheReadTokens / cacheBase) * 100) : 0;
   const tokensTotal = session.stats.inputTokens + session.stats.outputTokens + session.stats.cacheReadTokens;
   // subscriptions and harness plans have no per-token price, so a zero cost reads "plan"
-  const local = /^(ollama|lmstudio|llamacpp|local)\//.test(session.model);
-  const costWord = session.stats.costUsd ? usd(session.stats.costUsd) : local ? 'local' : harnessId(session.model) || !info || (info.inputPrice === 0 && info.outputPrice === 0) ? 'plan' : usd(0);
+  const cost = costWord(session.stats, session.model, info);
   return (
     <Card
       id="context"
@@ -276,7 +275,7 @@ function ContextCard({ session, onDetails }: { session: Session; onDetails: () =
           <StatGroup className="mt-1">
             <Stat value={compact(session.stats.inputTokens + session.stats.cacheReadTokens)} label="tokens in" />
             <Stat value={compact(session.stats.outputTokens)} label="tokens out" />
-            <Stat value={costWord} label="cost" delta={worthLine(session.stats)} />
+            <Stat value={cost} label="cost" delta={worthLine(session.stats)} />
           </StatGroup>
           <div className="mt-3.5 space-y-3 text-[12px] text-fg-3">
             <div>
@@ -732,6 +731,12 @@ function PauseButton({ paused, label, onPause, onResume }: { paused: boolean; la
 
 function RunningRow({ task }: { task: RunningTask }) {
   const childStatus = useHub((s) => (task.kind === 'subagent' && task.childId ? s.sessions[task.childId]?.status : undefined));
+  // its session's tokens and bill, as the composer's status line says them
+  const used = useHub((s) => {
+    const st = task.kind === 'subagent' && task.childId ? s.sessions[task.childId]?.stats : undefined;
+    const tokens = st ? st.inputTokens + st.cacheReadTokens + st.outputTokens : 0;
+    return st && tokens && task.kind === 'subagent' ? `${compact(tokens)} tokens · ${callCostWord(st.costUsd, tokens, task.model)} · ` : '';
+  });
   if (task.kind === 'workflow') {
     const r = task.run;
     const canPause = r.status === 'running' || r.status === 'paused';
@@ -778,7 +783,7 @@ function RunningRow({ task }: { task: RunningTask }) {
           <PausedWord className="flex" />
         ) : (
           <span className="block truncate text-[12px]">
-            {task.model && <span className="text-fg-3">{modelName(task.model)} · </span>}
+            {(task.model || used) && <span className="num text-fg-3">{task.model && `${modelName(task.model)} · `}{used}</span>}
             <Elapsed since={task.startedAt} format="short" className="text-signal" />
           </span>
         )}
