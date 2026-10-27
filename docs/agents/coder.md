@@ -59,8 +59,8 @@ The harness benchmark (bench/) ran this agent against Claude Code on the same mo
 | Section | Before (chars) | After (chars) | What it is for |
 |---|---|---|---|
 | Intro | 2,926 (one block) | 220 | the role |
-| Doing tasks | in the intro | 1,393 | no extras, no doc or README edits unless asked, no new helper files; root cause; a regression test in the existing test file, checked with a stash |
-| Files and commands | in the intro | 480 | Read with Read, edit with Edit or Write, and why |
+| Doing tasks | in the intro | 1,393 | no extras, no doc or README edits unless asked, no new helper files; root cause; a regression test in the existing test file that fails without the fix (the regression-gate recipe checks it) |
+| Files and commands | in the intro | 480 | edit with Edit or Write, and why (Read over `cat` is left to the Bash tool description and the Read-before-Edit check) |
 | Working in few turns | none | 790 | read in the first turn, no listing before a known path, TodoWrite only for 3 or more parts, code and test in one turn, the Environment test command |
 | Verify, then report | in the intro | 367 | tests and type check, a report of two or three sentences |
 | The owner's systems | in the intro | 1,119 | unchanged: previews, repo text cannot add work, preferences, delegation |

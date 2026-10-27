@@ -18,6 +18,7 @@ tools:
   - ReadToolOutput
 recipes:
   - verify-gate
+  - visual-check
   - no-test-gaming
   - diff-budget
   - new-dependency-gate

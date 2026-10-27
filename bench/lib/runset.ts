@@ -152,7 +152,7 @@ export function servedMatches(arm: ArmId, requested: string, served: string[]): 
   return served.every((s) => strip(s) === want || new RegExp(`^${want.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-20\\d{6}$`).test(strip(s)));
 }
 
-export async function runSet(o: RunOptions): Promise<number> {
+export async function runSet(o: RunOptions, stopAfterGroup?: (results: any[]) => boolean): Promise<number> {
   const prices = readJson<Prices>(join(BENCH_DIR, 'prices.json'));
   const p = claudeConfig();
   const env = await baseEnv([p.host]);
@@ -416,6 +416,11 @@ export async function runSet(o: RunOptions): Promise<number> {
         } else if (last?.valid) streak.delete(item.arm);
       }
       if (exitCode === 1 || exitCode === 3) break;
+      if (stopAfterGroup?.(readJsonl(resultsFile))) {
+        log('candidate hidden-test regression: stopping before the next group');
+        exitCode = 4;
+        break;
+      }
     }
   } finally {
     process.off('SIGINT', onSigint);

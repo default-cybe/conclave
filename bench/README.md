@@ -125,6 +125,18 @@ All commands start from the repo root.
 
    `bench/run.ts` is the one entry point: it is `bench.ts all`, which runs doctor, validate, the runs, the judge and the report in order. `bench.ts run` skips the judge; `bench.ts judge --set <name>` and `bench.ts report --set <name>` run the last two steps on their own.
 
+### Offline harness improvement (operator-run)
+
+Prepare two separate Conclave checkouts: a fixed baseline and one candidate harness edit. From this repo's root, run:
+
+```
+bun bench/improve.ts --baseline-src /path/to/baseline --candidate-src /path/to/candidate --set gate-trial --model <proxy-model-id> --tasks smoke --repeats 2 --budget-usd 20
+```
+
+This runs the existing Conclave A arm on the same validated tasks, model, seed and repetitions in two isolated sets. It reuses hidden-test scoring, `own_tests` and `regression_gate`; it skips the paid blind judge. Candidate work stops after the first task/repeat whose hidden-test pass count drops or whose full pass becomes a fail. Read `bench/results/gate-trial-candidate/comparison.md` and both linked summaries before deciding whether to merge manually. A tied or unfinished run never recommends the candidate. Exit 4 means regression; exit 3 means incomplete or budget stop. `--dry-run` uses fake agents and makes no model calls, but cannot measure a harness edit.
+
+`--budget-usd` is mandatory and shared across both sets' recorded runs. The cap and the spend reported in `comparison.md` exclude doctor preflight model requests (one per started set), because doctor exposes no usage or cost. If baseline runs exhaust the cap, the command skips the candidate, including its preflight, and exits 3. Like the bench runner, it estimates the next run from finished runs, so the first or an unexpectedly costly run may exceed the cap. Watch spending and use `--run-token-cap` to bound a runaway run. This command never merges or deploys.
+
 ### Useful flags
 
 | flag | default | what it does |

@@ -141,6 +141,28 @@ describe('ProviderRegistry.groups, costOf, test', () => {
     expect(registry.costOf(info, { inputTokens: 5, outputTokens: 5, costUsd: 0.01 })).toBe(0.01);
   });
 
+  test('a custom provider model is priced from modelOverrides, and stays $0 without one', () => {
+    config.update({
+      providers: {
+        experientiallabs: {
+          type: 'openai',
+          name: 'experientiallabs',
+          baseUrl: 'https://api.experientiallabs.ai/v1',
+          apiKey: 'k',
+          models: ['glm-5.3-uncensored', 'glm-5.3-flash-uncensored'],
+        },
+      } as any,
+    });
+    // the shape `conclave config set providers.experientiallabs.modelOverrides '<json>'` patches in
+    config.update({ providers: { experientiallabs: { modelOverrides: { 'glm-5.3-uncensored': { inputPrice: 1.4, outputPrice: 4.4, cacheReadPrice: 1.4, cacheWritePrice: 1.4 } } } } as any });
+    const priced = registry.resolve('experientiallabs/glm-5.3-uncensored').info;
+    expect(priced).toMatchObject({ name: 'GLM-5.3 Uncensored', inputPrice: 1.4, outputPrice: 4.4 });
+    expect(registry.costOf(priced, { inputTokens: 1_000_000, outputTokens: 1_000_000, cacheReadTokens: 1_000_000 })).toBeCloseTo(7.2, 6);
+    const free = registry.resolve('experientiallabs/glm-5.3-flash-uncensored').info;
+    expect(free).toMatchObject({ inputPrice: 0, outputPrice: 0 });
+    expect(registry.costOf(free, { inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBe(0);
+  });
+
   test('test() sends a tiny request and reports latency', async () => {
     config.update({ providers: { local: { type: 'openai', baseUrl: `${server.url}/v1`, models: ['llama-4-local'] } } as any });
     const res = await registry.test('local');

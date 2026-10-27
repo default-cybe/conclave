@@ -9,9 +9,9 @@
  *   SubagentStart and SubagentStop fire with the parent session, so the
  *   child's profile is looked up by agent_type.
  * - A recipe entry is "id" or "id NAME=value ...": the tunables of that recipe.
- *   "verify-gate" and "regression-gate" are not hooks: they turn on the
- *   built-in gates on the session's device (session/verify-gate.ts,
- *   session/regression-gate.ts).
+ *   "verify-gate", "regression-gate" and "visual-check" are not hooks: they
+ *   turn on the built-in gates (session/verify-gate.ts,
+ *   session/regression-gate.ts, session/visual-check.ts).
  * - Recipe scripts are written to <hooks>/recipes/<id>.sh when missing or
  *   different from the shipped text, the same path an install uses. A recipe
  *   whose programs (jq, bash) are not on the hub is skipped with one warning,
@@ -28,7 +28,7 @@ import { join, sep } from 'node:path';
 import type { HookEvent, HookMatcher, HooksConfig } from '../config/schema';
 import type { AgentDef, RuntimeHookCommand } from './types';
 import { recipeById, recipeHooks } from './recipes';
-import { GATE_RECIPES, REGRESSION_GATE_RECIPE, VERIFY_GATE_RECIPE, type HookRecipe } from './hook-recipes';
+import { GATE_RECIPES, REGRESSION_GATE_RECIPE, VERIFY_GATE_RECIPE, VISUAL_CHECK_RECIPE, type HookRecipe } from './hook-recipes';
 import { logger } from '../util/log';
 
 const log = logger('agent-hooks');
@@ -63,6 +63,11 @@ export function wantsVerifyGate(def: AgentDef | undefined): boolean {
 /** Whether an agent turns on the regression gate. */
 export function wantsRegressionGate(def: AgentDef | undefined): boolean {
   return !!def && (def.recipes ?? []).some((r) => parseRecipeRef(r).id === REGRESSION_GATE);
+}
+
+/** Whether an agent turns on the visual check (session/visual-check.ts). */
+export function wantsVisualCheck(def: AgentDef | undefined): boolean {
+  return !!def && (def.recipes ?? []).some((r) => parseRecipeRef(r).id === VISUAL_CHECK_RECIPE);
 }
 
 const written = new Map<string, string>();
