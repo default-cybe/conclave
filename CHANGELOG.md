@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Claude Code import keeps the whole history of a chat compacted many times. Newer Claude Code builds re-write a preserved tail of messages after a compaction and point the compact boundary at it, so the import stopped at that compaction and dropped everything before it. When a boundary's link back is missing, dead or loops, the import (hub and Rust daemon) now goes on from the last message written before the boundary. Each message shows once, and chats that imported fine before import the same.
+
 ## [0.4.39] - 2026-10-27
 
 ### Added
