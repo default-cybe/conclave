@@ -13,6 +13,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Connect apps that sign in with OAuth. An MCP server with `"auth": "oauth"` gets Connect, Reconnect and Disconnect in Extensions > MCP servers (and the /mcp sheet) with a status line. Connect opens the app's sign-in page in a new tab and comes back to the hub at `/api/mcp/oauth/callback`; the hub does discovery, client registration and PKCE itself, seals the tokens in `secrets.json` and refreshes them once per refresh token. A lapsed or revoked sign-in shows "not connected" and stops retrying until you press Connect. Discover adds Notion and Linear (sign in with Connect) and AFFiNE through the community affine-mcp-server, with the one-time setup in docs/EXTENSIONS.md. Connect needs the hub's public address. A sign-in is tied to the server's URL and is forgotten when the URL or auth changes or the server is removed; discovery and token addresses must be https on a public address, and failures show no response body.
 
+### Changed
+
+- The chat makes files itself instead of handing them to a Code session. It writes text, Markdown, CSV, JSON, HTML and SVG with Write and Read, both confined to the chat's outputs folder on the hub (a path outside it, through `..` or a symlink, is refused), and a new opt-in RenderFile tool turns an HTML, SVG or Markdown file there into a PDF (A4 or Letter) or PNG with the hub's Chromium, then ShareFile hands it over. Rendering is offline: every request except files in the outputs folder is aborted, JavaScript and service workers are off, inputs are capped at 5 MB and outputs at 25 MB, and a render stops after 30 seconds. The chat still has no shell, and delegates only work that needs the owner's devices or files, a shell, code to run, mail, calendar or the browser. The assistant gets RenderFile too; untrusted agents and members' sessions do not. Without a browser installed on the hub, RenderFile says so.
+
 ## [0.4.40] - 2026-10-27
 
 ### Added

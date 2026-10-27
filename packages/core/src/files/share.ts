@@ -7,9 +7,9 @@
  * (<home>/outputs/<sessionId>), or the folder of one of its subagent or
  * delegated sessions. Nothing else under the hub home is ever served.
  */
-import { realpathSync, statSync } from 'node:fs';
+import { lstatSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, isAbsolute, join, normalize, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import type { Session } from '../types';
 import type { Machine } from '../machine/types';
 import { isHubPrivatePath, privateRefusal } from '../machine/private';
@@ -102,6 +102,34 @@ function realOr(p: string): string {
   } catch {
     return p;
   }
+}
+
+/**
+ * True when a hub path lies in dir with symlinks followed: the deepest part of
+ * the path that exists is resolved to its real place, so a link cannot lead
+ * out. A link that resolves nowhere counts as outside.
+ */
+export function insideFolder(dir: string, path: string): boolean {
+  let p = clean(resolve(path));
+  const rest: string[] = [];
+  for (;;) {
+    try {
+      lstatSync(p);
+      break;
+    } catch {
+      const up = dirname(p);
+      if (up === p) return false;
+      rest.unshift(basename(p));
+      p = up;
+    }
+  }
+  let real: string;
+  try {
+    real = realpathSync(p);
+  } catch {
+    return false;
+  }
+  return within(clean(join(real, ...rest)), clean(realOr(resolve(dir))));
 }
 
 const refused = (message: string): ShareCheck => ({ ok: false, code: 'refused', message });
