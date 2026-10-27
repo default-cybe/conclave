@@ -77,12 +77,17 @@ export interface ProviderAccessDto {
   resetsAt: number;
 }
 
+/** The most sessions side by side (/sessions/split). */
+export const SPLIT_MAX = 4;
+
 export interface MePreferences {
   defaultModel?: string;
   smallModel?: string;
   defaultAgent?: string;
   /** Watch this person's devices for new chats to import. */
   importWatch?: boolean;
+  /** Sessions side by side (/sessions/split): up to SPLIT_MAX session ids, left to right. */
+  splitView?: string[];
 }
 
 /** GET /api/me */
@@ -108,6 +113,8 @@ export interface MePatch {
   smallModel?: string | null;
   defaultAgent?: string | null;
   importWatch?: boolean;
+  /** Up to SPLIT_MAX session ids; null or [] clears the view. */
+  splitView?: string[] | null;
 }
 
 /** The owner's grant of a hub key: missing provider is no access; monthlyUsd null is no cap. */

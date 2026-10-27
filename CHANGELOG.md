@@ -9,6 +9,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Sessions side by side. On a computer, Side by side (`/sessions/split`, in the command palette and in a session's menu) shows two to four sessions as columns, each with its live transcript, approvals, state and its own composer, so you can watch and steer them at once. Add session picks from recent sessions; a full view makes room by dropping the leftmost. The layout is saved to your account, so it follows you between computers and each person on the hub keeps their own. All columns read the one live connection the app already has. On a phone the page lists the same sessions to open one at a time.
+
 ### Changed
 
 - The chat makes files itself instead of handing them to a Code session. It writes text, Markdown, CSV, JSON, HTML and SVG with Write and Read, both confined to the chat's outputs folder on the hub (a path outside it, through `..` or a symlink, is refused), and a new opt-in RenderFile tool turns an HTML, SVG or Markdown file there into a PDF (A4 or Letter) or PNG with the hub's Chromium, then ShareFile hands it over. Rendering is offline: every request except files in the outputs folder is aborted, JavaScript and service workers are off, inputs are capped at 5 MB and outputs at 25 MB, and a render stops after 30 seconds. The chat still has no shell, and delegates only work that needs the owner's devices or files, a shell, code to run, mail, calendar or the browser. The assistant gets RenderFile too; untrusted agents and members' sessions do not. Without a browser installed on the hub, RenderFile says so.
