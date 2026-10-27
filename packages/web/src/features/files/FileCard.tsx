@@ -1,9 +1,12 @@
 /**
  * File cards in the chat: a file a ShareFile call handed the owner (core
- * files/share.ts). Name, type and size, a preview for images, PDFs and
- * plain text, and Download. The bytes come from
+ * files/share.ts). Name, type and size, an inline picture for a PNG, JPEG,
+ * GIF or SVG (a generated chart or graph), and Download. The bytes come from
  * GET /api/sessions/:id/files/:toolUseId with the token, as a Blob, the way
- * a map card's picture does (MapsCard.tsx). SVG and HTML never render here.
+ * a map card's picture does (MapsCard.tsx). Text, code, PDF and the rest stay
+ * a card. An SVG only ever draws as an <img> (the browser runs no script and
+ * loads nothing in one), from a data: URL so even "open image in new tab" is an
+ * opaque origin, never the app's; it has no Open. HTML never renders here.
  */
 import { useEffect, useState } from 'react';
 import { Download, ExternalLink, FileText } from 'lucide-react';
@@ -12,7 +15,7 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/text';
 import { Button } from '@/components/ui/Button';
 import { useIsMobile } from '@/lib/hooks';
-import { fileCardOf, fileFacts, previewOf, shareCards, TEXT_PREVIEW_BYTES, type FileCardData } from './words';
+import { fileCardOf, fileFacts, opensInTab, previewOf, shareCards, SVG_PREVIEW_MAX, type FileCardData } from './words';
 
 const BOX = 'rounded-[var(--r-2)] border border-rule-2 bg-raise';
 
@@ -36,28 +39,43 @@ function fileBlob(sessionId: string, card: FileCardData): Promise<{ url: string;
   return p;
 }
 
-function usePreview(sessionId: string, card: FileCardData): { src?: string; text?: string; error?: string } {
-  const kind = previewOf(card.mediaType);
-  const [state, setState] = useState<{ src?: string; text?: string; error?: string }>({});
+/** An SVG as a data: URL: in an <img> it is inert, and opened on its own it is no origin's page (a blob: one would be the app's). */
+function dataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(r.error ?? new Error('Could not read the file.'));
+    r.readAsDataURL(blob);
+  });
+}
+
+function usePreview(sessionId: string, card: FileCardData): { src?: string; svg?: string; error?: string } {
+  const kind = previewOf(card);
+  const tab = opensInTab(card.mediaType);
+  const [state, setState] = useState<{ src?: string; svg?: string; error?: string }>({});
   useEffect(() => {
-    if (!kind) return;
+    if (!kind && !tab) return;
     let alive = true;
     fileBlob(sessionId, card)
       .then(async ({ url, blob }) => {
-        const text = kind === 'text' ? await blob.slice(0, TEXT_PREVIEW_BYTES).text() : undefined;
-        if (alive) setState({ src: url, text });
+        if (kind === 'svg') {
+          if (blob.size > SVG_PREVIEW_MAX) return; // the file grew since it was shared: a card only
+          const svg = await dataUrl(blob);
+          if (alive) setState({ svg });
+        } else if (alive) setState({ src: url });
       })
       .catch((e: unknown) => alive && setState({ error: e instanceof Error ? e.message : String(e) }));
     return () => {
       alive = false;
     };
-  }, [sessionId, card.toolUseId, kind]);
+  }, [sessionId, card.toolUseId, kind, tab]);
   return state;
 }
 
 export function FileCard({ card, sessionId, className }: { card: FileCardData; sessionId: string; className?: string }) {
-  const kind = previewOf(card.mediaType);
-  const { src, text, error } = usePreview(sessionId, card);
+  const kind = previewOf(card);
+  const { src, svg, error } = usePreview(sessionId, card);
+  const alt = card.title ?? card.name;
   const [failed, setFailed] = useState<string>();
   const download = () =>
     fileBlob(sessionId, card)
@@ -70,16 +88,15 @@ export function FileCard({ card, sessionId, className }: { card: FileCardData; s
       .catch((e: unknown) => setFailed(e instanceof Error ? e.message : String(e)));
   return (
     <div className={cn(BOX, 'max-w-[560px] overflow-hidden', className)} data-file-card={card.mediaType}>
-      {kind === 'image' && src && <img src={src} alt={card.title ?? card.name} className="block max-h-96 w-full bg-sunk object-contain" draggable={false} />}
-      {kind === 'pdf' && src && <iframe src={src} sandbox="" title={card.name} className="block h-96 w-full border-0 bg-sunk" />}
-      {kind === 'text' && text !== undefined && <pre className="m-0 max-h-72 overflow-auto bg-sunk px-3.5 py-2.5 text-[12px] leading-[1.5] text-fg-2 whitespace-pre-wrap">{text}</pre>}
+      {kind === 'image' && src && <img src={src} alt={alt} className="block max-h-96 w-full bg-sunk object-contain" draggable={false} />}
+      {kind === 'svg' && svg && <img src={svg} alt={alt} className="block max-h-96 w-full bg-sunk object-contain" draggable={false} referrerPolicy="no-referrer" />}
       <div className="flex items-center gap-3 px-3.5 py-3 phone:px-4">
         <FileText className="size-5 shrink-0 text-fg-3" aria-hidden />
         <div className="min-w-0 flex-1">
           <div className="t-row truncate text-fg">{card.title ?? card.name}</div>
           <div className="truncate text-[12.5px] text-fg-3 phone:text-[13.5px]">{card.title ? `${card.name}, ` : ''}{fileFacts(card)}</div>
         </div>
-        {(kind === 'pdf' || kind === 'image') && src && (
+        {opensInTab(card.mediaType) && src && (
           <Button size="sm" variant="quiet" icon={<ExternalLink className="size-4" />} onClick={() => window.open(src, '_blank', 'noopener')}>
             Open
           </Button>

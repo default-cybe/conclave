@@ -57,13 +57,24 @@ export function fileFacts(c: Pick<FileCardData, 'mediaType' | 'size'>): string {
   return `${KIND[c.mediaType] ?? 'File'}, ${sizeWords(c.size)}`;
 }
 
-/** The preview a card shows: SVG and HTML never render (they could run). */
-export function previewOf(mediaType: string): 'image' | 'pdf' | 'text' | undefined {
-  if (mediaType === 'application/pdf') return 'pdf';
-  if (['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(mediaType)) return 'image';
-  if (['text/markdown', 'text/csv', 'text/plain'].includes(mediaType)) return 'text';
+/** Largest raster image a card shows inline (the phone's FileCards.INLINE_MAX). */
+export const IMAGE_PREVIEW_MAX = 20 * 1024 * 1024;
+/** Largest SVG a card shows inline (the phone's FileCards.SVG_MAX). */
+export const SVG_PREVIEW_MAX = 2 * 1024 * 1024;
+
+/**
+ * The preview a card shows. A PNG, JPEG, GIF or WebP is an image; an SVG is
+ * its own kind, drawn only as an <img> (no scripts, no loads) and never opened
+ * on its own. Anything else (text, code, JSON, CSV, PDF, HTML) is a card with
+ * Download, never a dump in the chat. Too big a file is a card only.
+ */
+export function previewOf(c: Pick<FileCardData, 'mediaType' | 'size'>): 'image' | 'svg' | undefined {
+  if (['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(c.mediaType)) return c.size <= IMAGE_PREVIEW_MAX ? 'image' : undefined;
+  if (c.mediaType === 'image/svg+xml') return c.size <= SVG_PREVIEW_MAX ? 'svg' : undefined;
   return undefined;
 }
 
-/** Text previews read this much of the file. */
-export const TEXT_PREVIEW_BYTES = 200_000;
+/** Types Open shows in a new tab: the browser's own image or PDF viewer. Never SVG or HTML (they could run as the app's page). */
+export function opensInTab(mediaType: string): boolean {
+  return ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'].includes(mediaType);
+}

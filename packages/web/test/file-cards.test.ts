@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { Message } from '@conclave/core/types';
-import { fileCardOf, fileFacts, previewOf, shareCards, sizeWords } from '../src/features/files/words';
+import { fileCardOf, fileFacts, IMAGE_PREVIEW_MAX, opensInTab, previewOf, shareCards, sizeWords, SVG_PREVIEW_MAX } from '../src/features/files/words';
 import { sessionOutputs } from '../src/features/chat/panel';
 
 const file = { path: '/home/kai/out/report.pdf', device: 'local', name: 'report.pdf', mediaType: 'application/pdf', size: 14_540 };
@@ -25,15 +25,23 @@ describe('fileCardOf', () => {
     expect(shareCards([{ name: 'Bash', result }, { name: 'WebFetch', result: { ...result, toolUseId: 'toolu_2' } }, { name: 'ShareFile' }])).toEqual([]);
   });
 
-  test('words and previews: SVG and HTML never preview', () => {
+  test('words and previews: rasters and SVG draw inline, the rest is a card; SVG never opens in a tab', () => {
     expect(fileFacts(file)).toBe('PDF, 14.2 KB');
     expect(sizeWords(512)).toBe('512 B');
     expect(sizeWords(3 * 1024 * 1024)).toBe('3.0 MB');
-    expect(previewOf('application/pdf')).toBe('pdf');
-    expect(previewOf('image/png')).toBe('image');
-    expect(previewOf('text/csv')).toBe('text');
-    expect(previewOf('image/svg+xml')).toBeUndefined();
-    expect(previewOf('text/html')).toBeUndefined();
+    const p = (mediaType: string, size = 1000) => previewOf({ mediaType, size });
+    for (const t of ['image/png', 'image/jpeg', 'image/gif', 'image/webp']) expect(p(t)).toBe('image');
+    expect(p('image/svg+xml')).toBe('svg');
+    for (const t of ['application/pdf', 'text/csv', 'text/plain', 'text/markdown', 'application/json', 'text/html', 'application/xhtml+xml', 'image/bmp', 'application/octet-stream', ''])
+      expect(p(t)).toBeUndefined();
+    expect(p('image/png', IMAGE_PREVIEW_MAX)).toBe('image');
+    expect(p('image/png', IMAGE_PREVIEW_MAX + 1)).toBeUndefined();
+    expect(p('image/svg+xml', SVG_PREVIEW_MAX)).toBe('svg');
+    expect(p('image/svg+xml', SVG_PREVIEW_MAX + 1)).toBeUndefined();
+    expect(opensInTab('image/gif')).toBe(true);
+    expect(opensInTab('application/pdf')).toBe(true);
+    expect(opensInTab('image/svg+xml')).toBe(false);
+    expect(opensInTab('text/html')).toBe(false);
   });
 });
 

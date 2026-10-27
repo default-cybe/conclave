@@ -73,7 +73,7 @@ const DESCRIPTION = `Hand a job to a Code or Assistant session on one of the own
 - model: only when the owner names a model for this job ("provider/model" from the model picker, or fast, smart, deep). Left out, the session runs on its agent's own model. A named model that is not usable here is refused, never swapped for another.
 - device: a name from the list below; the hub when left out. folder: where to work on it, as a path or ~/...; its home folder when left out.
 - prompt: the full brief. The session sees nothing of this conversation, so give the exact paths, names and words the owner used, what to look for, and what to return.
-- readOnly: true unless the owner asked for changes. A read-only session gets no file-editing tools. It runs in this session's permission mode either way.
+- readOnly: true unless the owner asked for changes or for a file to be made. A read-only session gets no file-editing tools. It runs in this session's permission mode either way.
 - background: return at once; the answer arrives later in a <subagent_result> block. Use it for long jobs.
 
 The answer comes back to you, not to the owner: tell them what it found, plainly.`;
@@ -91,7 +91,7 @@ export const DelegateTool: Tool<DelegateInput> = {
       model: { type: 'string', description: 'Only when the owner names one: "provider/model" or a tier word (fast, smart, deep); default the agent\'s own model' },
       device: { type: 'string', description: 'Device name from the list; default the hub' },
       folder: { type: 'string', description: 'Folder on that device; default its home folder' },
-      readOnly: { type: 'boolean', description: 'Default true; false only when the owner asked for changes' },
+      readOnly: { type: 'boolean', description: 'Default true; false only when the owner asked for changes or for a file to be made' },
       background: { type: 'boolean', description: 'Return at once and get the answer later. Default false' },
     },
     required: ['to', 'prompt'],
