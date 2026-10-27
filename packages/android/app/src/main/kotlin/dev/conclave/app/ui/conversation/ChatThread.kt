@@ -193,6 +193,14 @@ fun ChatThreadScreen(
     val scope = rememberCoroutineScope()
     val snackbar = rememberToasts()
     MessagesEffect(vm.messages, snackbar)
+    // text or files shared to this chat from another app ("Share to"): in the box, not sent
+    LaunchedEffect(sessionId) {
+        hub.pendingShare.collect { s ->
+            if (s != null && s.to == sessionId && hub.pendingShare.compareAndSet(s, null)) {
+                vm.addShared(s.text, s.attachments)?.let { snackbar.showSnackbar(it) }
+            }
+        }
+    }
 
     var sheet by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }

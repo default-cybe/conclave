@@ -182,6 +182,14 @@ fun ChatScreen(
     val snackbar = rememberToasts()
     MessagesEffect(vm.messages, snackbar)
     MessagesEffect(locVm.messages, snackbar)
+    // text or files shared to this session from another app ("Share to"): in the box, not sent
+    LaunchedEffect(sessionId) {
+        hub.pendingShare.collect { s ->
+            if (s != null && s.to == sessionId && hub.pendingShare.compareAndSet(s, null)) {
+                vm.addShared(s.text, s.attachments)?.let { snackbar.showSnackbar(it) }
+            }
+        }
+    }
     // a repo session: its state from the hub, on open, when its summary changes, and after each turn
     val repoVm: RepoViewModel = viewModel(key = "repo:$sessionId") { RepoViewModel(hub, sessionId) }
     val repoLive by repoVm.repo.collectAsStateWithLifecycle()
