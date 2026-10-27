@@ -1009,8 +1009,11 @@ export const RECIPE_STARTER: string[] = ['git-work-saver', 'secrets-firewall', '
  * project's check before a turn that edited files may end
  * (session/verify-gate.ts); the regression gate runs the turn's changed tests
  * on the code from before the turn (session/regression-gate.ts). Both run on
- * the session's own device, which a hook command on the hub cannot do.
+ * the session's own device, which a hook command on the hub cannot do. The
+ * visual check reminds a turn that edited UI files and looked at no image to
+ * take screenshots (session/visual-check.ts).
  */
 export const VERIFY_GATE_RECIPE = 'verify-gate';
 export const REGRESSION_GATE_RECIPE = 'regression-gate';
-export const GATE_RECIPES: ReadonlySet<string> = new Set([VERIFY_GATE_RECIPE, REGRESSION_GATE_RECIPE]);
+export const VISUAL_CHECK_RECIPE = 'visual-check';
+export const GATE_RECIPES: ReadonlySet<string> = new Set([VERIFY_GATE_RECIPE, REGRESSION_GATE_RECIPE, VISUAL_CHECK_RECIPE]);

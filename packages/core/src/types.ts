@@ -861,6 +861,16 @@ export type EngineEvent =
       /** The agent got the reminder (passes, once per user turn). */
       reminded: boolean;
     }
+  /** The visual check saw a turn that edited UI files (session/visual-check.ts); once per user turn. */
+  | {
+      type: 'visual.checked';
+      sessionId: string;
+      /** looked: a tool result in the turn carried an image; reminded: none did, so the agent got the reminder. */
+      outcome: 'looked' | 'reminded';
+      /** The UI files the turn edited, at most 10. */
+      files: string[];
+      reminded: boolean;
+    }
   | { type: 'remote.updated'; remote: RemoteStatus }
   /** An app paired, was revoked, or connected or went away (phones are apps, not devices). */
   | { type: 'app.updated'; app: import('./client').AppDto }

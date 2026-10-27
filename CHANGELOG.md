@@ -9,6 +9,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Coding agents now look at their UI work. A new `visual-check` gate, on for coder, builder and refactorer, sends one short reminder per user turn when a main-session turn edited UI files (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.scss`, `.html`, `.svg`, and Compose `.kt` under a `ui/` folder; test files left out) and no tool result in the turn carried an image: take screenshots at phone and desktop width, light and dark, and look at them with Read, or say why it cannot. It writes a `visual.check` audit row and a `visual.checked` event. Edits made through Bash and edits made by subagents are not seen. `browser_screenshot` takes `width` (320-2560), `height` (320-4000) and `color_scheme` (`light` or `dark`) for one shot and puts the tab's size and theme back after it; width and height need a headless browser. The coder prompt gained one line about taking and reading screenshots after a UI change.
+
 ### Fixed
 
 - Kiro plans now show their monthly credit on Usage and in the composer's context ring: used and left, the limit and the reset. The hub reads it through the kiro4cpa plugin's quota provider in CLIProxyAPI, which asks Kiro's getUsageLimits with the account's own token. GitHub Copilot plans say "Usage not reported by GitHub Copilot", because its plugin has no quota read and CLIProxyAPI cannot put its GitHub token into a usage call. Plugin accounts are now named Kiro and GitHub Copilot instead of Kiro4cpa and Copilot.

@@ -32,6 +32,7 @@ import { join } from 'node:path';
 import { registerBuiltinHooks } from './builtin-hooks';
 import { attachVerifyGate } from '../session/verify-gate';
 import { attachRegressionGate } from '../session/regression-gate';
+import { attachVisualCheck } from '../session/visual-check';
 import { attachLimits } from '../session/limit-tree';
 import { attachAlerts } from '../alerts/service';
 import { AssistantService, QuietHoursNotifier, QUIET_JOB, attachAssistant, assistantFor as assistantForEngine } from '../assistant';
@@ -409,6 +410,8 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
   attachVerifyGate(engine, hooks);
   // the regression gate, after it: the turn's changed tests on the code from before the turn (session/regression-gate.ts)
   attachRegressionGate(engine);
+  // the visual check, after both: a turn that edited UI and looked at no image is asked to (session/visual-check.ts)
+  attachVisualCheck(engine);
   // spend and work limits per session tree, workflow budgets included (session/limit-tree.ts)
   attachLimits(engine);
   // file conflicts and stuck turns, for the Inbox (alerts/service.ts); tests call tick() themselves
