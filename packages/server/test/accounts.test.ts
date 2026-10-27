@@ -180,6 +180,22 @@ describe('config and the management client', () => {
     expect(await m.usageCall('claude-usage', 'a1b2')).toEqual({ status: 502 });
   });
 
+  test("a plugin's quota read: GET plugins/:id/quota for the pinned plugins only, the plugin's status passed on", async () => {
+    let status = 200;
+    const { m, seen } = scripted({
+      'GET /v8/management/credentials': () => ({ json: { files: [] } }),
+      'GET /v8/management/plugins/kiro4cpa/quota': () => ({ status, json: status === 200 ? { subscription: { plan: 'KIRO FREE' } } : { error: 'failed to fetch quota: upstream' } }),
+    });
+    expect(await m.pluginQuota('kiro4cpa', 'k1')).toEqual({ status: 200, json: { subscription: { plan: 'KIRO FREE' } } });
+    expect(seen.at(-1)).toMatchObject({ method: 'GET', path: '/v8/management/plugins/kiro4cpa/quota', query: { auth_index: 'k1' } });
+    status = 502;
+    expect((await m.pluginQuota('kiro4cpa', 'k1')).status).toBe(502);
+    const before = seen.length;
+    await expect(m.pluginQuota('../credentials', 'k1')).rejects.toThrow(/does not read/);
+    await expect(m.pluginQuota('kiro4cpa', 'k1&x=1')).rejects.toThrow(/index/);
+    expect(seen.length).toBe(before);
+  });
+
   test('the allowlist refuses every other method, address and index, before anything is sent', async () => {
     const { m, seen } = scripted({ 'GET /v8/management/credentials': () => ({ json: { files: [] } }) });
     expect(() => assertAllowedCall({ method: 'GET', url: 'https://evil.example/steal' })).toThrow(ManagementError);
@@ -614,6 +630,27 @@ describe('accounts on the hub', () => {
     expect(key.body.accounts.find((a: { id: string }) => a.id === 'api-anthropic')).toMatchObject({ refusal: true });
     expect(mgmtCalls().slice(before).filter((c) => c.path === 'fields')).toEqual([]);
     await api('/api/accounts/api-anthropic', { method: 'PATCH', json: { refusal: false } });
+  });
+
+  test("Kiro's usage comes from its plugin's quota read; Copilot, which has none, says so on Usage", async () => {
+    const reset = '2026-11-01T00:00:00Z';
+    // kiro4cpa 1.0.5's normalized answer (core/test/usage/kiro.test.ts has the full shape)
+    write('kiro4cpa-k@example.test.json', { type: 'kiro4cpa', email: 'k@example.test', quota: { subscription: { plan: 'KIRO PRO' }, summary: [{ key: 'agentic_request_used', label: 'u', value: 250 }, { key: 'agentic_request_limit', label: 'l', value: 1000 }], groups: [{ displayName: 'Credits', buckets: [{ window: 'monthly', remainingFraction: 0.75, resetTime: reset, description: '250 / 1000' }] }] } });
+    write('copilot-c@example.test.json', { type: 'copilot', email: 'c@example.test' });
+    const kiro = await until(async () => (await status()).accounts.find((a) => a.id === 'kiro4cpa-k@example.test' && a.windows.length), 8000, 'the Kiro window');
+    expect(kiro).toMatchObject({ vendorName: 'Kiro', plan: 'Pro' });
+    expect(kiro.windows).toEqual([expect.objectContaining({ name: 'monthly', kind: 'monthly', usedPercent: 25, remaining: 750, limit: 1000, resetsAt: Date.parse(reset), source: 'oauth' })]);
+    // the plugin's quota route, never api-call, and Copilot's plugin is not asked
+    expect(mgmtCalls().filter((c) => c.path === 'plugin-quota').every((c) => c.id === 'kiro4cpa' && c.name === 'kiro4cpa-k@example.test.json')).toBe(true);
+    expect(mgmtCalls().some((c) => c.path === 'api-call' && /kiro|copilot/.test(c.name ?? ''))).toBe(false);
+    const limits = await until(async () => {
+      const l = (await api('/api/limits')).body as Array<{ account?: string; label: string; windows: unknown[]; note?: string }>;
+      return l.some((x) => x.account === 'copilot-c@example.test') && l;
+    }, 8000, 'the Copilot limit state');
+    expect(limits.find((l) => l.account === 'kiro4cpa-k@example.test')).toMatchObject({ label: 'Kiro Pro · k@example.test', source: 'oauth' });
+    expect(limits.find((l) => l.account === 'copilot-c@example.test')).toMatchObject({ windows: [], note: 'Usage not reported by GitHub Copilot' });
+    rmSync(join(auth, 'kiro4cpa-k@example.test.json'));
+    rmSync(join(auth, 'copilot-c@example.test.json'));
   });
 
   test('no answer, event, log line or audit row holds a key or a token', async () => {
