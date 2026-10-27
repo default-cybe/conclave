@@ -12,6 +12,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Fixed
 
 - Kiro plans now show their monthly credit on Usage and in the composer's context ring: used and left, the limit and the reset. The hub reads it through the kiro4cpa plugin's quota provider in CLIProxyAPI, which asks Kiro's getUsageLimits with the account's own token. GitHub Copilot plans say "Usage not reported by GitHub Copilot", because its plugin has no quota read and CLIProxyAPI cannot put its GitHub token into a usage call. Plugin accounts are now named Kiro and GitHub Copilot instead of Kiro4cpa and Copilot.
+- Move back no longer marks a file as a conflict when the device only touched it: same size, a new mtime and the same bytes. The usual case was `.git/index`, which `git status` on the device rewrites unchanged when a second has passed. Such files are now hashed on the device and compared with the copy's manifest, as the hub side already did.
 
 ### Changed
 
