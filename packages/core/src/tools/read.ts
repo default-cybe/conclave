@@ -3,7 +3,7 @@ import type { Tool, ToolContext, ToolOutput } from './types';
 import { parseNotebook, renderNotebook } from './notebook';
 import { LEGACY_OFFICE, OFFICE_EXT, officeToMarkdown } from './office';
 import { DOCLING_EXT, doclingConvert, doclingFor } from './docling';
-import { basename, dirname, extname, fail, formatBytes, joinPath, numberLines, outputBudget, readMarkOf, resolveAbsolute, shellQuote, splitLines, pathRule } from './util';
+import { basename, chatRefusal, dirname, extname, fail, formatBytes, joinPath, numberLines, outputBudget, readMarkOf, resolveAbsolute, shellQuote, splitLines, pathRule } from './util';
 
 export interface ReadInput {
   file_path: string;
@@ -65,6 +65,8 @@ export const ReadTool: Tool<ReadInput> = {
     const r = resolveAbsolute(ctx, input.file_path);
     if ('error' in r) return fail(r.error);
     const path = r.path;
+    const refusal = chatRefusal(ctx, path);
+    if (refusal) return fail(refusal);
 
     const st = await ctx.machine.stat(path);
     if (!st) return fail(await notFoundMessage(ctx, path));

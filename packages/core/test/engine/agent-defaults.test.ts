@@ -111,11 +111,18 @@ describe('base prompt and mode notes come from BASE.md and modes.md', () => {
     expect(fileDeliveryNote(['Write', 'ShareFile'])).toContain('Save it with Write, then');
     expect(fileDeliveryNote(['Write', 'ShareFile'])).toContain('PNG or SVG image (SVG, since Write saves text)');
     expect(fileDeliveryNote(['Bash', 'ShareFile'])).toContain('Save it with Bash, then');
-    // a chat writes nothing itself: Delegate makes the file, ShareFile shares the path it reports
-    const chat = fileDeliveryNote(['WebSearch', 'Delegate', 'ShareFile'])!;
-    expect(chat).toContain('You cannot write files yourself: hand the job to Delegate with readOnly false');
-    expect(chat).toContain('then call ShareFile with that path.');
-    expect(chat).not.toContain('Save it with');
+    // the chat writes in its outputs folder and renders PDF and PNG itself; Delegate is not how it makes files
+    const chat = fileDeliveryNote(['WebSearch', 'Delegate', 'Read', 'Write', 'RenderFile', 'ShareFile'])!;
+    expect(chat).toContain('Save it with Write (RenderFile turns HTML, SVG or Markdown into a PDF or PNG), then call ShareFile with its path.');
+    expect(chat).toContain('PNG or SVG image (SVG, or PNG through RenderFile)');
+    expect(chat).not.toContain('Delegate');
+    // the assistant has Bash too
+    expect(fileDeliveryNote(['Bash', 'Write', 'RenderFile', 'ShareFile'])).toContain('Save it with Write, or Bash for binary files such as PNG (RenderFile turns HTML, SVG or Markdown into a PDF or PNG), then');
+    // an agent with only Delegate hands the writing on, and ShareFile shares the path it reports
+    const delegator = fileDeliveryNote(['WebSearch', 'Delegate', 'ShareFile'])!;
+    expect(delegator).toContain('You cannot write files yourself: hand the job to Delegate with readOnly false');
+    expect(delegator).toContain('then call ShareFile with that path.');
+    expect(delegator).not.toContain('Save it with');
     // ShareFile with no way to make a file, or no tools at all: say so, claim nothing
     expect(fileDeliveryNote(['ShareFile'])).toContain('You cannot create files in this session');
     expect(fileDeliveryNote(['ShareFile'])).not.toContain('Save it');
