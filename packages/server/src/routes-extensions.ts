@@ -11,8 +11,11 @@ import type { CliName, HookTestInput, McpImportFormat, RecipeInstallRequest, Rec
 import { lintHooks } from '@conclave/core/extensions/hook-lint.ts';
 import { LearnedSkillError, LearnedSkills, type LearnedSkill } from '@conclave/core/extensions/learned.ts';
 import type { LearnedSkillDto } from '@conclave/core/client/index.ts';
+import { MCP_OAUTH_CALLBACK } from '@conclave/core/extensions/mcp-oauth.ts';
+import { OWNER_ID } from '@conclave/core/people/context.ts';
 import type { HonoEnv, ServerContext } from './context';
 import { HttpError, badRequest, notFound, optString, readJson, requireString } from './http';
+import { callbackPage } from './routes-pim';
 
 const CLIS: CliName[] = ['claude', 'codex', 'opencode', 'gemini'];
 const KINDS = ['agent', 'skill', 'command'] as const;
@@ -291,6 +294,41 @@ export function registerExtensionRoutes(app: Hono<HonoEnv>, ctx: ServerContext, 
     audit(c, 'mcp.remove', name);
     changed();
     return c.json({ ok: true as const });
+  });
+
+  // ----- MCP OAuth: Connect, its public callback, Disconnect ------------------
+
+  app.post('/api/mcp/:name/oauth/start', async (c) => {
+    const name = c.req.param('name');
+    const base = engine.config.get().server.publicUrl;
+    // the callback must be an address the owner's browser reaches the hub at and that the app server accepts
+    if (!base || !URL.canParse(base)) throw new HttpError(409, 'Connect needs the hub\'s public address. Set up remote access (a tunnel, Tailscale or your own domain) in Settings first.');
+    const res = await engine.startMcpOAuth(name, `${new URL(base).origin}${MCP_OAUTH_CALLBACK}`);
+    audit(c, 'mcp.oauth.start', name);
+    return c.json(res);
+  });
+
+  app.get(MCP_OAUTH_CALLBACK, async (c) => {
+    const state = c.req.query('state') ?? '';
+    const code = c.req.query('code');
+    const error = c.req.query('error');
+    if (!state) return c.html(callbackPage(false, 'This address only finishes a sign-in started in Conclave.'), 400);
+    try {
+      const st = await engine.finishMcpOAuth({ state, ...(code ? { code } : {}), ...(error ? { error } : {}) });
+      audit(c, 'mcp.oauth.connect', st.name, { accountId: OWNER_ID });
+      changed();
+      return c.html(callbackPage(true, `${st.name} is connected to Conclave. Return to Conclave; its tools reach new sessions.`));
+    } catch (err) {
+      return c.html(callbackPage(false, (err as Error).message), 400);
+    }
+  });
+
+  app.delete('/api/mcp/:name/oauth', async (c) => {
+    const name = c.req.param('name');
+    const st = await engine.disconnectMcpOAuth(name);
+    audit(c, 'mcp.oauth.disconnect', name);
+    changed();
+    return c.json(st);
   });
 
   app.post('/api/mcp/:name/restart', async (c) => c.json(await engine.restartMcp(c.req.param('name'))));

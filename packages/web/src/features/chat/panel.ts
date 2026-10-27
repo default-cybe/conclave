@@ -6,8 +6,10 @@
  * the transcript on the client. Pure, so test/session-panel.test.ts checks
  * it.
  */
-import type { ContentBlock, Message, Session } from '@conclave/core/types';
-import { fileName } from '@/lib/format';
+import type { ContentBlock, Message, Session, SessionStatus } from '@conclave/core/types';
+import { compact, fileName, hhmm, usd } from '@/lib/format';
+import { harnessId, modelName } from '@/lib/models';
+import { planServed, type Valued } from '@/features/usage/value';
 
 export type CardId = 'environment' | 'context' | 'connectors' | 'plan' | 'outputs' | 'changes' | 'tasks' | 'memory';
 
@@ -193,4 +195,60 @@ export function backgroundShells(messages: readonly Message[]): BackgroundShell[
 export function contextPercent(used: number, window: number | undefined): number | undefined {
   if (!used || !window) return undefined;
   return Math.min(100, Math.max(used > 0 ? 1 : 0, Math.round((used / window) * 100)));
+}
+
+// ---------------------------------------------------------------------------
+// Status line
+// ---------------------------------------------------------------------------
+
+/**
+ * What it cost, in a word: the bill, "plan" when a plan served it (worth more
+ * than billed) or the model has no per-token price (a harness, a free
+ * catalog entry, an unknown model), "local" for a model on this machine.
+ */
+export function costWord(stats: Valued, model: string | undefined, prices?: { inputPrice: number; outputPrice: number }): string {
+  if (stats.costUsd) return usd(stats.costUsd);
+  if (model && /^(ollama|lmstudio|llamacpp|local)\//.test(model)) return 'local';
+  if (planServed(stats) || harnessId(model) || !prices || (!prices.inputPrice && !prices.outputPrice)) return 'plan';
+  return usd(0);
+}
+
+/**
+ * A workflow agent's or subagent's bill in a word. Their rows carry no API
+ * value, so a call that used tokens and billed nothing was paid by a plan
+ * (or ran locally); never "$0". Nothing before it used any.
+ */
+export function callCostWord(costUsd: number, tokens: number, model: string | undefined): string {
+  if (costUsd) return usd(costUsd);
+  if (!tokens) return '';
+  return model && /^(ollama|lmstudio|llamacpp|local)\//.test(model) ? 'local' : 'plan';
+}
+
+/** The agent's state in the words the rest of the app uses (the session list's for a limit). */
+export function stateWord(status: SessionStatus | undefined, resumeAt?: number): { word: string; tone: 'live' | 'warn' | 'fault' | 'dim' } {
+  if (status === 'running') return { word: 'running', tone: 'live' };
+  if (status === 'waiting_approval' || status === 'waiting_input') return { word: 'waiting on you', tone: 'warn' };
+  if (status === 'waiting_reset') return { word: resumeAt ? `resumes ${hhmm(resumeAt)}` : 'waiting for reset', tone: 'dim' };
+  if (status === 'paused') return { word: 'paused', tone: 'dim' };
+  if (status === 'error') return { word: 'failed', tone: 'fault' };
+  return { word: 'idle', tone: 'dim' };
+}
+
+export interface StatusInput {
+  model?: string;
+  /** The plan or key it runs on ("neu-claude, Max 20x"), when known. */
+  plan?: string;
+  /** Context used, 0 to 100; undefined until measured. */
+  contextPct?: number;
+  tokens: number;
+  cost: string;
+}
+
+/**
+ * The parts of an agent's status line, like the terminal app's second row:
+ * "Opus 5.5", "neu-claude, Max 20x", "12% context", "48K tokens", "plan".
+ * The state word goes after them, in its tone. Parts not known are left out.
+ */
+export function statusParts(s: StatusInput): string[] {
+  return [modelName(s.model), s.plan ? `on ${s.plan}` : '', s.contextPct !== undefined ? `${s.contextPct}% context` : '', s.tokens ? `${compact(s.tokens)} tokens` : '', s.tokens || s.cost !== usd(0) ? s.cost : ''].filter(Boolean);
 }

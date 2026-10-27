@@ -21,7 +21,7 @@ function esc(s: string): string {
 }
 
 /** The page a browser lands on after Google. Plain, no scripts, nothing from the query echoed but the result. */
-function callbackPage(ok: boolean, text: string): string {
+export function callbackPage(ok: boolean, text: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Conclave</title><style>body{font:16px/1.5 system-ui,sans-serif;margin:0;display:grid;place-items:center;min-height:100vh;background:#f7f6f3;color:#1d1c1a}main{max-width:28rem;padding:24px}h1{font-size:20px;margin:0 0 8px}@media(prefers-color-scheme:dark){body{background:#151413;color:#ecebe8}}</style></head><body><main><h1>${ok ? 'Signed in' : 'Sign-in failed'}</h1><p>${esc(text)}</p><p>You can close this tab.</p></main></body></html>`;
 }
 

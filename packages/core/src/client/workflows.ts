@@ -275,3 +275,22 @@ export interface WorktreeActionResult {
   /** The diff for 'diff', or the command output. */
   output: string;
 }
+
+/** Keep a race's winner: apply its branch to the run's checkout, or open a pull request from the session's branch with it. */
+export type KeepWinnerHow = 'apply' | 'pr';
+
+/** The race block a race run returns in its result. */
+export interface RaceResult {
+  /** The winning call's number, or null when no racer passed the check. */
+  winner: number | null;
+  reasons: string[];
+  arms: Array<{ arm: string; ran: boolean; passed: boolean; seq?: number; model?: string; files?: number; score?: number }>;
+}
+
+export interface KeepWinnerResult {
+  ok: boolean;
+  output: string;
+  /** The losers' branches deleted after the winner was kept. */
+  discarded: number;
+  pr?: { number: number; url: string };
+}

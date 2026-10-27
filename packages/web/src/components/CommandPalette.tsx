@@ -254,6 +254,7 @@ function Palette() {
     action('import', 'Import past chats', go('/sessions?import=1'));
     // a new session that starts in a mode (the New session dialog opens on it)
     for (const m of MODES.filter((x) => x.value !== 'agent' && x.value !== 'chat')) list.push({ id: `new:${m.value}`, group: 'Actions', label: `New ${m.label.toLowerCase()} session`, text: `New ${m.label} session mode ${m.description}`, run: () => openNewChat({ mode: m.value }) });
+    action('split', 'Sessions side by side', go('/sessions/split'));
     action('shortcuts', 'Keyboard shortcuts', () => openShortcuts(), <Kbd>?</Kbd>);
     // extensions
     if (owner) {

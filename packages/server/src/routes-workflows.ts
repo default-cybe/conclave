@@ -5,7 +5,7 @@
  * packages/core/src/workflows; these handlers validate and call it.
  */
 import type { Hono } from 'hono';
-import type { FindingVerdict, StartWorkflowInput, WorkflowRunStatus, WorktreeAction } from '@conclave/core/client/workflows.ts';
+import type { FindingVerdict, KeepWinnerHow, StartWorkflowInput, WorkflowRunStatus, WorktreeAction } from '@conclave/core/client/workflows.ts';
 import { workflowsOf } from '@conclave/core/workflows/attached.ts';
 import type { WorkflowService } from '@conclave/core/workflows/service.ts';
 import type { HonoEnv, ServerContext } from './context';
@@ -16,6 +16,7 @@ import { accountOf, ownSession } from './scope';
 const STATUSES: WorkflowRunStatus[] = ['queued', 'running', 'paused', 'waiting_reset', 'interrupted', 'done', 'failed', 'stopped', 'budget'];
 const ACTIONS: WorktreeAction[] = ['diff', 'merge', 'cherry-pick', 'discard'];
 const VERDICTS: FindingVerdict[] = ['fixed', 'dismissed', 'ignored'];
+const KEEP: KeepWinnerHow[] = ['apply', 'pr'];
 
 function optPositive(v: unknown, name: string): number | undefined {
   if (v === undefined || v === null) return undefined;
@@ -121,6 +122,16 @@ export function registerWorkflowRoutes(app: Hono<HonoEnv>, ctx: ServerContext, a
     if (!ACTIONS.includes(action)) throw badRequest(`action must be one of ${ACTIONS.join(', ')}`);
     const res = await svc().worktree(c.req.param('id'), seqOf(c.req.param('seq')), action);
     if (action !== 'diff') audit(c, `workflow.worktree.${action}`, `${c.req.param('id')} call ${c.req.param('seq')}: ${res.ok ? 'ok' : 'failed'}`);
+    return c.json(res);
+  });
+
+  // the owner keeps a race's winner; the losers' branches go only after it
+  app.post('/api/workflows/runs/:id/keep', async (c) => {
+    const body = await readJson<{ how?: unknown }>(c);
+    const how = body.how as KeepWinnerHow;
+    if (!KEEP.includes(how)) throw badRequest(`how must be one of ${KEEP.join(', ')}`);
+    const res = await svc().keepWinner(c.req.param('id'), how);
+    audit(c, 'workflow.race.keep', `${c.req.param('id')} ${how}: ${res.ok ? 'ok' : 'failed'}`);
     return c.json(res);
   });
 

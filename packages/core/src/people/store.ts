@@ -27,6 +27,8 @@ export interface AccountSettings {
   defaultAgent?: string;
   /** Watch this person's devices for new chats to import (when the hub's import watch is on). */
   importWatch?: boolean;
+  /** Sessions side by side in the web app, left to right (at most SPLIT_MAX, core client/people.ts). */
+  splitView?: string[];
 }
 
 export interface HubAccount {

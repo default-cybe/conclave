@@ -23,7 +23,7 @@ const DESCRIPTION = `Run a workflow: a JavaScript script that orchestrates many 
 
 When to use it: the owner asked for a workflow, or a task clearly needs one (a review with independent checks, a sweep over many files, research across many sources, a migration in batches). Otherwise work directly. When Ultra is on, the system prompt says so and the rule there applies.
 
-Pass the script inline with script, or a library workflow with name (review-changes, deep-research, research-sweep, plan-implement-verify, fix-until-green, fix-issue, bug-hunt, security-audit, design-panel, ui-pass, migrate, compare-harnesses), or scriptPath for a script saved earlier. Each run saves its script and returns the path; edit that file and run it again with scriptPath and resumeFromRunId, and unchanged calls replay from the journal.
+Pass the script inline with script, or a library workflow with name (review-changes, deep-research, research-sweep, plan-implement-verify, fix-until-green, fix-issue, bug-hunt, security-audit, design-panel, ui-pass, migrate, compare-harnesses, race), or scriptPath for a script saved earlier. Each run saves its script and returns the path; edit that file and run it again with scriptPath and resumeFromRunId, and unchanged calls replay from the journal.
 
 The script begins with a pure literal: export const meta = { name, description, phases: [{ title }] }. Then the body, in an async context:
 - agent(prompt, { label, phase, schema, model, effort, isolation: 'worktree', agentType }) returns the agent's final text, or the validated object when schema is set, or null when it fails or the owner skips it.

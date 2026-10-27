@@ -19,7 +19,7 @@
 import type { Context, Hono } from 'hono';
 import { createHash, randomBytes } from 'node:crypto';
 import type { PairResult } from '@conclave/core/client/index.ts';
-import { shownName, type AccountRef, type InviteDto, type InviteInfo, type MeDto, type MePatch, type PersonCreated, type PersonDto, type PersonInput, type PersonPatch, type ProviderGrantsDto, type WorkspaceCode } from '@conclave/core/client/people.ts';
+import { shownName, SPLIT_MAX, type AccountRef, type InviteDto, type InviteInfo, type MeDto, type MePatch, type PersonCreated, type PersonDto, type PersonInput, type PersonPatch, type ProviderGrantsDto, type WorkspaceCode } from '@conclave/core/client/people.ts';
 import { isMember } from '@conclave/core/people/context.ts';
 import { PeopleError, type HubAccount, type ProviderGrants } from '@conclave/core/people/store.ts';
 import { forgetAssistant } from '@conclave/core/assistant/registry.ts';
@@ -160,6 +160,7 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
         ...(a.settings.smallModel ? { smallModel: a.settings.smallModel } : {}),
         ...(a.settings.defaultAgent ? { defaultAgent: a.settings.defaultAgent } : {}),
         ...(a.settings.importWatch ? { importWatch: true } : {}),
+        ...(a.settings.splitView?.length ? { splitView: a.settings.splitView } : {}),
       },
     };
     return c.json(me);
@@ -181,13 +182,19 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
       if (typeof body.importWatch !== 'boolean') throw badRequest('importWatch must be true or false');
       settings.importWatch = body.importWatch;
     }
+    if (body.splitView !== undefined) {
+      const ids = body.splitView ?? [];
+      if (!Array.isArray(ids) || ids.length > SPLIT_MAX || ids.some((x) => typeof x !== 'string' || !x || x.length > 100)) throw badRequest(`splitView must be at most ${SPLIT_MAX} session ids`);
+      if (ids.length) settings.splitView = [...new Set(ids)];
+      else delete settings.splitView;
+    }
     try {
       const named = body.name !== undefined || body.displayName !== undefined;
       greetAs(people.update(acct, { ...(body.name !== undefined ? { name: body.name } : {}), ...(body.displayName !== undefined ? { displayName: body.displayName } : {}), ...(body.email !== undefined ? { email: body.email } : {}), settings }), a, named);
     } catch (err) {
       peopleError(err);
     }
-    audit(c, 'account.update', 'own name, display name, email or defaults');
+    audit(c, 'account.update', 'own name, display name, email, defaults or layout');
     return c.json({ ok: true });
   });
 

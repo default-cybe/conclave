@@ -36,7 +36,7 @@ import { Rim, SendStopButton, type RimState } from '@/components/motion';
 import { isReminder } from '@/features/chat/util';
 import { useDraft } from '@/features/chat/useDraft';
 import { canDictate, DictateButton } from './Dictate';
-import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPicked, type EffortFollow } from './ComposerParts';
+import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPicked, StatusLine, type EffortFollow } from './ComposerParts';
 import { AddButton, fitField, OptionsButton, PHONE_FIELD, PhoneBox, PhoneSend } from './PhoneBox';
 import { patchChat, sendTo, startChat, stopChat, type Outgoing } from './actions';
 import { DEFAULTS_EVENT, readDefaults, saveDefaults, setEditing, setRestore, useChatUi, type Thinking } from './state';
@@ -99,6 +99,8 @@ export interface ComposerTarget {
   send: (out: Outgoing) => Promise<boolean>;
   /** The send button's name and tooltip ("Start session"). */
   sendLabel: string;
+  /** An empty box may send: the target has the task already (an issue picked). */
+  sendEmpty?: boolean;
   placeholder: string;
   /** A quiet line under the box, in place of the memory note. */
   note?: ReactNode;
@@ -285,7 +287,7 @@ export function ChatComposer({
     return () => window.removeEventListener(FILES_EVENT, onFiles);
   });
 
-  const hasText = !!text.trim() || files.length > 0;
+  const hasText = !!text.trim() || files.length > 0 || !!target?.sendEmpty;
 
   const send = async () => {
     if (!hasText || busy) return;
@@ -477,6 +479,7 @@ export function ChatComposer({
             send={<PhoneSend running={running} ready={hasText} label={sendLabel} onSend={send} onStop={stop} keepFocus={() => document.activeElement === box.current} />}
           />
         </div>
+        {session && <StatusLine session={session} phone />}
         {notes}
         {!target && (
           <Sheet open={sheet} onClose={() => setSheet(false)} title="Options">
@@ -545,6 +548,7 @@ export function ChatComposer({
           </>
         }
       />
+      {session && <StatusLine session={session} />}
       {notes}
     </div>
   );

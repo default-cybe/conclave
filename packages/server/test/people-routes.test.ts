@@ -73,6 +73,17 @@ describe('the owner adds people', () => {
     expect((await hub.api(`/api/sessions/${s.body.id}`)).status).toBe(404);
   });
 
+  test('each account keeps its own side by side layout', async () => {
+    expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { splitView: ['s_a', 's_b', 's_a'] } })).status).toBe(200);
+    expect((await asJson(await hub.api('/api/me', { token: alice.token }))).body.preferences.splitView).toEqual(['s_a', 's_b']);
+    // the owner's layout is the owner's
+    expect((await asJson(await hub.api('/api/me'))).body.preferences.splitView).toBeUndefined();
+    expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { splitView: ['1', '2', '3', '4', '5'] } })).status).toBe(400);
+    expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { splitView: [7] } })).status).toBe(400);
+    expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { splitView: null } })).status).toBe(200);
+    expect((await asJson(await hub.api('/api/me', { token: alice.token }))).body.preferences.splitView).toBeUndefined();
+  });
+
   test('a member changes their own name, defaults and password, and nothing of anyone else', async () => {
     expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { name: 'alice2', defaultModel: 'anthropic/claude-sonnet-5-5' } })).status).toBe(200);
     expect((await asJson(await hub.api('/api/me', { token: alice.token }))).body).toMatchObject({ name: 'alice2', preferences: { defaultModel: 'anthropic/claude-sonnet-5-5' } });

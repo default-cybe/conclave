@@ -24,7 +24,9 @@ export function repoSessionInput(body: Record<string, unknown>): RepoSessionInpu
   if (repo.length > 200 || !/^[\w.-]+\/[\w.-]+$/.test(repo)) throw badRequest('repo must be owner/name');
   const base = optString(body.base, 'base', 200);
   if (base && /[\s\u0000~^:?*[\\]/.test(base)) throw badRequest('base is not a branch name');
-  return { repo, ...(base ? { base } : {}), ...sessionOptions(body) };
+  const issue = body.issue;
+  if (issue !== undefined && (typeof issue !== 'number' || !Number.isSafeInteger(issue) || issue < 1)) throw badRequest('issue must be an issue number');
+  return { repo, ...(base ? { base } : {}), ...(issue !== undefined ? { issue } : {}), ...sessionOptions(body) };
 }
 
 /** Validate a POST /api/worktrees/sessions body. */
@@ -87,6 +89,11 @@ export function registerGithubRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
 
   app.get('/api/github/repos/:owner/:name/branches', async (c) => c.json(await svc().branches(`${c.req.param('owner')}/${c.req.param('name')}`)));
 
+  app.get('/api/github/repos/:owner/:name/issues', async (c) => {
+    const q = optString(c.req.query('q'), 'q', 200);
+    return c.json(await svc().issues(`${c.req.param('owner')}/${c.req.param('name')}`, q));
+  });
+
   // ----- repo sessions -------------------------------------------------------
 
   app.post('/api/github/sessions', async (c) => {
@@ -142,6 +149,9 @@ export function registerGithubRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
     const input: OpenPrInput = { title, ...(optString(body.body, 'body', 60_000) ? { body: body.body as string } : {}), ...(optBool(body.draft, 'draft') ? { draft: true } : {}) };
     return c.json(await svc().openPr(id, input));
   });
+
+  // the failed jobs' names, links and log tails go to the session's agent as one message
+  app.post('/api/sessions/:id/repo/fix-checks', async (c) => c.json(await svc().fixChecks(sid(c))));
 
   app.post('/api/sessions/:id/repo/cleanup', async (c) => {
     const id = sid(c);

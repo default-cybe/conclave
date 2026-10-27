@@ -125,7 +125,8 @@ function missingLine(f: PlatformFacts): string | undefined {
   const t = new Set(f.tools);
   const code: string[] = [];
   const assistant: string[] = [];
-  if (!t.has('Read') && !t.has('Bash')) code.push('files and the shell');
+  // a chat's Read and Write reach only its outputs folder, so the owner's files are still elsewhere
+  if ((!t.has('Read') || f.surface === 'chat') && !t.has('Bash')) code.push('files and the shell');
   if (!t.has('Workflow')) code.push('workflows');
   if (f.browser === 'none') assistant.push('the browser');
   if (!t.has('ScheduleRoutine')) assistant.push('routines');

@@ -259,6 +259,10 @@ export interface EngineApi {
   addMcpServer(name: string, config: McpServerConfig): McpStatus;
   updateMcpServer(name: string, patch: { enabled?: boolean; config?: McpServerConfig }): McpStatus;
   removeMcpServer(name: string): boolean;
+  /** OAuth for servers with auth "oauth" (extensions/mcp-oauth.ts). */
+  startMcpOAuth(name: string, redirectUrl: string): Promise<{ authorizeUrl: string }>;
+  finishMcpOAuth(input: { state: string; code?: string; error?: string }): Promise<McpStatus>;
+  disconnectMcpOAuth(name: string): Promise<McpStatus>;
   importMcp(from: McpImportFormat, text: string): Record<string, McpServerConfig>;
   mcpConnectPlan(name: string): McpConnectStepDto[];
   connectMcp(name: string, device: string, clis: CliName[]): Promise<McpConnectRunResult[]>;

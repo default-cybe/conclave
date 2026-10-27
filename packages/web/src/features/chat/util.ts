@@ -7,6 +7,14 @@ import { attempt, useHub, type HubConfig } from '@/store/store';
 import { HARNESSES, harnessId, splitRef } from '@/lib/models';
 import { companyLogo } from '@/components/logo';
 
+/** Put words in a session's composer and focus it (Edit on your message, Ask a follow-up). */
+export const COMPOSE_EVENT = 'conclave:compose';
+export interface ComposeDetail {
+  text?: string;
+  /** Side by side has a composer per session: only this session's takes it. */
+  sessionId: string;
+}
+
 /**
  * Context the hub adds to a user message for the model only: recalled notes
  * and hook output, in a <system-reminder> text block (core session/transcript.ts).
