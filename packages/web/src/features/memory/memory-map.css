@@ -21,6 +21,16 @@
     transform 450ms var(--ease),
     opacity var(--dur-3) var(--ease);
 }
+/* expand all: labels at screen size over the canvas, placed again as the view moves, so no glide */
+.mm-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.mm-overlay .mm-label {
+  pointer-events: auto;
+  transition: opacity var(--dur-3) var(--ease);
+}
 .mm-label[data-align='end'] {
   justify-content: flex-end;
 }
@@ -102,6 +112,79 @@
 .mm-label[data-src='both'] .mm-title::after {
   border-bottom-style: dashed;
   width: 12px;
+}
+
+/*
+  Brain view (BrainCanvas.tsx): labels at screen size over the canvas. A
+  hard 1.5px edge in the page color keeps them readable over the fibres:
+  no box, no blur (DESIGN.md bans glows).
+*/
+.mb-item,
+.mb-area,
+.mb-brain {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  text-shadow:
+    1.5px 0 var(--bg),
+    -1.5px 0 var(--bg),
+    0 1.5px var(--bg),
+    0 -1.5px var(--bg),
+    1px 1px var(--bg),
+    -1px -1px var(--bg),
+    1px -1px var(--bg),
+    -1px 1px var(--bg);
+  transition: opacity var(--dur-2) var(--ease);
+}
+.mb-item {
+  transform-origin: 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  line-height: 16px;
+  padding: 0 2px;
+  color: var(--fg-2);
+}
+.mb-item:hover,
+.mb-item[data-selected] {
+  color: var(--fg);
+}
+.mb-item[data-dim] {
+  opacity: 0.35;
+}
+.mb-item[data-hit],
+.mb-item[data-selected] {
+  text-decoration: underline 1.5px var(--signal);
+  text-underline-offset: 3px;
+}
+.mb-area,
+.mb-brain {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  line-height: 20px;
+}
+.mb-name {
+  font-size: 14px;
+  font-weight: 600;
+  font-stretch: 104%;
+  letter-spacing: -0.005em;
+  color: var(--fg);
+}
+.mb-brain .mb-name {
+  font-size: 17px;
+}
+.mb-area[data-lit] .mb-name {
+  text-decoration: underline 1.5px var(--fg);
+  text-underline-offset: 3px;
+}
+.mb-item:focus-visible,
+.mb-area:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
 }
 
 .mm-label:hover .mm-title,

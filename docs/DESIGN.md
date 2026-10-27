@@ -101,6 +101,8 @@ External CLIs (Claude Code, Codex, OpenCode) can route their model calls through
 
 Three layers: a small profile always in the system prompt, facts and procedures retrieved per turn (FTS5 BM25, blended with embeddings when configured), and episodes (session summaries). A small model extracts durable facts after a session goes idle, dropping anything that looks like a secret and treating the transcript as data. An external adapter mirrors to Basic Memory (markdown notes over MCP) so the same memory is readable and editable outside Conclave, and so the user's existing setup keeps working. The nightly "librarian" routine tidies and links those notes.
 
+**Memory > Map, 3D view.** Memory > Map has three views (Tree / Rings / 3D). The 3D view only, at the owner's request, may break the no-glow rule: a holographic cyan and violet palette, glow, a sweep, lock-on brackets and crosshair ticks; every other screen, and the Tree and Rings views, keep the rules above.
+
 ## 10. Devices and security
 
 Daemons connect out to the hub over a WebSocket (the same network, the hub's own Cloudflare tunnel, Tailscale or a reverse proxy; see section 14), so no inbound ports on the user's machines. Device and client pairing use one-time codes shown as a QR. Tokens are stored hashed. Risky tool calls raise an approval that can be answered from the phone, with a signed one-tap action link in the push. Everything a tool changes is audited. A dangerous-command guard forces approval for `rm -rf /`, `mkfs`, fork bombs, force-pushes to main and similar, in every mode.

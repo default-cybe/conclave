@@ -71,7 +71,8 @@ export default function MemoryPage() {
   return (
     // the map fills the room under the tabs instead of scrolling
     <Page width="wide" scroll={current !== 'map'} className={current === 'map' ? 'flex flex-col' : undefined} innerClassName={current === 'map' ? 'flex min-h-0 flex-1 flex-col !pb-0' : undefined}>
-      <PageHeader title="Memory" sub={current === 'map' ? undefined : sub} actions={actions} className={current === 'map' ? '!pb-3 phone:!pb-2' : undefined}>
+      {/* on a phone the map gets the room: one row of tabs that scrolls, no air above it */}
+      <PageHeader title="Memory" sub={current === 'map' ? undefined : sub} actions={actions} className={current === 'map' ? '!pb-3 phone:!pt-0 phone:!pb-1.5 phone:[&>div:last-child]:!mt-0' : undefined}>
         <p className={cn('-mt-2 mb-4 min-h-[17px] text-[12px] text-fg-2 phone:min-h-[19px] phone:text-[13px]', current === 'map' && 'phone:hidden')}>
           {store.text}
           {store.problem && <span className="text-fault"> {store.problem}</span>}
@@ -84,7 +85,7 @@ export default function MemoryPage() {
             </>
           )}
         </p>
-        <Tabs label="Memory" value={current} options={TABS.map((t) => ({ value: t.id, label: t.label, href: t.href }))} className="flex-wrap gap-y-2" />
+        <Tabs label="Memory" value={current} options={TABS.map((t) => ({ value: t.id, label: t.label, href: t.href }))} className={current === 'map' ? 'flex-wrap gap-y-2 phone:no-scrollbar phone:-mx-4 phone:flex-nowrap! phone:overflow-x-auto phone:px-4 phone:whitespace-nowrap' : 'flex-wrap gap-y-2'} />
       </PageHeader>
       {current === 'notes' && <NotesTab adding={adding} setAdding={setAdding} store={store.text} />}
       {current === 'connections' && <ConnectionsTab adding={addConn} setAdding={setAddConn} />}
