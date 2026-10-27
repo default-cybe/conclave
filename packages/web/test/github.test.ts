@@ -9,7 +9,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import type { RepoSessionDto } from '@conclave/core/client';
 import type { ApprovalRequest } from '@conclave/core/types';
 import { approvalLine, approvalTitle } from '../src/components/inbox/ApprovalCard';
-import { branchShort, ciTone, ciWords, prWords, repoActions, repoWhere, sessionRepo } from '../src/lib/github';
+import { branchShort, canFixChecks, ciTone, ciWords, prWords, repoActions, repoWhere, sessionRepo } from '../src/lib/github';
 import { readPicks, savePicks, sessionSetup } from '../src/features/home/start';
 
 function dto(p: Partial<RepoSessionDto> = {}): RepoSessionDto {
@@ -84,6 +84,15 @@ describe('actions', () => {
   });
   test('an offline device offers no git', () => {
     expect(repoActions(dto({ commits: 2, online: false }))).toMatchObject({ push: false, openPr: false });
+  });
+  test('Fix failing checks: only an open pull request whose checks failed', () => {
+    const pr = { number: 3, url: 'u', state: 'open' as const };
+    expect(canFixChecks(dto({ pr, ci: 'failure' }))).toBe(true);
+    expect(canFixChecks(dto({ pr, ci: 'pending' }))).toBe(false);
+    expect(canFixChecks(dto({ pr: { ...pr, state: 'merged' }, ci: 'failure' }))).toBe(false);
+    expect(canFixChecks(dto({ pr, ci: 'failure', cleaned: true }))).toBe(false);
+    expect(canFixChecks(dto({ pr, ci: 'failure', online: false }))).toBe(false);
+    expect(canFixChecks(dto({ ci: 'failure' }))).toBe(false);
   });
 });
 

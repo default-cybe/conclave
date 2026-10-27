@@ -143,6 +143,9 @@ export function registerGithubRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
     return c.json(await svc().openPr(id, input));
   });
 
+  // the failed jobs' names, links and log tails go to the session's agent as one message
+  app.post('/api/sessions/:id/repo/fix-checks', async (c) => c.json(await svc().fixChecks(sid(c))));
+
   app.post('/api/sessions/:id/repo/cleanup', async (c) => {
     const id = sid(c);
     const body = await readJson<Record<string, unknown>>(c);

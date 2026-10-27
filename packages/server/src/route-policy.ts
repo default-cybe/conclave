@@ -130,6 +130,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/sessions/:id/repo/push': SESSION,
   'GET /api/sessions/:id/repo/pr-draft': SESSION,
   'POST /api/sessions/:id/repo/pr': SESSION,
+  'POST /api/sessions/:id/repo/fix-checks': SESSION,
   'POST /api/sessions/:id/repo/cleanup': SESSION,
   'POST /api/sessions/:id/repo/merge': SESSION,
   'GET /api/search': 'self',

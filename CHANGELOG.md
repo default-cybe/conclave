@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Fix failing checks: when a check of a repo session's open pull request fails, the repo bar (and the phone's conversation sheet) offers Fix failing checks. It reads the failed jobs from GitHub with the hub's token and sends the agent one message with each job's name, its link and the last 200 lines of its log, fenced as untrusted data, and asks it to fix them. The agent can read the same itself with the PullRequest tool's new "checks" action, without an approval. The token never goes into the message, and the log storage GitHub redirects to is fetched without it.
+
 ## [0.4.40] - 2026-10-27
 
 ### Added
