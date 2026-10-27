@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Design direction for UI work in Code sessions. `/design` in a session (or "+" when starting one, or Options on a phone) picks how UI changes should look: this app's design system, minimal, editorial, dense dashboard, playful, or match a reference page URL or uploaded screenshot. The pick is kept with the session, and the agent gets it as a short brief on its next turn and again after `/clear` or a compaction, not on every turn. A designer subagent it hands work to gets the same brief with its task. Style directions point the agent at the hub's frontend-design skill when one is installed.
+
 ## [0.4.40] - 2026-10-27
 
 ### Added

@@ -203,6 +203,8 @@ export type * from './updates';
 // ----- hook recipes DTOs: block "hook recipes", docs/design/ECOSYSTEM.md 2.2 -----
 import type { HookRecipe, RecipeTarget } from '../extensions/hook-recipes';
 import type { RecipeTestResult } from '../catalog/types';
+// ----- design direction for UI work: /design in a session -----
+import type { DesignInput } from '../session/design-directions';
 
 // ---------------------------------------------------------------------------
 // Request / response shapes
@@ -254,6 +256,8 @@ export interface SessionPatch {
   ultra?: boolean;
   /** MCP servers whose tools this session leaves out (/mcp in a session). null or [] turns them all back on. */
   mcpOff?: string[] | null;
+  /** Design direction for UI work (/design, session/design-brief.ts). null clears it. Refused on chats. */
+  design?: DesignInput | null;
 }
 
 /** What fills a session's context now (/context), in tokens counted like a request (chars / 4). */

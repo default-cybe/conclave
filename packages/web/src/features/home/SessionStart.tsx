@@ -51,6 +51,7 @@ import { Button } from '@/components/ui/Button';
 import { Input, Segmented } from '@/components/ui/Field';
 import { effortOf, useModelEffort, type EffortSetting } from '@/lib/effort';
 import type { CyberProgram } from '@conclave/core/providers/access-programs';
+import { DESIGN_DIRECTIONS, type DesignDirection } from '@conclave/core/session/design-directions';
 import { Sheet, type MenuItem } from '@/components/ui/Overlay';
 import { SelectMenu } from '@/components/ui/Select';
 import { LiveStatus } from '@/components/motion';
@@ -90,6 +91,8 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
   const [folderOpen, setFolderOpen] = useState(false);
   const [moreOptions, setMoreOptions] = useState(false);
   const [wantRepo, setWantRepo] = useState(false);
+  // a design direction for this one session (not kept for the next); Match a reference is /design in the session, it needs a URL or a screenshot
+  const [design, setDesign] = useState<DesignDirection>();
   // the box clears at once; until the session opens, a line under it says it is starting
   const [starting, setStarting] = useState<number>();
   // the folder was asked for before the first send: once it is set, the message held goes
@@ -201,7 +204,8 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
         agent: setup.agent,
         model: setup.model,
         device: setup.device,
-        prompt: command || files ? undefined : out.text || undefined,
+        // a design direction is set before the first message goes, so its first turn has the brief
+        prompt: command || files || design ? undefined : out.text || undefined,
         ...(picks.permissionMode ? { permissionMode: picks.permissionMode } : {}),
         ...(thinking || picks.cyber ? { chat: { ...(thinking ? { thinking } : {}), ...(picks.cyber ? { cyber: picks.cyber } : {}) } } : {}),
       };
@@ -221,10 +225,15 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
         const on = await attempt(() => api().updateSession(s.id, { ultra: true }));
         if (on) upsertSession(on);
       }
+      if (code && design) {
+        const set = await attempt(() => api().updateSession(s.id, { design: { direction: design } }));
+        if (set) upsertSession(set);
+        setDesign(undefined);
+      }
       if (command) {
         const r = await attempt(() => api().command(s.id, out.text.trim()));
         if (r?.output) toast({ title: `/${command}`, body: r.output, level: 'info' });
-      } else if (files) {
+      } else if (files || (design && out.text)) {
         await attempt(() => api().send(s.id, { text: out.text, attachments: out.attachments }));
       }
       // still on the new conversation: open it. Gone elsewhere meanwhile: it waits in the sidebar
@@ -270,6 +279,8 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
         { label: 'A folder', checked: !repo && !wantRepo, onSelect: () => (repo ? pickRepo(undefined) : (setWantRepo(false), setTimeout(() => setFolderOpen(true), 0))) },
         { label: 'A GitHub repository', detail: 'A new worktree on its own branch', checked: !!repo || wantRepo, onSelect: () => setWantRepo(true) },
         ...(isGit && !wantRepo ? [{ label: 'Run in a worktree', detail: worktreeDetail, checked: worktreeOn, keep: true, onSelect: () => update({ ...picks, worktree: !picks.worktree || undefined }) }] : []),
+        { group: true, label: 'Design direction' },
+        ...DESIGN_DIRECTIONS.filter((d) => d.id !== 'reference').map((d) => ({ label: d.label, detail: d.detail, checked: design === d.id, keep: true, onSelect: () => setDesign(design === d.id ? undefined : d.id) })),
         { separator: true, label: '' },
         { label: 'Ultra', detail: ULTRA_LINE, checked: !!picks.ultra, keep: true, onSelect: () => update({ ...picks, ultra: !picks.ultra || undefined }) },
       ]
@@ -346,6 +357,20 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
                   options={[
                     { value: 'off', label: 'Off', text: 'Off', detail: 'Workflows only when you ask or the task clearly needs one.' },
                     { value: 'on', label: 'On', text: 'On', detail: ULTRA_LINE },
+                  ]}
+                />
+              </Row>
+            )}
+            {code && (
+              <Row label="Design direction">
+                <SelectMenu
+                  look="field"
+                  label="Design direction"
+                  value={design ?? 'none'}
+                  onChange={(v) => setDesign(v === 'none' ? undefined : (v as DesignDirection))}
+                  options={[
+                    { value: 'none', label: 'None', text: 'None', detail: 'The agent follows the project as it finds it.' },
+                    ...DESIGN_DIRECTIONS.filter((d) => d.id !== 'reference').map((d) => ({ value: d.id, label: d.label, text: d.label, detail: d.detail })),
                   ]}
                 />
               </Row>

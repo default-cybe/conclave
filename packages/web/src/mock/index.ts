@@ -659,6 +659,17 @@ on('PATCH', '/api/sessions/:id', ({ params, body }) => {
     delete patch.mcpOff;
     patch.meta = meta;
   }
+  // the design direction rides in meta; the screenshot's bytes stay out of it (core session/design-brief.ts)
+  if ('design' in patch) {
+    const meta = { ...(patch.meta ?? db.sessions.get(params[0])?.meta ?? {}) } as Record<string, unknown>;
+    const d = patch.design as { direction: string; url?: string; image?: { name?: string; mediaType: string } | null } | null;
+    const kept = (meta.design as { image?: unknown } | undefined)?.image;
+    const image = d?.direction !== 'reference' || d.image === null ? undefined : d.image ? { name: d.image.name ?? 'screenshot', mediaType: d.image.mediaType } : kept;
+    if (d) meta.design = { direction: d.direction, ...(d.direction === 'reference' && d.url ? { url: d.url } : {}), ...(image ? { image } : {}) };
+    else delete meta.design;
+    delete patch.design;
+    patch.meta = meta;
+  }
   if (patch.chat) patch.chat = { ...(db.sessions.get(params[0])?.chat ?? {}), ...patch.chat, ...(patch.chat.thinking === null ? { thinking: undefined } : {}) };
   return patchSession(params[0], patch) ?? notFound();
 });
