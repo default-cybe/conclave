@@ -29,10 +29,26 @@ export interface FakePull {
   author?: string;
 }
 
+export interface FakeIssue {
+  number: number;
+  title: string;
+  body: string;
+  labels?: string[];
+  author?: string;
+  state?: 'open' | 'closed';
+  /** GitHub serves pull requests as issues too. */
+  pull?: boolean;
+  comments?: Array<{ author: string; body: string }>;
+}
+
 export interface FakeCheck {
   name: string;
   status: 'queued' | 'in_progress' | 'completed';
   conclusion?: 'success' | 'failure' | 'neutral' | 'cancelled' | 'skipped' | 'timed_out';
+  /** The Actions job log, served at /actions/jobs/<id>/logs as a redirect to storage. */
+  log?: string;
+  /** The app that ran the check, by slug: github-actions unless set. */
+  app?: string;
 }
 
 interface FakeRepo {
@@ -68,6 +84,8 @@ export class FakeGithub {
   readonly root: string;
   readonly requests: FakeRequest[] = [];
   readonly pulls: FakePull[] = [];
+  /** Issues per repository (owner/name, lower case). */
+  readonly issues = new Map<string, FakeIssue[]>();
   /** Check runs per commit; "*" applies to any commit without its own. */
   readonly checks = new Map<string, FakeCheck[]>();
   private repos = new Map<string, FakeRepo>();
@@ -172,6 +190,11 @@ export class FakeGithub {
     p.state = 'closed';
   }
 
+  addIssue(full: string, issue: FakeIssue): void {
+    const key = full.toLowerCase();
+    this.issues.set(key, [...(this.issues.get(key) ?? []), issue]);
+  }
+
   setChecks(sha: string, runs: FakeCheck[]): void {
     this.checks.set(sha, runs);
   }
@@ -213,6 +236,11 @@ export class FakeGithub {
       const input = JSON.parse(body || '{}') as { sha?: string; runs?: FakeCheck[] };
       this.setChecks(input.sha ?? '*', input.runs ?? []);
       return json(200, { ok: true });
+    }
+    // short-lived log storage the logs endpoint redirects to: no token needed, and none should come
+    if (req.method === 'GET' && (c = /^\/__fake\/logs\/(\d+)$/.exec(url.pathname))) {
+      const log = [...this.checks.values()].flat()[Number(c[1]) - 1]?.log;
+      return log === undefined ? json(404, { message: 'Not Found' }) : new Response(log, { headers: { 'content-type': 'text/plain' } });
     }
     if (!url.pathname.startsWith('/api/')) return json(404, { message: 'Not Found' });
     if (auth !== `Bearer ${this.token}` && auth !== `token ${this.token}`) return json(401, { message: 'Bad credentials' });
@@ -259,6 +287,30 @@ export class FakeGithub {
         return json(201, this.pullJson(full, p));
       }
     }
+    if (path === '/search/issues' && req.method === 'GET') {
+      // repo:owner/name is:issue is:open, then words matched in the title, body and comments
+      const terms = (url.searchParams.get('q') ?? '').split(/\s+/).filter(Boolean);
+      const full = (terms.find((w) => w.startsWith('repo:')) ?? '').slice(5).toLowerCase();
+      const words = terms.filter((w) => !/^(repo|is):/.test(w)).map((w) => w.toLowerCase());
+      const items = (this.issues.get(full) ?? []).filter((i) => !i.pull && (i.state ?? 'open') === 'open' && words.every((w) => [i.title, i.body, ...(i.comments ?? []).map((c) => c.body)].some((s) => s.toLowerCase().includes(w))));
+      return json(200, { total_count: items.length, items: items.map((i) => this.issueJson(full, i)) });
+    }
+    if ((m = /^\/repos\/([^/]+)\/([^/]+)\/issues(?:\/(\d+))?(\/comments)?$/.exec(path)) && req.method === 'GET') {
+      const full = `${m[1]}/${m[2]}`.toLowerCase();
+      if (!this.repos.has(full)) return json(404, { message: 'Not Found' });
+      const all = this.issues.get(full) ?? [];
+      if (!m[3]) {
+        // one page, pull requests counted in it as GitHub does
+        const per = Number(url.searchParams.get('per_page') ?? '30');
+        return json(200, all.filter((i) => (i.state ?? 'open') === (url.searchParams.get('state') ?? 'open')).slice(0, per).map((i) => this.issueJson(full, i)));
+      }
+      const i = all.find((x) => x.number === Number(m![3]));
+      if (!i) return json(404, { message: 'Not Found' });
+      if (!m[4]) return json(200, this.issueJson(full, i));
+      const page = Number(url.searchParams.get('page') ?? '1');
+      const per = Number(url.searchParams.get('per_page') ?? '30');
+      return json(200, (i.comments ?? []).slice((page - 1) * per, page * per).map((c, k) => ({ id: k + 1, user: { login: c.author }, body: c.body, created_at: '2026-10-20T12:00:00Z' })));
+    }
     if ((m = /^\/repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)$/.exec(path)) && req.method === 'GET') {
       const r = this.repos.get(`${m[1]}/${m[2]}`.toLowerCase());
       const p = this.pulls.find((x) => x.number === Number(m![3]));
@@ -266,7 +318,13 @@ export class FakeGithub {
     }
     if ((m = /^\/repos\/([^/]+)\/([^/]+)\/commits\/([0-9a-f]+)\/check-runs$/.exec(path)) && req.method === 'GET') {
       const runs = this.checks.get(m[3]) ?? this.checks.get('*') ?? [];
-      return json(200, { total_count: runs.length, check_runs: runs.map((c, i) => ({ id: i + 1, name: c.name, status: c.status, conclusion: c.conclusion ?? null, html_url: `https://github.test/checks/${i + 1}` })) });
+      const all = [...this.checks.values()].flat();
+      return json(200, { total_count: runs.length, check_runs: runs.map((c) => ({ id: all.indexOf(c) + 1, app: { slug: c.app ?? 'github-actions' }, name: c.name, status: c.status, conclusion: c.conclusion ?? null, html_url: `https://github.test/checks/${all.indexOf(c) + 1}` })) });
+    }
+    if ((m = /^\/repos\/([^/]+)\/([^/]+)\/actions\/jobs\/(\d+)\/logs$/.exec(path)) && req.method === 'GET') {
+      const c = [...this.checks.values()].flat()[Number(m[3]) - 1];
+      if (c?.log === undefined) return json(404, { message: 'Not Found' });
+      return new Response(null, { status: 302, headers: { location: `${this.url}/__fake/logs/${m[3]}` } });
     }
     if ((m = /^\/repos\/([^/]+)\/([^/]+)\/commits\/([0-9a-f]+)\/status$/.exec(path)) && req.method === 'GET') {
       return json(200, { state: 'pending', statuses: [] });
@@ -286,6 +344,21 @@ export class FakeGithub {
       html_url: `https://github.com/${r.owner}/${r.name}`,
       clone_url: `https://github.com/${r.owner}/${r.name}.git`,
       permissions: { admin: false, maintain: false, push: r.canPush, pull: true },
+    };
+  }
+
+  private issueJson(full: string, i: FakeIssue): Record<string, unknown> {
+    return {
+      number: i.number,
+      title: i.title,
+      body: i.body,
+      state: i.state ?? 'open',
+      labels: (i.labels ?? []).map((name) => ({ name })),
+      user: { login: i.author ?? 'someone' },
+      comments: i.comments?.length ?? 0,
+      updated_at: '2026-10-20T12:00:00Z',
+      html_url: `https://github.com/${full}/${i.pull ? 'pull' : 'issues'}/${i.number}`,
+      ...(i.pull ? { pull_request: { url: 'x' } } : {}),
     };
   }
 

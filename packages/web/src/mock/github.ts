@@ -2,10 +2,11 @@
  * Mock routes for repo sessions (docs/DESIGN.md 30): the GitHub connection,
  * three repositories, starting a session in a new worktree, and Push, Open
  * pull request and Clean up. A session made here walks the same states the
- * hub's does; Merge happens on its own a minute after the pull request opens.
+ * hub's does: the first checks fail, Fix failing checks makes them pass, and
+ * Merge happens on its own a minute after that.
  */
 import type { Session } from '@conclave/core/types';
-import type { GithubRepoDto, GithubStatusDto, RepoSessionDto, SessionRepoMeta } from '@conclave/core/client';
+import type { GithubIssueDto, GithubRepoDto, GithubStatusDto, RepoSessionDto, SessionRepoMeta } from '@conclave/core/client';
 import type { MockCtx } from './index';
 
 const HOUR = 3_600_000;
@@ -28,6 +29,15 @@ export function registerGithub(ctx: MockCtx) {
     { fullName: 'acme/docs', owner: 'acme', name: 'docs', private: false, defaultBranch: 'trunk', description: 'The handbook', pushedAt: now - 9 * 24 * HOUR, url: 'https://github.com/acme/docs', canPush: false },
   ];
   const rows = new Map<string, Row>();
+  const issue = (repo: string, number: number, title: string, labels: string[], comments: number, hoursAgo: number): GithubIssueDto => ({ number, title, labels, url: `https://github.com/${repo}/issues/${number}`, author: 'casey', comments, updatedAt: now - hoursAgo * HOUR });
+  const issues: Record<string, GithubIssueDto[]> = {
+    'acme/widgets': [
+      issue('acme/widgets', 128, 'Login redirect loops after the session expires', ['bug', 'auth'], 4, 3),
+      issue('acme/widgets', 121, 'Dark mode: chart colors are too bright', ['design'], 1, 20),
+      issue('acme/widgets', 117, 'Export widgets as CSV', ['enhancement'], 0, 70),
+    ],
+    'sam-rivera/portfolio': [issue('sam-rivera/portfolio', 9, 'Add the new talk to the speaking page', [], 0, 5)],
+  };
 
   const setMeta = (id: string) => {
     const s = db.sessions.get(id);
@@ -48,7 +58,7 @@ export function registerGithub(ctx: MockCtx) {
       : pr?.state === 'merged'
         ? `Pull request #${pr.number} was merged. Clean up removes the worktree.`
         : pr
-          ? `Pull request #${pr.number} is open.${r.meta.ci === 'success' ? ' Checks passed.' : r.meta.ci === 'pending' ? ' Checks are running.' : ''}`
+          ? `Pull request #${pr.number} is open.${r.meta.ci === 'success' ? ' Checks passed.' : r.meta.ci === 'pending' ? ' Checks are running.' : r.meta.ci === 'failure' ? ' A check failed.' : ''}`
           : pushed === 'current'
             ? `Pushed. No pull request yet.`
             : r.commits
@@ -91,9 +101,18 @@ export function registerGithub(ctx: MockCtx) {
     if (!r) fail(404, 'GitHub has no such repository.');
     return { defaultBranch: r!.defaultBranch, branches: [r!.defaultBranch, 'release', 'next'] };
   });
+  on('GET', '/api/github/repos/:owner/:name/issues', ({ params, query }) => {
+    const full = `${params[0]}/${params[1]}`;
+    if (!repos.some((x) => x.fullName === full)) fail(404, 'GitHub has no such repository.');
+    const words = (query.get('q') ?? '').toLowerCase().replace(/#/g, ' ').split(/\s+/).filter(Boolean);
+    return (issues[full] ?? []).filter((i) => words.every((w) => String(i.number) === w || i.title.toLowerCase().includes(w) || i.labels.some((l) => l.includes(w))));
+  });
   on('POST', '/api/github/sessions', async ({ body }) => {
     const repo = repos.find((x) => x.fullName === body.repo);
     if (!repo) fail(404, `GitHub has no repository ${body.repo} that this token can see.`);
+    const picked = body.issue ? (issues[repo!.fullName] ?? []).find((i) => i.number === body.issue) : undefined;
+    if (body.issue && !picked) fail(404, `${repo!.fullName} has no issue #${body.issue}.`);
+    if (picked) body = { ...body, title: body.title || `#${picked.number} ${picked.title}`, prompt: `${body.prompt ? `${body.prompt}\n\n` : ''}Work on GitHub issue #${picked.number} of ${repo!.fullName}.\n\nWhen you open a pull request for this work, put "Fixes #${picked.number}" in its body.`, issue: undefined };
     const slug = String(body.title || body.prompt || 'session')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
@@ -131,6 +150,18 @@ export function registerGithub(ctx: MockCtx) {
     r.meta.ci = 'pending';
     setMeta(params[0]);
     setTimeout(() => {
+      r.meta.ci = 'failure';
+      setMeta(params[0]);
+    }, 8_000);
+    return dto(params[0]);
+  });
+  on('POST', '/api/sessions/:id/repo/fix-checks', ({ params }) => {
+    const r = rows.get(params[0]);
+    if (!r) return fail(404, 'This session is not a repo session.');
+    if (r.meta.ci !== 'failure') fail(409, 'No check has failed on GitHub now.');
+    r.meta.ci = 'pending';
+    setMeta(params[0]);
+    setTimeout(() => {
       r.meta.ci = 'success';
       setMeta(params[0]);
     }, 8_000);
@@ -138,7 +169,7 @@ export function registerGithub(ctx: MockCtx) {
       if (r.meta.pr) r.meta.pr.state = 'merged';
       setMeta(params[0]);
     }, 60_000);
-    return dto(params[0]);
+    return { checks: 2 };
   });
   on('POST', '/api/sessions/:id/repo/cleanup', ({ params }) => {
     const r = rows.get(params[0]);

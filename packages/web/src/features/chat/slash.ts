@@ -16,7 +16,7 @@ export type SlashSection = 'commands' | 'skills' | 'custom';
 export type SlashMode = 'code' | 'chat';
 
 /** The sheets a command opens over the session (SessionSheets.tsx). */
-export type SheetId = 'help' | 'mcp' | 'hooks' | 'permissions' | 'agents' | 'skills' | 'model' | 'memory' | 'context' | 'cost' | 'status' | 'resume';
+export type SheetId = 'help' | 'mcp' | 'hooks' | 'permissions' | 'agents' | 'skills' | 'model' | 'memory' | 'context' | 'cost' | 'status' | 'resume' | 'design';
 
 export interface SlashItem {
   name: string;
@@ -72,6 +72,7 @@ export const SHEET_TITLES: Record<SheetId, string> = {
   cost: 'Cost',
   status: 'Status',
   resume: 'Resume',
+  design: 'Design direction',
 };
 
 type Builtin = Omit<SlashItem, 'section'> & { modes: SlashMode[] };
@@ -89,6 +90,7 @@ const BUILTINS: Builtin[] = [
   { name: 'cost', description: 'Tokens and cost of this session', sheet: 'cost', modes: BOTH },
   { name: 'cwd', description: 'Change the working folder', arg: '<path>', modes: CODE },
   { name: 'debate', description: 'Let two models argue it out', arg: '[question]', modes: CODE },
+  { name: 'design', description: 'Design direction for UI changes', sheet: 'design', modes: CODE },
   { name: 'device', description: 'Run tools on another device', arg: '[device]', modes: CODE },
   { name: 'export', description: 'Download this session', arg: '[md|json]', modes: BOTH },
   { name: 'fork', description: 'Fork this session', modes: BOTH },

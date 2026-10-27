@@ -25,6 +25,7 @@ import { NewChatSheet } from '@/features/chat/NewChatSheet';
 import { OfflineBanner } from '@/features/connect/OfflineBanner';
 import { UpdateBanners } from '@/components/UpdateBanners';
 import { Sidebar } from './Sidebar';
+import { useMarkSeen } from '@/lib/seen';
 import { isActive, NAV, SETTINGS_NAV } from './nav';
 
 export { NAV, SETTINGS_NAV, OWNER_PAGES, useNav, useInboxCount, type NavItem } from './nav';
@@ -68,6 +69,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const keyboardOpen = useVisibleViewport(phone);
   useGlobalKeys();
   useDocumentTitle(loc);
+  useMarkSeen(loc);
   return (
     <div
       className="flex h-full w-full overflow-hidden bg-bg"

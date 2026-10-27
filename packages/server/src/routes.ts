@@ -393,6 +393,9 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
   // Move to main list: delegated work becomes a normal session of its kind; parentId stays (core engine/delegate.ts)
   app.post('/api/sessions/:id/main-list', (c) => c.json(engine.moveToMainList(sid(c))));
 
+  // the owner opened it: no longer unread (core session/unread.ts)
+  app.post('/api/sessions/:id/seen', (c) => c.json(engine.markSeen(sid(c))));
+
   // move, location, projects, device folders (folders across devices)
   registerProjectRoutes(app, ctx, audit);
   // repo sessions on GitHub: the connection, repositories, push, pull requests, clean up

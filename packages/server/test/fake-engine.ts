@@ -359,6 +359,13 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
       repos.sessions.update(next);
       return next;
     },
+    markSeen(id) {
+      rec('markSeen', id);
+      const s = sessionOr404(id);
+      const next = { ...s, meta: { ...s.meta, seenAt: Date.now() } };
+      repos.sessions.update(next);
+      return next;
+    },
     forkSession(id, fromSeq) {
       rec('forkSession', id, fromSeq);
       return { ...sessionOr404(id), id: newId('ses'), parentId: id };
@@ -665,6 +672,21 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
       delete servers[name];
       config.replace({ ...user, mcpServers: servers });
       return true;
+    },
+    async startMcpOAuth(name, redirectUrl) {
+      requireMcp(name);
+      rec('startMcpOAuth', name, redirectUrl);
+      return { authorizeUrl: `https://auth.example/authorize?state=fake-state&redirect_uri=${encodeURIComponent(redirectUrl)}` };
+    },
+    async finishMcpOAuth(input) {
+      rec('finishMcpOAuth', input);
+      if (input.state !== 'fake-state') throw new EngineError(400, 'This address only finishes a sign-in started in Conclave. Press Connect again.');
+      return { name: 'echo', status: 'connected', tools: 1, source: 'http', auth: 'connected' };
+    },
+    async disconnectMcpOAuth(name) {
+      requireMcp(name);
+      rec('disconnectMcpOAuth', name);
+      return { ...mcpStatusOf(name), auth: 'needs-auth' };
     },
     importMcp(from, text) {
       if (from !== 'claude') throw new EngineError(400, 'fake handles claude only');

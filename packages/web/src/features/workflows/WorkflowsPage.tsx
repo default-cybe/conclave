@@ -2,8 +2,8 @@
  * Workflows (docs/WORKFLOWS.md, spec 3.18): /workflows is the library,
  * /workflows/runs every run newest first, /workflows/runs/:id one run.
  */
-import { useMemo, useState } from 'react';
-import { Link, useLocation, useParams } from 'wouter';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useParams, useSearch } from 'wouter';
 import type { WorkflowRun, WorkflowSummary } from '@conclave/core/client';
 import { Page, PageHeader } from '@/components/ui/Page';
 import { Tabs } from '@/components/ui/Tags';
@@ -53,6 +53,15 @@ function Library() {
   const { data, error } = useLibrary();
   const runs = useRuns({ limit: 20 });
   const [picked, setPicked] = useState<WorkflowSummary>();
+  // ?run=<name> (the palette's Run a workflow) opens its run sheet once the library is in
+  const run = new URLSearchParams(useSearch()).get('run');
+  const [, navigate] = useLocation();
+  useEffect(() => {
+    const w = run ? data?.find((x) => x.name === run) : undefined;
+    if (!w) return;
+    setPicked(w);
+    navigate('/workflows', { replace: true });
+  }, [run, data, navigate]);
   const running = (runs.data ?? []).filter((r) => isLive(r.status)).length;
   const groups = useMemo(() => SOURCE_ORDER.map((s) => ({ source: s, items: (data ?? []).filter((w) => w.source === s) })).filter((g) => g.items.length), [data]);
   const now = useNow(60_000);

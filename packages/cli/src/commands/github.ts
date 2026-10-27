@@ -5,7 +5,7 @@
  */
 import type { ConclaveClient, GithubStatusDto, RepoSessionDto } from '@conclave/core/client/index.ts';
 import { out as p, truncate } from '../ansi';
-import { bool, str, type ParsedArgs } from '../args';
+import { bool, num, str, type ParsedArgs } from '../args';
 import { relativeTime } from '../render/format';
 import { CliError, getClient, json, print, prompt, requireArg, table } from './shared';
 
@@ -94,7 +94,9 @@ export async function repoSessionCommand(sub: string, args: ParsedArgs, client: 
       print(`${p.green('✓')} Started ${s.id} in ${s.cwd}`);
       return 0;
     }
-    const s = await client.createRepoSession({ repo, base: str(args, 'base'), ...common });
+    const issue = num(args, 'issue');
+    if (str(args, 'issue') !== undefined && issue === undefined) throw new CliError('--issue takes an issue number.');
+    const s = await client.createRepoSession({ repo, base: str(args, 'base'), ...(issue !== undefined ? { issue } : {}), ...common });
     if (bool(args, 'json')) return json(s), 0;
     const meta = s.meta?.repo as { branch?: string; base?: string } | undefined;
     print(`${p.green('✓')} Started ${s.id} on ${meta?.branch ?? 'a new branch'} from ${meta?.base ?? 'the default branch'} of ${repo}`);

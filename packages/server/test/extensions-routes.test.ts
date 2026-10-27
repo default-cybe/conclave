@@ -98,6 +98,47 @@ describe('extensions area', () => {
     expect((await hub.api('/api/mcp/memory', { method: 'DELETE' })).status).toBe(404);
   });
 
+  test('MCP OAuth: start needs a public address, the callback takes only a known state, disconnect is audited', async () => {
+    await hub.api('/api/mcp', { method: 'POST', json: { name: 'echo', config: { type: 'http', url: 'https://mcp.example/mcp', auth: 'oauth' } } });
+    const none = await json(await hub.api('/api/mcp/echo/oauth/start', { method: 'POST', json: {} }));
+    expect(none.status).toBe(409);
+    expect(none.body.error).toContain('public address');
+
+    hub.engine.config.setRuntime({ server: { publicUrl: 'https://hub.example/' } } as never, 'test');
+    try {
+      const ok = await json(await hub.api('/api/mcp/echo/oauth/start', { method: 'POST', json: {} }));
+      expect(ok.status).toBe(200);
+      expect(hub.engine.calls.filter((c) => c.method === 'startMcpOAuth').pop()?.args).toEqual(['echo', 'https://hub.example/api/mcp/oauth/callback']);
+      expect(new URL(ok.body.authorizeUrl).searchParams.get('redirect_uri')).toBe('https://hub.example/api/mcp/oauth/callback');
+      // only the owner starts a sign-in: no token, and an agent's gateway key, are refused
+      expect((await hub.api('/api/mcp/echo/oauth/start', { method: 'POST', json: {}, token: null })).status).toBe(401);
+      const agent = (await json(await hub.api('/api/gateway/keys', { method: 'POST', json: { name: 'codex', agent: 'codex' } }))).body.key as string;
+      expect(agent).toStartWith('cgw_');
+      const before = hub.engine.calls.filter((c) => c.method === 'startMcpOAuth' || c.method === 'disconnectMcpOAuth').length;
+      expect((await hub.api('/api/mcp/echo/oauth/start', { method: 'POST', json: {}, token: agent })).status).toBe(401);
+      expect((await hub.api('/api/mcp/echo/oauth', { method: 'DELETE', token: agent })).status).toBe(401);
+      expect(hub.engine.calls.filter((c) => c.method === 'startMcpOAuth' || c.method === 'disconnectMcpOAuth').length).toBe(before);
+    } finally {
+      hub.engine.config.setRuntime({}, 'test');
+    }
+
+    // the callback is public: no token, and the state is the only key
+    const stranger = await fetch(`${hub.url}/api/mcp/oauth/callback?state=guess&code=x`);
+    expect(stranger.status).toBe(400);
+    expect(await stranger.text()).toContain('Sign-in failed');
+    expect((await fetch(`${hub.url}/api/mcp/oauth/callback?code=x`)).status).toBe(400);
+    const back = await fetch(`${hub.url}/api/mcp/oauth/callback?state=fake-state&code=secret-code-123`);
+    expect(back.status).toBe(200);
+    expect(await back.text()).toContain('echo is connected to Conclave');
+
+    const off = await json(await hub.api('/api/mcp/echo/oauth', { method: 'DELETE' }));
+    expect(off.body.auth).toBe('needs-auth');
+    const audit = hub.engine.repos.audit.list({ limit: 50 }).filter((a) => a.action.startsWith('mcp.oauth.'));
+    expect(audit.map((a) => a.action).sort()).toEqual(['mcp.oauth.connect', 'mcp.oauth.disconnect', 'mcp.oauth.start']);
+    expect(JSON.stringify(audit).includes('secret-code-123')).toBe(false);
+    await hub.api('/api/mcp/echo', { method: 'DELETE' });
+  });
+
   test('MCP import parses another CLI config for a preview', async () => {
     const text = JSON.stringify({ mcpServers: { gh: { type: 'http', url: 'https://api.example/mcp', headers: { Authorization: 'Bearer ${GH_TOKEN}' } } } });
     const res = await json(await hub.api('/api/mcp/import', { method: 'POST', json: { from: 'claude', text } }));

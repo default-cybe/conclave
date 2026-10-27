@@ -16,6 +16,7 @@ import { Link, useLocation, useSearch } from 'wouter';
 import { ChevronRight, Search, X } from 'lucide-react';
 import type { Session } from '@conclave/core/types';
 import { underParent } from '@conclave/core/session/delegated';
+import { isUnread } from '@conclave/core/session/unread';
 import { api } from '@/lib/api';
 import { attempt, useHub } from '@/store/store';
 import { cn, fuzzy } from '@/lib/text';
@@ -195,10 +196,14 @@ const PHONE_GROUPS: PhoneGroup[] = ['date', 'project', 'device'];
 function Row({ session: s, now, state, device }: { session: Session; now: number; state: 'running' | 'waiting' | undefined; device?: string }) {
   const line = state ? LINE[state] : s.status === 'error' ? LINE.failed : undefined;
   const repo = sessionRepo(s);
+  const unread = isUnread(s);
   return (
     <Link href={hrefOf(s)} className="flex min-h-[52px] flex-col justify-center px-5 py-2.5 transition-colors duration-[var(--dur-1)] active:bg-hover">
       <span className="flex items-baseline gap-3">
-        <span className="min-w-0 flex-1 truncate text-[16px] leading-[1.35] text-fg">{s.title || (isChat(s) ? 'New chat' : 'New session')}</span>
+        <span className={cn('min-w-0 flex-1 truncate text-[16px] leading-[1.35] text-fg', unread && 'font-semibold')}>
+          {s.title || (isChat(s) ? 'New chat' : 'New session')}
+          {unread && <span className="sr-only">, new reply</span>}
+        </span>
         <span className="num shrink-0 text-[13px] text-fg-3">{relTime(s.updatedAt, now)}</span>
       </span>
       {(line || device || repo) && (
