@@ -309,11 +309,12 @@ export function preludeSource(opts: { argsJson: string; nested: boolean }): stri
     const runs = await parallel(Array.from({ length: judges }, (_, j) => () => parallel([() => ask(j, false), () => ask(j, true)])));
     const votes = candidates.map(() => 0);
     const scores = candidates.map(() => []);
+    const reasons = candidates.map(() => []);
     let ties = 0;
     for (const pair of runs) {
       if (!pair || !pair[0] || !pair[1]) { ties++; continue; }
       const pick = pair.map((x) => x.idx[letters.indexOf(x.r.best)]);
-      for (const x of pair) for (const s of x.r.scores || []) { const ci = x.idx[letters.indexOf(s.id)]; if (ci !== undefined) scores[ci].push(s.score); }
+      for (const x of pair) for (const s of x.r.scores || []) { const ci = x.idx[letters.indexOf(s.id)]; if (ci !== undefined) { scores[ci].push(s.score); if (s.reason) reasons[ci].push(s.reason); } }
       if (pick[0] === pick[1] && pick[0] !== undefined) votes[pick[0]]++;
       else ties++;
     }
@@ -322,7 +323,7 @@ export function preludeSource(opts: { argsJson: string; nested: boolean }): stri
     const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
     const winner = max > 0 && leaders.length === 1 ? leaders[0] : null;
     if (winner === null) callSync('log', 'judge panel: no clear winner (' + ties + ' order flips or missing judges)');
-    return { winner, votes, ties, scores: scores.map(mean) };
+    return { winner, votes, ties, scores: scores.map(mean), reasons };
   };
 
   const checkCitation = (f) => call('checkCitation', { file: f.file, line: f.line, quote: f.quote, worktree: f.worktree });

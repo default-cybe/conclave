@@ -123,6 +123,8 @@ export { sessionRepo } from './github';
 // ----- workflow engine DTOs: block "workflows", docs/design/ROUND-IMPORT-PATHS-WORKFLOWS.md 3.17 -----
 import type {
   FindingVerdict,
+  KeepWinnerHow,
+  KeepWinnerResult,
   StartWorkflowInput,
   WorkflowDetail,
   WorkflowFinding,
@@ -2246,6 +2248,7 @@ export class ConclaveClient {
   rerunWorkflow = (id: string, fromSeq: number) => this.request<WorkflowRun>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/rerun`, { fromSeq });
   skipWorkflowCall = (id: string, seq: number) => this.request<WorkflowRun>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/calls/${seq}/skip`);
   workflowWorktree = (id: string, seq: number, action: WorktreeAction) => this.request<WorktreeActionResult>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/calls/${seq}/worktree`, { action });
+  keepRaceWinner = (id: string, how: KeepWinnerHow) => this.request<KeepWinnerResult>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/keep`, { how });
   judgeFinding = (id: string, findingId: string, verdict: FindingVerdict, reason?: string) =>
     this.request<WorkflowFinding>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/findings/${encodeURIComponent(findingId)}`, { verdict, reason });
 
