@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { createEngine } from '../../src/engine';
 import type { Engine } from '../../src/engine/engine';
 import { describeOutcome } from '../../src/engine/extensions-api';
+import { oauthSecretName } from '../../src/extensions/mcp-oauth';
 import { cleanup, tempDir } from '../extensions/_helpers';
 import { HOOK_SCRIPT } from './harness';
 
@@ -187,6 +188,23 @@ describe('MCP servers', () => {
     expect(engine.removeMcpServer('echo')).toBe(false);
     await expect(engine.restartMcp('echo')).rejects.toThrow('unknown mcp server echo');
   }, 30_000);
+
+  test('an OAuth sign-in is forgotten when the URL or auth changes, and on remove', () => {
+    const secret = oauthSecretName('notes');
+    const signedIn = () => engine.config.setSecret('values', secret, 'enc:v1:stand-in');
+    engine.addMcpServer('notes', { type: 'http', url: 'https://mcp.example/mcp', auth: 'oauth', enabled: false });
+    signedIn();
+    engine.updateMcpServer('notes', { enabled: false });
+    expect(engine.config.secretValue(secret)).toBe('enc:v1:stand-in');
+    engine.updateMcpServer('notes', { config: { type: 'http', url: 'https://other.example/mcp', auth: 'oauth', enabled: false } });
+    expect(engine.config.secretValue(secret)).toBeUndefined();
+    signedIn();
+    engine.updateMcpServer('notes', { config: { type: 'http', url: 'https://other.example/mcp', enabled: false } });
+    expect(engine.config.secretValue(secret)).toBeUndefined();
+    signedIn();
+    expect(engine.removeMcpServer('notes')).toBe(true);
+    expect(engine.config.secretValue(secret)).toBeUndefined();
+  });
 
   test('connect plans warn when a value is a Conclave secret', () => {
     engine.addMcpServer('homelab', { type: 'http', url: 'https://madx.example/mcp', headers: { Authorization: 'Bearer ${secret:homelab-token}' } });

@@ -7,6 +7,8 @@ import type { ConfigStore } from '../config';
 import type { McpStatus } from '../client';
 import type { ImageBlock, JsonSchema, TextBlock } from '../types';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
+import { McpOAuth } from './mcp-oauth';
 import { timeoutOutput, type Tool, type ToolOutput } from '../tools/types';
 import { logger } from '../util/log';
 
@@ -19,7 +21,7 @@ interface ServerTool {
   annotations?: { readOnlyHint?: boolean; title?: string };
 }
 
-type ConnState = 'disabled' | 'connecting' | 'connected' | 'failed';
+type ConnState = 'disabled' | 'connecting' | 'connected' | 'failed' | 'needs-auth';
 
 interface ServerRecord {
   name: string;
@@ -44,6 +46,8 @@ const BACKOFF = [1_000, 5_000, 15_000, 30_000, 60_000];
 export interface McpManagerOptions {
   /** Servers contributed outside config (e.g. by plugins), merged under config. */
   extraServers?: Record<string, McpServerConfig>;
+  /** Token store and sign-in flow for servers with auth "oauth". Default: one on the config's home. */
+  oauth?: McpOAuth;
 }
 
 /**
@@ -55,10 +59,12 @@ export class McpManager {
   private config: ConfigStore;
   private records = new Map<string, ServerRecord>();
   private extra: Record<string, McpServerConfig>;
+  readonly oauth: McpOAuth;
 
   constructor(config: ConfigStore, opts: McpManagerOptions = {}) {
     this.config = config;
     this.extra = opts.extraServers ?? {};
+    this.oauth = opts.oauth ?? new McpOAuth(config);
   }
 
   /** Replace the plugin-contributed server set and drop connections to removed ones. */
@@ -129,7 +135,24 @@ export class McpManager {
     return this.records.get(name);
   }
 
-  private makeTransport(cfg: McpServerConfig, preferSse = false): StdioClientTransport | StreamableHTTPClientTransport | SSEClientTransport {
+  /** The server's config, for the OAuth routes. */
+  serverConfig(name: string): McpServerConfig | undefined {
+    return this.record(name)?.config;
+  }
+
+  /** Signed in at the server's current URL. */
+  private signedIn(rec: ServerRecord): boolean {
+    return !!rec.config.url && this.oauth.hasTokens(rec.name, this.config.expand(rec.config.url));
+  }
+
+  /** Forget a server's sign-in and close its live connection, so nothing from before keeps using it. */
+  signOut(name: string): void {
+    this.oauth.disconnect(name);
+    const rec = this.records.get(name);
+    if (rec) this.dropClient(rec);
+  }
+
+  private makeTransport(name: string, cfg: McpServerConfig, preferSse = false): StdioClientTransport | StreamableHTTPClientTransport | SSEClientTransport {
     if (cfg.command) {
       return new StdioClientTransport({
         command: cfg.command,
@@ -141,11 +164,13 @@ export class McpManager {
     }
     if (!cfg.url) throw new Error('mcp server needs a command or url');
     const headers = this.config.expandRecord(cfg.headers);
-    const url = new URL(this.config.expand(cfg.url));
+    const raw = this.config.expand(cfg.url);
+    const url = new URL(raw);
+    const oauth = cfg.auth === 'oauth' ? { authProvider: this.oauth.provider(name, raw), fetch: this.oauth.fetchFor() } : {};
     if (cfg.type === 'sse' || preferSse) {
-      return new SSEClientTransport(url, { requestInit: headers ? { headers } : undefined });
+      return new SSEClientTransport(url, { requestInit: headers ? { headers } : undefined, ...oauth });
     }
-    return new StreamableHTTPClientTransport(url, { requestInit: headers ? { headers } : undefined });
+    return new StreamableHTTPClientTransport(url, { requestInit: headers ? { headers } : undefined, ...oauth });
   }
 
   /** Ensure a server is connected. Throws if within a backoff cooldown or disabled. */
@@ -158,6 +183,13 @@ export class McpManager {
     }
     if (rec.state === 'connected' && rec.client) return;
     if (rec.connecting) return rec.connecting;
+    // no tokens yet: wait for Connect instead of dialing the server and retrying
+    if (rec.config.auth === 'oauth' && !this.signedIn(rec)) {
+      rec.state = 'needs-auth';
+      rec.error = undefined;
+      throw new Error(`mcp server ${name} needs you to connect it`);
+    }
+    if (rec.state === 'needs-auth') throw new Error(rec.error ?? `mcp server ${name} needs you to connect it`);
     if (rec.nextRetryAt && Date.now() < rec.nextRetryAt) throw new Error(rec.error ?? `mcp server ${name} is in backoff`);
 
     rec.state = 'connecting';
@@ -178,12 +210,16 @@ export class McpManager {
     };
     const isHttp = !rec.config.command && !!rec.config.url;
     try {
-      await client.connect(this.makeTransport(rec.config));
+      await client.connect(this.makeTransport(rec.name, rec.config));
     } catch (err) {
+      if (err instanceof UnauthorizedError && rec.config.auth === 'oauth') {
+        if (stale()) return;
+        return this.onConnectError(rec, err);
+      }
       if (isHttp && rec.config.type !== 'sse') {
         // Fall back to SSE for servers that do not speak Streamable HTTP.
         try {
-          await client.connect(this.makeTransport(rec.config, true));
+          await client.connect(this.makeTransport(rec.name, rec.config, true));
         } catch (err2) {
           if (stale()) return;
           return this.onConnectError(rec, err2 as Error);
@@ -240,9 +276,16 @@ export class McpManager {
   }
 
   private onConnectError(rec: ServerRecord, err: Error): never {
-    rec.state = 'failed';
     rec.client = undefined;
     err.message = this.redact(rec.config, err.message);
+    if (err instanceof UnauthorizedError && rec.config.auth === 'oauth') {
+      // the sign-in lapsed or was revoked: retrying cannot fix it, Connect can
+      rec.state = 'needs-auth';
+      rec.error = 'The sign-in expired or was revoked. Press Connect to sign in again.';
+      log.warn(`mcp server ${rec.name} needs a new sign-in`);
+      throw err;
+    }
+    rec.state = 'failed';
     rec.error = err.message;
     const delay = BACKOFF[Math.min(rec.attempts, BACKOFF.length - 1)];
     rec.attempts++;
@@ -337,6 +380,7 @@ export class McpManager {
     rec.attempts = 0;
     rec.nextRetryAt = 0;
     rec.error = undefined;
+    if (rec.state === 'needs-auth') rec.state = 'failed';
     await this.ensure(name).catch(() => undefined);
     return this.status().find((s) => s.name === name);
   }
@@ -376,6 +420,7 @@ export class McpManager {
       tools: rec.tools.length,
       error: rec.error,
       source: rec.config.command ? 'stdio' : (rec.config.type ?? 'http'),
+      ...(rec.config.auth === 'oauth' ? { auth: rec.state === 'needs-auth' || !this.signedIn(rec) ? ('needs-auth' as const) : ('connected' as const) } : {}),
     }));
   }
 

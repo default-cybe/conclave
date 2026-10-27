@@ -9,10 +9,14 @@
  *
  * Above the composer, on both: "2 running tasks" while a workflow or a
  * subagent works in the session (RunningTasks.tsx).
+ *
+ * As a column of Side by side (SplitPage.tsx): a short header (title, state,
+ * Remove), the same transcript with its approvals, and the composer. The
+ * page's keys (Esc stops, copy the last code block) stay with the session page.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
-import { MoreHorizontal, PanelRight } from 'lucide-react';
+import { MoreHorizontal, PanelRight, X } from 'lucide-react';
 import type { Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { attempt, loadMessages, removeKey, toast, upsertSession, useHub, useQuietToasts } from '@/store/store';
@@ -51,8 +55,9 @@ import { sessionRepo } from '@/lib/github';
 import { isDelegated } from '@conclave/core/session/delegated';
 import { DelegatedLine, FromLink, moveToMainList, MOVE_TO_MAIN, useDelegatedFrom } from './delegated';
 import { useHubCopy } from './HubCopy';
+import { addToSplit, saveSplit, shownSplit } from './split';
 
-export function ChatView({ session }: { session: Session }) {
+export function ChatView({ session, column }: { session: Session; /** Shown as a column of Side by side. */ column?: { onRemove: () => void } }) {
   const todos = useHub((s) => s.todos[session.id]);
   const mobile = useIsMobile();
   const [sheet, setSheet] = useState(false);
@@ -68,6 +73,8 @@ export function ChatView({ session }: { session: Session }) {
 
   // esc stops a running turn; mod+shift+c copies the last code block
   useEffect(() => {
+    // several columns on one page: no key may reach every session at once
+    if (column) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
       const mod = e.metaKey || e.ctrlKey;
@@ -88,7 +95,20 @@ export function ChatView({ session }: { session: Session }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [session.id]);
+  }, [session.id, !!column]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (column)
+    return (
+      <div className="flex h-full min-w-0 flex-1 flex-col">
+        <ColumnHeader session={session} onRemove={column.onRemove} />
+        <MessageList session={session} />
+        <Docked>
+          {todos && <TodoStrip todos={todos} />}
+          <RunningTasks sessionId={session.id} />
+          <Composer session={session} narrow />
+        </Docked>
+      </div>
+    );
 
   if (mobile)
     return (
@@ -273,6 +293,29 @@ function ChatHeader({ session }: { session: Session }) {
   );
 }
 
+/** A column's top: the title opens the session page, the state word, and Remove from the view. */
+function ColumnHeader({ session, onRemove }: { session: Session; onRemove: () => void }) {
+  return (
+    <header className="shrink-0 border-b border-rule bg-bg">
+      <div className="flex h-14 items-center gap-3 pr-2 pl-4">
+        <div className="min-w-0 flex-1">
+          <Link href={`/s/${session.id}`} className="block truncate text-[14px] font-medium text-fg hover:underline" title={`Open ${session.title}`}>
+            {session.title}
+          </Link>
+          <HeaderMeta session={session} />
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5 text-[13px]">
+          {sessionPet(session.status) && <Pet state={sessionPet(session.status)} size={20} className="-my-1 text-fg-2" />}
+          <HeaderState session={session} />
+        </div>
+        <IconButton label={`Remove ${session.title} from Side by side`} onClick={onRemove}>
+          <X />
+        </IconButton>
+      </div>
+    </header>
+  );
+}
+
 /** Phones: the window's title from the session (the phone bar shows it too). */
 function PhoneTitle({ title }: { title: string }) {
   usePageHeader(title);
@@ -337,6 +380,15 @@ function SessionMenu({ session }: { session: Session }) {
               },
             },
             { label: 'Second opinion…', onSelect: later(() => setPick('opinion')) },
+            {
+              label: 'Side by side',
+              detail: 'Watch it next to others',
+              onSelect: () => {
+                const s = useHub.getState();
+                void saveSplit(addToSplit(shownSplit(s.me?.preferences.splitView, s.sessions), session.id));
+                navigate('/sessions/split');
+              },
+            },
             { label: 'Compact', detail: 'Summarize older messages', onSelect: () => attempt(() => api().compact(session.id)) },
             ...(hub.items.length ? [{ separator: true, label: '' }, ...hub.items] : []),
             { separator: true, label: '' },

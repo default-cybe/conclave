@@ -227,6 +227,7 @@ function Palette() {
     if (owner) action('setup', 'Run setup again', go(RUN_SETUP_AGAIN), undefined, true);
     action('inbox', 'Open inbox', go('/approvals'), <Kbd>G I</Kbd>, true);
     action('import', 'Import past chats', go('/sessions?import=1'));
+    action('split', 'Sessions side by side', go('/sessions/split'));
     action('shortcuts', 'Keyboard shortcuts', () => openShortcuts(), <Kbd>?</Kbd>);
     // extensions
     if (owner) {

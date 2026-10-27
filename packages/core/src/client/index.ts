@@ -73,7 +73,7 @@ export { SEARCH_PROVIDERS } from './websearch';
 // ----- accounts: several people on one hub, docs/design/ACCOUNTS.md -----
 import type { AccountRef, InviteDto, InviteInfo, MeDto, MePatch, PersonCreated, PersonDto, PersonInput, PersonPatch, WorkspaceCode } from './people';
 export type * from './people';
-export { DISPLAY_NAME_MAX, OWNER_DEFAULT_NAME, displayNameProblem, shownName, tidyDisplayName } from './people';
+export { DISPLAY_NAME_MAX, OWNER_DEFAULT_NAME, SPLIT_MAX, displayNameProblem, shownName, tidyDisplayName } from './people';
 export type * from './pim';
 import type { CaldavPreset, MailSecurity, OAuthClientKind, OAuthFlowDto, PimAccountDto, PimSettingsDto, PimWants, ProposalDto, ProposalStatus } from './pim';
 import type {
@@ -450,6 +450,8 @@ export interface McpStatus {
   plugin?: string;
   transport?: 'stdio' | 'http' | 'sse';
   enabled?: boolean;
+  /** A server with auth "oauth": signed in, or waiting for the owner to press Connect. */
+  auth?: 'connected' | 'needs-auth';
 }
 
 export interface UsageSummary {
@@ -1938,6 +1940,9 @@ export class ConclaveClient {
   addMcpServer = (name: string, config: McpServerConfig) => this.request<McpStatus>('POST', '/api/mcp', { name, config, scope: 'user' });
   updateMcpServer = (name: string, patch: { enabled?: boolean; config?: McpServerConfig }) => this.request<McpStatus>('PATCH', `/api/mcp/${encodeURIComponent(name)}`, patch);
   removeMcpServer = (name: string) => this.request<{ ok: true }>('DELETE', `/api/mcp/${encodeURIComponent(name)}`);
+  /** OAuth Connect: the address to open; the browser comes back to the hub's callback. */
+  startMcpOAuth = (name: string) => this.request<{ authorizeUrl: string }>('POST', `/api/mcp/${encodeURIComponent(name)}/oauth/start`, {});
+  disconnectMcpOAuth = (name: string) => this.request<McpStatus>('DELETE', `/api/mcp/${encodeURIComponent(name)}/oauth`);
   /** Parse another CLI's MCP config for a preview. Nothing is saved. */
   importMcp = (from: McpImportFormat, text: string) => this.request<Record<string, McpServerConfig>>('POST', '/api/mcp/import', { from, text });
   mcpConnectPlan = (name: string) => this.request<McpConnectStepDto[]>('GET', `/api/mcp/${encodeURIComponent(name)}/connect`);

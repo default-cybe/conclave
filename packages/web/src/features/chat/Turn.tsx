@@ -35,7 +35,7 @@ import { ToolGroup, type ThoughtItem, type WorkItem } from './ToolRows';
 import { workName } from './toolGroups';
 import { useFolded } from './FanOutCard';
 import { thoughtTime } from '@/lib/toolLine';
-import { msgText, readDismissed, writeDismissed } from './util';
+import { COMPOSE_EVENT, msgText, readDismissed, writeDismissed, type ComposeDetail } from './util';
 import { storedWord } from './Pending';
 
 // ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ export const UserMessage = memo(function UserMessage({ message, session, enter }
     const s = await attempt(() => api().rewind(session.id, message.seq - 1));
     if (s) {
       upsertSession(s);
-      window.dispatchEvent(new CustomEvent('conclave:compose', { detail: text }));
+      window.dispatchEvent(new CustomEvent<ComposeDetail>(COMPOSE_EVENT, { detail: { text, sessionId: session.id } }));
     }
   };
 

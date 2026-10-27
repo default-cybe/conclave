@@ -380,24 +380,33 @@ export class LoginVault {
     this.config.setSecret('values', name, seal(this.key(true)!, name, plain));
   }
 
-  /** The vault's key, made on first use. A damaged key file stops a save rather than being replaced. */
   private key(create: boolean): Buffer | undefined {
-    if (existsSync(this.keyFile)) {
-      const k = Buffer.from(readFileSync(this.keyFile, 'utf8').trim(), 'base64');
-      if (k.length !== 32) {
-        if (create) throw new Error(`${this.keyFile} is damaged. Delete it, then save the logins again.`);
-        return undefined;
-      }
-      return k;
-    }
-    if (!create) return undefined;
-    const k = randomBytes(32);
-    writePrivate(this.keyFile, k.toString('base64') + '\n');
-    return k;
+    return sealKey(this.keyFile, create);
   }
 }
 
-function seal(key: Buffer, name: string, plain: string): string {
+/**
+ * The hub's sealing key (browser-logins.key), made on first use. A damaged key
+ * file stops a save rather than being replaced. Also seals MCP OAuth tokens
+ * (extensions/mcp-oauth.ts).
+ */
+export function sealKey(keyFile: string, create: boolean): Buffer | undefined {
+  if (existsSync(keyFile)) {
+    const k = Buffer.from(readFileSync(keyFile, 'utf8').trim(), 'base64');
+    if (k.length !== 32) {
+      if (create) throw new Error(`${keyFile} is damaged. Delete it, then save the logins again.`);
+      return undefined;
+    }
+    return k;
+  }
+  if (!create) return undefined;
+  const k = randomBytes(32);
+  writePrivate(keyFile, k.toString('base64') + '\n');
+  return k;
+}
+
+/** AES-256-GCM with the secret's name as associated data. */
+export function seal(key: Buffer, name: string, plain: string): string {
   const iv = randomBytes(12);
   const c = createCipheriv('aes-256-gcm', key, iv);
   c.setAAD(Buffer.from(name, 'utf8'));
@@ -405,7 +414,7 @@ function seal(key: Buffer, name: string, plain: string): string {
   return SEALED + [iv, c.getAuthTag(), body].map((b) => b.toString('base64url')).join('.');
 }
 
-function open(key: Buffer, name: string, sealed: string): string | undefined {
+export function open(key: Buffer, name: string, sealed: string): string | undefined {
   if (!sealed.startsWith(SEALED)) return undefined;
   const parts = sealed.slice(SEALED.length).split('.');
   if (parts.length !== 3) return undefined;

@@ -40,6 +40,7 @@ import { KV, Quote, TextAction } from '@/components/ui/Section';
 import { Stat, StatGroup } from '@/components/ui/Stat';
 import { StateWord } from '@/components/ui/List';
 import { Diff } from '@/components/ui/Code';
+import { commentTo } from './CommentTray';
 import { Elapsed } from '@/components/motion';
 import { StatusWord } from '@/features/extensions/McpServers';
 import { useRepoActions, useRepoSession } from '@/features/github/RepoBar';
@@ -577,7 +578,7 @@ function ChangesCard({ session }: { session: Session }) {
       {pr.dialogs}
 
       <Dialog open={!!openFile} onClose={() => setOpenFile(null)} title={openFile ? fileName(openFile.path) : 'Diff'} description={openFile?.path} width={760}>
-        {openFile && <Diff file={openFile} header={false} maxLines={400} />}
+        {openFile && <Diff file={openFile} header={false} maxLines={400} onComment={commentTo(session.id)} />}
       </Dialog>
 
       <ConfirmDialog
