@@ -20,6 +20,9 @@ import { importMemoryFiles, type FileImportOptions, type FileImportResult } from
 import { layoutOf, type MemoryConnections } from './manager';
 import { BASIC_MEMORY_MCP_SERVER, BASIC_MEMORY_SERVER, isLocalBasicMemory } from './basic-memory';
 import { GroupedNoteWriter, perFactPermalink } from './grouped';
+import { buildMemoryGraph, type BmGraphData } from '../graph';
+import type { MemoryGraph } from '../../client/memory-graph';
+import { withTimeout } from './util';
 import type { EventBus } from '../../util/bus';
 import { CONNECTION_PRESETS, LEGACY_CONNECTION_ID, legacyConnection, resolveConnection, slugId, validateConnection, type ConnectionPreset } from './registry';
 import type { ConnectionInfo, ConnectionStatus, ConnectionTestResult, MemoryConnectionConfig, SyncResult } from './types';
@@ -95,6 +98,38 @@ export class MemoryConnectionService {
       accountId: opts.memory.accountId,
     });
     this.grouped.start();
+  }
+
+  private graphCache?: { key: string; at: number; data: Promise<BmGraphData> };
+
+  /**
+   * The memory map (GET /api/memory/graph): local memories and the first
+   * enabled Basic Memory connection's notes in one graph. Basic Memory is
+   * read only, at most once a minute; when it does not answer the map has
+   * Conclave's memory alone and says Basic Memory is offline.
+   */
+  async graph(opts: { limit?: number; sessionTitle?: (id: string) => string | undefined } = {}): Promise<MemoryGraph> {
+    const memories = this.memory.list({ limit: 100_000 });
+    const conn = this.connections.list().find((c) => c.enabled && c.type === 'basic-memory');
+    const base = { memories, sessionTitle: opts.sessionTitle, limit: opts.limit };
+    if (!conn) return buildMemoryGraph(base);
+    const adapter = this.connections.adapter(conn);
+    if (!adapter.graph) return buildMemoryGraph(base);
+    const key = JSON.stringify(conn);
+    const now = Date.now();
+    if (!this.graphCache || this.graphCache.key !== key || now - this.graphCache.at > 60_000) {
+      const data = withTimeout(adapter.graph(), Math.max(conn.timeoutMs, 20_000), 'Basic Memory');
+      this.graphCache = { key, at: now, data };
+      // a failure is not kept: the next open asks again
+      data.catch(() => {
+        if (this.graphCache?.data === data) this.graphCache = undefined;
+      });
+    }
+    try {
+      return buildMemoryGraph({ ...base, bm: await this.graphCache.data });
+    } catch (err) {
+      return buildMemoryGraph({ ...base, bmOffline: { name: conn.name, error: (err as Error).message.slice(0, 200) } });
+    }
   }
 
   /**

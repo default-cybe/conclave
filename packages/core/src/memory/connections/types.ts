@@ -70,6 +70,8 @@ export interface MemoryAdapter {
   pullAll?(opts: { max: number }): Promise<PulledNote[]>;
   /** Delete one note or memory by its id on the remote side (a Basic Memory permalink). Missing when the backend cannot. */
   remove?(id: string): Promise<void>;
+  /** Notes and their links for the memory map (Basic Memory). Missing when the backend has no note graph. */
+  graph?(): Promise<import('../graph').BmGraphData>;
   close?(): Promise<void>;
 }
 
