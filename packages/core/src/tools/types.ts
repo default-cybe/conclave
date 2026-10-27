@@ -61,6 +61,8 @@ export interface ToolHost {
   readOutput(id: string): string | undefined;
   /** Load a skill body by name. */
   loadSkill(name: string): Promise<{ name: string; body: string; dir: string } | undefined>;
+  /** Every skill the session may load, for the Skill tool's query. */
+  listSkills?(): Promise<Array<{ name: string; description: string; plugin?: string }>>;
   /** Create a routine from chat. */
   createRoutine(input: { name: string; schedule: string; prompt: string; agent?: string; cwd?: string; device?: string }): Promise<{ id: string; nextRunAt?: number }>;
   /** Switch session into or out of plan mode. */

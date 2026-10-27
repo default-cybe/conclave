@@ -2313,6 +2313,13 @@ export class Engine implements EngineApi {
     });
     // a member's session sees the skills that ship and plugin skills, not the owner's own
     const skills = this.isMemberSession(session) ? this.extensions.skills().filter((s) => SHARED_SOURCES.has(s.source)) : this.extensions.skills(session.cwd);
+    // the skills section matches skills against the first message, which holds until a compaction, so the section holds too
+    const textOf = (m: Message) => m.content.filter((b) => b.type === 'text' && !isReminder(b)).map((b) => (b as { text: string }).text).join('\n');
+    const firstMessage = activeMessages(this.repos.messages.list(session.id))
+      .filter((m) => m.role === 'user' || m.kind === 'summary')
+      .map(textOf)
+      .find((t) => t.trim())
+      ?.slice(0, 4000);
     let claude: boolean;
     try {
       claude = isClaudeModel(this.registryFor(session).resolve(modelRef).model);
@@ -2326,7 +2333,8 @@ export class Engine implements EngineApi {
       hostname: info?.hostname,
       isGitRepo: isGit,
       deviceName: this.devices.list().find((d) => d.id === session.device)?.name ?? session.device,
-      projectInstructions, profile, skills,
+      projectInstructions, profile, skills, firstMessage,
+      skillTokens: this.config.get().agents?.skillTokens,
       testCommand: await testCommand,
       workspace: await workspace,
       subagents: this.subagents(session),

@@ -108,6 +108,15 @@ export class EngineToolHost implements ToolHost {
     return undefined;
   }
 
+  async listSkills() {
+    // the same skills loadSkill would load: a member's session gets the ones that ship and plugin skills only
+    const member = this.engine.isMemberSession(this.session);
+    return this.engine.extensions
+      .skills(member ? undefined : this.session.cwd)
+      .filter((s) => !member || s.source === 'builtin' || s.source === 'plugin')
+      .map((s) => ({ name: s.name, description: s.description, plugin: s.plugin }));
+  }
+
   async loadSkill(name: string) {
     const member = this.engine.isMemberSession(this.session);
     const skill = this.engine.extensions.skill(name, member ? undefined : this.session.cwd);

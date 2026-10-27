@@ -4,6 +4,7 @@ import type { MemoryEntry, Session, SessionMode } from '../types';
 import type { SystemBlock } from '../providers/types';
 import type { WorkspaceFacts } from './project';
 import { findCatalogEntry } from '../providers/catalog';
+import { skillsSection } from './skill-list';
 import BASE_MD from '../agents-defaults/BASE.md' with { type: 'text' };
 import MODES_MD from '../agents-defaults/modes.md' with { type: 'text' };
 
@@ -20,6 +21,10 @@ export interface PromptParts {
   projectInstructions: Array<{ path: string; content: string }>;
   profile: MemoryEntry[];
   skills: SkillDef[];
+  /** Estimated tokens the skills section may use (agents.skillTokens); unset: the default, 0: no limit. */
+  skillTokens?: number;
+  /** The session's first message, the skills section matches skills against it (session/skill-list.ts). */
+  firstMessage?: string;
   subagents: AgentDef[];
   date: string;
   /** How to run the project's tests, when it is clear from the files (session/project.ts). */
@@ -217,11 +222,8 @@ export function buildSystemPrompt(p: PromptParts): SystemBlock[] {
   }
 
   if (p.skills.length && p.toolNames.includes('Skill')) {
-    blocks.push({
-      text: `# Skills\nSkills are packaged instructions. When a task matches a skill, load it with the Skill tool before starting.\n${p.skills
-        .map((s) => `- ${s.name}: ${s.description}`)
-        .join('\n')}`,
-    });
+    const context = [p.agent.name, p.agent.description, p.firstMessage ?? ''].join('\n');
+    blocks.push({ text: skillsSection({ skills: p.skills, budget: p.skillTokens, wanted: p.agent.skills, context }) });
   }
 
   if (p.conclave?.live) blocks.push({ text: p.conclave.live });

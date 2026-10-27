@@ -6,7 +6,7 @@
  * from earlier runs. It never talks to the owner's hub.
  */
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { trackGroup, watchdog } from './proc';
 import { killGroup, log, sleep, which } from './util';
@@ -149,6 +149,23 @@ export function benchAgentCopy(text: string, deny: string[], thinking?: string):
 }
 
 /**
+ * BENCH_SEED_HOME: a copy of a hub's skills, learned-skills and plugins
+ * folders, given to every arm the same way. Plugins stay in the seed copy;
+ * state.json is rewritten to point there, so nothing is read from a live hub.
+ */
+export function seedExtensions(seed: string, conclaveHome: string): void {
+  for (const dir of ['skills', 'learned-skills']) {
+    if (existsSync(join(seed, dir))) cpSync(join(seed, dir), join(conclaveHome, dir), { recursive: true });
+  }
+  const state = join(seed, 'plugins', 'state.json');
+  if (!existsSync(state)) return;
+  const parsed = JSON.parse(readFileSync(state, 'utf8')) as { plugins: Record<string, { dir: string }> };
+  for (const [name, p] of Object.entries(parsed.plugins)) p.dir = join(seed, 'plugins', name);
+  mkdirSync(join(conclaveHome, 'plugins'), { recursive: true });
+  writeFileSync(join(conclaveHome, 'plugins', 'state.json'), JSON.stringify(parsed, null, 2));
+}
+
+/**
  * Bench copies of the shipped agents: the coder (main loop) and every
  * subagent, each with the denied tools taken out of its tool list, and the
  * coder with the --match-effort thinking level. Returns the files written.
@@ -204,6 +221,7 @@ export class BenchHub {
     mkdirSync(this.conclaveHome, { recursive: true });
     writeFileSync(join(this.conclaveHome, 'config.json'), JSON.stringify(hubConfig(this.o, this.token), null, 2) + '\n', { mode: 0o600 });
     this.overrides = writeAgentOverrides(this.o.src, this.conclaveHome, this.o.thinking);
+    if (process.env.BENCH_SEED_HOME) seedExtensions(process.env.BENCH_SEED_HOME, this.conclaveHome);
     const fd = openSync(this.logFile, 'a');
     const setsid = await which('setsid');
     const argv = this.argv();
