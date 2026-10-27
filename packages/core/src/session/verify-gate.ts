@@ -29,6 +29,9 @@
  * - Main sessions are checked through the runner's onStop point. Subagents
  *   end through SubagentStop (engine/subagent.ts), so the gate is also a
  *   SubagentStop function hook there.
+ * - A learned skill loaded in a turn gets that turn's first check result
+ *   counted on it (extensions/learned.ts recordCheck). The counts are
+ *   outcomes, not the skill's effect.
  */
 import type { Engine } from '../engine/engine';
 import type { Hooks } from '../extensions/hooks';
@@ -40,6 +43,7 @@ import { wantsVerifyGate, agentHooksAllowed } from '../extensions/agent-hooks';
 import { checkPermission } from './permissions';
 import { BashTool } from '../tools/bash';
 import { logger } from '../util/log';
+import { LearnedSkills } from '../extensions/learned';
 
 const log = logger('verify-gate');
 
@@ -63,6 +67,8 @@ interface GateState {
   skippedNoticed: boolean;
   /** The "could not run" notice went out (once per session). */
   unrunNoticed?: boolean;
+  /** Learned skills loaded this turn, waiting for the next check's result. */
+  learned?: Set<string>;
 }
 
 export interface VerifyResult {
@@ -229,6 +235,12 @@ export class VerifyGate {
     s.noticed = false;
     // a failure from an earlier turn says nothing about this one
     s.last = undefined;
+    s.learned = undefined;
+  }
+
+  /** A learned skill was loaded in this session's turn. */
+  noteLearned(sessionId: string, name: string): void {
+    (this.state(sessionId).learned ??= new Set()).add(name);
   }
 
   /**
@@ -285,6 +297,12 @@ export class VerifyGate {
       return undefined;
     }
     s.last = { command, ok: res.ok };
+    if (s.learned?.size) {
+      // shortcut: counts the first check only, so the gate's retries do not count a pass the agent was sent back for
+      const store = new LearnedSkills(this.engine.config.paths.home, this.engine.repos.kv);
+      for (const name of s.learned) store.recordCheck(name, res.ok);
+      s.learned = undefined;
+    }
     if (res.ok) return undefined;
     s.failures++;
     if (s.failures >= VERIFY_GATE_MAX && !s.noticed) {
@@ -303,7 +321,13 @@ export class VerifyGate {
         if (ctx.iter === 0 && ctx.depth === 0) this.newTurn(ctx.sessionId);
       },
       afterTool: (ctx, _toolCtx, output) => {
-        if (!ctx.tool.editsFiles || output.isError) return;
+        if (output.isError) return;
+        const skill = output.meta?.skill;
+        if (ctx.tool.name === 'Skill' && typeof skill === 'string') {
+          if (this.enabled(ctx.session) && this.engine.extensions.skill(skill, ctx.session.cwd)?.learned) this.noteLearned(ctx.sessionId, skill);
+          return;
+        }
+        if (!ctx.tool.editsFiles) return;
         // the path the tool wrote: an old path from before a move is mapped to the current folder
         const path = [output.meta?.path, ctx.input.file_path, ctx.input.notebook_path].find((p): p is string => typeof p === 'string');
         this.noteEdit(ctx.sessionId, path);

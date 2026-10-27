@@ -74,6 +74,7 @@ import dev.conclave.app.ui.common.ModelMark
 import dev.conclave.app.ui.common.ModelName
 import dev.conclave.app.ui.common.rememberNow
 import dev.conclave.app.ui.conversation.ChatProse
+import dev.conclave.app.ui.conversation.FullImage
 import dev.conclave.app.ui.conversation.LocalSessionWork
 import dev.conclave.app.ui.conversation.SessionWork
 import dev.conclave.app.ui.conversation.TurnWork
@@ -531,12 +532,14 @@ fun InlineImage(block: ImageBlock) {
         }
     }
     val img = bitmap
+    var shown by remember { mutableStateOf(false) }
+    if (shown) FullImage(block, onDismiss = { shown = false })
     if (img != null) {
         Image(
             bitmap = img,
             contentDescription = "Image",
             contentScale = ContentScale.Fit,
-            modifier = Modifier.widthIn(max = 280.dp).heightIn(max = 280.dp).clip(RoundedCornerShape(12.dp)),
+            modifier = Modifier.widthIn(max = 280.dp).heightIn(max = 280.dp).clip(RoundedCornerShape(12.dp)).clickable(onClickLabel = "Open full screen") { shown = true },
         )
     } else {
         DocumentChip(DocumentBlock(mediaType = block.mediaType, url = block.url, title = "Image"))

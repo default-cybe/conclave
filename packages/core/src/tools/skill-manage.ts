@@ -1,6 +1,6 @@
 import type { Tool } from './types';
 import { fail } from './util';
-import type { LearnedSkill } from '../extensions/learned';
+import { checkLine, type LearnedSkill } from '../extensions/learned';
 
 export interface SkillManageInput {
   action: 'create' | 'patch' | 'list' | 'view' | 'disable';
@@ -34,7 +34,7 @@ Markdown only: no scripts, no !\`command\` lines, no @file includes, no frontmat
 function line(s: LearnedSkill): string {
   const used = s.lastUsedAt ? `last used ${new Date(s.lastUsedAt).toISOString().slice(0, 10)} (${s.uses ?? 1} times)` : 'never used';
   const scope = s.project ? `project ${s.project}` : 'global';
-  return `- ${s.name}${s.enabled ? '' : ' (off)'}: ${s.description} [${scope}; created ${s.created}, updated ${s.updated}; ${used}${s.sessionId ? `; from ${s.sessionId}` : ''}]`;
+  return `- ${s.name}${s.enabled ? '' : ' (off)'}: ${s.description} [${scope}; created ${s.created}, updated ${s.updated}; ${used}; ${checkLine(s.checks)}${s.sessionId ? `; from ${s.sessionId}` : ''}]`;
 }
 
 export const SkillManageTool: Tool<SkillManageInput> = {

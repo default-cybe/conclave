@@ -12,6 +12,14 @@ like `## [0.4.16] - 2026-10-24`.
 ### Added
 
 - Bench operators can compare one harness edit against a baseline with `bun bench/improve.ts`. The offline comparison uses existing hidden tests and gate metrics, stops candidate runs on regression, and leaves the merge decision to a person.
+- Learned skills now count how the verify gate's first check went in each turn that loaded them, and SkillManage list shows it ("check passed first time in 3 of 4 checked turns"). This is an outcome count, not a grade: no turn ran the same task without the skill, so the line says "effect not graded" and never helped, hurt or no effect. Only turns where the verify gate ran a check count, a retry after the gate sent the agent back does not, and memories are not tracked.
+- Coding agents now look at their UI work. A new `visual-check` gate, on for coder, builder and refactorer, sends one short reminder per user turn when a main-session turn edited UI files (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.scss`, `.html`, `.svg`, and Compose `.kt` under a `ui/` folder; test files left out) and no tool result in the turn carried an image: take screenshots at phone and desktop width, light and dark, and look at them with Read, or say why it cannot. It writes a `visual.check` audit row and a `visual.checked` event. Edits made through Bash and edits made by subagents are not seen. `browser_screenshot` takes `width` (320-2560), `height` (320-4000) and `color_scheme` (`light` or `dark`) for one shot and puts the tab's size and theme back after it; width and height need a headless browser. The coder prompt gained one line about taking and reading screenshots after a UI change.
+
+### Fixed
+
+- Android: a picture in a Code session (one you sent, a screenshot an agent read, or a tool's image) now opens full screen on a tap, with pinch to zoom, like on the Chat page. Before, only Chat page pictures opened; Code sessions draw messages with their own image view, which had no tap.
+- Kiro plans now show their monthly credit on Usage and in the composer's context ring: used and left, the limit and the reset. The hub reads it through the kiro4cpa plugin's quota provider in CLIProxyAPI, which asks Kiro's getUsageLimits with the account's own token. GitHub Copilot plans say "Usage not reported by GitHub Copilot", because its plugin has no quota read and CLIProxyAPI cannot put its GitHub token into a usage call. Plugin accounts are now named Kiro and GitHub Copilot instead of Kiro4cpa and Copilot.
+- Move back no longer marks a file as a conflict when the device only touched it: same size, a new mtime and the same bytes. The usual case was `.git/index`, which `git status` on the device rewrites unchanged when a second has passed. Such files are now hashed on the device and compared with the copy's manifest, as the hub side already did.
 
 ### Changed
 

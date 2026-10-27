@@ -174,6 +174,21 @@ describe('Move back', () => {
     expect(record(t, s.id)).toBeUndefined();
   });
 
+  test('a file only touched on the device (same bytes, new mtime) is no conflict', async () => {
+    const { t, d, svc } = await setup();
+    const root = join(d.pc.home, 'code', 'portfolio');
+    makeProject(root);
+    const s = await pcSession(t, svc, root);
+    await svc.move(s.id, { device: 'local', copy: true });
+    const target = record(t, s.id)!.hubPath;
+    writeFileSync(join(target, 'README.md'), 'hub readme\n');
+    // as git status does to .git/index when it rewrites it a second later
+    utimesSync(join(root, 'README.md'), 1_700_000_000, 1_700_000_000);
+    const pre = await svc.copies.backPreview(s.id);
+    expect(pre.files.find((f) => f.path === 'README.md')).toMatchObject({ change: 'changed', conflict: false });
+    expect(pre.conflicts).toBe(0);
+  });
+
   test('copy back all overwrites conflicts and deletes only when asked', async () => {
     const { t, d, svc } = await setup();
     const root = join(d.pc.home, 'code', 'portfolio');

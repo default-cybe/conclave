@@ -282,9 +282,9 @@ fun ChatImage(block: ImageBlock, maxHeight: Dp, modifier: Modifier = Modifier) {
     }
 }
 
-/** An image you attached, over everything and fitted to the screen: pinch to zoom, a tap, Back or Close shuts it. */
+/** An image in a message, over everything and fitted to the screen: pinch to zoom, a tap, Back or Close shuts it. */
 @Composable
-private fun FullImage(block: ImageBlock, onDismiss: () -> Unit) {
+internal fun FullImage(block: ImageBlock, onDismiss: () -> Unit) {
     val data = block.data
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black).clickable(onClickLabel = "Close", onClick = onDismiss), contentAlignment = Alignment.Center) {
