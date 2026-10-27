@@ -91,8 +91,8 @@ function list(items: string[], max: number): string {
   return items.length > max ? `${items.slice(0, max).join(', ')} and ${items.length - max} more` : items.join(', ');
 }
 
-/** The static part. Its only inputs are the hub line, whether ConclaveHelp is here and whether a member asks. */
-export function cardText(f: Pick<PlatformFacts, 'hub' | 'tools' | 'member'>): string {
+/** The static part. Its only inputs are the hub line, the surface, whether ConclaveHelp is here and whether a member asks. */
+export function cardText(f: Pick<PlatformFacts, 'hub' | 'tools' | 'member'> & { surface?: Surface }): string {
   const where = f.hub.where ? `, on ${f.hub.where}` : '';
   const help = f.tools.includes('ConclaveHelp')
     ? 'For how Conclave works or how to set something up, call ConclaveHelp first; do not guess.'
@@ -103,17 +103,15 @@ export function cardText(f: Pick<PlatformFacts, 'hub' | 'tools' | 'member'>): st
         '- Settings > Models: Providers, Subscriptions (Claude, ChatGPT, Google plans), Accounts (order, budgets, the Window starter), Refusal fallback, Defaults.',
         '- Settings > Browser (profiles, saved logins, CloakBrowser, a proxy retried once when a site blocks the hub, in the hub\'s country), GitHub (repo sessions that end in a pull request), Remote access, Notifications, Permissions, People.',
       ].join('\n');
+  // a Code session works in a repo: the app's pages and settings cost every request and ConclaveHelp has them
+  const app = f.surface === 'code' ? [] : ['Where things are in the app:', '- Memory (facts, past chats, Import of Claude Code, Codex, claude.ai and ChatGPT chats), Routines (schedules and watches), Workflows, Inbox (approvals, questions, alerts), Usage (spend and limits), Devices (computers running the desktop app or the daemon), Extensions (MCP servers, skills, plugins, hooks), Agents, Friends.', '- The model picker in the composer switches models and shows the price first.', settings, ''];
   return [
     '# Conclave',
     `You run in Conclave, the owner's self-hosted agent hub: their chats, agents, memory, devices and schedules in one app. This hub: ${f.hub.name}, Conclave ${f.hub.version}${where}.`,
     '',
     'Modes: Chat is a plain conversation with the web and memory. Assistant runs on the hub for the owner\'s day, goals, mail, calendar, browser and watches. Code works in a folder on a device. Delegate sends a job to Code or the Assistant on a named device and returns the answer here. Task runs a subagent (explore, reviewer, researcher and more). Workflow runs a script that fans work out to many agents and checks the results.',
     '',
-    'Where things are in the app:',
-    '- Memory (facts, past chats, Import of Claude Code, Codex, claude.ai and ChatGPT chats), Routines (schedules and watches), Workflows, Inbox (approvals, questions, alerts), Usage (spend and limits), Devices (computers running the desktop app or the daemon), Extensions (MCP servers, skills, plugins, hooks), Agents, Friends.',
-    '- The model picker in the composer switches models and shows the price first.',
-    settings,
-    '',
+    ...app,
     'You cannot change settings, keys, sign-ins or device pairing, or install software on the hub: the owner does that in the app, so name the page.',
     '',
     `When the owner asks "can you do X", answer from this card and your tools. If a feature can do it, use it (Delegate, Task, Workflow, the browser, a routine) instead of telling them to do it by hand, within permissions. ${help}`,
@@ -150,7 +148,8 @@ export function liveText(f: PlatformFacts): string {
   lines.push(`- Devices online: ${online.length ? list(online, 8) : 'none'}.${offline.length ? ` Offline: ${list(offline, 6)}.` : ''}`);
   if (f.browser === 'ready') lines.push(`- Browser: ready on the hub${f.browserEngine ? ` (${f.browserEngine})` : ''}.`);
   else if (f.browser === 'missing') lines.push('- Browser: no browser is installed on the hub yet; the owner adds one in Settings > Browser.');
-  if (!f.member) {
+  // the accounts and engines matter to a chat about Conclave, not to a Code session
+  if (!f.member && f.surface !== 'code') {
     const models = [f.defaultModel ? `default ${f.defaultModel}` : '', f.accounts.length ? `accounts ${list(f.accounts, 6)}` : 'no accounts set up yet', f.engines.length ? `engines ${f.engines.join(', ')}` : ''].filter(Boolean);
     lines.push(`- Models: ${models.join('; ')}.`);
   }

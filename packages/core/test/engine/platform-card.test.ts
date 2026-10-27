@@ -112,6 +112,32 @@ describe('the platform card in requests', () => {
     expect(last).not.toContain('Browser: ready');
   }, 60_000);
 
+  test('a Code session carries no calendar, mail or maps tools and a short prompt; chat and the assistant keep them', async () => {
+    t = await startTestEngine({ script: [[{ text: 'a' }], [{ text: 'b' }], [{ text: 'c' }]] });
+    const toolsOf = (i: number) => ((JSON.parse(t!.requests[i]) as RequestBody).tools ?? []).map((x) => x.name);
+    const LIFE = ['CalendarList', 'CalendarFreeBusy', 'CalendarEvent', 'MailDraft', 'Directions', 'PlaceSearch', 'PlaceDetails', 'MapImage'];
+    const code = await t.engine.createSession({ title: 't', cwd: t.cwd, agent: 'coder' });
+    await t.run(code.id, 'fix the bug');
+    const coderTools = toolsOf(0);
+    const sys = systemOf(t.requests[0]);
+    console.log(`coder system prompt: ${sys.length} chars, ${coderTools.length} tools`);
+    for (const n of LIFE) expect(coderTools).not.toContain(n);
+    for (const n of ['Delegate', 'ShareFile', 'ConclaveHelp']) expect(coderTools).toContain(n);
+    expect(sys).toContain('# Files you deliver');
+    expect(sys).toContain('Delegate');
+    expect(sys).not.toContain('Settings > Models');
+    // 14,476 chars before the cut (v0.4.41), about 13.5k after
+    expect(sys.length).toBeLessThan(13_900);
+
+    const assistant = await t.engine.createSession({ title: 't', cwd: t.cwd, agent: 'assistant' });
+    await t.run(assistant.id, 'my day');
+    expect(toolsOf(1)).toEqual(expect.arrayContaining(LIFE));
+    expect(systemOf(t.requests[1])).toContain('Settings > Models');
+    const chat = await t.engine.createSession({ kind: 'chat' });
+    await t.run(chat.id, 'cafes near me');
+    expect(toolsOf(2)).toEqual(expect.arrayContaining(['Directions', 'PlaceSearch', 'PlaceDetails', 'MapImage']));
+  }, 30_000);
+
   test('a chat hears where Delegate sends what it lacks', async () => {
     t = await startTestEngine({ script: [[{ text: 'Hi.' }]] });
     const chat = await t.engine.createSession({ kind: 'chat' });
