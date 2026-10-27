@@ -40,6 +40,7 @@ import { WatchReportTool, WatchCreateTool } from './watch';
 import { DelegateTool } from './delegate';
 import { ConclaveHelpTool } from './conclave-help';
 import { ShareFileTool } from './share-file';
+import { RenderFileTool } from './render-file';
 
 export * from './types';
 export { shellRegistry, ShellRegistry, type ShellInfo } from './shells';
@@ -102,6 +103,7 @@ export {
   DelegateTool,
   ConclaveHelpTool,
   ShareFileTool,
+  RenderFileTool,
 };
 
 /** Order matters for prompt caching: keep it stable. */
@@ -171,6 +173,8 @@ const BUILTINS: Tool[] = [
   ConclaveHelpTool,
   // a file for the owner as a file card (files/share.ts), appended so the cached order stays
   ShareFileTool,
+  // HTML, SVG or Markdown in the outputs folder to PDF or PNG (tools/render-file.ts), opt-in; appended so the cached order stays
+  RenderFileTool,
 ] as Tool[];
 
 const BY_NAME = new Map(BUILTINS.map((t) => [t.name, t]));
@@ -192,7 +196,7 @@ export function toolByName(name: string): Tool | undefined {
  * rule with content ("Bash(zpool status -x)") brings one back, and then only
  * the calls that rule covers run without asking.
  */
-export const UNTRUSTED_DENY = ['Bash', 'BashOutput', 'KillShell', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'MemorySave', 'MemoryForget', 'ScheduleRoutine', 'GoalList', 'GoalGet', 'GoalCreate', 'GoalUpdate', 'GoalLog', 'DayPlan', 'ProactivePrefs', 'Workflow', 'WorkflowStatus', 'SessionSearch', 'SessionRead', 'SkillManage', 'PlaceSearch', 'PlaceDetails', 'Directions', 'MapImage', 'CalendarList', 'CalendarFreeBusy', 'CalendarEvent', 'MailDraft', 'WatchCreate', 'Delegate', 'ShareFile'];
+export const UNTRUSTED_DENY = ['Bash', 'BashOutput', 'KillShell', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'MemorySave', 'MemoryForget', 'ScheduleRoutine', 'GoalList', 'GoalGet', 'GoalCreate', 'GoalUpdate', 'GoalLog', 'DayPlan', 'ProactivePrefs', 'Workflow', 'WorkflowStatus', 'SessionSearch', 'SessionRead', 'SkillManage', 'PlaceSearch', 'PlaceDetails', 'Directions', 'MapImage', 'CalendarList', 'CalendarFreeBusy', 'CalendarEvent', 'MailDraft', 'WatchCreate', 'Delegate', 'ShareFile', 'RenderFile'];
 
 /** Tools an untrusted session keeps without naming them: they touch nothing outside the session. */
 export const UNTRUSTED_SAFE = ['TodoWrite', 'AskUserQuestion', 'ReadToolOutput', 'EnterPlanMode', 'ExitPlanMode', 'StructuredOutput'];

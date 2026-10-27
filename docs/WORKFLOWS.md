@@ -52,6 +52,7 @@ phase with its agents, tokens, errors so far and the last log lines.
 | ui-pass | A visual change in the web app, checked by a verifier that sees only the screenshots, the brief and the spec. | `brief`, `spec`, `checks` |
 | migrate | The same change across many files or packages, in growing batches with a circuit breaker. | `goal`, `check`, `units` |
 | compare-harnesses | One task run by several harnesses or models, then scored. | `task`, `check`, `hiddenTests`, `arms` |
+| race | One task raced by several agents in separate worktrees. The check runs in each, a blind judge panel picks the best passing change with its reasons, and the run view shows it with Keep winner: apply its branch to the session's checkout or open a pull request from it. Nothing merges on its own, and the other branches are deleted only after you keep one. | `task`, `check`, `n`, `arms` |
 
 The Run sheet shows each workflow's `whenToUse` line, which lists the
 arguments in full.
@@ -60,7 +61,7 @@ arguments in full.
 
 Conclave reads these places, and a later one wins a name:
 
-1. the twelve built in workflows;
+1. the thirteen built in workflows;
 2. enabled plugins, from their `workflows/` folder (ids look like `plugin:name`);
 3. your own, in `~/.conclave/workflows/*.js` on the hub;
 4. the project's, in `<project>/.conclave/workflows/*.js`, read on the session's device;

@@ -130,6 +130,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/sessions/:id/repo/push': SESSION,
   'GET /api/sessions/:id/repo/pr-draft': SESSION,
   'POST /api/sessions/:id/repo/pr': SESSION,
+  'POST /api/sessions/:id/repo/fix-checks': SESSION,
   'POST /api/sessions/:id/repo/cleanup': SESSION,
   'POST /api/sessions/:id/repo/merge': SESSION,
   'GET /api/search': 'self',
@@ -192,6 +193,10 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/mcp/:name/call': 'admin',
   'GET /api/mcp/:name/connect': 'admin',
   'POST /api/mcp/:name/connect': 'admin',
+  'POST /api/mcp/:name/oauth/start': 'admin',
+  'DELETE /api/mcp/:name/oauth': 'admin',
+  // a browser lands here straight from the app's sign-in page: its state names a sign-in the owner started in the last 15 minutes
+  'GET /api/mcp/oauth/callback': 'public',
   'GET /api/plugins': 'admin',
   'POST /api/plugins': 'admin',
   'GET /api/plugins/:name': 'admin',
@@ -359,6 +364,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/workflows/runs/:id/rerun': own({ id: 'workflowRun' }),
   'POST /api/workflows/runs/:id/calls/:seq/skip': own({ id: 'workflowRun' }),
   'POST /api/workflows/runs/:id/calls/:seq/worktree': own({ id: 'workflowRun' }),
+  'POST /api/workflows/runs/:id/keep': own({ id: 'workflowRun' }),
   'POST /api/workflows/runs/:id/findings/:findingId': own({ id: 'workflowRun' }),
 
   // ----- gateway keys serve the owner's CLIs -----

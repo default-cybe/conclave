@@ -84,6 +84,11 @@ export function sameRepo(a?: string, b?: string): boolean {
   return !!a && !!b && a.toLowerCase() === b.toLowerCase();
 }
 
+/** Fix failing checks: an open pull request whose checks failed, while the worktree is there and GitHub is connected. */
+export function canFixChecks(r: Pick<RepoSessionDto, 'cleaned' | 'online' | 'pr' | 'ci' | 'pullRequests'>): boolean {
+  return !r.cleaned && r.online && r.pullRequests !== false && r.pr?.state === 'open' && r.ci === 'failure';
+}
+
 /** A folder worktree ("Run in a worktree"): Merge into its base while there are commits, Discard until it is cleaned up. */
 export function worktreeActions(r: Pick<RepoSessionDto, 'folder' | 'cleaned' | 'online' | 'canMerge' | 'merged'>): { merge: boolean; discard: boolean } {
   const live = !!r.folder && !r.cleaned && r.online;

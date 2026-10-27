@@ -5,7 +5,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { ContentBlock, Message } from '@conclave/core/types';
-import { backgroundShells, contextPercent, outputsWord, panelCards, sessionOutputs } from '../src/features/chat/panel';
+import { backgroundShells, callCostWord, contextPercent, costWord, outputsWord, panelCards, sessionOutputs, stateWord, statusParts } from '../src/features/chat/panel';
 
 let seq = 0;
 function msg(role: 'user' | 'assistant', content: ContentBlock[], at = 1000 + seq * 10): Message {
@@ -95,5 +95,45 @@ describe('Context', () => {
     expect(contextPercent(9_800, 1_000_000)).toBe(1);
     expect(contextPercent(50_000, 200_000)).toBe(25);
     expect(contextPercent(300_000, 200_000)).toBe(100);
+  });
+});
+
+describe('status line', () => {
+  const priced = { inputPrice: 3, outputPrice: 15 };
+  test('cost: the bill, plan when a plan served it or nothing is priced per token, local on this machine', () => {
+    expect(costWord({ costUsd: 1.5 }, 'anthropic/claude-opus-5-5', priced)).toBe('$1.50');
+    expect(costWord({ costUsd: 0, apiValueUsd: 4 }, 'anthropic/claude-opus-5-5', priced)).toBe('plan');
+    expect(costWord({ costUsd: 0 }, 'anthropic/claude-opus-5-5', priced)).toBe('$0');
+    expect(costWord({ costUsd: 0 }, 'anthropic/claude-opus-5-5', { inputPrice: 0, outputPrice: 0 })).toBe('plan');
+    expect(costWord({ costUsd: 0 }, 'anthropic/claude-opus-5-5', undefined)).toBe('plan');
+    expect(costWord({ costUsd: 0 }, 'ollama/qwen3', priced)).toBe('local');
+  });
+
+  test('call cost: the bill, plan for tokens a plan paid, never $0, nothing before any use', () => {
+    expect(callCostWord(0.42, 1000, 'anthropic/claude-opus-5-5')).toBe('$0.42');
+    // a priced model through the plan gateway bills 0 and carries no API value: plan, not $0
+    expect(callCostWord(0, 1000, 'anthropic/claude-opus-5-5')).toBe('plan');
+    expect(callCostWord(0, 1000, undefined)).toBe('plan');
+    expect(callCostWord(0, 1000, 'ollama/qwen3')).toBe('local');
+    expect(callCostWord(0, 0, 'anthropic/claude-opus-5-5')).toBe('');
+  });
+
+  test('state: running, waiting on you, idle and the rest, in the session list words', () => {
+    expect(stateWord('running')).toEqual({ word: 'running', tone: 'live' });
+    expect(stateWord('waiting_approval').word).toBe('waiting on you');
+    expect(stateWord('waiting_input').word).toBe('waiting on you');
+    expect(stateWord('waiting_reset').word).toBe('waiting for reset');
+    expect(stateWord('waiting_reset', Date.UTC(2026, 9, 27, 15, 5)).word).toMatch(/^resumes \d{1,2}:\d{2}/);
+    expect(stateWord('error').tone).toBe('fault');
+    expect(stateWord('idle').word).toBe('idle');
+    expect(stateWord(undefined).word).toBe('idle');
+  });
+
+  test('parts: model, plan, context, tokens and cost; unknown parts left out', () => {
+    const parts = statusParts({ model: 'anthropic/claude-opus-5-5', plan: 'neu-claude, Max 20x', contextPct: 12, tokens: 48_000, cost: 'plan' });
+    expect(parts).toHaveLength(5);
+    expect(parts.slice(1)).toEqual(['on neu-claude, Max 20x', '12% context', '48K tokens', 'plan']);
+    // a fresh session: just the model, no "0 tokens" or "$0"
+    expect(statusParts({ model: 'anthropic/claude-opus-5-5', tokens: 0, cost: '$0' })).toHaveLength(1);
   });
 });

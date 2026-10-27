@@ -105,13 +105,14 @@ const TOOL_NOTES: Array<[string, string]> = [
 ];
 
 /** The tools the tool-use section and the file-delivery note depend on: a change in which of them a session has changes the prompt. */
-export const TOOL_NOTE_TOOLS = [...new Set([...TOOL_NOTES.map(([tool]) => tool).filter(Boolean), 'ShareFile', 'Write'])];
+export const TOOL_NOTE_TOOLS = [...new Set([...TOOL_NOTES.map(([tool]) => tool).filter(Boolean), 'ShareFile', 'Write', 'RenderFile'])];
 
 /**
  * How whole files reach the owner: saved, then shared with ShareFile as a
  * card, never pasted as one huge code block. Written for the tools the
- * session has: an agent that can write saves the file itself, a chat hands
- * the writing to Delegate, and an agent that can neither says so instead of
+ * session has: an agent that can write saves the file itself (a chat in its
+ * outputs folder, with RenderFile for PDF and PNG), one with only Delegate
+ * hands the writing on, and an agent that can neither says so instead of
  * claiming a file. Undefined for an agent that writes files but has no
  * ShareFile (a project agent, an untrusted one): its files stay where it works.
  */
@@ -124,7 +125,8 @@ export function fileDeliveryNote(toolNames: string[]): string | undefined {
     return '# Files you deliver\nYou cannot save or share files in this session. When the owner asks for a file, give the content in your reply and say in one line that you could not save it as a file. Never say a file was saved, attached or shared.';
   }
   const bash = toolNames.includes('Bash');
-  const saveWith = !bash ? 'Write' : toolNames.includes('Write') ? 'Write, or Bash for binary files such as PNG' : 'Bash';
+  const render = toolNames.includes('RenderFile');
+  const saveWith = (!bash ? 'Write' : toolNames.includes('Write') ? 'Write, or Bash for binary files such as PNG' : 'Bash') + (render ? ' (RenderFile turns HTML, SVG or Markdown into a PDF or PNG)' : '');
   const how = write
     ? `Save it with ${saveWith}, then call ShareFile with its path.`
     : delegate
@@ -135,7 +137,7 @@ export function fileDeliveryNote(toolNames: string[]): string | undefined {
         `- When the owner asks for a whole file to take away (a complete program, a full source or config file, a document), give it as a file with a fitting name and extension, such as backup.sh, nginx.conf or report.md. ${how} This is not for changes to a project you are working in; edit those files in place.`,
         '- Then answer in a few lines: what the file is and how to run or use it. Do not paste the whole file into the reply as well.',
         '- Keep short commands, diffs, small snippets and teaching examples inline as code blocks.',
-        `- A chart or graph is a file too: make it as a PNG or SVG image${write && !bash ? ' (SVG, since Write saves text)' : ''} and share it. Use only tools the device already has. Share its source or data as well only when the owner asks for them.`,
+        `- A chart or graph is a file too: make it as a PNG or SVG image${write && !bash ? (render ? ' (SVG, or PNG through RenderFile)' : ' (SVG, since Write saves text)') : ''} and share it. Use only tools the device already has. Share its source or data as well only when the owner asks for them.`,
         '- A file reaches the owner only as a ShareFile card. Until ShareFile returns one, do not say a file is saved, attached or ready to download; if saving or sharing fails or is denied, say so.',
       ]
     : ['- You cannot create files in this session; ShareFile only shares a file that already exists in a folder it allows. When the owner asks for a new file, give the content in your reply and say in one line that you could not save it as a file. Never say a file was saved or attached without a ShareFile card.'];

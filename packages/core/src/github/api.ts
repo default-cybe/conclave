@@ -44,6 +44,18 @@ export interface ChecksInfo {
   url?: string;
 }
 
+/** A failed check run or commit status, for "Fix failing checks". */
+export interface FailedCheck {
+  name: string;
+  url?: string;
+  /** The GitHub Actions job id (the check run id), only for checks the Actions app ran. */
+  id?: number;
+}
+
+const FAILED = ['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale'];
+/** Bytes kept from the end of a job log; real logs can be tens of MB. */
+export const LOG_MAX_BYTES = 256 * 1024;
+
 type Json = Record<string, any>;
 
 export interface IssueInfo extends GithubIssueDto {
@@ -262,7 +274,7 @@ export class GithubApi {
     for (const r of (runs?.check_runs as Json[] | undefined) ?? []) {
       any = true;
       if (r.status !== 'completed') running ??= r.html_url ?? r.details_url ?? '';
-      else if (['failure', 'timed_out', 'cancelled', 'action_required', 'startup_failure', 'stale'].includes(r.conclusion)) failing ??= r.html_url ?? r.details_url ?? '';
+      else if (FAILED.includes(r.conclusion)) failing ??= r.html_url ?? r.details_url ?? '';
     }
     for (const s of (status?.statuses as Json[] | undefined) ?? []) {
       any = true;
@@ -272,5 +284,52 @@ export class GithubApi {
     if (failing !== undefined) return { state: 'failure', ...(failing ? { url: failing } : {}) };
     if (running !== undefined) return { state: 'pending', ...(running ? { url: running } : {}) };
     return { state: any ? 'success' : 'none' };
+  }
+
+  /** The failed check runs and commit statuses of a commit, by name. */
+  async failedChecks(owner: string, name: string, sha: string): Promise<FailedCheck[]> {
+    const quiet = (err: unknown) => {
+      if (err instanceof GithubError && (err.status === 403 || err.status === 404)) return undefined;
+      throw err;
+    };
+    const runs = await this.call<Json>('GET', `/repos/${owner}/${name}/commits/${sha}/check-runs?per_page=100`).catch(quiet);
+    const status = await this.call<Json>('GET', `/repos/${owner}/${name}/commits/${sha}/status`).catch(quiet);
+    const out: FailedCheck[] = [];
+    for (const r of (runs?.check_runs as Json[] | undefined) ?? []) {
+      if (r.status !== 'completed' || !FAILED.includes(r.conclusion)) continue;
+      const url = r.html_url ?? r.details_url;
+      const actions = r.app?.slug === 'github-actions' && Number.isInteger(r.id);
+      out.push({ name: String(r.name ?? 'check'), ...(url ? { url: String(url) } : {}), ...(actions ? { id: r.id } : {}) });
+    }
+    for (const s of (status?.statuses as Json[] | undefined) ?? []) {
+      if (s.state === 'failure' || s.state === 'error') out.push({ name: String(s.context ?? 'status'), ...(s.target_url ? { url: String(s.target_url) } : {}) });
+    }
+    return out;
+  }
+
+  /**
+   * The log of a GitHub Actions job as text, or undefined when the check is
+   * not an Actions job or the token cannot read it. GitHub answers with a
+   * redirect to short-lived storage; that request goes without the token.
+   */
+  async jobLog(owner: string, name: string, jobId: number): Promise<string | undefined> {
+    const headers = { accept: 'application/vnd.github+json', authorization: `Bearer ${this.token}`, 'x-github-api-version': '2022-11-28', 'user-agent': 'conclave-hub' };
+    try {
+      let res = await this.doFetch(`${this.base}/repos/${owner}/${name}/actions/jobs/${jobId}/logs`, { headers, redirect: 'manual', signal: AbortSignal.timeout(20_000) });
+      const to = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+      if (to) res = await this.doFetch(to, { signal: AbortSignal.timeout(30_000) });
+      if (!res.ok || !res.body) return undefined;
+      // keep only the last LOG_MAX_BYTES while streaming, so a huge log never sits in memory whole
+      let kept = new Uint8Array(0);
+      for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+        const next = new Uint8Array(kept.length + chunk.length);
+        next.set(kept);
+        next.set(chunk, kept.length);
+        kept = next.length > LOG_MAX_BYTES * 2 ? next.slice(-LOG_MAX_BYTES) : next;
+      }
+      return new TextDecoder().decode(kept.length > LOG_MAX_BYTES ? kept.slice(-LOG_MAX_BYTES) : kept);
+    } catch {
+      return undefined;
+    }
   }
 }
