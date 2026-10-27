@@ -144,6 +144,21 @@ export interface BrowserLoginInput {
   subdomains?: boolean;
 }
 
+/**
+ * POST /api/browser/profiles/:name/cookies: what Import cookies added. Counts
+ * only; no cookie name or value comes back.
+ */
+export interface BrowserCookieImportResult {
+  format: 'json' | 'storage-state' | 'netscape';
+  added: number;
+  /** Already expired in the file. */
+  expired: number;
+  /** Missing or broken fields, or the browser refused them. */
+  invalid: number;
+  /** Cookies added per site, most first. */
+  sites: Array<{ domain: string; cookies: number }>;
+}
+
 /** A watch or routine that uses a profile, for the confirm before Delete profile. */
 export interface BrowserProfileUserDto {
   id: string;

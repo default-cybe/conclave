@@ -1,5 +1,6 @@
 export * from './manager';
 export * from './logins';
+export * from './cookies';
 export { LoginRefused } from './autofill';
 export * from './engine';
 export * from './tools';
