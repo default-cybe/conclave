@@ -34,6 +34,7 @@ import { modelName } from '@/lib/models';
 import { waitsIn } from '@/lib/asks';
 import { lowerFirst, subagentNow, workSummary, workingWords, type WorkStep } from '@/lib/toolLine';
 import { CodeBlock, Diff } from '@/components/ui/Code';
+import { commentTo } from './CommentTray';
 import { Markdown } from './Markdown';
 import { hostOf, resultText } from './util';
 import { WorkflowRow } from '../workflows/WorkflowCard';
@@ -612,7 +613,7 @@ export function ToolRow({ item, sessionId, depth = 0 }: { item: ToolItem; sessio
               {files.map((f, i) => (
                 <div key={`${f.path}${i}`}>
                   {files.length > 1 && <div className="mono mb-1 tx-12 text-fg-3">{f.path}</div>}
-                  <Diff file={f} header={false} maxLines={20} />
+                  <Diff file={f} header={false} maxLines={20} onComment={commentTo(sessionId)} />
                 </div>
               ))}
             </div>

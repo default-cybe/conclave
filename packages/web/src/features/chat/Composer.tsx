@@ -26,6 +26,7 @@ import type { Attachment } from '@conclave/core/client';
 import { api } from '@/lib/api';
 import { askBtw, attempt, sendQueued, toast, upsertSession, useHub } from '@/store/store';
 import { BtwCards } from './Pending';
+import { CommentTray } from './CommentTray';
 import { openNewChat, openPalette } from '@/store/ui';
 import { cn, fuzzyFilter } from '@/lib/text';
 import { bytes, hhmm } from '@/lib/format';
@@ -487,6 +488,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
       >
         {menuBox}
         <BtwCards sessionId={session.id} />
+        <CommentTray session={session} />
         <PhoneBox
           rim={rim}
           attachments={<AttachmentStrip phone files={files} onRemove={(i) => setFiles((x) => x.filter((_, k) => k !== i))} />}
@@ -582,6 +584,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
       {menuBox}
       {sheets}
       <BtwCards sessionId={session.id} />
+      <CommentTray session={session} />
 
       <div className={cn('relative rounded-[var(--r-2)] border bg-sunk transition-[border-color] duration-[var(--dur-1)] has-[textarea:focus]:border-edge', drag ? 'border-signal' : 'border-rule-2')}>
         <Rim state={rim} />
