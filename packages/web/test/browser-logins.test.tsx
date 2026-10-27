@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { BrowserProfileDto, BrowserStatusDto } from '@conclave/core/client';
 import { registerBrowser } from '../src/mock/browser';
-import { deleteProfileWords, forgetWords, LOGINS_HELP, profileLine, siteRows, siteRowWords } from '../src/features/settings/browserLoginWords';
+import { deleteProfileWords, forgetWords, IMPORT_COOKIES_WARNING, importWords, LOGINS_HELP, profileLine, siteRows, siteRowWords } from '../src/features/settings/browserLoginWords';
 import { SitesAndLogins } from '../src/features/settings/sitesLogins';
 
 const HOUR = 3_600_000;
@@ -77,6 +77,15 @@ describe('rows and words', () => {
     expect(profileLine({ label: 'Chromium', open: false, isDefault: true })).toBe('Chromium profile, used when a chat picks none');
   });
 
+  test('Import cookies says what it added per site, and that the file should be deleted', () => {
+    expect(importWords({ added: 12, expired: 1, invalid: 0, sites: [{ domain: 'facebook.com', cookies: 9 }, { domain: 'github.com', cookies: 3 }] }, 'default')).toBe(
+      'Added 12 cookies to default for 2 sites: facebook.com (9), github.com (3). Left out 1 expired.',
+    );
+    const many = Array.from({ length: 7 }, (_, i) => ({ domain: `s${i}.com`, cookies: 1 }));
+    expect(importWords({ added: 7, expired: 0, invalid: 2, sites: many }, 'shop')).toBe('Added 7 cookies to shop for 7 sites: s0.com (1), s1.com (1), s2.com (1), s3.com (1), s4.com (1), and 2 more. Left out 2 unusable.');
+    expect(IMPORT_COOKIES_WARNING).toContain('Delete it after the import');
+  });
+
   test('the page says plainly that saved logins are kept on the hub, encrypted', () => {
     expect(LOGINS_HELP).toContain('Saved logins are kept on the hub, encrypted');
     expect(LOGINS_HELP).toContain('the assistant never sees it');
@@ -113,6 +122,23 @@ describe('the mock', () => {
     expect(profile(gone, 'marketplace').logins!.some((x) => x.id === l.id)).toBe(false);
   });
 
+  test('Import cookies: counts per site, never a value; the sites show as signed in; a bad file is refused', async () => {
+    const api = mock();
+    const later = Math.floor(Date.now() / 1000) + 86_400;
+    const file = JSON.stringify([
+      { name: 'c_user', value: 'mock-cookie-secret', domain: '.facebook.com', expirationDate: later, secure: true, sameSite: 'no_restriction' },
+      { name: 'sid', value: 'v', domain: 'ebay.com', hostOnly: true, session: true },
+      { name: 'old', value: 'v', domain: 'ebay.com', expirationDate: 1000 },
+    ]);
+    const r = await api<{ added: number; expired: number; sites: unknown[] }>('POST', '/api/browser/profiles/marketplace/cookies', { file });
+    expect(JSON.stringify(r)).not.toContain('mock-cookie-secret');
+    expect(r).toMatchObject({ format: 'json', added: 2, expired: 1, sites: [{ domain: 'ebay.com', cookies: 1 }, { domain: 'facebook.com', cookies: 1 }] });
+    const hosts = profile(await api<BrowserStatusDto>('GET', '/api/browser'), 'marketplace').sites.map((x) => x.host);
+    expect(hosts.sort()).toEqual(['ebay.com', 'facebook.com']);
+    await expect(api('POST', '/api/browser/profiles/marketplace/cookies', { file: 'not cookies' })).rejects.toThrow('not a cookie export');
+    await expect(api('POST', '/api/browser/profiles/nothere/cookies', { file })).rejects.toThrow('no browser profile');
+  });
+
   test('Forget takes the site off; Delete profile refuses the default and removes the rest', async () => {
     const api = mock();
     const f = await api<BrowserStatusDto>('POST', '/api/browser/profiles/default/forget', { host: 'gumtree.com.au' });
@@ -137,5 +163,6 @@ describe('the section', () => {
     expect(html.match(/>Forget</g)?.length).toBe(3);
     expect(html).toContain('Save login');
     expect(html.match(/Delete profile/g)?.length).toBe(1);
+    expect(html.match(/Import cookies/g)?.length).toBe(2);
   });
 });

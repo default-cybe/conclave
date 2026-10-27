@@ -6,6 +6,8 @@
  * by itself with browser_login. The hub keeps them encrypted and this page
  * never gets them back: it only shows that they are saved. Delete profile
  * removes a profile with its folder and logins; the default one stays.
+ * Import cookies takes a cookie export from the owner's own browser and
+ * adds it to the profile; the answer is counts per site, never a cookie.
  */
 import { useState } from 'react';
 import { ApiError, type BrowserLoginDto, type BrowserLoginInput, type BrowserStatusDto } from '@conclave/core/client';
@@ -17,7 +19,21 @@ import { Button } from '@/components/ui/Button';
 import { ConfirmDialog, Dialog } from '@/components/ui/Overlay';
 import { Checkbox, Field, Input, Select } from '@/components/ui/Field';
 import { errText, Group, SettingRow } from './parts';
-import { deleteProfileWords, forgetWords, LOGIN_FORM_HELP, LOGINS_HELP, profileLine, siteRows, siteRowWords, SUBDOMAINS_HELP, TOTP_HELP, type SiteRow } from './browserLoginWords';
+import {
+  deleteProfileWords,
+  forgetWords,
+  IMPORT_COOKIES_HELP,
+  IMPORT_COOKIES_WARNING,
+  importWords,
+  LOGIN_FORM_HELP,
+  LOGINS_HELP,
+  profileLine,
+  siteRows,
+  siteRowWords,
+  SUBDOMAINS_HELP,
+  TOTP_HELP,
+  type SiteRow,
+} from './browserLoginWords';
 
 type Status = BrowserStatusDto;
 type Profile = Status['profiles'][number];
@@ -36,6 +52,7 @@ export function SitesAndLogins({ s, onStatus }: { s: Status; onStatus: (s: Statu
   const [forgetting, setForgetting] = useState<{ profile: string; row: SiteRow }>();
   const [dropping, setDropping] = useState<BrowserLoginDto>();
   const [deleting, setDeleting] = useState<Profile>();
+  const [importing, setImporting] = useState<string>();
   /** Delete was refused because a session has the profile open: ask once more, to close it first. */
   const [closing, setClosing] = useState<{ p: Profile; why: string }>();
   const btn = phone ? 'touch' : 'sm';
@@ -81,6 +98,9 @@ export function SitesAndLogins({ s, onStatus }: { s: Status; onStatus: (s: Statu
                 <h3 className="m-0 text-[13.5px] leading-[1.35] font-semibold text-fg phone:text-[15px]">{p.name}</h3>
                 <p className="m-0 mt-0.5 text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">{profileLine(p)}</p>
               </div>
+              <Button variant="outline" size={btn} onClick={() => setImporting(p.name)}>
+                Import cookies
+              </Button>
               {!p.isDefault && (
                 <Button variant="danger" size={btn} onClick={() => setDeleting(p)}>
                   Delete profile
@@ -142,6 +162,16 @@ export function SitesAndLogins({ s, onStatus }: { s: Status; onStatus: (s: Statu
           }}
         />
       )}
+      {importing && (
+        <ImportCookiesDialog
+          profile={importing}
+          onClose={() => setImporting(undefined)}
+          onDone={(next) => {
+            onStatus(next);
+            setImporting(undefined);
+          }}
+        />
+      )}
       <ConfirmDialog
         open={!!forgetting}
         onClose={() => setForgetting(undefined)}
@@ -179,6 +209,62 @@ export function SitesAndLogins({ s, onStatus }: { s: Status; onStatus: (s: Statu
         onConfirm={() => (closing ? deleteProfile(closing.p, true) : undefined)}
       />
     </Group>
+  );
+}
+
+/** Import cookies: pick an export, the hub adds it to the profile and says how many per site. The file is read here and sent once. */
+function ImportCookiesDialog({ profile, onClose, onDone }: { profile: string; onClose: () => void; onDone: (s: Status) => void }) {
+  const phone = useIsMobile();
+  const size = phone ? 'touch' : 'md';
+  const [file, setFile] = useState<File>();
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string>();
+
+  const run = async () => {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) return setProblem('The file is over 5 MB.');
+    setBusy(true);
+    setProblem(undefined);
+    try {
+      const r = await api().importBrowserCookies(profile, await file.text());
+      toast({ title: importWords(r, profile) });
+      onDone(await api().browserStatus());
+    } catch (e) {
+      setProblem(errText(e));
+    }
+    setBusy(false);
+  };
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={`Import cookies into ${profile}`}
+      description={IMPORT_COOKIES_HELP}
+      width={520}
+      footer={
+        <>
+          <Button variant="quiet" size={size} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="solid" size={size} busy={busy ? 'Importing' : false} disabled={!file} onClick={() => void run()}>
+            Import
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <Field label="Cookie file" help="JSON or cookies.txt, up to 5 MB.">
+          <input type="file" accept=".json,.txt,application/json,text/plain" aria-label="Cookie file" className="block w-full text-[13px] text-fg-2" onChange={(e) => setFile(e.target.files?.[0])} />
+        </Field>
+        <p className="m-0 text-[13px] text-fg-2">{IMPORT_COOKIES_WARNING}</p>
+        {problem && (
+          <p className="m-0 text-[13px] text-fault" role="alert">
+            {problem}
+          </p>
+        )}
+      </div>
+    </Dialog>
   );
 }
 
