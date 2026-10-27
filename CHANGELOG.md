@@ -9,6 +9,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Bench operators can compare one harness edit against a baseline with `bun bench/improve.ts`. The offline comparison uses existing hidden tests and gate metrics, stops candidate runs on regression, and leaves the merge decision to a person.
+
 ### Changed
 
 - Whole files now come as downloadable file cards instead of huge code blocks. The system prompt and the ShareFile description tell the model to save a complete program, config file, document, or a chart or graph as a PNG or SVG, share it with ShareFile, and answer in a few lines, keeping short commands, diffs and examples inline. A chat hands the writing to Delegate with readOnly off, and a session that cannot save or share files is told to say so. This is guidance to the model only: nothing checks that it follows it, and ShareFile's folder, ownership and size checks are unchanged. File cards on the web and Android now also draw an SVG up to 2 MB inline, and the web caps inline PNG, JPEG, GIF and WebP at 20 MB like Android. The web draws an SVG only as an `<img>` from a `data:` URL with no Open button. Android draws it in a WebView with JavaScript, network, file access and navigation turned off. Text, code, CSV and PDF files no longer preview inside the card; a PDF still has Open, and Download and Save keep the original bytes.

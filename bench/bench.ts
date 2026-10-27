@@ -96,7 +96,7 @@ Environment
   BENCH_WORK (default /tmp/conclave-bench), BENCH_CLAUDE_OAUTH_TOKEN or CLAUDE_CODE_OAUTH_TOKEN for B login.
 `;
 
-function runOptions(flags: Record<string, string | boolean>, argv: string[]): RunOptions {
+export function runOptions(flags: Record<string, string | boolean>, argv: string[]): RunOptions {
   const s = (k: string) => (typeof flags[k] === 'string' ? (flags[k] as string) : undefined);
   const model = s('model') ?? process.env.BENCH_MODEL;
   const dryRun = flags['dry-run'] === true;
