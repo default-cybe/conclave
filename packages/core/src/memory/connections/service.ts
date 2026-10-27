@@ -103,15 +103,15 @@ export class MemoryConnectionService {
   private graphCache?: { key: string; at: number; data: Promise<BmGraphData> };
 
   /**
-   * The memory map (GET /api/memory/graph): local memories and the first
-   * enabled Basic Memory connection's notes in one graph. Basic Memory is
+   * The memory map (GET /api/memory/graph): every local memory and the
+   * first enabled Basic Memory connection's notes in one graph. Basic Memory is
    * read only, at most once a minute; when it does not answer the map has
    * Conclave's memory alone and says Basic Memory is offline.
    */
-  async graph(opts: { limit?: number; sessionTitle?: (id: string) => string | undefined } = {}): Promise<MemoryGraph> {
+  async graph(opts: { sessionTitle?: (id: string) => string | undefined } = {}): Promise<MemoryGraph> {
     const memories = this.memory.list({ limit: 100_000 });
     const conn = this.connections.list().find((c) => c.enabled && c.type === 'basic-memory');
-    const base = { memories, sessionTitle: opts.sessionTitle, limit: opts.limit };
+    const base = { memories, sessionTitle: opts.sessionTitle };
     if (!conn) return buildMemoryGraph(base);
     const adapter = this.connections.adapter(conn);
     if (!adapter.graph) return buildMemoryGraph(base);

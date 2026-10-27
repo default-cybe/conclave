@@ -14,7 +14,7 @@ import { DigestError, digestOf, type DailyDigest } from '@conclave/core/memory/d
 import { isMember } from '@conclave/core/people/context.ts';
 import { MEMBER_STDIO_REFUSED } from '@conclave/core/people/memory.ts';
 import { accountOf, ownDevice, ownerOnly } from './scope';
-import { GRAPH_MAX_LIMIT } from '@conclave/core/memory/graph.ts';
+import { compress } from 'hono/compress';
 
 export function registerMemoryRoutes(app: Hono<HonoEnv>, ctx: ServerContext, audit: AuditFn): void {
   const { engine } = ctx;
@@ -202,12 +202,10 @@ export function registerMemoryRoutes(app: Hono<HonoEnv>, ctx: ServerContext, aud
 
   // ----- the memory map: memories and Basic Memory notes with their links -----
 
-  app.get('/api/memory/graph', async (c) => {
+  // every item once (about 3,000), gzipped when the client takes it
+  app.get('/api/memory/graph', compress(), async (c) => {
     ownerOnly(c);
-    const raw = c.req.query('limit');
-    const limit = raw === undefined ? undefined : Number(raw);
-    if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= GRAPH_MAX_LIMIT)) throw badRequest(`limit must be a whole number from 1 to ${GRAPH_MAX_LIMIT}`);
-    return c.json(await admin(c).graph({ limit, sessionTitle: (id) => engine.repos.sessions.get(id)?.title }));
+    return c.json(await admin(c).graph({ sessionTitle: (id) => engine.repos.sessions.get(id)?.title }));
   });
 
   // ----- stats (replaces the old handler: reports connections) --------------
