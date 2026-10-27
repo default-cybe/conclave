@@ -69,9 +69,9 @@ export function useFocusTrap(ref: RefObject<HTMLElement | null>, open: boolean, 
   }, [open]);
 }
 
-/** Close on Escape, topmost layer first. */
+/** Close on Escape, topmost layer first. An inline box inside a dialog uses it too, so Esc closes the box and not the dialog. */
 const escStack: Array<() => void> = [];
-function useEscape(open: boolean, onClose: () => void) {
+export function useEscape(open: boolean, onClose: () => void) {
   const cb = useRef(onClose);
   cb.current = onClose;
   useEffect(() => {

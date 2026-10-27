@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Comments on diff lines. In a session's edit diffs, the Changes card's diff and a workflow branch's diff, click a line number (Shift picks a range) and write a comment. Comments collect in a small tray over the composer ("3 comments on the diff"), where each can be edited or removed, and they survive a reload. Send to agent posts them as one message, each with its file and line, the quoted lines and your comment; while a turn runs it queues like any message. Works from the keyboard: Tab to a line number, Enter opens the box, Ctrl or Cmd+Enter adds, Esc cancels.
+
 ## [0.4.40] - 2026-10-27
 
 ### Added
