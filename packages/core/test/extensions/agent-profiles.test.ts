@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { defaultModelMapper, hooksField, loadAgentsFromDir } from '../../src/extensions/loader';
 import { parseAgentMarkdown } from '../../src/extensions/builtin-agents';
 import { agentModelRef, deepTierModel, isModelDead, markModelDead, subagentModel, type ModelHost } from '../../src/extensions/agent-model';
-import { agentHookConfig, agentHooksAllowed, ensureRecipeScript, parseRecipeRef, recipeGroups, wantsVerifyGate } from '../../src/extensions/agent-hooks';
+import { agentHookConfig, agentHooksAllowed, ensureRecipeScript, mergeHookConfigs, parseRecipeRef, recipeGroups, wantsVerifyGate } from '../../src/extensions/agent-hooks';
 import type { AgentDef } from '../../src/extensions/types';
 import type { ConclaveConfig } from '../../src/config/schema';
 import { cleanup, tempDir, write } from './_helpers';
@@ -210,6 +210,27 @@ describe('agent hooks and recipes', () => {
     write(script, 'old');
     ensureRecipeScript(dir, 'write-scope', readFileSync(script, 'utf8') === 'old' ? 'new text' : 'x');
     expect(readFileSync(script, 'utf8')).toBe('new text');
+  });
+
+  test('a recipe installed globally and listed in the agent runs once', () => {
+    const dir = td();
+    const own = recipeGroups(agent({ recipes: ['no-test-gaming', 'diff-budget', 'new-dependency-gate', 'write-scope WRITE_GLOB=**/*.test.*'] }), dir);
+    // global hooks as an install writes them: tagged, or (diff-budget) known only by its script path; plus write-scope and a hook of the owner's
+    const tagged = recipeGroups(agent({ recipes: ['no-test-gaming', 'new-dependency-gate', 'write-scope'] }), dir);
+    const untagged = structuredClone(recipeGroups(agent({ recipes: ['diff-budget'] }), dir));
+    for (const gs of Object.values(untagged)) for (const g of gs ?? []) for (const h of g.hooks) delete (h as { recipe?: string }).recipe;
+    const global = mergeHookConfigs(mergeHookConfigs(tagged, untagged), { PreToolUse: [{ hooks: [{ type: 'command', command: 'echo mine' }] }] });
+    const merged = mergeHookConfigs(global, own);
+    const all = Object.values(merged).flatMap((gs) => (gs ?? []).flatMap((g) => g.hooks.map((h) => (h as { command: string }).command)));
+    const count = (id: string) => all.filter((c) => c.includes(`/recipes/${id}.sh`)).length;
+    expect(count('no-test-gaming')).toBe(1);
+    expect(count('new-dependency-gate')).toBe(1);
+    expect(count('diff-budget')).toBe(Object.values(untagged).flat().length);
+    expect(all).toContain('echo mine');
+    // the agent's write-scope keeps its own glob next to the global one
+    expect(all.filter((c) => c.includes('/recipes/write-scope.sh'))).toHaveLength(2);
+    // without the global hooks the agent keeps every recipe
+    expect(mergeHookConfigs({}, own)).toEqual(own);
   });
 
   test('a subagent profile runs its Stop hooks on SubagentStop', () => {

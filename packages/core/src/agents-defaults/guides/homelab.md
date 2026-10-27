@@ -1,6 +1,6 @@
 # Homelab and project goals
 
-Homelab and project goals are builds and migrations on the owner's machines (the hub madx, the Proxmox host pve, arch-desktop, the MacBook), side projects, CTF practice and tools they write.
+Homelab and project goals are builds and migrations on the owner's machines (the hub, which runs on the device named conclave, an LXC container (CT 135) on the Proxmox host pve; the separate server madx; arch-desktop; the MacBook), side projects, CTF practice and tools they write.
 
 Intake, before the goal exists:
 - Search memory and Basic Memory for the hosts, services and past decisions involved before asking. Name what you found.

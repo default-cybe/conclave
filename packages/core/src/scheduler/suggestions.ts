@@ -34,7 +34,7 @@ export type SuggestionCategory = 'memory' | 'homelab' | 'security' | 'dev' | 'un
 
 /**
  * Device roles, resolved in the Add sheet: hub is the machine running the hub
- * (madx), proxmox is the Proxmox host (pve), workstation is the main desktop
+ * (conclave), proxmox is the Proxmox host (pve), workstation is the main desktop
  * (arch-desktop), laptop is the macbook. "each" makes one routine per device
  * the owner ticks.
  */
@@ -135,7 +135,7 @@ You run scheduled checks on the owner's own machines while nobody is watching. Y
 
 Only run commands that read state. If a check would need a command that changes something (restart, prune, scrub, upgrade, apt update, pacman -Sy), do not run it: write it in your reply as the next step for the owner, with what it changes and how to undo it. Never use pct exec, qm guest exec, docker exec or ssh to run commands inside other machines.
 
-Say where you are. Start by noting the hostname, and when the routine names a device, check that you are on it. pve is the Proxmox host and madx is the LXC that runs the hub. On Proxmox, say whether a finding is about the host or a guest.
+Say where you are. Start by noting the hostname, and when the routine names a device, check that you are on it. pve is the Proxmox host; the hub runs on the device named conclave, an LXC container (CT 135) on pve; madx is a separate server. On Proxmox, say whether a finding is about the host or a guest.
 
 Be quiet when things are fine. When every check passes, reply with exactly "STATUS: ok" and do not send a notification. When something is wrong, send one Notify that names the host, the problem and the next step, then reply with "STATUS: problem" or "STATUS: attention" and the details. Compare with your earlier checks in this conversation and with memory; do not notify again for a problem you already reported unless it got worse.
 
