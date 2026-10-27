@@ -1447,8 +1447,32 @@ export class BrowserManager implements BrowserTakeover {
   // Screenshots
   // -------------------------------------------------------------------------
 
-  async screenshot(sessionId: string, opts: { fullPage?: boolean; maxBytes?: number } = {}): Promise<Screenshot> {
+  /**
+   * A screenshot of the session's active tab. `width`, `height` and
+   * `colorScheme` apply to this shot only: the viewport and the
+   * prefers-color-scheme emulation go back to what they were after it.
+   */
+  async screenshot(
+    sessionId: string,
+    opts: { fullPage?: boolean; maxBytes?: number; width?: number; height?: number; colorScheme?: 'light' | 'dark' } = {},
+  ): Promise<Screenshot> {
     const page = (await this.activeState(sessionId)).page;
+    const before = page.viewportSize();
+    const resize = opts.width !== undefined || opts.height !== undefined;
+    // a headed window has no emulated viewport, and Playwright cannot hand one back once set
+    if (resize && !before) throw new Error('width and height need a tab with an emulated viewport (a headless browser); this window sizes itself.');
+    try {
+      if (resize && before) await bounded('resizing the page', CDP_MS, page.setViewportSize({ width: opts.width ?? before.width, height: opts.height ?? before.height }));
+      if (opts.colorScheme) await bounded('setting the color scheme', CDP_MS, page.emulateMedia({ colorScheme: opts.colorScheme }));
+      return await this.capture(page, opts);
+    } finally {
+      // nothing else in Conclave sets a color scheme, so null (no emulation) is the state from before
+      if (opts.colorScheme) await bounded('resetting the color scheme', CDP_MS, page.emulateMedia({ colorScheme: null })).catch(() => {});
+      if (resize && before) await bounded('resizing the page back', CDP_MS, page.setViewportSize(before)).catch(() => {});
+    }
+  }
+
+  private async capture(page: Page, opts: { fullPage?: boolean; maxBytes?: number }): Promise<Screenshot> {
     const maxBytes = opts.maxBytes ?? SCREENSHOT_MAX_BYTES;
     // each try has its own timeout; all of them together stop here
     const deadline = Date.now() + SCREENSHOT_MS;
