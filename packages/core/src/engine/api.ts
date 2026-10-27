@@ -162,6 +162,8 @@ export interface EngineApi {
   forkSession(id: string, fromSeq?: number): Session;
   /** Delegated work to the main list: the subagent and delegated marks go, parentId stays, meta.delegate becomes meta.movedFrom. */
   moveToMainList(id: string): Session;
+  /** The owner opened it: meta.seenAt now, so it no longer reads unread (session/unread.ts). updatedAt stays. */
+  markSeen(id: string): Session;
   getMessages(id: string, afterSeq?: number): Message[];
   send(id: string, input: SendInput): Promise<SendResult>;
   /** Messages waiting while the session is busy, in the order they will run. Stored: a hub restart keeps them, Stop holds them (held). */

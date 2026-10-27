@@ -1759,6 +1759,8 @@ export class ConclaveClient {
   forkSession = (id: string, fromSeq?: number) => this.request<Session>('POST', `/api/sessions/${id}/fork`, { fromSeq });
   /** Delegated work to the main list: a normal session of its kind from now on; parentId stays (session/delegated.ts). */
   moveToMainList = (id: string) => this.request<Session>('POST', `/api/sessions/${id}/main-list`);
+  /** The owner opened it: no longer unread (session/unread.ts). */
+  markSeen = (id: string) => this.request<Session>('POST', `/api/sessions/${id}/seen`);
   messages = (id: string, afterSeq?: number) => this.request<Message[]>('GET', `/api/sessions/${id}/messages`, undefined, { afterSeq });
   send = (id: string, input: SendInput) => this.request<SendResult>('POST', `/api/sessions/${id}/messages`, input);
   /** Messages waiting while the session is busy, in the order they will run (session.queue keeps it current). */

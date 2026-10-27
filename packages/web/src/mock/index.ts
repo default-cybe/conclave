@@ -272,7 +272,9 @@ function updateMessage(m: Message) {
 function patchSession(id: string, patch: Partial<Session>) {
   const s = db.sessions.get(id);
   if (!s) return;
-  Object.assign(s, patch, { updatedAt: Date.now() });
+  // a turn stopped: unread until opened, as on the hub (core engine setStatus, session/unread.ts)
+  const done = s.status === 'running' && patch.status && patch.status !== 'running' && patch.status !== 'paused';
+  Object.assign(s, patch, { updatedAt: Date.now() }, done ? { meta: { ...s.meta, ...patch.meta, doneAt: Date.now() } } : {});
   emit({ type: 'session.updated', session: structuredClone(s) });
   return s;
 }
@@ -678,6 +680,14 @@ on('POST', '/api/sessions/:id/main-list', ({ params }) => {
   db.sessions.set(next.id, next);
   emit({ type: 'session.updated', session: structuredClone(next) });
   return next;
+});
+// the owner opened it: no longer unread, and it keeps its place in the lists (core session/unread.ts)
+on('POST', '/api/sessions/:id/seen', ({ params }) => {
+  const s = db.sessions.get(params[0]);
+  if (!s) return notFound();
+  s.meta = { ...s.meta, seenAt: Date.now() };
+  emit({ type: 'session.updated', session: structuredClone(s) });
+  return s;
 });
 on('POST', '/api/sessions/:id/fork', ({ params, body }) => {
   const src = getSession(params[0]);

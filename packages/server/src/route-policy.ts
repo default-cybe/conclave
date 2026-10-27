@@ -89,6 +89,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'PATCH /api/sessions/:id': SESSION,
   // Move to main list: the same rule as editing the session
   'POST /api/sessions/:id/main-list': SESSION,
+  'POST /api/sessions/:id/seen': SESSION,
   'DELETE /api/sessions/:id': SESSION,
   'POST /api/sessions/:id/move': SESSION,
   'GET /api/sessions/:id/location': SESSION,

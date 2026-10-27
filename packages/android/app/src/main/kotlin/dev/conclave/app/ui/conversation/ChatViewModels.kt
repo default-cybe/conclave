@@ -27,6 +27,7 @@ import dev.conclave.client.logic.Start
 import dev.conclave.client.logic.StartMode
 import dev.conclave.client.logic.Transcript
 import dev.conclave.client.logic.TranscriptReducer
+import dev.conclave.client.logic.Unread
 import dev.conclave.client.model.ApprovalResponse
 import dev.conclave.client.model.Attachment
 import dev.conclave.client.model.ChatSettings
@@ -270,6 +271,8 @@ class ChatThreadViewModel(
     private fun onSession(s: Session) {
         val was = _session.value?.status
         _session.value = s
+        // open here: a reply that came clears its bold title in the lists, on the hub so the web agrees (logic/Unread.kt)
+        if (Unread.isUnread(s)) viewModelScope.launch { runCatching { hub.api { it.markSeen(sessionId) } } }
         val p = pending.value
         if (s.status == SessionStatus.RUNNING) {
             if (p != null) pendingRan = true

@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Unread conversations: a chat or session that finished a turn after you last opened it shows its title in bold in the sidebar, the lists and the phone's Code and Chats lists; opening it clears it. The hub keeps it (`meta.doneAt`, `meta.seenAt`, `POST /api/sessions/:id/seen`), so the web and Android agree. The command palette matches words in any order, puts the commands you used lately first, can start a new session in Plan, Jury, Debate or Loop mode, and can run a workflow from the library.
+
 ## [0.4.40] - 2026-10-27
 
 ### Added

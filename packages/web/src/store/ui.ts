@@ -1,5 +1,6 @@
 /** UI state and per-device preferences (appearance, list grouping, panels). */
 import { create } from 'zustand';
+import type { SessionMode } from '@conclave/core/types';
 import { applyTextSize, textSizeOf, type TextSize } from '@/lib/textSize';
 
 export type Theme = 'system' | 'dark' | 'light';
@@ -45,7 +46,7 @@ interface UiState extends Prefs {
   /** Resolved theme, kept in sync with html[data-theme]. */
   resolved: 'dark' | 'light';
   paletteOpen: boolean;
-  paletteMode: 'root' | 'model' | 'agent' | 'mode' | 'search' | 'routine';
+  paletteMode: 'root' | 'model' | 'agent' | 'mode' | 'search' | 'routine' | 'workflow';
   /** Prefill for the palette input, e.g. ">" for actions only. */
   paletteQuery?: string;
   shortcutsOpen: boolean;
@@ -54,7 +55,7 @@ interface UiState extends Prefs {
   drawerOpen: boolean;
   /** Phones: the side panel is open (components/PhoneFrame.tsx). */
   panelOpen: boolean;
-  newChatPreset?: { agent?: string; model?: string; taskId?: string; prompt?: string; device?: string };
+  newChatPreset?: { agent?: string; model?: string; taskId?: string; prompt?: string; device?: string; mode?: SessionMode };
   /** Set by pages through usePageHeader. */
   header?: PageHeaderInfo;
   set: (p: Partial<UiState>) => void;

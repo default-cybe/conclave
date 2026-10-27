@@ -13,6 +13,7 @@ import { Link, useLocation } from 'wouter';
 import { MoreHorizontal } from 'lucide-react';
 import type { Session } from '@conclave/core/types';
 import { isDelegated, underParent } from '@conclave/core/session/delegated';
+import { isUnread } from '@conclave/core/session/unread';
 import { api } from '@/lib/api';
 import { attempt, loadMessages, removeKey, upsertSession, useHub } from '@/store/store';
 import { openNewChat, useUi, type ListGroup } from '@/store/ui';
@@ -325,7 +326,7 @@ function SessionRow({ s, active, onMenu, device }: { s: Session; active: boolean
     tone = 'signal';
   }
   return (
-    <Row href={`/s/${s.id}`} active={active} title={s.title} time={relTime(s.updatedAt)} onMenu={onMenu}>
+    <Row href={`/s/${s.id}`} active={active} unread={isUnread(s)} title={s.title} time={relTime(s.updatedAt)} onMenu={onMenu}>
       <span className="min-w-0">{meta}</span>
       <span className={cn('state-word text-right whitespace-nowrap', STATE_TEXT[tone])}>{state}</span>
     </Row>
@@ -337,7 +338,7 @@ function SessionRow({ s, active, onMenu, device }: { s: Session; active: boolean
  * line 2, on one grid so the right column lines up. Selected rows get bg-raise
  * and the 2px fg bar, the only edge bar in the product.
  */
-function Row({ href, active, title, time, children, onMenu }: { href: string; active: boolean; title: ReactNode; time?: ReactNode; children: ReactNode; onMenu?: () => void }) {
+function Row({ href, active, unread, title, time, children, onMenu }: { href: string; active: boolean; unread?: boolean; title: ReactNode; time?: ReactNode; children: ReactNode; onMenu?: () => void }) {
   return (
     <Link
       href={href}
@@ -356,7 +357,10 @@ function Row({ href, active, title, time, children, onMenu }: { href: string; ac
       )}
     >
       {active && <SelectedMark />}
-      <span className="t-row truncate text-fg">{title}</span>
+      <span className={cn('t-row truncate text-fg', unread && 'font-semibold')}>
+        {title}
+        {unread && <span className="sr-only">, new reply</span>}
+      </span>
       <span className="num text-right">{time}</span>
       {children}
     </Link>

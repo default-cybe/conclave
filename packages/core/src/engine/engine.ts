@@ -1897,10 +1897,23 @@ export class Engine implements EngineApi {
   setStatus(id: string, status: SessionStatus, error?: string): void {
     const s = this.repos.sessions.get(id);
     if (!s || (s.status === status && !error)) return;
-    const next = { ...s, status, error: status === 'error' ? error : undefined, resumeAt: status === 'waiting_reset' ? s.resumeAt : undefined, updatedAt: Date.now(), meta: this.clock(s, status) };
+    let meta = this.clock(s, status);
+    // a turn stopped with something for the owner to read: unread until they open it (session/unread.ts); Pause is theirs
+    if (s.status === 'running' && status !== 'running' && status !== 'paused') meta = { ...meta, doneAt: Date.now() };
+    const next = { ...s, status, error: status === 'error' ? error : undefined, resumeAt: status === 'waiting_reset' ? s.resumeAt : undefined, updatedAt: Date.now(), meta };
     this.repos.sessions.update(next);
     this.bus.emit({ type: 'session.updated', session: next });
   }
+
+  /** The owner opened it: meta.seenAt, without moving it in the lists (updatedAt stays). */
+  markSeen(id: string): Session {
+    const s = this.requireSession(id);
+    const next = { ...s, meta: { ...s.meta, seenAt: Date.now() } };
+    this.repos.sessions.update(next);
+    this.bus.emit({ type: 'session.updated', session: next });
+    return next;
+  }
+
   parkForReset(id: string, resumeAt: number): void {
     const s = this.repos.sessions.get(id);
     if (!s) return;
