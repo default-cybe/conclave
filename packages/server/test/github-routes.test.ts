@@ -86,6 +86,8 @@ describe('input checks', () => {
     expect(() => repoSessionInput({ repo: 'acme widgets' })).toThrow(/owner\/name/);
     expect(() => repoSessionInput({ repo: 'a/b', base: 'x y' })).toThrow(/not a branch name/);
     expect(() => repoSessionInput({ repo: 'a/b', permissionMode: 'yolo' })).toThrow(/permissionMode/);
+    expect(repoSessionInput({ repo: 'a/b', issue: 12 })).toEqual({ repo: 'a/b', issue: 12 });
+    for (const issue of [0, -1, 1.5, '12']) expect(() => repoSessionInput({ repo: 'a/b', issue })).toThrow(/issue number/);
   });
 });
 
@@ -106,6 +108,11 @@ describe('a repo session on a paired device, through the API', () => {
     expect(cfg.text).not.toContain(TOKEN);
     expect((await api('/api/github/repos?q=everyone')).body.map((r: { fullName: string }) => r.fullName)).toEqual(['acme/widgets']);
     expect((await api('/api/github/repos/acme/widgets/branches')).body).toEqual({ defaultBranch: 'main', branches: ['main'] });
+    fake.addIssue('acme/widgets', { number: 3, title: 'Crash on save', body: 'Steps.', labels: ['bug'] });
+    expect((await api('/api/github/repos/acme/widgets/issues?q=crash')).body.map((i: { number: number }) => i.number)).toEqual([3]);
+    expect((await api('/api/github/repos/acme/widgets/issues')).body[0]).not.toHaveProperty('body');
+    expect((await api('/api/github/repos/acme/nope/issues')).status).toBe(404);
+    expect((await api(`/api/github/repos/acme/widgets/issues?q=${'x'.repeat(201)}`)).status).toBe(400);
 
     expect((await api('/api/github/sessions', { method: 'POST', json: { repo: 'acme/widgets', device: 'nope' } })).status).toBe(404);
     const started = await api<Session>('/api/github/sessions', { method: 'POST', json: { repo: 'acme/widgets', device: deviceId, title: 'Answer' } });

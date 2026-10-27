@@ -99,6 +99,8 @@ export interface ComposerTarget {
   send: (out: Outgoing) => Promise<boolean>;
   /** The send button's name and tooltip ("Start session"). */
   sendLabel: string;
+  /** An empty box may send: the target has the task already (an issue picked). */
+  sendEmpty?: boolean;
   placeholder: string;
   /** A quiet line under the box, in place of the memory note. */
   note?: ReactNode;
@@ -285,7 +287,7 @@ export function ChatComposer({
     return () => window.removeEventListener(FILES_EVENT, onFiles);
   });
 
-  const hasText = !!text.trim() || files.length > 0;
+  const hasText = !!text.trim() || files.length > 0 || !!target?.sendEmpty;
 
   const send = async () => {
     if (!hasText || busy) return;

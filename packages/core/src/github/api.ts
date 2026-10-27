@@ -3,7 +3,7 @@
  * the hub process only, with the token in the Authorization header. Errors
  * carry GitHub's message and the status, never the token.
  */
-import type { CiState, GithubRepoDto, PrState } from '../client/github';
+import type { CiState, GithubIssueDto, GithubRepoDto, PrState } from '../client/github';
 
 export const DEFAULT_API_URL = 'https://api.github.com';
 export const DEFAULT_GIT_URL = 'https://github.com';
@@ -45,6 +45,32 @@ export interface ChecksInfo {
 }
 
 type Json = Record<string, any>;
+
+export interface IssueInfo extends GithubIssueDto {
+  body: string;
+  /** The number is a pull request's: GitHub serves pull requests as issues too. */
+  pull: boolean;
+}
+
+export interface IssueComment {
+  author: string;
+  body: string;
+  createdAt?: number;
+}
+
+function toIssue(i: Json): IssueInfo {
+  return {
+    number: Number(i.number),
+    title: String(i.title ?? ''),
+    labels: ((i.labels as Json[] | undefined) ?? []).map((l) => String(typeof l === 'string' ? l : (l.name ?? ''))).filter(Boolean),
+    url: String(i.html_url ?? ''),
+    ...(i.user?.login ? { author: String(i.user.login) } : {}),
+    comments: Number(i.comments ?? 0),
+    ...(i.updated_at ? { updatedAt: Date.parse(i.updated_at) } : {}),
+    body: String(i.body ?? ''),
+    pull: !!i.pull_request,
+  };
+}
 
 /** A repository name GitHub accepts: owner/name with letters, digits, dot, dash and underscore. */
 export function parseRepoName(full: string): { owner: string; name: string } | undefined {
@@ -180,6 +206,36 @@ export class GithubApi {
   async openPulls(owner: string, name: string, max = 100): Promise<Array<PullInfo & { author: string; updatedAt?: number }>> {
     const list = (await this.call<Json[]>('GET', `/repos/${owner}/${name}/pulls?state=open&sort=updated&direction=desc&per_page=${Math.min(100, max)}`)) ?? [];
     return list.slice(0, max).map((p) => ({ ...toPull(p), author: String(p.user?.login ?? ''), ...(p.updated_at ? { updatedAt: Date.parse(p.updated_at) } : {}) }));
+  }
+
+  /** Open issues, most recently updated first, without pull requests. GitHub counts open pull requests in the 100 it sends. */
+  async openIssues(owner: string, name: string, max = 100): Promise<IssueInfo[]> {
+    const list = (await this.call<Json[]>('GET', `/repos/${owner}/${name}/issues?state=open&sort=updated&direction=desc&per_page=100`)) ?? [];
+    return list.map(toIssue).filter((i) => !i.pull).slice(0, max);
+  }
+
+  /** Open issues GitHub's search finds for the words (title, body and comments), most recently updated first. */
+  async searchIssues(owner: string, name: string, words: string, max = 50): Promise<IssueInfo[]> {
+    const q = encodeURIComponent(`repo:${owner}/${name} is:issue is:open ${words}`);
+    const r = await this.call<{ items?: Json[] }>('GET', `/search/issues?q=${q}&sort=updated&order=desc&per_page=${max}`);
+    return (r?.items ?? []).map(toIssue).filter((i) => !i.pull);
+  }
+
+  async issue(owner: string, name: string, number: number): Promise<IssueInfo | undefined> {
+    const i = await this.call('GET', `/repos/${owner}/${name}/issues/${number}`, undefined, { allow404: true });
+    return i ? toIssue(i) : undefined;
+  }
+
+  /** The last `last` comments of an issue with `count` comments, oldest first. */
+  async issueComments(owner: string, name: string, number: number, count: number, last = 5): Promise<IssueComment[]> {
+    if (count <= 0 || last <= 0) return [];
+    const per = 100;
+    const page = Math.max(1, Math.ceil(count / per));
+    const get = async (p: number) => (await this.call<Json[]>('GET', `/repos/${owner}/${name}/issues/${number}/comments?per_page=${per}&page=${p}`)) ?? [];
+    let list = await get(page);
+    // the last page holds fewer than `last`: the page before it has the rest
+    if (list.length < last && page > 1) list = [...(await get(page - 1)), ...list];
+    return list.slice(-last).map((c) => ({ author: String(c.user?.login ?? ''), body: String(c.body ?? ''), ...(c.created_at ? { createdAt: Date.parse(c.created_at) } : {}) }));
   }
 
   async pull(owner: string, name: string, number: number): Promise<PullInfo | undefined> {

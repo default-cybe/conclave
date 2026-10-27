@@ -67,6 +67,23 @@ export function repoActions(r: Pick<RepoSessionDto, 'cleaned' | 'online' | 'comm
   };
 }
 
+/**
+ * An issue a pasted text names: a github.com issue link, owner/name#12, or
+ * #12 (or 12) of the repository picked. Else undefined.
+ */
+export function parseIssueRef(text: string, repo?: string): { repo: string; issue: number } | undefined {
+  const t = text.trim();
+  const link = /^(?:https?:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)\/issues\/(\d+)(?:[/?#].*)?$/i.exec(t) ?? /^([\w.-]+)\/([\w.-]+)#(\d+)$/.exec(t);
+  if (link) return { repo: `${link[1]}/${link[2]}`, issue: Number(link[3]) };
+  const n = /^#?(\d+)$/.exec(t);
+  return n && repo && Number(n[1]) > 0 ? { repo, issue: Number(n[1]) } : undefined;
+}
+
+/** GitHub repository names ignore case: acme/Widgets is acme/widgets. */
+export function sameRepo(a?: string, b?: string): boolean {
+  return !!a && !!b && a.toLowerCase() === b.toLowerCase();
+}
+
 /** A folder worktree ("Run in a worktree"): Merge into its base while there are commits, Discard until it is cleaned up. */
 export function worktreeActions(r: Pick<RepoSessionDto, 'folder' | 'cleaned' | 'online' | 'canMerge' | 'merged'>): { merge: boolean; discard: boolean } {
   const live = !!r.folder && !r.cleaned && r.online;

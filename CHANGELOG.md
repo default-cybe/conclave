@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Start a Code session from a GitHub issue. With a repository picked, an Issue picker next to the branch lists its open issues, newest activity first. Each row shows the number, title, labels and comment count, and the list can be searched by number, title or label; a search also asks GitHub for older issues. You can also paste an issue link, there or in the repository search. The session starts in a new worktree as before and is named "#N title". Its first message holds what you typed, then the issue's title, body and last 5 comments, wrapped as untrusted text because other people wrote them. It also tells the agent to put "Fixes #N" in the pull request so GitHub links and closes the issue. A wrong number or a pull request number is refused before anything is cloned. The CLI takes `conclave sessions new --repo owner/name --issue N`.
+
 ## [0.4.40] - 2026-10-27
 
 ### Added

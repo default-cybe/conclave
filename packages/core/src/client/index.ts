@@ -117,7 +117,7 @@ export type * from './import';
 import type { DeviceFoldersDto, HubBackInput, HubBackPreview, HubCopyPreview, IdentifyResult, MoveInput, MoveResult, ProjectDto, SessionLocationDto } from './projects';
 export type * from './projects';
 // ----- repo sessions on GitHub, docs/DESIGN.md 30 -----
-import type { CleanupInput, FolderGitDto, GithubBranchesDto, GithubRepoDto, GithubStatusDto, MergeInput, OpenPrInput, PrDraft, PushInput, PushResult, RepoSessionDto, RepoSessionInput, WorktreeSessionInput } from './github';
+import type { CleanupInput, FolderGitDto, GithubBranchesDto, GithubIssueDto, GithubRepoDto, GithubStatusDto, MergeInput, OpenPrInput, PrDraft, PushInput, PushResult, RepoSessionDto, RepoSessionInput, WorktreeSessionInput } from './github';
 export type * from './github';
 export { sessionRepo } from './github';
 // ----- workflow engine DTOs: block "workflows", docs/design/ROUND-IMPORT-PATHS-WORKFLOWS.md 3.17 -----
@@ -1825,6 +1825,11 @@ export class ConclaveClient {
   githubBranches = (repo: string) => {
     const [owner = '', name = ''] = repo.split('/');
     return this.request<GithubBranchesDto>('GET', `/api/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/branches`);
+  };
+  /** Open issues of owner/name, most recently updated first; q matches the number, title and labels. */
+  githubIssues = (repo: string, q?: string) => {
+    const [owner = '', name = ''] = repo.split('/');
+    return this.request<GithubIssueDto[]>('GET', `/api/github/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/issues`, undefined, { q: q || undefined });
   };
   /** A session in a fresh worktree of a repository, on a new conclave/ branch. */
   createRepoSession = (input: RepoSessionInput) => this.request<Session>('POST', '/api/github/sessions', input);

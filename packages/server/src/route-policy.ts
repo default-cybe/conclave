@@ -149,6 +149,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'DELETE /api/github/token': 'self',
   'GET /api/github/repos': 'self',
   'GET /api/github/repos/:owner/:name/branches': 'self',
+  'GET /api/github/repos/:owner/:name/issues': 'self',
   'POST /api/github/sessions': 'self',
   // "Run in a worktree": the handlers check the device is the caller's
   'GET /api/worktrees/folder': 'self',
