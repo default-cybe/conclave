@@ -173,6 +173,7 @@ Item 3 removes about 6 of the 10 failed tool calls left in run 4.
 - Item 1: `session/regression-gate.ts`, on for coder, builder and tester. A turn a usage limit parks keeps its checkpoint, so the resumed run compares with the code from before the user turn, after a hub restart too. The `failingTest` and `NOT_RUN` rules moved to `util/test-run.ts`, shared with workflows and the bench.
 - Item 2: `own_tests` and `regression_gate` on every result line, two rows in the per arm table (PROTOCOL.md section 9, version 5).
 - Item 3: the Environment block says "use python3" when the device has no `python` (Python projects only) and names the check the verify gate runs at stop, or "no type checker found".
+- Item 4 (2026-10-27): `agents-defaults/coder.md` drops the `git stash` check command (the regression gate does it) and the "Read, not cat" sentence (the Bash tool description and the Read-before-Edit check cover it). Not yet measured.
 
 **Validate.** The 12 bug runs first, then all 36, one change per set,
 against PROTOCOL.md section 13.
