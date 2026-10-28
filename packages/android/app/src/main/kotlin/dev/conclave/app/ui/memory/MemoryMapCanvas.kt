@@ -43,6 +43,7 @@ import dev.conclave.client.logic.MemoryIndex
 import dev.conclave.client.logic.MemoryLinks
 import dev.conclave.client.logic.MemoryMapState
 import dev.conclave.client.logic.MemoryMaps
+import dev.conclave.client.logic.areaId
 import dev.conclave.client.map.LBox
 import dev.conclave.client.map.LFont
 import dev.conclave.client.map.MapViewport
@@ -103,7 +104,8 @@ fun MemoryTreeCanvas(ix: MemoryIndex, center: String, picked: String?, onPick: (
     val measure = rememberMapMeasure(measurer)
     val styles = rememberLabelStyles()
     var size by remember { mutableStateOf(Size.Zero) }
-    var open by remember(center) { mutableStateOf(emptySet<String>()) }
+    // an item opened from a link hangs in its open area, as the web's path into the brain does
+    var open by remember(center) { mutableStateOf(picked?.let { ix.byId[it] }?.let { setOf(areaId(it.area.ifEmpty { "Other" })) } ?: emptySet()) }
     var more by remember(center) { mutableStateOf(emptyMap<String, Int>()) }
     val budget = max(12, (size.height / d / MemoryMaps.ROW_PHONE).toInt())
     val layout = remember(ix, center, open, more, budget, measure) {
@@ -114,7 +116,11 @@ fun MemoryTreeCanvas(ix: MemoryIndex, center: String, picked: String?, onPick: (
     var view by remember(center) { mutableStateOf<MapViewport?>(null) }
     if (view == null && size.width > 0) {
         val root = layout.nodes.first()
-        view = MapViews.start(box, LBox(root.x - 8, root.y - 60, root.w + 200, 120.0), size.width / d.toDouble(), size.height / d.toDouble(), dev.conclave.client.map.Insets.NONE, 1.0)
+        val item = picked?.let { layout.byId[it] }
+        val focus = item?.let { LBox(it.x - 8, it.y - 60, it.w + 16, 120.0) } ?: LBox(root.x - 8, root.y - 60, root.w + 200, 120.0)
+        // with an item's sheet up, the map keeps to the half above it
+        val inset = if (item != null) dev.conclave.client.map.Insets(0.0, 0.0, size.height / d / 2.0, 0.0) else dev.conclave.client.map.Insets.NONE
+        view = MapViews.start(box, focus, size.width / d.toDouble(), size.height / d.toDouble(), inset, 1.0)
     }
     val labels = remember(measurer, styles) { Labels(measurer) }
     val chain = remember(layout, picked) { picked?.let { MemoryMaps.chainTo(layout, it).toSet() } ?: emptySet() }
@@ -283,7 +289,9 @@ fun MemoryRingsCanvas(g: MemoryGraph, ix: MemoryIndex, picked: String?, onPick: 
             scale(s, s, Offset.Zero)
         }) {
             drawCircle(c.rule2, radius = (R * MemoryLinks.CORE).toFloat(), center = Offset.Zero, style = Stroke(width = 1f / s))
-            drawPath(base, c.fg.copy(alpha = if (c.dark) 0.09f else 0.08f), style = Stroke(width = 1f / s))
+            // faint where hundreds of links pile up into a bundle; a small memory's few links stay visible
+            val fade = sqrt(400f / max(1, drawn.size)).coerceIn(1f, 4f)
+            drawPath(base, c.fg.copy(alpha = (if (c.dark) 0.09f else 0.08f) * fade), style = Stroke(width = 1f / s))
             drawPath(ticks, c.fg3.copy(alpha = 0.8f), style = Stroke(width = 1f / s))
             for (a in hud.areas) {
                 val r = (R + 28).toFloat()
@@ -303,7 +311,9 @@ fun MemoryRingsCanvas(g: MemoryGraph, ix: MemoryIndex, picked: String?, onPick: 
             val px = ((cos(mid) * (R + 52) * v.k + v.x) * d).toFloat()
             val py = ((sin(mid) * (R + 52) * v.k + v.y) * d).toFloat()
             val t = labels.get("${a.name} ${MemoryMaps.num(a.items.size)}", styles.meta.copy(color = c.fg2))
-            val left = if (cos(mid) < -0.2) px - t.size.width else if (cos(mid) > 0.2) px else px - t.size.width / 2f
+            // a name past the screen's edge slides in rather than being cut
+            val left = (if (cos(mid) < -0.2) px - t.size.width else if (cos(mid) > 0.2) px else px - t.size.width / 2f)
+                .coerceIn(4f * d, max(4f * d, size.width - t.size.width - 4f * d))
             val r = Rect(left, py - t.size.height / 2f, left + t.size.width, py + t.size.height / 2f)
             if (boxes.claim(r.inflate(3f * d))) drawText(t, topLeft = r.topLeft)
         }
