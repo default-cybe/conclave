@@ -51,6 +51,8 @@ export interface BrowserManagerOptions {
   launcher?: Pick<BrowserType, 'launchPersistentContext'>;
   /** The exit IP check of a proxied browser. Default probeProxy against Cloudflare's trace page. */
   proxyProbe?: (p: ProxyEntry) => Promise<ProbeResult>;
+  /** Finds the stock Chromium a preview runs on. Default stockExecutable's search; tests pass a fake. */
+  stockBrowser?: () => string | undefined;
 }
 
 /** A session's proxy, as the tools report it. Never a login or password. */
@@ -110,9 +112,9 @@ export interface Screenshot {
 /** Host of the session folder's files in a preview browser (preview.ts); it never resolves, the browser's route serves it. */
 export const PREVIEW_FILE_HOST = 'preview.invalid';
 
-/** One line of a preview's log: a console error, a page error, a failed request, an error answer, a blocked address. */
+/** One line of a preview's log: a console error, a page error, a failed request, an error answer, a blocked address, or a note from the hub. */
 export interface PreviewLogEntry {
-  kind: 'console' | 'pageerror' | 'requestfailed' | 'response' | 'blocked';
+  kind: 'console' | 'pageerror' | 'requestfailed' | 'response' | 'blocked' | 'note';
   level?: string;
   text: string;
   url?: string;
@@ -368,6 +370,7 @@ export class BrowserManager implements BrowserTakeover {
   private filled = new Map<string, Set<string>>();
   /** Sessions whose browser the owner took over in the live view, with the browser tool calls waiting for Give back. */
   private ownerHeld = new Map<string, Set<() => void>>();
+  private readonly findStock?: () => string | undefined;
 
   constructor(opts: BrowserManagerOptions) {
     this.config = opts.config;
@@ -375,6 +378,7 @@ export class BrowserManager implements BrowserTakeover {
     this.defaultProfile = validateProfileName(opts.defaultProfile ?? DEFAULT_PROFILE);
     this.launcher = opts.launcher;
     this.probe = opts.proxyProbe ?? ((p) => probeProxy(p, { timeoutMs: 12_000 }));
+    this.findStock = opts.stockBrowser;
     this.logins = new LoginVault(opts.config);
   }
 
@@ -472,6 +476,16 @@ export class BrowserManager implements BrowserTakeover {
     return findBrowserExecutable({ explicit: b?.executablePath || undefined, headless: b?.headless !== false, extraDirs: [hubBrowsersPath(this.config.paths.home)] });
   }
 
+  /**
+   * A stock Chromium for a preview: Playwright's download, its headless shell or
+   * a system Chrome, never browser.executablePath (which may be CloakBrowser, whose
+   * fonts, scale and colour scheme are spoofed and whose console events do not arrive).
+   */
+  stockExecutable(): string | undefined {
+    if (this.findStock) return this.findStock();
+    return findBrowserExecutable({ headless: this.config.get().browser?.headless !== false, extraDirs: [hubBrowsersPath(this.config.paths.home)] });
+  }
+
   /** Cheap check (no launch): is playwright-core importable and a browser present? */
   async available(): Promise<{ ok: boolean; executable?: string; reason?: string }> {
     if (!this.launcher) {
@@ -519,7 +533,14 @@ export class BrowserManager implements BrowserTakeover {
     }
     const cfg = this.config.get().browser ?? { headless: true };
     // a proxied browser runs on the session's profile's engine, in a fresh folder of its own
-    const { engine, fresh } = proxied ? { engine: this.engineToUse(name).engine, fresh: false } : this.engineToUse(name);
+    let { engine, fresh } = proxied ? { engine: this.engineToUse(name).engine, fresh: false } : this.engineToUse(name);
+    // a preview is design work: stock Chromium whatever the profile's engine, the configured browser only when there is none
+    const stock = proxied?.preview ? this.stockExecutable() : undefined;
+    if (stock) engine = 'chromium';
+    else if (proxied?.preview) {
+      const what = engine === 'cloak' ? 'CloakBrowser' : cfg.executablePath ? `the configured browser (${cfg.executablePath})` : 'the configured browser';
+      proxied.preview.log({ kind: 'note', text: `No stock Chromium on the hub, so the preview runs on ${what}: console messages may be missing and fonts, scale and theme may be off. Install Chromium in Settings, Browser, Engines.` });
+    }
     // a new profile that gets CloakBrowser keeps it, written before its folder is made, so a failed first launch does not turn it into Chromium
     if (fresh && engine === 'cloak' && !this.config.get().browser?.profiles?.[name]?.engine) this.config.update({ browser: { profiles: { [name]: { engine: 'cloak' } } } } as Partial<ConclaveConfig>);
     const headless = cfg.headless !== false;
@@ -531,7 +552,7 @@ export class BrowserManager implements BrowserTakeover {
       executablePath = cloakExecutable(cfg, name);
       await verifyCloakBinary(executablePath, cfg.cloak?.sha256);
     } else {
-      executablePath = this.executable();
+      executablePath = stock ?? this.executable();
       if (cfg.executablePath && !executablePath) throw new Error(`browser.executablePath not found: ${cfg.executablePath}`);
     }
     const dir = proxied ? this.proxyDir() : join(this.profilesDir(), name);

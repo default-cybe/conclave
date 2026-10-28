@@ -2027,7 +2027,10 @@ shows the exact line and runs it only when you press **Run**. An agent can
 also open a plain HTML file of the session folder instead of a server.
 
 The page shows in a fresh browser on the hub, one per session, with no saved
-logins. The toolbar sets the width (390, 768 or 1440) and the theme, reloads,
+logins. It is always stock Chromium, even when your profiles use CloakBrowser,
+whose spoofed fonts, scale and theme would throw off design work. Only a hub
+with no stock Chromium falls back to its configured browser, and the Console
+then says so. The toolbar sets the width (390, 768 or 1440) and the theme, reloads,
 and **Take over** hands you the page. **Pick** turns a click into a pick:
 the element's selector, its source file when the page names one (React 18 and
 Vue dev builds) and a crop go to the comment tray with what

@@ -213,7 +213,9 @@ live('preview (live Chromium)', () => {
     // stands in for the hub and another loopback service: the preview must not reach either
     hub = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: (r) => (hubHits.push(new URL(r.url).pathname), new Response('hub')) });
     other = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: (r) => (hubHits.push(`other${new URL(r.url).pathname}`), new Response('other')) });
-    const config = new ConfigStore(home, { browser: { headless: true, executablePath: exe } });
+    // CONCLAVE_PREVIEW_HUB_BROWSER=<CloakBrowser chrome>: a hub whose browser and profile are CloakBrowser still previews (and logs) on stock Chromium
+    const cloak = process.env.CONCLAVE_PREVIEW_HUB_BROWSER;
+    const config = new ConfigStore(home, { browser: cloak ? { headless: true, executablePath: cloak, profiles: { default: { engine: 'cloak' } }, cloak: { executablePath: cloak } } : { headless: true, executablePath: exe } });
     manager = new BrowserManager({ config });
     service = new PreviewService(manager, () => [hub.port as number]);
   });

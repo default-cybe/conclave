@@ -109,7 +109,7 @@ export interface PreviewStateDto {
 export interface PreviewLogDto {
   seq: number;
   at: number;
-  kind: 'console' | 'pageerror' | 'requestfailed' | 'response' | 'blocked';
+  kind: 'console' | 'pageerror' | 'requestfailed' | 'response' | 'blocked' | 'note';
   level?: string;
   text: string;
   url?: string;
