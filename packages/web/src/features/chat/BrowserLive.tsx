@@ -10,7 +10,7 @@
  * The rules of when it shows are in liveBrowser.ts (test/browser-live.test.ts).
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Globe } from 'lucide-react';
+import { Globe, Monitor } from 'lucide-react';
 import type { BrowserLiveDto } from '@conclave/core/client';
 import { api } from '@/lib/api';
 import { useIsMobile } from '@/lib/hooks';
@@ -20,12 +20,33 @@ import { Button } from '@/components/ui/Button';
 import { Dialog } from '@/components/ui/Overlay';
 import { RemotePage } from '@/features/settings/RemotePage';
 import { browserCalls, liveWords, showLive } from './liveBrowser';
+import { usePreviewOpen, togglePreview } from '@/features/preview/PreviewPane';
 
 /** How often the line asks the hub whether the session's page is open, while the session has used the browser. */
 const STATUS_MS = 3_000;
 
-/** narrow: the Chat page's column (784px), else the session view's (924px). */
-export function BrowserLive({ sessionId, narrow = false }: { sessionId: string; narrow?: boolean }) {
+/** The Preview pane's switch (features/preview), on the live line's row; Code sessions only. */
+export function PreviewButton({ sessionId }: { sessionId: string }) {
+  const open = usePreviewOpen((s) => s.id === sessionId);
+  return (
+    <button
+      type="button"
+      data-preview-button=""
+      aria-pressed={open}
+      onClick={() => togglePreview(sessionId)}
+      className={cn(
+        'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-rule-2 bg-raise px-2.5 text-[12.5px] transition-colors duration-[var(--dur-1)] hov:text-fg phone:h-9 phone:px-3.5 phone:text-[14px]',
+        open ? 'text-fg' : 'text-fg-2',
+      )}
+    >
+      <Monitor aria-hidden strokeWidth={1.75} className={cn('size-3.5', open ? 'text-signal' : 'text-fg-3')} />
+      Preview
+    </button>
+  );
+}
+
+/** narrow: the Chat page's column (784px), else the session view's (924px). preview: show the Preview switch on the row. */
+export function BrowserLive({ sessionId, narrow = false, preview = false }: { sessionId: string; narrow?: boolean; preview?: boolean }) {
   const messages = useHub((s) => s.messages[sessionId]);
   const tools = useHub((s) => s.tools);
   const calls = useMemo(() => browserCalls(messages, (id) => tools[id]?.status === 'running'), [messages, tools]);
@@ -48,10 +69,13 @@ export function BrowserLive({ sessionId, narrow = false }: { sessionId: string; 
     };
   }, [sessionId, calls.used]);
 
-  if (!showLive(calls, live) && !open) return null;
+  const shown = showLive(calls, live) || open;
+  if (!shown && !preview) return null;
   const words = liveWords(live, calls.running);
   return (
-    <div className={cn('mx-auto flex w-full px-8 pb-1.5 anim-fade phone:px-4 phone:pb-1', narrow ? 'max-w-[784px]' : 'max-w-[924px]')}>
+    <div className={cn('mx-auto flex w-full gap-2 px-8 pb-1.5 anim-fade phone:px-4 phone:pb-1', narrow ? 'max-w-[784px]' : 'max-w-[924px]')}>
+      {preview && <PreviewButton sessionId={sessionId} />}
+      {shown && (
       <button
         type="button"
         data-browser-live=""
@@ -63,6 +87,7 @@ export function BrowserLive({ sessionId, narrow = false }: { sessionId: string; 
         <span className={cn('truncate', live?.held && 'text-warn')}>{words}</span>
         <span className="shrink-0 text-fg-3">Watch</span>
       </button>
+      )}
       {open && <LiveDialog sessionId={sessionId} live={live} onLive={setLive} onClose={() => setOpen(false)} />}
     </div>
   );

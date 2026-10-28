@@ -853,6 +853,46 @@ export const CASES: Case[] = [
       expect(r).toMatchObject({ code: 0, bytes: 22888896, stderr: 'tail\n' });
     },
   },
+  // ----- protocol 6: a TCP stream to a loopback port (the Preview pane's relay)
+  {
+    name: 'connect: bytes round trip to a loopback echo, low ports refused, a closed port fails, kill closes',
+    rpc: ['connect', 'proc.stdin', 'proc.stdout', 'proc.kill', 'proc.exit'],
+    run: async (m) => {
+      const echo = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data: (s, d) => void s.write(`echo:${new TextDecoder().decode(d)}`) } });
+      try {
+        const p = m.connect!(echo.port);
+        const out = new Response(p.stdout).text();
+        p.write('hello ✓');
+        await Bun.sleep(150);
+        p.kill();
+        const code = await p.exited;
+        const low = (port: number) =>
+          outcome(async () => {
+            const q = m.connect!(port);
+            return { code: await q.exited, stderr: await new Response(q.stderr).text() };
+          });
+        const refused = await low(80);
+        const ssh = await low(22);
+        // a port nobody listens on: one line on stderr, exit null
+        const free = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data: () => {} } });
+        const closedPort = free.port;
+        free.stop(true);
+        const q = m.connect!(closedPort);
+        const err = new Response(q.stderr).text();
+        return { echoed: await out, code, refused, ssh, closed: { code: await q.exited, stderr: (await err).replace(String(closedPort), 'PORT') } };
+      } finally {
+        echo.stop(true);
+      }
+    },
+    check: (v) => {
+      const r = (v as { ok: Record<string, any> }).ok;
+      expect(r.echoed).toBe('echo:hello ✓');
+      expect(r.code).toBe(0);
+      // the hub's machine refuses at once; a daemon answers the RPC with the same error, on stderr
+      for (const x of [r.refused, r.ssh]) expect(JSON.stringify(x)).toContain('is not allowed: only loopback ports 1024 to 65535.');
+      expect(r.closed).toEqual({ code: null, stderr: 'connect ::1:PORT: ECONNREFUSED\n' });
+    },
+  },
   // ----- protocol 3: the daemon's recent log for the hub's logs export
   {
     name: 'logTail: the lines of this run, secrets filtered, the same shape on each daemon',

@@ -12,6 +12,7 @@ recipes:
   - diff-budget
 color: green
 icon: code
+optInTools: [preview_start, preview_stop, preview_logs, browser_screenshot, browser_snapshot, browser_click, browser_type]
 disallowedTools: LS, MultiEdit, RepoMap, EnterPlanMode, CalendarList, CalendarFreeBusy, CalendarEvent, MailDraft, PlaceSearch, PlaceDetails, Directions, MapImage
 ---
 

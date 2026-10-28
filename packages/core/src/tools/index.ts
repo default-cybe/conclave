@@ -196,7 +196,7 @@ export function toolByName(name: string): Tool | undefined {
  * rule with content ("Bash(zpool status -x)") brings one back, and then only
  * the calls that rule covers run without asking.
  */
-export const UNTRUSTED_DENY = ['Bash', 'BashOutput', 'KillShell', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'MemorySave', 'MemoryForget', 'ScheduleRoutine', 'GoalList', 'GoalGet', 'GoalCreate', 'GoalUpdate', 'GoalLog', 'DayPlan', 'ProactivePrefs', 'Workflow', 'WorkflowStatus', 'SessionSearch', 'SessionRead', 'SkillManage', 'PlaceSearch', 'PlaceDetails', 'Directions', 'MapImage', 'CalendarList', 'CalendarFreeBusy', 'CalendarEvent', 'MailDraft', 'WatchCreate', 'Delegate', 'ShareFile', 'RenderFile'];
+export const UNTRUSTED_DENY = ['Bash', 'BashOutput', 'KillShell', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'MemorySave', 'MemoryForget', 'ScheduleRoutine', 'GoalList', 'GoalGet', 'GoalCreate', 'GoalUpdate', 'GoalLog', 'DayPlan', 'ProactivePrefs', 'Workflow', 'WorkflowStatus', 'SessionSearch', 'SessionRead', 'SkillManage', 'PlaceSearch', 'PlaceDetails', 'Directions', 'MapImage', 'CalendarList', 'CalendarFreeBusy', 'CalendarEvent', 'MailDraft', 'WatchCreate', 'Delegate', 'ShareFile', 'RenderFile', 'preview_start'];
 
 /** Tools an untrusted session keeps without naming them: they touch nothing outside the session. */
 export const UNTRUSTED_SAFE = ['TodoWrite', 'AskUserQuestion', 'ReadToolOutput', 'EnterPlanMode', 'ExitPlanMode', 'StructuredOutput'];

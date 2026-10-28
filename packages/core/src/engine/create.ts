@@ -22,6 +22,7 @@ import { AcpAdapter } from '../acp/adapter';
 import { harnessesOffOnce } from '../acp/harness-off';
 import { BrowserManager } from '../browser/manager';
 import { browserTools } from '../browser/tools';
+import { PreviewService, previewTools } from '../browser/preview';
 import { Engine } from './engine';
 import { completeText } from '../session/stream';
 import type { HookEvent, HooksConfig } from '../config/schema';
@@ -212,7 +213,22 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
 
   const browser = new BrowserManager({ config });
   setWebFetchBrowser(browser);
-  const optInTools = browserTools(browser);
+  // the Preview pane of Code sessions (browser/preview.ts): its tools act on the session's browser
+  // the hub's ports a hub session may not preview: its server (startServer adds the real one) and the loopback model
+  // providers it runs or uses (the built-in CLIProxyAPI)
+  const preview = new PreviewService(browser, () => {
+    const cfg = config.get();
+    const local = Object.values(cfg.providers ?? {}).map((p) => {
+      try {
+        const u = new URL((p as { baseUrl?: string }).baseUrl ?? '');
+        return ['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname) ? Number(u.port || 80) : undefined;
+      } catch {
+        return undefined;
+      }
+    });
+    return [cfg.server.port, cfg.models?.cliproxy?.port, 8317, ...local];
+  });
+  const optInTools = [...browserTools(browser), ...previewTools(preview)];
   // watches (watches/service.ts): made once the engine exists
   let watches: WatchService | undefined;
 
@@ -269,6 +285,11 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
   );
 
   (engine as unknown as { browser: BrowserManager }).browser = browser;
+  (engine as unknown as { preview: PreviewService }).preview = preview;
+  // a deleted session's preview stops with it: its server, relay and browser
+  bus.on((e) => {
+    if (e.type === 'session.deleted') void preview.stop(e.sessionId).catch(() => {});
+  });
   // accounts and their order (accounts/service.ts): the registry follows it, so a signed in plan goes before the API key
   const accounts = new AccountsService({ config, repos, bus, notify: (title, body) => engine.notifyEvent('limitReset', { title, body, level: 'warning', link: '/settings/accounts' }), readKeyPlan: () => usage.refreshZai() });
   setAccounts(engine, accounts);

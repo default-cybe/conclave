@@ -143,6 +143,9 @@ export class MachineServer {
       }
       case 'spawn':
         return this.spawn(req.id, req.params);
+      // version 6: a TCP stream to a loopback port, over the proc.* frames
+      case 'connect':
+        return this.spawn(req.id, req.params);
       // version 2: folders across devices. The API key in config.xml never leaves this device.
       case 'syncthingFolders':
         return this.reply(id, async () => (m.syncthingFolders ? m.syncthingFolders() : notImplemented('syncthingFolders')));
@@ -184,17 +187,20 @@ export class MachineServer {
   }
 
   /** Spawn synchronously so stdin frames that follow the request find the process. */
-  private spawn(id: number, params: Extract<RpcRequest, { method: 'spawn' }>['params']): void {
+  private spawn(id: number, params: RpcParams['spawn'] | RpcParams['connect']): void {
     const { handle } = params;
     let proc: MachineProcess;
     try {
-      proc = this.machine.spawn(params.command, params.args ?? [], params.opts);
+      if ('port' in params) {
+        if (!this.machine.connect) notImplemented('connect');
+        proc = this.machine.connect(params.port);
+      } else proc = this.machine.spawn(params.command, params.args ?? [], params.opts);
     } catch (err) {
       this.send({ type: 'result', id, error: toWireError(err) });
       return;
     }
     this.procs.set(handle, proc);
-    this.send({ type: 'result', id, result: { pid: proc.pid } });
+    this.send({ type: 'result', id, result: 'port' in params ? null : { pid: proc.pid } });
     const pump = async (stream: ReadableStream<Uint8Array>, type: 'proc.stdout' | 'proc.stderr') => {
       const reader = stream.getReader();
       try {

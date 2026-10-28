@@ -24,15 +24,17 @@ import type { UpdateManifest } from '../update/manifest';
  * the hub's logs export). Version 4 adds selfUpdate (the daemon replaces its
  * own binary with the hub's version and restarts). Version 5 adds importAppend
  * (Conclave's turns written back into a Claude Code chat, import/writeback.ts).
+ * Version 6 adds connect (a TCP stream to a loopback port on the device, for
+ * the Preview pane, browser/preview.ts); its bytes use the proc.* frames.
  * The hub accepts any version from
  * MIN_PROTOCOL_VERSION to PROTOCOL_VERSION and calls the newer RPCs only on
  * daemons that speak them.
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 export const MIN_PROTOCOL_VERSION = 1;
 
 /** First version with each RPC added after version 1. */
-export const RPC_SINCE: Partial<Record<RpcMethod, number>> = { syncthingFolders: 2, syncthingStatus: 2, readRange: 2, importScan: 2, importRead: 2, logTail: 3, selfUpdate: 4, importAppend: 5 };
+export const RPC_SINCE: Partial<Record<RpcMethod, number>> = { syncthingFolders: 2, syncthingStatus: 2, readRange: 2, importScan: 2, importRead: 2, logTail: 3, selfUpdate: 4, importAppend: 5, connect: 6 };
 
 /** Both sides ping every HEARTBEAT_MS. A peer silent for HEARTBEAT_MS * 3 is treated as gone. */
 export const HEARTBEAT_MS = 20_000;
@@ -89,6 +91,9 @@ export interface RpcParams {
   selfUpdate: { version: string; manifest: UpdateManifest };
   // ----- version 5: Conclave's turns appended to a Claude Code chat, checked on the device that holds it -----
   importAppend: ImportAppendParams;
+  // ----- version 6: a TCP stream to 127.0.0.1 (or ::1) on the device, ports 1024 and up only -----
+  /** handle as for spawn: the bytes go in proc.stdin and come back in proc.stdout, proc.exit when it closes, proc.kill closes it. */
+  connect: { handle: number; port: number };
 }
 
 export interface RpcResults {
@@ -120,6 +125,8 @@ export interface RpcResults {
   /** The new binary is in place and checked; the daemon restarts right after this answer. */
   selfUpdate: SelfUpdateResult;
   importAppend: ImportAppendResult;
+  /** The socket is open. */
+  connect: null;
 }
 
 export interface SelfUpdateResult {
@@ -154,6 +161,7 @@ export const RPC_METHODS: RpcMethod[] = [
   'logTail',
   'selfUpdate',
   'importAppend',
+  'connect',
 ];
 
 export interface WireError {

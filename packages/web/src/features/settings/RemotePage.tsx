@@ -26,6 +26,9 @@ export function RemotePage({
   phoneWidth = false,
   problem: outer,
   help,
+  bare = false,
+  onPoint,
+  maxHeight,
 }: {
   /** A new key starts polling again from the first frame. */
   viewKey: string;
@@ -37,6 +40,12 @@ export function RemotePage({
   phoneWidth?: boolean;
   problem?: string;
   help: string;
+  /** No address bar and no type-in row (the Preview pane has its own toolbar). */
+  bare?: boolean;
+  /** A click goes here, in page pixels, instead of to the page (the Preview's element picker). */
+  onPoint?: (p: { x: number; y: number }) => void;
+  /** The picture's tallest size; default 44vh (44dvh on a phone). */
+  maxHeight?: string;
 }) {
   const phone = useIsMobile();
   const [frame, setFrame] = useState<SignInFrameDto>();
@@ -97,6 +106,7 @@ export function RemotePage({
   };
   const onClick = (e: MouseEvent) => {
     const p = point(e);
+    if (onPoint) return onPoint(p);
     box.current?.focus();
     void send([
       { type: 'mouse', action: 'move', ...p },
@@ -155,7 +165,7 @@ export function RemotePage({
 
   return (
     <>
-      {interactive && (
+      {interactive && !bare && (
         <form
           className="mb-2 flex gap-2"
           onSubmit={(e) => {
@@ -187,18 +197,18 @@ export function RemotePage({
             src={`data:image/jpeg;base64,${frame.data}`}
             alt="The page on the hub"
             draggable={false}
-            onClick={interactive ? onClick : undefined}
+            onClick={interactive || onPoint ? onClick : undefined}
             onWheel={interactive ? onWheel : undefined}
             onTouchStart={interactive ? onTouchStart : undefined}
             onTouchEnd={interactive ? onTouchEnd : undefined}
-            className={cn('block h-auto w-auto max-w-full select-none', interactive ? 'cursor-default touch-pan-x' : 'cursor-not-allowed')}
-            style={{ maxHeight: phone ? '44dvh' : '44vh', aspectRatio: `${frame.width} / ${frame.height}` }}
+            className={cn('block h-auto w-auto max-w-full select-none', onPoint ? 'cursor-crosshair' : interactive ? 'cursor-default touch-pan-x' : 'cursor-not-allowed')}
+            style={{ maxHeight: maxHeight ?? (phone ? '44dvh' : '44vh'), aspectRatio: `${frame.width} / ${frame.height}` }}
           />
         ) : (
           <p className="absolute inset-0 grid place-items-center text-[13px] text-fg-3">Opening the page</p>
         )}
       </div>
-      {interactive && (
+      {interactive && !bare && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <div className={cn('min-w-0 flex-1', phone && 'basis-full')}>
             <Input

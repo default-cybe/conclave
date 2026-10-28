@@ -107,6 +107,48 @@ export interface Screenshot {
   note?: string;
 }
 
+/** Host of the session folder's files in a preview browser (preview.ts); it never resolves, the browser's route serves it. */
+export const PREVIEW_FILE_HOST = 'preview.invalid';
+
+/** One line of a preview's log: a console error, a page error, a failed request, an error answer, a blocked address. */
+export interface PreviewLogEntry {
+  kind: 'console' | 'pageerror' | 'requestfailed' | 'response' | 'blocked';
+  level?: string;
+  text: string;
+  url?: string;
+  status?: number;
+}
+
+/**
+ * What a session's preview browser may reach (useProxy's sibling, startPreview):
+ * its own dev server through the relays and the session folder's files,
+ * nothing else. preview.ts makes it.
+ */
+export interface PreviewGuard {
+  /** True for an address the page may load: the session's relays. */
+  allows(url: URL): boolean;
+  /** A file of the session folder under http://preview.invalid/, or undefined. */
+  file(path: string): Promise<{ body: Uint8Array; contentType: string } | undefined>;
+  log(entry: PreviewLogEntry): void;
+}
+
+/**
+ * Chromium flags of a preview browser, for what context.route never sees: no
+ * DNS but localhost (dns-prefetch, preconnect), WebRTC only through a proxy
+ * that is a dead loopback port (no STUN/TURN to the LAN or the metadata
+ * address), and no QUIC (WebTransport).
+ */
+export const PREVIEW_NET_FLAGS = [
+  '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost',
+  '--proxy-server=http://127.0.0.1:9',
+  WEBRTC_PROXY_FLAG,
+  // WebTransport rides HTTP/3; a second --disable-features would replace Playwright's own list
+  '--disable-quic',
+];
+
+/** A file the preview serves runs as a page of preview.invalid and may load only from there. */
+const PREVIEW_FILE_CSP = "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; connect-src 'self'; form-action 'self'";
+
 interface PageState {
   page: Page;
   refs: Map<string, Locator>;
@@ -146,6 +188,8 @@ interface ProfileState {
    * login of a profile ever goes through the proxy.
    */
   proxied?: { sessionId: string; label: string; country?: string; exit: Promise<ProbeResult> };
+  /** Set for a session's preview browser: the same throwaway folder, no proxy, only the guard's addresses. */
+  preview?: PreviewGuard;
   /** The loopback relay in front of a SOCKS5 proxy that needs a login. */
   relay?: SocksRelay;
   context: BrowserContext;
@@ -313,7 +357,7 @@ export class BrowserManager implements BrowserTakeover {
   /** Requests blocked per read-only session. */
   private blockedCount = new Map<string, number>();
   /** Sessions that go out through the proxy (asked for, or a blocked page's retry), with the country. Nothing else uses the proxy. */
-  private sessionProxy = new Map<string, { country?: string }>();
+  private sessionProxy = new Map<string, { country?: string; preview?: PreviewGuard }>();
   /** The throwaway proxied browser of each such session. */
   private proxiedStates = new Map<string, ProfileState>();
   private readonly probe: (p: ProxyEntry) => Promise<ProbeResult>;
@@ -462,7 +506,7 @@ export class BrowserManager implements BrowserTakeover {
     return p;
   }
 
-  private async launch(name: string, proxied?: { sessionId: string; proxy: ResolvedProxy }): Promise<ProfileState> {
+  private async launch(name: string, proxied?: { sessionId: string; proxy?: ResolvedProxy; preview?: PreviewGuard }): Promise<ProfileState> {
     const epoch = this.epoch;
     let chromium: Pick<BrowserType, 'launchPersistentContext'>;
     if (this.launcher) chromium = this.launcher;
@@ -510,7 +554,9 @@ export class BrowserManager implements BrowserTakeover {
     const proxy = proxied?.proxy;
     let relay: SocksRelay | undefined;
     let proxyOption: Options['proxy'];
-    const withProxy = (o: Options): Options => (proxyOption ? { ...o, proxy: proxyOption, args: [...(o.args ?? []), WEBRTC_PROXY_FLAG] } : o);
+    // a preview browser keeps no service worker, saves no download and is granted nothing
+    const lockdown = (o: Options): Options => (proxied?.preview ? { ...o, serviceWorkers: 'block', acceptDownloads: false, permissions: [], args: [...(o.args ?? []), ...PREVIEW_NET_FLAGS] } : o);
+    const withProxy = (o: Options): Options => lockdown(proxyOption ? { ...o, proxy: proxyOption, args: [...(o.args ?? []), WEBRTC_PROXY_FLAG] } : o);
 
     // a sandbox Chromium cannot start is never retried without it
     const start = async (o: Options) => {
@@ -557,6 +603,10 @@ export class BrowserManager implements BrowserTakeover {
         await context.close().catch(() => {});
         throw new Error('Browser was closed while starting');
       }
+      if (proxied?.preview) await this.guardPreview(context, proxied.preview).catch(async (err) => {
+        await context.close().catch(() => {});
+        throw err;
+      });
     } catch (err) {
       // a launch that did not happen leaves no relay and no proxied folder behind
       await relay?.close();
@@ -574,7 +624,8 @@ export class BrowserManager implements BrowserTakeover {
       spare: [...context.pages()],
       lastUsed: Date.now(),
       closing: false,
-      ...(proxied ? { proxied: { sessionId: proxied.sessionId, label: proxied.proxy.label, country: proxied.proxy.country, exit: this.probe(proxied.proxy.entry) } } : {}),
+      ...(proxied?.proxy ? { proxied: { sessionId: proxied.sessionId, label: proxied.proxy.label, country: proxied.proxy.country, exit: this.probe(proxied.proxy.entry) } } : {}),
+      ...(proxied?.preview ? { proxied: { sessionId: proxied.sessionId, label: 'preview', exit: Promise.resolve({ ok: false, proxy: '', ms: 0, error: 'no proxy' }) }, preview: proxied.preview } : {}),
       ...(relay ? { relay } : {}),
     };
     // the check runs alongside; a failed one is a line in the tool result, not a failed launch
@@ -585,11 +636,97 @@ export class BrowserManager implements BrowserTakeover {
     this.startTimer();
     // the proxy's label: no login, no password
     log.info(
-      proxied
+      proxied?.preview
+        ? `preview browser for session ${proxied.sessionId} started (${ENGINE_LABEL[engine]})`
+        : proxied?.proxy
         ? `browser for session ${proxied.sessionId} started through the proxy (${proxied.proxy.label}, ${ENGINE_LABEL[engine]}${relay ? ', through a loopback relay' : ''})`
         : `browser profile "${name}" started (${ENGINE_LABEL[engine]}${executablePath ? `, ${executablePath}` : ''})`,
     );
     return state;
+  }
+
+  /**
+   * A preview browser's fence: every request and WebSocket goes to the guard.
+   * preview.invalid is answered from the session folder; an address the guard
+   * does not allow (the hub, other loopback ports, the LAN, the internet) is aborted.
+   */
+  private async guardPreview(context: BrowserContext, guard: PreviewGuard): Promise<void> {
+    await context.route('**/*', async (route) => {
+      let u: URL;
+      try {
+        u = new URL(route.request().url());
+      } catch {
+        return route.abort('blockedbyclient').catch(() => {});
+      }
+      if (u.hostname === PREVIEW_FILE_HOST && u.protocol === 'http:') {
+        let path: string | undefined;
+        try {
+          path = decodeURIComponent(u.pathname);
+        } catch {
+          path = undefined; // a bad escape such as %E0 is a 404, not a request left hanging
+        }
+        const f = path === undefined ? undefined : await guard.file(path).catch(() => undefined);
+        const headers = { 'x-content-type-options': 'nosniff', 'content-security-policy': PREVIEW_FILE_CSP, 'cache-control': 'no-store' };
+        return route
+          .fulfill(f ? { status: 200, body: Buffer.from(f.body), headers: { ...headers, 'content-type': f.contentType } } : { status: 404, body: 'Not found', headers: { ...headers, 'content-type': 'text/plain' } })
+          .catch(() => {});
+      }
+      if (guard.allows(u)) return route.fallback();
+      guard.log({ kind: 'blocked', text: `Blocked ${oneLine(u.origin, 200)}: the preview reaches only its own dev server.`, url: oneLine(`${u.origin}${u.pathname}`, 300) });
+      return route.abort('blockedbyclient').catch(() => {});
+    });
+    await context.routeWebSocket(
+      () => true,
+      (ws) => {
+        let ok = false;
+        try {
+          ok = guard.allows(new URL(ws.url()));
+        } catch {
+          ok = false;
+        }
+        if (ok) return void ws.connectToServer();
+        guard.log({ kind: 'blocked', text: `Blocked a WebSocket to ${oneLine(ws.url(), 120)}.` });
+        void ws.close({ code: 1008, reason: 'blocked' }).catch(() => {});
+      },
+    );
+  }
+
+  /** Errors of a preview page for its log (preview_logs, the pane's console). */
+  private watchPreview(page: Page, guard: PreviewGuard): void {
+    page.on('console', (m) => {
+      const level = m.type();
+      if (level === 'error' || level === 'warning') guard.log({ kind: 'console', level, text: oneLine(m.text(), 2000), url: m.location()?.url ? oneLine(m.location().url, 300) : undefined });
+    });
+    page.on('pageerror', (e) => guard.log({ kind: 'pageerror', text: oneLine(e.stack || e.message, 2000) }));
+    page.on('requestfailed', (r) => {
+      const why = r.failure()?.errorText ?? 'failed';
+      // the fence logged its own block already
+      if (!/ERR_BLOCKED_BY_CLIENT/.test(why)) guard.log({ kind: 'requestfailed', text: oneLine(`${r.method()} ${why}`, 300), url: oneLine(r.url(), 300) });
+    });
+    page.on('response', (r) => {
+      if (r.status() >= 400) guard.log({ kind: 'response', text: oneLine(`${r.request().method()} ${r.status()} ${r.statusText()}`, 300), url: oneLine(r.url(), 300), status: r.status() });
+    });
+  }
+
+  /**
+   * Point the session's browser at a fresh preview browser behind `guard`
+   * (preview.ts): no profile, no logins, no proxy. The session's tools and
+   * live view use it until stopPreview.
+   */
+  async startPreview(sessionId: string, guard: PreviewGuard): Promise<void> {
+    await this.closeProxied(sessionId);
+    this.sessionProxy.set(sessionId, { preview: guard });
+  }
+
+  async stopPreview(sessionId: string): Promise<void> {
+    if (!this.sessionProxy.get(sessionId)?.preview) return;
+    this.sessionProxy.delete(sessionId);
+    await this.closeProxied(sessionId);
+  }
+
+  /** True while the session's browser is its preview. */
+  previewing(sessionId: string): boolean {
+    return !!this.sessionProxy.get(sessionId)?.preview;
   }
 
   // -------------------------------------------------------------------------
@@ -618,6 +755,7 @@ export class BrowserManager implements BrowserTakeover {
    * where they are for when the proxy is off again.
    */
   async useProxy(sessionId: string, want: boolean | string): Promise<SessionProxyInfo | undefined> {
+    if (this.previewing(sessionId)) throw new Error('This session shows its Preview; call preview_stop before using the proxy.');
     if (want === false) {
       this.sessionProxy.delete(sessionId);
       await this.closeProxied(sessionId);
@@ -650,7 +788,7 @@ export class BrowserManager implements BrowserTakeover {
    */
   async proxyInfo(sessionId: string, waitMs = 0): Promise<SessionProxyInfo | undefined> {
     const want = this.sessionProxy.get(sessionId);
-    if (!want) return undefined;
+    if (!want || want.preview) return undefined;
     const st = this.proxiedStates.get(sessionId);
     const label = st?.proxied?.label ?? (want.country ? countryLabel(want.country) : 'the hub\'s proxy');
     const base: SessionProxyInfo = { label, ...(want.country ? { country: want.country } : {}) };
@@ -682,7 +820,7 @@ export class BrowserManager implements BrowserTakeover {
     if (st) await this.closeProfile(st);
   }
 
-  private async ensureProxied(sessionId: string, want: { country?: string }): Promise<ProfileState> {
+  private async ensureProxied(sessionId: string, want: { country?: string; preview?: PreviewGuard }): Promise<ProfileState> {
     const open = this.proxiedStates.get(sessionId);
     if (open && !open.closing) {
       open.lastUsed = Date.now();
@@ -691,8 +829,8 @@ export class BrowserManager implements BrowserTakeover {
     const key = `\0proxy\0${sessionId}`;
     let p = this.launching.get(key);
     if (!p) {
-      const proxy = resolveProxy(this.config.get().browser?.proxy, (n) => this.config.secretValue(n), want.country);
-      p = this.launch(this.profileFor(sessionId), { sessionId, proxy }).finally(() => this.launching.delete(key));
+      const target = want.preview ? { sessionId, preview: want.preview } : { sessionId, proxy: resolveProxy(this.config.get().browser?.proxy, (n) => this.config.secretValue(n), want.country) };
+      p = this.launch(this.profileFor(sessionId), target).finally(() => this.launching.delete(key));
       this.launching.set(key, p);
     }
     return p;
@@ -783,6 +921,7 @@ export class BrowserManager implements BrowserTakeover {
   }
 
   private async activeState(sessionId: string, profile?: string): Promise<PageState> {
+    this.onActivity?.(sessionId);
     const { p, s } = await this.sessionState(sessionId, profile);
     if (!s.tabs.length) await this.openTab(p, s);
     s.active = Math.min(Math.max(0, s.active), s.tabs.length - 1);
@@ -799,6 +938,7 @@ export class BrowserManager implements BrowserTakeover {
     const st: PageState = { page, refs: new Map(), input: new InputState() };
     // a read-only session's tab (and every popup it opens) is guarded before it loads anything more
     if (this.readOnly.has(s.sessionId)) await this.guardPage(s, st);
+    if (p.preview) this.watchPreview(page, p.preview);
     s.tabs.push(st);
     s.active = s.tabs.length - 1;
     page.on('popup', (popup) => {
@@ -1671,7 +1811,7 @@ export class BrowserManager implements BrowserTakeover {
       }
     });
     await bounded('showing the tab', CDP_MS, page.bringToFront()).catch(() => {});
-    await bounded('Page.startScreencast', CDP_MS, raw.send('Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: 1280, maxHeight: 1280, everyNthFrame: 1 }));
+    await bounded('Page.startScreencast', CDP_MS, raw.send('Page.startScreencast', { format: 'jpeg', quality: 60, maxWidth: 1600, maxHeight: 1600, everyNthFrame: 1 }));
   }
 
   private cdpFor(st: PageState): Promise<CDPSession> {
@@ -1726,6 +1866,15 @@ export class BrowserManager implements BrowserTakeover {
       addNote(s, 'The owner used this browser and gave it back. The page may have changed: take a new browser_snapshot before using refs.');
     }
     for (const done of [...waiters]) done();
+  }
+
+  /** Called on every use of a session's page (tools, live view): the Preview's idle timer listens. */
+  onActivity?: (sessionId: string) => void;
+
+  /** A line for the session's next browser tool result (what the owner did in the Preview pane). */
+  note(sessionId: string, text: string): void {
+    const s = this.stateNow(sessionId)?.sessions.get(sessionId);
+    if (s) addNote(s, text);
   }
 
   /**

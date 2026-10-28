@@ -23,6 +23,7 @@ import { ContextPanel, PANEL_W } from '@/features/chat/ContextPanel';
 import { ImportSheet } from '@/features/import/ImportSheet';
 import { FILES_EVENT } from '@/features/conversation/ChatComposer';
 import { PreviewSheet } from '@/features/conversation/Preview';
+import { PreviewDock, usePreviewOpen } from '@/features/preview/PreviewPane';
 import { EmptyConversation } from './EmptyConversation';
 import { PhoneHome } from './PhoneHome';
 import { modeOf, setStartMode, useStartMode } from './start';
@@ -39,6 +40,7 @@ export default function ConversationPage() {
   const contextOpen = useUi((s) => s.contextOpen);
   const drawer = useUi((s) => s.drawerOpen);
   const [drag, setDrag] = useState(false);
+  const previewing = usePreviewOpen((s) => !!id && s.id === id);
   const mode = session ? modeOf(session) : remembered;
   const setDrawer = (v: boolean) => useUi.getState().set({ drawerOpen: v });
 
@@ -61,11 +63,13 @@ export default function ConversationPage() {
       <div className="flex min-h-0 flex-1">
         <ChatView session={session} />
         <ImportSheet />
+        <PreviewDock session={session} />
       </div>
     );
   }
 
-  const panel = !!session && wide && contextOpen;
+  // the Preview column takes the panel's place
+  const panel = !!session && wide && contextOpen && !previewing;
   const sideMode = mode === 'chat' ? 'assistant' : mode;
 
   const onDragOver = (e: DragEvent) => {
@@ -107,6 +111,7 @@ export default function ConversationPage() {
           <ContextPanel session={session} />
         </div>
       )}
+      {session && <PreviewDock session={session} />}
       {session && !wide && (
         <SideSheet open={drawer} onClose={() => setDrawer(false)} width={PANEL_W} label="Session details" modal={false}>
           <ContextPanel session={session} onClose={() => setDrawer(false)} />

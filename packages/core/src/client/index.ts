@@ -94,6 +94,34 @@ import type {
   WatchSummaryDto,
 } from './watches';
 export type * from './watches';
+/** A Code session's Preview (browser/preview.ts PreviewState; that file imports node:net, so the shape is here). */
+export interface PreviewStateDto {
+  running: boolean;
+  name?: string;
+  url?: string;
+  targets: Array<{ name: string; url: string }>;
+  logs: number;
+  server?: 'running' | 'exited';
+  /** An untrusted folder's launch.json: what it would run, for the owner to confirm. */
+  confirm?: { name: string; command: string };
+}
+/** One line of the Preview's console (browser/manager.ts PreviewLogEntry). Page text: shown, never run. */
+export interface PreviewLogDto {
+  seq: number;
+  at: number;
+  kind: 'console' | 'pageerror' | 'requestfailed' | 'response' | 'blocked';
+  level?: string;
+  text: string;
+  url?: string;
+  status?: number;
+}
+export interface PreviewPickDto {
+  pick: { selector: string; source?: string; components?: string[]; url: string; rect: { x: number; y: number; width: number; height: number } };
+  /** PNG, base64. */
+  image?: string;
+  /** The pick for the agent, inside <untrusted_web_content>. */
+  text: string;
+}
 // ----- chat import DTOs: block "import", docs/design/ROUND-IMPORT-PATHS-WORKFLOWS.md 1.13 -----
 import type {
   ExternalSessionInfo,
@@ -2060,6 +2088,16 @@ export class ConclaveClient {
   browserControl = (sessionId: string, take: boolean) => this.request<BrowserLiveDto>('POST', `/api/browser/sessions/${encodeURIComponent(sessionId)}/control`, { take });
   /** Stop watching: the frames stop and a held browser goes back to the agent. */
   closeBrowserLive = (sessionId: string) => this.request<{ ok: true }>('DELETE', `/api/browser/sessions/${encodeURIComponent(sessionId)}/frame`);
+  /** A Code session's Preview pane (routes-preview.ts). */
+  previewState = (sessionId: string) => this.request<PreviewStateDto>('GET', `/api/sessions/${encodeURIComponent(sessionId)}/preview`);
+  /** Start it. A launch.json configuration in an untrusted folder answers confirm (the command) first; send it back as command to run it. */
+  previewStart = (sessionId: string, body: { name?: string; file?: string; command?: string }) => this.request<PreviewStateDto>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/preview/start`, body);
+  previewStop = (sessionId: string) => this.request<PreviewStateDto>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/preview/stop`);
+  previewReload = (sessionId: string) => this.request<{ ok: true }>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/preview/reload`);
+  previewView = (sessionId: string, v: { width?: number; colorScheme?: 'light' | 'dark' }) => this.request<{ ok: true }>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/preview/view`, v);
+  previewLogs = (sessionId: string, after = 0) => this.request<{ entries: PreviewLogDto[] }>('GET', `/api/sessions/${encodeURIComponent(sessionId)}/preview/logs`, undefined, { after: String(after) });
+  /** The element at (x, y) page pixels: text fenced as untrusted page data, and a PNG crop. */
+  previewPick = (sessionId: string, x: number, y: number) => this.request<PreviewPickDto>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/preview/pick`, { x, y });
   /** Install on the hub: run the steps the owner confirmed, exactly as shown. */
   browserSetup = (target: BrowserSetupTarget, steps: string[]) => this.request<BrowserSetupResult>('POST', '/api/browser/setup', { target, steps });
   /** Install system libraries: the root helper's browser-deps, the line the owner confirmed. */
