@@ -16,7 +16,7 @@
  * semantic zoom; Collapse all goes back to the brain and its areas. Two
  * more views (Tree / Rings / 3D) show how memories connect across areas:
  * Rings, every item a tick on a ring with every real link bundled through
- * the core (ring-model.ts, RingCanvas.tsx), and 3D, a holographic space of
+ * the core (ring-model.ts, RingCanvas.tsx), and 3D, a quiet studio space of
  * area clusters or a time axis (holo-model.ts, HoloCanvas.tsx, loaded only
  * when it opens). Rings stands in for 3D without WebGL or with reduced
  * motion. Filters, search, the scrubber and the drawer work in all three.
@@ -476,8 +476,8 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
   );
   const legend = holoOn
     ? space === 'clusters'
-      ? 'Each point is an item, bigger the more it links; each cluster an area; each line a real link, bent through the core when it crosses areas.'
-      : 'Time runs left to right, oldest first; each lane around the axis is an area; each line a real link, bent through the time spine when it crosses areas.'
+      ? 'Each point is an item, bigger the more it links; each cluster an area; each line a real link, bent through the middle when it crosses areas.'
+      : 'Time runs left to right, oldest first; each lane around the axis is an area; each line a real link, bent through the time axis when it crosses areas.'
     : ringsOn
       ? 'Inner ring: a tick per item, oldest to newest in its area, longer the more it links. Middle: area arcs, a tick every 10 items. Outer: writes over time; drag its handle to step back. Every curve is a real link through the core.'
       : 'A tick under a title: Conclave memory. Dashed: also in Basic Memory. None: a Basic Memory note.';

@@ -1,29 +1,23 @@
 /*
- * Memory > Map, 3D view (HoloCanvas.tsx). The one place the app may glow:
- * a cyan and violet holographic palette, the sweep, lock-on brackets and
- * crosshair ticks are allowed here only (docs/DESIGN.md, 29). Words stay in
+ * Memory > Map, 3D view (HoloCanvas.tsx). A quiet studio space: the app's
+ * neutrals, --signal only for what has focus, hairlines, no glow. What it
+ * still does differently from other screens is in docs/DESIGN.md (Memory >
+ * Map, 3D view): the soft key light behind the space. Words stay in
  * sentence case; mono only for numbers.
  */
 .holo {
-  --h-a: #0e7490;
-  --h-b: #6d28d9;
-  --h-ink: #082f3a;
-  --h-text: oklch(0.32 0.04 230);
-  --h-halo: var(--bg);
+  /* warm off-white in light, the app's near-black in dark */
+  --h-bg: oklch(0.975 0.005 80);
+  --h-key: oklch(1 0 0 / 0.75);
   overflow: hidden;
   outline: none;
   background:
-    radial-gradient(ellipse 70% 60% at 50% 48%, rgb(14 116 144 / 0.07), transparent 70%),
-    var(--bg);
+    radial-gradient(ellipse 80% 70% at 50% 18%, var(--h-key), transparent 72%),
+    var(--h-bg);
 }
 .holo[data-dark] {
-  --h-a: #67e8f9;
-  --h-b: #a78bfa;
-  --h-ink: #ecfeff;
-  --h-text: oklch(0.86 0.04 220);
-  background:
-    radial-gradient(ellipse 65% 55% at 50% 48%, rgb(34 211 238 / 0.09), rgb(124 58 237 / 0.04) 50%, transparent 78%),
-    var(--bg);
+  --h-bg: var(--bg);
+  --h-key: oklch(1 0 0 / 0.035);
 }
 .holo canvas {
   position: absolute;
@@ -39,7 +33,7 @@
 .holo-item,
 .holo-tick,
 .holo-core,
-.holo-lock,
+.holo-mark,
 .holo-leader,
 .holo-callout {
   position: absolute;
@@ -47,6 +41,14 @@
   top: 0;
   visibility: hidden;
   white-space: nowrap;
+}
+/* counts and dates: tabular mono figures */
+.holo-n,
+.holo-tick,
+.holo-row dd {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 .holo-area,
 .holo-item {
@@ -61,208 +63,157 @@
   align-items: baseline;
   gap: 6px;
   line-height: 20px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--h-ink);
-  text-shadow:
-    0 0 10px color-mix(in oklab, var(--h-a) 55%, transparent),
-    0 0 2px var(--h-halo);
-}
-.holo-area .num {
   font-size: 12px;
   font-weight: 500;
-  color: var(--h-a);
+  color: var(--fg-2);
+}
+.holo-area .holo-n {
+  font-size: 11px;
+  color: var(--fg-4);
+}
+.holo-area:hover,
+.holo-area[data-lit] {
+  color: var(--fg);
 }
 .holo-area[data-lit] .holo-area-n {
-  text-decoration: underline 1.5px var(--h-a);
+  text-decoration: underline 1px var(--signal);
   text-underline-offset: 4px;
 }
 .holo-item {
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 16px;
   text-align: left;
-  color: var(--h-text);
-  text-shadow:
-    0 0 3px var(--h-halo),
-    0 0 3px var(--h-halo),
-    0 0 6px var(--h-halo);
+  color: var(--fg-3);
 }
 .holo-item[data-near='1'],
 .holo-item:hover {
-  color: var(--h-ink);
+  color: var(--fg);
 }
 .holo-tick {
-  font-size: 11.5px;
+  font-size: 10.5px;
   line-height: 16px;
-  color: var(--h-text);
-  opacity: 0.75;
+  color: var(--fg-4);
 }
 .holo-tick[data-year='1'] {
-  font-weight: 600;
-  color: var(--h-a);
-  opacity: 1;
+  color: var(--fg-2);
 }
+/* the origin: a small dot, then "Memory 2,980" */
 .holo-core {
   display: flex;
-  width: 96px;
-  height: 40px;
-  flex-direction: column;
+  height: 20px;
   align-items: center;
-  justify-content: center;
-  line-height: 1.15;
-  text-shadow: 0 0 12px color-mix(in oklab, var(--h-a) 70%, transparent);
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-2);
 }
-.holo-core-n {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--h-ink);
+.holo-core-dot {
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--fg-2);
+  border-radius: 50%;
 }
-.holo-core-w {
-  font-size: 11px;
-  color: var(--h-a);
+.holo-core .holo-n {
+  margin-left: -3px;
+  font-weight: 400;
+  color: var(--fg-3);
 }
-/* the lock on: four corner brackets and four crosshair ticks */
-.holo-lock {
-  width: 30px;
-  height: 30px;
-  filter: drop-shadow(0 0 4px var(--h-a));
-}
-.holo-lock i {
-  position: absolute;
-  width: 9px;
-  height: 9px;
-  border: 0 solid var(--h-a);
-}
-.holo-lock i:nth-child(1) {
-  left: 0;
-  top: 0;
-  border-width: 1.5px 0 0 1.5px;
-}
-.holo-lock i:nth-child(2) {
-  right: 0;
-  top: 0;
-  border-width: 1.5px 1.5px 0 0;
-}
-.holo-lock i:nth-child(3) {
-  right: 0;
-  bottom: 0;
-  border-width: 0 1.5px 1.5px 0;
-}
-.holo-lock i:nth-child(4) {
-  left: 0;
-  bottom: 0;
-  border-width: 0 0 1.5px 1.5px;
-}
-.holo-lock::before,
-.holo-lock::after {
-  content: '';
-  position: absolute;
-  background: var(--h-a);
-}
-.holo-lock::before {
-  left: 50%;
-  top: -7px;
-  bottom: -7px;
-  width: 1px;
-  mask: linear-gradient(#000 0 6px, transparent 6px calc(100% - 6px), #000 calc(100% - 6px));
-}
-.holo-lock::after {
-  top: 50%;
-  left: -7px;
-  right: -7px;
-  height: 1px;
-  mask: linear-gradient(90deg, #000 0 6px, transparent 6px calc(100% - 6px), #000 calc(100% - 6px));
+/* focus: a fine ring on the item, one hairline to its card */
+.holo-mark {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--signal);
+  border-radius: 50%;
 }
 .holo-leader {
   width: 100%;
   height: 100%;
   overflow: visible;
 }
-.holo-leader polyline {
-  fill: none;
-  stroke: var(--h-a);
+.holo-leader line {
+  stroke: var(--fg-2);
   stroke-width: 1;
-  filter: drop-shadow(0 0 3px var(--h-a));
+  shape-rendering: geometricPrecision;
 }
 .holo-callout {
   z-index: 2;
   display: flex;
   max-width: 280px;
   flex-direction: column;
-  gap: 1px;
-  padding: 5px 9px 6px;
+  gap: 2px;
+  padding: 7px 11px 8px;
   text-align: left;
-  border: 1px solid color-mix(in oklab, var(--h-a) 60%, transparent);
-  border-radius: 2px;
-  background: color-mix(in oklab, var(--bg) 82%, transparent);
-  box-shadow: 0 0 18px color-mix(in oklab, var(--h-a) 22%, transparent);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-2);
+  background: var(--bg-raise);
   cursor: pointer;
 }
 .holo-callout-t {
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 13px;
-  font-weight: 600;
-  color: var(--h-ink);
+  font-weight: 500;
+  color: var(--fg);
 }
 .holo-callout-m {
-  font-size: 12px;
-  color: var(--h-text);
+  font-size: 11.5px;
+  color: var(--fg-3);
+}
+.holo-callout:hover {
+  border-color: var(--fg-4);
 }
 .holo-callout:focus-visible,
 .holo-area:focus-visible,
 .holo-areas button:focus-visible {
-  outline: 2px solid var(--h-a);
+  outline: 2px solid var(--signal);
   outline-offset: 2px;
 }
-/* readouts: text lines in the corners, numbers in mono */
+/* readouts: aligned text under a hairline rule, numbers in mono */
 .holo-read {
   position: absolute;
   z-index: 1;
   margin: 0;
-  font-size: 12.5px;
-  line-height: 19px;
-  color: var(--h-text);
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--fg-3);
   pointer-events: none;
 }
 .holo-subject {
-  max-width: 240px;
+  max-width: 220px;
+  margin-bottom: 4px;
+  padding-bottom: 5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
-  color: var(--h-ink);
+  border-bottom: 1px solid var(--rule);
+  font-weight: 500;
+  color: var(--fg);
 }
 .holo-row {
   display: flex;
-  min-width: 176px;
+  min-width: 200px;
   justify-content: space-between;
-  gap: 14px;
+  gap: 16px;
 }
 .holo-row dt,
 .holo-row dd {
   margin: 0;
 }
 .holo-row dd {
-  color: var(--h-ink);
+  font-size: 11.5px;
+  color: var(--fg);
   white-space: nowrap;
 }
 .holo-right {
   text-align: right;
 }
-.holo-mode {
-  display: flex;
-  align-items: center;
-  gap: 7px;
+.holo-right .holo-subject {
+  margin-left: auto;
 }
-.holo-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--h-a);
-  box-shadow: 0 0 8px var(--h-a);
+.holo-mode {
+  color: var(--fg-3);
 }
 .holo-line {
   position: absolute;
@@ -270,10 +221,10 @@
   margin: 0;
   font-size: 12.5px;
   line-height: 18px;
-  color: var(--h-text);
+  color: var(--fg-3);
 }
 .holo-v {
-  color: var(--h-ink);
+  color: var(--fg);
 }
 .holo-sep {
   color: var(--fg-4);
@@ -294,13 +245,14 @@
   height: auto;
   clip-path: none;
   padding: 6px 10px;
-  border: 1px solid color-mix(in oklab, var(--h-a) 50%, transparent);
-  background: color-mix(in oklab, var(--bg) 88%, transparent);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-2);
+  background: var(--bg-raise);
 }
 .holo-areas ul {
   margin: 0;
   padding: 0;
   list-style: none;
   font-size: 13px;
-  color: var(--h-text);
+  color: var(--fg-2);
 }

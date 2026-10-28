@@ -101,7 +101,7 @@ External CLIs (Claude Code, Codex, OpenCode) can route their model calls through
 
 Three layers: a small profile always in the system prompt, facts and procedures retrieved per turn (FTS5 BM25, blended with embeddings when configured), and episodes (session summaries). A small model extracts durable facts after a session goes idle, dropping anything that looks like a secret and treating the transcript as data. An external adapter mirrors to Basic Memory (markdown notes over MCP) so the same memory is readable and editable outside Conclave, and so the user's existing setup keeps working. The nightly "librarian" routine tidies and links those notes.
 
-**Memory > Map, 3D view.** Memory > Map has three views (Tree / Rings / 3D). The 3D view only, at the owner's request, may break the no-glow rule: a holographic cyan and violet palette, glow, a sweep, lock-on brackets and crosshair ticks; every other screen, and the Tree and Rings views, keep the rules above.
+**Memory > Map, 3D view.** Memory > Map has three views (Tree / Rings / 3D). The 3D view keeps the rules above (no glow, neutrals plus `--signal` for focus only, mono for numbers) with two differences: its background is a lit studio space, one soft radial key light from above on the app's near-black (dark) or a warm off-white (light), the one gradient it may use; and its points and lines are drawn by WebGL in the token colours read from CSS at run time, faded toward the background with depth. Every other screen, and the Tree and Rings views, have neither.
 
 ## 10. Devices and security
 
