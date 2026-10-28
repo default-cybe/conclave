@@ -13,6 +13,21 @@ like `## [0.4.16] - 2026-10-24`.
 
 - The skills list in every session's system prompt now fits a token budget (`agents.skillTokens`, default 6000; 0 lists everything as before). Over it, the agent's own `skills:` list, project and hub skills, and skills that match the agent or the session's first message keep their descriptions; the rest are listed by name, one line per plugin, and still load by name. The Skill tool takes `query` to search skills or list a plugin's. The choice holds for the whole session, so the prompt cache keeps hitting. On a hub with 440 skills the section goes from about 36,000 to about 5,600 tokens.
 
+## [0.4.42] - 2026-10-27
+
+### Added
+
+- Memory > Map has a 3D view (Tree / Rings / 3D): your memory as a holographic space you orbit, zoom and fly through, with two layouts, Clusters (areas as constellations, linked items together) and Timeline (fly along your memory's history). Hover lights an item's links, click opens it, double click flies there, search locks on. three.js loads only when the view opens. Rings, the earlier ring instrument, replaces the Brain view and stands in for 3D without WebGL or with reduced motion.
+- Memory > Map: Expand all (E) puts every area and every item on screen at once. Far out it shows area names and counts over faint ticks; titles appear as you zoom in, never overlapping and never under 11 px. Fit frames the whole, and Collapse all goes back to the brain and its areas. A Tree / Brain switch adds a Brain view that shows how memories connect across areas. Two hemispheres hold lobes of items: what was said (Conversations, Conclave) on the left, and what it is about (People, Projects, Homelab, Services, ...) on the right. Every real link is drawn as a curve bundled through its areas (hierarchical edge bundling), so busy links between areas form visible tracts. Hover an area or an item to light its links and dim the rest. Click opens the same details panel. Relation filters, Across areas only, the store filter, the time scrubber and search all work here too. On a phone the page header and tabs take less room and a search path shows every step. A new depth now brings its rings out from under the drawer.
+
+### Changed
+
+- Code sessions carry less that is not about code. The coder no longer gets CalendarList, CalendarFreeBusy, CalendarEvent, MailDraft, PlaceSearch, PlaceDetails, Directions and MapImage (its `disallowedTools`); mail, calendar and browser work still goes to the assistant through Delegate, and ShareFile and ConclaveHelp stay. The platform card in a Code session leaves out the app's pages, the settings and the accounts and models line; the modes, Delegate, devices and the "Files you deliver" note stay. A coder request is about 8,500 characters of tool definitions and 900 of system prompt smaller. Chat and the assistant keep everything.
+
+### Fixed
+
+- Hook and prompt fixes. A recipe installed as a global hook and also listed in an agent's `recipes:` (no-test-gaming, new-dependency-gate and diff-budget on coder, builder, refactorer and tester) now runs once instead of twice; the agent keeps its recipe on hubs without the global hook, and write-scope keeps the agent's own tunables. The secrets firewall no longer takes a single-quoted jq filter such as `'.hooks|to_entries[]|.key'` for a `.key` file, while the files jq reads are still checked. The guardrail config guard lets reads of hooks and settings through (`ls`, `cat`, `jq`, `2>/dev/null`, `2>&1`) and still refuses writes (redirects, `tee`, `sed -i`, `rm`, `mv`, `cp`, `chmod`); before, words like "permissions" or a dropped stderr counted as writes. An agent's `mcpServers` filter in tool listings now matches the whole server name, so `semgrep` no longer lets `semgrep2` through. The sysadmin prompt, the homelab guide and the scheduled-checks prompt now say the hub runs on the device named conclave, an LXC container (CT 135) on pve, and that madx is a separate server.
+
 ## [0.4.41] - 2026-10-27
 
 ### Added
@@ -31,10 +46,6 @@ like `## [0.4.16] - 2026-10-24`.
 ### Changed
 
 - The chat makes files itself instead of handing them to a Code session. It writes text, Markdown, CSV, JSON, HTML and SVG with Write and Read, both confined to the chat's outputs folder on the hub (a path outside it, through `..` or a symlink, is refused), and a new opt-in RenderFile tool turns an HTML, SVG or Markdown file there into a PDF (A4 or Letter) or PNG with the hub's Chromium, then ShareFile hands it over. Rendering is offline: every request except files in the outputs folder is aborted, JavaScript and service workers are off, inputs are capped at 5 MB and outputs at 25 MB, and a render stops after 30 seconds. The chat still has no shell, and delegates only work that needs the owner's devices or files, a shell, code to run, mail, calendar or the browser. The assistant gets RenderFile too; untrusted agents and members' sessions do not. Without a browser installed on the hub, RenderFile says so.
-
-### Fixed
-
-- Hook and prompt fixes. A recipe installed as a global hook and also listed in an agent's `recipes:` (no-test-gaming, new-dependency-gate and diff-budget on coder, builder, refactorer and tester) now runs once instead of twice; the agent keeps its recipe on hubs without the global hook, and write-scope keeps the agent's own tunables. The secrets firewall no longer takes a single-quoted jq filter such as `'.hooks|to_entries[]|.key'` for a `.key` file, while the files jq reads are still checked. The guardrail config guard lets reads of hooks and settings through (`ls`, `cat`, `jq`, `2>/dev/null`, `2>&1`) and still refuses writes (redirects, `tee`, `sed -i`, `rm`, `mv`, `cp`, `chmod`); before, words like "permissions" or a dropped stderr counted as writes. An agent's `mcpServers` filter in tool listings now matches the whole server name, so `semgrep` no longer lets `semgrep2` through. The sysadmin prompt, the homelab guide and the scheduled-checks prompt now say the hub runs on the device named conclave, an LXC container (CT 135) on pve, and that madx is a separate server.
 
 ## [0.4.40] - 2026-10-27
 

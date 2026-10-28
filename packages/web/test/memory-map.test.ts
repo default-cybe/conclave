@@ -8,7 +8,10 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { MemoryGraph, MemoryGraphNode } from '@conclave/core/client';
-import { BRAIN, CAP_AREA, areaId, buildTree, chainTo, indexGraph, layoutTree, nodeLabel, nodeWords, pathInto, searchItems, type MapState, type MLayout, type TNode } from '../src/features/memory/graph-model';
+import { BRAIN, CAP_AREA, areaId, buildTree, chainTo, indexGraph, layoutAll, layoutTree, nodeLabel, nodeWords, pathInto, searchItems, visibleLabels, type MapState, type MLayout, type ScreenLabel, type TNode } from '../src/features/memory/graph-model';
+import { edgeOn, layoutLinks } from '../src/features/memory/link-model';
+import { angleTime, areaAtAngle, itemAtAngle, layoutHud, timeAngle } from '../src/features/memory/ring-model';
+import { CORE_R, holoStats, layoutHolo, linkCurve, pickEdges, timeX } from '../src/features/memory/holo-model';
 
 const node = (id: string, over: Partial<MemoryGraphNode> = {}): MemoryGraphNode => ({ id, kind: 'note', source: 'basic-memory', title: id, area: 'Other', degree: 0, ...over });
 
@@ -170,5 +173,212 @@ describe('memory map tree', () => {
     expect(l.nodes.length).toBeGreaterThan(10);
     expect(searchItems(ix, 'note 2999', new Set()).map((n) => n.id)).toEqual(['n2999']);
     expect(performance.now() - t0).toBeLessThan(500);
+  });
+});
+
+/** Screen boxes that overlap. */
+function screenOverlaps(ls: ScreenLabel[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < ls.length; i++)
+    for (let j = i + 1; j < ls.length; j++) {
+      const a = ls[i];
+      const b = ls[j];
+      if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) out.push(`${a.p.id} / ${b.p.id}`);
+    }
+  return out;
+}
+
+describe('memory map expand all', () => {
+  test('expand all opens every area with every item, each once', () => {
+    const g = world();
+    const ix = indexGraph(g);
+    const t = buildTree(ix, state({ all: true }));
+    for (const a of t.root.children) expect(a.children.filter((c) => c.kind === 'node').length).toBe(ix.areas.find((x) => areaId(x.name) === a.id)!.ids.length);
+    expect(flat(t.root).some((n) => n.kind === 'more')).toBe(false);
+    for (const n of g.nodes) expect(t.items.has(n.id)).toBe(true);
+    const l = layoutAll(t.root, ix);
+    expect(l.blocks!.length).toBe(ix.areas.length);
+    expect(l.rank!.length).toBe(g.nodes.length);
+    expect(overlaps(l)).toEqual([]);
+  });
+
+  test('labels never overlap and are never under 11px, at any zoom, on a desktop and a phone', () => {
+    const nodes = Array.from({ length: 3000 }, (_, i) => node(`n${i}`, { title: `A memory about thing number ${i}`, area: ['People', 'Projects', 'Homelab', 'Conversations', 'Courses'][i % 5] }));
+    const g = graph(nodes, Array.from({ length: 2000 }, (_, i) => [`n${i}`, `n${(i * 7 + 3) % 3000}`, 'links to'] as [string, string, string]));
+    const ix = indexGraph(g);
+    const t = buildTree(ix, state({ all: true }));
+    for (const phone of [false, true]) {
+      const l = layoutAll(t.root, ix, { phone });
+      const [w, h] = phone ? [390, 600] : [1440, 700];
+      let shownFar = 0;
+      for (const k of [0.04, 0.2, 0.45, 0.8, 1, 1.6, 3]) {
+        let items = 0;
+        // centred on the brain and on a corner of the busiest block
+        for (const at of [{ x: 0, y: 0 }, { x: l.bounds.x + l.bounds.w * 0.8, y: l.bounds.y + 40 }]) {
+          const v = { k, x: w / 2 - at.x * k, y: h / 2 - at.y * k };
+          const ls = visibleLabels(l, v, w, h);
+          expect(screenOverlaps(ls)).toEqual([]);
+          for (const b of ls) expect(b.px).toBeGreaterThanOrEqual(11);
+          if (k === 0.04) shownFar = Math.max(shownFar, ls.filter((b) => b.p.t.kind === 'node').length);
+          items = Math.max(items, ls.filter((b) => b.p.t.kind === 'node').length);
+        }
+        // close in, a screen of rows reads
+        if (k >= 1) expect(items).toBeGreaterThan(10);
+      }
+      // far out only the brain and the areas: items are ticks
+      expect(shownFar).toBe(0);
+    }
+  });
+
+  test('a picked or found item shows its label far out, still without overlap', () => {
+    const g = world();
+    const ix = indexGraph(g);
+    const l = layoutAll(buildTree(ix, state({ all: true })).root, ix);
+    const ls = visibleLabels(l, { k: 0.05, x: 700, y: 350 }, 1440, 700, undefined, new Set(['madx']));
+    expect(ls.some((b) => b.p.id === 'madx')).toBe(true);
+    expect(screenOverlaps(ls)).toEqual([]);
+  });
+});
+
+describe('memory map links (Rings and 3D)', () => {
+  const g = world();
+  const ix = indexGraph(g);
+  const L = layoutLinks(g, ix);
+
+  test('every item once, inside its area', () => {
+    expect(L.items.length).toBe(g.nodes.length);
+    expect(new Set(L.items.map((i) => i.id)).size).toBe(g.nodes.length);
+    for (const [k, a] of L.areas.entries()) for (let i = a.from; i < a.to; i++) (expect(g.nodes[L.items[i].node].area).toBe(a.name), expect(L.items[i].area).toBe(k));
+  });
+
+  test('only edges that exist, each once', () => {
+    const real = new Set(g.edges.map(([a, b, l]) => `${g.nodes[a].id}|${g.nodes[b].id}|${g.labels[l]}`));
+    expect(L.edges.length).toBe(g.edges.length);
+    for (const e of L.edges) expect(real.has(`${L.items[e.a].id}|${L.items[e.b].id}|${e.label}`)).toBe(true);
+    expect(new Set(L.edges.map((e) => `${e.a}|${e.b}|${e.label}`)).size).toBe(L.edges.length);
+    for (const e of L.edges) expect(e.cross).toBe(L.items[e.a].area !== L.items[e.b].area);
+  });
+
+  test('filters remove edges: hidden relations, across areas only, items stepped back', () => {
+    const all = L.edges.filter((e) => edgeOn(L, e, { hidden: new Set(), crossOnly: false })).length;
+    expect(all).toBe(L.edges.length);
+    const noOwns = L.edges.filter((e) => edgeOn(L, e, { hidden: new Set(['owns']), crossOnly: false }));
+    expect(noOwns.some((e) => e.label === 'owns')).toBe(false);
+    expect(noOwns.length).toBe(L.edges.length - g.edges.filter(([, , l]) => g.labels[l] === 'owns').length);
+    const cross = L.edges.filter((e) => edgeOn(L, e, { hidden: new Set(), crossOnly: true }));
+    expect(cross.every((e) => e.cross)).toBe(true);
+    expect(cross.length).toBeLessThan(all);
+    const madx = g.nodes.findIndex((n) => n.id === 'madx');
+    const gone = L.edges.filter((e) => edgeOn(L, e, { hidden: new Set(), crossOnly: false, gone: (i) => i === madx }));
+    expect(gone.some((e) => L.items[e.a].node === madx || L.items[e.b].node === madx)).toBe(false);
+  });
+});
+
+describe('memory map rings', () => {
+  const node2 = (id: string, area: string, at: number, degree: number): MemoryGraphNode => ({ id, kind: 'fact', source: 'conclave', title: id, area, at, degree });
+  const g: MemoryGraph = {
+    nodes: [node2('a1', 'People', 3, 2), node2('a2', 'People', 1, 1), node2('b1', 'Homelab', 2, 2), node2('c1', 'Courses', 5, 1)],
+    edges: [[0, 2, 0], [1, 0, 0], [2, 3, 0]],
+    labels: ['links to'],
+    basicMemory: { state: 'none' },
+  };
+  const ix = indexGraph(g);
+  const L = layoutLinks(g, ix);
+  const H = layoutHud(L, ix);
+  test('one curve per real link, starting and ending on the ring', () => {
+    expect(H.pts.length).toBe(L.edges.length);
+    for (const [k, e] of L.edges.entries()) {
+      const p = H.pts[k];
+      expect(Math.hypot(p[0], p[1])).toBeCloseTo(397, 0);
+      expect(Math.atan2(p[1], p[0])).toBeCloseTo(Math.atan2(Math.sin(H.angle[e.a]), Math.cos(H.angle[e.a])), 4);
+    }
+  });
+  test('items in an area run oldest first, and every item is found at its angle', () => {
+    const people = H.areas.find((a) => a.name === 'People')!;
+    expect(people.items.map((i) => L.items[i].id)).toEqual(['a2', 'a1']);
+    for (let i = 0; i < L.items.length; i++) {
+      expect(itemAtAngle(H, H.angle[i], 0.01)).toBe(i);
+      expect(areaAtAngle(H, H.angle[i])?.i).toBe(L.items[i].area);
+    }
+  });
+  test('the bezel maps time to angle and back', () => {
+    for (const t of [1, 2.5, 5]) expect(angleTime(timeAngle(t, 1, 5), 1, 5)).toBeCloseTo(t, 6);
+    expect(H.bins.reduce((s, n) => s + n, 0)).toBe(4);
+  });
+});
+
+describe('memory map 3D', () => {
+  const AREAS = ['People', 'Projects', 'Homelab', 'Conversations', 'Courses', 'Conclave', 'Services', 'Vendors', 'Devices', 'Security', 'Topics', 'Other'];
+  const DAY = 86_400_000;
+  // ~3,000 items over 12 areas and two years, a few undated, and ~3,200 links
+  const nodes = Array.from({ length: 2980 }, (_, i) => node(`n${i}`, { title: `Item ${i}`, area: AREAS[(i * 7) % 12], at: i % 113 === 0 ? undefined : 1.7e12 + ((i * 7919) % 2980) * DAY * 0.25 }));
+  // links across areas, and inside them (n and n + 12 share an area)
+  const big = graph(nodes, Array.from({ length: 3236 }, (_, i) => (i % 2 ? [`n${i % 2980}`, `n${(i * 13 + 5) % 2980}`, i % 3 ? 'links to' : 'mentions'] : [`n${(i * 5) % 2968}`, `n${((i * 5) % 2968) + 12}`, 'links to']) as [string, string, string]));
+  const ix = indexGraph(big);
+  const L = layoutLinks(big, ix);
+  const dist = (p: Float32Array, i: number, c: Float32Array, a: number) => Math.hypot(p[i * 3] - c[a * 3], p[i * 3 + 1] - c[a * 3 + 1], p[i * 3 + 2] - c[a * 3 + 2]);
+
+  test('Clusters: every item inside its own area ball, nearer its own centre than any other', () => {
+    const t0 = performance.now();
+    const H = layoutHolo(L, big.nodes, 'clusters');
+    expect(performance.now() - t0).toBeLessThan(800);
+    for (let i = 0; i < L.items.length; i++) {
+      const a = L.items[i].area;
+      const d = dist(H.pos, i, H.centers, a);
+      expect(d).toBeLessThanOrEqual(H.radius[a] + 1e-3);
+      for (let b = 0; b < L.areas.length; b++) if (b !== a) expect(dist(H.pos, i, H.centers, b)).toBeGreaterThan(d);
+      for (let c = 0; c < 3; c++) expect(Number.isFinite(H.pos[i * 3 + c])).toBe(true);
+    }
+    // balls do not overlap, and none swallows the core
+    for (let a = 0; a < L.areas.length; a++) {
+      expect(Math.hypot(H.centers[a * 3], H.centers[a * 3 + 1], H.centers[a * 3 + 2]) - H.radius[a]).toBeGreaterThan(CORE_R);
+      for (let b = a + 1; b < L.areas.length; b++) expect(Math.hypot(H.centers[a * 3] - H.centers[b * 3], H.centers[a * 3 + 1] - H.centers[b * 3 + 1], H.centers[a * 3 + 2] - H.centers[b * 3 + 2])).toBeGreaterThan(H.radius[a] + H.radius[b]);
+    }
+  });
+
+  test('Clusters: linked items sit closer than unlinked ones in the same area', () => {
+    const H = layoutHolo(L, big.nodes, 'clusters');
+    let linked = 0;
+    let n = 0;
+    for (const e of L.edges) if (!e.cross) ((linked += dist(H.pos, e.a, H.pos, e.b)), n++);
+    let rand = 0;
+    let m = 0;
+    for (const a of L.areas) for (let i = a.from; i + 7 < a.to; i += 3) ((rand += dist(H.pos, i, H.pos, i + 7)), m++);
+    expect(linked / n).toBeLessThan(rand / m);
+  });
+
+  test('Timeline: x follows the dates, undated items wait before the start', () => {
+    const H = layoutHolo(L, big.nodes, 'timeline');
+    const dated = L.items.map((it, i) => [big.nodes[it.node].at, H.pos[i * 3]] as const).filter(([t]) => t);
+    dated.sort((a, b) => a[0]! - b[0]!);
+    for (let k = 1; k < dated.length; k++) expect(dated[k][1]).toBeGreaterThanOrEqual(dated[k - 1][1]);
+    const first = dated[0][1];
+    for (const [i, it] of L.items.entries()) if (!big.nodes[it.node].at) expect(H.pos[i * 3]).toBeLessThan(first);
+    // month ticks run left to right, on the axis
+    for (let k = 1; k < H.ticks.length; k++) expect(H.ticks[k].x).toBeGreaterThanOrEqual(H.ticks[k - 1].x);
+    expect(timeX(H.times, H.lo, H.hi, H.lo)).toBeLessThan(timeX(H.times, H.lo, H.hi, H.hi));
+  });
+
+  test('only real edges are drawn: each curve starts and ends on its items, filters remove edges', () => {
+    const H = layoutHolo(L, big.nodes, 'clusters');
+    const on = L.edges.map((e) => edgeOn(L, e, { hidden: new Set(['mentions']), crossOnly: false }));
+    const deg = L.items.map((it) => big.nodes[it.node].degree);
+    const all = pickEdges(L, on, 1e9, deg);
+    expect(all.length).toBe(on.filter(Boolean).length);
+    for (const e of all) expect(L.edges[e].label).not.toBe('mentions');
+    const capped = pickEdges(L, on, 500, deg);
+    expect(capped.length).toBe(500);
+    for (const e of capped) expect(on[e]).toBe(true);
+    const seg = 6;
+    const out = new Float32Array(seg * 6);
+    for (const e of all.slice(0, 200)) {
+      linkCurve(H, L, e, seg, out, 0);
+      const { a, b } = L.edges[e];
+      for (let c = 0; c < 3; c++) expect(out[c]).toBeCloseTo(H.pos[a * 3 + c], 3);
+      for (let c = 0; c < 3; c++) expect(out[out.length - 3 + c]).toBeCloseTo(H.pos[b * 3 + c], 3);
+    }
+    const st = holoStats(L, big.nodes, on, () => false);
+    expect(st.links).toBe(all.length);
+    expect(st.items).toBe(L.items.length);
   });
 });
