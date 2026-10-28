@@ -219,6 +219,7 @@ fun ChatScreen(
     var showTodos by remember { mutableStateOf(false) }
     var sheet by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf(false) }
 
     // a chat opened as a session goes where chats are (CHAT-AND-MOTION 2.2)
     LaunchedEffect(session?.kind) {
@@ -514,6 +515,7 @@ fun ChatScreen(
                 add(SheetAction("Workflow runs", onClick = then { onOpenWorkflowRuns(sessionId) }))
                 add(SheetAction("Compact context", onClick = then { vm.compact() }))
                 if (!s.isChat) add(SheetAction("Move to hub (copy folder)", onClick = then { vm.moveToHub() }))
+                add(SheetAction("Delete", danger = true, onClick = then { deleting = true }))
             },
         )
     }
@@ -525,6 +527,19 @@ fun ChatScreen(
         })
         if (sendingToFriend) {
             SendToFriendSheet(sessionId = s0.id, title = s0.title, chat = s0.isChat, onDismiss = { sendingToFriend = false }, onOpenFriend = onOpenFriend)
+        }
+        if (deleting) {
+            ConfirmDialog(
+                title = "Delete session?",
+                text = "“${s0.title.ifBlank { "New session" }}” and its messages are deleted on the hub.",
+                confirmLabel = "Delete",
+                destructive = true,
+                onConfirm = {
+                    deleting = false
+                    vm.delete { onBack() }
+                },
+                onDismiss = { deleting = false },
+            )
         }
     }
 

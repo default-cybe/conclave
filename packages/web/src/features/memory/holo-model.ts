@@ -282,14 +282,24 @@ function monthTicks(lo: number, hi: number): Array<{ t: number; label: string; y
 
 /**
  * The links to draw: the ones the filters leave, and on a small screen at
- * most `cap` of them, those between the most linked items first.
+ * most `cap` of them. Every item gets its first link before any item gets a
+ * second, so one big hub cannot take every thread; inside a round, links
+ * between the most linked items go first.
  */
 export function pickEdges(L: LinkLayout, on: readonly boolean[], cap: number, deg: ArrayLike<number>): Int32Array {
   const ids: number[] = [];
   for (let e = 0; e < L.edges.length; e++) if (on[e]) ids.push(e);
   if (ids.length <= cap) return Int32Array.from(ids);
   const w = (e: number) => deg[L.edges[e].a] + deg[L.edges[e].b];
-  return Int32Array.from(ids.sort((x, y) => w(y) - w(x) || x - y).slice(0, cap)).sort();
+  const other = (e: number, i: number) => (L.edges[e].a === i ? L.edges[e].b : L.edges[e].a);
+  // a link's round: its place in either end's own list (strongest first), the earlier of the two
+  const round = new Map<number, number>();
+  for (let i = 0; i < L.edgesOf.length; i++) {
+    const mine = L.edgesOf[i].filter((e) => on[e]).sort((x, y) => deg[other(y, i)] - deg[other(x, i)] || x - y);
+    for (const [k, e] of mine.entries()) round.set(e, Math.min(round.get(e) ?? k, k));
+  }
+  const r = (e: number) => round.get(e) ?? 0;
+  return Int32Array.from(ids.sort((x, y) => r(x) - r(y) || w(y) - w(x) || x - y).slice(0, cap)).sort();
 }
 
 /**

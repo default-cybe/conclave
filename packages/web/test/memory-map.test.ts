@@ -409,6 +409,12 @@ describe('memory map 3D', () => {
     const capped = pickEdges(L, on, 500, deg);
     expect(capped.length).toBe(500);
     for (const e of capped) expect(on[e]).toBe(true);
+    // a phone cap: the big hub does not take every thread, each linked item keeps one
+    const linked = L.items.filter((_, i) => L.edgesOf[i].some((e) => on[e])).length;
+    const few = pickEdges(L, on, linked, deg);
+    const touched = new Set<number>();
+    for (const e of few) touched.add(L.edges[e].a).add(L.edges[e].b);
+    for (const [i] of L.items.entries()) if (L.edgesOf[i].some((e) => on[e])) expect(touched.has(i)).toBe(true);
     const seg = 6;
     const out = new Float32Array(seg * 6);
     for (const e of all.slice(0, 200)) {
