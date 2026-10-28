@@ -805,7 +805,10 @@ function Detail(props: {
   const onMap = props.brain ? new Set<string>() : props.onMap;
   const [all, setAll] = useState<ReadonlySet<string>>(new Set());
   const scroller = useRef<HTMLDivElement>(null);
-  useEffect(() => scroller.current?.scrollTo({ top: 0 }), [n.id]);
+  // braces: newer Chrome returns a Promise from scrollTo, and React would call it as the cleanup
+  useEffect(() => {
+    scroller.current?.scrollTo({ top: 0 });
+  }, [n.id]);
   const groups = new Map<string, string[]>();
   for (const l of ix.nbrs.get(n.id) ?? []) groups.set(l.label, [...(groups.get(l.label) ?? []), l.id]);
   const order = [...groups].sort((a, b) => Number(hidden.has(a[0])) - Number(hidden.has(b[0])) || b[1].length - a[1].length);

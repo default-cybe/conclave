@@ -191,6 +191,11 @@ export interface Tool<I = Record<string, any>> {
   suggestRule?(input: I): string | undefined;
   /** Hidden unless the session/agent opts in (e.g. browser tools). */
   optIn?: boolean;
+  /**
+   * Built for untrusted sessions: it only reads outside content into the
+   * session and sends nothing out, so it runs there without asking (MailSearch).
+   */
+  untrustedReader?: boolean;
   /** The tool validates its own input, so the runner's top-level check is skipped (StructuredOutput lists every problem by path). */
   validatesInput?: boolean;
   /**
