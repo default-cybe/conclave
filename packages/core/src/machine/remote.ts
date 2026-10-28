@@ -81,6 +81,8 @@ export class RemoteMachine implements Machine {
   readonly selfUpdate?: (params: RpcParams['selfUpdate']) => Promise<RpcResults['selfUpdate']>;
   /** Version 5: Conclave's turns appended to a Claude Code chat on the device. */
   readonly importAppend?: (params: ImportAppendParams) => Promise<ImportAppendResult>;
+  /** Version 6: a TCP stream to a loopback port on the device (the Preview pane). */
+  readonly connect?: (port: number) => MachineProcess;
 
   constructor(opts: RemoteMachineOptions) {
     this.id = opts.id;
@@ -105,6 +107,8 @@ export class RemoteMachine implements Machine {
     if (this.protocol >= 4) this.selfUpdate = (params) => this.call('selfUpdate', params, { timeoutMs: 20 * 60_000 });
     // version 5: the busy check and the append run where the file is
     if (this.protocol >= 5) this.importAppend = (params: ImportAppendParams) => this.call('importAppend', params);
+    // version 6: the bytes ride the proc.* frames, like a spawned process's
+    if (this.protocol >= 6) this.connect = (port: number) => this.stream('connect', (handle) => ({ handle, port }));
   }
 
   /** True until dispose(). */
@@ -354,6 +358,11 @@ export class RemoteMachine implements Machine {
   }
 
   spawn(command: string, args: string[], opts: SpawnOptions): MachineProcess {
+    return this.stream('spawn', (handle) => ({ handle, command, args, opts }));
+  }
+
+  /** A process (spawn) or a socket (connect) whose bytes come in proc.* frames. */
+  private stream<M extends 'spawn' | 'connect'>(method: M, params: (handle: number) => RpcParams[M]): MachineProcess {
     const handle = this.nextId++;
     const proc = new RemoteProcess(handle, (msg) => this.send(msg));
     if (this.closedReason !== undefined) {
@@ -361,8 +370,8 @@ export class RemoteMachine implements Machine {
       return proc;
     }
     this.procs.set(handle, proc);
-    this.call('spawn', { handle, command, args, opts }).then(
-      (r) => proc.setPid(r.pid),
+    (this.call(method, params(handle)) as Promise<{ pid?: number } | null>).then(
+      (r) => proc.setPid(r?.pid ?? undefined),
       (err: Error) => {
         // spawn failed or the result never came: end the process with the reason on stderr
         if (this.procs.get(handle) === proc) this.procs.delete(handle);

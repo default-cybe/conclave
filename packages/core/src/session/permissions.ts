@@ -112,7 +112,8 @@ function matchPath(pattern: string, absPath: string, cwd: string, home: string):
 function contentMatches(rule: ParsedRule, toolName: string, content: string | undefined, cwd: string, home: string): boolean {
   if (rule.content === undefined) return true;
   if (content === undefined) return false;
-  if (toolName === 'Bash' || rule.tool === 'Bash') {
+  // preview_start's content is the command line launch.json runs (browser/preview.ts)
+  if (toolName === 'Bash' || rule.tool === 'Bash' || toolName === 'preview_start') {
     const c = content.trim();
     if (rule.content.endsWith(':*')) {
       const prefix = rule.content.slice(0, -2).trim();
@@ -237,7 +238,23 @@ export interface CheckInput {
   workspaceRoots: string[];
 }
 
+/** Bash as checkOne needs it, for preview_start's command (no import cycle with tools/bash.ts). */
+const BASH_RULES: Tool = { name: 'Bash', description: '', inputSchema: { type: 'object' }, readOnly: false, run: async () => ({ content: '' }) };
+
+/**
+ * The verdict for one call. preview_start's command line (launch.json, which
+ * the agent can write) is judged by the session's Bash rules too: a Bash deny
+ * or ask rule wins, and a Bash allow rule covers it like a preview_start one.
+ */
 export function checkPermission(c: CheckInput): PermissionCheck {
+  const own = checkOne(c);
+  if (c.tool.name !== 'preview_start' || !c.content) return own;
+  const bash = checkOne({ ...c, tool: BASH_RULES, input: { command: c.content } });
+  if (bash.decision === 'deny' || (bash.decision === 'ask' && bash.rule)) return bash;
+  return own.decision === 'allow' ? own : bash;
+}
+
+function checkOne(c: CheckInput): PermissionCheck {
   const name = c.tool.name;
   const readOnly = toolIsReadOnly(c.tool, c.input);
   const rules = (list: string[]) => list.map(parseRule).filter((r) => toolMatches(r.tool, name));

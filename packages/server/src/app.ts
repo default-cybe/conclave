@@ -521,6 +521,8 @@ export function startServer(engine: EngineApi, opts: StartOptions = {}): Running
   const url = `http://${host?.includes(':') ? `[${host}]` : host}:${server.port}`;
   // tunnels start now that the port is known
   conclave.ctx.remote.attach({ port: server.port ?? cfg.port, host: listen.host, pinned: listen.pinned });
+  // serve --port: the Preview refuses the port the hub really listens on
+  (engine as { preview?: { hubListening(port: number): void } }).preview?.hubListening(server.port ?? cfg.port);
   // the hub's own CLIProxyAPI, when models.cliproxy.mode is builtin
   conclave.ctx.cliproxy.attach();
   // and each member's own, for the members with plans

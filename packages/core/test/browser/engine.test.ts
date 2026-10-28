@@ -24,6 +24,7 @@ import {
   engineFor,
   fileSha256,
   profileSeed,
+  writeWebrtcPolicy,
 } from '../../src/browser';
 import type { ToolContext } from '../../src/tools/types';
 
@@ -54,6 +55,9 @@ function fakeLauncher(fail?: (opts: LaunchOpts) => Error | undefined) {
         setDefaultTimeout: () => {},
         setDefaultNavigationTimeout: () => {},
         close: async () => listeners.forEach((fn) => fn()),
+        // a preview's fence
+        route: async () => {},
+        routeWebSocket: async () => {},
       };
       return ctx as unknown as BrowserContext;
     },
@@ -70,11 +74,11 @@ function fakeBinary(): { path: string; sha: string } {
   return { path, sha: createHash('sha256').update(body).digest('hex') };
 }
 
-function setup(browser: Partial<ConclaveConfig['browser']>, fail?: (opts: LaunchOpts) => Error | undefined) {
+function setup(browser: Partial<ConclaveConfig['browser']>, fail?: (opts: LaunchOpts) => Error | undefined, stockBrowser?: () => string | undefined) {
   const home = tmp('conclave-engine-');
   const config = new ConfigStore(home, { browser: { headless: true, ...browser } as ConclaveConfig['browser'] });
   const { launcher, calls } = fakeLauncher(fail);
-  const manager = new BrowserManager({ config, launcher });
+  const manager = new BrowserManager({ config, launcher, stockBrowser });
   return { home, config, manager, calls, profiles: config.paths.browserProfile };
 }
 
@@ -143,6 +147,48 @@ describe('launch options per engine', () => {
     expect(opts.viewport).toEqual(CLOAK_HEADLESS_VIEWPORT);
     expect(opts.headless).toBe(true);
     expect(manager.profileInfo('stealth')).toEqual({ name: 'stealth', engine: 'cloak', label: 'CloakBrowser', open: true });
+    await manager.close();
+  });
+
+  test('a preview runs on stock Chromium even when every profile is CloakBrowser; CloakBrowser only when there is none, with a note', async () => {
+    const cloak = fakeBinary();
+    const stock = fakeBinary();
+    const browser = { executablePath: cloak.path, profiles: { default: { engine: 'cloak' as const }, marketplace: { engine: 'cloak' as const } }, cloak: { executablePath: cloak.path, sha256: cloak.sha } };
+    const notes: string[] = [];
+    const guard = { allows: () => false, file: async () => undefined, log: (e: { text: string }) => void notes.push(e.text) };
+
+    const { manager, calls } = setup(browser, undefined, () => stock.path);
+    await manager.startPreview('s1', guard);
+    await manager.tabs('s1');
+    expect(calls.length).toBe(1);
+    // Playwright's own Chromium: no fingerprint flags, the preview fence flags, not browser.executablePath
+    expect(calls[0].opts.executablePath).toBe(stock.path);
+    expect(calls[0].opts.args!.some((a) => a.startsWith('--fingerprint'))).toBe(false);
+    expect(calls[0].opts.args).toContain('--disable-quic');
+    expect(notes).toEqual([]);
+    // full Chromium ignores the WebRTC flag and reads the pref, written before the launch
+    expect(JSON.parse(readFileSync(join(calls[0].dir, 'Default', 'Preferences'), 'utf8'))).toEqual({ webrtc: { ip_handling_policy: 'disable_non_proxied_udp' } });
+    await manager.close();
+
+    const none = setup(browser, undefined, () => undefined);
+    await none.manager.startPreview('s1', guard);
+    await none.manager.tabs('s1');
+    expect(none.calls[0].opts.executablePath).toBe(cloak.path);
+    expect(JSON.parse(readFileSync(join(none.calls[0].dir, 'Default', 'Preferences'), 'utf8')).webrtc.ip_handling_policy).toBe('disable_non_proxied_udp');
+    expect(notes).toEqual(['No stock Chromium on the hub, so the preview runs on CloakBrowser: console messages may be missing and fonts, scale and theme may be off. Install Chromium in Settings, Browser, Engines.']);
+    await none.manager.close();
+  });
+
+  test('the WebRTC pref keeps the other keys of an existing Preferences file; a plain profile launch writes none', async () => {
+    const dir = tmp('conclave-prefs-');
+    mkdirSync(join(dir, 'Default'));
+    writeFileSync(join(dir, 'Default', 'Preferences'), JSON.stringify({ profile: { name: 'Kai' }, webrtc: { multiple_routes_enabled: false, ip_handling_policy: 'default' } }));
+    writeWebrtcPolicy(dir);
+    expect(JSON.parse(readFileSync(join(dir, 'Default', 'Preferences'), 'utf8'))).toEqual({ profile: { name: 'Kai' }, webrtc: { multiple_routes_enabled: false, ip_handling_policy: 'disable_non_proxied_udp' } });
+
+    const { manager, profiles } = setup({ executablePath: fakeBinary().path });
+    await manager.tabs('s1');
+    expect(existsSync(join(profiles, 'default', 'Default', 'Preferences'))).toBe(false);
     await manager.close();
   });
 

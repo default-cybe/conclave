@@ -521,6 +521,78 @@ pub fn spawn(command: &str, args: &[String], cwd: &str, env: Option<&Map<String,
 }
 
 // ---------------------------------------------------------------------------
+// connect (protocol 6): a TCP stream to a loopback port, as machine/connect.ts
+// ---------------------------------------------------------------------------
+
+/// The port connect takes: a whole number from 1024 to 65535, else the TypeScript daemon's EACCES.
+pub fn check_port(v: Option<&Value>) -> Result<u16, WireError> {
+    match v.and_then(Value::as_u64) {
+        Some(p) if (1024..=65535).contains(&p) && v.and_then(Value::as_f64).map_or(false, |f| f.fract() == 0.0) => Ok(p as u16),
+        _ => {
+            let shown = v.map(|x| x.to_string()).unwrap_or_else(|| "undefined".into());
+            Err(WireError::coded(format!("Port {shown} is not allowed: only loopback ports 1024 to 65535."), "EACCES"))
+        }
+    }
+}
+
+/// Open 127.0.0.1:port, then ::1:port when IPv4 refuses. Bytes from the port go
+/// to the sink as proc.stdout; a failed connect is one proc.stderr line and exit null;
+/// a close from either side (or kill) is exit 0. Nothing happens until the
+/// returned sender fires: the caller records the handle and sends the result
+/// first, so a fast refusal's proc.exit never comes before them.
+pub fn connect(port: u16, sink: Arc<dyn ProcSink>) -> (ProcHandle, tokio::sync::oneshot::Sender<()>) {
+    let (stdin_tx, mut stdin_rx) = mpsc::unbounded_channel::<StdinCmd>();
+    let (kill_tx, mut kill_rx) = mpsc::unbounded_channel::<Sig>();
+    let (go_tx, go_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        if go_rx.await.is_err() {
+            return;
+        }
+        let stream = match tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+            Ok(s) => Ok(s),
+            Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => tokio::net::TcpStream::connect(("::1", port)).await.map_err(|e| ("::1", e)),
+            Err(e) => Err(("127.0.0.1", e)),
+        };
+        let stream = match stream {
+            Ok(s) => s,
+            Err((host, e)) => {
+                sink.output("proc.stderr", encode_base64(format!("connect {host}:{port}: {}\n", errno_code(&e)).as_bytes())).await;
+                sink.exit(None).await;
+                return;
+            }
+        };
+        let (mut rd, mut wr) = stream.into_split();
+        let writer = tokio::spawn(async move {
+            while let Some(cmd) = stdin_rx.recv().await {
+                match cmd {
+                    StdinCmd::Data(d) => {
+                        if wr.write_all(&d).await.is_err() {
+                            break;
+                        }
+                    }
+                    StdinCmd::End => {
+                        let _ = wr.shutdown().await;
+                    }
+                }
+            }
+        });
+        let mut chunk = vec![0u8; READ_CHUNK];
+        loop {
+            tokio::select! {
+                r = rd.read(&mut chunk) => match r {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => sink.output("proc.stdout", encode_base64(&chunk[..n])).await,
+                },
+                Some(_) = kill_rx.recv() => break,
+            }
+        }
+        writer.abort();
+        sink.exit(Some(0)).await;
+    });
+    (ProcHandle { stdin: stdin_tx, kill: kill_tx }, go_tx)
+}
+
+// ---------------------------------------------------------------------------
 // A short command for info (CLI versions) and search (rg).
 // ---------------------------------------------------------------------------
 

@@ -32,6 +32,13 @@ export interface Machine {
   exec(command: string, opts: ExecOptions): Promise<ExecResult>;
   /** Start a long-lived process (ACP agents, background shells, dev servers). */
   spawn(command: string, args: string[], opts: SpawnOptions): MachineProcess;
+  /**
+   * A TCP stream to a loopback port on this machine (the Preview pane's dev
+   * server), as a process: write sends, stdout receives, kill closes, exited
+   * resolves when it closes. Ports below 1024 are refused. Missing on daemons
+   * older than protocol 6.
+   */
+  connect?(port: number): MachineProcess;
 
   /** Resolve "~" and relative paths against cwd. */
   resolve(path: string, cwd: string): string;

@@ -39,7 +39,7 @@ export function CommentTray({ session }: { session: Session }) {
     <section aria-label="Comments on the diff" data-comment-tray className="mb-2 rounded-[var(--r-2)] border border-rule bg-raise text-[13px] phone:text-[14px]">
       <div className="flex items-center gap-2 py-1 pr-1 pl-3">
         <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="min-w-0 flex-1 truncate py-1 text-left text-fg-2 hov:text-fg">
-          {plural(list.length, 'comment')} on the diff
+          {plural(list.length, 'comment')} {list.every((c) => c.pick) ? 'on the Preview' : 'on the diff'}
         </button>
         <Button variant="solid" size="sm" busy={busy ? 'Sending' : false} onClick={() => void send()}>
           {running ? 'Queue for agent' : 'Send to agent'}

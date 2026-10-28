@@ -1788,6 +1788,8 @@ export class Engine implements EngineApi {
     // SessionEnd hooks have a short default timeout (1.5 s) so they cannot hold up a stop
     await Promise.allSettled(ending.map((s) => this.runHook(s, 'SessionEnd', { reason: 'other' }, 'other')));
     this.scheduler.stop();
+    // Preview dev servers (browser/preview.ts) do not outlive the hub
+    await (this as unknown as { preview?: { closeAll(): Promise<void> } }).preview?.closeAll().catch(() => {});
     await this.acp?.shutdown().catch(() => {});
     await this.deps.memoryConnections?.close().catch(() => {});
     await this.deps.mcp?.shutdown().catch(() => {});

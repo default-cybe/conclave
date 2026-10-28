@@ -15,6 +15,7 @@ import type {
   SpawnOptions,
 } from './types';
 import { syncthingFolders, syncthingStatus, type SyncthingFolder, type SyncthingStatus } from './syncthing';
+import { loopbackProcess } from './connect';
 import { PRIVATE_REFUSAL, assertNotHubPrivate, commandTouchesHubPrivate, hubPrivateDirs, privateRefusal, startsWithPrivate } from './private';
 
 const INFO_TTL_MS = 5 * 60_000;
@@ -750,6 +751,10 @@ export class LocalMachine implements Machine {
       },
       exited,
     };
+  }
+
+  connect(port: number): MachineProcess {
+    return loopbackProcess(port);
   }
 }
 

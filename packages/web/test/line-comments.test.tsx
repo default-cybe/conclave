@@ -77,6 +77,11 @@ describe('the batch', () => {
     ]);
     expect(msg).toBe(['2 comments on the diff:', '', 'src/x.ts:2', '```diff', '+new', '```', 'rename', '', 'b.md:9', '````diff', ' ```js', '````', 'fence'].join('\n'));
   });
+
+  test('a Preview pick goes as the note, then the hub-fenced page data unchanged', () => {
+    const quote = '<untrusted_web_content source="http://localhost:1/">\nselector: h1\n</untrusted_web_content>';
+    expect(formatComments([{ id: '1', path: 'h1', quote, text: 'make it blue', pick: true }])).toBe(`A comment on the Preview:\n\nmake it blue\n${quote}`);
+  });
 });
 
 describe('kept per session', () => {

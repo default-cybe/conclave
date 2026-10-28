@@ -333,6 +333,21 @@ impl MachineServer {
                 });
             }
             "spawn" => self.spawn(id, params).await,
+            // protocol 6: a TCP stream to a loopback port, its bytes in the proc.* frames
+            "connect" => {
+                let handle = params.get("handle").and_then(Value::as_i64).unwrap_or(0);
+                match procs::check_port(params.get("port")) {
+                    Ok(port) => {
+                        let sink = Arc::new(Sink { out: self.out.clone(), handle, state: self.state.clone() });
+                        // as spawn: handle recorded and result sent before the socket opens
+                        let (h, go) = procs::connect(port, sink);
+                        self.state.lock().unwrap().procs.insert(handle, h);
+                        send(&self.out, json!({ "type": "result", "id": id, "result": null })).await;
+                        let _ = go.send(());
+                    }
+                    Err(e) => send(&self.out, result_msg(&id, Err(e))).await,
+                }
+            }
             "syncthingFolders" => self.reply(id, async { blocking(|| Ok(crate::syncthing::folders_json(&crate::paths::home_dir()))).await }),
             "syncthingStatus" => self.reply(id, async move {
                 let folder = opt_str(Some(&params), "folderId").unwrap_or_default();

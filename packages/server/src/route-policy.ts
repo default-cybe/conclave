@@ -545,6 +545,15 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'DELETE /api/browser/sessions/:session/frame': 'admin',
   'POST /api/browser/sessions/:session/input': 'admin',
   'POST /api/browser/sessions/:session/control': 'admin',
+  // a Code session's Preview pane (routes-preview.ts): runs launch.json on the device and the hub's Chromium, so the owner only
+  'GET /api/sessions/:id/preview': 'admin',
+  'POST /api/sessions/:id/preview/start': 'admin',
+  'POST /api/sessions/:id/preview/stop': 'admin',
+  'POST /api/sessions/:id/preview/reload': 'admin',
+  'POST /api/sessions/:id/preview/navigate': 'admin',
+  'POST /api/sessions/:id/preview/view': 'admin',
+  'POST /api/sessions/:id/preview/pick': 'admin',
+  'GET /api/sessions/:id/preview/logs': 'admin',
   // installs on the hub as its user, and the proxy whose login is the hub's secret: the owner only
   'POST /api/browser/setup': 'admin',
   // the root helper's one action, as root through sudo: the owner only, audited

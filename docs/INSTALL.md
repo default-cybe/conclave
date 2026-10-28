@@ -2002,6 +2002,53 @@ saved logins.
 **Test** goes out once through the proxy, for a country you type or the
 default, and shows the address and country a site would see.
 
+### Preview of a Code session
+
+A Code session can show the app it works on, live, beside the chat. Press
+**Preview** above the session's message box, then **Start**. It runs the
+first configuration of the project's `.conclave/launch.json`; without one it
+reads `.claude/launch.json`, the file Claude Code desktop uses, in the same
+format:
+
+```json
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "web", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5173 }
+  ]
+}
+```
+
+Each configuration takes `name`, `runtimeExecutable`, `runtimeArgs`, `cwd`,
+`env`, `port`, `autoPort` and `url`. The dev server runs on the session's
+device. launch.json is code from the repo, so its command goes through the
+session's Bash permissions, and in a folder you have not trusted the pane
+shows the exact line and runs it only when you press **Run**. An agent can
+also open a plain HTML file of the session folder instead of a server.
+
+The page shows in a fresh browser on the hub, one per session, with no saved
+logins. It is always stock Chromium, even when your profiles use CloakBrowser,
+whose spoofed fonts, scale and theme would throw off design work. Only a hub
+with no stock Chromium falls back to its configured browser, and the Console
+then says so. The toolbar sets the width (390, 768 or 1440) and the theme, reloads,
+and **Take over** hands you the page. **Pick** turns a click into a pick:
+the element's selector, its source file when the page names one (React 18 and
+Vue dev builds) and a crop go to the comment tray with what
+you type, marked as page data for the agent. **Console** lists console
+errors and warnings, page errors, failed requests and blocked addresses.
+Agents see the same page with `preview_start`, `preview_stop`,
+`preview_logs` and the browser tools.
+
+The preview page reaches only its own dev server ports (and the session
+folder's files when it shows an HTML file). Everything else is blocked: other
+sites, other ports on the device, the hub's own ports, the LAN, WebRTC and
+QUIC. A page that needs an outside API shows that request as blocked in the
+Console.
+
+The device's daemon must speak protocol 6, which adds the `connect` the hub
+uses to reach the dev server. An older daemon gets "the preview needs
+protocol 6": update it from Settings > Devices (section 14, Device daemons).
+
 ## 16. The root helper: system packages without a root shell
 
 The hub runs as a normal user (`conclave` in a Proxmox container), so it

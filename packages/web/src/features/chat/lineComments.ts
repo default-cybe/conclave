@@ -21,6 +21,8 @@ export interface LineComment {
   text: string;
   /** A workflow branch the diff came from, not the session's own folder. */
   branch?: string;
+  /** An element picked in the Preview (PreviewPane.tsx): quote is the hub's text, already inside <untrusted_web_content>. */
+  pick?: true;
 }
 
 export const COMMENTS_PREFIX = 'diff-comments:';
@@ -125,9 +127,12 @@ export function commentPlace(c: Pick<LineComment, 'path' | 'line' | 'endLine' | 
 /** The one message the agent gets: each place, the quoted lines in a diff block, then the comment. */
 export function formatComments(list: LineComment[]): string {
   const parts = list.map((c) => {
+    // a pick's quote is page data the hub fenced as untrusted; it goes as it came
+    if (c.pick) return `${c.text}\n${c.quote}`;
     let fence = '```';
     while (c.quote.includes(fence)) fence += '`';
     return `${commentPlace(c)}\n${fence}diff\n${c.quote}\n${fence}\n${c.text}`;
   });
-  return `${list.length === 1 ? 'A comment' : `${list.length} comments`} on the diff:\n\n${parts.join('\n\n')}`;
+  const where = list.every((c) => c.pick) ? 'on the Preview' : list.some((c) => c.pick) ? 'on the diff and the Preview' : 'on the diff';
+  return `${list.length === 1 ? 'A comment' : `${list.length} comments`} ${where}:\n\n${parts.join('\n\n')}`;
 }

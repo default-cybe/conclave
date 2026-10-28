@@ -18,6 +18,7 @@ import { ContextPanel, PANEL_W } from './ContextPanel';
 import { PhoneChats } from './PhoneChats';
 import { ImportSheet } from '@/features/import/ImportSheet';
 import { openImportSheet } from '@/features/import/store';
+import { PreviewDock, usePreviewOpen } from '@/features/preview/PreviewPane';
 
 const SHEET_KEY = 'conclave.chat.details';
 
@@ -28,6 +29,7 @@ export function ChatsPage() {
   const id = params.id;
   const session = useHub((s) => (id ? s.sessions[id] : undefined));
   const booted = useHub((s) => s.booted);
+  const previewing = usePreviewOpen((s) => !!id && s.id === id);
   const bp = useBreakpoint();
   const contextOpen = useUi((s) => s.contextOpen);
   const drawer = useUi((s) => s.drawerOpen);
@@ -84,6 +86,7 @@ export function ChatsPage() {
       <div className="flex min-h-0 flex-1">
         <ChatView session={session} />
         <ImportSheet />
+        <PreviewDock session={session} />
       </div>
     );
   }
@@ -106,7 +109,8 @@ export function ChatsPage() {
         <ChatView session={session} />
       </div>
       <ImportSheet />
-      {wide && contextOpen && (
+      <PreviewDock session={session} />
+      {wide && contextOpen && !previewing && (
         <div className="shrink-0 anim-right" style={{ width: PANEL_W }}>
           <ContextPanel session={session} />
         </div>

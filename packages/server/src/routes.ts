@@ -48,6 +48,7 @@ import { registerWebSearchRoutes } from './routes-websearch';
 import { registerPimRoutes } from './routes-pim';
 import { registerWatchRoutes } from './routes-watches';
 import { registerBrowserRoutes } from './routes-browser';
+import { registerPreviewRoutes } from './routes-preview';
 import { patchSession, registerProjectRoutes } from './routes-projects';
 import { registerGithubRoutes } from './routes-github';
 import { registerImportRoutes } from './routes-import';
@@ -792,6 +793,8 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
   registerWatchRoutes(app, ctx);
   // Settings > Browser: profiles, the sites signed in to, the sign-in view (routes-browser.ts)
   registerBrowserRoutes(app, ctx, audit);
+  // a Code session's Preview pane (routes-preview.ts)
+  registerPreviewRoutes(app, ctx, audit);
 
   const routineExists = (id: string) => {
     const r = engine.routines.get(id);

@@ -1941,7 +1941,7 @@ export class SessionRunner {
       decision = rewriteVerdict(before, after);
       if (pre.permissionDecision === 'allow' && before.decision === 'allow' && decision.decision === 'allow' && !untrusted) decision = { decision: 'allow', reason: 'Allowed by hook' };
     }
-    for (const cmd of tool.name === 'Bash' ? [original.command, input.command] : []) {
+    for (const cmd of tool.name === 'Bash' || tool.name === 'preview_start' ? [original.command, input.command] : []) {
       if (typeof cmd !== 'string') continue;
       const danger = dangerousCommand(cmd);
       if (danger && decision.decision === 'allow') decision = { decision: 'ask', reason: 'Potentially destructive command' };
