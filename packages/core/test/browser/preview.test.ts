@@ -5,14 +5,18 @@
  * WebSocket) and the browser's fence (no hub port, other loopback ports, LAN
  * or internet).
  *
+ * The live part runs once per binary: a full Chromium (the hub's download or a
+ * system Chrome) and the headless shell, when present, since they read the
+ * WebRTC policy differently. CONCLAVE_PREVIEW_BROWSERS=<path>:<path> picks them.
+ *
  *   bun test packages/core/test/browser/preview.test.ts
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConfigStore } from '../../src/config';
-import { BrowserManager, findBrowserExecutable } from '../../src/browser';
+import { BrowserManager, findBrowserExecutable, playwrightCacheDirs } from '../../src/browser';
 import { createConnection } from 'node:net';
 import { chooseConfig, launchLine, parseJsonc, parseLaunch, planLaunch, withPort } from '../../src/browser/launch';
 import { MAX_HTML, bareUrl, cleanHtml, cleanPick, pickText } from '../../src/browser/picker';
@@ -164,14 +168,24 @@ describe('relay', () => {
   });
 });
 
-const exe = findBrowserExecutable({ headless: true });
+const full = findBrowserExecutable({ headless: false, extraDirs: ['/var/lib/conclave/browser/ms-playwright'] });
+// shortcut: the Linux headless shell layout only, add others when a test machine needs them
+const shell = playwrightCacheDirs()
+  .flatMap((d) => {
+    try {
+      return readdirSync(d).filter((n) => n.startsWith('chromium_headless_shell-')).map((n) => join(d, n, 'chrome-headless-shell-linux64/chrome-headless-shell'));
+    } catch {
+      return [];
+    }
+  })
+  .find((p) => existsSync(p));
+const browsers = process.env.CONCLAVE_PREVIEW_BROWSERS?.split(':').filter(Boolean) ?? [...new Set([full, shell].filter((p): p is string => !!p))];
 let hasPlaywright = true;
 try {
   await import('playwright-core');
 } catch {
   hasPlaywright = false;
 }
-const live = exe && hasPlaywright ? describe : describe.skip;
 
 /** A tiny app the session "runs": a page with an error, a fetch log and a WebSocket like HMR's. */
 const APP = `
@@ -190,7 +204,8 @@ Bun.serve({
 });
 `;
 
-live('preview (live Chromium)', () => {
+// no browser or no playwright-core: the live part does not run
+for (const exe of hasPlaywright ? browsers : []) describe(`preview (live Chromium: ${exe})`, () => {
   let home: string;
   let app: string;
   let manager: BrowserManager;
@@ -216,7 +231,8 @@ live('preview (live Chromium)', () => {
     // CONCLAVE_PREVIEW_HUB_BROWSER=<CloakBrowser chrome>: a hub whose browser and profile are CloakBrowser still previews (and logs) on stock Chromium
     const cloak = process.env.CONCLAVE_PREVIEW_HUB_BROWSER;
     const config = new ConfigStore(home, { browser: cloak ? { headless: true, executablePath: cloak, profiles: { default: { engine: 'cloak' } }, cloak: { executablePath: cloak } } : { headless: true, executablePath: exe } });
-    manager = new BrowserManager({ config });
+    // the preview runs on this binary, not the first one the hub would find
+    manager = new BrowserManager({ config, stockBrowser: () => exe });
     service = new PreviewService(manager, () => [hub.port as number]);
   });
 

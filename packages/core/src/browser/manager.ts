@@ -65,8 +65,28 @@ export interface SessionProxyInfo {
   exit?: { ip?: string; country?: string; error?: string };
 }
 
-/** Keeps WebRTC from sending UDP around the proxy, which would show the hub's own address. */
+/**
+ * Keeps WebRTC from sending UDP around the proxy, which would show the hub's own address.
+ * Only Playwright's headless shell reads this flag; full Chromium and Google Chrome
+ * ignore it and read the profile pref instead (writeWebrtcPolicy), so launches set both.
+ */
 export const WEBRTC_PROXY_FLAG = '--force-webrtc-ip-handling-policy=disable_non_proxied_udp';
+
+/** Sets webrtc.ip_handling_policy in a profile folder's Default/Preferences, keeping its other keys. */
+export function writeWebrtcPolicy(dir: string): void {
+  const file = join(dir, 'Default', 'Preferences');
+  let prefs: Record<string, unknown> = {};
+  try {
+    const old = JSON.parse(readFileSync(file, 'utf8'));
+    if (old && typeof old === 'object' && !Array.isArray(old)) prefs = old;
+  } catch {
+    // no file yet, or one Chromium would rewrite anyway
+  }
+  const webrtc = prefs.webrtc && typeof prefs.webrtc === 'object' ? (prefs.webrtc as Record<string, unknown>) : {};
+  prefs.webrtc = { ...webrtc, ip_handling_policy: 'disable_non_proxied_udp' };
+  mkdirSync(join(dir, 'Default'), { recursive: true });
+  writeFileSync(file, JSON.stringify(prefs));
+}
 
 export interface PageSnapshot {
   url: string;
@@ -138,7 +158,8 @@ export interface PreviewGuard {
  * Chromium flags of a preview browser, for what context.route never sees: no
  * DNS but localhost (dns-prefetch, preconnect), WebRTC only through a proxy
  * that is a dead loopback port (no STUN/TURN to the LAN or the metadata
- * address), and no QUIC (WebTransport).
+ * address; the flag works on the headless shell only, the launch also writes
+ * the pref full Chromium reads), and no QUIC (WebTransport).
  */
 export const PREVIEW_NET_FLAGS = [
   '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost',
@@ -557,6 +578,7 @@ export class BrowserManager implements BrowserTakeover {
     }
     const dir = proxied ? this.proxyDir() : join(this.profilesDir(), name);
     mkdirSync(dir, { recursive: true });
+    if (proxied?.proxy || proxied?.preview) writeWebrtcPolicy(dir);
     let options: Options;
     /** What to try when there is no display for a headed browser, or old headless is gone. */
     let fallback: () => Options;
@@ -658,7 +680,7 @@ export class BrowserManager implements BrowserTakeover {
     // the proxy's label: no login, no password
     log.info(
       proxied?.preview
-        ? `preview browser for session ${proxied.sessionId} started (${ENGINE_LABEL[engine]})`
+        ? `preview browser for session ${proxied.sessionId} started (${ENGINE_LABEL[engine]}${executablePath ? `, ${executablePath}` : ''})`
         : proxied?.proxy
         ? `browser for session ${proxied.sessionId} started through the proxy (${proxied.proxy.label}, ${ENGINE_LABEL[engine]}${relay ? ', through a loopback relay' : ''})`
         : `browser profile "${name}" started (${ENGINE_LABEL[engine]}${executablePath ? `, ${executablePath}` : ''})`,

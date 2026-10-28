@@ -12,7 +12,7 @@
  * - nothing the agent or the log sees has the login or password.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BrowserContext, BrowserType } from 'playwright-core';
@@ -221,6 +221,8 @@ describe('with the proxy input', () => {
     const call = h.calls[0];
     expect(call.opts.proxy).toEqual({ server: 'http://gw.dataimpulse.com:823', username: `${LOGIN}__cr.jp`, password: PASSWORD });
     expect(call.opts.args).toContain(WEBRTC_PROXY_FLAG);
+    // full Chromium ignores the flag and reads the pref instead
+    expect(JSON.parse(readFileSync(join(call.dir, 'Default', 'Preferences'), 'utf8'))).toEqual({ webrtc: { ip_handling_policy: 'disable_non_proxied_udp' } });
     // not the profile's folder: a fresh one under the cache
     expect(call.dir.startsWith(join(h.home, 'cache', 'browser-proxy'))).toBe(true);
     expect(existsSync(join(h.home, 'browser-profile', 'default'))).toBe(false);

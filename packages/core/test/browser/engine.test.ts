@@ -24,6 +24,7 @@ import {
   engineFor,
   fileSha256,
   profileSeed,
+  writeWebrtcPolicy,
 } from '../../src/browser';
 import type { ToolContext } from '../../src/tools/types';
 
@@ -165,14 +166,30 @@ describe('launch options per engine', () => {
     expect(calls[0].opts.args!.some((a) => a.startsWith('--fingerprint'))).toBe(false);
     expect(calls[0].opts.args).toContain('--disable-quic');
     expect(notes).toEqual([]);
+    // full Chromium ignores the WebRTC flag and reads the pref, written before the launch
+    expect(JSON.parse(readFileSync(join(calls[0].dir, 'Default', 'Preferences'), 'utf8'))).toEqual({ webrtc: { ip_handling_policy: 'disable_non_proxied_udp' } });
     await manager.close();
 
     const none = setup(browser, undefined, () => undefined);
     await none.manager.startPreview('s1', guard);
     await none.manager.tabs('s1');
     expect(none.calls[0].opts.executablePath).toBe(cloak.path);
+    expect(JSON.parse(readFileSync(join(none.calls[0].dir, 'Default', 'Preferences'), 'utf8')).webrtc.ip_handling_policy).toBe('disable_non_proxied_udp');
     expect(notes).toEqual(['No stock Chromium on the hub, so the preview runs on CloakBrowser: console messages may be missing and fonts, scale and theme may be off. Install Chromium in Settings, Browser, Engines.']);
     await none.manager.close();
+  });
+
+  test('the WebRTC pref keeps the other keys of an existing Preferences file; a plain profile launch writes none', async () => {
+    const dir = tmp('conclave-prefs-');
+    mkdirSync(join(dir, 'Default'));
+    writeFileSync(join(dir, 'Default', 'Preferences'), JSON.stringify({ profile: { name: 'Kai' }, webrtc: { multiple_routes_enabled: false, ip_handling_policy: 'default' } }));
+    writeWebrtcPolicy(dir);
+    expect(JSON.parse(readFileSync(join(dir, 'Default', 'Preferences'), 'utf8'))).toEqual({ profile: { name: 'Kai' }, webrtc: { multiple_routes_enabled: false, ip_handling_policy: 'disable_non_proxied_udp' } });
+
+    const { manager, profiles } = setup({ executablePath: fakeBinary().path });
+    await manager.tabs('s1');
+    expect(existsSync(join(profiles, 'default', 'Default', 'Preferences'))).toBe(false);
+    await manager.close();
   });
 
   test('a headed CloakBrowser gets no emulated viewport and the GPU flag; no display falls back to headless', async () => {
