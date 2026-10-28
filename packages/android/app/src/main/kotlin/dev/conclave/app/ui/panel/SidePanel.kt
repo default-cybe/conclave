@@ -1,13 +1,18 @@
+@file:OptIn(ExperimentalFoundationApi::class)
+
 package dev.conclave.app.ui.panel
 
+import android.widget.Toast
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +61,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.stateDescription
@@ -67,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.conclave.app.data.HubProblem
+import dev.conclave.app.ui.common.ConfirmDialog
 import dev.conclave.app.ui.common.Glyphs
 import dev.conclave.app.ui.common.LocalAppContainer
 import dev.conclave.app.ui.common.hubName
@@ -81,6 +88,7 @@ import dev.conclave.client.logic.Delegated
 import dev.conclave.client.logic.DelegatedRow
 import dev.conclave.client.logic.Drawer
 import dev.conclave.client.logic.GroupBy
+import dev.conclave.client.logic.Recent
 import dev.conclave.client.logic.RecentDot
 import dev.conclave.client.logic.StartMode
 import dev.conclave.client.update.UpdatePrompt
@@ -137,6 +145,9 @@ fun SidePanel(
         if (mode == StartMode.ASSISTANT && !hasHome) runCatching { hub.api { it.assistantHome() } }.getOrNull()?.let { hub.putSession(it) }
     }
     var delegatedFolded by rememberSaveable { mutableStateOf(false) }
+    // long press on a conversation: Delete, after a confirm
+    var deleting by remember { mutableStateOf<Recent?>(null) }
+    val context = LocalContext.current
     val finding = searching && query.isNotBlank()
     fun endSearch() {
         searching = false
@@ -202,6 +213,7 @@ fun SidePanel(
                             endSearch()
                             onOpen(r.id, r.chat)
                         },
+                        onLongClick = { deleting = r },
                         trailing = { Dot(r.dot) },
                     )
                 }
@@ -225,6 +237,27 @@ fun SidePanel(
 
         HorizontalDivider(thickness = 1.dp, color = c.rule)
         AccountRow(selected = inSettings, onClick = onSettings)
+    }
+    deleting?.let { r ->
+        val what = if (r.chat) "chat" else "session"
+        ConfirmDialog(
+            title = "Delete $what?",
+            text = "“${r.title}” and its messages are deleted on the hub.",
+            confirmLabel = "Delete",
+            destructive = true,
+            onConfirm = {
+                deleting = null
+                scope.launch {
+                    runCatching { hub.api { it.deleteSession(r.id) } }
+                        .onSuccess {
+                            hub.sessions.value = hub.sessions.value.filterNot { it.id == r.id }
+                            if (r.id == currentId) onNew()
+                        }
+                        .onFailure { Toast.makeText(context, "Could not delete: ${it.message}", Toast.LENGTH_LONG).show() }
+                }
+            },
+            onDismiss = { deleting = null },
+        )
     }
 }
 
@@ -370,6 +403,7 @@ private fun PanelRow(
     strong: Boolean = false,
     leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
 ) {
     val c = Conclave.colors
     Row(
@@ -378,7 +412,7 @@ private fun PanelRow(
             .heightIn(min = 48.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(if (selected) c.surface2 else Color.Transparent)
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = onLongClick?.let { "Delete" })
             .semantics { this.selected = selected }
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,

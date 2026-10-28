@@ -398,6 +398,13 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
     fun rename(title: String) = patch(SessionPatch(title = title))
     fun archive() = patch(SessionPatch(archived = true))
 
+    fun delete(onDeleted: () -> Unit) = action {
+        hub.api { it.deleteSession(sessionId) }
+        saved.forget()
+        hub.sessions.update { list -> list.filterNot { it.id == sessionId } }
+        onDeleted()
+    }
+
     private fun patch(p: SessionPatch) = action {
         _session.value = hub.api { it.updateSession(sessionId, p) }
     }

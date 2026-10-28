@@ -312,8 +312,8 @@ function checkOne(c: CheckInput): PermissionCheck {
     if (allow) return { decision: 'allow', reason: `Allowed by rule ${allow.raw}`, rule: allow.raw };
   }
 
-  // an untrusted session: nothing but an allow rule lets a call through
-  if (c.rules.askReadOnly) return { decision: 'ask', reason: gatedReason ?? 'Needs approval: this session reads untrusted input' };
+  // an untrusted session: nothing but an allow rule, or a reader built for it (MailSearch), lets a call through
+  if (c.rules.askReadOnly && !(readOnly && c.tool.untrustedReader)) return { decision: 'ask', reason: gatedReason ?? 'Needs approval: this session reads untrusted input' };
   if (c.mode === 'bypass') return { decision: 'allow', reason: 'Bypass mode' };
   // a fetch can carry data out, so a strict routine fetches only from the domains it lists
   if (readOnly && !(name === 'WebFetch' && c.rules.webFetchNeedsRule)) return { decision: 'allow', reason: 'Read-only tool' };

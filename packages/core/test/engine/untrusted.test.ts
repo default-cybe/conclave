@@ -15,6 +15,7 @@ import type { HarnessTurnOptions } from '../../src/acp/types';
 import type { Session } from '../../src/types';
 import type { Tool } from '../../src/tools/types';
 import { BashTool, EditTool, ReadTool, WebFetchTool } from '../../src/tools';
+import { MailReadTool, MailSearchTool } from '../../src/tools/mail';
 import { checkPermission, type PermissionRules } from '../../src/session/permissions';
 import { PermissionRulesFor } from '../../src/engine/permissions-view';
 import { runHarnessTurn } from '../../src/session/harness';
@@ -58,6 +59,14 @@ describe('checkPermission with askReadOnly', () => {
     expect(check(EditTool as unknown as Tool, { file_path: '/w/a.ts' }, '/w/a.ts', rules, 'acceptEdits')).toBe('ask');
     // without the flag the same read is allowed, as before
     expect(check(ReadTool as unknown as Tool, { file_path: '/w/a.ts' }, '/w/a.ts', { ...rules, askReadOnly: false })).toBe('allow');
+  });
+
+  test('the mail reader tools run without asking; a deny rule still wins', () => {
+    const rules: PermissionRules = { allow: [], deny: [], ask: [], askReadOnly: true };
+    expect(check(MailSearchTool as unknown as Tool, { from: 'x' }, '', rules)).toBe('allow');
+    expect(check(MailReadTool as unknown as Tool, { id: 'm1' }, '', rules)).toBe('allow');
+    expect(check(MailReadTool as unknown as Tool, { id: 'm1' }, '', { ...rules, deny: ['MailRead'] })).toBe('deny');
+    expect(check(ReadTool as unknown as Tool, { file_path: '/w/a.ts' }, '/w/a.ts', rules)).toBe('ask');
   });
 });
 
