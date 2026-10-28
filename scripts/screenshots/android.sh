@@ -159,7 +159,18 @@ await_text() {
 
 # open the side panel with the Menu button and tap the row $1 in it
 panel() {
-  await_text Menu 15 tap && sleep 2 && await_text "$1" 10 tap
+  local ok=0
+  await_text Menu 15 tap && sleep 2 && await_text "$1" 10 tap || ok=1
+  sleep 1
+  close_panel
+  return $ok
+}
+
+# Back closes the side panel when it is open ("Group by" shows only there); deep links leave it open,
+# so a panel left open would cover every shot after it
+close_panel() {
+  if dump && find_text "Group by" >/dev/null; then adb shell input keyevent KEYCODE_BACK; sleep 1; fi
+  return 0
 }
 
 # answer what waits on the owner through the hub (deny the approval, take each question's first option),
@@ -247,7 +258,7 @@ for t in light dark; do
   # after a cold start the hub's data arrives in parts; "2 need you" under the greeting means it is in
   await_text "2 need you" 30
   shot "home-$t.png"
-  await_text Menu 15 tap && sleep 2 && await_text Recents 10 && shot "panel-$t.png"
+  await_text Menu 15 tap && sleep 2 && await_text "Group by" 10 && shot "panel-$t.png"
   await_text Chats 10 tap && sleep 3 && shot "chats-$t.png"
   panel Code && sleep 3 && shot "code-$t.png"
   panel Inbox && sleep 3 && shot "inbox-$t.png"
@@ -260,6 +271,7 @@ for t in light dark; do
   open_link "conclave://chat/$chat" && shot "chat-$t.png"
   if [ -n "$run" ]; then open_link "conclave://workflow-run/$run" && shot "workflow-$t.png"; fi
   # Memory > Map: the tree, the 3D clusters, and an item's sheet over each
+  close_panel
   open_link "conclave://memory-map?view=tree" && await_text Rings 20 && sleep 2 && shot "memory-map-tree-$t.png"
   if [ -n "$mem" ]; then
     open_link "conclave://memory-map?view=tree&item=$mem" && await_text "Center here" 20 && sleep 2 && shot "memory-map-tree-sheet-$t.png"
