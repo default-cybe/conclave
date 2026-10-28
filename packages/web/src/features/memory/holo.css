@@ -1,6 +1,7 @@
 /*
- * Memory > Map, 3D view (HoloCanvas.tsx). A quiet studio space: the app's
- * neutrals, --signal only for what has focus, hairlines, no glow. What it
+ * Memory > Map, 3D view (HoloCanvas.tsx). A quiet studio space: points and
+ * links in faint --signal violet, full violet for focus, neutral text,
+ * hairlines, no glow. What it
  * still does differently from other screens is in docs/DESIGN.md (Memory >
  * Map, 3D view): the soft key light behind the space. Words stay in
  * sentence case; mono only for numbers.

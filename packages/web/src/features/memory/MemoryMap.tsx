@@ -476,7 +476,7 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
   );
   const legend = holoOn
     ? space === 'clusters'
-      ? 'Each point is an item, bigger the more it links; each cluster an area; each line a real link, bent through the middle when it crosses areas.'
+      ? 'Each point is an item, bigger the more it links, higher the newer; each cluster an area; each line a real link, bent through the middle when it crosses areas.'
       : 'Time runs left to right, oldest first; each lane around the axis is an area; each line a real link, bent through the time axis when it crosses areas.'
     : ringsOn
       ? 'Inner ring: a tick per item, oldest to newest in its area, longer the more it links. Middle: area arcs, a tick every 10 items. Outer: writes over time; drag its handle to step back. Every curve is a real link through the core.'
