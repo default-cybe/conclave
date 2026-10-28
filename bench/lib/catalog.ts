@@ -17,7 +17,7 @@ export interface HiddenRun {
 export interface CatalogEntry {
   id: string;
   title: string;
-  kind: 'polyglot' | 'bug' | 'feature';
+  kind: 'polyglot' | 'bug' | 'feature' | 'skill';
   lang: 'python' | 'javascript' | 'typescript' | 'go' | 'rust';
   difficulty: 'easy' | 'medium' | 'hard';
   smoke?: boolean;
@@ -34,6 +34,15 @@ export interface CatalogEntry {
    * prompt.md under "Notes for this task"; `bench check` makes sure they are there.
    */
   notes?: string;
+  /**
+   * Skill tasks only: the hub skill whose content the task needs (TASKS-SKILLS.md).
+   * Their repo/ is written by hand, not built from a fixture or an exercise.
+   */
+  skill?: string;
+  /** Skill tasks only: the visible test command, or null for none. */
+  visibleCmd?: string | null;
+  /** Skill tasks only: protected globs (default tests/**). */
+  protect?: string[];
 }
 
 const TTT_NOTES = [
@@ -259,6 +268,38 @@ export const CATALOG: CatalogEntry[] = [
   },
 ];
 
+/**
+ * Tasks that need knowledge from a hub skill (TASKS-SKILLS.md). Not part of
+ * the 18-task set: select them with `--tasks skills` or by id.
+ */
+export const SKILL_CATALOG: CatalogEntry[] = [
+  {
+    id: 'skill-api-haiku',
+    title: 'Ticket triage onto the newest Haiku',
+    kind: 'skill',
+    lang: 'python',
+    difficulty: 'medium',
+    skill: 'claude-api',
+    visibleCmd: 'python3 -m unittest discover -s tests',
+    naive: true,
+    hiddenFiles: { 'hidden/tests/test_hidden_haiku.py': 'tests/hidden/test_hidden_haiku.py', 'hidden/tests/fake_api.py': 'tests/hidden/fake_api.py' },
+    runs: [py('tests/hidden')],
+  },
+  {
+    id: 'skill-api-sonnet-tools',
+    title: 'Invoice extractor onto Sonnet 5.5, thinking off',
+    kind: 'skill',
+    lang: 'typescript',
+    difficulty: 'hard',
+    skill: 'claude-api',
+    visibleCmd: 'bun test ./tests/visible/',
+    protect: ['tests/**', 'package.json', 'bunfig.toml'],
+    naive: true,
+    hiddenFiles: { 'hidden/tests/sonnet.test.ts': 'tests/hidden/sonnet.test.ts', 'hidden/tests/fake-api.ts': 'tests/hidden/fake-api.ts' },
+    runs: [bun('./tests/hidden/')],
+  },
+];
+
 export const REQUIRES: Record<CatalogEntry['lang'], string> = { python: 'python3', javascript: 'bun', typescript: 'bun', go: 'go', rust: 'cargo' };
 
 const COMMON_ARTIFACTS = ['node_modules/', 'target/', '__pycache__/', '.pytest_cache/', '.bench-moved/', '*.pyc', 'tasksd.db', '.DS_Store'];
@@ -266,6 +307,26 @@ const COMMON_ARTIFACTS = ['node_modules/', 'target/', '__pycache__/', '.pytest_c
 /** The task.json body for a catalog entry. */
 export function taskJson(e: CatalogEntry, expectedTotal: number | null): Record<string, unknown> {
   const isPg = e.kind === 'polyglot';
+  if (e.kind === 'skill') {
+    return {
+      id: e.id,
+      title: e.title,
+      kind: e.kind,
+      lang: e.lang,
+      difficulty: e.difficulty,
+      time_limit_s: LIMIT[e.difficulty],
+      smoke: false,
+      requires: [REQUIRES[e.lang]],
+      source: { type: 'standalone', skill: e.skill },
+      visible_test_cmd: e.visibleCmd ?? null,
+      hidden: { files: e.hiddenFiles, clear: ['tests/hidden/'], runs: e.runs, timeout_s: 120, expected_total: expectedTotal, restore: [], move_aside: [] },
+      protected: e.protect ?? ['tests/**'],
+      artifacts: COMMON_ARTIFACTS,
+      reference: 'hidden/reference/',
+      naive: e.naive ? 'hidden/naive/' : null,
+      license: { name: 'written for this kit', holder: null, file: null },
+    };
+  }
   const protectedGlobs = isPg
     ? ({
         python: ['*_test.py'],

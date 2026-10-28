@@ -1,0 +1,61 @@
+{
+  "id": "skill-api-sonnet-tools",
+  "title": "Invoice extractor onto Sonnet 5.5, thinking off",
+  "kind": "skill",
+  "lang": "typescript",
+  "difficulty": "hard",
+  "time_limit_s": 1200,
+  "smoke": false,
+  "requires": [
+    "bun"
+  ],
+  "source": {
+    "type": "standalone",
+    "skill": "claude-api"
+  },
+  "visible_test_cmd": "bun test ./tests/visible/",
+  "hidden": {
+    "files": {
+      "hidden/tests/sonnet.test.ts": "tests/hidden/sonnet.test.ts",
+      "hidden/tests/fake-api.ts": "tests/hidden/fake-api.ts"
+    },
+    "clear": [
+      "tests/hidden/"
+    ],
+    "runs": [
+      {
+        "cmd": "bun test ./tests/hidden/",
+        "format": "bun",
+        "env": {
+          "TZ": "UTC"
+        }
+      }
+    ],
+    "timeout_s": 120,
+    "expected_total": 7,
+    "restore": [],
+    "move_aside": []
+  },
+  "protected": [
+    "tests/**",
+    "package.json",
+    "bunfig.toml"
+  ],
+  "artifacts": [
+    "node_modules/",
+    "target/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".bench-moved/",
+    "*.pyc",
+    "tasksd.db",
+    ".DS_Store"
+  ],
+  "reference": "hidden/reference/",
+  "naive": "hidden/naive/",
+  "license": {
+    "name": "written for this kit",
+    "holder": null,
+    "file": null
+  }
+}

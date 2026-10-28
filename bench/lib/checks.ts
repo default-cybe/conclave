@@ -15,7 +15,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CATALOG, taskJson } from './catalog';
+import { CATALOG, SKILL_CATALOG, taskJson } from './catalog';
 import { loadTask, notesBlock, type Task } from './tasks';
 import { listFiles } from './util';
 
@@ -37,6 +37,9 @@ export const CAUSE_WORDS: Record<string, string[]> = {
   'bug-py-utf8': ['http_util', 'Content-Length', 'byte', 'send_json', 'send_error_json', 'encode', 'len('],
   'bug-py-cursor': ['store.py', 'cursor.py', 'created_at', 'same second', 'tie', 'keyset', 'dedupe'],
 };
+
+/** Skill task prompts are what the owner would type: no word that points at a skill, a plugin or the Skill tool. */
+const SKILL_HINT = /\b(skills?|plugins?|superpowers|SKILL\.md|anthropic-skills|document-skills)\b/i;
 
 const REVEALING = /\b(BUG|FIXME|XXX|HACK|seeded|hidden tests?|reference solution|benchmark)\b/i;
 
@@ -118,7 +121,7 @@ function readAll(dir: string): string {
 
 export function checkTask(t: Task): CheckResult {
   const r: CheckResult = { id: t.id, problems: [], notes: [] };
-  const e = CATALOG.find((c) => c.id === t.id);
+  const e = [...CATALOG, ...SKILL_CATALOG].find((c) => c.id === t.id);
   if (!e) {
     r.problems.push('not in the catalog');
     return r;
@@ -150,6 +153,15 @@ export function checkTask(t: Task): CheckResult {
   // bug prompts point the wrong way
   for (const w of CAUSE_WORDS[t.id] ?? []) if (prompt.toLowerCase().includes(w.toLowerCase())) r.problems.push(`the bug report names "${w}", which gives the cause away`);
   if (t.kind === 'bug' && !CAUSE_WORDS[t.id]) r.problems.push('bug task without a CAUSE_WORDS entry in lib/checks.ts');
+
+  if (t.kind === 'skill') {
+    const m = SKILL_HINT.exec(prompt);
+    if (m) r.problems.push(`the prompt says "${m[0]}", which hints at the skill`);
+    // a file extension (contract.docx) is not the skill's name
+    const named = e.skill && new RegExp(`(?<![.\\w])${e.skill.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`, 'i').test(prompt);
+    if (named) r.problems.push(`the prompt names the skill ${e.skill}`);
+    if (!e.skill) r.problems.push('skill task without a skill name in the catalog');
+  }
 
   // seeded code carries no hints
   if (t.kind !== 'polyglot') {
