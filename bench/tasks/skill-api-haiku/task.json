@@ -1,0 +1,57 @@
+{
+  "id": "skill-api-haiku",
+  "title": "Ticket triage onto the newest Haiku",
+  "kind": "skill",
+  "lang": "python",
+  "difficulty": "medium",
+  "time_limit_s": 900,
+  "smoke": false,
+  "requires": [
+    "python3"
+  ],
+  "source": {
+    "type": "standalone",
+    "skill": "claude-api"
+  },
+  "visible_test_cmd": "python3 -m unittest discover -s tests",
+  "hidden": {
+    "files": {
+      "hidden/tests/test_hidden_haiku.py": "tests/hidden/test_hidden_haiku.py",
+      "hidden/tests/fake_api.py": "tests/hidden/fake_api.py"
+    },
+    "clear": [
+      "tests/hidden/"
+    ],
+    "runs": [
+      {
+        "cmd": "python3 {bench}/runners/unittest_json.py tests/hidden",
+        "format": "unittest-json",
+        "env": {}
+      }
+    ],
+    "timeout_s": 120,
+    "expected_total": 5,
+    "restore": [],
+    "move_aside": []
+  },
+  "protected": [
+    "tests/**"
+  ],
+  "artifacts": [
+    "node_modules/",
+    "target/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".bench-moved/",
+    "*.pyc",
+    "tasksd.db",
+    ".DS_Store"
+  ],
+  "reference": "hidden/reference/",
+  "naive": "hidden/naive/",
+  "license": {
+    "name": "written for this kit",
+    "holder": null,
+    "file": null
+  }
+}

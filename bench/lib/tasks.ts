@@ -1,13 +1,13 @@
 /** Task loading, building (fixtures and vendored exercises), overlays and the shared prompt. */
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { CATALOG, POLYGLOT_COMMIT, taskJson, type CatalogEntry, type HiddenRun } from './catalog';
+import { CATALOG, POLYGLOT_COMMIT, SKILL_CATALOG, taskJson, type CatalogEntry, type HiddenRun } from './catalog';
 import { BENCH_DIR, copyTree, listFiles, log, readJson, writeJson } from './util';
 
 export interface Task {
   id: string;
   title: string;
-  kind: 'polyglot' | 'bug' | 'feature';
+  kind: 'polyglot' | 'bug' | 'feature' | 'skill';
   lang: string;
   difficulty: 'easy' | 'medium' | 'hard';
   time_limit_s: number;
@@ -46,15 +46,21 @@ export function allTaskIds(): string[] {
   return CATALOG.map((e) => e.id);
 }
 
+/** Tasks that need a hub skill; not in `all`, selected with `skills` or by id. */
+export function skillTaskIds(): string[] {
+  return SKILL_CATALOG.map((e) => e.id);
+}
+
 export function loadTasks(sel?: string): Task[] {
   const ids = allTaskIds();
   if (!sel || sel === 'all') return ids.map(loadTask);
   if (sel === 'smoke') return ids.map(loadTask).filter((t) => t.smoke);
+  const known = [...ids, ...skillTaskIds()];
   const want: string[] = [];
   for (const w of sel.split(',').map((s) => s.trim()).filter(Boolean)) {
-    const add = w === 'smoke' ? ids.filter((id) => loadTask(id).smoke) : w === 'all' ? ids : [w];
+    const add = w === 'smoke' ? ids.filter((id) => loadTask(id).smoke) : w === 'all' ? ids : w === 'skills' ? skillTaskIds() : [w];
     for (const id of add) {
-      if (!ids.includes(id)) throw new Error(`unknown task: ${id}`);
+      if (!known.includes(id)) throw new Error(`unknown task: ${id}`);
       if (!want.includes(id)) want.push(id);
     }
   }
@@ -184,11 +190,13 @@ function vendorExercise(e: CatalogEntry, polyglotDir: string): void {
 }
 
 export function buildTasks(opts: { polyglot?: string; only?: string[] } = {}): void {
-  for (const e of CATALOG) {
+  for (const e of [...CATALOG, ...SKILL_CATALOG]) {
     if (opts.only && !opts.only.includes(e.id)) continue;
     const dir = join(TASKS_DIR, e.id);
     mkdirSync(dir, { recursive: true });
-    if (e.kind === 'polyglot') {
+    if (e.kind === 'skill') {
+      if (!existsSync(join(dir, 'repo'))) throw new Error(`${e.id}: repo/ is missing; skill tasks keep a hand-written repo/.`);
+    } else if (e.kind === 'polyglot') {
       if (opts.polyglot) {
         vendorExercise(e, opts.polyglot);
         log(`vendored ${e.id} from ${opts.polyglot}`);
@@ -206,7 +214,7 @@ export function buildTasks(opts: { polyglot?: string; only?: string[] } = {}): v
 export function refreshFixtureTasks(tasks: Task[]): void {
   for (const t of tasks) {
     const e = CATALOG.find((c) => c.id === t.id);
-    if (e && e.kind !== 'polyglot') buildFixtureTask(e);
+    if (e && e.kind !== 'polyglot' && e.kind !== 'skill') buildFixtureTask(e);
   }
 }
 
