@@ -304,11 +304,15 @@ private fun MainScaffold() {
         navigateTop(nav, Routes.HOME)
     }
 
+    val drawer = rememberDrawerState(DrawerValue.Closed)
+
     // Deep links, shortcuts and share intents.
     LaunchedEffect(pendingLink) {
         val link = pendingLink ?: return@LaunchedEffect
         // NavHost sets its graph during layout; wait one frame before navigating.
         withFrameNanos { }
+        // a link (a notification, a shortcut) opens its screen in front, not behind a side panel left open
+        drawer.snapTo(DrawerValue.Closed)
         when (link) {
             is DeepLink.Session -> {
                 // a session link that names a chat opens it as a chat
@@ -381,7 +385,6 @@ private fun MainScaffold() {
     ProvideReducedMotion {
         BoxWithConstraints(Modifier.fillMaxSize().background(c.bg)) {
             val wide = maxWidth >= 840.dp
-            val drawer = rememberDrawerState(DrawerValue.Closed)
             fun close(then: () -> Unit) {
                 then()
                 if (!wide) scope.launch { drawer.close() }
