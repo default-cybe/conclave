@@ -13,6 +13,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Memory > Map, 3D view: restyled from a sci-fi hologram to a quiet studio space. The radar sweep, floor bezel, rings and glass ball round the core, dashed orbits round clusters, lock-on brackets, cyan glow and blur halos are gone. Points are small crisp discs in the app's neutrals with depth fog, links are hairlines whose opacity follows how linked their ends are, and `--signal` violet marks only what has focus. The core is a small "Memory 2,980" origin; search and picks get a fine ring, the item's links in the accent and one leader line to a label card. Timeline is one fine axis with mono date ticks, seen square on. The camera eases more slowly and only drifts (about 25 minutes a turn) after 6 seconds of rest, never with reduced motion. Light theme sits on a warm off-white.
 
+### Fixed
+
+- Settings > About > This client in the desktop app shows the app's real version instead of 0.1.0, an "Update to X" button when the app has an update, and the last update check error. Browsers show the release version too: CI now writes it into the web app.
+
 ## [0.4.43] - 2026-10-28
 
 ### Changed

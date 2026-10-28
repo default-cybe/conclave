@@ -29,6 +29,7 @@ import { ImportSheet } from '@/features/import/ImportSheet';
 import { openImportSheet } from '@/features/import/store';
 import { useIsOwner } from '@/lib/people';
 import { UpdatesGroup } from './updates';
+import { tauriInvoke } from './computer';
 
 // ---------------------------------------------------------------------------
 // Appearance
@@ -353,6 +354,43 @@ function clientWords(): string {
   return `${browser}${os ? ` on ${os}` : ''}${installed ? ', installed' : ''}`;
 }
 
+/** What the desktop app's update_status returns (View in packages/desktop/src-tauri/src/update.rs). */
+export interface AppUpdate {
+  available?: string | null;
+  installing: boolean;
+  error?: string | null;
+  off?: string | null;
+  current: string;
+}
+
+/** The desktop app's own version and update, or undefined outside it (or in an app too old to tell the hub page). */
+export async function readAppUpdate(): Promise<AppUpdate | undefined> {
+  try {
+    return await tauriInvoke()?.<AppUpdate>('update_status');
+  } catch {
+    return undefined;
+  }
+}
+
+/** The "App" row of This client: the desktop app's real version and its update, else the web bundle's. */
+export function ClientAppRow({ words, app, size, onUpdate }: { words: string; app?: AppUpdate; size: 'touch' | 'sm'; onUpdate: () => void }) {
+  const error = app?.error ? (app.error.startsWith('The update did not install') ? app.error : `The app could not check for updates: ${app.error}`) : undefined;
+  return (
+    <SettingRow label="App" help={error}>
+      <span className="flex flex-wrap items-center gap-x-3 gap-y-1 md:justify-end">
+        <span className="text-[14px] text-fg">
+          {words}, <span className="font-mono text-[13px]">{app?.current || CLIENT_VERSION}</span>
+        </span>
+        {app?.available && (
+          <Button variant="outline" size={size} busy={app.installing ? 'Installing' : false} onClick={onUpdate}>
+            Update to {app.available}
+          </Button>
+        )}
+      </span>
+    </SettingRow>
+  );
+}
+
 export function AboutSection() {
   const mobile = useIsMobile();
   const owner = useIsOwner();
@@ -365,7 +403,16 @@ export function AboutSection() {
   const [backup, setBackup] = useState<'download' | 'restore' | null>(null);
   const [signOut, setSignOut] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [app, setApp] = useState<AppUpdate>();
   const size = mobile ? 'touch' : 'sm';
+
+  const loadApp = () => void readAppUpdate().then(setApp);
+  useEffect(loadApp, []);
+  // update_install restarts the app when it works; when it fails, the error shows in the row
+  const updateApp = () => {
+    if (app) setApp({ ...app, installing: true });
+    void attempt(async () => tauriInvoke()?.('update_install')).then(loadApp);
+  };
 
   const ping = async () => {
     setLatency('testing');
@@ -417,11 +464,7 @@ export function AboutSection() {
       {owner && <UpdatesGroup />}
 
       <Group title="This client">
-        <SettingRow label="App">
-          <span className="text-[14px] text-fg">
-            {clientWords()}, <span className="font-mono text-[13px]">{CLIENT_VERSION}</span>
-          </span>
-        </SettingRow>
+        <ClientAppRow words={clientWords()} app={app} size={size} onUpdate={updateApp} />
         <SettingRow label="Connection" help={MOCK ? 'Showing mock data, not a real hub.' : undefined}>
           <span className="flex flex-wrap items-center gap-x-3 gap-y-1 md:justify-end">
             <span className="text-[14px] text-fg">{transportWords(base)}</span>

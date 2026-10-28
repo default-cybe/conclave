@@ -97,11 +97,12 @@ jobs:
 
       # the hub says the tag as its version (cli/src/version.ts reads this file at build time);
       # the desktop app downloads the hub of its own version and the daemon reports the same one
+      # the web app shows its own version in Settings > About > This client
       - name: Use the tag as the hub's version
         shell: bash
         run: |
-          bun -e 'const f = "packages/cli/package.json"; const p = await Bun.file(f).json(); p.version = process.env.VERSION.replace(/^v/, ""); await Bun.write(f, JSON.stringify(p, null, 2) + "\n");'
-          grep '"version"' packages/cli/package.json
+          bun -e 'for (const f of ["packages/cli/package.json", "packages/web/package.json"]) { const p = await Bun.file(f).json(); p.version = process.env.VERSION.replace(/^v/, ""); await Bun.write(f, JSON.stringify(p, null, 2) + "\n"); }'
+          grep '"version"' packages/cli/package.json packages/web/package.json
 
       - name: Build web app
         run: bun run --filter @conclave/web build
@@ -202,7 +203,7 @@ jobs:
       - name: Use the tag as the app and daemon version
         shell: bash
         run: |
-          bun -e 'for (const f of ["packages/desktop/package.json", "packages/cli/package.json"]) { const p = await Bun.file(f).json(); p.version = process.env.VERSION.replace(/^v/, ""); await Bun.write(f, JSON.stringify(p, null, 2) + "\n"); }'
+          bun -e 'for (const f of ["packages/desktop/package.json", "packages/cli/package.json", "packages/web/package.json"]) { const p = await Bun.file(f).json(); p.version = process.env.VERSION.replace(/^v/, ""); await Bun.write(f, JSON.stringify(p, null, 2) + "\n"); }'
 
       # conclave-daemon for this bundle's system: the Rust daemon
       # (packages/daemon-rs). Set the repository variable CONCLAVE_SIDECAR to
