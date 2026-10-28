@@ -7,12 +7,15 @@
  * Two layouts, after Constellate (github.com/JCarterJohnson/constellate):
  *
  * Clusters: the core (the whole memory) in the middle and each area a
- * constellation around it on a gently tilted ring, ordered so the most
- * linked areas sit side by side (areaChain). Inside its ball an item's
- * direction starts on a golden spiral, leans toward the areas it links to,
- * then is relaxed toward its linked neighbours a few rounds, so related
- * items sit together; the most linked sit nearest the middle of the ball.
- * Settled once per graph and cached by the caller.
+ * constellation on a sphere around it, high and low as well as round:
+ * areas start on a golden spiral in areaChain order, then settle with the
+ * areas they share links with pulled together and the rest pushed apart;
+ * the sphere is turned so areas written more recently sit higher. Inside
+ * its ball an item's height is its recency in the area (newer higher,
+ * undated lowest), its bearing starts on a golden spiral, leans toward the
+ * areas it links to and is relaxed toward its linked neighbours a few
+ * rounds, so related items sit together; the most linked sit nearest the
+ * middle of the ball. Settled once per graph and cached by the caller.
  *
  * Timeline: time runs along x, oldest left. x mixes the real date and the
  * date's rank half and half, so quiet months still show as gaps but a busy
@@ -77,28 +80,30 @@ export function layoutHolo(L: LinkLayout, nodes: readonly MemoryGraphNode[], mod
   let extent = 0;
 
   if (mode === 'clusters') {
-    // balls by the cube root of their count, on a ring wide enough that none touch
+    // balls by the cube root of their count, on a sphere wide enough that none touch
     for (let a = 0; a < A; a++) radius[a] = 8 + 9 * Math.cbrt(size(a));
-    const room = chain.reduce((s, a) => s + 2 * radius[a] * 1.7, 0);
-    const R = Math.max(CORE_R * 3 + Math.max(...radius), room / TAU);
-    let arc = 0;
-    chain.forEach((a, k) => {
-      const th = ((arc + radius[a] * 1.7) / room) * TAU;
-      arc += 2 * radius[a] * 1.7;
-      // a gentle wave up and down, so the ring has depth from any side
-      const y = Math.sin(k * 2.4) * R * 0.14;
-      centers.set([Math.cos(th) * R, y, Math.sin(th) * R], a * 3);
-    });
+    const unit = areaSphere(L, chain, at);
+    let R = CORE_R * 2 + Math.max(...radius);
+    for (let a = 0; a < A; a++)
+      for (let b = a + 1; b < A; b++) {
+        const d = Math.hypot(unit[a * 3] - unit[b * 3], unit[a * 3 + 1] - unit[b * 3 + 1], unit[a * 3 + 2] - unit[b * 3 + 2]);
+        R = Math.max(R, ((radius[a] + radius[b]) * 1.35) / Math.max(d, 0.05));
+      }
+    for (let k = 0; k < A * 3; k++) centers[k] = unit[k] * R;
+    // height inside a ball: recency in its area, -1 oldest (and undated) to 1 newest
+    const h = new Float32Array(n);
+    for (let a = 0; a < A; a++) {
+      const { from, to } = L.areas[a];
+      const ids = Array.from({ length: to - from }, (_, k) => from + k).sort((x, y) => at[x] - at[y] || x - y);
+      ids.forEach((i, rank) => (h[i] = ids.length > 1 ? (2 * rank) / (ids.length - 1) - 1 : 0));
+    }
     const dir = new Float32Array(n * 3);
     for (let a = 0; a < A; a++) {
       const { from, to } = L.areas[a];
       for (let i = from; i < to; i++) {
-        // a golden spiral over the ball, in the item's place by degree
+        // a golden spiral round the ball, in the item's place by degree
         const k = i - from;
-        const m = to - from;
-        const y = 1 - (2 * (k + 0.5)) / m;
-        const r = Math.sqrt(1 - y * y);
-        dir.set([Math.cos(k * GOLD) * r, y, Math.sin(k * GOLD) * r], i * 3);
+        dir.set([Math.cos(k * GOLD), 0, Math.sin(k * GOLD)], i * 3);
       }
     }
     // lean toward the areas an item links to
@@ -141,13 +146,22 @@ export function layoutHolo(L: LinkLayout, nodes: readonly MemoryGraphNode[], mod
         normalize(dir, i);
       }
     }
-    // the most linked nearest the middle of the ball: radius by degree rank, as evenly filled as a ball is
+    // the most linked nearest the middle of the ball: radius by degree rank, as evenly filled as a ball is;
+    // height mostly by recency (an even y on a sphere covers it evenly), a little from the relaxed direction
     for (let a = 0; a < A; a++) {
       const { from, to } = L.areas[a];
       const ids = Array.from({ length: to - from }, (_, k) => from + k).sort((x, y) => deg[y] - deg[x] || x - y);
       ids.forEach((i, rank) => {
         const r = radius[a] * (0.12 + 0.88 * Math.cbrt((rank + 0.5) / ids.length));
-        for (let c = 0; c < 3; c++) pos[i * 3 + c] = centers[a * 3 + c] + dir[i * 3 + c] * r;
+        const y = Math.max(-0.98, Math.min(0.98, 0.85 * h[i] + 0.15 * dir[i * 3 + 1]));
+        // bearing: the relaxed one, with some of the spiral's kept so a big hub's neighbours do not collapse onto a few meridians
+        const k = i - from;
+        const bx = dir[i * 3] + 0.7 * Math.cos(k * GOLD);
+        const bz = dir[i * 3 + 2] + 0.7 * Math.sin(k * GOLD);
+        const s = Math.sqrt(1 - y * y) / (Math.hypot(bx, bz) || 1);
+        pos[i * 3] = centers[a * 3] + bx * s * r;
+        pos[i * 3 + 1] = centers[a * 3 + 1] + y * r;
+        pos[i * 3 + 2] = centers[a * 3 + 2] + bz * s * r;
       });
       extent = Math.max(extent, Math.hypot(centers[a * 3], centers[a * 3 + 1], centers[a * 3 + 2]) + radius[a]);
     }
@@ -173,6 +187,64 @@ export function layoutHolo(L: LinkLayout, nodes: readonly MemoryGraphNode[], mod
     return { mode, pos, centers, radius, extent, times, lo, hi, ticks: ticks.map((t) => ({ ...t, x: timeX(times, lo, hi, t.t) })) };
   }
   return { mode, pos, centers, radius, extent, times, lo, hi, ticks: [] };
+}
+
+/**
+ * Clusters: each area's direction from the core, unit vectors. A golden
+ * spiral in areaChain order, then 160 rounds where areas sharing links pull
+ * together and every pair pushes apart, kept on the sphere; finally flipped
+ * upside down if that puts the more recently written areas higher.
+ */
+function areaSphere(L: LinkLayout, chain: number[], at: Float64Array): Float32Array {
+  const A = L.areas.length;
+  const u = new Float32Array(A * 3);
+  chain.forEach((a, k) => {
+    const y = A > 1 ? 1 - (2 * (k + 0.5)) / A : 0;
+    const r = Math.sqrt(1 - y * y);
+    u.set([Math.cos(k * GOLD) * r, y, Math.sin(k * GOLD) * r], a * 3);
+  });
+  if (A < 2) return u;
+  const W = Array.from({ length: A }, () => new Float64Array(A));
+  let top = 0;
+  for (const e of L.edges) {
+    const x = L.items[e.a].area;
+    const y = L.items[e.b].area;
+    if (x !== y) (W[x][y]++, W[y][x]++, (top = Math.max(top, W[x][y])));
+  }
+  const f = new Float64Array(A * 3);
+  for (let round = 0; round < 160; round++) {
+    f.fill(0);
+    for (let a = 0; a < A; a++)
+      for (let b = 0; b < A; b++) {
+        if (a === b) continue;
+        const d = [0, 1, 2].map((c) => u[b * 3 + c] - u[a * 3 + c]);
+        const len = Math.hypot(d[0], d[1], d[2]) || 1e-3;
+        // pull by shared links (strongest pair 1, square root so a few big pairs do not take over), push by 1/d^2
+        const k = (top ? 0.3 * Math.sqrt(W[a][b] / top) : 0) * len - 0.1 / (len * len);
+        for (let c = 0; c < 3; c++) f[a * 3 + c] += (k * d[c]) / len;
+      }
+    for (let a = 0; a < A; a++) for (let c = 0; c < 3; c++) u[a * 3 + c] += 0.05 * f[a * 3 + c];
+    // keep the whole sphere in use: linked groups would otherwise crowd one side
+    for (let c = 0; c < 3; c++) {
+      let m = 0;
+      for (let a = 0; a < A; a++) m += u[a * 3 + c] / A;
+      for (let a = 0; a < A; a++) u[a * 3 + c] -= m;
+    }
+    for (let a = 0; a < A; a++) normalize(u, a);
+  }
+  // newer areas up: compare each area's mean write time with its height
+  const mean = L.areas.map((ar) => {
+    let s = 0;
+    let m = 0;
+    for (let i = ar.from; i < ar.to; i++) if (at[i]) ((s += at[i]), m++);
+    return m ? s / m : 0;
+  });
+  const dated = mean.filter(Boolean);
+  const avg = dated.reduce((s, t) => s + t, 0) / (dated.length || 1);
+  let cov = 0;
+  for (let a = 0; a < A; a++) if (mean[a]) cov += (mean[a] - avg) * u[a * 3 + 1];
+  if (cov < 0) for (let a = 0; a < A; a++) (u[a * 3 + 1] *= -1);
+  return u;
 }
 
 function normalize(v: Float32Array, i: number) {

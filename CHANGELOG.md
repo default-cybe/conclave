@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Memory > Map, 3D view: violet is back as the map's colour, and the space has real height. Points and links rest in faint `--signal` violet, fuller the more linked an item is, the most linked and their links in a brighter (dark) or deeper (light) violet; focus is full violet with the picked item in ink. Clusters now sit on a sphere instead of one ring: areas that share links settle near each other, the sphere turns so more recently written areas sit higher, and inside each area newer items sit higher ("newer items sit higher" in the corner legend). Timeline is unchanged.
+
 ## [0.4.44] - 2026-10-28
 
 ### Changed

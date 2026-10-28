@@ -8,8 +8,10 @@
  * (Timeline); every item is one point of a single Points object, every
  * real link a hairline curve in one LineSegments whose opacity carries its
  * weight, fogged with distance and bundled through the origin or the time
- * axis (holo-model.ts). Colours are the app's tokens, read from CSS:
- * neutrals for the space, --signal only for what has focus. The camera
+ * axis (holo-model.ts). Colours are the app's tokens, read from CSS: points
+ * and links in --signal violet, faint at rest and fuller the more linked an
+ * item is, the most linked in a brighter (dark) or deeper (light) violet;
+ * focus in full violet with the picked item in ink. The camera
  * drifts very slowly at rest, and a found or picked item gets a fine ring,
  * its links in the accent and one leader line to a label card. Labels,
  * readouts and the card are DOM over the canvas, placed every frame with a
@@ -148,12 +150,13 @@ interface Palette {
   dark: boolean;
   /** Background: what depth fades toward. */
   bg: Color;
-  /** Points, hubs, links: the neutrals. */
-  dot: Color;
+  /** Ink: the picked item's highlight; line: the time axis. */
   ink: Color;
   line: Color;
-  /** The one accent: focus, hits and the picked item's links. */
+  /** Violet: points and links, and in full what has focus. */
   accent: Color;
+  /** The most linked items and their links: a brighter violet in dark, a deeper one in light. */
+  hot: Color;
 }
 
 /** The app's colour tokens as sRGB values, raw, so the shaders draw exactly what CSS draws. */
@@ -168,7 +171,10 @@ function palette(): Palette {
     const [r, g, b] = c2.getImageData(0, 0, 1, 1).data;
     return new Color(r / 255, g / 255, b / 255);
   };
-  return { dark: isDark(), bg: tok('--bg'), dot: tok('--fg-2'), ink: tok('--fg'), line: tok('--fg-3'), accent: tok('--signal') };
+  const dark = isDark();
+  const accent = tok('--signal');
+  const ink = tok('--fg');
+  return { dark, bg: tok('--bg'), ink, line: tok('--fg-3'), accent, hot: dark ? tok('--wave-hot') : accent.clone().lerp(ink, 0.3) };
 }
 
 function lineMat(uniforms: Record<string, { value: unknown }> = {}) {
@@ -427,7 +433,7 @@ function Readouts({ phone, narrow, insets, mode, children: r }: { phone: boolean
         </dl>
       )}
       <div className="holo-read holo-mode" data-k="read" style={{ bottom: insets.bottom + 10, left: insets.left }}>
-        {mode === 'clusters' ? 'Clusters' : 'Timeline'} <span className="holo-sep">·</span> {mode === 'clusters' ? 'areas in space, linked items together' : 'oldest on the left, areas as lanes'}
+        {mode === 'clusters' ? 'Clusters' : 'Timeline'} <span className="holo-sep">·</span> {mode === 'clusters' ? 'newer items sit higher' : 'oldest on the left, areas as lanes'}
       </div>
     </>
   );
@@ -609,9 +615,8 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
   };
   const home = (h: HoloLayout) => {
     if (h.mode === 'clusters') {
-      // the ring is flat and seen at an angle: it fits in less than its sphere
-      const m = room();
-      const d = fitDist(h.extent * (m.w > m.h ? 0.78 : 0.95));
+      // areas fill a sphere: fit nearly all of it, high and low
+      const d = fitDist(h.extent * 0.95);
       return { target: new Vector3(0, 0, 0), cam: new Vector3(0, Math.sin(0.5) * d, Math.cos(0.5) * d) };
     }
     // square to history, a little above it, so the axis reads level across the room
@@ -686,9 +691,11 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
       const E = L.edges[e];
       linkCurve(hh, L, e, seg, p, k * seg * 6);
       // across areas fainter: they bundle through the origin, so many overlap there
-      const base = E.cross ? (P.dark ? 0.06 : 0.04) : P.dark ? 0.14 : 0.1;
-      const w = Math.min(1, Math.log2(2 + Math.min(s.deg[E.a], s.deg[E.b])) / 5);
-      const c = P.line;
+      const base = E.cross ? (P.dark ? 0.08 : 0.06) : P.dark ? 0.17 : 0.13;
+      const lo = Math.min(s.deg[E.a], s.deg[E.b]);
+      const w = Math.min(1, Math.log2(2 + lo) / 5);
+      // between two hubs: the brighter (deeper) violet
+      const c = lo >= 8 ? P.hot : P.accent;
       for (let v = 0; v < seg * 2; v++) {
         const o = (k * seg * 2 + v) * 3;
         t[o] = c.r;
@@ -714,10 +721,10 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     list.forEach((e, k) => {
       linkCurve(hh, L, e, seg, p, k * seg * 6);
       const E = L.edges[e];
-      // the picked or found item's own links in the accent, the rest lit in ink
+      // the picked or found item's own links in the strong violet, the rest lit in full violet
       const mine = one !== undefined && (E.a === one || E.b === one);
-      const c = mine ? P.accent : P.ink;
-      const a = mine ? 0.85 : (list.length > 120 ? 0.22 : 0.42) * (P.dark ? 1 : 0.7);
+      const c = mine ? P.hot : P.accent;
+      const a = mine ? 0.9 : (list.length > 120 ? 0.3 : 0.55) * (P.dark ? 1 : 0.8);
       for (let v = 0; v < seg * 2; v++) {
         const o = (k * seg * 2 + v) * 3;
         t[o] = c.r;
@@ -740,15 +747,16 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     for (let i = 0; i < n; i++) {
       const it = L.items[i];
       const d = s.deg[i];
-      // small and crisp; hubs a little larger and in full ink
+      // small and crisp violet, fuller the more linked; hubs a little larger in the strong violet
       let sz = 2.2 + 0.95 * Math.log2(1 + d);
-      let a = 0.92;
-      let c = d >= 8 ? P.ink : P.dot;
+      let a = (dark ? 0.5 : 0.42) + 0.45 * Math.min(1, Math.log2(1 + d) / 4);
+      let c = d >= 8 ? P.hot : P.accent;
       if (s.gone(it.node)) ((a = dark ? 0.08 : 0.12), (sz *= 0.7));
-      else if (busy && !s.near.has(i) && s.litArea !== it.area) a *= dark ? 0.22 : 0.26;
-      else if (busy && (s.near.has(i) || s.litArea === it.area)) ((sz *= 1.15), (c = P.ink));
-      if (s.hits.has(it.id)) ((c = P.accent), (sz *= 1.3), (a = 1));
-      if (i === s.lockI || i === s.focusItem) ((c = P.accent), (sz *= 1.5), (a = 1));
+      else if (busy && !s.near.has(i) && s.litArea !== it.area) a *= dark ? 0.3 : 0.32;
+      else if (busy && (s.near.has(i) || s.litArea === it.area)) ((sz *= 1.15), (a = 1));
+      if (s.hits.has(it.id)) ((c = P.hot), (sz *= 1.3), (a = 1));
+      // the picked item: an ink highlight inside its violet ring
+      if (i === s.lockI || i === s.focusItem) ((c = P.ink), (sz *= 1.5), (a = 1));
       tint[i * 3] = c.r;
       tint[i * 3 + 1] = c.g;
       tint[i * 3 + 2] = c.b;

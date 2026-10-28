@@ -345,6 +345,46 @@ describe('memory map 3D', () => {
     let m = 0;
     for (const a of L.areas) for (let i = a.from; i + 7 < a.to; i += 3) ((rand += dist(H.pos, i, H.pos, i + 7)), m++);
     expect(linked / n).toBeLessThan(rand / m);
+    // and areas that share links sit nearer each other than the average pair of areas
+    const W = new Map<string, number>();
+    for (const e of L.edges) {
+      if (!e.cross) continue;
+      const [x, y] = [L.items[e.a].area, L.items[e.b].area].sort((p, q) => p - q);
+      W.set(`${x},${y}`, (W.get(`${x},${y}`) ?? 0) + 1);
+    }
+    let wsum = 0;
+    let wd = 0;
+    let all = 0;
+    let pairs = 0;
+    for (let a = 0; a < L.areas.length; a++)
+      for (let b = a + 1; b < L.areas.length; b++) {
+        const d = dist(H.centers, a, H.centers, b);
+        const w = W.get(`${a},${b}`) ?? 0;
+        ((wsum += w), (wd += w * d), (all += d), pairs++);
+      }
+    expect(wd / wsum).toBeLessThan(all / pairs);
+  });
+
+  test('Clusters: areas spread through real 3D, high and low as well as round', () => {
+    const H = layoutHolo(L, big.nodes, 'clusters');
+    const span = (c: number) => {
+      const v = Array.from({ length: L.areas.length }, (_, a) => H.centers[a * 3 + c]);
+      return Math.max(...v) - Math.min(...v);
+    };
+    expect(span(1)).toBeGreaterThanOrEqual(0.5 * Math.max(span(0), span(2)));
+    // the same graph lays out the same picture
+    expect(layoutHolo(L, big.nodes, 'clusters').pos).toEqual(H.pos);
+  });
+
+  test('Clusters: newer items sit higher in their area', () => {
+    const H = layoutHolo(L, big.nodes, 'clusters');
+    for (const a of L.areas) {
+      const ids = Array.from({ length: a.to - a.from }, (_, k) => a.from + k).sort((x, y) => (big.nodes[L.items[x].node].at ?? 0) - (big.nodes[L.items[y].node].at ?? 0));
+      const half = ids.length >> 1;
+      const meanY = (s: number[]) => s.reduce((t, i) => t + H.pos[i * 3 + 1], 0) / s.length;
+      // by a quarter of the ball's radius at least
+      expect(meanY(ids.slice(half))).toBeGreaterThan(meanY(ids.slice(0, half)) + 0.25 * H.radius[L.items[a.from].area]);
+    }
   });
 
   test('Timeline: x follows the dates, undated items wait before the start', () => {
