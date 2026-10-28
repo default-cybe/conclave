@@ -1,54 +1,32 @@
 /**
- * Memory > Map, 3D view: the owner's memory as a holographic instrument
+ * Memory > Map, 3D view: the owner's memory as a quiet studio space
  * (Tree / Rings / 3D). Loaded on its own (MemoryMap lazy-imports this file),
  * so three.js costs nothing until the view opens.
  *
- * The core in the middle is the whole memory, with live counts; the areas
- * are glowing clusters around it (Clusters) or lanes along a time axis
+ * A small labeled origin stands for the whole memory; the areas are
+ * clusters of points around it (Clusters) or lanes along one fine time axis
  * (Timeline); every item is one point of a single Points object, every
- * real link a curve in one additive LineSegments, faded with distance and
- * bundled through the core or the time spine (holo-model.ts). The camera
- * orbits slowly at rest, a sweep passes over the clusters, and the found
- * or picked item is locked on with brackets and a leader line. Labels,
- * readouts and the lock are DOM over the canvas, placed every frame with a
+ * real link a hairline curve in one LineSegments whose opacity carries its
+ * weight, fogged with distance and bundled through the origin or the time
+ * axis (holo-model.ts). Colours are the app's tokens, read from CSS:
+ * neutrals for the space, --signal only for what has focus. The camera
+ * drifts very slowly at rest, and a found or picked item gets a fine ring,
+ * its links in the accent and one leader line to a label card. Labels,
+ * readouts and the card are DOM over the canvas, placed every frame with a
  * box test, so they stay crisp and never overlap.
  *
  * Mouse, trackpad and touch orbit, zoom and pan (OrbitControls). Hover
  * lights an item's links; click opens the drawer; double click flies to the
  * item and keeps its neighbours lit; Esc steps back; Fit returns to the
  * overview. Rendering stops when the tab is hidden or the view is off
- * screen. Reduced motion stops the orbit and the sweep and jumps instead of
- * flying (MemoryMap shows Rings instead unless the owner asks for 3D).
+ * screen. Reduced motion stops the drift and jumps instead of flying
+ * (MemoryMap shows Rings instead unless the owner asks for 3D).
  *
- * The Memory map's 3D view alone may glow, use the cyan and violet
- * palette, the sweep, brackets and crosshair ticks (docs/DESIGN.md, 29).
+ * What this view still does differently from the rest of the app is listed
+ * in docs/DESIGN.md (Memory > Map, 3D view).
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import {
-  AdditiveBlending,
-  BufferAttribute,
-  BufferGeometry,
-  Color,
-  EdgesGeometry,
-  Group,
-  IcosahedronGeometry,
-  LineBasicMaterial,
-  LineSegments,
-  Matrix4,
-  Mesh,
-  NormalBlending,
-  PerspectiveCamera,
-  Points,
-  RingGeometry,
-  Scene,
-  ShaderMaterial,
-  SphereGeometry,
-  Vector2,
-  Vector3,
-  Vector4,
-  WebGLRenderer,
-  type Blending,
-} from 'three';
+import { BufferAttribute, BufferGeometry, Color, LineSegments, Matrix4, PerspectiveCamera, Points, Scene, ShaderMaterial, Vector2, Vector3, WebGLRenderer } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { MemoryGraphNode } from '@conclave/core/client';
 import { useOnscreen, usePageVisible } from '@/components/motion';
@@ -56,16 +34,16 @@ import { isDark, useColorVersion } from '@/components/motion/frame';
 import { cn } from '@/lib/text';
 import { edgeOn } from './link-model';
 import { areaId, nodeLabel } from './graph-model';
-import { CORE_R, SPAN, holoStats, layoutHolo, linkCurve, pickEdges, timeX, type HoloLayout, type HoloMode } from './holo-model';
+import { SPAN, holoStats, layoutHolo, linkCurve, pickEdges, timeX, type HoloLayout, type HoloMode } from './holo-model';
 import type { LinkViewProps } from './RingCanvas';
 import './holo.css';
 
 export interface HoloProps extends LinkViewProps {
   nodes: readonly MemoryGraphNode[];
   mode: HoloMode;
-  /** No orbit, no sweep, jumps instead of flights. */
+  /** No drift, jumps instead of flights. */
   still: boolean;
-  /** The time scrubber's cutoff, drawn as a ring on the Timeline. */
+  /** The time scrubber's cutoff, drawn as a fine line across the Timeline axis. */
   cut?: number;
 }
 
@@ -73,8 +51,16 @@ const num = (n: number) => n.toLocaleString('en-US');
 const day = (t?: number) => (t ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'none');
 const ITEM_POOL = 26;
 const TICK_POOL = 24;
-const FLY_MS = 1100;
-const LOCK_MS = 340;
+const FLY_MS = 1400;
+const LOCK_MS = 420;
+/** Rest before the slow drift starts, ms. */
+const DRIFT_AFTER = 6000;
+/** Timeline: where the axis ends, past now (the origin's label sits there), and its tick lengths, world units. */
+const SPAN_END = SPAN / 2 + 200;
+const TICK_M = 9;
+const TICK_Y = 20;
+/** The focus ring's radius, CSS px. */
+const MARK_R = 7;
 const MORPH_MS = 1200;
 const FOV = 48;
 /** Curve pieces per link: fewer on a phone. */
@@ -103,48 +89,40 @@ function mark(name: string, t0: number) {
 }
 
 // ----- shaders ----------------------------------------------------------------------
+// crisp discs, one device pixel of anti-aliased edge, fogged toward the background with depth
 const POINT_VS = /* glsl */ `
 attribute float size;
 attribute float alpha;
 attribute vec3 tint;
 uniform float uScale;
-uniform vec4 uSweep;
+uniform float uPx;
 uniform float uNear;
 uniform float uFar;
 varying vec3 vTint;
 varying float vAlpha;
+varying float vSize;
+varying float vFog;
 void main() {
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   gl_Position = projectionMatrix * mv;
-  float s = 0.0;
-  if (uSweep.x > -0.5) {
-    if (uSweep.x < 0.5) {
-      float d = mod(uSweep.y - atan(position.z, position.x) + 12.566371, 6.283185);
-      s = exp(-d * 2.4);
-    } else {
-      float d = uSweep.y - position.x;
-      s = d >= 0.0 ? exp(-d / uSweep.z) : exp(-d * d / 60.0);
-    }
-    s *= uSweep.w;
-  }
   float depth = max(1.0, -mv.z);
-  float fade = clamp(1.0 - (depth - uNear) / max(1.0, uFar - uNear), 0.3, 1.0);
-  gl_PointSize = clamp(size * uScale / depth * (1.0 + 0.6 * s), 1.6, 36.0);
-  vTint = tint + s * 0.5;
-  vAlpha = alpha * fade * (1.0 + 0.9 * s);
+  vFog = clamp((depth - uNear) / max(1.0, uFar - uNear), 0.0, 1.0);
+  gl_PointSize = clamp(size * uScale / depth, 1.5 * uPx, 6.0 * uPx) + uPx;
+  vSize = gl_PointSize;
+  vTint = tint;
+  vAlpha = alpha;
 }`;
 const POINT_FS = /* glsl */ `
-uniform float uLight;
-uniform float uSoft;
+uniform vec3 uFog;
 varying vec3 vTint;
 varying float vAlpha;
+varying float vSize;
+varying float vFog;
 void main() {
   float d = length(gl_PointCoord - 0.5) * 2.0;
-  if (d > 1.0) discard;
-  float core = smoothstep(0.46, 0.2, d) * (1.0 - uSoft);
-  float halo = exp(-d * d * mix(4.5, 3.0, uSoft)) * mix(mix(0.55, 0.25, uLight), 1.0, uSoft);
-  vec3 c = mix(vTint, vec3(1.0), core * 0.4 * (1.0 - uLight));
-  gl_FragColor = vec4(c, (core + halo) * vAlpha);
+  float e = 1.0 - smoothstep(1.0 - 2.0 / vSize, 1.0, d);
+  if (e <= 0.0) discard;
+  gl_FragColor = vec4(mix(vTint, uFog, vFog * 0.6), e * vAlpha * (1.0 - 0.35 * vFog));
 }`;
 const LINE_VS = /* glsl */ `
 attribute vec3 tint;
@@ -157,94 +135,51 @@ varying float vAlpha;
 void main() {
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   gl_Position = projectionMatrix * mv;
-  float fade = clamp(1.0 - (-mv.z - uNear) / max(1.0, uFar - uNear), 0.1, 1.0);
+  float fog = clamp((-mv.z - uNear) / max(1.0, uFar - uNear), 0.0, 1.0);
   vTint = tint;
-  vAlpha = alpha * fade * uDim;
+  vAlpha = alpha * uDim * (1.0 - 0.75 * fog);
 }`;
 const LINE_FS = /* glsl */ `
 varying vec3 vTint;
 varying float vAlpha;
 void main() { gl_FragColor = vec4(vTint, vAlpha); }`;
-const RIM_VS = /* glsl */ `
-varying vec3 vN;
-varying vec3 vV;
-void main() {
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  vN = normalize(normalMatrix * normal);
-  vV = normalize(-mv.xyz);
-  gl_Position = projectionMatrix * mv;
-}`;
-const RIM_FS = /* glsl */ `
-uniform vec3 uColor;
-uniform float uAlpha;
-varying vec3 vN;
-varying vec3 vV;
-void main() {
-  float f = pow(1.0 - abs(dot(vN, vV)), 2.0);
-  gl_FragColor = vec4(uColor, (0.06 + f) * uAlpha);
-}`;
-const SWEEP_VS = /* glsl */ `
-varying vec3 vP;
-void main() { vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
-const SWEEP_FS = /* glsl */ `
-uniform float uAngle;
-uniform float uAlpha;
-uniform vec2 uR;
-uniform vec3 uColor;
-varying vec3 vP;
-void main() {
-  float r = length(vP.xz);
-  float d = mod(uAngle - atan(vP.z, vP.x) + 12.566371, 6.283185);
-  float wake = exp(-d * 3.0) * 0.22 + smoothstep(0.025, 0.0, d) * 0.55;
-  float edge = smoothstep(uR.x, uR.x + 0.06, r) * (1.0 - smoothstep(uR.y * 0.9, uR.y, r));
-  gl_FragColor = vec4(uColor, wake * edge * uAlpha);
-}`;
 
 interface Palette {
   dark: boolean;
-  a: Color;
-  b: Color;
+  /** Background: what depth fades toward. */
+  bg: Color;
+  /** Points, hubs, links: the neutrals. */
+  dot: Color;
   ink: Color;
-  areas: Color[];
-  blend: Blending;
+  line: Color;
+  /** The one accent: focus, hits and the picked item's links. */
+  accent: Color;
 }
 
-function palette(nAreas: number, order: number[]): Palette {
-  const dark = isDark();
-  const areas: Color[] = new Array(nAreas);
-  // cyan to violet along the ring, so neighbouring constellations are near in hue
-  order.forEach((a, k) => (areas[a] = new Color().setHSL((186 + (k / Math.max(1, nAreas - 1)) * 92) / 360, dark ? 0.85 : 0.75, dark ? 0.66 : 0.4)));
-  return {
-    dark,
-    a: new Color(dark ? '#67e8f9' : '#0e7490'),
-    b: new Color(dark ? '#a78bfa' : '#6d28d9'),
-    ink: new Color(dark ? '#ecfeff' : '#082f3a'),
-    areas,
-    blend: dark ? AdditiveBlending : NormalBlending,
+/** The app's colour tokens as sRGB values, raw, so the shaders draw exactly what CSS draws. */
+function palette(): Palette {
+  const css = getComputedStyle(document.documentElement);
+  const c2 = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+  const tok = (name: string) => {
+    if (!c2) return new Color(0.5, 0.5, 0.5);
+    c2.clearRect(0, 0, 1, 1);
+    c2.fillStyle = css.getPropertyValue(name).trim() || 'gray';
+    c2.fillRect(0, 0, 1, 1);
+    const [r, g, b] = c2.getImageData(0, 0, 1, 1).data;
+    return new Color(r / 255, g / 255, b / 255);
   };
+  return { dark: isDark(), bg: tok('--bg'), dot: tok('--fg-2'), ink: tok('--fg'), line: tok('--fg-3'), accent: tok('--signal') };
 }
 
-/** Line segments for circles: `n` pieces each, around `c` in the plane of axes u and v. */
-function circles(list: Array<{ c: [number, number, number]; r: number; u: 0 | 1 | 2; v: 0 | 1 | 2; n?: number; gap?: number }>): Float32Array {
-  const total = list.reduce((s, x) => s + (x.n ?? 64), 0);
-  const out = new Float32Array(total * 6);
-  let o = 0;
-  for (const { c, r, u, v, n = 64, gap = 0 } of list)
-    for (let k = 0; k < n; k++) {
-      // a gap leaves every other piece out: a dashed ring
-      for (const t of [k, k + 1 - gap]) {
-        const p = [...c];
-        p[u] += Math.cos((t / n) * Math.PI * 2) * r;
-        p[v] += Math.sin((t / n) * Math.PI * 2) * r;
-        out.set(p, o);
-        o += 3;
-      }
-    }
-  return out;
+function lineMat(uniforms: Record<string, { value: unknown }> = {}) {
+  return new ShaderMaterial({ vertexShader: LINE_VS, fragmentShader: LINE_FS, transparent: true, depthWrite: false, uniforms: { uNear: { value: 0 }, uFar: { value: 4000 }, uDim: { value: 1 }, ...uniforms } });
 }
 
-function lineMat(blend: Blending, uniforms: Record<string, { value: unknown }> = {}) {
-  return new ShaderMaterial({ vertexShader: LINE_VS, fragmentShader: LINE_FS, transparent: true, depthWrite: false, blending: blend, uniforms: { uNear: { value: 0 }, uFar: { value: 4000 }, uDim: { value: 1 }, ...uniforms } });
+/** Plain segments in one colour and alpha each, for the time axis and the cutoff. */
+function plain(g: BufferGeometry, p: number[], c: Color, a: number) {
+  attr(g, 'position', Float32Array.from(p));
+  attr(g, 'tint', Float32Array.from({ length: p.length }, (_, k) => [c.r, c.g, c.b][k % 3]));
+  attr(g, 'alpha', new Float32Array(p.length / 3).fill(a));
 }
 
 function attr(g: BufferGeometry, name: string, a: Float32Array) {
@@ -395,38 +330,31 @@ export default function HoloCanvas(props: HoloProps) {
       <canvas ref={canvas} aria-hidden />
       <div className="holo-overlay" aria-hidden>
         <div className="holo-core" data-k="core">
-          <span className="num holo-core-n">{num(stats.items)}</span>
-          <span className="holo-core-w">
-            <span className="num">{num(stats.links)}</span> links
-          </span>
+          <i className="holo-core-dot" />
+          Memory <span className="holo-n">{num(stats.items)}</span>
         </div>
         {L.areas.map((a, i) => (
           <button key={a.name} type="button" tabIndex={-1} className="holo-area" data-k={`area${i}`} data-lit={litArea === i || undefined} onClick={() => onArea(a.name)} onPointerEnter={(e) => e.pointerType === 'mouse' && onHover(areaId(a.name))} onPointerLeave={(e) => e.pointerType === 'mouse' && onHover(undefined)}>
             <span className="holo-area-n">{a.name}</span>
-            <span className="num">{num(a.to - a.from)}</span>
+            <span className="holo-n">{num(a.to - a.from)}</span>
           </button>
         ))}
         {Array.from({ length: ITEM_POOL }, (_, k) => (
           <button key={k} type="button" tabIndex={-1} className="holo-item" data-k={`item${k}`} onClick={(e) => onPick((e.currentTarget as HTMLElement).dataset.id!)} onPointerEnter={(e) => e.pointerType === 'mouse' && onHover((e.currentTarget as HTMLElement).dataset.id)} />
         ))}
         {Array.from({ length: TICK_POOL }, (_, k) => (
-          <span key={k} className="holo-tick num" data-k={`tick${k}`} />
+          <span key={k} className="holo-tick" data-k={`tick${k}`} />
         ))}
-        <div className="holo-lock" data-k="lock">
-          <i />
-          <i />
-          <i />
-          <i />
-        </div>
+        <div className="holo-mark" data-k="lock" />
         <svg className="holo-leader" data-k="leader">
-          <polyline points="" />
+          <line />
         </svg>
       </div>
       {sel && (
         <button type="button" className="holo-callout" data-k="callout" onClick={() => onPick(sel.id)} aria-label={`${hit === sel.id ? 'Search hit' : 'Picked'}: ${sel.title}. Open its details.`}>
           <span className="holo-callout-t">{nodeLabel(sel)}</span>
           <span className="holo-callout-m">
-            {sel.area} · <span className="num">{selLinks.length}</span> links · {day(sel.at)}
+            {sel.area ?? 'Other'} <span className="holo-sep">·</span> <span className="holo-n">{num(selLinks.length)}</span> links <span className="holo-sep">·</span> {day(sel.at)}
           </span>
         </button>
       )}
@@ -474,7 +402,7 @@ function Readouts({ phone, narrow, insets, mode, children: r }: { phone: boolean
         {r.all.slice(0, 3).map(([k, v], i) => (
           <span key={k}>
             {i > 0 && <span className="holo-sep"> · </span>}
-            <span className="num holo-v">{v}</span> {k.toLowerCase()}
+            <span className="holo-n holo-v">{v}</span> {k.toLowerCase()}
           </span>
         ))}
       </p>
@@ -483,7 +411,7 @@ function Readouts({ phone, narrow, insets, mode, children: r }: { phone: boolean
     list.map(([k, v]) => (
       <div key={k} className="holo-row">
         <dt>{k}</dt>
-        <dd className="num">{v}</dd>
+        <dd className="holo-n">{v}</dd>
       </div>
     ));
   return (
@@ -499,7 +427,7 @@ function Readouts({ phone, narrow, insets, mode, children: r }: { phone: boolean
         </dl>
       )}
       <div className="holo-read holo-mode" data-k="read" style={{ bottom: insets.bottom + 10, left: insets.left }}>
-        <span className="holo-dot" aria-hidden /> {mode === 'clusters' ? 'Clusters: areas as constellations, linked items together' : 'Timeline: oldest on the left, areas as lanes'}
+        {mode === 'clusters' ? 'Clusters' : 'Timeline'} <span className="holo-sep">·</span> {mode === 'clusters' ? 'areas in space, linked items together' : 'oldest on the left, areas as lanes'}
       </div>
     </>
   );
@@ -563,7 +491,8 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
   const n = L.items.length;
   const A = L.areas.length;
   const phone0 = S().phone;
-  const renderer = new WebGLRenderer({ canvas, antialias: !phone0, alpha: true, powerPreference: 'high-performance' });
+  // antialias on phones too: hairlines stair-step without it, and MSAA is cheap on tiled mobile GPUs
+  const renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
   let ratio = Math.min(window.devicePixelRatio || 1, phone0 ? 1.5 : 2);
   renderer.setPixelRatio(ratio);
   renderer.setClearColor(0x000000, 0);
@@ -576,19 +505,12 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
   controls.zoomSpeed = 0.9;
   controls.zoomToCursor = true;
   controls.screenSpacePanning = true;
-  controls.autoRotateSpeed = 0.28;
+  // a drift you notice only if you look for it: about 25 minutes a turn
+  controls.autoRotateSpeed = 0.04;
 
   const order = Array.from({ length: A }, (_, i) => i);
-  // the hue order follows the ring: holo-model's chain, read back from the cluster angles
-  let P = palette(A, order);
+  let P = palette();
   let H = S().H;
-  const chainHue = () => {
-    const c = H.centers;
-    const ang = order.map((a) => Math.atan2(c[a * 3 + 2], c[a * 3]));
-    const by = [...order].sort((x, y) => ang[x] - ang[y]);
-    P = palette(A, by);
-  };
-  chainHue();
 
   // ----- the items ----------------------------------------------------------------------
   const pos = new Float32Array(H.pos);
@@ -600,77 +522,34 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
   attr(pGeo, 'tint', tint);
   attr(pGeo, 'size', size);
   attr(pGeo, 'alpha', alpha);
-  const pUni = { uScale: { value: 1 }, uSweep: { value: new Vector4(-1, 0, 0, 0) }, uNear: { value: 0 }, uFar: { value: 4000 }, uLight: { value: 0 }, uSoft: { value: 0 } };
+  const pUni = { uScale: { value: 1 }, uPx: { value: ratio }, uNear: { value: 0 }, uFar: { value: 4000 }, uFog: { value: new Color() } };
   const pMat = new ShaderMaterial({ vertexShader: POINT_VS, fragmentShader: POINT_FS, transparent: true, depthWrite: false, uniforms: pUni });
   const points = new Points(pGeo, pMat);
   points.frustumCulled = false;
 
-  // area glows: one soft point per area
-  const gPos = new Float32Array(H.centers);
-  const gTint = new Float32Array(A * 3);
-  const gSize = new Float32Array(A);
-  const gAlpha = new Float32Array(A);
-  const gGeo = new BufferGeometry();
-  attr(gGeo, 'position', gPos);
-  attr(gGeo, 'tint', gTint);
-  attr(gGeo, 'size', gSize);
-  attr(gGeo, 'alpha', gAlpha);
-  const gUni = { ...pUni, uSoft: { value: 1 }, uSweep: { value: new Vector4(-1, 0, 0, 0) } };
-  const gMat = new ShaderMaterial({ vertexShader: POINT_VS, fragmentShader: POINT_FS, transparent: true, depthWrite: false, uniforms: gUni });
-  const glows = new Points(gGeo, gMat);
-  glows.frustumCulled = false;
-
   // ----- links: all drawn, and the lit ones on top ------------------------------------------
   const lUni = { uNear: { value: 0 }, uFar: { value: 4000 }, uDim: { value: 1 } };
-  const lMat = lineMat(AdditiveBlending, lUni);
+  const lMat = lineMat(lUni);
   const lGeo = new BufferGeometry();
   const links = new LineSegments(lGeo, lMat);
   links.frustumCulled = false;
   const hiUni = { uNear: { value: 0 }, uFar: { value: 4000 }, uDim: { value: 1 } };
-  const hiMat = lineMat(AdditiveBlending, hiUni);
+  const hiMat = lineMat(hiUni);
   const hiGeo = new BufferGeometry();
   const hiLinks = new LineSegments(hiGeo, hiMat);
   hiLinks.frustumCulled = false;
   let drawn: Int32Array = new Int32Array(0);
 
-  // ----- the core, shells, the sweep and the time spine -----------------------------------------
-  const core = new Group();
-  const rimUni = { uColor: { value: new Color() }, uAlpha: { value: 1 } };
-  const rim = new Mesh(new SphereGeometry(CORE_R * 0.62, 48, 32), new ShaderMaterial({ vertexShader: RIM_VS, fragmentShader: RIM_FS, transparent: true, depthWrite: false, uniforms: rimUni }));
-  const wire = new LineSegments(new EdgesGeometry(new IcosahedronGeometry(CORE_R * 0.9, 1)), new LineBasicMaterial({ transparent: true, depthWrite: false }));
-  const ringGeo = new BufferGeometry();
-  // three rings round the core: one dashed, one with tick marks, one plain
-  const ticks = new Float32Array(72 * 6);
-  for (let k = 0; k < 72; k++) {
-    const a = (k / 72) * Math.PI * 2;
-    const l = k % 6 ? 4 : 9;
-    ticks.set([Math.cos(a) * CORE_R * 1.5, 0, Math.sin(a) * CORE_R * 1.5, Math.cos(a) * (CORE_R * 1.5 + l), 0, Math.sin(a) * (CORE_R * 1.5 + l)], k * 6);
-  }
-  const ringPts = new Float32Array([...circles([{ c: [0, 0, 0], r: CORE_R * 1.22, u: 0, v: 2, n: 96, gap: 0.5 }, { c: [0, 0, 0], r: CORE_R * 1.5, u: 0, v: 2, n: 128 }]), ...ticks]);
-  attr(ringGeo, 'position', ringPts);
-  const rings = new LineSegments(ringGeo, new LineBasicMaterial({ transparent: true, depthWrite: false }));
-  const tilt = new Group();
-  tilt.add(rings);
-  tilt.rotation.x = 0.35;
-  const orbit2 = new LineSegments(new BufferGeometry().setAttribute('position', new BufferAttribute(circles([{ c: [0, 0, 0], r: CORE_R * 1.85, u: 0, v: 1, n: 160, gap: 0.6 }]), 3)), new LineBasicMaterial({ transparent: true, depthWrite: false }));
-  core.add(rim, wire, tilt, orbit2);
-
-  const shellGeo = new BufferGeometry();
-  const shells = new LineSegments(shellGeo, lineMat(AdditiveBlending));
-  shells.frustumCulled = false;
-
-  // a unit disc, scaled to the layout
-  const swUni = { uAngle: { value: 0 }, uAlpha: { value: 1 }, uR: { value: [0.12, 1.06] }, uColor: { value: new Color() } };
-  const sweepGeo = new RingGeometry(0.12, 1.06, 160, 1);
-  sweepGeo.rotateX(-Math.PI / 2);
-  const sweep = new Mesh(sweepGeo, new ShaderMaterial({ vertexShader: SWEEP_VS, fragmentShader: SWEEP_FS, transparent: true, depthWrite: false, side: 2, uniforms: swUni }));
-  const scanRing = new LineSegments(new BufferGeometry().setAttribute('position', new BufferAttribute(circles([{ c: [0, 0, 0], r: 255, u: 1, v: 2, n: 128 }, { c: [0, 0, 0], r: 240, u: 1, v: 2, n: 128, gap: 0.5 }]), 3)), new LineBasicMaterial({ transparent: true, depthWrite: false }));
+  // ----- the time axis and the cutoff (Timeline only) -----------------------------------------
   const spineGeo = new BufferGeometry();
-  const spine = new LineSegments(spineGeo, lineMat(AdditiveBlending));
+  const axUni = { uNear: { value: 0 }, uFar: { value: 4000 }, uDim: { value: 1 } };
+  const spine = new LineSegments(spineGeo, lineMat(axUni));
   spine.frustumCulled = false;
-  const cutRing = new LineSegments(new BufferGeometry().setAttribute('position', new BufferAttribute(circles([{ c: [0, 0, 0], r: 270, u: 1, v: 2, n: 128 }]), 3)), new LineBasicMaterial({ transparent: true, depthWrite: false }));
+  const cutGeo = new BufferGeometry();
+  const cutLine = new LineSegments(cutGeo, lineMat(axUni));
+  cutLine.frustumCulled = false;
 
-  scene.add(shells, spine, links, hiLinks, glows, points, core, sweep, scanRing, cutRing);
+  scene.add(spine, links, hiLinks, points, cutLine);
 
   // ----- DOM pieces ---------------------------------------------------------------------
   const q = (k: string) => wrap.querySelector<HTMLElement>(`[data-k="${k}"]`);
@@ -680,7 +559,7 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
   const tickEls = Array.from({ length: TICK_POOL }, (_, k) => q(`tick${k}`)!);
   const lockEl = q('lock')!;
   const leaderEl = q('leader')!;
-  const leaderLine = leaderEl.querySelector('polyline')!;
+  const leaderLine = leaderEl.querySelector('line')!;
   const textW = new Map<string, number>();
   const ctx2d = document.createElement('canvas').getContext('2d');
   const measure = (t: string, px: number, weight = 400) => {
@@ -715,7 +594,7 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     camera.updateProjectionMatrix();
     const scale = renderer.getDrawingBufferSize(new Vector2()).y / (2 * Math.tan((FOV * Math.PI) / 360));
     pUni.uScale.value = scale;
-    gUni.uScale.value = scale;
+    pUni.uPx.value = ratio;
     readBoxes = undefined;
     request();
   };
@@ -731,14 +610,15 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
   const home = (h: HoloLayout) => {
     if (h.mode === 'clusters') {
       // the ring is flat and seen at an angle: it fits in less than its sphere
-      const d = fitDist(h.extent * 0.9);
+      const m = room();
+      const d = fitDist(h.extent * (m.w > m.h ? 0.78 : 0.95));
       return { target: new Vector3(0, 0, 0), cam: new Vector3(0, Math.sin(0.5) * d, Math.cos(0.5) * d) };
     }
-    // along history: from in front of the oldest end, a little above, looking toward now
-    // the axis is long: fit its length across the room
+    // square to history, a little above it, so the axis reads level across the room
     const m = room();
-    const d = (SPAN * 0.56) / Math.tan(Math.atan(Math.tan((FOV * Math.PI) / 360) * (m.w / Hh)));
-    return { target: new Vector3(0, 0, 0), cam: new Vector3(-SPAN * 0.12, d * 0.3, d * 0.95) };
+    const d = (SPAN * 0.6) / Math.tan(Math.atan(Math.tan((FOV * Math.PI) / 360) * (m.w / Hh)));
+    // a tall room (a phone) looks down more, so the lanes open up vertically
+    return { target: new Vector3(SPAN * 0.03, 0, 0), cam: new Vector3(SPAN * 0.03, d * (m.w > m.h ? 0.26 : 0.7), d) };
   };
 
   // ----- motion ---------------------------------------------------------------------
@@ -755,7 +635,7 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     idleAt = performance.now();
     request();
   };
-  let morph: { t0: number; from: Float32Array; to: Float32Array; gFrom: Float32Array; gTo: Float32Array } | undefined;
+  let morph: { t0: number; from: Float32Array; to: Float32Array } | undefined;
   let lockT = 0;
   let idleAt = performance.now();
   let pickedId: string | undefined;
@@ -768,103 +648,31 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
 
   // ----- colors ------------------------------------------------------------------------
   const colors = () => {
-    chainHue();
-    const blend = P.blend;
-    for (const m of [pMat, gMat, lMat, hiMat, shells.material, spine.material, wire.material, rings.material, orbit2.material, sweep.material, scanRing.material, cutRing.material] as Array<ShaderMaterial | LineBasicMaterial>) {
-      m.blending = blend;
-      m.needsUpdate = true;
-    }
-    pUni.uLight.value = P.dark ? 0 : 1;
-    gUni.uLight.value = P.dark ? 0 : 1;
-    rimUni.uColor.value.copy(P.a);
-    rimUni.uAlpha.value = P.dark ? 0.9 : 0.55;
-    const lb = (o: LineSegments, c: Color, a: number) => {
-      const m = o.material as LineBasicMaterial;
-      m.color.copy(c);
-      m.opacity = a;
-    };
-    lb(wire, P.a, P.dark ? 0.55 : 0.5);
-    lb(rings, P.a, P.dark ? 0.6 : 0.55);
-    lb(orbit2, P.b, P.dark ? 0.45 : 0.45);
-    lb(scanRing, P.a, P.dark ? 0.6 : 0.55);
-    lb(cutRing, P.b, P.dark ? 0.9 : 0.85);
-    swUni.uColor.value.copy(P.a);
-    swUni.uAlpha.value = P.dark ? 1 : 0.7;
-    for (let a = 0; a < A; a++) {
-      const c = P.areas[a];
-      gTint.set([c.r, c.g, c.b], a * 3);
-      gSize[a] = H.radius[a] * (H.mode === 'clusters' ? 2.6 : 0);
-      gAlpha[a] = P.dark ? 0.16 : 0.1;
-    }
-    gGeo.attributes.tint.needsUpdate = true;
-    gGeo.attributes.size.needsUpdate = true;
-    gGeo.attributes.alpha.needsUpdate = true;
-    buildShells();
+    P = palette();
+    pUni.uFog.value.copy(P.bg);
     buildSpine();
+    buildCut();
     buildLinks();
     paint();
   };
 
-  const buildShells = () => {
-    if (H.mode !== 'clusters') return attr(shellGeo, 'position', new Float32Array(0)), attr(shellGeo, 'tint', new Float32Array(0)), attr(shellGeo, 'alpha', new Float32Array(0));
-    const list: Parameters<typeof circles>[0] = [];
-    for (let a = 0; a < A; a++) {
-      const c: [number, number, number] = [H.centers[a * 3], H.centers[a * 3 + 1], H.centers[a * 3 + 2]];
-      const r = H.radius[a] * 1.08;
-      list.push({ c, r, u: 0, v: 2, n: 72 }, { c, r, u: 0, v: 1, n: 72, gap: 0.5 }, { c, r: r * 1.12, u: 0, v: 2, n: 72, gap: 0.6 });
-    }
-    const p = circles(list);
-    const t = new Float32Array(p.length);
-    const al = new Float32Array(p.length / 3);
-    const per = (72 * 3 * 2);
-    for (let a = 0; a < A; a++) {
-      const c = P.areas[a];
-      for (let v = a * per; v < (a + 1) * per; v++) (t.set([c.r, c.g, c.b], v * 3), (al[v] = P.dark ? 0.32 : 0.4));
-    }
-    // the bezel on the floor round everything: a ring, a dashed ring, a tick every 5 degrees
-    const R = H.extent * 1.06;
-    const y = -H.extent * 0.22;
-    const ring = circles([
-      { c: [0, y, 0], r: R, u: 0, v: 2, n: 180 },
-      { c: [0, y, 0], r: R * 1.04, u: 0, v: 2, n: 240, gap: 0.55 },
-    ]);
-    const tk = new Float32Array(72 * 6);
-    for (let k = 0; k < 72; k++) {
-      const a = (k / 72) * Math.PI * 2;
-      const l = R * (k % 6 ? 0.025 : 0.06);
-      tk.set([Math.cos(a) * R, y, Math.sin(a) * R, Math.cos(a) * (R - l), y, Math.sin(a) * (R - l)], k * 6);
-    }
-    const all = new Float32Array(p.length + ring.length + tk.length);
-    all.set(p);
-    all.set(ring, p.length);
-    all.set(tk, p.length + ring.length);
-    const t2 = new Float32Array(all.length);
-    t2.set(t);
-    const al2 = new Float32Array(all.length / 3);
-    al2.set(al);
-    for (let v = p.length / 3; v < al2.length; v++) (t2.set([P.a.r, P.a.g, P.a.b], v * 3), (al2[v] = P.dark ? 0.3 : 0.4));
-    attr(shellGeo, 'position', all);
-    attr(shellGeo, 'tint', t2);
-    attr(shellGeo, 'alpha', al2);
-    sweep.scale.setScalar(H.extent);
-    sweep.position.y = y;
-  };
+  /** Timeline: one fine axis, and a short tick down from it at each month (or year, when there are many). */
   const buildSpine = () => {
-    if (H.mode !== 'timeline') return attr(spineGeo, 'position', new Float32Array(0)), attr(spineGeo, 'tint', new Float32Array(0)), attr(spineGeo, 'alpha', new Float32Array(0));
-    const list: Parameters<typeof circles>[0] = H.ticks.map((t) => ({ c: [t.x, 0, 0] as [number, number, number], r: t.year ? 60 : 22, u: 1 as const, v: 2 as const, n: t.year ? 96 : 40 }));
-    const rp = circles(list);
-    const p = new Float32Array(rp.length + 6);
-    p.set([-SPAN / 2 - 130, 0, 0, SPAN / 2 + 200, 0, 0]);
-    p.set(rp, 6);
-    const t = new Float32Array(p.length);
-    const al = new Float32Array(p.length / 3);
-    for (let v = 0; v < al.length; v++) (t.set([P.a.r, P.a.g, P.a.b], v * 3), (al[v] = v < 2 ? 0.7 : P.dark ? 0.3 : 0.35));
-    attr(spineGeo, 'position', p);
-    attr(spineGeo, 'tint', t);
-    attr(spineGeo, 'alpha', al);
+    if (H.mode !== 'timeline') return plain(spineGeo, [], P.line, 0);
+    const p = [-SPAN / 2 - 130, 0, 0, SPAN_END, 0, 0];
+    const yearsOnly = H.ticks.length > 30;
+    for (const t of H.ticks) if (!yearsOnly || t.year) p.push(t.x, 0, 0, t.x, -(t.year ? TICK_Y : TICK_M), 0);
+    plain(spineGeo, p, P.line, P.dark ? 0.75 : 0.7);
+  };
+  /** Timeline: the scrubber's cutoff, one accent line across the axis. */
+  const buildCut = () => {
+    const c = S().cut;
+    if (H.mode !== 'timeline' || c === undefined) return plain(cutGeo, [], P.accent, 0);
+    const x = timeX(H.times, H.lo, H.hi, c);
+    plain(cutGeo, [x, -230, 0, x, 230, 0], P.accent, 0.8);
   };
 
-  /** The links the filters leave, as curves, tinted from one end's area to the other's. */
+  /** The links the filters leave, as hairline curves; opacity carries weight: links between well linked items read stronger. */
   const buildLinks = () => {
     const s = S();
     const seg = s.phone ? SEG.phone : SEG.desk;
@@ -877,17 +685,16 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
       const e = drawn[k];
       const E = L.edges[e];
       linkCurve(hh, L, e, seg, p, k * seg * 6);
-      const ca = P.areas[L.items[E.a].area];
-      const cb = P.areas[L.items[E.b].area];
-      // across areas fainter: they bundle through the core, so many overlap there
-      const base = E.cross ? (P.dark ? 0.07 : 0.1) : P.dark ? 0.2 : 0.22;
+      // across areas fainter: they bundle through the origin, so many overlap there
+      const base = E.cross ? (P.dark ? 0.06 : 0.04) : P.dark ? 0.14 : 0.1;
+      const w = Math.min(1, Math.log2(2 + Math.min(s.deg[E.a], s.deg[E.b])) / 5);
+      const c = P.line;
       for (let v = 0; v < seg * 2; v++) {
-        const f = (Math.floor(v / 2) + (v % 2)) / seg;
         const o = (k * seg * 2 + v) * 3;
-        t[o] = ca.r + (cb.r - ca.r) * f;
-        t[o + 1] = ca.g + (cb.g - ca.g) * f;
-        t[o + 2] = ca.b + (cb.b - ca.b) * f;
-        al[k * seg * 2 + v] = base;
+        t[o] = c.r;
+        t[o + 1] = c.g;
+        t[o + 2] = c.b;
+        al[k * seg * 2 + v] = base * (0.45 + 0.9 * w);
       }
     }
     attr(lGeo, 'position', p);
@@ -907,16 +714,16 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     list.forEach((e, k) => {
       linkCurve(hh, L, e, seg, p, k * seg * 6);
       const E = L.edges[e];
+      // the picked or found item's own links in the accent, the rest lit in ink
       const mine = one !== undefined && (E.a === one || E.b === one);
-      const c = mine ? P.ink : P.areas[L.items[E.a].area];
-      const c2 = mine ? P.a : P.areas[L.items[E.b].area];
+      const c = mine ? P.accent : P.ink;
+      const a = mine ? 0.85 : (list.length > 120 ? 0.22 : 0.42) * (P.dark ? 1 : 0.7);
       for (let v = 0; v < seg * 2; v++) {
-        const f = (Math.floor(v / 2) + (v % 2)) / seg;
         const o = (k * seg * 2 + v) * 3;
-        t[o] = c.r + (c2.r - c.r) * f;
-        t[o + 1] = c.g + (c2.g - c.g) * f;
-        t[o + 2] = c.b + (c2.b - c.b) * f;
-        al[k * seg * 2 + v] = list.length > 300 ? 0.35 : 0.9;
+        t[o] = c.r;
+        t[o + 1] = c.g;
+        t[o + 2] = c.b;
+        al[k * seg * 2 + v] = a;
       }
     });
     attr(hiGeo, 'position', p);
@@ -932,28 +739,26 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     const dark = P.dark;
     for (let i = 0; i < n; i++) {
       const it = L.items[i];
-      const c = P.areas[it.area];
       const d = s.deg[i];
-      let sz = 4.5 + 2.4 * Math.log2(1 + d);
-      let a = dark ? 0.9 : 0.85;
-      let r = c.r;
-      let g = c.g;
-      let b = c.b;
-      if (s.gone(it.node)) (a = dark ? 0.05 : 0.08), (sz *= 0.7);
-      else if (busy && !s.near.has(i) && s.litArea !== it.area) a *= dark ? 0.16 : 0.22;
-      else if (busy && s.near.has(i)) sz *= 1.35;
-      if (s.hits.has(it.id)) ((r = P.ink.r), (g = P.ink.g), (b = P.ink.b), (sz *= 1.6), (a = 1));
-      if (i === s.lockI || i === s.focusItem) ((r = P.ink.r), (g = P.ink.g), (b = P.ink.b), (sz *= 2.2), (a = 1));
-      tint[i * 3] = r;
-      tint[i * 3 + 1] = g;
-      tint[i * 3 + 2] = b;
+      // small and crisp; hubs a little larger and in full ink
+      let sz = 2.2 + 0.95 * Math.log2(1 + d);
+      let a = 0.92;
+      let c = d >= 8 ? P.ink : P.dot;
+      if (s.gone(it.node)) ((a = dark ? 0.08 : 0.12), (sz *= 0.7));
+      else if (busy && !s.near.has(i) && s.litArea !== it.area) a *= dark ? 0.22 : 0.26;
+      else if (busy && (s.near.has(i) || s.litArea === it.area)) ((sz *= 1.15), (c = P.ink));
+      if (s.hits.has(it.id)) ((c = P.accent), (sz *= 1.3), (a = 1));
+      if (i === s.lockI || i === s.focusItem) ((c = P.accent), (sz *= 1.5), (a = 1));
+      tint[i * 3] = c.r;
+      tint[i * 3 + 1] = c.g;
+      tint[i * 3 + 2] = c.b;
       size[i] = sz;
       alpha[i] = a;
     }
     pGeo.attributes.tint.needsUpdate = true;
     pGeo.attributes.size.needsUpdate = true;
     pGeo.attributes.alpha.needsUpdate = true;
-    lUni.uDim.value = busy ? (dark ? 0.3 : 0.35) : 1;
+    lUni.uDim.value = busy ? 0.35 : 1;
     buildLit();
     labelsDirty = true;
     request();
@@ -1022,29 +827,22 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     const boxes: Box[] = [...readBoxes];
     const inRoom = (x: number, y: number, w: number, hh: number) => x >= m.x + 2 && x + w <= right - 2 && y >= top && y + hh <= bottom;
 
-    // the core's count
-    const cp = H.mode === 'clusters' ? [0, 0, 0] : [SPAN / 2 + 150, 0, 0];
-    // under the core, clear of its rings
-    const [cx, cy0, , cf] = project(cp[0], cp[1], cp[2]);
-    const [, cyb] = project(cp[0], cp[1] - CORE_R * 1.9, cp[2]);
-    const cy = Math.max(cy0, cyb) + 20;
-    const cw = 96;
-    if (cf && inRoom(cx - cw / 2, cy - 20, cw, 40)) (show(coreEl, cx - cw / 2, cy - 20), boxes.push([cx - cw / 2, cy - 20, cw, 40]));
+    // the origin: a small dot and "Memory 2,980" beside it (Timeline: at the end of the axis)
+    const [cx, cy, , cf] = H.mode === 'clusters' ? project(0, 0, 0) : project(SPAN_END, 0, 0);
+    const cw = coreEl.offsetWidth || 110;
+    if (cf && inRoom(cx - 3, cy - 10, cw, 20) && !hitBox(boxes, cx - 6, cy - 12, cw + 8, 24)) (show(coreEl, cx - 3, cy - 10), boxes.push([cx - 6, cy - 12, cw + 8, 24]));
     else hide(coreEl);
 
-    // the lock on: brackets closing on the item, a leader to its callout
+    // focus: a fine ring on the item, one leader line to its card
     const callout = wrap.querySelector<HTMLElement>('[data-k="callout"]');
     if (s.lockI !== undefined) {
       const i = s.lockI;
       const [x, y, , f] = project(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
       if (f) {
-        const k = s.still ? 1 : Math.min(1, (performance.now() - lockT) / LOCK_MS);
-        const half = 15 + (1 - ease(k)) * 34;
-        lockEl.style.visibility = 'visible';
-        lockEl.style.transform = `translate(${Math.round(x - half)}px, ${Math.round(y - half)}px)`;
-        lockEl.style.width = lockEl.style.height = `${Math.round(half * 2)}px`;
-        lockEl.style.opacity = String(0.4 + 0.6 * k);
-        boxes.push([x - half, y - half, half * 2, half * 2]);
+        const k = ease(s.still ? 1 : Math.min(1, (performance.now() - lockT) / LOCK_MS));
+        show(lockEl, x - MARK_R, y - MARK_R);
+        lockEl.style.opacity = String(k);
+        boxes.push([x - MARK_R - 2, y - MARK_R - 2, MARK_R * 2 + 4, MARK_R * 2 + 4]);
         if (callout) {
           const cw2 = callout.offsetWidth;
           const ch = callout.offsetHeight;
@@ -1052,26 +850,30 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
           const sides: Array<[number, number]> = [[1, -1], [-1, -1], [1, 1], [-1, 1]];
           let best: [number, number] | undefined;
           for (const [sx, sy] of sides) {
-            const bx = sx > 0 ? x + 64 : x - 64 - cw2;
-            const by = sy < 0 ? y - 58 - ch : y + 58;
+            const bx = sx > 0 ? x + 56 : x - 56 - cw2;
+            const by = sy < 0 ? y - 52 - ch : y + 52;
             if (inRoom(bx, by, cw2, ch) && !hitBox(boxes, bx, by, cw2, ch)) {
               best = [bx, by];
               break;
             }
           }
-          best ??= [Math.max(m.x + 4, Math.min(right - cw2 - 4, x + 64)), Math.max(top, Math.min(bottom - ch, y - 58 - ch))];
+          best ??= [Math.max(m.x + 4, Math.min(right - cw2 - 4, x + 56)), Math.max(top, Math.min(bottom - ch, y - 52 - ch))];
           const [bx, by] = best;
           callout.style.visibility = 'visible';
-          callout.style.transform = `translate(${Math.round(bx)}px, ${Math.round(by)}px)`;
+          // the card settles 4px into place as it fades in
+          callout.style.transform = `translate(${Math.round(bx)}px, ${Math.round(by + (1 - k) * 4)}px)`;
+          callout.style.opacity = String(k);
           boxes.push([bx - 4, by - 4, cw2 + 8, ch + 8]);
-          // elbow leader: from the bracket's corner, diagonal, then along the callout's edge
-          const ex = bx < x ? bx + cw2 : bx;
+          // one straight hairline from the ring's edge to the nearest point of the card's near edge
+          const ex = Math.max(bx, Math.min(bx + cw2, x));
           const ey = by < y ? by + ch : by;
-          const sx = x + (ex > x ? half : -half);
-          const sy = y + (ey > y ? half : -half);
-          const kx = ex + (ex > x ? -14 : 14);
+          const d = Math.hypot(ex - x, ey - y) || 1;
           leaderEl.style.visibility = 'visible';
-          leaderLine.setAttribute('points', `${sx},${sy} ${kx},${ey} ${ex + (ex > x ? 0 : 0)},${ey}`);
+          leaderEl.style.opacity = String(k);
+          leaderLine.setAttribute('x1', String(x + ((ex - x) / d) * (MARK_R + 2)));
+          leaderLine.setAttribute('y1', String(y + ((ey - y) / d) * (MARK_R + 2)));
+          leaderLine.setAttribute('x2', String(ex));
+          leaderLine.setAttribute('y2', String(ey));
         }
       } else (hide(lockEl), hide(leaderEl), callout && hide(callout));
     } else (hide(lockEl), hide(leaderEl), callout && hide(callout));
@@ -1084,7 +886,8 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
       const c = H.centers;
       const up = H.mode === 'clusters' ? H.radius[a] * 1.2 : 0;
       const [x, y, , f] = project(c[a * 3], c[a * 3 + 1] + up, c[a * 3 + 2]);
-      const w = measure(L.areas[a].name, s.phone ? 13 : 14, 600) + measure(num(L.areas[a].to - L.areas[a].from), 12) + 8;
+      // the count is mono: about 0.6em a figure
+      const w = measure(L.areas[a].name, s.phone ? 13 : 12, 500) + num(L.areas[a].to - L.areas[a].from).length * 6.8 + 8;
       let put = false;
       if (f)
         for (const dy of [-22, -2, -42, 18]) {
@@ -1107,9 +910,9 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
       for (const t of H.ticks) {
         if (tk >= TICK_POOL) break;
         if (yearsOnly && !t.year) continue;
-        const r = t.year ? 66 : 28;
-        const [x, y, , f] = project(t.x, -r, 0);
-        const w = measure(t.label, 11.5) + 6;
+        const [x, y0, , f] = project(t.x, -(t.year ? TICK_Y : TICK_M), 0);
+        const y = y0 + 4;
+        const w = t.label.length * 6.6 + 6;
         if (!f || !inRoom(x - w / 2, y, w, 16) || hitBox(boxes, x - w / 2, y, w, 16)) continue;
         const el = tickEls[tk++];
         if (el.textContent !== t.label) el.textContent = t.label;
@@ -1122,7 +925,8 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
 
     // item titles beside their points
     let k = 0;
-    const max = s.phone ? 7 : ITEM_POOL;
+    // at rest only a few titles, so the space stays calm; more once something is lit or found
+    const max = s.near.size || s.hits.size ? (s.phone ? 7 : ITEM_POOL) : s.phone ? 5 : 12;
     for (const i of cand) {
       if (k >= max) break;
       const [x, y, , f] = project(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
@@ -1248,9 +1052,7 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     if (morph) {
       const k = ease(Math.min(1, (now - morph.t0) / MORPH_MS));
       for (let j = 0; j < pos.length; j++) pos[j] = morph.from[j] + (morph.to[j] - morph.from[j]) * k;
-      for (let j = 0; j < gPos.length; j++) gPos[j] = morph.gFrom[j] + (morph.gTo[j] - morph.gFrom[j]) * k;
       pGeo.attributes.position.needsUpdate = true;
-      gGeo.attributes.position.needsUpdate = true;
       lUni.uDim.value = Math.max(0, 1 - k * 3);
       if (k >= 1) {
         morph = undefined;
@@ -1259,40 +1061,14 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
       }
       labelsDirty = true;
     }
-    controls.autoRotate = !s.still && !fly && s.focusItem === undefined && s.lockI === undefined && now - idleAt > 2500;
+    controls.autoRotate = !s.still && !fly && s.focusItem === undefined && s.lockI === undefined && now - idleAt > DRIFT_AFTER;
     controls.update();
-    // the core turns, the sweep passes
-    const t = now / 1000;
-    if (!s.still) {
-      wire.rotation.y = t * 0.15;
-      wire.rotation.x = t * 0.05;
-      rings.rotation.y = -t * 0.22;
-      orbit2.rotation.z = t * 0.1;
-      orbit2.rotation.x = 1.1;
-    }
-    const sweepOn = !s.still && !morph;
-    if (H.mode === 'clusters') {
-      const ang = (t * 0.55) % (Math.PI * 2);
-      swUni.uAngle.value = ang;
-      sweep.visible = sweepOn;
-      scanRing.visible = false;
-      pUni.uSweep.value.set(sweepOn ? 0 : -1, ang, 0, P.dark ? 0.9 : 0.6);
-    } else {
-      sweep.visible = false;
-      const x = -SPAN / 2 - 100 + ((t * 160) % (SPAN + 400));
-      scanRing.visible = sweepOn;
-      scanRing.position.set(x, 0, 0);
-      pUni.uSweep.value.set(sweepOn ? 1 : -1, x, 90, P.dark ? 0.9 : 0.6);
-    }
-    core.position.set(H.mode === 'clusters' ? 0 : SPAN / 2 + 150, 0, 0);
+    // depth fog: from a little in front of the target to well behind it
     const dist = camera.position.distanceTo(controls.target);
-    for (const u of [pUni, lUni, hiUni]) {
-      u.uNear.value = dist * 0.55;
-      u.uFar.value = dist * 2.1;
+    for (const u of [pUni, lUni, hiUni, axUni]) {
+      u.uNear.value = dist * 0.6;
+      u.uFar.value = dist * 2;
     }
-    gUni.uNear.value = dist * 0.55;
-    gUni.uFar.value = dist * 2.1;
-    hiUni.uDim.value = 1;
     renderer.render(scene, camera);
     if (labelsDirty || now - candAt > 400) choose();
     placeLabels();
@@ -1344,7 +1120,7 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
       canvas.removeEventListener('dblclick', onDbl);
       canvas.removeEventListener('pointerleave', onLeave);
       scene.traverse((o) => {
-        const m = o as Mesh;
+        const m = o as Points;
         m.geometry?.dispose();
         (m.material as ShaderMaterial | undefined)?.dispose?.();
       });
@@ -1355,15 +1131,12 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     layout(next) {
       if (next === H) return;
       const fromP = new Float32Array(pos);
-      const fromG = new Float32Array(gPos);
       H = next;
       const still = S().still;
       if (still) {
         pos.set(H.pos);
-        gPos.set(H.centers);
         pGeo.attributes.position.needsUpdate = true;
-        gGeo.attributes.position.needsUpdate = true;
-      } else morph = { t0: performance.now(), from: fromP, to: H.pos, gFrom: fromG, gTo: H.centers };
+      } else morph = { t0: performance.now(), from: fromP, to: H.pos };
       colors();
       const hm = home(H);
       controls.maxDistance = fitDist(H.extent) * 3;
@@ -1386,9 +1159,7 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
       request();
     },
     timeCut() {
-      const c = S().cut;
-      cutRing.visible = H.mode === 'timeline' && c !== undefined;
-      if (cutRing.visible) cutRing.position.set(timeX(H.times, H.lo, H.hi, c!), 0, 0);
+      buildCut();
       request();
     },
     overview() {

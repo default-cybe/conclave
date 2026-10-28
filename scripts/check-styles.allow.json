@@ -39,31 +39,7 @@
     "file": "packages/web/src/features/memory/holo.css",
     "rule": "gradient",
     "match": "radial-gradient(ellipse",
-    "reason": "The Memory map's 3D view is the owner's one exception to the no-glow rule (docs/DESIGN.md, Memory > Map, 3D view): the faint backdrop behind the hologram."
-  },
-  {
-    "file": "packages/web/src/features/memory/holo.css",
-    "rule": "glow",
-    "match": "text-shadow:",
-    "reason": "3D view exception (docs/DESIGN.md, Memory > Map, 3D view): holographic label glow."
-  },
-  {
-    "file": "packages/web/src/features/memory/holo.css",
-    "rule": "glow",
-    "match": "drop-shadow(0 0",
-    "reason": "3D view exception (docs/DESIGN.md, Memory > Map, 3D view): glow on the lock-on brackets and the sweep."
-  },
-  {
-    "file": "packages/web/src/features/memory/holo.css",
-    "rule": "glow",
-    "match": "box-shadow: 0 0",
-    "reason": "3D view exception (docs/DESIGN.md, Memory > Map, 3D view): glow on the callout and the readout marks."
-  },
-  {
-    "file": "packages/web/src/features/memory/HoloCanvas.tsx",
-    "rule": "hex",
-    "match": "new Color(dark ?",
-    "reason": "three.js materials take colours as values, not CSS variables; these are the 3D view's holographic palette, the owner's exception (docs/DESIGN.md, Memory > Map, 3D view)."
+    "reason": "The Memory map's 3D view is a lit studio space (docs/DESIGN.md, Memory > Map, 3D view): one soft key light from above behind the points, no glow on anything in it."
   },
   {
     "file": "packages/web/src/features/memory/memory-map.css",
