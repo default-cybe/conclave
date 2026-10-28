@@ -7,6 +7,18 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [0.4.47] - 2026-10-28
+
+### Added
+
+- Android: Code sessions have **Delete** in their sheet, and a long press on any conversation in the side panel deletes it, after a confirm.
+
+### Fixed
+
+- The email agent searches and reads mail without an approval card for every call. `MailSearch` and `MailRead` are marked as readers built for untrusted sessions (`untrustedReader`); every other call in an untrusted session still asks, and deny rules still win.
+- Memory > Map no longer crashes with "Something went wrong on this screen" when an item opens in newer Chrome on Android: the item panel's scroll reset returned `scrollTo`'s Promise, which React then called as the cleanup.
+- Memory > Map, 3D: under the phone's link cap, every item gets its strongest link before any item gets a second, so the most linked item no longer takes every thread.
+
 ## [0.4.46] - 2026-10-28
 
 ### Added
