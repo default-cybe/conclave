@@ -32,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -115,7 +116,14 @@ class MemoryViewModel(hub: HubRepository) : HubViewModel(hub) {
 }
 
 @Composable
-fun MemoryScreen(onBack: () -> Unit, onImport: () -> Unit = {}) {
+fun MemoryScreen(
+    onBack: () -> Unit,
+    onImport: () -> Unit = {},
+    onMap: () -> Unit = {},
+    /** "<memory id>\u0000<its text>" from the map's Open in Notes: found by its text, then opened. */
+    focus: String? = null,
+    onFocused: () -> Unit = {},
+) {
     val hub = LocalAppContainer.current.hub
     val vm: MemoryViewModel = viewModel { MemoryViewModel(hub) }
     val entries by vm.entries.collectAsStateWithLifecycle()
@@ -125,11 +133,23 @@ fun MemoryScreen(onBack: () -> Unit, onImport: () -> Unit = {}) {
     MessagesEffect(vm.messages, snackbar)
     var editing by remember { mutableStateOf<MemoryEntry?>(null) }
     var creating by remember { mutableStateOf(false) }
+    val focusId = focus?.substringBefore('\u0000')
+    LaunchedEffect(focus) {
+        if (focus != null) vm.query.value = focus.substringAfter('\u0000').take(60)
+    }
+    LaunchedEffect(focusId, entries) {
+        val hit = focusId?.let { id -> entries.firstOrNull { it.id == id } } ?: return@LaunchedEffect
+        editing = hit
+        onFocused()
+    }
 
     Scaffold(
         topBar = {
             // past Claude Code, Codex and Gemini CLI chats: import them, learn from them, or both
-            TopBar("Memory", onBack = onBack, actions = { TextButton(onClick = onImport) { Text("Import", color = Conclave.colors.fg2) } })
+            TopBar("Memory", onBack = onBack, actions = {
+                TextButton(onClick = onMap) { Text("Map", color = Conclave.colors.fg2) }
+                TextButton(onClick = onImport) { Text("Import", color = Conclave.colors.fg2) }
+            })
         },
         floatingActionButton = {
             FloatingActionButton(onClick = { creating = true }) { Icon(Icons.Outlined.Add, contentDescription = "Add memory") }

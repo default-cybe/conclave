@@ -235,6 +235,7 @@ push=$(field sessions.push)
 routes=$(field sessions.routes)
 chat=$(field sessions.chat)
 run=$(field workflowRun)
+mem=$(field memoryItem)
 
 for t in light dark; do
   theme "$t"
@@ -258,6 +259,14 @@ for t in light dark; do
   open_link "conclave://session/$routes" && await_text "Keep the old API route?" 20 && shot "question-$t.png"
   open_link "conclave://chat/$chat" && shot "chat-$t.png"
   if [ -n "$run" ]; then open_link "conclave://workflow-run/$run" && shot "workflow-$t.png"; fi
+  # Memory > Map: the tree, the 3D clusters, and an item's sheet over each
+  open_link "conclave://memory-map?view=tree" && await_text Rings 20 && sleep 2 && shot "memory-map-tree-$t.png"
+  if [ -n "$mem" ]; then
+    open_link "conclave://memory-map?view=tree&item=$mem" && await_text "Center here" 20 && sleep 2 && shot "memory-map-tree-sheet-$t.png"
+    open_link "conclave://memory-map?view=clusters&item=$mem" && await_text "Center here" 20 && sleep 2 && shot "memory-map-3d-sheet-$t.png"
+  fi
+  open_link "conclave://memory-map?view=clusters" && await_text Clusters 20 && sleep 3 && shot "memory-map-3d-$t.png"
+  open_link "conclave://memory-map?view=timeline" && await_text Timeline 20 && sleep 3 && shot "memory-map-timeline-$t.png"
 done
 
 # Home with nothing waiting: the question answered and the push denied on the hub

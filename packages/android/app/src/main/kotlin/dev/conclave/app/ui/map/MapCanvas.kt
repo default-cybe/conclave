@@ -65,6 +65,7 @@ import dev.conclave.client.map.LLink
 import dev.conclave.client.map.LNode
 import dev.conclave.client.map.LabelPlace
 import dev.conclave.client.map.MapGlide
+import dev.conclave.client.map.MapLabels
 import dev.conclave.client.map.MapLayout
 import dev.conclave.client.map.MapLayouts
 import dev.conclave.client.map.MapStreams
@@ -132,10 +133,10 @@ fun rememberMapMeasure(measurer: TextMeasurer): Measure {
     }
 }
 
-private class LabelStyles(val title: TextStyle, val name: TextStyle, val meta: TextStyle, val mono: TextStyle)
+internal class LabelStyles(val title: TextStyle, val name: TextStyle, val meta: TextStyle, val mono: TextStyle)
 
 @Composable
-private fun rememberLabelStyles(): LabelStyles {
+internal fun rememberLabelStyles(): LabelStyles {
     val fs = LocalDensity.current.fontScale
     return remember(fs) {
         LabelStyles(
@@ -649,13 +650,12 @@ private fun measureLabels(
                 val n = nodes[ln.id] ?: ln.node
                 if (n == null) continue
                 titleStyle = s.title.copy(color = if (MapWords.isBusy(n.state)) c.fg else c.fg2)
-                val stuck = MapWords.stuckWords(n, now)
-                val word = stuck ?: MapWords.stateWord(n.state)
-                val tone = if (stuck != null) c.warn else toneColor(c, MapWords.tone(n.state))
+                val m = MapLabels.nodeMeta(n, now)
+                val tone = if (MapWords.stuckWords(n, now) != null) c.warn else toneColor(c, MapWords.tone(n.state))
                 meta = buildAnnotatedString {
-                    withStyle(s.mono.toSpanStyle().copy(color = c.fg4)) { append(MapWords.shortId(n.id)) }
-                    append("  ")
-                    withStyle(SpanStyle(color = tone)) { append(word) }
+                    append("${m.mode} · ")
+                    withStyle(SpanStyle(color = tone)) { append(m.word) }
+                    m.time?.let { append(" · $it") }
                 }
             }
         }

@@ -86,6 +86,7 @@ import dev.conclave.app.ui.friends.SharesScreen
 import dev.conclave.app.ui.home.HomeScreen
 import dev.conclave.app.ui.map.MapScreen
 import dev.conclave.app.ui.memory.ImportScreen
+import dev.conclave.app.ui.memory.MemoryMapScreen
 import dev.conclave.app.ui.memory.MemoryScreen
 import dev.conclave.app.ui.motion.Launch
 import dev.conclave.app.ui.motion.LaunchSplash
@@ -163,6 +164,9 @@ object Routes {
     /** Memory, Import past chats. */
     const val IMPORT = "memory/import"
 
+    /** Memory, Map: all memory as one picture (Tree, Rings, 3D), as the web's /memory/map. */
+    const val MEMORY_MAP = "memory/map?view={view}&item={item}"
+
     /** Scan a new code while paired (a new tunnel address, or pair again). */
     const val PAIR = "pair"
 
@@ -194,6 +198,8 @@ object Routes {
     fun friends(link: String? = null) = if (link == null) "friends" else "friends?link=${android.net.Uri.encode(link)}"
     fun friend(id: String) = "friend/${android.net.Uri.encode(id)}"
     fun share(id: String) = "share/${android.net.Uri.encode(id)}"
+    fun memoryMap(view: String? = null, item: String? = null) =
+        "memory/map?view=${android.net.Uri.encode(view.orEmpty())}&item=${android.net.Uri.encode(item.orEmpty())}"
 }
 
 /**
@@ -346,6 +352,11 @@ private fun MainScaffold() {
             }
             DeepLink.MapPage -> {
                 navigateTop(nav, Routes.MAP)
+                hub.pendingLink.value = null
+            }
+            is DeepLink.MemoryMap -> {
+                // not single top: a link with another view or item opens it, not the map already open
+                nav.navigate(Routes.memoryMap(link.view, link.item))
                 hub.pendingLink.value = null
             }
         }
@@ -600,7 +611,42 @@ private fun AppNavHost(nav: NavHostController, modifier: Modifier) {
                 AgentDetailScreen(name = entry.arguments?.getString("name").orEmpty(), onBack = back, onOpenChat = openChat)
             }
             composable(Routes.ROUTINES) { RoutinesScreen(onBack = back, onOpenChat = openChat) }
-            composable(Routes.MEMORY) { MemoryScreen(onBack = back, onImport = { nav.navigate(Routes.IMPORT) }) }
+            composable(Routes.MEMORY) { entry ->
+                // Open in Notes on the map leaves the memory it names here
+                val focus by entry.savedStateHandle.getStateFlow<String?>("focus", null).collectAsStateWithLifecycle()
+                MemoryScreen(
+                    onBack = back,
+                    onImport = { nav.navigate(Routes.IMPORT) },
+                    onMap = { nav.navigate(Routes.memoryMap()) { launchSingleTop = true } },
+                    focus = focus,
+                    onFocused = { entry.savedStateHandle["focus"] = null },
+                )
+            }
+            composable(
+                Routes.MEMORY_MAP,
+                arguments = listOf("view", "item").map { name ->
+                    navArgument(name) {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    }
+                },
+            ) { entry ->
+                MemoryMapScreen(
+                    startView = entry.arguments?.getString("view")?.ifBlank { null },
+                    startItem = entry.arguments?.getString("item")?.ifBlank { null },
+                    onBack = back,
+                    onOpenNote = { id, title ->
+                        val memory = nav.previousBackStackEntry?.takeIf { it.destination.route == Routes.MEMORY }
+                        if (memory != null) {
+                            memory.savedStateHandle["focus"] = "$id\u0000$title"
+                            nav.popBackStack()
+                        } else {
+                            nav.navigate(Routes.MEMORY) { launchSingleTop = true }
+                        }
+                    },
+                )
+            }
             composable(Routes.IMPORT) { ImportScreen(onBack = back) }
             composable(
                 Routes.WORKFLOW_RUNS,
