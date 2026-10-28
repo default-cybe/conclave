@@ -93,6 +93,13 @@ export function fakeHost(over: Partial<ToolHost> & { cfg?: Partial<ConclaveConfi
       if (name !== 'demo') return undefined;
       return { name: 'demo', body: 'Do the demo with $ARGUMENTS.', dir: '/skills/demo' };
     },
+    async listSkills() {
+      return [
+        { name: 'demo', description: 'Run the demo with flair.' },
+        { name: 'pack:pdf-merge', description: 'Merge PDF files into one document.', plugin: 'pack' },
+        { name: 'pack:csv-clean', description: 'Clean messy CSV tables.', plugin: 'pack' },
+      ];
+    },
     async createRoutine(input) {
       return { id: `rt_${input.name}`, nextRunAt: Date.now() + 60_000 };
     },

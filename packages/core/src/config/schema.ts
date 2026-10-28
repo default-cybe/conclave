@@ -675,6 +675,13 @@ export interface ConclaveConfig {
      * own `platformCard: false` turns it off for that agent only.
      */
     platformCard?: boolean;
+    /**
+     * Estimated tokens the skills list in the system prompt may use. Over it,
+     * the agent's own, project, hub and matching skills keep their
+     * descriptions and the rest are listed by name (session/skill-list.ts).
+     * Default 6000; 0 lists every description.
+     */
+    skillTokens?: number;
   };
 
   /** Workflow engine (docs/WORKFLOWS.md). */
