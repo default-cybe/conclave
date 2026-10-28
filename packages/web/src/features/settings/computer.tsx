@@ -28,7 +28,7 @@ export interface ComputerView {
 
 type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
-function tauriInvoke(): Invoke | undefined {
+export function tauriInvoke(): Invoke | undefined {
   const w = window as unknown as { __TAURI__?: { core?: { invoke?: Invoke } }; __TAURI_INTERNALS__?: { invoke?: Invoke } };
   return w.__TAURI__?.core?.invoke ?? w.__TAURI_INTERNALS__?.invoke;
 }

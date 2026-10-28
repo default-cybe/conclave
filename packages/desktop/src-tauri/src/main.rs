@@ -208,14 +208,17 @@ fn grant_hub_ipc(app: &AppHandle, base: &Url) -> Result<(), String> {
     }
     // The hub page may read the daemon's state and open the app's own settings,
     // where the switch is. It cannot turn the daemon on itself: that would give
-    // a script on the hub page a shell on this computer.
+    // a script on the hub page a shell on this computer. It may also read the
+    // app's version and install the app's signed update (Settings > About).
     app.add_capability(
         CapabilityBuilder::new(format!("hub-{}", granted.len()))
             .remote(format!("{origin}/*"))
             .windows([MAIN, QUICK])
             .permission("notification:default")
             .permission("allow-computer-status")
-            .permission("allow-open-settings"),
+            .permission("allow-open-settings")
+            .permission("allow-update-status")
+            .permission("allow-update-install"),
     )
     .map_err(|e| e.to_string())?;
     granted.insert(origin);
