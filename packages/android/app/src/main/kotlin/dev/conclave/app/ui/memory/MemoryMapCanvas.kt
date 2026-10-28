@@ -48,6 +48,7 @@ import dev.conclave.client.map.LFont
 import dev.conclave.client.map.MapViewport
 import dev.conclave.client.map.MapViews
 import dev.conclave.client.model.MemoryGraph
+import kotlin.math.atan
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -192,16 +193,22 @@ fun MemoryTreeCanvas(ix: MemoryIndex, center: String, picked: String?, onPick: (
             }
             val scale = if (p.t.kind == MTKind.BRAIN) 1.22f else 1f
             val countW = p.count?.let { (measure(it, LFont.META) - 6) * d } ?: 0.0
-            val titleMaxPx = ((p.w / scale) * d - countW - 10 * d).toInt().coerceAtLeast(1)
+            // only the title is scaled up (layoutTree's width), so the count comes off before the scale
+            val titleMaxPx = ((p.w * d - countW) / scale - 10 * d).toInt().coerceAtLeast(1)
             val t = labels.get(p.title, style.copy(color = color), titleMaxPx)
             withTransform({
                 translate(x, y)
                 scale(k * scale, k * scale, Offset.Zero)
             }) {
                 drawText(t, topLeft = Offset(5f * d, -t.size.height / 2f))
-                p.count?.let { n ->
-                    val cl = labels.get(n, styles.meta.copy(color = c.fg3))
-                    drawText(cl, topLeft = Offset(5f * d + t.size.width + 4f * d, -cl.size.height / 2f))
+            }
+            p.count?.let { n ->
+                val cl = labels.get(n, styles.meta.copy(color = c.fg3))
+                withTransform({
+                    translate(x + (5f * d + t.size.width) * scale * k, y)
+                    scale(k, k, Offset.Zero)
+                }) {
+                    drawText(cl, topLeft = Offset(4f * d, -cl.size.height / 2f))
                 }
             }
         }
@@ -360,9 +367,13 @@ fun MemoryHoloCanvas(g: MemoryGraph, ix: MemoryIndex, mode: HoloMode, picked: St
     val deg = remember(links) { IntArray(n) { g.nodes[links.items[it].node].degree } }
     val hot = remember(deg) { deg.sortedDescending().getOrElse(n / 12) { 0 }.coerceAtLeast(3) }
     // orbit: yaw round y, pitch round x, the camera's distance from the origin
-    var yaw by remember(mode) { mutableStateOf(if (mode == HoloMode.TIMELINE) -0.5 else 0.6) }
-    var pitch by remember(mode) { mutableStateOf(if (mode == HoloMode.TIMELINE) 0.35 else 0.3) }
-    var dist by remember(holo) { mutableStateOf(holo.extent * (if (mode == HoloMode.TIMELINE) 1.6 else 2.5)) }
+    // Timeline as the web's home on a phone: square to history, looking down from (0, 0.7, 1)·d, with
+    // d fitting 1.2 SPAN across the width (f below spans FOV over the narrower side, the width on a phone)
+    var yaw by remember(mode) { mutableStateOf(if (mode == HoloMode.TIMELINE) 0.0 else 0.6) }
+    var pitch by remember(mode) { mutableStateOf(if (mode == HoloMode.TIMELINE) atan(0.7) else 0.3) }
+    var dist by remember(holo) {
+        mutableStateOf(if (mode == HoloMode.TIMELINE) MemoryLinks.SPAN * 0.6 / tan(Math.toRadians(FOV / 2)) * hypot(1.0, 0.7) else holo.extent * 2.5)
+    }
     var size by remember { mutableStateOf(Size.Zero) }
     val sx = remember(n) { FloatArray(n) }
     val sy = remember(n) { FloatArray(n) }
