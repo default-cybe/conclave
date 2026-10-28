@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Settings > About > This client in the desktop app shows the app's real version instead of 0.1.0, an "Update to X" button when the app has an update, and the last update check error. Browsers show the release version too: CI now writes it into the web app.
+
 ## [0.4.43] - 2026-10-28
 
 ### Changed
