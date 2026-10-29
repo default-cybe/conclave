@@ -28,6 +28,7 @@ import { api } from '@/lib/api';
 import { attempt, toolResultsFor, upsertSession, useHub, useQueue } from '@/store/store';
 import { cn } from '@/lib/text';
 import { fileName, hhmm } from '@/lib/format';
+import { AsciiField } from '@/components/ascii/AsciiField';
 import { useReducedMotion } from '@/lib/hooks';
 import { modelName } from '@/lib/models';
 import { asksOf } from '@/lib/asks';
@@ -179,7 +180,12 @@ export function PhoneTranscript({ session }: { session: Session }) {
 function Empty({ session }: { session: Session }) {
   const device = useHub((s) => s.devices[session.device]?.name ?? session.device);
   const where = !session.cwd || session.cwd === '~' ? 'in your home folder' : `in ${fileName(session.cwd)}`;
-  return <p className="m-0 pt-6 text-center text-[15px] leading-[1.45] text-fg-3">The {session.agent} agent works on {device} {where}. Tell it what to do.</p>;
+  return (
+    <div className="pt-6">
+      <AsciiField size={11} className="h-24" />
+      <p className="m-0 pt-4 text-center text-[15px] leading-[1.45] text-fg-3">The {session.agent} agent works on {device} {where}. Tell it what to do.</p>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------

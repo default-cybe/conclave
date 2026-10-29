@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/text';
 import { Wave } from '../wave';
+import { AsciiField } from '../ascii/AsciiField';
 import { Button } from './Button';
 import { useDelayed } from '@/lib/hooks';
 import { KnotRope } from '../motion/KnotRope';
@@ -17,6 +18,7 @@ export function EmptyState({
   action,
   wave = true,
   pet,
+  ascii,
   className,
 }: {
   /** The sentence. */
@@ -27,6 +29,8 @@ export function EmptyState({
   wave?: boolean;
   /** The pet in place of the wave (CHAT-AND-MOTION 1.11): true for idle, or a pose ("done" when all is clear). */
   pet?: boolean | PetState;
+  /** The ASCII conclave in place of the wave (a new session, an empty chat list). */
+  ascii?: boolean;
   className?: string;
 }) {
   const act =
@@ -39,8 +43,14 @@ export function EmptyState({
     );
   return (
     <div className={cn('py-4', className)}>
-      {pet ? <Pet state={pet === true ? 'idle' : pet} size={48} className="text-fg-2" /> : wave && <Wave variant="ambient" className="h-[72px] phone:h-14" />}
-      <p className={cn('max-w-[60ch] text-[14px] leading-[1.45] text-fg-2 phone:text-[15px]', (wave || pet) && 'mt-4')}>{children}</p>
+      {pet ? (
+        <Pet state={pet === true ? 'idle' : pet} size={48} className="text-fg-2" />
+      ) : ascii ? (
+        <AsciiField align="start" size={11} className="h-[112px] phone:h-24" />
+      ) : (
+        wave && <Wave variant="ambient" className="h-[72px] phone:h-14" />
+      )}
+      <p className={cn('max-w-[60ch] text-[14px] leading-[1.45] text-fg-2 phone:text-[15px]', (wave || pet || ascii) && 'mt-4')}>{children}</p>
       {act && <div className="mt-4">{act}</div>}
     </div>
   );
