@@ -16,6 +16,7 @@ import uiPass from './ui-pass.js' with { type: 'text' };
 import migrate from './migrate.js' with { type: 'text' };
 import compareHarnesses from './compare-harnesses.js' with { type: 'text' };
 import race from './race.js' with { type: 'text' };
+import webStudio from './web-studio.js' with { type: 'text' };
 
 export interface DefaultWorkflow {
   file: string;
@@ -36,4 +37,5 @@ export const DEFAULT_WORKFLOWS: DefaultWorkflow[] = [
   { file: 'migrate.js', script: migrate },
   { file: 'compare-harnesses.js', script: compareHarnesses },
   { file: 'race.js', script: race },
+  { file: 'web-studio.js', script: webStudio },
 ];

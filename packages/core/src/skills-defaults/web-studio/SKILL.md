@@ -11,6 +11,7 @@ Build a site that does not look AI-made, then prove it with screenshots, scroll 
 
 - A new site, landing page, portfolio, or a redesign that must look premium.
 - Not for a small change inside an existing design system. Use the designer agent or the ui-pass workflow for that.
+- The web-studio workflow runs these phases end to end in any project folder (args `brief`, `dir`, `url`, `references`). It stops twice for the owner: to approve the spec and to pick a prototype. Run it when the owner wants the whole build; follow this skill by hand for one phase.
 
 ## Core idea
 
@@ -72,7 +73,7 @@ A fresh judge scores the rubric, 1 to 10 each, and sees only the screenshots, co
 9. Copy
 10. Polish
 
-- Pass bar: an average of 8 or more, and nothing under 7. Most first drafts land at 6 to 7.
+- Pass bar: an average of 8 or more, and nothing under 7. Most first drafts land at 6 to 7. The web-studio workflow computes the bar in code from the judge's scores.
 - Fix the 3 weakest areas with values, not adjectives. Retake only the evidence that changed. Run at most 3 rounds, then report what is still under the bar.
 - Validate in two rounds:
   - Round A: QA, accessibility, design, security (CSP, link targets, no secrets, photo EXIF stripped).
