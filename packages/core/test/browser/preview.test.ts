@@ -342,7 +342,8 @@ for (const exe of hasPlaywright ? browsers : []) describe(`preview (live Chromiu
   test('log URLs are capped', async () => {
     const page = await manager.page(sid);
     await page.evaluate(() => fetch('/missing?' + 'a'.repeat(200_000)).catch(() => {}));
-    await Bun.sleep(200);
+    // the response event lands after fetch settles; under a loaded runner (parallel files) that can take a while
+    for (let i = 0; i < 50 && !service.logs(sid).some((e) => e.kind === 'response'); i++) await Bun.sleep(100);
     const long = service.logs(sid).filter((e) => e.kind === 'response');
     expect(long.length).toBeGreaterThan(0);
     for (const e of long) expect((e.url ?? '').length).toBeLessThanOrEqual(301);

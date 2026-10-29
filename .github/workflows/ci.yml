@@ -21,8 +21,9 @@ env:
   BUN_VERSION: 1.4.2
 
 jobs:
+  # Tests run in the test job's shards, next to this one
   check:
-    name: Typecheck, test, build
+    name: Typecheck and build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -43,9 +44,6 @@ jobs:
 
       - name: Typecheck
         run: bun run typecheck
-
-      - name: Test
-        run: bun run test
 
       - name: Build web app
         run: bun run --filter @conclave/web build
@@ -69,6 +67,28 @@ jobs:
 
       - name: Lint shell scripts
         run: shellcheck -s sh scripts/ci/apt-install.sh scripts/install.sh scripts/smoke-hub.sh scripts/lxc/setup.sh scripts/lxc/test-docker.sh scripts/proxmox/conclave-lxc.sh
+
+  # The suite in two shards, each running its files in parallel (bun test --parallel)
+  test:
+    name: Test (${{ matrix.shard }}/2)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        run: bun run test --shard=${{ matrix.shard }}/2
 
   # The release cross-compiles the Windows hub on Linux and never ran it: v0.4.5's
   # exited at once with code 0 and printed nothing. Run it on Windows, also the
