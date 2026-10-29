@@ -5,7 +5,7 @@ Answers one research sub-question from the web. It opens every page it cites and
 | Field | Value |
 | --- | --- |
 | Tier | `model: fast` |
-| Tools | WebSearch, WebFetch, Write |
+| Tools | WebSearch, WebFetch, ReadPost (x.com posts and videos), Write |
 | Recipes | write-scope with `WRITE_GLOB=research/**,notes/**` |
 | Picker | subagent |
 

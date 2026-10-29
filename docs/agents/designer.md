@@ -5,7 +5,7 @@ UI and visual changes inside the project's design system. It composes existing c
 | Field | Value |
 | --- | --- |
 | Tier | `model: smart`; it needs a model with vision to read its screenshots |
-| Tools | Read, Grep, Glob, LS, Edit, MultiEdit, Write, Bash, ReadToolOutput, browser_navigate, browser_screenshot, browser_snapshot, browser_click, browser_wait |
+| Tools | Read, Grep, Glob, LS, Edit, MultiEdit, Write, Bash, ReadToolOutput, browser_navigate, browser_screenshot, browser_snapshot, browser_click, browser_wait, Capture, ReadPost (x.com posts and videos as contact sheets) |
 | Recipes | verify-gate |
 | Picker | subagent |
 

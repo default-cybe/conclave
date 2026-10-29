@@ -43,6 +43,7 @@ It is a hub you run on a home server, a Proxmox box or your desktop. The hub hol
 - **Routines that run themselves.** Morning briefs, server checks, or a daily look for new listings on a site. Missed runs catch up after downtime.
 - **Files back from agents.** The ShareFile tool turns a PDF, image, spreadsheet or zip a session made into a file card with a preview and a Download button. A file the model saves into a chat's outputs folder gets one too at the end of the turn.
 - **Capture any page.** The Capture tool (and `lib.capture` in workflows) screenshots a URL at phone and desktop width, light and dark, with an early frame, scroll contact sheets and a report of console errors, failed requests, overflow, fonts, CLS, LCP and axe-core violations.
+- **Read X posts and watch videos.** The ReadPost tool reads an x.com or twitter.com post without a login (text, quoted post, X article, media) and turns each video, or a direct .mp4 or .webm URL, into PNG contact sheets of frames spread over the clip, so a model can see the motion.
 - **Attachments with receipts.** Each file you attach is tracked: the chat says whether the request carried it, and a file the hub cannot read is never dropped silently.
 - **Updates when idle.** The hub installs a new release by itself once nothing is running.
 - **Every device.** Web app, desktop app (Windows, Mac, Linux), Android app, iPhone home screen app and a terminal app.

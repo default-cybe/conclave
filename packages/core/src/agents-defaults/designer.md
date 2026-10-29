@@ -21,6 +21,7 @@ tools:
   - browser_click
   - browser_wait
   - Capture
+  - ReadPost
 recipes:
   - verify-gate
 color: pink
