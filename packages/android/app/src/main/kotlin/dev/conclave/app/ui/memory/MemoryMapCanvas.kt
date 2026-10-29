@@ -45,6 +45,7 @@ import dev.conclave.client.logic.MemoryMapState
 import dev.conclave.client.logic.MemoryMaps
 import dev.conclave.client.logic.areaId
 import dev.conclave.client.map.LBox
+import dev.conclave.client.map.Insets
 import dev.conclave.client.map.LFont
 import dev.conclave.client.map.MapViewport
 import dev.conclave.client.map.MapViews
@@ -234,10 +235,14 @@ fun MemoryRingsCanvas(g: MemoryGraph, ix: MemoryIndex, picked: String?, onPick: 
     val hud = remember(links) { MemoryLinks.layoutHud(links, ix) }
     val drawn = remember(links) { drawnEdges(g, links) }
     val R = MemoryLinks.R
-    val base = remember(hud, drawn) {
+    // as 3D: the most linked items' links stand out from the rest
+    val (base, strong) = remember(hud, drawn) {
+        val deg = IntArray(links.items.size) { g.nodes[links.items[it].node].degree }
+        val hot = deg.sortedDescending().getOrElse(deg.size / 12) { 0 }.coerceAtLeast(3)
         val p = Path()
-        for (e in drawn) bezier(p, hud.pts[e])
-        p
+        val q = Path()
+        for (e in drawn) bezier(if (deg[links.edges[e].a] >= hot || deg[links.edges[e].b] >= hot) q else p, hud.pts[e])
+        p to q
     }
     val ticks = remember(hud) {
         val p = Path()
@@ -258,7 +263,12 @@ fun MemoryRingsCanvas(g: MemoryGraph, ix: MemoryIndex, picked: String?, onPick: 
     var size by remember { mutableStateOf(Size.Zero) }
     var view by remember { mutableStateOf<MapViewport?>(null) }
     val world = LBox(-R - 80, -R - 80, 2 * R + 160, 2 * R + 160)
-    if (view == null && size.width > 0) view = MapViews.fit(world, size.width / d.toDouble(), size.height / d.toDouble(), maxK = 3.0)
+    val areaLabels = hud.areas.map { labels.get("${it.name} ${MemoryMaps.num(it.items.size)}", styles.meta.copy(color = c.fg2)) }
+    if (view == null && size.width > 0) {
+        // the ring shrinks so the widest area name fits beside it on either side
+        val side = (areaLabels.maxOfOrNull { it.size.width } ?: 0) / d + 8.0
+        view = MapViews.fit(world, size.width / d.toDouble(), size.height / d.toDouble(), Insets(0.0, side, 0.0, side), maxK = 3.0)
+    }
     val pick by rememberUpdatedState(onPick)
 
     Canvas(
@@ -291,7 +301,9 @@ fun MemoryRingsCanvas(g: MemoryGraph, ix: MemoryIndex, picked: String?, onPick: 
             drawCircle(c.rule2, radius = (R * MemoryLinks.CORE).toFloat(), center = Offset.Zero, style = Stroke(width = 1f / s))
             // faint where hundreds of links pile up into a bundle; a small memory's few links stay visible
             val fade = sqrt(400f / max(1, drawn.size)).coerceIn(1f, 4f)
-            drawPath(base, c.fg.copy(alpha = (if (c.dark) 0.09f else 0.08f) * fade), style = Stroke(width = 1f / s))
+            val rest = (if (c.dark) 0.1f else 0.12f) * fade
+            drawPath(base, c.signal.copy(alpha = rest), style = Stroke(width = 1f / s))
+            drawPath(strong, c.signal.copy(alpha = min(0.85f, rest * 1.8f)), style = Stroke(width = 1.2f / s))
             drawPath(ticks, c.fg3.copy(alpha = 0.8f), style = Stroke(width = 1f / s))
             for (a in hud.areas) {
                 val r = (R + 28).toFloat()
@@ -305,12 +317,13 @@ fun MemoryRingsCanvas(g: MemoryGraph, ix: MemoryIndex, picked: String?, onPick: 
         }
         // area names, horizontal, outside the arcs; a name that would touch another waits
         val boxes = Boxes()
-        val order = hud.areas.sortedByDescending { it.items.size }
-        for (a in order) {
+        val order = hud.areas.indices.sortedByDescending { hud.areas[it].items.size }
+        for (i in order) {
+            val a = hud.areas[i]
             val mid = (a.a0 + a.a1) / 2
             val px = ((cos(mid) * (R + 52) * v.k + v.x) * d).toFloat()
             val py = ((sin(mid) * (R + 52) * v.k + v.y) * d).toFloat()
-            val t = labels.get("${a.name} ${MemoryMaps.num(a.items.size)}", styles.meta.copy(color = c.fg2))
+            val t = areaLabels[i]
             // a name past the screen's edge slides in rather than being cut
             val left = (if (cos(mid) < -0.2) px - t.size.width else if (cos(mid) > 0.2) px else px - t.size.width / 2f)
                 .coerceIn(4f * d, max(4f * d, size.width - t.size.width - 4f * d))
