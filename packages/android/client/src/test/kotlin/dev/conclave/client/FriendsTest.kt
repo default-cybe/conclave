@@ -85,6 +85,8 @@ class FriendsTest {
         assertEquals(DeepLink.Shares(null), DeepLink.parse("/shares"))
         assertEquals(DeepLink.MapPage, DeepLink.parse("/map"))
         assertEquals(DeepLink.MapPage, DeepLink.parse("conclave://map"))
+        assertEquals(DeepLink.MemoryMap(), DeepLink.parse("/memory/map"))
+        assertEquals(DeepLink.MemoryMap("clusters", "mem:m 1"), DeepLink.parse("conclave://memory-map?view=clusters&item=mem%3Am%201"))
         assertEquals(DeepLink.Shares("sh2"), DeepLink.parse("conclave://shares/sh2"))
     }
 

@@ -130,16 +130,17 @@ class MapLayoutTest {
     }
 
     @Test
-    fun `labels hold the title, the short id and the state, stuck words first`() {
+    fun `labels hold the short name, the mode and the state, stuck words first`() {
         val snap = MapFixture.snapshot(now)
         val l = MapLayouts.layout(snap, LayoutOptions(now = now))
         val auth = l.byId.getValue(I.auth)
-        assertEquals("Move auth middleware to jose", auth.label.title)
-        assertEquals("5rq4  running", auth.label.meta)
+        // the whole title is 185dp at the guessed measure, past TITLE_MAX: cut at a word, "to" dropped
+        assertEquals("Move auth middleware", auth.label.title)
+        assertEquals("Code · running", auth.label.meta)
         assertEquals("madx", l.byId.getValue("hub").label.title)
         assertEquals("1 waiting on you", l.byId.getValue("hub").label.meta)
         val stuck = snap.copy(nodes = snap.nodes.map { if (it.id == I.backup) it.copy(stuckSince = now - 6 * 60_000) else it })
-        assertEquals("0um5  No progress 6m", MapLayouts.layout(stuck, LayoutOptions(now = now)).byId.getValue(I.backup).label.meta)
+        assertEquals("Sysadmin · No progress 6m", MapLayouts.layout(stuck, LayoutOptions(now = now)).byId.getValue(I.backup).label.meta)
         assertEquals("4 agents, 1 running, 1 waiting", l.byId.getValue("grp:p:prj_fernway@macbook").label.meta)
         assertEquals("2 chats", l.byId.getValue("grp:chats").label.meta)
         assertEquals("offline", l.byId.getValue("dev:kali-vm").label.meta)

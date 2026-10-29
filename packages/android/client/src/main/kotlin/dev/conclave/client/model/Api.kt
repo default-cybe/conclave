@@ -374,6 +374,39 @@ data class MemoryStats(
     val external: String? = null,
 )
 
+/**
+ * The memory map (GET /api/memory/graph, owner only, core memory-graph.ts):
+ * every item once, links as [from, to, label] indexes into [nodes] and
+ * [labels]. Kinds and sources stay strings so a new one never breaks the read.
+ */
+@Serializable
+data class MemoryGraph(
+    val nodes: List<MemoryGraphNode> = emptyList(),
+    val edges: List<List<Int>> = emptyList(),
+    val labels: List<String> = emptyList(),
+    val basicMemory: MemoryGraphStore = MemoryGraphStore(),
+)
+
+@Serializable
+data class MemoryGraphNode(
+    val id: String,
+    /** fact, profile, procedure, episode, note, tag or session. */
+    val kind: String = "note",
+    /** conclave, basic-memory or both. */
+    val source: String = "conclave",
+    val title: String = "",
+    val memoryId: String? = null,
+    val sessionId: String? = null,
+    val folder: String? = null,
+    val area: String = "",
+    val at: Long? = null,
+    val degree: Int = 0,
+)
+
+/** none, ok or offline. */
+@Serializable
+data class MemoryGraphStore(val state: String = "none", val name: String? = null, val error: String? = null)
+
 @Serializable
 data class NotifyChannel(val id: String, val enabled: Boolean = false)
 
