@@ -47,7 +47,7 @@ When two places define the same name, the later one in this list wins. Hook list
 
 | Order | Source | Folders | Switch |
 | --- | --- | --- | --- |
-| 1 | Built-in | (shipped agents) | always on |
+| 1 | Built-in | (shipped agents and skills, inside the binary) | always on |
 | 2 | Shared `~/.agents` | `~/.agents/skills`, `<project>/.agents/skills` | on with any of the three below |
 | 3 | Codex | `~/.codex/skills`, `prompts`, `agents` | `compat.codex` |
 | 4 | OpenCode | `~/.config/opencode`, `<project>/.opencode` | `compat.opencode` |
@@ -214,6 +214,20 @@ description: How I back up LXC containers to PBS. Use when adding a container to
 **Add one:** create `~/.conclave/skills/<name>/SKILL.md` (or `<project>/.conclave/skills/` for one repo). The folder name is the skill name, as in Claude Code. Type `/<name>` to run a skill as a command.
 
 Claude Code reads `~/.claude/skills`; Codex, OpenCode and Gemini CLI all read `~/.agents/skills`. Sync to other CLIs (below) copies your user skills to both, so every tool sees them.
+
+### Built-in skills
+
+Conclave ships a few skills inside the binary
+(`packages/core/src/skills-defaults/<name>/SKILL.md`, embedded as text). They
+are listed and loaded like any other skill, and they have the lowest
+precedence: a Claude Code, plugin, learned, user or project skill with the
+same name wins. To change one, copy its text into
+`~/.conclave/skills/<name>/SKILL.md` and edit your copy. Built-in skills are
+not synced to other CLIs.
+
+| Skill | Use it for |
+| --- | --- |
+| `web-studio` | A new site, landing page or portfolio: design read, references, spec, prototypes, then screenshots and a 10-point rubric scored by a fresh judge (pass at an average of 8 or more, nothing under 7, at most 3 rounds). |
 
 ### Skills agents write
 

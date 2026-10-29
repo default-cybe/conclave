@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Built-in skills: Conclave ships skills inside the binary, listed and loaded like any other skill, with the lowest precedence, so a learned, installed or own skill with the same name wins. The first is **web-studio**, a method for building a site that does not look AI-made: design read, references, spec, prototypes, then screenshots at 390 and 1440 in light and dark and a 10-point rubric scored by a fresh judge (average 8 or more, nothing under 7, at most 3 rounds).
+
 ## [0.4.47] - 2026-10-28
 
 ### Added

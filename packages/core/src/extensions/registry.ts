@@ -6,6 +6,7 @@ import type { HooksConfig, McpServerConfig } from '../config/schema';
 import type { AgentDef, CommandDef, ExtensionRegistry, ExtensionSource, InstalledPlugin, MarketplaceEntry, SkillDef } from './types';
 import { toFrontmatter } from '../util/frontmatter';
 import { builtinAgents } from './builtin-agents';
+import { builtinSkills } from './builtin-skills';
 import { defaultModelMapper, loadAgentsFromDir, loadCommandsFromDir, loadSkillsFromDir, parseMd, type LoadResult, type ModelMapper } from './loader';
 import { PluginManager, type PluginInstallOptions } from './plugins';
 import { loadCompatScopes, type CompatHomes } from './compat';
@@ -141,8 +142,8 @@ export class Extensions implements ExtensionRegistry {
       }
     };
 
-    // 1. builtin (agents only)
-    overlay({ agents: builtinAgents(), skills: [], commands: [] }, 'builtin');
+    // 1. builtin agents and skills
+    overlay({ agents: builtinAgents(), skills: builtinSkills(), commands: [] }, 'builtin');
 
     // 2. other CLIs, opt in: ~/.agents, Codex, OpenCode, Gemini (user, then project)
     for (const scope of loadCompatScopes({ codex: compat.codex, opencode: compat.opencode, gemini: compat.gemini }, mapModel, cwd, this.compatHomes)) {
@@ -232,17 +233,19 @@ export class Extensions implements ExtensionRegistry {
     if (hit) return hit;
     const skill = resolveName(loaded.skills, name);
     if (!skill) return undefined;
-    let body = '';
-    try {
-      body = parseMd(readFileSync(skill.path, 'utf8')).body.trim();
-    } catch {
-      return undefined;
+    let body = skill.body ?? '';
+    if (skill.body === undefined) {
+      try {
+        body = parseMd(readFileSync(skill.path, 'utf8')).body.trim();
+      } catch {
+        return undefined;
+      }
     }
     return {
       name: skill.name,
       description: skill.description,
       allowedTools: skill.allowedTools,
-      body: `Base directory for this skill: ${skill.dir}\n\n${body}`,
+      body: skill.dir ? `Base directory for this skill: ${skill.dir}\n\n${body}` : body,
       source: skill.source,
       path: skill.path,
       plugin: skill.plugin,
