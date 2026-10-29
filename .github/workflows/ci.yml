@@ -88,7 +88,8 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Test
-        run: bun run test --shard=${{ matrix.shard }}/2
+        # files share the runner's cores, so a test that takes 1 s alone can pass bun's 5 s default
+        run: bun run test --shard=${{ matrix.shard }}/2 --timeout=20000
 
   # The release cross-compiles the Windows hub on Linux and never ran it: v0.4.5's
   # exited at once with code 0 and printed nothing. Run it on Windows, also the
