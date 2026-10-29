@@ -131,6 +131,9 @@ sealed class DeepLink {
     /** conclave://map or the hub path /map. */
     data object MapPage : DeepLink()
 
+    /** conclave://memory-map?view=tree|rings|clusters|timeline&item=<node id>, or the hub path /memory/map: Memory > Map. */
+    data class MemoryMap(val view: String? = null, val item: String? = null) : DeepLink()
+
     companion object {
         fun parse(raw: String?): DeepLink? {
             if (raw.isNullOrBlank()) return null
@@ -164,6 +167,7 @@ sealed class DeepLink {
                     "friends" -> Friends(path.substringBefore('/').takeIf { it.isNotBlank() }?.let { decode(it) })
                     "shares", "share" -> Shares(path.substringBefore('/').takeIf { it.isNotBlank() }?.let { decode(it) })
                     "map" -> MapPage
+                    "memory-map" -> query(uri.rawQuery).let { q -> MemoryMap(q["view"]?.firstOrNull()?.ifBlank { null }, q["item"]?.firstOrNull()?.ifBlank { null }) }
                     else -> null
                 }
             }
@@ -181,6 +185,7 @@ sealed class DeepLink {
             if (parts.size >= 2 && parts[0] == "settings" && parts[1] == "friends") return Friends(parts.getOrNull(2)?.takeIf { it.isNotBlank() }?.let { decode(it) })
             if (parts[0] == "shares") return Shares(parts.getOrNull(1)?.takeIf { it.isNotBlank() }?.let { decode(it) })
             if (parts.size == 1 && parts[0] == "map") return MapPage
+            if (parts.size == 2 && parts[0] == "memory" && parts[1] == "map") return MemoryMap()
             return null
         }
 

@@ -13,6 +13,17 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Workflows: a findings ledger per project folder (`lib.ledger.read`, `write`, `fence`, `id`), stored on the hub per device and folder. bug-hunt and ui-pass read it before their judges and write their results back, so a later round does not report a fixed bug again or retry a rejected idea.
 
+## [0.4.48] - 2026-10-29
+
+### Added
+
+- The Android app has Memory > Map, like the web's: **Map** on the Memory screen shows all memory as a Tree around the brain or an item, as Rings with the real links bundled through the middle, or in 3D as Clusters or a Timeline (drag to orbit, pinch to zoom). Tapping an item opens a sheet with its area, link count and links by relation, **Center here** and **Open in Notes**. A phone draws at most 1,400 links, each item's strongest first. Member accounts see that the map is owner only.
+- The Android hub Map's labels read like the web's: a short name from the title (no paths, ids or "Session continued from prior context"), and a second line with the mode, state and when, such as "Code · done · 5m ago". A Stop that fails no longer leaves the button stuck on Stopping.
+
+### Fixed
+
+- On Android, a link or notification opened while the side panel was open showed its screen behind the panel. The panel now closes first.
+
 ## [0.4.47] - 2026-10-28
 
 ### Added

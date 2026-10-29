@@ -87,6 +87,7 @@ import dev.conclave.client.model.MapNode
 import dev.conclave.client.model.MapSnapshot
 import dev.conclave.client.model.MapState
 import dev.conclave.client.model.MapTool
+import kotlinx.coroutines.Job
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -396,7 +397,7 @@ private fun NodeDrawer(
     onSelect: (String) -> Unit,
     onClose: () -> Unit,
     onOpen: (MapOpen) -> Unit,
-    onStop: () -> Unit,
+    onStop: () -> Job,
     modifier: Modifier = Modifier,
 ) {
     val c = Conclave.colors
@@ -512,7 +513,8 @@ private fun NodeDrawer(
                 OutlinedButton(
                     onClick = {
                         stopping = true
-                        onStop()
+                        // a failed stop says so in the snackbar; the button comes back either way
+                        onStop().invokeOnCompletion { stopping = false }
                     },
                     enabled = !stopping,
                     border = outlineButtonBorder(),
