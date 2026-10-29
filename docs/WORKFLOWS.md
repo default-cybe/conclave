@@ -46,10 +46,10 @@ phase with its agents, tokens, errors so far and the last log lines.
 | plan-implement-verify | A real change. Understand, ask only what changes the work, plan with a check per step, build in one worktree, then tests and a review decide when it is done. | `task`, `check` |
 | fix-until-green | A red test suite, typecheck or build. A debugger finds the root cause and a builder fixes it, round after round. | `check`, `maxRounds`, `isolate` |
 | fix-issue | A bug report. A reproduction test must fail first, three fixes from different angles run in separate worktrees, and judges pick the smallest correct one. | `issue`, `check` |
-| bug-hunt | Bugs in a codebase, not one change. Rounds of finders until two find nothing new. | `path`, `maxRounds`, `prove` |
+| bug-hunt | Bugs in a codebase, not one change. Rounds of finders until two find nothing new. Keeps the folder's findings ledger. | `path`, `maxRounds`, `prove`, `round` |
 | security-audit | A security review of a repository, or of the homelab with `target: "homelab"`. The shipped hard exclusions (test files, docs, plain DoS, rate limits, memory safety in safe languages, log spoofing, ReDoS, timing, outdated dependencies) drop findings in code before the panel votes; `.conclave/security-exclusions.md` adds project rules for the panel. | `target`, `devices`, `maxComponents` |
 | design-panel | An open design choice. Four designs from fixed angles, three judges score them in both orders, one design is built from the winner. | `request`, `context` |
-| ui-pass | A visual change in the web app, checked by a verifier that sees only the screenshots, the brief and the spec. | `brief`, `spec`, `checks` |
+| ui-pass | A visual change in the web app, checked by a verifier that sees only the screenshots, the brief and the spec. Keeps the folder's findings ledger. | `brief`, `spec`, `checks`, `round` |
 | migrate | The same change across many files or packages, in growing batches with a circuit breaker. | `goal`, `check`, `units` |
 | compare-harnesses | One task run by several harnesses or models, then scored. | `task`, `check`, `hiddenTests`, `arms` |
 | race | One task raced by several agents in separate worktrees. The check runs in each, a blind judge panel picks the best passing change with its reasons, and the run view shows it with Keep winner: apply its branch to the session's checkout or open a pull request from it. Nothing merges on its own, and the other branches are deleted only after you keep one. | `task`, `check`, `n`, `arms` |
@@ -150,6 +150,9 @@ run in Claude Code.
   a `findings` array is recorded on its own.
 - `lib.fence(name, text)` wraps an earlier agent's output so the next agent
   reads it as a claim, not an instruction.
+- `lib.ledger.read(project)`, `lib.ledger.write(project, entries)`,
+  `lib.ledger.fence(entries)` and `lib.ledger.id(text)` keep the folder's
+  findings ledger across runs (see Findings ledger below).
 - `lib.ask(question, options)` and `lib.approve(text)` ask you during a run.
   An unattended run takes the first option and treats approve as no.
 - `lib.checkout(seq)` and `lib.diff(seq)` read an earlier call's kept
@@ -256,6 +259,44 @@ Findings in a result appear in the run view. Mark each one:
 
 The run view also shows how many findings the refuters turned down.
 
+### Findings ledger
+
+A ledger keeps what earlier rounds found in a project folder and what became
+of it, so a later round does not report a fixed bug again or retry a rejected
+idea. The hub stores it in its database (the `workflow_ledger` table), one
+ledger per device and absolute folder.
+
+An entry is `{ id, finding, severity, verdict, round, evidence?, updatedAt }`:
+`severity` is high, medium or low, `verdict` is open, fixed, rejected or
+wontfix, and `evidence` is a path or a URL.
+
+- `lib.ledger.read(project)` returns the entries. `project` is a folder,
+  relative to the run folder or absolute; it defaults to the run folder. The
+  read is journaled, so a resumed run sees what its first attempt saw.
+- `lib.ledger.write(project, entries)` upserts by `id` and returns the merged
+  list. A later write replaces the finding, severity, verdict and evidence,
+  keeps its own `round` (else the earlier one) and sets `updatedAt`. Without
+  an `id`, the id is a hash of the finding's text with case, spacing and
+  punctuation dropped; `lib.ledger.id(text)` gives the same id.
+- `lib.ledger.fence(entries)` gives the block a judge prompt includes: do not
+  report items marked fixed unless the evidence shows they regressed, do not
+  propose rejected or wontfix ones again. It is empty for an empty ledger.
+
+Entries come from agents' output, so the hub caps them (a finding at 500
+characters, evidence at 300, an id at 100, 200 entries per write, 500 per
+folder) and the fence defuses framework tags. A scoped run (see Permissions)
+keeps its ledger inside its repository.
+
+bug-hunt reads the ledger first and gives it to every finder. It drops
+findings whose id is marked rejected or wontfix, and ones marked fixed unless
+the finder set `regressed`. At the end it writes confirmed findings as open
+and findings a complete refuter panel turned down as rejected. ui-pass gives
+the ledger to the visual verifier, drops problems marked rejected or wontfix,
+and writes the last look's problems as open and the ones the fix round cleared
+as fixed. Both take `round` from `args.round`, else one past the ledger's
+highest. Marking a finding Fixed in the run view does not change the ledger;
+a script marks it with `lib.ledger.write`.
+
 ## Ultra
 
 Ultra is a switch per session in the composer, off by default and not
@@ -324,7 +365,8 @@ Events on the WebSocket: `workflow.run`, `workflow.phase`, `workflow.agent`,
   limit, and one that loops on lib calls stops at the call caps.
 - `Date.now()`, `new Date()` and `Date()` throw, also through the prototype
   chain, so a resumed run makes the same calls.
-- `dropDismissed` compares words, not meaning.
+- `dropDismissed` compares words, not meaning, and the ledger matches ids made
+  from the text, so a finding worded differently is a new entry.
 - A plugin workflow that names an agent you do not have runs it as
   general-purpose and says so in the log.
 - At most two nested `workflow()` calls run at once in one run; more wait.

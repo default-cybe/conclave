@@ -105,6 +105,8 @@ export const HUB_TABLES = [
   'shared_project_members',
   'shared_project_items',
   'shared_project_versions',
+  // the findings ledger (workflows/ledger.ts) belongs to a device and folder, not an account
+  'workflow_ledger',
 ];
 
 function hasTable(db: Db, table: string): boolean {
