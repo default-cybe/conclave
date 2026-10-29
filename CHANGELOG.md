@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Workflows: a findings ledger per project folder (`lib.ledger.read`, `write`, `fence`, `id`), stored on the hub per device and folder. bug-hunt and ui-pass read it before their judges and write their results back, so a later round does not report a fixed bug again or retry a rejected idea.
+
 ## [0.4.48] - 2026-10-29
 
 ### Added

@@ -32,6 +32,7 @@ import { DEFAULTS, Semaphore, count } from './limits';
 import { branchCommit, codeFingerprint, createWorktree, finishWorktree, repoInfo, shq, syncthingMarkerAbove, withDetached, worktreePath, type Worktree } from './worktrees';
 import type { WorkflowService } from './service';
 import { loadMeta } from './registry';
+import { ledgerFence, ledgerId, mergeLedger } from './ledger';
 
 const log = logger('workflow-run');
 
@@ -945,6 +946,25 @@ export class LiveRun {
     return n;
   }
 
+  /** lib.ledger's folder: absolute on the run's device, the run folder by default; a scoped run stays in its repository. */
+  private async ledgerFolder(project: unknown): Promise<string> {
+    const machine = this.machineFor();
+    const resolved = posix.normalize(machine.resolve(typeof project === 'string' && project.trim() ? project : '.', this.row.cwd));
+    const folder = resolved.length > 1 ? resolved.replace(/\/+$/, '') : resolved;
+    if (this.row.scoped) {
+      const root = (await repoInfo(machine, this.row.cwd).catch(() => undefined))?.root ?? this.row.cwd;
+      if (folder !== root && !folder.startsWith(root.endsWith('/') ? root : `${root}/`)) throw new Error(`this workflow came from an agent or a repository, so its ledger stays in ${root}; ${folder} is outside it`);
+    }
+    return folder;
+  }
+
+  private writeLedger(folder: string, list: unknown[]) {
+    const { merged, changed, dropped } = mergeLedger(this.svc.store.ledger(this.row.device, folder), list, Date.now());
+    this.svc.store.upsertLedger(this.row.device, folder, changed);
+    if (dropped) this.log(`ledger: ${count(dropped, 'entry', 'entries')} not written (at most 200 per write and 500 per folder)`);
+    return merged;
+  }
+
   private async ask(question: string, options: string[], signal: AbortSignal): Promise<string> {
     const opts = options.filter((o) => typeof o === 'string' && o.trim()).slice(0, 6);
     if (this.unattended() || !this.sessionOf()) {
@@ -993,6 +1013,8 @@ export class LiveRun {
         const o = (p ?? {}) as { check?: unknown; testFile?: unknown; diff?: unknown };
         return failingTest(o.check, { testFile: o.testFile, diff: o.diff });
       },
+      ledgerFence: (p: unknown) => ledgerFence(Array.isArray((p as { entries?: unknown })?.entries) ? (p as { entries: unknown[] }).entries : []),
+      ledgerId: (p: unknown) => ledgerId(String((p as { text?: unknown })?.text ?? '')),
     };
     const async = {
       agent: (p: unknown) => {
@@ -1051,6 +1073,15 @@ export class LiveRun {
       dropDismissed: (p: unknown) => this.dropDismissed(Array.isArray((p as { findings?: unknown })?.findings) ? ((p as { findings: unknown[] }).findings) : []),
       checkout: (p: unknown) => this.checkout(Number((p as { seq?: unknown })?.seq)),
       diff: (p: unknown) => this.diffOf(Number((p as { seq?: unknown })?.seq)),
+      // the read is journaled, so a resumed run sees the ledger its first attempt saw
+      ledgerRead: async (p: unknown) => {
+        const folder = await this.ledgerFolder((p as { project?: unknown })?.project);
+        return this.hostCall('check', `ledger: read ${oneLine(folder, 80)}`, { ledger: folder }, parentSeq, async () => this.svc.store.ledger(this.row.device, folder));
+      },
+      ledgerWrite: async (p: unknown) => {
+        const o = (p ?? {}) as { project?: unknown; entries?: unknown };
+        return this.writeLedger(await this.ledgerFolder(o.project), Array.isArray(o.entries) ? o.entries : []);
+      },
       recordFindings: (p: unknown) => this.recordFindings(Array.isArray((p as { findings?: unknown })?.findings) ? ((p as { findings: unknown[] }).findings) : []),
       ask: (p: unknown) => {
         const o = (p ?? {}) as { question?: unknown; options?: unknown };
