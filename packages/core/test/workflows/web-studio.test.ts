@@ -139,9 +139,12 @@ return await lib.ledger.write('.', [{ finding: 'Hero needs a gradient', severity
     expect(r.picked.option).toBe(1);
     const modulePrompts = t.requests.slice(before).filter((x) => x.includes('Build one module of the site'));
     expect(modulePrompts.some((x) => x.includes('Your module: koi') && x.includes('picked prototype option 1'))).toBe(true);
-    // the owner's link lane ran first, before the five fixed lanes
-    expect(seqOf((l) => l.startsWith('refs ')).length).toBe(6);
-    expect(calls.find((c) => c.label?.startsWith('refs '))?.label).toBe('refs owner links');
+    // the inspiration board lane ran first, then the owner's links, before the five fixed lanes
+    expect(seqOf((l) => l.startsWith('refs ')).length).toBe(7);
+    expect(calls.filter((c) => c.label?.startsWith('refs ')).slice(0, 2).map((c) => c.label)).toEqual(['refs inspiration board', 'refs owner links']);
+    const boardPrompt = t.requests.find((x) => x.includes('Your lane: the owner\'s inspiration board'));
+    expect(boardPrompt).toContain('MemorySearch with kind');
+    expect(t.requests.some((x) => x.includes('Your lane: the owner\'s own links') && x.includes('ReadPost') && !x.includes('api.fxtwitter.com'))).toBe(true);
 
     // the pass bar: round 1 failed on the minimum, one fix on the 3 weakest, round 2 passed at exactly 8 and 7
     expect(r.look.rounds.map((x) => [x.avg, x.min, x.passed])).toEqual([[8.7, 6, false], [8, 7, true]]);

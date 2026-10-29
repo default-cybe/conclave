@@ -445,8 +445,9 @@ export type MemoryScope = 'global' | 'project' | 'agent';
  * fact     : retrieved by relevance.
  * episode  : auto-written summary of a past session.
  * procedure: how-to the agent learned ("deploy uses make release").
+ * inspiration: a design reference the owner saved (SaveInspiration): outside text, never recalled on its own.
  */
-export type MemoryKind = 'profile' | 'fact' | 'episode' | 'procedure';
+export type MemoryKind = 'profile' | 'fact' | 'episode' | 'procedure' | 'inspiration';
 
 export interface MemoryEntry {
   /** The account this belongs to (docs/design/ACCOUNTS.md); 'owner' for the hub's owner. Rows from before accounts read as the owner's. */

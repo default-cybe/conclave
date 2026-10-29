@@ -444,8 +444,8 @@ export class SqliteMemory implements MemoryService {
     const importance = clamp01(input.importance ?? (kind === 'profile' ? 0.7 : 0.5));
     const now = this.now();
 
-    // external mode: episodes/facts/procedures live only on the external server
-    if (this.externalMode === 'external' && kind !== 'profile' && this.external) {
+    // external mode: episodes/facts/procedures live only on the external server (inspiration stays local: its files are on the hub)
+    if (this.externalMode === 'external' && kind !== 'profile' && kind !== 'inspiration' && this.external) {
       try {
         const note = factNote({ content, kind, tags, project: scope === 'project' ? scopeKey : undefined });
         await this.external.write(note);
@@ -468,7 +468,8 @@ export class SqliteMemory implements MemoryService {
     }
 
     const vec = await this.embedOne(content);
-    const dup = this.findDuplicate(content, kind, scope, scopeKey, vec);
+    // two references can read alike and still be different items; SaveInspiration replaces by URL itself
+    const dup = kind === 'inspiration' ? undefined : this.findDuplicate(content, kind, scope, scopeKey, vec);
     if (dup) {
       const merged: MemoryEntry = {
         ...dup,
@@ -985,7 +986,8 @@ export class SqliteMemory implements MemoryService {
       scopes,
       preferred: scopes.filter((s) => s.scope !== 'global'),
       // past sessions are searched on demand (SessionSearch) unless the owner wants their summaries in recall
-      excludeKinds: this.cfg.recallEpisodes ? ['profile'] : ['profile', 'episode'],
+      // inspiration is outside text: read on demand (MemorySearch kind inspiration), never injected into a turn
+      excludeKinds: this.cfg.recallEpisodes ? ['profile', 'inspiration'] : ['profile', 'episode', 'inspiration'],
       limit: opts.limit ?? this.cfg.injectLimit,
       external: true,
       minRelevance: MEMORY_TUNING.recallThreshold,
@@ -1028,7 +1030,7 @@ export class SqliteMemory implements MemoryService {
     if (opts.agent) scopes.push({ scope: 'agent', key: opts.agent });
     const seed = userText(fresh) || transcript.slice(0, 2000);
     const related = (
-      await this.rank(seed, { scopes, preferred: [], excludeKinds: ['episode'], limit: 12, external: false, minRelevance: 0.15 })
+      await this.rank(seed, { scopes, preferred: [], excludeKinds: ['episode', 'inspiration'], limit: 12, external: false, minRelevance: 0.15 })
     ).map((r) => r.hit as MemoryEntry);
 
     let reply: string;
@@ -1098,7 +1100,7 @@ export class SqliteMemory implements MemoryService {
     const scopes: ScopeRef[] = [{ scope: 'global' }];
     if (scope === 'project') scopes.push({ scope: 'project', key: opts.scopeKey });
     const related = (
-      await this.rank(redactSecrets(text).slice(0, 3000), { scopes, preferred: [], excludeKinds: ['episode'], limit: 15, external: false, minRelevance: 0.1 })
+      await this.rank(redactSecrets(text).slice(0, 3000), { scopes, preferred: [], excludeKinds: ['episode', 'inspiration'], limit: 15, external: false, minRelevance: 0.1 })
     ).map((r) => r.hit as MemoryEntry);
     const reply = await this.complete({
       system: IMPORT_SYSTEM,

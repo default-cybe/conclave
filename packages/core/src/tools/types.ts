@@ -121,6 +121,8 @@ export interface ToolHost {
   capture?(url: string, opts: import('../browser/capture').CaptureOptions, signal?: AbortSignal): Promise<import('../browser/capture').CaptureResult>;
   /** The hub's ffmpeg, fetched on first use (util/ffmpeg.ts findFfmpeg), for ReadPost. */
   ffmpeg?(): Promise<{ path: string } | { error: string }>;
+  /** <home>/inspiration on the hub, where SaveInspiration keeps each item's sheets and screenshot (outputs folders are pruned). */
+  inspirationDir?(): string;
 }
 
 export interface ToolContext {

@@ -9,13 +9,26 @@ and how those tools can use Conclave's memory in return.
 ## How Conclave memory works
 
 Memory lives in the hub's SQLite database (`memories` table, FTS5 index,
-optional embeddings). It has three layers:
+optional embeddings). It has these layers:
 
 | Layer | What it holds | When a model sees it |
 | --- | --- | --- |
 | Profile | Who you are and how you want answers. | Always, in the system prompt (about 1,500 tokens at most). |
 | Facts and procedures | Durable facts ("pve is the Proxmox host") and how-tos ("deploys run `make release`"). | Recalled per turn when relevant. |
 | Episodes | A 3 to 6 line summary of a past session. | Searched on demand with SessionSearch. In recall only with `memory.recallEpisodes`. |
+| Inspiration | The owner's inspiration board: design references saved with SaveInspiration (URL, tags, note, the post's text, paths of its contact sheets or screenshot). | Never recalled on its own. Searched with MemorySearch `kind: "inspiration"`; the text comes back inside `<untrusted_web_content>`. |
+
+The inspiration board: SaveInspiration `{ url, tags?, note? }` reads an x.com
+post or video URL with ReadPost (text and contact sheets) or takes one 1440 px
+light Chromium shot of any other page with Capture, copies the images to
+`<home>/inspiration/<item>/` (outputs folders are pruned, this one is not) and
+saves one `inspiration` memory. Saving the same URL again replaces the item.
+Items stay local in every external memory mode, are not merged by the near
+duplicate check, and are left out of plain MemorySearch calls, recall and
+extraction. The web-studio skill and workflow search the board first and read
+the closest 2 to 3 items in full. The tool is opt-in (the assistant has it),
+owner-only (members never get it) and never offered to untrusted sessions.
+Memory > Notes lists the items under the Inspiration filter with their tags.
 
 Each memory has a scope: `global`, `project` (keyed by the session's working
 directory) or `agent`. A session sees global memory plus its own project and

@@ -219,9 +219,10 @@ const SHARED_SOURCES = new Set(['builtin', 'plugin']);
  * Tools a member's session never gets (docs/design/ACCOUNTS.md 5): learned
  * skills land in the owner's folder; maps spend the owner's key and the
  * hub's daily cap; watches, RenderFile and Capture run the hub's Chromium;
- * ReadPost downloads up to 100 MB and runs ffmpeg on the hub.
+ * ReadPost downloads up to 100 MB and runs ffmpeg on the hub; SaveInspiration
+ * does both and writes the owner's inspiration board.
  */
-const MEMBER_DENY = new Set(['SkillManage', 'PlaceSearch', 'PlaceDetails', 'Directions', 'MapImage', 'WatchReport', 'WatchCreate', 'Delegate', 'RenderFile', 'Capture', 'ReadPost']);
+const MEMBER_DENY = new Set(['SkillManage', 'PlaceSearch', 'PlaceDetails', 'Directions', 'MapImage', 'WatchReport', 'WatchCreate', 'Delegate', 'RenderFile', 'Capture', 'ReadPost', 'SaveInspiration']);
 
 /** How long a turn waits for MCP servers to connect before it starts without their tools. */
 const MCP_PREFETCH_WAIT_MS = 5_000;
