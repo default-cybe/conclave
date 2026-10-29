@@ -156,7 +156,7 @@ function PhoneConnect({ onConnected, title, lede }: { onConnected: (c: Connectio
         <div className={cn('flex flex-col items-center text-center', mode === 'start' && 'my-auto pb-10')}>
           {/* the mark is the hub of the ASCII conclave; the art sits around it and takes no room */}
           <div className="relative grid place-items-center">
-            <AsciiField hub={false} size={11} className="pointer-events-none absolute top-1/2 left-1/2 h-[120px] w-screen -translate-x-1/2 -translate-y-1/2" />
+            <AsciiField hub={false} size={11} className="pointer-events-none absolute top-1/2 left-1/2 h-[104px] w-screen -translate-x-1/2 -translate-y-1/2" />
             <div className="relative">
               {rope.moment ? (
                 <KnotRope moment={rope.moment} size={mode === 'start' ? 36 : 30} onDone={rope.onDone} label={rope.moment === 'run' ? 'Connecting' : 'Connected'} />

@@ -79,8 +79,8 @@ export function rng(seed: number): () => number {
 export function makeScene(cols: number, rows: number, aspect: number, seed: number, align: 'start' | 'center' = 'center', hub = true): Scene {
   const r = rng(seed);
   const H = rows * aspect;
-  // the ring fits the height with room for the nodes, and never takes more than a third of the width
-  const R = Math.max(3, Math.min((H * 0.4) / TILT, cols * (align === 'start' ? 0.16 : 0.2), 40));
+  // the ring fits the height with room for the nodes; centred it may span 60% of a narrow width (the phone sign-in)
+  const R = Math.max(3, Math.min((H * 0.4) / TILT, cols * (align === 'start' ? 0.22 : 0.3), 40));
   const hx = align === 'start' ? Math.min(cols / 2, R + 4) : cols / 2;
   const hy = H / 2;
   const seats = Array.from({ length: SEATS }, (_, i) => (i / SEATS) * TAU + (r() - 0.5) * 0.35);
