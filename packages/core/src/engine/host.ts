@@ -28,6 +28,7 @@ import { loadPlaywright } from '../browser/runtime';
 import type { RenderBrowser } from '../tools/render-file';
 import { hubCapture, type CaptureOptions, type CaptureResult } from '../browser/capture';
 import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { findFfmpeg } from '../util/ffmpeg';
 
 /** ToolHost bound to one running session. Tools call this, never the engine directly. */
@@ -269,5 +270,9 @@ export class EngineToolHost implements ToolHost {
 
   ffmpeg() {
     return findFfmpeg(this.engine.config.paths.home);
+  }
+
+  inspirationDir() {
+    return join(this.engine.config.paths.home, 'inspiration');
   }
 }

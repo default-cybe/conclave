@@ -22,7 +22,7 @@ import { mapLabel } from '@/features/map/model';
 export const BRAIN = 'brain';
 export const areaId = (name: string) => `area:${name}`;
 
-const KIND_WORD: Record<MemoryGraphNode['kind'], string> = { fact: 'Fact', profile: 'Profile', procedure: 'Procedure', episode: 'Episode', note: 'Note', tag: 'Tag', session: 'Session' };
+const KIND_WORD: Record<MemoryGraphNode['kind'], string> = { fact: 'Fact', profile: 'Profile', procedure: 'Procedure', episode: 'Episode', inspiration: 'Inspiration', note: 'Note', tag: 'Tag', session: 'Session' };
 
 /** "Fact, in Conclave and Basic Memory", "Note in Basic Memory, entities/people". */
 export function nodeWords(n: MemoryGraphNode): string {

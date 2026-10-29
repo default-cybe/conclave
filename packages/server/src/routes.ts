@@ -60,7 +60,7 @@ import { probeModel, probeModels, providerPatchProblem, removedProviders } from 
 const PAIRING_TTL_MS = 10 * 60_000;
 const ok = { ok: true as const };
 
-const MEMORY_KINDS: MemoryKind[] = ['profile', 'fact', 'episode', 'procedure'];
+const MEMORY_KINDS: MemoryKind[] = ['profile', 'fact', 'episode', 'procedure', 'inspiration'];
 const MEMORY_SCOPES: MemoryScope[] = ['global', 'project', 'agent'];
 
 function oneOf<T extends string>(v: unknown, allowed: readonly T[], name: string): T | undefined {
