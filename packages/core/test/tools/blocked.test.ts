@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { hubCountry, looksBlocked, setHubCountryLookup, setProxySource } from '../../src/tools/blocked';
-import { WebFetchTool, clearWebFetchCache, setWebFetchLookup } from '../../src/tools/webfetch';
+import { WebFetchTool, clearWebFetchCache, setWebFetchBrowser, setWebFetchLookup } from '../../src/tools/webfetch';
 import { webSearch } from '../../src/tools/websearch';
 import { runAs } from '../../src/people/context';
 import type { BrowserProxyConfig } from '../../src/browser/proxy-provider';
@@ -57,6 +57,9 @@ let f: ReturnType<typeof fakeFetch> | undefined;
 beforeEach(() => {
   clearWebFetchCache();
   setHubCountryLookup(async () => 'US');
+  // an engine made by an earlier file in the same process leaves its real browser here (engine/create.ts);
+  // a Reddit page still blocked after the proxy would then launch Chrome and outlast the test's 5 s
+  setWebFetchBrowser();
 });
 afterEach(() => {
   f?.restore();

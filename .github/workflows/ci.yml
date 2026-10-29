@@ -68,15 +68,17 @@ jobs:
       - name: Lint shell scripts
         run: shellcheck -s sh scripts/ci/apt-install.sh scripts/install.sh scripts/smoke-hub.sh scripts/lxc/setup.sh scripts/lxc/test-docker.sh scripts/proxmox/conclave-lxc.sh
 
-  # The suite in two shards, each running its files in parallel (bun test --parallel)
+  # The suite in four shards on separate runners. Files inside a shard run one
+  # after another: with --parallel some tests hung to their timeout (shared
+  # ports, processes and timers), so the speed comes from the shards.
   test:
-    name: Test (${{ matrix.shard }}/2)
+    name: Test (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -88,7 +90,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Test
-        run: bun run test --shard=${{ matrix.shard }}/2
+        run: bun run test --shard=${{ matrix.shard }}/4
 
   # The release cross-compiles the Windows hub on Linux and never ran it: v0.4.5's
   # exited at once with code 0 and printed nothing. Run it on Windows, also the
