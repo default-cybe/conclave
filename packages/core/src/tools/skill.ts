@@ -52,7 +52,8 @@ export const SkillTool: Tool<SkillInput> = {
     const args = input.args?.trim() ?? '';
     let body = skill.body;
     if (body.includes('$ARGUMENTS')) body = body.replaceAll('$ARGUMENTS', args);
-    const parts = [`<skill name="${skill.name}">`, `Base directory for this skill: ${skill.dir}`, '', body.trim()];
+    // a built-in skill has no folder, so no base directory line
+    const parts = [`<skill name="${skill.name}">`, ...(skill.dir ? [`Base directory for this skill: ${skill.dir}`, ''] : []), body.trim()];
     if (args && !skill.body.includes('$ARGUMENTS')) parts.push('', `ARGUMENTS: ${args}`);
     parts.push('</skill>');
     return { content: parts.join('\n'), meta: { skill: skill.name, dir: skill.dir } };
