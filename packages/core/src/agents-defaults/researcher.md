@@ -12,6 +12,7 @@ tools:
   - Grep
   - WebSearch
   - WebFetch
+  - ReadPost
   - TodoWrite
   - Task
   - Workflow

@@ -8,6 +8,7 @@ model: fast
 tools:
   - WebSearch
   - WebFetch
+  - ReadPost
   - Write
 recipes:
   - "write-scope WRITE_GLOB=research/**,notes/**"

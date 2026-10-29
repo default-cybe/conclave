@@ -171,7 +171,7 @@ export async function guardHost(u: URL): Promise<{ error: string } | { address?:
  * keeps the name, since TLS binds the connection to it and metadata
  * services answer plain http only.
  */
-function pinned(u: URL, address?: string): { href: string; host?: string } {
+export function pinned(u: URL, address?: string): { href: string; host?: string } {
   if (u.protocol !== 'http:' || !address || isIP(u.hostname.replace(/^\[|\]$/g, ''))) return { href: u.href };
   const p = new URL(u.href);
   p.hostname = isIP(address) === 6 ? `[${address}]` : address;
@@ -481,6 +481,10 @@ async function fetchRedditInBrowser(target: URL, jsonUrl: URL, ctx: ToolContext)
   }
 }
 
+/** What WebFetch says for x.com and twitter.com, which show only a login wall to it. */
+export const X_COM_MESSAGE =
+  'WebFetch cannot read x.com or twitter.com: they show a login wall. For a post (/<user>/status/<id>), its quoted post, X article or video, use the ReadPost tool with the same URL; the researcher, web-searcher and designer agents have it.';
+
 /** What WebFetch says when Reddit refuses the hub. */
 export function redditBlockedMessage(url: string, why: string): string {
   return `Reddit blocked this hub's address (${why}) for ${url}. Reddit refuses many datacenter, VPN and cloud addresses whatever the User-Agent, so WebFetch cannot read Reddit from here. The browser tools (browser_navigate) likely meet the same block (a "Prove your humanity" check) from this address. Otherwise use another source for the same information.`;
@@ -589,6 +593,7 @@ export const WebFetchTool: Tool<WebFetchInput> = {
     if (typeof input.url !== 'string' || !input.url.trim()) return fail('url is required.');
     const u = normalizeUrl(input.url);
     if (typeof u === 'string') return fail(u);
+    if (/^(?:www\.|mobile\.|m\.)?(?:x|twitter)\.com$/i.test(u.hostname)) return fail(X_COM_MESSAGE);
     // the cache is per account: a page the owner fetched (a LAN page) is never handed to a member
     const key = `${currentAccount() ?? 'owner'}\u0000${u.href}`;
 

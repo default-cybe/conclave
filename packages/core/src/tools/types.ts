@@ -119,6 +119,8 @@ export interface ToolHost {
   renderBrowser?(): Promise<import('./render-file').RenderBrowser | { error: string }>;
   /** Capture a URL with the hub's browser into the session's outputs folder (browser/capture.ts). */
   capture?(url: string, opts: import('../browser/capture').CaptureOptions, signal?: AbortSignal): Promise<import('../browser/capture').CaptureResult>;
+  /** The hub's ffmpeg, fetched on first use (util/ffmpeg.ts findFfmpeg), for ReadPost. */
+  ffmpeg?(): Promise<{ path: string } | { error: string }>;
 }
 
 export interface ToolContext {

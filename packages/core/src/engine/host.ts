@@ -28,6 +28,7 @@ import { loadPlaywright } from '../browser/runtime';
 import type { RenderBrowser } from '../tools/render-file';
 import { hubCapture, type CaptureOptions, type CaptureResult } from '../browser/capture';
 import { mkdirSync } from 'node:fs';
+import { findFfmpeg } from '../util/ffmpeg';
 
 /** ToolHost bound to one running session. Tools call this, never the engine directly. */
 export class EngineToolHost implements ToolHost {
@@ -264,5 +265,9 @@ export class EngineToolHost implements ToolHost {
   capture(url: string, opts: CaptureOptions, signal?: AbortSignal): Promise<CaptureResult> {
     const b = (this.engine as unknown as { browser?: BrowserManager }).browser;
     return hubCapture(b, this.engine.config.paths.home, this.outputsDir(), url, opts, signal);
+  }
+
+  ffmpeg() {
+    return findFfmpeg(this.engine.config.paths.home);
   }
 }
