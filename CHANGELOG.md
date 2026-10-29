@@ -11,6 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- Built-in skills: Conclave ships skills inside the binary, listed and loaded like any other skill, with the lowest precedence, so a learned, installed or own skill with the same name wins. The first is **web-studio**, a method for building a site that does not look AI-made: design read, references, spec, prototypes, then screenshots at 390 and 1440 in light and dark and a 10-point rubric scored by a fresh judge (average 8 or more, nothing under 7, at most 3 rounds).
 - Workflows: a findings ledger per project folder (`lib.ledger.read`, `write`, `fence`, `id`), stored on the hub per device and folder. bug-hunt and ui-pass read it before their judges and write their results back, so a later round does not report a fixed bug again or retry a rejected idea.
 
 ## [0.4.48] - 2026-10-29
