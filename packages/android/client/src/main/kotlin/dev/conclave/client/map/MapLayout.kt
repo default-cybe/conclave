@@ -140,9 +140,12 @@ object MapLayouts {
         ceil(w * size * (if (font == LFont.NAME) 1.04 else 1.0))
     }
 
-    /** The words a node's label shows: its title, then its short id and state (or how long it has been stuck). */
-    fun labelWords(n: MapNode, now: Long): Pair<String, String> =
-        n.title to "${MapWords.shortId(n.id)}  ${MapWords.stuckWords(n, now) ?: MapWords.stateWord(n.state)}"
+    /** The words a node's label shows: its short name, then what it is, its state (or how long it has been stuck) and when. */
+    fun labelWords(n: MapNode, now: Long, where: NodePlace = NodePlace(), fits: (String) -> Boolean = { it.length <= MapLabels.MAX_CHARS }): Pair<String, String> {
+        val m = MapLabels.nodeMeta(n, now)
+        val title = MapLabels.mapLabel(n.title, n.kind, n.agent, n.cwd, where.group, where.device, fits)
+        return title to listOfNotNull(m.mode, m.word, m.time).filter { it.isNotEmpty() }.joinToString(" · ")
+    }
 
     /** The hub's label: its name, then what waits or runs. */
     fun hubWords(hubName: String, nodes: List<MapNode>, online: Boolean = true): Pair<String, String> {
@@ -212,8 +215,9 @@ object MapLayouts {
         val seen = HashSet<String>()
         fun nodeT(n: MapNode, depth: Int): T {
             seen.add(n.id)
-            val (title, meta) = labelWords(n, now)
-            val t = mk(n.id, LKind.NODE, depth, title, meta, "${MapWords.shortId(n.id)}  ${MapWords.stateWord(MapState.WAITING)}", LFont.TITLE, node = n)
+            val (title, meta) = labelWords(n, now, MapLabels.nodePlace(n, hubName, groupList, deviceList)) { measure(it, LFont.TITLE) <= TITLE_MAX }
+            // the widest the line gets as the state changes: a resting node adds when ("paused · 59m ago")
+            val t = mk(n.id, LKind.NODE, depth, title, meta, "${meta.split(" · ")[0]} · ${MapWords.stateWord(MapState.PAUSED)} · 59m ago", LFont.TITLE, node = n)
             t.children = (kids[n.id] ?: emptyList()).filter { it.id !in seen }.sortedWith(byStart).map { nodeT(it, depth + 1) }
             return t
         }

@@ -27,6 +27,7 @@ import dev.conclave.client.model.LimitState
 import dev.conclave.client.model.LoginRequest
 import dev.conclave.client.model.McpStatus
 import dev.conclave.client.model.MemoryEntry
+import dev.conclave.client.model.MemoryGraph
 import dev.conclave.client.model.MemoryInput
 import dev.conclave.client.model.MemoryKind
 import dev.conclave.client.model.MemoryScope
@@ -676,6 +677,9 @@ class ConclaveClient(
     suspend fun deleteMemory(id: String) = sendUnit("DELETE", p("api", "memory", id))
 
     suspend fun memoryStats(): MemoryStats = get(p("api", "memory", "stats"), MemoryStats.serializer())
+
+    /** The memory map, every item once (owner only: a member gets 403). */
+    suspend fun memoryGraph(): MemoryGraph = get(p("api", "memory", "graph"), MemoryGraph.serializer())
 
     // ---------------------------------------------------------------- reflect (Settings > Reflect)
 

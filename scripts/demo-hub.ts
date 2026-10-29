@@ -953,6 +953,26 @@ async function runHub(root: string): Promise<void> {
   await api.saveMemory({ content: 'Sam works on fernway-web, the Fernway customer portal, mostly on a MacBook.', kind: 'profile' });
   await api.saveMemory({ content: 'fernway-web runs its tests with bun test.', kind: 'fact', scope: 'project', scopeKey: repo, tags: ['fernway-web'] });
   await api.saveMemory({ content: 'Branches go up as fix/* or feat/*, and main only changes through a PR.', kind: 'procedure', scope: 'project', scopeKey: repo, tags: ['git'] });
+  // enough linked memory for Memory > Map: tags two or more memories share become its links
+  const mapMemory: Array<[string, 'fact' | 'profile' | 'procedure' | 'episode', string[]]> = [
+    ['Sam prefers short PR descriptions with a test plan at the end.', 'profile', ['git', 'review']],
+    ['Alice reviews fernway-web pull requests and owns the design system.', 'profile', ['fernway-web', 'review', 'design']],
+    ['Jordan runs the Fernway deploys and is on call on Tuesdays.', 'profile', ['deploy', 'on-call']],
+    ['fernway-web deploys from main to staging on every merge, then to production by hand.', 'procedure', ['fernway-web', 'deploy', 'ci']],
+    ['The CI pipeline runs lint, bun test and a Playwright smoke test before a merge.', 'fact', ['ci', 'fernway-web', 'tests']],
+    ['Playwright smoke tests live in e2e/ and run against the staging URL.', 'fact', ['tests', 'ci']],
+    ['The customer portal uses the Fernway design tokens, never raw hex colors.', 'fact', ['design', 'fernway-web']],
+    ['Login redirects broke on Safari in March; the fix was a SameSite cookie flag.', 'episode', ['auth', 'fernway-web']],
+    ['Auth middleware moved from express-session to signed JWT cookies.', 'fact', ['auth', 'fernway-web']],
+    ['On-call hands over in the #fernway-ops channel every Tuesday at 10:00.', 'procedure', ['on-call', 'deploy']],
+    ['A rollback is a revert PR on main; staging picks it up in about five minutes.', 'procedure', ['deploy', 'git']],
+    ['Release notes go in CHANGELOG.md under Unreleased until the tag is cut.', 'procedure', ['git', 'review']],
+  ];
+  let memoryItem = '';
+  for (const [content, kind, tags] of mapMemory) {
+    const m = await api.saveMemory({ content, kind, tags });
+    if (!memoryItem) memoryItem = `mem:${m.id}`;
+  }
   // two hours ahead, so Home shows it as next and never as missed
   const at = (new Date().getHours() + 2) % 24;
   await api.createRoutine({ name: 'PR check', schedule: `0 ${at} * * *`, prompt: 'Check open PRs on fernway-web and the CI runs since the last check. Tell me what needs me.', cwd: repo, device: mac });
@@ -1129,7 +1149,7 @@ return await agent('Write a failing test for each finding:\\n' + found.filter(Bo
     process.exit(0);
   }
 
-  const info = { url: hub, addresses, token, password, people: { riley: { password: rileyPassword, session: trip.id } }, code: pairing.code, deepLink, fingerprint, home: root, device: mac, sessions: { fix: fix.id, push: push.id, routes: routes.id, chat: chat.id, repo: repoSession.id, conclaveMac: conclave.mac, conclaveHub: conclave.hub, conclaveImported: conclave.imported, calendar: calendar.session }, workflowRun, friends, shares, sharedProjects, github: github.url };
+  const info = { url: hub, addresses, token, password, people: { riley: { password: rileyPassword, session: trip.id } }, code: pairing.code, deepLink, fingerprint, home: root, device: mac, sessions: { fix: fix.id, push: push.id, routes: routes.id, chat: chat.id, repo: repoSession.id, conclaveMac: conclave.mac, conclaveHub: conclave.hub, conclaveImported: conclave.imported, calendar: calendar.session }, workflowRun, memoryItem, friends, shares, sharedProjects, github: github.url };
   if (opts.info) writeFileSync(opts.info, JSON.stringify(info, null, 2) + '\n');
 
   const web = running.conclave.webDir ? `${hub}/#token=${token}` : 'not built (bun run --filter @conclave/web build, then start this again)';
