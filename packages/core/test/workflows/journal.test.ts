@@ -218,6 +218,17 @@ test('lib.ask and lib.approve are journaled; an unattended plan stops with the p
   expect(calls[0].result).toBe('first');
 });
 
+test('lib.capture refuses a URL that is not http(s) before any browser starts', async () => {
+  const svc = svcOf(t.engine);
+  const s = await t.engine.createSession({ cwd: t.cwd });
+  const script = `export const meta = { name: 'cap', description: 'x', runtime: 'conclave' }
+try { await lib.capture('file:///etc/passwd') } catch (e) { return String(e.message) }
+return 'captured'`;
+  const done = await svc.wait((await svc.startRun({ script, sessionId: s.id })).id);
+  expect(String(done.result)).toContain('only http and https');
+  expect(svc.store.calls(done.id).length).toBe(0);
+});
+
 test('lib.exec runs read-only commands without asking and journals them by the code they ran on', async () => {
   const dir = tempDir('conclave-wf-exec-');
   try {

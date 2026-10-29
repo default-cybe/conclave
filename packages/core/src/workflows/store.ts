@@ -26,6 +26,7 @@ import type {
   WorkflowSource,
   WorktreeState,
 } from '../client/workflows';
+import type { LedgerEntry } from './ledger';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS workflow_runs (
@@ -139,6 +140,18 @@ CREATE TABLE IF NOT EXISTS workflow_presets (
   UNIQUE (workflow, account_id, name)
 );
 CREATE INDEX IF NOT EXISTS workflow_presets_workflow ON workflow_presets(workflow, account_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS workflow_ledger (
+  device TEXT NOT NULL,
+  folder TEXT NOT NULL,
+  id TEXT NOT NULL,
+  finding TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  verdict TEXT NOT NULL,
+  round INTEGER NOT NULL,
+  evidence TEXT,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (device, folder, id)
+);
 `;
 
 type Row = Record<string, any>;
@@ -641,6 +654,27 @@ export class WorkflowStore {
 
   deletePreset(workflow: string, id: string, accountId = 'owner'): void {
     this.db.query('DELETE FROM workflow_presets WHERE workflow = ? AND id = ? AND account_id = ?').run(workflow, id, accountId);
+  }
+
+  // ----- the findings ledger (ledger.ts), per device and absolute folder -----
+
+  ledger(device: string, folder: string): LedgerEntry[] {
+    return (this.db.query('SELECT * FROM workflow_ledger WHERE device = ? AND folder = ? ORDER BY round, id').all(device, folder) as Row[]).map((r) => ({
+      id: r.id,
+      finding: r.finding,
+      severity: r.severity,
+      verdict: r.verdict,
+      round: r.round,
+      ...(r.evidence ? { evidence: r.evidence } : {}),
+      updatedAt: r.updated_at,
+    }));
+  }
+
+  upsertLedger(device: string, folder: string, entries: LedgerEntry[]): void {
+    const q = this.db.query('INSERT OR REPLACE INTO workflow_ledger (device, folder, id, finding, severity, verdict, round, evidence, updated_at) VALUES (?,?,?,?,?,?,?,?,?)');
+    this.db.transaction(() => {
+      for (const e of entries) q.run(device, folder, e.id, e.finding, e.severity, e.verdict, e.round, e.evidence ?? null, e.updatedAt);
+    })();
   }
 }
 

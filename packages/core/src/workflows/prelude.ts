@@ -345,6 +345,14 @@ export function preludeSource(opts: { argsJson: string; nested: boolean }): stri
   // the files a unified diff touches
   const diffFiles = (diff) => [...new Set((String(diff || '').match(/^(?:\\+\\+\\+ b|--- a)\\/(.+)$/gm) || []).map((l) => l.slice(6)))];
 
+  // the findings ledger of a project folder (workflows/ledger.ts): judges read it first, the script writes their results last
+  const ledger = Object.freeze({
+    read: (project) => call('ledgerRead', { project: project == null ? null : project }),
+    write: (project, entries) => call('ledgerWrite', { project: project == null ? null : project, entries: Array.isArray(entries) ? entries : [] }),
+    fence: (entries) => callSync('ledgerFence', { entries: Array.isArray(entries) ? entries : [] }),
+    id: (text) => callSync('ledgerId', { text: String(text == null ? '' : text) }),
+  });
+
   const lib = {
     schemas: Object.freeze({ finding, findings, verdict, claims }),
     fence,
@@ -360,11 +368,13 @@ export function preludeSource(opts: { argsJson: string; nested: boolean }): stri
     checkCitation,
     checkCitations,
     exec: (command, o) => call('exec', { command, cwd: o && o.cwd, timeoutMs: o && o.timeoutMs, worktree: o && o.worktree }),
+    capture: (url, o) => call('capture', { url, opts: o || {} }),
     runCheck: (command, o) => call('runCheck', { command, worktree: o && o.worktree, timeoutMs: o && o.timeoutMs }),
     checkout: (seq) => call('checkout', { seq }),
     diff: (seq) => call('diff', { seq }),
     dropDismissed: (list) => call('dropDismissed', { findings: list || [] }),
     recordFindings: (list) => call('recordFindings', { findings: list || [] }),
+    ledger,
     ask: (question, options) => call('ask', { question, options: options || [] }),
     approve: (text) => call('approve', { text }),
   };

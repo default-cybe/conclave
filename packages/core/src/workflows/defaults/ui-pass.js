@@ -1,7 +1,7 @@
 export const meta = {
   name: 'ui-pass',
   description: 'A designer builds a UI change inside the design system and takes screenshots; a fresh visual verifier that sees only the screenshots, the brief and the spec decides; one fix round; typecheck and builds run',
-  whenToUse: 'For a visual change in the web app. args: { brief: string, spec?: "docs/design/SPEC.md", checks?: ["bun run typecheck", ...] }',
+  whenToUse: 'For a visual change in the web app. args: { brief: string, spec?: "docs/design/SPEC.md", checks?: ["bun run typecheck", ...], round?: the ledger round, default one past the highest }',
   runtime: 'conclave',
   phases: [{ title: 'Build' }, { title: 'Look' }, { title: 'Fix' }, { title: 'Check' }],
 }
@@ -11,6 +11,12 @@ const brief = String(A.brief || '').trim()
 if (!brief) throw new Error('ui-pass needs args.brief')
 const spec = A.spec || 'docs/design/SPEC.md'
 const checks = Array.isArray(A.checks) && A.checks.length ? A.checks : ['cd packages/web && bunx tsc --noEmit -p .', 'cd packages/web && bun run build', 'cd packages/web && bun run build:mock']
+
+// the project's findings ledger: the visual verifier reads it, rejected and wontfix problems are dropped, results are written back last
+const ledger = await lib.ledger.read('.')
+const ledgerRound = Number.isInteger(A.round) ? A.round : ledger.reduce((m, e) => Math.max(m, e.round), 0) + 1
+const ledgerText = lib.ledger.fence(ledger)
+const closed = new Set(ledger.filter((e) => e.verdict === 'rejected' || e.verdict === 'wontfix').map((e) => e.id))
 
 const shotSchema = {
   type: 'object',
@@ -37,20 +43,22 @@ const look = (shots) =>
       'Judge whether a UI change meets its brief from screenshots only. Start from "not achieved until proven": pass a point only when a screenshot shows it. Check the spec rules in section 2 of ' + spec + ': no emoji, no gradients, calm type, no horizontal scroll at 390 wide.',
       lib.fence('brief', brief),
       'Screenshots (open each with Read): ' + shots.join(', '),
-    ].join('\n\n'),
+      ledgerText,
+    ].filter(Boolean).join('\n\n'),
     {
       label: 'visual verify',
       phase: 'Look',
       agentType: 'verifier',
       schema: { type: 'object', properties: { achieved: { type: 'boolean' }, problems: { type: 'array', items: { type: 'string' } } }, required: ['achieved', 'problems'] },
     },
-  )
+  ).then((v) => (v ? { ...v, problems: (v.problems || []).filter((p) => !closed.has(lib.ledger.id(p))) } : v))
 
 phase('Build')
 let made = await build()
 if (!made || !made.value) return { passed: false, stopped: 'the designer returned nothing' }
 phase('Look')
 let verdict = await look(made.value.screenshots || [])
+const firstProblems = verdict ? verdict.problems : []
 if (verdict && !verdict.achieved && made.worktree && made.worktree.commit) {
   phase('Fix')
   const fixed = await build(lib.fence('verifier-problems', verdict.problems.join('\n')), made.seq)
@@ -60,6 +68,13 @@ if (verdict && !verdict.achieved && made.worktree && made.worktree.commit) {
     verdict = await look(made.value.screenshots || [])
   }
 }
+const finalProblems = verdict ? verdict.problems : []
+const evidence = (made.value.screenshots || [])[0]
+await lib.ledger.write('.', [
+  // a problem the fix round made go away, by the verifier's second look
+  ...(verdict && verdict.achieved ? firstProblems.filter((p) => !finalProblems.includes(p)).map((p) => ({ finding: p, severity: 'medium', verdict: 'fixed', round: ledgerRound, evidence })) : []),
+  ...finalProblems.map((p) => ({ finding: p, severity: 'medium', verdict: 'open', round: ledgerRound, evidence })),
+])
 phase('Check')
 const results = []
 for (const c of checks) {

@@ -112,6 +112,8 @@ export interface SkillDef {
   allowedTools?: string[];
   source: ExtensionSource;
   plugin?: string;
+  /** A skill that ships in the binary (extensions/builtin-skills.ts): its text, with dir and path empty. */
+  body?: string;
   /** Set for a skill an agent wrote (extensions/learned.ts): where it came from. */
   learned?: { sessionId?: string; project?: string; created?: string; updated?: string };
 }
