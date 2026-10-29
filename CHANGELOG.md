@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- **Capture** tool for agents and `lib.capture` for workflows: one call screenshots any http(s) URL on the hub's stock Chromium (and Firefox when installed) per width and theme, with an early frame, scroll contact sheets (ffmpeg from PATH, else a pinned static build fetched on first use) and a JSON report of console errors, failed requests, horizontal overflow, fonts, CLS, LCP and axe-core violations. Pages with H.264 video run on real Chrome when one is installed. The designer agent gets it.
+
 ## [0.4.48] - 2026-10-29
 
 ### Added

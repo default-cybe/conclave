@@ -360,6 +360,7 @@ export function preludeSource(opts: { argsJson: string; nested: boolean }): stri
     checkCitation,
     checkCitations,
     exec: (command, o) => call('exec', { command, cwd: o && o.cwd, timeoutMs: o && o.timeoutMs, worktree: o && o.worktree }),
+    capture: (url, o) => call('capture', { url, opts: o || {} }),
     runCheck: (command, o) => call('runCheck', { command, worktree: o && o.worktree, timeoutMs: o && o.timeoutMs }),
     checkout: (seq) => call('checkout', { seq }),
     diff: (seq) => call('diff', { seq }),

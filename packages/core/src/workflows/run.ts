@@ -32,6 +32,10 @@ import { DEFAULTS, Semaphore, count } from './limits';
 import { branchCommit, codeFingerprint, createWorktree, finishWorktree, repoInfo, shq, syncthingMarkerAbove, withDetached, worktreePath, type Worktree } from './worktrees';
 import type { WorkflowService } from './service';
 import { loadMeta } from './registry';
+import { captureUrl, hubCapture, type CaptureOptions } from '../browser/capture';
+import type { BrowserManager } from '../browser/manager';
+import { outputsDir } from '../files/share';
+import { isMember } from '../people/context';
 
 const log = logger('workflow-run');
 
@@ -1047,6 +1051,20 @@ export class LiveRun {
             return { ok: r.exitCode === 0 && !r.timedOut, exitCode: r.exitCode, tail, timedOut: r.timedOut };
           }),
         );
+      },
+      // lib.capture: the Capture tool's code (browser/capture.ts); files in the run's session outputs folder on the hub
+      capture: (p: unknown) => {
+        const o = (p ?? {}) as { url?: unknown; opts?: unknown };
+        const url = typeof o.url === 'string' ? o.url : '';
+        const u = captureUrl(url);
+        if ('error' in u) throw new Error(`lib.capture: ${u.error}`);
+        // the hub's browser is the owner's (docs/design/ACCOUNTS.md 5), as for the Capture tool
+        if (isMember(this.svc.runAccount(this.row))) throw new Error('lib.capture runs the hub owner\'s browser; a member\'s workflow cannot use it.');
+        const opts = (o.opts && typeof o.opts === 'object' ? o.opts : {}) as CaptureOptions;
+        return this.hostCall('check', `capture: ${oneLine(u.href, 80)}`, { capture: u.href, opts }, parentSeq, (signal) => {
+          const out = outputsDir(this.engine.config.paths.home, this.row.sessionId ?? this.id);
+          return hubCapture((this.engine as unknown as { browser?: BrowserManager }).browser, this.engine.config.paths.home, out, u.href, opts, signal);
+        });
       },
       dropDismissed: (p: unknown) => this.dropDismissed(Array.isArray((p as { findings?: unknown })?.findings) ? ((p as { findings: unknown[] }).findings) : []),
       checkout: (p: unknown) => this.checkout(Number((p as { seq?: unknown })?.seq)),
