@@ -26,6 +26,7 @@ import { checkShareable, outputsDir } from '../files/share';
 import type { BrowserManager } from '../browser/manager';
 import { loadPlaywright } from '../browser/runtime';
 import type { RenderBrowser } from '../tools/render-file';
+import { hubCapture, type CaptureOptions, type CaptureResult } from '../browser/capture';
 import { mkdirSync } from 'node:fs';
 
 /** ToolHost bound to one running session. Tools call this, never the engine directly. */
@@ -257,5 +258,11 @@ export class EngineToolHost implements ToolHost {
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) };
     }
+  }
+
+  /** Capture: a fresh stock browser per call, files in this session's outputs folder (browser/capture.ts). */
+  capture(url: string, opts: CaptureOptions, signal?: AbortSignal): Promise<CaptureResult> {
+    const b = (this.engine as unknown as { browser?: BrowserManager }).browser;
+    return hubCapture(b, this.engine.config.paths.home, this.outputsDir(), url, opts, signal);
   }
 }

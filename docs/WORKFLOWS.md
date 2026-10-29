@@ -131,6 +131,21 @@ run in Claude Code.
 - `lib.exec(command)` and `lib.runCheck(command)` run a command on the
   session's device. They ask for approval like Bash does, and their results
   are journaled; a check reruns when HEAD or the diff changed.
+- `lib.capture(url, { widths, themes, earlyFrame, scroll, browsers, reducedMotion })`
+  opens an http(s) URL in a fresh headless browser on the hub, the same code
+  as the Capture tool. Defaults: widths `[390, 1440]`, themes
+  `['light', 'dark']`, earlyFrame `0.35` seconds, scroll `true`, browsers
+  `['chromium', 'firefox']` (Firefox is skipped when the hub has no Firefox
+  build), reducedMotion `true`. It returns `{ url, dir, results, skipped }`:
+  per browser the PNG per width and theme with its early frame, scroll
+  contact sheets per width, and a `report.json` with console errors, failed
+  requests, horizontal overflow, loaded fonts, CLS, LCP and axe-core
+  violations. Files land in the run's session outputs folder
+  (`<CONCLAVE_HOME>/outputs/<sessionId>/capture/`). Contact sheets need
+  ffmpeg: the one on PATH, else a pinned static build fetched once into
+  `<CONCLAVE_HOME>/ffmpeg/`; without it the scroll frames are kept and the
+  report says why. Page text in the report is wrapped in
+  `<untrusted_web_content>`. A member's run cannot use it.
 - `lib.checkCitations(findings)` keeps only findings whose quote is within
   3 lines of the cited line, and logs how many it dropped. A path is read
   from the repository root or the run folder. Files outside the repository

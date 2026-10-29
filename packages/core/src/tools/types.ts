@@ -117,6 +117,8 @@ export interface ToolHost {
   outputsDir?(): string;
   /** playwright-core's chromium and the hub's browser binary, for RenderFile (tools/render-file.ts); an error when the hub has none. */
   renderBrowser?(): Promise<import('./render-file').RenderBrowser | { error: string }>;
+  /** Capture a URL with the hub's browser into the session's outputs folder (browser/capture.ts). */
+  capture?(url: string, opts: import('../browser/capture').CaptureOptions, signal?: AbortSignal): Promise<import('../browser/capture').CaptureResult>;
 }
 
 export interface ToolContext {
