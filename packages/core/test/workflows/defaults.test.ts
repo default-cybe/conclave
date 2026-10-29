@@ -124,6 +124,65 @@ test('review-changes finds, cites, refutes and proves a bug in an uncommitted ch
   }
 });
 
+test('bug-hunt keeps a findings ledger: round 2 does not report what round 1 rejected or the owner marked fixed, unless it regressed', async () => {
+  const repo = tempDir('conclave-wf-ledger-');
+  try {
+    const git = (cmd: string) => Bun.spawnSync(['bash', '-c', `git -c user.name=t -c user.email=t@t ${cmd}`], { cwd: repo });
+    git('init -q -b main');
+    mkdirSync(join(repo, 'src'));
+    writeFileSync(join(repo, 'src', 'a.ts'), 'export function last(xs: number[]) {\n  return xs[xs.length];\n}\n');
+    writeFileSync(join(repo, 'src', 'b.ts'), 'export const add = (a: number, b: number) => a + b;\n');
+    git('add -A');
+    git('commit -q -m init');
+    const bugA = { file: 'src/a.ts', line: 2, quote: 'return xs[xs.length];', title: 'last() reads one past the end', class: 'off-by-one', scenario: 'last([1, 2])', priority: 'P2' };
+    const bugB = { file: 'src/b.ts', line: 1, quote: 'export const add = (a: number, b: number) => a + b;', title: 'add() may overflow', class: 'overflow', scenario: 'add(MAX, 1)', priority: 'P3' };
+    let regressed = false;
+    answers.push(['Find real bugs in this code from one angle', (body) => so({ findings: [regressed ? { ...bugA, regressed: true } : bugA, bugB], read: ['src/a.ts', 'src/b.ts'] })(body)]);
+    answers.push(['Try to prove this finding wrong', (body) => (firstUserText(body).includes('src/a.ts') ? so({ verdict: 'confirmed', severity: 'P2', evidence: ['src/a.ts:2'], note: 'real' }) : so({ verdict: 'refuted', evidence: ['src/b.ts:1'], note: 'numbers do not overflow here' }))(body)]);
+    const svc = svcOf(t.engine);
+    const s = await t.engine.createSession({ cwd: repo, permissionMode: 'acceptEdits' });
+    const hunt = async () => svc.wait((await svc.startRun({ name: 'bug-hunt', sessionId: s.id, args: { maxRounds: 2 } })).id);
+    const ledgerOf = () => svc.store.ledger('local', repo);
+    type Result = { findings: Array<{ file: string }> };
+
+    const r1 = await hunt();
+    expect(r1.error).toBeUndefined();
+    expect((r1.result as Result).findings.map((f) => f.file)).toEqual(['src/a.ts']);
+    expect(r1.device).toBe('local');
+    expect(ledgerOf().map((e) => [e.finding, e.verdict, e.severity, e.round]).sort()).toEqual([
+      ['src/a.ts: last() reads one past the end', 'open', 'medium', 1],
+      ['src/b.ts: add() may overflow', 'rejected', 'low', 1],
+    ]);
+
+    // the owner's fix lands; a script marks it fixed
+    const mark = await svc.wait((await svc.startRun({ sessionId: s.id, script: `export const meta = { name: 'mark-fixed', description: 'x', runtime: 'conclave' }
+return await lib.ledger.write('.', [{ finding: 'src/a.ts: last() reads one past the end', severity: 'medium', verdict: 'fixed', round: 1, evidence: 'https://example.test/pr/1' }])` })).id);
+    expect(mark.error).toBeUndefined();
+
+    const before = t.requests.length;
+    const r2 = await hunt();
+    expect(r2.error).toBeUndefined();
+    expect((r2.result as Result).findings).toEqual([]);
+    // nothing went to the refuters, and every finder read the ledger
+    expect(svc.store.calls(r2.id).filter((c) => c.label?.startsWith('verify ')).length).toBe(0);
+    const finders = t.requests.slice(before).filter((x) => x.includes('Find real bugs in this code from one angle'));
+    expect(finders.length).toBeGreaterThan(0);
+    expect(finders.every((x) => x.includes('<untrusted-ledger>') && x.includes('[fixed] medium r1') && x.includes('[rejected] low r1'))).toBe(true);
+    expect(svc.store.logs(r2.id).some((l) => l.text.includes('ledger: dropped 2 findings marked fixed, rejected or wontfix'))).toBe(true);
+    expect(ledgerOf().find((e) => e.finding.startsWith('src/a.ts'))).toMatchObject({ verdict: 'fixed', round: 1, evidence: 'https://example.test/pr/1' });
+
+    // a finder whose evidence shows the fixed bug came back reports it again; the rejected one stays out
+    regressed = true;
+    const r3 = await hunt();
+    expect((r3.result as Result).findings.map((f) => f.file)).toEqual(['src/a.ts']);
+    expect(ledgerOf().find((e) => e.finding.startsWith('src/a.ts'))).toMatchObject({ verdict: 'open', round: 2 });
+    expect(ledgerOf().find((e) => e.finding.startsWith('src/b.ts'))).toMatchObject({ verdict: 'rejected', round: 1 });
+  } finally {
+    answers.length = 0;
+    cleanup(repo);
+  }
+});
+
 test('race checks each racer, judges the passing ones, and keeps the winner only when the owner asks', async () => {
   const repo = tempDir('conclave-wf-race-');
   const home = tempDir('conclave-wf-racehome-');

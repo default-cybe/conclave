@@ -132,6 +132,8 @@ export class EngineToolHost implements ToolHost {
       store.recordUse(s.name);
       return { name: s.name, body: s.body, dir: s.dir };
     }
+    // a built-in skill ships as text in the binary, whatever device the session runs on
+    if (skill.body !== undefined) return { name: skill.name, body: skill.body, dir: skill.dir };
     try {
       const body = await this.engine.machineFor(this.session).readText(skill.path);
       const stripped = body.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();

@@ -134,4 +134,31 @@ describe('precedence', () => {
     expect(names).toContain('beta');
     expect(ext.skill('alpha')?.allowedTools).toEqual(['Read']);
   });
+
+  test('the built-in web-studio skill is listed and loads from the binary', () => {
+    const ext = makeExtensions(home(), home());
+    const s = ext.skills().find((x) => x.name === 'web-studio');
+    expect(s?.source).toBe('builtin');
+    expect(s?.description).toContain('rubric');
+    expect(s?.body).toContain('## Phase 5: Score and fix');
+    expect(s?.body).not.toMatch(/^---/);
+    expect(s?.body).not.toContain('\u2014');
+    // typed as /web-studio, it expands to the body with no base directory line
+    const cmd = ext.command('web-studio');
+    expect(cmd?.body.startsWith('# web-studio')).toBe(true);
+  });
+
+  test('a learned or user skill with the same name wins over the built-in one', () => {
+    const h = home();
+    const ext = makeExtensions(h, home());
+    write(join(h, 'learned-skills', 'web-studio', 'SKILL.md'), `---\nname: web-studio\ndescription: learned copy\nsource: learned\n---\nlearned body`);
+    ext.reload();
+    expect(ext.skill('web-studio')?.description).toBe('learned copy');
+    expect(ext.skill('web-studio')?.body).toBeUndefined();
+    expect(ext.inventory().find((i) => i.name === 'web-studio' && i.source === 'builtin')?.shadowedBy).toBe('learned');
+    write(join(h, 'skills', 'web-studio', 'SKILL.md'), `---\nname: web-studio\ndescription: user copy\n---\nuser body`);
+    ext.reload();
+    expect(ext.skill('web-studio')?.source).toBe('user');
+    expect(ext.command('web-studio')?.body).toContain('user body');
+  });
 });
