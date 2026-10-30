@@ -28,7 +28,8 @@ import { streamCompletion, type Served } from './stream';
 import { transcribeImages } from './image-text';
 import { seesImages } from '../providers/common';
 import { pickedName } from '../attachments/prepare';
-import { refusalPlan, refusalStepOf, refusalWords, RefusalWalk, servedLabel, stepOfTarget, type FallbackTarget } from './refusal-fallback';
+import { refusalPlanFor } from './member-fallbacks';
+import { refusalStepOf, refusalWords, RefusalWalk, servedLabel, stepOfTarget, type FallbackTarget } from './refusal-fallback';
 import { checkPermission, dangerousCommand } from './permissions';
 import { ReadTool } from '../tools/read';
 import { maybeCompact, estimateRequestTokens, meteredTokens, partHash, type TokenMeter } from './compaction';
@@ -1061,8 +1062,8 @@ export class SessionRunner {
 
     // Refusal fallback (session/refusal-fallback.ts): after a refusal the provider signals, the same request runs on the
     // owner's next listed model and account. On its own when the owner turned it on; from "Try the next model" either way.
-    // the list names the owner's accounts: a member's session has none to walk
-    const plan = isMember(this.session.accountId) ? undefined : refusalPlan(engine.config.get(), engine.agentFor(this.session));
+    // a member's session walks the member's own list (session/member-fallbacks.ts), never the owner's
+    const plan = refusalPlanFor(engine, this.session.accountId, engine.agentFor(this.session));
     // "Try the next model" on a reply a marked plan or a list entry refused starts after that step
     const walk = plan && (plan.auto || opts.refusal) ? new RefusalWalk(engine, this.session, plan, refusalStepOf(opts.refusal?.reply)) : undefined;
     /** The notice of the step running now ("X declined. Trying Y."): it becomes "X declined. Answered by Y." */

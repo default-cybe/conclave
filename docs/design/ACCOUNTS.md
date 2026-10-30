@@ -247,3 +247,19 @@ A member can sign in their own Claude, ChatGPT or other plan, and only their cha
 **Web.** Settings, Models, Subscriptions and Accounts show a member their own variant (`features/settings/member-plans.tsx`, `SettingsPage.tsx`). It has the sign-in rows, their plans, their order and limits, and their models. It has no program, version, binary path, update or hub address. When their CLIProxyAPI stopped with an error, it offers a retry.
 
 Where it can fail: a member's CLIProxyAPI is one more process per member with plans. A member's plan has no window starter and no "Use when a model refuses". Limits are lost at a hub restart until the next read. The owner can read the folder and keys on the machine, as in section 8.
+
+## 13. A member's own fallbacks and memory map
+
+The owner's usage fallback (`models.limitFallback`) and refusal fallback (`models.refusalFallback`) name the owner's models, plans and marked accounts, so a member's session never walks them. A member keeps their own in their account settings (`hub_accounts.settings`, `people/store.ts` `AccountSettings.usageFallback` and `refusalFallback`). Both are models only: an entry's account is the owner's Accounts, so it is dropped.
+
+**Usable only.** Every model in a member's list is one they can call (`session/member-fallbacks.ts` `memberCanUse`): `isUsable(model, accountId)` in their registry, not a harness, allowed by the task's fallback policy, and, for a prefixed plan id, listed by their own CLIProxyAPI. PATCH /api/me checks it on save (400 naming the model). The same check runs again at each step, so a grant taken back or a plan signed out is skipped.
+
+**How a member's session falls back.** The same paths as the owner's, on the member's lists:
+
+- Refusal: `refusalPlanFor` gives the member's plan to the runner and to "Try the next model". No marked plans. An agent with the refusal fallback off turns it off; an agent's own list is ignored (it may name the owner's plans).
+- Usage limit: their own next plan for the same model first (`nextAccount`, section 12). Then `limitFallback`: an entry of `limits.fallbacks` only when they can call it (this fixed a check made without their account), then `memberLimitFallback`: an effort variant's base on their other plans, then their usage list when it is on, else their refusal list. Each step runs on their own ready plans first, in their order (`memberRoute`).
+- Sticky and switch back: a member's fallback sticks like the owner's. `switchBack` moves them back to a higher plan of their own once it is ready (`memberSwitchBack`); `switchBackModel` walks their lists. Chores at a limit use the same `limitFallback`.
+
+**Web.** Settings > Models > Refusal fallback and Usage fallback show the member their lists with the owner's section components; `/api/config` (`memberConfig`) returns their lists as `models.limitFallback` and `models.refusalFallback`, and `saveFallback` writes them through PATCH /api/me. The refusal page hides the marked-plans line and the account column for a member.
+
+**Memory map.** GET /api/memory/graph is `self`: each account gets `memoryAdminFor(account).graph()`, their own memory rows and their own Basic Memory connection, if they added one. The owner's Basic Memory and memories never show. Session titles in the map come only from the account's own sessions.

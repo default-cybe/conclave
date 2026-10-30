@@ -414,3 +414,40 @@ describe('emails sign in', () => {
     expect((await asJson(await login('B@example.com'))).body.account).toMatchObject({ id: 'acc_twin_b' });
   });
 });
+
+describe("a member's own fallback lists and memory map", () => {
+  let tok = '';
+  beforeAll(async () => {
+    await hub.api('/api/people', { method: 'POST', json: { name: 'nihir', password: PW, providers: { anthropic: { monthlyUsd: 5 } } } });
+    tok = (await asJson(await hub.api('/api/login', { method: 'POST', token: null, json: { account: 'nihir', password: PW, name: 'phone' } }))).body.token;
+  });
+
+  test('saved on their account, shown back as their config, never the hub\'s', async () => {
+    const usage = { enabled: true, models: ['anthropic/claude-sonnet-5-5'] };
+    const refusal = { enabled: true, stay: false, entries: [{ model: 'anthropic/claude-sonnet-5-5' }] };
+    expect((await hub.api('/api/me', { method: 'PATCH', token: tok, json: { usageFallback: usage, refusalFallback: refusal } })).status).toBe(200);
+    const cfg = (await asJson(await hub.api('/api/config', { token: tok }))).body.config;
+    expect(cfg.models).toMatchObject({ limitFallback: usage, refusalFallback: refusal });
+    expect(hub.engine.config.get().models?.limitFallback?.models ?? []).not.toContain('anthropic/claude-sonnet-5-5');
+    // a model they cannot call is refused by name; the owner keeps the hub's lists in /api/config
+    const bad = await asJson(await hub.api('/api/me', { method: 'PATCH', token: tok, json: { usageFallback: { models: ['owner-only/x'] } } }));
+    expect(bad.status).toBe(400);
+    expect(bad.body.error).toContain('owner-only/x');
+    expect((await hub.api('/api/me', { method: 'PATCH', json: { usageFallback: usage } })).status).toBe(400);
+    // null clears
+    expect((await hub.api('/api/me', { method: 'PATCH', token: tok, json: { usageFallback: null } })).status).toBe(200);
+    expect((await asJson(await hub.api('/api/config', { token: tok }))).body.config.models.limitFallback).toBeUndefined();
+  });
+
+  test('their memory map holds their memory only', async () => {
+    expect((await hub.api('/api/memory', { method: 'POST', json: { content: 'owner secret plan zebra', kind: 'fact' } })).status).toBe(200);
+    expect((await hub.api('/api/memory', { method: 'POST', token: tok, json: { content: 'nihir likes tea', kind: 'fact' } })).status).toBe(200);
+    const r = await hub.api('/api/memory/graph', { token: tok });
+    expect(r.status).toBe(200);
+    const text = await r.text();
+    expect(text).toContain('nihir likes tea');
+    expect(text).not.toContain('zebra');
+    // the owner's map is the owner's
+    expect(await (await hub.api('/api/memory/graph')).text()).not.toContain('nihir likes tea');
+  });
+});

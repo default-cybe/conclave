@@ -13,7 +13,7 @@ import { importOf } from '@conclave/core/import/registry.ts';
 import { DigestError, digestOf, type DailyDigest } from '@conclave/core/memory/digest.ts';
 import { isMember } from '@conclave/core/people/context.ts';
 import { MEMBER_STDIO_REFUSED } from '@conclave/core/people/memory.ts';
-import { accountOf, ownDevice, ownerOnly } from './scope';
+import { accountOf, ownDevice } from './scope';
 import { compress } from 'hono/compress';
 
 export function registerMemoryRoutes(app: Hono<HonoEnv>, ctx: ServerContext, audit: AuditFn): void {
@@ -202,10 +202,14 @@ export function registerMemoryRoutes(app: Hono<HonoEnv>, ctx: ServerContext, aud
 
   // ----- the memory map: memories and Basic Memory notes with their links -----
 
-  // every item once (about 3,000), gzipped when the client takes it
+  // every item once (about 3,000), gzipped when the client takes it; each account's own memory and own connections (memoryAdminFor), never another's
   app.get('/api/memory/graph', compress(), async (c) => {
-    ownerOnly(c);
-    return c.json(await admin(c).graph({ sessionTitle: (id) => engine.repos.sessions.get(id)?.title }));
+    const acct = accountOf(c);
+    const sessionTitle = (id: string) => {
+      const s = engine.repos.sessions.get(id);
+      return s && (s.accountId ?? 'owner') === acct ? s.title : undefined;
+    };
+    return c.json(await admin(c).graph({ sessionTitle }));
   });
 
   // ----- stats (replaces the old handler: reports connections) --------------
