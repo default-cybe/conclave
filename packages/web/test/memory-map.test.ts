@@ -11,7 +11,7 @@ import type { MemoryGraph, MemoryGraphNode } from '@conclave/core/client';
 import { BRAIN, CAP_AREA, areaId, buildTree, chainTo, indexGraph, layoutAll, layoutTree, nodeLabel, nodeWords, pathInto, searchItems, visibleLabels, type MapState, type MLayout, type ScreenLabel, type TNode } from '../src/features/memory/graph-model';
 import { edgeOn, layoutLinks } from '../src/features/memory/link-model';
 import { angleTime, areaAtAngle, itemAtAngle, layoutHud, timeAngle } from '../src/features/memory/ring-model';
-import { CORE_R, holoStats, layoutHolo, linkCurve, pickEdges, timeX } from '../src/features/memory/holo-model';
+import { CORE_R, OPEN_K, fitLabels, holoStats, layoutHolo, linkCurve, overlaps as boxHit, pickEdges, spreadArea, timeX, type Box } from '../src/features/memory/holo-model';
 
 const node = (id: string, over: Partial<MemoryGraphNode> = {}): MemoryGraphNode => ({ id, kind: 'note', source: 'basic-memory', title: id, area: 'Other', degree: 0, ...over });
 
@@ -426,5 +426,59 @@ describe('memory map 3D', () => {
     const st = holoStats(L, big.nodes, on, () => false);
     expect(st.links).toBe(all.length);
     expect(st.items).toBe(L.items.length);
+  });
+
+  test('an opened area: every item inside its sphere, the rest unmoved, hubs in the middle, the same each time', () => {
+    const H = layoutHolo(L, big.nodes, 'clusters');
+    const deg = L.items.map((it) => big.nodes[it.node].degree);
+    const a = 0;
+    const dir = [0.3, 0.5, 0.8] as const;
+    const S = spreadArea(H, L, deg, a, dir);
+    expect(S.R).toBeCloseTo(H.radius[a] * OPEN_K, 4);
+    const { from, to } = L.areas[a];
+    for (let i = 0; i < L.items.length; i++) {
+      if (i >= from && i < to) expect(Math.hypot(S.pos[i * 3] - S.c[0], S.pos[i * 3 + 1] - S.c[1], S.pos[i * 3 + 2] - S.c[2])).toBeLessThanOrEqual(S.R);
+      else for (let c = 0; c < 3; c++) expect(S.pos[i * 3 + c]).toBe(H.pos[i * 3 + c]);
+    }
+    // the disc is square to the camera: u, v, w orthonormal, u level
+    const dot = (p: number[], q: number[]) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+    expect(dot(S.u, S.v)).toBeCloseTo(0, 5);
+    expect(dot(S.u, S.w)).toBeCloseTo(0, 5);
+    expect(dot(S.v, S.v)).toBeCloseTo(1, 5);
+    expect(S.u[1]).toBeCloseTo(0, 5);
+    // the most linked nearest the middle of the disc
+    const top = Array.from({ length: to - from }, (_, k) => from + k).sort((x, y) => deg[y] - deg[x] || x - y);
+    const r = (i: number) => Math.hypot(...[0, 1].map((q) => dot([S.pos[i * 3] - S.c[0], S.pos[i * 3 + 1] - S.c[1], S.pos[i * 3 + 2] - S.c[2]], q ? S.v : S.u)));
+    expect(r(top[0])).toBeLessThan(r(top.at(-1)!));
+    expect(spreadArea(H, L, deg, a, dir).pos).toEqual(S.pos);
+    // straight down still gives a level, finite frame
+    const down = spreadArea(H, L, deg, a, [0, 1, 0]);
+    for (const q of [...down.u, ...down.v]) expect(Number.isFinite(q)).toBe(true);
+  });
+
+  test('an opened area: titles at the zoomed scale never overlap, stay in the room, most linked first', () => {
+    const H = layoutHolo(L, big.nodes, 'clusters');
+    const deg = L.items.map((it) => big.nodes[it.node].degree);
+    const S = spreadArea(H, L, deg, 0, [0, 0, 1]);
+    const { from, to } = L.areas[0];
+    // the sphere fills 600 px of a 1000 x 800 room, as the camera frames it
+    const room = { x: 0, y: 0, w: 1000, h: 800 };
+    const k = 300 / S.R;
+    const ids = Array.from({ length: to - from }, (_, j) => from + j).sort((x, y) => deg[y] - deg[x] || x - y);
+    const cands = ids.map((i) => ({ i, x: 500 + (S.pos[i * 3] - S.c[0]) * k, y: 400 - (S.pos[i * 3 + 1] - S.c[1]) * k, w: 90 + (i % 5) * 20 }));
+    const blocked: Box[] = [[0, 0, 220, 120]];
+    const boxes = [...blocked];
+    const got = fitLabels(cands, boxes, room, 60);
+    expect(got.length).toBeGreaterThan(15);
+    expect(got.length).toBeLessThanOrEqual(60);
+    expect(got[0].i).toBe(ids[0]);
+    const placed: Box[] = got.map((g) => [g.x, g.y, cands.find((c) => c.i === g.i)!.w, 16]);
+    for (const [j, b] of placed.entries()) {
+      expect(b[0]).toBeGreaterThanOrEqual(0);
+      expect(b[0] + b[2]).toBeLessThanOrEqual(1000);
+      expect(boxHit(blocked, ...b)).toBe(false);
+      expect(boxHit(placed.slice(j + 1), ...b)).toBe(false);
+    }
+    expect(fitLabels(cands, [...blocked], room, 60)).toEqual(got);
   });
 });

@@ -121,7 +121,8 @@ const ALL_SECTIONS: SectionDef[] = [
     desc: 'When a model refuses, the same messages go to the next model on your list. Your words are never changed.',
     C: RefusalSection,
     width: 900,
-    owner: true,
+    // a member's own list, on the same page (saveFallback writes it to their account)
+    member: { C: RefusalSection, desc: 'When a model refuses, the same messages go to the next model on your own list. Only models you can use.' },
   },
   {
     id: 'usage',
@@ -129,7 +130,7 @@ const ALL_SECTIONS: SectionDef[] = [
     desc: 'When a model is at its limit on every account, the next model here takes over, on its own account order.',
     C: UsageFallbackSection,
     width: 900,
-    owner: true,
+    member: { C: UsageFallbackSection, desc: 'When a model is at its limit on your plans, the next model on your own list takes over. Only models you can use.' },
   },
   {
     id: 'defaults',

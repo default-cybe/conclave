@@ -152,6 +152,7 @@ import { SqliteMemory } from '../memory/store';
 import { MemoryConnections, MemoryConnectionService } from '../memory/connections';
 import { ATTACHMENT_LOST, prepareAttachments, type ZipHost } from '../attachments/prepare';
 import { mediaTypeFor } from '../attachments/limits';
+import { checkMemberRefusalList, checkMemberUsageList } from '../session/member-fallbacks';
 
 const log = logger('engine');
 /** A session still called New chat after its start is named again after each of its first turns, up to this one. */
@@ -1055,10 +1056,11 @@ export class Engine implements EngineApi {
     const after = msgs.slice(at + 1);
     const notRun = (m: Message) => m.role === 'user' && m.kind === 'normal' && m.content.length > 0 && m.content.every((b) => b.type === 'tool_result' && b.meta?.notRun === 'refusal');
     if (after.some((m) => m.kind !== 'notice' && !notRun(m))) throw new EngineError(409, 'Only the last reply can go to the next model.');
-    const { refusalPlan, refusalStepOf, RefusalWalk, servedOf } = await import('../session/refusal-fallback');
-    // the list names the owner's accounts: a member's session has none to walk
-    const plan = isMember(s.accountId) ? undefined : refusalPlan(this.config.get(), this.agentFor(s));
-    if (!plan) throw new EngineError(409, 'Refusal fallback has no models, and no plan is marked to use when a model refuses. Add them in Settings, Models.');
+    const { refusalStepOf, RefusalWalk, servedOf } = await import('../session/refusal-fallback');
+    const { refusalPlanFor } = await import('../session/member-fallbacks');
+    // a member's session walks the member's own list, never the owner's
+    const plan = refusalPlanFor(this, s.accountId, this.agentFor(s));
+    if (!plan) throw new EngineError(409, isMember(s.accountId) ? 'Your Refusal fallback has no models you can use. Add them in Settings, Models.' : 'Refusal fallback has no models, and no plan is marked to use when a model refuses. Add them in Settings, Models.');
     const served = servedOf(reply);
     if (!served) throw new EngineError(409, 'Conclave does not know which model refused this reply.');
     const next = new RefusalWalk(this, s, plan, refusalStepOf(reply)).next(served);
@@ -2545,6 +2547,9 @@ export class Engine implements EngineApi {
     } catch {
       return false;
     }
+  }
+  checkMemberFallbacks(accountId: string, patch: { usageFallback?: unknown; refusalFallback?: unknown }): ReturnType<EngineApi['checkMemberFallbacks']> {
+    return { usageFallback: checkMemberUsageList(this, accountId, patch.usageFallback), refusalFallback: checkMemberRefusalList(this, accountId, patch.refusalFallback) };
   }
   isUsableRef(ref: string): boolean {
     if (this.isAgentRef(ref)) return !!this.extensions.agent(ref.slice(1));

@@ -4,6 +4,7 @@
  * the shared migration list does not change.
  */
 import type { Db } from '../storage/db';
+import type { LimitFallbackConfig, RefusalFallbackConfig } from '../config/schema';
 import { json } from '../storage/db';
 import { newId } from '../util/ids';
 import { OWNER_ID } from './context';
@@ -29,6 +30,10 @@ export interface AccountSettings {
   importWatch?: boolean;
   /** Sessions side by side in the web app, left to right (at most SPLIT_MAX, core client/people.ts). */
   splitView?: string[];
+  /** A member's own usage fallback (session/member-fallbacks.ts): models only, each one they can call. The owner's is models.limitFallback. */
+  usageFallback?: LimitFallbackConfig;
+  /** A member's own refusal fallback: entries without accounts, each a model they can call. The owner's is models.refusalFallback. */
+  refusalFallback?: RefusalFallbackConfig;
 }
 
 export interface HubAccount {
