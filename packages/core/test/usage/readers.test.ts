@@ -287,7 +287,8 @@ describe('API limit mappers', () => {
           { type: 'SOME_NEW_LIMIT', percentage: 1 },
         ],
       },
-    });
+      // a fixed clock: on the real one the week's reset came within 6 hours on 2026-10-30 and read as the 5h window
+    }, 1_793_000_000_000);
     expect(l.windows.map((w) => [w.name, w.resetsAt])).toEqual([
       ['5h', undefined],
       ['7d', 1_793_305_885_976],

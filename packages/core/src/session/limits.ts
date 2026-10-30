@@ -134,7 +134,7 @@ export function limitFallback(engine: Engine, accountId: string | undefined, mod
   const member = isMember(accountId) ? accountId! : undefined;
   let resolved;
   try {
-    resolved = engine.providersFor(accountId).resolve(modelRef);
+    resolved = (member ? engine.providersFor(member) : engine.providers).resolve(modelRef);
   } catch {
     return undefined;
   }
