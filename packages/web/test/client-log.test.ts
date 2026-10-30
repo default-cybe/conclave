@@ -7,7 +7,7 @@
  */
 import { beforeEach, expect, test } from 'bun:test';
 import type { ClientLogBatch } from '@conclave/core/client';
-import { _clientLogState, _resetClientLog, clientLog, flush, foldPath, logRequestFailure, platformName, startClientLog } from '../src/lib/clientLog';
+import { _clientLogState, _resetClientLog, clientLog, flush, foldPath, logRequestFailure, noteLongTask, platformName, reportLongTasks, startClientLog } from '../src/lib/clientLog';
 import { componentPath } from '../src/components/ErrorBoundary';
 import { filesWords } from '../src/features/settings/logs';
 
@@ -85,6 +85,32 @@ test('render errors name the components they were in', () => {
   const stack = '\n    at Broken (http://x/src/Broken.tsx:3:9)\n    at div\n    at SectionBody (http://x/src/S.tsx:1:1)\n    at SettingsPage\n    at Shell\n    at App';
   expect(componentPath(stack)).toBe('Broken < SectionBody < SettingsPage < Shell');
   expect(componentPath(undefined)).toBeUndefined();
+});
+
+test('long tasks go as one summary a minute: count, longest, total and the folded path', async () => {
+  const sent: ClientLogBatch[] = [];
+  startClientLog(async (b) => sent.push(b));
+  const t0 = 10 * 60_000;
+  reportLongTasks(t0, '/');
+  expect(_clientLogState().queue.length).toBe(0);
+  noteLongTask(80);
+  noteLongTask(1200.4);
+  noteLongTask(60);
+  reportLongTasks(t0, '/sessions/ses_0mvhhgjec6nozowliiu');
+  // within the minute: counted, not sent
+  noteLongTask(70);
+  reportLongTasks(t0 + 30_000, '/');
+  expect(_clientLogState().queue.length).toBe(1);
+  // sent before the next one, as a minute apart they would be
+  await flush();
+  reportLongTasks(t0 + 60_000, '/');
+  // nothing long since: nothing goes
+  reportLongTasks(t0 + 200_000, '/');
+  await flush();
+  const events = sent.flatMap((b) => b.events);
+  expect(events.length).toBe(2);
+  expect(events[0]).toMatchObject({ level: 'warn', event: 'perf.longtasks', fields: { count: 3, maxMs: 1200, totalMs: 1340, path: '/sessions/:id' } });
+  expect(events[1]).toMatchObject({ level: 'info', event: 'perf.longtasks', fields: { count: 1, maxMs: 70, totalMs: 70, path: '/' } });
 });
 
 test('Settings, Logs: the files in words', () => {

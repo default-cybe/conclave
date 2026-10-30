@@ -547,20 +547,32 @@ fn drop_pending_login(app: &AppHandle) {
 
 /// Open the saved hub if it answers, else the first of its other addresses
 /// that does (the same network, a stable name). The bundled page calls this on start.
+/// A saved token the hub turns away fails with hub::REJECTED, so the page asks
+/// to sign in again; any other failure, it tries again (src/start.js).
 #[tauri::command]
 async fn open_hub(app: AppHandle) -> Result<(), String> {
     let base = hub_base(&app).ok_or_else(|| "No hub is set up yet.".to_string())?;
-    let saved = state(&app).settings.lock().unwrap().addresses.clone();
+    let (saved, token) = {
+        let s = state(&app).settings.lock().unwrap();
+        (s.addresses.clone(), s.token.clone())
+    };
     let moved = tauri::async_runtime::spawn_blocking(move || -> Result<Option<Url>, String> {
-        let err = match hub::health(&base) {
-            Ok(()) => return Ok(None),
-            Err(e) => e,
+        let moved = match hub::health(&base) {
+            Ok(()) => None,
+            Err(err) => Some(
+                hub::fallbacks(base.as_str(), &saved)
+                    .into_iter()
+                    .find(|u| hub::health(u).is_ok())
+                    .ok_or_else(|| format!("{err} If the hub has a new address, scan a new pairing code or enter the address here."))?,
+            ),
         };
-        hub::fallbacks(base.as_str(), &saved)
-            .into_iter()
-            .find(|u| hub::health(u).is_ok())
-            .map(Some)
-            .ok_or_else(|| format!("{err} If the hub has a new address, scan a new pairing code or enter the address here."))
+        // only a clear 401/403 counts: any other answer opens the hub as before
+        if let Some(token) = &token {
+            if let Ok(false) = hub::token_works(moved.as_ref().unwrap_or(&base), token) {
+                return Err(format!("{} Sign in again.", hub::REJECTED));
+            }
+        }
+        Ok(moved)
     })
     .await
     .map_err(|e| e.to_string())??;
