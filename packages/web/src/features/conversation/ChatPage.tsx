@@ -32,6 +32,7 @@ import { ContextPanel, PANEL_W } from '@/features/chat/ContextPanel';
 import { downloadExport, isChat } from '@/features/chat/util';
 import { canSend, SendToFriendDialog } from '@/features/friends/SendToFriend';
 import { FriendShareLine } from '@/features/friends/FriendShareLine';
+import { ImportedLine } from '@/features/import/ImportedLine';
 import { branchChat, patchChat, stopChat } from './actions';
 import { ChatComposer, FILES_EVENT } from './ChatComposer';
 import { BrowserLive } from '@/features/chat/BrowserLive';
@@ -139,6 +140,8 @@ export default function ChatPage() {
       <>
         {!phone && <ChatHeader id={id} renaming={renaming} setRenaming={setRenaming} />}
         <FriendShareLine session={session} className="mx-auto w-full max-w-[784px] shrink-0 px-8 py-1.5 phone:px-5" />
+        {/* an imported chat says where it came from; writing in it continues it here (core session/imported.ts) */}
+        <ImportedLine session={session} className="mx-auto w-full max-w-[784px] shrink-0 px-8 py-1.5 phone:px-5" />
         <ChatMessages chatId={id} session={session} />
         <Docked>
           <BrowserLive sessionId={id} narrow />

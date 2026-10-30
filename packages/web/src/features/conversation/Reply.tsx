@@ -19,7 +19,8 @@ import type { ContentBlock, Message, Session, ToolResultBlock, ToolUseBlock } fr
 import { api } from '@/lib/api';
 import { attempt, useHub, type ToolRun } from '@/store/store';
 import { cn } from '@/lib/text';
-import { hhmm } from '@/lib/format';
+import { dayTime, hhmm } from '@/lib/format';
+import { importedSourceName, isImportedMessage } from '@conclave/core/session/imported';
 import { useCopy, useIsMobile } from '@/lib/hooks';
 import { modelName } from '@/lib/models';
 import { toolLine, toolRowWords } from '@/lib/toolLine';
@@ -31,7 +32,7 @@ import { Fold, InkReveal, Knot, LiveStatus, Steps, Swap, type MarkState, type St
 import { readDismissed, resultText, writeDismissed } from '@/features/chat/util';
 import { canSend, SendToFriendDialog } from '@/features/friends/SendToFriend';
 import { ReplyIcons } from './ReplyIcons';
-import { ChatMarkdown } from './ChatMarkdown';
+import { ChatCode, ChatMarkdown } from './ChatMarkdown';
 import { MapsCards, MapsLine } from '@/features/maps/MapsCard';
 import { FileCards, FileLine } from '@/features/files/FileCard';
 import { WatchCards, WatchLine } from '@/features/watches/WatchCards';
@@ -322,6 +323,19 @@ function ToolLine({ tool, result, run, live, messages, results, folded }: { tool
     // a job handed to Code or the Assistant: who and where, and its session, while it works too
     case 'Delegate':
       return <DelegateCallLine tool={tool} result={result} run={run} sessionId={messages[0]?.sessionId ?? ''} />;
+    // a claude.ai artifact in an imported chat: its title, then its code (core session/imported.ts)
+    case 'artifacts': {
+      const code = str(i.content);
+      if (!code) return <Line>{str(i.command) === 'update' ? 'Updated' : 'Made'} an artifact{str(i.title) ? `: ${str(i.title)}` : ''}</Line>;
+      const lang = str(i.language) || (str(i.type)?.split('/').pop() ?? '').replace(/^vnd\.ant\./, '');
+      return (
+        <Expand label={`Artifact: ${str(i.title) || str(i.id) || 'untitled'}`} defaultOpen={!folded}>
+          <div className="max-w-full">
+            <ChatCode code={code} lang={lang === 'react' ? 'jsx' : lang} />
+          </div>
+        </Expand>
+      );
+    }
     default: {
       const label = tool.name.replace(/^mcp__/, '').replace(/__/g, ' ');
       if (running) return null;
@@ -558,7 +572,10 @@ function ReplyFoot({
   const [sending, setSending] = useState(false);
   // nothing of the reply has arrived yet while it first thinks
   const last = replyLast(reply);
-  const model = reply.model ?? last?.model ?? session.model;
+  const fromImport = !!last && isImportedMessage(last);
+  // an imported answer came from the source's model, not this chat's: say the source when the export did not name it
+  const model = reply.model ?? last?.model ?? (fromImport ? ((session.meta?.import as { model?: string } | undefined)?.model ?? '') : session.model);
+  const source = fromImport && !model ? importedSourceName(session) : undefined;
   const suggestsSession = /continue as a session/i.test(text);
   const user = reply.user;
 
@@ -641,8 +658,8 @@ function ReplyFoot({
           </span>
           {/* a narrow column (a preview open beside it) keeps the actions and drops the model and time */}
           <span className={cn('ml-auto flex shrink-0 items-center gap-2 pl-3 text-[12px] text-fg-3 @max-[640px]:hidden phone:text-[13px]', !isLast && REVEAL, mobile && 'hidden')}>
-            <ModelName model={model} size={13} />
-            <span className="num">{hhmm(last.createdAt)}</span>
+            {source ? <span>{source}</span> : <ModelName model={model} size={13} />}
+            <span className="num">{fromImport ? dayTime(last.createdAt) : hhmm(last.createdAt)}</span>
           </span>
         </>
       )}

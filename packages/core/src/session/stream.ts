@@ -524,7 +524,8 @@ export async function completeText(
         messages: [{ role: 'user', content: [{ type: 'text', text: opts.prompt }] }],
         maxTokens: opts.maxTokens ?? 2000,
         ...(opts.stopSequences?.length ? { stopSequences: opts.stopSequences } : {}),
-        signal: opts.signal,
+        // a chore still waiting (or retrying) when the hub stops ends with it
+        signal: opts.signal ? AbortSignal.any([opts.signal, engine.stopSignal]) : engine.stopSignal,
       },
       { purpose: opts.purpose ?? 'chore', sessionId: opts.sessionId, accountId, autoSwitchFrom },
     );

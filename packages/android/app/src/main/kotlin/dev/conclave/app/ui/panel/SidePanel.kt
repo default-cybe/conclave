@@ -214,7 +214,11 @@ fun SidePanel(
                             onOpen(r.id, r.chat)
                         },
                         onLongClick = { deleting = r },
-                        trailing = { Dot(r.dot) },
+                        trailing = {
+                            // an imported chat's source and original date (Imported.kt)
+                            r.note?.let { Text(it, style = ConclaveType.meta.copy(fontSize = 12.sp), color = c.fg3, maxLines = 1) }
+                            Dot(r.dot)
+                        },
                     )
                 }
             }

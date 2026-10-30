@@ -431,6 +431,22 @@ docs/DESIGN.md 38 has the details.
 | Gemini CLI | `~/.gemini/tmp/<project>/chats/` | Rewind, patch and set records are replayed. The folder comes from `projects.json`. |
 | claude.ai, ChatGPT | An upload of the export zip or its `conversations.json` | ChatGPT keeps the branch that was on screen. They become chats on the hub. |
 
+**Where imported chats show, and continuing one.** An imported chat sits in
+an **Imported** group of its own, after the other groups in the web sidebar,
+the Chats and Sessions lists and the phone's side panel. It is ordered by its
+original date, newest first, and each row shows its source and that date
+("claude.ai, 2 May"), so a big export never fills Today. Search finds them as
+before. Open one to read it whole: roles and each message's own time,
+attachments as file chips, claude.ai artifacts as titled code blocks, and
+thinking folded. Write in it to continue it on the chat's model. That turn
+sends the imported messages as real conversation turns: attachment text and
+artifact code go along, tool calls go as text, and unsigned thinking stays
+out. Long chats are compacted the way any long chat is. The first message
+takes the chat out of Imported (`meta.import.continuedAt`, unarchived), and
+from then on it is a normal chat in its date group. It still says where it
+came from. Chats imported before this release show under Imported with no
+re-import. A member's imports are theirs only.
+
 **Three modes.** Chats only copies the chats and sends nothing to a model.
 Chats and learn memory copies them, then the learning job reads each one.
 Learn memory only reads them and makes no sessions; it also takes Conclave

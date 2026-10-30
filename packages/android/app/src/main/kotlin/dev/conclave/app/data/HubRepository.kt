@@ -6,6 +6,7 @@ import dev.conclave.client.ConclaveClient
 import dev.conclave.client.ConnectionState
 import dev.conclave.client.HubIdentityException
 import dev.conclave.client.HubIdentityGuard
+import dev.conclave.client.logic.Imported
 import dev.conclave.client.HubKeys
 import dev.conclave.client.LiveEvent
 import dev.conclave.client.alertAction
@@ -624,7 +625,9 @@ class HubRepository(
     private suspend fun refreshAll(c: ConclaveClient) = coroutineScope {
         launch {
             load {
-                sessions.value = c.listSessions(archived = false, limit = 500)
+                // imported chats not continued yet sit archived in a group of their own (client logic/Imported.kt)
+                val imported = runCatching { c.listSessions(archived = true, tag = "imported", limit = 1000) }.getOrDefault(emptyList()).filter { Imported.inImported(it) }
+                sessions.value = c.listSessions(archived = false, limit = 500) + imported
                 syncedAt.value = System.currentTimeMillis()
             }
         }
@@ -693,7 +696,7 @@ class HubRepository(
     fun putSession(s: Session) {
         sessions.update { list ->
             val rest = list.filterNot { it.id == s.id }
-            if (s.archived) rest else rest + s
+            if (s.archived && !Imported.inImported(s)) rest else rest + s
         }
     }
 

@@ -245,6 +245,8 @@ fn main_window(app: &AppHandle, visible: bool) -> tauri::Result<WebviewWindow> {
     let handle = app.clone();
     WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
         .title("Conclave")
+        // Tauri's own drop handler swallows dropped files; the hub page takes them with HTML5 drag and drop
+        .disable_drag_drop_handler()
         .inner_size(1180.0, 800.0)
         .min_inner_size(400.0, 500.0)
         .visible(visible)
@@ -344,6 +346,7 @@ fn toggle_quick(app: &AppHandle) {
     let handle = app.clone();
     let built = WebviewWindowBuilder::new(app, QUICK, WebviewUrl::External(url))
         .title("Conclave quick ask")
+        .disable_drag_drop_handler()
         .inner_size(640.0, 460.0)
         .min_inner_size(360.0, 240.0)
         .always_on_top(true)

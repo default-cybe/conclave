@@ -95,6 +95,15 @@ function inputSummary(input: Record<string, unknown>): string {
   return oneLine(JSON.stringify(input), 160);
 }
 
+/** A claude.ai artifact (an imported chat's "artifacts" call): its code is what the chat was about, so it goes along, not just "create". */
+function artifactText(b: ToolUseBlock): string {
+  const i = b.input as { content?: unknown; title?: unknown; language?: unknown; type?: unknown };
+  if (b.name !== 'artifacts' || typeof i.content !== 'string' || !i.content.trim()) return '';
+  const lang = typeof i.language === 'string' ? i.language : typeof i.type === 'string' ? (i.type.split('/').pop() ?? '') : '';
+  const title = typeof i.title === 'string' && i.title.trim() ? ` "${oneLine(i.title, 120)}"` : '';
+  return `\n[artifact${title}]\n\`\`\`${lang}\n${truncateMiddle(i.content, 20_000, 'omitted').text}\n\`\`\``;
+}
+
 /**
  * Convert stored messages into a provider request transcript.
  *
@@ -169,7 +178,7 @@ export function buildProviderMessages(all: Message[], opts: BuildOptions): Provi
           if (external || !res || !opts.toolNames.size || (!opts.toolNames.has(b.name) && !answered)) {
             flattened.add(b.id);
             const resText = res ? truncateMiddle(resultText(res), 1500, 'omitted').text : 'no result';
-            flatText.push({ type: 'text', text: `[${b.name}: ${inputSummary(b.input)}]\n[result${res?.isError ? ' (error)' : ''}: ${resText}]` });
+            flatText.push({ type: 'text', text: `[${b.name}: ${inputSummary(b.input)}]${artifactText(b)}\n[result${res?.isError ? ' (error)' : ''}: ${resText}]` });
             continue;
           }
           // a refused Write or Edit (not read, or changed since) sends its payload once only (HARNESS-REVIEW item 17)

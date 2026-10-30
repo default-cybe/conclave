@@ -121,6 +121,7 @@ import { shellRegistry } from '../tools/shells';
 import { BackgroundTasks } from './background';
 import { delegateRefusal, moveToMainList } from './delegate';
 import { delegateMark, isDelegated, movedToMain } from '../session/delegated';
+import { continuedPatch, inImported } from '../session/imported';
 import { FILE_WRITE_TOOLS } from './subagent';
 import { MEMBER_ALLOW_KEY, PermissionRulesFor, memberAllow, routineOf } from './permissions-view';
 import { EngineToolHost } from './host';
@@ -305,6 +306,12 @@ export class Engine implements EngineApi {
   private testCommands = new Map<string, Promise<string | undefined>>();
   private workspaceFacts = new Map<string, Promise<WorkspaceFacts>>();
   private deps: EngineDeps;
+  private readonly stopping = new AbortController();
+
+  /** Aborted by shutdown(): chore calls (titles, memory extraction) end instead of retrying past the hub's stop. */
+  get stopSignal(): AbortSignal {
+    return this.stopping.signal;
+  }
 
   constructor(deps: EngineDeps, usage: import('../usage/service').UsageService) {
     this.deps = deps;
@@ -832,6 +839,12 @@ export class Engine implements EngineApi {
     if (prepared.lost.length && input.attachmentLoss !== 'drop') {
       const names = prepared.lost.join(', ');
       throw new EngineError(409, `${ATTACHMENT_LOST}${names} could not be read. Send again to go without ${prepared.lost.length === 1 ? 'it' : 'them'}.`);
+    }
+    // an imported chat the owner writes in leaves Imported: unarchived, a normal conversation from here (session/imported.ts)
+    if (inImported(s)) {
+      const next = { ...s, ...continuedPatch(s), updatedAt: Date.now() };
+      this.repos.sessions.update(next);
+      this.bus.emit({ type: 'session.updated', session: next });
     }
     return this.runnerFor(id).enqueue({ ...input, attachments: prepared.attachments, ...(prepared.receipts.length ? { attachmentReceipts: prepared.receipts } : {}) });
   }
@@ -1801,6 +1814,7 @@ export class Engine implements EngineApi {
   }
 
   async shutdown(): Promise<void> {
+    this.stopping.abort();
     // workflow runs first: they are marked interrupted and resume at the next boot
     await workflowsOf(this)?.shutdown().catch(() => {});
     alertsOf(this)?.stop();
