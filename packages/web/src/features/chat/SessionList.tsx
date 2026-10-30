@@ -14,6 +14,7 @@ import { MoreHorizontal } from 'lucide-react';
 import type { Session } from '@conclave/core/types';
 import { isDelegated, underParent } from '@conclave/core/session/delegated';
 import { isUnread } from '@conclave/core/session/unread';
+import { IMPORTED_KEY, IMPORTED_WORDS, importedLabel, inImported } from '@conclave/core/session/imported';
 import { api } from '@/lib/api';
 import { attempt, loadMessages, removeKey, upsertSession, useHub } from '@/store/store';
 import { openNewChat, useUi, type ListGroup } from '@/store/ui';
@@ -78,9 +79,13 @@ export function SessionList({ activeId }: { activeId?: string }) {
   const groups = useMemo(() => {
     const needle = q.trim();
     // every conversation: chats too, which group under Chats by project; a search finds delegated work as well
-    let list = Object.values(sessions).filter((s) => (!underParent(s) || (!!needle && isDelegated(s))) && s.archived === showArchived && (!pinnedOnly || s.pinned) && !isDuplicateCopy(s));
+    // imported chats not continued yet are not the archive: they have a group of their own, last (core session/imported.ts)
+    let list = Object.values(sessions).filter((s) => (!underParent(s) || (!!needle && isDelegated(s))) && (showArchived ? s.archived && !inImported(s) : !s.archived || inImported(s)) && (!pinnedOnly || s.pinned) && !isDuplicateCopy(s));
     if (needle) list = list.filter((s) => fuzzy(needle, `${s.title} ${s.agent} ${modelName(s.model)} ${s.tags.join(' ')} ${devices[s.device]?.name ?? ''}`) >= 0);
     list.sort((a, b) => b.updatedAt - a.updatedAt);
+    const imported = list.filter(inImported);
+    list = list.filter((s) => !inImported(s));
+    const tail = imported.length ? [{ key: IMPORTED_KEY, label: IMPORTED_WORDS, items: imported, tone: undefined as 'warn' | undefined }] : [];
     const out: Array<{ key: string; label: string; tone?: 'warn'; items: Session[] }> = [];
     const push = (key: string, label: string, s: Session, tone?: 'warn') => {
       let g = out.find((x) => x.key === key);
@@ -88,13 +93,13 @@ export function SessionList({ activeId }: { activeId?: string }) {
       g.items.push(s);
     };
     // one group per project across devices, or per device, newest first (lib/grouping.ts)
-    if (group === 'project' || group === 'device') return groupSessions(list, group, { projects, devices }).map((g) => ({ key: g.key, label: g.label, items: g.items, tone: undefined as 'warn' | undefined }));
+    if (group === 'project' || group === 'device') return [...groupSessions(list, group, { projects, devices }).map((g) => ({ key: g.key, label: g.label, items: g.items, tone: undefined as 'warn' | undefined })), ...tail];
     if (group !== 'date') {
       for (const s of list) {
         if (group === 'agent') push(`a:${s.agent}`, s.agent, s);
         else push(`t:${s.taskId ?? ''}`, s.taskId ? (tasks[s.taskId]?.title ?? 'Task') : 'No task', s);
       }
-      return out;
+      return [...out, ...tail];
     }
     const today = startOfToday(now);
     const order = ['waiting', 'running', 'reset', 'pinned', 'today', 'week', 'earlier'];
@@ -108,7 +113,7 @@ export function SessionList({ activeId }: { activeId?: string }) {
       else if (s.updatedAt >= today - 6 * DAY) push('week', 'This week', s);
       else push('earlier', 'Earlier', s);
     }
-    return out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
+    return [...out.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key)), ...tail];
   }, [sessions, devices, projects, tasks, group, showArchived, pinnedOnly, q, now]);
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
@@ -253,7 +258,7 @@ export function SessionList({ activeId }: { activeId?: string }) {
                   {g.key.startsWith('p:') && <ShareProjectButton projectId={g.key.slice(2)} name={g.label} phone={mobile} className="ml-auto" />}
                 </h2>
                 {g.items.map((s) => (
-                  <SessionRow key={s.id} s={s} active={s.id === activeId} onMenu={coarse ? () => setRowMenu(s) : undefined} device={group === 'project' ? deviceName(s, { devices }) : undefined} />
+                  <SessionRow key={s.id} s={s} active={s.id === activeId} onMenu={coarse ? () => setRowMenu(s) : undefined} device={group === 'project' ? deviceName(s, { devices }) : undefined} imported={g.key === IMPORTED_KEY ? importedLabel(s, now) : undefined} />
                 ))}
               </section>
             ))}
@@ -306,8 +311,10 @@ async function patchSession(s: Session, p: { pinned?: boolean; archived?: boolea
   if (next) upsertSession(next);
 }
 
-function SessionRow({ s, active, onMenu, device }: { s: Session; active: boolean; onMenu?: () => void; device?: string }) {
-  const meta = useRowMeta(s, device);
+function SessionRow({ s, active, onMenu, device, imported }: { s: Session; active: boolean; onMenu?: () => void; device?: string; imported?: string }) {
+  const rowMeta = useRowMeta(s, device);
+  // under Imported the line says where it came from and when it started there
+  const meta = imported ?? rowMeta;
   const messages = useHub((st) => (s.status === 'running' ? st.messages[s.id] : undefined));
   let state: ReactNode;
   let tone: 'warn' | 'fault' | 'dim' | 'signal' = 'dim';

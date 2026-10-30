@@ -15,7 +15,7 @@ import java.time.ZoneId
 enum class RecentDot { NONE, RUNNING, WAITING }
 
 /** One of the panel's recents: title only, and its dot. */
-data class Recent(val id: String, val title: String, val chat: Boolean, val dot: RecentDot)
+data class Recent(val id: String, val title: String, val chat: Boolean, val dot: RecentDot, val note: String? = null)
 
 /** A group of a list: "Pinned", "Today", "Previous 7 days", a month. */
 data class ListGroup(val key: String, val title: String, val sessions: List<Session>)
@@ -92,19 +92,22 @@ object Lists {
     ): List<ListGroup> {
         val needle = query.trim().lowercase()
         val list = sessions
-            .filter { it.isChat == chats && it.archived == archived && it.parentId == null && Home.workflowRunOf(it) == null }
+            // imported chats not continued yet are not the archive: a group of their own, last (Imported.kt)
+            .filter { it.isChat == chats && (if (archived) it.archived && !Imported.inImported(it) else !it.archived || Imported.inImported(it)) && it.parentId == null && Home.workflowRunOf(it) == null }
             .filter { s -> needle.isEmpty() || s.title.lowercase().contains(needle) || (!chats && s.agent.lowercase().contains(needle)) }
             .sortedByDescending { it.updatedAt }
         val out = ArrayList<ListGroup>()
-        val pinned = list.filter { it.pinned && !archived }
+        val imported = list.filter { Imported.inImported(it) }
+        val pinned = list.filter { it.pinned && !archived && !Imported.inImported(it) }
         if (pinned.isNotEmpty()) out.add(ListGroup("pinned", "Pinned", pinned))
         val byTime = LinkedHashMap<String, Pair<String, MutableList<Session>>>()
         for (s in list) {
-            if (s.pinned && !archived) continue
+            if ((s.pinned && !archived) || Imported.inImported(s)) continue
             val (key, title) = ChatList.group(s.updatedAt, now, zone)
             byTime.getOrPut(key) { title to ArrayList() }.second.add(s)
         }
         byTime.forEach { (k, v) -> out.add(ListGroup(k, v.first, v.second)) }
+        if (imported.isNotEmpty()) out.add(ListGroup(Imported.KEY, Imported.WORDS, imported))
         return out
     }
 

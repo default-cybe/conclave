@@ -181,6 +181,11 @@ export function hhmm(ts: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+/** "14:08" today, "2 Apr, 14:08" another day (an imported message's own time). */
+export function dayTime(ts: number, now = Date.now()): string {
+  return new Date(ts).toDateString() === new Date(now).toDateString() ? hhmm(ts) : `${shortDate(ts)}, ${hhmm(ts)}`;
+}
+
 /** Relative time for lists: "now", "2m", "3h", "Tue", "16 Oct". */
 export function relTime(ts: number | undefined, now = Date.now()): string {
   if (!ts) return '';

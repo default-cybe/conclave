@@ -172,7 +172,14 @@ object Drawer {
         val groups = out.map { (k, v) -> DrawerGroup(k, v.first, v.second) }
         val first = groups.filter { it.key == HOME } + groups.filter { it.key == PINNED }
         val last = setOf(HOME, PINNED, CHATS, NO_PROJECT)
-        return first + groups.filter { it.key !in last } + groups.filter { it.key == NO_PROJECT } + groups.filter { it.key == CHATS }
+        // imported chats not continued yet: a group of their own, last, by their original date (Imported.kt)
+        val imported = sessions
+            .filter { Imported.inImported(it) && !Delegated.underParent(it) && (mode == null || Start.modeOf(it) == mode) && (needle.isEmpty() || matches(it, needle, "")) }
+            .sortedByDescending { it.updatedAt }
+            .take(Imported.LIMIT)
+            .map { s -> Recent(s.id, Panel.title(s), s.isChat, Panel.dot(s, s.id in waiting), Imported.label(s, now, zone)) }
+        val tail = if (imported.isEmpty()) emptyList() else listOf(DrawerGroup(Imported.KEY, Imported.WORDS, imported))
+        return first + groups.filter { it.key !in last } + groups.filter { it.key == NO_PROJECT } + groups.filter { it.key == CHATS } + tail
     }
 
     /**

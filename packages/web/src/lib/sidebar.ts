@@ -18,10 +18,17 @@
  * from as a quiet second line ("from Capstone chat"). Moved to the main
  * list, it is a normal session of its kind. Pure, so test/sidebar.test.ts
  * checks it.
+ *
+ * Imported chats (core session/imported.ts) that were never written in
+ * here have a group of their own, Imported, after the mode's groups:
+ * newest first by their original date, each with its source and that date
+ * ("claude.ai, 2 May"), so an export of hundreds never floods Today. The
+ * first message sent in one moves it to its date group.
  */
 import type { Session } from '@conclave/core/types';
 import { delegateMark, isDelegated, underParent } from '@conclave/core/session/delegated';
 import { isUnread } from '@conclave/core/session/unread';
+import { IMPORTED_KEY, IMPORTED_WORDS, importedLabel, inImported } from '@conclave/core/session/imported';
 import { CHATS, deviceName, groupSessions, type GroupContext } from './grouping';
 import { hrefOf, liveState } from './recents';
 import { sessionRepo } from './github';
@@ -134,8 +141,25 @@ export interface SideInput {
   limit?: number;
 }
 
-/** The sidebar's groups for a mode. */
+/** How many rows Imported lists at most in the sidebar; All conversations has every one. */
+export const IMPORTED_LIMIT = 30;
+
+/** Imported chats of a mode still in their own place, newest first by their original date. */
+export function importedSessions(sessions: Iterable<Session>, mode: SideMode): Session[] {
+  const out: Session[] = [];
+  for (const s of sessions) if (inImported(s) && !underParent(s) && sideModeOf(s) === mode) out.push(s);
+  return out.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** The sidebar's groups for a mode, then Imported. */
 export function sideGroups(i: SideInput): SideGroupOut[] {
+  const waiting = i.waiting ?? new Set<string>();
+  const imported = importedSessions(i.sessions, i.mode).slice(0, IMPORTED_LIMIT);
+  const tail = imported.length ? [{ key: IMPORTED_KEY, label: IMPORTED_WORDS, rows: imported.map((s) => rowOf(s, waiting, importedLabel(s, i.now))) }] : [];
+  return [...modeGroups(i), ...tail];
+}
+
+function modeGroups(i: SideInput): SideGroupOut[] {
   const waiting = i.waiting ?? new Set<string>();
   const list = modeSessions(i.sessions, i.mode).slice(0, i.limit ?? SIDE_LIMIT);
   const by: SideGroupBy = i.mode === 'code' ? i.by : 'time';
