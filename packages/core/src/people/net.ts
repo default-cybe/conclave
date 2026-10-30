@@ -44,6 +44,7 @@ export function isLocalName(host: string): boolean {
 }
 
 export const PRIVATE_REFUSED = 'Refused: that address is on the hub\'s own network. Only the owner can reach it from the hub.';
+export const PRIVATE_LOOKUP_FAILED = 'Refused: the hub could not look up that address, so it cannot tell whether it is public. Try again later.';
 
 /** Throws when a URL's host is private, or resolves to a private address. */
 export async function checkPublicUrl(raw: string, resolve: (host: string) => Promise<string[]> = async (h) => (await lookup(h, { all: true, verbatim: true })).map((r) => r.address)): Promise<void> {
@@ -57,22 +58,33 @@ export async function checkPublicUrl(raw: string, resolve: (host: string) => Pro
   await checkPublicHost(u.hostname, resolve);
 }
 
-/** Throws when a host name (a mail server) is private, or resolves to a private address. */
-export async function checkPublicHost(name: string, resolve: (host: string) => Promise<string[]> = async (h) => (await lookup(h, { all: true, verbatim: true })).map((r) => r.address)): Promise<void> {
+/**
+ * Throws when a host name (a mail server) is private, resolves to a private
+ * address, or does not resolve: every caller checks for a member, and a name
+ * the check cannot see may still reach the hub's network (fail closed).
+ */
+export async function checkPublicHost(name: string, resolve?: (host: string) => Promise<string[]>): Promise<void> {
+  await resolvePublic(name, resolve);
+}
+
+/** The public address to connect to for a host name, after the checks of checkPublicHost. */
+export async function resolvePublic(name: string, resolve: (host: string) => Promise<string[]> = async (h) => (await lookup(h, { all: true, verbatim: true })).map((r) => r.address)): Promise<string> {
   const host = name.trim().replace(/^\[|\]$/g, '');
   if (!host) throw new Error('That address does not look right.');
   if (isIP(host)) {
     if (isPrivateAddress(host)) throw new Error(PRIVATE_REFUSED);
-    return;
+    return host;
   }
   if (isLocalName(host)) throw new Error(PRIVATE_REFUSED);
-  let addrs: string[] = [];
+  let addrs: string[];
   try {
     addrs = await resolve(host);
   } catch {
-    return;
+    throw new Error(PRIVATE_LOOKUP_FAILED);
   }
+  if (!addrs.length) throw new Error(PRIVATE_LOOKUP_FAILED);
   if (addrs.some(isPrivateAddress)) throw new Error(PRIVATE_REFUSED);
+  return addrs[0];
 }
 
 /** fetch that refuses addresses on the hub's network, for what a member points the hub at (a CalDAV server). */

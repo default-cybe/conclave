@@ -18,7 +18,7 @@ import { OWNER_ID, currentAccount, runAs } from '../../src/people/context';
 import { accountKv } from '../../src/people/scoped';
 import { eventAccount, eventVisibleTo } from '../../src/people/events';
 import { HUB_REFUSED, MachineRefused, RefusedMachine, guardMachine } from '../../src/people/guard';
-import { PRIVATE_REFUSED, checkPublicUrl, isPrivateAddress } from '../../src/people/net';
+import { PRIVATE_LOOKUP_FAILED, PRIVATE_REFUSED, checkPublicUrl, isPrivateAddress } from '../../src/people/net';
 import type { Session } from '../../src/types';
 
 const columns = (db: ReturnType<typeof openDb>, t: string) => (db.query(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).map((c) => c.name);
@@ -366,5 +366,10 @@ describe('public addresses', () => {
     await expect(checkPublicUrl('http://notes.example/mcp', async () => ['10.0.0.5'])).rejects.toThrow(PRIVATE_REFUSED);
     await expect(checkPublicUrl('https://notes.example/mcp', async () => ['93.184.216.34'])).resolves.toBeUndefined();
     await expect(checkPublicUrl('file:///etc/passwd')).rejects.toThrow();
+  });
+
+  test('a lookup that fails or finds nothing is refused (fail closed)', async () => {
+    await expect(checkPublicUrl('https://notes.example/mcp', async () => Promise.reject(new Error('SERVFAIL')))).rejects.toThrow(PRIVATE_LOOKUP_FAILED);
+    await expect(checkPublicUrl('https://notes.example/mcp', async () => [])).rejects.toThrow(PRIVATE_LOOKUP_FAILED);
   });
 });

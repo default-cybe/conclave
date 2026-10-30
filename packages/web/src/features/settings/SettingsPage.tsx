@@ -192,6 +192,7 @@ const ALL_SECTIONS: SectionDef[] = [
     label: 'Browser',
     desc: 'The browser the assistant and watches use: its engines, the profiles and the sites you signed in to, and a proxy for when you ask for one.',
     C: BrowserSection,
+    member: { C: BrowserSection, desc: 'Your own browser on the hub: the sites you signed in to and your saved logins. Nobody else browses with them.' },
     // a member sees their own browser only: its sites, saved logins and Sign in (routes-browser.ts memberStatus);
     // engines, the install and the proxy come only in the owner's answer, so the section hides them
   },

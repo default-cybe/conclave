@@ -5,7 +5,7 @@ import type { BrowserContext, BrowserType, CDPSession, Frame, Locator, Page, Req
 import type { ConfigStore } from '../config';
 import type { ConclaveConfig } from '../config/schema';
 import { currentAccount, isMember } from '../people/context';
-import { checkPublicUrl } from '../people/net';
+import { resolvePublic } from '../people/net';
 import { logger } from '../util/log';
 import { oneLine, sleep } from '../util/text';
 import { findBrowserExecutable } from './executable';
@@ -84,6 +84,8 @@ export interface BrowserManagerOptions {
   memberMax?: number;
   /** Close a member's browser after this long unused. Default MEMBER_IDLE_MS. */
   memberIdleMs?: number;
+  /** The public address a member's browser may connect to for a host and port, or throws. Default resolvePublic; tests pass one that lets a local server count as public. */
+  memberAddress?: (host: string, port: number) => Promise<string>;
 }
 
 /** A session's proxy, as the tools report it. Never a login or password. */
@@ -424,6 +426,8 @@ export class BrowserManager implements BrowserTakeover {
   private ownerHeld = new Map<string, Set<() => void>>();
   private readonly findStock?: () => string | undefined;
   private readonly memberMax: number;
+  /** Checks where a member's browser connects (memberRefusal, its relay). */
+  readonly memberAddress: (host: string, port: number) => Promise<string>;
   private readonly memberIdleMs: number;
   /** Members' own saved logins, one vault per account in their folder. */
   private memberVaults = new Map<string, LoginVault>();
@@ -444,6 +448,7 @@ export class BrowserManager implements BrowserTakeover {
     this.probe = opts.proxyProbe ?? ((p) => probeProxy(p, { timeoutMs: 12_000 }));
     this.findStock = opts.stockBrowser;
     this.memberMax = opts.memberMax ?? MEMBER_MAX_BROWSERS;
+    this.memberAddress = opts.memberAddress ?? ((host) => resolvePublic(host));
     this.memberIdleMs = opts.memberIdleMs ?? MEMBER_IDLE_MS;
     this.logins = new LoginVault(opts.config);
   }
@@ -530,12 +535,12 @@ export class BrowserManager implements BrowserTakeover {
     }
     if (u.protocol === 'data:' || u.protocol === 'blob:' || u.href === 'about:blank') return undefined;
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'Only http and https addresses work in your browser on the hub.';
-    const key = u.hostname.toLowerCase();
+    const key = u.host.toLowerCase();
     const hit = this.hostChecks.get(key);
     if (hit && Date.now() - hit.at < 30_000) return hit.refused;
     let refused: string | undefined;
     try {
-      await checkPublicUrl(u.href);
+      await this.memberAddress(u.hostname, Number(u.port) || (u.protocol === 'https:' ? 443 : 80));
     } catch (err) {
       refused = errText(err);
     }
@@ -548,8 +553,9 @@ export class BrowserManager implements BrowserTakeover {
    * A member's browser reaches only public addresses: every request and
    * WebSocket of the context is checked (the host resolved like WebFetch
    * does), and one to the hub, its LAN or a link local address is aborted.
-   * shortcut: Chromium resolves the name again, so a DNS rebind between the
-   * two lookups gets through; pin with --host-resolver-rules if that matters.
+   * Routes never see redirect hops, so this is the early, readable refusal;
+   * the fence is the member's SOCKS5 relay (SocksRelay.publicOnly, in launch),
+   * which every connection of the browser goes through.
    */
   private async guardMember(context: BrowserContext): Promise<void> {
     await context.route('**/*', async (route) => {
@@ -787,8 +793,10 @@ export class BrowserManager implements BrowserTakeover {
     const proxy = proxied?.proxy;
     let relay: SocksRelay | undefined;
     let proxyOption: Options['proxy'];
+    const member = !proxied && isMemberProfile(name);
     // a preview browser keeps no service worker, saves no download and is granted nothing
-    const lockdown = (o: Options): Options => (proxied?.preview ? { ...o, serviceWorkers: 'block', acceptDownloads: false, permissions: [], args: [...(o.args ?? []), ...PREVIEW_NET_FLAGS] } : o);
+    const lockdown = (o: Options): Options =>
+      proxied?.preview ? { ...o, serviceWorkers: 'block', acceptDownloads: false, permissions: [], args: [...(o.args ?? []), ...PREVIEW_NET_FLAGS] } : member ? { ...o, serviceWorkers: 'block' } : o;
     const withProxy = (o: Options): Options => lockdown(proxyOption ? { ...o, proxy: proxyOption, args: [...(o.args ?? []), WEBRTC_PROXY_FLAG] } : o);
 
     // a sandbox Chromium cannot start is never retried without it
@@ -830,6 +838,11 @@ export class BrowserManager implements BrowserTakeover {
         } else if (e.scheme === 'socks5') proxyOption = { server: `socks5://${host}:${e.port}` };
         // Playwright answers an HTTP proxy's login itself, so the password stays off the command line
         else proxyOption = { server: `http://${host}:${e.port}`, ...(e.username ? { username: e.username, password: e.password ?? '' } : {}) };
+      } else if (member) {
+        // a member's browser connects only through a relay that dials checked public addresses: redirect hops never reach the routes
+        relay = await SocksRelay.publicOnly(this.memberAddress);
+        // <-loopback>: Chromium sends localhost and 127.0.0.1 through the relay too, whatever Playwright's env says
+        proxyOption = { server: relay.url, bypass: '<-loopback>' };
       }
       context = await open();
       if (epoch !== this.epoch) {

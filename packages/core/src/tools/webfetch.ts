@@ -1,6 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { isMember, currentAccount } from '../people/context';
-import { isLocalName, isPrivateAddress, PRIVATE_REFUSED } from '../people/net';
+import { isLocalName, isPrivateAddress, PRIVATE_LOOKUP_FAILED, PRIVATE_REFUSED } from '../people/net';
 import { isIP } from 'node:net';
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
@@ -157,7 +157,8 @@ export async function guardHost(u: URL): Promise<{ error: string } | { address?:
     // a slow resolver does not hold the fetch for long; the proxy, if any, resolves the name itself
     addresses = await Promise.race([resolveHost(host), new Promise<string[]>((_, reject) => setTimeout(() => reject(new Error('lookup timed out')), LOOKUP_TIMEOUT_MS).unref?.())]);
   } catch {
-    return {};
+    // a member's name that does not resolve here is refused: the proxy or Chromium might resolve it into the hub's network
+    return member ? { error: PRIVATE_LOOKUP_FAILED } : {};
   }
   const bad = addresses.find(isMetadataAddress);
   if (bad) return { error: `Refused: ${host} resolves to ${bad}, a cloud metadata address. WebFetch never fetches instance metadata.` };

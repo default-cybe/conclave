@@ -23,12 +23,14 @@ import type { Browser, BrowserType, Page } from 'playwright-core';
 // axe-core's browser bundle as text, embedded in the compiled binary like the default workflows
 import axeSource from 'axe-core/axe.min.js' with { type: 'text' };
 import { currentAccount, isMember, runAs } from '../people/context';
+import { resolvePublic } from '../people/net';
 import { guardHost } from '../tools/webfetch';
 import { wrapUntrusted } from '../tools/util';
 import { contactSheetArgs, findFfmpeg, runFfmpeg } from '../util/ffmpeg';
 import { playwrightCacheDirs } from './executable';
-import type { BrowserManager } from './manager';
+import { WEBRTC_PROXY_FLAG, type BrowserManager } from './manager';
 import { hubBrowsersPath, loadPlaywright } from './runtime';
+import { SocksRelay } from './proxy-net';
 
 export type CaptureTheme = 'light' | 'dark';
 export type CaptureBrowserName = 'chromium' | 'firefox';
@@ -79,6 +81,8 @@ export interface CaptureDeps {
   signal?: AbortSignal;
   /** The account the capture runs for (set by capture()): a member's page reaches only public addresses. */
   account?: string;
+  /** Where a member's capture may connect (SocksRelay.publicOnly). Default resolvePublic; tests pass one that lets a local server count as public. */
+  publicAddress?: (host: string, port: number) => Promise<string>;
 }
 
 export interface CaptureShot {
@@ -274,8 +278,12 @@ export async function capture(rawUrl: string, opts: CaptureOptions, deps: Captur
   // route handlers run outside the caller's account: carry it to them
   deps = { ...deps, account: deps.account ?? currentAccount() };
   const acct = deps.account;
-  const g = await (acct ? runAs(acct, () => guardHost(u)) : guardHost(u));
-  if ('error' in g) throw new Error(g.error);
+  // a member's capture is checked like their browser (memberPublic); the owner's refuses only metadata
+  if (isMember(acct)) await memberPublic(u, deps);
+  else {
+    const g = await (acct ? runAs(acct, () => guardHost(u)) : guardHost(u));
+    if ('error' in g) throw new Error(g.error);
+  }
   const o = captureOptions(opts);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const dir = join(deps.outDir, 'capture', `${slug(u)}-${stamp}`);
@@ -286,6 +294,11 @@ export async function capture(rawUrl: string, opts: CaptureOptions, deps: Captur
   for (const name of o.browsers) {
     if (deps.signal?.aborted) throw new Error('Stopped.');
     if (name === 'firefox') {
+      // shortcut: Firefox through the member relay is not checked to send loopback and names to it, so members get Chromium only; test it before allowing Firefox
+      if (isMember(acct)) {
+        skipped.push({ browser: 'firefox', why: 'Firefox captures are for the owner; yours run in Chromium.' });
+        continue;
+      }
       if (!deps.firefox || !deps.firefoxPath) {
         skipped.push({ browser: 'firefox', why: 'No Playwright Firefox build is installed on the hub.' });
         continue;
@@ -310,6 +323,12 @@ export async function capture(rawUrl: string, opts: CaptureOptions, deps: Captur
 
 const H264 = 'h264';
 
+/** Throws unless a member's capture may connect to this URL's host and port. */
+async function memberPublic(u: URL, deps: CaptureDeps): Promise<void> {
+  const port = Number(u.port) || (u.protocol === 'https:' ? 443 : 80);
+  await (deps.publicAddress ?? ((host) => resolvePublic(host)))(u.hostname, port);
+}
+
 async function runBrowser(
   u: URL,
   o: Required<CaptureOptions>,
@@ -325,11 +344,15 @@ async function runBrowser(
   const page: Record<string, unknown> = {};
   const hosts = new Map<string, Promise<boolean>>();
   let browser: Browser | undefined;
+  let relay: SocksRelay | undefined;
   const stop = () => void browser?.close().catch(() => {});
   deps.signal?.addEventListener('abort', stop, { once: true });
   const timer = setTimeout(stop, Math.max(5_000, deadline - Date.now()));
   try {
-    browser = await b.type.launch({ executablePath: b.exe, headless: true, timeout: 30_000, ...(b.name === 'chromium' ? { args: ['--autoplay-policy=no-user-gesture-required', '--disable-background-networking', '--no-first-run'] } : {}) });
+    // a member's capture connects only through a relay that dials checked public addresses: routes never see redirect hops
+    if (isMember(deps.account)) relay = await SocksRelay.publicOnly(deps.publicAddress ?? ((host) => resolvePublic(host)));
+    const args = ['--autoplay-policy=no-user-gesture-required', '--disable-background-networking', '--no-first-run', ...(relay ? [WEBRTC_PROXY_FLAG] : [])];
+    browser = await b.type.launch({ executablePath: b.exe, headless: true, timeout: 30_000, ...(b.name === 'chromium' ? { args } : {}), ...(relay ? { proxy: { server: relay.url, bypass: '<-loopback>' } } : {}) });
     res.version = browser.version();
     let axeDone = false;
     for (const width of o.widths) {
@@ -344,9 +367,9 @@ async function runBrowser(
             try {
               const h = new URL(route.request().url());
               if (h.protocol === 'http:' || h.protocol === 'https:') {
-                let p = hosts.get(h.hostname);
-                const check = () => guardHost(h).then((r) => !('error' in r));
-                if (!p) hosts.set(h.hostname, (p = deps.account ? runAs(deps.account, check) : check()));
+                let p = hosts.get(h.host);
+                const check = () => (isMember(deps.account) ? memberPublic(h, deps).then(() => true, () => false) : guardHost(h).then((r) => !('error' in r)));
+                if (!p) hosts.set(h.host, (p = deps.account ? runAs(deps.account, check) : check()));
                 ok = await p;
               } else if (isMember(deps.account) && h.protocol !== 'data:' && h.protocol !== 'blob:') ok = false;
             } catch {
@@ -412,6 +435,7 @@ async function runBrowser(
     clearTimeout(timer);
     deps.signal?.removeEventListener('abort', stop);
     await browser?.close().catch(() => {});
+    await relay?.close();
   }
   res.summary.consoleErrors = seen.console.length;
   res.summary.failedRequests = seen.failed.length;
