@@ -303,6 +303,12 @@ export class Engine implements EngineApi {
   private testCommands = new Map<string, Promise<string | undefined>>();
   private workspaceFacts = new Map<string, Promise<WorkspaceFacts>>();
   private deps: EngineDeps;
+  private readonly stopping = new AbortController();
+
+  /** Aborted by shutdown(): chore calls (titles, memory extraction) end instead of retrying past the hub's stop. */
+  get stopSignal(): AbortSignal {
+    return this.stopping.signal;
+  }
 
   constructor(deps: EngineDeps, usage: import('../usage/service').UsageService) {
     this.deps = deps;
@@ -1783,6 +1789,7 @@ export class Engine implements EngineApi {
   }
 
   async shutdown(): Promise<void> {
+    this.stopping.abort();
     // workflow runs first: they are marked interrupted and resume at the next boot
     await workflowsOf(this)?.shutdown().catch(() => {});
     alertsOf(this)?.stop();
