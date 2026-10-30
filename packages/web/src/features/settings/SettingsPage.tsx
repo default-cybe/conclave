@@ -34,7 +34,7 @@ import { OWNER_PAGES, PHONE_PAGES, useInboxCount } from '@/components/nav';
 import { groupSections, searchSections, settingsRedirect } from './nav';
 import { ProvidersSection } from './providers';
 import { DefaultsSection } from './defaults';
-import { PermissionsSection } from './permissions';
+import { MemberPermissionsSection, PermissionsSection } from './permissions';
 import { NotificationsSection } from './notifications';
 import { AssistantSection } from './assistant';
 import { ReflectSection } from './reflect';
@@ -144,7 +144,8 @@ const ALL_SECTIONS: SectionDef[] = [
     label: 'Permissions',
     desc: 'What sessions may do without asking you first.',
     C: PermissionsSection,
-    owner: true,
+    // a member's own always-allow rules; the hub's mode and deny rules stay the owner's
+    member: { C: MemberPermissionsSection, desc: 'What your sessions may do without asking you first.' },
   },
   {
     id: 'notifications',
@@ -169,15 +170,16 @@ const ALL_SECTIONS: SectionDef[] = [
     label: 'Maps',
     desc: 'Places, directions and maps for the assistant, from Google Maps or OpenStreetMap. The key stays on the hub.',
     C: MapsSection,
-    owner: true,
+    // a member's own key, home and cap, on the same page (the routes run as the caller)
+    member: { C: MapsSection, desc: 'Places, directions and maps for your assistant, from Google Maps on your own key. Your key and home stay in your account.' },
   },
   {
     id: 'websearch',
     label: 'Web search',
     desc: 'The search engine WebSearch uses, how to get a free key for it, and the key. Keys stay on the hub.',
     C: WebSearchSection,
-    // the hub's keys, used for everyone (docs/design/ACCOUNTS.md)
-    owner: true,
+    // a member's own keys and proxy, on the same page; the hub's search only if the owner allows it
+    member: { C: WebSearchSection, desc: 'Your own search engine keys and proxy. Your keys stay in your account.' },
   },
   {
     id: 'calmail',
@@ -190,8 +192,9 @@ const ALL_SECTIONS: SectionDef[] = [
     label: 'Browser',
     desc: 'The browser the assistant and watches use: its engines, the profiles and the sites you signed in to, and a proxy for when you ask for one.',
     C: BrowserSection,
-    // the hub's Chromium is the owner's (docs/design/ACCOUNTS.md 5)
-    owner: true,
+    member: { C: BrowserSection, desc: 'Your own browser on the hub: the sites you signed in to and your saved logins. Nobody else browses with them.' },
+    // a member sees their own browser only: its sites, saved logins and Sign in (routes-browser.ts memberStatus);
+    // engines, the install and the proxy come only in the owner's answer, so the section hides them
   },
   {
     id: 'gateway',

@@ -36,12 +36,15 @@ export interface MockBrowserOptions {
   helper?: boolean;
   /** CloakBrowser is installed already. */
   installed?: boolean;
+  /** Use the member-shaped status, without the owner's profiles or setup. */
+  member?: boolean;
   /** The Proxmox CT id the hub found, or none. */
   ctid?: string | null;
 }
 
 export function registerBrowser(ctx: MockCtx, opts: MockBrowserOptions = {}) {
   const { on, fail, sleep, FRESH } = ctx;
+  const member = opts.member ?? flag('member') === '1';
   const helperOn = opts.helper ?? flag('helper') === '1';
   const ctidFlag = flag('ctid');
   const ctid = opts.ctid !== undefined ? opts.ctid : ctidFlag === '0' ? null : (ctidFlag ?? '135');
@@ -83,8 +86,12 @@ export function registerBrowser(ctx: MockCtx, opts: MockBrowserOptions = {}) {
   });
 
   // saved logins, Forget and Delete profile (mock/browserLogins.ts) go on top of these profiles
-  const logins = browserLoginsState(FRESH);
+  const logins = browserLoginsState(FRESH || member);
   const bare = (): BrowserStatusDto => {
+    if (member) return {
+      available: installed.playwright && (installed.chromium || installed.cloak),
+      profiles: [{ name: 'default', engine: 'chromium', label: 'Your browser on the hub', open: false, sites: [], isDefault: true }],
+    };
     const f = facts();
     const engines: BrowserEngineDto[] = [
       { engine: 'cloak', label: 'CloakBrowser', installed: !!f.cloak, ...(f.cloak ? { version: f.cloak.version, path: f.cloak.path, where: 'hub' as const } : {}), setup: browserSetupOffer('cloak', f) },

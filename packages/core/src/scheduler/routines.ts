@@ -82,13 +82,6 @@ function ruleList(v: unknown, field: string): string[] | undefined {
  * Check and tidy the fields routines got in ECOSYSTEM.md 2.3. Keys that are
  * absent stay absent; null or "" clears a field on update.
  */
-/** Watches browse with the hub's Chromium, which is the owner's (docs/design/ACCOUNTS.md 5). */
-export const MEMBER_WATCH_REFUSED = "Watches use the hub's browser, which is the owner's on this hub.";
-
-function checkWatch(input: Partial<RoutineInput>, accountId: string): void {
-  if (accountId !== OWNER_ID && input.watch) throw new Error(MEMBER_WATCH_REFUSED);
-}
-
 /**
  * The assistant home thread is the owner's own conversation: a watch reads web
  * pages, so it never runs there. A webhook run of a home routine runs in a new
@@ -264,7 +257,6 @@ export class Routines implements RoutineService {
   create(input: RoutineInput, accountId?: string): Routine {
     const acct = accountId ?? currentAccount() ?? OWNER_ID;
     this.checkDevice(input.device, acct);
-    checkWatch(input, acct);
     const name = input.name?.trim();
     if (!name) throw new Error('Routine name is required');
     if (!input.prompt?.trim()) throw new Error('Routine prompt is required');
@@ -300,7 +292,6 @@ export class Routines implements RoutineService {
     const cur = this.repos.routines.get(id);
     if (!cur) throw new Error(`Routine not found: ${id}`);
     if (patch.device !== undefined) this.checkDevice(patch.device, cur.accountId ?? OWNER_ID);
-    checkWatch(patch, cur.accountId ?? OWNER_ID);
     const extra = cleanExtra(patch);
     // only these fields: a PATCH body with "id" would write this routine over another one
     const clean = Object.fromEntries(PLAIN_FIELDS.filter((k) => patch[k] !== undefined).map((k) => [k, patch[k]])) as Partial<RoutineInput>;

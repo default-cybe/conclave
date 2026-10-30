@@ -137,8 +137,18 @@ export class WorkflowRegistry {
     return this.deps.claudeHome?.() ?? process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude');
   }
 
-  /** Every workflow, the later source winning a name. Project workflows need the session's machine and folder. */
-  async list(project?: { machine: Machine; cwd: string }): Promise<LibraryEntry[]> {
+  /** A member's own workflows on the hub: <home>/accounts/<id>/workflows. */
+  accountDir(accountId: string): string {
+    if (!/^[A-Za-z0-9_-]+$/.test(accountId)) throw new Error(`bad account id ${accountId}`);
+    return join(this.deps.home, 'accounts', accountId, 'workflows');
+  }
+
+  /**
+   * Every workflow, the later source winning a name. Project workflows need the session's machine and folder.
+   * With a member's account: what ships, plugins, their own folder and their project; never the owner's
+   * library or ~/.claude on the hub, nor another member's folder.
+   */
+  async list(project?: { machine: Machine; cwd: string }, member?: string): Promise<LibraryEntry[]> {
     const byId = new Map<string, LibraryEntry>();
     const add = async (source: WorkflowSource, script: string, path: string | undefined, prefix?: string, readError?: string) => {
       const { meta, error } = readError ? { meta: undefined, error: readError } : await describe(script);
@@ -154,14 +164,14 @@ export class WorkflowRegistry {
         if (!r.skip) await add('plugin', r.script ?? '', f, p.name, r.error);
       }
     }
-    for (const f of jsFilesIn(this.userDir)) {
+    for (const f of jsFilesIn(member ? this.accountDir(member) : this.userDir)) {
       const r = readScriptFile(f);
-      if (!r.skip) await add('user', r.script ?? '', f, undefined, r.error);
+      if (!r.skip) await add(member ? 'account' : 'user', r.script ?? '', f, undefined, r.error);
     }
     const compat = this.deps.claudeCodeCompat();
     if (project) await this.addProjectDir(project, posix.join(project.cwd, '.conclave', 'workflows'), 'project', add);
     if (compat) {
-      for (const f of jsFilesIn(join(this.claudeHome(), 'workflows'))) {
+      for (const f of member ? [] : jsFilesIn(join(this.claudeHome(), 'workflows'))) {
         const r = readScriptFile(f);
         if (!r.skip) await add('claude-code', r.script ?? '', f, undefined, r.error);
       }
@@ -194,8 +204,8 @@ export class WorkflowRegistry {
     }
   }
 
-  async get(id: string, project?: { machine: Machine; cwd: string }): Promise<LibraryEntry | undefined> {
-    const all = await this.list(project);
+  async get(id: string, project?: { machine: Machine; cwd: string }, member?: string): Promise<LibraryEntry | undefined> {
+    const all = await this.list(project, member);
     return all.find((e) => e.id === id) ?? all.find((e) => e.id.toLowerCase() === id.toLowerCase()) ?? all.find((e) => e.id.endsWith(`:${id}`));
   }
 }

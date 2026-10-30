@@ -22,6 +22,7 @@ import { agentModelRef } from '../extensions/agent-model';
 import { assertOutputSchema, formatProblems, validateSchema, type Schema } from '../tools/schema';
 import { extractJsonObject, STRUCTURED_OUTPUT_ATTEMPTS, structuredOutputNudge, structuredOutputTool, type StructuredOutputState } from '../tools/structured-output';
 import type { Tool } from '../tools/types';
+import { OWNER_ID } from '../people/context';
 
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type Effort = (typeof EFFORTS)[number];
@@ -113,11 +114,13 @@ const CLAUDE_NAMES: Record<string, string> = { explore: 'explore', plan: 'planne
  * The profile an agentType names, and a note when it fell back. Without an
  * agentType the step runs the `workflow` profile when it exists.
  */
-export function resolveProfile(engine: Engine, agentType: string | undefined, cwd: string): { name: string; note?: string } {
-  const has = (n: string) => !!engine.extensions.agent(n, cwd);
+export function resolveProfile(engine: Engine, agentType: string | undefined, cwd: string, accountId = OWNER_ID): { name: string; note?: string } {
+  // the agents the run's account sees: a member's own and the shared ones, never the owner's
+  const find = (n: string) => engine.agentNamed(n, cwd, accountId);
+  const has = (n: string) => !!find(n);
   const fallback = has('workflow') ? 'workflow' : 'general-purpose';
   if (!agentType) return { name: fallback };
-  if (has(agentType)) return { name: engine.extensions.agent(agentType, cwd)!.name };
+  if (has(agentType)) return { name: find(agentType)!.name };
   const mapped = CLAUDE_NAMES[agentType.toLowerCase()];
   if (mapped && has(mapped)) return { name: mapped };
   return { name: fallback, note: `agent ${agentType} is not installed here; using ${fallback}` };
@@ -186,14 +189,15 @@ export async function runStep(o: StepRunOptions): Promise<StepOutcome> {
   const notes: string[] = [];
   const parent = engine.getSession(o.parentSessionId);
   if (!parent) return { value: null, error: 'the session that started the run is gone', notes };
-  const profile = resolveProfile(engine, spec.agentType, o.cwd);
+  const acct = engine.accountOf(parent);
+  const profile = resolveProfile(engine, spec.agentType, o.cwd, acct);
   if (profile.note) notes.push(profile.note);
 
   let model: string | undefined;
   // a tier word the owner did not pin in models.tiers (deep may land on claude-code/opus)
   let tierGuess = false;
   // the call's model, else the phase's, else the profile's own (verifier: deep), resolved here so a failed harness can fall back
-  const ask = spec.model ?? o.phaseModel ?? profileModel(engine, profile.name, o.cwd);
+  const ask = spec.model ?? o.phaseModel ?? profileModel(engine, profile.name, o.cwd, acct);
   if (ask) {
     // agentModelRef checks that an ACP harness is installed before a tier lands on it
     const r = agentModelRef(engine, ask, parent.model);
@@ -209,7 +213,7 @@ export async function runStep(o: StepRunOptions): Promise<StepOutcome> {
 
   let acp = false;
   try {
-    const ref = model ?? engine.extensions.agent(profile.name, o.cwd)?.model ?? parent.model;
+    const ref = model ?? engine.agentNamed(profile.name, o.cwd, acct)?.model ?? parent.model;
     acp = !!engine.providers.resolve(engine.isUsable(ref) ? ref : parent.model).acp;
   } catch {
     acp = false;
@@ -314,9 +318,9 @@ export async function runStep(o: StepRunOptions): Promise<StepOutcome> {
   }
 }
 
-function profileModel(engine: Engine, name: string, cwd: string): string | undefined {
+function profileModel(engine: Engine, name: string, cwd: string, accountId: string): string | undefined {
   try {
-    return engine.extensions.agent(name, cwd)?.model;
+    return engine.agentNamed(name, cwd, accountId)?.model;
   } catch {
     return undefined;
   }

@@ -3,7 +3,8 @@
  * an X post through a fake ReadPost, a site through a fake Capture, tags and
  * files kept in a stable folder, a second save replacing the first, retrieval
  * of the closest items for a brief with MemorySearch kind "inspiration" (fenced
- * as untrusted, left out of plain searches and recall), and members refused.
+ * as untrusted, left out of plain searches and recall), and a member's own
+ * board (their memory and folder; the owner and other members never see it).
  *
  *   bun test packages/core/test/tools/save-inspiration.test.ts
  */
@@ -109,13 +110,8 @@ describe('SaveInspiration', () => {
     expect(readFileSync(shot)).toEqual(PNG);
   });
 
-  test('refusals: a member session, a bad URL, no hub', async () => {
+  test('refusals: a bad URL, no hub', async () => {
     const b = board();
-    const member = { ...b.ctx, session: makeSession(b.work, { accountId: 'acct_alice' }) };
-    const r = await SaveInspirationTool.run({ url: 'https://studio.example/' }, member);
-    expect(r.isError).toBe(true);
-    expect(text(r)).toContain("hub owner's");
-    expect(b.captures.length).toBe(0);
     const owner = { ...b.ctx, session: makeSession(b.work, { accountId: OWNER_ID }) };
     expect((await SaveInspirationTool.run({ url: 'https://studio.example/' }, owner)).isError).toBeFalsy();
     expect((await SaveInspirationTool.run({ url: 'file:///etc/passwd' }, b.ctx)).isError).toBe(true);
@@ -151,7 +147,29 @@ describe('SaveInspiration', () => {
     expect((await b.mem.recall('serif hero headline typography', {})).every((h) => h.kind !== 'inspiration')).toBe(true);
   });
 
-  test('opt-in, untrusted sessions never get it, and a member session is not offered it', async () => {
+  test("a member's save lands on their own board: their memory and folder, never the owner's or another member's", async () => {
+    const work = tempDir('conclave-insp-');
+    cleanups.push(work.cleanup);
+    fakeReadPost(work.dir, 'Post by Kail (@kail)\n\nKeycap ascii experiment');
+    engine = await startTestEngine({ script: [[{ text: 'ok' }]] });
+    const e = engine.engine;
+    const alice = e.people.create({ name: 'alice' });
+    const bob = e.people.create({ name: 'bob' });
+    const s = await e.createSession({ agent: 'assistant' } as never, alice.id);
+    const host = e.toolHost({ session: e.requireSession(s.id), id: s.id } as never);
+    const ctx = { ...makeCtx({ cwd: work.dir, host: host as never, sessionId: s.id }), session: e.requireSession(s.id) };
+    const out = await SaveInspirationTool.run({ url: 'https://x.com/kail/status/1', tags: ['ascii'] }, ctx);
+    expect(out.isError).toBeFalsy();
+    const files = (out.meta as { files: string[] }).files;
+    expect(files.length).toBe(2);
+    for (const f of files) expect(f.startsWith(join(e.config.paths.home, 'accounts', alice.id, 'inspiration'))).toBe(true);
+    expect(e.memoryFor(alice.id).list({ kind: 'inspiration' }).length).toBe(1);
+    expect(e.memoryFor(OWNER_ID).list({ kind: 'inspiration' }).length).toBe(0);
+    expect(e.memoryFor(bob.id).list({ kind: 'inspiration' }).length).toBe(0);
+    expect(existsSync(join(e.config.paths.home, 'inspiration'))).toBe(false);
+  }, 30_000);
+
+  test('opt-in, untrusted sessions never get it, and a member session is offered it too', async () => {
     const t = builtinTools().find((x) => x.name === 'SaveInspiration');
     expect(t?.optIn).toBe(true);
     expect(UNTRUSTED_DENY).toContain('SaveInspiration');
@@ -164,6 +182,6 @@ describe('SaveInspiration', () => {
       return e.toolsFor(e.requireSession(s.id), agent, 'agent', 0).map((x) => x.name);
     };
     expect(await names(OWNER_ID)).toContain('SaveInspiration');
-    expect(await names(alice.id)).not.toContain('SaveInspiration');
+    expect(await names(alice.id)).toContain('SaveInspiration');
   }, 30_000);
 });

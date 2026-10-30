@@ -336,11 +336,20 @@ export const ReadPostTool: Tool<{ url: string }> = {
     if (!media.length) return { content: readPostText({ source: t.url, post, media }) };
     const base = ctx.host.outputsDir?.();
     if (!base) return { content: readPostText({ source: t.url, post, media, note: 'Media was not downloaded: this session has no outputs folder on the hub.' }) };
+    // a member's downloads count toward their disk cap (people/disk.ts)
+    // shortcut: checked before each file, not byte by byte; a file can go past the cap by up to READ_POST_LIMITS.maxBytes
+    const full = ctx.host.diskRefusal?.();
+    if (full) return fail(full);
     const dir = join(base, t.kind === 'post' ? `post-${t.id}` : `video-${Date.now()}`);
     mkdirSync(dir, { recursive: true });
     let ffmpeg: { path: string } | { error: string } | undefined;
     for (const [i, m] of media.entries()) {
       if (ctx.signal.aborted) break;
+      const over = i > 0 ? ctx.host.diskRefusal?.() : undefined;
+      if (over) {
+        m.error = over;
+        continue;
+      }
       const n = String(i + 1).padStart(2, '0');
       if (m.type === 'photo') {
         const ext = /\.(png|webp|gif)(?:$|\?)/i.exec(new URL(m.url).pathname)?.[1]?.toLowerCase() ?? 'jpg';

@@ -31,8 +31,10 @@ function hubHomes(): string[] {
   return [...new Set([clean(conclaveHome()), ...homes])];
 }
 
-/** Under a member's folder: their own CLIProxyAPI and their own secrets file. */
-const ACCOUNT_PRIVATE = ['cliproxy', 'secrets.json'];
+/** Under a member's folder: their own CLIProxyAPI, secrets file, browser profile (cookies) and saved browser logins with their key. */
+const ACCOUNT_PRIVATE = ['cliproxy', 'secrets.json', 'browser-profile', 'browser-logins.json', 'browser-logins.key', 'browser-logins.secrets.json'];
+/** The folders among them: everything inside is private too. */
+const ACCOUNT_PRIVATE_DIRS = new Set(['cliproxy', 'browser-profile']);
 
 /** <home>/accounts/<id>/cliproxy and <home>/accounts/<id>/secrets.json for each account folder there now. */
 function accountPrivate(): string[] {
@@ -54,7 +56,7 @@ function inAccountPrivate(p: string): boolean {
   for (const h of hubHomes()) {
     if (!p.startsWith(h + sep)) continue;
     const parts = p.slice(h.length + 1).split(sep);
-    if (parts.length >= 3 && parts[0] === 'accounts' && parts[1] && ACCOUNT_PRIVATE.includes(parts[2]) && (parts[2] === 'cliproxy' || parts.length === 3)) return true;
+    if (parts.length >= 3 && parts[0] === 'accounts' && parts[1] && ACCOUNT_PRIVATE.includes(parts[2]) && (ACCOUNT_PRIVATE_DIRS.has(parts[2]) || parts.length === 3)) return true;
   }
   return false;
 }
@@ -155,7 +157,7 @@ export function commandTouchesHubPrivate(command: string, cwd?: string): boolean
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Private names under a hub home, by segment ('' is any account id). */
-const PRIVATE_REL = [['cliproxy'], ['secrets.json'], ['browser-logins.json'], ['browser-logins.key'], ['accounts', '', 'cliproxy'], ['accounts', '', 'secrets.json']];
+const PRIVATE_REL = [['cliproxy'], ['secrets.json'], ['browser-logins.json'], ['browser-logins.key'], ...ACCOUNT_PRIVATE.map((n) => ['accounts', '', n])];
 
 /** True when one path segment, maybe a glob (* ? [..] {a,b}), can be `name`. As in the shell, only a segment that starts with a dot matches a dot name. */
 function segMatches(seg: string, name: string): boolean {

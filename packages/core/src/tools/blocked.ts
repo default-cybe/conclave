@@ -4,11 +4,14 @@
  * The owner's rule: when a site bans the hub's IP, retry through the hub's
  * proxy (Settings > Browser) in the hub's own country. looksBlocked spots a
  * block page; WebFetch, WebSearch and browser_navigate then try that same
- * request once more through the proxy. The proxy is the owner's: a member's
- * call never goes through it (members get no browser settings, ACCOUNTS.md).
+ * request once more through the proxy. The hub's proxy is the owner's: a
+ * member's call never goes through it. A member's call retries only through
+ * the member's own proxy (their kv and secrets file, ProxySource.member), or
+ * not at all (ACCOUNTS.md 2).
  */
 import { currentAccount, isMember } from '../people/context';
 import { parseTrace, PROBE_TARGET } from '../browser/proxy-net';
+import { checkPublicHost } from '../people/net';
 import { defaultCountry, resolveProxy, type BrowserProxyConfig, type SecretReader } from '../browser/proxy-provider';
 
 export interface BlockCheck {
@@ -67,11 +70,13 @@ export function siteName(url: string): string {
 // ---------------------------------------------------------------------------
 
 export const NO_PROXY_HINT = 'Set a proxy in Settings > Browser to retry these through it.';
-export const MEMBER_HINT = "The hub's proxy belongs to the owner, so a member's request does not retry through it.";
+export const MEMBER_HINT = "The hub's proxy belongs to the owner, so a member's request does not retry through it. Add your own proxy in Settings, Web search, Proxy to retry through it.";
 
 export interface ProxySource {
   cfg(): BrowserProxyConfig | undefined;
   read: SecretReader;
+  /** A member's own proxy and the reader of their own secrets; never the hub's. */
+  member?(accountId: string): { cfg: BrowserProxyConfig | undefined; read: SecretReader };
 }
 
 let source: ProxySource | undefined;
@@ -106,16 +111,20 @@ export function hubCountry(): Promise<string | undefined> {
   return countryAsk;
 }
 
-type Pick = { cfg: BrowserProxyConfig; country?: string } | { skip: string };
+type Pick = { cfg: BrowserProxyConfig; read: SecretReader; country?: string } | { skip: string };
 
 async function pick(accountId: string | undefined): Promise<Pick> {
-  if (isMember(accountId)) return { skip: MEMBER_HINT };
-  const cfg = source?.cfg();
-  if (!cfg?.provider) return { skip: NO_PROXY_HINT };
+  const own = isMember(accountId) ? source?.member?.(accountId!) : undefined;
+  if (isMember(accountId) && !own?.cfg?.provider) return { skip: MEMBER_HINT };
+  const cfg = own ? own.cfg! : source?.cfg();
+  const read = own ? own.read : source?.read;
+  if (!cfg?.provider || !read) return { skip: NO_PROXY_HINT };
+  // a member's own: no hub country lookup either, their default country or none
+  if (own) return { cfg, read, ...(defaultCountry(cfg) ? { country: defaultCountry(cfg) } : {}) };
   // a custom proxy has no country choice: it is used as configured
-  if (cfg.provider !== 'dataimpulse') return { cfg };
+  if (cfg.provider !== 'dataimpulse') return { cfg, read };
   const country = (await hubCountry()) ?? defaultCountry(cfg);
-  return { cfg, ...(country ? { country } : {}) };
+  return { cfg, read, ...(country ? { country } : {}) };
 }
 
 /** The country for browser_navigate's retry (manager.useProxy), or why there is none. */
@@ -134,11 +143,19 @@ export async function retryProxy(accountId: string | undefined = currentAccount(
   if ('skip' in p) return p;
   let r: ReturnType<typeof resolveProxy>;
   try {
-    r = resolveProxy(p.cfg, source!.read, p.country);
+    r = resolveProxy(p.cfg, p.read, p.country);
   } catch (err) {
     return { skip: (err as Error).message };
   }
   const { entry: e, country } = r;
+  // a member's own proxy host is checked again at use: a name may resolve into the hub's network later
+  if (isMember(accountId)) {
+    try {
+      await checkPublicHost(e.host);
+    } catch (err) {
+      return { skip: `Your proxy was not used: ${(err as Error).message}` };
+    }
+  }
   // Bun's fetch speaks HTTP proxies only; the browser handles SOCKS5 itself
   if (e.scheme !== 'http') return { skip: "The hub's proxy is a SOCKS5 one, which only the browser tools can use; WebFetch and WebSearch need an HTTP proxy." };
   const host = e.host.includes(':') ? `[${e.host}]` : e.host;

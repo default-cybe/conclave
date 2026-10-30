@@ -15,6 +15,18 @@ import { loadLearnedSkills } from './learned';
 import { refusalEntryText } from '../session/refusal-entries';
 
 const CWD_NONE = '\u0000none';
+/** Sources a member's session shares with the owner (docs/design/ACCOUNTS.md 2). */
+const SHARED = new Set<ExtensionSource>(['builtin', 'plugin']);
+
+/**
+ * A member's own folder on the hub, <home>/accounts/<id>, holding their
+ * agents, skills, commands, workflows and learned-skills. Throws on an id
+ * that is not a plain account id, so a name never walks out of accounts/.
+ */
+export function accountHome(home: string, accountId: string): string {
+  if (!/^[A-Za-z0-9_-]+$/.test(accountId)) throw new Error(`bad account id ${accountId}`);
+  return join(home, 'accounts', accountId);
+}
 
 export interface ExtensionsOptions {
   config: ConfigStore;
@@ -180,7 +192,50 @@ export class Extensions implements ExtensionRegistry {
     return result;
   }
 
-  private scan(base: string, source: 'claude' | 'project' | 'user', mapModel: ModelMapper): LoadResult {
+  /**
+   * A member's view: builtin and plugin components (as the owner sees them,
+   * minus the owner's own), then the member's learned skills, then their own
+   * agents, skills and commands under accounts/<id>/. Never another account's.
+   */
+  forAccount(accountId: string, cwd?: string): LoadResult {
+    const key = `\u0000acct:${accountId}:${cwd ?? ''}`;
+    const cached = this.cache.get(key);
+    if (cached) return cached;
+    const base = this.load(undefined);
+    const agents = new Map(base.agents.filter((a) => SHARED.has(a.source)).map((a) => [a.name, a]));
+    const skills = new Map(base.skills.filter((s) => SHARED.has(s.source)).map((s) => [s.name, s]));
+    const commands = new Map(base.commands.filter((c) => SHARED.has(c.source)).map((c) => [c.name, c]));
+    const home = accountHome(this.config.paths.home, accountId);
+    for (const s of loadLearnedSkills(home, cwd)) skills.set(s.name, { ...s, source: 'account' });
+    const own = this.scan(home, 'account', this.mapper());
+    for (const a of own.agents) agents.set(a.name, a);
+    for (const s of own.skills) skills.set(s.name, s);
+    for (const c of own.commands) commands.set(c.name, c);
+    const result: Loaded = { agents: [...agents.values()], skills: [...skills.values()], commands: [...commands.values()], inventory: [] };
+    this.cache.set(key, result);
+    return result;
+  }
+
+  async saveAccountAgent(accountId: string, def: AgentDef): Promise<AgentDef> {
+    if (!plainName(def.name)) throw new Error(`bad agent name ${def.name}`);
+    const dir = join(accountHome(this.config.paths.home, accountId), 'agents');
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, `${def.name}.md`);
+    writeFileSync(path, toFrontmatter(agentFrontmatter(def), def.prompt));
+    this.cache.clear();
+    return { ...def, source: 'account', path };
+  }
+
+  async deleteAccountAgent(accountId: string, name: string): Promise<boolean> {
+    if (!plainName(name)) return false;
+    const path = join(accountHome(this.config.paths.home, accountId), 'agents', `${name}.md`);
+    if (!existsSync(path)) return false;
+    rmSync(path);
+    this.cache.clear();
+    return true;
+  }
+
+  private scan(base: string, source: 'claude' | 'project' | 'user' | 'account', mapModel: ModelMapper): LoadResult {
     return {
       agents: loadAgentsFromDir(join(base, 'agents'), source, mapModel),
       skills: loadSkillsFromDir(join(base, 'skills'), source),
@@ -228,28 +283,7 @@ export class Extensions implements ExtensionRegistry {
    * Code lists skills as commands too).
    */
   command(name: string, cwd?: string): CommandDef | undefined {
-    const loaded = this.load(cwd);
-    const hit = resolveName(loaded.commands, name);
-    if (hit) return hit;
-    const skill = resolveName(loaded.skills, name);
-    if (!skill) return undefined;
-    let body = skill.body ?? '';
-    if (skill.body === undefined) {
-      try {
-        body = parseMd(readFileSync(skill.path, 'utf8')).body.trim();
-      } catch {
-        return undefined;
-      }
-    }
-    return {
-      name: skill.name,
-      description: skill.description,
-      allowedTools: skill.allowedTools,
-      body: skill.dir ? `Base directory for this skill: ${skill.dir}\n\n${body}` : body,
-      source: skill.source,
-      path: skill.path,
-      plugin: skill.plugin,
-    };
+    return commandIn(this.load(cwd), name);
   }
 
   async saveAgent(def: AgentDef, scope: 'user' | 'project', cwd?: string): Promise<AgentDef> {
@@ -334,6 +368,36 @@ export class Extensions implements ExtensionRegistry {
   async removeMarketplace(name: string): Promise<boolean> {
     return this.pluginMgr.removeMarketplace(name);
   }
+}
+
+/** A file name that stays in its folder: no slash, no dot dot, no leading dot. */
+function plainName(name: string): boolean {
+  return !!name && !/[\\/\u0000]/.test(name) && !name.includes('..') && !name.startsWith('.');
+}
+
+/** A typed slash command in a loaded set: a command by name, else a skill of that name as a command. */
+export function commandIn(loaded: Pick<LoadResult, 'commands' | 'skills'>, name: string): CommandDef | undefined {
+  const hit = resolveName(loaded.commands, name);
+  if (hit) return hit;
+  const skill = resolveName(loaded.skills, name);
+  if (!skill) return undefined;
+  let body = skill.body ?? '';
+  if (skill.body === undefined) {
+    try {
+      body = parseMd(readFileSync(skill.path, 'utf8')).body.trim();
+    } catch {
+      return undefined;
+    }
+  }
+  return {
+    name: skill.name,
+    description: skill.description,
+    allowedTools: skill.allowedTools,
+    body: skill.dir ? `Base directory for this skill: ${skill.dir}\n\n${body}` : body,
+    source: skill.source,
+    path: skill.path,
+    plugin: skill.plugin,
+  };
 }
 
 /**

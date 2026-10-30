@@ -52,6 +52,9 @@ function displayNamePatch(typed: string, had: string | undefined): { displayName
   return { displayName: n || null };
 }
 
+/** 1.5 for 1.5 GB, 5 for 5 GB. */
+const gbWords = (bytes: number) => (bytes / 1024 ** 3).toFixed(1).replace(/\.0$/, '');
+
 /** "Anthropic $1.20 of $5 this month" */
 function spendLine(s: { provider?: string; name: string; spentUsd: number; monthlyUsd?: number }): string {
   return `${(s.provider && providerInfo(s.provider)?.name) || s.name} ${usd(s.spentUsd, { precise: true })}${s.monthlyUsd !== undefined ? ` of ${usd(s.monthlyUsd, { precise: true })}` : ''}`;
@@ -403,6 +406,8 @@ function AccessDialog({ person, onClose, onSaved }: { person: PersonDto; onClose
   const [shown, setShown] = useState(person.displayName ?? '');
   const [name, setName] = useState(person.name);
   const [email, setEmail] = useState(person.email ?? '');
+  const [disk, setDisk] = useState(person.diskLimitGb !== undefined ? String(person.diskLimitGb) : '');
+  const [webSearch, setWebSearch] = useState(!!person.webSearch);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const mobile = useIsMobile();
@@ -411,10 +416,12 @@ function AccessDialog({ person, onClose, onSaved }: { person: PersonDto; onClose
     if (typeof providers === 'string') return setError(providers);
     const bad = displayNameProblem(shown) ?? nameProblem(name);
     if (bad) return setError(bad);
+    const gb = disk.trim() ? Number(disk) : null;
+    if (gb !== null && (!Number.isFinite(gb) || gb < 1 || gb > 1000)) return setError('A disk cap is 1 to 1000 GB.');
     setBusy(true);
     setError(undefined);
     try {
-      await api().updatePerson(person.id, { providers, ...displayNamePatch(shown, person.displayName), ...(name.trim() !== person.name ? { name: name.trim() } : {}), email: email.trim() || null });
+      await api().updatePerson(person.id, { providers, ...displayNamePatch(shown, person.displayName), ...(name.trim() !== person.name ? { name: name.trim() } : {}), email: email.trim() || null, ...(person.role === 'member' ? { diskLimitGb: gb, webSearch } : {}) });
       onSaved();
     } catch (e) {
       setError(errText(e));
@@ -452,7 +459,13 @@ function AccessDialog({ person, onClose, onSaved }: { person: PersonDto; onClose
           <span className="text-[12px] font-medium text-fg-2 phone:text-[13px]">The hub's keys</span>
           <AccessFields value={access} onChange={setAccess} />
           {person.spend.length > 0 && <span className="text-[12px] text-fg-3">This month: {person.spend.map(spendLine).join(', ')}.</span>}
+          {person.role === 'member' && <Checkbox checked={webSearch} onChange={setWebSearch} label="Use the hub's web search when they have no key of their own" />}
         </div>
+        {person.role === 'member' && (
+          <Field label="Disk on the hub, GB" optional help={`Their browser, downloads and files. They use ${gbWords(person.diskUsedBytes ?? 0)} GB now. Empty is 5 GB.`}>
+            <Input type="number" inputMode="decimal" min={1} max={1000} value={disk} onChange={(e) => setDisk(e.target.value)} className="w-[120px]" />
+          </Field>
+        )}
         {error && <p className="m-0 text-[13px] text-fault">{error}</p>}
       </div>
     </Dialog>
@@ -619,6 +632,7 @@ export function YourAccountSection() {
               )))}
             </Select>
           </SettingRow>
+          {me.disk && <SettingRow label="Disk on the hub" help="Your browser, downloads and files on the hub. The owner sets the cap.">{`${gbWords(me.disk.usedBytes)} of ${gbWords(me.disk.limitBytes)} GB`}</SettingRow>}
         </Group>
       )}
 

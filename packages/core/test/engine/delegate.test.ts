@@ -260,7 +260,41 @@ describe('Delegate from a chat', () => {
 });
 
 describe('who may delegate', () => {
-  test('a subagent, a workflow step, an untrusted session and a member get no Delegate and are refused', async () => {
+  test("a member delegates only to their own devices: never the hub, the owner's or another member's", async () => {
+    t = await startTestEngine({ script: [[{ text: 'ok' }]] });
+    const { engine } = t;
+    const owners = madx(t);
+    const alice = engine.people.create({ name: 'alice' });
+    const bob = engine.people.create({ name: 'bob' });
+    const attach = (id: string, name: string, accountId: string) => {
+      const home = tempDir('conclave-member-');
+      homes.push(home);
+      const m = new HomeMachine(id, name, home);
+      engine.repos.devices.insert({ id, name, tokenHash: 'x', roots: [], accountId });
+      engine.devices.attach({ ...engine.repos.devices.get(id)!, online: true, info: m.infoNow() } as Device, m);
+    };
+    attach('bobbox', 'Bob Box', bob.id);
+    const hers = await engine.createSession({ kind: 'chat' }, alice.id);
+    const has = (s: Session) => engine.toolsFor(s, engine.agentFor(s), 'agent', 0).some((x) => x.name === 'Delegate');
+    expect(has(hers)).toBe(true);
+    const req = { to: 'code' as const, prompt: 'x', title: 'x', readOnly: true, background: false, toolUseId: 't1', depth: 0 };
+    // no device of her own: the hub is never her default
+    await expect(runDelegate(engine, hers.id, req)).rejects.toThrow('only on a device you paired');
+    await expect(runDelegate(engine, hers.id, { ...req, device: 'hub' })).rejects.toThrow('only on a device you paired');
+    attach('alicebox', 'Alice Box', alice.id);
+    await expect(runDelegate(engine, hers.id, { ...req, device: 'hub' })).rejects.toThrow('only on a device you paired');
+    await expect(runDelegate(engine, hers.id, { ...req, device: owners.name })).rejects.toThrow('There is no device called');
+    await expect(runDelegate(engine, hers.id, { ...req, device: 'Bob Box' })).rejects.toThrow('There is no device called');
+    const catalog = delegateCatalog(engine, hers);
+    expect(catalog).toContain('Alice Box');
+    expect(catalog).not.toContain('MadX Arch');
+    expect(catalog).not.toContain('Bob Box');
+    expect(catalog).not.toContain('(the hub');
+    // the owner still defaults to the hub
+    expect(delegateCatalog(engine, await engine.createSession({ kind: 'chat' }))).toContain('(the hub, the default)');
+  });
+
+  test('a subagent, a workflow step and an untrusted session get no Delegate and are refused', async () => {
     t = await startTestEngine({ script: [[{ text: 'ok' }]] });
     const { engine } = t;
     const chat = await engine.createSession({ kind: 'chat' });
@@ -289,11 +323,6 @@ describe('who may delegate', () => {
     expect(has(engine.getSession(hooked.id)!)).toBe(false);
     const email = await engine.createSession({ agent: 'email', cwd: t.cwd });
     expect(has(email)).toBe(false);
-
-    const alice = engine.people.create({ name: 'alice' });
-    const hers = await engine.createSession({ kind: 'chat' }, alice.id);
-    expect(has(hers)).toBe(false);
-    await expect(runDelegate(engine, hers.id, { ...req, depth: 0 })).rejects.toThrow("hub owner's");
   });
 });
 

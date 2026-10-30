@@ -11,7 +11,6 @@ import { startTestEngine, type TestEngine } from '../engine/harness';
 import { pimFor } from '../../src/pim/registry';
 import { calendarPortOf } from '../../src/maps/registry';
 import { OWNER_ID, runAs } from '../../src/people/context';
-import { MEMBER_WATCH_REFUSED } from '../../src/scheduler/routines';
 import type { PimService } from '../../src/pim/service';
 
 let t: TestEngine | undefined;
@@ -74,8 +73,8 @@ describe('calendar and mail per account', () => {
   }, 30_000);
 });
 
-describe('maps and watches are the owner’s', () => {
-  test('a member’s session gets no maps or watch tools, and a member cannot make a watch', async () => {
+describe('maps and watches are each account’s', () => {
+  test('a member’s session gets the maps tools (on their own key, people-keys.test.ts), and a member can make a watch of their own', async () => {
     t = await startTestEngine({ script: [[{ text: 'ok' }]] });
     const { engine } = t;
     const alice = engine.people.create({ name: 'alice' });
@@ -85,12 +84,15 @@ describe('maps and watches are the owner’s', () => {
     const names = (id: string) => engine.toolsFor(engine.requireSession(id), agent, 'agent', 0).map((x) => x.name);
     const ownerTools = names(ownS.id);
     const memberTools = names(memberS.id);
-    for (const n of ['PlaceSearch', 'Directions', 'WatchCreate']) {
+    // members get every tool now (MEMBER_DENY is empty); maps calls use the member's own key, never the owner's
+    for (const n of ['PlaceSearch', 'Directions']) {
       expect(ownerTools).toContain(n);
-      expect(memberTools).not.toContain(n);
+      expect(memberTools).toContain(n);
     }
-    expect(() => engine.routines.create({ name: 'cars', schedule: '0 7 * * *', prompt: 'look', watch: { url: 'https://example.com' } } as never, alice.id)).toThrow(MEMBER_WATCH_REFUSED);
+    // a member's watch browses in their own browser (browser/manager.ts), so it is allowed, and it is theirs
+    const w = engine.routines.create({ name: 'cars', schedule: '0 7 * * *', prompt: 'look', watch: { url: 'https://example.com' } } as never, alice.id);
+    expect(w.accountId).toBe(alice.id);
     const r = engine.routines.create({ name: 'brief', schedule: '0 7 * * *', prompt: 'brief me' }, alice.id);
-    expect(() => engine.routines.update(r.id, { watch: { url: 'https://example.com' } } as never)).toThrow(MEMBER_WATCH_REFUSED);
+    expect(engine.routines.update(r.id, { watch: { url: 'https://example.com' } } as never).watch?.url).toBe('https://example.com/');
   }, 30_000);
 });

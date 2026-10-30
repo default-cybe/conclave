@@ -670,6 +670,20 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
   app.put('/api/agents/:name', async (c) => {
     const name = c.req.param('name');
     const body = await readJson<Partial<AgentDef> & { scope?: string }>(c);
+    const acct = accountOf(c);
+    if (isMember(acct)) {
+      // a member's agent is their own file under <home>/accounts/<id>/agents, never the owner's folder or a project
+      if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/.test(name) || name.includes('..')) throw badRequest('agent name must be letters, digits, dots, dashes, underscores or colons');
+      const { scope: _s, source: _src, path: _p, plugin: _pl, ...fields } = body;
+      const existing = engine.agentsFor(acct).find((a) => a.name === name);
+      const def = { ...(existing ?? {}), ...fields, name, description: fields.description ?? existing?.description ?? '', prompt: fields.prompt ?? existing?.prompt ?? '', source: 'account' } as AgentDef;
+      const no = engine.diskRefusal(acct, Buffer.byteLength(JSON.stringify(def)));
+      if (no) throw new HttpError(413, no);
+      if (!engine.extensions.saveAccountAgent) throw badRequest('this hub cannot keep agents per person');
+      const saved = await engine.extensions.saveAccountAgent(acct, def);
+      audit(c, 'agent.save', name);
+      return c.json(saved);
+    }
     const scope = oneOf(body.scope ?? 'user', ['user', 'project'] as const, 'scope')!;
     const { scope: _scope, ...rest } = body;
     const existing = engine.extensions.agent(name);
@@ -687,14 +701,17 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
   });
 
   app.delete('/api/agents/:name', async (c) => {
-    if (!(await engine.extensions.deleteAgent(c.req.param('name')))) throw notFound('unknown agent');
+    const acct = accountOf(c);
+    // a member deletes only their own file under <home>/accounts/<id>/agents
+    const removed = isMember(acct) ? !!(await engine.extensions.deleteAccountAgent?.(acct, c.req.param('name'))) : await engine.extensions.deleteAgent(c.req.param('name'));
+    if (!removed) throw notFound('unknown agent');
     audit(c, 'agent.delete', c.req.param('name'));
     return c.json(ok);
   });
 
-  // a member sees the skills and commands that ship and plugin ones, never the owner's own
-  app.get('/api/skills', (c) => c.json(engine.extensions.skills().filter((s) => !isMember(accountOf(c)) || s.source === 'builtin' || s.source === 'plugin')));
-  app.get('/api/commands', (c) => c.json(engine.extensions.commands().filter((s) => !isMember(accountOf(c)) || s.source === 'builtin' || s.source === 'plugin')));
+  // a member sees the skills and commands that ship, plugin ones and their own, never the owner's or another member's
+  app.get('/api/skills', (c) => c.json(engine.skillsFor(accountOf(c))));
+  app.get('/api/commands', (c) => c.json(engine.commandsFor(accountOf(c))));
   app.get('/api/mcp', (c) => c.json(engine.mcpStatus()));
   app.get('/api/plugins', (c) => c.json(engine.extensions.plugins()));
 

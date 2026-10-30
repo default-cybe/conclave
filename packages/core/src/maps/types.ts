@@ -149,7 +149,8 @@ export interface MapsSettingsDto {
   provider: MapsProviderId;
   /** The provider set in Settings; undefined means Google with a key, else OpenStreetMap. */
   chosen?: MapsProviderId;
-  google: { keySet: boolean; keyFrom?: 'hub' | 'env' };
+  /** keyFrom 'own': a member's own key, in their own secrets file. */
+  google: { keySet: boolean; keyFrom?: 'hub' | 'env' | 'own' };
   osm: {
     email?: string;
     nominatimUrl: string;

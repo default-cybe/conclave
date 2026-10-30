@@ -26,6 +26,8 @@ import type { EventBus } from '../util/bus';
 import type { Message, Notice, Routine, RoutineRun } from '../types';
 import type { RoutineInput } from '../scheduler/types';
 import { logger } from '../util/log';
+import { currentAccount, isMember } from '../people/context';
+import { checkPublicUrl } from '../people/net';
 import { changedCount, countWords, diffRun, sortItems } from './diff';
 import { RUN_RULES, isWatch, runContext, watchAllow, watchDeny } from './rules';
 import { MAX_REPORTED, RUNS_KEPT, cleanItem, cleanWatchSpec, httpUrl } from './spec';
@@ -180,9 +182,13 @@ export class WatchService {
     };
   }
 
-  /** Every watch with its counts, for the Routines page. */
-  summaries(): WatchSummaryDto[] {
-    return this.opts.routines.list().filter(isWatch).map((r) => this.summary(r));
+  /** Every watch with its counts, for the Routines page. The watches of one account (routines from before accounts are the owner's), or every one. */
+  summaries(accountId?: string): WatchSummaryDto[] {
+    return this.opts.routines
+      .list()
+      .filter(isWatch)
+      .filter((r) => !accountId || (r.accountId ?? 'owner') === accountId)
+      .map((r) => this.summary(r));
   }
 
   detail(routineId: string): WatchDetailDto {
@@ -296,7 +302,9 @@ export class WatchService {
       }
     })();
     const used = from.sessionId && b ? b.profileFor(from.sessionId) : undefined;
-    const profile = input.profile?.trim() || (used && used !== 'default' ? used : undefined) || (host ? b?.profileSignedInTo?.(host) : undefined) || 'default';
+    // a member's watch runs in their own browser, which has one profile: the owner's profiles are not theirs to name
+    const member = isMember(currentAccount()) || !!used?.startsWith('@');
+    const profile = member ? 'default' : input.profile?.trim() || (used && used !== 'default' ? used : undefined) || (host ? b?.profileSignedInTo?.(host) : undefined) || 'default';
     let spec: WatchSpec;
     try {
       spec = cleanWatchSpec({ url: input.url, profile, fields: input.fields, filters: input.filters, notify: input.notify, currency: input.currency, cap: input.cap });
@@ -537,7 +545,7 @@ export class WatchService {
     if (!r || !isWatch(r) || !url) throw new WatchError(404, 'That item has no photo.');
     const file = this.imageFile(routineId, url)!;
     if (existsSync(file) && existsSync(`${file}.type`)) return { type: readFileSync(`${file}.type`, 'utf8'), bytes: readFileSync(file) };
-    const got = await this.fetchImage(url, new URL(r.watch.url).hostname);
+    const got = await this.fetchImage(url, new URL(r.watch.url).hostname, isMember(r.accountId));
     // deleted while the photo loaded: show it, keep nothing
     if (!this.opts.routines.get(routineId)) return got;
     const dir = this.imageFolder(routineId)!;
@@ -564,16 +572,20 @@ export class WatchService {
     } catch {
       /* no page */
     }
-    return this.fetchImage(url, site);
+    return this.fetchImage(url, site, isMember(currentAccount()));
   }
 
-  private async fetchImage(url: string, siteHost: string): Promise<{ type: string; bytes: Uint8Array }> {
+  /** member: a member's watch photo comes only from a public address, whatever its site (docs/design/ACCOUNTS.md 5). */
+  private async fetchImage(url: string, siteHost: string, member = false): Promise<{ type: string; bytes: Uint8Array }> {
     const f = this.opts.fetch ?? fetch;
     let at = url;
     for (let hop = 0; hop < 4; hop++) {
       const u = new URL(at);
       if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new WatchError(400, 'Photos load only over http or https.');
-      if (privateHost(u.hostname) && u.hostname !== siteHost) throw new WatchError(403, 'That photo is on a private address the watch does not browse.');
+      if (privateHost(u.hostname) && (member || u.hostname !== siteHost)) throw new WatchError(403, 'That photo is on a private address the watch does not browse.');
+      if (member) await checkPublicUrl(at).catch((err: Error) => {
+        throw new WatchError(403, err.message);
+      });
       let res: Response;
       try {
         res = await f(at, { redirect: 'manual', signal: AbortSignal.timeout(10_000), headers: { accept: 'image/*' } });

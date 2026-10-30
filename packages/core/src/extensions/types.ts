@@ -6,7 +6,7 @@ import type { PermissionMode, SessionMode, JuryConfig } from '../types';
  * and 'gemini' are other CLIs' folders read by the compat loaders. 'agents' is
  * the shared ~/.agents and .agents folder that Codex, OpenCode and Gemini read.
  */
-export type ExtensionSource = 'builtin' | 'user' | 'project' | 'plugin' | 'claude' | 'codex' | 'opencode' | 'gemini' | 'agents';
+export type ExtensionSource = 'builtin' | 'user' | 'project' | 'plugin' | 'claude' | 'codex' | 'opencode' | 'gemini' | 'agents' | 'account';
 
 /**
  * An agent profile. Stored as markdown with YAML frontmatter, compatible with
@@ -379,6 +379,16 @@ export interface ExtensionRegistry {
   marketplaceSources?(): Array<{ name: string; source: string; dir: string }>;
   /** Forget a marketplace and delete its clone (Discover, when the last plugin from it is removed). */
   removeMarketplace?(name: string): Promise<boolean>;
+  /**
+   * What a member sees: builtin and plugin components, then their own under
+   * <home>/accounts/<id>/ (source 'account'). Never the owner's or another
+   * member's. Optional so test fakes need not implement it.
+   */
+  forAccount?(accountId: string, cwd?: string): { agents: AgentDef[]; skills: SkillDef[]; commands: CommandDef[] };
+  /** Write a member's agent under <home>/accounts/<id>/agents. */
+  saveAccountAgent?(accountId: string, def: AgentDef): Promise<AgentDef>;
+  /** Delete a member's own agent file; false when they have none by that name. */
+  deleteAccountAgent?(accountId: string, name: string): Promise<boolean>;
   /** Every component found, including shadowed copies. Optional so test fakes need not implement it. */
   inventory?(cwd?: string): Array<{ kind: 'agent' | 'skill' | 'command'; name: string; source: ExtensionSource; scope: string; active: boolean; shadowedBy?: string; path?: string; plugin?: string; description?: string; learned?: boolean }>;
 }

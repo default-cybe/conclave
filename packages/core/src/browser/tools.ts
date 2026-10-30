@@ -183,7 +183,7 @@ export const LOGIN_DESCRIPTION =
 
 /** Why this session may not use saved logins, or undefined when it may. */
 export function loginRefusal(ctx: Pick<ToolContext, 'session' | 'host'>): string | undefined {
-  if (isMember(ctx.session?.accountId)) return "Saved logins are the hub owner's. This session cannot use them.";
+  // a member's session fills only their own saved logins (BrowserManager.loginsFor)
   if (ctx.session?.meta?.untrusted === true || ctx.host?.untrusted?.()) return 'This session reads untrusted input (mail, web pages or a webhook), so it cannot use saved logins.';
   return undefined;
 }
@@ -277,7 +277,9 @@ export function browserTools(manager: BrowserManager): Tool[] {
       // a block page from the hub's own address: once more through the owner's proxy, in the hub's country
       if (proxyWant(input.proxy) === undefined && !manager.proxied(ctx.sessionId)) {
         const why = await blockedPage(manager, ctx.sessionId, nav.status);
-        if (why) ({ nav, line: blocked } = await retryBlocked(manager, ctx, input.url, nav, why));
+        // a member's browser has no proxy (the hub's is the owner's, manager.useProxy refuses): the block is said, no retry
+        if (why && isMember(ctx.session?.accountId)) blocked = `${siteName(nav.url)} blocked the hub's address (${why}). The hub's proxy belongs to the owner, so a member's request does not retry through it, and a member's browser does not use a proxy.`;
+        else if (why) ({ nav, line: blocked } = await retryBlocked(manager, ctx, input.url, nav, why));
       }
       const status = nav.status && nav.status >= 400 ? ` (HTTP ${nav.status})` : '';
       const via = await proxyLine(manager, ctx.sessionId);

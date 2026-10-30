@@ -329,7 +329,10 @@ export async function probeProxy(p: ProxyEntry, opts: { quick?: boolean; timeout
 
 const HANDSHAKE_MS = 15_000;
 
-/** A SOCKS5 server on 127.0.0.1 with no auth that opens each connection through one upstream proxy. */
+/**
+ * A SOCKS5 server on 127.0.0.1 with no auth that opens each connection through
+ * one upstream proxy (start), or straight to a checked public address (publicOnly).
+ */
 export class SocksRelay {
   private sockets = new Set<Socket>();
   private closed = false;
@@ -339,12 +342,41 @@ export class SocksRelay {
   private constructor(
     private readonly server: Server,
     readonly port: number,
-    private readonly upstream: ProxyEntry,
+    private readonly dial: (t: Target) => Promise<Socket>,
+    readonly label: string,
     private readonly timeoutMs: number,
   ) {}
 
   /** Start a relay for this upstream on 127.0.0.1 and a free port. */
   static start(upstream: ProxyEntry, opts: { timeoutMs?: number } = {}): Promise<SocksRelay> {
+    const timeoutMs = opts.timeoutMs ?? HANDSHAKE_MS;
+    return SocksRelay.listen((t) => connectThrough(upstream, t, timeoutMs), proxyLabel(upstream), timeoutMs);
+  }
+
+  /**
+   * A relay that connects only to public addresses: `publicAddress` checks the
+   * target's host (and port) and gives the address to dial, or throws. Every
+   * connection Chromium makes goes through it, redirect hops and service
+   * workers too, and the checked address is the one dialled (no DNS rebind).
+   */
+  static publicOnly(publicAddress: (host: string, port: number) => Promise<string>, opts: { timeoutMs?: number } = {}): Promise<SocksRelay> {
+    const timeoutMs = opts.timeoutMs ?? HANDSHAKE_MS;
+    return SocksRelay.listen(
+      async (t) => {
+        let address: string;
+        try {
+          address = await publicAddress(t.host, t.port);
+        } catch (err) {
+          throw new ProxyError((err as Error).message, 2);
+        }
+        return openSocket(address, t.port, timeoutMs);
+      },
+      'public addresses only',
+      timeoutMs,
+    );
+  }
+
+  private static listen(dial: (t: Target) => Promise<Socket>, label: string, timeoutMs: number): Promise<SocksRelay> {
     return new Promise((done, fail) => {
       let relay: SocksRelay | undefined;
       const server = createServer((client) => relay?.handle(client));
@@ -357,7 +389,7 @@ export class SocksRelay {
           fail(new Error('the proxy relay has no port'));
           return;
         }
-        relay = new SocksRelay(server, addr.port, upstream, opts.timeoutMs ?? HANDSHAKE_MS);
+        relay = new SocksRelay(server, addr.port, dial, label, timeoutMs);
         done(relay);
       });
     });
@@ -372,10 +404,6 @@ export class SocksRelay {
   address(): { address: string; port: number } {
     const a = this.server.address();
     return typeof a === 'object' && a ? { address: a.address, port: a.port } : { address: '', port: 0 };
-  }
-
-  get label(): string {
-    return proxyLabel(this.upstream);
   }
 
   private async handle(client: Socket): Promise<void> {
@@ -408,7 +436,8 @@ export class SocksRelay {
         host = (await r.read(len)).toString('utf8');
       } else if (atyp === 4) {
         const b = await r.read(16);
-        host = Array.from({ length: 8 }, (_, i) => b.readUInt16BE(i * 2).toString(16)).join(':');
+        // the short form (::1), which the address checks know
+        host = new URL(`http://[${Array.from({ length: 8 }, (_, i) => b.readUInt16BE(i * 2).toString(16)).join(':')}]/`).hostname.slice(1, -1);
       } else {
         reply(8);
         throw new ProxyError('unknown address type');
@@ -421,7 +450,7 @@ export class SocksRelay {
         throw new ProxyError('only CONNECT');
       }
       try {
-        upstream = await connectThrough(this.upstream, { host, port }, this.timeoutMs);
+        upstream = await this.dial({ host, port });
       } catch (err) {
         this.failures++;
         const code = err instanceof ProxyError && err.code !== undefined && err.code < 0x100 ? err.code : 1;

@@ -54,7 +54,8 @@ import { defuseFrameworkTags } from '../session/untrusted';
 import { attachMaps, calendarPortOf, setCalendarPort, MapsService, MAPS_KEY, MAPS_KEY_ENV } from '../maps';
 import type { CalEvent } from '../calendar/types';
 import { hubZone } from '../assistant/time';
-import { OWNER_ID, currentAccount, runAs } from '../people/context';
+import { OWNER_ID, currentAccount, isMember, runAs } from '../people/context';
+import type { AccountSecrets } from '../people/secrets';
 import { pimFor } from '../pim/registry';
 import { publicOnlyFetch } from '../people/net';
 import type { KvRepo } from '../storage/repos';
@@ -63,6 +64,7 @@ import { WatchService, attachWatches, isWatch, watchExtension } from '../watches
 import { builtinTools } from '../tools';
 import { setConclaveVersion, setWebFetchBrowser } from '../tools/webfetch';
 import { setProxySource } from '../tools/blocked';
+import { memberProxyConfig, memberProxyReader } from '../browser/member-proxy';
 
 const log = logger('create');
 
@@ -94,7 +96,12 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
   const version = opts.version ?? '0.1.0';
   setConclaveVersion(version);
   // a blocked fetch retries once through the owner's proxy (tools/blocked.ts)
-  setProxySource({ cfg: () => config.get().browser?.proxy, read: (n) => config.secretValue(n) });
+  setProxySource({
+    cfg: () => config.get().browser?.proxy,
+    read: (n) => config.secretValue(n),
+    // a member's own proxy and secrets (browser/member-proxy.ts), never the owner's; engine is set by the time a request retries
+    member: (acct) => ({ cfg: memberProxyConfig(repos.kv, acct), read: memberProxyReader(engine.accountSecrets, acct) }),
+  });
   // the harnesses are off by default since v0.4.2: once, a hub from before keeps on the ones the owner set or used lately
   const keptOn = harnessesOffOnce({ config, db, kv: repos.kv });
   if (keptOn?.length) log.info(`kept on as engines, used in the last 30 days: ${keptOn.join(', ')}`);
@@ -285,6 +292,9 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
   );
 
   (engine as unknown as { browser: BrowserManager }).browser = browser;
+  // each member's session browses in that member's own browser, within their disk cap (docs/design/ACCOUNTS.md 5)
+  browser.accountFor = (id) => engine.sessionAccount(id);
+  browser.diskRefusal = (acct) => engine.diskRefusal(acct);
   (engine as unknown as { preview: PreviewService }).preview = preview;
   // a deleted session's preview stops with it: its server, relay and browser
   bus.on((e) => {
@@ -331,7 +341,12 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
   });
   await assistant.start().catch((err) => log.warn('assistant start failed', err));
   // maps (maps/service.ts): places, directions, map images and leave-by times; the Google key stays a hub secret
-  attachMaps(engine, createMaps(engine, config, repos, () => assistant?.zone() ?? hubZone(), version));
+  // a member's times are in their own zone (Settings > Assistant)
+  const mapsZone = () => {
+    const acct = currentAccount();
+    return (isMember(acct) ? assistantForEngine(engine, acct!)?.zone() : undefined) ?? assistant?.zone() ?? hubZone();
+  };
+  attachMaps(engine, createMaps(engine, config, repos, mapsZone, version));
   // calendars and mail (pim/service.ts): secrets stay in the secret store, writes wait for the owner's approval
   const owner = assistant;
   const pimHost = (acct: string): ConstructorParameters<typeof PimService>[0] => {
@@ -471,6 +486,7 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
 
 /** The maps service on a hub's config, secrets and database (the server tests build one on their fake engine too). */
 export function createMaps(engine: object, config: ConfigStore, repos: Repos, zone: () => string, version: string): MapsService {
+  const memberSecrets = () => (engine as { accountSecrets?: AccountSecrets }).accountSecrets;
   return new MapsService({
     config: () => config.get().maps ?? {},
     setConfig: (next) => {
@@ -479,13 +495,25 @@ export function createMaps(engine: object, config: ConfigStore, repos: Repos, zo
       config.replace(user);
     },
     // `conclave secret google-maps` and Settings > Maps store it with the provider keys; an env var works too
+    // a member's own key is in their own secrets file (values google-maps), never the hub's (docs/design/ACCOUNTS.md 2)
     key: () => {
+      const acct = currentAccount();
+      if (isMember(acct)) {
+        const own = memberSecrets()?.value(acct!, MAPS_KEY);
+        return own ? { key: own, from: 'own' } : {};
+      }
       const saved = config.storedKey(MAPS_KEY);
       if (saved) return { key: saved, from: 'hub' };
       const env = process.env[MAPS_KEY_ENV];
       return env ? { key: env, from: 'env' } : {};
     },
-    setKey: (key) => config.setSecret('providers', MAPS_KEY, key),
+    setKey: (key) => {
+      const acct = currentAccount();
+      if (!isMember(acct)) return config.setSecret('providers', MAPS_KEY, key);
+      const s = memberSecrets();
+      if (!s) throw new Error('This hub keeps no keys for members.');
+      s.set(acct!, 'values', MAPS_KEY, key);
+    },
     kv: repos.kv,
     db: repos.db,
     zone,

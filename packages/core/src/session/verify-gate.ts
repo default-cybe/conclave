@@ -43,7 +43,6 @@ import { wantsVerifyGate, agentHooksAllowed } from '../extensions/agent-hooks';
 import { checkPermission } from './permissions';
 import { BashTool } from '../tools/bash';
 import { logger } from '../util/log';
-import { LearnedSkills } from '../extensions/learned';
 
 const log = logger('verify-gate');
 
@@ -143,7 +142,7 @@ export async function detectVerifyCommand(machine: Machine, cwd: string, pyFiles
  * Also read once per session for the Environment block (session/project.ts).
  */
 export async function verifyCommandFor(engine: Engine, session: Session, pyFiles: string[]): Promise<string | undefined> {
-  const def = engine.extensions.agent(session.agent, session.cwd);
+  const def = engine.agentNamed(session.agent, session.cwd, engine.accountOf(session));
   const trusted = engine.trust.isTrusted(session.cwd);
   if (def?.verifyCommand && agentHooksAllowed(def, session.cwd, { trusted: () => trusted, pluginHooksOn: () => true })) return def.verifyCommand;
   const machine = engine.machineFor(session);
@@ -199,7 +198,7 @@ export class VerifyGate {
   /** Whether the gate is on for this session's agent. */
   enabled(session: Session): boolean {
     if (session.kind === 'chat') return false;
-    return wantsVerifyGate(this.engine.extensions.agent(session.agent, session.cwd));
+    return wantsVerifyGate(this.engine.agentNamed(session.agent, session.cwd, this.engine.accountOf(session)));
   }
 
   /** The command for a session, or undefined when there is nothing to run. */
@@ -299,7 +298,7 @@ export class VerifyGate {
     s.last = { command, ok: res.ok };
     if (s.learned?.size) {
       // shortcut: counts the first check only, so the gate's retries do not count a pass the agent was sent back for
-      const store = new LearnedSkills(this.engine.config.paths.home, this.engine.repos.kv);
+      const store = this.engine.learnedSkillsFor(this.engine.accountOf(session));
       for (const name of s.learned) store.recordCheck(name, res.ok);
       s.learned = undefined;
     }
@@ -324,7 +323,7 @@ export class VerifyGate {
         if (output.isError) return;
         const skill = output.meta?.skill;
         if (ctx.tool.name === 'Skill' && typeof skill === 'string') {
-          if (this.enabled(ctx.session) && this.engine.extensions.skill(skill, ctx.session.cwd)?.learned) this.noteLearned(ctx.sessionId, skill);
+          if (this.enabled(ctx.session) && this.engine.skillNamed(skill, ctx.session.cwd, this.engine.accountOf(ctx.session))?.learned) this.noteLearned(ctx.sessionId, skill);
           return;
         }
         if (!ctx.tool.editsFiles) return;

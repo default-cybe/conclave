@@ -16,17 +16,17 @@ import { CHAT_AGENT, chatUsesMemory } from '../session/chat';
 import { isUntrusted } from '../session/untrusted';
 import { isDelegated, movedSession, movedToMain } from '../session/delegated';
 import { EngineError } from './errors';
+import { isMember } from '../people/context';
 import { missingTools } from './tool-check';
 import { runSubagent } from './subagent';
 
 /**
  * Why this session may not delegate, or undefined when it may. Only a
  * primary session at depth 0 hands work on: never a subagent (a delegated
- * session included), a workflow step, a session that reads untrusted input
- * or a member's session.
+ * session included), a workflow step or a session that reads untrusted input.
+ * A member delegates only to devices of their own (delegateDevices).
  */
 export function delegateRefusal(engine: Engine, session: Session, depth: number, agentUntrusted?: boolean): string | undefined {
-  if (engine.isMemberSession(session)) return "Delegate is the hub owner's: this session cannot hand work to other sessions.";
   if (depth > 0 || session.meta?.subagent) return 'Delegate is not available in a subagent. Do the work yourself, or report back and let the session that started you hand it on.';
   if (session.meta?.workflow) return 'Delegate is not available in a workflow step.';
   if (isUntrusted(session, agentUntrusted ?? engine.agentFor(session).untrusted)) return 'Delegate is not available in a session that reads untrusted input.';
@@ -36,14 +36,24 @@ export function delegateRefusal(engine: Engine, session: Session, depth: number,
 const norm = (s: string) => s.toLowerCase().replace(/[\s_-]+/g, '');
 const HUB_WORDS = new Set(['hub', 'thehub', 'local', 'localhost', 'here']);
 
+export const MEMBER_NO_HUB = "Delegate runs only on a device you paired: the hub's own computer is the owner's. Pair yours in Settings, Devices.";
+
+/** The devices an account may delegate to: the owner's include the hub, a member's are only their own paired ones. */
+export function delegateDevices(engine: Engine, accountId: string): Device[] {
+  const all = engine.devices.list(accountId);
+  return isMember(accountId) ? all.filter((d) => d.id !== 'local') : all;
+}
+
 /**
  * A device by the name the model wrote, loosely: case and spaces, dashes
  * and underscores do not count ("madx-arch" is "MadX Arch"). An exact match
  * wins, then the one device whose name contains it. The hub is the default.
  */
 export function findDevice(devices: Device[], name: string | undefined): Device | { error: string } {
+  // a member's list has no hub, so their default is their first own device (online first)
   const hub = devices.find((d) => d.id === 'local') ?? devices[0];
   const want = name ? norm(name) : '';
+  if (!hub || (HUB_WORDS.has(want) && hub.id !== 'local')) return { error: MEMBER_NO_HUB };
   if (!want || HUB_WORDS.has(want)) return hub;
   const exact = devices.find((d) => norm(d.name) === want || norm(d.id) === want);
   if (exact) return exact;
@@ -92,7 +102,8 @@ function projectFolders(engine: Engine, d: Device): string[] {
  * that connects mid-turn does not change the tools the cache holds.
  */
 export function delegateCatalog(engine: Engine, session: Session): string {
-  const devices = engine.devices.list(engine.accountOf(session));
+  const devices = delegateDevices(engine, engine.accountOf(session));
+  if (!devices.length) return `\n\n${MEMBER_NO_HUB}`;
   const lines = devices.filter((d) => d.online).map((d) => {
     const folders = projectFolders(engine, d);
     return `- ${d.name}${d.id === 'local' ? ' (the hub, the default)' : ''}${folders.length ? `: ${folders.join(', ')}` : ''}`;
@@ -117,7 +128,7 @@ export async function runDelegate(engine: Engine, parentId: string, req: Delegat
   const refused = delegateRefusal(engine, parent, req.depth);
   if (refused) throw new Error(refused);
   const acct = engine.accountOf(parent);
-  const devices = engine.devices.list(acct);
+  const devices = delegateDevices(engine, acct);
   const device = findDevice(devices, req.device);
   if ('error' in device) throw new Error(device.error);
   if (!device.online) throw new Error(offlineWords(device, devices));
@@ -158,7 +169,8 @@ export async function runDelegate(engine: Engine, parentId: string, req: Delegat
   // a session in plan mode (its permission mode, or a plan session) hands on read-only work only
   const permissionMode = delegateMode(parent.mode === 'plan' ? 'plan' : parent.permissionMode);
   const place: DelegatePlace = { to: req.to, device: device.id, deviceName: device.name, folder, readOnly: req.readOnly, permissionMode };
-  const from = parent.kind === 'chat' ? "the owner's chat" : `the owner's ${parent.agent} session`;
+  const whose = isMember(acct) ? "the member's" : "the owner's";
+  const from = parent.kind === 'chat' ? `${whose} chat` : `${whose} ${parent.agent} session`;
   const notes = [`Handed over from ${from}. Your final message goes back there as the answer, so make it the result itself.`];
   if (req.readOnly) notes.push('This job is read-only: look and report, change nothing. You have no file-editing tools; run only commands that look, never ones that change files or state.');
   engine.audit(parent.id, 'session.delegate', `${req.to} (${def.name}) on ${device.name} in ${folder}, ${permissionMode}`);

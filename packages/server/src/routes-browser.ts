@@ -45,9 +45,14 @@
  *   POST   /api/browser/profiles/:name/cookies { file } -> BrowserCookieImportResult: Import cookies; counts per site only
  *   DELETE /api/browser/profiles/:name        ?close=1 -> BrowserStatusDto: delete a profile; 409 while open without close
  *
- * All the owner's (route-policy.ts). The proxy's login and password, and a
- * saved login's password and 2FA key, go to the hub's secrets; no answer and
- * no audit line has them. The proxy is used only when the owner asks for it
+ * Engines, the install, proxies and profiles are the owner's (route-policy.ts).
+ * A member (docs/design/ACCOUNTS.md 5) has their own browser with one profile,
+ * "default" to them: GET /api/browser, sign-in views, saved logins, Forget
+ * and Import cookies work on it and their own vault only, and their sign-in
+ * views and live views are theirs alone (another account's id reads as 404).
+ * The proxy's login and password, and the owner's saved login passwords and
+ * 2FA keys, go to the hub's secrets (a member's to their own folder); no
+ * answer and no audit line has them. The proxy is used only when the owner asks for it
  * in a chat (the browser tools' proxy input).
  */
 import { randomBytes } from 'node:crypto';
@@ -91,6 +96,10 @@ import type { ConclaveConfig } from '@conclave/core/config/schema.ts';
 import { deepMerge } from '@conclave/core/config/index.ts';
 import { logger } from '@conclave/core/util/log.ts';
 import type { BrowserLiveDto, BrowserStatusDto, SignInFrameDto, SignInViewDto } from '@conclave/core/watches/types.ts';
+import { isMember, OWNER_ID } from '@conclave/core/people/context.ts';
+import { MEMBER_PROFILE_LABEL, memberProfileKey } from '@conclave/core/browser/manager.ts';
+import type { LoginVault } from '@conclave/core/browser/logins.ts';
+import { accountOf } from './scope';
 import type { HonoEnv, ServerContext } from './context';
 import { HttpError, qBool, readJson } from './http';
 import type { AuditFn } from './routes-extensions';
@@ -128,6 +137,8 @@ interface View {
   /** Set for a chat session's live view: the browser session is that session's, not the view's own. */
   session?: string;
   profile: string;
+  /** The account the view's browser is; only that account reaches the view. */
+  account: string;
   url: string;
   seq: number;
   frame?: SignInFrameDto;
@@ -154,19 +165,22 @@ export class SignInViews {
     return b;
   }
 
-  private view(id: string): View {
+  /** account set: a view of another account reads as closed. */
+  private view(id: string, account?: string): View {
     const v = this.views.get(id);
-    if (!v) throw new HttpError(404, 'That sign-in view was closed. Open it again.');
+    if (!v || (account !== undefined && v.account !== account)) throw new HttpError(404, 'That sign-in view was closed. Open it again.');
     v.lastUsed = Date.now();
     return v;
   }
 
-  async open(profileRaw: unknown, urlRaw: unknown): Promise<SignInViewDto> {
+  /** A member's view is in their own browser, whatever profile they name. */
+  async open(profileRaw: unknown, urlRaw: unknown, account: string = OWNER_ID): Promise<SignInViewDto> {
     const b = this.manager();
+    const member = isMember(account);
     let profile: string;
     let url: string;
     try {
-      profile = validateProfileName(typeof profileRaw === 'string' && profileRaw.trim() ? profileRaw : 'default');
+      profile = member ? memberProfileKey(account) : validateProfileName(typeof profileRaw === 'string' && profileRaw.trim() ? profileRaw : 'default');
       url = normalizeUrl(typeof urlRaw === 'string' ? urlRaw : '');
     } catch (err) {
       throw new HttpError(400, (err as Error).message);
@@ -175,10 +189,11 @@ export class SignInViews {
     for (const v of this.views.values()) if (v.profile === profile) await this.close(v.id);
     if ([...this.views.values()].filter((v) => !v.session).length >= MAX_VIEWS) throw new HttpError(409, `At most ${MAX_VIEWS} sign-in views can be open. Close one first.`);
     const id = `signin-${randomBytes(6).toString('hex')}`;
-    const view: View = { id, profile, url, seq: 0, frameAt: 0, lastUsed: Date.now() };
+    const view: View = { id, profile, account, url, seq: 0, frameAt: 0, lastUsed: Date.now() };
     this.views.set(id, view);
     this.tick();
-    b.setProfile(id, profile);
+    if (member) b.bindAccount(id, account);
+    else b.setProfile(id, profile);
     const onFrame = (f: ScreencastFrame) => {
       // the blank tab before the page loads is not worth a frame
       if (!/^https?:/i.test(f.url)) return;
@@ -195,7 +210,7 @@ export class SignInViews {
       await this.close(id);
       throw stepError(err, 502, `The browser could not open ${url}`);
     }
-    return { id, profile, url };
+    return { id, profile: member ? MEMBER_PROFILE_LABEL : profile, url };
   }
 
   /**
@@ -203,7 +218,7 @@ export class SignInViews {
    * its profile (or its proxied browser). Opens no browser and no tab: 404
    * when the session has none open.
    */
-  async live(sessionId: string): Promise<View> {
+  async live(sessionId: string, account: string = OWNER_ID): Promise<View> {
     const b = this.manager();
     const id = `live-${sessionId}`;
     let v = this.views.get(id);
@@ -220,7 +235,7 @@ export class SignInViews {
       v.lastUsed = Date.now();
       return v;
     }
-    const view: View = { id, session: sessionId, profile: b.profileFor(sessionId), url: '', seq: 0, frameAt: 0, lastUsed: Date.now() };
+    const view: View = { id, session: sessionId, profile: b.profileFor(sessionId), account, url: '', seq: 0, frameAt: 0, lastUsed: Date.now() };
     this.views.set(id, view);
     this.tick();
     const onFrame = (f: ScreencastFrame) => {
@@ -239,8 +254,8 @@ export class SignInViews {
   }
 
   /** The newest frame after `after`, or undefined when there is none newer. */
-  async frame(id: string, after: number): Promise<SignInFrameDto | undefined> {
-    const v = this.view(id);
+  async frame(id: string, after: number, account?: string): Promise<SignInFrameDto | undefined> {
+    const v = this.view(id, account);
     if (v.frame && v.frame.seq > after && Date.now() - v.frameAt < STALE_MS * 4) return v.frame;
     // a page that does not repaint sends no screencast frames: take one
     if (!v.frame || Date.now() - v.frameAt > STALE_MS) {
@@ -264,8 +279,8 @@ export class SignInViews {
     return v.frame;
   }
 
-  async input(id: string, events: unknown): Promise<void> {
-    const v = this.view(id);
+  async input(id: string, events: unknown, account?: string): Promise<void> {
+    const v = this.view(id, account);
     const b = this.manager();
     // a session's page takes the owner's input only while they hold it
     if (v.session && !b.ownerHolds(v.session)) throw new HttpError(409, 'Take over first: the assistant is using this browser.');
@@ -286,8 +301,8 @@ export class SignInViews {
   }
 
   /** The owner is signed in: remember the sites (where it started and where it ended) for this profile. */
-  async done(id: string): Promise<{ profile: string; sites: string[] }> {
-    const v = this.view(id);
+  async done(id: string, account?: string): Promise<{ profile: string; sites: string[] }> {
+    const v = this.view(id, account);
     const b = this.manager();
     // Done right after the last key: the login's post may still be loading, and its answer sets the cookie
     await bounded('the page loading', SETTLE_MS, b.settle(id, v.profile, SETTLE_MS - 1_000)).catch(() => undefined);
@@ -304,12 +319,13 @@ export class SignInViews {
     }
     for (const h of hosts) b.recordSignIn(v.profile, h);
     await this.close(id);
-    return { profile: v.profile, sites: [...hosts] };
+    return { profile: isMember(v.account) ? MEMBER_PROFILE_LABEL : v.profile, sites: [...hosts] };
   }
 
-  async close(id: string, opts: { keepHold?: boolean } = {}): Promise<void> {
+  /** account set: another account's view is left alone. */
+  async close(id: string, opts: { keepHold?: boolean; account?: string } = {}): Promise<void> {
     const v = this.views.get(id);
-    if (!v) return;
+    if (!v || (opts.account !== undefined && v.account !== opts.account)) return;
     this.views.delete(id);
     try {
       v.stop?.();
@@ -364,6 +380,19 @@ export function browserOf(engine: object): BrowserManager | undefined {
   return (engine as { browser?: BrowserManager }).browser;
 }
 
+/** What a member sees: their own browser, its sites and their own saved logins. No engine, install, proxy or folder of the hub. */
+export async function memberStatus(b: BrowserManager | undefined, account: string): Promise<BrowserStatusDto> {
+  if (!b) return { available: false, reason: 'This hub has no browser.', profiles: [] };
+  const available = await b.available();
+  const key = memberProfileKey(account);
+  const vault = b.loginsFor(account);
+  return {
+    available: available.ok,
+    ...(available.reason ? { reason: available.reason } : {}),
+    profiles: [{ name: MEMBER_PROFILE_LABEL, engine: 'chromium', label: 'Your browser on the hub', open: b.isOpen(key), sites: b.signIns(key), logins: vault.list().map((l) => loginDto(vault, l)), isDefault: true }],
+  };
+}
+
 export function status(b: BrowserManager | undefined, available: { ok: boolean; reason?: string }): BrowserStatusDto {
   if (!b) return { available: false, reason: 'This hub has no browser.', profiles: [] };
   const profiles = b.listProfiles().map((name) => {
@@ -373,14 +402,14 @@ export function status(b: BrowserManager | undefined, available: { ok: boolean; 
     } catch (err) {
       info = { engine: 'unknown', label: String((err as Error).message), open: false };
     }
-    return { name, engine: info.engine, label: info.label, open: info.open, sites: b.signIns(name), logins: b.logins.list(name).map((l) => loginDto(b, l)), isDefault: name === b.defaultProfileName() };
+    return { name, engine: info.engine, label: info.label, open: info.open, sites: b.signIns(name), logins: b.logins.list(name).map((l) => loginDto(b.logins, l)), isDefault: name === b.defaultProfileName() };
   });
   return { available: available.ok, ...(available.reason ? { reason: available.reason } : {}), profiles };
 }
 
 /** A saved login for Settings: whether a password and 2FA key are saved, never what they are. */
-export function loginDto(b: BrowserManager, l: ReturnType<BrowserManager['logins']['list']>[number]): BrowserLoginDto {
-  const readable = b.logins.readable(l.id);
+export function loginDto(vault: LoginVault, l: ReturnType<LoginVault['list']>[number]): BrowserLoginDto {
+  const readable = vault.readable(l.id);
   return {
     id: l.id,
     profile: l.profile,
@@ -475,8 +504,10 @@ export function registerBrowserRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
     if (!b) throw new HttpError(501, 'This hub has no browser.');
     return b;
   };
-  const answer = async () => {
+  const answer = async (c: Parameters<typeof accountOf>[0]) => {
     const b = browserOf(engine);
+    const acct = accountOf(c);
+    if (isMember(acct)) return memberStatus(b, acct);
     const st = await fullStatus(b, setupOf(b), engine.config.get().browser, (n) => engine.config.secretValue(n));
     const routines = engine.routines.list();
     return { ...st, profiles: st.profiles.map((p) => ({ ...p, usedBy: profileUsers(routines, p.name) })) };
@@ -498,8 +529,17 @@ export function registerBrowserRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
       throw new HttpError(400, (err as Error).message);
     }
   };
+  /** The caller's profile: a member's only one is "default", their own browser; another name is unknown. */
+  const ownProfile = (c: Parameters<typeof accountOf>[0], raw: string): string => {
+    const acct = accountOf(c);
+    if (!isMember(acct)) return profileParam(raw);
+    if (raw !== MEMBER_PROFILE_LABEL) throw new HttpError(404, `There is no browser profile ${raw}.`);
+    return memberProfileKey(acct);
+  };
+  /** What the audit calls a profile: a member's is "default", not its key. */
+  const shown = (name: string) => (name.startsWith('@') ? MEMBER_PROFILE_LABEL : name);
 
-  app.get('/api/browser', async (c) => c.json(await answer()));
+  app.get('/api/browser', async (c) => c.json(await answer(c)));
 
   app.post('/api/browser/setup', async (c) => {
     const body = await readJson<{ target?: unknown; steps?: unknown }>(c);
@@ -541,7 +581,7 @@ export function registerBrowserRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
     // an open browser closes, so the next use starts on the new engine
     await b.closeProfileBrowser(name);
     audit(c, 'browser.profile', `${name}: engine ${body.engine}`);
-    return c.json(await answer());
+    return c.json(await answer(c));
   });
 
   app.put('/api/browser/proxy', async (c) => {
@@ -623,7 +663,7 @@ export function registerBrowserRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
     });
     for (const [k, v] of secrets) engine.config.setSecret('values', k, v);
     audit(c, 'browser.proxy', said.join(', '));
-    return c.json(await answer());
+    return c.json(await answer(c));
   });
 
   app.post('/api/browser/proxy/test', async (c) => {
@@ -671,20 +711,23 @@ export function registerBrowserRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
     }
   };
 
+  // each account's own vault (a member's in their folder, with their own key)
+  const vaultOf = (c: Parameters<typeof accountOf>[0]) => manager().loginsFor(accountOf(c));
+
   app.post('/api/browser/logins', async (c) => {
-    const b = manager();
+    const v = vaultOf(c);
     const input = loginBody(await readJson<Record<string, unknown>>(c));
-    const l = vault(() => b.logins.add(input));
+    const l = vault(() => v.add(input));
     audit(c, 'browser.login.save', `${l.profile}: ${siteHost(l.origin)}${l.subdomains ? ' and its subdomains' : ''}${l.totp ? ', with a 2FA key' : ''}`);
-    return c.json(await answer());
+    return c.json(await answer(c));
   });
 
   app.put('/api/browser/logins/:id', async (c) => {
-    const b = manager();
+    const v = vaultOf(c);
     const id = c.req.param('id');
-    if (!b.logins.get(id)) throw new HttpError(404, 'That saved login is gone.');
+    if (!v.get(id)) throw new HttpError(404, 'That saved login is gone.');
     const input = loginBody(await readJson<Record<string, unknown>>(c));
-    const l = vault(() => b.logins.update(id, input));
+    const l = vault(() => v.update(id, input));
     const changed = [
       input.site !== undefined ? 'site' : '',
       input.profile !== undefined ? 'profile' : '',
@@ -694,21 +737,21 @@ export function registerBrowserRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
       input.subdomains !== undefined ? 'subdomains' : '',
     ].filter(Boolean);
     audit(c, 'browser.login.update', `${l.profile}: ${siteHost(l.origin)}${changed.length ? ` (${changed.join(', ')})` : ''}`);
-    return c.json(await answer());
+    return c.json(await answer(c));
   });
 
   app.delete('/api/browser/logins/:id', async (c) => {
-    const b = manager();
-    const l = b.logins.get(c.req.param('id'));
+    const v = vaultOf(c);
+    const l = v.get(c.req.param('id'));
     if (!l) throw new HttpError(404, 'That saved login is gone.');
-    b.logins.remove(l.id);
+    v.remove(l.id);
     audit(c, 'browser.login.delete', `${l.profile}: ${siteHost(l.origin)}`);
-    return c.json(await answer());
+    return c.json(await answer(c));
   });
 
   app.post('/api/browser/profiles/:name/forget', async (c) => {
     const b = manager();
-    const name = profileParam(c.req.param('name'));
+    const name = ownProfile(c, c.req.param('name'));
     const body = await readJson<{ host?: unknown }>(c);
     if (typeof body.host !== 'string' || !body.host.trim()) throw new HttpError(400, 'host must be the site, such as facebook.com');
     let r: { cookies: number };
@@ -717,15 +760,18 @@ export function registerBrowserRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
     } catch (err) {
       throw stepError(err, /not a web address|has no host|Site is empty/.test(String((err as Error)?.message)) ? 400 : 502, `Could not forget ${body.host}`);
     }
-    audit(c, 'browser.forget', `${name}: ${body.host.trim()} (${r.cookies} cookies)`);
-    return c.json(await answer());
+    audit(c, 'browser.forget', `${shown(name)}: ${body.host.trim()} (${r.cookies} cookies)`);
+    return c.json(await answer(c));
   });
 
   // Import cookies: the file's text in, counts per site out. The file is not kept and no value is echoed or logged.
   app.post('/api/browser/profiles/:name/cookies', async (c) => {
     const b = manager();
-    const name = profileParam(c.req.param('name'));
-    if (!b.listProfiles().includes(name)) throw new HttpError(404, `There is no browser profile ${name}.`);
+    const name = ownProfile(c, c.req.param('name'));
+    if (!name.startsWith('@') && !b.listProfiles().includes(name)) throw new HttpError(404, `There is no browser profile ${name}.`);
+    // a member's cookies grow their files (people/disk.ts)
+    const full = engine.diskRefusal(accountOf(c));
+    if (full) throw new HttpError(507, full);
     // JSON escaping can double a file's size
     const body = await readJson<{ file?: unknown }>(c, COOKIE_FILE_MAX * 2 + 1024);
     if (typeof body.file !== 'string') throw new HttpError(400, 'file must be the text of the cookie export');
@@ -742,17 +788,17 @@ export function registerBrowserRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
       r = await bounded('importing the cookies', START_MS, job);
     } catch (err) {
       if (err instanceof CookieFileError) throw new HttpError(400, err.message);
-      audit(c, 'browser.cookies.import', `${name}: failed after ${progress.added} cookies added`);
+      audit(c, 'browser.cookies.import', `${shown(name)}: failed after ${progress.added} cookies added`);
       // bounded does not stop the import: audit where it ends up too
       if (!settled) {
         job.then(
-          (late) => audit(c, 'browser.cookies.import', `${name}: finished after the answer timed out, ${late.added} cookies for ${late.sites.length} site${late.sites.length === 1 ? '' : 's'}`),
-          () => audit(c, 'browser.cookies.import', `${name}: stopped after the answer timed out, ${progress.added} cookies added`),
+          (late) => audit(c, 'browser.cookies.import', `${shown(name)}: finished after the answer timed out, ${late.added} cookies for ${late.sites.length} site${late.sites.length === 1 ? '' : 's'}`),
+          () => audit(c, 'browser.cookies.import', `${shown(name)}: stopped after the answer timed out, ${progress.added} cookies added`),
         );
       }
       throw stepError(err, 502, 'Could not import the cookies');
     }
-    audit(c, 'browser.cookies.import', `${name}: ${r.added} cookies for ${r.sites.length} site${r.sites.length === 1 ? '' : 's'}`);
+    audit(c, 'browser.cookies.import', `${shown(name)}: ${r.added} cookies for ${r.sites.length} site${r.sites.length === 1 ? '' : 's'}`);
     return c.json(r);
   });
 
@@ -771,37 +817,41 @@ export function registerBrowserRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
       throw err;
     }
     audit(c, 'browser.profile.delete', `${name}${r.logins ? `, with ${r.logins} saved login${r.logins === 1 ? '' : 's'}` : ''}${close ? ', closed first' : ''}`);
-    return c.json(await answer());
+    return c.json(await answer(c));
   });
 
   app.post('/api/browser/signin', async (c) => {
     const body = await readJson<{ profile?: unknown; url?: unknown }>(c);
-    const view = await views.open(body.profile, body.url);
+    const acct = accountOf(c);
+    // a member's browser grows their files (people/disk.ts)
+    const full = engine.diskRefusal(acct);
+    if (full) throw new HttpError(507, full);
+    const view = await views.open(body.profile, body.url, acct);
     audit(c, 'browser.signin.open', `${view.profile} ${new URL(view.url).hostname}`);
     return c.json(view);
   });
 
   app.get('/api/browser/signin/:id/frame', async (c) => {
     const after = Number(c.req.query('after') ?? 0) || 0;
-    const f = await views.frame(c.req.param('id'), after);
+    const f = await views.frame(c.req.param('id'), after, accountOf(c));
     if (!f) return c.body(null, 204);
     return c.json(f, 200, { 'cache-control': 'no-store' });
   });
 
   app.post('/api/browser/signin/:id/input', async (c) => {
     const body = await readJson<{ events?: unknown }>(c);
-    await views.input(c.req.param('id'), body.events);
+    await views.input(c.req.param('id'), body.events, accountOf(c));
     return c.json({ ok: true });
   });
 
   app.post('/api/browser/signin/:id/done', async (c) => {
-    const r = await views.done(c.req.param('id'));
+    const r = await views.done(c.req.param('id'), accountOf(c));
     audit(c, 'browser.signin', `${r.profile} signed in to ${r.sites.join(', ') || 'a site'}`);
-    return c.json(await answer());
+    return c.json(await answer(c));
   });
 
   app.delete('/api/browser/signin/:id', async (c) => {
-    await views.close(c.req.param('id'));
+    await views.close(c.req.param('id'), { account: accountOf(c) });
     return c.json({ ok: true });
   });
 
@@ -815,7 +865,7 @@ export function registerBrowserRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
   const liveDto = (b: BrowserManager, sid: string): BrowserLiveDto => {
     const open = b.hasPage(sid);
     const frame = open ? views.latest(`live-${sid}`) : undefined;
-    return { open, held: b.ownerHolds(sid), ...(open ? { profile: b.profileFor(sid) } : {}), ...(frame?.url ? { url: frame.url } : {}) };
+    return { open, held: b.ownerHolds(sid), ...(open ? { profile: shown(b.profileFor(sid)) } : {}), ...(frame?.url ? { url: frame.url } : {}) };
   };
 
   app.get('/api/browser/sessions/:session', (c) => {
@@ -828,7 +878,7 @@ export function registerBrowserRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
   app.get('/api/browser/sessions/:session/frame', async (c) => {
     const sid = sessionParam(c.req.param('session'));
     const after = Number(c.req.query('after') ?? 0) || 0;
-    const v = await views.live(sid);
+    const v = await views.live(sid, accountOf(c));
     const f = await views.frame(v.id, after);
     if (!f) return c.body(null, 204);
     return c.json(f, 200, { 'cache-control': 'no-store' });
@@ -844,7 +894,7 @@ export function registerBrowserRoutes(app: Hono<HonoEnv>, ctx: ServerContext, au
   app.post('/api/browser/sessions/:session/input', async (c) => {
     const sid = sessionParam(c.req.param('session'));
     const body = await readJson<{ events?: unknown }>(c);
-    const v = await views.live(sid);
+    const v = await views.live(sid, accountOf(c));
     await views.input(v.id, body.events);
     return c.json({ ok: true });
   });

@@ -460,12 +460,13 @@ describe('ids of someone else', () => {
     expect(caldav.status).toBe(400);
     expect(caldav.body.error).toContain("hub's own network");
     expect((await call(a, 'POST', '/api/pim/accounts/imap', { host: '192.168.1.5', username: 'x', password: 'y' })).status).toBe(400);
-    // a watch browses with the hub's Chromium: the owner's
+    // a member's watch browses in their own browser: it is made, it is theirs, and bob does not see it
     const watch = await call(a, 'POST', '/api/routines', { name: 'w', schedule: '0 7 * * *', prompt: 'y', watch: { url: 'https://example.com/cars' } });
-    expect(watch.status).toBe(400);
-    expect(watch.body.error).toContain("hub's browser");
-    // maps spend the owner's key and know the owner's home
-    expect((await ok(a, 'GET', '/api/maps/leave-by')).reason).toContain("owner's");
+    expect(watch.status).toBe(200);
+    expect((await ok(who.bob.token, 'GET', '/api/watches')).map((w: { id: string }) => w.id)).not.toContain(watch.body.id);
+    expect((await call(who.bob.token, 'GET', `/api/watches/${watch.body.id}`)).status).toBe(404);
+    // maps use alice's own key and home, never the owner's
+    expect(JSON.stringify(await ok(a, 'GET', '/api/maps/leave-by'))).not.toContain('ZQXOWNER');
     // each account's calendar list and proposals are its own
     expect((await ok<any>(a, 'GET', '/api/pim')).accounts.map((x: any) => x.id)).toEqual([who.alice.ids.pimAccount]);
     expect((await ok<any[]>(a, 'GET', '/api/proposals')).map((x) => x.id)).toEqual([who.alice.ids.proposal]);

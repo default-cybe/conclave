@@ -30,6 +30,8 @@ export interface ToolHost {
   config(): ConclaveConfig;
   /** The web search key saved in Settings > Web search (a hub secret), for WebSearch only. */
   searchKey?(provider: string): string | undefined;
+  /** A member's own engine and key (or DuckDuckGo); undefined: the hub's, for the owner or a member the owner allowed. */
+  searchChoice?(): { id: import('./search-providers').SearchProviderId; key?: string } | undefined;
   /** Run a subagent to completion and return its final text. */
   runSubagent(opts: {
     parentSessionId: string;
@@ -115,6 +117,8 @@ export interface ToolHost {
   shareCheck?(path: string): Promise<import('../files/share').ShareCheck>;
   /** The session's outputs folder on the hub (<home>/outputs/<sessionId>), made on first use. */
   outputsDir?(): string;
+  /** Why `more` bytes would not fit under a member's disk cap (people/disk.ts), or undefined (always for the owner). */
+  diskRefusal?(more?: number): string | undefined;
   /** playwright-core's chromium and the hub's browser binary, for RenderFile (tools/render-file.ts); an error when the hub has none. */
   renderBrowser?(): Promise<import('./render-file').RenderBrowser | { error: string }>;
   /** Capture a URL with the hub's browser into the session's outputs folder (browser/capture.ts). */

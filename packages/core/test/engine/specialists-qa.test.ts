@@ -14,6 +14,7 @@ import { looksLikeSecretFile } from '../../src/modes/review';
 import { riskyPattern, validateSchema } from '../../src/tools/schema';
 import type { AgentDef, HookInput } from '../../src/extensions/types';
 import type { Engine } from '../../src/engine/engine';
+import { OWNER_ID } from '../../src/people/context';
 import type { ExecResult, Machine } from '../../src/machine/types';
 import type { Session } from '../../src/types';
 
@@ -140,8 +141,11 @@ describe('verify gate', () => {
       },
       stat: async () => null,
     } as unknown as Machine;
+    const strict = { name: 'strict', description: '', prompt: 'x', source: 'user', verifyCommand: 'bun run typecheck' };
     const engine = {
-      extensions: { agent: () => ({ name: 'strict', description: '', prompt: 'x', source: 'user', verifyCommand: 'bun run typecheck' }) },
+      extensions: { agent: () => strict },
+      agentNamed: () => strict,
+      accountOf: () => OWNER_ID,
       trust: { isTrusted: () => true },
       machineFor: () => machine,
       notice: (_id: string, text: string) => notices.push(text),
@@ -180,8 +184,11 @@ describe('verify gate', () => {
       },
       stat: async () => null,
     } as unknown as Machine;
+    const coder = { name: 'coder', description: '', prompt: 'x', source: 'builtin', recipes: ['verify-gate'] };
     const engine = {
-      extensions: { agent: () => ({ name: 'coder', description: '', prompt: 'x', source: 'builtin', recipes: ['verify-gate'] }) },
+      extensions: { agent: () => coder },
+      agentNamed: () => coder,
+      accountOf: () => OWNER_ID,
       trust: { isTrusted: () => true },
       machineFor: () => machine,
       notice: () => {},
