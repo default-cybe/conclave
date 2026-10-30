@@ -553,7 +553,8 @@ fn drop_pending_login(app: &AppHandle) {
 async fn open_hub(app: AppHandle) -> Result<(), String> {
     let base = hub_base(&app).ok_or_else(|| "No hub is set up yet.".to_string())?;
     let (saved, token) = {
-        let s = state(&app).settings.lock().unwrap();
+        let st = state(&app);
+        let s = st.settings.lock().unwrap();
         (s.addresses.clone(), s.token.clone())
     };
     let moved = tauri::async_runtime::spawn_blocking(move || -> Result<Option<Url>, String> {
