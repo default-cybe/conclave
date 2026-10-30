@@ -51,11 +51,13 @@ object Imported {
         return src?.let { SOURCES[it] ?: it }
     }
 
-    /** "claude.ai, 2 May" (the year too when it is not this year). */
+    /** When the chat started at its source; the Imported group sorts by it, newest first. */
+    fun date(s: Session): Long = long(s, "createdAt")?.takeIf { it > 0 } ?: s.createdAt.takeIf { it > 0 } ?: s.updatedAt
+
+    /** "claude.ai, 2 May" this year, "ChatGPT, Sept 2025" before. */
     fun label(s: Session, now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): String {
-        val at = long(s, "createdAt")?.takeIf { it > 0 } ?: s.createdAt.takeIf { it > 0 } ?: s.updatedAt
-        val day = Instant.ofEpochMilli(at).atZone(zone)
-        val pattern = if (day.year == Instant.ofEpochMilli(now).atZone(zone).year) "d MMM" else "d MMM yyyy"
+        val day = Instant.ofEpochMilli(date(s)).atZone(zone)
+        val pattern = if (day.year == Instant.ofEpochMilli(now).atZone(zone).year) "d MMM" else "MMM yyyy"
         val date = day.format(DateTimeFormatter.ofPattern(pattern, Locale.UK))
         return source(s)?.let { "$it, $date" } ?: date
     }

@@ -175,7 +175,7 @@ object Drawer {
         // imported chats not continued yet: a group of their own, last, by their original date (Imported.kt)
         val imported = sessions
             .filter { Imported.inImported(it) && !Delegated.underParent(it) && (mode == null || Start.modeOf(it) == mode) && (needle.isEmpty() || matches(it, needle, "")) }
-            .sortedByDescending { it.updatedAt }
+            .sortedByDescending { Imported.date(it) }
             .take(Imported.LIMIT)
             .map { s -> Recent(s.id, Panel.title(s), s.isChat, Panel.dot(s, s.id in waiting), Imported.label(s, now, zone)) }
         val tail = if (imported.isEmpty()) emptyList() else listOf(DrawerGroup(Imported.KEY, Imported.WORDS, imported))

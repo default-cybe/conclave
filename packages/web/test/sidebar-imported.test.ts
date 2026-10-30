@@ -30,6 +30,15 @@ test('imported chats group last, newest first, with source and date; they never 
   expect(sideGroups({ sessions, mode: 'code', by: 'time', ctx: { projects: {}, devices: {} }, now: NOW }).some((g) => g.key === 'imported')).toBe(false);
 });
 
+test('Imported sorts by the start date its row shows, not by the last activity at the source', () => {
+  const busy = { ...imp('busy', NOW - 200 * DAY), updatedAt: NOW - DAY };
+  const groups = sideGroups({ sessions: [busy, imp('fresh', NOW - 30 * DAY)], mode: 'chat', by: 'time', ctx: { projects: {}, devices: {} }, now: NOW });
+  expect(groups.at(-1)!.rows.map((r) => r.id)).toEqual(['fresh', 'busy']);
+  // a chat from an earlier year says month and year, not the day
+  const lastYear = sideGroups({ sessions: [imp('old', new Date(2025, 8, 25).getTime(), 'chatgpt')], mode: 'chat', by: 'time', ctx: { projects: {}, devices: {} }, now: NOW });
+  expect(lastYear.at(-1)!.rows[0].device).toMatch(/^ChatGPT, Sept? 2025$/);
+});
+
 test('a continued imported chat leaves Imported for its date group', () => {
   const s = imp('cont', NOW - 200 * DAY);
   const next = { ...s, ...continuedPatch(s, NOW), updatedAt: NOW - 1000 };

@@ -14,7 +14,7 @@ import { MoreHorizontal } from 'lucide-react';
 import type { Session } from '@conclave/core/types';
 import { isDelegated, underParent } from '@conclave/core/session/delegated';
 import { isUnread } from '@conclave/core/session/unread';
-import { IMPORTED_KEY, IMPORTED_WORDS, importedLabel, inImported } from '@conclave/core/session/imported';
+import { IMPORTED_KEY, IMPORTED_WORDS, byImportedDate, importedLabel, inImported } from '@conclave/core/session/imported';
 import { api } from '@/lib/api';
 import { attempt, loadMessages, removeKey, upsertSession, useHub } from '@/store/store';
 import { openNewChat, useUi, type ListGroup } from '@/store/ui';
@@ -83,7 +83,7 @@ export function SessionList({ activeId }: { activeId?: string }) {
     let list = Object.values(sessions).filter((s) => (!underParent(s) || (!!needle && isDelegated(s))) && (showArchived ? s.archived && !inImported(s) : !s.archived || inImported(s)) && (!pinnedOnly || s.pinned) && !isDuplicateCopy(s));
     if (needle) list = list.filter((s) => fuzzy(needle, `${s.title} ${s.agent} ${modelName(s.model)} ${s.tags.join(' ')} ${devices[s.device]?.name ?? ''}`) >= 0);
     list.sort((a, b) => b.updatedAt - a.updatedAt);
-    const imported = list.filter(inImported);
+    const imported = list.filter(inImported).sort(byImportedDate);
     list = list.filter((s) => !inImported(s));
     const tail = imported.length ? [{ key: IMPORTED_KEY, label: IMPORTED_WORDS, items: imported, tone: undefined as 'warn' | undefined }] : [];
     const out: Array<{ key: string; label: string; tone?: 'warn'; items: Session[] }> = [];

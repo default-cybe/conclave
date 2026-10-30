@@ -63,11 +63,16 @@ export function importedDate(s: Pick<Session, 'meta' | 'createdAt' | 'updatedAt'
   return importMeta(s)?.createdAt || s.createdAt || s.updatedAt;
 }
 
-/** The quiet label of an Imported row: "claude.ai, 2 May 2026" (no year in the current year). */
+/** Sort order of the Imported place: newest first by the date its row shows, not its last activity. */
+export function byImportedDate(a: Pick<Session, 'meta' | 'createdAt' | 'updatedAt'>, b: Pick<Session, 'meta' | 'createdAt' | 'updatedAt'>): number {
+  return importedDate(b) - importedDate(a);
+}
+
+/** The quiet label of an Imported row: "claude.ai, 2 May" this year, "ChatGPT, Sept 2025" before (short enough for the sidebar's column). */
 export function importedLabel(s: Pick<Session, 'meta' | 'tags' | 'createdAt' | 'updatedAt'>, now = Date.now()): string {
   const d = new Date(importedDate(s));
   const sameYear = d.getFullYear() === new Date(now).getFullYear();
-  const day = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
+  const day = d.toLocaleDateString('en-GB', sameYear ? { day: 'numeric', month: 'short' } : { month: 'short', year: 'numeric' });
   const src = importedSourceName(s);
   return src ? `${src}, ${day}` : day;
 }

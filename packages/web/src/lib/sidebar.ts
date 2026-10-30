@@ -28,7 +28,7 @@
 import type { Session } from '@conclave/core/types';
 import { delegateMark, isDelegated, underParent } from '@conclave/core/session/delegated';
 import { isUnread } from '@conclave/core/session/unread';
-import { IMPORTED_KEY, IMPORTED_WORDS, importedLabel, inImported } from '@conclave/core/session/imported';
+import { IMPORTED_KEY, IMPORTED_WORDS, byImportedDate, importedLabel, inImported } from '@conclave/core/session/imported';
 import { CHATS, deviceName, groupSessions, type GroupContext } from './grouping';
 import { hrefOf, liveState } from './recents';
 import { sessionRepo } from './github';
@@ -148,7 +148,7 @@ export const IMPORTED_LIMIT = 30;
 export function importedSessions(sessions: Iterable<Session>, mode: SideMode): Session[] {
   const out: Session[] = [];
   for (const s of sessions) if (inImported(s) && !underParent(s) && sideModeOf(s) === mode) out.push(s);
-  return out.sort((a, b) => b.updatedAt - a.updatedAt);
+  return out.sort(byImportedDate);
 }
 
 /** The sidebar's groups for a mode, then Imported. */

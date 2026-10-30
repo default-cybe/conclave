@@ -97,7 +97,7 @@ object Lists {
             .filter { s -> needle.isEmpty() || s.title.lowercase().contains(needle) || (!chats && s.agent.lowercase().contains(needle)) }
             .sortedByDescending { it.updatedAt }
         val out = ArrayList<ListGroup>()
-        val imported = list.filter { Imported.inImported(it) }
+        val imported = list.filter { Imported.inImported(it) }.sortedByDescending { Imported.date(it) }
         val pinned = list.filter { it.pinned && !archived && !Imported.inImported(it) }
         if (pinned.isNotEmpty()) out.add(ListGroup("pinned", "Pinned", pinned))
         val byTime = LinkedHashMap<String, Pair<String, MutableList<Session>>>()
