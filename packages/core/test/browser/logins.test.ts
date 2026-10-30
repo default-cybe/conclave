@@ -171,8 +171,8 @@ describe('TOTP', () => {
 });
 
 describe('who may use saved logins', () => {
-  test('members and untrusted sessions are refused', () => {
-    expect(loginRefusal({ session: { accountId: 'acc_alice' } as never, host: {} as never })).toContain("hub owner's");
+  test('untrusted sessions are refused; a member uses their own logins', () => {
+    expect(loginRefusal({ session: { accountId: 'acc_alice' } as never, host: {} as never })).toBeUndefined();
     expect(loginRefusal({ session: { meta: { untrusted: true } } as never, host: {} as never })).toContain('untrusted');
     expect(loginRefusal({ session: {} as never, host: { untrusted: () => true } as never })).toContain('untrusted');
     expect(loginRefusal({ session: { accountId: 'owner' } as never, host: { untrusted: () => false } as never })).toBeUndefined();
@@ -425,9 +425,14 @@ live('browser_login in Chromium', () => {
     expect(textOf(other)).toContain('is in profile default and work');
     manager.setProfile('s9', 'default');
     await run('browser_navigate', { url: `${A}/login` }, 's9');
-    const member = await run('browser_login', {}, 's9', { session: { id: 's9', accountId: 'acc_alice' } as never });
+    // a member's session is in their own browser with their own vault: the owner's login is not there, and the local site is refused
+    manager.accountFor = (id) => (id === 's9m' ? 'acc_alice' : undefined);
+    const nav = await run('browser_navigate', { url: `${A}/login` }, 's9m', { session: { id: 's9m', accountId: 'acc_alice' } as never });
+    expect(nav.isError).toBe(true);
+    const member = await run('browser_login', {}, 's9m', { session: { id: 's9m', accountId: 'acc_alice' } as never });
     expect(member.isError).toBe(true);
-    expect(textOf(member)).toContain("hub owner's");
+    expect(textOf(member)).not.toContain('pw');
+    manager.accountFor = undefined;
     const untrusted = await run('browser_login', {}, 's9', { session: { id: 's9', meta: { untrusted: true } } as never });
     expect(textOf(untrusted)).toContain('untrusted');
     manager.setReadOnly('s9', true);

@@ -1,7 +1,7 @@
 /**
  * Settings > Web search over HTTP (routes-websearch.ts): the engine list,
  * the choice and SearXNG address, a key going in as a hub secret and never
- * coming back out, the Test button against a fake SearXNG, and a member's 403.
+ * coming back out, the Test button against a fake SearXNG, and a member's own keys.
  *
  *   bun test packages/server/test/websearch-routes.test.ts
  */
@@ -71,12 +71,17 @@ describe('web search settings', () => {
     expect(noKey.message).toContain('no Exa API key');
   });
 
-  test('a member gets 403 on every web search route', async () => {
+  test("a member sees and sets only their own keys; the engine choice stays the owner's", async () => {
     await hub.api('/api/people', { method: 'POST', json: { name: 'riley', password: 'a long enough password' } });
     const login = await hub.api('/api/login', { method: 'POST', token: null, json: { account: 'riley', password: 'a long enough password', name: 'Riley laptop', platform: 'web' } }).then((r) => r.json());
-    expect((await hub.api('/api/websearch', { token: login.token })).status).toBe(403);
+    const mine = await json<WebSearchSettingsDto>(await hub.api('/api/websearch', { token: login.token }));
+    // the owner's SearXNG address and choice never show on a member's page
+    expect(mine).toMatchObject({ chosen: 'auto', active: 'duckduckgo', hubAllowed: false });
+    expect(mine.url).toBeUndefined();
     expect((await hub.api('/api/websearch', { method: 'PATCH', token: login.token, json: { provider: 'auto' } })).status).toBe(403);
-    expect((await hub.api('/api/websearch/key', { method: 'PUT', token: login.token, json: { provider: 'brave', key: 'abcdefghijk' } })).status).toBe(403);
-    expect((await hub.api('/api/websearch/test', { method: 'POST', token: login.token, json: {} })).status).toBe(403);
+    const set = await json<WebSearchSettingsDto>(await hub.api('/api/websearch/key', { method: 'PUT', token: login.token, json: { provider: 'brave', key: 'abcdefghijk' } }));
+    expect(set.providers.find((p) => p.id === 'brave')).toMatchObject({ keySet: true, keyFrom: 'own' });
+    expect(hub.engine.config.secretValue('search.brave')).toBeUndefined();
+    expect((await hub.api('/api/websearch/test', { method: 'POST', token: login.token, json: { provider: 'searxng' } })).status).toBe(400);
   });
 });

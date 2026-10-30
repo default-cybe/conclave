@@ -183,7 +183,7 @@ export const LOGIN_DESCRIPTION =
 
 /** Why this session may not use saved logins, or undefined when it may. */
 export function loginRefusal(ctx: Pick<ToolContext, 'session' | 'host'>): string | undefined {
-  if (isMember(ctx.session?.accountId)) return "Saved logins are the hub owner's. This session cannot use them.";
+  // a member's session fills only their own saved logins (BrowserManager.loginsFor)
   if (ctx.session?.meta?.untrusted === true || ctx.host?.untrusted?.()) return 'This session reads untrusted input (mail, web pages or a webhook), so it cannot use saved logins.';
   return undefined;
 }
@@ -275,7 +275,8 @@ export function browserTools(manager: BrowserManager): Tool[] {
       let nav = await manager.navigate(ctx.sessionId, input.url);
       let blocked = '';
       // a block page from the hub's own address: once more through the owner's proxy, in the hub's country
-      if (proxyWant(input.proxy) === undefined && !manager.proxied(ctx.sessionId)) {
+      // a member's browser has no proxy (it is the owner's): no retry through it
+      if (proxyWant(input.proxy) === undefined && !manager.proxied(ctx.sessionId) && !isMember(ctx.session?.accountId)) {
         const why = await blockedPage(manager, ctx.sessionId, nav.status);
         if (why) ({ nav, line: blocked } = await retryBlocked(manager, ctx, input.url, nav, why));
       }

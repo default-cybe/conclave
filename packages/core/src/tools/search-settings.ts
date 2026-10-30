@@ -6,7 +6,8 @@
  * search-providers.ts.
  */
 import type { ConfigStore } from '../config';
-import { keyFor, pickProvider, providerForKey, searchOnce, searxngUrl, type SearchProviderId } from './websearch';
+import type { AccountSecrets } from '../people/secrets';
+import { keyFor, pickProvider, providerForKey, searchOnce, searxngUrl, type SavedSearchKey, type SearchProviderId } from './websearch';
 import { SEARCH_PROVIDERS, type SearchChoice, type SearchProviderInfo, type WebSearchSettingsDto, type WebSearchSettingsPatch, type WebSearchTestResult } from './search-providers';
 
 const CHOICES: SearchChoice[] = ['auto', ...SEARCH_PROVIDERS.map((p) => p.id)];
@@ -73,14 +74,86 @@ export function patchSearchSettings(config: SearchConfig, p: WebSearchSettingsPa
   return searchSettings(config);
 }
 
-/** Save a key (trimmed) for one engine, or remove it with null. */
-export function setSearchKey(config: SearchConfig, id: string, key: string | null): WebSearchSettingsDto {
+/** A key for one engine, trimmed and checked; undefined removes it. */
+function checkedKey(id: string, key: string | null): string | undefined {
   const p = SEARCH_PROVIDERS.find((x) => x.id === id);
   if (!p || p.needs !== 'key') throw new SearchSettingsError(`${id} takes no key. Keys go with ${SEARCH_PROVIDERS.filter((x) => x.needs === 'key').map((x) => x.id).join(', ')}.`);
   const k = key?.trim();
   if (k && !/^\S{8,512}$/.test(k)) throw new SearchSettingsError(`That does not look like a ${p.name} key: it is one word of at least 8 characters, with no spaces.`);
-  config.setSecret('values', searchSecretName(id), k || undefined);
+  return k || undefined;
+}
+
+/** Save a key (trimmed) for one engine, or remove it with null. */
+export function setSearchKey(config: SearchConfig, id: string, key: string | null): WebSearchSettingsDto {
+  config.setSecret('values', searchSecretName(id), checkedKey(id, key));
   return searchSettings(config);
+}
+
+// ---------------------------------------------------------------------------
+// A member's own web search (docs/design/ACCOUNTS.md 6): their own keys first,
+// the hub's only when the owner allows it, else DuckDuckGo, which needs no key.
+// Never the hub's env vars, config key or SearXNG address.
+// ---------------------------------------------------------------------------
+
+/** A member's own keys, by engine: reads and writes their own secrets file (values search.<id>). */
+export interface OwnSearchKeys {
+  get: SavedSearchKey;
+  set(id: SearchProviderId, key: string | undefined): void;
+}
+
+/** A member's own keys in their secrets file. */
+export function memberSearchKeys(secrets: Pick<AccountSecrets, 'value' | 'set'>, accountId: string): OwnSearchKeys {
+  return {
+    get: (id) => secrets.value(accountId, searchSecretName(id)),
+    set: (id, key) => secrets.set(accountId, 'values', searchSecretName(id), key),
+  };
+}
+
+/** The engine a member's WebSearch uses: the first with a key of their own; undefined means the hub's (allowed); else DuckDuckGo. */
+export function memberSearchChoice(own: SavedSearchKey, hubAllowed: boolean): { id: SearchProviderId; key?: string } | undefined {
+  for (const p of SEARCH_PROVIDERS) {
+    if (p.needs !== 'key') continue;
+    const key = own(p.id);
+    if (key) return { id: p.id, key };
+  }
+  return hubAllowed ? undefined : { id: 'duckduckgo' };
+}
+
+/** A member's Settings > Web search: their own keys, and whether the hub's search is theirs to use. Nothing of the hub's keys or address. */
+export function memberSearchSettings(config: SearchConfig, own: SavedSearchKey, hubAllowed: boolean): WebSearchSettingsDto {
+  const pick = memberSearchChoice(own, hubAllowed);
+  return {
+    chosen: 'auto',
+    active: pick ? pick.id : pickProvider(config.get().search, savedSearchKey(config)).id,
+    hubAllowed,
+    providers: SEARCH_PROVIDERS.map((p) => {
+      const set = p.needs === 'key' && !!own(p.id);
+      return { ...p, keySet: set, ...(set ? { keyFrom: 'own' as const } : {}) };
+    }),
+  };
+}
+
+export function setMemberSearchKey(config: SearchConfig, own: OwnSearchKeys, hubAllowed: boolean, id: string, key: string | null): WebSearchSettingsDto {
+  own.set(id as SearchProviderId, checkedKey(id, key));
+  return memberSearchSettings(config, own.get, hubAllowed);
+}
+
+/** The Test button on a member's page: their own key, or DuckDuckGo. */
+export async function testMemberSearch(own: SavedSearchKey, id?: string, signal = new AbortController().signal): Promise<WebSearchTestResult> {
+  const provider = (id ?? memberSearchChoice(own, false)!.id) as SearchProviderId;
+  const info = SEARCH_PROVIDERS.find((x) => x.id === provider);
+  if (!info) throw new SearchSettingsError(`Unknown search engine ${id}.`);
+  if (info.needs === 'url') throw new SearchSettingsError(`${info.name} needs a server address, which is the hub owner's to set.`);
+  const key = info.needs === 'key' ? own(provider) : undefined;
+  if (info.needs === 'key' && !key) return { provider, ok: false, message: `Add your own ${info.name} key first.` };
+  try {
+    const results = await searchOnce(provider, { query: 'open source search engine', limit: 3, key, signal });
+    return { provider, ok: results.length > 0, message: results.length ? `Works. ${info.name} answered with ${results.length} result${results.length === 1 ? '' : 's'}.` : `${info.name} answered, but with no results.` };
+  } catch (err) {
+    let msg = (err as Error).message;
+    if (key) msg = msg.split(key).join('[key]');
+    return { provider, ok: false, message: msg.slice(0, 300) };
+  }
 }
 
 /** One real query on one engine (the one in use by default), no fallback. Only ok and words come back. */

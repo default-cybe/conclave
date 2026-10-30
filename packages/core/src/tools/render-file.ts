@@ -6,7 +6,7 @@
  * origin) is aborted, the host resolver maps every name to nothing, and
  * JavaScript and service workers are off. Input and output are capped and
  * the browser is closed after each call. Opt-in (the chat and the assistant
- * name it); never for an untrusted agent or a member's session.
+ * name it); never for an untrusted agent. A member's render fits their disk cap.
  */
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -213,6 +213,9 @@ export const RenderFileTool: Tool<RenderFileInput> = {
     const st = await stat(src).catch(() => undefined);
     if (!st?.isFile()) return fail(`No file at ${src}. Write it first.`);
     if (st.size > RENDER_MAX_INPUT) return fail(`Refused: ${basename(src)} is ${(st.size / 1024 / 1024).toFixed(1)} MB; the limit is ${RENDER_MAX_INPUT / 1024 / 1024} MB.`);
+    // a member's outputs count toward their disk cap: the output is at most a few times the input
+    const full = ctx.host.diskRefusal?.(st.size);
+    if (full) return fail(full);
     const browser = await ctx.host.renderBrowser();
     if ('error' in browser) return fail(browser.error);
     try {

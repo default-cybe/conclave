@@ -8,10 +8,9 @@
  * "inspiration" finds items again and fences their text as untrusted.
  */
 import { createHash } from 'node:crypto';
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { captureUrl } from '../browser/capture';
-import { OWNER_ID } from '../people/context';
 import { parsePostUrl, ReadPostTool } from './read-post';
 import type { Tool, ToolContext, ToolOutput } from './types';
 import { fail } from './util';
@@ -90,8 +89,7 @@ export const SaveInspirationTool: Tool<{ url: string; tags?: string[]; note?: st
   timeoutMs: 300_000,
   summarize: (input) => `Save inspiration ${input.url}`,
   async run(input, ctx) {
-    // the board is the owner's: a member never gets the tool (engine MEMBER_DENY), and this stops a stray call
-    if (ctx.session.accountId && ctx.session.accountId !== OWNER_ID) return fail("The inspiration board is the hub owner's; a member's session cannot save to it.");
+    // each account has its own board: the memory goes to the session's account, the files to its folder (engine/host.ts inspirationDir)
     const home = ctx.host.inspirationDir?.();
     if (!home) return fail('The inspiration board works only on the hub.');
     const tags = inspirationTags(input.tags);
@@ -131,6 +129,8 @@ export const SaveInspirationTool: Tool<{ url: string; tags?: string[]; note?: st
     // a stable folder per URL, so a second save replaces the first
     const item = `${'error' in post ? 'site' : post.kind}-${createHash('sha256').update(url).digest('hex').slice(0, 12)}`;
     const dest = join(home, item);
+    const full = ctx.host.diskRefusal?.(found.reduce((n, f) => n + (statSync(f, { throwIfNoEntry: false })?.size ?? 0), 0));
+    if (full) return fail(full);
     rmSync(dest, { recursive: true, force: true });
     mkdirSync(dest, { recursive: true });
     const files = found.map((f) => {

@@ -6,8 +6,8 @@
 export type WorkflowRunStatus = 'queued' | 'running' | 'paused' | 'waiting_reset' | 'interrupted' | 'done' | 'failed' | 'stopped' | 'budget';
 export type WorkflowCallState = 'queued' | 'running' | 'done' | 'failed' | 'skipped' | 'cached' | 'parked';
 export type WorkflowCallKind = 'agent' | 'check' | 'citation' | 'workflow' | 'ask';
-/** Where a workflow came from. inline: a script the Workflow tool or the API sent. */
-export type WorkflowSource = 'builtin' | 'plugin' | 'user' | 'project' | 'claude-code' | 'inline';
+/** Where a workflow came from. inline: a script the Workflow tool or the API sent. account: a member's own, under <home>/accounts/<id>/workflows. */
+export type WorkflowSource = 'builtin' | 'plugin' | 'user' | 'project' | 'claude-code' | 'inline' | 'account';
 export type WorktreeState = 'live' | 'kept' | 'removed' | 'merged' | 'discarded';
 
 export interface WorkflowPhaseDto {

@@ -378,9 +378,10 @@ export function parseDuckDuckGo(html: string): SearchResult[] {
 export async function webSearch(
   cfg: ConclaveConfig['search'],
   query: string,
-  opts: { limit?: number; allowed?: string[]; blocked?: string[]; signal: AbortSignal; saved?: SavedSearchKey },
+  opts: { limit?: number; allowed?: string[]; blocked?: string[]; signal: AbortSignal; saved?: SavedSearchKey; choice?: { id: SearchProviderId; key?: string } },
 ): Promise<{ provider: SearchProviderId; results: SearchResult[]; note?: string }> {
-  const choice = pickProvider(cfg, opts.saved);
+  // a member's own engine and key (search-settings.ts memberSearchChoice), else the hub's
+  const choice: { id: SearchProviderId; key?: string; url?: string } = opts.choice ?? pickProvider(cfg, opts.saved);
   const limit = Math.min(MAX_LIMIT, Math.max(1, Math.floor(opts.limit ?? DEFAULT_LIMIT)));
   const notes: string[] = [];
   const req = (id: SearchProviderId, key?: string, url?: string): SearchRequest => ({
@@ -457,7 +458,7 @@ export const WebSearchTool: Tool<WebSearchInput> = {
     if (allowed.length && blocked.length) return fail('Use either allowed_domains or blocked_domains, not both.');
     let out;
     try {
-      out = await webSearch(ctx.host.config().search, input.query.trim(), { limit: input.limit, allowed, blocked, signal: ctx.signal, saved: ctx.host.searchKey?.bind(ctx.host) });
+      out = await webSearch(ctx.host.config().search, input.query.trim(), { limit: input.limit, allowed, blocked, signal: ctx.signal, saved: ctx.host.searchKey?.bind(ctx.host), choice: ctx.host.searchChoice?.() });
     } catch (err) {
       return fail(`Web search failed: ${(err as Error).message}`);
     }

@@ -419,7 +419,8 @@ export function setWebFetchBrowser(b?: WebFetchBrowser): void {
 async function fetchRedditInBrowser(target: URL, jsonUrl: URL, ctx: ToolContext): Promise<{ page: Page; note: string } | { why: string }> {
   const b = fetchBrowser;
   if (!b) return { why: '' };
-  if (isMember(ctx.session?.accountId ?? currentAccount())) return { why: "The hub's browser belongs to the owner, so a member's request does not fall back to it." };
+  // a member's session reads in their own browser (browser/manager.ts), with no proxy: that is the owner's
+  const member = isMember(ctx.session?.accountId ?? currentAccount());
   const sid = ctx.sessionId || 'webfetch';
   const readTab = async (u: URL): Promise<{ raw: string; status: number; url: string; blocked?: string }> => {
     const nav = await b.navigate(sid, u.href);
@@ -433,7 +434,7 @@ async function fetchRedditInBrowser(target: URL, jsonUrl: URL, ctx: ToolContext)
   try {
     let viaProxy: string | undefined;
     let tab = await readTab(jsonUrl);
-    if (tab.blocked && !b.proxied(sid)) {
+    if (tab.blocked && !member && !b.proxied(sid)) {
       const pick = await retryCountry(ctx.session?.accountId ?? currentAccount());
       if (!('skip' in pick)) {
         try {

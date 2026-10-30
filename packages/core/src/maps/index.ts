@@ -1,6 +1,6 @@
 /** Maps: places, directions, map images and leave-by times (docs/DESIGN.md, Maps). */
 export * from './types';
-export { MapsService, MAPS_KEY, MAPS_KEY_ENV, DEFAULT_CAP, looksLikeGoogleId, type MapsHost, type MapsAnswer, type SearchInput, type DirectionsInput, type MapImageInput } from './service';
+export { MapsService, MAPS_KEY, MAPS_KEY_ENV, DEFAULT_CAP, MEMBER_NO_KEY, looksLikeGoogleId, type MapsHost, type MapsAnswer, type SearchInput, type DirectionsInput, type MapImageInput } from './service';
 export { GoogleProvider, googleError, SEARCH_MASK, DETAILS_MASK, ROUTE_MASK, PLACE_FIELDS, API_NAMES, GOOGLE_HOSTS } from './google';
 export { OsmProvider, OSM_DEFAULTS, OSM_ATTRIBUTION, osmId } from './osm';
 export { TtlCache, DailyCap, Gate } from './limits';

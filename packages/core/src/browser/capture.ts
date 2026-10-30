@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import type { Browser, BrowserType, Page } from 'playwright-core';
 // axe-core's browser bundle as text, embedded in the compiled binary like the default workflows
 import axeSource from 'axe-core/axe.min.js' with { type: 'text' };
+import { currentAccount, isMember, runAs } from '../people/context';
 import { guardHost } from '../tools/webfetch';
 import { wrapUntrusted } from '../tools/util';
 import { contactSheetArgs, findFfmpeg, runFfmpeg } from '../util/ffmpeg';
@@ -76,6 +77,8 @@ export interface CaptureDeps {
   /** Folder the files go to; a sub-folder per capture is made in it. */
   outDir: string;
   signal?: AbortSignal;
+  /** The account the capture runs for (set by capture()): a member's page reaches only public addresses. */
+  account?: string;
 }
 
 export interface CaptureShot {
@@ -193,13 +196,13 @@ export function findPlaywrightFirefox(extraDirs: string[] = []): string | undefi
  * hub's browser folder, the stock Chromium a preview uses, real Chrome and
  * Playwright's Firefox when they are there, ffmpeg from util/ffmpeg.ts.
  */
-export async function hubCapture(browser: BrowserManager | undefined, home: string, outDir: string, url: string, opts: CaptureOptions, signal?: AbortSignal): Promise<CaptureResult> {
+export async function hubCapture(browser: BrowserManager | undefined, home: string, outDir: string, url: string, opts: CaptureOptions, signal?: AbortSignal, account?: string): Promise<CaptureResult> {
   if (!browser) throw new Error('This hub has no browser service.');
   const pw = await loadPlaywright(browser.runtimeDir());
   const chromiumPath = browser.stockExecutable();
   const chromePath = findChrome();
   if (!chromiumPath && !chromePath) throw new Error('No browser is installed on this hub yet. The owner can install one in Settings, Browser, Engines.');
-  return capture(url, opts, { chromium: pw.chromium, firefox: pw.firefox, chromiumPath, chromePath, firefoxPath: findPlaywrightFirefox([hubBrowsersPath(home)]), ffmpeg: () => findFfmpeg(home), outDir, signal });
+  return capture(url, opts, { chromium: pw.chromium, firefox: pw.firefox, chromiumPath, chromePath, firefoxPath: findPlaywrightFirefox([hubBrowsersPath(home)]), ffmpeg: () => findFfmpeg(home), outDir, signal, account });
 }
 
 const clip = (s: unknown, n: number = CAPTURE_LIMITS.itemChars) => String(s ?? '').slice(0, n);
@@ -268,7 +271,10 @@ function slug(u: URL): string {
 export async function capture(rawUrl: string, opts: CaptureOptions, deps: CaptureDeps): Promise<CaptureResult> {
   const u = captureUrl(rawUrl);
   if ('error' in u) throw new Error(u.error);
-  const g = await guardHost(u);
+  // route handlers run outside the caller's account: carry it to them
+  deps = { ...deps, account: deps.account ?? currentAccount() };
+  const acct = deps.account;
+  const g = await (acct ? runAs(acct, () => guardHost(u)) : guardHost(u));
   if ('error' in g) throw new Error(g.error);
   const o = captureOptions(opts);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -339,13 +345,14 @@ async function runBrowser(
               const h = new URL(route.request().url());
               if (h.protocol === 'http:' || h.protocol === 'https:') {
                 let p = hosts.get(h.hostname);
-                if (!p) hosts.set(h.hostname, (p = guardHost(h).then((r) => !('error' in r))));
+                const check = () => guardHost(h).then((r) => !('error' in r));
+                if (!p) hosts.set(h.hostname, (p = deps.account ? runAs(deps.account, check) : check()));
                 ok = await p;
-              }
+              } else if (isMember(deps.account) && h.protocol !== 'data:' && h.protocol !== 'blob:') ok = false;
             } catch {
-              ok = true;
+              ok = !isMember(deps.account);
             }
-            if (!ok) push(seen.failed, `blocked (metadata address): ${clip(route.request().url())}`);
+            if (!ok) push(seen.failed, `blocked (${isMember(deps.account) ? 'not a public address' : 'metadata address'}): ${clip(route.request().url())}`);
             return ok ? route.continue().catch(() => {}) : route.abort('blockedbyclient').catch(() => {});
           });
           const p = await ctx.newPage();

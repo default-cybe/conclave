@@ -286,12 +286,13 @@ describe('WebFetch on Reddit', () => {
       expect(text(viaBrowserProxy)).toContain('Reddit blocked HTTP; loaded in the browser through the proxy (US).');
       expect(text(viaBrowserProxy)).toContain('OpenCore works well on Proxmox VE');
 
-      // 4) Member session never uses the owner's proxy or browser.
+      // 4) A member session may use its own browser, never the owner's proxy.
+      // the fake browser is one object for every session: step 3 left it proxied, a member's real session starts unproxied
       clearWebFetchCache();
       navs.length = 0;
-      const memberOut = await runAs('alice', () => WebFetchTool.run({ url: 'https://www.reddit.com/r/Proxmox/comments/abc123/macos_vm/' }, makeCtx({ cwd: '/' })));
-      expect(memberOut.isError).toBe(true);
-      expect(navs).toHaveLength(0);
+      browserProxied = false;
+      await runAs('alice', () => WebFetchTool.run({ url: 'https://www.reddit.com/r/Proxmox/comments/abc123/macos_vm/' }, makeCtx({ cwd: '/' })));
+      expect(navs.filter((n) => (n as { proxied?: boolean }).proxied)).toHaveLength(0);
     } finally {
       globalThis.fetch = realFetch;
       setWebFetchLookup();

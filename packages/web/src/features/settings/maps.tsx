@@ -4,6 +4,10 @@
  * its Test button and setup steps, the OpenStreetMap contact email and
  * servers, home, the default travel mode, which app links open, and the
  * daily cap with today's count.
+ *
+ * A member gets the same page on their own account (the routes run as the
+ * caller): their own Google key, home, mode, links and cap. The provider
+ * and the OpenStreetMap servers are the owner's, so those rows are hidden.
  */
 import { useEffect, useState } from 'react';
 import type { MapsLinkApp, MapsProviderId, MapsSettingsDto, MapsSettingsPatch, MapsTestResult, TravelMode } from '@conclave/core/client';
@@ -14,6 +18,7 @@ import { CodeBlock } from '@/components/ui/Code';
 import { Input, Segmented } from '@/components/ui/Field';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { toast } from '@/store/store';
+import { useIsOwner } from '@/lib/people';
 import { errText, Group, Outcome, SettingRow } from './parts';
 
 export const GOOGLE_APIS = [
@@ -57,6 +62,7 @@ export function MapsSection() {
 
 function Body({ s, onChange }: { s: MapsSettingsDto; onChange: (s: MapsSettingsDto) => void }) {
   const mobile = useIsMobile();
+  const member = !useIsOwner();
   const size = mobile ? 'touch' : 'sm';
   const [key, setKey] = useState('');
   const [home, setHome] = useState(s.home?.address ?? '');
@@ -100,8 +106,8 @@ function Body({ s, onChange }: { s: MapsSettingsDto; onChange: (s: MapsSettingsD
 
   return (
     <div className="space-y-9">
-      <Group title="Provider" help="Places, directions and maps in chats and the day plan come from one provider. Google Maps has ratings, opening hours, public transport and traffic, and needs a key with billing. OpenStreetMap needs no key and has none of those.">
-        <SettingRow label="Provider" help={auto ? `Now ${s.provider === 'google' ? 'Google Maps, because a key is set' : 'OpenStreetMap, because no Google key is set'}.` : 'Chosen here.'}>
+      <Group title="Provider" help={member ? 'Places, directions and maps in your chats come from Google Maps, on your own key. The hub owner\'s key is never used for you.' : 'Places, directions and maps in chats and the day plan come from one provider. Google Maps has ratings, opening hours, public transport and traffic, and needs a key with billing. OpenStreetMap needs no key and has none of those.'}>
+        {!member && <SettingRow label="Provider" help={auto ? `Now ${s.provider === 'google' ? 'Google Maps, because a key is set' : 'OpenStreetMap, because no Google key is set'}.` : 'Chosen here.'}>
           <Segmented<MapsProviderId>
             label="Provider"
             size={mobile ? 'touch' : 'sm'}
@@ -112,7 +118,7 @@ function Body({ s, onChange }: { s: MapsSettingsDto; onChange: (s: MapsSettingsD
               { value: 'osm', label: 'OpenStreetMap' },
             ]}
           />
-        </SettingRow>
+        </SettingRow>}
         <SettingRow label="Test" help="One small call to each service the provider uses. It counts toward the daily cap.">
           <Button size={size} busy={busy === 'test' ? 'Testing' : false} onClick={() => void runTest()}>
             Test
@@ -131,8 +137,8 @@ function Body({ s, onChange }: { s: MapsSettingsDto; onChange: (s: MapsSettingsD
         )}
       </Group>
 
-      <Group title="Google Maps key" help="The key stays on the hub. Apps get only results and pictures, never the key, and tools never see it. From a terminal: conclave secret google-maps.">
-        <SettingRow label="Key" help={s.google.keySet ? (s.google.keyFrom === 'env' ? 'Set in the hub environment (GOOGLE_MAPS_API_KEY).' : 'Set, stored on the hub.') : 'Not set.'} top>
+      <Group title={member ? 'Your Google Maps key' : 'Google Maps key'} help={member ? 'Your key stays on the hub, in your own account. Apps get only results and pictures, never the key, and tools never see it.' : 'The key stays on the hub. Apps get only results and pictures, never the key, and tools never see it. From a terminal: conclave secret google-maps.'}>
+        <SettingRow label="Key" help={s.google.keySet ? (s.google.keyFrom === 'env' ? 'Set in the hub environment (GOOGLE_MAPS_API_KEY).' : s.google.keyFrom === 'own' ? 'Set, stored in your account.' : 'Set, stored on the hub.') : member ? 'Not set. Maps do not work for you until you add one.' : 'Not set.'} top>
           <div className="flex flex-wrap items-center gap-2 md:justify-end">
             <Input mono type="password" autoComplete="off" spellCheck={false} value={key} onChange={(e) => setKey(e.target.value)} placeholder={s.google.keySet ? 'Paste a new key' : 'AIza...'} aria-label="Google Maps API key" className="w-[200px]!" size="sm" />
             <Button
@@ -167,7 +173,7 @@ function Body({ s, onChange }: { s: MapsSettingsDto; onChange: (s: MapsSettingsD
         </div>
       </Group>
 
-      <Group title="OpenStreetMap" help="Search through Nominatim, routes through OSRM, and maps drawn on the hub from OpenStreetMap tiles. The public servers are run by volunteers for light use: the hub makes at most one search a second and keeps tiles for a week.">
+      {!member && <Group title="OpenStreetMap" help="Search through Nominatim, routes through OSRM, and maps drawn on the hub from OpenStreetMap tiles. The public servers are run by volunteers for light use: the hub makes at most one search a second and keeps tiles for a week.">
         <SettingRow label="Contact email" help="The public servers ask every app for a way to reach whoever runs it. Needed for them; your own servers do not need it." top>
           <div className="flex flex-wrap items-center gap-2 md:justify-end">
             <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.org" aria-label="Contact email" className="w-[240px]!" size="sm" />
@@ -192,7 +198,7 @@ function Body({ s, onChange }: { s: MapsSettingsDto; onChange: (s: MapsSettingsD
             </div>
           )}
         </SettingRow>
-      </Group>
+      </Group>}
 
       <Group title="Travel">
         <SettingRow label="Home" help={s.home ? `Found: ${s.home.lat.toFixed(4)}, ${s.home.lng.toFixed(4)}${s.home.zone ? `, ${s.home.zone}` : ''}. Directions start here, and leave-by times count from here.` : 'An address, or "lat,lng". Directions start here, and leave-by times count from here.'} top>
@@ -242,7 +248,7 @@ function Body({ s, onChange }: { s: MapsSettingsDto; onChange: (s: MapsSettingsD
       </Group>
 
       <Group title="Limit">
-        <SettingRow label="Daily cap" help="Calls to the provider per day across the hub. Answers from the cache do not count. 0 turns maps off." top>
+        <SettingRow label="Daily cap" help={member ? 'Calls on your key per day. Answers from the cache do not count. 0 turns maps off.' : 'Calls to the provider per day across the hub. Answers from the cache do not count. 0 turns maps off.'} top>
           <div className="flex flex-wrap items-center gap-2 md:justify-end">
             <Input mono inputMode="numeric" value={cap} onChange={(e) => setCap(e.target.value)} aria-label="Daily cap" className="w-[96px]!" size="sm" invalid={!capOk} />
             {capDirty && (

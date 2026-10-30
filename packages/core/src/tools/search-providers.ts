@@ -215,7 +215,29 @@ export interface WebSearchSettingsDto {
   /** The SearXNG address, and where it comes from. */
   url?: string;
   urlFrom?: 'config' | 'env';
-  providers: Array<SearchProviderInfo & { keySet: boolean; keyFrom?: 'hub' | 'config' | 'env' }>;
+  /** keyFrom 'own': a member's own key, in their own secrets file. */
+  providers: Array<SearchProviderInfo & { keySet: boolean; keyFrom?: 'hub' | 'config' | 'env' | 'own' }>;
+  /** A member's page only: the owner lets them use the hub's web search when they have no key of their own. */
+  hubAllowed?: boolean;
+}
+
+/** A member's own proxy (browser/member-proxy.ts): never a login or password, only whether one is saved. */
+export interface MemberProxyDto {
+  provider: 'none' | 'dataimpulse' | 'custom';
+  country?: string;
+  /** The custom proxy address, without a password. */
+  url?: string;
+  loginSet: boolean;
+  passwordSet: boolean;
+}
+
+/** PUT /api/websearch/proxy: the provider, and for each secret a value, null to remove it, or left out to keep it. */
+export interface MemberProxyUpdate {
+  provider: 'none' | 'dataimpulse' | 'custom';
+  country?: string | null;
+  url?: string | null;
+  login?: string | null;
+  password?: string | null;
 }
 
 export interface WebSearchSettingsPatch {

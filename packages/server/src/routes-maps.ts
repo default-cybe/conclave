@@ -4,6 +4,11 @@
  * shows, and the leave-by times for Home. The Google key goes in through
  * PUT /api/maps/key and never comes back out: the image route fetches from
  * Google on the hub and sends only the picture.
+ *
+ * Every route works on the caller's account (route-policy.ts `self`): the
+ * server runs each request as its account, and the service reads a
+ * member's own key, home and cap then (maps/service.ts). A member never
+ * reads or changes the owner's.
  */
 import type { Context, Hono } from 'hono';
 import { mapsOf, MapsError, type MapsService, type MapsSettingsPatch } from '@conclave/core/maps/index.ts';
@@ -12,9 +17,6 @@ import { HttpError, readJson } from './http';
 import type { AuditFn } from './routes-extensions';
 import { isMember } from '@conclave/core/people/context.ts';
 import { accountOf } from './scope';
-
-/** Why a member has no maps (docs/design/ACCOUNTS.md 5). */
-export const MEMBER_MAPS = "Maps use the hub owner's key, daily cap and home, so they are the owner's on this hub.";
 
 /** A provider's refusal is not the hub's: a bad Google key must never read as a bad hub token (401). */
 function statusOf(err: MapsError): number {
@@ -64,7 +66,8 @@ export function registerMapsRoutes(app: Hono<HonoEnv>, ctx: ServerContext, audit
     if (body.key !== null && typeof body.key !== 'string') throw new HttpError(400, 'key must be text, or null to remove it');
     return run(c, () => {
       const out = svc().setKey((body.key as string | null) ?? null);
-      ctx.engine.bus.emit({ type: 'config.updated' });
+      // a member's key is theirs alone: nothing hub wide changed
+      if (!isMember(accountOf(c))) ctx.engine.bus.emit({ type: 'config.updated' });
       audit(c, 'maps.key', body.key ? 'set' : 'removed');
       return out;
     });
@@ -72,11 +75,8 @@ export function registerMapsRoutes(app: Hono<HonoEnv>, ctx: ServerContext, audit
 
   app.post('/api/maps/test', (c) => run(c, () => svc().test()));
 
-  // maps spend the owner's key and know the owner's home: a member gets no leave-by times (docs/design/ACCOUNTS.md 5)
-  app.get('/api/maps/leave-by', (c) => {
-    if (isMember(accountOf(c))) return c.json({ date: c.req.query('date') || '', zone: 'UTC', items: [], reason: MEMBER_MAPS });
-    return run(c, () => svc().leaveBy(c.req.query('date') || undefined));
-  });
+  // from the caller's own home, on their own key
+  app.get('/api/maps/leave-by', (c) => run(c, () => svc().leaveBy(c.req.query('date') || undefined)));
 
   // the picture of a map card: fetched or drawn on the hub, so the key never reaches the app
   app.get('/api/maps/image/:id', async (c) => {

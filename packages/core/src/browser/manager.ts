@@ -4,6 +4,8 @@ import { dirname, join, resolve } from 'node:path';
 import type { BrowserContext, BrowserType, CDPSession, Frame, Locator, Page, Request, Route } from 'playwright-core';
 import type { ConfigStore } from '../config';
 import type { ConclaveConfig } from '../config/schema';
+import { currentAccount, isMember } from '../people/context';
+import { checkPublicUrl } from '../people/net';
 import { logger } from '../util/log';
 import { oneLine, sleep } from '../util/text';
 import { findBrowserExecutable } from './executable';
@@ -37,6 +39,31 @@ const log = logger('browser');
 export const DEFAULT_PROFILE = 'default';
 export const IDLE_CLOSE_MS = 15 * 60_000;
 export const SCREENSHOT_MAX_BYTES = 1_500_000;
+/** Members' browsers open at once on the hub (the owner's are not counted). */
+export const MEMBER_MAX_BROWSERS = 2;
+/** A member's browser closes after this long unused. */
+export const MEMBER_IDLE_MS = 5 * 60_000;
+/** A member's browser unused this long may be closed to make room for another member's. */
+const MEMBER_EVICT_MS = 60_000;
+export const MEMBER_BROWSER_BUSY = "The hub's browser is busy with other people right now. Try again in a few minutes.";
+/** What a member's tools and live view call their one browser. */
+export const MEMBER_PROFILE_LABEL = 'default';
+
+/**
+ * A member's browser (docs/design/ACCOUNTS.md 5): one persistent profile per
+ * account, kept in <home>/accounts/<id>/browser-profile. Its key in the
+ * manager starts with @, which no profile name can, so no tool or route that
+ * takes a profile name reaches it.
+ */
+export function memberProfileKey(accountId: string): string {
+  return `@${accountId}`;
+}
+
+export function isMemberProfile(name: string): boolean {
+  return name.startsWith('@');
+}
+
+const ACCOUNT_ID = /^[A-Za-z0-9_-]{1,80}$/;
 const DEFAULT_VIEWPORT = { width: 1280, height: 800 };
 /** Most image APIs reject sides over 8000px. */
 const MAX_SHOT_HEIGHT = 7900;
@@ -53,6 +80,10 @@ export interface BrowserManagerOptions {
   proxyProbe?: (p: ProxyEntry) => Promise<ProbeResult>;
   /** Finds the stock Chromium a preview runs on. Default stockExecutable's search; tests pass a fake. */
   stockBrowser?: () => string | undefined;
+  /** Members' browsers open at once. Default MEMBER_MAX_BROWSERS. */
+  memberMax?: number;
+  /** Close a member's browser after this long unused. Default MEMBER_IDLE_MS. */
+  memberIdleMs?: number;
 }
 
 /** A session's proxy, as the tools report it. Never a login or password. */
@@ -392,6 +423,18 @@ export class BrowserManager implements BrowserTakeover {
   /** Sessions whose browser the owner took over in the live view, with the browser tool calls waiting for Give back. */
   private ownerHeld = new Map<string, Set<() => void>>();
   private readonly findStock?: () => string | undefined;
+  private readonly memberMax: number;
+  private readonly memberIdleMs: number;
+  /** Members' own saved logins, one vault per account in their folder. */
+  private memberVaults = new Map<string, LoginVault>();
+  /** Browser sessions that are not chat sessions (sign-in views), with the account they run for. */
+  private boundAccounts = new Map<string, string>();
+  /** Public-address checks of members' requests, per host, for a short while. */
+  private hostChecks = new Map<string, { at: number; refused?: string }>();
+  /** The account a chat session belongs to (engine.sessionAccount); the engine sets it. */
+  accountFor?: (sessionId: string) => string | undefined;
+  /** Why a member's browser may not grow their files now (engine.diskRefusal), or undefined. */
+  diskRefusal?: (accountId: string) => string | undefined;
 
   constructor(opts: BrowserManagerOptions) {
     this.config = opts.config;
@@ -400,7 +443,135 @@ export class BrowserManager implements BrowserTakeover {
     this.launcher = opts.launcher;
     this.probe = opts.proxyProbe ?? ((p) => probeProxy(p, { timeoutMs: 12_000 }));
     this.findStock = opts.stockBrowser;
+    this.memberMax = opts.memberMax ?? MEMBER_MAX_BROWSERS;
+    this.memberIdleMs = opts.memberIdleMs ?? MEMBER_IDLE_MS;
     this.logins = new LoginVault(opts.config);
+  }
+
+  // -------------------------------------------------------------------------
+  // Accounts: a member's own browser
+  // -------------------------------------------------------------------------
+
+  /** The account a browser session runs for: a sign-in view's, the chat session's, else the work's own. */
+  accountOfSession(sessionId: string): string | undefined {
+    return this.boundAccounts.get(sessionId) ?? this.accountFor?.(sessionId) ?? currentAccount();
+  }
+
+  /** A browser session that is not a chat session (a sign-in view) runs for this account. */
+  bindAccount(sessionId: string, accountId: string): void {
+    this.boundAccounts.set(sessionId, accountId);
+  }
+
+  /** The member a session's browser is theirs, or undefined for the owner's. Work of one member never reaches another's session. */
+  private memberOf(sessionId: string): string | undefined {
+    const acct = this.accountOfSession(sessionId);
+    const caller = currentAccount();
+    if (isMember(caller) && acct !== caller) throw new Error('There is no such browser session.');
+    return isMember(acct) ? acct : undefined;
+  }
+
+  /** The folder of a member's browser profile. */
+  memberProfileDir(accountId: string): string {
+    if (!ACCOUNT_ID.test(accountId)) throw new Error('Invalid account.');
+    return join(this.config.paths.home, 'accounts', accountId, 'browser-profile');
+  }
+
+  /** A member's own saved logins, in their folder with their own key (logins.ts). */
+  loginsFor(accountId: string | undefined): LoginVault {
+    if (!isMember(accountId)) return this.logins;
+    let v = this.memberVaults.get(accountId!);
+    if (!v) {
+      v = new LoginVault(this.config, { dir: dirname(this.memberProfileDir(accountId!)), profile: MEMBER_PROFILE_LABEL });
+      this.memberVaults.set(accountId!, v);
+    }
+    return v;
+  }
+
+  /** A profile name as given, or a member's key ("@acc_...") as the manager makes it. */
+  private checkName(name: string): string {
+    if (isMemberProfile(name)) {
+      this.memberProfileDir(name.slice(1));
+      return name;
+    }
+    return validateProfileName(name);
+  }
+
+  /** The folder of a profile: a member's in their account folder, else under the profiles folder. */
+  private dirOf(name: string): string {
+    return isMemberProfile(name) ? this.memberProfileDir(name.slice(1)) : join(this.profilesDir(), name);
+  }
+
+  /** Members' browsers open or starting now. */
+  private memberCount(except: string): number {
+    const keys = new Set([...this.profiles.keys(), ...this.launching.keys()].filter((k) => isMemberProfile(k) && k !== except));
+    return keys.size;
+  }
+
+  /** Room for one more member's browser: close the one unused longest when it has been idle a while, else refuse. */
+  private async makeMemberRoom(name: string): Promise<void> {
+    if (this.memberCount(name) < this.memberMax) return;
+    const now = Date.now();
+    const idle = [...this.profiles.values()]
+      .filter((p) => isMemberProfile(p.name) && p.name !== name && !p.closing && !this.holds.has(p.name) && now - p.lastUsed > MEMBER_EVICT_MS && ![...p.sessions.values()].some((s) => s.casts.size > 0))
+      .sort((a, b) => a.lastUsed - b.lastUsed);
+    if (!idle.length) throw new Error(MEMBER_BROWSER_BUSY);
+    log.info(`closing an idle member browser to make room`);
+    await this.closeProfile(idle[0]);
+    if (this.memberCount(name) >= this.memberMax) throw new Error(MEMBER_BROWSER_BUSY);
+  }
+
+  /** Why a member's browser may not load this address: not http(s), or the hub's own network. Cached a little per host. */
+  async memberRefusal(raw: string): Promise<string | undefined> {
+    let u: URL;
+    try {
+      u = new URL(raw);
+    } catch {
+      return 'That address does not look right.';
+    }
+    if (u.protocol === 'data:' || u.protocol === 'blob:' || u.href === 'about:blank') return undefined;
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'Only http and https addresses work in your browser on the hub.';
+    const key = u.hostname.toLowerCase();
+    const hit = this.hostChecks.get(key);
+    if (hit && Date.now() - hit.at < 30_000) return hit.refused;
+    let refused: string | undefined;
+    try {
+      await checkPublicUrl(u.href);
+    } catch (err) {
+      refused = errText(err);
+    }
+    if (this.hostChecks.size > 2_000) this.hostChecks.clear();
+    this.hostChecks.set(key, { at: Date.now(), ...(refused ? { refused } : {}) });
+    return refused;
+  }
+
+  /**
+   * A member's browser reaches only public addresses: every request and
+   * WebSocket of the context is checked (the host resolved like WebFetch
+   * does), and one to the hub, its LAN or a link local address is aborted.
+   * shortcut: Chromium resolves the name again, so a DNS rebind between the
+   * two lookups gets through; pin with --host-resolver-rules if that matters.
+   */
+  private async guardMember(context: BrowserContext): Promise<void> {
+    await context.route('**/*', async (route) => {
+      const no = await this.memberRefusal(route.request().url());
+      if (!no) return route.fallback();
+      return route.abort('blockedbyclient').catch(() => {});
+    });
+    await context.routeWebSocket(
+      () => true,
+      async (ws) => {
+        const no = await this.memberRefusal(ws.url().replace(/^ws/i, 'http'));
+        if (!no) return void ws.connectToServer();
+        void ws.close({ code: 1008, reason: 'blocked' }).catch(() => {});
+      },
+    );
+  }
+
+  /** Throw when a member's session may not open this address. The owner's sessions are not checked. */
+  private async checkTarget(sessionId: string, url: string): Promise<void> {
+    if (!this.memberOf(sessionId)) return;
+    const no = await this.memberRefusal(url);
+    if (no) throw new Error(no);
   }
 
   /** The profile sessions use when they never picked one. It cannot be deleted. */
@@ -426,7 +597,8 @@ export class BrowserManager implements BrowserTakeover {
 
   /** Profiles on disk, in browser.profiles, with a saved login, plus any open ones. */
   listProfiles(): string[] {
-    const names = new Set<string>([this.defaultProfile, ...this.profiles.keys()]);
+    // members' browsers are theirs, not profiles of the hub
+    const names = new Set<string>([this.defaultProfile, ...[...this.profiles.keys()].filter((n) => !isMemberProfile(n))]);
     for (const n of Object.keys(this.config.get().browser?.profiles ?? {})) if (PROFILE_NAME.test(n) && !n.includes('..')) names.add(n);
     for (const l of this.logins.list()) if (PROFILE_NAME.test(l.profile) && !l.profile.includes('..')) names.add(l.profile);
     try {
@@ -441,12 +613,14 @@ export class BrowserManager implements BrowserTakeover {
   }
 
   profileFor(sessionId: string): string {
+    const member = this.memberOf(sessionId);
+    if (member) return memberProfileKey(member);
     return this.sessionProfiles.get(sessionId) ?? this.defaultProfile;
   }
 
   /** The engine a profile runs on: the open browser's, else what the config says, else the default for a new profile. */
   engineOf(profile: string): BrowserEngine {
-    const name = validateProfileName(profile);
+    const name = this.checkName(profile);
     return this.profiles.get(name)?.engine ?? this.engineToUse(name).engine;
   }
 
@@ -457,7 +631,7 @@ export class BrowserManager implements BrowserTakeover {
    * is still new.
    */
   hasRun(profile: string): boolean {
-    const dir = join(this.profilesDir(), profile);
+    const dir = this.dirOf(profile);
     return existsSync(join(dir, 'Local State')) || existsSync(join(dir, 'Default'));
   }
 
@@ -472,6 +646,8 @@ export class BrowserManager implements BrowserTakeover {
    * no engine set stays on Chromium, since a new engine is a new identity.
    */
   private engineToUse(name: string): { engine: BrowserEngine; fresh: boolean } {
+    // a member's browser is plain Chromium: the engine settings are the hub's profiles'
+    if (isMemberProfile(name)) return { engine: 'chromium', fresh: false };
     const cfg = this.config.get().browser;
     const set = cfg?.profiles?.[name]?.engine as unknown;
     if ((set === undefined || set === null || set === '') && !this.hasRun(name)) return { engine: this.newProfileEngine(), fresh: true };
@@ -479,13 +655,18 @@ export class BrowserManager implements BrowserTakeover {
   }
 
   profileInfo(profile: string): BrowserProfileInfo {
-    const name = validateProfileName(profile);
+    const name = this.checkName(profile);
     const engine = this.engineOf(name);
     return { name, engine, label: ENGINE_LABEL[engine], open: this.profiles.has(name) };
   }
 
   /** Point a session at another profile. Its tabs in the old profile stay open until idle close. */
   setProfile(sessionId: string, name: string): string {
+    // a member's browser has its one profile: "default" (a watch's run) means it, another name is refused
+    if (this.memberOf(sessionId)) {
+      if (name === DEFAULT_PROFILE || name === MEMBER_PROFILE_LABEL) return MEMBER_PROFILE_LABEL;
+      throw new Error('Your browser on the hub has one profile; there is no other to switch to.');
+    }
     const n = validateProfileName(name);
     this.sessionProfiles.set(sessionId, n);
     return n;
@@ -535,6 +716,15 @@ export class BrowserManager implements BrowserTakeover {
     }
     let p = this.launching.get(name);
     if (!p) {
+      if (isMemberProfile(name)) {
+        // a member's profile grows their files; and only a few members' browsers run at once
+        const full = this.diskRefusal?.(name.slice(1));
+        if (full) throw new Error(full);
+        await this.makeMemberRoom(name);
+        const again = this.launching.get(name);
+        if (again) return again;
+        if (this.memberCount(name) >= this.memberMax) throw new Error(MEMBER_BROWSER_BUSY);
+      }
       p = this.launch(name).finally(() => this.launching.delete(name));
       this.launching.set(name, p);
     }
@@ -576,7 +766,7 @@ export class BrowserManager implements BrowserTakeover {
       executablePath = stock ?? this.executable();
       if (cfg.executablePath && !executablePath) throw new Error(`browser.executablePath not found: ${cfg.executablePath}`);
     }
-    const dir = proxied ? this.proxyDir() : join(this.profilesDir(), name);
+    const dir = proxied ? this.proxyDir() : this.dirOf(name);
     mkdirSync(dir, { recursive: true });
     if (proxied?.proxy || proxied?.preview) writeWebrtcPolicy(dir);
     let options: Options;
@@ -647,6 +837,11 @@ export class BrowserManager implements BrowserTakeover {
         throw new Error('Browser was closed while starting');
       }
       if (proxied?.preview) await this.guardPreview(context, proxied.preview).catch(async (err) => {
+        await context.close().catch(() => {});
+        throw err;
+      });
+      // a member's browser never reaches the hub's own network
+      else if (isMemberProfile(name)) await this.guardMember(context).catch(async (err) => {
         await context.close().catch(() => {});
         throw err;
       });
@@ -798,6 +993,8 @@ export class BrowserManager implements BrowserTakeover {
    * where they are for when the proxy is off again.
    */
   async useProxy(sessionId: string, want: boolean | string): Promise<SessionProxyInfo | undefined> {
+    // the proxy is the owner's paid service and holds no member's logins
+    if (want !== false && this.memberOf(sessionId)) throw new Error("The hub's proxy is the owner's; your browser loads pages from the hub's own address.");
     if (this.previewing(sessionId)) throw new Error('This session shows its Preview; call preview_stop before using the proxy.');
     if (want === false) {
       this.sessionProxy.delete(sessionId);
@@ -881,7 +1078,7 @@ export class BrowserManager implements BrowserTakeover {
 
   /** Close a profile's browser if it is open: a new engine or proxy applies from its next launch. */
   async closeProfileBrowser(profile: string): Promise<void> {
-    const p = this.profiles.get(validateProfileName(profile));
+    const p = this.profiles.get(this.checkName(profile));
     if (p) await this.closeProfile(p);
   }
 
@@ -920,7 +1117,8 @@ export class BrowserManager implements BrowserTakeover {
     const now = Date.now();
     for (const p of [...this.profiles.values(), ...this.proxiedStates.values()]) {
       const casting = [...p.sessions.values()].some((s) => s.casts.size > 0);
-      if (!casting && now - p.lastUsed > this.idleMs) {
+      const idleMs = isMemberProfile(p.name) ? Math.min(this.idleMs, this.memberIdleMs) : this.idleMs;
+      if (!casting && now - p.lastUsed > idleMs) {
         log.info(`closing idle browser profile "${p.name}"`);
         await this.closeProfile(p);
       }
@@ -947,7 +1145,10 @@ export class BrowserManager implements BrowserTakeover {
   }
 
   private async sessionState(sessionId: string, profile?: string): Promise<{ p: ProfileState; s: SessionState }> {
-    const name = profile ? validateProfileName(profile) : this.profileFor(sessionId);
+    const name = profile ? this.checkName(profile) : this.profileFor(sessionId);
+    // a member's session uses their own browser and no other; nobody else's session uses it
+    const member = this.memberOf(sessionId);
+    if (member ? name !== memberProfileKey(member) : isMemberProfile(name)) throw new Error('That browser profile is not this session\'s.');
     // the proxy only for a session the owner asked it for, and only for that session's own profile
     const want = this.sessionProxy.get(sessionId);
     const p = want && name === this.profileFor(sessionId) ? await this.ensureProxied(sessionId, want) : await this.ensureProfile(name);
@@ -1047,6 +1248,7 @@ export class BrowserManager implements BrowserTakeover {
 
   async newTab(sessionId: string, url?: string): Promise<TabInfo[]> {
     const target = url ? normalizeUrl(url) : undefined;
+    if (target) await this.checkTarget(sessionId, target);
     const { p, s } = await this.sessionState(sessionId);
     const st = await this.openTab(p, s);
     if (target) await this.goto(st.page, target);
@@ -1146,9 +1348,9 @@ export class BrowserManager implements BrowserTakeover {
 
   /** The sites the owner signed in to with this profile, newest first. */
   signIns(profile: string): Array<{ host: string; at: number }> {
-    const name = validateProfileName(profile);
+    const name = this.checkName(profile);
     try {
-      const raw = JSON.parse(readFileSync(join(this.profilesDir(), name, SITES_FILE), 'utf8')) as unknown;
+      const raw = JSON.parse(readFileSync(join(this.dirOf(name), SITES_FILE), 'utf8')) as unknown;
       if (!Array.isArray(raw)) return [];
       return raw
         .filter((x): x is { host: string; at: number } => !!x && typeof x.host === 'string' && typeof x.at === 'number')
@@ -1161,10 +1363,10 @@ export class BrowserManager implements BrowserTakeover {
 
   /** Remember that the owner signed in to a site with this profile. */
   recordSignIn(profile: string, host: string): void {
-    const name = validateProfileName(profile);
+    const name = this.checkName(profile);
     const h = host.trim().toLowerCase().replace(/^www\./, '');
     if (!/^[a-z0-9.-]{1,253}$/.test(h)) throw new Error(`"${host}" is not a site name`);
-    const dir = join(this.profilesDir(), name);
+    const dir = this.dirOf(name);
     mkdirSync(dir, { recursive: true });
     const list = [{ host: h, at: Date.now() }, ...this.signIns(name).filter((x) => x.host !== h)].slice(0, 50);
     writeFileSync(join(dir, SITES_FILE), JSON.stringify(list, null, 2));
@@ -1190,7 +1392,7 @@ export class BrowserManager implements BrowserTakeover {
   /** Stop listing a site as signed in for this profile. */
   private dropSignIn(profile: string, host: string): void {
     const h = host.toLowerCase().replace(/^www\./, '');
-    const dir = join(this.profilesDir(), profile);
+    const dir = this.dirOf(profile);
     const list = this.signIns(profile);
     const left = list.filter((x) => x.host !== h && !x.host.endsWith(`.${h}`));
     if (left.length !== list.length && existsSync(dir)) writeFileSync(join(dir, SITES_FILE), JSON.stringify(left, null, 2));
@@ -1204,7 +1406,7 @@ export class BrowserManager implements BrowserTakeover {
    * after. A saved login stays: that is Delete login.
    */
   async forgetSite(profile: string, hostRaw: string): Promise<{ cookies: number }> {
-    const name = validateProfileName(profile);
+    const name = this.checkName(profile);
     let host: string;
     try {
       host = new URL(siteOrigin(hostRaw)).hostname.toLowerCase().replace(/^www\./, '');
@@ -1254,7 +1456,7 @@ export class BrowserManager implements BrowserTakeover {
    * Forget. The file is parsed here and kept nowhere; no value is logged.
    */
   async importCookies(profile: string, file: string, progress: { added: number } = { added: 0 }): Promise<BrowserCookieImportResult> {
-    const name = validateProfileName(profile);
+    const name = this.checkName(profile);
     const parsed = parseCookieFile(file);
     const added: PlaywrightCookie[] = [];
     let refused = 0;
@@ -1377,8 +1579,8 @@ export class BrowserManager implements BrowserTakeover {
   // -------------------------------------------------------------------------
 
   /** The saved login a browser_login call means, or a sentence on why none fits. */
-  private pickLogin(profile: string, pageUrl: string, req: LoginRequest): SavedLogin {
-    const all = this.logins.list();
+  private pickLogin(vault: LoginVault, profile: string, pageUrl: string, req: LoginRequest): SavedLogin {
+    const all = vault.list();
     let want: { origin: string; host: string } | undefined;
     if (req.site?.trim()) {
       try {
@@ -1422,19 +1624,23 @@ export class BrowserManager implements BrowserTakeover {
   async login(sessionId: string, req: LoginRequest = {}): Promise<LoginResult> {
     if (this.readOnly.has(sessionId)) throw new LoginRefused('This session only reads, so it cannot log in.');
     if (this.sessionProxy.has(sessionId)) throw new LoginRefused('This session browses through the proxy, in a browser with no saved logins. Call browser_navigate with proxy false first.');
-    const profile = this.profileFor(sessionId);
+    const key = this.profileFor(sessionId);
+    const member = this.memberOf(sessionId);
+    // a member's own logins, in their vault; their browser is their one profile
+    const vault = this.loginsFor(member);
+    const profile = member ? MEMBER_PROFILE_LABEL : key;
     const st = await this.activeState(sessionId);
-    const login = this.pickLogin(profile, st.page.url(), req);
-    const password = this.logins.secret(login.id, 'password');
-    const totp = login.totp ? this.logins.secret(login.id, 'totp') : undefined;
+    const login = this.pickLogin(vault, profile, st.page.url(), req);
+    const password = vault.secret(login.id, 'password');
+    const totp = login.totp ? vault.secret(login.id, 'totp') : undefined;
     let set = this.filled.get(sessionId);
     if (!set) this.filled.set(sessionId, (set = new Set()));
     set.add(password);
     const outcome = await fillSavedLogin({ page: st.page, login, password, totp, settle: (fn) => this.withSettle(sessionId, () => fn()), askCode: req.askCode });
-    if (outcome.filled.length) this.logins.touch(login.id);
+    if (outcome.filled.length) vault.touch(login.id);
     if (outcome.submitted && !outcome.stillAsking && outcome.code !== 'declined') {
       try {
-        this.recordSignIn(profile, new URL(login.origin).hostname);
+        this.recordSignIn(key, new URL(login.origin).hostname);
       } catch {
         /* an address that is not a site name */
       }
@@ -1504,6 +1710,7 @@ export class BrowserManager implements BrowserTakeover {
       await Promise.all(s.tabs.map((t) => this.closePage(t.page).catch((err) => log.warn(errText(err)))));
     }
     this.sessionProfiles.delete(sessionId);
+    this.boundAccounts.delete(sessionId);
   }
 
   /**
@@ -1536,7 +1743,7 @@ export class BrowserManager implements BrowserTakeover {
    * close bug closePage works around. Opens nothing.
    */
   async settle(sessionId: string, profile?: string, ms = 10_000): Promise<void> {
-    const name = profile ? validateProfileName(profile) : this.profileFor(sessionId);
+    const name = profile ? this.checkName(profile) : this.profileFor(sessionId);
     const owner = this.sessionProxy.has(sessionId) && name === this.profileFor(sessionId) ? this.proxiedStates.get(sessionId) : this.profiles.get(name);
     const s = owner?.sessions.get(sessionId);
     const st = s?.tabs[s.active];
@@ -1577,6 +1784,7 @@ export class BrowserManager implements BrowserTakeover {
 
   async navigate(sessionId: string, url: string): Promise<{ url: string; status?: number }> {
     const target = normalizeUrl(url);
+    await this.checkTarget(sessionId, target);
     const st = await this.activeState(sessionId);
     const status = await this.goto(st.page, target);
     return { url: st.page.url(), status };
@@ -1794,7 +2002,7 @@ export class BrowserManager implements BrowserTakeover {
    * Returns a stop function. While a screencast runs the profile is not idle-closed.
    */
   async startScreencast(profile: string, sessionId: string, onFrame: (frame: ScreencastFrame) => void): Promise<() => void> {
-    const name = validateProfileName(profile);
+    const name = this.checkName(profile);
     await this.activeState(sessionId, name);
     const { s } = await this.sessionState(sessionId, name);
     const cast: Cast = { onFrame, stopped: false, gen: 0 };
@@ -1947,9 +2155,11 @@ export class BrowserManager implements BrowserTakeover {
   async dispatchInput(profile: string, sessionId: string, ev: BrowserInputEvent): Promise<void> {
     const bad = validateInputEvent(ev);
     if (bad) throw new Error(`Invalid input event: ${bad}`);
-    const st = await this.activeState(sessionId, validateProfileName(profile));
+    const st = await this.activeState(sessionId, this.checkName(profile));
     if (ev.type === 'navigate') {
-      await this.goto(st.page, normalizeUrl(ev.url));
+      const target = normalizeUrl(ev.url);
+      await this.checkTarget(sessionId, target);
+      await this.goto(st.page, target);
       return;
     }
     if (ev.type === 'resize') {

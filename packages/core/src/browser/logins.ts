@@ -15,6 +15,11 @@
  *   choice, so a copy of secrets.json alone (a backup with keys) holds no
  *   usable password.
  *
+ * A member's logins (docs/design/ACCOUNTS.md 5) live in their own folder,
+ * <home>/accounts/<id>/: browser-logins.json, their own browser-logins.key and
+ * the sealed values in browser-logins.secrets.json, all mode 0600. The hub's
+ * key and secrets.json are never used for them.
+ *
  * Tools never read the list, the key or secrets.json (machine/private.ts).
  * Neither the list nor the key is in backups, and the backup leaves the
  * encrypted values out too: a restored hub asks for the passwords again.
@@ -22,9 +27,9 @@
  * secrets together; this protects a copied file, not a hostile local user.
  */
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { isIP } from 'node:net';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { ConfigStore } from '../config';
 import { markHubPrivate } from '../machine/private';
 
@@ -57,6 +62,8 @@ export interface LoginInput {
 
 export const LOGINS_FILE = 'browser-logins.json';
 export const LOGINS_KEY_FILE = 'browser-logins.key';
+/** A member's sealed passwords and 2FA keys, in their own folder. */
+export const LOGINS_SECRETS_FILE = 'browser-logins.secrets.json';
 /** The secrets' names start with this; backups leave them out. */
 export const LOGIN_SECRET_PREFIX = 'browser.login.';
 const MAX_LOGINS = 200;
@@ -202,6 +209,7 @@ export function totpCode(spec: TotpSpec, now = Date.now()): string {
 // ---------------------------------------------------------------------------
 
 function writePrivate(file: string, data: string): void {
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   writeFileSync(file, data, { mode: 0o600 });
   try {
     chmodSync(file, 0o600);
@@ -221,13 +229,51 @@ function text(v: unknown, what: string, max: number): string {
 export class LoginVault {
   readonly file: string;
   readonly keyFile: string;
+  /** A member's vault keeps its sealed values here instead of the hub's secrets. */
+  readonly secretsFile?: string;
+  /** A member's vault: every login is in their one browser, named this. */
+  private readonly fixedProfile?: string;
 
-  constructor(private readonly config: ConfigStore) {
-    this.file = join(config.paths.home, LOGINS_FILE);
-    this.keyFile = join(config.paths.home, LOGINS_KEY_FILE);
+  /** `dir` set: a member's own vault in that folder (<home>/accounts/<id>), with its own key and sealed values. */
+  constructor(
+    private readonly config: ConfigStore,
+    opts: { dir?: string; profile?: string } = {},
+  ) {
+    const dir = opts.dir ?? config.paths.home;
+    this.file = join(dir, LOGINS_FILE);
+    this.keyFile = join(dir, LOGINS_KEY_FILE);
+    if (opts.dir) {
+      this.secretsFile = join(dir, LOGINS_SECRETS_FILE);
+      this.fixedProfile = opts.profile ?? 'default';
+      markHubPrivate(this.secretsFile);
+    }
     // tools never read the list or the key (the secrets file is marked by the engine)
     markHubPrivate(this.file);
     markHubPrivate(this.keyFile);
+  }
+
+  private secretGet(name: string): string | undefined {
+    if (!this.secretsFile) return this.config.secretValue(name);
+    return this.readSecrets()[name];
+  }
+
+  private secretSet(name: string, value: string | undefined): void {
+    if (!this.secretsFile) return void this.config.setSecret('values', name, value);
+    const all = this.readSecrets();
+    if (value === undefined) {
+      if (!(name in all)) return;
+      delete all[name];
+    } else all[name] = value;
+    writePrivate(this.secretsFile, JSON.stringify(all, null, 2) + '\n');
+  }
+
+  private readSecrets(): Record<string, string> {
+    try {
+      const raw = JSON.parse(readFileSync(this.secretsFile!, 'utf8')) as unknown;
+      return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, string>) : {};
+    } catch {
+      return {};
+    }
   }
 
   private read(): SavedLogin[] {
@@ -296,7 +342,7 @@ export class LoginVault {
     // a site or profile change keeps the password: the owner moved the login, nothing reads it
     if (password) this.seal(id, 'password', password);
     if (dropTotp) {
-      this.config.setSecret('values', loginSecretName(id, 'totp'), undefined);
+      this.secretSet(loginSecretName(id, 'totp'), undefined);
       next.totp = false;
     } else if (totp) {
       this.seal(id, 'totp', totp);
@@ -311,8 +357,8 @@ export class LoginVault {
   remove(id: string): boolean {
     const list = this.read();
     const left = list.filter((l) => l.id !== id);
-    this.config.setSecret('values', loginSecretName(id, 'password'), undefined);
-    this.config.setSecret('values', loginSecretName(id, 'totp'), undefined);
+    this.secretSet(loginSecretName(id, 'password'), undefined);
+    this.secretSet(loginSecretName(id, 'totp'), undefined);
     if (left.length === list.length) return false;
     this.write(left);
     return true;
@@ -335,7 +381,7 @@ export class LoginVault {
 
   /** The password or 2FA key, for the hub's own fill. Never for a reply, a log or an audit line. */
   secret(id: string, field: 'password' | 'totp'): string {
-    const sealed = this.config.secretValue(loginSecretName(id, field));
+    const sealed = this.secretGet(loginSecretName(id, field));
     if (!sealed) throw new LoginUnreadable(field === 'password' ? 'No password is saved for this login. Save it again in Settings, Browser.' : 'No 2FA key is saved for this login.');
     const key = this.key(false);
     const plain = key ? open(key, loginSecretName(id, field), sealed) : undefined;
@@ -354,6 +400,7 @@ export class LoginVault {
   }
 
   private profileName(raw: string): string {
+    if (this.fixedProfile) return this.fixedProfile;
     const n = (raw ?? '').trim() || 'default';
     if (!PROFILE.test(n) || n.includes('..')) throw new Error(`Invalid profile name "${raw}". Use letters, digits, dot, dash or underscore (max 64).`);
     return n;
@@ -377,7 +424,7 @@ export class LoginVault {
 
   private seal(id: string, field: 'password' | 'totp', plain: string): void {
     const name = loginSecretName(id, field);
-    this.config.setSecret('values', name, seal(this.key(true)!, name, plain));
+    this.secretSet(name, seal(this.key(true)!, name, plain));
   }
 
   private key(create: boolean): Buffer | undefined {

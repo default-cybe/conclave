@@ -9,8 +9,11 @@ import { oneLine } from '../util/text';
 import { reminder } from '../session/transcript';
 import { projectsOf } from '../projects/attached';
 
-/** Where a member's commands and skills may come from: what ships, and the plugins the owner installed. */
-const SHARED_SOURCES = new Set(['builtin', 'plugin']);
+/** A command body with shell lines: !`cmd` (Claude Code) or !{cmd} (Gemini CLI). */
+const SHELL_LINE = /!`[^`]+`|!\{/;
+
+/** Why a member's command with shell lines does not run (docs/design/ACCOUNTS.md 5). */
+export const MEMBER_SHELL_REFUSED = 'commands with shell lines (!`command`) run on the hub, which only the hub owner can use. Put the command in a code block and ask the agent to run it on a device you paired.';
 
 /**
  * Slash commands typed in a session. Built-ins are handled here; anything else
@@ -117,13 +120,14 @@ export async function runCommand(engine: Engine, sessionId: string, line: string
     }
     default: {
       // custom command from extensions
-      const found = engine.extensions.command(name, member ? undefined : s.cwd);
-      const cmd = found && (!member || SHARED_SOURCES.has(found.source)) ? found : undefined;
+      // a member's: what ships, plugins and their own (<home>/accounts/<id>/commands), never another account's
+      const cmd = engine.commandNamed(name, s.cwd, acct);
       // a skill typed as /<name> args runs through the Skill tool, as in Claude Code; a command of the same name wins
-      const skills = member ? engine.extensions.skills().filter((k) => SHARED_SOURCES.has(k.source)) : engine.extensions.skills(s.cwd);
+      const skills = engine.skillsFor(acct, s.cwd);
       const skill = skills.find((k) => (cmd ? k.path === cmd.path : k.name.toLowerCase() === name));
       if (skill) return runSkill(engine, s, skill.name, args);
       if (!cmd) return { output: `Unknown command: /${name}` };
+      if (member && SHELL_LINE.test(cmd.body)) return { output: `/${cmd.name} did not run: ${MEMBER_SHELL_REFUSED}` };
       const signal = new AbortController().signal;
       const permit = (command: string) => shellRefusal(engine, s, cmd.name, command, signal);
       const readDenied = await readDeniedFor(engine, s);

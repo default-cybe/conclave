@@ -67,7 +67,7 @@ export type { AddSuggestionRequest, AddSuggestionResult, RoutineSuggestionDto, R
 export type * from './assistant';
 import type { LeaveByDto, MapsSettingsDto, MapsSettingsPatch, MapsTestResult } from './maps';
 export type * from './maps';
-import type { WebSearchSettingsDto, WebSearchSettingsPatch, WebSearchTestResult } from './websearch';
+import type { MemberProxyDto, MemberProxyUpdate, WebSearchSettingsDto, WebSearchSettingsPatch, WebSearchTestResult } from './websearch';
 export type * from './websearch';
 export { SEARCH_PROVIDERS } from './websearch';
 // ----- accounts: several people on one hub, docs/design/ACCOUNTS.md -----
@@ -719,7 +719,7 @@ export interface AgentDefaultInfo {
 // Extensions area (tools, skills, commands, hooks, plugins, MCP, sources)
 // ---------------------------------------------------------------------------
 
-export type ExtensionSourceId = 'builtin' | 'user' | 'project' | 'plugin' | 'claude' | 'codex' | 'opencode' | 'gemini' | 'agents';
+export type ExtensionSourceId = 'builtin' | 'user' | 'project' | 'plugin' | 'claude' | 'codex' | 'opencode' | 'gemini' | 'agents' | 'account';
 export type ComponentKindDto = 'agent' | 'skill' | 'command';
 export type CliName = 'claude' | 'codex' | 'opencode' | 'gemini';
 
@@ -2061,6 +2061,9 @@ export class ConclaveClient {
   setWebSearchKey = (provider: string, key: string | null) => this.request<WebSearchSettingsDto>('PUT', '/api/websearch/key', { provider, key });
   /** One real query on the engine (the one in use when none is named). */
   testWebSearch = (provider?: string) => this.request<WebSearchTestResult>('POST', '/api/websearch/test', { provider });
+  /** A member's own proxy for blocked requests (never the hub's). The reply only says whether a login or password is saved. */
+  memberProxy = () => this.request<MemberProxyDto>('GET', '/api/websearch/proxy');
+  setMemberProxy = (update: MemberProxyUpdate) => this.request<MemberProxyDto>('PUT', '/api/websearch/proxy', update);
   leaveBy = (date?: string) => this.request<LeaveByDto>('GET', '/api/maps/leave-by', undefined, { date });
   // ----- watches (Routines) and the hub's browser (Settings > Browser) -----
   watches = () => this.request<WatchSummaryDto[]>('GET', '/api/watches');

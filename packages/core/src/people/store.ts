@@ -22,6 +22,8 @@ export type ProviderGrants = Record<string, { monthlyUsd?: number | null }>;
 export interface AccountSettings {
   /** Set by the owner: which of the hub's provider keys this member may use, and the monthly budget. */
   providers?: ProviderGrants;
+  /** Set by the owner: a member with no web search key of their own may use the hub's web search (its keys and SearXNG). */
+  webSearch?: boolean;
   /** The person's own defaults. */
   defaultModel?: string;
   smallModel?: string;
@@ -34,6 +36,8 @@ export interface AccountSettings {
   usageFallback?: LimitFallbackConfig;
   /** A member's own refusal fallback: entries without accounts, each a model they can call. The owner's is models.refusalFallback. */
   refusalFallback?: RefusalFallbackConfig;
+  /** Set by the owner: how many GB a member's files on the hub may take (people/disk.ts). Missing: DEFAULT_DISK_GB. */
+  diskLimitGb?: number;
 }
 
 export interface HubAccount {

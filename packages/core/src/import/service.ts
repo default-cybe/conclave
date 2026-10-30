@@ -1828,6 +1828,9 @@ export class ImportService {
 
   upload(source: string, body: Uint8Array, name?: string): ImportUploadResult {
     if (source !== 'claude-ai' && source !== 'chatgpt') throw new ImportError(400, 'source must be claude-ai or chatgpt');
+    // shortcut: uploads live in the hub's imports folder (pruned after 30 days), so only this one counts against the cap, not earlier ones
+    const full = this.engine.diskRefusal(this.acct, body.byteLength);
+    if (full) throw new ImportError(413, full);
     try {
       const r = this.uploads.save(source, body, name);
       // an upload is the uploader's: nobody else can scan or import it

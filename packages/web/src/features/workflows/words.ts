@@ -59,6 +59,7 @@ export const SOURCE_WORD: Record<WorkflowSource, string> = {
   project: 'project',
   'claude-code': 'Claude Code',
   inline: 'script',
+  account: 'yours',
 };
 
 const LIVE: WorkflowRunStatus[] = ['queued', 'running', 'paused', 'waiting_reset'];

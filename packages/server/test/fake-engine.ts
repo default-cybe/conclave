@@ -15,6 +15,7 @@ import { EventBus } from '@conclave/core/util/bus.ts';
 import { newId } from '@conclave/core/util/ids.ts';
 import { DeviceRegistry } from '@conclave/core/machine/registry.ts';
 import { HookRecipes } from '@conclave/core/extensions/recipes.ts';
+import { LearnedSkills } from '@conclave/core/extensions/learned.ts';
 import type {
   ApprovalRequest,
   ApprovalResponse,
@@ -283,6 +284,11 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
       return patch as never;
     },
     agentsFor: (acct) => (isMember(acct) ? extensions.agents().filter((a) => a.source === 'builtin' || a.source === 'plugin') : extensions.agents()),
+    skillsFor: (acct) => (isMember(acct) ? extensions.skills().filter((a) => a.source === 'builtin' || a.source === 'plugin') : extensions.skills()),
+    commandsFor: (acct) => (isMember(acct) ? extensions.commands().filter((a) => a.source === 'builtin' || a.source === 'plugin') : extensions.commands()),
+    learnedSkillsFor: (acct) => new LearnedSkills(isMember(acct) ? join(config.paths.home, 'accounts', acct) : config.paths.home, repos.kv),
+    diskRefusal: () => undefined,
+    diskUse: () => ({ usedBytes: 0, limitBytes: 5 * 1024 ** 3 }),
     pendingAccount: (id) => {
       const sid = approvals.get(id)?.sessionId ?? questions.get(id)?.sessionId;
       return sid ? sessionAccount(sid) : undefined;
