@@ -28,7 +28,8 @@ import { Button, IconButton } from '@/components/ui/Button';
 import { OnOff } from '@/components/ui/Field';
 import { Popover } from '@/components/ui/Overlay';
 import { SelectMenu, type SelectOption } from '@/components/ui/Select';
-import { Group, save, SettingRow } from './parts';
+import { useIsOwner } from '@/lib/people';
+import { Group, saveFallback, SettingRow } from './parts';
 
 /** The vendor an account serves (core accounts/vendors.ts) for a model ref. */
 export function vendorOfRef(ref: string): string | undefined {
@@ -66,7 +67,9 @@ export function RefusalSection() {
   const [dragging, setDragging] = useState<number | null>(null);
   const [over, setOver] = useState<number | null>(null);
 
-  const write = (next: Partial<RefusalFallbackConfig>) => void save({ models: { refusalFallback: { ...own, ...next } } });
+  // a member's list is their own (PATCH /api/me): models only, no marked plans or accounts (those are the owner's)
+  const member = !useIsOwner();
+  const write = (next: Partial<RefusalFallbackConfig>) => void saveFallback('refusalFallback', { ...own, ...next });
   const setEntries = (list: RefusalFallbackEntry[]) => write({ entries: list });
   const move = (from: number, to: number) => {
     if (from === to || to < 0 || to >= entries.length) return;
@@ -79,12 +82,15 @@ export function RefusalSection() {
   const marked = refusalMarkedLine(status);
   return (
     <div className="space-y-9">
-      <p className="m-0 max-w-[64ch] text-[14px] leading-[1.5] text-fg-2 phone:text-[15px]">
-        {marked.text}{' '}
-        <Link href="/settings/accounts" className="underline decoration-rule-2 underline-offset-[3px] hover:text-fg">
-          {marked.marked ? 'Change in Accounts' : 'Open Accounts'}
-        </Link>
-      </p>
+      {/* a member has no marked plans; the section's own description says the list is theirs */}
+      {!member && (
+        <p className="m-0 max-w-[64ch] text-[14px] leading-[1.5] text-fg-2 phone:text-[15px]">
+          {marked.text}{' '}
+          <Link href="/settings/accounts" className="underline decoration-rule-2 underline-offset-[3px] hover:text-fg">
+            {marked.marked ? 'Change in Accounts' : 'Open Accounts'}
+          </Link>
+        </p>
+      )}
 
       <Group title="When a model refuses">
         <SettingRow label="Try the next model on its own" help="Off: a refused reply shows Try the next model instead.">
@@ -103,7 +109,7 @@ export function RefusalSection() {
             Add a model
           </Button>
         }
-        help="First tried first, after the marked plans and keys. Drag a row or use the arrows. Pick an account to keep a step on that plan or key."
+        help={member ? 'First tried first. Drag a row or use the arrows.' : 'First tried first, after the marked plans and keys. Drag a row or use the arrows. Pick an account to keep a step on that plan or key.'}
       >
         {entries.length === 0 ? (
           <p className="m-0 py-3.5 text-[13px] text-fg-3 phone:text-[14px]">No models yet. Add the ones to try when a model refuses, in order.</p>
@@ -116,6 +122,7 @@ export function RefusalSection() {
               first={i === 0}
               last={i === entries.length - 1}
               accounts={accounts}
+              noAccount={member}
               dragging={dragging === i}
               over={over === i && dragging !== null && dragging !== i}
               onDragStart={() => setDragging(i)}
@@ -156,6 +163,7 @@ function EntryRow({
   first,
   last,
   accounts,
+  noAccount,
   dragging,
   over,
   onDragStart,
@@ -171,6 +179,8 @@ function EntryRow({
   first: boolean;
   last: boolean;
   accounts: AccountDto[];
+  /** A member's step names a model only. */
+  noAccount?: boolean;
   dragging: boolean;
   over: boolean;
   onDragStart: () => void;
@@ -225,7 +235,7 @@ function EntryRow({
         {/* a phone stacks the model, the account and the arrows; a computer keeps them on one line */}
         <div className="flex min-w-0 flex-1 items-center gap-3 phone:flex-col phone:items-stretch phone:gap-2">
           <ModelPicker look="field" label={`Step ${rank} model`} value={entry.model} harnesses={false} onChange={(ref) => onChange({ model: ref, ...(entry.account && vendorOfRef(ref) === vendor ? { account: entry.account } : {}) })} className="min-w-0 flex-1 md:max-w-[260px]" />
-          <SelectMenu look="field" label={`Step ${rank} account`} value={entry.account ?? ANY} options={options} onChange={(v) => onChange({ model: entry.model, ...(v === ANY ? {} : { account: v }) })} width={260} className="min-w-0 flex-1 md:max-w-[200px]" />
+          {!noAccount && <SelectMenu look="field" label={`Step ${rank} account`} value={entry.account ?? ANY} options={options} onChange={(v) => onChange({ model: entry.model, ...(v === ANY ? {} : { account: v }) })} width={260} className="min-w-0 flex-1 md:max-w-[200px]" />}
           <span className="ml-auto flex shrink-0 items-center gap-0.5 phone:-mr-2">
             <IconButton label="Move up" size={mobile ? 'touch' : 'sm'} disabled={first} onClick={() => onMove(-1)}>
               <ChevronUp />
@@ -239,7 +249,7 @@ function EntryRow({
           </span>
         </div>
       </div>
-      {looseAccount(chosen, accounts) && <p className="m-0 mt-1.5 pl-7 text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">CLIProxyAPI picks which {chosen!.vendorName} plan answers. To keep the step on this plan, give it a short name in {SHORT_NAME_WHERE}.</p>}
+      {!noAccount && looseAccount(chosen, accounts) && <p className="m-0 mt-1.5 pl-7 text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">CLIProxyAPI picks which {chosen!.vendorName} plan answers. To keep the step on this plan, give it a short name in {SHORT_NAME_WHERE}.</p>}
     </div>
   );
 }

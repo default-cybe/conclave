@@ -188,6 +188,19 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
       if (ids.length) settings.splitView = [...new Set(ids)];
       else delete settings.splitView;
     }
+    if (body.usageFallback !== undefined || body.refusalFallback !== undefined) {
+      // the owner's lists are the hub's (models.limitFallback, models.refusalFallback in /api/config)
+      if (!isMember(acct)) throw badRequest('Your fallback lists are in Settings, Models.');
+      try {
+        const { usageFallback: usage, refusalFallback: refusal } = engine.checkMemberFallbacks(acct, body);
+        if (usage) settings.usageFallback = usage;
+        else if (usage === null) delete settings.usageFallback;
+        if (refusal) settings.refusalFallback = refusal;
+        else if (refusal === null) delete settings.refusalFallback;
+      } catch (err) {
+        peopleError(err);
+      }
+    }
     try {
       const named = body.name !== undefined || body.displayName !== undefined;
       greetAs(people.update(acct, { ...(body.name !== undefined ? { name: body.name } : {}), ...(body.displayName !== undefined ? { displayName: body.displayName } : {}), ...(body.email !== undefined ? { email: body.email } : {}), settings }), a, named);

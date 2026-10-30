@@ -5,7 +5,8 @@
  * (Accounts). Off: a limit falls back on the Refusal fallback list as before.
  *
  * Rows: number, model, up, down, remove. Every change saves at once
- * (models.limitFallback), as the Refusal fallback page does.
+ * (models.limitFallback), as the Refusal fallback page does. A member edits
+ * their own list here (saveFallback), with the models they can call.
  */
 import { useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
@@ -16,7 +17,7 @@ import { ModelList, ModelPicker } from '@/components/pickers/ModelPicker';
 import { Button, IconButton } from '@/components/ui/Button';
 import { OnOff } from '@/components/ui/Field';
 import { Popover } from '@/components/ui/Overlay';
-import { Group, save, SettingRow } from './parts';
+import { Group, saveFallback, SettingRow } from './parts';
 
 /** The list with one item moved; the same list when the move goes off either end. */
 export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
@@ -35,7 +36,8 @@ export function UsageFallbackSection() {
   const addRef = useRef<HTMLButtonElement>(null);
   const [adding, setAdding] = useState(false);
 
-  const write = (next: Partial<LimitFallbackConfig>) => void save({ models: { limitFallback: { ...own, ...next } } });
+  // a member's list is their own (PATCH /api/me); the pickers list only the models they can call
+  const write = (next: Partial<LimitFallbackConfig>) => void saveFallback('limitFallback', { ...own, ...next });
   const setModels = (list: string[]) => write({ models: list });
 
   return (
