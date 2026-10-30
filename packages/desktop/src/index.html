@@ -7,6 +7,7 @@
     <title>Conclave</title>
     <link rel="preload" href="fonts/mona-sans-latin-standard-normal.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="style.css" />
+    <script src="start.js" defer></script>
     <script src="main.js" defer></script>
   </head>
   <body>
@@ -18,7 +19,14 @@
         Conclave
       </p>
 
-      <p id="connecting" class="muted" hidden>Connecting to <span id="connecting-url" class="mono"></span>…</p>
+      <div id="connecting" class="panel" hidden>
+        <p class="muted">Connecting to <span id="connecting-url" class="mono"></span>…</p>
+        <p id="connecting-state" class="state" role="status" hidden></p>
+        <div id="connecting-actions" class="actions" hidden>
+          <button type="button" id="connecting-retry" class="outline">Retry now</button>
+          <button type="button" id="connecting-other" class="text">Use another hub</button>
+        </div>
+      </div>
 
       <div id="starting" class="panel" hidden>
         <p class="muted">Starting the hub on this computer…</p>

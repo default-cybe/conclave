@@ -19,6 +19,11 @@ like `## [0.4.16] - 2026-10-24`.
 - Built-in skills: Conclave ships skills inside the binary, listed and loaded like any other skill, with the lowest precedence, so a learned, installed or own skill with the same name wins. The first is **web-studio**, a method for building a site that does not look AI-made: design read, references, spec, prototypes, then screenshots at 390 and 1440 in light and dark and a 10-point rubric scored by a fresh judge (average 8 or more, nothing under 7, at most 3 rounds).
 - Workflows: a findings ledger per project folder (`lib.ledger.read`, `write`, `fence`, `id`), stored on the hub per device and folder. bug-hunt and ui-pass read it before their judges and write their results back, so a later round does not report a fixed bug again or retry a rejected idea.
 - **web-studio** library workflow: builds a new site in any project folder by the web-studio skill. Design read, references by lane, STYLE.md and SPEC.md you approve before any code, 3 to 6 signature prototypes in worktrees that a critic ranks and you pick from, a parallel module build, then `lib.capture` and a fresh judge on the 10-point rubric with the pass bar computed in code (up to 3 fix rounds), and validation round A (QA, accessibility, design, security, plus the project's own package.json checks) before round B (break-it, persona, owner proxy). Keeps the folder's findings ledger.
+- Client logs report slowness: tasks that held the page over 50 ms go as one `perf.longtasks` summary a minute at most (count, longest, total, page path), and on Chromium (the Windows desktop app, Chrome) the JS heap as `perf.memory` every 5 minutes.
+
+### Fixed
+
+- Desktop app: a member no longer has to sign in again after every boot. When the app starts at login before the network is up, it stays on "Connecting to <hub>…" and tries again (after 1, 2, 4, 8 s, then every 15 s, and at once when the network comes back), with Retry now and Use another hub. Only the hub turning the saved token away shows the sign-in form. A settings file that cannot be read is now logged and kept as `settings.json.bad` instead of being dropped without a word.
 
 ## [0.4.48] - 2026-10-29
 

@@ -10,6 +10,12 @@
  * again within 10 seconds counts on the one before. Only event names,
  * statuses, paths with their ids folded and short error messages go, never
  * text from a chat.
+ *
+ * Slowness: tasks that held the main thread over 50 ms (PerformanceObserver
+ * 'longtask', where the browser has it) go as one perf.longtasks summary a
+ * minute at most, and the JS heap (performance.memory, Chromium only) as
+ * perf.memory every 5 minutes. The observer is the browser's own: nothing
+ * runs per frame.
  */
 import type { ClientLogBatch, ClientLogEvent, LogLevel } from '@conclave/core/client';
 import { version as CLIENT_VERSION } from '../../package.json';
@@ -140,6 +146,64 @@ export function startClientLog(sender: Sender): void {
     clientLog('error', 'js.error', { ...(file ? { file } : {}), ...(e.lineno ? { line: e.lineno } : {}) }, e.error ?? e.message);
   });
   window.addEventListener('unhandledrejection', (e) => clientLog('error', 'js.rejection', undefined, e.reason));
+  watchSlowness();
+}
+
+const LONGTASK_EVERY_MS = 60_000;
+const MEMORY_EVERY_MS = 5 * 60_000;
+
+/** Long tasks seen since the last summary. */
+export interface LongTasks {
+  count: number;
+  maxMs: number;
+  totalMs: number;
+}
+
+let longTasks: LongTasks = { count: 0, maxMs: 0, totalMs: 0 };
+let longTasksSentAt = 0;
+
+/** Count one long task (its duration in ms). */
+export function noteLongTask(ms: number): void {
+  longTasks.count++;
+  longTasks.totalMs += ms;
+  if (ms > longTasks.maxMs) longTasks.maxMs = ms;
+}
+
+/**
+ * The perf.longtasks summary, at most one a minute: the count, the longest
+ * and the total in ms, and the page's path with its ids folded. Nothing when
+ * no task was long or the last summary went under a minute ago.
+ */
+export function reportLongTasks(now = Date.now(), path = typeof location === 'undefined' ? '' : location.pathname): void {
+  if (!longTasks.count || now - longTasksSentAt < LONGTASK_EVERY_MS) return;
+  const { count, maxMs, totalMs } = longTasks;
+  longTasks = { count: 0, maxMs: 0, totalMs: 0 };
+  longTasksSentAt = now;
+  clientLog(maxMs >= 1000 ? 'warn' : 'info', 'perf.longtasks', { count, maxMs: Math.round(maxMs), totalMs: Math.round(totalMs), path: foldPath(path) });
+}
+
+/** The JS heap in MB, where the browser tells it (Chromium: the Windows desktop app and Chrome). */
+function reportMemory(): void {
+  const m = (performance as unknown as { memory?: { usedJSHeapSize: number; totalJSHeapSize: number; jsHeapSizeLimit: number } }).memory;
+  if (!m) return;
+  const mb = (n: number) => Math.round(n / 1048576);
+  clientLog('info', 'perf.memory', { usedMb: mb(m.usedJSHeapSize), totalMb: mb(m.totalJSHeapSize), limitMb: mb(m.jsHeapSizeLimit) });
+}
+
+function watchSlowness(): void {
+  try {
+    if (typeof PerformanceObserver !== 'undefined' && PerformanceObserver.supportedEntryTypes?.includes('longtask')) {
+      new PerformanceObserver((list) => {
+        for (const e of list.getEntries()) noteLongTask(e.duration);
+        reportLongTasks();
+      }).observe({ type: 'longtask', buffered: true });
+      // a burst then quiet still gets its summary
+      setInterval(() => reportLongTasks(), LONGTASK_EVERY_MS);
+    }
+    if (typeof performance !== 'undefined' && 'memory' in performance) setInterval(reportMemory, MEMORY_EVERY_MS);
+  } catch {
+    /* logging never breaks the app */
+  }
 }
 
 /** For tests: the queue and a fresh start. */
@@ -157,6 +221,8 @@ export function _resetClientLog(): void {
   minute = 0;
   if (soon) clearTimeout(soon);
   soon = undefined;
+  longTasks = { count: 0, maxMs: 0, totalMs: 0 };
+  longTasksSentAt = 0;
 }
 
 /** For the request wrapper: a failed call, with its status (0: no answer). */
