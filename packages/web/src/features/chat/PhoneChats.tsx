@@ -17,6 +17,7 @@ import { ChevronRight, Search, X } from 'lucide-react';
 import type { Session } from '@conclave/core/types';
 import { underParent } from '@conclave/core/session/delegated';
 import { isUnread } from '@conclave/core/session/unread';
+import { IMPORTED_WORDS, byImportedDate, importedLabel, inImported } from '@conclave/core/session/imported';
 import { api } from '@/lib/api';
 import { attempt, useHub } from '@/store/store';
 import { cn, fuzzy } from '@/lib/text';
@@ -67,16 +68,19 @@ export function PhoneChats({ kind }: { kind: Kind }) {
 
   const mine = (s: Session) => !isDuplicateCopy(s) && (kind === 'chats' ? isChat(s) : !isChat(s) && !underParent(s) && !(s.meta as { workflow?: unknown } | undefined)?.workflow);
   const all = useMemo(() => Object.values(sessions).filter(mine), [sessions, kind]); // eslint-disable-line react-hooks/exhaustive-deps
-  const archivedCount = useMemo(() => all.filter((s) => s.archived).length, [all]);
+  // imported chats not continued yet have a section of their own, not the archive (core session/imported.ts)
+  const archivedCount = useMemo(() => all.filter((s) => s.archived && !inImported(s)).length, [all]);
   // a subagent's request waits on you in the conversation it shows in (lib/asks.ts)
   const waiting = useMemo(() => new Set([...Object.values(approvals), ...Object.values(questions)].flatMap((x) => [x.sessionId, askHome(x)])), [approvals, questions]);
   const list = useMemo(() => {
     const needle = q.trim();
-    let out = all.filter((s) => s.archived === archived);
+    let out = all.filter((s) => (archived ? s.archived && !inImported(s) : !s.archived || inImported(s)));
     if (needle) out = out.filter((s) => fuzzy(needle, `${s.title} ${kind === 'code' ? `${s.agent} ${modelName(s.model)} ${devices[s.device]?.name ?? ''}` : ''}`) >= 0);
     return out.sort((a, b) => b.updatedAt - a.updatedAt);
   }, [all, archived, q, kind, devices]);
-  const groups = useMemo(() => (group === 'date' ? undefined : groupSessions(list, group, { projects, devices })), [list, group, projects, devices]);
+  const imported = useMemo(() => list.filter(inImported).sort(byImportedDate), [list]);
+  const main = useMemo(() => list.filter((s) => !inImported(s)), [list]);
+  const groups = useMemo(() => (group === 'date' ? undefined : groupSessions(main, group, { projects, devices })), [main, group, projects, devices]);
 
   const runSearch = async () => {
     const needle = q.trim();
@@ -163,12 +167,27 @@ export function PhoneChats({ kind }: { kind: Kind }) {
           ))
         ) : (
           <ul className="m-0 list-none p-0">
-            {list.map((s) => (
+            {main.map((s) => (
               <li key={s.id}>
                 <Row session={s} now={now} state={liveState(s, waiting)} />
               </li>
             ))}
           </ul>
+        )}
+        {!hits && imported.length > 0 && (
+          <section aria-label={IMPORTED_WORDS}>
+            <h2 className="m-0 flex items-baseline gap-1.5 px-5 pt-4 pb-1 text-[13px] font-medium text-fg-3">
+              <span className="min-w-0 truncate">{IMPORTED_WORDS}</span>
+              <span className="num font-normal">{imported.length}</span>
+            </h2>
+            <ul className="m-0 list-none p-0">
+              {imported.map((s) => (
+                <li key={s.id}>
+                  <Row session={s} now={now} state={liveState(s, waiting)} imported={importedLabel(s, now)} />
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
         {!archived && !hits && archivedCount > 0 && (
           <Link href={`${words.root}?archived`} className="mt-1 flex min-h-[52px] items-center gap-3 px-5 text-[16px] text-fg-2 active:bg-hover">
@@ -193,7 +212,9 @@ type PhoneGroup = 'date' | 'project' | 'device';
 const PHONE_GROUPS: PhoneGroup[] = ['date', 'project', 'device'];
 
 /** A row: the title and time, then a line when it says something: the device (grouped by project) and the state. */
-function Row({ session: s, now, state, device }: { session: Session; now: number; state: 'running' | 'waiting' | undefined; device?: string }) {
+function Row({ session: s, now, state, device: where, imported }: { session: Session; now: number; state: 'running' | 'waiting' | undefined; device?: string; imported?: string }) {
+  // under Imported the second line has the source and its date (with the year), so the time column would repeat it
+  const device = imported ?? where;
   const line = state ? LINE[state] : s.status === 'error' ? LINE.failed : undefined;
   const repo = sessionRepo(s);
   const unread = isUnread(s);
@@ -204,7 +225,7 @@ function Row({ session: s, now, state, device }: { session: Session; now: number
           {s.title || (isChat(s) ? 'New chat' : 'New session')}
           {unread && <span className="sr-only">, new reply</span>}
         </span>
-        <span className="num shrink-0 text-[13px] text-fg-3">{relTime(s.updatedAt, now)}</span>
+        {!imported && <span className="num shrink-0 text-[13px] text-fg-3">{relTime(s.updatedAt, now)}</span>}
       </span>
       {(line || device || repo) && (
         <span className="mt-0.5 flex min-w-0 gap-1.5 text-[14px] leading-[1.35]">
