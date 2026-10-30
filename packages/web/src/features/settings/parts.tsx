@@ -7,7 +7,9 @@
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/text';
 import { shortDate } from '@/lib/format';
-import { toast, updateConfig } from '@/store/store';
+import { reloadConfig, toast, updateConfig } from '@/store/store';
+import { api } from '@/lib/api';
+import { isOwnerNow } from '@/lib/people';
 import { SectionHeading, type SectionAction } from '@/components/ui/Section';
 
 /** "just now", "4m ago", "3h ago", "2d ago", then the date ("17 Aug"). */
@@ -29,6 +31,23 @@ export function errText(e: unknown): string {
 export async function save(patch: Record<string, unknown>): Promise<boolean> {
   try {
     await updateConfig(patch);
+    return true;
+  } catch (e) {
+    toast({ title: `Could not save. ${errText(e)}`, level: 'error' });
+    return false;
+  }
+}
+
+/**
+ * Save a fallback list (models.limitFallback or models.refusalFallback). The
+ * owner's is the hub's config; a member's is their own (PATCH /api/me), which
+ * the hub checks against the models they can call and shows back in /api/config.
+ */
+export async function saveFallback(key: 'limitFallback' | 'refusalFallback', value: Record<string, unknown>): Promise<boolean> {
+  if (isOwnerNow()) return save({ models: { [key]: value } });
+  try {
+    await api().updateMe(key === 'limitFallback' ? { usageFallback: value } : { refusalFallback: value });
+    await reloadConfig();
     return true;
   } catch (e) {
     toast({ title: `Could not save. ${errText(e)}`, level: 'error' });
