@@ -275,10 +275,11 @@ export function browserTools(manager: BrowserManager): Tool[] {
       let nav = await manager.navigate(ctx.sessionId, input.url);
       let blocked = '';
       // a block page from the hub's own address: once more through the owner's proxy, in the hub's country
-      // a member's browser has no proxy (it is the owner's): no retry through it
-      if (proxyWant(input.proxy) === undefined && !manager.proxied(ctx.sessionId) && !isMember(ctx.session?.accountId)) {
+      if (proxyWant(input.proxy) === undefined && !manager.proxied(ctx.sessionId)) {
         const why = await blockedPage(manager, ctx.sessionId, nav.status);
-        if (why) ({ nav, line: blocked } = await retryBlocked(manager, ctx, input.url, nav, why));
+        // a member's browser has no proxy (the hub's is the owner's, manager.useProxy refuses): the block is said, no retry
+        if (why && isMember(ctx.session?.accountId)) blocked = `${siteName(nav.url)} blocked the hub's address (${why}). The hub's proxy belongs to the owner, so a member's request does not retry through it, and a member's browser does not use a proxy.`;
+        else if (why) ({ nav, line: blocked } = await retryBlocked(manager, ctx, input.url, nav, why));
       }
       const status = nav.status && nav.status >= 400 ? ` (HTTP ${nav.status})` : '';
       const via = await proxyLine(manager, ctx.sessionId);
