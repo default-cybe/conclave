@@ -567,8 +567,13 @@ const hub = { name: 'madx', version: '0.1.0', startedAt: D.NOW - 3 * 24 * 3_600_
 on('GET', '/api/info', async () => ({ ...hub, fingerprint: (await mockIdentity()).fingerprint }));
 // the owner's account; its layout of Side by side starts with three sessions (?split=0 starts empty)
 const mePrefs: { splitView?: string[] } = FRESH || new URLSearchParams(location.search).get('split') === '0' ? {} : { splitView: ['s_auth', 's_backup', 's_os'] };
-on('GET', '/api/me', () => ({ id: 'owner', name: 'owner', role: 'owner', people: false, hubMachine: true, passwordSet: false, providers: [], preferences: { ...mePrefs } }));
+// ?member=1 signs in as a member (nihir), with their own fallback lists in Settings > Models
+const MEMBER = new URLSearchParams(location.search).get('member') === '1';
+const memberLists: Record<string, unknown> = { limitFallback: { enabled: true, models: ['anthropic/claude-sonnet-5-5', 'openai/gpt-6-mini'] }, refusalFallback: { enabled: true, entries: [{ model: 'anthropic/claude-sonnet-5-5' }, { model: 'openai/gpt-6-mini' }] } };
+on('GET', '/api/me', () => (MEMBER ? { id: 'acc_nihir', name: 'nihir', displayName: 'Nihir', role: 'member', people: true, hubMachine: false, passwordSet: true, providers: [], preferences: {} } : { id: 'owner', name: 'owner', role: 'owner', people: false, hubMachine: true, passwordSet: false, providers: [], preferences: { ...mePrefs } }));
 on('PATCH', '/api/me', ({ body }) => {
+  if (MEMBER && body?.usageFallback !== undefined) memberLists.limitFallback = body.usageFallback;
+  if (MEMBER && body?.refusalFallback !== undefined) memberLists.refusalFallback = body.refusalFallback;
   if (body && 'splitView' in body) {
     if (body.splitView?.length) mePrefs.splitView = [...new Set(body.splitView as string[])];
     else delete mePrefs.splitView;
@@ -1141,7 +1146,7 @@ on('DELETE', '/api/gateway/keys/:id', ({ params }) => {
 
 // config
 // only the owner token sees server.token, as on the hub (the app reads it to know it is the owner)
-on('GET', '/api/config', ({ auth }) => ({ config: auth === OWNER_TOKEN ? { ...db.config, server: { ...(db.config.server as object), token: OWNER_TOKEN } } : db.config, user: {}, secrets: secrets() }));
+on('GET', '/api/config', ({ auth }) => ({ config: MEMBER ? { ...db.config, models: { ...(db.config.models as object), ...memberLists } } : auth === OWNER_TOKEN ? { ...db.config, server: { ...(db.config.server as object), token: OWNER_TOKEN } } : db.config, user: {}, secrets: secrets() }));
 on('PATCH', '/api/config', ({ body }) => {
   deepMerge(db.config, body);
   saveFresh();

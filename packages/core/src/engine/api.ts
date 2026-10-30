@@ -141,6 +141,11 @@ export interface EngineApi {
   providersFor(accountId: string | undefined): import('../providers/registry').ProviderRegistry;
   /** A model the account can call now. */
   isUsable(ref: string, accountId?: string): boolean;
+  /** A member's own fallback lists from PATCH /api/me, cleaned; throws PeopleError 400 for a model they cannot call (session/member-fallbacks.ts). */
+  checkMemberFallbacks(
+    accountId: string,
+    patch: { usageFallback?: unknown; refusalFallback?: unknown },
+  ): { usageFallback?: import('../config/schema').LimitFallbackConfig | null; refusalFallback?: import('../config/schema').RefusalFallbackConfig | null };
   /** The agents an account may pick: a member's are the ones that ship and plugin agents. */
   agentsFor(accountId: string, cwd?: string): import('../extensions/types').AgentDef[];
   /** The account an open approval or question belongs to. */

@@ -115,6 +115,10 @@ export interface MePatch {
   importWatch?: boolean;
   /** Up to SPLIT_MAX session ids; null or [] clears the view. */
   splitView?: string[] | null;
+  /** A member's own usage fallback: models they can call, first tried first. null clears it. The owner's is models.limitFallback in /api/config. */
+  usageFallback?: { enabled?: boolean; models?: string[] } | null;
+  /** A member's own refusal fallback: models they can call, no accounts. null clears it. The owner's is models.refusalFallback. */
+  refusalFallback?: { enabled?: boolean; stay?: boolean; entries?: Array<{ model: string }> } | null;
 }
 
 /** The owner's grant of a hub key: missing provider is no access; monthlyUsd null is no cap. */

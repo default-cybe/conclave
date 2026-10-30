@@ -856,6 +856,14 @@ the account that answered. An agent can have its own list
 
 A marked account is `"refusal": true` on it in `models.accounts`.
 
+**Members have their own lists.** A member of your hub sees Settings >
+Models > Refusal fallback and Usage fallback too, with their own lists:
+models only, and only models they can call (their own keys and plans, or a
+hub key you granted them). The hub refuses a model they cannot call when
+they save, and skips one at run time when a grant or plan is gone. Their
+sessions never use your lists, your plans or your marked accounts. A model
+on the plans gateway runs on their own plans first, in their order.
+
 ### Window starter
 
 A plan's 5-hour window starts with your first request after it resets. If

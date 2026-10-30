@@ -32,6 +32,8 @@ const URL_HINT: Record<string, string> = {
 
 /** Options the form never shows as fields: they come with the preset. */
 const FIXED = new Set(['preset', 'variant', 'transport', 'fields', 'listArgs']);
+// a member's config has no mcpServers; a fresh {} per read made the store selector loop (React #185)
+const NO_SERVERS: Record<string, unknown> = {};
 
 /** The preset an existing connection most likely started from. */
 function presetFor(c: MemoryConnectionInfo, presets: MemoryConnectionPreset[]): MemoryConnectionPreset | undefined {
@@ -60,7 +62,7 @@ function toText(key: string, v: unknown): string {
 export function ConnectionForm({ open, edit, onClose, onSaved }: { open: boolean; edit?: MemoryConnectionInfo; onClose: () => void; onSaved?: (c: MemoryConnectionInfo) => void }) {
   const mobile = useIsMobile();
   const size = mobile ? 'touch' : 'md';
-  const mcpServers = useHub((s) => (s.config?.mcpServers ?? {}) as Record<string, unknown>);
+  const mcpServers = useHub((s) => (s.config?.mcpServers ?? NO_SERVERS) as Record<string, unknown>);
   const [presets, setPresets] = useState<MemoryConnectionPreset[]>();
   const [loadError, setLoadError] = useState<string>();
   const [presetKey, setPresetKey] = useState<string>();

@@ -542,10 +542,10 @@ describe('the usage fallback list (models.limitFallback): by model, each on its 
       expect(engine.getSession(over.id)!.model).toBe('cliproxy/spare-gpt/gpt-6-mini');
       expect(engine.getSession(over.id)!.meta?.limitFallback).toBeUndefined();
 
-      // members untouched
+      // members untouched: the owner's per-model entry names the owner's plan, which a member cannot call (it was picked without their account before)
       engine.config.update({ limits: { fallbacks: { 'cliproxy/personal-gpt/gpt-6-sol': ['cliproxy/spare-gpt/gpt-6-mini'] } } } as never);
       const mem = await engine.createSession({ cwd, title: 'member-model', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never, 'acc_alice');
-      expect(await limit(mem.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/spare-gpt/gpt-6-mini' });
+      expect(await limit(mem.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ parked: true });
       expect(engine.repos.sessions.get(mem.id)!.model).toBe('cliproxy/personal-gpt/gpt-6-sol');
       expect(engine.repos.sessions.get(mem.id)!.meta?.limitFallback).toBeUndefined();
       engine.patchMeta(mem.id, { limitFallback: { from: 'cliproxy/personal-gpt/gpt-6-sol', to: 'cliproxy/personal-gpt/gpt-6-sol', at: 0 } });
@@ -951,7 +951,8 @@ describe("a member's plan at its limit", () => {
   const listeners = new Set<(id: string) => void>();
   let memberId = '';
   const plan = (prefix: string) => ({ id: `m-${prefix}`, label: prefix, kind: 'subscription', prefix }) as unknown as AccountDto;
-  const entry: MemberPlanEntry = { config: { type: 'openai', baseUrl: `http://127.0.0.1:${cpa.port}/v1`, models: ['gpt-6-sol', 'personal-gpt/gpt-6-sol', 'mine-gpt/gpt-6-sol'] } as never, apiKey: 'member-key' };
+  const entry: MemberPlanEntry = { config: { type: 'openai', baseUrl: `http://127.0.0.1:${cpa.port}/v1`, models: ['gpt-6-sol', 'personal-gpt/gpt-6-sol', 'mine-gpt/gpt-6-sol', 'gpt-6-mini', 'mine-gpt/gpt-6-mini', 'gpt-6-nano'] } as never, apiKey: 'member-key' };
+  let readyMini: AccountDto[] = [];
   const plans: MemberPlans = {
     entry: (id) => (id === memberId ? entry : undefined),
     count: (id) => (id === memberId ? 2 : 0),
@@ -959,7 +960,7 @@ describe("a member's plan at its limit", () => {
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
-    readyAccounts: (id, model) => (id === memberId && model === 'gpt-6-sol' ? ready : []),
+    readyAccounts: (id, model) => (id !== memberId ? [] : model === 'gpt-6-sol' ? ready : model === 'gpt-6-mini' ? readyMini : []),
   };
 
   beforeAll(() => {
@@ -986,4 +987,54 @@ describe("a member's plan at its limit", () => {
     });
     expect(engine.repos.sessions.get(s.id)!.model).toBe('cliproxy/personal-gpt/gpt-6-sol');
   });
+
+  const setLists = (settings: Record<string, unknown>) => engine.people.update(memberId, { settings: settings as never });
+
+  test('her own usage fallback moves to her next usable model, on her own plan, sticks, and goes back after the reset', async () => {
+    ready = [];
+    readyMini = [plan('mine-gpt')];
+    // the owner's spare-gpt plan comes first in her list: it is skipped, never called
+    setLists({ usageFallback: { enabled: true, models: ['cliproxy/gpt-6-sol', 'cliproxy/spare-gpt/gpt-6-mini', 'cliproxy/gpt-6-mini'] } });
+    const s = await engine.createSession({ cwd, title: 'member usage', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never, memberId);
+    expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ fallback: 'cliproxy/mine-gpt/gpt-6-mini' });
+    expect(engine.repos.sessions.get(s.id)!.model).toBe('cliproxy/mine-gpt/gpt-6-mini');
+    // chores at a limit take the same list
+    expect(limitFallback(engine, memberId, 'cliproxy/personal-gpt/gpt-6-sol')).toBe('cliproxy/mine-gpt/gpt-6-mini');
+    // her first plan is ready again after the reset: back on it
+    ready = [plan('personal-gpt')];
+    const lf = engine.repos.sessions.get(s.id)!.meta?.limitFallback as Record<string, unknown>;
+    engine.patchMeta(s.id, { limitFallback: { ...lf, until: Date.now() - 1 } });
+    expect(switchBackModel(engine, s.id)).toBe('cliproxy/personal-gpt/gpt-6-sol');
+    setLists({});
+  });
+
+  test("her list never reaches an owner's model or plan, and saving one is refused", async () => {
+    ready = [];
+    readyMini = [];
+    setLists({ usageFallback: { enabled: true, models: ['cliproxy/gpt-6-sol', 'cliproxy/spare-gpt/gpt-6-sol', 'cliproxy/backup-gpt/gpt-6-mini'] } });
+    const s = await engine.createSession({ cwd, title: 'member no owner list', model: 'cliproxy/personal-gpt/gpt-6-sol' } as never, memberId);
+    expect(await limit(s.id, 'cliproxy/personal-gpt/gpt-6-sol')).toEqual({ parked: true });
+    expect(() => engine.checkMemberFallbacks(memberId, { usageFallback: { models: ['cliproxy/spare-gpt/gpt-6-sol'] } })).toThrow("You can't use cliproxy/spare-gpt/gpt-6-sol");
+    expect(() => engine.checkMemberFallbacks(memberId, { refusalFallback: { entries: [{ model: 'cliproxy/backup-gpt/gpt-6-sol' }] } })).toThrow("You can't use");
+    // accounts in an entry are the owner's: dropped
+    expect(engine.checkMemberFallbacks(memberId, { refusalFallback: { entries: [{ model: 'cliproxy/gpt-6-mini', account: 'spare' }] } }).refusalFallback).toEqual({ entries: [{ model: 'cliproxy/gpt-6-mini' }] });
+    setLists({});
+  });
+
+  test('her refusal fallback answers a refused turn, and Try the next model works with her list', async () => {
+    const s = await engine.createSession({ cwd, title: 'member refusal', model: 'cliproxy/gpt-6-nano' } as never, memberId);
+    const runner = engine.runnerFor(s.id);
+    await runner.enqueue({ text: 'hi' });
+    await Promise.race([runner.waitIdle(), Bun.sleep(15_000)]);
+    // no list: the refusal stands, and the button says she has none
+    expect(engine.getMessages(s.id).filter((m) => m.role === 'assistant' && m.kind === 'normal').at(-1)!.stopReason).toBe('refusal');
+    await expect(engine.tryNextModel(s.id)).rejects.toThrow('Your Refusal fallback has no models you can use.');
+    setLists({ refusalFallback: { enabled: false, entries: [{ model: 'cliproxy/spare-gpt/gpt-6-sol' }, { model: 'cliproxy/gpt-6-mini' }] } });
+    expect(await engine.tryNextModel(s.id)).toMatchObject({ model: 'cliproxy/gpt-6-mini' });
+    await Promise.race([runner.waitIdle(), Bun.sleep(15_000)]);
+    const last = engine.getMessages(s.id).filter((m) => m.role === 'assistant' && m.kind === 'normal').at(-1)!;
+    expect(last.stopReason).not.toBe('refusal');
+    expect(last.model).toBe('cliproxy/gpt-6-mini');
+    setLists({});
+  }, 30_000);
 });

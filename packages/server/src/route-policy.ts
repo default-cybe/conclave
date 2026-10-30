@@ -295,7 +295,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'GET /api/memory/digest': 'self',
   'PUT /api/memory/digest': 'self',
   // the memory map reads the hub's Basic Memory connection too: the owner only
-  'GET /api/memory/graph': 'admin',
+  'GET /api/memory/graph': 'self',
   'GET /api/memory/connections': 'self',
   'GET /api/memory/connections/presets': 'self',
   'POST /api/memory/connections/test': 'self',
