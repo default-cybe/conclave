@@ -7,7 +7,7 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
-## [Unreleased]
+## [0.4.49] - 2026-10-30
 
 ### Added
 
@@ -26,6 +26,8 @@ like `## [0.4.16] - 2026-10-24`.
 ### Fixed
 
 - Desktop app: a member no longer has to sign in again after every boot. When the app starts at login before the network is up, it stays on "Connecting to <hub>…" and tries again (after 1, 2, 4, 8 s, then every 15 s, and at once when the network comes back), with Retry now and Use another hub. Only the hub turning the saved token away shows the sign-in form. A settings file that cannot be read is now logged and kept as `settings.json.bad` instead of being dropped without a word.
+- Desktop app: dropping files into the window attaches them again, as on the web. The app's own drop handler took the files before the page saw them; the main window and quick ask now leave drops to the page.
+- A member's browser and Capture reach only public addresses: every connection, redirect hop and WebSocket goes through a relay that refuses the hub, its LAN and private or link-local addresses, a failed name lookup is refused, and WebRTC sends no UDP around it.
 
 ## [0.4.48] - 2026-10-29
 
