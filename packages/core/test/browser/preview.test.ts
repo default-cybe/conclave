@@ -341,7 +341,9 @@ for (const exe of hasPlaywright ? browsers : []) describe(`preview (live Chromiu
 
   test('log URLs are capped', async () => {
     const page = await manager.page(sid);
-    await page.evaluate(() => fetch('/missing?' + 'a'.repeat(200_000)).catch(() => {}));
+    // well past the 300 cap but under the app server's header limit: at 200k Bun answers 431 and closes
+    // mid-upload, so Chrome saw a 431 or a reset by timing and the 'response' line was sometimes missing
+    await page.evaluate(() => fetch('/missing?' + 'a'.repeat(10_000)).catch(() => {}));
     // the response event lands after fetch settles; under a loaded runner (parallel files) that can take a while
     for (let i = 0; i < 50 && !service.logs(sid).some((e) => e.kind === 'response'); i++) await Bun.sleep(100);
     const long = service.logs(sid).filter((e) => e.kind === 'response');
