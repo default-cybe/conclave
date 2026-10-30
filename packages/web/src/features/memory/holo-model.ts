@@ -356,6 +356,82 @@ export function linkCurve(h: HoloLayout, L: LinkLayout, e: number, seg: number, 
   }
 }
 
+/** An opened area's sphere: this many times its ball's radius. */
+export const OPEN_K = 2.4;
+
+export interface Spread {
+  /** H.pos with the opened area's items moved onto their disc. */
+  pos: Float32Array;
+  /** The sphere's centre and radius. */
+  c: [number, number, number];
+  R: number;
+  /** The disc's right and up in world space: the camera looks along -w. */
+  u: [number, number, number];
+  v: [number, number, number];
+  w: [number, number, number];
+}
+
+/**
+ * An opened area (Clusters): its items spread on a sunflower disc inside a
+ * sphere round the area's centre, square to `dir` (from the centre toward the
+ * camera) so every title faces the owner. The most linked sit in the middle,
+ * the rest ring out by link count at an even spacing; each gets a little
+ * depth, never past the sphere, so it still reads as space. Pure and
+ * deterministic for a layout, an area and a direction.
+ */
+export function spreadArea(H: HoloLayout, L: LinkLayout, deg: ArrayLike<number>, a: number, dir: readonly [number, number, number]): Spread {
+  const pos = new Float32Array(H.pos);
+  const c: [number, number, number] = [H.centers[a * 3], H.centers[a * 3 + 1], H.centers[a * 3 + 2]];
+  const R = H.radius[a] * OPEN_K;
+  const w = unit(dir[0], dir[1], dir[2]) ?? ([0, 0, 1] as [number, number, number]);
+  // right: world up across w; looking straight down, world z stands in for up
+  const u = unit(w[2], 0, -w[0]) ?? unit(0, -w[2], w[1])!;
+  const v: [number, number, number] = [w[1] * u[2] - w[2] * u[1], w[2] * u[0] - w[0] * u[2], w[0] * u[1] - w[1] * u[0]];
+  const { from, to } = L.areas[a];
+  const ids = Array.from({ length: to - from }, (_, k) => from + k).sort((x, y) => deg[y] - deg[x] || x - y);
+  const N = ids.length;
+  ids.forEach((i, k) => {
+    const r = 0.9 * R * Math.sqrt((k + 0.5) / N);
+    const th = k * GOLD;
+    // depth up to a quarter of what the sphere leaves at that radius
+    const d = (hash(i, 5) - 0.5) * 0.5 * Math.sqrt(R * R - r * r);
+    const x = r * Math.cos(th);
+    const y = r * Math.sin(th);
+    for (let q = 0; q < 3; q++) pos[i * 3 + q] = c[q] + u[q] * x + v[q] * y + w[q] * d;
+  });
+  return { pos, c, R, u, v, w };
+}
+
+function unit(x: number, y: number, z: number): [number, number, number] | undefined {
+  const d = Math.hypot(x, y, z);
+  return d > 1e-6 ? [x / d, y / d, z / d] : undefined;
+}
+
+export type Box = [x: number, y: number, w: number, h: number];
+export const overlaps = (b: readonly Box[], x: number, y: number, w: number, h: number) => b.some(([a, c, bw, bh]) => x < a + bw && a < x + w && y < c + bh && c < y + h);
+
+/**
+ * Titles that fit, in the order given (most wanted first): each beside its
+ * point, right of it or else left, inside the room, clear of every box in
+ * `boxes` and of each other; at most `max`. Pushes what it places onto
+ * `boxes`. A point with no room keeps no title (it shows one on hover).
+ */
+export function fitLabels(cands: ReadonlyArray<{ i: number; x: number; y: number; w: number }>, boxes: Box[], room: { x: number; y: number; w: number; h: number }, max: number, h = 16, gap = 9): Array<{ i: number; x: number; y: number }> {
+  const out: Array<{ i: number; x: number; y: number }> = [];
+  for (const p of cands) {
+    if (out.length >= max) break;
+    const y = p.y - h / 2;
+    if (y < room.y || y + h > room.y + room.h) continue;
+    for (const x of [p.x + gap, p.x - gap - p.w]) {
+      if (x < room.x || x + p.w > room.x + room.w || overlaps(boxes, x - 2, y - 1, p.w + 4, h + 2)) continue;
+      boxes.push([x - 2, y - 1, p.w + 4, h + 2]);
+      out.push({ i: p.i, x, y });
+      break;
+    }
+  }
+  return out;
+}
+
 export interface HoloStats {
   items: number;
   links: number;

@@ -20,9 +20,11 @@
  * area clusters or a time axis (holo-model.ts, HoloCanvas.tsx, loaded only
  * when it opens). Rings stands in for 3D without WebGL or with reduced
  * motion. Filters, search, the scrubber and the drawer work in all three.
+ * 3D opens first unless the owner picked another view on this device; an
+ * area opened in 3D is kept in the URL (?cluster=People), so Back closes it.
  */
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Link } from 'wouter';
+import { Link, useLocation, useSearch } from 'wouter';
 import { Minus, Plus, X } from 'lucide-react';
 import type { MemoryGraph, MemoryGraphNode } from '@conclave/core/client';
 import { api } from '@/lib/api';
@@ -51,6 +53,17 @@ type Source = 'all' | 'conclave' | 'basic-memory';
 type Pair = readonly [string, string];
 type Mode = 'tree' | 'rings' | '3d';
 const MODES: Array<[Mode, string]> = [['tree', 'Tree'], ['rings', 'Rings'], ['3d', '3D']];
+const MODE_KEY = 'conclave.memory.view';
+
+/** The view, remembered on this device once the owner picks one (as the Map's Streams switch is): 3D until then. */
+function storedMode(): Mode {
+  try {
+    const v = localStorage.getItem(MODE_KEY);
+    return v === 'tree' || v === 'rings' ? v : '3d';
+  } catch {
+    return '3d';
+  }
+}
 
 let glOk: boolean | undefined;
 /** WebGL is there: tried once per page. */
@@ -144,7 +157,7 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
   const [reveal, setReveal] = useState<{ ids: string[]; n: number; center?: boolean; all?: boolean }>();
   const [note, setNote] = useState<string>();
   const [filters, setFilters] = useState(false);
-  const [mode, setMode] = useState<Mode>('tree');
+  const [mode, setMode] = useState<Mode>(storedMode);
   const [all, setAll] = useState(false);
   const [crossOnly, setCrossOnly] = useState(false);
   const [space, setSpace] = useState<HoloMode>('clusters');
@@ -153,6 +166,24 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
   const reduced = useReducedMotion();
   const holoOn = mode === '3d' && hasWebGL() && (!reduced || still3d);
   const ringsOn = mode === 'rings' || (mode === '3d' && !holoOn);
+  // the area open in 3D Clusters, from the URL: Back in the browser closes it
+  const search = useSearch();
+  const [, navigate] = useLocation();
+  const cluster = holoOn && space === 'clusters' ? (new URLSearchParams(search).get('cluster') ?? undefined) : undefined;
+  const pushed = useRef(false);
+  useEffect(() => {
+    if (!cluster) pushed.current = false;
+  }, [cluster]);
+  const openCluster = (name: string | undefined) => {
+    if (name === cluster) return;
+    const q = new URLSearchParams(search);
+    if (name) q.set('cluster', name);
+    else q.delete('cluster');
+    // closing what this page opened steps back, so the history holds no dead entry
+    if (!name && pushed.current) return history.back();
+    navigate(`/memory/map${q.size ? `?${q}` : ''}`, { replace: !name || !!cluster });
+    if (name && !cluster) pushed.current = true;
+  };
   // rings and 3D: the item or area under the pointer, and an area tapped or clicked to keep it lit
   const [bHover, setBHover] = useState<string>();
   const [bArea, setBArea] = useState<string>();
@@ -340,6 +371,7 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
   const linkFilter = useMemo(() => ({ hidden, crossOnly }), [hidden, crossOnly]);
   const linksOn = useMemo(() => links?.edges.filter((e) => edgeOn(links, e, { ...linkFilter, gone })), [links, linkFilter, gone]);
   const bFocus = bHover ?? bArea;
+  const sayFocus = bFocus ?? (cluster && areaId(cluster));
   const relations = ix.labels.slice(0, phone ? 14 : 9);
   const offline = g.basicMemory.state === 'offline';
 
@@ -389,7 +421,7 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
     <p className={cn('m-0 text-[13px] phone:text-[14px]', offline ? 'text-warn' : 'text-fg-2')} aria-live="polite">
       {note ??
         (links && linksOn ? (
-          <LinkWords l={links} on={linksOn} focus={bFocus} ix={ix} />
+          <LinkWords l={links} on={linksOn} focus={sayFocus} ix={ix} />
         ) : expanded ? (
           <>
             All <span className="num">{num(g.nodes.length)}</span> items in <span className="num">{ix.areas.length}</span> areas. The most linked read first; zoom in for the rest.
@@ -481,9 +513,15 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
     : ringsOn
       ? 'Inner ring: a tick per item, oldest to newest in its area, longer the more it links. Middle: area arcs, a tick every 10 items. Outer: writes over time; drag its handle to step back. Every curve is a real link through the core.'
       : 'A tick under a title: Conclave memory. Dashed: also in Basic Memory. None: a Basic Memory note.';
-  const hint = holoOn ? 'Drag to orbit, scroll or pinch to zoom, hover lights links, click opens, double click flies there, Esc steps back.' : links ? 'Hover lights an item or area, click opens.' : 'Click opens, double click centers, E expands all, Esc steps back.';
+  const hint = holoOn ? (space === 'clusters' ? 'Drag to orbit, scroll or pinch to zoom, hover lights links, click an area to open it, Esc steps back.' : 'Drag to orbit, scroll or pinch to zoom, hover lights links, click opens, double click flies there, Esc steps back.') : links ? 'Hover lights an item or area, click opens.' : 'Click opens, double click centers, E expands all, Esc steps back.';
   const switchMode = (m: Mode) => {
+    if (cluster) openCluster(undefined);
     setMode(m);
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {
+      /* private mode */
+    }
     setBHover(undefined);
     setBArea(undefined);
     setHover(undefined);
@@ -495,7 +533,7 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
     <TextToggle
       label="Layout"
       value={space}
-      onChange={setSpace}
+      onChange={(v) => (cluster && openCluster(undefined), setSpace(v))}
       options={[
         ['clusters', 'Clusters'],
         ['timeline', 'Timeline'],
@@ -567,7 +605,7 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
     <div ref={boxRef} className="relative -mx-[var(--gutter)] min-h-[420px] flex-1 overflow-hidden border-t border-rule bg-bg">
       {viewProps && holoOn ? (
         <Suspense fallback={<p className="absolute inset-0 m-0 grid place-items-center text-[13px] text-fg-3">Loading 3D</p>}>
-          <HoloCanvas {...viewProps} nodes={g.nodes} mode={space} still={reduced} cut={at} />
+          <HoloCanvas {...viewProps} nodes={g.nodes} mode={space} still={reduced} cut={at} open={cluster} onOpen={openCluster} />
         </Suspense>
       ) : viewProps && ringsOn ? (
         <RingCanvas {...viewProps} time={{ at, onAt: setAt }} />

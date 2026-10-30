@@ -52,11 +52,31 @@ pub(crate) fn is_false(b: &bool) -> bool {
 }
 
 impl Settings {
+    /// The saved settings, or the defaults when there are none. A file that
+    /// cannot be read is logged and copied to settings.json.bad first: the
+    /// next save writes over it, and the token in it may still work.
     pub fn load(path: &Path) -> Self {
-        fs::read_to_string(path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+        let text = match fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    eprintln!("conclave: cannot read {}: {e}; starting with default settings", path.display());
+                }
+                return Self::default();
+            }
+        };
+        match serde_json::from_str(&text) {
+            Ok(s) => s,
+            Err(e) => {
+                let bad = path.with_extension("json.bad");
+                let kept = match fs::copy(path, &bad) {
+                    Ok(_) => format!("the old file is kept as {}", bad.display()),
+                    Err(c) => format!("it could not be kept ({c})"),
+                };
+                eprintln!("conclave: {} is not valid settings ({e}); starting with default settings, {kept}", path.display());
+                Self::default()
+            }
+        }
     }
 
     pub fn save(&self, path: &Path) -> Result<(), String> {
@@ -222,9 +242,13 @@ pub fn ipv4_first(mut addrs: Vec<std::net::SocketAddr>) -> Vec<std::net::SocketA
     addrs
 }
 
+/// A 401 or 403 from the hub. The start page (src/start.js) looks for these
+/// words to show the sign-in form instead of trying again: keep them.
+pub const REJECTED: &str = "The hub rejected this token or code.";
+
 fn describe(base: &Url, err: ureq::Error) -> String {
     match err {
-        ureq::Error::Status(401 | 403, _) => "The hub rejected this token or code.".into(),
+        ureq::Error::Status(401 | 403, _) => REJECTED.into(),
         other => said(base, other),
     }
 }
@@ -688,6 +712,20 @@ mod tests {
         assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
         assert_eq!(Settings::load(&path).token.as_deref(), Some("t"));
         assert!(!dir.join("settings.json.tmp").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_broken_settings_file_is_kept_aside() {
+        let dir = std::env::temp_dir().join(format!("conclave-desktop-broken-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("settings.json");
+        assert!(Settings::load(&path).token.is_none());
+        assert!(!dir.join("settings.json.bad").exists());
+        fs::write(&path, r#"{"hubUrl":"http://box:7717/","token":"t""#).unwrap();
+        assert!(Settings::load(&path).token.is_none());
+        assert_eq!(fs::read_to_string(dir.join("settings.json.bad")).unwrap(), r#"{"hubUrl":"http://box:7717/","token":"t""#);
         let _ = fs::remove_dir_all(&dir);
     }
 
