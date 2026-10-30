@@ -88,9 +88,27 @@
   text-align: left;
   color: var(--fg-3);
 }
+/* an open area: titles a step larger and darker, so a zoomed sphere reads */
+.holo-item[data-open] {
+  padding: 0 2px;
+  border-radius: 3px;
+  font-size: 12.5px;
+  color: var(--fg-2);
+  /* a quiet backing so points behind a title do not break its letters */
+  background: color-mix(in oklch, var(--h-bg) 82%, transparent);
+}
 .holo-item[data-near='1'],
 .holo-item:hover {
   color: var(--fg);
+}
+/* an open area's sphere: one fine circle */
+.holo-orb {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  border: 1px solid color-mix(in oklch, var(--signal) 35%, transparent);
+  border-radius: 50%;
 }
 .holo-tick {
   font-size: 10.5px;

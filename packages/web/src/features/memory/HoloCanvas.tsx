@@ -18,25 +18,34 @@
  * box test, so they stay crisp and never overlap.
  *
  * Mouse, trackpad and touch orbit, zoom and pan (OrbitControls). Hover
- * lights an item's links; click opens the drawer; double click flies to the
- * item and keeps its neighbours lit; Esc steps back; Fit returns to the
- * overview. Rendering stops when the tab is hidden or the view is off
- * screen. Reduced motion stops the drift and jumps instead of flying
- * (MemoryMap shows Rings instead unless the owner asks for 3D).
+ * lights an item's links; in Clusters a click on an area opens it: the
+ * camera flies there (800 ms), the area's sphere fills the room with its
+ * items spread on a disc facing the owner (spreadArea), titled where they
+ * fit (fitLabels) and the rest titled on hover, links inside drawn and
+ * links out faint to the sphere's edge, the other areas faded back, and a
+ * list of its items beside it (a sheet on a phone). Esc, Back or a click
+ * outside the sphere flies out. A click on an item label opens the drawer;
+ * double click flies to the item and keeps its neighbours lit; Fit returns
+ * to the overview (or the open sphere). Rendering stops when the tab is
+ * hidden or the view is off screen. Reduced motion stops the drift and
+ * jumps instead of flying (MemoryMap shows Rings instead unless the owner
+ * asks for 3D).
  *
  * What this view still does differently from the rest of the app is listed
  * in docs/DESIGN.md (Memory > Map, 3D view).
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft } from 'lucide-react';
 import { BufferAttribute, BufferGeometry, Color, LineSegments, Matrix4, PerspectiveCamera, Points, Scene, ShaderMaterial, Vector2, Vector3, WebGLRenderer } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { MemoryGraphNode } from '@conclave/core/client';
 import { useOnscreen, usePageVisible } from '@/components/motion';
 import { isDark, useColorVersion } from '@/components/motion/frame';
 import { cn } from '@/lib/text';
+import { Input } from '@/components/ui/Field';
 import { edgeOn } from './link-model';
 import { areaId, nodeLabel } from './graph-model';
-import { SPAN, holoStats, layoutHolo, linkCurve, pickEdges, timeX, type HoloLayout, type HoloMode } from './holo-model';
+import { SPAN, fitLabels, holoStats, layoutHolo, linkCurve, overlaps as hitBox, pickEdges, spreadArea, timeX, type Box, type HoloLayout, type HoloMode, type Spread } from './holo-model';
 import type { LinkViewProps } from './RingCanvas';
 import './holo.css';
 
@@ -47,13 +56,23 @@ export interface HoloProps extends LinkViewProps {
   still: boolean;
   /** The time scrubber's cutoff, drawn as a fine line across the Timeline axis. */
   cut?: number;
+  /** Clusters: the area opened by a click, by name (kept in the URL by MemoryMap). */
+  open?: string;
+  onOpen: (name: string | undefined) => void;
 }
 
 const num = (n: number) => n.toLocaleString('en-US');
 const day = (t?: number) => (t ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'none');
-const ITEM_POOL = 26;
+const ITEM_POOL = 56;
 const TICK_POOL = 24;
 const FLY_MS = 1400;
+/** Opening or closing an area: the flight and the spread, ms. */
+const OPEN_MS = 800;
+/** An open area's list: its width beside the sphere (desktop), its share of the height (phone sheet). */
+const LIST_W = 320;
+const SHEET = 0.44;
+/** An open area's titles at most; the rest show theirs on hover. */
+const OPEN_LABELS = { desk: 34, phone: 12 } as const;
 const LOCK_MS = 420;
 /** Rest before the slow drift starts, ms. */
 const DRIFT_AFTER = 6000;
@@ -194,7 +213,7 @@ function attr(g: BufferGeometry, name: string, a: Float32Array) {
 
 // ----- the component ----------------------------------------------------------------------
 export default function HoloCanvas(props: HoloProps) {
-  const { ix, layout: L, nodes, filter, gone, hits, hit, selected, hover, onHover, onPick, onArea, onBlank, insets, fit, zoom, phone, mode, still, cut, className } = props;
+  const { ix, layout: L, nodes, filter, gone, hits, hit, selected, hover, onHover, onPick, onBlank, onOpen, insets, fit, zoom, phone, mode, still, cut, open, className } = props;
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const visible = usePageVisible();
@@ -209,7 +228,9 @@ export default function HoloCanvas(props: HoloProps) {
   // double click: fly to an item and keep its neighbours lit until Esc or Fit
   const [focusItem, setFocusItem] = useState<number>();
   const [failed, setFailed] = useState(false);
-  const focus = hover ?? selected ?? hit;
+  const openA = mode === 'clusters' && open ? L.areas.findIndex((a) => a.name === open) : -1;
+  // an open area lights only items: an area's own glow would light all of it
+  const focus = openA >= 0 && hover?.startsWith('area:') ? (selected ?? hit) : (hover ?? selected ?? hit);
   const lit = useMemo(() => {
     const out = new Set<number>();
     const add = (i: number) => {
@@ -237,6 +258,7 @@ export default function HoloCanvas(props: HoloProps) {
   // everything the frame loop reads, without re-rendering
   const live = useRef({ H, on, lit, near, hits, selected, hit, hover, gone, lockI, litArea, insets, phone, still, focusItem, cut, deg });
   live.current = { H, on, lit, near, hits, selected, hit, hover, gone, lockI, litArea, insets, phone, still, focusItem, cut, deg };
+  const handlers = { onHover, onPick, onBlank, onOpen, setFocusItem };
   const api = useRef<Engine | null>(null);
 
   // the engine: made once per mount, torn down on unmount
@@ -246,7 +268,7 @@ export default function HoloCanvas(props: HoloProps) {
     if (!c || !w) return;
     let e: Engine;
     try {
-      e = engine(c, w, L, ix, nodes, live, { onHover, onPick, onBlank, setFocusItem });
+      e = engine(c, w, L, ix, nodes, live, handlers);
     } catch (err) {
       console.warn('memory 3d: WebGL did not start', err);
       setFailed(true);
@@ -260,11 +282,12 @@ export default function HoloCanvas(props: HoloProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [L]);
   // handlers change identity every render: keep the latest
-  useEffect(() => void api.current?.handlers({ onHover, onPick, onBlank, setFocusItem }));
+  useEffect(() => void api.current?.handlers(handlers));
   useEffect(() => void api.current?.colors(), [colorV]);
   useEffect(() => void api.current?.layout(H), [H]);
+  useEffect(() => void api.current?.openArea(openA), [openA, H]);
   useEffect(() => void api.current?.links(), [on, H, phone]);
-  useEffect(() => void api.current?.paint(), [lit, near, hits, selected, hit, gone, focusItem, litArea, H]);
+  useEffect(() => void api.current?.paint(), [lit, near, hits, selected, hit, hover, gone, focusItem, litArea, H]);
   useEffect(() => void api.current?.run(visible && onscreen), [visible, onscreen]);
   useEffect(() => void api.current?.motion(), [still]);
   useEffect(() => void api.current?.timeCut(), [cut, H]);
@@ -282,13 +305,14 @@ export default function HoloCanvas(props: HoloProps) {
   useEffect(() => {
     if (lockI === undefined) return;
     api.current?.lockOn();
-    if (api.current?.picked() !== lock) api.current?.flyTo(lockI, 300);
+    // inside an open area the item is already in view: the list or the map only locks on
+    if (api.current?.picked() !== lock && L.items[lockI].area !== openA) api.current?.flyTo(lockI, 300);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lock]);
   useEffect(() => {
     if (focusItem !== undefined) api.current?.flyTo(focusItem, 220);
   }, [focusItem]);
-  useEffect(() => void api.current?.resize(), [insets.left, insets.right, insets.top, insets.bottom]);
+  useEffect(() => void api.current?.resize(true), [insets.left, insets.right, insets.top, insets.bottom]);
 
   const onKeyDown = (ev: React.KeyboardEvent) => {
     if ((ev.target as HTMLElement).closest('input')) return;
@@ -296,7 +320,9 @@ export default function HoloCanvas(props: HoloProps) {
     if (!a || ev.metaKey || ev.ctrlKey || ev.altKey) return;
     if (ev.key === 'Escape') {
       if (focusItem !== undefined) (setFocusItem(undefined), a.overview());
-      else if (selected || hit || hover) onBlank();
+      else if (selected || hit) onBlank();
+      else if (openA >= 0) onOpen(undefined);
+      else if (hover) onBlank();
       else a.overview();
       return;
     }
@@ -339,14 +365,15 @@ export default function HoloCanvas(props: HoloProps) {
           <i className="holo-core-dot" />
           Memory <span className="holo-n">{num(stats.items)}</span>
         </div>
+        <div className="holo-orb" data-k="orb" />
         {L.areas.map((a, i) => (
-          <button key={a.name} type="button" tabIndex={-1} className="holo-area" data-k={`area${i}`} data-lit={litArea === i || undefined} onClick={() => onArea(a.name)} onPointerEnter={(e) => e.pointerType === 'mouse' && onHover(areaId(a.name))} onPointerLeave={(e) => e.pointerType === 'mouse' && onHover(undefined)}>
+          <button key={a.name} type="button" tabIndex={-1} className="holo-area" data-k={`area${i}`} data-lit={litArea === i || openA === i || undefined} onClick={() => (mode === 'clusters' ? onOpen(openA === i ? undefined : a.name) : props.onArea(a.name))} onPointerEnter={(e) => e.pointerType === 'mouse' && onHover(areaId(a.name))} onPointerLeave={(e) => e.pointerType === 'mouse' && onHover(undefined)}>
             <span className="holo-area-n">{a.name}</span>
             <span className="holo-n">{num(a.to - a.from)}</span>
           </button>
         ))}
         {Array.from({ length: ITEM_POOL }, (_, k) => (
-          <button key={k} type="button" tabIndex={-1} className="holo-item" data-k={`item${k}`} onClick={(e) => onPick((e.currentTarget as HTMLElement).dataset.id!)} onPointerEnter={(e) => e.pointerType === 'mouse' && onHover((e.currentTarget as HTMLElement).dataset.id)} />
+          <button key={k} type="button" tabIndex={-1} className="holo-item" data-open={openA >= 0 || undefined} data-k={`item${k}`} onClick={(e) => onPick((e.currentTarget as HTMLElement).dataset.id!)} onPointerEnter={(e) => e.pointerType === 'mouse' && onHover((e.currentTarget as HTMLElement).dataset.id)} />
         ))}
         {Array.from({ length: TICK_POOL }, (_, k) => (
           <span key={k} className="holo-tick" data-k={`tick${k}`} />
@@ -364,7 +391,8 @@ export default function HoloCanvas(props: HoloProps) {
           </span>
         </button>
       )}
-      <Readouts phone={phone} narrow={narrow} insets={insets} mode={mode}>
+      {openA >= 0 && <AreaList key={openA} a={openA} L={L} ix={ix} on={on} hover={hover} selected={selected} phone={phone} insets={insets} onHover={onHover} onPick={onPick} onBack={() => onOpen(undefined)} />}
+      {openA < 0 && <Readouts phone={phone} narrow={narrow} insets={insets} mode={mode}>
         {{
           all: [
             ['Items', num(stats.items)],
@@ -384,13 +412,13 @@ export default function HoloCanvas(props: HoloProps) {
               }
             : undefined,
         }}
-      </Readouts>
+      </Readouts>}
       {/* the text alternative: the areas in order, each one flies the camera there when focused */}
       <nav className="holo-areas" aria-label="Areas">
         <ul>
           {L.areas.map((a, i) => (
             <li key={a.name}>
-              <button type="button" onFocus={() => (api.current?.flyArea(i), onHover(areaId(a.name)))} onBlur={() => onHover(undefined)} onClick={() => onArea(a.name)}>
+              <button type="button" onFocus={() => openA < 0 && (api.current?.flyArea(i), onHover(areaId(a.name)))} onBlur={() => onHover(undefined)} onClick={() => (mode === 'clusters' ? onOpen(a.name) : props.onArea(a.name))}>
                 {a.name}, {num(a.to - a.from)} items
               </button>
             </li>
@@ -439,11 +467,88 @@ function Readouts({ phone, narrow, insets, mode, children: r }: { phone: boolean
   );
 }
 
+/** An open area's items: beside the sphere (desktop) or a sheet (phone), most linked first, searchable. */
+function AreaList(p: { a: number; L: LinkViewProps['layout']; ix: LinkViewProps['ix']; on: boolean[]; hover?: string; selected?: string; phone: boolean; insets: LinkViewProps['insets']; onHover: (id: string | undefined) => void; onPick: (id: string) => void; onBack: () => void }) {
+  const { a, L, ix, on, phone } = p;
+  const [q, setQ] = useState('');
+  const area = L.areas[a];
+  const { inside, out } = useMemo(() => {
+    let inside = 0;
+    let out = 0;
+    L.edges.forEach((e, k) => {
+      if (!on[k]) return;
+      const x = L.items[e.a].area === a;
+      const y = L.items[e.b].area === a;
+      if (x && y) inside++;
+      else if (x || y) out++;
+    });
+    return { inside, out };
+  }, [L, on, a]);
+  const rows = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    const all = L.items.slice(area.from, area.to).map((it) => ix.byId.get(it.id)!);
+    return t ? all.filter((n) => nodeLabel(n).toLowerCase().includes(t) || n.title.toLowerCase().includes(t)) : all;
+  }, [L, ix, area, q]);
+  // shortcut: renders the first 200 rows, the rest by search; virtualize if an area passes a few thousand items
+  const shown = rows.slice(0, 200);
+  return (
+    <aside aria-label={`${area.name}, ${area.to - area.from} items`} className={cn('absolute z-[6] flex flex-col', phone ? 'anim-sheet inset-x-0 bottom-0 rounded-t-[var(--r-3)] border-t border-rule-2 bg-raise pb-safe' : 'anim-left left-0 w-[320px] border-r border-rule bg-bg')} style={phone ? { height: `${SHEET * 100}%` } : { top: p.insets.top - 16, bottom: p.insets.bottom - 12 }}>
+      <div className={cn('shrink-0 space-y-2', phone ? 'px-4 pt-2.5' : 'px-5 pt-4')}>
+        <button type="button" onClick={p.onBack} className="tap -ml-1 flex items-center gap-0.5 text-[13px] text-fg-3 hov:text-fg phone:text-[14px]">
+          <ChevronLeft className="size-4" strokeWidth={1.75} aria-hidden />
+          All areas
+        </button>
+        <div>
+          <h2 className="t-title m-0 text-fg">{area.name}</h2>
+          <p className="m-0 mt-0.5 text-[13px] text-fg-3 phone:text-[14px]">
+            <span className="num">{num(area.to - area.from)}</span> items, <span className="num">{num(inside)}</span> links inside, <span className="num">{num(out)}</span> to other areas
+          </p>
+        </div>
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Escape') return;
+            e.stopPropagation();
+            if (q) setQ('');
+            else p.onBack();
+          }}
+          placeholder={`Find in ${area.name}`}
+          aria-label={`Find in ${area.name}`}
+          className={phone ? 'text-[15px]' : undefined}
+        />
+      </div>
+      <ul className={cn('m-0 mt-2 min-h-0 flex-1 list-none overflow-y-auto p-0', phone ? 'px-2 pb-2' : 'px-3 pb-3')} onPointerLeave={(e) => e.pointerType === 'mouse' && p.onHover(undefined)}>
+        {shown.map((n) => (
+          <li key={n.id}>
+            <button
+              type="button"
+              aria-current={n.id === p.selected || undefined}
+              onClick={() => p.onPick(n.id)}
+              onPointerEnter={(e) => e.pointerType === 'mouse' && p.onHover(n.id)}
+              onFocus={() => p.onHover(n.id)}
+              className={cn('flex w-full items-baseline gap-3 rounded-[var(--r-1)] px-2 py-1 text-left hov:bg-hover phone:py-2', (n.id === p.hover || n.id === p.selected) && 'bg-hover')}
+            >
+              <span className={cn('min-w-0 flex-1 truncate text-[13.5px] phone:text-[15px]', n.id === p.selected ? 'font-medium text-fg' : 'text-fg')}>{nodeLabel(n)}</span>
+              <span className="num shrink-0 text-[12px] text-fg-3 phone:text-[13px]" title={`${n.degree} links`}>
+                {num(n.degree)}
+              </span>
+            </button>
+          </li>
+        ))}
+        {rows.length > shown.length && <li className="px-2 py-2 text-[12.5px] text-fg-3 phone:text-[13px]">{num(rows.length - shown.length)} more. Search to find them.</li>}
+        {!rows.length && <li className="px-2 py-2 text-[13px] text-fg-3">Nothing in {area.name} matches.</li>}
+      </ul>
+    </aside>
+  );
+}
+
 // ----- the engine ------------------------------------------------------------------------
 interface Handlers {
   onHover: (id: string | undefined) => void;
   onPick: (id: string) => void;
   onBlank: () => void;
+  onOpen: (name: string | undefined) => void;
   setFocusItem: (i: number | undefined) => void;
 }
 type Live = React.RefObject<{
@@ -483,11 +588,12 @@ interface Engine {
   flyArea(a: number): void;
   lockOn(): void;
   picked(): string | undefined;
-  resize(): void;
+  /** `refit`: an open area's sphere is framed again in the new room. */
+  resize(refit?: boolean): void;
+  /** Open an area (Clusters), or close the open one with -1. */
+  openArea(a: number): void;
 }
 
-type Box = [number, number, number, number];
-const hitBox = (boxes: Box[], x: number, y: number, w: number, h: number) => boxes.some(([a, b, c, d]) => x < a + c && a < x + w && y < b + d && b < y + h);
 const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 
 function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProps['layout'], ix: LinkViewProps['ix'], nodes: readonly MemoryGraphNode[], live: Live, h0: Handlers): Engine {
@@ -564,6 +670,7 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
   const itemEls = Array.from({ length: ITEM_POOL }, (_, k) => q(`item${k}`)!);
   const tickEls = Array.from({ length: TICK_POOL }, (_, k) => q(`tick${k}`)!);
   const lockEl = q('lock')!;
+  const orbEl = q('orb')!;
   const leaderEl = q('leader')!;
   const leaderLine = leaderEl.querySelector('line')!;
   const textW = new Map<string, number>();
@@ -582,9 +689,14 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
   // ----- size and view --------------------------------------------------------------------
   let W = 1;
   let Hh = 1;
+  // the open area: its spread and its index
+  let sp: (Spread & { a: number }) | undefined;
   const room = () => {
     const i = S().insets;
-    return { x: i.left, y: i.top, w: Math.max(1, W - i.left - i.right), h: Math.max(1, Hh - i.top - i.bottom) };
+    // an open area's list takes the left (desktop) or a sheet at the bottom (phone)
+    const left = sp && !S().phone ? Math.max(i.left, LIST_W + 28) : i.left;
+    const bottom = sp && S().phone ? Math.max(i.bottom, Math.round(Hh * SHEET) + 8) : i.bottom;
+    return { x: left, y: i.top, w: Math.max(1, W - left - i.right), h: Math.max(1, Hh - i.top - bottom) };
   };
   const resize = () => {
     const r = wrap.getBoundingClientRect();
@@ -628,7 +740,7 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
 
   // ----- motion ---------------------------------------------------------------------
   let fly: { t0: number; ms: number; fc: Vector3; ft: Vector3; tc: Vector3; tt: Vector3 } | undefined;
-  const flyCam = (tc: Vector3, tt: Vector3) => {
+  const flyCam = (tc: Vector3, tt: Vector3, ms = FLY_MS) => {
     if (S().still) {
       camera.position.copy(tc);
       controls.target.copy(tt);
@@ -636,11 +748,28 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
       controls.update();
       return request();
     }
-    fly = { t0: performance.now(), ms: FLY_MS, fc: camera.position.clone(), ft: controls.target.clone(), tc, tt };
+    fly = { t0: performance.now(), ms, fc: camera.position.clone(), ft: controls.target.clone(), tc, tt };
     idleAt = performance.now();
     request();
   };
-  let morph: { t0: number; from: Float32Array; to: Float32Array } | undefined;
+  let morph: { t0: number; ms: number; from: Float32Array; to: Float32Array } | undefined;
+  /** Items glide to `to` (an area opening or closing), or jump there when still. */
+  const glide = (to: Float32Array) => {
+    if (S().still) {
+      morph = undefined;
+      pos.set(to);
+      pGeo.attributes.position.needsUpdate = true;
+      return buildLinks();
+    }
+    morph = { t0: performance.now(), ms: OPEN_MS, from: new Float32Array(pos), to };
+  };
+  /** The camera on the open sphere, from where it looks now, the sphere a little inside the room. */
+  const frameOpen = (ms: number) => {
+    if (!sp) return;
+    const c = new Vector3(...sp.c);
+    const d = camera.position.clone().sub(c).normalize();
+    flyCam(c.clone().add(d.multiplyScalar(fitDist(sp.R * 1.08))), c, ms);
+  };
   let lockT = 0;
   let idleAt = performance.now();
   let pickedId: string | undefined;
@@ -685,7 +814,8 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     const p = new Float32Array(drawn.length * seg * 6);
     const t = new Float32Array(p.length);
     const al = new Float32Array(p.length / 3);
-    const hh = morph ? { ...H, pos } : H;
+    // where the items are now: mid-morph, or spread in an open area
+    const hh = { ...H, pos };
     for (let k = 0; k < drawn.length; k++) {
       const e = drawn[k];
       const E = L.edges[e];
@@ -710,6 +840,7 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     buildLit();
   };
   const buildLit = () => {
+    if (sp) return buildOpen(sp);
     const s = S();
     const seg = s.phone ? SEG.phone : SEG.desk;
     const list = [...s.lit];
@@ -717,7 +848,7 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     const p = new Float32Array(list.length * seg * 6);
     const t = new Float32Array(p.length);
     const al = new Float32Array(p.length / 3);
-    const hh = morph ? { ...H, pos } : H;
+    const hh = { ...H, pos };
     list.forEach((e, k) => {
       linkCurve(hh, L, e, seg, p, k * seg * 6);
       const E = L.edges[e];
@@ -737,6 +868,50 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     attr(hiGeo, 'tint', t);
     attr(hiGeo, 'alpha', al);
   };
+  /**
+   * An open area's links, straight: inside ones item to item, ones leaving it
+   * from the item to the sphere's rim on the side of the other area, faint.
+   * The lit item's own in the strong violet.
+   */
+  const buildOpen = (o: Spread & { a: number }) => {
+    const s = S();
+    const { from, to } = L.areas[o.a];
+    const mine = (i: number) => i >= from && i < to;
+    const list: number[] = [];
+    for (let i = from; i < to; i++) for (const e of L.edgesOf[i]) if (s.on[e] && (!mine(L.edges[e].a) || !mine(L.edges[e].b) || L.edges[e].a === i)) list.push(e);
+    // a phone draws the lit ones and then the rest up to its cap
+    const keep = s.phone && list.length > CAP.phone ? [...list.filter((e) => s.lit.has(e)), ...list.filter((e) => !s.lit.has(e))].slice(0, CAP.phone) : list;
+    const p = new Float32Array(keep.length * 6);
+    const t = new Float32Array(p.length);
+    const al = new Float32Array(p.length / 3);
+    const hov = s.hover ? L.byId.get(s.hover) : undefined;
+    const dark = P.dark;
+    keep.forEach((e, k) => {
+      const E = L.edges[e];
+      const [a, b] = mine(E.a) ? [E.a, E.b] : [E.b, E.a];
+      p.set([pos[a * 3], pos[a * 3 + 1], pos[a * 3 + 2]], k * 6);
+      if (mine(b)) p.set([pos[b * 3], pos[b * 3 + 1], pos[b * 3 + 2]], k * 6 + 3);
+      else {
+        // toward the other area, flattened onto the disc so it ends on the rim the owner sees
+        const ob = L.items[b].area * 3;
+        let d = [0, 1, 2].map((q) => H.centers[ob + q] - o.c[q]);
+        const along = d[0] * o.w[0] + d[1] * o.w[1] + d[2] * o.w[2];
+        d = d.map((x, q) => x - along * o.w[q]);
+        const len = Math.hypot(d[0], d[1], d[2]) || 1;
+        p.set(d.map((x, q) => o.c[q] + (x / len) * o.R), k * 6 + 3);
+      }
+      const own = a === s.lockI || a === hov || b === s.lockI || b === hov;
+      const c = own ? P.hot : P.accent;
+      const al1 = own ? 0.9 : s.lit.has(e) ? 0.5 : mine(b) ? (dark ? 0.2 : 0.16) : dark ? 0.07 : 0.06;
+      for (let v = 0; v < 2; v++) {
+        t.set([c.r, c.g, c.b], (k * 2 + v) * 3);
+        al[k * 2 + v] = al1;
+      }
+    });
+    attr(hiGeo, 'position', p);
+    attr(hiGeo, 'tint', t);
+    attr(hiGeo, 'alpha', al);
+  };
 
   /** Item colors, sizes and alphas from the state: lit, found, picked, stepped back. */
   const paint = () => {
@@ -744,6 +919,7 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     readBoxes = undefined;
     const busy = s.lit.size > 0 || s.focusItem !== undefined;
     const dark = P.dark;
+    const hov = sp && s.hover ? L.byId.get(s.hover) : undefined;
     for (let i = 0; i < n; i++) {
       const it = L.items[i];
       const d = s.deg[i];
@@ -752,11 +928,14 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
       let a = (dark ? 0.5 : 0.42) + 0.45 * Math.min(1, Math.log2(1 + d) / 4);
       let c = d >= 8 ? P.hot : P.accent;
       if (s.gone(it.node)) ((a = dark ? 0.08 : 0.12), (sz *= 0.7));
-      else if (busy && !s.near.has(i) && s.litArea !== it.area) a *= dark ? 0.3 : 0.32;
+      // an open area: the others faded back, its own a little larger
+      else if (sp && it.area !== sp.a) ((a = dark ? 0.06 : 0.08), (sz *= 0.6));
+      else if (sp && !(busy && !s.near.has(i))) ((sz *= 1.3), (a = Math.min(1, a + 0.2)));
+      else if (busy && !s.near.has(i) && s.litArea !== it.area) a *= sp ? 0.55 : dark ? 0.3 : 0.32;
       else if (busy && (s.near.has(i) || s.litArea === it.area)) ((sz *= 1.15), (a = 1));
       if (s.hits.has(it.id)) ((c = P.hot), (sz *= 1.3), (a = 1));
       // the picked item: an ink highlight inside its violet ring
-      if (i === s.lockI || i === s.focusItem) ((c = P.ink), (sz *= 1.5), (a = 1));
+      if (i === s.lockI || i === s.focusItem || i === hov) ((c = P.ink), (sz *= 1.5), (a = 1));
       tint[i * 3] = c.r;
       tint[i * 3 + 1] = c.g;
       tint[i * 3 + 2] = c.b;
@@ -766,7 +945,7 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     pGeo.attributes.tint.needsUpdate = true;
     pGeo.attributes.size.needsUpdate = true;
     pGeo.attributes.alpha.needsUpdate = true;
-    lUni.uDim.value = busy ? 0.35 : 1;
+    lUni.uDim.value = sp ? 0.05 : busy ? 0.35 : 1;
     buildLit();
     labelsDirty = true;
     request();
@@ -797,10 +976,21 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     const s = S();
     const out: number[] = [];
     const seen = new Set<number>();
-    const push = (i: number | undefined) => i !== undefined && !seen.has(i) && !s.gone(L.items[i].node) && (seen.add(i), out.push(i));
+    // an open area titles only its own: the hovered one, its neighbours, then by link count (its items come most linked first)
+    const ok = (i: number) => !sp || L.items[i].area === sp.a;
+    const push = (i: number | undefined) => i !== undefined && ok(i) && !seen.has(i) && !s.gone(L.items[i].node) && (seen.add(i), out.push(i));
     push(s.lockI);
     push(s.hover ? L.byId.get(s.hover) : undefined);
     push(s.focusItem);
+    if (sp) {
+      for (const i of [...s.near].sort((a, b) => s.deg[b] - s.deg[a]).slice(0, 24)) push(i);
+      const { from, to } = L.areas[sp.a];
+      // all of them, so titles reach the rim once the middle is full
+      for (let i = from; i < to; i++) push(i);
+      cand = out;
+      candAt = performance.now();
+      return;
+    }
     for (const i of [...s.near].sort((a, b) => s.deg[b] - s.deg[a]).slice(0, 40)) push(i);
     for (const id of s.hits) push(L.byId.get(id));
     if (!s.near.size) {
@@ -838,8 +1028,20 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     // the origin: a small dot and "Memory 2,980" beside it (Timeline: at the end of the axis)
     const [cx, cy, , cf] = H.mode === 'clusters' ? project(0, 0, 0) : project(SPAN_END, 0, 0);
     const cw = coreEl.offsetWidth || 110;
-    if (cf && inRoom(cx - 3, cy - 10, cw, 20) && !hitBox(boxes, cx - 6, cy - 12, cw + 8, 24)) (show(coreEl, cx - 3, cy - 10), boxes.push([cx - 6, cy - 12, cw + 8, 24]));
+    if (!sp && cf && inRoom(cx - 3, cy - 10, cw, 20) && !hitBox(boxes, cx - 6, cy - 12, cw + 8, 24)) (show(coreEl, cx - 3, cy - 10), boxes.push([cx - 6, cy - 12, cw + 8, 24]));
     else hide(coreEl);
+
+    // an open area: its sphere as one fine circle, its name just above it
+    let orb: [number, number, number] | undefined;
+    if (sp) {
+      const [ox, oy, depth, of] = project(...sp.c);
+      if (of) {
+        const r = (sp.R * pxScale()) / depth;
+        orb = [ox, oy, r];
+        orbEl.style.width = orbEl.style.height = `${Math.round(r * 2)}px`;
+        show(orbEl, ox - r, oy - r);
+      } else hide(orbEl);
+    } else hide(orbEl);
 
     // focus: a fine ring on the item, one leader line to its card
     const callout = wrap.querySelector<HTMLElement>('[data-k="callout"]');
@@ -884,13 +1086,33 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
           leaderLine.setAttribute('y2', String(ey));
         }
       } else (hide(lockEl), hide(leaderEl), callout && hide(callout));
-    } else (hide(lockEl), hide(leaderEl), callout && hide(callout));
+    } else {
+      hide(leaderEl);
+      if (callout) hide(callout);
+      // an open area: the ring marks the item under the pointer or the hovered row
+      const i = sp && s.hover ? L.byId.get(s.hover) : undefined;
+      const [x, y, , f] = i !== undefined ? project(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) : [0, 0, 0, false];
+      if (f) ((lockEl.style.opacity = '1'), show(lockEl, x - MARK_R, y - MARK_R), boxes.push([x - MARK_R - 2, y - MARK_R - 2, MARK_R * 2 + 4, MARK_R * 2 + 4]));
+      else hide(lockEl);
+    }
 
     // area names over their constellations (or lanes), biggest first
     const areaOrder = order.slice().sort((a, b) => (L.areas[b].to - L.areas[b].from) - (L.areas[a].to - L.areas[a].from));
     if (s.litArea >= 0) areaOrder.unshift(...areaOrder.splice(areaOrder.indexOf(s.litArea), 1));
     for (const a of areaOrder) {
       const el = areaEls[a];
+      if (sp && a !== sp.a) {
+        hide(el);
+        continue;
+      }
+      if (sp && orb) {
+        const w = el.offsetWidth || 120;
+        const bx = orb[0] - w / 2;
+        const by = Math.max(top, orb[1] - orb[2] - 28);
+        show(el, bx, by);
+        boxes.push([bx - 4, by, w + 8, 20]);
+        continue;
+      }
       const c = H.centers;
       const up = H.mode === 'clusters' ? H.radius[a] * 1.2 : 0;
       const [x, y, , f] = project(c[a * 3], c[a * 3 + 1] + up, c[a * 3 + 2]);
@@ -933,22 +1155,29 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
 
     // item titles beside their points
     let k = 0;
-    // at rest only a few titles, so the space stays calm; more once something is lit or found
-    const max = s.near.size || s.hits.size ? (s.phone ? 7 : ITEM_POOL) : s.phone ? 5 : 12;
+    // at rest only a few titles, so the space stays calm; more once something is lit or found, most in an open area
+    const max = sp ? (s.phone ? OPEN_LABELS.phone : OPEN_LABELS.desk) : s.near.size || s.hits.size ? (s.phone ? 7 : 26) : s.phone ? 5 : 12;
+    const fs = sp ? 12.5 : 12;
+    const want: Array<{ i: number; x: number; y: number; w: number }> = [];
     for (const i of cand) {
-      if (k >= max) break;
+      if (i === s.lockI) continue;
       const [x, y, , f] = project(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
-      if (!f) continue;
+      if (f) want.push({ i, x, y, w: Math.min(s.phone ? 150 : sp ? 190 : 210, measure(nodeLabel(ix.byId.get(L.items[i].id)!), fs) + (sp ? 8 : 4)) });
+    }
+    // an open area keeps its titles inside the sphere's square, with a little air between rows
+    const lr = { x: m.x + 2, y: top, w: m.w - 4, h: bottom - top };
+    if (sp && orb) {
+      const [ox, oy, r] = orb;
+      const x0 = Math.max(lr.x, ox - r);
+      const y0 = Math.max(lr.y, oy - r);
+      Object.assign(lr, { x: x0, y: y0, w: Math.min(lr.x + lr.w, ox + r) - x0, h: Math.min(lr.y + lr.h, oy + r) - y0 });
+    }
+    for (const { i, x: px, y: py } of fitLabels(want, boxes, lr, Math.min(max, ITEM_POOL), sp ? 22 : 16)) {
       const it = L.items[i];
       const nd = ix.byId.get(it.id)!;
       const title = nodeLabel(nd);
-      const w = Math.min(s.phone ? 150 : 210, measure(title, 12) + 4);
-      const forced = i === s.lockI;
-      if (forced) continue;
-      let px: number | undefined;
-      for (const bx of [x + 9, x - 9 - w]) if (inRoom(bx, y - 8, w, 16) && !hitBox(boxes, bx - 2, y - 9, w + 4, 18)) ((px = bx), 0);
-      if (px === undefined) continue;
-      boxes.push([px - 2, y - 9, w + 4, 18]);
+      const w = want.find((c) => c.i === i)!.w;
+      const y = py + (sp ? 11 : 8);
       const el = itemEls[k];
       if (shown[k] !== it.id) {
         shown[k] = it.id;
@@ -957,7 +1186,7 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
         el.setAttribute('aria-label', `${nd.title}, ${L.areas[it.area].name}, ${nd.degree} links`);
       }
       el.style.width = `${w}px`;
-      el.dataset.near = s.near.has(i) || s.hits.has(it.id) ? '1' : '';
+      el.dataset.near = s.near.has(i) || s.hits.has(it.id) || it.id === s.hover ? '1' : '';
       show(el, px, y - 8);
       k++;
     }
@@ -972,7 +1201,7 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     let best: number | undefined;
     let bd = (touch ? 22 : 12) ** 2;
     for (let i = 0; i < n; i++) {
-      if (s.gone(L.items[i].node)) continue;
+      if (s.gone(L.items[i].node) || (sp && L.items[i].area !== sp.a)) continue;
       const x = pos[i * 3];
       const y = pos[i * 3 + 1];
       const z = pos[i * 3 + 2];
@@ -1014,9 +1243,32 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
     if (!d || d.id !== ev.pointerId || Math.hypot(ev.clientX - d.x, ev.clientY - d.y) > 6) return;
     const [x, y] = local(ev);
     const i = nearest(x, y, ev.pointerType !== 'mouse');
+    if (sp) {
+      if (i !== undefined) return hand.onPick((pickedId = L.items[i].id));
+      // empty space inside the sphere lets go of the item; outside it flies back out
+      const [ox, oy, depth, f] = project(...sp.c);
+      return f && Math.hypot(x - ox, y - oy) < (sp.R * pxScale()) / depth ? hand.onBlank() : hand.onOpen(undefined);
+    }
+    if (H.mode === 'clusters') {
+      // an item or the space round it opens its area
+      const a = i !== undefined ? L.items[i].area : areaAt(x, y);
+      return a === undefined ? hand.onBlank() : hand.onOpen(L.areas[a].name);
+    }
     if (i === undefined) return hand.onBlank();
     pickedId = L.items[i].id;
     hand.onPick(pickedId);
+  };
+  /** CSS px per world unit at depth 1. */
+  const pxScale = () => Hh / (2 * Math.tan((FOV * Math.PI) / 360));
+  /** The area whose ball is under a screen point, the nearest one first. */
+  const areaAt = (x: number, y: number): number | undefined => {
+    let best: number | undefined;
+    let bd = Infinity;
+    for (let a = 0; a < A; a++) {
+      const [ax, ay, depth, f] = project(H.centers[a * 3], H.centers[a * 3 + 1], H.centers[a * 3 + 2]);
+      if (f && Math.hypot(x - ax, y - ay) < (H.radius[a] * 1.1 * pxScale()) / depth && depth < bd) ((bd = depth), (best = a));
+    }
+    return best;
   };
   const onDbl = (ev: MouseEvent) => {
     const [x, y] = local(ev);
@@ -1058,18 +1310,20 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
       if (k >= 1) fly = undefined;
     }
     if (morph) {
-      const k = ease(Math.min(1, (now - morph.t0) / MORPH_MS));
+      const k = ease(Math.min(1, (now - morph.t0) / morph.ms));
       for (let j = 0; j < pos.length; j++) pos[j] = morph.from[j] + (morph.to[j] - morph.from[j]) * k;
       pGeo.attributes.position.needsUpdate = true;
       lUni.uDim.value = Math.max(0, 1 - k * 3);
+      hiUni.uDim.value = lUni.uDim.value;
       if (k >= 1) {
         morph = undefined;
+        hiUni.uDim.value = 1;
         buildLinks();
         paint();
       }
       labelsDirty = true;
     }
-    controls.autoRotate = !s.still && !fly && s.focusItem === undefined && s.lockI === undefined && now - idleAt > DRIFT_AFTER;
+    controls.autoRotate = !sp && !s.still && !fly && s.focusItem === undefined && s.lockI === undefined && now - idleAt > DRIFT_AFTER;
     controls.update();
     // depth fog: from a little in front of the target to well behind it
     const dist = camera.position.distanceTo(controls.target);
@@ -1140,11 +1394,13 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
       if (next === H) return;
       const fromP = new Float32Array(pos);
       H = next;
+      sp = undefined;
+      resize();
       const still = S().still;
       if (still) {
         pos.set(H.pos);
         pGeo.attributes.position.needsUpdate = true;
-      } else morph = { t0: performance.now(), from: fromP, to: H.pos };
+      } else morph = { t0: performance.now(), ms: MORPH_MS, from: fromP, to: H.pos };
       colors();
       const hm = home(H);
       controls.maxDistance = fitDist(H.extent) * 3;
@@ -1171,6 +1427,7 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
       request();
     },
     overview() {
+      if (sp) return frameOpen(OPEN_MS);
       const hm = home(H);
       flyCam(hm.cam, hm.target);
     },
@@ -1200,6 +1457,29 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
       request();
     },
     picked: () => pickedId,
-    resize,
+    resize(refit) {
+      resize();
+      if (refit && sp && !fly) frameOpen(300);
+    },
+    openArea(a) {
+      if (a < 0 || H.mode !== 'clusters') {
+        if (!sp) return;
+        sp = undefined;
+        resize();
+        glide(H.pos);
+        const hm = home(H);
+        flyCam(hm.cam, hm.target, OPEN_MS);
+        return paint();
+      }
+      if (sp?.a === a) return;
+      const c = new Vector3(H.centers[a * 3], H.centers[a * 3 + 1], H.centers[a * 3 + 2]);
+      // from the side the camera is on, leaning outward so a far area does not open behind the core
+      const dir = c.clone().normalize().add(camera.position.clone().sub(c).normalize().multiplyScalar(1.2)).normalize();
+      sp = { a, ...spreadArea(H, L, S().deg, a, [dir.x, dir.y, dir.z]) };
+      resize();
+      glide(sp.pos);
+      flyCam(c.clone().add(dir.multiplyScalar(fitDist(sp.R * 1.08))), c, OPEN_MS);
+      paint();
+    },
   };
 }
