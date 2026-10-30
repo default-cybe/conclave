@@ -5,13 +5,16 @@
  * page. Real Chromium: a local "public" server (the test's address hook lets
  * its port count as public) redirects to a second local server that serves
  * INTERNAL-SECRET; the member must never see it, and the second server must
- * never be asked. Skipped without playwright-core and a Chromium.
+ * never be asked. WebRTC is fenced too: a page's STUN to the hub's loopback
+ * and LAN addresses must send no UDP packet. Skipped without playwright-core
+ * and a Chromium.
  *
  *   bun test packages/core/test/browser/member-redirect.test.ts
  */
 import { afterAll, describe, expect, test } from 'bun:test';
+import { createSocket } from 'node:dgram';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ConfigStore } from '../../src/config';
 import type { ConclaveConfig } from '../../src/config/schema';
@@ -41,6 +44,24 @@ live("a member's browser and Capture do not follow a redirect into the hub's net
     },
   });
   const targets = [`http://127.0.0.1:${internal.port}/x`, `http://localhost:${internal.port}/x`, `http://[::ffff:127.0.0.1]:${internal.port}/x`];
+  // a UDP server on every address of the hub: a STUN request from the page to loopback or the LAN lands here
+  let udpHits = 0;
+  const udp = createSocket('udp4');
+  udp.on('message', () => udpHits++);
+  const udpReady = new Promise<void>((done) => udp.bind(0, '0.0.0.0', () => done()));
+  const lan = Object.values(networkInterfaces()).flat().find((a) => a && a.family === 'IPv4' && !a.internal)?.address;
+  const stunPage = () => {
+    const port = udp.address().port;
+    const urls = [`stun:127.0.0.1:${port}`, ...(lan ? [`stun:${lan}:${port}`] : [])];
+    return `<!doctype html><title>stun</title><script>
+      window.stun = (async () => {
+        const pc = new RTCPeerConnection({ iceServers: ${JSON.stringify(urls.map((u) => ({ urls: u })))} });
+        pc.createDataChannel('x');
+        await pc.setLocalDescription(await pc.createOffer());
+        await new Promise((r) => setTimeout(r, 2500));
+      })();
+    </script>`;
+  };
   const attacker = Bun.serve({
     hostname: '127.0.0.1',
     port: 0,
@@ -48,6 +69,7 @@ live("a member's browser and Capture do not follow a redirect into the hub's net
       const u = new URL(req.url);
       const i = Number(u.searchParams.get('to') ?? -1);
       if (u.pathname === '/r') return new Response(null, { status: 302, headers: { location: targets[i] } });
+      if (u.pathname === '/stun') return new Response(stunPage(), { headers: { 'content-type': 'text/html' } });
       return new Response('<!doctype html><title>public</title><p>public page</p>', { headers: { 'content-type': 'text/html' } });
     },
   });
@@ -59,6 +81,7 @@ live("a member's browser and Capture do not follow a redirect into the hub's net
     await m.close().catch(() => {});
     internal.stop(true);
     attacker.stop(true);
+    udp.close();
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -99,5 +122,34 @@ live("a member's browser and Capture do not follow a redirect into the hub's net
     const b = r.results[0];
     expect(readFileSync(b.report, 'utf8')).not.toContain('INTERNAL-SECRET');
     expect(internalHits).toBe(0);
+  }, 120_000);
+
+  test("a member's page sends no WebRTC UDP to the hub's loopback or LAN address", async () => {
+    await udpReady;
+    udpHits = 0;
+    await runAs('acc_alice', async () => {
+      await m.navigate('alice-s', `http://127.0.0.1:${attacker.port}/stun`);
+      await (await m.page('alice-s')).evaluate('window.stun');
+    });
+    await Bun.sleep(300);
+    expect(udpHits).toBe(0);
+  }, 60_000);
+
+  test("Capture as a member: the page's WebRTC sends no UDP to the hub", async () => {
+    await udpReady;
+    udpHits = 0;
+    const r = await runAs('acc_alice', () =>
+      capture(`http://127.0.0.1:${attacker.port}/stun`, { widths: [390], themes: ['light'], browsers: ['chromium'], scroll: false, earlyFrame: 3 }, {
+        chromium: pw!.chromium,
+        chromiumPath: exe!,
+        ffmpeg: async () => ({ error: 'none' }),
+        outDir: home,
+        publicAddress,
+      }),
+    );
+    expect(r.results[0].error).toBeUndefined();
+    expect(r.results[0].shots.length).toBe(1);
+    await Bun.sleep(300);
+    expect(udpHits).toBe(0);
   }, 120_000);
 });

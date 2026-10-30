@@ -17,7 +17,8 @@
  * makes, and every string the page wrote sits in report.page inside
  * <untrusted_web_content>. Sizes are capped (CAPTURE_LIMITS).
  */
-import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Browser, BrowserType, Page } from 'playwright-core';
 // axe-core's browser bundle as text, embedded in the compiled binary like the default workflows
@@ -28,7 +29,7 @@ import { guardHost } from '../tools/webfetch';
 import { wrapUntrusted } from '../tools/util';
 import { contactSheetArgs, findFfmpeg, runFfmpeg } from '../util/ffmpeg';
 import { playwrightCacheDirs } from './executable';
-import { WEBRTC_PROXY_FLAG, type BrowserManager } from './manager';
+import { WEBRTC_PROXY_FLAG, writeWebrtcPolicy, type BrowserManager } from './manager';
 import { hubBrowsersPath, loadPlaywright } from './runtime';
 import { SocksRelay } from './proxy-net';
 
@@ -345,6 +346,7 @@ async function runBrowser(
   const hosts = new Map<string, Promise<boolean>>();
   let browser: Browser | undefined;
   let relay: SocksRelay | undefined;
+  let profile: string | undefined;
   const stop = () => void browser?.close().catch(() => {});
   deps.signal?.addEventListener('abort', stop, { once: true });
   const timer = setTimeout(stop, Math.max(5_000, deadline - Date.now()));
@@ -352,7 +354,18 @@ async function runBrowser(
     // a member's capture connects only through a relay that dials checked public addresses: routes never see redirect hops
     if (isMember(deps.account)) relay = await SocksRelay.publicOnly(deps.publicAddress ?? ((host) => resolvePublic(host)));
     const args = ['--autoplay-policy=no-user-gesture-required', '--disable-background-networking', '--no-first-run', ...(relay ? [WEBRTC_PROXY_FLAG] : [])];
-    browser = await b.type.launch({ executablePath: b.exe, headless: true, timeout: 30_000, ...(b.name === 'chromium' ? { args } : {}), ...(relay ? { proxy: { server: relay.url, bypass: '<-loopback>' } } : {}) });
+    const launch = { executablePath: b.exe, headless: true, timeout: 30_000, ...(b.name === 'chromium' ? { args } : {}), ...(relay ? { proxy: { server: relay.url, bypass: '<-loopback>' } } : {}) };
+    if (relay) {
+      // full Chromium ignores WEBRTC_PROXY_FLAG and reads the profile pref, so a member's capture runs on a throwaway profile that has it; its new contexts keep the pref
+      profile = mkdtempSync(join(tmpdir(), 'conclave-capture-'));
+      writeWebrtcPolicy(profile);
+      const persistent = await b.type.launchPersistentContext(profile, launch);
+      browser = persistent.browser() ?? undefined;
+      if (!browser) {
+        await persistent.close().catch(() => {});
+        throw new Error(`${b.name} gave no browser for a member's capture.`);
+      }
+    } else browser = await b.type.launch(launch);
     res.version = browser.version();
     let axeDone = false;
     for (const width of o.widths) {
@@ -436,6 +449,7 @@ async function runBrowser(
     deps.signal?.removeEventListener('abort', stop);
     await browser?.close().catch(() => {});
     await relay?.close();
+    if (profile) rmSync(profile, { recursive: true, force: true });
   }
   res.summary.consoleErrors = seen.console.length;
   res.summary.failedRequests = seen.failed.length;

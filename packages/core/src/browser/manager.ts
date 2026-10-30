@@ -774,7 +774,9 @@ export class BrowserManager implements BrowserTakeover {
     }
     const dir = proxied ? this.proxyDir() : this.dirOf(name);
     mkdirSync(dir, { recursive: true });
-    if (proxied?.proxy || proxied?.preview) writeWebrtcPolicy(dir);
+    const member = !proxied && isMemberProfile(name);
+    // a member's WebRTC sends no UDP around their relay to the hub's loopback or LAN
+    if (proxied?.proxy || proxied?.preview || member) writeWebrtcPolicy(dir);
     let options: Options;
     /** What to try when there is no display for a headed browser, or old headless is gone. */
     let fallback: () => Options;
@@ -793,7 +795,6 @@ export class BrowserManager implements BrowserTakeover {
     const proxy = proxied?.proxy;
     let relay: SocksRelay | undefined;
     let proxyOption: Options['proxy'];
-    const member = !proxied && isMemberProfile(name);
     // a preview browser keeps no service worker, saves no download and is granted nothing
     const lockdown = (o: Options): Options =>
       proxied?.preview ? { ...o, serviceWorkers: 'block', acceptDownloads: false, permissions: [], args: [...(o.args ?? []), ...PREVIEW_NET_FLAGS] } : member ? { ...o, serviceWorkers: 'block' } : o;
