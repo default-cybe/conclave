@@ -41,5 +41,8 @@ export default defineConfig({
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 900,
+    // the meeting overlay is its own small entry (docs/design/MEETING-MODE.md 2.3); the manifest lets a test check its size and imports
+    manifest: true,
+    rollupOptions: { input: { main: fileURLToPath(new URL('./index.html', import.meta.url)), overlay: fileURLToPath(new URL('./overlay.html', import.meta.url)) } },
   },
 });

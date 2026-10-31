@@ -1,0 +1,223 @@
+/**
+ * The meeting overlay (docs/design/MEETING-MODE.md 1.3, 3.4): setup, the
+ * brief with "Start listening", the live view, and the end. Events come over
+ * the WebSocket and are applied once per animation frame (frame.ts); the
+ * page schedules nothing while nothing arrives, except one wake a minute for
+ * the elapsed time and the socket's ping.
+ *
+ * Rules for this window (7.2): no <select>, no title= tooltips, no native
+ * context menu, no alert or confirm, no file pickers. Each of those opens a
+ * separate window that screen sharing captures.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { frameBuffer } from './frame';
+import { connectWs, type WsStatus } from './ws';
+import { meetingApi, type MeetingApi, type Req } from './hub';
+import { desktop, ipc } from './desktop';
+import { applyEvent, emptyView, loadDetail, type MeetingView } from './model';
+import type { DesktopMeetingStatus, MeetingEvent } from './wire';
+import { Ready, Setup } from './Setup';
+import { Live } from './Live';
+
+export interface Conn {
+  req: Req;
+  baseUrl: string;
+  token: string;
+  WebSocketImpl?: typeof WebSocket;
+}
+
+export function Overlay({ conn, meetingId: first, signedIn }: { conn: Conn; meetingId?: string; signedIn: boolean }) {
+  const api = useMemo(() => meetingApi(conn.req), [conn]);
+  const [meetingId, setMeetingId] = useState(first);
+  if (!signedIn)
+    return (
+      <Panel>
+        <p className="ov-muted">Open meeting mode from the Conclave desktop app.</p>
+      </Panel>
+    );
+  if (!meetingId)
+    return (
+      <Panel>
+        <Setup
+          api={api}
+          req={conn.req}
+          onCreated={(id) => {
+            history.replaceState(null, '', `${location.pathname}?meeting=${encodeURIComponent(id)}`);
+            setMeetingId(id);
+          }}
+        />
+      </Panel>
+    );
+  return <MeetingScreen conn={conn} api={api} meetingId={meetingId} />;
+}
+
+export function Panel({ children }: { children: React.ReactNode }) {
+  return <main className="ov-panel">{children}</main>;
+}
+
+/** The meeting's view, kept up to date from the socket, one render per frame at most. */
+function useMeetingView(conn: Conn, api: MeetingApi, meetingId: string) {
+  const view = useRef<MeetingView>(emptyView()).current;
+  const listeners = useRef(new Set<() => void>()).current;
+  const [ws, setWs] = useState<WsStatus>('connecting');
+  const [error, setError] = useState<string>();
+  const notify = useCallback(() => {
+    for (const fn of listeners) fn();
+  }, [listeners]);
+
+  useEffect(() => {
+    let stop = false;
+    let sock: ReturnType<typeof connectWs> | undefined;
+    const load = async () => {
+      try {
+        const d = await api.get(meetingId);
+        const msgs = await api.messages(d.sessionId).catch(() => []);
+        if (stop) return;
+        loadDetail(view, d, msgs);
+        if (d.status === 'ended') view.notes = await api.notes(meetingId).catch(() => undefined);
+        setError(undefined);
+        sock?.resubscribe();
+        notify();
+      } catch (e) {
+        if (!stop) setError(e instanceof Error ? e.message : String(e));
+      }
+    };
+    const frame = frameBuffer<MeetingEvent>((events) => {
+      let changed = false;
+      for (const e of events) changed = applyEvent(view, e) || changed;
+      if (changed) notify();
+    });
+    void load();
+    sock = connectWs({
+      baseUrl: conn.baseUrl,
+      token: conn.token,
+      WebSocketImpl: conn.WebSocketImpl,
+      sessions: () => (view.meeting ? [view.meeting.sessionId] : []),
+      onEvent: (e) => {
+        if (e.type.startsWith('meeting.') || e.type.startsWith('message.')) frame.push(e as unknown as MeetingEvent);
+      },
+      onStatus: setWs,
+      onResync: () => void load(),
+    });
+    return () => {
+      stop = true;
+      frame.cancel();
+      sock?.close();
+    };
+  }, [conn, api, meetingId, view, notify]);
+
+  const version = useSyncExternalStore(
+    (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    () => view.version,
+  );
+  return { view, version, ws, error };
+}
+
+const OFF: DesktopMeetingStatus = {
+  live: false,
+  paused: false,
+  clickThrough: false,
+  hiddenForShare: false,
+  exclusion: 'unsupported',
+  mic: { ok: false },
+  system: { ok: false },
+  stt: { state: 'loading' },
+  queue: { stt: 0, upload: 0, dropped: 0 },
+};
+
+/** The desktop's status and channel levels; undefined status outside the desktop app. Levels come at most 10 a second and render at most once a frame. */
+function useDesktop() {
+  const [status, setStatus] = useState<DesktopMeetingStatus | undefined>(desktop() ? OFF : undefined);
+  const [levels, setLevels] = useState({ me: 0, them: 0 });
+  useEffect(() => {
+    const d = desktop();
+    if (!d) return;
+    let alive = true;
+    const offs: (() => void)[] = [];
+    void ipc.status()?.then((s) => alive && s && setStatus(s), () => undefined);
+    const lv = frameBuffer<{ me: number; them: number }>((all) => setLevels(all[all.length - 1]!));
+    void d.listen<DesktopMeetingStatus>('meeting://status', (e) => setStatus(e.payload)).then((off) => (alive ? offs.push(off) : off()));
+    void d.listen<{ me: number; them: number }>('meeting://level', (e) => lv.push(e.payload)).then((off) => (alive ? offs.push(off) : off()));
+    return () => {
+      alive = false;
+      lv.cancel();
+      for (const off of offs) off();
+    };
+  }, []);
+  return { status, levels };
+}
+
+function MeetingScreen({ conn, api, meetingId }: { conn: Conn; api: MeetingApi; meetingId: string }) {
+  const { view, ws, error } = useMeetingView(conn, api, meetingId);
+  const { status, levels } = useDesktop();
+  const m = view.meeting;
+  if (!m)
+    return (
+      <Panel>
+        <p className={error ? 'ov-fault' : 'ov-muted'}>{error ?? 'Loading the meeting'}</p>
+      </Panel>
+    );
+  const listening = !!status?.live && status.meetingId === m.id;
+  if ((m.status === 'preparing' || m.status === 'ready') && !listening)
+    return (
+      <Panel>
+        <Ready api={api} view={view} desktop={status} />
+      </Panel>
+    );
+  if (m.status === 'ending' || m.status === 'ended' || m.status === 'failed')
+    return (
+      <Panel>
+        <Ended view={view} wasListening={listening} />
+      </Panel>
+    );
+  return (
+    <Panel>
+      <Live api={api} view={view} desktop={status} levels={levels} ws={ws} />
+    </Panel>
+  );
+}
+
+function Ended({ view, wasListening }: { view: MeetingView; wasListening: boolean }) {
+  const m = view.meeting!;
+  // the hub ended it while this app still listened (a 409 on segments): Rust stops on its own (3.5)
+  useEffect(() => {
+    if (wasListening) void ipc.stop()?.catch(() => undefined);
+  }, [wasListening]);
+  const words = m.status === 'failed' ? `Meeting failed${m.error ? `: ${m.error}` : ''}` : m.status === 'ending' ? 'Writing the notes' : 'Meeting ended';
+  return (
+    <div className="ov-stack">
+      <p className={m.status === 'failed' ? 'ov-fault' : 'ov-state'} aria-live="polite">
+        {wasListening && m.status !== 'ending' ? 'Meeting ended on the hub' : words}
+      </p>
+      <h1 className="ov-title">{m.title}</h1>
+      {view.notes ? (
+        <>
+          <p className="ov-body">{view.notes.summary}</p>
+          {view.notes.actionItems.some((a) => a.who === 'me') && (
+            <ul className="ov-list">
+              {view.notes.actionItems
+                .filter((a) => a.who === 'me')
+                .map((a, i) => (
+                  <li key={i}>
+                    {a.what}
+                    {a.due ? `, by ${a.due}` : ''}
+                  </li>
+                ))}
+            </ul>
+          )}
+          <p className="ov-muted">Full notes are on the meeting page in Conclave.</p>
+        </>
+      ) : (
+        m.status === 'ended' && <p className="ov-muted">The notes are on the meeting page in Conclave.</p>
+      )}
+      <div className="ov-row">
+        <button type="button" className="ov-btn" onClick={() => void ipc.hide()}>
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
