@@ -8,6 +8,7 @@ import type {
   MachineInfo,
   LimitState,
   Message,
+  MessagePage,
   Routine,
   RoutineRun,
   Session,
@@ -62,6 +63,7 @@ function rowToSession(r: Row): Session {
     meta: json(r.meta, undefined),
     // a workbench session keeps its effort and memory switches in chat
     ...(r.kind === 'chat' ? { kind: 'chat' as const, chat: json(r.chat, undefined) } : r.chat ? { chat: json(r.chat, undefined) } : {}),
+    ...(r.kind === 'meeting' ? { kind: 'meeting' as const } : {}),
     // folders across devices: the project id rides in meta until it gets its own column
     ...projectIdOf(r.meta),
     // workflows: the Ultra switch (migration 5)
@@ -136,7 +138,7 @@ export class SessionRepo {
       resumeAt: s.resumeAt ?? null,
       error: s.error ?? null,
       meta: s.meta || s.projectId ? JSON.stringify({ ...s.meta, ...(s.projectId ? { projectId: s.projectId } : {}) }) : null,
-      kind: s.kind === 'chat' ? 'chat' : null,
+      kind: s.kind === 'chat' || s.kind === 'meeting' ? s.kind : null,
       chat: s.kind === 'chat' && s.chat ? JSON.stringify(s.chat) : s.chat?.thinking || s.chat?.cyber || s.chat?.memory === false ? JSON.stringify(s.chat) : null,
       ultra: s.ultra ? 1 : null,
     };
@@ -163,7 +165,8 @@ export class SessionRepo {
     if (f.cwd) (where.push('cwd = $cwd'), (params.cwd = f.cwd));
     if (f.device) (where.push('device = $device'), (params.device = f.device));
     if (f.kind === 'chat') where.push(`kind = 'chat'`);
-    else if (f.kind === 'agent') where.push(`(kind IS NULL OR kind <> 'chat')`);
+    else if (f.kind === 'agent') where.push(`(kind IS NULL OR kind NOT IN ('chat', 'meeting'))`);
+    else if (f.kind === 'meeting') where.push(`kind = 'meeting'`);
     if (f.home) where.push(`json_extract(meta, '$.home') = 1`);
     if (f.tag) (where.push(`EXISTS (SELECT 1 FROM json_each(sessions.tags) WHERE value = $tag)`), (params.tag = f.tag));
     if (f.search) {
@@ -301,18 +304,24 @@ export class MessageRepo {
     return r ? rowToMessage(r) : undefined;
   }
 
-  list(sessionId: string, opts: { afterSeq?: number; limit?: number } = {}): Message[] {
+  list(sessionId: string, opts: { afterSeq?: number; beforeSeq?: number; limit?: number } = {}): Message[] {
     const rows = this.db
-      .query('SELECT * FROM messages WHERE session_id = $sid AND seq > $after ORDER BY seq ASC LIMIT $limit')
-      .all({ sid: sessionId, after: opts.afterSeq ?? 0, limit: opts.limit ?? 100_000 }) as Row[];
+      .query('SELECT * FROM messages WHERE session_id = $sid AND seq > $after AND seq < $before ORDER BY seq ASC LIMIT $limit')
+      .all({ sid: sessionId, after: opts.afterSeq ?? 0, before: opts.beforeSeq ?? Number.MAX_SAFE_INTEGER, limit: opts.limit ?? 100_000 }) as Row[];
     return rows.map(rowToMessage);
   }
 
-  /** Most recent N messages in ascending order. */
-  tail(sessionId: string, n: number): Message[] {
+  /** The transcript or one page of it (types.ts MessagePage): no afterSeq with a limit or beforeSeq reads the newest page back. */
+  page(sessionId: string, { afterSeq, beforeSeq, limit }: MessagePage = {}): Message[] {
+    if (afterSeq === undefined && (limit !== undefined || beforeSeq !== undefined)) return this.tail(sessionId, limit ?? 100_000, beforeSeq);
+    return this.list(sessionId, { afterSeq, beforeSeq, limit });
+  }
+
+  /** Most recent N messages (before beforeSeq when given) in ascending order. */
+  tail(sessionId: string, n: number, beforeSeq = Number.MAX_SAFE_INTEGER): Message[] {
     const rows = this.db
-      .query('SELECT * FROM messages WHERE session_id = ? ORDER BY seq DESC LIMIT ?')
-      .all(sessionId, n) as Row[];
+      .query('SELECT * FROM messages WHERE session_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?')
+      .all(sessionId, beforeSeq, n) as Row[];
     return rows.map(rowToMessage).reverse();
   }
 

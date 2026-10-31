@@ -17,6 +17,8 @@ import { navigate } from 'wouter/use-browser-location';
 import { api } from './api';
 import { disablePush, enablePush, endpointId, pushEndpoint, pushState, resyncPush } from './push';
 import { clientLog } from './clientLog';
+import { desktop, ipc } from '@/overlay/desktop';
+import type { DesktopMeetingStatus } from '@/overlay/wire';
 
 /** insecure: a browser on a plain http address, where browsers turn Web Push off. */
 export type DeviceNotifyState = 'checking' | 'unsupported' | 'insecure' | 'denied' | 'on' | 'off';
@@ -205,6 +207,29 @@ export function watchPresence(setActive: (active: boolean) => void): () => void 
   };
 }
 
+/**
+ * No desktop notices while a meeting listens (docs/design/MEETING-MODE.md 2.3):
+ * a system notification is its own window and shows in a screen share. The
+ * flag follows meeting://status; meeting_status() sets it on first use.
+ */
+let live = false;
+let watching = false;
+function meetingLive(): boolean {
+  if (!watching) {
+    watching = true;
+    void ipc.status()?.then(
+      (s) => (live = !!s?.live),
+      () => undefined,
+    );
+    void desktop()
+      ?.listen<DesktopMeetingStatus>('meeting://status', (e) => (live = !!e.payload.live))
+      .catch(() => undefined);
+  }
+  return live;
+}
+// start watching at load, so the first notice of a meeting already knows
+if (typeof window !== 'undefined' && isDesktopApp()) meetingLive();
+
 /** The desktop app's quick ask window (?quick=1) runs the app too; the main window shows the notices. */
 const QUICK_WINDOW = typeof location !== 'undefined' && new URLSearchParams(location.search).has('quick');
 
@@ -228,7 +253,7 @@ function onceAcrossWindows(id: string, fn: () => void) {
  * nobody is using its window (in the background, or in front and left alone).
  */
 export function deviceNotice(notice: Notice): void {
-  if (!notice.alert || !isDesktopApp() || QUICK_WINDOW || !desktopPref() || usedHere()) return;
+  if (!notice.alert || !isDesktopApp() || QUICK_WINDOW || !desktopPref() || usedHere() || meetingLive()) return;
   onceAcrossWindows(notice.id, () => show(notice));
 }
 

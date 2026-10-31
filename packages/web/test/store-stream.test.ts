@@ -134,6 +134,8 @@ describe('loading a transcript', () => {
 
 describe('tool output', () => {
   test('a finished run keeps its result, not its live output', () => {
+    // its transcript is on screen (one no view shows keeps the state only, store-evict.test.ts)
+    useHub.setState((s) => ({ messagesLoaded: { ...s.messagesLoaded, s1: true } }));
     send({ type: 'tool.started', sessionId: 's1', messageId: 'm1', toolUseId: 't1', name: 'Bash', input: { command: 'bun test' } });
     send({ type: 'tool.progress', sessionId: 's1', toolUseId: 't1', text: 'x'.repeat(5000) });
     expect(useHub.getState().tools.t1.progress).toHaveLength(5000);

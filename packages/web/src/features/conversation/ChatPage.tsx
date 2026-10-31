@@ -13,7 +13,7 @@ import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { Link, Redirect, useLocation, useParams, useSearch } from 'wouter';
 import { MoreHorizontal, PanelRight } from 'lucide-react';
 import { api } from '@/lib/api';
-import { attempt, loadMessages, removeKey, useHub, useQuietToasts } from '@/store/store';
+import { attempt, removeKey, retainTranscript, useHub, useQuietToasts } from '@/store/store';
 import { cn } from '@/lib/text';
 import { compact, usd } from '@/lib/format';
 import { worthLine } from '@/features/usage/value';
@@ -62,9 +62,7 @@ export default function ChatPage() {
   const [renaming, setRenaming] = useState(false);
   const [sheet, setSheet] = useState(false);
 
-  useEffect(() => {
-    if (id) void loadMessages(id);
-  }, [id]);
+  useEffect(() => (id ? retainTranscript(id) : undefined), [id]);
   // the sidebar's switch follows the open page: a chat, or a new one
   useEffect(() => setStartMode('chat'), []);
   // the open chat says its notices in the transcript, so the hub's toasts for it are dropped

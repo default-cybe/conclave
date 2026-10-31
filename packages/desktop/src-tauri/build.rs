@@ -32,6 +32,15 @@ fn main() {
             "login",
             "login_confirm",
             "login_cancel",
+            // meeting mode: open and status for the hub page, the rest only for the overlay window
+            "meeting_open",
+            "meeting_status",
+            "meeting_start",
+            "meeting_pause",
+            "meeting_stop",
+            "meeting_click_through",
+            "meeting_hide",
+            "meeting_focusable",
         ]),
     ))
     .expect("failed to run tauri-build");

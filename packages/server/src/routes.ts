@@ -23,6 +23,7 @@ import type { MemoryInput } from '@conclave/core/memory/types.ts';
 import { deepMerge } from '@conclave/core/config/index.ts';
 import { browserConfigProblems } from '@conclave/core/browser/engine.ts';
 import { buildBundle } from '@conclave/core/session/share.ts';
+import { trimMessage } from '@conclave/core/session/trim.ts';
 import { INLINE_TYPES } from '@conclave/core/files/share.ts';
 import { MAX_ATTACHMENTS, TOO_MANY_FILES } from '@conclave/core/attachments/limits.ts';
 import type { ShareOptions } from '@conclave/core/client/share.ts';
@@ -417,7 +418,20 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
 
   app.get('/api/sessions/:id/messages', (c) => {
     const id = sid(c);
-    return c.json(engine.getMessages(id, qNum(c.req.query('afterSeq'))));
+    const limit = qNum(c.req.query('limit'));
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) throw badRequest('limit must be a positive integer');
+    const msgs = engine.getMessages(id, { afterSeq: qNum(c.req.query('afterSeq')), beforeSeq: qNum(c.req.query('beforeSeq')), limit });
+    // trim=1: blocks over 100 KB come light, listed in meta.trimmed; the route below serves each in full
+    return c.json(qBool(c.req.query('trim')) ? msgs.map(trimMessage) : msgs);
+  });
+
+  app.get('/api/sessions/:id/messages/:msgId/blocks/:index', (c) => {
+    const id = sid(c);
+    const m = engine.repos.messages.get(c.req.param('msgId'));
+    if (!m || m.sessionId !== id) throw notFound('unknown message');
+    const block = m.content[Number(c.req.param('index'))];
+    if (!block) throw notFound('unknown block');
+    return c.json(block);
   });
 
   app.post('/api/sessions/:id/messages', async (c) => {
