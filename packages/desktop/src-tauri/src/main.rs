@@ -37,6 +37,7 @@ use tauri::{
     ipc::CapabilityBuilder,
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    webview::NewWindowResponse,
     AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent, Wry,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as _};
@@ -135,6 +136,15 @@ fn allow_navigation(app: &AppHandle, url: &Url) -> bool {
         let _ = app.opener().open_url(url.as_str(), None::<&str>);
     }
     false
+}
+
+/// A link with target="_blank" or window.open: http, https and mailto open in
+/// the browser, as other links do (allow_navigation). No popup window opens.
+fn new_window(app: &AppHandle, url: &Url) -> NewWindowResponse<Wry> {
+    if matches!(url.scheme(), "http" | "https" | "mailto") {
+        let _ = app.opener().open_url(url.as_str(), None::<&str>);
+    }
+    NewWindowResponse::Deny
 }
 
 /// The hub page moved itself to another address of the hub, with this app's
@@ -247,6 +257,7 @@ fn main_window(app: &AppHandle, visible: bool) -> tauri::Result<WebviewWindow> {
         return Ok(win);
     }
     let handle = app.clone();
+    let popups = app.clone();
     WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
         .title("Conclave")
         // Tauri's own drop handler swallows dropped files; the hub page takes them with HTML5 drag and drop
@@ -255,6 +266,7 @@ fn main_window(app: &AppHandle, visible: bool) -> tauri::Result<WebviewWindow> {
         .min_inner_size(400.0, 500.0)
         .visible(visible)
         .on_navigation(move |url| allow_navigation(&handle, url))
+        .on_new_window(move |url, _| new_window(&popups, &url))
         // the hub page titles itself per page ("Inbox, Conclave"): the title bar, the Dock and the taskbar follow it
         .on_document_title_changed(|win, title| {
             if !title.is_empty() {
@@ -391,6 +403,7 @@ fn toggle_quick(app: &AppHandle) {
         return;
     };
     let handle = app.clone();
+    let popups = app.clone();
     let built = WebviewWindowBuilder::new(app, QUICK, WebviewUrl::External(url))
         .title("Conclave quick ask")
         .disable_drag_drop_handler()
@@ -401,6 +414,7 @@ fn toggle_quick(app: &AppHandle) {
         .center()
         .focused(true)
         .on_navigation(move |url| allow_navigation(&handle, url))
+        .on_new_window(move |url, _| new_window(&popups, &url))
         .build();
     if let Err(e) = built {
         eprintln!("conclave: cannot open quick ask: {e}");
@@ -1499,7 +1513,9 @@ fn main() {
         }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_opener::init())
+        // no click hook: its open_url call is not granted to the hub page, so it
+        // swallowed target="_blank" links; new_window opens them instead
+        .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![HIDDEN_ARG])))
         // the app's own updates, checked against the built-in key (update.rs)
         .plugin(update::plugin())

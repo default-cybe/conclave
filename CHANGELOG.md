@@ -16,6 +16,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Fixed
 
 - Desktop app: a main window hidden in the tray for 10 minutes on a hub page other than Home goes to Home, and comes back to that page when shown. Closing only hides the window, so a long session page kept its memory growing for hours (13 MB to 227 MB in 110 minutes on Windows, then the page restarted). Home keeps the hub's connection, so notifications still come; composer drafts are kept in IndexedDB.
+- Desktop app: links that open in a new tab (chat links, View pull request, sign-in pages) open in the browser again. The opener plugin's click hook called a command the hub page is not allowed, so the click did nothing and logged `plugin:opener|open_url not allowed by ACL` (16 times since 2026-10-26 on Linux and Windows). The hook is off; the windows send new-window requests for http, https and mailto to the browser and open no popup.
 
 ## [0.4.49] - 2026-10-30
 
