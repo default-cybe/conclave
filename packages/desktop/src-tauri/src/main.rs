@@ -16,6 +16,8 @@ mod appimage;
 mod computer;
 mod hub;
 mod local;
+#[cfg(target_os = "linux")]
+mod perf;
 mod terminal;
 mod update;
 #[cfg(windows)]
@@ -1585,6 +1587,12 @@ fn main() {
             // the AppImage adds itself to the app menu; a .deb or .rpm brings its own entry
             #[cfg(target_os = "linux")]
             appimage::integrate(&handle);
+            // WebKitGTK reports no memory of its own: the app sends it (perf.rs)
+            #[cfg(target_os = "linux")]
+            perf::start(&handle, |app| {
+                let s = state(app).settings.lock().unwrap().clone();
+                Some((Url::parse(s.hub_url.as_deref()?).ok()?, s.token?))
+            });
             // `conclave` in a terminal: set up on the first start and after an update, its login kept
             start_terminal(&handle, false);
             // the hub on this computer runs while the app does (started at login, too, when that is on)
