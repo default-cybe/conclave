@@ -1,6 +1,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { WebFetchTool, clearWebFetchCache, guardHost, isMetadataAddress, setWebFetchLookup } from '../../src/tools/webfetch';
 import { makeCtx, text } from './helpers';
+import { runAs } from '../../src/people/context';
+import { PRIVATE_LOOKUP_FAILED } from '../../src/people/net';
 
 /**
  * HARNESS-REVIEW item 10 (WebFetch part): the host is resolved once, cloud
@@ -63,6 +65,12 @@ describe('cloud metadata guard', () => {
     expect(out.isError).toBe(true);
     expect(text(out)).toContain('rebind.local resolves to 169.254.169.254');
     expect(n).toBe(2);
+  });
+
+  test("a member's lookup that fails is refused; the owner's goes on", async () => {
+    setWebFetchLookup(async () => Promise.reject(new Error('SERVFAIL')));
+    expect(await runAs('acc_alice', () => guardHost(new URL('https://flaky.example/')))).toEqual({ error: PRIVATE_LOOKUP_FAILED });
+    expect(await guardHost(new URL('https://flaky.example/'))).toEqual({});
   });
 
   test('plain http connects to the address resolved once, with the name in the Host header', async () => {

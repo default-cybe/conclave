@@ -287,10 +287,14 @@ describe('Read with a Docling server', () => {
     expect(calls[0].pages).toEqual(['2', '3']);
   });
 
-  test("a member's session never sends files, and odt or a non-http URL never goes", async () => {
+  test("a member's session uses the stateless Docling server too", async () => {
     const ctx = makeCtx({ cwd: dir, host: host() });
     ctx.session = makeSession(dir, { accountId: 'acct_friend' });
-    expect(text(await ReadTool.run({ file_path: file('m.docx', DOCX) }, ctx))).toContain('# Quarterly report');
+    expect(text(await ReadTool.run({ file_path: file('m.docx', DOCX) }, ctx))).toContain('# From Docling');
+    expect(calls.length).toBe(1);
+  });
+
+  test('odt or a non-http URL never goes', async () => {
     await ReadTool.run({ file_path: file('o.odt', odf('<office:text><text:p>hi</text:p></office:text>')) }, makeCtx({ cwd: dir, host: host() }));
     const ftp = fakeHost({ cfg: { documents: { docling: { url: `ftp://127.0.0.1:${server.port}/` } } } });
     expect(text(await ReadTool.run({ file_path: file('f.docx', DOCX) }, makeCtx({ cwd: dir, host: ftp })))).toContain('# Quarterly report');

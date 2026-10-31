@@ -9,7 +9,8 @@ import type { Context, Hono } from 'hono';
 import type { HookEvent, HooksConfig, McpServerConfig } from '@conclave/core/config/schema.ts';
 import type { CliName, HookTestInput, McpImportFormat, RecipeInstallRequest, RecipeRemoveWhere, ToolCheckInput } from '@conclave/core/client/index.ts';
 import { lintHooks } from '@conclave/core/extensions/hook-lint.ts';
-import { LearnedSkillError, LearnedSkills, type LearnedSkill } from '@conclave/core/extensions/learned.ts';
+import { LearnedSkillError, type LearnedSkills, type LearnedSkill } from '@conclave/core/extensions/learned.ts';
+import { accountOf } from './scope';
 import type { LearnedSkillDto } from '@conclave/core/client/index.ts';
 import { MCP_OAUTH_CALLBACK } from '@conclave/core/extensions/mcp-oauth.ts';
 import { OWNER_ID } from '@conclave/core/people/context.ts';
@@ -44,7 +45,8 @@ export function registerExtensionRoutes(app: Hono<HonoEnv>, ctx: ServerContext, 
 
   // ----- skills agents wrote (core/extensions/learned.ts) --------------------
 
-  const learned = () => new LearnedSkills(engine.config.paths.home, engine.repos.kv);
+  // each account's own: a member's live under <home>/accounts/<id>/learned-skills
+  const learned = (c: Context<HonoEnv>): LearnedSkills => engine.learnedSkillsFor(accountOf(c));
   const learnedDto = (s: LearnedSkill, withBody = false): LearnedSkillDto => {
     const { dir: _d, body, ...rest } = s;
     const title = s.sessionId ? engine.getSession(s.sessionId)?.title : undefined;
@@ -58,24 +60,28 @@ export function registerExtensionRoutes(app: Hono<HonoEnv>, ctx: ServerContext, 
       throw err;
     }
   };
-  const requireLearned = (name: string): LearnedSkill => {
-    const s = learned().get(name);
+  const requireLearned = (c: Context<HonoEnv>, name: string): LearnedSkill => {
+    const s = learned(c).get(name);
     if (!s) throw notFound(`no learned skill named ${name}`);
     return s;
   };
 
-  app.get('/api/skills/learned', (c) => c.json(learned().list().map((s) => learnedDto(s))));
+  app.get('/api/skills/learned', (c) => c.json(learned(c).list().map((s) => learnedDto(s))));
 
-  app.get('/api/skills/learned/:name', (c) => c.json(learnedDto(requireLearned(c.req.param('name')), true)));
+  app.get('/api/skills/learned/:name', (c) => c.json(learnedDto(requireLearned(c, c.req.param('name')), true)));
 
   app.patch('/api/skills/learned/:name', async (c) => {
     const name = c.req.param('name');
-    requireLearned(name);
+    requireLearned(c, name);
     const body = await readJson<{ description?: unknown; body?: unknown; enabled?: unknown }>(c);
     if (body.enabled !== undefined && typeof body.enabled !== 'boolean') throw badRequest('enabled must be true or false');
     const description = optString(body.description, 'description');
     const text = optString(body.body, 'body');
-    const store = learned();
+    const store = learned(c);
+    if (text !== undefined) {
+      const no = engine.diskRefusal(accountOf(c), Buffer.byteLength(text));
+      if (no) throw new HttpError(413, no);
+    }
     let s = learnedCall(() => (description !== undefined || text !== undefined ? store.edit(name, { description, body: text }) : store.get(name)!));
     if (typeof body.enabled === 'boolean') s = learnedCall(() => store.setEnabled(name, body.enabled as boolean));
     await engine.extensions.reload();
@@ -86,7 +92,7 @@ export function registerExtensionRoutes(app: Hono<HonoEnv>, ctx: ServerContext, 
 
   app.delete('/api/skills/learned/:name', async (c) => {
     const name = c.req.param('name');
-    if (!learned().remove(name)) throw notFound(`no learned skill named ${name}`);
+    if (!learned(c).remove(name)) throw notFound(`no learned skill named ${name}`);
     await engine.extensions.reload();
     audit(c, 'skill.learned.delete', name);
     changed();

@@ -34,18 +34,21 @@ const KIND_WORD: Record<MemoryKind, string> = {
   fact: 'Fact',
   procedure: 'Procedure',
   episode: 'Episode',
+  inspiration: 'Inspiration',
 };
 const KIND_PLURAL: Record<MemoryKind, string> = {
   profile: 'Profile',
   fact: 'Facts',
   procedure: 'Procedures',
   episode: 'Episodes',
+  inspiration: 'Inspiration',
 };
 const KIND_HELP: Record<MemoryKind, string> = {
   profile: 'Always given to every model.',
   fact: 'Given to a session when it is relevant.',
   procedure: 'Steps for a task, given when the task comes up.',
   episode: 'What happened in a session, for later recall.',
+  inspiration: 'Design references saved with SaveInspiration, read when a design brief comes up.',
 };
 const KIND_ORDER: MemoryKind[] = ['fact', 'procedure', 'profile', 'episode'];
 /** Tags a file import adds: the tool the file belongs to. */
@@ -173,7 +176,7 @@ export function NotesTab({ adding, setAdding, store }: { adding: MemoryKind | nu
 
   const byScope = (m: MemoryEntry) => scope === 'any' || m.scope === scope;
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: 0, profile: 0, fact: 0, procedure: 0, episode: 0 };
+    const c: Record<string, number> = { all: 0, profile: 0, fact: 0, procedure: 0, episode: 0, inspiration: 0 };
     for (const m of all) if (byScope(m)) (c.all++, c[m.kind]++);
     return c;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -204,6 +207,7 @@ export function NotesTab({ adding, setAdding, store }: { adding: MemoryKind | nu
           { value: 'fact', label: 'Facts', count: counts.fact },
           { value: 'procedure', label: 'Procedures', count: counts.procedure },
           { value: 'episode', label: 'Episodes', count: counts.episode },
+          ...(counts.inspiration || kind === 'inspiration' ? [{ value: 'inspiration' as KindFilter, label: 'Inspiration', count: counts.inspiration }] : []),
           ...(reviewCount || kind === 'review' ? [{ value: 'review' as KindFilter, label: 'To review', count: reviewCount }] : []),
         ]}
       />
@@ -579,6 +583,7 @@ const PLACEHOLDER: Record<MemoryKind, string> = {
   fact: 'The NAS is at 10.0.10.5 and runs TrueNAS.',
   procedure: 'To deploy, run bun run build, then restart the unit on the hub.',
   episode: 'Moved the reverse proxy to Caddy in LXC 101.',
+  inspiration: 'Inspiration: https://example.com (saved with SaveInspiration)',
 };
 
 function AddNote({ kind, onClose }: { kind: MemoryKind | null; onClose: () => void }) {

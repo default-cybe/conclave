@@ -775,19 +775,60 @@ async function start() {
   // The hub runs here: wait for it to be up, then open it.
   if (s.runHub && !params.has('setup')) return openLocal();
 
-  // Normal start: go straight to the saved hub, fall back to the form if it is down.
+  // Normal start: go straight to the saved hub. Down or no network yet, it tries again (start.js).
   if (s.hubUrl && !params.has('setup')) {
     $('connecting-url').textContent = s.hubUrl;
     showOnly('connecting');
-    try {
-      await invoke('open_hub');
-      return;
-    } catch (err) {
-      showError(`${err} Press Connect to retry.`);
-    }
+    return openSaved();
   }
   showForm();
 }
+
+let openTries = 0;
+let openTimer = 0;
+let opening = false;
+
+/** Open the saved hub; on a failure, try again with backoff until it opens or the form shows. */
+async function openSaved() {
+  clearTimeout(openTimer);
+  if (opening || $('connecting').hidden) return;
+  opening = true;
+  let failed;
+  try {
+    await invoke('open_hub');
+    return;
+  } catch (err) {
+    failed = err;
+  } finally {
+    opening = false;
+  }
+  // "Use another hub" while it tried: the form stays
+  if ($('connecting').hidden) return;
+  if (afterOpenFailed(settings, failed) === 'form') {
+    showError(String(failed));
+    showForm();
+    return;
+  }
+  const wait = retryDelay(openTries++);
+  $('connecting-state').textContent = `${failed} Trying again in ${wait / 1000} s.`;
+  $('connecting-state').hidden = false;
+  $('connecting-actions').hidden = false;
+  openTimer = setTimeout(openSaved, wait);
+}
+
+$('connecting-retry').addEventListener('click', () => openSaved());
+
+$('connecting-other').addEventListener('click', () => {
+  clearTimeout(openTimer);
+  showForm();
+  $('hub').focus();
+});
+
+// the network came back (Wi-Fi up after login): try at once, and soon again if it fails
+window.addEventListener('online', () => {
+  openTries = 0;
+  openSaved();
+});
 
 for (const input of document.querySelectorAll('input[name="mode"]')) {
   input.addEventListener('change', () => setMode(input.value));

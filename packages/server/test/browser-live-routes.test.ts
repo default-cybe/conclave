@@ -168,7 +168,7 @@ describe('a session browser live view', () => {
     expect(browser.hasPage(sid)).toBe(true);
   });
 
-  test("a member gets 403 on every live view route, also for a session of their own, and changes nothing", async () => {
+  test("a member gets 404 on every live view route of the owner's session and changes nothing; their own session's state answers", async () => {
     const PW = 'a long enough password';
     expect((await hub.api('/api/people', { method: 'POST', json: { name: 'alice', password: PW } })).status).toBe(200);
     const login = await hub.api('/api/login', { method: 'POST', token: null, json: { account: 'alice', password: PW, name: 'phone' } });
@@ -177,9 +177,8 @@ describe('a session browser live view', () => {
     const made = await hub.api('/api/sessions', { method: 'POST', token, json: { title: 'alice chat' } });
     expect(made.status).toBe(200);
     const own = ((await made.json()) as { id: string }).id;
-    await browser.page(own);
     const before = sent.length;
-    for (const s of [sid, own]) {
+    for (const s of [sid]) {
       const base = `/api/browser/sessions/${s}`;
       const calls: Array<[string, string, unknown?]> = [
         ['GET', base],
@@ -190,7 +189,7 @@ describe('a session browser live view', () => {
       ];
       for (const [method, path, json] of calls) {
         const res = await hub.api(path, { method, token, json });
-        expect({ method, path, status: res.status }).toEqual({ method, path, status: 403 });
+        expect({ method, path, status: res.status }).toEqual({ method, path, status: 404 });
         // no frame, no state comes back
         expect(await res.text()).not.toContain('data');
       }
@@ -198,6 +197,10 @@ describe('a session browser live view', () => {
     }
     // nothing reached a page: no screencast, no input
     expect(sent.length).toBe(before);
+    // the member's own session: its state (no page open) is theirs to see
+    const mine = await hub.api(`/api/browser/sessions/${own}`, { token });
+    expect({ status: mine.status, body: mine.status === 200 ? '' : await mine.clone().text() }).toEqual({ status: 200, body: '' });
+    expect(((await mine.json()) as { open: boolean }).open).toBe(false);
   });
 
   test('a token that is not the owner gets nothing', async () => {

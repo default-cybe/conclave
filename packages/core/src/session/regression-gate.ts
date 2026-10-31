@@ -185,7 +185,7 @@ export class RegressionGate {
   /** Whether the gate is on for this session's agent. */
   enabled(session: Session): boolean {
     if (session.kind === 'chat') return false;
-    return wantsRegressionGate(this.engine.extensions.agent(session.agent, session.cwd));
+    return wantsRegressionGate(this.engine.agentNamed(session.agent, session.cwd, this.engine.accountOf(session)));
   }
 
   /** A tool that can change files ran in the turn. */

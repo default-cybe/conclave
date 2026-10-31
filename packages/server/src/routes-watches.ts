@@ -13,6 +13,7 @@ import type { Hono } from 'hono';
 import { WatchError, watchesOf, type WatchService } from '@conclave/core/watches/index.ts';
 import type { HonoEnv, ServerContext } from './context';
 import { HttpError } from './http';
+import { accountOf } from './scope';
 
 export function registerWatchRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
   const svc = (): WatchService => {
@@ -25,7 +26,8 @@ export function registerWatchRoutes(app: Hono<HonoEnv>, ctx: ServerContext): voi
     throw err;
   };
 
-  app.get('/api/watches', (c) => c.json(svc().summaries()));
+  // each account sees its own watches (route-policy.ts checks the ids of the routes below)
+  app.get('/api/watches', (c) => c.json(svc().summaries(accountOf(c))));
 
   app.get('/api/watches/:id', (c) => {
     try {

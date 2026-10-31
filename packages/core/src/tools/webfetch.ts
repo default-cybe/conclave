@@ -1,6 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { isMember, currentAccount } from '../people/context';
-import { isLocalName, isPrivateAddress, PRIVATE_REFUSED } from '../people/net';
+import { isLocalName, isPrivateAddress, PRIVATE_LOOKUP_FAILED, PRIVATE_REFUSED } from '../people/net';
 import { isIP } from 'node:net';
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
@@ -157,7 +157,8 @@ export async function guardHost(u: URL): Promise<{ error: string } | { address?:
     // a slow resolver does not hold the fetch for long; the proxy, if any, resolves the name itself
     addresses = await Promise.race([resolveHost(host), new Promise<string[]>((_, reject) => setTimeout(() => reject(new Error('lookup timed out')), LOOKUP_TIMEOUT_MS).unref?.())]);
   } catch {
-    return {};
+    // a member's name that does not resolve here is refused: the proxy or Chromium might resolve it into the hub's network
+    return member ? { error: PRIVATE_LOOKUP_FAILED } : {};
   }
   const bad = addresses.find(isMetadataAddress);
   if (bad) return { error: `Refused: ${host} resolves to ${bad}, a cloud metadata address. WebFetch never fetches instance metadata.` };
@@ -171,7 +172,7 @@ export async function guardHost(u: URL): Promise<{ error: string } | { address?:
  * keeps the name, since TLS binds the connection to it and metadata
  * services answer plain http only.
  */
-function pinned(u: URL, address?: string): { href: string; host?: string } {
+export function pinned(u: URL, address?: string): { href: string; host?: string } {
   if (u.protocol !== 'http:' || !address || isIP(u.hostname.replace(/^\[|\]$/g, ''))) return { href: u.href };
   const p = new URL(u.href);
   p.hostname = isIP(address) === 6 ? `[${address}]` : address;
@@ -419,7 +420,8 @@ export function setWebFetchBrowser(b?: WebFetchBrowser): void {
 async function fetchRedditInBrowser(target: URL, jsonUrl: URL, ctx: ToolContext): Promise<{ page: Page; note: string } | { why: string }> {
   const b = fetchBrowser;
   if (!b) return { why: '' };
-  if (isMember(ctx.session?.accountId ?? currentAccount())) return { why: "The hub's browser belongs to the owner, so a member's request does not fall back to it." };
+  // a member's session reads in their own browser (browser/manager.ts), with no proxy: that is the owner's
+  const member = isMember(ctx.session?.accountId ?? currentAccount());
   const sid = ctx.sessionId || 'webfetch';
   const readTab = async (u: URL): Promise<{ raw: string; status: number; url: string; blocked?: string }> => {
     const nav = await b.navigate(sid, u.href);
@@ -433,7 +435,7 @@ async function fetchRedditInBrowser(target: URL, jsonUrl: URL, ctx: ToolContext)
   try {
     let viaProxy: string | undefined;
     let tab = await readTab(jsonUrl);
-    if (tab.blocked && !b.proxied(sid)) {
+    if (tab.blocked && !member && !b.proxied(sid)) {
       const pick = await retryCountry(ctx.session?.accountId ?? currentAccount());
       if (!('skip' in pick)) {
         try {
@@ -480,6 +482,10 @@ async function fetchRedditInBrowser(target: URL, jsonUrl: URL, ctx: ToolContext)
     return { why: `The browser fallback failed: ${(err as Error).message}` };
   }
 }
+
+/** What WebFetch says for x.com and twitter.com, which show only a login wall to it. */
+export const X_COM_MESSAGE =
+  'WebFetch cannot read x.com or twitter.com: they show a login wall. For a post (/<user>/status/<id>), its quoted post, X article or video, use the ReadPost tool with the same URL; the researcher, web-searcher and designer agents have it.';
 
 /** What WebFetch says when Reddit refuses the hub. */
 export function redditBlockedMessage(url: string, why: string): string {
@@ -589,6 +595,7 @@ export const WebFetchTool: Tool<WebFetchInput> = {
     if (typeof input.url !== 'string' || !input.url.trim()) return fail('url is required.');
     const u = normalizeUrl(input.url);
     if (typeof u === 'string') return fail(u);
+    if (/^(?:www\.|mobile\.|m\.)?(?:x|twitter)\.com$/i.test(u.hostname)) return fail(X_COM_MESSAGE);
     // the cache is per account: a page the owner fetched (a LAN page) is never handed to a member
     const key = `${currentAccount() ?? 'owner'}\u0000${u.href}`;
 

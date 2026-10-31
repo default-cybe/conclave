@@ -13,7 +13,7 @@
 export type MemoryGraphSource = 'conclave' | 'basic-memory' | 'both';
 
 /** Memory kinds, a Basic Memory note, and the tags and sessions memories share. */
-export type MemoryGraphNodeKind = 'fact' | 'profile' | 'procedure' | 'episode' | 'note' | 'tag' | 'session';
+export type MemoryGraphNodeKind = 'fact' | 'profile' | 'procedure' | 'episode' | 'inspiration' | 'note' | 'tag' | 'session';
 
 export interface MemoryGraphNode {
   id: string;

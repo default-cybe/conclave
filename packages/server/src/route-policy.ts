@@ -174,15 +174,17 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/providers/probe': 'admin',
   'POST /api/providers/probe-model': 'admin',
   'GET /api/agents': 'self',
-  'PUT /api/agents/:name': 'admin',
-  'DELETE /api/agents/:name': 'admin',
+  // a member's save and delete touch only their own file under <home>/accounts/<id>/agents
+  'PUT /api/agents/:name': 'self',
+  'DELETE /api/agents/:name': 'self',
   'GET /api/agents/:name/default': 'admin',
   'GET /api/skills': 'self',
   'GET /api/commands': 'self',
-  'GET /api/skills/learned': 'admin',
-  'GET /api/skills/learned/:name': 'admin',
-  'PATCH /api/skills/learned/:name': 'admin',
-  'DELETE /api/skills/learned/:name': 'admin',
+  // each account's own learned skills: a member's under <home>/accounts/<id>/learned-skills
+  'GET /api/skills/learned': 'self',
+  'GET /api/skills/learned/:name': 'self',
+  'PATCH /api/skills/learned/:name': 'self',
+  'DELETE /api/skills/learned/:name': 'self',
   'GET /api/mcp': 'admin',
   'POST /api/mcp': 'admin',
   'POST /api/mcp/import': 'admin',
@@ -272,19 +274,22 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'GET /api/assistant/today': 'self',
   'POST /api/assistant/today/answer': 'self',
 
-  // ----- maps: the key and the home are the owner's -----
-  'GET /api/maps': 'admin',
-  'PATCH /api/maps': 'admin',
-  'PUT /api/maps/key': 'admin',
-  'POST /api/maps/test': 'admin',
+  // ----- maps: each account's own key, home and cap (maps/service.ts); the provider and OSM servers are the owner's -----
+  'GET /api/maps': 'self',
+  'PATCH /api/maps': 'self',
+  'PUT /api/maps/key': 'self',
+  'POST /api/maps/test': 'self',
   'GET /api/maps/leave-by': 'self',
   'GET /api/maps/image/:id': 'self',
 
-  // ----- web search: the engine and its keys are the hub's, set by the owner -----
-  'GET /api/websearch': 'admin',
+  // ----- web search: the engine and the hub's keys are the owner's; a member reads and sets their own keys -----
+  'GET /api/websearch': 'self',
   'PATCH /api/websearch': 'admin',
-  'PUT /api/websearch/key': 'admin',
-  'POST /api/websearch/test': 'admin',
+  'PUT /api/websearch/key': 'self',
+  'POST /api/websearch/test': 'self',
+  // a member's own proxy (never the hub's) for blocked requests; the owner's is PUT /api/browser/proxy
+  'GET /api/websearch/proxy': 'self',
+  'PUT /api/websearch/proxy': 'self',
 
   // ----- memory -----
   'GET /api/memory': 'self',
@@ -295,7 +300,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'GET /api/memory/digest': 'self',
   'PUT /api/memory/digest': 'self',
   // the memory map reads the hub's Basic Memory connection too: the owner only
-  'GET /api/memory/graph': 'admin',
+  'GET /api/memory/graph': 'self',
   'GET /api/memory/connections': 'self',
   'GET /api/memory/connections/presets': 'self',
   'POST /api/memory/connections/test': 'self',
@@ -528,23 +533,25 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/proposals/:id/approve': own({ id: 'proposal' }),
   'POST /api/proposals/:id/decline': own({ id: 'proposal' }),
 
-  // ----- watches and the browser sign-in use the hub's Chromium: the owner's for now -----
-  'GET /api/watches': 'admin',
-  'GET /api/watches/:id': 'admin',
-  'GET /api/watches/:id/items/:item/image': 'admin',
-  'GET /api/watches/sessions/:session/items/:item/image': 'admin',
-  'GET /api/browser': 'admin',
-  'POST /api/browser/signin': 'admin',
-  'GET /api/browser/signin/:id/frame': 'admin',
-  'POST /api/browser/signin/:id/input': 'admin',
-  'POST /api/browser/signin/:id/done': 'admin',
-  'DELETE /api/browser/signin/:id': 'admin',
-  // a chat session's live view and Take over: the owner only, and only that session's page
-  'GET /api/browser/sessions/:session': 'admin',
-  'GET /api/browser/sessions/:session/frame': 'admin',
-  'DELETE /api/browser/sessions/:session/frame': 'admin',
-  'POST /api/browser/sessions/:session/input': 'admin',
-  'POST /api/browser/sessions/:session/control': 'admin',
+  // ----- watches and the browser: each account's own (a member's runs in their own browser, browser/manager.ts) -----
+  'GET /api/watches': 'self',
+  'GET /api/watches/:id': own({ id: 'routine' }),
+  'GET /api/watches/:id/items/:item/image': own({ id: 'routine' }),
+  'GET /api/watches/sessions/:session/items/:item/image': own({ session: 'session' }),
+  // a member sees only their own browser and logins, never the hub's setup (routes-browser.ts)
+  'GET /api/browser': 'self',
+  // a sign-in view runs in the caller's own browser; another account's view id reads as unknown
+  'POST /api/browser/signin': 'self',
+  'GET /api/browser/signin/:id/frame': 'self',
+  'POST /api/browser/signin/:id/input': 'self',
+  'POST /api/browser/signin/:id/done': 'self',
+  'DELETE /api/browser/signin/:id': 'self',
+  // a chat session's live view and Take over: only that session's account, and only that session's page
+  'GET /api/browser/sessions/:session': own({ session: 'session' }),
+  'GET /api/browser/sessions/:session/frame': own({ session: 'session' }),
+  'DELETE /api/browser/sessions/:session/frame': own({ session: 'session' }),
+  'POST /api/browser/sessions/:session/input': own({ session: 'session' }),
+  'POST /api/browser/sessions/:session/control': own({ session: 'session' }),
   // a Code session's Preview pane (routes-preview.ts): runs launch.json on the device and the hub's Chromium, so the owner only
   'GET /api/sessions/:id/preview': 'admin',
   'POST /api/sessions/:id/preview/start': 'admin',
@@ -561,13 +568,13 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'PUT /api/browser/profiles/:name': 'admin',
   'PUT /api/browser/proxy': 'admin',
   'POST /api/browser/proxy/test': 'admin',
-  // saved logins (their passwords are the owner's secrets), forgetting a site and deleting a profile: the owner only
-  'POST /api/browser/logins': 'admin',
-  'PUT /api/browser/logins/:id': 'admin',
-  'DELETE /api/browser/logins/:id': 'admin',
-  'POST /api/browser/profiles/:name/forget': 'admin',
-  // imported cookies are sign-ins: the owner only
-  'POST /api/browser/profiles/:name/cookies': 'admin',
+  // saved logins, forgetting a site and imported cookies: each account's own (a member's vault and browser
+  // are in their folder; their only profile is "default"); deleting a profile: the owner only
+  'POST /api/browser/logins': 'self',
+  'PUT /api/browser/logins/:id': 'self',
+  'DELETE /api/browser/logins/:id': 'self',
+  'POST /api/browser/profiles/:name/forget': 'self',
+  'POST /api/browser/profiles/:name/cookies': 'self',
   'DELETE /api/browser/profiles/:name': 'admin',
 
   // ----- updates: the hub's install and its devices' daemons are the owner's (docs/DESIGN.md, Updates) -----

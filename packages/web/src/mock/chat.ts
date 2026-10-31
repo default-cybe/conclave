@@ -94,9 +94,40 @@ function searchResult(id: string, query: string, results: typeof CADDY_RESULTS, 
   return { type: 'tool_result', toolUseId: id, content: `Web search results for "${query}" (via brave)\n${body}`, meta: { provider: 'brave', count: results.length, results, durationMs: ms } };
 }
 
+/** Imported chats as the import leaves them: archived, tagged, meta.import, each message with meta.external. */
+function imported(now: number): Array<{ session: Session; turns: Turn[] }> {
+  const one = (id: string, title: string, source: 'claude-ai' | 'chatgpt', start: number, turns: Turn[]) => ({
+    session: { ...chatSession({ id, title, model: SONNET, createdAt: start, updatedAt: turns.at(-1)!.at, chat: DEFAULTS }, turns.length), archived: true, tags: ['imported', source], meta: { import: { source, device: 'upload:mock', path: 'conversations.json', id, importedAt: now - DAY, createdAt: start } } },
+    turns: turns.map((x, i) => ({ ...x, meta: { ...x.meta, external: { source, id: `${id}-${i}` }, ...(x.role === 'user' && !x.content.some((b) => b.type === 'tool_result') ? { origin: 'human' } : {}) } })),
+  });
+  const a = now - 40 * DAY;
+  return [
+    one('c_imp_chart', 'Sales chart page', 'claude-ai', a, [
+      { role: 'user', at: a, content: [t('Turn this CSV into a chart page.'), t('[Attached sales.csv]\nmonth,total\njan,12\nfeb,19')] },
+      {
+        role: 'assistant',
+        at: a + 60_000,
+        content: [t('Here is the page.'), { type: 'tool_use', id: 'toolu_imp_art1', name: 'artifacts', input: { command: 'create', id: 'chart', type: 'text/html', title: 'Sales chart', content: '<canvas id="c" width="480" height="240"></canvas>\n<script>\n  const rows = [["jan", 12], ["feb", 19]];\n  draw(document.getElementById("c"), rows);\n</script>' } }],
+      },
+      { role: 'user', at: a + 61_000, content: [{ type: 'tool_result', toolUseId: 'toolu_imp_art1', content: 'OK' }] },
+      { role: 'assistant', at: a + 62_000, content: [t('Open it to see January and February.')] },
+    ]),
+    one('c_imp_lisbon', 'Lisbon trip food', 'claude-ai', now - 120 * DAY, [
+      { role: 'user', at: now - 120 * DAY, content: [t('Vegetarian dinner places in Alfama for Friday?')] },
+      { role: 'assistant', at: now - 120 * DAY + 60_000, content: [t('Three vegetarian-friendly places in Alfama: ...')] },
+    ]),
+    one('c_imp_gym', 'Gym plan', 'chatgpt', now - 400 * DAY, [
+      { role: 'user', at: now - 400 * DAY, content: [t('Make me a 3 day gym plan.')] },
+      { role: 'assistant', at: now - 400 * DAY + 60_000, content: [t('Monday push, Wednesday pull, Friday legs.')] },
+    ]),
+  ];
+}
+
 function seeds(now: number): Array<{ session: Session; turns: Turn[] }> {
   const at = (ms: number) => now - ms;
   return [
+    // imported from a claude.ai export and not written in here yet: the Imported group (core session/imported.ts)
+    ...imported(now),
     // handed two jobs on with Delegate (docs/DESIGN.md 43): their sessions are s_dlg_names and s_dlg_mail in mock/data.ts
     {
       session: chatSession({ id: 'c_capstone', title: 'Capstone', model: SONNET, createdAt: at(26 * MIN), updatedAt: at(5 * MIN), chat: DEFAULTS }, 8),

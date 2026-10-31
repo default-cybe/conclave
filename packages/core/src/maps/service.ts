@@ -6,6 +6,12 @@
  * a small table, and turns results into text for the model and card data
  * for the clients. The Google key stays here: it is read from the hub's
  * secrets at call time and scrubbed from anything that leaves.
+ *
+ * A member's maps are their own (docs/design/ACCOUNTS.md 2): their own Google
+ * key (never the hub's or its env var), their home and their daily cap and
+ * count in kv under their account's keys, their own cache entries. Nothing of
+ * the owner's maps config reaches them; without a key of their own they get
+ * MEMBER_NO_KEY.
  */
 import type { Db } from '../storage/db';
 import { json } from '../storage/db';
@@ -42,6 +48,8 @@ import type {
 import { MapsError, TRAVEL_MODES } from './types';
 import { OWNER_ID, currentAccount, isMember } from '../people/context';
 import { ensureAccountColumn } from '../people/tables';
+import { accountKv } from '../people/scoped';
+import type { KvRepo } from '../storage/repos';
 import { countWords, distanceWords, durationWords, LINK_WORDS, MODE_BY, MODE_WORDS, priceMarks, ratingWords } from './words';
 
 /** The secret name: `conclave secret google-maps`, Settings > Maps. */
@@ -49,6 +57,11 @@ export const MAPS_KEY = 'google-maps';
 /** An env var some installs use instead; tool shells never inherit it (machine/local.ts). */
 export const MAPS_KEY_ENV = 'GOOGLE_MAPS_API_KEY';
 export const DEFAULT_CAP = 300;
+/** What a member without a maps key of their own is told: the hub's key is never theirs. */
+export const MEMBER_NO_KEY = 'Add your own maps key in Settings, Maps.';
+/** A member's home and their mode, links and cap, in kv under their account's keys. */
+const MEMBER_HOME = 'maps.home';
+const MEMBER_PREFS = 'maps.prefs';
 const DEFAULT_MODE: TravelMode = 'transit';
 
 const SCHEMA = `
@@ -86,8 +99,8 @@ export interface MapsHost {
   config(): MapsConfig;
   /** Replace the maps block in the user config. */
   setConfig(next: MapsConfig): void;
-  /** The Google key and where it came from. */
-  key(): { key?: string; from?: 'hub' | 'env' };
+  /** The Google key of the account the work runs for, and where it came from ('own': a member's own). */
+  key(): { key?: string; from?: 'hub' | 'env' | 'own' };
   /** Store or remove the key as a hub secret. */
   setKey(key: string | undefined): void;
   kv: KvLike;
@@ -157,7 +170,6 @@ interface Resolved {
 export class MapsService {
   private host: MapsHost;
   private now: () => number;
-  private cap: DailyCap;
   private cache = new TtlCache<unknown>(400);
   private images = new TtlCache<{ bytes: Uint8Array; type: string }>(40, 16 * 1024 * 1024);
   /** Places from recent results by id, so a follow-up call needs no lookup. */
@@ -172,16 +184,15 @@ export class MapsService {
     host.db.exec(SCHEMA);
     // a route or a map picture is the account's that asked for it (docs/design/ACCOUNTS.md)
     ensureAccountColumn(host.db, 'maps_items');
-    this.cap = new DailyCap(host.kv, () => this.cfg().dailyCap ?? DEFAULT_CAP, () => localDate(this.now(), this.zone()));
     const env = {
       fetch: host.fetch ?? fetch.bind(globalThis),
-      take: (api: Parameters<DailyCap['take']>[0]) => this.cap.take(api),
+      take: (api: Parameters<DailyCap['take']>[0]) => this.cap().take(api),
       userAgent: () => {
         const email = this.cfg().osm?.email?.trim();
         return `Conclave/${host.version} (self-hosted assistant hub${email ? `; ${email}` : ''})`;
       },
     };
-    this.google = new GoogleProvider(env, { key: () => host.key().key, base: host.googleBase });
+    this.google = new GoogleProvider(env, { key: () => this.keyNow().key, base: host.googleBase });
     const osm = () => this.cfg().osm ?? {};
     this.osm = new OsmProvider(env, {
       nominatimUrl: () => osm().nominatimUrl || OSM_DEFAULTS.nominatimUrl,
@@ -195,8 +206,49 @@ export class MapsService {
     });
   }
 
+  /** The member the work runs for, or undefined for the owner (and outside any account). */
+  private member(): string | undefined {
+    const a = currentAccount();
+    return isMember(a) ? a : undefined;
+  }
+
+  /** The kv of the account the work runs for: the owner keeps the old keys. */
+  private kv(): KvLike {
+    const a = this.member();
+    return a ? accountKv(this.host.kv as KvRepo, a) : this.host.kv;
+  }
+
   private cfg(): MapsConfig {
-    return this.host.config() ?? {};
+    if (!this.member()) return this.host.config() ?? {};
+    // a member's own: always Google on their own key, their home and prefs; nothing of the owner's maps config
+    const kv = this.kv();
+    const home = kv.get<MapsHome | undefined>(MEMBER_HOME, undefined);
+    return { ...kv.get<MapsConfig>(MEMBER_PREFS, {}), provider: 'google', ...(home ? { home } : {}) };
+  }
+
+  private saveCfg(next: MapsConfig): void {
+    if (!this.member()) return this.host.setConfig(next);
+    const kv = this.kv();
+    if (next.home) kv.set(MEMBER_HOME, next.home);
+    else kv.delete(MEMBER_HOME);
+    kv.set(MEMBER_PREFS, { ...(next.mode ? { mode: next.mode } : {}), ...(next.links ? { links: next.links } : {}), ...(next.dailyCap !== undefined ? { dailyCap: next.dailyCap } : {}) });
+  }
+
+  /** The day's count and cap of the account the work runs for. */
+  private cap(): DailyCap {
+    return new DailyCap(this.kv(), () => this.cfg().dailyCap ?? DEFAULT_CAP, () => localDate(this.now(), this.zone()));
+  }
+
+  /** The key for this call: a member's own only, never the hub's or its env var. */
+  private keyNow(): { key?: string; from?: 'hub' | 'env' | 'own' } {
+    const k = this.host.key();
+    return this.member() && k.from !== 'own' ? {} : k;
+  }
+
+  /** Cache keys of a member's own, so no answer bought with one account's key serves another. */
+  private scoped(key: string): string {
+    const a = this.member();
+    return a ? `${a}\u0000${key}` : key;
   }
 
   zone(): string {
@@ -210,10 +262,11 @@ export class MapsService {
   providerId(): MapsProviderId {
     const chosen = this.cfg().provider;
     if (chosen === 'google' || chosen === 'osm') return chosen;
-    return this.host.key().key ? 'google' : 'osm';
+    return this.keyNow().key ? 'google' : 'osm';
   }
 
   private provider(): MapsProvider {
+    if (this.member() && !this.keyNow().key) throw new MapsError('no_key', MEMBER_NO_KEY, 400);
     return this.providerId() === 'google' ? this.google : this.osm;
   }
 
@@ -227,20 +280,19 @@ export class MapsService {
   }
 
   home(): MapsHome | undefined {
-    // the home in Settings > Maps is the owner's: a member's directions never start or end there
-    if (isMember(currentAccount())) return undefined;
+    // a member's home is their own (cfg); the owner's never reaches them
     const h = this.cfg().home;
     return h && typeof h.address === 'string' && validPoint(h) ? h : undefined;
   }
 
   settings(): MapsSettingsDto {
     const c = this.cfg();
-    const k = this.host.key();
+    const k = this.keyNow();
     const osm = c.osm ?? {};
     const nominatimUrl = osm.nominatimUrl || OSM_DEFAULTS.nominatimUrl;
     const osrmUrl = osm.osrmUrl || OSM_DEFAULTS.osrmUrl;
     const tileUrl = osm.tileUrl || OSM_DEFAULTS.tileUrl;
-    const u = this.cap.usage();
+    const u = this.cap().usage();
     const home = this.home();
     return {
       provider: this.providerId(),
@@ -271,6 +323,7 @@ export class MapsService {
 
   async patch(p: MapsSettingsPatch): Promise<MapsSettingsDto> {
     const next: MapsConfig = structuredClone(this.cfg());
+    if (this.member() && (p.provider !== undefined || p.osm !== undefined)) throw new MapsError('bad_input', "The provider and the OpenStreetMap servers are the hub owner's. Your maps use your own Google key.", 400);
     if (p.provider !== undefined) {
       if (p.provider === null) delete next.provider;
       else if (p.provider === 'google' || p.provider === 'osm') next.provider = p.provider;
@@ -308,13 +361,13 @@ export class MapsService {
       next.osm = o;
     }
     // set the provider first, so the home is found with the provider that will use it
-    if (p.provider !== undefined || p.osm !== undefined) this.host.setConfig(next);
+    if (p.provider !== undefined || p.osm !== undefined) this.saveCfg(next);
     if (p.home !== undefined) {
       if (p.home === null || (typeof p.home === 'string' && !p.home.trim())) delete next.home;
       else if (typeof p.home !== 'string') throw new MapsError('bad_input', 'home must be an address or "lat,lng".', 400);
       else next.home = await this.findHome(p.home.trim());
     }
-    this.host.setConfig(next);
+    this.saveCfg(next);
     return this.settings();
   }
 
@@ -328,8 +381,9 @@ export class MapsService {
       if (!g) throw new MapsError('not_found', `Could not find "${text}". Try a fuller address, or "lat,lng".`, 404);
       home = { address: g.label, lat: g.lat, lng: g.lng };
     }
-    const p = this.provider();
-    if (p.timezone) {
+    // a member's "lat,lng" home needs no key; the zone lookup does
+    const p = this.member() && !this.keyNow().key ? undefined : this.provider();
+    if (p?.timezone) {
       const zone = await this.guard(() => p.timezone!(home, this.now())).catch(() => undefined);
       if (zone) home.zone = zone;
     }
@@ -362,7 +416,7 @@ export class MapsService {
     const key = `search:${provider.id}:${JSON.stringify([query?.toLowerCase(), type, near?.point, radius, input.openNow, limit])}`;
     const raw = await this.cached(key, TTL.search, () => provider.search({ text: query, type, near: near?.point, radiusMeters: radius, openNow: input.openNow, limit }));
     const places = raw.map((r) => this.card(r, near?.point));
-    for (const p of places) this.seen.set(p.id, p, TTL.geocode);
+    for (const p of places) this.seen.set(this.scoped(p.id), p, TTL.geocode);
     const what = query ? `"${query}"` : type!.replace(/_/g, ' ');
     const where = near ? ` near ${near.label}` : '';
     const lines = places.map((p, i) => `${i + 1}. ${this.placeLine(p)}`);
@@ -378,7 +432,7 @@ export class MapsService {
     const provider = this.providerFor(pid);
     const raw = await this.cached(`details:${provider.id}:${pid}`, TTL.details, () => provider.details(pid));
     const place: PlaceDetails = { ...this.card(raw), ...(raw.hours?.length && provider.id === 'google' ? { hours: raw.hours } : {}), ...(raw.website ? { website: raw.website } : {}) };
-    this.seen.set(place.id, place, TTL.geocode);
+    this.seen.set(this.scoped(place.id), place, TTL.geocode);
     const lines = [this.placeLine(place)];
     if (provider.id === 'google' && raw.hours?.length) lines.push('Hours this week:', ...raw.hours.map((h) => `- ${h}`));
     // OpenStreetMap's hours tag is what a mapper typed, often old: the model sees it with that warning, the card leaves it out
@@ -505,13 +559,13 @@ export class MapsService {
 
   /** The image for a map card: from memory for an hour, else from the provider (a counted call). */
   async imageBytes(id: string): Promise<{ bytes: Uint8Array; type: string }> {
-    const hit = this.images.get(id);
+    const hit = this.images.get(this.scoped(id));
     if (hit) return hit;
     const spec = this.load<MapImageSpec>(id, 'image');
     if (!spec) throw new MapsError('not_found', 'That map is unknown or more than a month old.', 404);
-    const provider = spec.provider === 'google' ? this.google : this.osm;
+    const provider = this.member() ? this.provider() : spec.provider === 'google' ? this.google : this.osm;
     const img = await this.guard(() => provider.image(spec));
-    this.images.set(id, img, TTL.image, img.bytes.length);
+    this.images.set(this.scoped(id), img, TTL.image, img.bytes.length);
     return img;
   }
 
@@ -563,6 +617,7 @@ export class MapsService {
 
   /** A place id goes to the provider that made it, so an old card still works after a switch. */
   private providerFor(id: string): MapsProvider {
+    if (this.member()) return this.provider();
     return id.startsWith('osm:') ? this.osm : this.google;
   }
 
@@ -580,7 +635,7 @@ export class MapsService {
       if (!h) throw new MapsError('bad_input', 'Your home is not set. Set it in Settings, Maps.', 400);
       return h;
     }
-    const seen = this.seen.get(text);
+    const seen = this.seen.get(this.scoped(text));
     if (seen) return { label: seen.name, point: { lat: seen.lat, lng: seen.lng }, waypoint: { point: { lat: seen.lat, lng: seen.lng } }, ...(seen.id.startsWith('osm:') ? {} : { googleId: seen.id }) };
     const google = this.providerId() === 'google';
     if (/^osm:[NWR]\d+$/.test(text) || (google && looksLikeGoogleId(text))) {
@@ -651,10 +706,11 @@ export class MapsService {
   }
 
   private async cached<T>(key: string, ttl: number, fn: () => Promise<T>): Promise<T> {
-    const hit = this.cache.get(key);
+    const k = this.scoped(key);
+    const hit = this.cache.get(k);
     if (hit !== undefined) return hit as T;
     const v = await this.guard(fn);
-    if (v !== undefined) this.cache.set(key, v, ttl);
+    if (v !== undefined) this.cache.set(k, v, ttl);
     return v;
   }
 
@@ -670,7 +726,7 @@ export class MapsService {
 
   /** The key, and anything shaped like one, out of a text. */
   scrub(text: string): string {
-    const k = this.host.key().key;
+    const k = this.keyNow().key;
     const out = k ? text.split(k).join('[key]') : text;
     return redactSecrets(out);
   }

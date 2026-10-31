@@ -11,7 +11,8 @@ import { Link, useLocation } from 'wouter';
 import { X } from 'lucide-react';
 import type { AttachmentReceipt, ContentBlock, Message, QueuedMessage, Session } from '@conclave/core/types';
 import { cn } from '@/lib/text';
-import { hhmm } from '@/lib/format';
+import { dayTime, hhmm } from '@/lib/format';
+import { isImportedMessage, splitAttached } from '@conclave/core/session/imported';
 import { useCopy, useIsMobile } from '@/lib/hooks';
 import { Button } from '@/components/ui/Button';
 import { Dialog, MenuList, Popover } from '@/components/ui/Overlay';
@@ -66,7 +67,10 @@ function receiptWord(r: AttachmentReceipt): string {
 export const UserMessage = memo(function UserMessage({ message, session, after, queued }: { message: Message; session: Session; /** Replies an edit would remove. */ after: number; /** Waits for the running reply to end. */ queued?: boolean }) {
   // while an edit goes out, the bubble already shows the new text
   const replacing = useChatUi((s) => (s.pending[session.id]?.key === message.id ? s.pending[session.id]?.text : undefined));
-  const text = replacing ?? msgText(message);
+  // an imported message's attachments are text blocks for the model; here they are file chips (core session/imported.ts)
+  const imported = isImportedMessage(message);
+  const split = imported ? splitAttached(message.content) : undefined;
+  const text = replacing ?? split?.text ?? msgText(message);
   const [copied, copy] = useCopy();
   const editing = useChatUi((s) => s.editing[session.id] === message.id);
   const leaving = useChatUi((s) => s.leaving.has(message.id));
@@ -103,7 +107,7 @@ export const UserMessage = memo(function UserMessage({ message, session, after, 
 
   return (
     <div id={`cm-${message.id}`} className={cn('group/user relative flex flex-col items-end', leaving && 'cv-leave')}>
-      <Attachments images={imagesOf(message)} files={filesOf(message)} />
+      <Attachments images={imagesOf(message)} files={[...filesOf(message), ...(split?.files ?? [])]} />
       {receiptLines.length > 0 && (
         <div className="mb-1.5 flex flex-col items-end gap-0.5 text-[12px] text-fg-3 phone:text-[13px]">
           {receiptLines.map((r, i) => (
@@ -130,7 +134,7 @@ export const UserMessage = memo(function UserMessage({ message, session, after, 
             Used {recalled.length} {recalled.length === 1 ? 'note' : 'notes'} from memory
           </Link>
         )}
-        <span className="num mr-1 text-[12px] text-fg-3 phone:text-[13px]">{hhmm(message.createdAt)}</span>
+        <span className="num mr-1 text-[12px] text-fg-3 phone:text-[13px]">{imported ? dayTime(message.createdAt) : hhmm(message.createdAt)}</span>
         {!mobile && (
           <Act onClick={() => setEditing(session.id, message.id)} label="Edit">
             Edit

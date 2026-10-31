@@ -71,7 +71,8 @@ export function memberConfig(engine: EngineApi, accountId: string): { config: Re
     chat: (c as unknown as Record<string, unknown>).chat,
     // ui.name is the name apps greet by: the member's own display name, never the owner's
     ui: { ...c.ui, name: shownName(account) },
-    models: c.models ? { tiers: c.models.tiers } : undefined,
+    // the member's own fallback lists stand in for the hub's, so Settings shows and edits theirs (PATCH /api/me saves them)
+    models: { ...(c.models?.tiers ? { tiers: c.models.tiers } : {}), ...(prefs.usageFallback ? { limitFallback: prefs.usageFallback } : {}), ...(prefs.refusalFallback ? { refusalFallback: prefs.refusalFallback } : {}) },
   };
   return { config, user: {}, secrets: engine.accountSecrets.names(accountId) };
 }

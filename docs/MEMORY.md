@@ -9,13 +9,26 @@ and how those tools can use Conclave's memory in return.
 ## How Conclave memory works
 
 Memory lives in the hub's SQLite database (`memories` table, FTS5 index,
-optional embeddings). It has three layers:
+optional embeddings). It has these layers:
 
 | Layer | What it holds | When a model sees it |
 | --- | --- | --- |
 | Profile | Who you are and how you want answers. | Always, in the system prompt (about 1,500 tokens at most). |
 | Facts and procedures | Durable facts ("pve is the Proxmox host") and how-tos ("deploys run `make release`"). | Recalled per turn when relevant. |
 | Episodes | A 3 to 6 line summary of a past session. | Searched on demand with SessionSearch. In recall only with `memory.recallEpisodes`. |
+| Inspiration | The owner's inspiration board: design references saved with SaveInspiration (URL, tags, note, the post's text, paths of its contact sheets or screenshot). | Never recalled on its own. Searched with MemorySearch `kind: "inspiration"`; the text comes back inside `<untrusted_web_content>`. |
+
+The inspiration board: SaveInspiration `{ url, tags?, note? }` reads an x.com
+post or video URL with ReadPost (text and contact sheets) or takes one 1440 px
+light Chromium shot of any other page with Capture, copies the images to
+`<home>/inspiration/<item>/` (outputs folders are pruned, this one is not) and
+saves one `inspiration` memory. Saving the same URL again replaces the item.
+Items stay local in every external memory mode, are not merged by the near
+duplicate check, and are left out of plain MemorySearch calls, recall and
+extraction. The web-studio skill and workflow search the board first and read
+the closest 2 to 3 items in full. The tool is opt-in (the assistant has it),
+owner-only (members never get it) and never offered to untrusted sessions.
+Memory > Notes lists the items under the Inspiration filter with their tags.
 
 Each memory has a scope: `global`, `project` (keyed by the session's working
 directory) or `agent`. A session sees global memory plus its own project and
@@ -417,6 +430,22 @@ docs/DESIGN.md 38 has the details.
 | Codex | `~/.codex/sessions/` and `archived_sessions/`, `.jsonl` and `.jsonl.zst` | Titles from `session_index.jsonl`. A paginated fork starts with its base thread. `memory_consolidation` and review threads are never learned from. |
 | Gemini CLI | `~/.gemini/tmp/<project>/chats/` | Rewind, patch and set records are replayed. The folder comes from `projects.json`. |
 | claude.ai, ChatGPT | An upload of the export zip or its `conversations.json` | ChatGPT keeps the branch that was on screen. They become chats on the hub. |
+
+**Where imported chats show, and continuing one.** An imported chat sits in
+an **Imported** group of its own, after the other groups in the web sidebar,
+the Chats and Sessions lists and the phone's side panel. It is ordered by its
+original date, newest first, and each row shows its source and that date
+("claude.ai, 2 May"), so a big export never fills Today. Search finds them as
+before. Open one to read it whole: roles and each message's own time,
+attachments as file chips, claude.ai artifacts as titled code blocks, and
+thinking folded. Write in it to continue it on the chat's model. That turn
+sends the imported messages as real conversation turns: attachment text and
+artifact code go along, tool calls go as text, and unsigned thinking stays
+out. Long chats are compacted the way any long chat is. The first message
+takes the chat out of Imported (`meta.import.continuedAt`, unarchived), and
+from then on it is a normal chat in its date group. It still says where it
+came from. Chats imported before this release show under Imported with no
+re-import. A member's imports are theirs only.
 
 **Three modes.** Chats only copies the chats and sends nothing to a model.
 Chats and learn memory copies them, then the learning job reads each one.

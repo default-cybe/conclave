@@ -18,16 +18,19 @@ import { workflowsOf } from '../workflows/attached';
 import { mapsOf } from '../maps/registry';
 import { pimFor } from '../pim/registry';
 import { watchesOf } from '../watches';
-import { LearnedSkills } from '../extensions/learned';
+import { readFileSync } from 'node:fs';
 import { runDelegate } from './delegate';
 import type { DelegateRequest } from '../tools/delegate';
-import { savedSearchKey } from '../tools/search-settings';
+import { memberSearchChoice, memberSearchKeys, savedSearchKey } from '../tools/search-settings';
+import { isMember } from '../people/context';
 import { checkShareable, outputsDir } from '../files/share';
 import type { BrowserManager } from '../browser/manager';
 import { loadPlaywright } from '../browser/runtime';
 import type { RenderBrowser } from '../tools/render-file';
 import { hubCapture, type CaptureOptions, type CaptureResult } from '../browser/capture';
 import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { findFfmpeg } from '../util/ffmpeg';
 
 /** ToolHost bound to one running session. Tools call this, never the engine directly. */
 export class EngineToolHost implements ToolHost {
@@ -44,9 +47,16 @@ export class EngineToolHost implements ToolHost {
     return this.engine.config.get();
   }
 
-  /** Web search runs on the hub's keys for every account (docs/design/ACCOUNTS.md). */
+  /** The hub's saved web search keys: the owner's, and a member's the owner allowed (searchChoice). */
   searchKey(provider: string) {
     return savedSearchKey(this.engine.config)(provider);
+  }
+
+  /** A member's own engine and key first; the hub's only when the owner allowed it, else DuckDuckGo (docs/design/ACCOUNTS.md 6). */
+  searchChoice() {
+    const acct = this.engine.accountOf(this.session);
+    if (!isMember(acct)) return undefined;
+    return memberSearchChoice(memberSearchKeys(this.engine.accountSecrets, acct).get, !!this.engine.people.get(acct)?.settings.webSearch);
   }
 
   async runSubagent(opts: Parameters<ToolHost['runSubagent']>[0]) {
@@ -110,23 +120,20 @@ export class EngineToolHost implements ToolHost {
   }
 
   async listSkills() {
-    // the same skills loadSkill would load: a member's session gets the ones that ship and plugin skills only
-    const member = this.engine.isMemberSession(this.session);
-    return this.engine.extensions
-      .skills(member ? undefined : this.session.cwd)
-      .filter((s) => !member || s.source === 'builtin' || s.source === 'plugin')
+    // the same skills loadSkill would load: a member's session gets the ones that ship, plugin skills and their own
+    return this.engine
+      .skillsFor(this.engine.accountOf(this.session), this.session.cwd)
       .map((s) => ({ name: s.name, description: s.description, plugin: s.plugin }));
   }
 
   async loadSkill(name: string) {
-    const member = this.engine.isMemberSession(this.session);
-    const skill = this.engine.extensions.skill(name, member ? undefined : this.session.cwd);
+    // a member's session loads the skills that ship, plugin skills and their own, never the owner's or another member's
+    const acct = this.engine.accountOf(this.session);
+    const skill = this.engine.skillNamed(name, this.session.cwd, acct);
     if (!skill) return undefined;
-    // a member's session loads the skills that ship and plugin skills only, never the owner's own or learned ones
-    if (member && skill.source !== 'builtin' && skill.source !== 'plugin') return undefined;
     // a learned skill lives on the hub, whatever device the session runs on; its use feeds the skill review
     if (skill.learned) {
-      const store = new LearnedSkills(this.engine.config.paths.home, this.engine.repos.kv);
+      const store = this.engine.learnedSkillsFor(acct);
       const s = store.get(skill.name);
       if (!s) return undefined;
       store.recordUse(s.name);
@@ -134,6 +141,14 @@ export class EngineToolHost implements ToolHost {
     }
     // a built-in skill ships as text in the binary, whatever device the session runs on
     if (skill.body !== undefined) return { name: skill.name, body: skill.body, dir: skill.dir };
+    // a member's own skill lives in their folder on the hub (<home>/accounts/<id>/skills), whatever device the session runs on
+    if (skill.source === 'account') {
+      try {
+        return { name: skill.name, body: readFileSync(skill.path, 'utf8').replace(/^---\n[\s\S]*?\n---\n?/, '').trim(), dir: skill.dir };
+      } catch {
+        return undefined;
+      }
+    }
     try {
       const body = await this.engine.machineFor(this.session).readText(skill.path);
       const stripped = body.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();
@@ -169,9 +184,9 @@ export class EngineToolHost implements ToolHost {
     return workflowsOf(this.engine);
   }
 
-  /** Maps spend the owner's key and the hub's daily cap and know the owner's home: none for a member (docs/design/ACCOUNTS.md 5). */
+  /** Maps on the account the work runs for: a member's own key, home and cap, never the owner's (maps/service.ts). */
   get maps() {
-    return this.engine.isMemberSession(this.session) ? undefined : mapsOf(this.engine);
+    return mapsOf(this.engine);
   }
 
   /** The session's account's calendars and mail. */
@@ -183,27 +198,38 @@ export class EngineToolHost implements ToolHost {
     return this.engine.isUntrusted(this.session);
   }
 
-  /** Watches browse with the hub's Chromium: the owner's (docs/design/ACCOUNTS.md 5). */
+  /** Watches browse in the browser of the session's account: a member's own (docs/design/ACCOUNTS.md 5). */
   get watches() {
-    return this.engine.isMemberSession(this.session) ? undefined : watchesOf(this.engine);
+    return watchesOf(this.engine);
   }
 
   get learnedSkills(): NonNullable<ToolHost['learnedSkills']> {
-    // learned skills live in the owner's skills folder: a member's session never writes there
-    if (this.engine.isMemberSession(this.session)) throw new Error('Learned skills are the hub owner\'s. Your session cannot keep one.');
-    const store = new LearnedSkills(this.engine.config.paths.home, this.engine.repos.kv);
+    // each account writes its own: the owner's <home>/learned-skills, a member's <home>/accounts/<id>/learned-skills
+    const acct = this.engine.accountOf(this.session);
+    const store = this.engine.learnedSkillsFor(acct);
     const changed = <T>(v: T): T => {
       void this.engine.extensions.reload().catch(() => {});
       return v;
     };
+    // a member's files on the hub stay under the owner's disk cap (people/disk.ts); the owner has none
+    const room = (bytes: number) => {
+      const no = this.engine.diskRefusal(acct, bytes);
+      if (no) throw new Error(no);
+    };
     return {
       list: () => store.list(),
       get: (name) => store.get(name),
-      create: (input) => changed(store.create({ ...input, sessionId: this.runner.id })),
-      patch: (name, input) => changed(store.patch(name, input)),
+      create: (input) => {
+        room(Buffer.byteLength(input.body) + Buffer.byteLength(input.description) + 512);
+        return changed(store.create({ ...input, sessionId: this.runner.id }));
+      },
+      patch: (name, input) => {
+        room(Buffer.byteLength(`${input.content ?? ''}${input.pitfall ?? ''}${input.description ?? ''}`));
+        return changed(store.patch(name, input));
+      },
       disable: (name, reason) => changed(store.setEnabled(name, false, reason)),
       taken: (name) => {
-        const s = this.engine.extensions.skill(name, this.session.cwd);
+        const s = this.engine.skillNamed(name, this.session.cwd, acct);
         if (!s || s.learned || s.name !== name) return undefined;
         return s.plugin ? `plugin ${s.plugin}` : s.source;
       },
@@ -260,9 +286,26 @@ export class EngineToolHost implements ToolHost {
     }
   }
 
-  /** Capture: a fresh stock browser per call, files in this session's outputs folder (browser/capture.ts). */
-  capture(url: string, opts: CaptureOptions, signal?: AbortSignal): Promise<CaptureResult> {
+  /** Capture: a fresh stock browser per call, files in this session's outputs folder (browser/capture.ts). A member's capture fits their disk cap and reaches only public addresses. */
+  async capture(url: string, opts: CaptureOptions, signal?: AbortSignal): Promise<CaptureResult> {
+    const full = this.diskRefusal();
+    if (full) throw new Error(full);
     const b = (this.engine as unknown as { browser?: BrowserManager }).browser;
-    return hubCapture(b, this.engine.config.paths.home, this.outputsDir(), url, opts, signal);
+    return hubCapture(b, this.engine.config.paths.home, this.outputsDir(), url, opts, signal, this.engine.accountOf(this.session));
+  }
+
+  /** Why `more` bytes would not fit under the session's account's disk cap (people/disk.ts), or undefined. */
+  diskRefusal(more = 0): string | undefined {
+    return this.engine.diskRefusal(this.engine.accountOf(this.session), more);
+  }
+
+  ffmpeg() {
+    return findFfmpeg(this.engine.config.paths.home);
+  }
+
+  /** The owner's board files in <home>/inspiration; a member's in their own folder. */
+  inspirationDir() {
+    const acct = this.engine.accountOf(this.session);
+    return this.engine.isMemberSession(this.session) ? join(this.engine.config.paths.home, 'accounts', acct, 'inspiration') : join(this.engine.config.paths.home, 'inspiration');
   }
 }

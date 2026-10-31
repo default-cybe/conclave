@@ -4,6 +4,7 @@
  * the shared migration list does not change.
  */
 import type { Db } from '../storage/db';
+import type { LimitFallbackConfig, RefusalFallbackConfig } from '../config/schema';
 import { json } from '../storage/db';
 import { newId } from '../util/ids';
 import { OWNER_ID } from './context';
@@ -21,6 +22,8 @@ export type ProviderGrants = Record<string, { monthlyUsd?: number | null }>;
 export interface AccountSettings {
   /** Set by the owner: which of the hub's provider keys this member may use, and the monthly budget. */
   providers?: ProviderGrants;
+  /** Set by the owner: a member with no web search key of their own may use the hub's web search (its keys and SearXNG). */
+  webSearch?: boolean;
   /** The person's own defaults. */
   defaultModel?: string;
   smallModel?: string;
@@ -29,6 +32,12 @@ export interface AccountSettings {
   importWatch?: boolean;
   /** Sessions side by side in the web app, left to right (at most SPLIT_MAX, core client/people.ts). */
   splitView?: string[];
+  /** A member's own usage fallback (session/member-fallbacks.ts): models only, each one they can call. The owner's is models.limitFallback. */
+  usageFallback?: LimitFallbackConfig;
+  /** A member's own refusal fallback: entries without accounts, each a model they can call. The owner's is models.refusalFallback. */
+  refusalFallback?: RefusalFallbackConfig;
+  /** Set by the owner: how many GB a member's files on the hub may take (people/disk.ts). Missing: DEFAULT_DISK_GB. */
+  diskLimitGb?: number;
 }
 
 export interface HubAccount {

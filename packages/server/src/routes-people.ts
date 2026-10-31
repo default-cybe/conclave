@@ -21,7 +21,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { PairResult } from '@conclave/core/client/index.ts';
 import { shownName, SPLIT_MAX, type AccountRef, type InviteDto, type InviteInfo, type MeDto, type MePatch, type PersonCreated, type PersonDto, type PersonInput, type PersonPatch, type ProviderGrantsDto, type WorkspaceCode } from '@conclave/core/client/people.ts';
 import { isMember } from '@conclave/core/people/context.ts';
-import { PeopleError, type HubAccount, type ProviderGrants } from '@conclave/core/people/store.ts';
+import { PeopleError, accountKey, type HubAccount, type ProviderGrants } from '@conclave/core/people/store.ts';
+import { MEMBER_ALLOW_KEY } from '@conclave/core/engine/permissions-view.ts';
 import { forgetAssistant } from '@conclave/core/assistant/registry.ts';
 import { forgetPim } from '@conclave/core/pim/registry.ts';
 import type { ConclaveConfig } from '@conclave/core/config/index.ts';
@@ -91,6 +92,8 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
         .map((p) => ({ provider: p.provider, name: p.name, ...(p.monthlyUsd !== undefined ? { monthlyUsd: p.monthlyUsd } : {}), spentUsd: Math.round(p.spentUsd * 10_000) / 10_000 })),
       // only how many: which plans, and whose, stay theirs
       ...(a.role === 'member' && ctx.memberPlans.count(a.id) ? { ownPlans: ctx.memberPlans.count(a.id) } : {}),
+      ...(a.role === 'member' && a.settings.webSearch ? { webSearch: true } : {}),
+      ...(a.role === 'member' ? (({ limitBytes, usedBytes }) => ({ diskLimitGb: limitBytes / 1024 ** 3, diskUsedBytes: usedBytes }))(engine.diskUse(a.id)) : {}),
     };
   };
 
@@ -162,6 +165,7 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
         ...(a.settings.importWatch ? { importWatch: true } : {}),
         ...(a.settings.splitView?.length ? { splitView: a.settings.splitView } : {}),
       },
+      ...(isMember(a.id) ? { allow: engine.repos.kv.get<string[]>(accountKey(a.id, MEMBER_ALLOW_KEY), []), disk: engine.diskUse(a.id) } : {}),
     };
     return c.json(me);
   });
@@ -187,6 +191,25 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
       if (!Array.isArray(ids) || ids.length > SPLIT_MAX || ids.some((x) => typeof x !== 'string' || !x || x.length > 100)) throw badRequest(`splitView must be at most ${SPLIT_MAX} session ids`);
       if (ids.length) settings.splitView = [...new Set(ids)];
       else delete settings.splitView;
+    }
+    if (body.allow !== undefined) {
+      // the owner's rules are the hub's config (permissions.allow)
+      if (!isMember(acct)) throw badRequest('Your rules are in Settings, Permissions.');
+      if (!Array.isArray(body.allow) || body.allow.length > 200 || body.allow.some((r) => typeof r !== 'string' || !r.trim() || r.length > 500)) throw badRequest('allow must be at most 200 rules of text');
+      engine.repos.kv.set(accountKey(acct, MEMBER_ALLOW_KEY), [...new Set(body.allow.map((r) => r.trim()))]);
+    }
+    if (body.usageFallback !== undefined || body.refusalFallback !== undefined) {
+      // the owner's lists are the hub's (models.limitFallback, models.refusalFallback in /api/config)
+      if (!isMember(acct)) throw badRequest('Your fallback lists are in Settings, Models.');
+      try {
+        const { usageFallback: usage, refusalFallback: refusal } = engine.checkMemberFallbacks(acct, body);
+        if (usage) settings.usageFallback = usage;
+        else if (usage === null) delete settings.usageFallback;
+        if (refusal) settings.refusalFallback = refusal;
+        else if (refusal === null) delete settings.refusalFallback;
+      } catch (err) {
+        peopleError(err);
+      }
     }
     try {
       const named = body.name !== undefined || body.displayName !== undefined;
@@ -238,6 +261,19 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
     if (body.providers !== undefined) {
       if (a.role === 'owner') throw badRequest('The owner always uses the hub\'s keys.');
       settings.providers = grantsOf(ctx, body.providers);
+    }
+    if (body.diskLimitGb !== undefined) {
+      if (a.role === 'owner') throw badRequest('The owner has no disk cap.');
+      const g = body.diskLimitGb;
+      if (g !== null && (typeof g !== 'number' || !Number.isFinite(g) || g < 1 || g > 1000)) throw badRequest('A disk cap is 1 to 1000 GB.');
+      if (g === null) delete settings.diskLimitGb;
+      else settings.diskLimitGb = g;
+    }
+    if (body.webSearch !== undefined) {
+      if (a.role === 'owner') throw badRequest('The owner always uses the hub\'s web search.');
+      if (typeof body.webSearch !== 'boolean') throw badRequest('webSearch must be true or false.');
+      if (body.webSearch) settings.webSearch = true;
+      else delete settings.webSearch;
     }
     try {
       const named = body.name !== undefined || body.displayName !== undefined;

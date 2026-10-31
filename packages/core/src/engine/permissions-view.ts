@@ -3,6 +3,19 @@ import type { Engine } from './engine';
 import type { PermissionRules } from '../session/permissions';
 import { isUntrusted } from '../session/untrusted';
 import { claudeUserSettings, projectSettingsFiles, settingsPermissionRules, type SettingsFile } from './settings-sources';
+import { isMember } from '../people/context';
+import { accountKey } from '../people/store';
+
+/** Where a member's own "always allow" rules live (kv, under their account); the owner's are config permissions.allow. */
+export const MEMBER_ALLOW_KEY = 'permissions.allow';
+
+/** A member's own "always allow" rules; none for the owner. */
+export function memberAllow(engine: Engine, session: Pick<Session, 'accountId'> | undefined): string[] {
+  const acct = engine.accountOf(session);
+  if (!isMember(acct)) return [];
+  const rules = engine.repos.kv.get<unknown>(accountKey(acct, MEMBER_ALLOW_KEY), []);
+  return Array.isArray(rules) ? rules.filter((r): r is string => typeof r === 'string') : [];
+}
 
 /**
  * Merge permission rules from config, the agent, the routine that started the
@@ -31,7 +44,7 @@ export function PermissionRulesFor(engine: Engine, session: Session): Permission
     if (Array.isArray(wf?.deny)) deny.push(...wf.deny.filter((r): r is string => typeof r === 'string'));
     return { allow: [...(routine?.allow ?? [])], deny, ask, askReadOnly: true, ...(routine?.suggestion ? { webFetchNeedsRule: true } : {}) };
   }
-  const allow = [...files.allow, ...cfg.permissions.allow];
+  const allow = [...files.allow, ...cfg.permissions.allow, ...memberAllow(engine, session)];
   // An agent's tools list decides what the model sees, not what it may run:
   // listing Bash must not allow every command. Read-only tools need no rule
   // (checkPermission allows them), so nothing is added here.

@@ -69,9 +69,14 @@ export interface StartOptions {
   accountId?: string;
 }
 
-/** Workflows a member may run: the ones that ship, plugins, and their own project's or inline. Never the owner's library on the hub. */
+/** Workflows a member may run: the ones that ship, plugins, their own folder's, their project's or inline. Never the owner's library on the hub. */
 function memberMay(source: WorkflowSource): boolean {
   return source !== 'user';
+}
+
+/** The account a member's library is read for, or undefined for the owner. */
+function memberOf(accountId: string | undefined): string | undefined {
+  return isMember(accountId) ? accountId : undefined;
 }
 
 /**
@@ -353,7 +358,7 @@ export class WorkflowService {
 
   async library(q: { sessionId?: string; accountId?: string } = {}): Promise<WorkflowSummary[]> {
     const acct = q.accountId ?? currentAccount() ?? OWNER_ID;
-    const entries = (await this.registry.list(this.projectFor(q.sessionId))).filter((e) => !isMember(acct) || memberMay(e.source));
+    const entries = (await this.registry.list(this.projectFor(q.sessionId), memberOf(acct))).filter((e) => !isMember(acct) || memberMay(e.source));
     const last = this.store.lastRuns(acct);
     return entries.map((e) => {
       const r = last.get(e.meta?.name ?? e.id);
@@ -362,8 +367,8 @@ export class WorkflowService {
   }
 
   async detail(id: string, sessionId?: string): Promise<WorkflowDetail> {
-    const e = await this.registry.get(id, this.projectFor(sessionId));
     const acct = currentAccount() ?? OWNER_ID;
+    const e = await this.registry.get(id, this.projectFor(sessionId), memberOf(acct));
     if (!e || (isMember(acct) && !memberMay(e.source))) throw new EngineError(404, `workflow ${id} not found`);
     const last = this.store.lastRuns(acct).get(e.meta?.name ?? e.id);
     return { ...summaryOf(e, last ? { id: last.id, status: last.status, createdAt: last.createdAt, ...(last.finishedAt ? { finishedAt: last.finishedAt } : {}) } : undefined), script: e.script, ...(e.meta ? { meta: e.meta } : {}) };
@@ -399,7 +404,7 @@ export class WorkflowService {
       // one an agent could have written or a repository brought, so it is treated like a project script
       source = onHub ? (hubPath.startsWith(this.registry.runsDir + '/') ? 'inline' : 'user') : 'project';
     } else if (input.name) {
-      const e = await this.registry.get(input.name, session && session.kind !== 'chat' ? { machine: this.engine.machineFor(session), cwd: session.cwd } : undefined);
+      const e = await this.registry.get(input.name, session && session.kind !== 'chat' ? { machine: this.engine.machineFor(session), cwd: session.cwd } : undefined, memberOf(session?.accountId ?? currentAccount()));
       if (!e || (isMember(session?.accountId ?? currentAccount()) && !memberMay(e.source))) throw new EngineError(404, `workflow ${input.name} not found`);
       if (e.error) throw new EngineError(400, `workflow ${input.name} cannot run here: ${e.error}`);
       script = e.script;
@@ -443,7 +448,7 @@ export class WorkflowService {
 
   /** A preset belongs to a workflow in the caller's library: same existence and memberMay rule as startRun. */
   private async presetWorkflow(id: string, accountId: string): Promise<void> {
-    const e = await this.registry.get(id);
+    const e = await this.registry.get(id, undefined, memberOf(accountId));
     if (!e || (isMember(accountId) && !memberMay(e.source))) throw new EngineError(404, `workflow ${id} not found`);
   }
 

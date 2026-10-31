@@ -69,7 +69,7 @@ export class VisualCheck {
 
   enabled(session: Session): boolean {
     if (session.kind === 'chat') return false;
-    return wantsVisualCheck(this.engine.extensions.agent(session.agent, session.cwd));
+    return wantsVisualCheck(this.engine.agentNamed(session.agent, session.cwd, this.engine.accountOf(session)));
   }
 
   /** A main-session tool finished: note a UI edit or an image it returned. */

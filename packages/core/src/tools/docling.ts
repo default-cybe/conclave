@@ -1,4 +1,3 @@
-import { currentAccount, isMember } from '../people/context';
 import type { ToolContext } from './types';
 
 /** File types docling-serve converts (it has no OpenDocument reader). */
@@ -6,12 +5,12 @@ export const DOCLING_EXT = new Set(['pdf', 'docx', 'xlsx', 'pptx']);
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 /**
- * The Docling server this session may send files to, or undefined. The
- * config is the owner's, so a member's session never uses it: their files
- * stay off the owner's server (docs/design/ACCOUNTS.md 5).
+ * The Docling server this session may send files to, or undefined. Every
+ * account uses it: docling-serve's /v1/convert/file is stateless (bytes in,
+ * markdown back, nothing written or kept per caller), and the address is the
+ * owner's config, never one a member picks.
  */
 export function doclingFor(ctx: ToolContext): { url: string; timeoutMs: number } | undefined {
-  if (isMember(ctx.session?.accountId) || isMember(currentAccount())) return undefined;
   const d = ctx.host.config().documents?.docling;
   if (!d?.url) return undefined;
   let u: URL;

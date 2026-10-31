@@ -9,12 +9,12 @@
 import { describe, expect, test } from 'bun:test';
 import type { BrowserProxySettingsDto, BrowserStatusDto } from '@conclave/core/client';
 import { browserSetupOffer, CLOAK_VERSION } from '@conclave/core/browser/setup-plan';
-import { registerBrowser } from '../src/mock/browser';
+import { registerBrowser, type MockBrowserOptions } from '../src/mock/browser';
 import { engineStatus, libsWords, PROXY_HELP, providerWords, setupConfirmWords, setupResultWords, testWords } from '../src/features/settings/browserWords';
 
 type Handler = (p: { params: string[]; query: URLSearchParams; body: any }) => unknown;
 
-function mock(fresh = false) {
+function mock(fresh = false, opts: MockBrowserOptions = {}) {
   const routes: Array<[string, RegExp, Handler]> = [];
   const ctx = {
     on: (m: string, path: string, h: Handler) => routes.push([m, new RegExp('^' + path.replace(/:[a-z]+/gi, '([^/]+)') + '$'), h]),
@@ -24,7 +24,7 @@ function mock(fresh = false) {
     sleep: async () => undefined,
     FRESH: fresh,
   };
-  registerBrowser(ctx as never);
+  registerBrowser(ctx as never, opts);
   return async <T>(method: string, path: string, body?: unknown): Promise<T> => {
     for (const [m, re, h] of routes) {
       const hit = m === method && re.exec(path);
@@ -65,6 +65,15 @@ describe('words', () => {
 });
 
 describe('the mock', () => {
+  test('a member sees only their browser, without owner logins, setup or proxy', async () => {
+    const api = mock(false, { member: true, installed: true });
+    const status = await api<BrowserStatusDto>('GET', '/api/browser');
+    expect(status.available).toBe(true);
+    expect(status.profiles).toHaveLength(1);
+    expect(status.profiles[0]).toMatchObject({ name: 'default', sites: [], logins: [] });
+    for (const key of ['engines', 'proxy', 'dir', 'libs']) expect(status).not.toHaveProperty(key);
+  });
+
   test('a bare hub installs CloakBrowser with the exact steps, and new profiles then get it', async () => {
     const api = mock();
     const before = await api<BrowserStatusDto>('GET', '/api/browser');

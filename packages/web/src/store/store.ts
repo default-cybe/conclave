@@ -230,8 +230,10 @@ export async function loadAll(opts: { transcripts?: boolean } = {}) {
     ownerOnly(() => c.tools(), []),
     ownerOnly(() => c.mcp(), []),
   ]);
-  const [archived, cfg, friends, friendNotes, alerts, receivedShares, sentShares, projects, sharedProjects, me, apps, importOffers] = await Promise.all([
+  const [archived, imported, cfg, friends, friendNotes, alerts, receivedShares, sentShares, projects, sharedProjects, me, apps, importOffers] = await Promise.all([
     settle(c.listSessions({ archived: true, limit: 200 }), []),
+    // imported chats have a place of their own (core session/imported.ts); an export of hundreds would crowd the archive's 200
+    settle(c.listSessions({ archived: true, tag: 'imported', limit: 1000 }), []),
     settle(c.config(), undefined),
     // a hub from before friends answers 404: no friends
     ownerOnly(() => c.friends(), []),
@@ -255,7 +257,7 @@ export async function loadAll(opts: { transcripts?: boolean } = {}) {
     booted: true,
     syncedAt: Date.now(),
     hub,
-    sessions: byId([...sessions, ...archived], (s) => s.id),
+    sessions: byId([...sessions, ...archived, ...imported], (s) => s.id),
     approvals: byId(approvals, (a) => a.id),
     questions: byId(questions, (q) => q.id),
     alerts: byId(alerts, (a) => a.id),

@@ -444,10 +444,12 @@ class ConclaveClient(
         parentId: String? = null,
         /** CHAT lists chats only, AGENT workbench sessions only (old ones too); null lists both. */
         kind: SessionKind? = null,
+        /** Only sessions with this tag ("imported"). */
+        tag: String? = null,
     ): List<Session> = get(
         p("api", "sessions"),
         ListSerializer(Session.serializer()),
-        mapOf("agent" to agent, "taskId" to taskId, "archived" to archived, "search" to search, "device" to device, "limit" to limit, "parentId" to parentId, "kind" to kind?.wire),
+        mapOf("agent" to agent, "taskId" to taskId, "archived" to archived, "search" to search, "device" to device, "limit" to limit, "parentId" to parentId, "kind" to kind?.wire, "tag" to tag),
     )
 
     suspend fun getSession(id: String): Session = get(p("api", "sessions", id), Session.serializer())

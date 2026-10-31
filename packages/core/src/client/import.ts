@@ -288,6 +288,8 @@ export interface SessionImportInfo {
   learned?: boolean;
   /** False for a tool's own memory or review thread (Codex memory_consolidation, guardian_review): never learned from. */
   learnable?: boolean;
+  /** When the owner first wrote in it here: it left the Imported place (session/imported.ts). */
+  continuedAt?: number;
 }
 
 /**

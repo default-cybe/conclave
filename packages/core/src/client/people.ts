@@ -100,6 +100,10 @@ export interface MeDto extends AccountRef {
   passwordSet: boolean;
   providers: ProviderAccessDto[];
   preferences: MePreferences;
+  /** A member's own "always allow" rules (the owner's are permissions.allow in /api/config). */
+  allow?: string[];
+  /** A member's files on the hub: what they take and the owner's cap, in bytes. Missing for the owner. */
+  disk?: { usedBytes: number; limitBytes: number };
 }
 
 /** PATCH /api/me. null clears a default or the display name. */
@@ -115,6 +119,12 @@ export interface MePatch {
   importWatch?: boolean;
   /** Up to SPLIT_MAX session ids; null or [] clears the view. */
   splitView?: string[] | null;
+  /** A member's own usage fallback: models they can call, first tried first. null clears it. The owner's is models.limitFallback in /api/config. */
+  usageFallback?: { enabled?: boolean; models?: string[] } | null;
+  /** A member's own refusal fallback: models they can call, no accounts. null clears it. The owner's is models.refusalFallback. */
+  refusalFallback?: { enabled?: boolean; stay?: boolean; entries?: Array<{ model: string }> } | null;
+  /** A member's own "always allow" rules, the whole list (at most 200). The owner's are permissions.allow. */
+  allow?: string[];
 }
 
 /** The owner's grant of a hub key: missing provider is no access; monthlyUsd null is no cap. */
@@ -135,6 +145,11 @@ export interface PersonDto extends AccountRef {
   spend: Array<{ provider: string; name: string; monthlyUsd?: number; spentUsd: number }>;
   /** Plans the person signed in themselves, on their own CLIProxyAPI. Only how many: never which or whose. */
   ownPlans?: number;
+  /** A member's disk cap on the hub in GB, and what their files take now (bytes). */
+  diskLimitGb?: number;
+  diskUsedBytes?: number;
+  /** A member with no web search key of their own may use the hub's web search. */
+  webSearch?: boolean;
 }
 
 /** POST /api/people (owner) */
@@ -157,6 +172,10 @@ export interface PersonPatch {
   displayName?: string | null;
   email?: string | null;
   providers?: ProviderGrantsDto;
+  /** A member's disk cap on the hub in GB (1 to 1000); null back to the default. */
+  diskLimitGb?: number | null;
+  /** Let a member use the hub's web search when they have no key of their own. */
+  webSearch?: boolean;
 }
 
 /** An invite link: shown once, good once, for 7 days. */

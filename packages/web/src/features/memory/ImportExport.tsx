@@ -36,7 +36,7 @@ const SOURCE: Record<FileRow['source'], { name: string; harness?: string }> = {
   opencode: { name: 'OpenCode', harness: 'opencode' },
   file: { name: 'File' },
 };
-const KIND: Record<Exclude<MemoryKind, 'episode'>, string> = { profile: 'Profile', fact: 'Fact', procedure: 'Procedure' };
+const KIND: Record<Exclude<MemoryKind, 'episode'>, string> = { profile: 'Profile', fact: 'Fact', procedure: 'Procedure', inspiration: 'Inspiration' };
 const CLIS = ['claude', 'codex', 'gemini', 'opencode'];
 const CLI_NAME: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini CLI', opencode: 'OpenCode' };
 

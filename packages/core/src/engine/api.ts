@@ -141,8 +141,22 @@ export interface EngineApi {
   providersFor(accountId: string | undefined): import('../providers/registry').ProviderRegistry;
   /** A model the account can call now. */
   isUsable(ref: string, accountId?: string): boolean;
+  /** A member's own fallback lists from PATCH /api/me, cleaned; throws PeopleError 400 for a model they cannot call (session/member-fallbacks.ts). */
+  checkMemberFallbacks(
+    accountId: string,
+    patch: { usageFallback?: unknown; refusalFallback?: unknown },
+  ): { usageFallback?: import('../config/schema').LimitFallbackConfig | null; refusalFallback?: import('../config/schema').RefusalFallbackConfig | null };
   /** The agents an account may pick: a member's are the ones that ship and plugin agents. */
   agentsFor(accountId: string, cwd?: string): import('../extensions/types').AgentDef[];
+  /** The skills an account sees: a member's are the shared ones and their own (<home>/accounts/<id>/skills, learned-skills). */
+  skillsFor(accountId: string, cwd?: string): import('../extensions/types').SkillDef[];
+  /** The slash commands an account sees. */
+  commandsFor(accountId: string, cwd?: string): import('../extensions/types').CommandDef[];
+  /** The learned skills store an account writes: a member's lives under <home>/accounts/<id>/learned-skills. */
+  learnedSkillsFor(accountId: string): import('../extensions/learned').LearnedSkills;
+  /** Why a member's write of `more` bytes on the hub is refused (disk cap), or undefined. */
+  diskRefusal(accountId: string | undefined, more?: number): string | undefined;
+  diskUse(accountId: string): { usedBytes: number; limitBytes: number };
   /** The account an open approval or question belongs to. */
   pendingAccount(id: string): string | undefined;
   /** Stop a removed member's work and forget their stores. */

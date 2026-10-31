@@ -11,6 +11,7 @@ import { MapsError } from '../maps/types';
 import { defuseFrameworkTags } from '../session/untrusted';
 import type { Tool, ToolContext, ToolOutput } from './types';
 import { fail } from './util';
+import { currentAccount, runAs } from '../people/context';
 
 const NO_MAPS = 'Maps are not available on this hub.';
 const MODES = ['walk', 'transit', 'drive', 'bicycle'];
@@ -19,7 +20,9 @@ async function answer<T>(ctx: ToolContext, run: (s: MapsService) => Promise<Maps
   const s = ctx.host.maps;
   if (!s) return fail(NO_MAPS);
   try {
-    const a = await run(s);
+    // the key, home and cap are the session's account's (maps/service.ts), whatever context called the tool
+    const acct = ctx.session?.accountId ?? currentAccount();
+    const a = await (acct ? runAs(acct, () => run(s)) : run(s));
     // place names, addresses and hours are map data (OpenStreetMap is anyone's edit): framework tags defused
     return { content: defuseFrameworkTags(a.text), meta: { maps: a.card } };
   } catch (err) {

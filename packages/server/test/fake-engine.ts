@@ -15,6 +15,7 @@ import { EventBus } from '@conclave/core/util/bus.ts';
 import { newId } from '@conclave/core/util/ids.ts';
 import { DeviceRegistry } from '@conclave/core/machine/registry.ts';
 import { HookRecipes } from '@conclave/core/extensions/recipes.ts';
+import { LearnedSkills } from '@conclave/core/extensions/learned.ts';
 import type {
   ApprovalRequest,
   ApprovalResponse,
@@ -41,7 +42,7 @@ import { EngineError } from '@conclave/core/engine/errors.ts';
 import { createBackup, restoreBackup } from '@conclave/core/engine/backup.ts';
 import { exportSession as exportShared } from '@conclave/core/session/share.ts';
 import type { McpStatus } from '@conclave/core/client/index.ts';
-import { PeopleStore } from '@conclave/core/people/store.ts';
+import { PeopleError, PeopleStore } from '@conclave/core/people/store.ts';
 import { AccountSecrets } from '@conclave/core/people/secrets.ts';
 import { ProviderAccess } from '@conclave/core/people/access.ts';
 import { OWNER_ID, currentAccount, isMember } from '@conclave/core/people/context.ts';
@@ -255,6 +256,14 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
     if (!m) memberMemories.set(acct!, (m = new SqliteMemory({ db: repos.db, bus, config, complete: async () => '', accountId: acct })));
     return m;
   };
+  // a member's memory admin over their own store, as the engine's memberMemory (the hub config's connections stand in for theirs: tests add none)
+  const memberAdmins = new Map<string, MemoryConnectionService>();
+  const memoryAdminFor = (acct: string | undefined): MemoryConnectionService => {
+    if (!isMember(acct)) return memoryAdmin;
+    let a = memberAdmins.get(acct!);
+    if (!a) memberAdmins.set(acct!, (a = new MemoryConnectionService({ config, connections: new MemoryConnections({ config }), memory: memoryFor(acct), db: repos.db })));
+    return a;
+  };
   const sessionAccount = (id: string) => repos.sessions.get(id)?.accountId;
 
   const startedAt = Date.now();
@@ -264,10 +273,22 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
     access,
     sessionAccount,
     memoryFor,
-    memoryAdminFor: () => memoryAdmin,
+    memoryAdminFor,
     providersFor: () => ({ groups: async () => [] }) as never,
     isUsable: () => true,
+    // the real check is core session/member-fallbacks.ts (tested there); here a model under owner-only/ is one the member cannot call
+    checkMemberFallbacks: (_acct, patch) => {
+      const refs = [...(((patch.usageFallback as { models?: string[] } | null)?.models) ?? []), ...(((patch.refusalFallback as { entries?: Array<{ model: string }> } | null)?.entries) ?? []).map((e) => e.model)];
+      const bad = refs.find((r) => r.startsWith('owner-only/'));
+      if (bad) throw new PeopleError(400, `You can't use ${bad} on this hub.`);
+      return patch as never;
+    },
     agentsFor: (acct) => (isMember(acct) ? extensions.agents().filter((a) => a.source === 'builtin' || a.source === 'plugin') : extensions.agents()),
+    skillsFor: (acct) => (isMember(acct) ? extensions.skills().filter((a) => a.source === 'builtin' || a.source === 'plugin') : extensions.skills()),
+    commandsFor: (acct) => (isMember(acct) ? extensions.commands().filter((a) => a.source === 'builtin' || a.source === 'plugin') : extensions.commands()),
+    learnedSkillsFor: (acct) => new LearnedSkills(isMember(acct) ? join(config.paths.home, 'accounts', acct) : config.paths.home, repos.kv),
+    diskRefusal: () => undefined,
+    diskUse: () => ({ usedBytes: 0, limitBytes: 5 * 1024 ** 3 }),
     pendingAccount: (id) => {
       const sid = approvals.get(id)?.sessionId ?? questions.get(id)?.sessionId;
       return sid ? sessionAccount(sid) : undefined;

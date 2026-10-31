@@ -35,7 +35,6 @@ import { loadMeta } from './registry';
 import { captureUrl, hubCapture, type CaptureOptions } from '../browser/capture';
 import type { BrowserManager } from '../browser/manager';
 import { outputsDir } from '../files/share';
-import { isMember } from '../people/context';
 import { ledgerFence, ledgerId, mergeLedger } from './ledger';
 
 const log = logger('workflow-run');
@@ -1080,12 +1079,14 @@ export class LiveRun {
         const url = typeof o.url === 'string' ? o.url : '';
         const u = captureUrl(url);
         if ('error' in u) throw new Error(`lib.capture: ${u.error}`);
-        // the hub's browser is the owner's (docs/design/ACCOUNTS.md 5), as for the Capture tool
-        if (isMember(this.svc.runAccount(this.row))) throw new Error('lib.capture runs the hub owner\'s browser; a member\'s workflow cannot use it.');
+        // a member's capture reaches only public addresses and fits their disk cap (docs/design/ACCOUNTS.md 5), as for the Capture tool
+        const acct = this.svc.runAccount(this.row);
+        const full = this.engine.diskRefusal(acct);
+        if (full) throw new Error(`lib.capture: ${full}`);
         const opts = (o.opts && typeof o.opts === 'object' ? o.opts : {}) as CaptureOptions;
         return this.hostCall('check', `capture: ${oneLine(u.href, 80)}`, { capture: u.href, opts }, parentSeq, (signal) => {
           const out = outputsDir(this.engine.config.paths.home, this.row.sessionId ?? this.id);
-          return hubCapture((this.engine as unknown as { browser?: BrowserManager }).browser, this.engine.config.paths.home, out, u.href, opts, signal);
+          return hubCapture((this.engine as unknown as { browser?: BrowserManager }).browser, this.engine.config.paths.home, out, u.href, opts, signal, acct);
         });
       },
       dropDismissed: (p: unknown) => this.dropDismissed(Array.isArray((p as { findings?: unknown })?.findings) ? ((p as { findings: unknown[] }).findings) : []),

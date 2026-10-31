@@ -53,6 +53,7 @@ phase with its agents, tokens, errors so far and the last log lines.
 | migrate | The same change across many files or packages, in growing batches with a circuit breaker. | `goal`, `check`, `units` |
 | compare-harnesses | One task run by several harnesses or models, then scored. | `task`, `check`, `hiddenTests`, `arms` |
 | race | One task raced by several agents in separate worktrees. The check runs in each, a blind judge panel picks the best passing change with its reasons, and the run view shows it with Keep winner: apply its branch to the session's checkout or open a pull request from it. Nothing merges on its own, and the other branches are deleted only after you keep one. | `task`, `check`, `n`, `arms` |
+| web-studio | A new site, landing page or portfolio in any project folder, following the web-studio skill. A design read, researchers per reference lane (your links first), STYLE.md and SPEC.md you approve before any code, 3 to 6 prototypes of the signature idea in worktrees that a critic ranks and you pick from, modules built in parallel, then `lib.capture` and a fresh judge that sees only the screenshots, contact sheets, brief and STYLE.md score the 10-point rubric. The pass bar (average 8 or more, nothing under 7) is computed in code; the 3 weakest areas are fixed for up to 3 rounds. Validation round A (QA, accessibility, design, security) runs the project's own package.json scripts; round B (break-it, persona, owner proxy) runs only when A is clean. Keeps the folder's findings ledger. Without `url` an agent starts the dev server or a static server; the capture runs on the hub, so the URL must open from there. About 35 agents. | `brief`, `dir`, `url`, `references`, `prototypes`, `round` |
 
 The Run sheet shows each workflow's `whenToUse` line, which lists the
 arguments in full.
@@ -61,7 +62,7 @@ arguments in full.
 
 Conclave reads these places, and a later one wins a name:
 
-1. the thirteen built in workflows;
+1. the fourteen built in workflows;
 2. enabled plugins, from their `workflows/` folder (ids look like `plugin:name`);
 3. your own, in `~/.conclave/workflows/*.js` on the hub;
 4. the project's, in `<project>/.conclave/workflows/*.js`, read on the session's device;
@@ -309,7 +310,7 @@ and findings a complete refuter panel turned down as rejected. ui-pass gives
 the ledger to the visual verifier, drops problems marked rejected or wontfix,
 and writes the last look's problems as open and the ones the fix round cleared
 as fixed. Both take `round` from `args.round`, else one past the ledger's
-highest. Marking a finding Fixed in the run view does not change the ledger;
+highest. web-studio gives the ledger to its rubric judge and every validation lens, drops findings the same way bug-hunt does, and writes both validation rounds' findings as open. Marking a finding Fixed in the run view does not change the ledger;
 a script marks it with `lib.ledger.write`.
 
 ## Ultra

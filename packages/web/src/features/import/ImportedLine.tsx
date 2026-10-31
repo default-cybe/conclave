@@ -15,6 +15,7 @@ import { TextAction } from '@/components/ui/Section';
 import { LiveStatus } from '@/components/motion';
 import { useDeviceNames } from './PastChats';
 import { importedLine } from './words';
+import { inImported } from '@conclave/core/session/imported';
 
 export function importInfo(s: Session): SessionImportInfo | undefined {
   const i = s.meta?.import as SessionImportInfo | undefined;
@@ -59,6 +60,7 @@ export function ImportedLine({ session, className }: { session: Session; classNa
   return (
     <div className={cn('flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[12px] leading-[1.5] text-fg-3 phone:text-[13px]', className)}>
       <span className="min-w-0">{importedLine(info, names)}</span>
+      {inImported(session) && <span className="text-fg-2">Write below to continue it here.</span>}
       {behind && <span className="text-fg-2">{info.newThere} new {info.newThere === 1 ? 'message' : 'messages'} there.</span>}
       {diverged && <span className="text-warn">Continued there and here.</span>}
       {busy ? <LiveStatus state="tool" label="Syncing" size={14} /> : !info.device.startsWith('upload:') && <TextAction label={diverged ? 'Copy the other side' : 'Sync'} onClick={() => void sync()} />}

@@ -76,7 +76,9 @@ import { ProviderRegistry } from '../providers/registry';
 import { mergeModelGroups } from '../providers/merge';
 import { accountsOf } from '../accounts/attached';
 import type { Machine } from '../machine/types';
-import type { AgentDef, InstalledPlugin } from '../extensions/types';
+import type { AgentDef, CommandDef, InstalledPlugin, SkillDef } from '../extensions/types';
+import { accountHome, commandIn, resolveName } from '../extensions/registry';
+import { LearnedSkills } from '../extensions/learned';
 import type { HookInput, HookOutcome, ExtensionRegistry } from '../extensions/types';
 import type { Hooks } from '../extensions/hooks';
 import { HookRecipes } from '../extensions/recipes';
@@ -119,8 +121,9 @@ import { shellRegistry } from '../tools/shells';
 import { BackgroundTasks } from './background';
 import { delegateRefusal, moveToMainList } from './delegate';
 import { delegateMark, isDelegated, movedToMain } from '../session/delegated';
+import { continuedPatch, inImported } from '../session/imported';
 import { FILE_WRITE_TOOLS } from './subagent';
-import { PermissionRulesFor, routineOf } from './permissions-view';
+import { MEMBER_ALLOW_KEY, PermissionRulesFor, memberAllow, routineOf } from './permissions-view';
 import { EngineToolHost } from './host';
 import { EngineError } from './errors';
 import { handoff as handoffModel } from '../modes/handoff';
@@ -135,13 +138,14 @@ import { createBackup, restoreBackup } from './backup';
 import { agentModelRef } from '../extensions/agent-model';
 import { agentHookConfig, wantsVerifyGate } from '../extensions/agent-hooks';
 import { OWNER_ID, currentAccount, isMember, runAs } from '../people/context';
-import { PeopleStore, type HubAccount } from '../people/store';
+import { PeopleStore, accountKey, type HubAccount } from '../people/store';
 import { AccountSecrets } from '../people/secrets';
 import { ProviderAccess } from '../people/access';
 import { PLAN_PROVIDER } from '../people/plans';
 import { eventAccount } from '../people/events';
 import { RefusedMachine, MachineRefused, HUB_REFUSED, DEVICE_REFUSED, CODE_NEEDS_DEVICE } from '../people/guard';
 import { accountConfigView } from '../people/config-view';
+import { DEFAULT_DISK_GB, accountDiskUse, diskRefusal } from '../people/disk';
 import { memberFetch, memberMcpClientFactory } from '../people/memory';
 import { isAbsolute, join } from 'node:path';
 import { constants as fsConstants } from 'node:fs';
@@ -151,6 +155,7 @@ import { SqliteMemory } from '../memory/store';
 import { MemoryConnections, MemoryConnectionService } from '../memory/connections';
 import { ATTACHMENT_LOST, prepareAttachments, type ZipHost } from '../attachments/prepare';
 import { mediaTypeFor } from '../attachments/limits';
+import { checkMemberRefusalList, checkMemberUsageList } from '../session/member-fallbacks';
 
 const log = logger('engine');
 /** A session still called New chat after its start is named again after each of its first turns, up to this one. */
@@ -214,13 +219,14 @@ export interface EngineDeps {
 
 /** Agents, skills and commands a member's session may use: the ones that ship and plugins the owner installed, never the owner's own files. */
 const SHARED_SOURCES = new Set(['builtin', 'plugin']);
-/** Tools a member's session never gets: the browser runs on the hub, and a learned skill would land in the owner's skills. */
 /**
- * Tools a member's session never gets (docs/design/ACCOUNTS.md 5): learned
- * skills land in the owner's folder; maps spend the owner's key and the
- * hub's daily cap; watches, RenderFile and Capture run the hub's Chromium.
+ * Tools a member's session does not get yet (docs/design/ACCOUNTS.md 5). Each
+ * leaves this list once it has a per-account copy: SkillManage writes under
+ * accounts/<id>/learned-skills, Delegate reaches their own devices only, the
+ * browser tools and watches run in their own browser profile, maps use their
+ * own key and home. Empty for now; phase 2 tools (hub shell) are refused by the machine guard.
  */
-const MEMBER_DENY = new Set(['SkillManage', 'PlaceSearch', 'PlaceDetails', 'Directions', 'MapImage', 'WatchReport', 'WatchCreate', 'Delegate', 'RenderFile', 'Capture']);
+const MEMBER_DENY = new Set<string>();
 
 /** How long a turn waits for MCP servers to connect before it starts without their tools. */
 const MCP_PREFETCH_WAIT_MS = 5_000;
@@ -300,6 +306,12 @@ export class Engine implements EngineApi {
   private testCommands = new Map<string, Promise<string | undefined>>();
   private workspaceFacts = new Map<string, Promise<WorkspaceFacts>>();
   private deps: EngineDeps;
+  private readonly stopping = new AbortController();
+
+  /** Aborted by shutdown(): chore calls (titles, memory extraction) end instead of retrying past the hub's stop. */
+  get stopSignal(): AbortSignal {
+    return this.stopping.signal;
+  }
 
   constructor(deps: EngineDeps, usage: import('../usage/service').UsageService) {
     this.deps = deps;
@@ -403,6 +415,21 @@ export class Engine implements EngineApi {
   /** An account's own preferences (default model and agent). */
   accountPrefs(accountId: string): HubAccount['settings'] {
     return this.people.get(accountId)?.settings ?? {};
+  }
+
+  /** Why `more` bytes would not fit under a member's disk cap (people/disk.ts), or undefined. The owner has none. */
+  diskRefusal(accountId: string | undefined, more = 0): string | undefined {
+    return isMember(accountId) ? diskRefusal(this.diskInputs(accountId!), more) : undefined;
+  }
+
+  /** What a member's files on the hub take and their cap, in bytes. */
+  diskUse(accountId: string): { usedBytes: number; limitBytes: number } {
+    const i = this.diskInputs(accountId);
+    return { usedBytes: accountDiskUse(i), limitBytes: (i.limitGb && i.limitGb > 0 ? i.limitGb : DEFAULT_DISK_GB) * 1024 ** 3 };
+  }
+
+  private diskInputs(id: string) {
+    return { home: this.config.paths.home, accountId: id, limitGb: this.accountPrefs(id).diskLimitGb, sessionIds: () => this.repos.sessions.list({ accountId: id }).map((s) => s.id) };
   }
 
   /** The provider registry for an account's calls: the hub's for the owner; for a member, their own keys and plans, and the hub keys the owner allowed. */
@@ -813,6 +840,12 @@ export class Engine implements EngineApi {
       const names = prepared.lost.join(', ');
       throw new EngineError(409, `${ATTACHMENT_LOST}${names} could not be read. Send again to go without ${prepared.lost.length === 1 ? 'it' : 'them'}.`);
     }
+    // an imported chat the owner writes in leaves Imported: unarchived, a normal conversation from here (session/imported.ts)
+    if (inImported(s)) {
+      const next = { ...s, ...continuedPatch(s), updatedAt: Date.now() };
+      this.repos.sessions.update(next);
+      this.bus.emit({ type: 'session.updated', session: next });
+    }
     return this.runnerFor(id).enqueue({ ...input, attachments: prepared.attachments, ...(prepared.receipts.length ? { attachmentReceipts: prepared.receipts } : {}) });
   }
 
@@ -1046,10 +1079,11 @@ export class Engine implements EngineApi {
     const after = msgs.slice(at + 1);
     const notRun = (m: Message) => m.role === 'user' && m.kind === 'normal' && m.content.length > 0 && m.content.every((b) => b.type === 'tool_result' && b.meta?.notRun === 'refusal');
     if (after.some((m) => m.kind !== 'notice' && !notRun(m))) throw new EngineError(409, 'Only the last reply can go to the next model.');
-    const { refusalPlan, refusalStepOf, RefusalWalk, servedOf } = await import('../session/refusal-fallback');
-    // the list names the owner's accounts: a member's session has none to walk
-    const plan = isMember(s.accountId) ? undefined : refusalPlan(this.config.get(), this.agentFor(s));
-    if (!plan) throw new EngineError(409, 'Refusal fallback has no models, and no plan is marked to use when a model refuses. Add them in Settings, Models.');
+    const { refusalStepOf, RefusalWalk, servedOf } = await import('../session/refusal-fallback');
+    const { refusalPlanFor } = await import('../session/member-fallbacks');
+    // a member's session walks the member's own list, never the owner's
+    const plan = refusalPlanFor(this, s.accountId, this.agentFor(s));
+    if (!plan) throw new EngineError(409, isMember(s.accountId) ? 'Your Refusal fallback has no models you can use. Add them in Settings, Models.' : 'Refusal fallback has no models, and no plan is marked to use when a model refuses. Add them in Settings, Models.');
     const served = servedOf(reply);
     if (!served) throw new EngineError(409, 'Conclave does not know which model refused this reply.');
     const next = new RefusalWalk(this, s, plan, refusalStepOf(reply)).next(served);
@@ -1252,11 +1286,12 @@ export class Engine implements EngineApi {
     if (response.decision === 'allow' && response.scope === 'always' && (entry.req.noAlways || this.sessionUntrusted(entry.req.sessionId))) response = { decision: 'allow', scope: 'once' };
     // nothing approves ahead in a fork of a friend's share until the owner wrote their own message (session/friend-share.ts)
     if (response.decision === 'allow' && response.scope === 'session' && friendShareOf(this.repos.sessions.get(entry.req.sessionId))?.guard) response = { decision: 'allow', scope: 'once' };
-    // "always" writes the hub's config, which is the owner's: a member's always counts for the session
-    if (response.decision === 'allow' && response.scope === 'always' && this.isMemberSession(this.repos.sessions.get(entry.req.sessionId))) response = { decision: 'allow', scope: 'session', rule: response.rule };
     if (response.decision === 'allow' && response.scope === 'always') {
       const rule = response.rule ?? entry.req.suggestedRule ?? entry.req.tool;
-      this.config.update({ permissions: { ...this.config.get().permissions, allow: [...this.config.get().permissions.allow, rule] } });
+      const s = this.repos.sessions.get(entry.req.sessionId);
+      // the hub's config is the owner's: a member's "always" goes to their own rules (engine/permissions-view.ts memberAllow)
+      if (this.isMemberSession(s)) this.repos.kv.set(accountKey(this.accountOf(s), MEMBER_ALLOW_KEY), [...new Set([...memberAllow(this, s), rule])]);
+      else this.config.update({ permissions: { ...this.config.get().permissions, allow: [...this.config.get().permissions.allow, rule] } });
     }
     this.logApproval(() => this.repos.approvals.resolved(id, response.decision));
     this.bus.emit({ type: 'approval.resolved', id, sessionId: entry.req.sessionId, response });
@@ -1779,6 +1814,7 @@ export class Engine implements EngineApi {
   }
 
   async shutdown(): Promise<void> {
+    this.stopping.abort();
     // workflow runs first: they are marked interrupted and resume at the next boot
     await workflowsOf(this)?.shutdown().catch(() => {});
     alertsOf(this)?.stop();
@@ -1819,26 +1855,63 @@ export class Engine implements EngineApi {
     const acct = this.accountOf(session);
     return (
       this.agentNamed(session.agent, session.cwd, acct) ??
-      (isMember(acct) ? this.extensions.agents().find((a) => SHARED_SOURCES.has(a.source)) : this.extensions.agents()[0]) ?? { name: session.agent, description: '', prompt: '', source: 'builtin' }
+      (isMember(acct) ? this.memberView(acct).agents.find((a) => SHARED_SOURCES.has(a.source)) : this.extensions.agents()[0]) ?? { name: session.agent, description: '', prompt: '', source: 'builtin' }
     );
   }
 
   /**
-   * An agent by name as an account sees it. A member gets only the agents
-   * that ship and plugin agents: the owner's own files (~/.claude, the hub's
-   * agents folder) and project files read on the hub are not theirs.
+   * An agent by name as an account sees it. A member gets the agents that
+   * ship, plugin agents and their own (<home>/accounts/<id>/agents): the
+   * owner's own files (~/.claude, the hub's agents folder), project files
+   * read on the hub and other members' files are not theirs.
    */
   agentNamed(name: string, cwd: string | undefined, accountId: string): AgentDef | undefined {
     if (!isMember(accountId)) return this.extensions.agent(name, cwd);
-    const a = this.extensions.agent(name);
-    if (a && SHARED_SOURCES.has(a.source)) return a;
-    return this.extensions.agents().find((x) => x.name === name && SHARED_SOURCES.has(x.source));
+    return resolveName(this.memberView(accountId).agents, name);
   }
 
   /** The agents an account may pick from. */
   agentsFor(accountId: string, cwd?: string): AgentDef[] {
-    const all = this.extensions.agents(isMember(accountId) ? undefined : cwd);
-    return isMember(accountId) ? all.filter((a) => SHARED_SOURCES.has(a.source)) : all;
+    return isMember(accountId) ? this.memberView(accountId).agents : this.extensions.agents(cwd);
+  }
+
+  /** The skills an account's sessions see (prompt, Skill tool, /name). A member: shared ones and their own. */
+  skillsFor(accountId: string, cwd?: string): SkillDef[] {
+    return isMember(accountId) ? this.memberView(accountId, cwd).skills : this.extensions.skills(cwd);
+  }
+
+  /** One skill by name as the account sees it. */
+  skillNamed(name: string, cwd: string | undefined, accountId: string): SkillDef | undefined {
+    return isMember(accountId) ? resolveName(this.memberView(accountId, cwd).skills, name) : this.extensions.skill(name, cwd);
+  }
+
+  /** The slash commands an account may list. */
+  commandsFor(accountId: string, cwd?: string): CommandDef[] {
+    return isMember(accountId) ? this.memberView(accountId, cwd).commands : this.extensions.commands(cwd);
+  }
+
+  /** A typed /name as the account sees it: a command, else a skill of that name. */
+  commandNamed(name: string, cwd: string | undefined, accountId: string): CommandDef | undefined {
+    return isMember(accountId) ? commandIn(this.memberView(accountId, cwd), name) : this.extensions.command(name, cwd);
+  }
+
+  /**
+   * The learned skills store an account writes: the owner's <home>/learned-skills,
+   * a member's <home>/accounts/<id>/learned-skills with use counts under their own kv keys.
+   */
+  learnedSkillsFor(accountId: string): LearnedSkills {
+    if (!isMember(accountId)) return new LearnedSkills(this.config.paths.home, this.repos.kv);
+    const kv = this.repos.kv;
+    return new LearnedSkills(accountHome(this.config.paths.home, accountId), { get: (k, d) => kv.get(accountKey(accountId, k), d), set: (k, v) => kv.set(accountKey(accountId, k), v) });
+  }
+
+  /** A member's components: builtin, plugin and their own account source. cwd only picks their project learned skills. */
+  private memberView(accountId: string, cwd?: string): { agents: AgentDef[]; skills: SkillDef[]; commands: CommandDef[] } {
+    const own = this.extensions.forAccount?.(accountId, cwd);
+    if (own) return own;
+    // a registry without account sources (test fakes): the shared ones only
+    const shared = <T extends { source: string }>(l: T[]) => l.filter((x) => SHARED_SOURCES.has(x.source));
+    return { agents: shared(this.extensions.agents()), skills: shared(this.extensions.skills()), commands: shared(this.extensions.commands()) };
   }
 
   /** The session reads untrusted input: its own mark (webhook runs, subagents of one) or its agent's (session/untrusted.ts). */
@@ -2197,7 +2270,7 @@ export class Engine implements EngineApi {
     let narrowed = filtered.filter((t) => sessionAllowsTool(session, t.name));
     // a read-only Delegate job keeps the caller's permission mode but gets no file-editing tools (engine/delegate.ts)
     if (isDelegated(session) && delegateMark(session)?.readOnly) narrowed = narrowed.filter((t) => !FILE_WRITE_TOOLS.includes(t.name));
-    // Delegate is for primary sessions only: never a subagent, a workflow step, an untrusted or a member's session (engine/delegate.ts)
+    // Delegate is for primary sessions only: never a subagent, a workflow step or an untrusted session; a member's goes only to their own devices (engine/delegate.ts)
     if (narrowed.some((t) => t.name === 'Delegate') && delegateRefusal(this, session, depth, agent.untrusted)) narrowed = narrowed.filter((t) => t.name !== 'Delegate');
     // background task tools once the session has started a background subagent, appended so the list before them holds
     if (session.meta?.backgroundTasks && narrowed.some((t) => t.name === 'Task' || t.name === 'Delegate')) {
@@ -2314,7 +2387,7 @@ export class Engine implements EngineApi {
       return undefined;
     });
     // a member's session sees the skills that ship and plugin skills, not the owner's own
-    const skills = this.isMemberSession(session) ? this.extensions.skills().filter((s) => SHARED_SOURCES.has(s.source)) : this.extensions.skills(session.cwd);
+    const skills = this.skillsFor(this.accountOf(session), session.cwd);
     // the skills section matches skills against the first message, which holds until a compaction, so the section holds too
     const textOf = (m: Message) => m.content.filter((b) => b.type === 'text' && !isReminder(b)).map((b) => (b as { text: string }).text).join('\n');
     const firstMessage = activeMessages(this.repos.messages.list(session.id))
@@ -2536,6 +2609,9 @@ export class Engine implements EngineApi {
     } catch {
       return false;
     }
+  }
+  checkMemberFallbacks(accountId: string, patch: { usageFallback?: unknown; refusalFallback?: unknown }): ReturnType<EngineApi['checkMemberFallbacks']> {
+    return { usageFallback: checkMemberUsageList(this, accountId, patch.usageFallback), refusalFallback: checkMemberRefusalList(this, accountId, patch.refusalFallback) };
   }
   isUsableRef(ref: string): boolean {
     if (this.isAgentRef(ref)) return !!this.extensions.agent(ref.slice(1));
