@@ -487,7 +487,7 @@ function EmptyChat({ session }: { session: Session }) {
   }
   return (
     <div className="pt-6">
-      <EmptyState>
+      <EmptyState ascii>
         {line} Type <span className="mono text-fg">/</span> for commands or <span className="mono text-fg">@</span> for files.
         {agent && mode !== 'jury' && mode !== 'debate' && <span className="mt-1 block text-[13px] text-fg-3">{session.agent}: {agent}</span>}
       </EmptyState>

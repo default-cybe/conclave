@@ -35,6 +35,7 @@ import { ImportSheet } from '@/features/import/ImportSheet';
 import { isDuplicateCopy } from '@/features/import/ImportedLine';
 import { ShareProjectButton } from '@/features/friends/ShareProject';
 import { isChat } from './util';
+import { AsciiField } from '@/components/ascii/AsciiField';
 
 type Kind = 'chats' | 'code';
 type Hit = { sessionId: string; messageId: string; snippet: string; title: string };
@@ -147,7 +148,16 @@ export function PhoneChats({ kind }: { kind: Kind }) {
         {hits ? (
           <Hits hits={hits} searching={searching} query={q.trim()} sessions={sessions} />
         ) : list.length === 0 ? (
-          booted && <p className="m-0 px-5 py-3 text-[15px] leading-[1.45] text-pretty text-fg-3">{q ? `Nothing here is called "${q.trim()}". Press Search on the keyboard to look inside messages.` : archived ? words.archivedEmpty : words.empty}</p>
+          booted && (
+            <>
+              {!q && !archived && (
+                <div className="mt-4 px-5">
+                  <AsciiField align="start" size={11} className="h-24" />
+                </div>
+              )}
+              <p className="m-0 px-5 py-3 text-[15px] leading-[1.45] text-pretty text-fg-3">{q ? `Nothing here is called "${q.trim()}". Press Search on the keyboard to look inside messages.` : archived ? words.archivedEmpty : words.empty}</p>
+            </>
+          )
         ) : groups ? (
           groups.map((g) => (
             <section key={g.key} aria-label={g.label}>
