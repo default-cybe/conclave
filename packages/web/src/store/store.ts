@@ -289,7 +289,17 @@ export async function loadAll(opts: { transcripts?: boolean } = {}) {
     sharedProjects: byId(sharedProjects, (p) => p.id),
     me,
   });
-  if (opts.transcripts) for (const id of Object.keys(get().messagesLoaded)) void loadMessages(id, true);
+  if (opts.transcripts) for (const id of Object.keys(get().messagesLoaded)) void loadMessages(id, true, resyncBase(get().messages[id], get().streaming));
+}
+
+/**
+ * Where a resync of a loaded transcript starts: the oldest reply that was
+ * still streaming (it may have changed since), else the newest message. What
+ * is older is final and stays; undefined fetches it all.
+ */
+export function resyncBase(list: Message[] | undefined, streaming: Record<string, true>): Message | undefined {
+  if (!list?.length) return undefined;
+  return list.find((m) => streaming[m.id]) ?? list[list.length - 1];
 }
 
 /** The newest load of each transcript. Views that open one at once share it; an older, slower answer never lands over a newer one. */
@@ -303,7 +313,13 @@ const startedDuringLoad = new Map<string, Set<string>>();
 /** session.queue events seen per session, so a transcript load never lays an older list over a newer one. */
 const queueEvents = new Map<string, number>();
 
-export function loadMessages(sessionId: string, force = false): Promise<void> {
+/**
+ * Load a transcript. With `from` (a resync, resyncBase) only the messages
+ * from it on are fetched and laid over what is held; when `from` is gone at
+ * the hub (a rewind or an edit meanwhile) it fetches the whole transcript.
+ */
+export function loadMessages(sessionId: string, force = false, from?: Message): Promise<void> {
+  touchTranscript(sessionId);
   if (!force && get().messagesLoaded[sessionId]) return Promise.resolve();
   const pending = loads.get(sessionId);
   if (pending && !force) return pending.done;
@@ -316,12 +332,21 @@ export function loadMessages(sessionId: string, force = false): Promise<void> {
     const askedAt = Date.now();
     const queueMark = queueEvents.get(sessionId) ?? 0;
     // a hub from before the queue answers 404: nothing waits
-    const [msgs, todos, queue] = await Promise.all([settle(c.messages(sessionId), [] as Message[]), settle(c.todos(sessionId), [] as Todo[]), settle(c.queue(sessionId), undefined as QueuedMessage[] | undefined)]);
+    const [fetched, todos, queue] = await Promise.all([settle(c.messages(sessionId, from ? { afterSeq: from.seq - 1 } : {}), undefined as Message[] | undefined), settle(c.todos(sessionId), [] as Todo[]), settle(c.queue(sessionId), undefined as QueuedMessage[] | undefined)]);
     if (loads.get(sessionId) !== load) return;
+    // the message the resync starts at is not where it was: the transcript changed under it
+    if (from && fetched && fetched[0]?.id !== from.id) {
+      loads.delete(sessionId);
+      return loadMessages(sessionId, true);
+    }
+    // a failed resync keeps what is held
+    if (from && !fetched) return;
+    const msgs = fetched ?? [];
     set((s) => {
       const got = new Set(msgs.map((m) => m.id));
-      const live = (s.messages[sessionId] ?? []).filter((m) => started.has(m.id) && !got.has(m.id));
-      const list = [...msgs, ...live].sort((a, b) => a.seq - b.seq);
+      const held = from ? (s.messages[sessionId] ?? []).filter((m) => m.seq < from.seq) : [];
+      const live = (s.messages[sessionId] ?? []).filter((m) => started.has(m.id) && !got.has(m.id) && !(from && m.seq < from.seq));
+      const list = [...held, ...msgs, ...live].sort((a, b) => a.seq - b.seq);
       // what waits: unless a session.queue event came while this load was out (it is newer), and never one already in the transcript
       let queued: Pick<HubState, 'queues' | 'sending'> | undefined;
       if (queue && (queueEvents.get(sessionId) ?? 0) === queueMark) {
@@ -341,6 +366,72 @@ export function loadMessages(sessionId: string, force = false): Promise<void> {
     if (startedDuringLoad.get(sessionId) === started) startedDuringLoad.delete(sessionId);
   });
   return load.done;
+}
+
+/** Transcripts no view shows that stay loaded, the most recently left ones: going back to them is instant. */
+export const KEEP_RECENT = 2;
+/** Messages kept of a session whose transcript is not loaded: enough for its live rate and its row's state. */
+export const LIVE_TAIL = 8;
+/** Views showing each transcript (retainTranscript). */
+const retained = new Map<string, number>();
+/** Loaded transcripts, least recently used first. */
+const recency: string[] = [];
+let evictTimer: ReturnType<typeof setTimeout> | undefined;
+
+function touchTranscript(id: string) {
+  const i = recency.indexOf(id);
+  if (i >= 0) recency.splice(i, 1);
+  recency.push(id);
+}
+
+/**
+ * A view shows this transcript: it loads, and stays while the view is
+ * mounted. Returns the release. Transcripts no view shows go, all but the
+ * KEEP_RECENT last used, so a tab holds the chats on screen and not every
+ * chat it ever opened.
+ */
+export function retainTranscript(id: string): () => void {
+  retained.set(id, (retained.get(id) ?? 0) + 1);
+  void loadMessages(id);
+  return () => {
+    const n = (retained.get(id) ?? 1) - 1;
+    if (n > 0) retained.set(id, n);
+    else retained.delete(id);
+    touchTranscript(id);
+    // later, so a view that releases and retains in one commit (a new id, a re-run effect) keeps it
+    clearTimeout(evictTimer);
+    evictTimer = setTimeout(evictTranscripts, 0);
+  };
+}
+
+export function evictTranscripts() {
+  const s = get();
+  const idle = recency.filter((id) => !retained.has(id) && s.messagesLoaded[id]);
+  const drop = idle.slice(0, Math.max(0, idle.length - KEEP_RECENT));
+  if (!drop.length) return;
+  const messages = { ...s.messages };
+  const messagesLoaded = { ...s.messagesLoaded };
+  let tools = s.tools;
+  for (const id of drop) {
+    // tool results come back with the transcript; the run's state is enough meanwhile
+    for (const m of messages[id] ?? [])
+      for (const b of m.content)
+        if (b.type === 'tool_use' && tools[b.id]?.result) {
+          if (tools === s.tools) tools = { ...s.tools };
+          const { result: _r, ...run } = tools[b.id];
+          tools[b.id] = run;
+        }
+    messages[id] = (messages[id] ?? []).slice(-LIVE_TAIL);
+    delete messagesLoaded[id];
+    loads.delete(id);
+    recency.splice(recency.indexOf(id), 1);
+  }
+  set({ messages, messagesLoaded, tools });
+}
+
+/** A session's list as kept: all of a loaded transcript, the live tail of one that is not. */
+function kept(s: HubState, sessionId: string, list: Message[]): Message[] {
+  return s.messagesLoaded[sessionId] || loads.has(sessionId) || list.length <= LIVE_TAIL ? list : list.slice(-LIVE_TAIL);
 }
 
 // ---------------------------------------------------------------------------
@@ -849,7 +940,7 @@ export function applyEvent(e: EngineEventEnvelope) {
         if (mine !== s.sending[m.sessionId]) queued.sending = { ...s.sending, [m.sessionId]: mine ?? [] };
         for (const id of took) previews.delete(id);
       }
-      set({ messages: { ...s.messages, [m.sessionId]: upsertMessage(s.messages[m.sessionId], m) }, streaming, ...queued });
+      set({ messages: { ...s.messages, [m.sessionId]: kept(s, m.sessionId, upsertMessage(s.messages[m.sessionId], m)) }, streaming, ...queued });
       break;
     }
     case 'message.deleted': {
@@ -888,7 +979,7 @@ export function applyEvent(e: EngineEventEnvelope) {
       };
       if (!found) startedDuringLoad.get(e.sessionId)?.add(e.messageId);
       const next = e.kind === 'tool_input' ? m : applyDelta(m, e.index, e.kind, e.text);
-      set({ messages: { ...s.messages, [e.sessionId]: upsertMessage(list, next) }, streaming });
+      set({ messages: { ...s.messages, [e.sessionId]: kept(s, e.sessionId, upsertMessage(list, next)) }, streaming });
       break;
     }
     case 'tool.started': {
@@ -912,7 +1003,9 @@ export function applyEvent(e: EngineEventEnvelope) {
     case 'tool.completed': {
       const t = s.tools[e.toolUseId] ?? { name: '', startedAt: e.ts, progress: '' };
       // the result shows from here on; the live output (up to 20,000 characters a run) would only pile up
-      set({ tools: { ...s.tools, [e.toolUseId]: { ...t, status: e.result.isError ? 'error' : 'ok', result: e.result, finishedAt: e.ts, progress: '' } } });
+      // a session no view shows keeps the state only: its transcript brings the result (a screenshot is 300 KB)
+      const shown = s.messagesLoaded[e.sessionId] || loads.has(e.sessionId);
+      set({ tools: { ...s.tools, [e.toolUseId]: { ...t, status: e.result.isError ? 'error' : 'ok', ...(shown ? { result: e.result } : {}), finishedAt: e.ts, progress: '' } } });
       break;
     }
     case 'approval.requested':

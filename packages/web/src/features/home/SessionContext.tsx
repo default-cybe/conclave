@@ -5,7 +5,7 @@
  */
 import { useEffect, useMemo } from 'react';
 import type { ContentBlock, Message, ToolResultBlock, ToolUseBlock } from '@conclave/core/types';
-import { loadMessages, useHub } from '@/store/store';
+import { retainTranscript, useHub } from '@/store/store';
 import { cn } from '@/lib/text';
 import { hhmm } from '@/lib/format';
 import { LoadingRows } from '@/components/ui/EmptyState';
@@ -51,9 +51,7 @@ export function SessionContext({ sessionId, pendingToolUseId, className }: { ses
   const loaded = useHub((s) => s.messagesLoaded[sessionId]);
   const session = useHub((s) => s.sessions[sessionId]);
 
-  useEffect(() => {
-    void loadMessages(sessionId);
-  }, [sessionId]);
+  useEffect(() => retainTranscript(sessionId), [sessionId]);
 
   const view = useMemo(() => {
     if (!messages?.length) return undefined;

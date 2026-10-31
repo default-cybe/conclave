@@ -13,6 +13,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Hub: the transcript API pages. `GET /api/sessions/:id/messages?limit=N` answers the newest N messages, `&beforeSeq=S` the page before seq S, and `afterSeq` still reads forward; no parameters still answers the whole transcript. On a copy of the live database the newest 200 messages of an 11,301-message session are 0.49 MB in 4 ms instead of 40.6 MB in 250 ms.
 - Hub: `GET /api/sessions/:id/messages?trim=1` sends every content block over 100 KB light (text cut to 100,000 characters, image and document data left out, a tool result's parts the same way) and lists each in the message's `meta.trimmed` with its full size; `GET /api/sessions/:id/messages/:msgId/blocks/:index` returns one block in full. Without `trim` nothing changes. On a copy of the live database the heaviest 200-message page drops from 12.1 MB to 0.97 MB and its largest block from 11.1 MB to 67 KB.
+- Web: a tab no longer keeps every transcript it opened. Views keep the transcript they show and the 2 last left; other sessions keep an 8-message live tail with no tool results. A resync (after a hub restart) fetches only the messages after the newest one held, and the whole transcript only when that message is gone at the hub. On the 5 largest real sessions, 5 resyncs fetched 63 KB instead of 1,010 MB and the tab's heap dropped from 408 MB to 179 MB.
 
 ## [0.4.50] - 2026-10-31
 

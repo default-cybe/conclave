@@ -19,7 +19,7 @@ import { Link, useLocation } from 'wouter';
 import { MoreHorizontal, PanelRight, X } from 'lucide-react';
 import type { Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
-import { attempt, loadMessages, removeKey, toast, upsertSession, useHub, useQuietToasts } from '@/store/store';
+import { attempt, removeKey, retainTranscript, toast, upsertSession, useHub, useQuietToasts } from '@/store/store';
 import { openNewChat, toggleContext, useUi } from '@/store/ui';
 import { cn } from '@/lib/text';
 import { countWord, folderName, hhmm, inTime } from '@/lib/format';
@@ -66,9 +66,7 @@ export function ChatView({ session, column }: { session: Session; /** Shown as a
   const contextOpen = useUi((s) => s.contextOpen);
   const panelShown = wide && contextOpen;
 
-  useEffect(() => {
-    void loadMessages(session.id);
-  }, [session.id]);
+  useEffect(() => retainTranscript(session.id), [session.id]);
   // the transcript says its notices ("Stopped", an error), so the hub's toasts for it are dropped
   useQuietToasts(session.id);
 
