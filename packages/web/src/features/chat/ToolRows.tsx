@@ -29,7 +29,7 @@ import { Link } from 'wouter';
 import type { ContentBlock, Message, ToolResultBlock, ToolUseBlock } from '@conclave/core/types';
 import { cn, makeDiff, parseDiff, type DiffFile } from '@/lib/text';
 import { durationShort, pathIn, shortPath } from '@/lib/format';
-import { loadMessages, toolResultsFor, useHub, type HubState, type ToolRun } from '@/store/store';
+import { retainTranscript, toolResultsFor, useHub, type HubState, type ToolRun } from '@/store/store';
 import { modelName } from '@/lib/models';
 import { waitsIn } from '@/lib/asks';
 import { lowerFirst, subagentNow, workSummary, workingWords, type WorkStep } from '@/lib/toolLine';
@@ -747,9 +747,7 @@ export function subagentNowOf(s: Pick<HubState, 'sessions' | 'messages' | 'tools
  * until its session shows up. Undefined while `on` is false.
  */
 export function useSubagentNow(on: boolean, childId: string | undefined): { text: string; waiting: boolean } | undefined {
-  useEffect(() => {
-    if (on && childId) void loadMessages(childId);
-  }, [on, childId]);
+  useEffect(() => (on && childId ? retainTranscript(childId) : undefined), [on, childId]);
   // one string, so the selector stays cheap and the row draws again only when the words change
   const key = useHub((s) => {
     if (!on) return undefined;
