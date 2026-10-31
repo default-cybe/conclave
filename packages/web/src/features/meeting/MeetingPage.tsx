@@ -267,7 +267,7 @@ function MeetingDetail({ id }: { id: string }) {
         open={confirm === 'delete'}
         onClose={() => setConfirm(undefined)}
         title="Delete this meeting?"
-        body="The transcript, answers and session go. The notes file in the project and its tasks stay."
+        body="The transcript, answers, session and its memory entry go. The notes file in the project and its tasks stay."
         onConfirm={() =>
           meetings()
             .remove(m.id)

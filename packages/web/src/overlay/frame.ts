@@ -13,6 +13,11 @@ export interface FrameBuffer<T> {
 type Raf = (cb: () => void) => number;
 type Caf = (id: number) => void;
 
+/** Channel levels: the previous object when neither moved by 0.02 or more, so React skips the render. */
+export function levelsOrSame<L extends { me: number; them: number }>(prev: L, next: L): L {
+  return Math.abs(prev.me - next.me) < 0.02 && Math.abs(prev.them - next.them) < 0.02 ? prev : next;
+}
+
 export function frameBuffer<T>(flush: (items: T[]) => void, raf: Raf = requestAnimationFrame, caf: Caf = cancelAnimationFrame): FrameBuffer<T> {
   let items: T[] = [];
   let id: number | undefined;

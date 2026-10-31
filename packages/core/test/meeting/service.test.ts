@@ -25,6 +25,7 @@ const isWarm = (b: RequestBody) => isLive(b) && JSON.stringify(b.messages).inclu
 interface Opts {
   live?: (b: RequestBody, text: string) => Step | undefined;
   wrapup?: string;
+  memory?: boolean;
 }
 
 async function boot(o: Opts = {}) {
@@ -37,6 +38,7 @@ async function boot(o: Opts = {}) {
       if (isLive(b)) return o.live?.(b, text) ?? [{ text: 'Say this:\n- We shipped it.\nSource: your notes' }];
       return undefined;
     },
+    ...(o.memory ? { overrides: { memory: { enabled: true, autoExtract: false, autoInject: false, injectLimit: 0 } } as never } : {}),
   });
   const svc = meetingsOf(t.engine)!;
   return { svc, engine: t.engine };
@@ -157,6 +159,7 @@ describe('meeting service', () => {
 
   test('wrap-up: notes file in the project, a task for "me" items only, one episode', async () => {
     const { svc, engine } = await boot({
+      memory: true,
       wrapup: '{"summary":"Export is in review. Retry ships Friday.","decisions":["CSV first"],"actionItems":[{"who":"me","what":"Send the benchmark numbers","due":"2026-11-02"},{"who":"Priya","what":"Review the PR"}],"openQuestions":["XLSX too?"]}',
     });
     const m = await liveMeeting(svc);
@@ -171,7 +174,7 @@ describe('meeting service', () => {
     const tasks = engine.repos.tasks.list({ accountId: 'owner' });
     expect(tasks.map((x) => x.title)).toEqual(['Send the benchmark numbers']);
     const dir = join(t!.cwd, '.conclave', 'meetings');
-    const files = readdirSync(dir);
+    const files = readdirSync(dir).filter((f) => f.endsWith('.md'));
     expect(files).toHaveLength(1);
     expect(readFileSync(join(dir, files[0]), 'utf8')).toContain('## Action items');
     expect(svc.store.get(m.id)!.notesPath).toBe(join(dir, files[0]));

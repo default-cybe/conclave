@@ -10,7 +10,7 @@
  * separate window that screen sharing captures.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { frameBuffer } from './frame';
+import { frameBuffer, levelsOrSame } from './frame';
 import { connectWs, type WsStatus } from './ws';
 import { meetingApi, type MeetingApi, type Req } from './hub';
 import { desktop, ipc } from './desktop';
@@ -138,7 +138,8 @@ function useDesktop() {
     let alive = true;
     const offs: (() => void)[] = [];
     void ipc.status()?.then((s) => alive && s && setStatus(s), () => undefined);
-    const lv = frameBuffer<{ me: number; them: number }>((all) => setLevels(all[all.length - 1]!));
+    // the same levels keep the old object, so an overlay nobody speaks to does not render
+    const lv = frameBuffer<{ me: number; them: number }>((all) => setLevels((p) => levelsOrSame(p, all[all.length - 1]!)));
     void d.listen<DesktopMeetingStatus>('meeting://status', (e) => setStatus(e.payload)).then((off) => (alive ? offs.push(off) : off()));
     void d.listen<{ me: number; them: number }>('meeting://level', (e) => lv.push(e.payload)).then((off) => (alive ? offs.push(off) : off()));
     return () => {

@@ -9,7 +9,6 @@ import type { Engine } from '../engine/engine';
 import { EngineError } from '../engine/errors';
 import { agentModelRef } from '../extensions/agent-model';
 import { projectsOf } from '../projects/attached';
-import { memoryContextFor } from '../engine/memory-context';
 import { streamCompletion } from '../session/stream';
 import { defuseFrameworkTags } from '../session/untrusted';
 import type { Session } from '../types';
@@ -171,21 +170,14 @@ export class MeetingService {
       });
   }
 
+  /** This project's memory only: the room may hear any of it, so no global profile or facts (8). */
   private async memoryBlock(m: Meeting, session: Session): Promise<string> {
-    const mem = this.engine.memoryFor(m.accountId);
-    let text = '';
     try {
-      text = memoryContextFor({ memory: mem });
+      const hits = (await this.engine.memoryFor(m.accountId).recall(`${m.title} ${m.agenda ?? ''}`, { project: this.engine.memoryProject(session), limit: 8 })).filter((h) => h.scope === 'project');
+      return hits.length ? `Recalled:\n${hits.map((h) => `- ${h.content.replace(/\s+/g, ' ')}`).join('\n')}` : '';
     } catch {
-      /* memory off */
+      return ''; // memory off, or no recall
     }
-    try {
-      const hits = await mem.recall(`${m.title} ${m.agenda ?? ''}`, { project: this.engine.memoryProject(session), limit: 8 });
-      if (hits.length) text += `\n\nRecalled:\n${hits.map((h) => `- ${h.content.replace(/\s+/g, ' ')}`).join('\n')}`;
-    } catch {
-      /* no recall */
-    }
-    return text;
   }
 
   /** Build the pack, stream the brief, then ready and warm-up (1.2, 4.2). */
@@ -203,7 +195,7 @@ export class MeetingService {
         title: m.title,
         agenda: m.agenda,
         sessions: this.packSessions(m),
-        tasks: this.engine.repos.tasks.list({ accountId: m.accountId }).filter((t) => t.status !== 'done' && (!m.projectId || t.project === m.projectId)),
+        tasks: this.engine.repos.tasks.list({ accountId: m.accountId }).filter((t) => t.status !== 'done' && (m.projectId ? t.project === m.projectId : !t.project)),
         memory: await this.memoryBlock(m, session),
         lastMeeting: this.store.previousNotes(m),
       });
@@ -406,15 +398,20 @@ export class MeetingService {
     return n;
   }
 
-  /** Rows, the session and its messages; the notes file and the tasks stay. */
+  /** Rows, the session, its messages and its memory episode; the notes file and the tasks stay. */
   async delete(id: string, accountId: string): Promise<void> {
     const m = this.get(id, accountId);
-    if (m.status === 'live') throw err(409, 'End the meeting before you delete it.');
+    // paused still captures on the desktop; ending still writes the notes, tasks and episode
+    if (m.status === 'live' || m.status === 'paused') throw err(409, 'End the meeting before you delete it.');
+    if (m.status === 'ending') throw err(409, 'The notes are still being written; delete the meeting when they are done.');
     const l = this.live.get(id);
     l?.answerer.stop();
     if (l?.warm) clearInterval(l.warm);
     this.live.delete(id);
     this.store.delete(id);
+    const mem = this.engine.memoryFor(m.accountId);
+    const eps = this.engine.repos.db.query(`SELECT id FROM memories WHERE account_id = ? AND source_session_id = ?`).all(m.accountId, m.sessionId) as { id: string }[];
+    for (const e of eps) await mem.remove(e.id);
     await this.engine.deleteSession(m.sessionId).catch(() => {});
   }
 

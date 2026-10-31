@@ -4,7 +4,7 @@
  * the last 6 transcript lines and up to 5 earlier answers. Controls call the
  * hub over HTTP and Rust over IPC; both return at once.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { MeetingApi } from './hub';
 import { ipc } from './desktop';
 import { answerStack, lastLines, type MeetingView } from './model';
@@ -56,14 +56,28 @@ function Level({ label, value }: { label: string; value: number }) {
 
 export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view: MeetingView; desktop?: DesktopMeetingStatus; levels: { me: number; them: number }; ws: WsStatus }) {
   const m = view.meeting!;
-  const paused = m.status === 'paused' || !!desktop?.paused;
+  // the dot shows what the microphone does: the capture's own state when this computer captures
+  const paused = desktop?.live ? desktop.paused : m.status === 'paused';
   const minutes = useMinutes(m.startedAt);
   const { current, previous } = answerStack(view);
   const [ending, setEnding] = useState(false);
   const [error, setError] = useState<string>();
-  const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
+  const fail = useCallback((e: unknown) => setError(e instanceof Error ? e.message : String(e)), []);
 
-  const answerNow = (question?: string) => void api.answer(m.id, { reason: 'button', question }).catch(fail);
+  // the pause hotkey changes only the capture: the hub follows it (a 409 means it is already there)
+  const capturePaused = desktop?.live ? desktop.paused : undefined;
+  useEffect(() => {
+    if (capturePaused === undefined || capturePaused === (m.status === 'paused')) return;
+    if (m.status !== 'live' && m.status !== 'paused') return;
+    void api.patch(m.id, { status: capturePaused ? 'paused' : 'live' }).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change on the capture side syncs; a pause from the hub page stays
+  }, [capturePaused]);
+
+  const answerNow = useCallback((question?: string) => void api.answer(m.id, { reason: 'button', question }).catch(fail), [api, m.id, fail]);
+  const currentId = current?.id;
+  const currentQuestion = current?.question;
+  const onStop = useCallback(() => void (currentId && api.cancel(m.id, currentId).catch(fail)), [api, m.id, currentId, fail]);
+  const onRetry = useCallback(() => answerNow(currentQuestion || undefined), [answerNow, currentQuestion]);
   const togglePause = () => {
     void ipc.pause(!paused)?.catch(fail);
     // the hub's status follows; a 409 means it is already there
@@ -94,8 +108,8 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
         <AnswerCard
           answer={current}
           text={view.text[current.messageId] ?? ''}
-          onStop={() => void api.cancel(m.id, current.id).catch(fail)}
-          onRetry={() => answerNow(current.question || undefined)}
+          onStop={onStop}
+          onRetry={onRetry}
         />
       ) : (
         <section className="ov-card">

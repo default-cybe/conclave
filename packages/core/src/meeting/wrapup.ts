@@ -139,7 +139,11 @@ export async function wrapUp(engine: Engine, m: Meeting, segs: StoredSegment[], 
   let notesPath: string | undefined;
   try {
     const path = opts.machine.resolve(rel, m.cwd);
-    await opts.machine.mkdir(path.slice(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))));
+    const dir = path.slice(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')));
+    await opts.machine.mkdir(dir);
+    // notes are other people's words: keep them out of the project's git (a later `git add -A`)
+    const ignore = opts.machine.resolve('.gitignore', dir);
+    if (!(await opts.machine.stat(ignore).catch(() => null))) await opts.machine.writeFile(ignore, '*\n');
     await opts.machine.writeFile(path, markdown);
     notesPath = path;
   } catch {
@@ -147,6 +151,9 @@ export async function wrapUp(engine: Engine, m: Meeting, segs: StoredSegment[], 
   }
   const day = new Date(m.startedAt ?? m.createdAt).toISOString().slice(0, 10);
   const line = (filled.summary.split(/(?<=[.!?])\s/)[0] || 'no summary').slice(0, 300);
-  await engine.memoryFor(m.accountId).save({ content: `Meeting ${m.title} on ${day}: ${line}`, kind: 'episode', ...(opts.memoryKey ? { scope: 'project' as const, scopeKey: opts.memoryKey } : {}), tags: ['meeting'], sourceSessionId: m.sessionId });
+  // a summary of untrusted speech: it waits in Memory, To review, and recall skips it until the owner accepts it
+  if (engine.config.get().memory.enabled) {
+    engine.memoryFor(m.accountId).saveLearnedEpisode({ content: `Meeting ${m.title} on ${day}: ${line}`, scope: opts.memoryKey ? 'project' : 'global', ...(opts.memoryKey ? { scopeKey: opts.memoryKey } : {}), tags: ['meeting'], sourceSessionId: m.sessionId, meta: { source: 'meeting', review: 'pending', untrusted: true, observedAt: m.startedAt ?? m.createdAt } });
+  }
   return { notes: { ...filled, markdown }, ...(notesPath ? { notesPath } : {}) };
 }
