@@ -247,6 +247,15 @@ jobs:
           # Publish public writes latest.json, with the other update manifest, after the APK is in
           includeUpdaterJson: false
 
+      # the hardened runtime blocks the mic without it (src-tauri/Entitlements.plist)
+      - name: Check the Mac app is signed with the microphone entitlement
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app="packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Conclave.app"
+          ents="$(codesign -d --entitlements - --xml "$app")"
+          grep -q com.apple.security.device.audio-input <<<"$ents"
+
       - name: Keep the bundles as a run artifact
         if: github.ref_type != 'tag'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
