@@ -15,6 +15,12 @@ like `## [0.4.16] - 2026-10-24`.
 - Hub: `GET /api/sessions/:id/messages?trim=1` sends every content block over 100 KB light (text cut to 100,000 characters, image and document data left out, a tool result's parts the same way) and lists each in the message's `meta.trimmed` with its full size; `GET /api/sessions/:id/messages/:msgId/blocks/:index` returns one block in full. Without `trim` nothing changes. On a copy of the live database the heaviest 200-message page drops from 12.1 MB to 0.97 MB and its largest block from 11.1 MB to 67 KB.
 - Web: a tab no longer keeps every transcript it opened. Views keep the transcript they show and the 2 last left; other sessions keep an 8-message live tail with no tool results. A resync (after a hub restart) fetches only the messages after the newest one held, and the whole transcript only when that message is gone at the hub. On the 5 largest real sessions, 5 resyncs fetched 63 KB instead of 1,010 MB and the tab's heap dropped from 408 MB to 179 MB.
 
+### Fixed
+
+- Desktop app: a main window hidden in the tray for 10 minutes on a hub page other than Home goes to Home, and comes back to that page when shown. Closing only hides the window, so a long session page kept its memory growing for hours (13 MB to 227 MB in 110 minutes on Windows, then the page restarted). Home keeps the hub's connection, so notifications still come; composer drafts are kept in IndexedDB.
+- Desktop app: links that open in a new tab (chat links, View pull request, sign-in pages) open in the browser again. The opener plugin's click hook called a command the hub page is not allowed, so the click did nothing and logged `plugin:opener|open_url not allowed by ACL` (16 times since 2026-10-26 on Linux and Windows). The hook is off; the windows send new-window requests for http, https and mailto to the browser and open no popup.
+- Desktop app on Linux: reports its memory to the hub's log as `perf.memory` every 5 minutes (`rssMb`, with `appMb` and `webMb` for the WebKit processes, `source: "native"`). WebKitGTK has no `performance.memory` or long tasks, so the Linux app sent no slowness data at all before.
+
 ## [0.4.50] - 2026-10-31
 
 ### Added
