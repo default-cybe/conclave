@@ -16,6 +16,8 @@ mod appimage;
 mod computer;
 mod hub;
 mod local;
+#[cfg(target_os = "linux")]
+mod perf;
 mod terminal;
 mod update;
 #[cfg(windows)]
@@ -37,12 +39,15 @@ use tauri::{
     ipc::CapabilityBuilder,
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    webview::NewWindowResponse,
     AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent, Wry,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as _};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_global_shortcut::ShortcutState;
 use tauri_plugin_opener::OpenerExt;
+
+mod meeting;
 
 const MAIN: &str = "main";
 const QUICK: &str = "quick";
@@ -77,6 +82,10 @@ struct AppState {
     /// A password login waiting for the person to check the hub's
     /// fingerprint. Its token stays here, never on the page or on disk, until Continue.
     pending_login: Mutex<Option<PendingLogin>>,
+    /// When the main window was first seen hidden (park_hidden_main).
+    hidden_since: Mutex<Option<Instant>>,
+    /// The hub page the hidden main window left for the home page; it comes back on show.
+    parked: Mutex<Option<Url>>,
 }
 
 struct PendingLogin {
@@ -131,6 +140,15 @@ fn allow_navigation(app: &AppHandle, url: &Url) -> bool {
         let _ = app.opener().open_url(url.as_str(), None::<&str>);
     }
     false
+}
+
+/// A link with target="_blank" or window.open: http, https and mailto open in
+/// the browser, as other links do (allow_navigation). No popup window opens.
+fn new_window(app: &AppHandle, url: &Url) -> NewWindowResponse<Wry> {
+    if matches!(url.scheme(), "http" | "https" | "mailto") {
+        let _ = app.opener().open_url(url.as_str(), None::<&str>);
+    }
+    NewWindowResponse::Deny
 }
 
 /// The hub page moved itself to another address of the hub, with this app's
@@ -218,7 +236,29 @@ fn grant_hub_ipc(app: &AppHandle, base: &Url) -> Result<(), String> {
             .permission("allow-computer-status")
             .permission("allow-open-settings")
             .permission("allow-update-status")
-            .permission("allow-update-install"),
+            .permission("allow-update-install")
+            // the hub page may open the meeting overlay, never start capture (MEETING-MODE.md 2.1.1)
+            .permission("allow-meeting-open")
+            .permission("allow-meeting-status")
+            // meeting://status, so notify.ts stays quiet while a meeting listens (MEETING-MODE.md 7.6)
+            .permission("core:event:allow-listen")
+            .permission("core:event:allow-unlisten"),
+    )
+    .map_err(|e| e.to_string())?;
+    // capture starts only from the overlay window, after the owner's tap there
+    app.add_capability(
+        CapabilityBuilder::new(format!("hub-meeting-{}", granted.len()))
+            .remote(format!("{origin}/*"))
+            .windows([meeting::MEETING])
+            .permission("core:event:allow-listen")
+            .permission("core:event:allow-unlisten")
+            .permission("allow-meeting-status")
+            .permission("allow-meeting-start")
+            .permission("allow-meeting-pause")
+            .permission("allow-meeting-stop")
+            .permission("allow-meeting-click-through")
+            .permission("allow-meeting-hide")
+            .permission("allow-meeting-focusable"),
     )
     .map_err(|e| e.to_string())?;
     granted.insert(origin);
@@ -243,6 +283,7 @@ fn main_window(app: &AppHandle, visible: bool) -> tauri::Result<WebviewWindow> {
         return Ok(win);
     }
     let handle = app.clone();
+    let popups = app.clone();
     WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
         .title("Conclave")
         // Tauri's own drop handler swallows dropped files; the hub page takes them with HTML5 drag and drop
@@ -251,6 +292,7 @@ fn main_window(app: &AppHandle, visible: bool) -> tauri::Result<WebviewWindow> {
         .min_inner_size(400.0, 500.0)
         .visible(visible)
         .on_navigation(move |url| allow_navigation(&handle, url))
+        .on_new_window(move |url, _| new_window(&popups, &url))
         // the hub page titles itself per page ("Inbox, Conclave"): the title bar, the Dock and the taskbar follow it
         .on_document_title_changed(|win, title| {
             if !title.is_empty() {
@@ -264,13 +306,54 @@ fn focus(win: &WebviewWindow) {
     let _ = win.show();
     let _ = win.unminimize();
     let _ = win.set_focus();
+    if win.label() == MAIN {
+        *state(win.app_handle()).hidden_since.lock().unwrap() = None;
+    }
 }
 
 fn show_main(app: &AppHandle) {
     match main_window(app, true) {
-        Ok(win) => focus(&win),
+        Ok(win) => {
+            // a page parked while hidden comes back where it was (its draft is in IndexedDB)
+            let parked = state(app).parked.lock().unwrap().take();
+            if let Some(url) = parked.filter(|u| hub_base(app).is_some_and(|b| b.origin() == u.origin())) {
+                let _ = win.navigate(url);
+            }
+            focus(&win)
+        }
         Err(e) => eprintln!("conclave: cannot open the main window: {e}"),
     }
+}
+
+/// A main window hidden this long on a hub page other than its home page goes
+/// to the home page: closing only hides it, and a long session page kept its
+/// memory growing for hours in the tray. The home page keeps the hub's
+/// connection, so notifications still come.
+const PARK_AFTER: Duration = Duration::from_secs(10 * 60);
+
+fn should_park(base: &Url, current: &Url, hidden_for: Duration) -> bool {
+    hidden_for >= PARK_AFTER && current.origin() == base.origin() && (current.path() != base.path() || current.query().is_some())
+}
+
+/// Once a minute: park the main window when it has been hidden PARK_AFTER.
+fn park_hidden_main(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(60));
+        let Some(win) = app.get_webview_window(MAIN) else { continue };
+        let st = state(&app);
+        if win.is_visible().unwrap_or(true) {
+            *st.hidden_since.lock().unwrap() = None;
+            continue;
+        }
+        let since = *st.hidden_since.lock().unwrap().get_or_insert_with(Instant::now);
+        let (Some(base), Ok(current)) = (hub_base(&app), win.url()) else { continue };
+        if !should_park(&base, &current, since.elapsed()) {
+            continue;
+        }
+        let Ok(home) = hub_page(&app, "") else { continue };
+        *st.parked.lock().unwrap() = Some(current);
+        let _ = win.navigate(home);
+    });
 }
 
 fn toggle_main(app: &AppHandle) {
@@ -284,6 +367,7 @@ fn toggle_main(app: &AppHandle) {
 
 /// Load `url` in the main window and bring it forward.
 fn show_url(app: &AppHandle, url: Url) {
+    state(app).parked.lock().unwrap().take();
     match main_window(app, true) {
         Ok(win) => {
             let _ = win.navigate(url);
@@ -318,6 +402,7 @@ fn show_pairing(app: &AppHandle) {
 
 fn load_hub(app: &AppHandle, query: &str) -> Result<(), String> {
     let url = hub_page(app, query)?;
+    state(app).parked.lock().unwrap().take();
     let win = main_window(app, true).map_err(|e| e.to_string())?;
     win.navigate(url).map_err(|e| e.to_string())
 }
@@ -344,6 +429,7 @@ fn toggle_quick(app: &AppHandle) {
         return;
     };
     let handle = app.clone();
+    let popups = app.clone();
     let built = WebviewWindowBuilder::new(app, QUICK, WebviewUrl::External(url))
         .title("Conclave quick ask")
         .disable_drag_drop_handler()
@@ -354,6 +440,7 @@ fn toggle_quick(app: &AppHandle) {
         .center()
         .focused(true)
         .on_navigation(move |url| allow_navigation(&handle, url))
+        .on_new_window(move |url, _| new_window(&popups, &url))
         .build();
     if let Err(e) = built {
         eprintln!("conclave: cannot open quick ask: {e}");
@@ -1393,6 +1480,8 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             &MenuItem::with_id(app, "new_chat", "New chat", true, None::<&str>)?,
             &MenuItem::with_id(app, "toggle", "Show/Hide", true, None::<&str>)?,
             &MenuItem::with_id(app, "quick", "Quick ask", true, None::<&str>)?,
+            &MenuItem::with_id(app, "meeting_toggle", "Start meeting... / Show-hide overlay", true, None::<&str>)?,
+            &MenuItem::with_id(app, "meeting_end", "End meeting", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?,
             &MenuItem::with_id(app, "pair_phone", "Pair a phone...", true, None::<&str>)?,
@@ -1415,6 +1504,8 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "new_chat" => new_chat(app),
             "toggle" => toggle_main(app),
             "quick" => toggle_quick(app),
+            "meeting_toggle" => meeting::toggle(app),
+            "meeting_end" => meeting::end(app),
             "settings" => show_settings(app),
             "pair_phone" => show_pairing(app),
             "change_hub" => show_setup(app, &[]),
@@ -1440,6 +1531,68 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// The id the desktop sends as `clientId` with segments: stable for this
+/// app's token. shortcut: the paired client id is not kept in settings, so a
+/// hash of the token stands in; switch to the real id once settings store it.
+fn meeting_client_id(app: &AppHandle) -> String {
+    let token = state(app).settings.lock().unwrap().token.clone().unwrap_or_default();
+    let d = ring::digest::digest(&ring::digest::SHA256, token.as_bytes());
+    let hex: String = d.as_ref()[..8].iter().map(|b| format!("{b:02x}")).collect();
+    format!("desktop-{hex}")
+}
+
+#[tauri::command]
+fn meeting_open(app: AppHandle, meeting_id: String) -> Result<(), String> {
+    meeting::open(&app, Some(&meeting_id))
+}
+
+#[tauri::command]
+fn meeting_status() -> meeting::wire::DesktopMeetingStatus {
+    meeting::status()
+}
+
+/// Reads the meeting from the hub first, so it runs off the main thread.
+#[tauri::command]
+async fn meeting_start(app: AppHandle, meeting_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || meeting::start(&app, &meeting_id)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn meeting_pause(app: AppHandle, paused: bool) {
+    meeting::pause(&app, paused)
+}
+
+#[tauri::command]
+fn meeting_stop(app: AppHandle) {
+    meeting::stop(&app)
+}
+
+#[tauri::command]
+fn meeting_click_through(app: AppHandle, on: bool) {
+    meeting::click_through(&app, on)
+}
+
+#[tauri::command]
+fn meeting_hide(app: AppHandle) {
+    meeting::hide_by_owner(&app)
+}
+
+#[tauri::command]
+fn meeting_focusable(app: AppHandle, on: bool) {
+    meeting::focusable(&app, on)
+}
+
+/// The overlay becomes an NSPanel on macOS (tauri-nspanel keeps its panels in this plugin's state).
+#[cfg(target_os = "macos")]
+fn panel_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri_nspanel::init()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn panel_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("meeting-panel").build()
+}
+
 fn main() {
     tauri::Builder::default()
         // Must be first. A second launch focuses this one; deep links are forwarded.
@@ -1452,11 +1605,22 @@ fn main() {
         }))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_opener::init())
+        // no click hook: its open_url call is not granted to the hub page, so it
+        // swallowed target="_blank" links; new_window opens them instead
+        .plugin(tauri_plugin_opener::Builder::new().open_js_links_on_click(false).build())
+        .plugin(panel_plugin())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![HIDDEN_ARG])))
         // the app's own updates, checked against the built-in key (update.rs)
         .plugin(update::plugin())
         .invoke_handler(tauri::generate_handler![
+            meeting_open,
+            meeting_status,
+            meeting_start,
+            meeting_pause,
+            meeting_stop,
+            meeting_click_through,
+            meeting_hide,
+            meeting_focusable,
             get_settings,
             connect,
             open_hub,
@@ -1507,10 +1671,13 @@ fn main() {
                 update_item: Mutex::default(),
                 terminal: terminal::Terminal::default(),
                 pending_login: Mutex::default(),
+                hidden_since: Mutex::default(),
+                parked: Mutex::default(),
             });
 
             let hidden = std::env::args().any(|a| a == HIDDEN_ARG);
             main_window(&handle, !hidden)?;
+            park_hidden_main(handle.clone());
             build_tray(&handle)?;
             // an updated app brings a new daemon; the service moves to it
             refresh_daemon(&handle);
@@ -1519,6 +1686,12 @@ fn main() {
             // the AppImage adds itself to the app menu; a .deb or .rpm brings its own entry
             #[cfg(target_os = "linux")]
             appimage::integrate(&handle);
+            // WebKitGTK reports no memory of its own: the app sends it (perf.rs)
+            #[cfg(target_os = "linux")]
+            perf::start(&handle, |app| {
+                let s = state(app).settings.lock().unwrap().clone();
+                Some((Url::parse(s.hub_url.as_deref()?).ok()?, s.token?))
+            });
             // `conclave` in a terminal: set up on the first start and after an update, its login kept
             start_terminal(&handle, false);
             // the hub on this computer runs while the app does (started at login, too, when that is on)
@@ -1540,6 +1713,7 @@ fn main() {
             if let Err(e) = handle.plugin(shortcut) {
                 eprintln!("conclave: global shortcut {QUICK_SHORTCUT} unavailable: {e}");
             }
+            meeting::setup(&handle);
 
             // Installers register conclave:// on macOS and Windows. Linux (and
             // Windows dev builds) register at runtime.
@@ -1581,4 +1755,28 @@ fn main() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_hidden_session_page_parks_after_ten_minutes_and_the_home_page_stays() {
+        let base = Url::parse("https://hub.example/").unwrap();
+        let session = Url::parse("https://hub.example/s/ses_0abc123").unwrap();
+        let long = PARK_AFTER;
+        assert!(should_park(&base, &session, long));
+        assert!(!should_park(&base, &session, PARK_AFTER - Duration::from_secs(1)));
+        // already the home page: nothing to do, so it never reloads twice
+        assert!(!should_park(&base, &base, long));
+        assert!(should_park(&base, &Url::parse("https://hub.example/?new=1").unwrap(), long));
+        // the app's own pages (settings, setup) and other sites stay as they are
+        assert!(!should_park(&base, &Url::parse("tauri://localhost/index.html?settings=1").unwrap(), long));
+        assert!(!should_park(&base, &Url::parse("https://other.example/s/x").unwrap(), long));
+        // a hub under a path: its home is that path
+        let sub = Url::parse("https://box.example/conclave/").unwrap();
+        assert!(!should_park(&sub, &sub, long));
+        assert!(should_park(&sub, &Url::parse("https://box.example/conclave/s/ses_1").unwrap(), long));
+    }
 }

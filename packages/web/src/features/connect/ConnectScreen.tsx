@@ -17,6 +17,7 @@ import { useIsMobile } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import type { PairLink } from '@/lib/pairLink';
 import { Mark } from '@/components/brand/Mark';
+import { AsciiField } from '@/components/ascii/AsciiField';
 import { KnotRope, useRopeMoment } from '@/components/motion';
 import { Button } from '@/components/ui/Button';
 import { Help } from '@/components/ui/Field';
@@ -47,7 +48,7 @@ export function ConnectScreen({
   }
   if (mobile) return <PhoneConnect onConnected={onConnected} title={own || servedFrom() ? title : undefined} lede={own || servedFrom() ? lede : undefined} />;
   return (
-    <IntroFrame label="Connect" wordmark={64} align="start">
+    <IntroFrame label="Connect" wordmark={64} align="start" hero={<AsciiField size={13} className="absolute inset-0 h-full" />}>
       {!checking && (
         <>
           <h2 className="t-title m-0 text-fg">{title}</h2>
@@ -153,11 +154,17 @@ function PhoneConnect({ onConnected, title, lede }: { onConnected: (c: Connectio
     <div ref={root} className="h-full overflow-y-auto bg-bg pt-safe pb-safe">
       <main className="flex min-h-full flex-col px-6 pt-[clamp(28px,8vh,72px)] pb-6">
         <div className={cn('flex flex-col items-center text-center', mode === 'start' && 'my-auto pb-10')}>
-          {rope.moment ? (
-            <KnotRope moment={rope.moment} size={mode === 'start' ? 36 : 30} onDone={rope.onDone} label={rope.moment === 'run' ? 'Connecting' : 'Connected'} />
-          ) : (
-            <Mark height={mode === 'start' ? 24 : 20} />
-          )}
+          {/* the mark is the hub of the ASCII conclave; the art sits around it and takes no room */}
+          <div className="relative grid place-items-center">
+            <AsciiField hub={false} size={11} className="pointer-events-none absolute top-1/2 left-1/2 h-[104px] w-screen -translate-x-1/2 -translate-y-1/2" />
+            <div className="relative">
+              {rope.moment ? (
+                <KnotRope moment={rope.moment} size={mode === 'start' ? 36 : 30} onDone={rope.onDone} label={rope.moment === 'run' ? 'Connecting' : 'Connected'} />
+              ) : (
+                <Mark height={mode === 'start' ? 24 : 20} />
+              )}
+            </div>
+          </div>
           <h1 className="mt-7 text-[28px] leading-[34px] font-semibold tracking-[-0.01em] text-balance text-fg" style={{ fontStretch: '104%' }}>
             {title ?? 'Connect to your hub'}
           </h1>

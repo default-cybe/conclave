@@ -180,7 +180,7 @@ jobs:
 
       - name: System libraries
         if: matrix.platform == 'ubuntu-22.04'
-        run: '"$GITHUB_WORKSPACE/scripts/ci/apt-install.sh" libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev patchelf'
+        run: '"$GITHUB_WORKSPACE/scripts/ci/apt-install.sh" libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libasound2-dev patchelf'
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
         with:

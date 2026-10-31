@@ -37,3 +37,54 @@ describe('message search index', () => {
     expect(hits('otter')).toEqual(['msg_1']);
   });
 });
+
+describe('transcript pages', () => {
+  const seqs = (ms: Message[]) => ms.map((m) => m.seq);
+  function filled(n: number) {
+    const t = setup();
+    for (let i = 1; i <= n; i++) t.repos.messages.insert(t.msg(i, `m${i}`));
+    return t.repos;
+  }
+
+  test('no page reads the whole transcript, oldest first', () => {
+    expect(seqs(filled(5).messages.page('ses_1'))).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  test('a limit reads the newest page; beforeSeq walks back to the start', () => {
+    const repos = filled(5);
+    expect(seqs(repos.messages.page('ses_1', { limit: 2 }))).toEqual([4, 5]);
+    expect(seqs(repos.messages.page('ses_1', { beforeSeq: 4, limit: 2 }))).toEqual([2, 3]);
+    expect(seqs(repos.messages.page('ses_1', { beforeSeq: 2, limit: 2 }))).toEqual([1]);
+    expect(seqs(repos.messages.page('ses_1', { beforeSeq: 1, limit: 2 }))).toEqual([]);
+    expect(seqs(repos.messages.page('ses_1', { beforeSeq: 3 }))).toEqual([1, 2]);
+    expect(seqs(repos.messages.page('ses_1', { limit: 50 }))).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  test('afterSeq still reads forward (a reconnect catches up), within beforeSeq and limit', () => {
+    const repos = filled(5);
+    expect(seqs(repos.messages.page('ses_1', { afterSeq: 3 }))).toEqual([4, 5]);
+    expect(seqs(repos.messages.page('ses_1', { afterSeq: 1, limit: 2 }))).toEqual([2, 3]);
+    expect(seqs(repos.messages.page('ses_1', { afterSeq: 1, beforeSeq: 4 }))).toEqual([2, 3]);
+    expect(seqs(repos.messages.page('ses_1', { afterSeq: 5 }))).toEqual([]);
+  });
+
+  test('both page queries search the (session_id, seq) index, never scan', () => {
+    const repos = filled(3);
+    // record the SQL the repo really runs for each kind of page
+    const db = repos.db;
+    const query = db.query.bind(db);
+    const seen: string[] = [];
+    db.query = ((sql: string) => (seen.push(sql), query(sql))) as typeof db.query;
+    repos.messages.page('ses_1', { limit: 2 });
+    repos.messages.page('ses_1', { afterSeq: 1 });
+    db.query = query;
+    expect(seen).toHaveLength(2);
+    for (const sql of seen) {
+      const named = sql.includes('$sid') ? { sid: 'ses_1', after: 0, before: 9, limit: 5 } : undefined;
+      const rows = (named ? query(`EXPLAIN QUERY PLAN ${sql}`).all(named) : query(`EXPLAIN QUERY PLAN ${sql}`).all('ses_1', 9, 5)) as Array<{ detail: string }>;
+      const plan = rows.map((r) => r.detail).join(' | ');
+      expect(plan).toContain('USING INDEX messages_session_seq (session_id=? AND seq');
+      expect(plan).not.toContain('TEMP B-TREE');
+    }
+  });
+});

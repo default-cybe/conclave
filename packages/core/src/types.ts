@@ -153,6 +153,17 @@ export interface Message {
 }
 
 /**
+ * Which messages of a transcript to read, by seq. afterSeq reads forward
+ * (oldest first); otherwise limit or beforeSeq reads the newest page that
+ * ends before beforeSeq. Either way the answer is in ascending seq order.
+ */
+export interface MessagePage {
+  afterSeq?: number;
+  beforeSeq?: number;
+  limit?: number;
+}
+
+/**
  * A background task that ended and reported to its session: a Task or
  * Delegate subagent (id: its session) or a workflow run (id: the run). The
  * notice line that says so carries it as meta.agentResult with meta.kind
@@ -252,7 +263,8 @@ export interface Session {
   ultra?: boolean;
 }
 
-export type SessionKind = 'agent' | 'chat';
+/** meeting: the container of a meeting (meeting/index.ts); it never runs a turn. */
+export type SessionKind = 'agent' | 'chat' | 'meeting';
 
 /** The switches under the chat composer. A missing switch is on (web search and memory); thinking falls back to the agent. */
 export interface ChatSettings {
@@ -933,7 +945,9 @@ export type EngineEvent =
   // ----- the Map (map/live.ts): token and tool activity, only to clients that watch it -----
   /** High volume: kept out of the replay buffer like tool.progress. */
   | { type: 'map.delta'; delta: import('./client/map').MapDelta }
-  | { type: 'config.updated' };
+  | { type: 'config.updated' }
+  // ----- meeting mode (docs/design/MEETING-MODE.md 3.2) -----
+  | import('./meeting/wire').MeetingEvent;
 
 /** account: whose the event is (an account id, or '*' for every account); the hub sends it only there. */
 export type EngineEventEnvelope = EngineEvent & { seq: number; ts: number; account?: string };

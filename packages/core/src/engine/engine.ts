@@ -9,6 +9,7 @@ import type {
   ImageBlock,
   MemoryEntry,
   Message,
+  MessagePage,
   Notice,
   QuestionRequest,
   QueuedMessage,
@@ -108,6 +109,7 @@ import { detectTestCommand, detectWorkspaceFacts, type WorkspaceFacts } from '..
 import { verifyCommandFor } from '../session/verify-gate';
 import { CHAT_AGENT, chatSettings, chatUsesMemory, mergeChatSettings, sessionAllowsTool } from '../session/chat';
 import { isUntrusted } from '../session/untrusted';
+import { meetingsOf } from '../meeting/index';
 import { friendShareOf, narrowsTools } from '../session/friend-share';
 import { takesEffort } from '../providers/anthropic';
 import { clampEffort, type Effort, type EffortSetting } from '../providers/effort';
@@ -536,7 +538,7 @@ export class Engine implements EngineApi {
    * every tool; work the hub starts (routines, workflows) meets the machine
    * guard as before.
    */
-  async createSession(input: CreateSessionInput, accountId?: string, opts: { byPerson?: boolean } = {}): Promise<Session> {
+  async createSession(input: CreateSessionInput, accountId?: string, opts: { byPerson?: boolean; meeting?: boolean } = {}): Promise<Session> {
     const parentAccount = input.parentId ? this.sessionAccount(input.parentId) : undefined;
     if (input.parentId && !parentAccount) throw new EngineError(404, `Session ${input.parentId} not found`);
     const acct = accountId ?? parentAccount ?? currentAccount() ?? OWNER_ID;
@@ -545,7 +547,7 @@ export class Engine implements EngineApi {
     if (input.device && input.device !== 'local' && this.repos.devices.accountOf(input.device) !== acct) throw new EngineError(404, `Device ${input.device} not found`);
     const prefs = isMember(acct) ? this.accountPrefs(acct) : {};
     const cfg = this.config.get();
-    if (input.kind !== undefined && input.kind !== 'chat' && input.kind !== 'agent') throw new EngineError(400, 'kind must be chat or agent');
+    if (input.kind !== undefined && input.kind !== 'chat' && input.kind !== 'agent' && !(input.kind === 'meeting' && opts.meeting)) throw new EngineError(400, 'kind must be chat or agent');
     const isChat = input.kind === 'chat';
     let chat;
     try {
@@ -597,6 +599,8 @@ export class Engine implements EngineApi {
       modeConfig: input.modeConfig,
       stats: { messages: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
       ...(isChat ? { kind: 'chat' as const, chat } : chat ? { chat } : {}),
+      // a meeting's container: never runs a turn, and search, recall and extraction skip it (meeting/index.ts)
+      ...(input.kind === 'meeting' && opts.meeting ? { kind: 'meeting' as const, meta: { untrusted: true } } : {}),
       // an agent profile with ultra: true starts its sessions with Ultra on (never chats)
       ...(def?.ultra && !isChat ? { ultra: true } : {}),
     };
@@ -824,8 +828,8 @@ export class Engine implements EngineApi {
     return { ...fork, stats };
   }
 
-  getMessages(id: string, afterSeq?: number): Message[] {
-    return this.repos.messages.list(id, { afterSeq });
+  getMessages(id: string, page: MessagePage = {}): Message[] {
+    return this.repos.messages.page(id, page);
   }
 
   async send(id: string, input: SendInput): Promise<SendResult> {
@@ -833,6 +837,8 @@ export class Engine implements EngineApi {
     // a reference from a friend's hub is read only (session/friend-share.ts)
     const fs = friendShareOf(s);
     if (fs?.role === 'reference') throw new EngineError(409, `This is a reference from ${fs.name}'s hub. It is read only; fork the share to continue it.`);
+    // a meeting's session is a container: it never runs a turn or a tool (docs/design/MEETING-MODE.md 2.2)
+    if (s.kind === 'meeting') throw new EngineError(409, 'A meeting session does not take messages.');
     // 15 files at most, and a zip turned into what the session can use (attachments/prepare.ts)
     const prepared = await prepareAttachments(input.attachments, this.zipHost(s));
     // a file the hub could not read is never dropped silently: the sender chooses to go without it
@@ -1818,6 +1824,7 @@ export class Engine implements EngineApi {
     // workflow runs first: they are marked interrupted and resume at the next boot
     await workflowsOf(this)?.shutdown().catch(() => {});
     alertsOf(this)?.stop();
+    meetingsOf(this)?.stop();
     const ending = [...this.runners.entries()].filter(([, r]) => r.started).map(([id]) => this.repos.sessions.get(id)).filter((s): s is Session => !!s);
     // what waits stays stored and runs after the next boot
     for (const r of this.runners.values()) r.abort('shutdown');

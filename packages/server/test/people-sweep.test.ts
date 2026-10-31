@@ -157,6 +157,9 @@ async function seed(name: Who, token: string, accountId: string): Promise<Seeded
   const preset = await ok(token, 'POST', '/api/workflows/deep-research/presets', { name: `${M} preset`, args: { question: `zebra ${M}` } });
   keep('preset', preset.id);
 
+  // a meeting (routes-meetings.ts), this account's own
+  keep('meeting', (await ok(token, 'POST', '/api/meetings', { device: ids.device, cwd: '/tmp', title: `${M} meeting` })).id);
+
   // a connected app (claude.ai) that this account allowed
   const store = new OAuthStore(engine.repos.db);
   const client = store.register({ name: `${M} connector`, redirectUris: ['https://claude.ai/api/mcp/auth_callback'], applicationType: 'web', authMethod: 'none' }).client;
@@ -342,7 +345,11 @@ describe('lists', () => {
       expect((await ok<any[]>(t, 'GET', '/api/oauth/apps')).length).toBe(1);
       const recent = await ok<any[]>(t, 'GET', '/api/usage/recent');
       expect(recent.length).toBeGreaterThan(0);
-      expect(new Set(recent.map((u) => u.sessionId).filter(Boolean))).toEqual(new Set([who[n].ids.session!]));
+      // the chat, and the meeting's own session (its brief)
+      const meetingSession = (await ok<any>(t, 'GET', `/api/meetings/${who[n].ids.meeting}`)).sessionId;
+      const seen = new Set(recent.map((u) => u.sessionId).filter(Boolean));
+      expect(seen.has(who[n].ids.session!)).toBe(true);
+      expect([...seen].filter((s) => s !== who[n].ids.session && s !== meetingSession)).toEqual([]);
     }
   });
 });

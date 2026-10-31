@@ -1235,6 +1235,41 @@ into your hub.
 - Notifications show as system notifications while the app runs, also from
   the tray. Settings > Notifications turns them off for this computer.
 
+### Meeting mode
+
+A small overlay that listens to a meeting on your computer and shows short
+"Say this" answers you can read out, written as you from the project you
+picked. Design: docs/design/MEETING-MODE.md.
+
+- **Start**: the **Meeting** button in a Code session's header, or the tray's
+  **Start meeting...** (`Ctrl+Alt+M`, `Cmd+Alt+M` on a Mac) and a project. The
+  hub writes a brief first (what you did lately, what to present, likely
+  questions). Nothing is heard until you press **Start listening** in the
+  overlay.
+- **While it listens**: your microphone is "Me" and the computer's sound is
+  "Them". Speech becomes text on this computer (Parakeet; the 661 MB model
+  downloads on the first meeting). Audio is never saved or sent; only the
+  text goes to your hub. The tray and the overlay show that it is listening,
+  and so does your system's mic indicator. Questions from "Them" get an
+  answer by themselves. Keys: `Ctrl/Cmd+Alt+Enter` answer now,
+  `Ctrl/Cmd+Alt+P` pause, `Ctrl/Cmd+Alt+T` click-through, `Ctrl/Cmd+Alt+M`
+  hide or show.
+- **End**: **End meeting** in the overlay or the tray. The hub writes the notes
+  to `<project>/.conclave/meetings/`, makes tasks of your action items, and
+  keeps the transcript under **Meetings**. Deleting a meeting there removes
+  the transcript, not the notes file or the tasks.
+- **Screen sharing**: on Windows 10 2004 and later the overlay asks the system
+  to leave it out of captures; on macOS that request only works for older
+  capture methods, and Zoom, Teams, OBS and Chrome on macOS 15 can still see
+  it; on Linux it is always visible. The overlay also hides itself when it
+  sees a share start, but test with your own apps before you rely on it, and
+  share one window instead of the whole screen when you can.
+- **Ask first**: tell the others you use a note-taker (the overlay has **Copy
+  consent note**). Some places require everyone's consent to record a call.
+- Speech from others is treated as untrusted text: it cannot run tools or
+  change settings, and answers never carry keys or passwords from your
+  project.
+
 ## 8. Notifications
 
 Conclave sends its own notifications. There is no outside service to sign up

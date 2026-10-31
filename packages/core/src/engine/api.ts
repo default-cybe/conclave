@@ -10,6 +10,7 @@ import type {
   Device,
   LimitState,
   Message,
+  MessagePage,
   QuestionRequest,
   QueuedMessage,
   Session,
@@ -168,7 +169,7 @@ export interface EngineApi {
   listSessions(filter: SessionFilter): Session[];
   getSession(id: string): Session | undefined;
   /** accountId: whose session; never taken from the request body. byPerson: started from an app, so a member's code session on the hub is refused up front. */
-  createSession(input: CreateSessionInput, accountId?: string, opts?: { byPerson?: boolean }): Promise<Session>;
+  createSession(input: CreateSessionInput, accountId?: string, opts?: { byPerson?: boolean; meeting?: boolean }): Promise<Session>;
   /** The account's one assistant thread (meta.home), made the first time; two calls at once get the same one. */
   assistantHome(accountId: string): Promise<Session>;
   updateSession(id: string, patch: SessionPatch): Session;
@@ -178,7 +179,8 @@ export interface EngineApi {
   moveToMainList(id: string): Session;
   /** The owner opened it: meta.seenAt now, so it no longer reads unread (session/unread.ts). updatedAt stays. */
   markSeen(id: string): Session;
-  getMessages(id: string, afterSeq?: number): Message[];
+  /** The whole transcript, or one page of it (types.ts MessagePage). */
+  getMessages(id: string, page?: MessagePage): Message[];
   send(id: string, input: SendInput): Promise<SendResult>;
   /** Messages waiting while the session is busy, in the order they will run. Stored: a hub restart keeps them, Stop holds them (held). */
   queue(id: string): QueuedMessage[];

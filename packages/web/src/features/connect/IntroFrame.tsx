@@ -17,6 +17,7 @@ export function IntroFrame({
   align = 'end',
   children,
   bottom,
+  hero,
   className,
 }: {
   /** Quiet word after the brand ("Setup", "Connect"). */
@@ -29,6 +30,8 @@ export function IntroFrame({
   children: ReactNode;
   /** Under the intro row (the procedure strip). */
   bottom?: ReactNode;
+  /** In place of the hero wave (the sign-in's ASCII conclave). Fills the band absolutely. */
+  hero?: ReactNode;
   className?: string;
 }) {
   const mobile = useIsMobile();
@@ -43,7 +46,7 @@ export function IntroFrame({
 
         {/* the hero soaks up the free height first (grow 1000), the intro row gets what is left past 560px */}
         <div className={cn('relative', mobile ? 'h-[38vh] flex-none' : 'max-h-[560px] min-h-[240px] flex-[1000_1_0px]')}>
-          <Wave variant="hero" gap={8} radius={1.4} className="absolute inset-0 h-full" />
+          {hero ?? <Wave variant="hero" gap={8} radius={1.4} className="absolute inset-0 h-full" />}
         </div>
 
         <div

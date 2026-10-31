@@ -39,7 +39,8 @@ export type OwnedKind =
   | 'alert'
   | 'pimAccount'
   | 'proposal'
-  | 'preset';
+  | 'preset'
+  | 'meeting';
 
 export type Rule = 'public' | 'admin' | 'self' | 'hub' | { own: Record<string, OwnedKind> };
 
@@ -100,6 +101,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/sessions/:id/hub-copy/back': 'admin',
   'POST /api/sessions/:id/fork': SESSION,
   'GET /api/sessions/:id/messages': SESSION,
+  'GET /api/sessions/:id/messages/:msgId/blocks/:index': SESSION,
   'POST /api/sessions/:id/messages': SESSION,
   'GET /api/sessions/:id/queue': SESSION,
   'DELETE /api/sessions/:id/queue/:pendingId': SESSION,
@@ -595,6 +597,18 @@ export const ROUTE_POLICY: Record<string, Rule> = {
 
   // ----- the Map -----
   'GET /api/map': 'self',
+
+  // ----- meeting mode (docs/design/MEETING-MODE.md 3.1): each account's own meetings only -----
+  'GET /api/meetings': 'self',
+  'POST /api/meetings': 'self',
+  'GET /api/meetings/:id': own({ id: 'meeting' }),
+  'PATCH /api/meetings/:id': own({ id: 'meeting' }),
+  'DELETE /api/meetings/:id': own({ id: 'meeting' }),
+  'POST /api/meetings/:id/segments': own({ id: 'meeting' }),
+  'POST /api/meetings/:id/answer': own({ id: 'meeting' }),
+  'POST /api/meetings/:id/answers/:answerId/cancel': own({ id: 'meeting' }),
+  'POST /api/meetings/:id/end': own({ id: 'meeting' }),
+  'GET /api/meetings/:id/notes': own({ id: 'meeting' }),
 };
 
 /**
@@ -675,6 +689,8 @@ export function ownerOf(ctx: ServerContext, kind: OwnedKind, id: string): string
       return col('SELECT account_id FROM workflow_presets WHERE id = ?');
     case 'pimAccount':
       return pimAccountOwner(db, id);
+    case 'meeting':
+      return col('SELECT account_id FROM meetings WHERE id = ?');
     case 'alert': {
       const a = alertsOf(engine)?.list().find((x) => x.id === id);
       return a ? (engine.sessionAccount(a.sessionId) ?? OWNER_ID) : undefined;

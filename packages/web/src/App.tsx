@@ -49,6 +49,7 @@ const SharesPage = lazy(() => import('./features/friends/SharesPage'));
 const SharedProjectsPage = lazy(() => import('./features/friends/SharedProjects'));
 const MapPage = lazy(() => import('./features/map/MapPage'));
 const TodayPage = lazy(() => import('./features/home/TodayPage'));
+const MeetingPage = lazy(() => import('./features/meeting/MeetingPage'));
 const Gallery = lazy(() => import('./components/dev/Gallery'));
 const MotionPage = lazy(() => import('./components/dev/MotionGallery'));
 
@@ -238,6 +239,7 @@ export function App() {
                 <Redirect to="/settings" replace />
               </Route>
               <Route path="/tasks/:id?" component={TasksPage} />
+              <Route path="/meetings/:id?" component={MeetingPage} />
               <Route path="/goals/:id?" component={GoalsPage} />
               <Route path="/agents/:name?" component={AgentsPage} />
               <Route path="/extensions/:tab?">

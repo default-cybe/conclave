@@ -55,7 +55,7 @@ export const SECURITY_HEADERS: Record<string, string> = {
 };
 
 /** Files that must always be revalidated so a deploy shows up right away. */
-const NO_CACHE = new Set(['/index.html', '/sw.js', '/service-worker.js', '/manifest.webmanifest', '/manifest.json', '/registerSW.js']);
+const NO_CACHE = new Set(['/index.html', '/overlay.html', '/sw.js', '/service-worker.js', '/manifest.webmanifest', '/manifest.json', '/registerSW.js']);
 
 /** Vite style content hash in the file name: index-B2x9_aQz.js, chunk.3f9a1c2b.css */
 const HASHED = /[.-][A-Za-z0-9_-]{8,}\.[a-z0-9]+$/;

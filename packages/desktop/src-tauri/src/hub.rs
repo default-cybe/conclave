@@ -462,6 +462,17 @@ pub fn token_works(base: &Url, token: &str) -> Result<bool, String> {
     }
 }
 
+/// POST /api/logs/client: what the app reports about itself (perf.rs).
+#[cfg(target_os = "linux")]
+pub fn send_client_logs(base: &Url, token: &str, batch: &serde_json::Value) -> Result<(), String> {
+    agent()
+        .post(&endpoint(base, "api/logs/client")?)
+        .set("Authorization", &format!("Bearer {token}"))
+        .send_json(batch)
+        .map(|_| ())
+        .map_err(|e| describe(base, e))
+}
+
 /// DELETE /api/clients/<id>: sign that app out of the hub.
 pub fn revoke_client(base: &Url, token: &str, id: &str) -> Result<(), String> {
     let path = format!("api/clients/{}", encode(id));

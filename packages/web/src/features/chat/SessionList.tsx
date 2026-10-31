@@ -16,7 +16,7 @@ import { isDelegated, underParent } from '@conclave/core/session/delegated';
 import { isUnread } from '@conclave/core/session/unread';
 import { IMPORTED_KEY, IMPORTED_WORDS, byImportedDate, importedLabel, inImported } from '@conclave/core/session/imported';
 import { api } from '@/lib/api';
-import { attempt, loadMessages, removeKey, upsertSession, useHub } from '@/store/store';
+import { attempt, removeKey, retainTranscript, upsertSession, useHub } from '@/store/store';
 import { openNewChat, useUi, type ListGroup } from '@/store/ui';
 import { cn, fuzzy } from '@/lib/text';
 import { hhmm, relTime } from '@/lib/format';
@@ -120,8 +120,9 @@ export function SessionList({ activeId }: { activeId?: string }) {
 
   // jury and debate rows show their verdict, which lives in the messages
   useEffect(() => {
-    const want = flat.filter((s) => (s.mode === 'jury' || s.mode === 'debate') && !useHub.getState().messagesLoaded[s.id]).slice(0, 6);
-    for (const s of want) void loadMessages(s.id);
+    const want = flat.filter((s) => s.mode === 'jury' || s.mode === 'debate').slice(0, 6);
+    const release = want.map((s) => retainTranscript(s.id));
+    return () => release.forEach((r) => r());
   }, [flat]);
 
   // j/k and ]/[ move between sessions; / focuses the filter when no composer is open
