@@ -13,6 +13,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Web: Conclave's own ASCII art on the sign-in screen and in empty states (a new chat, an empty chat list on the phone). A hub with seven agents on a slowly turning ring and a faint constellation behind; every few seconds an agent sends a violet packet down its link and the hub answers. Drawn on a canvas in the theme's colours at 20 fps, paused when hidden or off screen, one still frame under reduced motion, hidden from screen readers.
 
+### Fixed
+
+- Desktop app: a main window hidden in the tray for 10 minutes on a hub page other than Home goes to Home, and comes back to that page when shown. Closing only hides the window, so a long session page kept its memory growing for hours (13 MB to 227 MB in 110 minutes on Windows, then the page restarted). Home keeps the hub's connection, so notifications still come; composer drafts are kept in IndexedDB.
+
 ## [0.4.49] - 2026-10-30
 
 ### Added

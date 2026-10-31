@@ -77,6 +77,10 @@ struct AppState {
     /// A password login waiting for the person to check the hub's
     /// fingerprint. Its token stays here, never on the page or on disk, until Continue.
     pending_login: Mutex<Option<PendingLogin>>,
+    /// When the main window was first seen hidden (park_hidden_main).
+    hidden_since: Mutex<Option<Instant>>,
+    /// The hub page the hidden main window left for the home page; it comes back on show.
+    parked: Mutex<Option<Url>>,
 }
 
 struct PendingLogin {
@@ -264,13 +268,54 @@ fn focus(win: &WebviewWindow) {
     let _ = win.show();
     let _ = win.unminimize();
     let _ = win.set_focus();
+    if win.label() == MAIN {
+        *state(win.app_handle()).hidden_since.lock().unwrap() = None;
+    }
 }
 
 fn show_main(app: &AppHandle) {
     match main_window(app, true) {
-        Ok(win) => focus(&win),
+        Ok(win) => {
+            // a page parked while hidden comes back where it was (its draft is in IndexedDB)
+            let parked = state(app).parked.lock().unwrap().take();
+            if let Some(url) = parked.filter(|u| hub_base(app).is_some_and(|b| b.origin() == u.origin())) {
+                let _ = win.navigate(url);
+            }
+            focus(&win)
+        }
         Err(e) => eprintln!("conclave: cannot open the main window: {e}"),
     }
+}
+
+/// A main window hidden this long on a hub page other than its home page goes
+/// to the home page: closing only hides it, and a long session page kept its
+/// memory growing for hours in the tray. The home page keeps the hub's
+/// connection, so notifications still come.
+const PARK_AFTER: Duration = Duration::from_secs(10 * 60);
+
+fn should_park(base: &Url, current: &Url, hidden_for: Duration) -> bool {
+    hidden_for >= PARK_AFTER && current.origin() == base.origin() && (current.path() != base.path() || current.query().is_some())
+}
+
+/// Once a minute: park the main window when it has been hidden PARK_AFTER.
+fn park_hidden_main(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(60));
+        let Some(win) = app.get_webview_window(MAIN) else { continue };
+        let st = state(&app);
+        if win.is_visible().unwrap_or(true) {
+            *st.hidden_since.lock().unwrap() = None;
+            continue;
+        }
+        let since = *st.hidden_since.lock().unwrap().get_or_insert_with(Instant::now);
+        let (Some(base), Ok(current)) = (hub_base(&app), win.url()) else { continue };
+        if !should_park(&base, &current, since.elapsed()) {
+            continue;
+        }
+        let Ok(home) = hub_page(&app, "") else { continue };
+        *st.parked.lock().unwrap() = Some(current);
+        let _ = win.navigate(home);
+    });
 }
 
 fn toggle_main(app: &AppHandle) {
@@ -284,6 +329,7 @@ fn toggle_main(app: &AppHandle) {
 
 /// Load `url` in the main window and bring it forward.
 fn show_url(app: &AppHandle, url: Url) {
+    state(app).parked.lock().unwrap().take();
     match main_window(app, true) {
         Ok(win) => {
             let _ = win.navigate(url);
@@ -318,6 +364,7 @@ fn show_pairing(app: &AppHandle) {
 
 fn load_hub(app: &AppHandle, query: &str) -> Result<(), String> {
     let url = hub_page(app, query)?;
+    state(app).parked.lock().unwrap().take();
     let win = main_window(app, true).map_err(|e| e.to_string())?;
     win.navigate(url).map_err(|e| e.to_string())
 }
@@ -1507,10 +1554,13 @@ fn main() {
                 update_item: Mutex::default(),
                 terminal: terminal::Terminal::default(),
                 pending_login: Mutex::default(),
+                hidden_since: Mutex::default(),
+                parked: Mutex::default(),
             });
 
             let hidden = std::env::args().any(|a| a == HIDDEN_ARG);
             main_window(&handle, !hidden)?;
+            park_hidden_main(handle.clone());
             build_tray(&handle)?;
             // an updated app brings a new daemon; the service moves to it
             refresh_daemon(&handle);
@@ -1581,4 +1631,28 @@ fn main() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_hidden_session_page_parks_after_ten_minutes_and_the_home_page_stays() {
+        let base = Url::parse("https://hub.example/").unwrap();
+        let session = Url::parse("https://hub.example/s/ses_0abc123").unwrap();
+        let long = PARK_AFTER;
+        assert!(should_park(&base, &session, long));
+        assert!(!should_park(&base, &session, PARK_AFTER - Duration::from_secs(1)));
+        // already the home page: nothing to do, so it never reloads twice
+        assert!(!should_park(&base, &base, long));
+        assert!(should_park(&base, &Url::parse("https://hub.example/?new=1").unwrap(), long));
+        // the app's own pages (settings, setup) and other sites stay as they are
+        assert!(!should_park(&base, &Url::parse("tauri://localhost/index.html?settings=1").unwrap(), long));
+        assert!(!should_park(&base, &Url::parse("https://other.example/s/x").unwrap(), long));
+        // a hub under a path: its home is that path
+        let sub = Url::parse("https://box.example/conclave/").unwrap();
+        assert!(!should_park(&sub, &sub, long));
+        assert!(should_park(&sub, &Url::parse("https://box.example/conclave/s/ses_1").unwrap(), long));
+    }
 }
