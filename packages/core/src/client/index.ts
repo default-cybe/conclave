@@ -13,6 +13,7 @@ import type {
   AuditEntry,
   ChatSettings,
   Checkpoint,
+  ContentBlock,
   Device,
   EngineEventEnvelope,
   LimitState,
@@ -1799,7 +1800,9 @@ export class ConclaveClient {
   /** The owner opened it: no longer unread (session/unread.ts). */
   markSeen = (id: string) => this.request<Session>('POST', `/api/sessions/${id}/seen`);
   /** The whole transcript, or one page: { limit } the newest, { beforeSeq, limit } older ones, { afterSeq } what came since. */
-  messages = (id: string, page: MessagePage = {}) => this.request<Message[]>('GET', `/api/sessions/${id}/messages`, undefined, { ...page });
+  /** trim: blocks over 100 KB come light and listed in meta.trimmed (session/trim.ts); messageBlock reads one in full. */
+  messages = (id: string, page: MessagePage & { trim?: boolean } = {}) => this.request<Message[]>('GET', `/api/sessions/${id}/messages`, undefined, { ...page });
+  messageBlock = (id: string, msgId: string, index: number) => this.request<ContentBlock>('GET', `/api/sessions/${id}/messages/${encodeURIComponent(msgId)}/blocks/${index}`);
   send = (id: string, input: SendInput) => this.request<SendResult>('POST', `/api/sessions/${id}/messages`, input);
   /** Messages waiting while the session is busy, in the order they will run (session.queue keeps it current). */
   queue = (id: string) => this.request<QueuedMessage[]>('GET', `/api/sessions/${id}/queue`);

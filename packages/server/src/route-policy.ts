@@ -100,6 +100,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/sessions/:id/hub-copy/back': 'admin',
   'POST /api/sessions/:id/fork': SESSION,
   'GET /api/sessions/:id/messages': SESSION,
+  'GET /api/sessions/:id/messages/:msgId/blocks/:index': SESSION,
   'POST /api/sessions/:id/messages': SESSION,
   'GET /api/sessions/:id/queue': SESSION,
   'DELETE /api/sessions/:id/queue/:pendingId': SESSION,

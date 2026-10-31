@@ -36,6 +36,33 @@ describe('session routes via the typed client', () => {
     expect(await status(client.getSession(s.id))).toBe(404);
   });
 
+  test('trim=1 cuts blocks over 100 KB; the block route gives each back in full', async () => {
+    const s = await client.createSession({ title: 'big', cwd: '/srv' });
+    const big = 'x'.repeat(300_000);
+    const image = { type: 'image' as const, mediaType: 'image/png', data: 'A'.repeat(200_000) };
+    const content = [
+      { type: 'text' as const, text: 'small' },
+      { type: 'tool_result' as const, toolUseId: 'tu_1', content: [{ type: 'text' as const, text: 'shot' }, image] },
+      { type: 'tool_result' as const, toolUseId: 'tu_2', content: big },
+    ];
+    hub.engine.repos.messages.insert({ id: 'msg_big', sessionId: s.id, seq: 1, role: 'user', kind: 'normal', content, createdAt: Date.now() });
+
+    // untouched without trim: the apps that do not ask see what they always did
+    expect((await client.messages(s.id))[0].content).toEqual(content);
+
+    const [m] = await client.messages(s.id, { trim: true, limit: 50 });
+    for (const b of m.content) expect(JSON.stringify(b).length).toBeLessThanOrEqual(100_100);
+    expect(m.content[0]).toEqual(content[0]);
+    expect(m.content[1]).toEqual({ type: 'tool_result', toolUseId: 'tu_1', content: [{ type: 'text', text: 'shot' }, { type: 'image', mediaType: 'image/png' }] });
+    expect(m.meta?.trimmed).toEqual([1, 2].map((index) => ({ index, bytes: JSON.stringify(content[index]).length })));
+
+    for (const i of [0, 1, 2]) expect(await client.messageBlock(s.id, m.id, i)).toEqual(content[i]);
+    expect(await status(client.messageBlock(s.id, m.id, 3))).toBe(404);
+    expect(await status(client.messageBlock(s.id, 'msg_nope', 0))).toBe(404);
+    const other = await client.createSession({ title: 'other', cwd: '/srv' });
+    expect(await status(client.messageBlock(other.id, m.id, 0))).toBe(404);
+  });
+
   test('unknown session is 404 on every session route', async () => {
     expect(await status(client.getSession('ses_nope'))).toBe(404);
     expect(await status(client.send('ses_nope', { text: 'x' }))).toBe(404);
