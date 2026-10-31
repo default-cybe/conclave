@@ -20,6 +20,8 @@ import { answerStack, applyEvent, emptyView, lastLines, loadDetail, parseAnswer 
 import { statusNotes } from '../src/overlay/Live';
 import { folderChoices } from '../src/overlay/Setup';
 import { isQuestion } from '../src/mock/meetings';
+import { OLD_DESKTOP, openOverlay } from '../src/features/meeting/api';
+import { setDesktop } from '../src/overlay/desktop';
 import type { DesktopMeetingStatus, MeetingDetail, MeetingEvent, Segment } from '../src/overlay/wire';
 
 const WEB = resolve(import.meta.dir, '..');
@@ -220,6 +222,20 @@ test('project choices: one per folder, newest project first', () => {
   const p = (id: string, updatedAt: number, locs: [string, string][]) => ({ id, name: id, identity: {} as never, createdAt: 0, updatedAt, locations: locs.map(([device, path]) => ({ projectId: id, device, path, via: 'origin' as const, pinned: false })) });
   const c = folderChoices([p('old', 1, [['a', '/x']]), p('new', 2, [['a', '/y'], ['b', '/z']])]);
   expect(c.map((x) => `${x.projectId}:${x.device}:${x.cwd}`)).toEqual(['new:a:/y', 'new:b:/z', 'old:a:/x']);
+});
+
+test('an app from before meeting mode says to update, other errors pass through', async () => {
+  const fails = (msg: string) => setDesktop({ invoke: async () => Promise.reject(msg), listen: async () => () => undefined });
+  try {
+    fails('Command meeting_open not allowed by ACL');
+    await expect(openOverlay('mtg_1')).rejects.toThrow(OLD_DESKTOP);
+    fails('the overlay window could not be built');
+    await expect(openOverlay('mtg_1')).rejects.toThrow('the overlay window could not be built');
+    setDesktop({ invoke: async () => undefined as never, listen: async () => () => undefined });
+    expect(await openOverlay('mtg_1')).toBe(true);
+  } finally {
+    setDesktop(undefined);
+  }
 });
 
 test('the mock answers questions only', () => {
