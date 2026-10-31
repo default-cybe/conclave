@@ -26,7 +26,11 @@ describe('session routes via the typed client', () => {
     expect(sent.queued).toBe(false);
     const msgs = await client.messages(s.id);
     expect(msgs).toHaveLength(1);
-    expect(await client.messages(s.id, msgs[0].seq)).toHaveLength(0);
+    expect(await client.messages(s.id, { afterSeq: msgs[0].seq })).toHaveLength(0);
+    expect(await client.messages(s.id, { limit: 1 })).toEqual(msgs);
+    expect(await client.messages(s.id, { beforeSeq: msgs[0].seq, limit: 1 })).toHaveLength(0);
+    expect(await status(client.messages(s.id, { limit: 0 }))).toBe(400);
+    expect(await status(client.messages(s.id, { limit: 1.5 }))).toBe(400);
     expect((await client.search('there'))[0].sessionId).toBe(s.id);
     await client.deleteSession(s.id);
     expect(await status(client.getSession(s.id))).toBe(404);

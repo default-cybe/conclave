@@ -10,6 +10,7 @@ import type {
   Device,
   LimitState,
   Message,
+  MessagePage,
   QuestionRequest,
   QueuedMessage,
   Session,
@@ -178,7 +179,8 @@ export interface EngineApi {
   moveToMainList(id: string): Session;
   /** The owner opened it: meta.seenAt now, so it no longer reads unread (session/unread.ts). updatedAt stays. */
   markSeen(id: string): Session;
-  getMessages(id: string, afterSeq?: number): Message[];
+  /** The whole transcript, or one page of it (types.ts MessagePage). */
+  getMessages(id: string, page?: MessagePage): Message[];
   send(id: string, input: SendInput): Promise<SendResult>;
   /** Messages waiting while the session is busy, in the order they will run. Stored: a hub restart keeps them, Stop holds them (held). */
   queue(id: string): QueuedMessage[];

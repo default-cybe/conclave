@@ -13,6 +13,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Web: Conclave's own ASCII art on the sign-in screen and in empty states (a new chat, an empty chat list on the phone). A hub with seven agents on a slowly turning ring and a faint constellation behind; every few seconds an agent sends a violet packet down its link and the hub answers. Drawn on a canvas in the theme's colours at 20 fps, paused when hidden or off screen, one still frame under reduced motion, hidden from screen readers.
 
+### Changed
+
+- Hub: the transcript API pages. `GET /api/sessions/:id/messages?limit=N` answers the newest N messages, `&beforeSeq=S` the page before seq S, and `afterSeq` still reads forward; no parameters still answers the whole transcript. On a copy of the live database the newest 200 messages of an 11,301-message session are 0.49 MB in 4 ms instead of 40.6 MB in 250 ms.
+
 ## [0.4.49] - 2026-10-30
 
 ### Added

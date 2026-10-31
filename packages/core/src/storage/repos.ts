@@ -8,6 +8,7 @@ import type {
   MachineInfo,
   LimitState,
   Message,
+  MessagePage,
   Routine,
   RoutineRun,
   Session,
@@ -301,18 +302,24 @@ export class MessageRepo {
     return r ? rowToMessage(r) : undefined;
   }
 
-  list(sessionId: string, opts: { afterSeq?: number; limit?: number } = {}): Message[] {
+  list(sessionId: string, opts: { afterSeq?: number; beforeSeq?: number; limit?: number } = {}): Message[] {
     const rows = this.db
-      .query('SELECT * FROM messages WHERE session_id = $sid AND seq > $after ORDER BY seq ASC LIMIT $limit')
-      .all({ sid: sessionId, after: opts.afterSeq ?? 0, limit: opts.limit ?? 100_000 }) as Row[];
+      .query('SELECT * FROM messages WHERE session_id = $sid AND seq > $after AND seq < $before ORDER BY seq ASC LIMIT $limit')
+      .all({ sid: sessionId, after: opts.afterSeq ?? 0, before: opts.beforeSeq ?? Number.MAX_SAFE_INTEGER, limit: opts.limit ?? 100_000 }) as Row[];
     return rows.map(rowToMessage);
   }
 
-  /** Most recent N messages in ascending order. */
-  tail(sessionId: string, n: number): Message[] {
+  /** The transcript or one page of it (types.ts MessagePage): no afterSeq with a limit or beforeSeq reads the newest page back. */
+  page(sessionId: string, { afterSeq, beforeSeq, limit }: MessagePage = {}): Message[] {
+    if (afterSeq === undefined && (limit !== undefined || beforeSeq !== undefined)) return this.tail(sessionId, limit ?? 100_000, beforeSeq);
+    return this.list(sessionId, { afterSeq, beforeSeq, limit });
+  }
+
+  /** Most recent N messages (before beforeSeq when given) in ascending order. */
+  tail(sessionId: string, n: number, beforeSeq = Number.MAX_SAFE_INTEGER): Message[] {
     const rows = this.db
-      .query('SELECT * FROM messages WHERE session_id = ? ORDER BY seq DESC LIMIT ?')
-      .all(sessionId, n) as Row[];
+      .query('SELECT * FROM messages WHERE session_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?')
+      .all(sessionId, beforeSeq, n) as Row[];
     return rows.map(rowToMessage).reverse();
   }
 

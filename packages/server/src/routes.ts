@@ -417,7 +417,9 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
 
   app.get('/api/sessions/:id/messages', (c) => {
     const id = sid(c);
-    return c.json(engine.getMessages(id, qNum(c.req.query('afterSeq'))));
+    const limit = qNum(c.req.query('limit'));
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) throw badRequest('limit must be a positive integer');
+    return c.json(engine.getMessages(id, { afterSeq: qNum(c.req.query('afterSeq')), beforeSeq: qNum(c.req.query('beforeSeq')), limit }));
   });
 
   app.post('/api/sessions/:id/messages', async (c) => {

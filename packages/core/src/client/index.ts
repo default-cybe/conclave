@@ -21,6 +21,7 @@ import type {
   MemoryKind,
   MemoryScope,
   Message,
+  MessagePage,
   ModeConfig,
   PermissionMode,
   QuestionRequest,
@@ -1797,7 +1798,8 @@ export class ConclaveClient {
   moveToMainList = (id: string) => this.request<Session>('POST', `/api/sessions/${id}/main-list`);
   /** The owner opened it: no longer unread (session/unread.ts). */
   markSeen = (id: string) => this.request<Session>('POST', `/api/sessions/${id}/seen`);
-  messages = (id: string, afterSeq?: number) => this.request<Message[]>('GET', `/api/sessions/${id}/messages`, undefined, { afterSeq });
+  /** The whole transcript, or one page: { limit } the newest, { beforeSeq, limit } older ones, { afterSeq } what came since. */
+  messages = (id: string, page: MessagePage = {}) => this.request<Message[]>('GET', `/api/sessions/${id}/messages`, undefined, { ...page });
   send = (id: string, input: SendInput) => this.request<SendResult>('POST', `/api/sessions/${id}/messages`, input);
   /** Messages waiting while the session is busy, in the order they will run (session.queue keeps it current). */
   queue = (id: string) => this.request<QueuedMessage[]>('GET', `/api/sessions/${id}/queue`);
