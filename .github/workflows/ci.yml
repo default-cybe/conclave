@@ -141,7 +141,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: System libraries
-        run: '"$GITHUB_WORKSPACE/scripts/ci/apt-install.sh" libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev'
+        run: '"$GITHUB_WORKSPACE/scripts/ci/apt-install.sh" libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libasound2-dev'
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
         with:
@@ -162,6 +162,46 @@ jobs:
 
       - name: Test
         run: cargo test --locked
+
+  # The Windows- and macOS-only code of the desktop app (meeting overlay hiding,
+  # loopback capture, share detection) compiles only on those systems; without
+  # these jobs only release.yml would find a break (docs/design/MEETING-MODE.md 9.1).
+  desktop-native:
+    name: Desktop app (cargo check, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            triple: x86_64-pc-windows-msvc
+            ext: .exe
+          - os: macos-latest
+            triple: aarch64-apple-darwin
+            ext: ''
+    defaults:
+      run:
+        shell: bash
+        working-directory: packages/desktop/src-tauri
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: packages/desktop/src-tauri
+
+      - name: Stand-in daemon for tauri-build
+        run: |
+          mkdir -p binaries
+          printf 'stand-in' > "binaries/conclave-daemon-${{ matrix.triple }}${{ matrix.ext }}"
+
+      - name: Check
+        run: cargo check --locked --all-targets
 
   daemon-rs:
     name: Rust daemon (cargo test, conformance)

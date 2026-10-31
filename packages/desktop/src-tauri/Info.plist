@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the app's Info.plist by tauri-build: the prompts macOS shows before meeting mode listens (docs/design/MEETING-MODE.md 6). -->
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Conclave listens to your microphone during a meeting you start, and turns it into text on this computer. No audio is saved.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Conclave listens to this computer's sound during a meeting you start, to transcribe what others say. No audio is saved.</string>
+</dict>
+</plist>

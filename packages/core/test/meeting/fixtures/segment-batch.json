@@ -1,0 +1,9 @@
+{
+  "clientId": "cli_desktop1",
+  "t0": 1793430060000,
+  "segments": [
+    { "seq": 0, "channel": "me", "startMs": 1200, "endMs": 3400, "text": "Morning, everyone.", "final": true },
+    { "seq": 0, "channel": "them", "startMs": 4000, "endMs": 6500, "text": "So where are we on the export", "final": false },
+    { "seq": 0, "channel": "them", "startMs": 4000, "endMs": 7100, "text": "So where are we on the export feature?", "final": true }
+  ]
+}

@@ -263,7 +263,8 @@ export interface Session {
   ultra?: boolean;
 }
 
-export type SessionKind = 'agent' | 'chat';
+/** meeting: the container of a meeting (meeting/index.ts); it never runs a turn. */
+export type SessionKind = 'agent' | 'chat' | 'meeting';
 
 /** The switches under the chat composer. A missing switch is on (web search and memory); thinking falls back to the agent. */
 export interface ChatSettings {
@@ -944,7 +945,9 @@ export type EngineEvent =
   // ----- the Map (map/live.ts): token and tool activity, only to clients that watch it -----
   /** High volume: kept out of the replay buffer like tool.progress. */
   | { type: 'map.delta'; delta: import('./client/map').MapDelta }
-  | { type: 'config.updated' };
+  | { type: 'config.updated' }
+  // ----- meeting mode (docs/design/MEETING-MODE.md 3.2) -----
+  | import('./meeting/wire').MeetingEvent;
 
 /** account: whose the event is (an account id, or '*' for every account); the hub sends it only there. */
 export type EngineEventEnvelope = EngineEvent & { seq: number; ts: number; account?: string };

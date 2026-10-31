@@ -169,7 +169,7 @@ export interface EngineApi {
   listSessions(filter: SessionFilter): Session[];
   getSession(id: string): Session | undefined;
   /** accountId: whose session; never taken from the request body. byPerson: started from an app, so a member's code session on the hub is refused up front. */
-  createSession(input: CreateSessionInput, accountId?: string, opts?: { byPerson?: boolean }): Promise<Session>;
+  createSession(input: CreateSessionInput, accountId?: string, opts?: { byPerson?: boolean; meeting?: boolean }): Promise<Session>;
   /** The account's one assistant thread (meta.home), made the first time; two calls at once get the same one. */
   assistantHome(accountId: string): Promise<Session>;
   updateSession(id: string, patch: SessionPatch): Session;

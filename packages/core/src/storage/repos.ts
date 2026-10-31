@@ -63,6 +63,7 @@ function rowToSession(r: Row): Session {
     meta: json(r.meta, undefined),
     // a workbench session keeps its effort and memory switches in chat
     ...(r.kind === 'chat' ? { kind: 'chat' as const, chat: json(r.chat, undefined) } : r.chat ? { chat: json(r.chat, undefined) } : {}),
+    ...(r.kind === 'meeting' ? { kind: 'meeting' as const } : {}),
     // folders across devices: the project id rides in meta until it gets its own column
     ...projectIdOf(r.meta),
     // workflows: the Ultra switch (migration 5)
@@ -137,7 +138,7 @@ export class SessionRepo {
       resumeAt: s.resumeAt ?? null,
       error: s.error ?? null,
       meta: s.meta || s.projectId ? JSON.stringify({ ...s.meta, ...(s.projectId ? { projectId: s.projectId } : {}) }) : null,
-      kind: s.kind === 'chat' ? 'chat' : null,
+      kind: s.kind === 'chat' || s.kind === 'meeting' ? s.kind : null,
       chat: s.kind === 'chat' && s.chat ? JSON.stringify(s.chat) : s.chat?.thinking || s.chat?.cyber || s.chat?.memory === false ? JSON.stringify(s.chat) : null,
       ultra: s.ultra ? 1 : null,
     };
@@ -164,7 +165,8 @@ export class SessionRepo {
     if (f.cwd) (where.push('cwd = $cwd'), (params.cwd = f.cwd));
     if (f.device) (where.push('device = $device'), (params.device = f.device));
     if (f.kind === 'chat') where.push(`kind = 'chat'`);
-    else if (f.kind === 'agent') where.push(`(kind IS NULL OR kind <> 'chat')`);
+    else if (f.kind === 'agent') where.push(`(kind IS NULL OR kind NOT IN ('chat', 'meeting'))`);
+    else if (f.kind === 'meeting') where.push(`kind = 'meeting'`);
     if (f.home) where.push(`json_extract(meta, '$.home') = 1`);
     if (f.tag) (where.push(`EXISTS (SELECT 1 FROM json_each(sessions.tags) WHERE value = $tag)`), (params.tag = f.tag));
     if (f.search) {
