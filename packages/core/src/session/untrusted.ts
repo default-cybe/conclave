@@ -38,6 +38,8 @@ export const FRAMEWORK_TAGS = [
   'task-notification',
   'shared-history',
   'friend-shared-context',
+  // meeting mode: what people said in a call (meeting/answer.ts)
+  'meeting-transcript',
 ];
 
 const TAG_RE = new RegExp(`<(\\s*\\/?\\s*)(${FRAMEWORK_TAGS.join('|')})(?=[\\s>/]|$)`, 'gi');

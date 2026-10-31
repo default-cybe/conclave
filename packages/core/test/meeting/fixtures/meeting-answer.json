@@ -1,0 +1,10 @@
+{
+  "id": "ans_m1abc3qrs4",
+  "meetingId": "mtg_m1abc2def3",
+  "messageId": "msg_ans1",
+  "trigger": "question",
+  "question": "So where are we on the export feature?",
+  "state": "done",
+  "createdAt": 1793430067200,
+  "firstTokenAt": 1793430067650
+}

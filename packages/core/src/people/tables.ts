@@ -38,6 +38,10 @@ export const ACCOUNT_TABLES = [
   'pim_proposals',
   // saved launch presets (workflows/store.ts): each account's own per workflow
   'workflow_presets',
+  // meeting mode (meeting/store.ts): each row carries its account, every read filters on it
+  'meetings',
+  'meeting_segments',
+  'meeting_answers',
 ] as const;
 
 /** Child table to the parent table whose account_id scopes it. */

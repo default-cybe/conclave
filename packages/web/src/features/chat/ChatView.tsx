@@ -38,6 +38,7 @@ import { isTyping } from '@/components/Shell';
 import { PhoneBar } from '@/components/PhoneFrame';
 import { MessageList } from './MessageList';
 import { InlineModel, MetaText } from './Log';
+import { MeetingButton } from '@/features/meeting/MeetingButton';
 import { Composer } from './Composer';
 import { TodoStrip } from './TodoStrip';
 import { RunningTasks } from './RunningTasks';
@@ -277,6 +278,7 @@ function ChatHeader({ session }: { session: Session }) {
             {MOVE_TO_MAIN}
           </Button>
         )}
+        <MeetingButton session={session} />
         <div className="flex shrink-0 items-center gap-1.5 text-[13px]">
           {/* the pet says what the word says: waiting on you, asleep until the reset, failed (CHAT-AND-MOTION 1.11) */}
           {sessionPet(session.status) && <Pet state={sessionPet(session.status)} size={24} className="-my-1 text-fg-2" />}

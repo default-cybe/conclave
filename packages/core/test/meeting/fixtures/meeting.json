@@ -1,0 +1,16 @@
+{
+  "id": "mtg_m1abc2def3",
+  "accountId": "owner",
+  "sessionId": "ses_m1abc2xyz9",
+  "projectId": "prj_9f8e7d",
+  "device": "dev_laptop",
+  "cwd": "/home/me/code/export-service",
+  "title": "Standup export-service 09:30",
+  "agenda": "Show the CSV export and the retry fix",
+  "status": "live",
+  "createdAt": 1793430000000,
+  "startedAt": 1793430060000,
+  "audioClientId": "cli_desktop1",
+  "briefMessageId": "msg_brief1",
+  "autoAnswer": "questions"
+}
