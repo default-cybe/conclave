@@ -9,6 +9,7 @@ import type {
   ImageBlock,
   MemoryEntry,
   Message,
+  MessagePage,
   Notice,
   QuestionRequest,
   QueuedMessage,
@@ -827,8 +828,8 @@ export class Engine implements EngineApi {
     return { ...fork, stats };
   }
 
-  getMessages(id: string, afterSeq?: number): Message[] {
-    return this.repos.messages.list(id, { afterSeq });
+  getMessages(id: string, page: MessagePage = {}): Message[] {
+    return this.repos.messages.page(id, page);
   }
 
   async send(id: string, input: SendInput): Promise<SendResult> {

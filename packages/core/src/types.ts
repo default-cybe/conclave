@@ -153,6 +153,17 @@ export interface Message {
 }
 
 /**
+ * Which messages of a transcript to read, by seq. afterSeq reads forward
+ * (oldest first); otherwise limit or beforeSeq reads the newest page that
+ * ends before beforeSeq. Either way the answer is in ascending seq order.
+ */
+export interface MessagePage {
+  afterSeq?: number;
+  beforeSeq?: number;
+  limit?: number;
+}
+
+/**
  * A background task that ended and reported to its session: a Task or
  * Delegate subagent (id: its session) or a workflow run (id: the run). The
  * notice line that says so carries it as meta.agentResult with meta.kind
