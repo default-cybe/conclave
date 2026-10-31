@@ -358,6 +358,24 @@ pub fn stop(app: &AppHandle) {
     emit_status(app);
 }
 
+/// The tray's "End meeting": stop listening, and end it on the hub so the wrap-up runs
+/// (the overlay's own End button calls the hub itself). With no capture running yet,
+/// the meeting the overlay shows is ended.
+pub fn end(app: &AppHandle) {
+    if let Some(r) = RUN.lock().unwrap().as_ref() {
+        // meeting-up sends the last segments first, then the end
+        r.up.end_on_hub.store(true, Ordering::Relaxed);
+    } else if let Some(id) = OPEN_ID.lock().unwrap().clone() {
+        if let Ok((base, token)) = crate::hub_creds(app) {
+            let client_id = crate::meeting_client_id(app);
+            spawn("meeting-end", move || {
+                let _ = upload::Hub::new(base, token, client_id, id, 0).end();
+            });
+        }
+    }
+    stop(app);
+}
+
 pub fn pause(app: &AppHandle, on: bool) {
     if let Some(r) = RUN.lock().unwrap().as_ref() {
         r.paused.store(on, Ordering::Relaxed);
@@ -440,8 +458,14 @@ pub fn setup(app: &AppHandle) {
     }
 }
 
+/// To the overlay, and to the main window, whose notify.ts stays quiet while a meeting listens (7.6).
 fn emit_status(app: &AppHandle) {
-    let _ = app.emit_to(MEETING, "meeting://status", status());
+    send_status(app, status());
+}
+
+fn send_status(app: &AppHandle, s: DesktopMeetingStatus) {
+    let _ = app.emit_to(MEETING, "meeting://status", s.clone());
+    let _ = app.emit_to(crate::MAIN, "meeting://status", s);
 }
 
 /// `meeting-share`: share detection every 250 ms, exclusion sweep every 2 s,
@@ -490,7 +514,7 @@ fn watch(app: &AppHandle, stop: &AtomicBool) {
         let s = status();
         let text = serde_json::to_string(&s).unwrap_or_default();
         if last_status.as_deref() != Some(text.as_str()) && last_status_at.elapsed() >= Duration::from_millis(500) {
-            let _ = app.emit_to(MEETING, "meeting://status", s);
+            send_status(app, s);
             last_status = Some(text);
             last_status_at = Instant::now();
         }

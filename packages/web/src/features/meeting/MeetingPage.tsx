@@ -51,9 +51,8 @@ function MeetingList() {
       .then(setList, (e: Error) => setError(e.message));
     // a meeting that starts, ends or changes shows without a reload
     return onHubEvent((e) => {
-      // meeting events are not in core's EngineEvent until Track B lands
-      if ((e.type as string) !== 'meeting.updated') return;
-      const m = (e as unknown as { meeting: Meeting }).meeting;
+      if (e.type !== 'meeting.updated') return;
+      const m = e.meeting;
       setList((l) => (l ? [m, ...l.filter((x) => x.id !== m.id)].sort((a, b) => b.createdAt - a.createdAt) : l));
     });
   }, []);

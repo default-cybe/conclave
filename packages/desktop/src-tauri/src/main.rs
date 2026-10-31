@@ -223,7 +223,10 @@ fn grant_hub_ipc(app: &AppHandle, base: &Url) -> Result<(), String> {
             .permission("allow-update-install")
             // the hub page may open the meeting overlay, never start capture (MEETING-MODE.md 2.1.1)
             .permission("allow-meeting-open")
-            .permission("allow-meeting-status"),
+            .permission("allow-meeting-status")
+            // meeting://status, so notify.ts stays quiet while a meeting listens (MEETING-MODE.md 7.6)
+            .permission("core:event:allow-listen")
+            .permission("core:event:allow-unlisten"),
     )
     .map_err(|e| e.to_string())?;
     // capture starts only from the overlay window, after the owner's tap there
@@ -1439,7 +1442,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "toggle" => toggle_main(app),
             "quick" => toggle_quick(app),
             "meeting_toggle" => meeting::toggle(app),
-            "meeting_end" => meeting::stop(app),
+            "meeting_end" => meeting::end(app),
             "settings" => show_settings(app),
             "pair_phone" => show_pairing(app),
             "change_hub" => show_setup(app, &[]),

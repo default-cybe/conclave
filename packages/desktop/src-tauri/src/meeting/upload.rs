@@ -87,6 +87,8 @@ pub struct Shared {
     /// The hub refused with 409: the meeting is over for this app.
     pub ended: AtomicBool,
     pub online: AtomicBool,
+    /// Ended from the tray: after the last segments go out, end the meeting on the hub too.
+    pub end_on_hub: AtomicBool,
 }
 
 impl Shared {
@@ -160,6 +162,11 @@ impl Hub {
         self.post("segments", serde_json::to_value(batch).unwrap_or_default())
     }
 
+    /// `POST .../end` (3.1): the hub wraps up. A 409 means it already ends.
+    pub fn end(&self) -> Posted {
+        self.post("end", serde_json::json!({}))
+    }
+
     pub fn answer_now(&self) -> Posted {
         let body = AnswerNowInput { reason: "hotkey".into(), question: None };
         self.post("answer", serde_json::to_value(body).unwrap_or_default())
@@ -182,6 +189,11 @@ pub fn run(hub: &Hub, shared: &Shared, stop: &AtomicBool) {
         let batch = if waiting { Vec::new() } else { shared.outbox.lock().unwrap().take_batch() };
         if batch.is_empty() {
             if stopping {
+                if shared.end_on_hub.load(Ordering::Relaxed) {
+                    if let Posted::Retry(e) | Posted::Refused(e) = hub.end() {
+                        log::info!("meeting: end on the hub failed: {e}");
+                    }
+                }
                 return;
             }
             let o = shared.outbox.lock().unwrap();

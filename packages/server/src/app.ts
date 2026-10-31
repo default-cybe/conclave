@@ -52,6 +52,7 @@ import { registerPeopleRoutes } from './routes-people';
 import { SECURITY_HEADERS, placeholderPage, resolveWebDir, serveStatic, webDirCandidates } from './static';
 import { UpdateService, type UpdateOptions } from './update/service';
 import { registerUpdateRoutes } from './routes-update';
+import { registerMeetingRoutes } from './routes-meetings';
 
 const log = logger('server');
 
@@ -351,6 +352,9 @@ export function createServer(opts: ServerOptions): ConclaveServer {
 
   // ----- updates: the hub's own and its devices' daemons (docs/DESIGN.md, Updates)
   registerUpdateRoutes(app, ctx);
+
+  // ----- meeting mode: meetings, segments from the desktop app, answers, notes (docs/design/MEETING-MODE.md 3.1)
+  registerMeetingRoutes(app, ctx);
 
   // ----- gateway -------------------------------------------------------------
   const gw = (type: WireType | undefined, prefix: (c: { req: { param: (k: string) => string } }) => string) => async (c: any) => {

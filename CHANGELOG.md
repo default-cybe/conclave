@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- **Meeting mode**: a small always-on-top overlay in the desktop app that listens to your microphone ("Me") and the computer's sound ("Them") during a meeting you start in a project folder, and shows short "Say this" answers written as you from that project (git, recent sessions, tasks, memory, the last meeting's notes, secrets redacted). Start it from a Code session's **Meeting** button or the tray (`Ctrl/Cmd+Alt+M`); the hub writes a brief first, and nothing is heard until you press **Start listening**. Speech becomes text on the computer (Parakeet, audio never saved or sent); questions from "Them" get an answer on the fast tier with no tools, the transcript fenced as untrusted. Ending writes notes to `<project>/.conclave/meetings/`, tasks for your action items and one memory episode; **Meetings** lists them with their transcripts. The overlay asks Windows and macOS to leave it out of screen captures and hides itself when it sees a share start; macOS 15 capture and Linux still see it. Each account sees only its own meetings. docs/INSTALL.md, Meeting mode.
+
 ## [0.4.49] - 2026-10-30
 
 ### Added
