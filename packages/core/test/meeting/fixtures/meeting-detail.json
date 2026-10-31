@@ -1,0 +1,39 @@
+{
+  "id": "mtg_m1abc2def3",
+  "accountId": "owner",
+  "sessionId": "ses_m1abc2xyz9",
+  "projectId": "prj_9f8e7d",
+  "device": "dev_laptop",
+  "cwd": "/home/me/code/export-service",
+  "title": "Standup export-service 09:30",
+  "status": "live",
+  "createdAt": 1793430000000,
+  "startedAt": 1793430060000,
+  "audioClientId": "cli_desktop1",
+  "autoAnswer": "questions",
+  "segments": [
+    { "seq": 0, "channel": "me", "startMs": 1200, "endMs": 3400, "text": "Morning, everyone.", "final": true },
+    { "seq": 0, "channel": "them", "startMs": 4000, "endMs": 7100, "text": "So where are we on the export feature?", "final": true }
+  ],
+  "answers": [
+    {
+      "id": "ans_m1abc3qrs4",
+      "meetingId": "mtg_m1abc2def3",
+      "messageId": "msg_ans1",
+      "trigger": "speculative",
+      "question": "So where are we on the export",
+      "state": "cancelled",
+      "createdAt": 1793430066600
+    },
+    {
+      "id": "ans_m1abc3qrs5",
+      "meetingId": "mtg_m1abc2def3",
+      "messageId": "msg_ans2",
+      "trigger": "answer-now",
+      "question": "",
+      "state": "failed",
+      "createdAt": 1793430090000,
+      "error": "too slow"
+    }
+  ]
+}
