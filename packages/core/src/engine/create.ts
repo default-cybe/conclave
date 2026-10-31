@@ -36,6 +36,7 @@ import { attachRegressionGate } from '../session/regression-gate';
 import { attachVisualCheck } from '../session/visual-check';
 import { attachLimits } from '../session/limit-tree';
 import { attachAlerts } from '../alerts/service';
+import { attachMeetings } from '../meeting/index';
 import { AssistantService, QuietHoursNotifier, QUIET_JOB, attachAssistant, assistantFor as assistantForEngine } from '../assistant';
 import type { AssistantHost } from '../assistant/service';
 import { accountKv, accountRoutines, accountTasks } from '../people/scoped';
@@ -452,6 +453,8 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
   attachLimits(engine);
   // file conflicts and stuck turns, for the Inbox (alerts/service.ts); tests call tick() themselves
   attachAlerts(engine, { timer: !opts.noBackground });
+  // meeting mode (docs/design/MEETING-MODE.md): meetings, their live answers and wrap-ups
+  attachMeetings(engine);
   // repo sessions on GitHub (github/service.ts): clones, worktrees, push, pull requests; tests call poll() themselves
   attachGithub(engine, { timer: !opts.noBackground });
 
