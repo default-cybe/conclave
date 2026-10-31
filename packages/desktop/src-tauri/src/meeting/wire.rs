@@ -245,14 +245,14 @@ mod tests {
             let name = entry.file_name().to_string_lossy().into_owned();
             let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
             let Ok(v) = serde_json::from_str::<Value>(&text) else { continue };
-            if name.starts_with("segment-batch") {
-                round_trip::<SegmentBatch>(v);
-            } else if name.starts_with("segment-ack") {
-                round_trip::<SegmentAck>(v);
-            } else if name.starts_with("desktop-status") {
-                round_trip::<DesktopMeetingStatus>(v);
-            } else if name.starts_with("meeting") && !name.starts_with("meeting-detail") {
-                round_trip::<Meeting>(v);
+            // exact names: meeting-answer.json and meeting-notes.json are other types
+            match name.as_str() {
+                "segment-batch.json" => round_trip::<SegmentBatch>(v),
+                "segment-ack.json" => round_trip::<SegmentAck>(v),
+                "desktop-meeting-status.json" => round_trip::<DesktopMeetingStatus>(v),
+                "meeting.json" => round_trip::<Meeting>(v),
+                "answer-now-input.json" => round_trip::<AnswerNowInput>(v),
+                _ => {}
             }
         }
     }

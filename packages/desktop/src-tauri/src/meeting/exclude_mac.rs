@@ -11,19 +11,25 @@ use objc2_app_kit::{NSApplication, NSWindowCollectionBehavior, NSWindowSharingTy
 use objc2_core_graphics::{kCGNullWindowID, CGWindowListCopyWindowInfo, CGWindowListOption};
 use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSString};
 use tauri::{Runtime, WebviewWindow};
-use tauri_nspanel::{tauri_panel, Panel, WebviewWindowExt};
+use tauri_nspanel::{Panel, WebviewWindowExt};
 
 use super::share_watch::Win;
 use super::wire::Exclusion;
+use panel::MeetingPanel;
 
-tauri_panel! {
-    panel!(MeetingPanel {
-        config: {
-            can_become_key_window: true,
-            becomes_key_only_if_needed: true,
-            is_floating_panel: true
-        }
-    })
+// in its own module: the macro brings its own objc2 imports, which clash with ours
+mod panel {
+    use tauri_nspanel::tauri_panel;
+
+    tauri_panel! {
+        panel!(MeetingPanel {
+            config: {
+                can_become_key_window: true,
+                becomes_key_only_if_needed: true,
+                is_floating_panel: true
+            }
+        })
+    }
 }
 
 /// Non-activating panel at floating level (4), on every Space and over full-screen apps,
