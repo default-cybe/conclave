@@ -249,7 +249,11 @@ mod tests {
             match name.as_str() {
                 "segment-batch.json" => round_trip::<SegmentBatch>(v),
                 "segment-ack.json" => round_trip::<SegmentAck>(v),
-                "desktop-meeting-status.json" => round_trip::<DesktopMeetingStatus>(v),
+                // progress is f32, so 0.42 comes back as 0.41999998: compare parsed values
+                "desktop-meeting-status.json" => {
+                    let s: DesktopMeetingStatus = serde_json::from_value(v).expect("parses");
+                    assert_eq!(serde_json::from_value::<DesktopMeetingStatus>(serde_json::to_value(&s).unwrap()).unwrap(), s);
+                }
                 "meeting.json" => round_trip::<Meeting>(v),
                 "answer-now-input.json" => round_trip::<AnswerNowInput>(v),
                 _ => {}
