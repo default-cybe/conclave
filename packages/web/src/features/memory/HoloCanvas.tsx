@@ -28,8 +28,8 @@
  * double click flies to the item and keeps its neighbours lit; Fit returns
  * to the overview (or the open sphere). Rendering stops when the tab is
  * hidden or the view is off screen. Reduced motion stops the drift and
- * jumps instead of flying (MemoryMap shows Rings instead unless the owner
- * asks for 3D).
+ * jumps instead of flying, so 3D stays the view (MemoryMap shows Rings
+ * only without WebGL).
  *
  * What this view still does differently from the rest of the app is listed
  * in docs/DESIGN.md (Memory > Map, 3D view).

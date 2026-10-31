@@ -1,6 +1,6 @@
 /**
  * Memory > Map, Rings view: the ring instrument (Tree / Rings / 3D). It is
- * also the 3D view's fallback without WebGL or with reduced motion. Same
+ * also the 3D view's fallback without WebGL. Same
  * props as the 3D view plus the time cutoff, so MemoryMap, the tree,
  * filters and the drawer stay as they are.
  *
