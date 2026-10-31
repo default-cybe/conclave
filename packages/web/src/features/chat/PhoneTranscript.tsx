@@ -38,6 +38,7 @@ import { QuestionCard } from '@/components/inbox/QuestionCard';
 import { Checkbox } from '@/components/ui/Field';
 import { CodeBlock, Diff } from '@/components/ui/Code';
 import { commentTo } from './CommentTray';
+import { sticks } from './window';
 import { ConfirmDialog, MenuList, Popover, Sheet } from '@/components/ui/Overlay';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { ModelList } from '@/components/pickers/ModelPicker';
@@ -117,10 +118,12 @@ export function PhoneTranscript({ session }: { session: Session }) {
     return () => cancelAnimationFrame(raf);
   }, [session.id, loaded]);
 
+  const lastTop = useRef(0);
   const onScroll = () => {
     const el = scroller.current;
     if (!el) return;
-    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    const near = sticks({ top: el.scrollTop, height: el.scrollHeight, viewport: el.clientHeight }, lastTop.current);
+    lastTop.current = el.scrollTop;
     stick.current = near;
     if (near !== atBottom) setAtBottom(near);
   };

@@ -25,7 +25,7 @@ import { StopCardView } from '@/features/chat/StopCardView';
 import { PendingMessage, QueuedBubble, UserMessage } from './UserMessage';
 import { asideTargets, patchPending, rememberAside, setAsking, setPending, setScrolled, useChatUi, type Pending } from './state';
 import { KeepPlace, keepHeights, useAnchoring, whenIdle } from '@/features/chat/MessageList';
-import { fillDirection, grow, idleDirection, mountedRange, nearEdge, openSpan, partsOf, type Direction, type Span } from '@/features/chat/window';
+import { fillDirection, grow, idleDirection, mountedRange, nearEdge, openSpan, partsOf, sticks, type Direction, type Span } from '@/features/chat/window';
 import { buildUnits, livePhase, replyEnded, rowIndexOf, type Unit } from './units';
 
 const EMPTY: Message[] = [];
@@ -315,13 +315,16 @@ export function ChatMessages({ chatId, session }: { chatId: string; session?: Se
     return () => ro.disconnect();
   }, [fit]);
 
+  const lastTop = useRef(0);
   const onScroll = () => {
     const el = scroller.current;
     if (!el) return;
     const { mine: m, count } = view.current;
-    const edge = m && nearEdge(m.span, count, { top: el.scrollTop, height: el.scrollHeight, viewport: el.clientHeight });
+    const at = { top: el.scrollTop, height: el.scrollHeight, viewport: el.clientHeight };
+    const edge = m && nearEdge(m.span, count, at);
     if (edge) growOne(edge);
-    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    const near = sticks(at, lastTop.current);
+    lastTop.current = at.top;
     stick.current = near;
     if (near !== atBottom) setAtBottom(near);
     setScrolled(el.scrollTop > 2);

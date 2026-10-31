@@ -172,6 +172,18 @@ export function nearEdge(span: Span, count: number, s: Scroll, w: WindowSize = W
 }
 
 /**
+ * After a scroll event: does the log keep following new content? Near the
+ * bottom, unless the reader just moved up (`prev` is the offset at the last
+ * scroll event). A trackpad moves a few px an event, so with the distance
+ * alone each streamed chunk pulled the view back down before it got away.
+ */
+export function sticks(s: Scroll, prev: number, near = 120): boolean {
+  const gap = s.height - s.top - s.viewport;
+  if (gap <= 1) return true;
+  return s.top >= prev - 0.5 && gap < near;
+}
+
+/**
  * While a session opens, before the first paint: grow until the latest
  * pieces fill two screens, or until a linked piece has a screen above and
  * below it to land in the middle.
