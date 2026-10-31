@@ -81,9 +81,10 @@ impl Queue {
         true
     }
 
-    /// Finals first, oldest first; then the waiting partial.
+    /// "them" finals first (only they can be a question), then "me" finals, oldest first; then the waiting partial.
     pub fn pop(&mut self) -> Option<Job> {
-        match self.jobs.iter().position(|j| j.is_final) {
+        let them = self.jobs.iter().position(|j| j.is_final && j.channel == Channel::Them);
+        match them.or_else(|| self.jobs.iter().position(|j| j.is_final)) {
             Some(i) => self.jobs.remove(i),
             None => self.jobs.pop_front(),
         }
@@ -213,8 +214,8 @@ pub fn keep(model: ParakeetModel) {
 /// The `meeting-stt` loop: one inference at a time, results to `out`, which must not block.
 pub fn run<T: Transcriber>(model: &mut T, shared: &Shared, stop: &AtomicBool, mut out: impl FnMut(Segment)) {
     let mut seqs = Seqs::default();
-    while let Some(job) = shared.next(stop) {
-        let samples = job.segment.samples.clone();
+    while let Some(mut job) = shared.next(stop) {
+        let samples = std::mem::take(&mut job.segment.samples);
         match model.transcribe(samples) {
             Ok(text) => {
                 if let Some(seg) = seqs.segment(&job, &text) {
@@ -250,6 +251,16 @@ mod tests {
         assert!(first.is_final && first.channel == Channel::Me);
         let second = q.pop().unwrap();
         assert!(!second.is_final && second.segment.start_timestamp_ms == 1.0);
+    }
+
+    #[test]
+    fn a_them_final_goes_before_an_older_me_final() {
+        let mut q = Queue::default();
+        q.push(job(Channel::Me, true, 0.0));
+        q.push(job(Channel::Them, false, 1.0));
+        q.push(job(Channel::Them, true, 2.0));
+        let order: Vec<(Channel, bool)> = std::iter::from_fn(|| q.pop()).map(|j| (j.channel, j.is_final)).collect();
+        assert_eq!(order, [(Channel::Them, true), (Channel::Me, true), (Channel::Them, false)]);
     }
 
     #[test]

@@ -50,6 +50,9 @@ const REOPEN_EVERY: Duration = Duration::from_secs(2);
 /// Partial transcripts of "them": the first after 1.2 s of open speech, then every 1.0 s (4.3).
 pub const PARTIAL_FIRST_MS: f64 = 1200.0;
 pub const PARTIAL_EVERY: Duration = Duration::from_millis(1000);
+/// No partial of open speech longer than this: a partial cannot be stopped once it runs, so a
+/// long one would hold up the question's final; speculation needs only the first 2 s.
+pub const PARTIAL_LAST_MS: f64 = 6000.0;
 /// 30 s of exact zeros on the system channel means macOS denied the capture (6).
 const SILENT_DENIED: Duration = Duration::from_secs(30);
 
@@ -220,11 +223,15 @@ fn partial_due(vad: &ContinuousVadProcessor, last: Option<Instant>, stt_idle: bo
     }
     let (samples, start_ms) = vad.open_speech()?;
     let len_ms = samples.len() as f64 * 1000.0 / super::vad::VAD_SAMPLE_RATE as f64;
-    (len_ms >= PARTIAL_FIRST_MS).then(|| SpeechSegment {
+    partial_len_ok(len_ms).then(|| SpeechSegment {
         samples: samples.to_vec(),
         start_timestamp_ms: start_ms,
         end_timestamp_ms: start_ms + len_ms,
     })
+}
+
+fn partial_len_ok(len_ms: f64) -> bool {
+    (PARTIAL_FIRST_MS..=PARTIAL_LAST_MS).contains(&len_ms)
 }
 
 fn sleep_unless(stop: &AtomicBool, total: Duration) {
@@ -325,6 +332,13 @@ pub fn is_monitor_source(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn partials_only_between_1_2_and_6_seconds_of_open_speech() {
+        assert!(!partial_len_ok(1000.0));
+        assert!(partial_len_ok(1200.0) && partial_len_ok(6000.0));
+        assert!(!partial_len_ok(6030.0) && !partial_len_ok(12_000.0));
+    }
 
     #[test]
     fn a_full_ring_drops_and_counts_without_blocking() {

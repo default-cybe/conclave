@@ -3,7 +3,8 @@
 //! A bounded outbox of 256 segments. Pushing never waits on the network.
 //! When it is full the oldest partial goes first, then the oldest final.
 //! Failed posts retry after 0.5, 1, 2, 4, 8 s, then every 8 s. A 409 means the
-//! meeting is over on the hub (or another app listens): the meeting stops.
+//! meeting is over on the hub (or another app listens), a 404 that it was
+//! deleted: either way the meeting stops.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -113,7 +114,7 @@ impl Shared {
 
 pub enum Posted {
     Ok,
-    /// 409: stop listening.
+    /// 409 or 404: stop listening.
     Ended(String),
     /// 400 or 413: this batch can never be accepted; it is dropped.
     Refused(String),
@@ -151,7 +152,8 @@ impl Hub {
         let res = self.agent.post(url.as_str()).set("Authorization", &format!("Bearer {}", self.token)).send_json(body);
         match res {
             Ok(_) => Posted::Ok,
-            Err(ureq::Error::Status(409, r)) => Posted::Ended(r.into_string().unwrap_or_default()),
+            // a deleted meeting answers 404 for ever: retrying would keep the mic on with nowhere to send
+            Err(ureq::Error::Status(code @ (404 | 409), r)) => Posted::Ended(format!("{code} {}", r.into_string().unwrap_or_default())),
             Err(ureq::Error::Status(code @ (400 | 413), r)) => Posted::Refused(format!("{code} {}", r.into_string().unwrap_or_default())),
             Err(e) => Posted::Retry(e.to_string()),
         }
@@ -197,8 +199,11 @@ pub fn run(hub: &Hub, shared: &Shared, stop: &AtomicBool) {
                 return;
             }
             let o = shared.outbox.lock().unwrap();
-            let wait = retry_at.map(|t| t.saturating_duration_since(Instant::now())).unwrap_or(Duration::from_millis(500));
-            let _ = shared.wake.wait_timeout(o, wait.max(Duration::from_millis(10))).unwrap();
+            // a push between take_batch and this lock already notified: only wait when there is still nothing to send
+            if o.len() == 0 || waiting {
+                let wait = retry_at.map(|t| t.saturating_duration_since(Instant::now())).unwrap_or(Duration::from_millis(500));
+                let _ = shared.wake.wait_timeout(o, wait.max(Duration::from_millis(10))).unwrap();
+            }
             continue;
         }
         match hub.post_segments(&batch) {
@@ -364,6 +369,18 @@ mod tests {
         shared.push(seg(0, true));
         run(&hub(base), &shared, &AtomicBool::new(false));
         assert!(shared.ended.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn a_404_ends_the_meeting_instead_of_retrying() {
+        // the meeting was deleted on the hub
+        let (base, _) = fake_hub(vec![404]);
+        let shared = Shared::default();
+        shared.push(seg(0, true));
+        let started = Instant::now();
+        run(&hub(base), &shared, &AtomicBool::new(false));
+        assert!(shared.ended.load(Ordering::Relaxed));
+        assert!(started.elapsed() < Duration::from_secs(2), "no backoff on a 404");
     }
 
     #[test]

@@ -80,12 +80,25 @@ pub struct ContinuousVadProcessor {
     max_segment_samples: usize,
     /// Samples processed since silero's buffer was last trimmed.
     since_trim: usize,
+    /// silero's pre-speech pad: kept in its buffer after a cut, so a restart reads inside it.
+    pre_pad_ms: u64,
+}
+
+/// Where a long speech is cut: the end index inside the open speech (`speech_len`
+/// samples, ending at `processed` session samples) and the session time in ms silero's
+/// buffer is trimmed to. Everything after the cut, `pre_pad_ms` and the rounding, stays.
+fn cut_point(speech_len: usize, processed: usize, session_ms: u64, pre_pad_ms: u64) -> (usize, u64) {
+    let cut_ms = session_ms.saturating_sub(pre_pad_ms);
+    let per_ms = VAD_SAMPLE_RATE as usize / 1000;
+    let tail = processed.saturating_sub(cut_ms as usize * per_ms);
+    (speech_len.saturating_sub(tail), cut_ms)
 }
 
 impl ContinuousVadProcessor {
     pub fn new(input_sample_rate: u32, redemption_time_ms: u32) -> Result<Self, String> {
-        let session = VadSession::new(live_config(redemption_time_ms))
-            .map_err(|e| format!("Failed to create VAD session: {e:?}"))?;
+        let config = live_config(redemption_time_ms);
+        let pre_pad_ms = config.pre_speech_pad.as_millis() as u64;
+        let session = VadSession::new(config).map_err(|e| format!("Failed to create VAD session: {e:?}"))?;
         // VAD uses 30ms chunks at 16kHz (480 samples)
         let vad_chunk_size = (VAD_SAMPLE_RATE as f32 * 0.03) as usize;
         Ok(Self {
@@ -100,6 +113,7 @@ impl ContinuousVadProcessor {
             emitted: 0,
             max_segment_samples: (MAX_SEGMENT_MS as usize) * (VAD_SAMPLE_RATE as usize) / 1000,
             since_trim: 0,
+            pre_pad_ms,
         })
     }
 
@@ -177,6 +191,13 @@ impl ContinuousVadProcessor {
 
     /// Continuous speech never reaches a silence, so silero never closes it:
     /// send what is open every 12 s and keep listening.
+    ///
+    /// silero keeps the whole open speech in its buffer until speech ends, and its
+    /// `take_until` cannot trim inside speech (the speech state keeps the old start, and
+    /// the end of speech then reads before the buffer: a panic). So after a cut the
+    /// session is reset to silence and its buffer trimmed: music or hold audio that never
+    /// stops costs at most 12 s of samples, not 230 MB an hour. The last pre-pad of audio
+    /// is kept, not sent: speech that goes on starts again right there, its pre-pad reads it.
     fn cut_long_speech(&mut self) {
         if !self.in_speech {
             return;
@@ -185,15 +206,21 @@ impl ContinuousVadProcessor {
         if current.len() < self.emitted + self.max_segment_samples {
             return;
         }
-        let end = self.emitted + self.max_segment_samples;
-        let samples = current[self.emitted..end].to_vec();
-        let start_ms = self.sample_ms(self.speech_start_sample + self.emitted);
-        self.emitted = end;
-        self.speech_segments.push_back(SpeechSegment {
-            end_timestamp_ms: start_ms + self.sample_ms(samples.len()),
-            start_timestamp_ms: start_ms,
-            samples,
-        });
+        let (end, cut_ms) = cut_point(current.len(), self.processed_samples, self.session.session_time().as_millis() as u64, self.pre_pad_ms);
+        if end > self.emitted {
+            let samples = current[self.emitted..end].to_vec();
+            let start_ms = self.sample_ms(self.speech_start_sample + self.emitted);
+            self.speech_segments.push_back(SpeechSegment {
+                end_timestamp_ms: start_ms + self.sample_ms(samples.len()),
+                start_timestamp_ms: start_ms,
+                samples,
+            });
+        }
+        self.session.reset();
+        self.session.take_until(Duration::from_millis(cut_ms));
+        self.in_speech = false;
+        self.emitted = 0;
+        self.since_trim = 0;
     }
 
     /// silero keeps every sample it saw outside speech. After 2 s of silence,
@@ -376,6 +403,30 @@ mod tests {
         let segments = run(&audio, REDEMPTION_ME_MS);
         assert!(!segments.is_empty(), "speech after a minute of silence");
         assert!(segments[0].start_timestamp_ms >= 59_000.0, "start {}", segments[0].start_timestamp_ms);
+    }
+
+    #[test]
+    fn a_cut_keeps_the_pre_pad_and_sends_the_rest() {
+        // 12.03 s of open speech ending at 60 s of session; 150 ms pre-pad
+        let processed = 60 * 16000;
+        let (end, cut_ms) = cut_point(12 * 16000 + 480, processed, 60_000, 150);
+        assert_eq!(cut_ms, 59_850);
+        assert_eq!(end, 12 * 16000 + 480 - 150 * 16);
+        // a session shorter than the pad never underflows
+        assert_eq!(cut_point(100, 50, 3, 150), (100 - 50, 0));
+    }
+
+    #[test]
+    #[ignore = "needs a real speech clip"]
+    fn speech_that_never_ends_keeps_the_buffer_bounded() {
+        let audio = speech_like(60.0, 0.0, 60.0, 16000);
+        let mut vad = ContinuousVadProcessor::new(16000, REDEMPTION_THEM_MS).expect("vad");
+        let mut max = 0;
+        for block in audio.chunks(320) {
+            vad.process_audio(block).expect("process");
+            max = max.max(vad.session.session_audio_samples());
+        }
+        assert!(max <= 13 * 16000, "silero held {max} samples");
     }
 
     #[test]

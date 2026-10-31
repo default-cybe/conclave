@@ -101,7 +101,10 @@ fn build(app: &AppHandle, url: Url) -> Result<WebviewWindow, String> {
         w.navigate(url).map_err(|e| e.to_string())?;
         return Ok(w);
     }
+    let nav = app.clone();
     let b = WebviewWindowBuilder::new(app, MEETING, WebviewUrl::External(url))
+        // the same guard as the main and quick windows: this window holds the capture commands
+        .on_navigation(move |url| crate::allow_navigation(&nav, url))
         .title("Conclave meeting")
         .inner_size(380.0, 520.0)
         .visible(false)
@@ -406,10 +409,41 @@ pub fn focusable(app: &AppHandle, on: bool) {
     }
 }
 
+/// The tray icon with a red dot in its lower right quarter (white ring): the
+/// recording indicator on every OS, also while the overlay is hidden for a share.
+pub fn with_rec_dot(rgba: &[u8], w: u32, h: u32) -> Vec<u8> {
+    let mut out = rgba.to_vec();
+    let r = (w.min(h) as f32) * 0.22;
+    let (cx, cy) = (w as f32 - r - 1.0, h as f32 - r - 1.0);
+    for y in 0..h {
+        for x in 0..w {
+            let d = ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt();
+            let px = match d {
+                d if d <= r * 0.75 => [220, 30, 40, 255],
+                d if d <= r => [255, 255, 255, 255],
+                _ => continue,
+            };
+            let i = ((y * w + x) * 4) as usize;
+            if let Some(p) = out.get_mut(i..i + 4) {
+                p.copy_from_slice(&px);
+            }
+        }
+    }
+    out
+}
+
 fn set_tray(app: &AppHandle, line: Option<&str>) {
     if let Some(tray) = app.tray_by_id("main") {
         let tip = line.map(|l| format!("Conclave: {l}")).unwrap_or_else(|| "Conclave".into());
         let _ = tray.set_tooltip(Some(tip));
+        if let Some(icon) = app.default_window_icon() {
+            // capture runs (listening, paused or hidden for a share): the icon says so on every OS
+            let icon = match line {
+                Some(_) => tauri::image::Image::new_owned(with_rec_dot(icon.rgba(), icon.width(), icon.height()), icon.width(), icon.height()),
+                None => icon.clone().to_owned(),
+            };
+            let _ = tray.set_icon(Some(icon));
+        }
         // macOS shows this next to the icon: the recording indicator stays visible when the overlay is hidden
         #[cfg(target_os = "macos")]
         let _ = tray.set_title(line.map(|l| if l == "Paused" { "Paused" } else { "● REC" }));
@@ -524,4 +558,22 @@ fn watch(app: &AppHandle, stop: &AtomicBool) {
 fn stop_and_say(app: &AppHandle) {
     stop(app);
     eprintln!("conclave: the hub ended the meeting");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::with_rec_dot;
+
+    #[test]
+    fn the_rec_dot_is_red_in_the_corner_and_leaves_the_rest() {
+        let (w, h) = (32u32, 32u32);
+        let icon = vec![10u8; (w * h * 4) as usize];
+        let out = with_rec_dot(&icon, w, h);
+        assert_eq!(out.len(), icon.len());
+        let at = |x: u32, y: u32| &out[((y * w + x) * 4) as usize..((y * w + x) * 4 + 4) as usize];
+        // the dot's centre is red, the opposite corner is untouched
+        let c = (w as f32 - 32.0 * 0.22 - 1.0) as u32;
+        assert_eq!(at(c, c), [220, 30, 40, 255]);
+        assert_eq!(at(0, 0), [10, 10, 10, 10]);
+    }
 }
