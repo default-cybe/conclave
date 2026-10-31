@@ -32,6 +32,7 @@ export function desktop(): Desktop | undefined {
 }
 
 export const ipc = {
+  open: (meetingId: string) => desktop()?.invoke<void>('meeting_open', { meetingId }),
   status: () => desktop()?.invoke<DesktopMeetingStatus>('meeting_status'),
   start: (meetingId: string) => desktop()?.invoke<void>('meeting_start', { meetingId }),
   pause: (paused: boolean) => desktop()?.invoke<void>('meeting_pause', { paused }),

@@ -155,7 +155,8 @@ export function Ready({ api, view, desktop }: { api: MeetingApi; view: MeetingVi
       )}
       <div className="ov-row">
         {desktop ? (
-          <button type="button" className="ov-btn ov-primary" disabled={busy} onClick={() => void start()}>
+          // the desktop refuses to start before the meeting is ready (3.3)
+          <button type="button" className="ov-btn ov-primary" disabled={busy || m.status !== 'ready'} onClick={() => void start()}>
             {busy ? 'Starting' : 'Start listening'}
           </button>
         ) : (
