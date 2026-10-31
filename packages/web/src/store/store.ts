@@ -332,7 +332,7 @@ export function loadMessages(sessionId: string, force = false, from?: Message): 
     const askedAt = Date.now();
     const queueMark = queueEvents.get(sessionId) ?? 0;
     // a hub from before the queue answers 404: nothing waits
-    const [fetched, todos, queue] = await Promise.all([settle(c.messages(sessionId, from ? from.seq - 1 : undefined), undefined as Message[] | undefined), settle(c.todos(sessionId), [] as Todo[]), settle(c.queue(sessionId), undefined as QueuedMessage[] | undefined)]);
+    const [fetched, todos, queue] = await Promise.all([settle(c.messages(sessionId, from ? { afterSeq: from.seq - 1 } : {}), undefined as Message[] | undefined), settle(c.todos(sessionId), [] as Todo[]), settle(c.queue(sessionId), undefined as QueuedMessage[] | undefined)]);
     if (loads.get(sessionId) !== load) return;
     // the message the resync starts at is not where it was: the transcript changed under it
     if (from && fetched && fetched[0]?.id !== from.id) {

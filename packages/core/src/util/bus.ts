@@ -38,7 +38,8 @@ export class EventBus {
     }
     const env = { ...event, seq: ++this.seq, ts: Date.now(), ...(account ? { account } : {}) } as EngineEventEnvelope;
     // deltas are high volume and only useful live, keep them out of the replay buffer
-    if (event.type !== 'message.delta' && event.type !== 'tool.progress' && event.type !== 'workflow.progress' && event.type !== 'map.delta') {
+    // a meeting's partial segments too: a later one replaces them (meeting/wire.ts)
+    if (event.type !== 'message.delta' && event.type !== 'tool.progress' && event.type !== 'workflow.progress' && event.type !== 'map.delta' && !(event.type === 'meeting.segment' && !event.segment.final)) {
       this.ring.push(env);
       if (this.ring.length > this.ringSize) this.ring.splice(0, this.ring.length - this.ringSize);
     }

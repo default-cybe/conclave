@@ -9,8 +9,17 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Changed
+
+- Hub: the transcript API pages. `GET /api/sessions/:id/messages?limit=N` answers the newest N messages, `&beforeSeq=S` the page before seq S, and `afterSeq` still reads forward; no parameters still answers the whole transcript. On a copy of the live database the newest 200 messages of an 11,301-message session are 0.49 MB in 4 ms instead of 40.6 MB in 250 ms.
+- Hub: `GET /api/sessions/:id/messages?trim=1` sends every content block over 100 KB light (text cut to 100,000 characters, image and document data left out, a tool result's parts the same way) and lists each in the message's `meta.trimmed` with its full size; `GET /api/sessions/:id/messages/:msgId/blocks/:index` returns one block in full. Without `trim` nothing changes. On a copy of the live database the heaviest 200-message page drops from 12.1 MB to 0.97 MB and its largest block from 11.1 MB to 67 KB.
+- Web: a tab no longer keeps every transcript it opened. Views keep the transcript they show and the 2 last left; other sessions keep an 8-message live tail with no tool results. A resync (after a hub restart) fetches only the messages after the newest one held, and the whole transcript only when that message is gone at the hub. On the 5 largest real sessions, 5 resyncs fetched 63 KB instead of 1,010 MB and the tab's heap dropped from 408 MB to 179 MB.
+
+## [0.4.50] - 2026-10-31
+
 ### Added
 
+- **Meeting mode**: a small always-on-top overlay in the desktop app that listens to your microphone ("Me") and the computer's sound ("Them") during a meeting you start in a project folder, and shows short "Say this" answers written as you from that project (git, recent sessions, tasks, memory, the last meeting's notes, secrets redacted). Start it from a Code session's **Meeting** button or the tray (`Ctrl/Cmd+Alt+M`); the hub writes a brief first, and nothing is heard until you press **Start listening**. Speech becomes text on the computer (Parakeet, audio never saved or sent); questions from "Them" get an answer on the fast tier with no tools, the transcript fenced as untrusted. Ending writes notes to `<project>/.conclave/meetings/`, tasks for your action items and one memory episode; **Meetings** lists them with their transcripts. The overlay asks Windows and macOS to leave it out of screen captures and hides itself when it sees a share start; macOS 15 capture and Linux still see it. Each account sees only its own meetings. docs/INSTALL.md, Meeting mode.
 - Web: Conclave's own ASCII art on the sign-in screen and in empty states (a new chat, an empty chat list on the phone). A hub with seven agents on a slowly turning ring and a faint constellation behind; every few seconds an agent sends a violet packet down its link and the hub answers. Drawn on a canvas in the theme's colours at 20 fps, paused when hidden or off screen, one still frame under reduced motion, hidden from screen readers.
 
 ## [0.4.49] - 2026-10-30

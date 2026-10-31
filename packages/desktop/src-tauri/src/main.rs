@@ -44,6 +44,8 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_global_shortcut::ShortcutState;
 use tauri_plugin_opener::OpenerExt;
 
+mod meeting;
+
 const MAIN: &str = "main";
 const QUICK: &str = "quick";
 const QUICK_SHORTCUT: &str = "CommandOrControl+Shift+Space";
@@ -218,7 +220,29 @@ fn grant_hub_ipc(app: &AppHandle, base: &Url) -> Result<(), String> {
             .permission("allow-computer-status")
             .permission("allow-open-settings")
             .permission("allow-update-status")
-            .permission("allow-update-install"),
+            .permission("allow-update-install")
+            // the hub page may open the meeting overlay, never start capture (MEETING-MODE.md 2.1.1)
+            .permission("allow-meeting-open")
+            .permission("allow-meeting-status")
+            // meeting://status, so notify.ts stays quiet while a meeting listens (MEETING-MODE.md 7.6)
+            .permission("core:event:allow-listen")
+            .permission("core:event:allow-unlisten"),
+    )
+    .map_err(|e| e.to_string())?;
+    // capture starts only from the overlay window, after the owner's tap there
+    app.add_capability(
+        CapabilityBuilder::new(format!("hub-meeting-{}", granted.len()))
+            .remote(format!("{origin}/*"))
+            .windows([meeting::MEETING])
+            .permission("core:event:allow-listen")
+            .permission("core:event:allow-unlisten")
+            .permission("allow-meeting-status")
+            .permission("allow-meeting-start")
+            .permission("allow-meeting-pause")
+            .permission("allow-meeting-stop")
+            .permission("allow-meeting-click-through")
+            .permission("allow-meeting-hide")
+            .permission("allow-meeting-focusable"),
     )
     .map_err(|e| e.to_string())?;
     granted.insert(origin);
@@ -1393,6 +1417,8 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             &MenuItem::with_id(app, "new_chat", "New chat", true, None::<&str>)?,
             &MenuItem::with_id(app, "toggle", "Show/Hide", true, None::<&str>)?,
             &MenuItem::with_id(app, "quick", "Quick ask", true, None::<&str>)?,
+            &MenuItem::with_id(app, "meeting_toggle", "Start meeting... / Show-hide overlay", true, None::<&str>)?,
+            &MenuItem::with_id(app, "meeting_end", "End meeting", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?,
             &MenuItem::with_id(app, "pair_phone", "Pair a phone...", true, None::<&str>)?,
@@ -1415,6 +1441,8 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "new_chat" => new_chat(app),
             "toggle" => toggle_main(app),
             "quick" => toggle_quick(app),
+            "meeting_toggle" => meeting::toggle(app),
+            "meeting_end" => meeting::end(app),
             "settings" => show_settings(app),
             "pair_phone" => show_pairing(app),
             "change_hub" => show_setup(app, &[]),
@@ -1440,6 +1468,68 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// The id the desktop sends as `clientId` with segments: stable for this
+/// app's token. shortcut: the paired client id is not kept in settings, so a
+/// hash of the token stands in; switch to the real id once settings store it.
+fn meeting_client_id(app: &AppHandle) -> String {
+    let token = state(app).settings.lock().unwrap().token.clone().unwrap_or_default();
+    let d = ring::digest::digest(&ring::digest::SHA256, token.as_bytes());
+    let hex: String = d.as_ref()[..8].iter().map(|b| format!("{b:02x}")).collect();
+    format!("desktop-{hex}")
+}
+
+#[tauri::command]
+fn meeting_open(app: AppHandle, meeting_id: String) -> Result<(), String> {
+    meeting::open(&app, Some(&meeting_id))
+}
+
+#[tauri::command]
+fn meeting_status() -> meeting::wire::DesktopMeetingStatus {
+    meeting::status()
+}
+
+/// Reads the meeting from the hub first, so it runs off the main thread.
+#[tauri::command]
+async fn meeting_start(app: AppHandle, meeting_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || meeting::start(&app, &meeting_id)).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn meeting_pause(app: AppHandle, paused: bool) {
+    meeting::pause(&app, paused)
+}
+
+#[tauri::command]
+fn meeting_stop(app: AppHandle) {
+    meeting::stop(&app)
+}
+
+#[tauri::command]
+fn meeting_click_through(app: AppHandle, on: bool) {
+    meeting::click_through(&app, on)
+}
+
+#[tauri::command]
+fn meeting_hide(app: AppHandle) {
+    meeting::hide_by_owner(&app)
+}
+
+#[tauri::command]
+fn meeting_focusable(app: AppHandle, on: bool) {
+    meeting::focusable(&app, on)
+}
+
+/// The overlay becomes an NSPanel on macOS (tauri-nspanel keeps its panels in this plugin's state).
+#[cfg(target_os = "macos")]
+fn panel_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri_nspanel::init()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn panel_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("meeting-panel").build()
+}
+
 fn main() {
     tauri::Builder::default()
         // Must be first. A second launch focuses this one; deep links are forwarded.
@@ -1453,10 +1543,19 @@ fn main() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(panel_plugin())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![HIDDEN_ARG])))
         // the app's own updates, checked against the built-in key (update.rs)
         .plugin(update::plugin())
         .invoke_handler(tauri::generate_handler![
+            meeting_open,
+            meeting_status,
+            meeting_start,
+            meeting_pause,
+            meeting_stop,
+            meeting_click_through,
+            meeting_hide,
+            meeting_focusable,
             get_settings,
             connect,
             open_hub,
@@ -1540,6 +1639,7 @@ fn main() {
             if let Err(e) = handle.plugin(shortcut) {
                 eprintln!("conclave: global shortcut {QUICK_SHORTCUT} unavailable: {e}");
             }
+            meeting::setup(&handle);
 
             // Installers register conclave:// on macOS and Windows. Linux (and
             // Windows dev builds) register at runtime.

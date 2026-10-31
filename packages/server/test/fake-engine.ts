@@ -391,7 +391,7 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
       rec('forkSession', id, fromSeq);
       return { ...sessionOr404(id), id: newId('ses'), parentId: id };
     },
-    getMessages: (id, afterSeq) => repos.messages.list(id, { afterSeq }),
+    getMessages: (id, page) => repos.messages.page(id, page),
     async send(id, input) {
       rec('send', id, input);
       const m: Message = {
