@@ -210,6 +210,17 @@ Files (new unless marked):
 | `src/lib/notify.ts` (edit) | no desktop notices or sounds while `meeting_status().live` |
 
 
+Track C as built (branch `feat/meeting-mode-c`), where it differs from the table above:
+
+- No code was copied from another project for the web side: Pluely's overlay UI is GPL-3.0, and Meetily's web UI is Next.js with app-wide stores, too big for a small window.
+- `src/overlay/wire.ts` copies the types of section 3 until Track B's `packages/core/src/meeting/wire.ts` lands; then it re-exports those. It adds `DesktopMeetingStatus` and the meeting events the overlay reads.
+- `src/overlay/hub.ts` (route calls over one request function, used by the overlay and the app), `desktop.ts` (the IPC of 3.3), `model.ts` (the meeting view), `Live.tsx`: extra files of the overlay entry.
+- The Meeting button mounts in `src/features/chat/ChatView.tsx` (the Code session header); `features/conversation/SessionHeader*` does not exist.
+- `MeetingPage.tsx` serves both `/meetings` and `/meetings/:id`; `NotesPage.tsx` is the notes part of the meeting page, not a route.
+- `vite.config.ts` also turns on `build.manifest`, so a test can check the overlay entry. The entry file is about 6 KB gzip; the chunk it shares with the app (React DOM) adds about 67 KB gzip, so the whole overlay page loads about 75 KB gzip.
+- The overlay loads Mona Sans (font files only, no JS) so it matches the app.
+- `src/mock/meetings.ts` serves the routes of 3.1 and a fake desktop for the overlay under `VITE_MOCK=1`.
+
 ### 2.4 Code copied from other projects
 
 Licence check (done on 2026-10-31 against the clones in `/tmp/ov` and `/home/conclave/projects/meetily`):

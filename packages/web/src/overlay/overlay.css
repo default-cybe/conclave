@@ -44,7 +44,7 @@
 }
 
 :root {
-  --sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --sans: 'Mona Sans Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: ui-monospace, 'SFMono-Regular', Menlo, monospace;
   --r-1: 3px;
   --r-2: 5px;

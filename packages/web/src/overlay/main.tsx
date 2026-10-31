@@ -4,6 +4,7 @@
  * no app store, no Tailwind, no app styles. With no meeting it opens on the
  * setup screen. VITE_MOCK=1 runs it on the mock hub and a fake desktop.
  */
+import '@fontsource-variable/mona-sans/standard.css';
 import './overlay.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';

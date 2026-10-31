@@ -187,12 +187,16 @@ function MeetingDetail({ id }: { id: string }) {
       <PageHeader
         title={m.title}
         sub={
-          <span className="flex flex-wrap gap-x-2">
+          <span>
             <StateWord tone={tone} live>
               {word}
             </StateWord>
-            <span title={m.cwd}>{folderName(m.cwd)}</span>
-            {m.startedAt && <span className="num">{hhmm(m.startedAt)}</span>}
+            , <span title={m.cwd}>{folderName(m.cwd)}</span>
+            {m.startedAt && (
+              <>
+                , <span className="num">{hhmm(m.startedAt)}</span>
+              </>
+            )}
           </span>
         }
         actions={phone ? undefined : actions}
