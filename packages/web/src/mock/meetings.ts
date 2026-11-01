@@ -17,7 +17,7 @@
 import type { Desktop } from '@/overlay/desktop';
 import { setDesktop } from '@/overlay/desktop';
 import type { Req } from '@/overlay/hub';
-import type { Channel, CreateMeetingInput, DesktopMeetingStatus, Meeting, MeetingAnswer, MeetingCalendarEvent, MeetingFolder, MeetingNotes, MeetingPatch, PrepProgress, PrepView, Segment, SegmentBatch, SteeringPreset } from '@/overlay/wire';
+import type { AnswerModelChoice, Channel, CreateMeetingInput, DesktopMeetingStatus, Meeting, MeetingAnswer, MeetingCalendarEvent, MeetingFile, MeetingFolder, MeetingNotes, MeetingPatch, PrepProgress, PrepView, Segment, SegmentBatch, SteeringPreset } from '@/overlay/wire';
 import type { MockCtx } from './index';
 
 const MIN = 60_000;
@@ -91,6 +91,15 @@ export const PRESETS: SteeringPreset[] = [
   { id: 'demo', label: 'Demo', text: '- Say what the audience is looking at, then why it matters to them.\n- If something breaks, give a one-line recovery and move to the next step of the presenting order.\n- Avoid: reading code aloud; point to the file instead.' },
 ];
 
+/** GET /api/meetings/models, as the hub ranks them (fastest first). */
+export const ANSWER_MODELS: AnswerModelChoice[] = [
+  { ref: 'antigravity/gemini-3-flash-lite', label: 'Gemini 3 Flash Lite', speed: 'fastest', note: 'About 0.5 s to the first word. Good for short answers.' },
+  { ref: 'cliproxy/claude-haiku-5-5', label: 'Claude Haiku 5.5', speed: 'fastest', note: 'About 0.7 s to the first word. The default.' },
+  { ref: 'antigravity/gemini-3-flash', label: 'Gemini 3 Flash', speed: 'fast', note: 'About 1 s. Better at technical questions.' },
+  { ref: 'cliproxy/claude-sonnet-5-5', label: 'Claude Sonnet 5.5', speed: 'balanced', note: 'About 2 to 3 s. Better answers, slower.' },
+  { ref: 'cliproxy/claude-opus-5-5', label: 'Claude Opus 5.5', speed: 'best', note: 'About 4 s or more. Too slow for most live questions.' },
+];
+
 const CAPSTONE = '/home/kai/uni/capstone';
 
 const FOLDERS: Omit<MeetingFolder, 'lastAt'>[] = [
@@ -144,6 +153,7 @@ export function registerMeetings(ctx: MockCtx) {
   const segments = new Map<string, Segment[]>();
   const answers = new Map<string, MeetingAnswer[]>();
   const notes = new Map<string, MeetingNotes>();
+  const files = new Map<string, MeetingFile[]>();
   const aborts = new Map<string, { stop: boolean }>();
   const now = Date.now();
 
@@ -177,7 +187,7 @@ export function registerMeetings(ctx: MockCtx) {
       { seq: 1, channel: 'them', startMs: 6200, endMs: 9000, text: 'Nice. Where are we on the export feature?', final: true },
     ]);
     say(live.sessionId, 'msg_ans_1', ANSWERS[0]![1]);
-    answers.set(live.id, [{ id: 'ans_1', meetingId: live.id, messageId: 'msg_ans_1', trigger: 'question', question: 'Nice. Where are we on the export feature?', state: 'done', createdAt: now - 2 * MIN, firstTokenAt: now - 2 * MIN + 900 }]);
+    answers.set(live.id, [{ id: 'ans_1', meetingId: live.id, messageId: 'msg_ans_1', trigger: 'question', question: 'Nice. Where are we on the export feature?', state: 'done', speechEndAt: now - 2 * MIN - 380, createdAt: now - 2 * MIN, firstTokenAt: now - 2 * MIN + 520, doneAt: now - 2 * MIN + 2100, model: 'cliproxy/claude-haiku-5-5' }]);
     const ended = base({ id: 'mtg_review', title: 'Design review, export page', status: 'ended', createdAt: now - 26 * 60 * MIN, startedAt: now - 26 * 60 * MIN, endedAt: now - 25 * 60 * MIN, notesPath: '/home/kai/code/conclave/.conclave/meetings/2026-10-30-1000-design-review.md' });
     meetings.set(ended.id, ended);
     segments.set(ended.id, [
@@ -197,6 +207,14 @@ export function registerMeetings(ctx: MockCtx) {
     })();
     const sched = (m: Partial<Meeting> & Pick<Meeting, 'id' | 'title' | 'scheduledAt'>): Meeting =>
       base({ status: 'scheduled', device: 'arch-desktop', cwd: CAPSTONE, projectId: undefined, createdAt: now - 2 * 24 * 60 * MIN, reminders: [1440, 15], autoPrep: true, answerLength: 'short', prepState: 'none', ...m });
+    // an interview with no project folder, only files
+    const interview = sched({ id: 'mtg_interview', title: 'Interview, Microsoft security', scheduledAt: now + 26 * 60 * MIN, durationMin: 45, device: '', cwd: '', steeringPreset: 'interview', steering: PRESETS[2]!.text, answerModel: 'antigravity/gemini-3-flash-lite', agenda: 'Second round: OS security code review and system design.' });
+    meetings.set(interview.id, interview);
+    preps.set(interview.id, { state: 'none' });
+    files.set(interview.id, [
+      { id: 'mf_resume', name: 'Kaivalya-Ahir-resume.pdf', size: 184_320, mediaType: 'application/pdf', addedAt: now - 3 * 60 * MIN },
+      { id: 'mf_jd', name: 'job-description.md', size: 6_210, mediaType: 'text/markdown', addedAt: now - 3 * 60 * MIN },
+    ]);
     const capstone = sched({ id: 'mtg_capstone', title: 'Capstone defence', scheduledAt: monday, durationMin: 60, calendarEventId: 'ev_capstone', calendarId: 'cal_uni', steeringPreset: 'defence', steering: PRESETS[0]!.text, agenda: 'Capstone defence: present all evidence, defend the findings, 10 min talk then questions.' });
     meetings.set(capstone.id, capstone);
     preps.set(capstone.id, { state: 'none' });
@@ -287,6 +305,42 @@ export function registerMeetings(ctx: MockCtx) {
   });
 
   on('GET', '/api/meetings/presets', () => ({ presets: PRESETS }));
+
+  on('GET', '/api/meetings/models', () => ANSWER_MODELS);
+
+  // a real hub opens a streaming session on the saved key and closes it
+  on('POST', '/api/meetings/stt-test', async ({ body }) => {
+    const p = String((body as { provider?: string })?.provider);
+    if (p !== 'assemblyai' && p !== 'deepgram') fail(400, 'provider is assemblyai or deepgram');
+    await sleep(500);
+    if (!db.values.includes(`stt.${p}`)) return json(409, { error: `No ${p === 'assemblyai' ? 'AssemblyAI' : 'Deepgram'} key saved yet.` });
+    return { ok: true, message: `Works. A streaming token came back in ${p === 'deepgram' ? 180 : 240} ms.`, ms: p === 'deepgram' ? 180 : 240 };
+  });
+
+  on('POST', '/api/meetings/:id/files', async ({ params, raw }) => {
+    const m = get(params[0]!);
+    const form = raw instanceof FormData ? raw : fail(400, 'Send the files as multipart/form-data.');
+    const list = files.get(m.id) ?? [];
+    for (const v of form.getAll('file')) {
+      if (!(v instanceof File)) continue;
+      if (v.size > 20 * 1024 * 1024) fail(413, `${v.name} is over 20 MB.`);
+      list.push({ id: uid('mf'), name: v.name, size: v.size, mediaType: v.type || undefined, addedAt: Date.now() });
+    }
+    files.set(m.id, list);
+    m.files = structuredClone(list);
+    updated(m);
+    return json(201, { files: structuredClone(list) });
+  });
+
+  on('DELETE', '/api/meetings/:id/files/:file', ({ params }) => {
+    const m = get(params[0]!);
+    const list = files.get(m.id) ?? [];
+    if (!list.some((f) => f.id === params[1])) fail(404, 'File not found');
+    files.set(m.id, list.filter((f) => f.id !== params[1]));
+    m.files = structuredClone(files.get(m.id));
+    updated(m);
+    return json(204);
+  });
 
   on('POST', '/api/meetings/:id/arm', ({ params }) => {
     const m = get(params[0]!);
@@ -388,7 +442,7 @@ export function registerMeetings(ctx: MockCtx) {
         a.state = 'cancelled';
         emit({ type: 'meeting.answer', sessionId: m.sessionId, meetingId: m.id, answer: { ...a } } as never);
       }
-    const a: MeetingAnswer = { id: uid('ans'), meetingId: m.id, messageId: uid('msg'), trigger, question, state: 'streaming', createdAt: Date.now() };
+    const a: MeetingAnswer = { id: uid('ans'), meetingId: m.id, messageId: uid('msg'), trigger, question, state: 'streaming', speechEndAt: trigger === 'answer-now' ? undefined : Date.now() - 320, createdAt: Date.now(), model: m.answerModel ?? ANSWER_MODELS[1]!.ref };
     list.push(a);
     const abort = { stop: false };
     aborts.set(a.id, abort);
@@ -401,6 +455,7 @@ export function registerMeetings(ctx: MockCtx) {
       const text = ANSWERS.find(([re]) => re.test(question))?.[1] ?? FALLBACK;
       if (await streamInto(m, a.messageId, text, abort)) {
         a.state = 'done';
+        a.doneAt = Date.now();
         emit({ type: 'meeting.answer', sessionId: m.sessionId, meetingId: m.id, answer: { ...a } } as never);
       }
     })();
@@ -427,7 +482,7 @@ export function registerMeetings(ctx: MockCtx) {
 
   on('POST', '/api/meetings', ({ body }) => {
     const b = (body ?? {}) as CreateMeetingInput;
-    if (!b.sessionId && !b.projectId && !b.cwd) fail(400, 'Pick a project folder for the meeting.');
+    // a meeting may have only files: no folder is fine (the files come after, POST /files)
     if (b.agenda && b.agenda.length > 4000) fail(400, 'The agenda is longer than 4000 characters.');
     if (b.scheduledAt !== undefined) {
       if (b.scheduledAt < Date.now() || b.scheduledAt > Date.now() + 365 * 24 * 60 * MIN) return json(400, { field: 'scheduledAt', error: 'Pick a time from now to a year ahead.' });
@@ -454,7 +509,7 @@ export function registerMeetings(ctx: MockCtx) {
 
   on('GET', '/api/meetings/:id', ({ params }) => {
     const m = get(params[0]!);
-    return { ...structuredClone(m), segments: (segments.get(m.id) ?? []).filter((s) => s.final), answers: structuredClone(answers.get(m.id) ?? []) };
+    return { ...structuredClone(m), files: structuredClone(files.get(m.id) ?? []), segments: (segments.get(m.id) ?? []).filter((s) => s.final), answers: structuredClone(answers.get(m.id) ?? []) };
   });
 
   on('PATCH', '/api/meetings/:id', ({ params, body }) => {
@@ -554,7 +609,7 @@ export function registerMeetings(ctx: MockCtx) {
 
   function schedFields(b: CreateMeetingInput | MeetingPatch): Partial<Meeting> {
     const out: Partial<Meeting> = {};
-    for (const k of ['scheduledAt', 'durationMin', 'tz', 'steering', 'steeringPreset', 'answerLength', 'calendarEventId', 'calendarId', 'reminders', 'autoPrep'] as const) if (b[k] !== undefined) (out as Record<string, unknown>)[k] = b[k] === null || b[k] === '' ? undefined : b[k];
+    for (const k of ['scheduledAt', 'durationMin', 'tz', 'steering', 'steeringPreset', 'answerLength', 'calendarEventId', 'calendarId', 'reminders', 'autoPrep', 'answerModel'] as const) if (b[k] !== undefined) (out as Record<string, unknown>)[k] = b[k] === null || b[k] === '' ? undefined : b[k];
     return out;
   }
 
@@ -636,8 +691,12 @@ export function installMockDesktop(req: Req) {
     system: { ok: true, device: 'Speakers (loopback)' },
     stt: { state: 'ready' },
     queue: { stt: 0, upload: 0, dropped: 0 },
+    sttProvider: 'deepgram',
   };
   const q = new URLSearchParams(location.search);
+  // ?stt=local&fallback=... shows the fallback note in screenshots
+  if (q.get('stt')) st.sttProvider = q.get('stt') as DesktopMeetingStatus['sttProvider'];
+  if (q.get('fallback')) st.sttFallback = q.get('fallback')!;
   // ?meeting=mtg_live opens on the seeded live meeting as if this app listened to it
   if (q.get('meeting') === 'mtg_live') Object.assign(st, { live: true, meetingId: 'mtg_live' });
   const status = () => fire('meeting://status', structuredClone(st));

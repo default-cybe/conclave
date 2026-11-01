@@ -206,6 +206,26 @@ export function splitAnswer(text: string, done = false): { say: string; rest: st
   return { say: say.join('\n'), rest: rest.join('\n'), source };
 }
 
+/** Speech end (or the answer's start, for Answer now) to the first word, in ms; undefined until a word came. */
+export function answerLatency(a: Pick<MeetingAnswer, 'createdAt' | 'firstTokenAt' | 'speechEndAt'>): number | undefined {
+  if (a.firstTokenAt === undefined) return undefined;
+  return Math.max(0, a.firstTokenAt - (a.speechEndAt ?? a.createdAt));
+}
+
+/** "0.8 s", "12 s". */
+export function seconds(ms: number): string {
+  return ms < 10_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms / 1000)} s`;
+}
+
+/** The newest answer that has a first word: the overlay's latency readout. */
+export function lastLatency(answers: MeetingAnswer[]): number | undefined {
+  for (let i = answers.length - 1; i >= 0; i--) {
+    const ms = answerLatency(answers[i]!);
+    if (ms !== undefined) return ms;
+  }
+  return undefined;
+}
+
 /**
  * Which answer the card shows (cheating-daddy's response index, see Live.tsx):
  * `pinned` is the id the owner stepped to, undefined for the newest.

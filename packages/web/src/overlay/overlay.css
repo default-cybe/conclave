@@ -211,6 +211,13 @@ body {
   font-weight: 600;
 }
 
+/* the speech-to-text in use and the last answer's speed, quiet, after the meters */
+.ov-meta {
+  color: var(--fg-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .ov-level {
   display: inline-flex;
   align-items: center;

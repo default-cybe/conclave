@@ -13,10 +13,15 @@
  *
  * Changed from the source: a React hook; a ResizeObserver tells when the
  * content changed instead of each render calling in; the cap is the app's
- * (meeting_set_height clamps to the screen), not 700 px.
+ * (meeting_set_height clamps to the screen), not 700 px. The height call is
+ * at most 10 a second (HEIGHT_MS): each one resizes a native window, and a
+ * streaming answer grows every frame.
  */
 import { useEffect, type RefObject } from 'react';
 import { ipc } from './desktop';
+
+/** The least time between two meeting_set_height calls; the last height always goes out. */
+export const HEIGHT_MS = 100;
 
 /** Glass's test: within 10 px of the bottom. */
 export function atBottom(top: number, client: number, height: number): boolean {
@@ -25,7 +30,7 @@ export function atBottom(top: number, client: number, height: number): boolean {
 
 /**
  * `panel` scrolls, `content` is what it holds. Each content change asks the
- * app for a window that fits (one call per frame at most, same height not
+ * app for a window that fits (HEIGHT_MS apart at least, same height not
  * asked twice) and keeps the bottom in view when the owner had it there.
  */
 export function useFitAndStick(panel: RefObject<HTMLElement | null>, content: RefObject<HTMLElement | null>, chrome = 12): void {
@@ -35,7 +40,17 @@ export function useFitAndStick(panel: RefObject<HTMLElement | null>, content: Re
     if (!p || !c) return;
     let stick = true;
     let frame: number | undefined;
+    let later: ReturnType<typeof setTimeout> | undefined;
     let asked = 0;
+    let want = 0;
+    let sentAt = -Infinity;
+    const send = () => {
+      later = undefined;
+      if (want === asked) return;
+      asked = want;
+      sentAt = performance.now();
+      void ipc.setHeight(want)?.catch(() => undefined);
+    };
     const onScroll = () => {
       stick = atBottom(p.scrollTop, p.clientHeight, p.scrollHeight);
     };
@@ -43,12 +58,12 @@ export function useFitAndStick(panel: RefObject<HTMLElement | null>, content: Re
       frame = undefined;
       // around the content: the panel's padding and border, and #root's padding (chrome)
       const cs = getComputedStyle(p);
-      const want = Math.ceil(c.getBoundingClientRect().height + (p.offsetHeight - p.clientHeight) + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + chrome);
-      if (want !== asked) {
-        asked = want;
-        void ipc.setHeight(want)?.catch(() => undefined);
-      }
+      want = Math.ceil(c.getBoundingClientRect().height + (p.offsetHeight - p.clientHeight) + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + chrome);
       if (stick) p.scrollTop = p.scrollHeight;
+      if (want === asked || later !== undefined) return;
+      const wait = sentAt + HEIGHT_MS - performance.now();
+      if (wait <= 0) send();
+      else later = setTimeout(send, wait);
     };
     const ro = new ResizeObserver(() => {
       frame ??= requestAnimationFrame(run);
@@ -59,6 +74,7 @@ export function useFitAndStick(panel: RefObject<HTMLElement | null>, content: Re
       ro.disconnect();
       p.removeEventListener('scroll', onScroll);
       if (frame !== undefined) cancelAnimationFrame(frame);
+      if (later !== undefined) clearTimeout(later);
     };
   }, [panel, content, chrome]);
 }

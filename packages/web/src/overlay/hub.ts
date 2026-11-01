@@ -3,7 +3,7 @@
  * function, so the overlay (plain fetch, no ConclaveClient) and the app
  * (api().request) call them the same way.
  */
-import type { AnswerNowInput, CreateMeetingInput, Meeting, MeetingCalendarEvent, MeetingChatInput, MeetingDetail, MeetingFolder, MeetingNotes, MeetingListView, MeetingPatch, PrepView, SteeringPreset } from './wire';
+import type { AnswerModelChoice, AnswerNowInput, CreateMeetingInput, Meeting, MeetingCalendarEvent, MeetingChatInput, MeetingDetail, MeetingFolder, MeetingNotes, MeetingListView, MeetingPatch, PrepView, SteeringPreset, SttProvider, SttTestResult } from './wire';
 
 export type Req = <T>(method: string, path: string, body?: unknown) => Promise<T>;
 
@@ -57,6 +57,10 @@ export function meetingApi(req: Req) {
     folders: (q?: string) => req<{ folders: MeetingFolder[] }>('GET', `/api/meetings/folders${qs({ q })}`).then((r) => r.folders),
     calendar: (from: number, to: number) => req<{ events: MeetingCalendarEvent[]; errors: string[] }>('GET', `/api/meetings/calendar${qs({ from, to })}`),
     presets: () => req<{ presets: SteeringPreset[] }>('GET', '/api/meetings/presets').then((r) => r.presets),
+    /** The models an answer can come from, fastest first. */
+    models: () => req<AnswerModelChoice[]>('GET', '/api/meetings/models'),
+    removeFile: (id: string, fileId: string) => req<void>('DELETE', `${m(id)}/files/${encodeURIComponent(fileId)}`),
+    sttTest: (provider: Exclude<SttProvider, 'local'>) => req<SttTestResult>('POST', '/api/meetings/stt-test', { provider }),
     arm: (id: string) => req<Meeting>('POST', `${m(id)}/arm`),
     prep: (id: string) => req<PrepView>('GET', `${m(id)}/prep`),
     runPrep: (id: string, approve?: true) => req<{ state: 'queued' }>('POST', `${m(id)}/prep`, approve ? { approve } : {}),
