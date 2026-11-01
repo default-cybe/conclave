@@ -6,6 +6,7 @@
  *   Search                                          ⌘K
  *   New session
  *   Inbox                                            3
+ *   Meetings                                    in 42m
  *   Workflows, Routines, Memory, Extensions
  *   More                                   (a menu: Tasks, Usage, Devices...)
  *
@@ -26,7 +27,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ComponentType, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
 import { Link, useLocation } from 'wouter';
-import { Blocks, Brain, CalendarClock, ChevronDown, ChevronRight, Ellipsis, Inbox, PanelLeft, PanelLeftClose, Plus, Search, SquarePen, Workflow } from 'lucide-react';
+import { Blocks, Brain, CalendarClock, ChevronDown, ChevronRight, Ellipsis, Inbox, PanelLeft, PanelLeftClose, Plus, Presentation, Search, SquarePen, Workflow } from 'lucide-react';
 import type { Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { attempt, removeKey, upsertSession, useHub } from '@/store/store';
@@ -41,6 +42,7 @@ import { moveToMainList, MOVE_TO_MAIN } from '@/features/chat/delegated';
 import { setRailOpen, useChatUi } from '@/features/conversation/state';
 import { openNew, ModeSwitch, useCurrentMode } from '@/features/home/ModeSwitch';
 import { LazyShareProjectDialog } from '@/features/friends/ShareProject';
+import { useMeetingHint } from '@/features/meeting/useMeetingHint';
 import { Brand, Mark } from './brand/Mark';
 import { Button } from './ui/Button';
 import { Input } from './ui/Field';
@@ -66,6 +68,7 @@ export const UNREAD = 'font-semibold text-fg';
 /** The pages with a row of their own, after Search and New. */
 const ROWS: Array<{ to: string; label: string; Icon: Icon; match?: (p: string) => boolean }> = [
   { to: '/approvals', label: 'Inbox', Icon: Inbox, match: (p) => p.startsWith('/approvals') || p.startsWith('/inbox') },
+  { to: '/meetings', label: 'Meetings', Icon: Presentation },
   { to: '/workflows', label: 'Workflows', Icon: Workflow },
   { to: '/routines', label: 'Routines', Icon: CalendarClock },
   { to: '/memory', label: 'Memory', Icon: Brain },
@@ -95,6 +98,7 @@ function Expanded() {
   const path = loc.split('?')[0];
   const owner = useIsOwner();
   const inbox = useInboxCount();
+  const meeting = useMeetingHint();
   const mode = useCurrentMode();
   const fresh = useNewConversation();
   const rows = ROWS.filter((r) => owner || !OWNER_PAGES.has(r.to));
@@ -122,6 +126,14 @@ function Expanded() {
                   <span className="sr-only"> waiting on you</span>
                 </span>
               )}
+              {r.to === '/meetings' &&
+                (meeting.live ? (
+                  <span className="mr-1 size-[7px] shrink-0 rounded-full bg-fault">
+                    <span className="sr-only">listening</span>
+                  </span>
+                ) : (
+                  meeting.text && <span className="num text-[12.5px] text-fg-3">{meeting.text}</span>
+                ))}
             </Link>
           );
         })}
@@ -143,6 +155,8 @@ function Folded() {
   const [loc] = useLocation();
   const path = loc.split('?')[0];
   const inbox = useInboxCount();
+  const meeting = useMeetingHint();
+  const meetingTip = meeting.live ? `Meetings, ${meeting.live.title} listening` : meeting.next ? `Meetings, ${meeting.next.title} ${meeting.text}` : 'Meetings';
   const fresh = useNewConversation();
   const icon = 'relative grid size-9 place-items-center rounded-[9px] text-fg-2 transition-colors duration-[var(--dur-1)] hov:bg-side-hover hov:text-fg';
   return (
@@ -171,6 +185,12 @@ function Folded() {
         <Link href="/approvals" aria-label={inbox ? `Inbox, ${inbox} waiting on you` : 'Inbox'} aria-current={path.startsWith('/approvals') ? 'page' : undefined} className={cn(icon, path.startsWith('/approvals') && 'bg-side-active text-fg')}>
           <Inbox className="size-4" strokeWidth={1.75} aria-hidden />
           {inbox > 0 && <span aria-hidden className="absolute top-1.5 right-1.5 size-[7px] rounded-full bg-warn" />}
+        </Link>
+      </Tooltip>
+      <Tooltip content={meetingTip} side="right">
+        <Link href="/meetings" aria-label={meetingTip} aria-current={path.startsWith('/meetings') ? 'page' : undefined} className={cn(icon, path.startsWith('/meetings') && 'bg-side-active text-fg')}>
+          <Presentation className="size-4" strokeWidth={1.75} aria-hidden />
+          {meeting.live && <span aria-hidden className="absolute top-1.5 right-1.5 size-[7px] rounded-full bg-fault" />}
         </Link>
       </Tooltip>
       <div className="flex-1" />

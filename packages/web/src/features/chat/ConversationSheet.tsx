@@ -28,6 +28,7 @@ import { repoFacts, RepoSheetActions, useArchiveRepo } from '@/features/github/R
 import { sessionRepo } from '@/lib/github';
 import { isDelegated } from '@conclave/core/session/delegated';
 import { moveToMainList, MOVE_TO_MAIN } from './delegated';
+import { canScheduleHere, scheduleHere } from '@/features/meeting/links';
 
 /** "Today, 18:58", "16 Oct, 14:02". */
 export function startedWords(ts: number, now = Date.now()): string {
@@ -104,6 +105,7 @@ export function ConversationSheet({ session, open, onClose }: { session: Session
           <Action onClick={archive}>{session.archived ? 'Unarchive' : 'Archive'}</Action>
           {chat ? <Action onClick={later(() => openContinue(session.id))}>Move to Code</Action> : <Action onClick={toChat}>Move to Chat</Action>}
           {!chat && <Action onClick={later(() => setDetails(true))}>Details</Action>}
+          {canScheduleHere(session) && <Action onClick={() => (onClose(), navigate(scheduleHere(session)))}>Schedule a meeting here…</Action>}
           <Action tone="fault" onClick={later(() => setDel(true))}>
             Delete
           </Action>

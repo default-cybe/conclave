@@ -1,6 +1,7 @@
 /**
- * Meetings in the app (docs/design/MEETING-MODE.md 2.3): /meetings lists
- * the account's meetings, /meetings/:id shows one: its notes once wrapped up,
+ * Meetings in the app (docs/design/MEETING-MODE.md 2.3, 11): /meetings lists
+ * the account's meetings (MeetingsList), /meetings/new and /meetings/start
+ * open the form, /meetings/:id shows one: the prep before it starts, its notes once wrapped up,
  * the answers given, the transcript and the brief. A live meeting updates
  * from the app's own hub events, applied once per animation frame. Listening
  * happens only in the desktop app's overlay; here is "Open overlay" there,
@@ -11,25 +12,30 @@ import { Link, useLocation, useParams } from 'wouter';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/Overlay';
 import { EmptyState, LoadingRows } from '@/components/ui/EmptyState';
-import { ListRow, StateWord, type StateTone } from '@/components/ui/List';
+import { StateWord, type StateTone } from '@/components/ui/List';
 import { Page, PageHeader, usePageHeader } from '@/components/ui/Page';
 import { Section } from '@/components/ui/Section';
 import { Markdown } from '@/features/chat/Markdown';
-import { folderName, hhmm, relTime } from '@/lib/format';
-import { useIsMobile } from '@/lib/hooks';
+import { folderName, hhmm } from '@/lib/format';
+import { useIsMobile, useNow } from '@/lib/hooks';
 import { isDesktopApp } from '@/lib/notify';
 import { onHubEvent, toast } from '@/store/store';
 import { frameBuffer } from '@/overlay/frame';
 import { applyEvent, emptyView, loadDetail, parseAnswer, type MeetingView } from '@/overlay/model';
-import { CONSENT_NOTE, type Meeting, type MeetingEvent, type MeetingStatus } from '@/overlay/wire';
+import { CONSENT_NOTE, type MeetingEvent, type MeetingStatus } from '@/overlay/wire';
 import { meetings, openOverlay } from './api';
 import { Notes } from './NotesPage';
+import { MeetingsList } from './MeetingsList';
+import { MeetingForm, useOwnerZone } from './MeetingForm';
+import { PrepPanel } from './Prep';
+import { notHeld, tickFor, when, yourTime } from './time';
 
 export const STATUS_WORD: Record<MeetingStatus, [string, StateTone]> = {
   scheduled: ['Scheduled', 'neutral'],
   preparing: ['Preparing', 'signal'],
   ready: ['Ready', 'neutral'],
-  live: ['Listening', 'signal'],
+  // red while it listens, as the sidebar's dot (11.1, 11.7)
+  live: ['Listening', 'fault'],
   paused: ['Paused', 'warn'],
   ending: ['Writing notes', 'signal'],
   ended: ['Ended', 'dim'],
@@ -38,41 +44,9 @@ export const STATUS_WORD: Record<MeetingStatus, [string, StateTone]> = {
 
 export default function MeetingPage() {
   const { id } = useParams<{ id?: string }>();
-  return id ? <MeetingDetail id={id} /> : <MeetingList />;
-}
-
-function MeetingList() {
-  const phone = useIsMobile();
-  usePageHeader('Meetings');
-  const [list, setList] = useState<Meeting[]>();
-  const [error, setError] = useState<string>();
-  useEffect(() => {
-    meetings()
-      .list()
-      .then(setList, (e: Error) => setError(e.message));
-    // a meeting that starts, ends or changes shows without a reload
-    return onHubEvent((e) => {
-      if (e.type !== 'meeting.updated') return;
-      const m = e.meeting;
-      setList((l) => (l ? [m, ...l.filter((x) => x.id !== m.id)].sort((a, b) => b.createdAt - a.createdAt) : l));
-    });
-  }, []);
-  return (
-    <Page width="column">
-      {!phone && <PageHeader title="Meetings" sub={list ? `${list.length} meeting${list.length === 1 ? '' : 's'}` : undefined} />}
-      {error && <p className="text-[14px] text-fault">{error}</p>}
-      <LoadingRows loading={!list && !error} />
-      {list && !list.length && <EmptyState>No meetings yet. Start one from a Code session's header or the desktop app's tray, in the project the meeting is about.</EmptyState>}
-      {list && list.length > 0 && (
-        <div className="rows">
-          {list.map((m) => {
-            const [word, tone] = STATUS_WORD[m.status];
-            return <ListRow key={m.id} href={`/meetings/${m.id}`} title={m.title} meta={folderName(m.cwd)} time={relTime(m.startedAt ?? m.createdAt)} state={word} stateTone={tone} />;
-          })}
-        </div>
-      )}
-    </Page>
-  );
+  if (!id) return <MeetingsList />;
+  if (id === 'new' || id === 'start') return <MeetingsList form={id} />;
+  return <MeetingDetail id={id} />;
 }
 
 /** The meeting's view from GET /api/meetings/:id and the hub's events, one render per frame at most. */
@@ -129,6 +103,9 @@ function MeetingDetail({ id }: { id: string }) {
   const [, go] = useLocation();
   const [confirm, setConfirm] = useState<'end' | 'delete'>();
   const [copied, setCopied] = useState(false);
+  const [edit, setEdit] = useState(false);
+  const zone = useOwnerZone();
+  const now = useNow(tickFor(m?.scheduledAt, Date.now()));
 
   if (error)
     return (
@@ -148,8 +125,15 @@ function MeetingDetail({ id }: { id: string }) {
   const running = m.status === 'live' || m.status === 'paused';
   const desktop = isDesktopApp();
   const fail = (e: unknown) => toast({ title: e instanceof Error ? e.message : String(e), level: 'error' });
+  // a meeting not started yet: the prep view (11.5)
+  const ahead = !m.startedAt && (m.status === 'scheduled' || m.status === 'ready' || m.status === 'preparing') && !notHeld(m, now);
   const actions = (
     <>
+      {ahead && m.status === 'scheduled' && (
+        <Button variant="outline" size="sm" onClick={() => setEdit(true)}>
+          Edit
+        </Button>
+      )}
       <Button
         variant="quiet"
         size="sm"
@@ -162,7 +146,7 @@ function MeetingDetail({ id }: { id: string }) {
       >
         {copied ? 'Copied' : 'Copy consent note'}
       </Button>
-      {desktop && m.status !== 'ended' && m.status !== 'failed' && (
+      {desktop && !ahead && m.status !== 'ended' && m.status !== 'failed' && (
         <Button variant="outline" size="sm" onClick={() => void openOverlay(m.id).catch(fail)}>
           Open overlay
         </Button>
@@ -192,6 +176,11 @@ function MeetingDetail({ id }: { id: string }) {
               {word}
             </StateWord>
             , <span title={m.cwd}>{folderName(m.cwd)}</span>
+            {m.scheduledAt && !m.startedAt && (
+              <>
+                , <span className="num">{when(m.scheduledAt, m.durationMin, zone)}</span> <span className="num">{yourTime(m.scheduledAt, zone)}</span>
+              </>
+            )}
             {m.startedAt && (
               <>
                 , <span className="num">{hhmm(m.startedAt)}</span>
@@ -202,7 +191,9 @@ function MeetingDetail({ id }: { id: string }) {
         actions={phone ? undefined : actions}
       />
       {phone && <div className="mb-4 flex flex-wrap gap-2">{actions}</div>}
-      <div className="flex flex-col gap-8">
+      {ahead && <PrepPanel meeting={m} zone={zone} now={now} />}
+      {edit && <MeetingForm mode={{ kind: 'edit', meeting: m }} open onClose={() => setEdit(false)} onSaved={() => setEdit(false)} />}
+      <div className={ahead ? 'hidden' : 'flex flex-col gap-8'}>
         {!desktop && (m.status === 'ready' || m.status === 'preparing') && (
           <p className="text-[14px] text-fg-2">
             Open the Conclave desktop app to listen.{' '}
