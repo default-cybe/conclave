@@ -12,16 +12,19 @@ like `## [0.4.16] - 2026-10-24`.
 ### Added
 
 - Meetings: the overlay renders answers as streaming markdown (streaming-markdown, vendored from Pickle Glass; only the new text is parsed each frame): the "Say this" bullets large with **bold** terms, then code blocks with highlighting and a Copy button, tables, ```chart blocks drawn as small SVG bar or line charts, and ```mermaid diagrams (loaded only when one appears). Model output never becomes HTML: links open in the browser, images become links. Earlier answers are one step back with the arrows or Ctrl or Cmd + Alt + [ and ], shown as "2 of 3"; Copy copies the whole answer.
+- Meetings: a Meetings page (sidebar, `G N`, and the Android side panel) with Now, Upcoming and Past. Schedule a meeting with a project folder, a calendar event, reminders and a steering prompt (presets or your own text, short or long answers). Before it, the hub prepares a dossier from the folder's chats, workflows and commits that you can edit or re-run; your edits survive a re-run, and a prep over 500k tokens waits for your OK. At the start time a notice links to the meeting's **Open overlay**. The Meeting button in the chat header is gone; the session menu has **Schedule a meeting here...**.
+- Meetings: **Save to memory** on an ended meeting's page and in the overlay's wrap-up saves its summary, decisions and action items as one memory of your account (the project's scope when the meeting has one), even with memory off; it then shows **Saved to memory** with a link, and never saves twice. **Open in chat** starts a new chat, or a code session in the meeting's folder, with the prep, notes and transcript as its first message, and **Add to chat...** puts them in one of your recent chats. Nothing runs until you ask.
 
 ### Changed
 
 - Meetings: the overlay window fits its content (at most 75 % of the screen), is a one-line bar while no answer shows, keeps to the bottom only when you were there, and fades each new block in (none with reduced motion). Streaming a 2,000-token answer in mock mode dropped no frames.
 - Meetings: live answers may add a short table, code block, chart or diagram after the bullets when the question asks for numbers, code or structure.
+- Meetings: the overlay and the meeting page no longer have **Copy consent note** or the one-time legal line; telling the others is up to you.
 
 ### Fixed
 
-- Windows with Animation effects off gets 3D and motion back. Chromium, Edge and the desktop app read that setting as reduced motion, so Memory > Map showed Rings and every animation stopped. Settings > Appearance > Reduce motion has a third choice, Off, that keeps motion even when the device asks to reduce it (System and On still stop it). With reduced motion, Memory > Map now shows 3D held still (no drift, jumps instead of flights) instead of Rings; Rings stands in only without WebGL.
 - Chat: typing no longer makes the conversation flicker. The message box shrank to 0 px for a moment on every key to measure its text, and in the Mac and Linux desktop apps (WebKit, which has no scroll anchoring) the last messages jumped 22 to 94 px each time; the box now keeps its height while it measures. Scrolling up while a reply streams now stays where you put it: any upward scroll stops following new text, instead of snapping back while within 120 px of the bottom.
+- Windows with Animation effects off gets 3D and motion back. Chromium, Edge and the desktop app read that setting as reduced motion, so Memory > Map showed Rings and every animation stopped. Settings > Appearance > Reduce motion has a third choice, Off, that keeps motion even when the device asks to reduce it (System and On still stop it). With reduced motion, Memory > Map now shows 3D held still (no drift, jumps instead of flights) instead of Rings; Rings stands in only without WebGL.
 
 ## [0.4.52] - 2026-11-01
 

@@ -196,7 +196,9 @@ export function createServer(opts: ServerOptions): ConclaveServer {
     const retryAfter = (err as { retryAfter?: number }).retryAfter;
     if (retryAfter) headers['retry-after'] = String(retryAfter);
     const message = status >= 500 && !(err as Error)?.message ? 'internal error' : ((err as Error)?.message ?? String(err));
-    return c.json({ error: message }, status as 400, headers);
+    // field: which form field a 400 is about (meeting create/patch), so the form shows it under that field
+    const field = (err as { field?: unknown }).field;
+    return c.json({ error: message, ...(status < 500 && typeof field === 'string' ? { field } : {}) }, status as 400, headers);
   });
 
   // ----- 5xx answers go to the log files, thrown or returned (docs/DESIGN.md 33) ---

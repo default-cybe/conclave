@@ -65,7 +65,7 @@ const w = (name: string, usedPercent: number, resetsAt: number | undefined, extr
   ...extra,
 });
 
-const ZONE = 'Europe/Berlin';
+const ZONE = 'America/Los_Angeles';
 const starterOff = (auto: string): StarterDto => ({ enabled: false, start: '07:00', end: '22:30', zone: ZONE, autoModel: auto, state: 'off' });
 
 /** Tomorrow at 07:00 local. */

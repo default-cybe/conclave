@@ -18,7 +18,9 @@ import java.time.temporal.ChronoUnit
  * Chat, Assistant and Code switch, the conversations of that mode in groups
  * (Group by: project, device or time), Delegated work (a Delegate call's
  * sessions, in every mode), and the account row that opens Settings. Every
- * other page lives in Settings. Kept here so the grouping and the search
+ * other page lives in Settings, with one named exception: Meetings, a row
+ * under Search (docs/design/MEETING-MODE.md 11.1, its words in
+ * Meetings.panelMeta). Kept here so the grouping and the search
  * are tested without a device.
  */
 

@@ -39,6 +39,7 @@ object Notifications {
     const val CHANNEL_SESSIONS = "sessions"
     const val CHANNEL_LIMITS = "limits"
     const val CHANNEL_ROUTINES = "routines"
+    const val CHANNEL_MEETINGS = "meetings"
     const val CHANNEL_LIVE = "live"
 
     const val LIVE_NOTIFICATION_ID = 1
@@ -57,6 +58,10 @@ object Notifications {
             },
             NotificationChannel(CHANNEL_ROUTINES, "Routines", NotificationManager.IMPORTANCE_LOW).apply {
                 description = "Scheduled routine results"
+            },
+            // a reminder is time bound: it makes a sound, as an approval does
+            NotificationChannel(CHANNEL_MEETINGS, "Meeting reminders", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Reminders before a scheduled meeting, and when it starts"
             },
             // the ongoing notice Android needs for the background connection; the owner can hide this category
             NotificationChannel(CHANNEL_LIVE, "Background connection", NotificationManager.IMPORTANCE_MIN).apply {
@@ -162,6 +167,7 @@ object Notifications {
         }
         val text = (payload.title + " " + payload.body).lowercase()
         val channel = when {
+            DeepLink.parse(payload.link) is DeepLink.Meetings -> CHANNEL_MEETINGS
             "limit" in text || "reset" in text || "quota" in text -> CHANNEL_LIMITS
             "routine" in text -> CHANNEL_ROUTINES
             else -> CHANNEL_SESSIONS
