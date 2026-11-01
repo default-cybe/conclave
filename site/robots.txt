@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /oauth/
+Allow: /
+
+Sitemap: https://conclave.dymnitguys.com/sitemap.xml

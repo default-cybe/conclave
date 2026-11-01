@@ -1,0 +1,70 @@
+# Conclave
+
+> Conclave is a self-hosted agent harness and hub. Its own coding agent loop works with any model, Claude Code, Codex, Gemini CLI and OpenCode run over the Agent Client Protocol in the same transcript, agents work on your own computers, and you answer their approvals from your phone. Open source under AGPL-3.0.
+
+The hub runs on a server you own (Docker, a Proxmox container, Linux or macOS). Web, desktop (Windows, macOS, Linux), Android and terminal apps talk to it. Computers you pair run the tools. There is no Conclave cloud.
+
+## Links
+
+- [Home page](https://conclave.dymnitguys.com/): pitch, features, install commands and downloads
+- [Details](https://conclave.dymnitguys.com/details.html): every feature, design reasons, comparison tables, limits
+- [Source on GitHub](https://github.com/default-cybe/conclave)
+- [Design log](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md): how each feature works and where it can fail
+- [Changelog](https://github.com/default-cybe/conclave/blob/main/CHANGELOG.md)
+- [Latest release](https://github.com/default-cybe/conclave/releases/latest)
+
+## What makes it different
+
+### Its own harness
+- Agent loop for any model: file, shell, search and web tools, permission rules, hooks, skills and subagents, rebuilt from Claude Code's public design. [DESIGN.md section 3](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#3-own-harness-vs-vendor-harnesses)
+- Compaction and prompt caching: a byte-stable system prompt, cache breakpoints, and a checked summary at 80% of the context window. [Section 5](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#5-efficiency)
+- Verify gate: after a turn that edits files, the project's check runs on that computer. A failure sends the agent back, up to 3 times. [Section 19](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#19-specialist-subagents)
+- Vendor CLIs over ACP: Claude Code, Codex, Gemini CLI and OpenCode run as engines and write into the same transcript as any other model. Their permission prompts become Conclave approvals. [Section 3](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#3-own-harness-vs-vendor-harnesses)
+
+### Several models on one problem
+- Second opinion: send any reply to another model and read its answer in line.
+- Jury: several models answer, then a judge decides. Juror names can be hidden from the judge.
+- Debate: two models argue for a set number of rounds, and a judge concludes.
+- Loop: keep going until a command such as `bun test` passes, up to a set number of tries.
+- All four: [Section 4](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#4-multi-model-in-one-chat)
+
+### Long runs that hold up
+- File conflict warnings: a write to a file another live session changed in the last 10 minutes tells the agent and alerts you. [Section 28](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#28-file-conflicts-and-stuck-agents)
+- Stuck detection: a turn with no progress for 5 minutes raises an alert with Stop and Keep waiting. [Section 28](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#28-file-conflicts-and-stuck-agents)
+- Usage-limit failover: at a limit, the same model goes on with your next plan or key, then the next model on your fallback list. [Section 6](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#6-limits-and-auto-resume)
+- Workflows: scripts in Claude Code's workflow format run in QuickJS compiled to WebAssembly, with no file system, process or network. A resume replays finished agent calls from a journal. [Section 18](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#18-workflows)
+- Routines that catch up: a run missed while the hub was down runs when it is back, up to 6 hours late. [routines.ts](https://github.com/default-cybe/conclave/blob/main/packages/core/src/scheduler/routines.ts)
+
+### A hub, not a single terminal
+- Plans you already pay for: sign in with Claude, ChatGPT, Google, Grok, Kimi and Muse plans through a pinned, checksum-checked CLIProxyAPI, and with GitHub Copilot and Kiro plans through its plugins (new; live sign-in not yet verified). [Section 24](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#24-subscriptions-through-cliproxyapi)
+- Devices dial out: each computer connects out to the hub over a WebSocket, so no port opens on it. [Section 2](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#2-architecture)
+- Approvals from your phone: risky calls wait for Allow or Deny, in the app or on the notification. [Section 10](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#10-devices-and-security)
+- Several people on one hub: each member has their own sessions, memory, keys and devices. [Section 35](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#35-accounts-several-people-on-one-hub)
+- Shared memory: every model and device reads one memory, mirrored to Basic Memory notes. [Section 9](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#9-memory)
+- Automatic updates: signed releases install themselves when no session is running. [Section 39](https://github.com/default-cybe/conclave/blob/main/docs/DESIGN.md#39-updates)
+- File outputs: a session hands you a PDF, image or zip as a file card with a Download button. [Changelog 0.4.21](https://github.com/default-cybe/conclave/blob/main/CHANGELOG.md#0421---2026-10-23)
+
+## Compared with open source agent tools
+
+Checked on 2026-10-24 from each project's GitHub README and the docs pages it links to. "Not listed" means those pages do not mention it, not that the tool cannot do it.
+
+- Hermes Agent (MIT): reached through chat apps such as Telegram, with approval buttons there; cron scheduler; curated memory; runs on Docker, SSH, Modal, Daytona and Vercel Sandbox; writes its own skills.
+- Cline (Apache 2.0): lives in VS Code and JetBrains, every edit is a diff you can review or revert, with checkpoints; cron schedules; Claude Pro or Max through Claude Code.
+- OpenCode (MIT): terminal agent with more than 75 providers, a web interface through `opencode pair`, and ChatGPT Plus, Copilot and GitLab Duo plans.
+- Codex CLI (Apache 2.0): OpenAI's own loop with ChatGPT plan sign-in, editor extensions and cloud tasks in Codex Web.
+- OpenHands (MIT): a web UI on your own server, Docker sandboxes per conversation, schedules and webhooks, and Claude Code, Codex, Gemini CLI, Pi and OpenCode over ACP.
+
+Not listed for any of the five in the pages checked: a jury with hidden juror names or a debate between models, and failover at a usage limit to the next account and then the next model. Hermes Agent lists a Mixture of Agents tool and fallback routing.
+
+## Install
+
+- Docker: `curl -fsSLO https://github.com/default-cybe/conclave/releases/latest/download/docker-compose.yml && docker compose up -d`
+- Proxmox host: `curl -fsSLO https://github.com/default-cybe/conclave/releases/latest/download/conclave-lxc.sh && sh conclave-lxc.sh`
+- Linux and macOS: `curl -fsSL https://github.com/default-cybe/conclave/releases/latest/download/install.sh | sh`, then `conclave serve`
+
+## Limits
+
+- Accounts are for a few people you trust, not an organization with roles.
+- A provider may treat plan sign-in through CLIProxyAPI as against its terms.
+- The Windows desktop app is not signed yet; the Mac app is signed ad hoc but not notarized. There is no native iPhone app; the web app works from the home screen.
+- Conclave is new, at its first releases.

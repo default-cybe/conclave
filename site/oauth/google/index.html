@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- the address of this page holds a sign-in code: it goes nowhere but the hub the owner confirms -->
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'">
+<title>Finish signing in | Conclave</title>
+<meta name="description" content="Hands a Google sign-in back to your own Conclave hub.">
+<link rel="icon" href="../../logo.svg" type="image/svg+xml">
+<link rel="icon" href="../../favicon.ico" sizes="any">
+<link rel="stylesheet" href="../../style.css">
+<style>
+  h1 { font-size: 30px; overflow-wrap: anywhere; }
+  .addr {
+    margin: 8px 0 24px;
+    padding: 10px 14px;
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow-wrap: anywhere;
+  }
+  .go {
+    display: inline-block;
+    padding: 11px 26px;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .go:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
+  @media (prefers-color-scheme: dark) { .go { color: #141417; } }
+</style>
+<script type="module" src="page.js"></script>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../"><img class="mark" src="../../logo.svg" alt=""><span>Conclave</span></a>
+</header>
+<main>
+  <section id="wait">
+    <h1>Finish signing in</h1>
+    <noscript><p>This page needs JavaScript to hand the sign-in back to your Conclave hub.</p></noscript>
+  </section>
+  <section id="ok" hidden>
+    <h1>Finish signing in to Conclave at <span data-host></span></h1>
+    <p id="said">Google signed you in.</p>
+    <p id="next">Continue sends the sign-in back to your Conclave hub, at this address:</p>
+    <p class="addr" id="origin"></p>
+    <p><a class="go" id="go" rel="noreferrer">Continue</a></p>
+    <p class="meta">Continue only if you just started this sign-in in Conclave and this is your hub's address. If not, close this tab and nothing happens.</p>
+  </section>
+  <section id="bad" hidden>
+    <h1>Nothing to finish here</h1>
+    <p>This page finishes a Google sign-in that you start in Conclave, under Settings, Calendar and mail. The address it was opened with is not one Conclave made, or it was already used. Start the sign-in again from Settings.</p>
+  </section>
+</main>
+</body>
+</html>
