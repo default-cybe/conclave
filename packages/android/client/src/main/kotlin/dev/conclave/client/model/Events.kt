@@ -304,6 +304,27 @@ sealed class EngineEvent {
     @SerialName("map.delta")
     data class MapDeltaEvent(val delta: JsonObject = JsonObject(emptyMap())) : EngineEvent()
 
+    /** A meeting changed: its status, its schedule, its steering (docs/design/MEETING-MODE.md 3.2). */
+    @Serializable
+    @SerialName("meeting.updated")
+    data class MeetingUpdated(val sessionId: String = "", val meeting: Meeting) : EngineEvent() {
+        override val sessionKey get() = sessionId
+    }
+
+    /** A meeting's prep job moved on (11.4.3), at most twice a second. */
+    @Serializable
+    @SerialName("meeting.prep")
+    data class MeetingPrep(val sessionId: String = "", val meetingId: String, val state: String = "", val progress: PrepProgress? = null) : EngineEvent() {
+        override val sessionKey get() = sessionId
+    }
+
+    /** A scheduled meeting's start time came (11.5). */
+    @Serializable
+    @SerialName("meeting.due")
+    data class MeetingDue(val sessionId: String = "", val meetingId: String) : EngineEvent() {
+        override val sessionKey get() = sessionId
+    }
+
     /** Also emitted locally when the hub asks for a full resync. */
     @Serializable
     @SerialName("config.updated")
