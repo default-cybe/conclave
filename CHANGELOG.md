@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Web: while a reply streams, its markdown is re-parsed at most every 45 ms instead of once per delta, and a code block renders as plain text until its fence closes; the final text still renders the moment the stream ends. A 200-delta streamed reply went from 200 full re-parses to 25 and from 192 highlight passes to 8.
+
 ## [0.4.53] - 2026-11-01
 
 ### Added

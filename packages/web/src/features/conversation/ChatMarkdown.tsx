@@ -11,7 +11,7 @@ import { cn } from '@/lib/text';
 import { useCopy } from '@/lib/hooks';
 import { highlight } from '@/lib/highlight';
 import { Swap } from '@/components/motion';
-import { ImageLink } from '@/features/chat/Markdown';
+import { ImageLink, useThrottledText } from '@/features/chat/Markdown';
 import { openPreview, useChatUi } from './state';
 import './chat.css';
 
@@ -29,7 +29,8 @@ const LANG_WORD: Record<string, string> = { sh: 'sh', bash: 'bash', zsh: 'zsh', 
 
 export function ChatCode({ code, lang, closed = true, previewKey }: { code: string; lang?: string; closed?: boolean; previewKey?: string }) {
   const [copied, copy] = useCopy();
-  const html = useMemo(() => highlight(code, lang), [code, lang]);
+  // while the fence is still open the code changes on every delta: highlighting it each time is wasted, it renders as plain text until the fence closes
+  const html = useMemo(() => (closed ? highlight(code, lang) : null), [closed, code, lang]);
   const pv = previewLang(lang, code);
   const open = useChatUi((s) => (previewKey ? s.preview?.key === previewKey : false));
   return (
@@ -95,12 +96,13 @@ const components: Components = {
 
 /** Markdown at the chat size. `id` keys previews to their block. */
 export const ChatMarkdown = memo(function ChatMarkdown({ text, streaming, className, id = 'md' }: { text: string; streaming?: boolean; className?: string; id?: string }) {
-  const ctx = useMemo(() => ({ text, id }), [text, id]);
+  const shown = useThrottledText(text, streaming);
+  const ctx = useMemo(() => ({ text: shown, id }), [shown, id]);
   return (
     <Source.Provider value={ctx}>
       <div className={cn('md md-chat', streaming && 'md-streaming', className)}>
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-          {text}
+          {shown}
         </ReactMarkdown>
       </div>
     </Source.Provider>
