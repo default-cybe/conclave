@@ -420,6 +420,7 @@ impl<F: FnMut(Segment)> Out<'_, F> {
         self.pending = (!t.is_final).then(|| t.clone());
         let seq = self.seqs.lock().unwrap().next(self.channel, t.is_final);
         let start_ms = (self.offset_ms + t.start_ms as i64).max(0) as u64;
+        let now = now_ms();
         (self.out)(Segment {
             seq,
             channel: self.channel,
@@ -427,8 +428,9 @@ impl<F: FnMut(Segment)> Out<'_, F> {
             end_ms: ((self.offset_ms + t.end_ms as i64).max(0) as u64).max(start_ms),
             text,
             is_final: t.is_final,
-            speech_end_at: Some(self.started_at + t.end_ms as i64),
-            final_at: Some(now_ms()),
+            // audio time runs ahead of the clock when frames queued during a reconnect go up in a burst
+            speech_end_at: Some((self.started_at + t.end_ms as i64).min(now)),
+            final_at: Some(now),
         });
     }
 
@@ -622,7 +624,7 @@ mod tests {
         let url = format!("ws://{}/v1/listen", listener.local_addr().unwrap());
         let server = std::thread::spawn(move || {
             let (s, _) = listener.accept().unwrap();
-            let mut ws = tungstenite::accept(s).unwrap();
+            let mut ws = tungstenite::accept(s).unwrap_or_else(|_| panic!("server handshake"));
             let mut frames = 0;
             while frames < 2 {
                 if let Message::Binary(b) = ws.read().unwrap() {
