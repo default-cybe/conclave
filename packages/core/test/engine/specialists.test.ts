@@ -138,10 +138,9 @@ describe('Task with a schema', () => {
     const t = await startTestEngine({
       script: [[task('verifier', 'CHILD-SCHEMA: check it', { schema })], [{ text: 'parent done' }]],
       route: childRoute('CHILD-SCHEMA', [
-        // a bad call, then a good one, then the closing line
+        // a bad call, then a good one
         [{ tool: 'StructuredOutput', input: { verdict: 'maybe', note: 'x' } }],
         [{ tool: 'StructuredOutput', input: { verdict: 'refuted', note: 'pre-existing' } }],
-        [{ text: 'Recorded.' }],
       ]),
     });
     try {
@@ -156,6 +155,10 @@ describe('Task with a schema', () => {
       const result = toolResults(t.engine, s.id).find((r) => r.name === 'Task')!;
       expect(result.isError).toBe(false);
       expect(JSON.parse(result.content)).toEqual({ verdict: 'refuted', note: 'pre-existing' });
+      // the valid call ends the child's turn: no request after it, no closing-line inference
+      expect(childReq.length).toBe(2);
+      const child = t.engine.listSessions({ parentId: s.id })[0]!;
+      expect(notices(t.engine, child.id)).not.toContain('Recorded');
     } finally {
       await t.close();
     }

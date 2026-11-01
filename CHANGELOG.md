@@ -7,6 +7,13 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Agent loop: each step reads the stored transcript from the last summary's `coversThroughSeq` instead of seq 0, and the context-clearing pass shares that one read, so long sessions no longer list and parse the whole transcript two to three times per step.
+- Subagents with a schema (Task, workflow steps) no longer make one extra model call after a valid StructuredOutput call: the turn ends right away, on the batched and the serial path, with no end-of-turn notice.
+
 ## [0.4.53] - 2026-11-01
 
 ### Added

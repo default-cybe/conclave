@@ -45,7 +45,8 @@ export function structuredOutputTool(schema: unknown, opts: { maxAttempts?: numb
       if (!problems.length) {
         state.value = input;
         state.done = true;
-        return { content: 'Recorded. End your turn now with one short line; do not repeat the data.' };
+        // the runner reads this mark and ends the turn with no extra inference
+        return { content: 'Recorded. End your turn now with one short line; do not repeat the data.', meta: { structuredDone: true } };
       }
       state.lastProblems = formatProblems(problems);
       if (state.attempts >= max) {

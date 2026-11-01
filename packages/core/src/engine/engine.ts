@@ -114,7 +114,7 @@ import { friendShareOf, narrowsTools } from '../session/friend-share';
 import { takesEffort } from '../providers/anthropic';
 import { clampEffort, type Effort, type EffortSetting } from '../providers/effort';
 import { retiredAlias } from '../providers/access-programs';
-import { activeMessages, isReminder, renderTranscript } from '../session/transcript';
+import { activeMessages, activeStored, isReminder, renderTranscript } from '../session/transcript';
 import { exportSession as exportShared, type ExportResult } from '../session/share';
 import { readPastSession, searchPastSessions, type PastRead, type PastSessionHit, type PastSessionQuery } from '../session/search';
 import { toolSearchFor } from '../tools/tool-search';
@@ -2327,7 +2327,7 @@ export class Engine implements EngineApi {
     const hit = this.promoted.get(sessionId);
     if (hit?.seq === seq) return hit.names;
     const names: string[] = [];
-    for (const m of activeMessages(this.repos.messages.list(sessionId))) {
+    for (const m of activeMessages(activeStored(this.repos.messages, sessionId))) {
       for (const b of m.content) {
         if (b.type !== 'tool_result' || !Array.isArray(b.meta?.promoted)) continue;
         for (const n of b.meta.promoted) if (typeof n === 'string' && !names.includes(n)) names.push(n);
