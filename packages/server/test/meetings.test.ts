@@ -132,6 +132,38 @@ describe('meeting routes', () => {
     expect((await call(OWNER, 'GET', `/api/meetings/${id}`)).body.title).toBe('Standup');
   }, 15_000);
 
+  test('scheduled: create, views, presets, prep edit, arm; a member gets 404 on every new :id route', async () => {
+    const at = Date.now() + 3 * 86_400_000;
+    expect((await call(OWNER, 'POST', '/api/meetings', { cwd: t.cwd, scheduledAt: Date.now() - 1 })).status).toBe(400);
+    const r = await call(OWNER, 'POST', '/api/meetings', { cwd: t.cwd, title: 'Capstone defence', scheduledAt: at, durationMin: 60, steeringPreset: 'defence' });
+    expect(r.status).toBe(201);
+    expect(r.body.status).toBe('scheduled');
+    const sid = r.body.id;
+    expect((await call(OWNER, 'GET', '/api/meetings?view=upcoming')).body.meetings.map((m: { id: string }) => m.id)).toContain(sid);
+    expect((await call(OWNER, 'GET', '/api/meetings?view=nope')).status).toBe(400);
+    expect((await call(OWNER, 'GET', '/api/meetings/presets')).body.presets.map((p: { id: string }) => p.id)).toContain('defence');
+    expect((await call(OWNER, 'GET', '/api/meetings/folders')).status).toBe(200);
+    expect((await call(OWNER, 'GET', `/api/meetings/calendar?from=0&to=${40 * 86_400_000}`)).status).toBe(400);
+    expect((await call(OWNER, 'PUT', `/api/meetings/${sid}/prep`, { markdown: '## Summary\nMine' })).body.edited).toBe('## Summary\nMine');
+    expect((await call(OWNER, 'GET', `/api/meetings/${sid}/prep`)).body.edited).toBe('## Summary\nMine');
+    expect((await call(OWNER, 'POST', `/api/meetings/${sid}/prep/cancel`)).status).toBe(409);
+    for (const [method, path, body] of [
+      ['POST', `/api/meetings/${sid}/arm`],
+      ['GET', `/api/meetings/${sid}/prep`],
+      ['POST', `/api/meetings/${sid}/prep`],
+      ['POST', `/api/meetings/${sid}/prep/cancel`],
+      ['PUT', `/api/meetings/${sid}/prep`, { markdown: 'mine' }],
+      ['DELETE', `/api/meetings/${sid}/prep/edit`],
+      ['PUT', `/api/meetings/${sid}/prep/extra`, { sessionIds: [] }],
+      ['PATCH', `/api/meetings/${sid}`, { scheduledAt: at + 3_600_000 }],
+    ] as const) {
+      expect([method, path, (await call(alice.token, method, path, body)).status]).toEqual([method, path, 404]);
+    }
+    expect((await call(alice.token, 'GET', '/api/meetings?view=upcoming')).body.meetings).toEqual([]);
+    expect((await call(alice.token, 'GET', '/api/meetings/folders')).body.folders.some((f: { cwd: string }) => f.cwd === t.cwd)).toBe(false);
+    expect((await call(OWNER, 'DELETE', `/api/meetings/${sid}`)).status).toBe(204);
+  });
+
   test('end wraps up: notes, then 409 on a second end and on segments', async () => {
     const r = await call(OWNER, 'POST', `/api/meetings/${id}/end`);
     expect(r.status).toBe(202);
