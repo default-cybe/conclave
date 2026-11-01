@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Conclave device daemon as a launchd agent on macOS.
+
+  `conclave daemon install` writes this same agent with your current PATH,
+  which is the easier way. To use this copy instead:
+
+    conclave daemon pair <hubUrl> <code>
+    cp dev.conclave.daemon.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.conclave.daemon.plist
+
+  Stop: launchctl bootout gui/$(id -u)/dev.conclave.daemon
+  Logs: ~/.conclave/logs/daemon.log
+
+  launchd does not expand ~ or $HOME, so a login shell starts the daemon. That
+  also loads PATH from ~/.zprofile (Homebrew and friends).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.conclave.daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>export PATH="$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; mkdir -p "$HOME/.conclave/logs"; exec conclave daemon &gt;&gt; "$HOME/.conclave/logs/daemon.log" 2&gt;&amp;1</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+</dict>
+</plist>

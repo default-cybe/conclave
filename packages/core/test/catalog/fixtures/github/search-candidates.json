@@ -1,0 +1,620 @@
+{
+ "_recorded": "2026-10-17 via the GitHub MCP search_repositories tool (minimal_output). api.github.com is blocked in this sandbox. Shape matches GET /search/repositories items, trimmed.",
+ "total_count": 43,
+ "incomplete_results": false,
+ "items": [
+  {
+   "full_name": "DietrichGebert/ponytail",
+   "name": "ponytail",
+   "owner": {
+    "login": "DietrichGebert"
+   },
+   "html_url": "https://github.com/DietrichGebert/ponytail",
+   "stargazers_count": 165362,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "agent-skills",
+    "claude-code-plugin",
+    "yagni"
+   ]
+  },
+  {
+   "full_name": "JuliusBrussee/caveman",
+   "name": "caveman",
+   "owner": {
+    "login": "JuliusBrussee"
+   },
+   "html_url": "https://github.com/JuliusBrussee/caveman",
+   "stargazers_count": 113108,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "claude-code",
+    "skill",
+    "tokens"
+   ]
+  },
+  {
+   "full_name": "kayba-ai/recursive-improve",
+   "name": "recursive-improve",
+   "owner": {
+    "login": "kayba-ai"
+   },
+   "html_url": "https://github.com/kayba-ai/recursive-improve",
+   "stargazers_count": 295,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "agent-learning",
+    "agents"
+   ]
+  },
+  {
+   "full_name": "Pimzino/agentic-tools-mcp",
+   "name": "agentic-tools-mcp",
+   "owner": {
+    "login": "Pimzino"
+   },
+   "html_url": "https://github.com/Pimzino/agentic-tools-mcp",
+   "stargazers_count": 88,
+   "default_branch": "main",
+   "archived": false,
+   "topics": []
+  },
+  {
+   "full_name": "obra/superpowers",
+   "name": "superpowers",
+   "owner": {
+    "login": "obra"
+   },
+   "html_url": "https://github.com/obra/superpowers",
+   "stargazers_count": 300828,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "skills",
+    "subagent-driven-development"
+   ]
+  },
+  {
+   "full_name": "anthropics/skills",
+   "name": "skills",
+   "owner": {
+    "login": "anthropics"
+   },
+   "html_url": "https://github.com/anthropics/skills",
+   "stargazers_count": 181646,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "agent-skills"
+   ]
+  },
+  {
+   "full_name": "anthropics/claude-plugins-official",
+   "name": "claude-plugins-official",
+   "owner": {
+    "login": "anthropics"
+   },
+   "html_url": "https://github.com/anthropics/claude-plugins-official",
+   "stargazers_count": 40893,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "claude-code",
+    "mcp",
+    "skills"
+   ]
+  },
+  {
+   "full_name": "hesreallyhim/awesome-claude-code",
+   "name": "awesome-claude-code",
+   "owner": {
+    "login": "hesreallyhim"
+   },
+   "html_url": "https://github.com/hesreallyhim/awesome-claude-code",
+   "stargazers_count": 55866,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "awesome-list",
+    "agent-skills"
+   ]
+  },
+  {
+   "full_name": "wshobson/agents",
+   "name": "agents",
+   "owner": {
+    "login": "wshobson"
+   },
+   "html_url": "https://github.com/wshobson/agents",
+   "stargazers_count": 40938,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "claude-code-plugin",
+    "subagents"
+   ]
+  },
+  {
+   "full_name": "wshobson/commands",
+   "name": "commands",
+   "owner": {
+    "login": "wshobson"
+   },
+   "html_url": "https://github.com/wshobson/commands",
+   "stargazers_count": 2641,
+   "default_branch": "main",
+   "archived": true,
+   "topics": [
+    "slash-commands"
+   ]
+  },
+  {
+   "full_name": "VoltAgent/awesome-claude-code-subagents",
+   "name": "awesome-claude-code-subagents",
+   "owner": {
+    "login": "VoltAgent"
+   },
+   "html_url": "https://github.com/VoltAgent/awesome-claude-code-subagents",
+   "stargazers_count": 25777,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "claude-code-subagents"
+   ]
+  },
+  {
+   "full_name": "VoltAgent/awesome-agent-skills",
+   "name": "awesome-agent-skills",
+   "owner": {
+    "login": "VoltAgent"
+   },
+   "html_url": "https://github.com/VoltAgent/awesome-agent-skills",
+   "stargazers_count": 35864,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "agent-skills",
+    "awesome-list"
+   ]
+  },
+  {
+   "full_name": "multica-ai/andrej-karpathy-skills",
+   "name": "andrej-karpathy-skills",
+   "owner": {
+    "login": "multica-ai"
+   },
+   "html_url": "https://github.com/multica-ai/andrej-karpathy-skills",
+   "stargazers_count": 220415,
+   "default_branch": "main",
+   "archived": false,
+   "topics": []
+  },
+  {
+   "full_name": "rtk-ai/rtk",
+   "name": "rtk",
+   "owner": {
+    "login": "rtk-ai"
+   },
+   "html_url": "https://github.com/rtk-ai/rtk",
+   "stargazers_count": 83657,
+   "default_branch": "develop",
+   "archived": false,
+   "topics": [
+    "token-optimization",
+    "rust",
+    "claude-code"
+   ]
+  },
+  {
+   "full_name": "mksglu/context-mode",
+   "name": "context-mode",
+   "owner": {
+    "login": "mksglu"
+   },
+   "html_url": "https://github.com/mksglu/context-mode",
+   "stargazers_count": 30330,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "claude-code-hooks",
+    "mcp-server"
+   ]
+  },
+  {
+   "full_name": "trailofbits/skills",
+   "name": "skills",
+   "owner": {
+    "login": "trailofbits"
+   },
+   "html_url": "https://github.com/trailofbits/skills",
+   "stargazers_count": 7605,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "agent-skills"
+   ]
+  },
+  {
+   "full_name": "ljagiello/ctf-skills",
+   "name": "ctf-skills",
+   "owner": {
+    "login": "ljagiello"
+   },
+   "html_url": "https://github.com/ljagiello/ctf-skills",
+   "stargazers_count": 3466,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "ctf",
+    "agent-skills"
+   ]
+  },
+  {
+   "full_name": "mattpocock/skills",
+   "name": "skills",
+   "owner": {
+    "login": "mattpocock"
+   },
+   "html_url": "https://github.com/mattpocock/skills",
+   "stargazers_count": 294322,
+   "default_branch": "main",
+   "archived": false,
+   "topics": []
+  },
+  {
+   "full_name": "EveryInc/compound-engineering-plugin",
+   "name": "compound-engineering-plugin",
+   "owner": {
+    "login": "EveryInc"
+   },
+   "html_url": "https://github.com/EveryInc/compound-engineering-plugin",
+   "stargazers_count": 25564,
+   "default_branch": "main",
+   "archived": false,
+   "topics": []
+  },
+  {
+   "full_name": "OthmanAdi/planning-with-files",
+   "name": "planning-with-files",
+   "owner": {
+    "login": "OthmanAdi"
+   },
+   "html_url": "https://github.com/OthmanAdi/planning-with-files",
+   "stargazers_count": 27482,
+   "default_branch": "master",
+   "archived": false,
+   "topics": [
+    "agent-skills",
+    "planning"
+   ]
+  },
+  {
+   "full_name": "ayghri/i-have-adhd",
+   "name": "i-have-adhd",
+   "owner": {
+    "login": "ayghri"
+   },
+   "html_url": "https://github.com/ayghri/i-have-adhd",
+   "stargazers_count": 57463,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "claude-code-plugin",
+    "claude-skills"
+   ]
+  },
+  {
+   "full_name": "tigerless-labs/autoharness",
+   "name": "autoharness",
+   "owner": {
+    "login": "tigerless-labs"
+   },
+   "html_url": "https://github.com/tigerless-labs/autoharness",
+   "stargazers_count": 11123,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "claude-code-plugin",
+    "agent-skills"
+   ]
+  },
+  {
+   "full_name": "NVIDIA/SkillSpector",
+   "name": "SkillSpector",
+   "owner": {
+    "login": "NVIDIA"
+   },
+   "html_url": "https://github.com/NVIDIA/SkillSpector",
+   "stargazers_count": 20392,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "agent-security",
+    "security-scanner"
+   ]
+  },
+  {
+   "full_name": "agent-sh/agnix",
+   "name": "agnix",
+   "owner": {
+    "login": "agent-sh"
+   },
+   "html_url": "https://github.com/agent-sh/agnix",
+   "stargazers_count": 453,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "linter",
+    "skills"
+   ]
+  },
+  {
+   "full_name": "kenryu42/cc-safety-net",
+   "name": "cc-safety-net",
+   "owner": {
+    "login": "kenryu42"
+   },
+   "html_url": "https://github.com/kenryu42/cc-safety-net",
+   "stargazers_count": 1646,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "guardrails",
+    "hooks"
+   ]
+  },
+  {
+   "full_name": "nizos/tdd-guard",
+   "name": "tdd-guard",
+   "owner": {
+    "login": "nizos"
+   },
+   "html_url": "https://github.com/nizos/tdd-guard",
+   "stargazers_count": 2361,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "hooks",
+    "tdd"
+   ]
+  },
+  {
+   "full_name": "conorbronsdon/avoid-ai-writing",
+   "name": "avoid-ai-writing",
+   "owner": {
+    "login": "conorbronsdon"
+   },
+   "html_url": "https://github.com/conorbronsdon/avoid-ai-writing",
+   "stargazers_count": 5054,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "ai-writing",
+    "skill"
+   ]
+  },
+  {
+   "full_name": "alirezarezvani/claude-skills",
+   "name": "claude-skills",
+   "owner": {
+    "login": "alirezarezvani"
+   },
+   "html_url": "https://github.com/alirezarezvani/claude-skills",
+   "stargazers_count": 28299,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "claude-skills"
+   ]
+  },
+  {
+   "full_name": "vercel-labs/skills",
+   "name": "skills",
+   "owner": {
+    "login": "vercel-labs"
+   },
+   "html_url": "https://github.com/vercel-labs/skills",
+   "stargazers_count": 35286,
+   "default_branch": "main",
+   "archived": false,
+   "topics": []
+  },
+  {
+   "full_name": "thedotmack/claude-mem",
+   "name": "claude-mem",
+   "owner": {
+    "login": "thedotmack"
+   },
+   "html_url": "https://github.com/thedotmack/claude-mem",
+   "stargazers_count": 101270,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "claude-code-plugin",
+    "ai-memory"
+   ]
+  },
+  {
+   "full_name": "Egonex-AI/Understand-Anything",
+   "name": "Understand-Anything",
+   "owner": {
+    "login": "Egonex-AI"
+   },
+   "html_url": "https://github.com/Egonex-AI/Understand-Anything",
+   "stargazers_count": 86689,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "knowledge-graph",
+    "claude-skills"
+   ]
+  },
+  {
+   "full_name": "SnailSploit/Claude-Red",
+   "name": "Claude-Red",
+   "owner": {
+    "login": "SnailSploit"
+   },
+   "html_url": "https://github.com/SnailSploit/Claude-Red",
+   "stargazers_count": 7562,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "claude-skills",
+    "redteam"
+   ]
+  },
+  {
+   "full_name": "cyberkaida/reverse-engineering-assistant",
+   "name": "reverse-engineering-assistant",
+   "owner": {
+    "login": "cyberkaida"
+   },
+   "html_url": "https://github.com/cyberkaida/reverse-engineering-assistant",
+   "stargazers_count": 875,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "ghidra",
+    "mcp-server"
+   ]
+  },
+  {
+   "full_name": "Yeachan-Heo/oh-my-claudecode",
+   "name": "oh-my-claudecode",
+   "owner": {
+    "login": "Yeachan-Heo"
+   },
+   "html_url": "https://github.com/Yeachan-Heo/oh-my-claudecode",
+   "stargazers_count": 39983,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "multi-agent-systems"
+   ]
+  },
+  {
+   "full_name": "disler/fixing-smartass-opus-5",
+   "name": "fixing-smartass-opus-5",
+   "owner": {
+    "login": "disler"
+   },
+   "html_url": "https://github.com/disler/fixing-smartass-opus-5",
+   "stargazers_count": 365,
+   "default_branch": "main",
+   "archived": false,
+   "topics": []
+  },
+  {
+   "full_name": "ldayton/Dippy",
+   "name": "Dippy",
+   "owner": {
+    "login": "ldayton"
+   },
+   "html_url": "https://github.com/ldayton/Dippy",
+   "stargazers_count": 243,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "hook",
+    "permissions"
+   ]
+  },
+  {
+   "full_name": "vaporif/parry-guard",
+   "name": "parry-guard",
+   "owner": {
+    "login": "vaporif"
+   },
+   "html_url": "https://github.com/vaporif/parry-guard",
+   "stargazers_count": 45,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "prompt-injection",
+    "rust"
+   ]
+  },
+  {
+   "full_name": "egorfedorov/claude-context-optimizer",
+   "name": "claude-context-optimizer",
+   "owner": {
+    "login": "egorfedorov"
+   },
+   "html_url": "https://github.com/egorfedorov/claude-context-optimizer",
+   "stargazers_count": 116,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "token-optimization"
+   ]
+  },
+  {
+   "full_name": "quemsah/awesome-claude-plugins",
+   "name": "awesome-claude-plugins",
+   "owner": {
+    "login": "quemsah"
+   },
+   "html_url": "https://github.com/quemsah/awesome-claude-plugins",
+   "stargazers_count": 1440,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "claude-code-plugin"
+   ]
+  },
+  {
+   "full_name": "agentsmd/agents.md",
+   "name": "agents.md",
+   "owner": {
+    "login": "agentsmd"
+   },
+   "html_url": "https://github.com/agentsmd/agents.md",
+   "stargazers_count": 24967,
+   "default_branch": "main",
+   "archived": false,
+   "topics": []
+  },
+  {
+   "full_name": "awesome-opencode/awesome-opencode",
+   "name": "awesome-opencode",
+   "owner": {
+    "login": "awesome-opencode"
+   },
+   "html_url": "https://github.com/awesome-opencode/awesome-opencode",
+   "stargazers_count": 10618,
+   "default_branch": "main",
+   "archived": false,
+   "topics": []
+  },
+  {
+   "full_name": "google-gemini/gemini-cli",
+   "name": "gemini-cli",
+   "owner": {
+    "login": "google-gemini"
+   },
+   "html_url": "https://github.com/google-gemini/gemini-cli",
+   "stargazers_count": 107413,
+   "default_branch": "main",
+   "archived": false,
+   "topics": [
+    "mcp-client"
+   ]
+  },
+  {
+   "full_name": "anthropics/claude-code",
+   "name": "claude-code",
+   "owner": {
+    "login": "anthropics"
+   },
+   "html_url": "https://github.com/anthropics/claude-code",
+   "stargazers_count": 151299,
+   "default_branch": "main",
+   "archived": false,
+   "topics": []
+  }
+ ]
+}

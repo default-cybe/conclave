@@ -1,0 +1,486 @@
+/**
+ * Claude Code session reader.
+ *
+ * Sessions live in ~/.claude/projects/<cwd with non [a-zA-Z0-9] as '-'>/<id>.jsonl.
+ * Each line is one event. Messages form a tree through parentUuid: a rewind
+ * or an edited prompt leaves a dead branch in the file, and compact_boundary
+ * restarts the tree with logicalParentUuid pointing back. last-prompt.leafUuid
+ * names the live branch. One API assistant message is often split over
+ * several lines that share message.id. Subagent transcripts sit in
+ * <id>/subagents/agent-*.jsonl and <id>/subagents/workflows/wf_*.
+ *
+ * Measured on a real 23 MB session, reading every user line as the owner
+ * counted task notices as prompts and lost one prompt in five, so this reader
+ * walks the live chain and tags every user message with its origin.
+ */
+import type { ContentBlock, DocumentBlock, ImageBlock, StopReason, TextBlock, Usage } from '../types';
+import type { Machine } from '../machine/types';
+import { sanitizeToolId } from '../util/ids';
+import { claudeRootOn, joinPath, parseJsonl, parseTime, truncateTitle, walkFiles, type FoundFile } from './files';
+import { bump, type ConvertedSession, type ImportedMessage, type MessageOrigin } from './types';
+
+export type { ImportedMessage } from './types';
+
+const KNOWN_LINES = new Set([
+  'user',
+  'assistant',
+  'system',
+  'summary',
+  'custom-title',
+  'ai-title',
+  'last-prompt',
+  'file-history-snapshot',
+  'attachment',
+  'queue-operation',
+  'progress',
+  'model_refusal_fallback',
+  'tag',
+  'agent-name',
+  'pr-link',
+]);
+
+const STOP_REASONS = new Set<StopReason>(['end_turn', 'tool_use', 'max_tokens', 'stop_sequence', 'refusal', 'pause_turn']);
+
+function projectsDir(machine: Machine, root?: string): string {
+  return joinPath(root ?? claudeRootOn(machine), 'projects');
+}
+
+export interface ClaudeFile extends FoundFile {
+  /** Session id of the parent, for subagent transcripts. */
+  parent?: string;
+}
+
+/**
+ * Session files under ~/.claude/projects: <project>/<id>.jsonl, and subagent
+ * transcripts at <project>/<id>/subagents/agent-*.jsonl and
+ * <project>/<id>/subagents/workflows/wf_*\/*.jsonl.
+ */
+export async function claudeCodeFiles(machine: Machine, root?: string): Promise<ClaudeFile[]> {
+  const dir = projectsDir(machine, root);
+  const all = await walkFiles(machine, dir, {
+    match: (n) => n.endsWith('.jsonl'),
+    maxDepth: 5,
+    // memory/ and tool-results/ hold other files; only <id>/subagents/... nests transcripts
+    skipDir: (name, depth) => (depth === 1 ? !/^[0-9a-f-]{8,}$/i.test(name) : depth === 2 ? name !== 'subagents' : depth === 3 ? name !== 'workflows' : false),
+  });
+  const out: ClaudeFile[] = [];
+  for (const f of all) {
+    const rel = f.path.slice(dir.length + 1).split('/');
+    if (rel.length === 2) out.push(f);
+    else if (rel.length >= 4 && rel[2] === 'subagents') out.push({ ...f, parent: rel[1] });
+  }
+  return out;
+}
+
+/**
+ * Where a chat's folder can be on the device whose disk holds the file, best
+ * first: the file's cwd, the same path under this device's home (a sync tool
+ * such as claudesync copies a Mac chat to Linux and rewrites only some paths),
+ * then the project folder's name read back as a path, keeping a tail of the
+ * cwd it ends with. The name is ambiguous ('-' stands for '/', '-', ' ' and
+ * '.'), so every one is a guess the caller checks on the device. A path that
+ * encodes to the folder name goes first: the chat was started there, and a
+ * home-swapped cwd can be a real but wrong folder (/Users/u/CMU for a chat in
+ * -Users-u-MadX-CMU).
+ */
+export function claudeCwdCandidates(path: string | undefined, cwd: string | undefined, home: string | undefined): string[] {
+  const out: string[] = cwd ? [cwd] : [];
+  const rest = cwd?.match(/^\/(?:home|Users)\/[^/]+(\/.*)?$/);
+  if (rest && home) out.push(home + (rest[1] ?? ''));
+  const at = path?.lastIndexOf('/projects/') ?? -1;
+  const dir = at < 0 ? '' : path!.slice(at + 10).split('/')[0];
+  const enc = (p: string) => p.replace(/[^a-zA-Z0-9]/g, '-');
+  if (dir.startsWith('-')) {
+    const parts = (cwd ?? '').split('/').filter(Boolean);
+    for (let i = 1; i < parts.length; i++) {
+      const tail = `/${parts.slice(i).join('/')}`;
+      const e = enc(tail);
+      if (dir.length > e.length && dir.endsWith(e)) out.push(dir.slice(0, -e.length).replace(/-/g, '/') + tail);
+    }
+    out.push(dir.replace(/-/g, '/'));
+  }
+  const all = [...new Set(out)];
+  return [...all.filter((p) => enc(p) === dir), ...all.filter((p) => enc(p) !== dir)];
+}
+
+/** The first of claudeCwdCandidates that is a folder on the machine, else undefined: never an unchecked guess. */
+export async function claudeDeviceCwd(machine: Machine, path: string | undefined, cwd: string | undefined): Promise<string | undefined> {
+  for (const p of claudeCwdCandidates(path, cwd, machine.resolve('~', '/'))) {
+    const st = await machine.stat(p).catch(() => null);
+    if (st && st.type !== 'file') return p;
+  }
+  return undefined;
+}
+
+/** Strip harness wrappers: system reminders go entirely, persisted output keeps its body. */
+export function stripWrappers(text: string): string {
+  return text
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+    .replace(/<\/?persisted-output>/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** Strip Claude Code's wrapper tags. Returns undefined for lines that are not real prompts. */
+export function cleanUserText(text: string): string | undefined {
+  const t = stripWrappers(text);
+  if (!t) return undefined;
+  if (/^<(local-command-stdout|local-command-stderr|bash-stdout|bash-stderr)>/.test(t)) return undefined;
+  if (t.startsWith('Caveat: The messages below were generated by the user while running local commands')) return undefined;
+  const cmd = /<command-name>([^<]*)<\/command-name>/.exec(t);
+  if (cmd) {
+    const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(t)?.[1]?.trim();
+    const name = cmd[1].trim();
+    return `${name.startsWith('/') ? name : '/' + name}${args ? ' ' + args : ''}`;
+  }
+  const bash = /^<bash-input>([\s\S]*?)<\/bash-input>$/.exec(t);
+  if (bash) return `!${bash[1]}`;
+  return t;
+}
+
+/** Who wrote a user line, from origin.kind, turnOrigin, promptSource and the text markers. */
+function lineOrigin(l: Record<string, any>, text: string): MessageOrigin {
+  if (l.promptSource === 'system') return 'system';
+  const raw = l.origin?.kind ?? l.origin ?? l.turnOrigin?.kind ?? l.turnOrigin;
+  const k = typeof raw === 'string' ? raw.toLowerCase() : '';
+  if (k) {
+    if (k.includes('task')) return 'task';
+    if (k.includes('peer') || k.includes('teammate') || k === 'agent') return 'peer';
+    if (k.includes('sdk')) return 'sdk';
+    if (k.includes('system') || k.includes('hook')) return 'system';
+  }
+  const t = text.trimStart();
+  if (t.startsWith('<task-notification>')) return 'task';
+  if (/^<(peer-message|agent-message|teammate-message)\b/.test(t)) return 'peer';
+  return 'human';
+}
+
+const AUTHOR: Partial<Record<MessageOrigin, string>> = { task: 'Background task', peer: 'Peer agent' };
+
+interface Line extends Record<string, any> {
+  _i: number;
+}
+
+/**
+ * The live conversation: walk back from the leaf through parentUuid and
+ * logicalParentUuid. Tool results for chain tool calls and assistant lines
+ * that share message.id with a chain line come along. Retracted lines are
+ * dropped. Without a leaf (old builds) every line counts, in file order.
+ */
+function activeLines(lines: Line[], keepSidechain: boolean): Line[] {
+  const byUuid = new Map<string, Line>();
+  const children = new Map<string, Line[]>();
+  let leafId: string | undefined;
+  const retracted = new Set<string>();
+  for (const l of lines) {
+    if (typeof l.uuid === 'string') byUuid.set(l.uuid, l);
+    if (typeof l.parentUuid === 'string') {
+      const list = children.get(l.parentUuid) ?? [];
+      list.push(l);
+      children.set(l.parentUuid, list);
+    }
+    if (l.type === 'last-prompt' && typeof l.leafUuid === 'string') leafId = l.leafUuid;
+    if ((l.type === 'model_refusal_fallback' || l.subtype === 'model_refusal_fallback') && Array.isArray(l.retractedMessageUuids)) {
+      for (const id of l.retractedMessageUuids) if (typeof id === 'string') retracted.add(id);
+    }
+  }
+  const msgLines = lines.filter((l) => (l.type === 'user' || l.type === 'assistant' || l.type === 'attachment' || l.type === 'system') && (keepSidechain || !l.isSidechain) && !retracted.has(l.uuid));
+  if (!leafId || !byUuid.has(leafId)) return msgLines;
+
+  // the last prompt's replies come after it: follow the newest child down to the end
+  let leaf = byUuid.get(leafId)!;
+  for (let guard = 0; guard < 100_000; guard++) {
+    const kids = (children.get(leaf.uuid) ?? []).filter((c) => !retracted.has(c.uuid) && (keepSidechain || !c.isSidechain));
+    if (!kids.length) break;
+    leaf = kids[kids.length - 1];
+  }
+  const chain = new Set<string>();
+  let cur: Line | undefined = leaf;
+  // a compact boundary passed whose earlier history the walk has not reached yet
+  let open: Line | undefined;
+  for (let guard = 0; guard < 1_000_000; guard++) {
+    if (!cur || chain.has(cur.uuid)) {
+      // the boundary's back link is missing, dead or loops (newer builds re-write a preserved tail after it): go on from the newest line written before it
+      const b = open;
+      open = undefined;
+      cur = undefined;
+      for (let i = (b?._i ?? 0) - 1; i >= 0 && !cur; i--) {
+        const x = lines[i];
+        if ((x.type === 'user' || x.type === 'assistant') && !x.isSidechain && typeof x.uuid === 'string' && !chain.has(x.uuid) && !retracted.has(x.uuid)) cur = x;
+      }
+      if (!cur) break;
+    }
+    chain.add(cur.uuid);
+    if (open && cur._i < open._i) open = undefined;
+    if (cur.subtype === 'compact_boundary') open = cur;
+    const next: string | undefined = typeof cur.parentUuid === 'string' ? cur.parentUuid : typeof cur.logicalParentUuid === 'string' ? cur.logicalParentUuid : undefined;
+    cur = next ? byUuid.get(next) : undefined;
+  }
+  const toolIds = new Set<string>();
+  const msgIds = new Set<string>();
+  for (const id of chain) {
+    const l = byUuid.get(id)!;
+    if (l.type === 'assistant' && l.message) {
+      if (typeof l.message.id === 'string') msgIds.add(l.message.id);
+      if (Array.isArray(l.message.content)) for (const b of l.message.content) if (b?.type === 'tool_use' && b.id) toolIds.add(String(b.id));
+    }
+  }
+  // a uuid written twice (a preserved message re-written after a boundary) shows once, at its first place
+  const seen = new Set<string>();
+  return msgLines.filter((l) => {
+    if (typeof l.uuid === 'string') {
+      if (seen.has(l.uuid)) return false;
+      seen.add(l.uuid);
+    }
+    if (chain.has(l.uuid)) return true;
+    if (l.type === 'assistant' && typeof l.message?.id === 'string' && msgIds.has(l.message.id)) return true;
+    if (l.type === 'user' && Array.isArray(l.message?.content)) {
+      const results = l.message.content.filter((b: any) => b?.type === 'tool_result');
+      return results.length > 0 && results.every((b: any) => toolIds.has(String(b.tool_use_id)));
+    }
+    return false;
+  });
+}
+
+/** Convert a Claude Code JSONL transcript. Unknown lines are counted, never dropped in silence. */
+export function convertClaudeCode(text: string | Uint8Array, opts: { subagent?: boolean; parent?: string } = {}): ConvertedSession {
+  const unknown: Record<string, number> = {};
+  const lines: Line[] = parseJsonl(text, { includePartialTail: true }).map((l, i) => ({ ...l.value, _i: i }) as Line);
+  let nativeId: string | undefined;
+  let cwd: string | undefined;
+  let gitBranch: string | undefined;
+  let entrypoint: string | undefined;
+  let customTitle: string | undefined;
+  let aiTitle: string | undefined;
+  let model: string | undefined;
+  const summaries: Array<{ leaf?: string; text: string }> = [];
+  const uuids = new Set<string>();
+  let sidechain = 0;
+  for (const l of lines) {
+    if (typeof l.uuid === 'string') uuids.add(l.uuid);
+    if (typeof l.type !== 'string' || !KNOWN_LINES.has(l.type)) bump(unknown, `line:${String(l.type ?? 'none')}`);
+    if (!nativeId && typeof l.sessionId === 'string') nativeId = l.sessionId;
+    if (typeof l.cwd === 'string') cwd ??= l.cwd;
+    if (typeof l.gitBranch === 'string' && l.gitBranch) gitBranch = l.gitBranch;
+    if (typeof l.entrypoint === 'string') entrypoint ??= l.entrypoint;
+    if (l.isSidechain) sidechain++;
+    if (l.type === 'summary' && typeof l.summary === 'string') summaries.push({ leaf: l.leafUuid, text: l.summary });
+    else if (l.type === 'custom-title' && typeof (l.customTitle ?? l.title) === 'string') customTitle = l.customTitle ?? l.title;
+    else if (l.type === 'ai-title' && typeof (l.aiTitle ?? l.title) === 'string') aiTitle = l.aiTitle ?? l.title;
+  }
+
+  const out: Array<ImportedMessage & { _msgId?: string }> = [];
+  let lastTs = 0;
+  let current: (ImportedMessage & { _msgId?: string }) | undefined;
+  const push = (m: ImportedMessage & { _msgId?: string }) => {
+    out.push(m);
+    current = m;
+  };
+  const meta = (l: Line, extra: Record<string, unknown> = {}) => ({ external: { source: 'claude-code', id: typeof l.uuid === 'string' ? l.uuid : `line${l._i}` }, ...extra });
+
+  // a file made only of sidechain lines is a subagent transcript (older builds kept them in the main file)
+  const talk = lines.filter((l) => l.type === 'user' || l.type === 'assistant');
+  const isSub = !!opts.subagent || (sidechain > 0 && sidechain >= talk.length);
+  for (const l of activeLines(lines, isSub)) {
+    const ts = parseTime(l.timestamp, lastTs || 0);
+    if (ts) lastTs = ts;
+
+    if (l.type === 'assistant' && l.message && typeof l.message === 'object') {
+      const msg = l.message;
+      if (msg.model === '<synthetic>' && !hasRealContent(msg.content)) continue;
+      const blocks = assistantBlocks(msg.content, unknown);
+      const msgId: string | undefined = msg.id;
+      if (current && current.role === 'assistant' && msgId && current._msgId === msgId) {
+        current.content.push(...blocks);
+        const u = toUsage(msg.usage);
+        if (u) current.usage = u;
+        if (STOP_REASONS.has(msg.stop_reason)) current.stopReason = msg.stop_reason;
+        continue;
+      }
+      if (!blocks.length) continue;
+      const m: ImportedMessage & { _msgId?: string } = { role: 'assistant', kind: 'normal', content: blocks, createdAt: ts, meta: meta(l), _msgId: msgId };
+      if (typeof msg.model === 'string' && msg.model !== '<synthetic>') m.model = model = `anthropic/${msg.model}`;
+      const u = toUsage(msg.usage);
+      if (u) m.usage = u;
+      if (STOP_REASONS.has(msg.stop_reason)) m.stopReason = msg.stop_reason;
+      push(m);
+      continue;
+    }
+
+    // a prompt typed while a turn ran, delivered in place
+    if (l.type === 'attachment') {
+      const a = l.attachment;
+      if (a?.type === 'queued_command' && a.humanTurn !== false) {
+        const t = typeof a.prompt === 'string' ? cleanUserText(a.prompt) : undefined;
+        if (t) push({ role: 'user', kind: 'normal', content: [{ type: 'text', text: t }], createdAt: ts, meta: meta(l, { origin: 'human', queued: true }) });
+      } else if (a && typeof a.type === 'string') bump(unknown, `attachment:${a.type}`);
+      continue;
+    }
+
+    if (l.type === 'user' && l.message && !l.isMeta) {
+      const blocks = userBlocks(l.message.content, unknown);
+      if (!blocks.length) continue;
+      const onlyResults = blocks.every((b) => b.type === 'tool_result');
+      if (onlyResults) {
+        // parallel tool results arrive as separate lines; the API wants them in one user turn
+        if (current && current.role === 'user' && current.content.every((b) => b.type === 'tool_result')) current.content.push(...blocks);
+        else push({ role: 'user', kind: 'normal', content: blocks, createdAt: ts, meta: meta(l, { origin: 'system' }) });
+        continue;
+      }
+      const text = blocks
+        .filter((b) => b.type === 'text')
+        .map((b) => (b as TextBlock).text)
+        .join('\n');
+      if (l.isCompactSummary) {
+        push({ role: 'user', kind: 'summary', content: [{ type: 'text', text }], createdAt: ts, meta: meta(l, { origin: 'system' }) });
+        continue;
+      }
+      const origin = lineOrigin(l, text);
+      const author = AUTHOR[origin];
+      if (author) push({ role: 'user', kind: 'aside', author, content: blocks, createdAt: ts, meta: meta(l, { origin }) });
+      else push({ role: 'user', kind: 'normal', content: blocks, createdAt: ts, meta: meta(l, { origin }) });
+    }
+  }
+  for (const m of out) delete m._msgId;
+
+  const own = summaries.filter((s) => s.leaf && uuids.has(s.leaf));
+  const firstHuman = out.find((m) => m.role === 'user' && m.kind === 'normal' && m.meta?.origin === 'human');
+  const firstText = firstHuman?.content.find((b) => b.type === 'text') as TextBlock | undefined;
+  const title = customTitle ?? aiTitle ?? own[own.length - 1]?.text ?? firstText?.text ?? summaries[summaries.length - 1]?.text;
+  const automation = typeof entrypoint === 'string' && entrypoint.startsWith('sdk-');
+  return {
+    source: 'claude-code',
+    nativeId,
+    // a main file is <sessionId>.jsonl; a subagent transcript carries its parent's id
+    nativeIdUnique: !isSub,
+    title: title ? truncateTitle(title) : undefined,
+    cwd,
+    gitBranch,
+    model,
+    kind: isSub ? 'subagent' : automation ? 'automation' : 'main',
+    parentNativeId: opts.parent,
+    entrypoint,
+    messages: out,
+    unknown,
+    learnable: true,
+  };
+}
+
+function hasRealContent(content: unknown): boolean {
+  return Array.isArray(content) && content.some((b) => b?.type === 'tool_use' || (b?.type === 'text' && b.text && !/^No response requested/.test(b.text)));
+}
+
+function toUsage(u: any): Usage | undefined {
+  if (!u || typeof u !== 'object') return undefined;
+  return {
+    inputTokens: num(u.input_tokens),
+    outputTokens: num(u.output_tokens),
+    cacheReadTokens: num(u.cache_read_input_tokens),
+    cacheWriteTokens: num(u.cache_creation_input_tokens),
+    ...(num(u.cache_creation?.ephemeral_1h_input_tokens) ? { cacheWrite1hTokens: num(u.cache_creation.ephemeral_1h_input_tokens) } : {}),
+  };
+}
+
+function num(v: unknown): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+}
+
+function assistantBlocks(content: unknown, unknown: Record<string, number>): ContentBlock[] {
+  if (typeof content === 'string') return content ? [{ type: 'text', text: content }] : [];
+  if (!Array.isArray(content)) return [];
+  const out: ContentBlock[] = [];
+  for (const b of content) {
+    if (!b || typeof b !== 'object') continue;
+    switch (b.type) {
+      case 'text':
+        if (typeof b.text === 'string' && b.text) out.push({ type: 'text', text: b.text });
+        break;
+      case 'thinking':
+        if (typeof b.thinking === 'string') out.push({ type: 'thinking', thinking: b.thinking, ...(b.signature ? { signature: b.signature } : {}) });
+        break;
+      case 'redacted_thinking':
+        if (typeof b.data === 'string') out.push({ type: 'redacted_thinking', data: b.data });
+        break;
+      case 'tool_use':
+      case 'server_tool_use':
+        out.push({ type: 'tool_use', id: sanitizeToolId(String(b.id ?? '')), name: String(b.name ?? 'tool'), input: isObj(b.input) ? b.input : { input: b.input } });
+        break;
+      case 'web_search_tool_result':
+        break;
+      default:
+        bump(unknown, `content:${String(b.type)}`);
+        break;
+    }
+  }
+  return out;
+}
+
+function userBlocks(content: unknown, unknown: Record<string, number>): ContentBlock[] {
+  if (typeof content === 'string') {
+    const t = cleanUserText(content);
+    return t ? [{ type: 'text', text: t }] : [];
+  }
+  if (!Array.isArray(content)) return [];
+  const out: ContentBlock[] = [];
+  for (const b of content) {
+    if (!b || typeof b !== 'object') continue;
+    switch (b.type) {
+      case 'text': {
+        const t = typeof b.text === 'string' ? cleanUserText(b.text) : undefined;
+        if (t) out.push({ type: 'text', text: t });
+        break;
+      }
+      case 'image': {
+        const img = mediaBlock(b);
+        if (img) out.push(img as ImageBlock);
+        break;
+      }
+      case 'document': {
+        const doc = mediaBlock(b);
+        if (doc) out.push({ ...(doc as DocumentBlock), type: 'document', ...(b.title ? { title: b.title } : {}) });
+        break;
+      }
+      case 'tool_result':
+        out.push({
+          type: 'tool_result',
+          toolUseId: sanitizeToolId(String(b.tool_use_id ?? '')),
+          content: toolResultContent(b.content),
+          ...(b.is_error ? { isError: true } : {}),
+          meta: { external: true },
+        });
+        break;
+      default:
+        bump(unknown, `content:${String(b.type)}`);
+        break;
+    }
+  }
+  return out;
+}
+
+function mediaBlock(b: any): ImageBlock | DocumentBlock | undefined {
+  const src = b.source;
+  if (!src) return undefined;
+  if (src.type === 'base64' && typeof src.data === 'string') return { type: b.type, mediaType: src.media_type ?? 'application/octet-stream', data: src.data } as ImageBlock;
+  if (src.type === 'url' && typeof src.url === 'string') return { type: b.type, mediaType: src.media_type ?? 'application/octet-stream', url: src.url } as ImageBlock;
+  if (src.type === 'text' && typeof src.data === 'string') return { type: 'document', mediaType: 'text/plain', data: Buffer.from(src.data).toString('base64') };
+  return undefined;
+}
+
+function toolResultContent(c: unknown): string | Array<TextBlock | ImageBlock> {
+  if (typeof c === 'string') return stripWrappers(c);
+  if (!Array.isArray(c)) return c == null ? '' : JSON.stringify(c);
+  const out: Array<TextBlock | ImageBlock> = [];
+  for (const b of c) {
+    if (b?.type === 'text' && typeof b.text === 'string') out.push({ type: 'text', text: stripWrappers(b.text) });
+    else if (b?.type === 'image') {
+      const img = mediaBlock(b);
+      if (img) out.push(img as ImageBlock);
+    }
+  }
+  if (out.every((b) => b.type === 'text')) return out.map((b) => (b as TextBlock).text).join('\n');
+  return out;
+}
+
+function isObj(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}

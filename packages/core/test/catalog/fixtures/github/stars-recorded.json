@@ -1,0 +1,420 @@
+{
+ "recordedAt": "2026-10-17",
+ "how": "GitHub search API (search/repositories with repo: qualifiers) called through the GitHub MCP connector, because api.github.com is blocked for curl in this sandbox. lastCommit from git clone --depth 1.",
+ "repos": [
+  {
+   "repo": "github/github-mcp-server",
+   "stars": 33672,
+   "lastCommit": "2026-10-15",
+   "archived": false
+  },
+  {
+   "repo": "modelcontextprotocol/servers",
+   "stars": 91322,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "microsoft/playwright-mcp",
+   "stars": 38261,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "ChromeDevTools/chrome-devtools-mcp",
+   "stars": 53697,
+   "lastCommit": "2026-10-16",
+   "archived": false
+  },
+  {
+   "repo": "upstash/context7",
+   "stars": 63171,
+   "lastCommit": "2026-10-16",
+   "archived": false
+  },
+  {
+   "repo": "oraios/serena",
+   "stars": 30338,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "mksglu/context-mode",
+   "stars": 30330,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "basicmachines-co/basic-memory",
+   "stars": 4255,
+   "lastCommit": "2026-10-15",
+   "archived": false
+  },
+  {
+   "repo": "bytebase/dbhub",
+   "stars": 3665,
+   "lastCommit": "2026-10-13",
+   "archived": false
+  },
+  {
+   "repo": "grafana/mcp-grafana",
+   "stars": 3568,
+   "lastCommit": "2026-10-14",
+   "archived": false
+  },
+  {
+   "repo": "firecrawl/firecrawl-mcp-server",
+   "stars": 7620,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "exa-labs/exa-mcp-server",
+   "stars": 5139,
+   "lastCommit": "2026-10-07",
+   "archived": false
+  },
+  {
+   "repo": "crystaldba/postgres-mcp",
+   "stars": 3403,
+   "lastCommit": "2026-08-15",
+   "archived": false
+  },
+  {
+   "repo": "tavily-ai/tavily-mcp",
+   "stars": 2432,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "containers/kubernetes-mcp-server",
+   "stars": 2163,
+   "lastCommit": "2026-10-16",
+   "archived": false
+  },
+  {
+   "repo": "docker/mcp-gateway",
+   "stars": 1601,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "brave/brave-search-mcp-server",
+   "stars": 1505,
+   "lastCommit": "2026-10-05",
+   "archived": false
+  },
+  {
+   "repo": "ihor-sokoliuk/mcp-searxng",
+   "stars": 1312,
+   "lastCommit": "2026-10-13",
+   "archived": false
+  },
+  {
+   "repo": "ckreiling/mcp-server-docker",
+   "stars": 748,
+   "lastCommit": "2026-08-07",
+   "archived": false
+  },
+  {
+   "repo": "redis/mcp-redis",
+   "stars": 636,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "LaurieWired/GhidraMCP",
+   "stars": 11325,
+   "lastCommit": "2026-10-10",
+   "archived": false
+  },
+  {
+   "repo": "RekklesNA/ProxmoxMCP-Plus",
+   "stars": 597,
+   "lastCommit": "2026-10-12",
+   "archived": false
+  },
+  {
+   "repo": "pab1it0/prometheus-mcp-server",
+   "stars": 519,
+   "lastCommit": "2026-10-11",
+   "archived": false
+  },
+  {
+   "repo": "voska/hass-mcp",
+   "stars": 347,
+   "lastCommit": "2026-10-09",
+   "archived": false
+  },
+  {
+   "repo": "kayba-ai/recursive-improve",
+   "stars": 295,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "canvrno/ProxmoxMCP",
+   "stars": 294,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "portainer/portainer-mcp",
+   "stars": 238,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "Pimzino/agentic-tools-mcp",
+   "stars": 88,
+   "lastCommit": "2025-06-20",
+   "archived": false
+  },
+  {
+   "repo": "gilby125/mcp-proxmox",
+   "stars": 54,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "awslabs/mcp",
+   "stars": 9783,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "54yyyu/zotero-mcp",
+   "stars": 5437,
+   "lastCommit": "2026-10-16",
+   "archived": false
+  },
+  {
+   "repo": "makenotion/notion-mcp-server",
+   "stars": 4669,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "MarkusPfundstein/mcp-obsidian",
+   "stars": 4479,
+   "lastCommit": "2026-08-31",
+   "archived": false
+  },
+  {
+   "repo": "cloudflare/mcp-server-cloudflare",
+   "stars": 4387,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "taylorwilsdon/google_workspace_mcp",
+   "stars": 3353,
+   "lastCommit": "2026-10-09",
+   "archived": false
+  },
+  {
+   "repo": "Softeria/ms-365-mcp-server",
+   "stars": 1051,
+   "lastCommit": "2026-10-17",
+   "archived": false
+  },
+  {
+   "repo": "cyanheads/obsidian-mcp-server",
+   "stars": 695,
+   "lastCommit": "2026-10-05",
+   "archived": false
+  },
+  {
+   "repo": "semgrep/mcp",
+   "stars": 686,
+   "lastCommit": null,
+   "archived": true
+  },
+  {
+   "repo": "aquasecurity/trivy-mcp",
+   "stars": 53,
+   "lastCommit": "2025-12-17",
+   "archived": false
+  },
+  {
+   "repo": "DietrichGebert/ponytail",
+   "stars": 165363,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "JuliusBrussee/caveman",
+   "stars": 113108,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "DeusData/codebase-memory-mcp",
+   "stars": 46737,
+   "lastCommit": "2026-10-16",
+   "archived": false
+  },
+  {
+   "repo": "tobi/qmd",
+   "stars": 30450,
+   "lastCommit": "2026-10-14",
+   "archived": false
+  },
+  {
+   "repo": "wonderwhy-er/DesktopCommanderMCP",
+   "stars": 10074,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "MinishLab/semble",
+   "stars": 6219,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "yvgude/lean-ctx",
+   "stars": 3882,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "sparfenyuk/mcp-proxy",
+   "stars": 2791,
+   "lastCommit": "2026-10-14",
+   "archived": false
+  },
+  {
+   "repo": "Flux159/mcp-server-kubernetes",
+   "stars": 1602,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "hashicorp/terraform-mcp-server",
+   "stars": 1550,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "microsoft/markitdown",
+   "stars": 190667,
+   "lastCommit": "2026-10-03",
+   "archived": false
+  },
+  {
+   "repo": "mrexodia/ida-pro-mcp",
+   "stars": 12964,
+   "lastCommit": "2026-09-26",
+   "archived": false
+  },
+  {
+   "repo": "radareorg/radare2-mcp",
+   "stars": 325,
+   "lastCommit": "2026-10-16",
+   "archived": false
+  },
+  {
+   "repo": "fosdickio/binary_ninja_mcp",
+   "stars": 454,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "bx33661/Wireshark-MCP",
+   "stars": 307,
+   "lastCommit": "2026-10-16",
+   "archived": false
+  },
+  {
+   "repo": "Higangssh/homebutler",
+   "stars": 305,
+   "lastCommit": "2026-10-17",
+   "archived": false
+  },
+  {
+   "repo": "GethosTheWalrus/proxmox-mcp",
+   "stars": 209,
+   "lastCommit": "2026-09-23",
+   "archived": false
+  },
+  {
+   "repo": "HexSleeves/tailscale-mcp",
+   "stars": 144,
+   "lastCommit": "2026-10-06",
+   "archived": false
+  },
+  {
+   "repo": "netdata/netdata",
+   "stars": 80982,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "home-assistant/core",
+   "stars": 91567,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "JuliusBrussee/cavemem",
+   "stars": 677,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "punkpeye/awesome-mcp-servers",
+   "stars": 96495,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "appcypher/awesome-mcp-servers",
+   "stars": 5795,
+   "lastCommit": null,
+   "archived": true
+  },
+  {
+   "repo": "wong2/awesome-mcp-servers",
+   "stars": 4368,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "docker/mcp-registry",
+   "stars": 572,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "modelcontextprotocol/registry",
+   "stars": 7371,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "IBM/mcp-context-forge",
+   "stars": 4646,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "metatool-ai/metamcp",
+   "stars": 2709,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "semgrep/semgrep",
+   "stars": 17097,
+   "lastCommit": null,
+   "archived": false
+  },
+  {
+   "repo": "aquasecurity/trivy",
+   "stars": 38472,
+   "lastCommit": null,
+   "archived": false
+  }
+ ]
+}

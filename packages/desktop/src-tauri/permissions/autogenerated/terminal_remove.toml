@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-terminal-remove"
+description = "Enables the terminal_remove command without any pre-configured scope."
+commands.allow = ["terminal_remove"]
+
+[[permission]]
+identifier = "deny-terminal-remove"
+description = "Denies the terminal_remove command without any pre-configured scope."
+commands.deny = ["terminal_remove"]

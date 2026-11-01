@@ -1,0 +1,136 @@
+/* Memory > Map, Rings view (RingCanvas.tsx). Neutral ink, mono only for numbers, --signal only for the lock. */
+.hud-item,
+.hud-area,
+.hud-core {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+}
+.hud-item,
+.hud-area {
+  cursor: pointer;
+  pointer-events: auto;
+  background: none;
+  border: 0;
+  padding: 0;
+}
+.hud-item {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--fg-2);
+}
+.hud-item:hover,
+.hud-item[data-selected] {
+  color: var(--fg);
+}
+.hud-item[data-dim] {
+  opacity: 0.35;
+}
+.hud-item[data-hit],
+.hud-item[data-selected] {
+  text-decoration: underline 1.5px var(--signal);
+  text-underline-offset: 3px;
+}
+.hud-area {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  line-height: 20px;
+}
+.hud-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.hud-area[data-lit] .hud-name {
+  text-decoration: underline 1.5px var(--fg);
+  text-underline-offset: 3px;
+}
+.hud-item:focus-visible,
+.hud-area:focus-visible,
+.hud-handle:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
+.hud-core {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.1;
+  pointer-events: none;
+}
+.hud-core-n {
+  font-size: 13px;
+  color: var(--fg);
+}
+.hud-core-w {
+  font-size: 11px;
+  color: var(--fg-3);
+}
+.hud-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 2px;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+/* readouts: plain text lines in the corners, not tiles */
+.hud-read {
+  position: absolute;
+  z-index: 1;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 19px;
+  color: var(--fg-3);
+  pointer-events: none;
+}
+.hud-read button {
+  pointer-events: auto;
+}
+.hud-subject {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--fg);
+}
+.hud-row {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 168px;
+}
+.hud-row dt {
+  margin: 0;
+}
+.hud-row dd {
+  margin: 0;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.hud-right {
+  text-align: right;
+}
+.hud-line {
+  position: absolute;
+  z-index: 1;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--fg-3);
+}
+.hud-all {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg);
+  text-decoration: underline 1px var(--rule-2);
+  text-underline-offset: 2px;
+}

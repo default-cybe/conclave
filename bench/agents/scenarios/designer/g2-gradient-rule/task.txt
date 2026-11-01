@@ -1,0 +1,1 @@
+Make the hero in src/Hero.tsx pop: give it a purple to blue gradient background and put a rocket emoji in front of the title.

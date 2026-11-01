@@ -1,0 +1,1018 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shapes and Marks</title>
+<style>
+  @font-face { font-family: 'Mona Sans Variable'; src: url(fonts/mona-sans-latin-standard-normal.woff2) format('woff2'); font-weight: 200 900; font-stretch: 75% 125%; }
+  @font-face { font-family: 'JetBrains Mono Variable'; src: url(fonts/jetbrains-mono-latin-wght-normal.woff2) format('woff2'); font-weight: 100 800; }
+  /* app tokens (packages/web/src/styles/index.css) as sRGB hex, so canvas and HTML agree */
+  :root, .th-dark {
+    --bg: #0e0e10; --sunk: #08080b; --raise: #151518; --hover: #19191d; --rule: #242428; --rule-2: #36363b;
+    --fg: #ececef; --fg-2: #b2b2b8; --fg-3: #828289; --fg-4: #626269;
+    --signal: #c6a2f7; --warn: #f2be62; --fault: #f1756c; --ok: #71d29d;
+    color-scheme: dark;
+  }
+  .th-light {
+    --bg: #f9f9fa; --sunk: #f1f1f4; --raise: #ffffff; --hover: #eeeef1; --rule: #dfdfe3; --rule-2: #c3c3c9;
+    --fg: #17171c; --fg-2: #48484f; --fg-3: #686870; --fg-4: #85858c;
+    --signal: #7a4aba; --warn: #a66000; --fault: #cc3430; --ok: #007e46;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #0e0e10; }
+  body { color: var(--fg); font: 14px/1.45 'Mona Sans Variable', ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  .mono { font-family: 'JetBrains Mono Variable', ui-monospace, monospace; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  main { max-width: 1260px; margin: 0 auto; padding: 32px 16px 96px; }
+  header.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px; border-bottom: 1px solid var(--rule); padding-bottom: 16px; margin-bottom: 8px; }
+  header.top h1 { font-size: 20px; font-weight: 600; font-stretch: 108%; margin: 0; letter-spacing: -0.01em; }
+  header.top p { margin: 0; color: var(--fg-3); font-size: 13px; }
+  .controls { margin-left: auto; display: flex; gap: 8px; }
+  button { font: inherit; font-size: 12.5px; color: var(--fg-2); background: transparent; border: 1px solid var(--rule-2); border-radius: 5px; padding: 3px 10px; cursor: pointer; }
+  button[aria-pressed=true] { color: var(--fg); border-color: var(--fg-3); background: var(--raise); }
+  button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  h2 { font-size: 13px; font-weight: 600; color: var(--fg-3); margin: 32px 0 12px; letter-spacing: 0.01em; }
+  .grid { display: flex; flex-wrap: wrap; gap: 16px; }
+  .grid > .wrap { max-width: 100%; overflow: hidden; }
+  .note { color: var(--fg-3); font-size: 12.5px; max-width: 600px; margin: -4px 2px 14px; }
+  .cap { color: var(--fg-3); font-size: 12.5px; line-height: 1.5; max-width: 600px; margin: 8px 2px 8px; }
+  body.solo .cap { display: none; }
+
+  /* a prototype cell: fixed size so every frame is the same box */
+  .cell { position: relative; overflow: hidden; background: var(--bg); color: var(--fg); border: 1px solid var(--rule); border-radius: 10px; }
+  .cell canvas { position: absolute; display: block; }
+  .cell .hd { position: absolute; left: 20px; top: 16px; right: 20px; display: flex; align-items: baseline; gap: 10px; pointer-events: none; }
+  .cell .hd b { font-weight: 560; font-size: 14px; font-stretch: 104%; }
+  .cell .hd span { color: var(--fg-3); font-size: 12.5px; }
+  .cell .hd i { margin-left: auto; font-style: normal; color: var(--fg-4); font-size: 11px; }
+  .cell .ft { position: absolute; left: 0; right: 0; bottom: 0; height: 56px; border-top: 1px solid var(--rule); }
+  .cell .inl { position: absolute; left: 20px; top: 0; height: 56px; display: flex; align-items: center; gap: 8px; }
+  .cell .inl canvas { position: relative; }
+  .cell .inl .w { color: var(--signal); font-size: 14px; }
+  .cell .inl .d { color: var(--fg-3); font-size: 12.5px; margin-left: 6px; }
+  .cell .sizes { position: absolute; right: 20px; top: 0; height: 56px; display: flex; align-items: center; gap: 18px; }
+  .cell .sizes canvas { position: relative; }
+
+  /* solo mode: one cell, flush at the top left, for capture */
+  body.solo { background: transparent; }
+  body.solo main { padding: 0; max-width: none; }
+  body.solo header.top, body.solo h2, body.solo .note { display: none; }
+  body.solo .grid { display: block; }
+  body.solo .wrap:not(.on) { display: none; }
+  body.solo .cell { border: 0; border-radius: 0; }
+
+  /* in context: chat pieces built to the spec (CHAT-AND-MOTION.md 2.4 to 2.6) */
+  .ctx { font-size: 15px; line-height: 1.65; }
+  .ctx .col { position: absolute; left: 50%; transform: translateX(-50%); }
+  .ctx .bubble { background: var(--raise); border: 1px solid var(--rule); border-radius: 5px; padding: 9px 14px; color: var(--fg); max-width: 85%; margin-left: auto; width: fit-content; }
+  .ctx .live { display: flex; align-items: center; gap: 9px; margin-top: 26px; height: 24px; }
+  .ctx .live canvas { position: relative; }
+  .ctx .live .w { color: var(--signal); font-size: 14px; }
+  .ctx .live .s { color: var(--signal); font-size: 13px; opacity: 0.9; }
+  .ctx .detail { color: var(--fg-3); font-size: 13px; margin: 2px 0 0 25px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ctx .composer { background: var(--sunk); border: 1px solid var(--rule-2); border-radius: 5px; padding: 12px; }
+  .ctx .composer .ph { color: var(--fg-4); font-size: 15px; height: 44px; }
+  .ctx .bar { display: flex; align-items: center; gap: 12px; color: var(--fg-3); font-size: 13px; }
+  .ctx .bar .sep { width: 1px; height: 14px; background: var(--rule); }
+  .ctx .bar .send { margin-left: auto; width: 30px; height: 30px; border-radius: 5px; background: var(--fg); display: grid; place-items: center; opacity: 0.35; }
+  .ctx .bar .send svg { stroke: var(--bg); }
+  .ctx .greet { text-align: center; font-size: 26px; font-weight: 560; font-stretch: 104%; letter-spacing: -0.01em; color: var(--fg); }
+  .ctx .recent { display: flex; gap: 18px; font-size: 12.5px; color: var(--fg-2); margin-top: 12px; padding-left: 2px; white-space: nowrap; }
+  .ctx .recent span:first-child { color: var(--fg-3); }
+  .ctx .topbar { position: absolute; left: 0; right: 0; top: 0; height: 48px; border-bottom: 1px solid var(--rule); display: flex; align-items: center; padding: 0 20px; gap: 22px; font-size: 13px; color: var(--fg-3); }
+  .ctx .topbar b { color: var(--fg); font-weight: 560; font-stretch: 104%; font-size: 14px; }
+  .ctx .topbar .cur { color: var(--fg); }
+  .ctx .rail { position: absolute; left: 0; top: 49px; bottom: 0; width: 200px; border-right: 1px solid var(--rule); padding: 14px 12px; font-size: 12.5px; color: var(--fg-2); }
+  .ctx .rail .g { color: var(--fg-3); font-weight: 600; font-size: 12px; margin: 14px 0 6px; }
+  .ctx .rail .r { padding: 5px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ctx .rail .new { border: 1px solid var(--rule-2); border-radius: 5px; padding: 4px 8px; color: var(--fg); width: fit-content; }
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <h1>Shapes and marks</h1>
+    <p>Round two. Live states built from geometry and strokes. No dots.</p>
+    <div class="controls">
+      <button id="bPause" aria-pressed="false">Pause</button>
+      <button id="bRM" aria-pressed="false">Reduce motion</button>
+    </div>
+  </header>
+  <div id="root"></div>
+</main>
+<script>
+'use strict';
+/* ---------------------------------------------------------------------- */
+/* math                                                                    */
+/* ---------------------------------------------------------------------- */
+const TAU = Math.PI * 2;
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const mod = (x, m) => ((x % m) + m) % m;
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+function bez(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sx = (u) => ((ax * u + bx) * u + cx) * u, sy = (u) => ((ay * u + by) * u + cy) * u;
+  return (x) => {
+    if (x <= 0) return 0; if (x >= 1) return 1;
+    let lo = 0, hi = 1, u = x;
+    for (let i = 0; i < 40; i++) { const v = sx(u); if (Math.abs(v - x) < 1e-6) break; if (v < x) lo = u; else hi = u; u = (lo + hi) / 2; }
+    return sy(u);
+  };
+}
+// curves: --ease, --ease-in, --ease-sine from motion.css; morph is a firmer in-out for shape changes
+const E = {
+  out: bez(0.2, 0.7, 0.2, 1),
+  in: bez(0.4, 0, 1, 1),
+  sine: bez(0.37, 0, 0.63, 1),
+  morph: bez(0.6, 0, 0.25, 1),
+  inout: bez(0.65, 0, 0.35, 1),
+};
+
+/* ---------------------------------------------------------------------- */
+/* palettes                                                                */
+/* ---------------------------------------------------------------------- */
+const hexRGB = (h) => { h = h.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; };
+function pal(o) { const p = { ...o, rgb: {} }; for (const k in o) if (typeof o[k] === 'string' && o[k][0] === '#') p.rgb[k] = hexRGB(o[k]); return p; }
+const PAL = {
+  dark: pal({ dark: true, bg: '#0e0e10', sunk: '#08080b', raise: '#151518', rule: '#242428', rule2: '#36363b', fg: '#ececef', fg2: '#b2b2b8', fg3: '#828289', fg4: '#626269', signal: '#c6a2f7', warn: '#f2be62', fault: '#f1756c', ok: '#71d29d' }),
+  light: pal({ dark: false, bg: '#f9f9fa', sunk: '#f1f1f4', raise: '#ffffff', rule: '#dfdfe3', rule2: '#c3c3c9', fg: '#17171c', fg2: '#48484f', fg3: '#686870', fg4: '#85858c', signal: '#7a4aba', warn: '#a66000', fault: '#cc3430', ok: '#007e46' }),
+};
+const rgbStr = (c, a = 1) => a >= 1 ? `rgb(${c[0] | 0},${c[1] | 0},${c[2] | 0})` : `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+const mixRGB = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const mix = (P, a, b, t) => rgbStr(mixRGB(P.rgb[a] || hexRGB(a), P.rgb[b] || hexRGB(b), t));
+const col = (P, k, a = 1) => rgbStr(P.rgb[k], a);
+
+/* ---------------------------------------------------------------------- */
+/* shape helpers                                                           */
+/* ---------------------------------------------------------------------- */
+function polyVerts(n, r, rot = -Math.PI / 2) { return Array.from({ length: n }, (_, k) => { const a = rot + k * TAU / n; return [r * Math.cos(a), r * Math.sin(a)]; }); }
+function starVerts(n, r1, r2, rot = -Math.PI / 2) { const v = []; for (let k = 0; k < n; k++) { let a = rot + k * TAU / n; v.push([r1 * Math.cos(a), r1 * Math.sin(a)]); a += TAU / (2 * n); v.push([r2 * Math.cos(a), r2 * Math.sin(a)]); } return v; }
+// distance from the origin to a star-shaped polygon along a ray
+function rayPoly(v, ang) {
+  const dx = Math.cos(ang), dy = Math.sin(ang);
+  for (let i = 0; i < v.length; i++) {
+    const a = v[i], b = v[(i + 1) % v.length], ex = b[0] - a[0], ey = b[1] - a[1];
+    const den = dx * ey - dy * ex; if (Math.abs(den) < 1e-12) continue;
+    const r = (a[0] * ey - a[1] * ex) / den, s = (a[0] * dy - a[1] * dx) / den;
+    if (r > 0 && s >= -1e-9 && s <= 1 + 1e-9) return r;
+  }
+  return 0;
+}
+function radial(v, M) { const o = new Float32Array(M); for (let j = 0; j < M; j++) o[j] = rayPoly(v, j * TAU / M); return o; }
+function pathRadial(ctx, r, rot, R, cx = 0, cy = 0) {
+  const M = r.length; ctx.beginPath();
+  for (let j = 0; j < M; j++) { const a = j * TAU / M + rot; const x = cx + r[j] * R * Math.cos(a), y = cy + r[j] * R * Math.sin(a); j ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+  ctx.closePath();
+}
+// 3x3 rotations; x right, y down, z toward the viewer
+const rotX = (a) => { const c = Math.cos(a), s = Math.sin(a); return [1, 0, 0, 0, c, -s, 0, s, c]; };
+const rotY = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c, 0, s, 0, 1, 0, -s, 0, c]; };
+const rotZ = (a) => { const c = Math.cos(a), s = Math.sin(a); return [c, -s, 0, s, c, 0, 0, 0, 1]; };
+const mmul = (A, B) => { const o = new Array(9); for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) o[i * 3 + j] = A[i * 3] * B[j] + A[i * 3 + 1] * B[3 + j] + A[i * 3 + 2] * B[6 + j]; return o; };
+const mapp = (M, v) => [M[0] * v[0] + M[1] * v[1] + M[2] * v[2], M[3] * v[0] + M[4] * v[1] + M[5] * v[2], M[6] * v[0] + M[7] * v[1] + M[8] * v[2]];
+const lw = (s, k = 0.016, min = 1.3, max = 3) => clamp(1 + s * k, min, max);
+
+/* ---------------------------------------------------------------------- */
+/* 1. Septa: a seven-sided mark that turns into a star, a circle, and back */
+/* ---------------------------------------------------------------------- */
+// every shape is 14 half-edges of Q points, so polygon and star stay straight-edged mid-morph
+const SEPTA = (() => {
+  const Q = 18, M = 14 * Q, ang = (k) => -Math.PI / 2 + (k * TAU) / 14, pol = (r, a) => [r * Math.cos(a), r * Math.sin(a)];
+  const build = (vert) => { const o = new Float32Array(2 * M); for (let k = 0; k < 14; k++) { const A = vert(k), B = vert(k + 1); for (let q = 0; q < Q; q++) { const f = q / Q, i = 2 * (k * Q + q); o[i] = lerp(A[0], B[0], f); o[i + 1] = lerp(A[1], B[1], f); } } return o; };
+  const hv = (k) => (k % 2 === 0 ? pol(1, ang(k)) : (() => { const a = pol(1, ang(k - 1)), b = pol(1, ang(k + 1)); return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; })());
+  const H = build(hv), S = build((k) => (k % 2 === 0 ? pol(1, ang(k)) : pol(0.5, ang(k))));
+  const C = new Float32Array(2 * M); for (let k = 0; k < 14; k++) for (let q = 0; q < Q; q++) { const p = pol(0.84, ang(k + q / Q)), i = 2 * (k * Q + q); C[i] = p[0]; C[i + 1] = p[1]; }
+  return { M, H, S, C };
+})();
+const SEPTA_L = 3000;
+const mixXY = (a, b, k) => { const o = new Float32Array(a.length); for (let i = 0; i < a.length; i++) o[i] = a[i] + (b[i] - a[i]) * k; return o; };
+function septaPose(t) {
+  t = mod(t, SEPTA_L);
+  const tabs = [SEPTA.H, SEPTA.S, SEPTA.C, SEPTA.H];
+  const rots = [0, TAU / 14, TAU / 14 + TAU / 28, TAU / 7];
+  const i = Math.min(2, Math.floor(t / 1000)), u = t - i * 1000;
+  const k = u < 300 ? 0 : E.morph((u - 300) / 700);
+  return { xy: mixXY(tabs[i], tabs[i + 1], k), rot: lerp(rots[i], rots[i + 1], k) };
+}
+function pathXY(ctx, xy, rot, R, cx = 0, cy = 0) {
+  const c = Math.cos(rot), s = Math.sin(rot); ctx.beginPath();
+  for (let i = 0; i < xy.length; i += 2) { const x = cx + (xy[i] * c - xy[i + 1] * s) * R, y = cy + (xy[i] * s + xy[i + 1] * c) * R; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+  ctx.closePath();
+}
+function drawSeptaShape(ctx, pose, R, s, stroke, fillA, w, cx = 0, cy = 0) {
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  pathXY(ctx, pose.xy, pose.rot, R, cx, cy);
+  if (fillA > 0) { ctx.fillStyle = rgbStr(stroke, fillA); ctx.fill(); }
+  ctx.strokeStyle = rgbStr(stroke); ctx.lineWidth = w ?? lw(s, 0.012, 1.35, 2.6); ctx.stroke();
+}
+function drawSepta(ctx, t, s, P) {
+  drawSeptaShape(ctx, septaPose(t), s * 0.4, s, P.rgb.signal, P.dark ? 0.1 : 0.08);
+}
+
+/* ---------------------------------------------------------------------- */
+/* 2. Knot: one line writes a trefoil, holds, and lets go                   */
+/* ---------------------------------------------------------------------- */
+const KNOT = (() => {
+  const n = 3000, raw = [];
+  for (let i = 0; i <= n; i++) { const u = (i / n) * TAU; raw.push([Math.sin(u) + 2 * Math.sin(2 * u), Math.cos(u) - 2 * Math.cos(2 * u), -Math.sin(3 * u)]); }
+  const cum = [0]; for (let i = 1; i <= n; i++) cum.push(cum[i - 1] + Math.hypot(raw[i][0] - raw[i - 1][0], raw[i][1] - raw[i - 1][1], 0.35 * (raw[i][2] - raw[i - 1][2])));
+  const total = cum[n], K = 720, pts = []; let j = 0;
+  for (let k = 0; k < K; k++) { const tg = (k / K) * total; while (cum[j + 1] < tg) j++; const f = (tg - cum[j]) / (cum[j + 1] - cum[j]); const a = raw[j], b = raw[j + 1]; pts.push([lerp(a[0], b[0], f) / 3, lerp(a[1], b[1], f) / 3, lerp(a[2], b[2], f)]); }
+  return { pts, K };
+})();
+const KNOT_L = 3000;
+function knotAt(f) { const K = KNOT.K, x = mod(f, 1) * K, i = Math.floor(x), u = x - i, a = KNOT.pts[i % K], b = KNOT.pts[(i + 1) % K]; return [lerp(a[0], b[0], u), lerp(a[1], b[1], u), lerp(a[2], b[2], u)]; }
+function knotSpan(t) {
+  t = mod(t, KNOT_L);
+  const d = E.morph(seg(t, 0, 1300)), e = E.morph(seg(t, 1500, 2850));
+  const OFF = 0.5; // start on a lobe
+  return { head: OFF + 0.1 + 0.9 * d + 0.1 * e, tail: OFF + 0.1 * d + 0.9 * e };
+}
+function drawStrand(ctx, segs, w, P, haloK = 2.9) {
+  segs.sort((a, b) => a.z - b.z);
+  const bg = P.bg;
+  for (const g of segs) {
+    ctx.lineCap = 'butt'; ctx.strokeStyle = bg; ctx.lineWidth = w * haloK;
+    ctx.beginPath(); ctx.moveTo(g.a[0], g.a[1]); ctx.lineTo(g.b[0], g.b[1]); ctx.stroke();
+    ctx.lineCap = 'round'; ctx.strokeStyle = g.c; ctx.lineWidth = g.w;
+    ctx.beginPath(); ctx.moveTo(g.a[0], g.a[1]); ctx.lineTo(g.b[0], g.b[1]); ctx.stroke();
+  }
+}
+function drawKnot(ctx, t, s, P) {
+  const R = s * 0.42, w = lw(s, 0.014, 1.4, 3);
+  const { head, tail } = knotSpan(t);
+  const K = KNOT.K, segs = [];
+  const len = head - tail;
+  // the whole knot as a hairline guide, so the mark is always there and the pen inks it
+  ctx.beginPath(); for (let i = 0; i <= K; i++) { const p = KNOT.pts[i % K]; i ? ctx.lineTo(p[0] * R, p[1] * R) : ctx.moveTo(p[0] * R, p[1] * R); }
+  ctx.strokeStyle = col(P, 'rule2', s < 40 ? 0.9 : 1); ctx.lineWidth = s < 40 ? 0.8 : 1; ctx.lineJoin = 'round'; ctx.stroke();
+  let f0 = tail;
+  while (f0 < head - 1e-9) {
+    const f1 = Math.min(head, (Math.floor(f0 * K + 1e-9) + 1) / K);
+    const a = knotAt(f0), b = knotAt(f1), z = (a[2] + b[2]) / 2;
+    const fromTail = (f0 - tail), toHead = head - f1;
+    const taper = (0.2 + 0.8 * smooth(0, Math.min(0.14, len * 0.5), fromTail)) * (0.75 + 0.25 * smooth(0, 0.02, toHead));
+    const depth = (z + 1) / 2;
+    segs.push({ a: [a[0] * R, a[1] * R], b: [b[0] * R, b[1] * R], z, w: w * taper, c: rgbStr(mixRGB(P.rgb.bg, P.rgb.signal, 0.42 + 0.58 * depth)) });
+    f0 = f1;
+  }
+  drawStrand(ctx, segs, w, P, s < 40 ? 2.2 : 2.9);
+}
+
+/* ---------------------------------------------------------------------- */
+/* 3. Spoke: an asterisk of seven arms that grow in turn, then turn and rest */
+/* ---------------------------------------------------------------------- */
+const SPOKE_L = 2500;
+const SPOKE_LEN = [1, 0.74, 0.9, 0.68, 0.95, 0.72, 0.86];
+function spokePose(t, s = 200) {
+  t = mod(t, SPOKE_L);
+  // at rest the arms pull in to a small asterisk; at 16 to 24 px it stays big enough to read as one
+  const seed = s < 40 ? 0.62 : 0.36, arms = [];
+  const back = E.inout(seg(t, 1450, 2050));
+  for (let i = 0; i < 7; i++) {
+    const g = E.out(seg(t, 90 * i, 90 * i + 460));
+    arms.push(lerp(lerp(seed, SPOKE_LEN[i], g), seed, back));
+  }
+  return { arms, rot: (TAU / 7) * back };
+}
+function drawSpoke(ctx, t, s, P, pose) {
+  pose = pose || spokePose(t, s);
+  const R = s * 0.44, w = clamp(s * 0.055, 2, 11), wb = w * 0.42, wt = Math.max(0.75, w * 0.3);
+  ctx.fillStyle = P.signal;
+  for (let i = 0; i < 7; i++) {
+    const a = -Math.PI / 2 + (i * TAU) / 7 + pose.rot, r = (R - wt) * pose.arms[i];
+    ctx.save(); ctx.rotate(a); ctx.beginPath();
+    ctx.moveTo(0, -wb); ctx.lineTo(r, -wt); ctx.arc(r, 0, wt, -Math.PI / 2, Math.PI / 2); ctx.lineTo(0, wb); ctx.arc(0, 0, wb, Math.PI / 2, Math.PI * 1.5);
+    ctx.fill(); ctx.restore();
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* 4. Gimbal: three nested rings that open out of a still target and close  */
+/* ---------------------------------------------------------------------- */
+const GIMBAL_L = 3500;
+function drawGimbal(ctx, t, s, P) {
+  t = mod(t, GIMBAL_L);
+  const p = E.inout(seg(t, 0, 3000));
+  const R = s * 0.44, w = lw(s, 0.011, 1.25, 2.4);
+  const cam = rotX(-0.42);
+  const a = Math.PI * p, b = 2 * Math.PI * p, c = 3 * Math.PI * p;
+  const M0 = rotY(a), M1 = mmul(M0, rotX(b)), M2 = mmul(M1, rotY(c));
+  const rings = [{ M: M0, r: 1, k: 'fg3' }, { M: M1, r: 0.79, k: 'fg2' }, { M: M2, r: 0.58, k: 'signal' }];
+  const segs = [], N = s < 40 ? 48 : 120, D = 4.2;
+  for (const g of rings) {
+    const M = mmul(cam, g.M), pts = [];
+    for (let i = 0; i <= N; i++) { const u = (i / N) * TAU; const q = mapp(M, [g.r * Math.cos(u), g.r * Math.sin(u), 0]); const f = D / (D - q[2]); pts.push([q[0] * f * R, q[1] * f * R, q[2]]); }
+    for (let i = 0; i < N; i++) {
+      const z = (pts[i][2] + pts[i + 1][2]) / 2, depth = (z + 1) / 2;
+      segs.push({ a: pts[i], b: pts[i + 1], z, w: w * (0.85 + 0.3 * depth), c: rgbStr(mixRGB(P.rgb.bg, P.rgb[g.k], 0.3 + 0.7 * depth)) });
+    }
+  }
+  drawStrand(ctx, segs, w, P, s < 40 ? 1.8 : 3.2);
+}
+
+/* ---------------------------------------------------------------------- */
+/* 5. Fold: a square sheet folds in half, in half again, then opens         */
+/* ---------------------------------------------------------------------- */
+const FOLD_L = 4000;
+function foldState(t) {
+  t = mod(t, FOLD_L);
+  const k1 = E.inout(seg(t, 250, 900)) - E.inout(seg(t, 2800, 3450));
+  const k2 = E.inout(seg(t, 1100, 1750)) - E.inout(seg(t, 2150, 2800));
+  return { k1, k2 };
+}
+function drawFold(ctx, t, s, P, st) {
+  const { k1, k2 } = st || foldState(t);
+  const th = Math.PI * k1, ph = Math.PI * k2;
+  const U = s * 0.44, D = 4.5;
+  const O = [0, 0, 0], T = [0, -1, 0], Rr = [1, 0, 0], B = [0, 1, 0], Lf = [-1, 0, 0];
+  // fold 1 lifts the top half toward the viewer about the horizontal diagonal; fold 2 lifts the right half about the vertical one
+  const f1 = (p) => [p[0], p[1] * Math.cos(th), -p[1] * Math.sin(th)];
+  const f2 = (p) => [p[0] * Math.cos(ph) - p[2] * Math.sin(ph), p[1], p[0] * Math.sin(ph) + p[2] * Math.cos(ph)];
+  const scale = 1 + 0.14 * k1 + 0.2 * k2;
+  const off = [k2 / 3, -k1 / 3];
+  const proj = (p) => { const f = D / (D - p[2]); return [((p[0] + off[0]) * f) * U * scale, ((p[1] + off[1]) * f) * U * scale]; };
+  const tri = (pts) => pts;
+  const TA = tri([O, T, Rr].map((p) => f2(f1(p))));
+  const TB = tri([O, Rr, B].map((p) => f2(p)));
+  const TC = tri([O, B, Lf]);
+  const TD = tri([O, Lf, T].map((p) => f1(p)));
+  const order = k2 < 0.5 ? [TC, TD, TB, TA] : [TC, TD, TA, TB];
+  const Lv = (() => { const v = [-0.6, -0.7, 0.42]; const m = Math.hypot(...v); return v.map((x) => x / m); })();
+  const front = P.dark ? mixRGB(P.rgb.bg, P.rgb.fg, 0.11) : [255, 255, 255];
+  const back = P.dark ? mixRGB(P.rgb.bg, P.rgb.signal, 0.55) : mixRGB([255, 255, 255], P.rgb.signal, 0.36);
+  const sideOf = (pts) => { const a = pts[0], b = pts[1], c = pts[2]; const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]; return [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]; };
+  // reference normal of each triangle in the flat sheet, so we know which side faces us
+  const ref = new Map([[TA, sideOf([O, T, Rr])], [TB, sideOf([O, Rr, B])], [TC, sideOf([O, B, Lf])], [TD, sideOf([O, Lf, T])]]);
+  ctx.lineJoin = 'round';
+  const edgeW = s < 40 ? 0.8 : 1;
+  for (const tr of order) {
+    const n = sideOf(tr), r0 = ref.get(tr);
+    const m = Math.hypot(...n) || 1, nn = n.map((x) => x / m);
+    // flat sheet normals point along -z or +z depending on winding; compare with the flat one
+    const flatZ = Math.sign(r0[2]) || 1;
+    const facingFront = nn[2] * flatZ >= 0;
+    const toward = nn[2] >= 0 ? nn : nn.map((x) => -x);
+    const lam = clamp(toward[0] * Lv[0] + toward[1] * Lv[1] + toward[2] * Lv[2], 0, 1);
+    const lit = P.dark ? 0.7 + 0.45 * lam : 0.88 + 0.14 * lam;
+    const base = facingFront ? front : back;
+    const c = base.map((x) => clamp(x * lit, 0, 255));
+    const q = tr.map(proj);
+    ctx.beginPath(); ctx.moveTo(q[0][0], q[0][1]); ctx.lineTo(q[1][0], q[1][1]); ctx.lineTo(q[2][0], q[2][1]); ctx.closePath();
+    ctx.fillStyle = rgbStr(c); ctx.fill();
+    ctx.strokeStyle = facingFront ? col(P, P.dark ? 'fg3' : 'rule2', P.dark ? 0.55 : 1) : col(P, 'signal', 0.9); ctx.lineWidth = edgeW; ctx.stroke();
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* 6. Harmonic: a pen traces a 3:2 Lissajous whose phase drifts             */
+/* ---------------------------------------------------------------------- */
+const HARM_L = 4000;
+function harmAt(tau) { const u = (TAU * 2 * tau) / HARM_L, d = (TAU * tau) / HARM_L + 0.6; return [Math.sin(3 * u + d), Math.sin(2 * u)]; }
+function drawHarmonic(ctx, t, s, P) {
+  const R = s * 0.42, w = lw(s, 0.013, 1.35, 2.8);
+  if (s >= 40) {
+    // the whole figure at the current phase, as a hairline guide
+    const u0 = (TAU * t) / HARM_L + 0.6; ctx.beginPath();
+    for (let i = 0; i <= 360; i++) { const u = (i / 360) * TAU; const x = Math.sin(3 * u + u0) * R, y = Math.sin(2 * u) * R; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.strokeStyle = col(P, 'rule2', 0.9); ctx.lineWidth = 1; ctx.stroke();
+  }
+  const trail = 1500, n = s < 40 ? 60 : 180;
+  ctx.lineCap = 'round';
+  let prev = harmAt(t - trail);
+  for (let i = 1; i <= n; i++) {
+    const tau = t - trail + (trail * i) / n, p = harmAt(tau), age = 1 - i / n;
+    const k = Math.pow(1 - age, 1.6);
+    ctx.strokeStyle = rgbStr(mixRGB(P.rgb.bg, P.rgb.signal, k));
+    ctx.lineWidth = w * (0.35 + 0.65 * (1 - age));
+    ctx.beginPath(); ctx.moveTo(prev[0] * R, prev[1] * R); ctx.lineTo(p[0] * R, p[1] * R); ctx.stroke();
+    prev = p;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* 7. Tumble: a cube turns a quarter turn per beat, X then Y, and rests     */
+/* ---------------------------------------------------------------------- */
+const TUMBLE_L = 3000, TUMBLE_BEAT = 500;
+const CUBE_V = [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1], [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]];
+const CUBE_F = [[0, 1, 2, 3], [4, 7, 6, 5], [0, 4, 5, 1], [3, 2, 6, 7], [0, 3, 7, 4], [1, 5, 6, 2]];
+const CUBE_LIT = 1; // the face that carries the violet
+function tumbleOrient(t) {
+  t = mod(t, TUMBLE_L);
+  const k = Math.floor(t / TUMBLE_BEAT), u = E.inout(seg(t - k * TUMBLE_BEAT, 0, 300));
+  let O = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  for (let i = 0; i < k; i++) O = mmul(i % 2 ? rotY(Math.PI / 2) : rotX(Math.PI / 2), O);
+  return mmul(k % 2 ? rotY((Math.PI / 2) * u) : rotX((Math.PI / 2) * u), O);
+}
+function drawTumble(ctx, t, s, P) {
+  const R = s * 0.25, D = 6, w = lw(s, 0.011, 1.2, 2.4);
+  const view = mmul(rotX(-0.52), rotY(0.66));
+  const M = mmul(view, tumbleOrient(t));
+  const V = CUBE_V.map((v) => { const q = mapp(M, v); const f = D / (D - q[2]); return [q[0] * f * R, q[1] * f * R, q[2]]; });
+  const faces = CUBE_F.map((f, i) => {
+    const a = V[f[0]], b = V[f[1]], c = V[f[2]];
+    const nz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    return { f, i, z: f.reduce((m, j) => m + V[j][2], 0) / 4, front: nz < 0 };
+  }).sort((x, y) => x.z - y.z);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  // hidden edges first, as hairlines
+  for (const F of faces) if (!F.front) {
+    ctx.beginPath(); F.f.forEach((j, n) => (n ? ctx.lineTo(V[j][0], V[j][1]) : ctx.moveTo(V[j][0], V[j][1]))); ctx.closePath();
+    ctx.strokeStyle = col(P, F.i === CUBE_LIT ? 'signal' : 'fg3', F.i === CUBE_LIT ? 0.45 : 0.4); ctx.lineWidth = s < 40 ? 0.7 : 1; ctx.stroke();
+  }
+  for (const F of faces) if (F.front) {
+    ctx.beginPath(); F.f.forEach((j, n) => (n ? ctx.lineTo(V[j][0], V[j][1]) : ctx.moveTo(V[j][0], V[j][1]))); ctx.closePath();
+    ctx.fillStyle = F.i === CUBE_LIT ? rgbStr(mixRGB(P.rgb.bg, P.rgb.signal, P.dark ? 0.3 : 0.22)) : rgbStr(mixRGB(P.rgb.bg, P.rgb.fg, P.dark ? 0.04 : 0.03));
+    ctx.fill();
+  }
+  for (const F of faces) if (F.front) {
+    ctx.beginPath(); F.f.forEach((j, n) => (n ? ctx.lineTo(V[j][0], V[j][1]) : ctx.moveTo(V[j][0], V[j][1]))); ctx.closePath();
+    ctx.strokeStyle = F.i === CUBE_LIT ? P.signal : P.fg2; ctx.lineWidth = w; ctx.stroke();
+  }
+  // the violet face's outline on top so its edges win where faces meet
+  const L = faces.find((F) => F.i === CUBE_LIT && F.front);
+  if (L) { ctx.beginPath(); L.f.forEach((j, n) => (n ? ctx.lineTo(V[j][0], V[j][1]) : ctx.moveTo(V[j][0], V[j][1]))); ctx.closePath(); ctx.strokeStyle = P.signal; ctx.lineWidth = w; ctx.stroke(); }
+}
+
+/* ---------------------------------------------------------------------- */
+/* registry                                                                */
+/* ---------------------------------------------------------------------- */
+const THINK = [
+  { id: 'septa', name: 'Septa', loop: SEPTA_L, still: 0, draw: drawSepta, moves: 'A seven-sided outline turns into a star, a circle, and back, with a thin trace 110ms behind.' },
+  { id: 'knot', name: 'Knot', loop: KNOT_L, still: 1400, draw: drawKnot, moves: 'One stroke writes a trefoil with real over and under crossings, holds, then lets go from the tail.' },
+  { id: 'spoke', name: 'Spoke', loop: SPOKE_L, still: 1000, draw: drawSpoke, moves: 'Seven arms grow one after another, hold, then pull in to stubs while the mark turns one seventh.' },
+  { id: 'gimbal', name: 'Gimbal', loop: GIMBAL_L, still: 1500, draw: drawGimbal, moves: 'Three nested rings open out of a still target, turn on their own axes, and close again.' },
+  { id: 'fold', name: 'Fold', loop: FOLD_L, still: 0, draw: drawFold, moves: 'A sheet folds in half toward you, in half again, then opens. The underside is violet.' },
+  { id: 'harmonic', name: 'Harmonic', loop: HARM_L, still: 900, draw: drawHarmonic, moves: 'A pen traces a 3 to 2 Lissajous figure; its phase drifts so the figure slowly turns.' },
+  { id: 'tumble', name: 'Tumble', loop: TUMBLE_L, still: 0, draw: drawTumble, moves: 'A cube turns a quarter turn on each beat, X then Y, and rests. One face is violet, so you see it travel.' },
+];
+const SCENES = []; // { id, theme, w, h, loop, el, render(t), still }
+const params = new URLSearchParams(location.search);
+const SOLO = params.get('solo');
+const DPR = Math.max(1, window.devicePixelRatio || 1);
+
+function mkCanvas(w, h, style = {}) {
+  const c = document.createElement('canvas');
+  c.width = Math.round(w * DPR); c.height = Math.round(h * DPR);
+  c.style.width = w + 'px'; c.style.height = h + 'px';
+  Object.assign(c.style, style);
+  return c;
+}
+function markPainter(canvas, s, draw, P) {
+  const ctx = canvas.getContext('2d');
+  return (t, extra) => {
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(DPR, 0, 0, DPR, (s * DPR) / 2, (s * DPR) / 2);
+    draw(ctx, t, s, P, extra);
+  };
+}
+function fullPainter(canvas, w, h, draw, P) {
+  const ctx = canvas.getContext('2d');
+  return (t) => {
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    draw(ctx, t, w, h, P);
+  };
+}
+function section(title, note) {
+  const h = document.createElement('h2'); h.textContent = title; root.appendChild(h);
+  if (note) { const p = document.createElement('p'); p.className = 'note'; p.textContent = note; root.appendChild(p); }
+  const g = document.createElement('div'); g.className = 'grid'; root.appendChild(g); return g;
+}
+function addCell(grid, id, theme, w, h) {
+  const wrap = document.createElement('div'); wrap.className = 'wrap'; wrap.dataset.id = id;
+  if (SOLO === id) wrap.classList.add('on');
+  const cell = document.createElement('div'); cell.className = 'cell th-' + theme; cell.style.width = w + 'px'; cell.style.height = h + 'px';
+  wrap.appendChild(cell); grid.appendChild(wrap); return cell;
+}
+const root = document.getElementById('root');
+
+// thinking cells, dark and light
+function thinkCell(grid, m, theme) {
+  const W = 600, H = 360, P = PAL[theme], id = `${m.id}-${theme}`;
+  const cell = addCell(grid, id, theme, W, H);
+  cell.innerHTML = `<div class="hd"><b>${m.name}</b><span>Thinking</span><i class="mono">${(m.loop / 1000).toFixed(1)}s loop</i></div><div class="ft"><div class="inl"></div><div class="sizes"></div></div>`;
+  const big = 200, cb = mkCanvas(big, big, { left: (W - big) / 2 + 'px', top: '62px' });
+  cell.appendChild(cb);
+  const c16 = mkCanvas(16, 16), c24 = mkCanvas(24, 24), c40 = mkCanvas(40, 40);
+  const inl = cell.querySelector('.inl'); inl.appendChild(c16);
+  inl.insertAdjacentHTML('beforeend', '<span class="w">Thinking</span><span class="d">Reading the Caddy docs on tailnet certs</span>');
+  const sz = cell.querySelector('.sizes'); sz.appendChild(c24); sz.appendChild(c40);
+  const ps = [markPainter(cb, big, m.draw, P), markPainter(c16, 16, m.draw, P), markPainter(c24, 24, m.draw, P), markPainter(c40, 40, m.draw, P)];
+  cell.parentElement.insertAdjacentHTML('beforeend', `<p class="cap">${m.moves}</p>`);
+  SCENES.push({ id, w: W, h: H, loop: m.loop, still: m.still, el: cell, render: (t) => ps.forEach((p) => p(t)) });
+}
+const gThink = section('Thinking', 'Each mark runs at 200, 40, 24 and 16 px. The 16 px one sits in the reply line, as it would in chat.');
+for (const m of THINK) thinkCell(gThink, m, 'dark');
+const gThinkL = section('Thinking, light theme');
+for (const m of THINK) thinkCell(gThinkL, m, 'light');
+</script>
+<script>
+'use strict';
+/* ---------------------------------------------------------------------- */
+/* live states: full-cell canvases                                         */
+/* ---------------------------------------------------------------------- */
+const SANS = '"Mona Sans Variable", ui-sans-serif, system-ui, sans-serif';
+const MONO = '"JetBrains Mono Variable", ui-monospace, monospace';
+function txt(ctx, s, x, y, o = {}) {
+  ctx.save();
+  ctx.font = o.font || `450 14px ${SANS}`;
+  ctx.textAlign = o.align || 'left'; ctx.textBaseline = o.base || 'middle';
+  ctx.globalAlpha = (o.alpha ?? 1) * ctx.globalAlpha; ctx.fillStyle = o.color || '#fff';
+  ctx.fillText(s, x, y);
+  const w = ctx.measureText(s).width; ctx.restore(); return w;
+}
+function tw(ctx, s, font) { ctx.save(); ctx.font = font; const w = ctx.measureText(s).width; ctx.restore(); return w; }
+// a word plus a detail, drawn in one line
+function statusLine(ctx, P, it, x, y, alpha = 1, dy = 0, align = 'left') {
+  const wf = `450 14px ${SANS}`, df = it.mono ? `400 12.5px ${MONO}` : `450 13px ${SANS}`;
+  const w1 = tw(ctx, it.text, wf), w2 = it.detail ? tw(ctx, it.detail, df) + 10 : 0;
+  const x0 = align === 'center' ? x - (w1 + w2) / 2 : x;
+  txt(ctx, it.text, x0, y + dy, { font: wf, color: P[it.color || 'signal'], alpha });
+  if (it.detail) txt(ctx, it.detail, x0 + w1 + 10, y + dy + (it.mono ? 0.5 : 0), { font: df, color: P[it.dcolor || 'fg3'], alpha });
+}
+// words swap in a fixed place: the old fades out in 100ms, then the new fades in over 140ms with a 3px rise
+function swapLine(ctx, P, keys, t, L, x, y, align) {
+  let i = keys.length - 1; for (let j = 0; j < keys.length; j++) if (keys[j][0] <= t) i = j;
+  const prev = keys[(i - 1 + keys.length) % keys.length][1], cur = keys[i][1];
+  const k = mod(t - keys[i][0], L);
+  if (k < 240) {
+    const a = 1 - seg(k, 0, 100), b = E.out(seg(k, 100, 240));
+    // same word, new detail (a count or a countdown): nothing moves, the changed letters crossfade in place
+    const same = prev.text === cur.text && prev.color === cur.color;
+    if (a > 0) statusLine(ctx, P, prev, x, y, a, same ? 0 : -3 * seg(k, 0, 100), align);
+    statusLine(ctx, P, cur, x, y, same ? Math.max(b, 1 - a) : b, same ? 0 : 3 * (1 - b), align);
+  } else statusLine(ctx, P, cur, x, y, 1, 0, align);
+}
+function footer(ctx, P, w, h) { ctx.fillStyle = P.rule; ctx.fillRect(0, h - 56, w, 1); }
+function inMark(ctx, x, y, s, fn) { ctx.save(); ctx.translate(x, y); fn(s); ctx.restore(); }
+
+/* ---- Septa turn: one mark through a whole reply ------------------------ */
+const TURN_L = 10000;
+const HEPT = () => ({ xy: SEPTA.H, rot: 0 });
+function poseCoast(a, b, k) { return { xy: mixXY(a.xy, b.xy, k), rot: lerp(a.rot, b.rot, k) }; }
+function septaTurnState(t, P) {
+  const sig = P.rgb.signal, warn = P.rgb.warn, fg3 = P.rgb.fg3;
+  let pose, c = sig, fill = P.dark ? 0.1 : 0.08, perim = 0;
+  if (t < 3000) pose = septaPose(t);
+  else if (t < 5000) { pose = HEPT(); perim = Math.min(seg(t, 3000, 3150), 1 - seg(t, 4850, 5000)); }
+  else if (t < 5650) pose = septaPose(t - 5000);
+  else if (t < 7250) { pose = septaPose(650); c = mixRGB(sig, warn, E.out(seg(t, 5650, 5890))); }
+  else if (t < 8350) { pose = septaPose(650 + t - 7250); c = mixRGB(warn, sig, E.out(seg(t, 7250, 7370))); }
+  else if (t < 9600) {
+    const k = E.out(seg(t, 8350, 8710)), from = septaPose(1750);
+    pose = poseCoast(from, { xy: SEPTA.H, rot: TAU / 7 }, k);
+    c = mixRGB(sig, fg3, k); fill = lerp(fill, 0, k);
+  } else { const k = E.out(seg(t, 9600, 9900)); pose = HEPT(); c = mixRGB(fg3, sig, k); fill = lerp(0, fill, k); }
+  return { pose, c, fill, perim };
+}
+// light that runs around the outline at a fixed pace while a tool works
+function perimeterLight(ctx, pose, R, pos, len, color, w, alpha) {
+  const xy = pose.xy, n = xy.length / 2, cr = Math.cos(pose.rot), sr = Math.sin(pose.rot);
+  const pt = (i) => { i = mod(i, n); const x = xy[2 * i], y = xy[2 * i + 1]; return [(x * cr - y * sr) * R, (x * sr + y * cr) * R]; };
+  const head = Math.floor(pos * n), span = Math.floor(len * n);
+  ctx.lineCap = 'round';
+  for (let j = 0; j < span; j++) {
+    const a = pt(head - j), b = pt(head - j - 1), f = 1 - j / span;
+    ctx.strokeStyle = rgbStr(color, alpha * smooth(0, 0.55, f)); ctx.lineWidth = w * (0.8 + 0.4 * f);
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+  }
+}
+function drawTurnMark(ctx, t, s, P, st) {
+  const R = s * 0.4;
+  if (st.perim > 0) {
+    drawSeptaShape(ctx, st.pose, R, s, mixRGB(P.rgb.bg, st.c, lerp(1, 0.3, st.perim)), st.fill, undefined);
+    const pos = mod((t - 3000) / 1000, 1);
+    perimeterLight(ctx, st.pose, R, pos, 0.36, mixRGB(P.rgb.signal, P.rgb.fg, P.dark ? 0.3 : 0.1), lw(s, 0.012, 1.35, 2.6) * 1.1, st.perim);
+  } else drawSeptaShape(ctx, st.pose, R, s, st.c, st.fill);
+}
+const TURN_WORDS = [
+  [0, { text: 'Thinking' }],
+  [3000, { text: 'Searching the web', detail: 'caddy tailscale certs', mono: true }],
+  [5000, { text: 'Thinking' }],
+  [5650, { text: 'Waiting on you', color: 'warn', detail: 'Allow reading caddyserver.com?' }],
+  [7250, { text: 'Thinking' }],
+  [8350, { text: 'Thought for 9s', color: 'fg3' }],
+  [9600, { text: 'Thinking' }],
+];
+function drawSeptaTurn(ctx, t, w, h, P) {
+  const st = septaTurnState(t, P);
+  inMark(ctx, w / 2, 146, 120, (s) => drawTurnMark(ctx, t, s, P, st));
+  swapLine(ctx, P, TURN_WORDS, t, TURN_L, w / 2, 238, 'center');
+  footer(ctx, P, w, h);
+  inMark(ctx, 28, h - 28, 16, (s) => drawTurnMark(ctx, t, s, P, st));
+  swapLine(ctx, P, TURN_WORDS, t, TURN_L, 44, h - 28);
+}
+
+/* ---- Septa fault: thinking, then failed, then retry -------------------- */
+const FAULT_L = 5000;
+function septaFaultState(t, P) {
+  const sig = P.rgb.signal, bad = P.rgb.fault, f0 = P.dark ? 0.1 : 0.08;
+  if (t < 2400) return { pose: septaPose(t), c: sig, flat: 0, fill: f0 };
+  if (t < 4200) { const k = E.out(seg(t, 2400, 2700)); return { pose: septaPose(2400), c: mixRGB(sig, bad, k), flat: k, fill: lerp(f0, 0, k) }; }
+  const k = E.out(seg(t, 4200, 4560));
+  return { pose: { xy: SEPTA.H, rot: 0 }, from: septaPose(2400), c: mixRGB(bad, sig, k), flat: 1 - k, fill: lerp(0, f0, k), lift: true };
+}
+function flatPose(pose, k) {
+  // rotate the points, then press them onto the midline
+  const xy = pose.xy, o = new Float32Array(xy.length), c = Math.cos(pose.rot), s = Math.sin(pose.rot);
+  for (let i = 0; i < xy.length; i += 2) { const x = xy[i] * c - xy[i + 1] * s, y = xy[i] * s + xy[i + 1] * c; o[i] = x * (1 + 0.18 * k); o[i + 1] = y * (1 - k); }
+  return { xy: o, rot: 0 };
+}
+function drawFaultMark(ctx, s, P, st) {
+  const R = s * 0.4;
+  const pose = st.lift ? poseCoast(flatPose(st.from, 1), flatPose(st.pose, 0), 1 - st.flat) : flatPose(st.pose, st.flat);
+  drawSeptaShape(ctx, pose, R, s, st.c, st.fill);
+}
+const FAULT_WORDS = [
+  [0, { text: 'Thinking' }],
+  [2400, { text: 'Failed', color: 'fault', detail: 'The provider is overloaded.', dcolor: 'fg2' }],
+  [4200, { text: 'Thinking' }],
+];
+function drawSeptaFault(ctx, t, w, h, P) {
+  const st = septaFaultState(t, P);
+  inMark(ctx, w / 2, 146, 120, (s) => drawFaultMark(ctx, s, P, st));
+  swapLine(ctx, P, FAULT_WORDS, t, FAULT_L, w / 2, 238, 'center');
+  // one action under a failure
+  const ra = seg(t, 2500, 2700) * (1 - seg(t, 4100, 4200));
+  if (ra > 0) { const x = w / 2, y = 266; txt(ctx, 'Retry', x, y, { font: `500 13px ${SANS}`, color: P.fg, align: 'center', alpha: ra }); ctx.fillStyle = col(P, 'fg3', ra); ctx.fillRect(x - 15, y + 9, 30, 1); }
+  footer(ctx, P, w, h);
+  inMark(ctx, 28, h - 28, 16, (s) => drawFaultMark(ctx, s, P, st));
+  swapLine(ctx, P, FAULT_WORDS, t, FAULT_L, 44, h - 28);
+}
+
+/* ---- Lens: searching the web ------------------------------------------- */
+const LENS_L = 4000;
+const LENS_ROWS = [
+  { y: 78, t: 196, h: 92, s: 268 },
+  { y: 130, t: 232, h: 70, s: 250 },
+  { y: 182, t: 168, h: 104, s: 272 },
+  { y: 234, t: 214, h: 80, s: 236 },
+];
+const LENS_STOPS = [[236, 86], [352, 138], [252, 190], [368, 242]];
+function lensPos(t) {
+  const legs = [[580, 1000, 0, 1], [1580, 2000, 1, 2], [2580, 3000, 2, 3], [3450, 4000, 3, 0]];
+  for (const [a, b, i, j] of legs) {
+    if (t < a) return LENS_STOPS[i];
+    if (t < b) { const k = E.inout(seg(t, a, b)); const A = LENS_STOPS[i], B = LENS_STOPS[j]; return [lerp(A[0], B[0], k), lerp(A[1], B[1], k) - Math.sin(Math.PI * k) * (j === 0 ? 18 : 6)]; }
+  }
+  return LENS_STOPS[0];
+}
+function lensFound(i, t) {
+  const at = [150, 1150, 2150, 3150][i];
+  return E.out(seg(t, at, at + 220)) * (1 - seg(t, 3450, 3750));
+}
+function drawRows(ctx, P, x0, t, bright) {
+  ctx.lineCap = 'round';
+  const line = (x, y, len, wd, c) => { ctx.strokeStyle = c; ctx.lineWidth = wd; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + len, y); ctx.stroke(); };
+  LENS_ROWS.forEach((r, i) => {
+    const f = lensFound(i, t);
+    line(x0, r.y, r.t, 3, bright ? P.fg : mix(P, 'fg4', 'fg2', f));
+    line(x0, r.y + 12, r.h, 2, bright ? P.fg3 : P.rule2);
+    line(x0, r.y + 21, r.s, 2, bright ? P.fg4 : P.rule);
+  });
+}
+function drawLens(ctx, t, w, h, P) {
+  const x0 = 170;
+  drawRows(ctx, P, x0, t, false);
+  // read rules: a violet rule marks each result the lens has read
+  LENS_ROWS.forEach((r, i) => { const f = lensFound(i, t); if (f > 0) { ctx.fillStyle = col(P, 'signal', f); ctx.fillRect(x0 - 16, r.y - 3, 2, 27 * E.out(f)); } });
+  const [lx, ly] = lensPos(t), rl = 38;
+  ctx.save(); ctx.beginPath(); ctx.arc(lx, ly, rl, 0, TAU); ctx.clip();
+  ctx.fillStyle = P.raise; ctx.fillRect(lx - rl, ly - rl, rl * 2, rl * 2);
+  ctx.translate(lx, ly); ctx.scale(1.55, 1.55); ctx.translate(-lx, -ly);
+  drawRows(ctx, P, x0, t, true);
+  ctx.restore();
+  ctx.lineWidth = 1.75; ctx.strokeStyle = P.signal; ctx.beginPath(); ctx.arc(lx, ly, rl, 0, TAU); ctx.stroke();
+  ctx.lineWidth = 1; ctx.strokeStyle = col(P, 'signal', 0.28); ctx.beginPath(); ctx.arc(lx, ly, rl - 4, 0, TAU); ctx.stroke();
+  footer(ctx, P, w, h);
+  statusLine(ctx, P, { text: 'Searching the web', detail: 'caddy tailscale certs', mono: true }, 20, h - 28);
+  const n = [0, 1, 2, 3].reduce((m, i) => m + (lensFound(i, t) > 0.5 ? 1 : 0), 0);
+  if (n) txt(ctx, `${n} read`, w - 20, h - 28, { font: `450 12.5px ${SANS}`, color: P.fg3, align: 'right' });
+}
+
+/* ---- Mesh: a tool is running ------------------------------------------- */
+const MESH_L = 2000;
+function gearPath(ctx, n, rp, rot, cx, cy) {
+  const m = (2 * rp) / n, ro = rp + m * 0.95, rr = rp - m * 1.15, Pt = TAU / n;
+  const pt = (r, a) => [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  ctx.beginPath();
+  for (let k = 0; k < n; k++) {
+    const c = k * Pt + rot;
+    const sq = [[rr, c - 0.5 * Pt], [rr, c - 0.27 * Pt], [ro, c - 0.13 * Pt], [ro, c + 0.13 * Pt], [rr, c + 0.27 * Pt]];
+    sq.forEach(([r, a], j) => { const p = pt(r, a); k === 0 && j === 0 ? ctx.moveTo(p[0], p[1]) : ctx.lineTo(p[0], p[1]); });
+  }
+  ctx.closePath();
+}
+function drawGear(ctx, P, n, rp, rot, cx, cy, stroke, fillA, w, spokes) {
+  ctx.lineJoin = 'round';
+  gearPath(ctx, n, rp, rot, cx, cy);
+  if (fillA) { ctx.fillStyle = rgbStr(stroke, fillA); ctx.fill(); }
+  ctx.strokeStyle = rgbStr(stroke); ctx.lineWidth = w; ctx.stroke();
+  // hub and spokes, so the turn reads at the center too. Spoke counts match each gear's turn per loop, so the loop closes.
+  ctx.lineWidth = 1; ctx.strokeStyle = rgbStr(stroke, 0.55);
+  ctx.beginPath(); ctx.arc(cx, cy, rp * 0.42, 0, TAU); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, rp * 0.13, 0, TAU); ctx.stroke();
+  for (let k = 0; k < spokes; k++) { const a = rot + (k * TAU) / spokes; ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * rp * 0.13, cy + Math.sin(a) * rp * 0.13); ctx.lineTo(cx + Math.cos(a) * rp * 0.42, cy + Math.sin(a) * rp * 0.42); ctx.stroke(); }
+}
+function meshRot(t) { const k = Math.floor(t / 500), u = E.morph(seg(t - k * 500, 0, 340)); return k + u; }
+function drawMesh(ctx, t, w, h, P) {
+  const nA = 16, nB = 10, rpA = 76, m = (2 * rpA) / nA, rpB = (nB * m) / 2;
+  const ax = 248, ay = 152, bx = ax + rpA + rpB, by = ay;
+  const rA = (meshRot(t) * TAU) / nA;
+  const offB = Math.PI - 0.5 * (TAU / nB);
+  const rB = offB - (rA * nA) / nB;
+  drawGear(ctx, P, nA, rpA, rA, ax, ay, P.rgb.fg3, 0, 1.5, 4);
+  drawGear(ctx, P, nB, rpB, rB, bx, by, P.rgb.signal, P.dark ? 0.08 : 0.06, 1.75, 5);
+  footer(ctx, P, w, h);
+  statusLine(ctx, P, { text: 'Running bun test', detail: 'packages/hub', mono: true }, 20, h - 28);
+}
+
+/* ---- Dial: a limit is reached, counting down to resume ------------------ */
+const DIAL_L = 9000;
+function drawDial(ctx, t, w, h, P) {
+  const cx = w / 2, cy = 150, n = 60, rin = 80, rout = 92;
+  // the ring is the wait: full when the limit hits, empty at the reset. Here one second takes ten ticks.
+  const sec = Math.min(6, Math.floor(t / 1000)), lit = 60 - 10 * sec, k0 = t - sec * 1000;
+  const back = seg(t, 8400, 8800); // everything returns to the start
+  ctx.lineCap = 'round';
+  for (let i = 0; i < n; i++) {
+    const a = -Math.PI / 2 + (i * TAU) / n;
+    let c = P.rgb.rule2, len = 0;
+    if (t < 6350) {
+      if (i < lit) c = P.rgb.fg3;
+      // the ten ticks of the second that just ended go out from the end backwards, 18 ms apart
+      if (sec > 0 && i >= lit && i < lit + 10) { const q = E.out(seg(k0, (lit + 9 - i) * 18, (lit + 9 - i) * 18 + 140)); c = mixRGB(P.rgb.fg3, P.rgb.rule2, q); }
+      // the head of the wait is brighter and a little longer
+      if (i === lit - 1) { const q = sec > 0 ? E.out(seg(k0, 160, 320)) : 1; c = mixRGB(P.rgb.fg3, P.rgb.fg, q); len = 4 * q; }
+    } else {
+      // reset: the ring fills violet clockwise, holds, then dims while the work resumes
+      const q = E.out(seg(t, 6350 + i * 8, 6350 + i * 8 + 160));
+      c = mixRGB(P.rgb.rule2, P.rgb.signal, q * (1 - 0.75 * E.inout(seg(t, 7000, 7600))));
+      if (back > 0) { const init = i === 59 ? P.rgb.fg : P.rgb.fg3; c = mixRGB(c, init, E.out(seg(back, i / 120, i / 120 + 0.5))); len = i === 59 ? 4 * back : 0; }
+    }
+    ctx.strokeStyle = rgbStr(c); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(cx + Math.cos(a) * rin, cy + Math.sin(a) * rin); ctx.lineTo(cx + Math.cos(a) * (rout + len), cy + Math.sin(a) * (rout + len)); ctx.stroke();
+  }
+  // the digits: only the one that changes rolls up, inside its own cell
+  const font = `500 30px ${MONO}`;
+  const numA = t < 6000 ? 1 : t < 8400 ? 1 - seg(t, 6000, 6150) : back;
+  if (numA > 0) {
+    const cw = tw(ctx, '0', font), x0 = cx - (cw * 4) / 2;
+    txt(ctx, '0:0', x0, cy - 6, { font, color: P.fg, alpha: numA });
+    const rolling = t < 6000 && t >= 1000, k = rolling ? E.out(seg(t % 1000, 0, 240)) : 1;
+    const rem = 6 - sec, cur = String(t < 6000 ? rem : t < 7000 ? 0 : 6), prev = String(rem + 1);
+    ctx.save(); ctx.beginPath(); ctx.rect(x0 + cw * 3 - 2, cy - 30, cw + 4, 48); ctx.clip();
+    if (rolling && k < 1) txt(ctx, prev, x0 + cw * 3, cy - 6 - 14 * k, { font, color: P.fg, alpha: 1 - k });
+    txt(ctx, cur, x0 + cw * 3, cy - 6 + (rolling ? 14 * (1 - k) : 0), { font, color: P.fg, alpha: numA * k });
+    ctx.restore();
+    txt(ctx, 'Resumes at 15:42', cx, cy + 26, { font: `450 12.5px ${SANS}`, color: P.fg3, align: 'center', alpha: numA });
+  }
+  // after the reset the work resumes: the thinking mark takes the center
+  const mA = seg(t, 6450, 6750) * (1 - seg(t, 8100, 8350));
+  if (mA > 0) { ctx.save(); ctx.globalAlpha = mA; inMark(ctx, cx, cy, 64, (s) => drawSepta(ctx, t - 6450, s, P)); ctx.restore(); }
+  footer(ctx, P, w, h);
+  const L = (d) => ({ text: 'Limit reached', color: 'fg3', detail: d, dcolor: 'fg3' });
+  const words = [[0, L('Resumes in 6s')], [1000, L('Resumes in 5s')], [2000, L('Resumes in 4s')], [3000, L('Resumes in 3s')], [4000, L('Resumes in 2s')], [5000, L('Resumes in 1s')], [6350, { text: 'Thinking', detail: 'Resumed after the Claude Max reset' }], [8400, L('Resumes in 6s')]];
+  swapLine(ctx, P, words, t, DIAL_L, 20, h - 28);
+}
+
+/* ---- Jury: three models answer, a judge decides ------------------------ */
+const JURY_L = 7500;
+const JURORS = [
+  { n: 3, x: 180, name: 'Sonnet 5.5', done: 2000, off: 160 },
+  { n: 4, x: 300, name: 'GPT-5.5', done: 1500, off: 0 },
+  { n: 5, x: 420, name: 'Gemini 3 Pro', done: 2320, off: 320 },
+];
+const JURY_PICK = 1, JY = 222, JR = 20, JUDGE = [300, 88];
+function jurorRot(j, t) {
+  const tt = Math.min(t, j.done) - j.off; if (tt < 0) return 0;
+  const k = Math.floor(tt / 500), u = E.inout(seg(tt - k * 500, 0, 300));
+  return ((k + u) * TAU) / j.n;
+}
+function regPoly(ctx, n, r, rot, cx, cy) { ctx.beginPath(); for (let i = 0; i <= n; i++) { const a = -Math.PI / 2 + rot + (i * TAU) / n; const x = cx + r * Math.cos(a), y = cy + r * Math.sin(a); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.closePath(); }
+function juryFrame(ctx, t, w, h, P, alpha) {
+  ctx.save(); ctx.globalAlpha = alpha;
+  const verdict = E.out(seg(t, 4400, 4700));
+  const judging = t >= 2600 && t < 4400;
+  ctx.lineCap = 'round';
+  JURORS.forEach((j, idx) => {
+    const x1 = JUDGE[0] + (j.x - JUDGE[0]) * 0.18, y1 = JUDGE[1] + 34, x2 = j.x, y2 = JY - JR - 10;
+    ctx.strokeStyle = P.rule; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    // an answer travels up its wire when a juror finishes
+    const up = E.inout(seg(t, j.done + 120, j.done + 520));
+    if (up > 0) {
+      ctx.strokeStyle = mix(P, 'fg3', 'rule', idx === JURY_PICK ? 0 : verdict); ctx.lineWidth = 1.25;
+      ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(lerp(x2, x1, up), lerp(y2, y1, up)); ctx.stroke();
+    }
+    // the judge reads each answer in turn: a short violet stroke runs up the wire
+    if (judging) {
+      const a = 2850 + idx * 420, k = seg(t, a, a + 420);
+      if (k > 0 && k < 1) {
+        const f0 = E.inout(k), f1 = Math.max(0, f0 - 0.3);
+        ctx.strokeStyle = P.signal; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(lerp(x2, x1, f1), lerp(y2, y1, f1)); ctx.lineTo(lerp(x2, x1, f0), lerp(y2, y1, f0)); ctx.stroke();
+      }
+    }
+    if (idx === JURY_PICK && verdict > 0) {
+      ctx.strokeStyle = P.signal; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(lerp(x1, x2, verdict), lerp(y1, y2, verdict)); ctx.stroke();
+    }
+  });
+  JURORS.forEach((j, idx) => {
+    const fin = E.out(seg(t, j.done, j.done + 240));
+    let c = mixRGB(P.rgb.signal, P.rgb.fg2, fin), fill = 0;
+    if (verdict > 0) { if (idx === JURY_PICK) { c = mixRGB(c, P.rgb.signal, verdict); fill = 0.12 * verdict; } else c = mixRGB(c, P.rgb.fg4, verdict); }
+    ctx.lineJoin = 'round'; regPoly(ctx, j.n, JR, jurorRot(j, t), j.x, JY);
+    if (fill) { ctx.fillStyle = rgbStr(c, fill); ctx.fill(); }
+    ctx.strokeStyle = rgbStr(c); ctx.lineWidth = 1.75; ctx.stroke();
+    const nameC = idx === JURY_PICK ? mix(P, 'fg3', 'fg', verdict) : mix(P, 'fg3', 'fg4', verdict);
+    txt(ctx, j.name, j.x, JY + JR + 22, { font: `400 11.5px ${MONO}`, color: nameC, align: 'center' });
+  });
+  // judge: still until every answer is in, thinks while it reads, then settles
+  const jc = t < 2600 ? P.rgb.fg3 : t < 4400 ? mixRGB(P.rgb.fg3, P.rgb.signal, E.out(seg(t, 2600, 2840))) : mixRGB(P.rgb.signal, P.rgb.fg, verdict);
+  let jp = { xy: SEPTA.H, rot: 0 };
+  if (judging) jp = septaPose(t - 2600);
+  if (t >= 4400) jp = poseCoast(septaPose(1800), { xy: SEPTA.H, rot: TAU / 7 }, E.out(seg(t, 4400, 4760)));
+  drawSeptaShape(ctx, jp, 24, 60, jc, judging ? (P.dark ? 0.1 : 0.08) : 0, 1.75, JUDGE[0], JUDGE[1]);
+  txt(ctx, 'Judge', JUDGE[0] + 40, JUDGE[1], { font: `400 11.5px ${MONO}`, color: P.fg3 });
+  ctx.restore();
+}
+function drawJury(ctx, t, w, h, P) {
+  const back = seg(t, 6700, 7300);
+  if (back > 0) { juryFrame(ctx, 6699, w, h, P, 1 - back); juryFrame(ctx, t - JURY_L, w, h, P, back); }
+  else juryFrame(ctx, t, w, h, P, 1);
+  footer(ctx, P, w, h);
+  const words = [
+    [0, { text: 'Jury', detail: 'Waiting for 3 of 3 jurors' }],
+    [1500, { text: 'Jury', detail: 'Waiting for 2 of 3 jurors' }],
+    [2000, { text: 'Jury', detail: 'Waiting for 1 of 3 jurors' }],
+    [2600, { text: 'Judging', detail: 'Opus 5.5 reads three answers' }],
+    [4400, { text: 'Verdict', color: 'fg', detail: 'GPT-5.5 gave the most complete fix', dcolor: 'fg2' }],
+    [6900, { text: 'Jury', detail: 'Waiting for 3 of 3 jurors' }],
+  ];
+  swapLine(ctx, P, words, t, JURY_L, 20, h - 28);
+}
+
+/* ---- Relay: one model hands the work to another ------------------------ */
+const RELAY_L = 6000;
+const RA = [170, 162], RB = [430, 162], RC = [300, 40];
+function qbez(a, c, b, k) { const u = 1 - k; return [u * u * a[0] + 2 * u * k * c[0] + k * k * b[0], u * u * a[1] + 2 * u * k * c[1] + k * k * b[1]]; }
+function drawRelay(ctx, t, w, h, P) {
+  const half = t < 3000 ? 0 : 1, tt = t - half * 3000;
+  const from = half ? RB : RA, to = half ? RA : RB;
+  const fly = E.inout(seg(tt, 1200, 2300));
+  // the route
+  ctx.beginPath(); for (let i = 0; i <= 60; i++) { const q = qbez(RA, RC, RB, i / 60); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }
+  ctx.setLineDash([2, 5]); ctx.strokeStyle = P.rule2; ctx.lineWidth = 1; ctx.stroke(); ctx.setLineDash([]);
+  // a violet trail draws behind the mark and fades after it lands
+  if (tt > 1200 && tt < 2900) {
+    const fade = 1 - seg(tt, 2300, 2900), n = 80;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < n; i++) {
+      const k0 = (i / n) * fly, k1 = ((i + 1) / n) * fly;
+      const a = qbez(from, RC, to, k0), b = qbez(from, RC, to, k1);
+      ctx.strokeStyle = col(P, 'signal', Math.pow((i + 1) / n, 2.2) * fade); ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    }
+  }
+  // stations: a faint outline where a mark can sit, opaque so the route starts at its edge
+  [RA, RB].forEach((p) => { pathXY(ctx, SEPTA.H, 0, 26, p[0], p[1]); ctx.fillStyle = P.bg; ctx.fill(); drawSeptaShape(ctx, { xy: SEPTA.H, rot: 0 }, 26, 60, P.rgb.rule2, 0, 1, p[0], p[1]); });
+  // the mark: thinks at its station, packs into a circle for the trip, opens at the other end
+  let pose, p;
+  // each half starts where the last one left off (pose 700 ms into the loop), so the loop has no jump
+  if (tt < 1200) { pose = septaPose(tt + 700); p = from; }
+  else if (tt < 2300) {
+    const start = septaPose(1900);
+    const mid = { xy: SEPTA.C, rot: start.rot };
+    pose = fly < 0.5 ? poseCoast(start, mid, E.out(fly * 2)) : poseCoast(mid, { xy: SEPTA.H, rot: 0 }, E.inout((fly - 0.5) * 2));
+    p = qbez(from, RC, to, fly);
+  } else { pose = septaPose(mod(tt - 2300, 3000)); p = to; }
+  const scale = tt >= 1200 && tt < 2300 ? 1 - 0.32 * Math.sin(Math.PI * fly) : 1;
+  pathXY(ctx, pose.xy, pose.rot, 26 * scale, p[0], p[1]); ctx.fillStyle = P.bg; ctx.fill();
+  drawSeptaShape(ctx, pose, 26 * scale, 60, P.rgb.signal, P.dark ? 0.1 : 0.08, 1.75, p[0], p[1]);
+  // names trade brightness as the work arrives
+  const arrive = E.out(seg(tt, 2150, 2400));
+  const aOn = half ? arrive : 1 - arrive, bOn = 1 - aOn;
+  txt(ctx, 'Sonnet 5.5', RA[0], RA[1] + 50, { font: `500 14px ${SANS}`, color: mix(P, 'fg4', 'fg', aOn), align: 'center' });
+  txt(ctx, 'GPT-5.5', RB[0], RB[1] + 50, { font: `500 14px ${SANS}`, color: mix(P, 'fg4', 'fg', bOn), align: 'center' });
+  footer(ctx, P, w, h);
+  const words = [
+    [0, { text: 'Thinking', detail: 'Sonnet 5.5', dcolor: 'fg3' }],
+    [1200, { text: 'Handing off', detail: 'to GPT-5.5 with 14.2K tokens of context' }],
+    [2350, { text: 'Thinking', detail: 'GPT-5.5', dcolor: 'fg3' }],
+    [4200, { text: 'Handing off', detail: 'to Sonnet 5.5 with 15.1K tokens of context' }],
+    [5350, { text: 'Thinking', detail: 'Sonnet 5.5', dcolor: 'fg3' }],
+  ];
+  swapLine(ctx, P, words, t, RELAY_L, 20, h - 28);
+}
+
+/* ---- registry ---------------------------------------------------------- */
+const LIVE = [
+  { id: 'septa-turn', name: 'Septa turn', purpose: 'One reply: thinking, a tool, waiting on you, done', loop: TURN_L, still: 0, draw: drawSeptaTurn, moves: 'Septa thinks, holds its heptagon while light runs round the outline for a tool, freezes amber mid-morph while it waits on you, resumes from the same pose, then coasts to a grey heptagon when done.' },
+  { id: 'septa-fault', name: 'Septa fault', purpose: 'Failed, then retry', loop: FAULT_L, still: 3000, draw: drawSeptaFault, moves: 'Mid-morph, the outline presses flat onto the midline and turns red. Retry lifts it back into the heptagon.' },
+  { id: 'lens', name: 'Lens', purpose: 'Searching the web', loop: LENS_L, still: 1200, draw: drawLens, moves: 'A lens ring glides over four results and rests on each. Inside it the lines are magnified and bright; a violet rule marks each one read.' },
+  { id: 'mesh', name: 'Mesh', purpose: 'Running a tool', loop: MESH_L, still: 400, draw: drawMesh, moves: 'Two gear outlines turn one tooth per 500ms beat: a soft start, a firm stop, a rest. The driven gear is violet.' },
+  { id: 'dial', name: 'Dial', purpose: 'Limit reached, countdown to resume', loop: DIAL_L, still: 500, draw: drawDial, moves: 'A bezel of 60 ticks holds the wait. Each second a run of ticks goes out from the end and the digit rolls. At zero the ring fills violet clockwise and Septa starts thinking in the middle.' },
+  { id: 'jury', name: 'Jury', purpose: 'Several models answer, a judge decides', loop: JURY_L, still: 5200, draw: drawJury, moves: 'Three juror shapes turn as they work and stop when done; each answer travels up its wire. The judge thinks, reads each wire, then draws one violet line to its pick.' },
+  { id: 'relay', name: 'Relay', purpose: 'Handoff from one model to another', loop: RELAY_L, still: 600, draw: drawRelay, moves: 'The mark packs into a circle, flies along a dotted route to the other model and opens into the heptagon again. The names trade brightness.' },
+];
+function liveCell(grid, m, theme) {
+  const W = 600, H = 360, P = PAL[theme], id = theme === 'dark' ? m.id : `${m.id}-${theme}`;
+  const cell = addCell(grid, id, theme, W, H);
+  cell.innerHTML = `<div class="hd"><b>${m.name}</b><span>${m.purpose}</span><i class="mono">${(m.loop / 1000).toFixed(1)}s loop</i></div>`;
+  const c = mkCanvas(W, H, { left: 0, top: 0 }); cell.prepend(c);
+  const paint = fullPainter(c, W, H, m.draw, P);
+  cell.parentElement.insertAdjacentHTML('beforeend', `<p class="cap">${m.moves}</p>`);
+  SCENES.push({ id, w: W, h: H, loop: m.loop, still: m.still, el: cell, render: paint });
+}
+const gLive = section('Live states', 'Septa carries the family: the same outline holds for a tool, freezes for waiting, coasts for done and flattens for a failure.');
+for (const m of LIVE) liveCell(gLive, m, 'dark');
+
+/* ---------------------------------------------------------------------- */
+/* in context: a reply line in chat, and the empty chat page               */
+/* ---------------------------------------------------------------------- */
+const ARROW = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+function ctxInline(grid, m, theme) {
+  const W = 560, H = 300, P = PAL[theme], id = `ctx-inline-${m.id}${theme === 'dark' ? '' : '-' + theme}`;
+  const cell = addCell(grid, id, theme, W, H); cell.classList.add('ctx');
+  cell.innerHTML = `
+    <div class="col" style="top:28px;width:480px">
+      <div class="bubble">can caddy get certs for my tailnet names?</div>
+      <div class="live"><span class="mk"></span><span class="w">Thinking</span></div>
+      <div class="detail">Reading the Caddy docs on certs for .ts.net names</div>
+    </div>
+    <div class="col" style="bottom:20px;width:480px">
+      <div class="composer"><div class="ph" style="height:30px">Reply</div>
+        <div class="bar"><span>Sonnet 5.5</span><span class="sep"></span><span>Thinking low</span><span class="sep"></span><span>Web, memory</span><span class="send" style="opacity:1;background:var(--fg)"><svg width="10" height="10" viewBox="0 0 10 10"><rect width="10" height="10" rx="1.5" fill="var(--bg)"/></svg></span></div>
+      </div>
+    </div>`;
+  const c = mkCanvas(16, 16); cell.querySelector('.mk').replaceWith(c);
+  const paint = markPainter(c, 16, m.draw, P);
+  SCENES.push({ id, w: W, h: H, loop: m.loop, still: m.still, el: cell, render: paint });
+}
+function ctxHero(grid, m, theme) {
+  const W = 720, H = 450, P = PAL[theme], id = `ctx-hero-${m.id}${theme === 'dark' ? '' : '-' + theme}`;
+  const cell = addCell(grid, id, theme, W, H); cell.classList.add('ctx');
+  cell.innerHTML = `
+    <div class="topbar"><b>Conclave</b><span>Home</span><span class="cur">Chat</span><span>Sessions</span><span>Inbox</span><span>Routines</span><span style="margin-left:auto" class="mono">arch-desktop</span></div>
+    <div class="rail"><div class="new">New chat</div><div class="g">Today</div><div class="r" style="color:var(--fg-2)">Caddy certs for tailnet names</div><div class="r">Socket server time drift</div><div class="g">Yesterday</div><div class="r">Immich moved to a new disk</div><div class="r">Rack layout as an SVG</div><div class="g">Previous 7 days</div><div class="r">When PBS verify jobs run</div><div class="r">CSP nonces or hashes</div></div>
+    <div class="stage" style="position:absolute;left:201px;right:0;top:49px;bottom:0">
+      <div class="col" style="top:${H * 0.1}px;width:460px;text-align:center">
+        <div class="hero" style="height:112px;display:flex;justify-content:center"></div>
+        <div class="greet" style="margin-top:14px">Good evening, Kai.</div>
+        <div class="composer" style="margin-top:26px;text-align:left"><div class="ph">Ask anything</div>
+          <div class="bar"><span>Sonnet 5.5</span><span class="sep"></span><span>Thinking low</span><span class="sep"></span><span>Web, memory</span><span class="send">${ARROW}</span></div>
+        </div>
+        <div class="recent"><span>Recent</span><span>Caddy certs for tailnet names</span><span>Socket server time drift</span></div>
+      </div>
+    </div>`;
+  const c = mkCanvas(112, 112); cell.querySelector(".hero").appendChild(c);
+  const paint = markPainter(c, 112, m.draw, P);
+  SCENES.push({ id, w: W, h: H, loop: m.loop, still: m.still, el: cell, render: paint });
+}
+const BEST = ['septa', 'knot'];
+const gCtx = section('In context', 'The two strongest marks where they live: next to "Thinking" at the head of a reply (16 px), and as the hero of the empty chat page (96 px).');
+for (const id of BEST) { const m = THINK.find((x) => x.id === id); ctxInline(gCtx, m, 'dark'); }
+for (const id of BEST) { const m = THINK.find((x) => x.id === id); ctxHero(gCtx, m, 'dark'); }
+</script>
+<script>
+'use strict';
+/* ---------------------------------------------------------------------- */
+/* clock: live in the browser, or driven from outside with __render(t)     */
+/* ---------------------------------------------------------------------- */
+let paused = false, reduce = matchMedia('(prefers-reduced-motion: reduce)').matches || params.get('rm') === '1';
+const visible = new Set(SCENES);
+if ('IntersectionObserver' in window && !SOLO) {
+  const io = new IntersectionObserver((es) => es.forEach((e) => { const s = SCENES.find((x) => x.el === e.target); if (!s) return; e.isIntersecting ? visible.add(s) : visible.delete(s); }));
+  SCENES.forEach((s) => io.observe(s.el));
+}
+window.__scenes = SCENES.map(({ id, w, h, loop }) => ({ id, w, h, loop }));
+window.__render = (t) => { for (const s of SCENES) if (!SOLO || s.id === SOLO) s.render(reduce ? s.still : mod(t, s.loop)); };
+if (SOLO) document.body.classList.add('solo');
+window.__ready = document.fonts.ready.then(() => Promise.all([document.fonts.load('14px "Mona Sans Variable"'), document.fonts.load('14px "JetBrains Mono Variable"')]));
+const tParam = params.get('t');
+if (tParam !== null) { window.__ready.then(() => window.__render(Number(tParam))); }
+else {
+  const t0 = performance.now();
+  let tp = 0;
+  const loop = (now) => {
+    if (!paused) tp = now - t0;
+    if (!document.hidden) for (const s of visible) s.render(reduce ? s.still : mod(tp, s.loop));
+    requestAnimationFrame(loop);
+  };
+  window.__ready.then(() => requestAnimationFrame(loop));
+}
+const bP = document.getElementById('bPause'), bR = document.getElementById('bRM');
+bP.onclick = () => { paused = !paused; bP.setAttribute('aria-pressed', paused); };
+bR.onclick = () => { reduce = !reduce; bR.setAttribute('aria-pressed', reduce); };
+bR.setAttribute('aria-pressed', reduce);
+</script>
+</body>
+</html>

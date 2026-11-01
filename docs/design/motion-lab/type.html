@@ -1,0 +1,1006 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Type Motion Lab</title>
+<style>
+@font-face {
+  font-family: 'Mona Sans Variable';
+  font-style: normal;
+  font-weight: 200 900;
+  font-stretch: 75% 125%;
+  src: url(fonts/mona-sans-latin-standard-normal.woff2) format('woff2-variations');
+}
+@font-face {
+  font-family: 'JetBrains Mono Variable';
+  font-style: normal;
+  font-weight: 100 800;
+  src: url(fonts/jetbrains-mono-latin-wght-normal.woff2) format('woff2-variations');
+}
+
+/* Conclave tokens, copied from packages/web/src/styles/index.css */
+.th-dark {
+  color-scheme: dark;
+  --bg: oklch(0.163 0.005 286);
+  --bg-sunk: oklch(0.138 0.005 286);
+  --bg-raise: oklch(0.198 0.006 286);
+  --bg-hover: oklch(0.215 0.007 286);
+  --rule: oklch(0.262 0.007 286);
+  --rule-2: oklch(0.335 0.009 286);
+  --edge: oklch(0.48 0.009 286);
+  --fg: oklch(0.945 0.004 286);
+  --fg-2: oklch(0.765 0.008 286);
+  --fg-3: oklch(0.61 0.01 286);
+  --fg-4: oklch(0.5 0.01 286);
+  --signal: oklch(0.775 0.125 303);
+  --warn: oklch(0.83 0.125 80);
+  --wave-ink: oklch(0.7 0.02 300);
+  --wave-hot: oklch(0.86 0.11 303);
+  --syn-kw: oklch(0.78 0.1 303);
+  /* type lab: the live word and its light */
+  --live: var(--signal);
+  --sh-base: oklch(0.6 0.045 300);
+  --sh-trail: oklch(0.76 0.13 303);
+  --sh-core: oklch(0.985 0.012 300);
+  --sh-lead: oklch(0.8 0.04 300);
+  --hot: oklch(0.97 0.03 303);
+  --ptr-fill: oklch(0.98 0 0);
+  --ptr-edge: oklch(0.12 0.005 286);
+}
+.th-light {
+  color-scheme: light;
+  --bg: oklch(0.982 0.002 286);
+  --bg-sunk: oklch(0.96 0.003 286);
+  --bg-raise: oklch(1 0 0);
+  --bg-hover: oklch(0.95 0.004 286);
+  --rule: oklch(0.905 0.005 286);
+  --rule-2: oklch(0.82 0.008 286);
+  --edge: oklch(0.64 0.008 286);
+  --fg: oklch(0.205 0.01 286);
+  --fg-2: oklch(0.405 0.012 286);
+  --fg-3: oklch(0.52 0.012 286);
+  --fg-4: oklch(0.62 0.01 286);
+  --signal: oklch(0.52 0.17 300);
+  --warn: oklch(0.555 0.13 65);
+  --wave-ink: oklch(0.48 0.03 295);
+  --wave-hot: oklch(0.5 0.17 300);
+  --syn-kw: oklch(0.48 0.16 300);
+  --live: var(--signal);
+  --sh-base: oklch(0.6 0.06 298);
+  --sh-trail: oklch(0.55 0.17 300);
+  --sh-core: oklch(0.2 0.03 300);
+  --sh-lead: oklch(0.42 0.06 298);
+  --hot: oklch(0.3 0.12 300);
+  --ptr-fill: oklch(0.12 0 0);
+  --ptr-edge: oklch(1 0 0);
+}
+
+:root {
+  --sans: 'Mona Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --mono: 'JetBrains Mono Variable', ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); }
+body {
+  font-family: var(--sans);
+  font-weight: 450;
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+/* page */
+.top { max-width: 1240px; margin: 0 auto; padding: 40px 32px 8px; }
+.top h1 { font-size: 20px; font-weight: 560; letter-spacing: -0.01em; }
+.top p { margin-top: 6px; color: var(--fg-3); max-width: 640px; }
+.top label { display: inline-flex; gap: 8px; align-items: center; margin-top: 14px; color: var(--fg-2); font-size: 13px; cursor: pointer; }
+.group { max-width: 1240px; margin: 0 auto; padding: 28px 32px 8px; }
+.group h2 { font-size: 13px; font-weight: 560; color: var(--fg-2); padding-bottom: 10px; border-bottom: 1px solid var(--rule); margin-bottom: 18px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, 360px); gap: 20px; }
+@media (max-width: 420px) {
+  .top, .group { padding-left: 16px; padding-right: 16px; }
+  .grid { grid-template-columns: 1fr; }
+}
+
+/* a cell */
+.cell { width: 360px; max-width: 100%; background: var(--bg); color: var(--fg); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+.cap { }
+.cell-h { height: 34px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--rule); }
+.cell-n { font-size: 12px; font-weight: 560; color: var(--fg-2); letter-spacing: 0.01em; }
+.cell-k { font-family: var(--mono); font-size: 10.5px; color: var(--fg-4); }
+.stage { position: relative; padding: 18px 20px 20px; overflow: hidden; }
+.cell-f { padding: 12px 16px 14px; border-top: 1px solid var(--rule); font-size: 12px; line-height: 1.5; color: var(--fg-3); }
+.cell-f b { font-weight: 540; color: var(--fg-2); }
+.cell-f p + p { margin-top: 4px; }
+
+/* solo: one cell, edge to edge, for capture */
+body.solo .top, body.solo .group h2 { display: none; }
+body.solo .group { padding: 0; margin: 0; max-width: none; }
+body.solo .grid { display: block; }
+body.solo .cell { border: 0; border-radius: 0; }
+body.solo .cell-f { display: none; }
+
+/* chat pieces */
+.ubox { display: flex; justify-content: flex-end; margin-bottom: 16px; }
+.bubble { max-width: 84%; background: var(--bg-raise); border: 1px solid var(--rule); border-radius: 10px; padding: 7px 12px; font-size: 14px; line-height: 1.45; color: var(--fg); }
+.live { height: 24px; display: flex; align-items: center; font-size: 14.5px; font-weight: 520; letter-spacing: -0.003em; color: var(--live); position: relative; }
+.word { display: inline-block; white-space: pre; }
+.note { margin-top: 2px; font-size: 12.5px; line-height: 1.5; color: var(--fg-3); min-height: 19px; white-space: pre; }
+.row { display: flex; align-items: center; gap: 4px; height: 25px; font-size: 12.5px; color: var(--fg-3); }
+.chev { width: 12px; height: 12px; color: var(--fg-4); flex: none; }
+.reply { margin-top: 6px; font-size: 14px; line-height: 1.55; color: var(--fg); }
+.reply p + p, .reply p + .code, .reply .code + p { margin-top: 10px; }
+.w { display: inline-block; white-space: pre; }
+.code { background: var(--bg-sunk); border: 1px solid var(--rule); border-radius: 5px; padding: 8px 12px; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; color: var(--fg); }
+.code .kw { color: var(--syn-kw); }
+.acts { display: flex; align-items: center; gap: 14px; margin-top: 12px; height: 22px; font-size: 12.5px; color: var(--fg-3); }
+.acts .m { margin-left: auto; color: var(--fg-4); }
+
+/* sheen */
+.sheen { -webkit-background-clip: text; background-clip: text; color: transparent; background-repeat: no-repeat; padding-right: 1px; }
+
+/* decode */
+.dc { display: inline-flex; justify-content: center; white-space: pre; }
+
+/* caret */
+.caret { position: absolute; left: 0; top: 0; width: 2px; border-radius: 1px; background: var(--signal); will-change: transform, opacity; }
+.ch { white-space: pre; }
+
+/* wave */
+.lt { display: inline-block; white-space: pre; will-change: transform; }
+
+/* flex */
+.flexw { position: relative; display: inline-block; height: 22px; }
+.flexw .lt { position: absolute; top: 0; transform: translateX(-50%); }
+
+/* ink */
+.inkwrap { position: relative; }
+.inkwrap .tint { position: absolute; left: 0; top: 0; right: 0; margin: 0; color: var(--signal); pointer-events: none; }
+.reply .inkwrap + .inkwrap { margin-top: 10px; }
+.inkwrap .code.tint { background: transparent; border-color: transparent; }
+
+/* fold */
+.trow { display: flex; align-items: center; gap: 4px; height: 25px; font-size: 13px; }
+.tlabel { display: inline-flex; white-space: pre; position: relative; }
+.tsuf { position: relative; display: inline-block; height: 19px; }
+.tsuf > span { position: absolute; left: 0; top: 0; white-space: pre; }
+.well { overflow: hidden; position: relative; }
+.well-in { position: relative; padding: 4px 0 6px 12px; font-size: 13px; line-height: 1.6; color: var(--fg-2); }
+.well-rule { position: absolute; left: 0; top: 4px; bottom: 6px; width: 1px; background: var(--rule-2); transform-origin: 50% 0; }
+.ptr { position: absolute; left: 0; top: 0; width: 14px; height: 20px; transform-origin: 1px 1px; }
+
+/* roll */
+.num { display: inline-flex; white-space: pre; font-variant-numeric: tabular-nums; }
+.dg { display: inline-block; position: relative; overflow: hidden; text-align: center; line-height: 1.2; vertical-align: baseline;
+  -webkit-mask-image: linear-gradient(transparent 0, #000 20%, #000 80%, transparent 100%);
+          mask-image: linear-gradient(transparent 0, #000 20%, #000 80%, transparent 100%); }
+.dg > span { display: block; text-align: center; will-change: transform; }
+.dg > .b { position: absolute; left: 0; right: 0; top: 0; }
+.meta { display: flex; gap: 14px; align-items: center; font-size: 12.5px; color: var(--fg-3); line-height: 1.6; margin-top: 10px; }
+.meta .v { color: var(--fg-2); }
+.limit { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--rule); }
+.limit .lab { font-size: 12.5px; color: var(--warn); line-height: 1.5; }
+.limit .big { display: flex; align-items: baseline; gap: 10px; margin-top: 2px; }
+.limit .clock { font-size: 30px; font-weight: 560; letter-spacing: -0.01em; line-height: 1.6; color: var(--fg); }
+.limit .sub { font-size: 12.5px; color: var(--fg-3); }
+
+/* steps */
+.sline { position: relative; height: 24px; font-size: 13.5px; }
+.sline .st { position: absolute; left: 0; top: 0; height: 24px; display: flex; align-items: center; gap: 7px; white-space: pre; }
+.sline .ic { width: 15px; height: 15px; color: var(--fg-3); flex: none; display: inline-block; }
+.sline .verb { color: var(--live); font-weight: 520; display: inline-block; white-space: pre; }
+.sline .tgt { color: var(--fg-3); display: inline-block; white-space: pre; }
+.sline .w { display: inline-block; }
+</style>
+</head>
+<body class="th-dark">
+<header class="top">
+  <h1>Type and text</h1>
+  <p>Motion made from words, for Conclave. Each piece is drawn from time alone, so any frame can be shown on its own and every loop closes. They all run on their own.</p>
+  <label><input type="checkbox" id="rm"> Reduce motion (shows each still pose)</label>
+</header>
+<main id="main"></main>
+
+<script>
+'use strict';
+// ---------------------------------------------------------------------------
+// helpers
+// ---------------------------------------------------------------------------
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const seg = (t, a, d) => clamp((t - a) / d);
+function bezier(p1x, p1y, p2x, p2y) {
+  const cx = 3 * p1x, bx = 3 * (p2x - p1x) - cx, ax = 1 - cx - bx;
+  const cy = 3 * p1y, by = 3 * (p2y - p1y) - cy, ay = 1 - cy - by;
+  const sx = (t) => ((ax * t + bx) * t + cx) * t;
+  const sy = (t) => ((ay * t + by) * t + cy) * t;
+  return (x) => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let lo = 0, hi = 1, t = x;
+    for (let i = 0; i < 40; i++) {
+      const v = sx(t);
+      if (Math.abs(v - x) < 1e-6) break;
+      if (v < x) lo = t; else hi = t;
+      t = (lo + hi) / 2;
+    }
+    return sy(t);
+  };
+}
+const ease = bezier(0.2, 0.7, 0.2, 1);       // --ease
+const easeIn = bezier(0.4, 0, 1, 1);          // --ease-in
+const easeSine = bezier(0.37, 0, 0.63, 1);    // --ease-sine
+const easeDrawer = bezier(0.32, 0.72, 0, 1);  // --ease-drawer
+const gauss = (d, s) => Math.exp(-(d * d) / (2 * s * s));
+function rng(seed) {
+  return () => {
+    seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const hash = (n) => { n = (n ^ 61) ^ (n >>> 16); n = n + (n << 3); n = n ^ (n >>> 4); n = Math.imul(n, 0x27d4eb2d); n = n ^ (n >>> 15); return n >>> 0; };
+const mix = (a, b, p) => `color-mix(in oklch, var(${a}) ${(clamp(p) * 100).toFixed(1)}%, var(${b}))`;
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const CHEV = '<svg class="chev" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 2.75 7.75 6 4.5 9.25"/></svg>';
+function rel(node, root) {
+  const a = node.getBoundingClientRect(), b = root.getBoundingClientRect();
+  return { x: a.left - b.left, y: a.top - b.top, w: a.width, h: a.height };
+}
+/** a scene that fades in at the start and out at the end of its loop */
+const sceneAlpha = (t, L, inMs = 220, outAt = L - 700, outMs = 400) => ease(seg(t, 0, inMs)) * (1 - easeIn(seg(t, outAt, outMs)));
+
+/** word release times: chunks arrive unevenly, words leave the buffer 42ms apart */
+function releases(n, seed, start, gapLo = 70, gapHi = 200) {
+  const r = rng(seed); const out = []; let t = start, last = -1e9, i = 0;
+  while (i < n) {
+    const chunk = 1 + Math.floor(r() * 4);
+    for (let k = 0; k < chunk && i < n; k++, i++) { const v = Math.max(t, last + 42); out.push(v); last = v; }
+    t += gapLo + r() * (gapHi - gapLo);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// shared scaffolds
+// ---------------------------------------------------------------------------
+const ASK = 'what changed in Linux this week?';
+const NOTE = 'Checking the 6.18 release notes first.';
+
+function thinkScaffold(stage, note = NOTE) {
+  stage.innerHTML = `<div class="ubox"><div class="bubble">${ASK}</div></div><div class="live"><span class="word"></span></div><div class="note">${esc(note)}</div>`;
+  return { word: stage.querySelector('.word'), note: stage.querySelector('.note'), live: stage.querySelector('.live') };
+}
+
+const REPLY = [
+  { k: 'p', text: 'Linux 6.18 came out on Sunday. Arch already ships 6.18.1 in core, so a normal update picks it up.' },
+  { k: 'code', text: 'sudo pacman -Syu' },
+  { k: 'p', text: 'Two changes matter for your setup. The RDNA3 resume bug from your notes is fixed, so suspend should work again after a reboot. Btrfs scrub is also faster on large volumes, which helps the NAS.' },
+];
+
+/** a finished turn above, then a reply whose words are spans */
+function replyScaffold(stage, { ink = false } = {}) {
+  stage.innerHTML = `<div class="ubox"><div class="bubble">${ASK}</div></div>
+    <div class="row">Thought for 6s ${CHEV}</div>
+    <div class="row">Searched the web, 3 results ${CHEV}</div>
+    <div class="reply"></div>
+    <div class="acts"><span>Copy</span><span>Retry</span><span>Branch</span><span class="m">Sonnet 5.5</span></div>`;
+  const reply = stage.querySelector('.reply');
+  const words = []; const blocks = [];
+  const fill = (node, text, isCode, list) => {
+    text.split(' ').forEach((w, i, arr) => {
+      const s = el('span', 'w');
+      s.textContent = w;
+      if (isCode && i === 0) s.classList.add('kw');
+      node.appendChild(s);
+      if (i < arr.length - 1) node.appendChild(document.createTextNode(' '));
+      list.push(s);
+    });
+  };
+  for (const b of REPLY) {
+    const make = () => el(b.k === 'code' ? 'div' : 'p', b.k === 'code' ? 'code' : '');
+    const node = make();
+    const list = [];
+    fill(node, b.text, b.k === 'code', list);
+    let tint = null, tintList = [];
+    if (ink) {
+      const wrap = el('div', 'inkwrap');
+      wrap.appendChild(node);
+      tint = make(); tint.classList.add('tint'); tint.setAttribute('aria-hidden', 'true');
+      fill(tint, b.text, b.k === 'code', tintList);
+      wrap.appendChild(tint);
+      reply.appendChild(wrap);
+    } else reply.appendChild(node);
+    const block = { node, tint, k: b.k, words: list, first: words.length };
+    list.forEach((s) => words.push({ span: s, block }));
+    blocks.push(block);
+  }
+  return { reply, words, blocks, acts: stage.querySelector('.acts') };
+}
+
+// ---------------------------------------------------------------------------
+// prototypes
+// ---------------------------------------------------------------------------
+const PROTOS = [];
+const reg = (o) => PROTOS.push(o);
+
+/* 1. Sheen ---------------------------------------------------------------- */
+const sheenDef = (theme) => ({
+  id: theme === 'dark' ? 'sheen' : 'sheen-light', group: 'thinking', theme, n: '01', name: 'Sheen', tag: 'thinking',
+  L: 2500, still: 2200,
+  purpose: 'The live "Thinking" word.',
+  moves: 'A soft band of light crosses the word in 1.5s, leaves a short violet trail, then rests for 1s.',
+  rm: 'The word holds still in its base tone.',
+  make(stage) {
+    const s = thinkScaffold(stage);
+    s.word.textContent = 'Thinking';
+    s.word.classList.add('sheen');
+    const W = s.word.offsetWidth;
+    const bw = 26;
+    return (t) => {
+      const p = easeSine(seg(t, 0, 1500));
+      const c = lerp(-2.4 * bw, W + 2.6 * bw, p);
+      s.word.style.backgroundImage = `linear-gradient(90deg, var(--sh-base) ${c - 2.4 * bw}px, var(--sh-trail) ${c - 1.15 * bw}px, var(--sh-core) ${c - 0.2 * bw}px, var(--sh-core) ${c + 0.15 * bw}px, var(--sh-lead) ${c + 0.95 * bw}px, var(--sh-base) ${c + 2.2 * bw}px)`;
+    };
+  },
+});
+reg(sheenDef('dark'));
+
+/* 2. Decode --------------------------------------------------------------- */
+const decodeDef = (theme) => ({
+  id: theme === 'dark' ? 'decode' : 'decode-light', group: 'thinking', theme, n: '02', name: 'Decode', tag: 'thinking',
+  L: 6000, still: 1500,
+  purpose: 'A live word arriving: Thinking, or a tool verb.',
+  moves: 'Each letter cycles through dim stand-ins of the same width, then lands with a short drop and a flash of light. A quiet re-read passes through twice. On exit it scrambles out from the right.',
+  rm: 'The word fades in and out. No glyph changes.',
+  make(stage) {
+    const s = thinkScaffold(stage);
+    const word = 'Thinking';
+    s.word.innerHTML = [...word].map((c) => `<span class="dc">${c}</span>`).join('');
+    const cells = [...s.word.children];
+    const widths = cells.map((c) => c.getBoundingClientRect().width);
+    cells.forEach((c, i) => { c.style.width = widths[i] + 'px'; });
+    // stand-in glyphs of about the same width, so the word keeps its shape while it decodes
+    const probe = el('span', 'dc');
+    probe.style.cssText = 'position:absolute;visibility:hidden;';
+    s.word.appendChild(probe);
+    const LOW = 'abcdefghjklmnopqrstuvwxyz', UP = 'ABCDEFGHKLNOPRSUVXZ';
+    const gw = {};
+    for (const ch of LOW + UP) { probe.textContent = ch; gw[ch] = probe.getBoundingClientRect().width; }
+    probe.remove();
+    const pools = [...word].map((ch, i) => {
+      const src = [...(ch === ch.toUpperCase() ? UP : LOW)].filter((g) => g !== ch);
+      return src.sort((x, y) => Math.abs(gw[x] - widths[i]) - Math.abs(gw[y] - widths[i])).slice(0, 5);
+    });
+    const n = cells.length;
+    const glyph = (i, t, salt) => { const p = pools[i]; return p[hash(i * 7919 + Math.floor(t / 70) * 131 + salt) % p.length]; };
+    const passes = [2250, 3750];
+    const E = 5150;
+    return (t) => {
+      cells.forEach((c, i) => {
+        let op = 1, scr = 0, k = 1;
+        // entrance: a front of stand-ins runs ahead of the settled letters
+        const a = 40 + i * 48, r = a + 240;
+        if (t < a) op = 0;
+        else if (t < r) { scr = 1; op = ease(seg(t, a, 120)); }
+        else k = ease(seg(t, r, 320));
+        // a quiet re-read: one or two stand-ins per letter
+        for (const P of passes) {
+          const d = P + i * 55;
+          if (t >= d && t < d + 120) scr = 1;
+          else if (t >= d + 120) k = Math.min(k, ease(seg(t, d + 120, 320)));
+        }
+        // exit, right to left
+        const x = E + (n - 1 - i) * 40;
+        if (t >= x) { scr = 1; op *= 1 - easeIn(seg(t, x + 90, 220)); }
+        if (scr) {
+          c.textContent = glyph(i, t, t >= E ? 3 : 1);
+          c.style.color = 'var(--live)';
+          c.style.opacity = (0.4 * op).toFixed(3);
+          c.style.transform = 'translateY(0px)';
+          c.style.fontVariationSettings = `'wght' 470, 'wdth' 100`;
+          c.style.filter = 'blur(0.45px)';
+        } else {
+          c.textContent = word[i];
+          c.style.color = mix('--hot', '--live', 1 - k);
+          c.style.opacity = op.toFixed(3);
+          c.style.transform = `translateY(${((1 - k) * 1.5).toFixed(2)}px)`;
+          c.style.fontVariationSettings = `'wght' ${lerp(470, 520, k).toFixed(1)}, 'wdth' 100`;
+          c.style.filter = 'none';
+        }
+      });
+    };
+  },
+});
+reg(decodeDef('dark'));
+
+/* 3. Caret ---------------------------------------------------------------- */
+const caretDef = (theme) => ({
+  id: theme === 'dark' ? 'caret' : 'caret-light', group: 'thinking', theme, n: '03', name: 'Caret', tag: 'thinking',
+  L: 6000, still: 4000,
+  purpose: 'Thinking, with the model\'s own note when it gives one.',
+  moves: 'A violet caret types the word and glides on a damped spring to each new letter. It breathes while it waits, then drops a line and types the note.',
+  rm: 'Text appears whole. The caret stays lit, no blink.',
+  make(stage) {
+    const L = 6000;
+    const L1 = 'Thinking', L2 = 'Reading the 6.18 changelog against your notes.';
+    const s = thinkScaffold(stage, '');
+    const chars = (txt) => [...txt].map((c) => `<span class="ch">${c}</span>`).join('');
+    s.word.innerHTML = chars(L1);
+    s.note.innerHTML = chars(L2);
+    const c1 = [...s.word.children], c2 = [...s.note.children];
+    const caret = el('i', 'caret');
+    stage.appendChild(caret);
+    const r1 = c1.map((c) => rel(c, stage)), r2 = c2.map((c) => rel(c, stage));
+    const lineBox = (r, h) => ({ y: r.y + (r.h - h) / 2, h });
+    const B1 = lineBox(r1[0], 17), B2 = lineBox(r2[0], 15);
+    // char times
+    const t1 = c1.map((_, j) => 220 + j * 46);
+    const words2 = L2.split(' ');
+    const chunks = [[0, 2, 1950], [2, 4, 2230], [4, 5, 2520], [5, 7, 2760]];
+    const t2 = new Array(c2.length).fill(0);
+    let ci = 0;
+    const wStart = []; words2.forEach((w, i) => { wStart.push(ci); ci += w.length + 1; });
+    for (const [a, b, tt] of chunks) {
+      let j = 0;
+      for (let w = a; w < b; w++) {
+        const st = wStart[w], en = st + words2[w].length + (w < words2.length - 1 ? 1 : 0);
+        for (let q = st; q < en; q++) { t2[q] = tt + j * 15; j++; }
+      }
+    }
+    const FADE = 5150, BACK = 5260;
+    // caret target over time
+    const target = (t) => {
+      if (t >= BACK || t < t1[0]) return { x: r1[0].x - 1, y: B1.y, h: B1.h, at: t >= BACK ? BACK : -1e9 };
+      if (t < 1650) { let j = -1; for (let q = 0; q < c1.length; q++) if (t >= t1[q]) j = q; return j < 0 ? { x: r1[0].x - 1, y: B1.y, h: B1.h, at: -1e9 } : { x: r1[j].x + r1[j].w + 1.5, y: B1.y, h: B1.h, at: t1[j] }; }
+      let j = -1; for (let q = 0; q < c2.length; q++) if (t >= t2[q]) j = q;
+      if (j < 0) return { x: r2[0].x - 1, y: B2.y, h: B2.h, at: 1650 };
+      return { x: r2[j].x + r2[j].w + 1.5, y: B2.y, h: B2.h, at: t2[j] };
+    };
+    // simulate a critically damped follow over two loops so the end state feeds the start
+    const tab = new Float32Array(L * 4);
+    let x = r1[0].x - 1, y = B1.y, h = B1.h, vx = 0, vy = 0, vh = 0, lastAt = -1e9;
+    for (let pass = 0; pass < 2; pass++) {
+      for (let ms = 0; ms < L; ms++) {
+        const tg = target(ms);
+        if (tg.at > -1e9 && tg.at !== lastAt && ms >= tg.at) lastAt = tg.at;
+        const dt = 0.001;
+        // stiff for one letter, softer for a long move such as a new line
+        const W0 = Math.hypot(tg.x - x, tg.y - y) > 40 ? 26 : 62;
+        for (const [k, tv] of [['x', tg.x], ['y', tg.y], ['h', tg.h]]) {
+          if (k === 'x') { const a = W0 * W0 * (tv - x) - 2 * W0 * vx; vx += a * dt; x += vx * dt; }
+          if (k === 'y') { const a = W0 * W0 * (tv - y) - 2 * W0 * vy; vy += a * dt; y += vy * dt; }
+          if (k === 'h') { const a = W0 * W0 * (tv - h) - 2 * W0 * vh; vh += a * dt; h += vh * dt; }
+        }
+        // blink: soft square wave once idle for 450ms
+        const idle = ms - (lastAt > -1e9 ? lastAt : ms - 100000) - 450;
+        const lastLoopAt = lastAt;
+        let o = 1;
+        if (idle > 0) { const ph = idle / 1060; o = 0.16 + 0.84 * (0.5 + 0.5 * Math.tanh(4.5 * Math.cos(2 * Math.PI * ph)) / Math.tanh(4.5)); }
+        if (pass === 1) { tab[ms * 4] = x; tab[ms * 4 + 1] = y; tab[ms * 4 + 2] = h; tab[ms * 4 + 3] = o; }
+      }
+      lastAt -= L; // the next loop sees the last event as one loop ago
+    }
+    return (t) => {
+      const ms = Math.min(L - 1, Math.max(0, Math.round(t)));
+      caret.style.transform = `translate(${tab[ms * 4].toFixed(2)}px, ${tab[ms * 4 + 1].toFixed(2)}px)`;
+      caret.style.height = tab[ms * 4 + 2].toFixed(2) + 'px';
+      caret.style.opacity = tab[ms * 4 + 3].toFixed(3);
+      const out = 1 - easeIn(seg(t, FADE, 280));
+      c1.forEach((c, j) => { c.style.opacity = (ease(seg(t, t1[j] + 20, 110)) * out).toFixed(3); });
+      c2.forEach((c, j) => { c.style.opacity = (ease(seg(t, t2[j] + 20, 130)) * out).toFixed(3); });
+    };
+  },
+});
+reg(caretDef('dark'));
+
+/* 4. Wave ----------------------------------------------------------------- */
+const waveDef = (theme) => ({
+  id: theme === 'dark' ? 'wave' : 'wave-light', group: 'thinking', theme, n: '04', name: 'Wave', tag: 'thinking',
+  L: 2500, still: 2400,
+  purpose: 'The live "Thinking" word.',
+  moves: 'A crest of light and 2.5px of lift travels through the letters, with a small dip behind it like water. Then it rests.',
+  rm: 'Letters sit on the baseline in the base tone.',
+  make(stage) {
+    const s = thinkScaffold(stage);
+    s.word.innerHTML = [...'Thinking'].map((c) => `<span class="lt">${c}</span>`).join('');
+    const ls = [...s.word.children], n = ls.length;
+    return (t) => {
+      const p = easeSine(seg(t, 0, 1450));
+      const c = lerp(-2.9, n - 1 + 4.6, p);
+      ls.forEach((sp, i) => {
+        const d = i - c;
+        const g = gauss(d, 0.85);
+        const dip = gauss(d + 1.75, 0.9);
+        const y = -2.5 * g + 0.75 * dip;
+        const slope = -d * g; // lean into the direction of travel
+        sp.style.transform = `translateY(${y.toFixed(3)}px) rotate(${(slope * 3.2).toFixed(2)}deg)`;
+        sp.style.color = mix('--hot', '--live', g);
+      });
+    };
+  },
+});
+reg(waveDef('dark'));
+
+/* 5. Flex ----------------------------------------------------------------- */
+const flexDef = (theme) => ({
+  id: theme === 'dark' ? 'flex' : 'flex-light', group: 'thinking', theme, n: '05', name: 'Flex', tag: 'thinking',
+  L: 2750, still: 2600,
+  purpose: 'The live "Thinking" word.',
+  moves: 'A pulse of weight runs through the letters on Mona Sans\' weight and width axes. Each letter stays on its seat, so nothing reflows.',
+  rm: 'The word holds at its rest weight.',
+  make(stage) {
+    const s = thinkScaffold(stage);
+    const word = 'Thinking';
+    s.word.innerHTML = [...word].map((c) => `<span class="lt">${c}</span>`).join('');
+    const ls = [...s.word.children];
+    const centers = ls.map((sp) => { const r = rel(sp, s.word); return r.x + r.w / 2; });
+    const W = s.word.getBoundingClientRect().width;
+    s.word.classList.add('flexw');
+    s.word.style.width = W + 'px';
+    ls.forEach((sp, i) => { sp.style.left = centers[i] + 'px'; });
+    const n = ls.length;
+    return (t) => {
+      const p = easeSine(seg(t, 0, 1650));
+      const c = lerp(-2.6, n - 1 + 2.6, p);
+      ls.forEach((sp, i) => {
+        const g = gauss(i - c, 0.95);
+        sp.style.fontVariationSettings = `'wght' ${(520 + 300 * g).toFixed(1)}, 'wdth' ${(100 - 13 * g).toFixed(2)}`;
+        sp.style.color = mix('--hot', '--live', g * 0.9);
+      });
+    };
+  },
+});
+reg(flexDef('dark'));
+
+/* 6. Focus: fade and blur per word ---------------------------------------- */
+reg({
+  id: 'focus', group: 'stream', theme: 'dark', n: '06', name: 'Focus', tag: 'writing',
+  L: 6500, still: 5000,
+  purpose: 'Reply text while it streams.',
+  moves: 'Each word comes up from a 5px blur to sharp as it is released, 42ms apart, so bursts from the provider read as an even pace.',
+  rm: 'Words appear as they arrive. No blur.',
+  make(stage) {
+    const r = replyScaffold(stage);
+    const rel_ = releases(r.words.length, 7, 260);
+    const end = rel_[rel_.length - 1];
+    const codeAt = rel_[r.blocks[1].first];
+    return (t) => {
+      const out = 1 - easeIn(seg(t, 5650, 420));
+      r.words.forEach((w, i) => {
+        const k = ease(seg(t, rel_[i], 420));
+        const b = 5 * (1 - ease(seg(t, rel_[i], 560)));
+        w.span.style.opacity = (k * out).toFixed(3);
+        w.span.style.filter = b > 0.02 ? `blur(${b.toFixed(2)}px)` : 'none';
+      });
+      r.blocks[1].node.style.opacity = (ease(seg(t, codeAt - 60, 220)) * out).toFixed(3);
+      r.acts.style.opacity = (ease(seg(t, end + 450, 220)) * out).toFixed(3);
+    };
+  },
+});
+
+/* 7. Ink: a soft mask wipe per line --------------------------------------- */
+reg({
+  id: 'ink', group: 'stream', theme: 'dark', n: '07', name: 'Ink', tag: 'writing',
+  L: 6500, still: 5000,
+  purpose: 'Reply text while it streams.',
+  moves: 'A soft-edged mask wipes along each line as words arrive. The newest letters carry a violet tint that cools to ink about 0.3s behind the front.',
+  rm: 'Words appear as they arrive. No wipe, no tint.',
+  make(stage) {
+    const r = replyScaffold(stage, { ink: true });
+    const rel_ = releases(r.words.length, 7, 260);
+    const end = rel_[rel_.length - 1];
+    // lines per block, with each word's arrival spread across its width
+    const D = 190;
+    const lines = r.blocks.map((b) => {
+      const bw = b.node.getBoundingClientRect().width;
+      const ls = [];
+      b.words.forEach((sp, j) => {
+        const gi = b.first + j;
+        const rr = rel(sp, b.node);
+        let line = ls.find((l) => Math.abs(l.y - rr.y) < 4);
+        if (!line) { line = { y: rr.y, h: rr.h, segs: [] }; ls.push(line); }
+        const nextT = gi + 1 < rel_.length ? rel_[gi + 1] : rel_[gi] + 90;
+        const dur = clamp(nextT - rel_[gi], 42, 160);
+        line.segs.push({ x0: rr.x, x1: rr.x + rr.w, t0: rel_[gi], t1: rel_[gi] + dur });
+      });
+      return { bw, ls };
+    });
+    // how far along the line text has arrived by time tau
+    const reach = (line, tau) => {
+      let x = line.segs[0].x0;
+      for (const sg of line.segs) {
+        if (tau < sg.t0) return x;
+        if (tau < sg.t1) return lerp(sg.x0, sg.x1, (tau - sg.t0) / (sg.t1 - sg.t0));
+        x = sg.x1;
+      }
+      return x + 60;
+    };
+    const codeAt = rel_[r.blocks[1].first];
+    return (t) => {
+      const out = 1 - easeIn(seg(t, 5650, 420));
+      r.blocks.forEach((b, bi) => {
+        const { bw, ls } = lines[bi];
+        const base = [], tint = [], sizes = [], pos = [];
+        for (const line of ls) {
+          const front = reach(line, t), solid = reach(line, t - D);
+          const a = Math.min(solid, front - 0.01);
+          base.push(front <= line.segs[0].x0 + 0.01 ? 'linear-gradient(transparent,transparent)' : `linear-gradient(90deg, #000 ${a.toFixed(1)}px, transparent ${front.toFixed(1)}px)`);
+          const m1 = reach(line, t - D * 0.45), m0 = reach(line, t - D * 1.5);
+          tint.push(front - m0 < 0.5 ? 'linear-gradient(transparent,transparent)' : `linear-gradient(90deg, transparent ${m0.toFixed(1)}px, #000 ${Math.max(m0 + 0.1, m1).toFixed(1)}px, transparent ${Math.max(m1 + 0.2, front + 0.2).toFixed(1)}px)`);
+          sizes.push(`${bw}px ${line.h.toFixed(1)}px`);
+          pos.push(`0px ${line.y.toFixed(1)}px`);
+        }
+        const apply = (node, imgs) => {
+          node.style.webkitMaskImage = node.style.maskImage = imgs.join(',');
+          node.style.webkitMaskSize = node.style.maskSize = sizes.join(',');
+          node.style.webkitMaskPosition = node.style.maskPosition = pos.join(',');
+          node.style.webkitMaskRepeat = node.style.maskRepeat = 'no-repeat';
+        };
+        if (b.k === 'code') {
+          // the box fades in; its text wipes inside it
+          const inner = b.node;
+          b.node.parentNode.style.opacity = out.toFixed(3);
+          b.node.style.background = 'transparent';
+          b.node.style.borderColor = 'transparent';
+          if (!b.box) {
+            b.box = el('div', 'code');
+            b.box.style.cssText = 'position:absolute;left:0;top:0;right:0;bottom:0;padding:0;';
+            b.node.parentNode.insertBefore(b.box, b.node);
+            b.node.style.position = 'relative';
+          }
+          b.box.style.opacity = ease(seg(t, codeAt - 60, 220)).toFixed(3);
+          apply(inner, base); apply(b.tint, tint);
+        } else {
+          b.node.parentNode.style.opacity = out.toFixed(3);
+          apply(b.node, base); apply(b.tint, tint);
+        }
+      });
+      r.acts.style.opacity = (ease(seg(t, end + 450, 220)) * out).toFixed(3);
+    };
+  },
+});
+
+/* 8. Rise ----------------------------------------------------------------- */
+reg({
+  id: 'rise', group: 'stream', theme: 'dark', n: '08', name: 'Rise', tag: 'writing',
+  L: 6500, still: 5000,
+  purpose: 'Reply text while it streams.',
+  moves: 'Each word rises 5px into place as it fades in. Fresh words start in a quieter tone and settle to full ink over 0.6s, so your eye finds the edge.',
+  rm: 'Words appear in place at full ink.',
+  make(stage) {
+    const r = replyScaffold(stage);
+    const rel_ = releases(r.words.length, 7, 260);
+    const end = rel_[rel_.length - 1];
+    const codeAt = rel_[r.blocks[1].first];
+    return (t) => {
+      const out = 1 - easeIn(seg(t, 5650, 420));
+      r.words.forEach((w, i) => {
+        const k = ease(seg(t, rel_[i], 300));
+        const y = 5 * (1 - ease(seg(t, rel_[i], 440)));
+        const c = ease(seg(t, rel_[i] + 80, 620));
+        w.span.style.opacity = (k * out).toFixed(3);
+        w.span.style.transform = `translateY(${y.toFixed(2)}px)`;
+        if (w.block.k !== 'code') w.span.style.color = mix('--fg', '--fg-3', c);
+      });
+      r.blocks[1].node.style.opacity = (ease(seg(t, codeAt - 60, 220)) * out).toFixed(3);
+      r.acts.style.opacity = (ease(seg(t, end + 450, 220)) * out).toFixed(3);
+    };
+  },
+});
+
+/* 9. Fold ----------------------------------------------------------------- */
+reg({
+  id: 'fold', group: 'state', theme: 'dark', n: '09', name: 'Fold', tag: 'thought row',
+  L: 8000, still: 4200,
+  purpose: 'The "Thought for 6s" row and the reasoning under it.',
+  moves: '"Thinking" morphs into "Thought for 6s": the shared "Th" stays and the rest trades letters. The reasoning folds up as the answer arrives in its place. A click opens it again: the rule draws down and the lines come in top first.',
+  rm: 'The row swaps its words and the reasoning shows or hides at once.',
+  make(stage) {
+    const THOUGHT = 'They mean the amdgpu resume hang from March. Check the 6.18 notes and the Arch tracker for a fix. If it landed, a reboot into 6.18.1 is enough.';
+    const ANSWER = 'Yes. The fix landed in 6.18, and Arch ships 6.18.1 in core. Update, reboot, and suspend should work again.';
+    stage.innerHTML = `<div class="ubox"><div class="bubble">is my RDNA3 suspend bug fixed yet?</div></div>
+      <div class="trow"><span class="tlabel"><span class="th">Th</span><span class="tsuf"><span class="sa"></span><span class="sb"></span></span></span>${CHEV}</div>
+      <div class="well"><div class="well-in"><div class="well-rule"></div><div class="tt"></div></div></div>
+      <div class="reply"><p class="ans"></p></div>`;
+    const q = (s) => stage.querySelector(s);
+    const th = q('.th'), suf = q('.tsuf'), sa = q('.sa'), sb = q('.sb'), chev = q('.chev'), label = q('.tlabel');
+    const well = q('.well'), rule = q('.well-rule'), tt = q('.tt'), ans = q('.ans');
+    sa.innerHTML = [...'inking'].map((c) => `<span class="lt">${c}</span>`).join('');
+    sb.innerHTML = [...'ought for 6s'].map((c) => `<span class="lt">${c}</span>`).join('');
+    const la = [...sa.children], lb = [...sb.children];
+    const wa = sa.getBoundingClientRect().width, wb = sb.getBoundingClientRect().width;
+    const words = (node, text) => text.split(' ').map((w, i, arr) => { const s = el('span', 'w'); s.textContent = w; node.appendChild(s); if (i < arr.length - 1) node.appendChild(document.createTextNode(' ')); return s; });
+    const tw = words(tt, THOUGHT), aw = words(ans, ANSWER);
+    // reasoning lines
+    const tops = []; const lineOf = tw.map((s) => { const y = Math.round(rel(s, tt).y); let i = tops.findIndex((v) => Math.abs(v - y) < 4); if (i < 0) { tops.push(y); i = tops.length - 1; } return i; });
+    const NL = tops.length;
+    const H = well.getBoundingClientRect().height;
+    // the last sentence of the thought streams in before the fold
+    const streamFrom = THOUGHT.split(' ').length - 12;
+    const tRel = tw.map((_, i) => (i < streamFrom ? -1 : 260 + (i - streamFrom) * 70));
+    const F = 1500, O = 5450;
+    const aRel = releases(aw.length, 11, F + 140, 60, 170);
+    // pointer
+    const ptr = el('div', 'ptr', '<svg viewBox="0 0 14 20" width="14" height="20"><path d="M1 1 L1 15.2 L4.6 11.9 L7.2 17.6 L9.6 16.5 L7.1 11 L12.1 11 Z" fill="var(--ptr-fill)" stroke="var(--ptr-edge)" stroke-width="1.1" stroke-linejoin="round"/></svg>');
+    stage.appendChild(ptr);
+    const lr = rel(label, stage);
+    const P0 = { x: 292, y: 238 }, P1 = { x: lr.x + 64, y: lr.y + 12 }, P2 = { x: 268, y: lr.y + 8 };
+    const sceneOut = 7350;
+    return (t) => {
+      const sc = sceneAlpha(t, 8000, 220, sceneOut, 420);
+      stage.style.opacity = 1;
+      [q('.trow'), well, q('.reply'), ptr].forEach((n) => (n.style.opacity = sc.toFixed(3)));
+      q('.ubox').style.opacity = 1;
+      // label morph at F
+      const m = seg(t, F, 260);
+      la.forEach((sp, i) => { const k = easeIn(seg(t, F + (la.length - 1 - i) * 12, 110)); sp.style.opacity = (1 - k).toFixed(3); sp.style.transform = `translateY(${(-3 * k).toFixed(2)}px)`; });
+      lb.forEach((sp, i) => { const k = ease(seg(t, F + 120 + i * 16, 220)); sp.style.opacity = k.toFixed(3); sp.style.transform = `translateY(${(3 * (1 - k)).toFixed(2)}px)`; });
+      suf.style.width = lerp(wa, wb, ease(seg(t, F + 30, 260))).toFixed(2) + 'px';
+      // colors: live violet, then quiet, then hover
+      const hover = ease(seg(t, 5180, 120)) * (1 - ease(seg(t, 6250, 200)));
+      const quiet = mix('--fg', '--fg-3', hover);
+      const toQuiet = ease(seg(t, F, 240));
+      label.style.color = toQuiet <= 0 ? 'var(--live)' : toQuiet >= 1 ? quiet : `color-mix(in oklch, ${quiet} ${(toQuiet * 100).toFixed(1)}%, var(--live))`;
+      // open amount
+      const close = ease(seg(t, F + 40, 320));
+      const open = easeDrawer(seg(t, O, 360));
+      const amt = t < O ? 1 - close : open;
+      well.style.height = (H * amt).toFixed(2) + 'px';
+      chev.style.transform = `rotate(${(90 * (t < O ? 1 - ease(seg(t, F, 200)) : ease(seg(t, O, 200)))).toFixed(2)}deg)`;
+      // rule
+      const rs = t < O ? 1 - easeIn(seg(t, F, 260)) : ease(seg(t, O + 30, 300));
+      rule.style.transform = `scaleY(${rs.toFixed(4)})`;
+      // reasoning lines
+      tw.forEach((sp, i) => {
+        const L = lineOf[i];
+        let o, y;
+        if (t < O) {
+          const k = easeIn(seg(t, F + (NL - 1 - L) * 26, 150));
+          const st = tRel[i] < 0 ? 1 : ease(seg(t, tRel[i], 200));
+          o = st * (1 - k); y = -3 * k;
+        } else {
+          const k = ease(seg(t, O + 70 + L * 38, 240));
+          o = k; y = 4 * (1 - k);
+        }
+        sp.style.opacity = o.toFixed(3);
+        sp.style.transform = `translateY(${y.toFixed(2)}px)`;
+      });
+      // answer
+      aw.forEach((sp, i) => { sp.style.opacity = ease(seg(t, aRel[i], 260)).toFixed(3); });
+      // pointer path
+      const mv = easeSine(seg(t, 4550, 620));
+      const mv2 = easeSine(seg(t, 6200, 700));
+      const bx = lerp(P0.x, P1.x, mv), by = lerp(P0.y, P1.y, mv) - Math.sin(Math.PI * mv) * 18;
+      const px = lerp(bx, P2.x, mv2), py = lerp(by, P2.y, mv2);
+      const press = t >= 5370 && t < 5520 ? 1 - 0.1 * Math.sin(Math.PI * seg(t, 5370, 150)) : 1;
+      ptr.style.transform = `translate(${px.toFixed(2)}px, ${py.toFixed(2)}px) scale(${press.toFixed(3)})`;
+      ptr.style.opacity = (sc * ease(seg(t, 4350, 240))).toFixed(3);
+    };
+  },
+});
+
+/* 10. Roll ---------------------------------------------------------------- */
+reg({
+  id: 'roll', group: 'state', theme: 'dark', n: '10', name: 'Roll', tag: 'counters',
+  L: 7000, still: 3600,
+  purpose: 'Tokens, cost and the limit countdown.',
+  moves: 'Only the digits that change roll, each in its own clipped cell with soft edges. Up when a value rises, down when it falls. 5:00 to 4:59 rolls three digits at once.',
+  rm: 'Digits change in place with a 120ms crossfade.',
+  make(stage) {
+    stage.innerHTML = `<div class="ubox"><div class="bubble">and the Btrfs change?</div></div>
+      <div class="reply"><p>Scrub now reads several devices at once, so a full pass on the NAS should take about half as long.</p></div>
+      <div class="meta"><span>Sonnet 5.5</span><span><span class="num n-tok"></span> tokens</span><span class="num n-cost"></span><span><span class="num n-spd"></span> tok/s</span></div>
+      <div class="limit"><div class="lab">You reached the 5 hour limit</div><div class="big"><span class="num clock n-clk"></span><span class="sub">resumes at 15:42</span></div></div>`;
+    const q = (s) => stage.querySelector(s);
+    // value timelines
+    const tok = [], cost = [], spd = [], clk = [];
+    let v = 1962; const rr = rng(5);
+    tok.push({ t: -1, v });
+    for (let i = 0; i < 11; i++) { v += 18 + Math.floor(rr() * 46); tok.push({ t: 300 + i * 340, v }); }
+    const fmtTok = (x) => x.toLocaleString('en-US');
+    const fmtCost = (x) => '$' + (x * 0.000015).toFixed(3);
+    for (const e of tok) { const s = fmtCost(e.v); if (!cost.length || cost[cost.length - 1].s !== s) cost.push({ t: e.t, v: e.v, s }); }
+    const sp = [41, 44, 39, 42, 46, 43];
+    sp.forEach((x, i) => spd.push({ t: i === 0 ? -1 : 260 + i * 680, v: x }));
+    let secs = 303;
+    clk.push({ t: -1, v: secs });
+    for (let i = 0; i < 6; i++) clk.push({ t: 700 + i * 1000, v: --secs });
+    const fmtClk = (x) => `${Math.floor(x / 60)}:${String(x % 60).padStart(2, '0')}`;
+    const counters = [
+      { node: q('.n-tok'), ev: tok.map((e) => ({ ...e, s: fmtTok(e.v) })), dur: 240 },
+      { node: q('.n-cost'), ev: cost, dur: 240 },
+      { node: q('.n-spd'), ev: spd.map((e) => ({ ...e, s: String(e.v) })), dur: 240 },
+      { node: q('.n-clk'), ev: clk.map((e) => ({ ...e, s: fmtClk(e.v) })), dur: 380 },
+    ];
+    for (const c of counters) {
+      const s0 = c.ev[0].s;
+      c.node.innerHTML = [...s0].map((ch) => `<span class="dg"><span class="a">${ch}</span><span class="b"></span></span>`).join('');
+      c.cells = [...c.node.children];
+      // fixed cell widths: the widest digit, so nothing shifts
+      const probe = el('span', ''); probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;';
+      c.node.appendChild(probe);
+      let dw = 0; for (const d of '0123456789') { probe.textContent = d; dw = Math.max(dw, probe.getBoundingClientRect().width); }
+      c.cells.forEach((cell, i) => { probe.textContent = s0[i]; const w = /\d/.test(s0[i]) ? dw : probe.getBoundingClientRect().width; cell.style.width = w + 'px'; });
+      probe.remove();
+      const lh = c.cells[0].getBoundingClientRect().height;
+      c.cells.forEach((cell) => { cell.style.height = lh + 'px'; });
+      c.lh = lh;
+      c.travel = parseFloat(getComputedStyle(c.cells[0]).fontSize) * 0.9;
+    }
+    return (t) => {
+      const sc = sceneAlpha(t, 7000, 220, 6300, 420);
+      stage.querySelectorAll('.reply, .meta, .limit').forEach((n) => (n.style.opacity = sc.toFixed(3)));
+      for (const c of counters) {
+        let e = 0; for (let i = 0; i < c.ev.length; i++) if (c.ev[i].t <= t) e = i;
+        const cur = c.ev[e].s, prev = e > 0 ? c.ev[e - 1].s : cur;
+        const dir = e > 0 && c.ev[e].v < c.ev[e - 1].v ? -1 : 1;
+        const k = e > 0 ? seg(t, c.ev[e].t, c.dur) : 1;
+        // lower digits move first, each higher changed digit 28ms later, like an odometer
+        let rank = 0; const lagOf = {};
+        for (let i = cur.length - 1; i >= 0; i--) if (prev[i] !== cur[i]) lagOf[i] = 28 * rank++;
+        const span = c.dur + 28 * Math.max(0, rank - 1);
+        const live = e > 0 && t - c.ev[e].t < span;
+        c.cells.forEach((cell, i) => {
+          const a = cell.children[0], b = cell.children[1];
+          if (live && prev[i] !== cur[i]) {
+            const kk = ease(clamp((t - c.ev[e].t - lagOf[i]) / c.dur));
+            a.textContent = prev[i]; b.textContent = cur[i];
+            a.style.transform = `translateY(${(-dir * kk * c.travel).toFixed(2)}px)`;
+            b.style.transform = `translateY(${(dir * (1 - kk) * c.travel).toFixed(2)}px)`;
+            a.style.opacity = (1 - kk).toFixed(3); b.style.opacity = kk.toFixed(3);
+          } else {
+            a.textContent = cur[i]; b.textContent = '';
+            a.style.transform = 'translateY(0px)'; a.style.opacity = 1;
+          }
+        });
+      }
+    };
+  },
+});
+
+/* 11. Steps --------------------------------------------------------------- */
+reg({
+  id: 'steps', group: 'state', theme: 'dark', n: '11', name: 'Steps', tag: 'status line',
+  L: 5400, still: 1200,
+  purpose: 'The live status line as the work changes.',
+  moves: 'The old step lifts 4px and blurs out in 150ms. The next one comes up from below a word at a time. Its verb gets one pass of light 0.6s after it lands.',
+  rm: 'A 120ms crossfade between steps. No lift, no light.',
+  make(stage) {
+    const ICONS = {
+      search: '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="7" cy="7" r="4.25"/><path d="m10.25 10.25 3 3"/></svg>',
+      page: '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.25h5.5L12.25 5v8.75H4z"/><path d="M6.25 7.5h3.5M6.25 10h3.5"/></svg>',
+      pen: '<svg class="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 2.75 13.25 5.5 6 12.75H3.25V10z"/><path d="m9 4.25 2.75 2.75"/></svg>',
+    };
+    const STEPS = [
+      { ic: 'search', verb: 'Searching the web', tgt: 'linux 6.18 changes' },
+      { ic: 'page', verb: 'Reading 3 pages', tgt: 'lwn.net, archlinux.org' },
+      { ic: 'pen', verb: 'Writing', tgt: '' },
+    ];
+    stage.innerHTML = `<div class="ubox"><div class="bubble">${ASK}</div></div>
+      <div class="row">Thought for 6s ${CHEV}</div><div class="sline"></div>`;
+    const line = stage.querySelector('.sline');
+    const ws = (txt) => txt ? txt.split(' ').map((w) => `<span class="w">${w}</span>`).join(' ') : '';
+    const st = STEPS.map((s) => {
+      const node = el('div', 'st', `${ICONS[s.ic]}<span class="verb">${ws(s.verb)}</span><span class="tgt">${ws(s.tgt)}</span>`);
+      line.appendChild(node);
+      const parts = [node.querySelector('.ic'), ...node.querySelectorAll('.verb .w'), ...node.querySelectorAll('.tgt .w')];
+      const verbWords = [...node.querySelectorAll('.verb .w')];
+      const vb = node.querySelector('.verb');
+      const vw = vb.getBoundingClientRect().width;
+      const offs = verbWords.map((w) => rel(w, vb).x);
+      verbWords.forEach((w) => w.classList.add('sheen'));
+      return { node, parts, verbWords, vw, offs };
+    });
+    const STEP = 1800;
+    return (t) => {
+      const cur = Math.floor(t / STEP) % 3, u = t - Math.floor(t / STEP) * STEP;
+      const prev = (cur + 2) % 3;
+      st.forEach((s, si) => {
+        let vis = si === cur || si === prev;
+        s.node.style.visibility = vis ? 'visible' : 'hidden';
+        if (!vis) return;
+        s.parts.forEach((p, j) => {
+          let o, y, b;
+          if (si === cur) {
+            const k = ease(seg(u, 140 + j * 32, 300));
+            o = k; y = 5 * (1 - k); b = 1.6 * (1 - k);
+          } else {
+            const k = easeIn(seg(u, j * 10, 150));
+            o = 1 - k; y = -4 * k; b = 1.6 * k;
+          }
+          p.style.opacity = o.toFixed(3);
+          p.style.transform = `translateY(${y.toFixed(2)}px)`;
+          p.style.filter = b > 0.03 ? `blur(${b.toFixed(2)}px)` : 'none';
+        });
+        // one pass of light on the current verb, 600ms after it lands
+        const lu = si === cur ? u : u + STEP;
+        const pp = easeSine(seg(lu, 620, 1000));
+        const bw = 22, W = s.vw;
+        const c = lerp(-2.4 * bw, W + 2.6 * bw, pp);
+        s.verbWords.forEach((w, j) => {
+          const o = -s.offs[j];
+          w.style.backgroundImage = `linear-gradient(90deg, var(--sh-base) ${o + c - 2.4 * bw}px, var(--sh-trail) ${o + c - 1.15 * bw}px, var(--sh-core) ${o + c - 0.2 * bw}px, var(--sh-core) ${o + c + 0.15 * bw}px, var(--sh-lead) ${o + c + 0.95 * bw}px, var(--sh-base) ${o + c + 2.2 * bw}px)`;
+        });
+      });
+    };
+  },
+});
+
+// light versions of every thinking piece
+[sheenDef, decodeDef, caretDef, waveDef, flexDef].forEach((d) => reg(d('light')));
+
+// ---------------------------------------------------------------------------
+// mount and run
+// ---------------------------------------------------------------------------
+const GROUPS = [
+  { id: 'thinking', title: 'Thinking: the word is the indicator', filter: (p) => p.group === 'thinking' && p.theme === 'dark' },
+  { id: 'thinking-light', title: 'Thinking, light theme', filter: (p) => p.group === 'thinking' && p.theme === 'light' },
+  { id: 'stream', title: 'Writing: three ways to reveal a streaming reply', filter: (p) => p.group === 'stream' },
+  { id: 'state', title: 'State: rows, counters and the status line', filter: (p) => p.group === 'state' },
+];
+const params = new URLSearchParams(location.search);
+const SOLO = params.get('solo');
+const FIXED_T = params.has('t') ? Number(params.get('t')) : null;
+const inst = {};
+
+async function boot() {
+  await Promise.all([
+    document.fonts.load('520 14px "Mona Sans Variable"'),
+    document.fonts.load('400 12.5px "JetBrains Mono Variable"'),
+  ]);
+  await document.fonts.ready;
+  const main = document.getElementById('main');
+  if (SOLO) {
+    const p = PROTOS.find((x) => x.id === SOLO);
+    document.body.className = 'solo th-' + p.theme;
+  }
+  for (const g of GROUPS) {
+    const list = PROTOS.filter(g.filter).filter((p) => !SOLO || p.id === SOLO);
+    if (!list.length) continue;
+    const sec = el('section', 'group');
+    sec.appendChild(el('h2', '', g.title));
+    const grid = el('div', 'grid');
+    sec.appendChild(grid);
+    main.appendChild(sec);
+    for (const p of list) {
+      const cell = el('article', `cell th-${p.theme}`);
+      cell.id = 'c-' + p.id;
+      cell.innerHTML = `<div class="cap"><div class="cell-h"><span class="cell-n">${p.n}  ${p.name}${p.theme === 'light' ? ', light' : ''}</span><span class="cell-k">${p.tag}</span></div><div class="stage"></div></div>
+        <div class="cell-f"><p><b>For</b> ${esc(p.purpose)}</p><p><b>Moves</b> ${esc(p.moves)}</p><p><b>Reduced motion</b> ${esc(p.rm)}</p></div>`;
+      grid.appendChild(cell);
+      const stage = cell.querySelector('.stage');
+      const render = p.make(stage);
+      inst[p.id] = { p, render, cell, visible: true };
+    }
+  }
+  window.__protos = PROTOS.map(({ id, name, theme, L, purpose, moves }) => ({ id, name, theme, L, purpose, moves }));
+  window.__render = (id, t) => inst[id].render(((t % inst[id].p.L) + inst[id].p.L) % inst[id].p.L);
+  window.__ready = true;
+  if (FIXED_T != null) { for (const k in inst) inst[k].render(FIXED_T % inst[k].p.L); return; }
+
+  const rmBox = document.getElementById('rm');
+  const mq = matchMedia('(prefers-reduced-motion: reduce)');
+  rmBox.checked = mq.matches;
+  const io = new IntersectionObserver((es) => es.forEach((e) => { const i = Object.values(inst).find((x) => x.cell === e.target); if (i) i.visible = e.isIntersecting; }));
+  Object.values(inst).forEach((i) => io.observe(i.cell));
+  const t0 = performance.now();
+  const frame = (now) => {
+    const still = rmBox.checked;
+    for (const k in inst) {
+      const i = inst[k];
+      if (!i.visible || document.hidden) continue;
+      i.render(still ? i.p.still : (now - t0) % i.p.L);
+    }
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,129 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running unittests src/lib.rs (cargop/target/debug/deps/cargop-63d4b167f2fae61b)
+
+running 62 tests
+test tests::adds_0 ... ok
+test tests::adds_10 ... ok
+test tests::adds_11 ... ok
+test tests::adds_13 ... ok
+test tests::adds_12 ... ok
+test tests::adds_14 ... ok
+test tests::adds_15 ... ok
+test tests::adds_16 ... ok
+test tests::adds_17 ... ok
+test tests::adds_18 ... ok
+test tests::adds_19 ... ok
+test tests::adds_2 ... ok
+test tests::adds_20 ... ok
+test tests::adds_21 ... ok
+test tests::adds_22 ... ok
+test tests::adds_24 ... ok
+test tests::adds_25 ... ok
+test tests::adds_26 ... ok
+test tests::adds_23 ... ok
+test tests::adds_27 ... ok
+test tests::adds_28 ... ok
+test tests::adds_29 ... ok
+test tests::adds_30 ... ok
+test tests::adds_31 ... ok
+test tests::adds_3 ... ok
+test tests::adds_32 ... ok
+test tests::adds_33 ... ok
+test tests::adds_34 ... ok
+test tests::adds_36 ... ok
+test tests::adds_35 ... ok
+test tests::adds_37 ... ok
+test tests::adds_38 ... ok
+test tests::adds_4 ... ok
+test tests::adds_40 ... ok
+test tests::adds_41 ... ok
+test tests::adds_42 ... ok
+test tests::adds_39 ... ok
+test tests::adds_43 ... ok
+test tests::adds_45 ... ok
+test tests::adds_44 ... ok
+test tests::adds_47 ... ok
+test tests::adds_48 ... ok
+test tests::adds_49 ... ok
+test tests::adds_5 ... ok
+test tests::adds_50 ... ok
+test tests::adds_51 ... ok
+test tests::adds_52 ... ok
+test tests::adds_53 ... ok
+test tests::adds_54 ... ok
+test tests::adds_55 ... ok
+test tests::adds_56 ... ok
+test tests::adds_57 ... ok
+test tests::adds_58 ... ok
+test tests::adds_59 ... ok
+test tests::adds_6 ... ok
+test tests::adds_7 ... ok
+test tests::adds_8 ... ok
+test tests::adds_9 ... ok
+test tests::adds_46 ... ok
+test tests::adds_1 ... ok
+test tests::applies_discount ... FAILED
+test tests::rounds_tax ... FAILED
+
+failures:
+
+---- tests::applies_discount stdout ----
+
+thread 'tests::applies_discount' (32398) panicked at src/lib.rs:128:29:
+assertion `left == right` failed: ten percent off
+  left: 100
+ right: 90
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed::<u64, u64>
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:394:5
+   4: cargop::tests::applies_discount
+             at ./src/lib.rs:128:29
+   5: cargop::tests::applies_discount::{closure#0}
+             at ./src/lib.rs:128:26
+   6: <cargop::tests::applies_discount::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- tests::rounds_tax stdout ----
+
+thread 'tests::rounds_tax' (32399) panicked at src/lib.rs:130:61:
+index out of bounds: the len is 0 but the index is 0
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:80:14
+   2: core::panicking::panic_bounds_check
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/panicking.rs:271:5
+   3: <usize as core::slice::index::SliceIndex<[u64]>>::index
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/slice/index.rs:272:10
+   4: <[u64] as core::ops::index::Index<usize>>::index
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/slice/index.rs:19:15
+   5: <alloc::vec::Vec<u64> as core::ops::index::Index<usize>>::index
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/alloc/src/vec/mod.rs:3864:9
+   6: cargop::tests::rounds_tax
+             at ./src/lib.rs:130:61
+   7: cargop::tests::rounds_tax::{closure#0}
+             at ./src/lib.rs:130:20
+   8: <cargop::tests::rounds_tax::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+   9: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/2d8144b7880597b6e6d3dfd63a9a9efae3f533d3/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    tests::applies_discount
+    tests::rounds_tax
+
+test result: FAILED. 60 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+error: test failed, to rerun pass `--lib`

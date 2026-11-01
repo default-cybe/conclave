@@ -1,0 +1,88 @@
+# Turns a crash from a release APK (names like ad1.run, y56.a) back into the
+# real classes and lines. It rebuilds the given tag's release APK the way
+# android.yml does, unsigned, since signing does not change the code. R8 is
+# deterministic, so the mapping's pg_map_id printed below should match the
+# r8-map-id in the trace; if it does not, the result is only a guess.
+#
+# Run it by hand with the tag and the crash text. Tags from now on keep their
+# mapping as an artifact of the Android run, so this is for older ones.
+name: Android retrace
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag the APK came from, like v0.2.0
+        required: true
+      stack:
+        description: The crash text as the phone showed it
+        required: true
+      version_code:
+        description: The versionCode of that APK (the Android run number of the tag)
+        required: false
+        default: "1"
+
+permissions:
+  contents: read
+
+jobs:
+  retrace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: packages/android
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          packages: platform-tools
+
+      - name: Install SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "build-tools;36.0.0" "platforms;android-37" \
+            || sdkmanager "platform-tools" "build-tools;36.0.0" "platforms;android-37.0" \
+            || echo "SDK platform install failed here, AGP will try again during the build"
+
+      - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+
+      - name: Build the tag's release APK
+        env:
+          TAG: ${{ inputs.tag }}
+          CODE: ${{ inputs.version_code }}
+        run: |
+          export CONCLAVE_VERSION_NAME="${TAG#v}" CONCLAVE_VERSION_CODE="$CODE"
+          ./gradlew --no-daemon -Pconclave.app=true :app:assembleRelease
+
+      - name: Retrace
+        env:
+          STACK: ${{ inputs.stack }}
+        run: |
+          map=app/build/outputs/mapping/release/mapping.txt
+          grep -m1 'pg_map_id' "$map" || echo "no pg_map_id in the mapping"
+          printf '%s\n' "$STACK" > "$RUNNER_TEMP/stack.txt"
+          tool=$(ls "$ANDROID_HOME"/cmdline-tools/*/bin/retrace 2>/dev/null | head -n 1)
+          if [ -n "$tool" ]; then
+            echo "---- retraced"
+            "$tool" "$map" "$RUNNER_TEMP/stack.txt"
+          else
+            echo "retrace is not in this SDK; the class lines below still name the classes"
+          fi
+          echo "---- classes the trace names"
+          for name in $(grep -oE '\b[a-z][a-z0-9]{1,3}\b' "$RUNNER_TEMP/stack.txt" | sort -u); do
+            grep -E " -> ${name}:\$" "$map" || true
+          done
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mapping-${{ inputs.tag }}
+          path: packages/android/app/build/outputs/mapping/release/mapping.txt

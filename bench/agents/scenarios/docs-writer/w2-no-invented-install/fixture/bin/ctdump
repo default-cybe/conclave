@@ -1,0 +1,14 @@
+#!/bin/bash
+# ctdump: dump one Proxmox container's config and mount list to a folder.
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+  cat <<'HELP'
+usage: ctdump [--out DIR] [--dry-run] [--verbose] <ctid>
+
+  --out DIR    folder to write to (default ./dumps)
+  --dry-run    print what would be written, write nothing
+  --verbose    print each file as it is written
+HELP
+  exit 0
+fi
+echo "ctdump: not on a Proxmox host" >&2
+exit 1

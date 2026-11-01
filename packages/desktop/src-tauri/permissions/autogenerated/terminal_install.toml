@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-terminal-install"
+description = "Enables the terminal_install command without any pre-configured scope."
+commands.allow = ["terminal_install"]
+
+[[permission]]
+identifier = "deny-terminal-install"
+description = "Denies the terminal_install command without any pre-configured scope."
+commands.deny = ["terminal_install"]

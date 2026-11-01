@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Window background before Compose draws: the light bg token from the web app.
+      values-night has the dark one, so the first frame follows the phone as the app does.
+    -->
+    <color name="ink">#FFF9F9FA</color>
+    <!-- The light signal token (violet). -->
+    <color name="violet">#FF7A4ABA</color>
+    <!-- App icon background from docs/design/reference/app-icon.svg. -->
+    <color name="ic_launcher_background">#FF141417</color>
+</resources>

@@ -1,0 +1,1 @@
+{ "name": "ctdump", "version": "0.3.0", "bin": { "ctdump": "bin/ctdump" } }

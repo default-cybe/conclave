@@ -1,0 +1,1460 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Light and Material</title>
+<style>
+@font-face { font-family: 'Mona Sans Variable'; src: url(fonts/mona-sans-latin-standard-normal.woff2) format('woff2-variations'); font-weight: 200 900; font-stretch: 75% 125%; font-display: block; }
+@font-face { font-family: 'JetBrains Mono Variable'; src: url(fonts/jetbrains-mono-latin-wght-normal.woff2) format('woff2-variations'); font-weight: 100 800; font-display: block; }
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: oklch(0.163 0.005 286); --bg-sunk: oklch(0.138 0.005 286); --bg-raise: oklch(0.198 0.006 286); --bg-hover: oklch(0.215 0.007 286);
+  --rule: oklch(0.262 0.007 286); --rule-2: oklch(0.335 0.009 286); --edge: oklch(0.48 0.009 286);
+  --fg: oklch(0.945 0.004 286); --fg-2: oklch(0.765 0.008 286); --fg-3: oklch(0.61 0.01 286); --fg-4: oklch(0.5 0.01 286);
+  --signal: oklch(0.775 0.125 303); --hot: oklch(0.86 0.11 303); --ok: oklch(0.79 0.12 158); --warn: oklch(0.83 0.125 80); --fault: oklch(0.705 0.155 26);
+  --solid: var(--fg); --solid-fg: var(--bg);
+  --glass: oklch(0.2 0.006 286 / 0.52); --glass-edge: oklch(1 0 0 / 0.09); --spec: oklch(1 0 0 / 0.1);
+  --shadow-pop: 0 12px 32px oklch(0 0 0 / 0.35);
+}
+[data-theme='light'] {
+  color-scheme: light;
+  --bg: oklch(0.982 0.002 286); --bg-sunk: oklch(0.96 0.003 286); --bg-raise: oklch(1 0 0); --bg-hover: oklch(0.95 0.004 286);
+  --rule: oklch(0.905 0.005 286); --rule-2: oklch(0.82 0.008 286); --edge: oklch(0.64 0.008 286);
+  --fg: oklch(0.205 0.01 286); --fg-2: oklch(0.405 0.012 286); --fg-3: oklch(0.52 0.012 286); --fg-4: oklch(0.62 0.01 286);
+  --signal: oklch(0.52 0.17 300); --hot: oklch(0.45 0.18 300); --ok: oklch(0.52 0.13 155); --warn: oklch(0.555 0.13 65); --fault: oklch(0.56 0.19 27);
+  --solid: var(--fg); --solid-fg: var(--bg);
+  --glass: oklch(1 0 0 / 0.56); --glass-edge: oklch(1 0 0 / 0.7); --spec: oklch(1 0 0 / 0.55);
+  --shadow-pop: 0 12px 32px oklch(0.2 0.01 286 / 0.12);
+}
+:root {
+  --sans: 'Mona Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --mono: 'JetBrains Mono Variable', ui-monospace, Menlo, monospace;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-weight: 450; -webkit-font-smoothing: antialiased; }
+body { padding: 48px 32px 96px; }
+@media (max-width: 767px) { body { padding: 28px 16px 64px; } }
+
+/* page head */
+header.top { max-width: 1336px; margin: 0 auto 36px; display: flex; flex-wrap: wrap; gap: 20px 40px; align-items: end; justify-content: space-between; }
+header.top h1 { font-size: 20px; line-height: 1.25; font-weight: 560; margin: 0 0 8px; letter-spacing: -0.005em; }
+header.top p { margin: 0; max-width: 62ch; font-size: 14px; line-height: 1.5; color: var(--fg-2); }
+.ctl { display: flex; gap: 16px; font-size: 12px; color: var(--fg-3); align-items: center; flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; }
+.seg button { font: inherit; color: var(--fg-3); background: transparent; border: 0; padding: 5px 10px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--rule); }
+.seg button[aria-pressed='true'] { color: var(--fg); background: var(--bg-hover); }
+.grid { max-width: 1336px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 560px), 1fr)); gap: 40px 32px; }
+figure.item { margin: 0; min-width: 0; }
+.frame { width: 100%; aspect-ratio: 16 / 9; position: relative; overflow: hidden; border: 1px solid var(--rule); border-radius: 10px; background: var(--bg); }
+.frame > .cell { position: absolute; left: 0; top: 0; transform-origin: 0 0; transform: scale(var(--k, 1)); }
+figcaption { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; padding: 12px 2px 0; font-size: 13px; line-height: 1.45; color: var(--fg-2); }
+figcaption .nm { font-weight: 560; color: var(--fg); }
+figcaption .nm span { font-weight: 450; color: var(--fg-3); margin-left: 8px; }
+figcaption .wm { grid-column: 1 / -1; }
+figcaption .tm { grid-column: 1 / -1; font: 450 11.5px/1.5 var(--mono); color: var(--fg-4); }
+figcaption .tbtn { font: inherit; font-size: 12px; color: var(--fg-3); background: none; border: 1px solid var(--rule); border-radius: 5px; padding: 2px 8px; cursor: pointer; align-self: start; }
+.note { max-width: 1336px; margin: 56px auto 0; font-size: 13px; line-height: 1.55; color: var(--fg-3); }
+.note b { color: var(--fg-2); font-weight: 560; }
+
+/* a cell is one prototype at 640 by 360 */
+.cell { width: 640px; height: 360px; overflow: hidden; background: var(--bg); color: var(--fg); font-family: var(--sans); font-weight: 450; isolation: isolate; contain: strict; }
+.cell .stage { position: absolute; inset: 0; }
+.cell canvas.layer { position: absolute; left: 0; top: 0; width: 640px; height: 360px; pointer-events: none; }
+.cell .lbl { position: absolute; left: 20px; top: 16px; z-index: 20; display: flex; gap: 8px; font-size: 12px; line-height: 16px; white-space: nowrap; }
+.cell .lbl b { font-weight: 560; color: var(--fg-2); }
+.cell .lbl span { color: var(--fg-4); }
+.cell .th { position: absolute; right: 20px; top: 16px; z-index: 20; font: 450 11px/16px var(--mono); color: var(--fg-4); }
+.abs { position: absolute; }
+.mono { font-family: var(--mono); }
+.sig { color: var(--signal); }
+.f2 { color: var(--fg-2); } .f3 { color: var(--fg-3); } .f4 { color: var(--fg-4); }
+.nowrap { white-space: nowrap; }
+
+/* shared bits of product UI */
+.composer { position: absolute; background: var(--bg-raise); border: 1px solid var(--rule); border-radius: 10px; }
+.composer .ph { position: absolute; left: 16px; top: 14px; font-size: 14px; color: var(--fg-4); }
+.composer .model { position: absolute; left: 16px; bottom: 12px; font-size: 12px; color: var(--fg-3); }
+.composer .act { position: absolute; right: 10px; bottom: 10px; width: 26px; height: 26px; border-radius: 5px; background: var(--solid); display: grid; place-items: center; }
+.composer .act i { width: 8px; height: 8px; border-radius: 1.5px; background: var(--solid-fg); }
+.live { position: absolute; display: flex; gap: 8px; align-items: baseline; font-size: 13px; color: var(--fg-2); white-space: nowrap; }
+.live .n { font: 450 12px var(--mono); }
+.msg { position: absolute; font-size: 14px; line-height: 1.45; color: var(--fg); white-space: nowrap; }
+.btn { position: absolute; height: 28px; padding: 0 12px; border-radius: 5px; font-size: 12.5px; line-height: 28px; white-space: nowrap; }
+.btn.solid { background: var(--solid); color: var(--solid-fg); font-weight: 540; }
+.btn.ghost { border: 1px solid var(--rule-2); color: var(--fg-2); line-height: 26px; }
+
+/* solo: one cell, nothing else (used for capture) */
+body.solo { padding: 0; overflow: hidden; }
+body.solo header.top, body.solo .note, body.solo figcaption { display: none; }
+body.solo .grid { display: block; max-width: none; }
+body.solo figure.item:not(.on) { display: none; }
+body.solo .frame { width: 640px; height: 360px; border: 0; border-radius: 0; aspect-ratio: auto; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>Light and material</h1>
+    <p>Round two of the motion lab. Studies in light, color and surface, with no dots. Violet marks live work, amber waits on you, red is a fault. Every piece is a pure function of time, so any frame can be checked.</p>
+  </div>
+  <div class="ctl">
+    <span>Theme</span>
+    <span class="seg" id="themeSeg"><button data-v="dark" aria-pressed="true">Dark</button><button data-v="light" aria-pressed="false">Light</button></span>
+    <span>Motion</span>
+    <span class="seg" id="motionSeg"><button data-v="play" aria-pressed="true">Play</button><button data-v="still" aria-pressed="false">Still</button></span>
+  </div>
+</header>
+<main class="grid" id="grid"></main>
+<p class="note"><b>Reduced motion.</b> With reduced motion on (or Still above), every cell draws one frame that still says what is happening: the rim holds its light in place, the ring holds its arc, amber stays on. Loops stop; fades and color changes stay. <b>Cost.</b> DOM pieces move with transform and opacity only. Shader pieces share one WebGL context and draw only while on screen.</p>
+
+<script>
+'use strict';
+/* ------------------------------------------------------------------ */
+/* helpers                                                             */
+/* ------------------------------------------------------------------ */
+const PAL = {
+  dark: { bg:'#0e0e10', sunk:'#08080b', raise:'#151518', hover:'#19191d', rule:'#242428', rule2:'#36363b', fg:'#ececef', fg2:'#b2b2b8', fg3:'#828289', fg4:'#626269', signal:'#c6a2f7', hot:'#dfc0ff', warn:'#f2be62', fault:'#f1756c', ok:'#71d29d', cool:'#9fb2d6' },
+  light: { bg:'#f9f9fa', sunk:'#f1f1f4', raise:'#ffffff', hover:'#eeeef1', rule:'#dfdfe3', rule2:'#c3c3c9', fg:'#17171c', fg2:'#48484f', fg3:'#686870', fg4:'#85858c', signal:'#7a4aba', hot:'#5f2fa3', warn:'#a66000', fault:'#cc3430', ok:'#007e46', cool:'#5d7199' },
+};
+const rgb = (h) => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
+const mixc = (a, b, k) => a.map((x, i) => x + (b[i] - x) * k);
+const css = (c, a = 1) => `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${a})`;
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, k) => a + (b - a) * k;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const TAU = Math.PI * 2;
+function bez(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const X = (t) => ((ax * t + bx) * t + cx) * t;
+  return (x) => {
+    if (x <= 0) return 0; if (x >= 1) return 1;
+    let lo = 0, hi = 1, t = x;
+    for (let i = 0; i < 24; i++) { const v = X(t); if (Math.abs(v - x) < 1e-5) break; if (v < x) lo = t; else hi = t; t = (lo + hi) / 2; }
+    return ((ay * t + by) * t + cy) * t;
+  };
+}
+const E = { out: bez(0.2, 0.7, 0.2, 1), in: bez(0.4, 0, 1, 1), sine: bez(0.37, 0, 0.63, 1), drawer: bez(0.32, 0.72, 0, 1), inout: bez(0.65, 0, 0.35, 1) };
+
+/* rounded rectangle perimeter, clockwise from the top-left end of the top edge (matches the shader) */
+function rrPerim(w, h, r) { return 2 * (w - 2 * r) + 2 * (h - 2 * r) + TAU * r; }
+function rrAt(x, y, w, h, r, s) {
+  const L1 = w - 2 * r, L2 = h - 2 * r, A = Math.PI * r / 2, P = 2 * L1 + 2 * L2 + 4 * A;
+  s = ((s % P) + P) % P;
+  const segs = [
+    [L1, (u) => [x + r + u, y]],
+    [A, (u) => { const a = -Math.PI / 2 + u / r; return [x + w - r + r * Math.cos(a), y + r + r * Math.sin(a)]; }],
+    [L2, (u) => [x + w, y + r + u]],
+    [A, (u) => { const a = u / r; return [x + w - r + r * Math.cos(a), y + h - r + r * Math.sin(a)]; }],
+    [L1, (u) => [x + w - r - u, y + h]],
+    [A, (u) => { const a = Math.PI / 2 + u / r; return [x + r + r * Math.cos(a), y + h - r + r * Math.sin(a)]; }],
+    [L2, (u) => [x, y + h - r - u]],
+    [A, (u) => { const a = Math.PI + u / r; return [x + r + r * Math.cos(a), y + r + r * Math.sin(a)]; }],
+  ];
+  for (const [len, f] of segs) { if (s <= len) return f(s); s -= len; }
+  return [x + r, y];
+}
+/* arc length of the point on the perimeter closest to the middle of a side: 'top','right','bottom','left' */
+function rrSide(w, h, r, side) {
+  const L1 = w - 2 * r, L2 = h - 2 * r, A = Math.PI * r / 2;
+  return { top: L1 / 2, right: L1 + A + L2 / 2, bottom: L1 + 2 * A + L2 + L1 / 2, left: 2 * L1 + 3 * A + L2 + L2 / 2 }[side];
+}
+
+/* ------------------------------------------------------------------ */
+/* one shared WebGL2 context; each scene draws into it, then copies    */
+/* ------------------------------------------------------------------ */
+const GL = (() => {
+  const cv = document.createElement('canvas');
+  cv.width = 1280; cv.height = 720;
+  const gl = cv.getContext('webgl2', { premultipliedAlpha: true, preserveDrawingBuffer: true, antialias: false, alpha: true });
+  const VS = `#version 300 es
+in vec2 a; void main(){ gl_Position = vec4(a, 0., 1.); }`;
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  const progs = new Map();
+  function sh(type, src) {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { const log = gl.getShaderInfoLog(s); console.error(log); throw new Error(log); }
+    return s;
+  }
+  function prog(fs) {
+    if (progs.has(fs)) return progs.get(fs);
+    const p = gl.createProgram();
+    gl.attachShader(p, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+    gl.bindAttribLocation(p, 0, 'a'); gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    const u = {};
+    const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+    for (let i = 0; i < n; i++) { const info = gl.getActiveUniform(p, i); u[info.name.replace(/\[0\]$/, '')] = { loc: gl.getUniformLocation(p, info.name), type: info.type }; }
+    const rec = { p, u }; progs.set(fs, rec); return rec;
+  }
+  function draw(fs, ctx, uni) {
+    const w = ctx.canvas.width, h = ctx.canvas.height;
+    if (cv.width < w || cv.height < h) { cv.width = Math.max(cv.width, w); cv.height = Math.max(cv.height, h); }
+    const { p, u } = prog(fs);
+    gl.useProgram(p);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    gl.viewport(0, 0, w, h);
+    gl.disable(gl.BLEND);
+    for (const k in uni) {
+      const d = u[k]; if (!d) continue; const v = uni[k];
+      const arr = typeof v === 'number' ? [v] : v.flat ? v.flat() : v;
+      switch (d.type) {
+        case gl.FLOAT: gl.uniform1fv(d.loc, arr); break;
+        case gl.FLOAT_VEC2: gl.uniform2fv(d.loc, arr); break;
+        case gl.FLOAT_VEC3: gl.uniform3fv(d.loc, arr); break;
+        case gl.FLOAT_VEC4: gl.uniform4fv(d.loc, arr); break;
+      }
+    }
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(cv, 0, cv.height - h, w, h, 0, 0, w, h);
+  }
+  return { draw, gl };
+})();
+
+const GLSL_HEAD = `#version 300 es
+precision highp float;
+uniform vec2 u_res; uniform float u_dpr;
+out vec4 o;
+vec2 P(){ return vec2(gl_FragCoord.x, u_res.y - gl_FragCoord.y) / u_dpr; }
+float hash(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+vec2 grad2(vec2 i){ float a = 6.2831853 * hash(i); return vec2(cos(a), sin(a)); }
+float gn(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f*f*f*(f*(f*6.-15.)+10.);
+  float a = dot(grad2(i), f), b = dot(grad2(i+vec2(1,0)), f-vec2(1,0)), c = dot(grad2(i+vec2(0,1)), f-vec2(0,1)), d = dot(grad2(i+vec2(1,1)), f-vec2(1,1));
+  return mix(mix(a,b,u.x), mix(c,d,u.x), u.y); }
+/* gradient noise that repeats every per.y cells in y (x never wraps) */
+float gnp(vec2 p, float per){ vec2 i = floor(p), f = fract(p); vec2 u = f*f*f*(f*(f*6.-15.)+10.);
+  vec2 i0 = vec2(i.x, mod(i.y, per)), i1 = vec2(i.x, mod(i.y + 1., per));
+  float a = dot(grad2(i0), f), b = dot(grad2(vec2(i0.x+1., i0.y)), f-vec2(1,0)), c = dot(grad2(i1), f-vec2(0,1)), d = dot(grad2(vec2(i1.x+1., i1.y)), f-vec2(1,1));
+  return mix(mix(a,b,u.x), mix(c,d,u.x), u.y); }
+float sdRB(vec2 p, vec2 b, float r){ vec2 q = abs(p) - b + r; return length(max(q, 0.)) + min(max(q.x, q.y), 0.) - r; }
+float sdTri(vec2 p, float r){ const float k = sqrt(3.0); p.x = abs(p.x) - r; p.y = p.y + r/k;
+  if (p.x + k*p.y > 0.0) p = vec2(p.x - k*p.y, -k*p.x - p.y)/2.0; p.x -= clamp(p.x, -2.0*r, 0.0); return -length(p)*sign(p.y); }
+`;
+
+/* ------------------------------------------------------------------ */
+/* the rim: light that runs along a rounded rectangle border           */
+/* ------------------------------------------------------------------ */
+const RIM_FS = GLSL_HEAD + `
+uniform vec4 u_box; uniform float u_r;
+uniform vec4 u_l0, u_l1;          /* head s (px), tail (px), direction, intensity */
+uniform vec3 u_h0, u_c0, u_h1, u_c1;
+uniform vec2 u_p0, u_p1;          /* head positions, for the light on the surface */
+uniform float u_fill; uniform vec3 u_fc;
+uniform float u_halo, u_wash, u_w;
+float perim(vec2 p, vec2 b, float r, out float Pm){
+  vec2 q = b - r; float L1 = 2.*q.x, L2 = 2.*q.y, A = 1.5707963*r;
+  Pm = 2.*L1 + 2.*L2 + 4.*A;
+  vec2 k = clamp(p, -q, q); vec2 v = p - k;
+  if (dot(v, v) < 1e-8) {
+    float dt = p.y + q.y, db = q.y - p.y, dl = p.x + q.x, dr = q.x - p.x; float m = min(min(dt, db), min(dl, dr));
+    if (m == dt) v = vec2(0., -1.); else if (m == dr) v = vec2(1., 0.); else if (m == db) v = vec2(0., 1.); else v = vec2(-1., 0.);
+  }
+  if (v.x == 0. && v.y < 0.) return p.x + q.x;
+  if (v.y == 0. && v.x > 0.) return L1 + A + (p.y + q.y);
+  if (v.x == 0. && v.y > 0.) return L1 + 2.*A + L2 + (q.x - p.x);
+  if (v.y == 0. && v.x < 0.) return 2.*L1 + 3.*A + L2 + (q.y - p.y);
+  float ang = atan(v.y, v.x);
+  if (v.x > 0. && v.y < 0.) return L1 + (ang + 1.5707963)*r;
+  if (v.x > 0. && v.y > 0.) return L1 + A + L2 + ang*r;
+  if (v.x < 0. && v.y > 0.) return 2.*L1 + 2.*A + L2 + (ang - 1.5707963)*r;
+  return 2.*L1 + 3.*A + 2.*L2 + (ang + 3.14159265)*r;
+}
+void lightAt(vec4 L, vec3 hc, vec3 tc, vec2 hp, float s, float Pm, float line, float d, vec2 p, inout vec3 acc, inout float aa){
+  if (L.w <= 0.) return;
+  float behind = L.z > 0. ? mod(L.x - s, Pm) : mod(s - L.x, Pm);
+  float ahead = Pm - behind;
+  float tail = behind < L.y ? pow(1. - behind / L.y, 1.7) : 0.;
+  float k = max(tail, exp(-ahead / 1.6));
+  float kh = max(tail, exp(-ahead / 4.5));
+  vec3 col = mix(tc, hc, pow(k, 3.));
+  float a = line * k + u_halo * exp(-abs(d) / 2.6) * kh * kh;
+  a += u_wash * exp(-length(p - hp) / 26.) * exp(-abs(d) / 10.) * smoothstep(0., -2., d) * kh;
+  a *= L.w;
+  acc += col * a; aa += a;
+}
+void main(){
+  vec2 p = P(); vec2 b = 0.5 * u_box.zw; vec2 lp = p - (u_box.xy + b);
+  float d = sdRB(lp, b, u_r);
+  float Pm; float s = perim(lp, b, u_r, Pm);
+  float line = clamp((0.5 * u_w - abs(d)) * u_dpr + 0.5, 0., 1.);
+  vec3 acc = vec3(0.); float aa = 0.;
+  lightAt(u_l0, u_h0, u_c0, u_p0, s, Pm, line, d, p, acc, aa);
+  lightAt(u_l1, u_h1, u_c1, u_p1, s, Pm, line, d, p, acc, aa);
+  if (u_fill > 0.) { float a = u_fill * (line + u_halo * 0.6 * exp(-abs(d) / 2.6)); acc += u_fc * a; aa += a; }
+  float A = clamp(aa, 0., 1.);
+  vec3 col = aa > 0. ? acc / aa : vec3(0.);
+  o = vec4(col * A, A);
+}`;
+function rim(ctx, dpr, box, r, lights, opts = {}) {
+  const [x, y, w, h] = box;
+  const P = rrPerim(w, h, r);
+  const u = { u_res: [ctx.canvas.width, ctx.canvas.height], u_dpr: dpr, u_box: box, u_r: r, u_halo: opts.halo ?? 0.22, u_wash: opts.wash ?? 0.05, u_w: opts.w ?? 1, u_fill: opts.fill ?? 0, u_fc: opts.fc ?? [1, 1, 1],
+    u_l0: [0, 1, 1, 0], u_l1: [0, 1, 1, 0], u_h0: [1, 1, 1], u_c0: [1, 1, 1], u_h1: [1, 1, 1], u_c1: [1, 1, 1], u_p0: [0, 0], u_p1: [0, 0] };
+  lights.forEach((L, i) => {
+    const s = ((L.s % P) + P) % P;
+    u['u_l' + i] = [s, L.tail, L.dir ?? 1, L.k ?? 1];
+    u['u_h' + i] = L.head; u['u_c' + i] = L.col;
+    u['u_p' + i] = rrAt(x, y, w, h, r, s);
+  });
+  GL.draw(RIM_FS, ctx, u);
+  return P;
+}
+
+/* ------------------------------------------------------------------ */
+/* scene registry                                                      */
+/* ------------------------------------------------------------------ */
+const SCENES = [];
+const scene = (s) => SCENES.push(s);
+const qs = new URLSearchParams(location.search);
+const SOLO = qs.get('solo');
+const DPR = Number(qs.get('dpr')) || Math.min(2, window.devicePixelRatio || 1);
+
+function makeApi(cell) {
+  return {
+    dpr: DPR,
+    theme: () => cell.dataset.theme,
+    pal: () => PAL[cell.dataset.theme],
+    c: (name) => rgb(PAL[cell.dataset.theme][name]),
+    dark: () => cell.dataset.theme === 'dark',
+    canvas(stage, z = 1) {
+      const el = document.createElement('canvas');
+      el.className = 'layer'; el.width = 640 * DPR; el.height = 360 * DPR; el.style.zIndex = z;
+      stage.appendChild(el);
+      return el.getContext('2d');
+    },
+  };
+}
+function H(stage, html) { stage.insertAdjacentHTML('beforeend', html); }
+const $ = (root, sel) => root.querySelector(sel);
+const $$ = (root, sel) => [...root.querySelectorAll(sel)];
+const tf = (el, v) => { el.style.transform = v; };
+const op = (el, v) => { el.style.opacity = String(Math.round(clamp(v) * 1000) / 1000); };
+/* Swap: the old words leave in 120ms, the new ones arrive 100ms later over 200ms; b is when it swaps back */
+const swapOut = (t, a, b = Infinity) => clamp((1 - seg(t, a, a + 120)) + seg(t, b + 130, b + 330));
+const swapIn = (t, a, b = Infinity) => E.out(seg(t, a + 130, a + 330)) * (1 - seg(t, b, b + 120));
+</script>
+
+<!-- ================================================================== -->
+<!-- scenes                                                              -->
+<!-- ================================================================== -->
+<script>
+/* 01 RIM ------------------------------------------------------------- */
+scene({
+  id: 'rim', name: 'Rim', role: 'Thinking, on the composer', loop: 4000, still: 1400, light: true,
+  what: 'A thin light runs once around the composer border every 4 seconds. Its tail fades over 180px, and it lights the surface just inside the edge as it passes.',
+  tech: 'Shader on one shared context: signed distance to the rounded box plus arc length. CSS version: offset-path light or a stacked dash on an SVG path.',
+  build(st, api) {
+    H(st, `
+      <div class="msg" style="left:60px;top:86px">Can you check why the deploy failed last night?</div>
+      <div class="live" style="left:60px;top:130px"><span>Thinking</span><span class="n sig">4s</span></div>
+      <div class="composer" style="left:60px;top:206px;width:520px;height:100px">
+        <div class="ph">Ask a follow up</div><div class="model">Opus 4.7</div><div class="act"><i></i></div>
+      </div>`);
+    const ctx = api.canvas(st, 5);
+    const box = [60.5, 206.5, 519, 99], r = 9.5;
+    const P = rrPerim(519, 99, r);
+    return {
+      render(t) {
+        const u = t / 4000;
+        const s = P * (u + 0.018 * Math.sin(TAU * u)) - 40;
+        const dk = api.dark();
+        rim(ctx, api.dpr, box, r, [{ s, tail: 190, head: dk ? mixc(api.c('hot'), [1, 1, 1], 0.35) : api.c('hot'), col: api.c('signal'), k: 1 }], { halo: dk ? 0.22 : 0.12, wash: dk ? 0.06 : 0.05 });
+      },
+    };
+  },
+});
+
+/* 02 AURORA ---------------------------------------------------------- */
+const AURORA_FS = GLSL_HEAD + `
+uniform float u_th; uniform vec3 u_bg, u_a, u_b; uniform float u_k, u_light, u_grain;
+float curtain(vec2 uv, float y0, float amp, float ph, float lo, float hi, float rf, out float up){
+  float th = u_th; float x = uv.x;
+  float yc = y0 + amp * (sin(1.45 * x + th + ph) * 0.6 + sin(3.1 * x - 2. * th + 1.3 + ph) * 0.3 + sin(5.9 * x + 3. * th + ph * 2.) * 0.1);
+  float dy = uv.y - yc;
+  up = clamp(-dy / (hi * 2.2), 0., 1.);
+  float band = dy > 0. ? exp(-pow(dy / lo, 2.)) : exp(-(-dy / hi));
+  float wide = exp(-pow(dy / (hi * 1.6), 2.)) * 0.35;
+  float xs = x + 0.035 * sin(th + 2.4 * uv.y + 1.7 * x + ph) + 0.02 * sin(2. * th - 2.3 * x + ph);
+  float st = 0.66 + 0.5 * (gn(vec2(xs * rf, uv.y * 0.9 + ph)) * 0.8 + gn(vec2(xs * rf * 2.3 + 4., uv.y * 1.6)) * 0.35);
+  float travel = 0.7 + 0.3 * sin(2.1 * x - th + ph);
+  return (band * st + wide) * travel;
+}
+void main(){
+  vec2 p = P();
+  vec2 uv = p / 360.;
+  float u1, u2;
+  float c1 = curtain(uv, 0.33, 0.075, 0.0, 0.022, 0.085, 34., u1);
+  float c2 = curtain(uv + vec2(0.37, 0.), 0.25, 0.06, 2.1, 0.02, 0.07, 26., u2) * 0.55;
+  float vx = smoothstep(0.0, 0.35, p.x / 640.) * smoothstep(1.0, 0.65, p.x / 640.);
+  float vy = smoothstep(0.03, 0.2, uv.y) * smoothstep(0.47, 0.33, uv.y);
+  float m = vx * vy * u_k;
+  vec3 col = u_bg;
+  col = mix(col, mix(u_a, u_b, u1), clamp(c1 * m, 0., 1.));
+  col = mix(col, mix(u_a, u_b, 0.4 + 0.6 * u2), clamp(c2 * m, 0., 1.));
+  col += (hash(floor(gl_FragCoord.xy)) - 0.5) / 255. * 1.5 * u_grain;
+  o = vec4(col, 1.);
+}`;
+scene({
+  id: 'aurora', name: 'Aurora', role: 'Behind an empty chat', loop: 10000, still: 3000, light: true,
+  what: 'Two faint curtains of light drift and sway above the greeting, with fine rays sliding along them. They stay dim and fade out well before the composer.',
+  tech: 'One fragment shader, every term a sine of the loop phase, so it repeats exactly. Production: draw for 8s after mount, then hold the frame.',
+  build(st, api) {
+    const ctx = api.canvas(st, 0);
+    H(st, `
+      <div class="abs" style="left:0;right:0;top:168px;text-align:center;font-size:20px;font-weight:560;letter-spacing:-0.005em;z-index:2">What should we work on?</div>
+      <div class="composer" style="left:100px;top:214px;width:440px;height:52px;z-index:2">
+        <div class="ph" style="top:15px">Ask anything</div>
+        <div class="abs mono" style="right:16px;top:17px;font-size:12px;color:var(--fg-3)">Opus 4.7</div>
+      </div>
+      <div class="abs" style="left:0;right:0;top:288px;text-align:center;font-size:12px;color:var(--fg-4);z-index:2">4 models ready. 2 sessions running on arch-desktop.</div>`);
+    return {
+      render(t) {
+        const dk = api.dark();
+        GL.draw(AURORA_FS, ctx, { u_res: [ctx.canvas.width, ctx.canvas.height], u_dpr: api.dpr, u_th: TAU * t / 10000, u_grain: SOLO ? 0 : 1,
+          u_bg: api.c('bg'), u_a: dk ? [0.72, 0.56, 0.98] : [0.52, 0.32, 0.82], u_b: dk ? [0.46, 0.62, 0.88] : [0.38, 0.52, 0.78], u_k: dk ? 0.21 : 0.16, u_light: dk ? 0 : 1 });
+      },
+    };
+  },
+});
+
+/* 03 INK ------------------------------------------------------------- */
+const INK_FS = GLSL_HEAD + `
+uniform vec2 u_c; uniform vec3 u_R, u_rot; uniform float u_a, u_seed, u_dry; uniform vec3 u_ink, u_deep;
+float layer(vec2 q, float R, float seed, float rot, out float rim){
+  rim = 0.;
+  if (R < 0.3) return 0.;
+  float r = length(q);
+  float an = atan(q.y, q.x) + rot;
+  vec2 dir = vec2(cos(an), sin(an));
+  float k = clamp(R / 50., 0., 1.);
+  float n = 0.11 * gn(dir * 1.2 + seed) + 0.05 * gn(dir * 2.7 + seed * 1.9) + 0.014 * k * gn(dir * 7. + seed * 0.7);
+  float Re = R * (1. + n);
+  float cov = clamp((Re - r) * u_dpr / mix(3.0, 1.3, u_dry) + 0.5, 0., 1.);
+  rim = cov * exp(-max(Re - r, 0.) / mix(5., 2.2, u_dry));
+  return cov;
+}
+void main(){
+  vec2 p = P(); vec2 q = p - u_c;
+  float r0, r1, r2;
+  float l0 = layer(q, u_R.x, u_seed, u_rot.x, r0);
+  float l1 = layer(q + vec2(-9., 5.) * clamp(u_R.y / 40., 0., 1.), u_R.y, u_seed + 3.1, u_rot.y, r1);
+  float l2 = layer(q + vec2(6., 9.) * clamp(u_R.z / 24., 0., 1.), u_R.z, u_seed + 6.4, u_rot.z, r2);
+  float mott = 1. + 0.12 * gn(q * 0.045 + u_seed) + 0.05 * gn(q * 0.13);
+  float r3; float l3 = layer(q * 0.94 + vec2(2., -3.), u_R.x * 1.16, u_seed + 9.3, -u_rot.x, r3);
+  float d = (0.045 * l3 + 0.12 * l0 + 0.12 * l1 + 0.1 * l2) * mott + 0.05 * r3 + 0.24 * r0 + 0.1 * r1 + 0.05 * r2;
+  float A = clamp(d * u_a, 0., 1.);
+  vec3 col = mix(u_ink, u_deep, clamp((l1 + l2) * 0.5 * smoothstep(0.1, 0.6, d), 0., 1.));
+  o = vec4(col * A, A);
+}`;
+scene({
+  id: 'ink', name: 'Ink', role: 'Memory saved', loop: 5500, still: 3200, light: true,
+  what: 'A drop lands and blooms out in three soft layers, each with an uneven edge, like watercolor on wet paper. As it settles the edges sharpen and darken a little. Then the saved note comes up under it, and the ink fades.',
+  tech: 'Shader: three noisy discs with edge darkening, staggered by 200ms. Each grows as 1 minus e to the minus t, so it spreads fast and settles.',
+  build(st, api) {
+    const ctx = api.canvas(st, 1);
+    H(st, `
+      <div class="abs nowrap" data-k="a" style="left:0;right:0;top:248px;text-align:center;font-size:12px;color:var(--fg-3);z-index:2">Saved to memory</div>
+      <div class="abs nowrap" data-k="b" style="left:0;right:0;top:268px;text-align:center;font-size:15px;color:var(--fg);z-index:2">Prefers bun over npm for scripts</div>`);
+    const a = $(st, '[data-k=a]'), b = $(st, '[data-k=b]');
+    return {
+      render(t) {
+        const dk = api.dark();
+        const g = (t0, tau) => (t < t0 ? 0 : 1 - Math.exp(-(t - t0) / tau));
+        const R = [4 * E.out(seg(t, 0, 200)) + 56 * g(120, 640), 38 * g(300, 600), 22 * g(520, 560)];
+        const rot = [0.5 * g(120, 900), -0.4 * g(300, 900), 0.6 * g(520, 900)];
+        const dry = E.sine(seg(t, 1200, 2600));
+        const fade = 1 - E.sine(seg(t, 4250, 5300));
+        GL.draw(INK_FS, ctx, { u_res: [ctx.canvas.width, ctx.canvas.height], u_dpr: api.dpr, u_c: [320, 142], u_R: R, u_rot: rot, u_dry: dry, u_a: fade * (dk ? 1 : 1.25), u_seed: 1.7,
+          u_ink: dk ? api.c('signal') : [0.5, 0.31, 0.76], u_deep: dk ? api.c('hot') : [0.33, 0.14, 0.6] });
+        const ka = E.out(seg(t, 1500, 1800)) * (1 - seg(t, 4500, 4900));
+        const kb = E.out(seg(t, 1620, 1920)) * (1 - seg(t, 4520, 4920));
+        op(a, ka); tf(a, `translateY(${(1 - E.out(seg(t, 1500, 1800))) * 4}px)`);
+        op(b, kb); tf(b, `translateY(${(1 - E.out(seg(t, 1620, 1920))) * 4}px)`);
+      },
+    };
+  },
+});
+
+/* 04 POOL ------------------------------------------------------------ */
+const POOL_FS = GLSL_HEAD + `
+uniform float u_th; uniform vec4 u_i0, u_i1; uniform vec3 u_col, u_hi, u_lo; uniform float u_dark;
+vec4 blob(vec2 p, vec4 I){
+  /* returns field and its gradient for one instance */
+  float R = I.z; float th = u_th;
+  vec2 c[4]; float rr[4];
+  c[0] = R * 0.30 * vec2(sin(th + 0.4), cos(2. * th + 1.1));
+  c[1] = R * 0.34 * vec2(sin(2. * th + 2.6), sin(th + 0.2));
+  c[2] = R * 0.36 * vec2(cos(-th + 4.1), sin(-2. * th + 1.9));
+  c[3] = R * 0.48 * vec2(cos(3. * th + 0.9), sin(-th * 2. + 3.3)) ;
+  rr[0] = R * (0.50 + 0.04 * sin(th * 2. + 1.));
+  rr[1] = R * (0.42 + 0.05 * sin(th * 3. + 2.));
+  rr[2] = R * (0.40 + 0.04 * cos(th + 0.5));
+  rr[3] = R * (0.17 + 0.03 * sin(th * 2. + 4.0));
+  float f = 0.; vec2 g = vec2(0.);
+  for (int i = 0; i < 4; i++) {
+    vec2 d = p - I.xy - c[i]; float d2 = dot(d, d) + 1e-3; float r2 = rr[i] * rr[i];
+    f += r2 / d2; g += -2. * r2 * d / (d2 * d2);
+  }
+  return vec4(f, g, R);
+}
+void shade(vec4 F, inout vec3 acc, inout float aa){
+  float f = F.x; vec2 g = F.yz; float R = F.w;
+  float gv = 1. - 1. / f;
+  float a = clamp(gv / max(fwidth(gv), 1e-5) + 0.5, 0., 1.);
+  if (a <= 0.) return;
+  vec2 gg = g / (f * f);
+  /* deep inside the bead the field bends sharply around each lobe center; flatten it there so no pinholes show */
+  vec3 n = normalize(vec3(-gg * R * 0.26 * (1. - smoothstep(0.3, 0.75, gv)), 1.));
+  vec3 L = normalize(vec3(-0.55, -0.7, 0.75));
+  float dif = clamp(dot(n, L), 0., 1.);
+  float spec = pow(clamp(dot(reflect(-L, n), vec3(0., 0., 1.)), 0., 1.), 38.);
+  float caust = pow(clamp(dot(normalize(n.xy + 1e-4), vec2(0.62, 0.78)), 0., 1.), 2.) * smoothstep(0.98, 0.7, n.z);
+  float fres = smoothstep(0.0, 0.55, 1. - n.z);
+  vec3 col = mix(u_lo, u_col, 0.22 + 0.5 * fres + 0.28 * dif * fres);
+  col = mix(col, mix(u_col, u_hi, 0.35), caust * 0.6);
+  col = mix(col, u_hi, spec * 0.9 * smoothstep(0.04, 0.22, 1. - n.z));
+  acc = mix(acc, col, a); aa = max(aa, a);
+}
+void main(){
+  vec2 p = P(); vec3 acc = vec3(0.); float aa = 0.;
+  shade(blob(p, u_i0), acc, aa);
+  shade(blob(p, u_i1), acc, aa);
+  o = vec4(acc * aa, aa);
+}`;
+scene({
+  id: 'pool', name: 'Pool', role: 'Thinking, small', loop: 6000, still: 1500, light: true,
+  what: 'A small bead of liquid violet. Four lobes inside it drift on slow closed paths, so the outline swells, dents and now and then lets a droplet go, then takes it back. One light from the top left gives it a soft sheen.',
+  tech: 'Metaball field with an analytic gradient for the normal. One shader draws both sizes. Production: SVG goo filter or this shader in a 24px canvas.',
+  build(st, api) {
+    const ctx = api.canvas(st, 1);
+    H(st, `
+      <div class="live" style="left:286px;top:262px"><span>Thinking</span><span class="n sig">4s</span></div>
+      <div class="abs f4" style="left:0;right:0;top:318px;text-align:center;font-size:11px">Large, and inline at 16px</div>`);
+    return {
+      render(t) {
+        const dk = api.dark();
+        const s = api.c('signal');
+        GL.draw(POOL_FS, ctx, { u_res: [ctx.canvas.width, ctx.canvas.height], u_dpr: api.dpr, u_th: TAU * t / 6000,
+          u_i0: [320, 148, 38, 0], u_i1: [272, 269, 8, 0],
+          u_col: dk ? s : [0.62, 0.44, 0.86], u_hi: dk ? [1, 0.97, 1] : [1, 0.98, 1], u_lo: dk ? [0.33, 0.22, 0.52] : [0.36, 0.17, 0.62], u_dark: dk ? 1 : 0 });
+      },
+    };
+  },
+});
+
+/* 05 GLASS ----------------------------------------------------------- */
+scene({
+  id: 'glass', name: 'Glass', role: 'Onboarding step card', loop: 6000, still: 1800, light: true,
+  what: 'A frosted card over a soft field. A light circles it slowly: the bright part of the edge follows the light, the shadow leans away from it, and once a loop a wide sheen crosses the face.',
+  tech: 'backdrop-filter blur on the card. The edge light is a conic gradient turning inside a border mask; edge, shadow and sheen are transform and opacity only.',
+  build(st, api) {
+    H(st, `
+      <div class="abs" data-k="field" style="inset:0;z-index:0">
+        <div class="abs" data-b="0" style="left:150px;top:60px;width:260px;height:260px;border-radius:50%;background:radial-gradient(closest-side, var(--gA), transparent);"></div>
+        <div class="abs" data-b="1" style="left:300px;top:110px;width:240px;height:240px;border-radius:50%;background:radial-gradient(closest-side, var(--gB), transparent);"></div>
+        <div class="abs" data-b="2" style="left:210px;top:-20px;width:220px;height:220px;border-radius:50%;background:radial-gradient(closest-side, var(--gC), transparent);"></div>
+        <div class="abs" style="left:60px;right:60px;top:92px;height:1px;background:var(--rule)"></div>
+        <div class="abs" style="left:60px;right:60px;top:300px;height:1px;background:var(--rule)"></div>
+        <div class="abs f4" style="left:60px;top:70px;font-size:12px">Welcome</div>
+        <div class="abs f4" style="right:60px;top:70px;font-size:12px">2 of 4</div>
+        <div class="abs f3" style="left:60px;top:112px;font-size:13px;line-height:30px">Anthropic<br>OpenAI<br>Google<br>Ollama on this machine<br>OpenRouter</div>
+        <div class="abs mono f4" style="right:60px;top:112px;font-size:12px;line-height:30px;text-align:right">connected<br>add key<br>add key<br>found 3 models<br>add key</div>
+      </div>
+      <div class="abs" data-k="card" style="left:150px;top:96px;width:340px;height:184px;z-index:2">
+        <div class="abs" style="inset:0;border-radius:14px">
+          <div class="abs" data-k="shadow" style="inset:14px 18px 2px;border-radius:18px;background:oklch(0 0 0 / var(--sh, 0.4));filter:blur(16px)"></div>
+          <div class="abs" style="inset:0;border-radius:14px;background:var(--glass);backdrop-filter:blur(20px) saturate(1.4);-webkit-backdrop-filter:blur(20px) saturate(1.4)"></div>
+          <div class="abs" style="inset:0;border-radius:14px;overflow:hidden">
+            <div class="abs" data-k="sheen" style="left:-60%;top:-40%;width:50%;height:180%;background:linear-gradient(90deg, transparent, var(--spec), transparent);transform:rotate(18deg)"></div>
+          </div>
+          <div class="abs" style="inset:0;border-radius:14px;padding:1px;-webkit-mask:linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;overflow:hidden;border:0">
+            <div class="abs" style="inset:0;background:var(--glass-edge);opacity:.55"></div>
+            <div class="abs" data-k="edge" style="left:50%;top:50%;width:420px;height:420px;margin:-210px 0 0 -210px;background:conic-gradient(from -40deg, transparent 0deg, var(--glass-edge) 40deg, var(--glass-edge) 60deg, transparent 110deg, transparent 360deg);"></div>
+          </div>
+          <div class="abs mono f4" style="left:22px;top:20px;font-size:11px">Step 2 of 4</div>
+          <div class="abs" style="left:22px;top:44px;font-size:17px;font-weight:560;color:var(--fg)">Connect a model</div>
+          <div class="abs f3" style="left:22px;top:72px;width:290px;font-size:13px;line-height:1.45">Paste a key or sign in. Keys stay on this machine and never leave it.</div>
+          <div class="btn solid" style="left:22px;bottom:20px">Continue</div>
+          <div class="abs f3" style="left:118px;bottom:26px;font-size:12.5px">Skip for now</div>
+        </div>
+      </div>`);
+    const field = $(st, '[data-k=field]');
+    const blobs = $$(st, '[data-b]');
+    const edge = $(st, '[data-k=edge]'), sheen = $(st, '[data-k=sheen]'), shadow = $(st, '[data-k=shadow]');
+    return {
+      render(t) {
+        const dk = api.dark();
+        field.style.setProperty('--gA', dk ? 'oklch(0.55 0.14 300 / 0.6)' : 'oklch(0.78 0.12 300 / 0.6)');
+        st.style.setProperty('--sh', dk ? '0.4' : '0.1');
+        field.style.setProperty('--gB', dk ? 'oklch(0.5 0.07 245 / 0.5)' : 'oklch(0.82 0.07 245 / 0.65)');
+        field.style.setProperty('--gC', dk ? 'oklch(0.55 0.05 330 / 0.35)' : 'oklch(0.86 0.06 340 / 0.55)');
+        const th = TAU * t / 6000;
+        tf(blobs[0], `translate(${(Math.cos(th) * 16).toFixed(2)}px, ${(Math.sin(th) * 8).toFixed(2)}px)`);
+        const la = th - Math.PI / 2; /* light direction: starts at the top */
+        shadow.style.transform = `translate(${(-Math.cos(la) * 6).toFixed(2)}px, ${(-Math.sin(la) * 5 + 8).toFixed(2)}px)`;
+        tf(edge, `rotate(${(la * 180 / Math.PI + 90).toFixed(2)}deg)`);
+        const sw = E.inout(seg(t, 900, 2500));
+        tf(sheen, `translateX(${sw * 560}px) rotate(18deg)`);
+        op(sheen, Math.sin(Math.PI * sw));
+      },
+    };
+  },
+});
+
+/* 06 HALO ------------------------------------------------------------ */
+scene({
+  id: 'halo', name: 'Halo', role: 'Tool running', loop: 2750, still: 700, light: true,
+  what: 'A hairline ring with an arc of light that fades over three quarters of a turn. It turns at an uneven pace, quick then slow, about 1.4s a lap. Shown at 56px and inline at 14px.',
+  tech: 'conic-gradient masked to a ring, turned with transform: rotate. Nothing repaints while it spins.',
+  build(st, api) {
+    const ring = (sz, w) => `
+      <div class="abs" style="inset:0;border-radius:50%;box-shadow:inset 0 0 0 ${w}px var(--rule)"></div>
+      <div class="abs" data-spin style="inset:0">
+        <div class="abs" style="inset:0;border-radius:50%;background:conic-gradient(from 0deg, transparent 0turn, color-mix(in oklab, var(--signal) 5%, transparent) .12turn, color-mix(in oklab, var(--signal) 18%, transparent) .32turn, color-mix(in oklab, var(--signal) 45%, transparent) .52turn, color-mix(in oklab, var(--signal) 80%, transparent) .68turn, var(--signal) .735turn, var(--hot) .75turn, transparent .75turn);-webkit-mask:radial-gradient(farthest-side, transparent calc(100% - ${w + 0.6}px), #000 calc(100% - ${w}px));mask:radial-gradient(farthest-side, transparent calc(100% - ${w + 0.6}px), #000 calc(100% - ${w}px))"></div>
+        <div class="abs" style="left:${-0}px;top:${sz / 2 - w / 2}px;width:${w}px;height:${w}px;border-radius:50%;background:var(--hot)"></div>
+        <div class="abs" data-bloom style="left:${-6 + w / 2}px;top:${sz / 2 - 6}px;width:12px;height:12px;border-radius:50%;background:radial-gradient(closest-side, color-mix(in oklab, var(--signal) 35%, transparent), transparent)"></div>
+      </div>`;
+    H(st, `
+      <div class="abs" style="left:292px;top:96px;width:56px;height:56px">${ring(56, 2)}</div>
+      <div class="abs" style="left:0;right:0;top:184px;text-align:center;font-size:13px;color:var(--fg-2)">Running bun test</div>
+      <div class="abs" style="left:0;right:0;top:204px;text-align:center;font:450 12px var(--mono);color:var(--fg-4)">packages/server</div>
+      <div class="abs" style="left:60px;right:60px;top:258px;height:1px;background:var(--rule)"></div>
+      <div class="abs" style="left:60px;top:278px;width:14px;height:14px">${ring(14, 1.5)}</div>
+      <div class="live" style="left:84px;top:276px"><span>Running bun test</span><span class="n f4">12s</span></div>
+      <div class="abs f4" style="right:60px;top:278px;font-size:12px">inline, 14px</div>`);
+    const spins = $$(st, '[data-spin]');
+    return {
+      render(t) {
+        const u = t / 1375;
+        const a = 360 * u + 22 * Math.sin(TAU * u);
+        spins.forEach((el) => tf(el, `rotate(${a.toFixed(2)}deg)`));
+      },
+    };
+  },
+});
+
+/* 07 HAZE ------------------------------------------------------------ */
+const HAZE_FS = GLSL_HEAD + `
+uniform float u_u; uniform vec4 u_band; uniform vec3 u_ink, u_lit, u_glow; uniform float u_ga, u_base;
+float rows(vec2 p){
+  float a = 0.;
+  for (int i = 0; i < 3; i++) {
+    float y0 = u_band.y + 18. + float(i) * 52.;
+    float x0 = u_band.x + 16.;
+    float w = i == 0 ? 238. : (i == 1 ? 196. : 262.);
+    float ic = sdRB(p - vec2(x0 + 7., y0 + 7.), vec2(7.), 3.);
+    float t1 = sdRB(p - vec2(x0 + 26. + w * 0.5, y0 + 4.), vec2(w * 0.5, 4.), 4.);
+    float t2 = sdRB(p - vec2(x0 + 26. + w * 0.3, y0 + 19.), vec2(w * 0.3, 2.5), 2.5);
+    float t3 = sdRB(p - vec2(x0 + 26. + w * 0.62, y0 + 31.), vec2(w * 0.62, 2.5), 2.5);
+    a = max(a, clamp(0.5 - ic * u_dpr, 0., 1.) * 0.9);
+    a = max(a, clamp(0.5 - t1 * u_dpr, 0., 1.));
+    a = max(a, clamp(0.5 - t2 * u_dpr, 0., 1.) * 0.7);
+    a = max(a, clamp(0.5 - t3 * u_dpr, 0., 1.) * 0.55);
+  }
+  return a;
+}
+void main(){
+  vec2 p = P();
+  float flow = u_u * 6.;               /* the noise repeats every 6 cells in y, so one loop moves it one period */
+  vec2 q = p * vec2(0.034, 0.05);
+  float bx = mix(u_band.x - 150., u_band.x + u_band.z + 150., u_u);
+  float beam = exp(-pow((p.x - bx) / 92., 2.));
+  float heat = 0.35 + beam;
+  vec2 dsp = vec2(gnp(q + vec2(0., flow), 6.), gnp(q + vec2(17.3, flow), 6.));
+  dsp += 0.5 * vec2(gnp(q * 2. + vec2(5., flow * 2.), 12.), gnp(q * 2. + vec2(41., flow * 2.), 12.));
+  vec2 pd = p + dsp * vec2(1.1, 1.7) * heat;
+  float r = rows(pd);
+  float n = 0.5 + 0.5 * gnp(p * vec2(0.012, 0.02) + vec2(0., u_u * 3.), 3.);
+  float shimmer = 0.5 + 0.5 * gnp(p * vec2(0.05, 0.11) + vec2(3., u_u * 12.), 12.);
+  vec2 bc = (p - (u_band.xy + 0.5 * u_band.zw)) / (0.5 * u_band.zw + vec2(40., 30.));
+  float inBand = smoothstep(1.0, 0.45, length(bc * vec2(0.85, 1.0)));
+  float glow = beam * (0.45 + 0.55 * n) * (0.7 + 0.3 * shimmer) * inBand * u_ga;
+  vec3 ink = mix(u_ink, u_lit, clamp(beam * 1.2, 0., 1.));
+  float ra = r * u_base * (1. + beam * 0.9);
+  float A = clamp(ra + glow, 0., 1.);
+  vec3 col = (ink * ra + u_glow * glow) / max(ra + glow, 1e-4);
+  o = vec4(col * A, A);
+}`;
+scene({
+  id: 'haze', name: 'Haze', role: 'Searching the web', loop: 2750, still: 1200, light: true,
+  what: 'Ghost result rows sit under a heat shimmer that rises through them. A soft violet band crosses left to right; where it passes the shimmer gets stronger and the rows catch the light.',
+  tech: 'Shader: tiling gradient noise displaces the rows, so the loop closes after one period. The band is a Gaussian in x.',
+  build(st, api) {
+    const ctx = api.canvas(st, 1);
+    H(st, `
+      <div class="live" style="left:60px;top:84px"><span>Searching the web</span><span class="f3" style="font-size:13px">caddy tailscale https</span></div>
+      <div class="abs mono f4" style="right:60px;top:86px;font-size:12px">3 sources</div>`);
+    return {
+      render(t) {
+        const dk = api.dark();
+        GL.draw(HAZE_FS, ctx, { u_res: [ctx.canvas.width, ctx.canvas.height], u_dpr: api.dpr, u_u: t / 2750, u_band: [60, 112, 520, 176],
+          u_ink: api.c('fg4'), u_lit: dk ? mixc(api.c('fg3'), api.c('signal'), 0.3) : mixc(api.c('fg4'), api.c('signal'), 0.28),
+          u_glow: api.c('signal'), u_ga: dk ? 0.11 : 0.08, u_base: dk ? 0.42 : 0.38 });
+      },
+    };
+  },
+});
+
+/* 08 BREATH ---------------------------------------------------------- */
+scene({
+  id: 'breath', name: 'Breath', role: 'Waiting on you', loop: 4375, still: 1600, light: true,
+  what: 'Amber light breathes in from the card\'s left rule and across its edge: in for 1.6s, out for 2.2s, then a short rest. The words stay still. Nothing else on the card moves.',
+  tech: 'Three layers (rule, wash, edge) change opacity only. A sine in, a longer sine out, a rest, so it reads as calm rather than urgent.',
+  build(st, api) {
+    H(st, `
+      <div class="live" style="left:60px;top:84px"><span style="color:var(--warn);font-weight:540">Waiting on you</span><span class="n f4">0:41</span></div>
+      <div class="abs" data-k="card" style="left:60px;top:116px;width:520px;height:176px;border-radius:10px;background:var(--bg-raise);border:1px solid var(--rule)">
+        <div class="abs" data-k="glow" style="inset:-1px;border-radius:10px;box-shadow:0 0 0 1px color-mix(in oklab, var(--warn) 42%, transparent), 0 0 26px 0 color-mix(in oklab, var(--warn) 12%, transparent)"></div>
+        <div class="abs" data-k="wash" style="inset:0;border-radius:9px;background:linear-gradient(90deg, color-mix(in oklab, var(--warn) 10%, transparent), transparent 62%)"></div>
+        <div class="abs" data-k="rule" style="left:-1px;top:14px;bottom:14px;width:2px;border-radius:1px;background:var(--warn)"></div>
+        <div class="abs" style="left:22px;top:20px;font-size:14px;font-weight:540;color:var(--fg)">Opus wants to run a command</div>
+        <div class="abs f3" style="left:22px;top:42px;font-size:12px">potential-happiness on arch-desktop</div>
+        <div class="abs mono" style="left:22px;top:70px;width:474px;height:34px;border-radius:5px;background:var(--bg-sunk);border:1px solid var(--rule);font-size:12.5px;line-height:32px;padding-left:12px;color:var(--fg-2)">bun install --frozen-lockfile</div>
+        <div class="btn solid" style="right:20px;bottom:18px">Allow once</div>
+        <div class="btn ghost" style="right:120px;bottom:18px">Deny</div>
+        <div class="abs f4" style="left:22px;bottom:24px;font-size:12px">A to allow, D to deny</div>
+      </div>`);
+    const glow = $(st, '[data-k=glow]'), wash = $(st, '[data-k=wash]'), rule = $(st, '[data-k=rule]');
+    return {
+      render(t) {
+        const b = t < 1600 ? E.sine(t / 1600) : t < 3800 ? 1 - E.sine((t - 1600) / 2200) : 0;
+        op(glow, 0.12 + 0.88 * b);
+        op(wash, 0.25 + 0.75 * b);
+        op(rule, 0.55 + 0.45 * b);
+      },
+    };
+  },
+});
+/* 09 DEVELOP --------------------------------------------------------- */
+scene({
+  id: 'develop', name: 'Develop', role: 'Writing, streaming text', loop: 6000, still: 2300, light: true,
+  what: 'Words come up behind a soft front, like a print developing. Letters pass through a faint violet light for about 60px, then settle to plain text. The front keeps the stream\'s pace, quick in bursts and slower between.',
+  tech: 'Two copies of each line under moving gradient masks. Production: the CSS Highlight API, as StreamReveal does today.',
+  build(st, api) {
+    const lines = [
+      'The deploy failed because the health check timed out after 30 seconds.',
+      'Caddy came up before the API had finished its migrations, so the first',
+      'three probes got a 502. I moved the migration into the build step and',
+      'raised the start period to 45 seconds. A dry run passes now.',
+    ];
+    H(st, `<style>
+      .dv { position:absolute; left:60px; font-size:14.5px; line-height:24px; white-space:nowrap; }
+      .dv span { position:absolute; left:0; top:0; }
+      .dv .b { color: var(--fg); } .dv .h { color: var(--hot); }
+    </style>
+    <div class="abs f3" style="left:60px;top:76px;font-size:12px">Opus 4.7</div>
+    <div class="abs" data-k="blk" style="inset:0">
+    ${lines.map((l, i) => `<div class="dv" style="top:${102 + i * 26}px"><span class="b">${l}</span><span class="h">${l}</span></div>`).join('')}
+    </div>
+    <div class="composer" style="left:60px;top:250px;width:520px;height:56px"><div class="ph" style="top:17px">Ask a follow up</div><div class="act" style="bottom:14px"><i></i></div></div>`);
+    const rows = $$(st, '.dv').map((el) => ({ b: $(el, '.b'), h: $(el, '.h') }));
+    const blk = $(st, '[data-k=blk]');
+    const mc = document.createElement('canvas').getContext('2d');
+    let pre = null;
+    const N = lines.reduce((a, l) => a + l.length, 0);
+    function measure() {
+      mc.font = "450 14.5px 'Mona Sans Variable'";
+      pre = lines.map((l) => { const a = [0]; for (let i = 1; i <= l.length; i++) a.push(mc.measureText(l.slice(0, i)).width); return a; });
+    }
+    const mask = (el, g) => { el.style.webkitMaskImage = g; el.style.maskImage = g; };
+    return {
+      render(t) {
+        if (!pre) measure();
+        const u = seg(t, 200, 3900);
+        const c = N * (u + 0.018 * Math.sin(14 * Math.PI * u));
+        let off = 0;
+        rows.forEach((r, i) => {
+          const n = lines[i].length;
+          const k = c - off; off += n;
+          if (k <= 0) { r.b.style.opacity = '0'; r.h.style.opacity = '0'; return; }
+          r.b.style.opacity = '1';
+          if (k >= n + 6) { mask(r.b, 'none'); r.h.style.opacity = '0'; return; }
+          const kk = Math.min(k, n); const j = Math.floor(kk);
+          const x = pre[i][j] + (j < n ? (pre[i][j + 1] - pre[i][j]) * (kk - j) : 0) + (k > n ? (k - n) * 8 : 0);
+          mask(r.b, `linear-gradient(90deg, #000 ${Math.max(0, x - 64)}px, rgba(0,0,0,.35) ${Math.max(0, x - 20)}px, transparent ${x}px)`);
+          r.h.style.opacity = '1';
+          mask(r.h, `linear-gradient(90deg, transparent ${x - 90}px, rgba(0,0,0,.85) ${x - 26}px, transparent ${x + 1}px)`);
+        });
+        op(blk, 1 - E.in(seg(t, 5300, 5700)));
+      },
+    };
+  },
+});
+
+/* 10 SETTLE ---------------------------------------------------------- */
+scene({
+  id: 'settle', name: 'Settle', role: 'Done', loop: 5250, still: 3000, light: true,
+  what: 'The running light slows, its tail opens around the whole border, and the edge glows evenly for a moment in a neutral tone. Then it fades back to the plain hairline as "Done in 12s" comes in.',
+  tech: 'Same rim shader: tail length and an even fill are the only new inputs. 700ms coast on the standard ease, 800ms fade.',
+  build(st, api) {
+    H(st, `
+      <div class="msg" style="left:60px;top:86px">Can you check why the deploy failed last night?</div>
+      <div class="live" data-k="a" style="left:60px;top:130px"><span>Thinking</span><span class="n sig">11s</span></div>
+      <div class="live" data-k="b" style="left:60px;top:130px;opacity:0"><span class="f3">Done in 12s</span></div>
+      <div class="composer" style="left:60px;top:206px;width:520px;height:100px">
+        <div class="ph">Ask a follow up</div><div class="model">Opus 4.7</div>
+        <div class="act" data-k="stop"><i></i></div>
+        <div class="act" data-k="send" style="opacity:0;background:var(--bg-hover)"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 10V2M2.5 5.5 6 2l3.5 3.5" stroke="var(--fg-3)" stroke-width="1.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+      </div>`);
+    const ctx = api.canvas(st, 5);
+    const box = [60.5, 206.5, 519, 99], r = 9.5, P = rrPerim(519, 99, r);
+    const A = $(st, '[data-k=a]'), B = $(st, '[data-k=b]'), stop = $(st, '[data-k=stop]'), send = $(st, '[data-k=send]');
+    const v = P / 4000;
+    return {
+      render(t) {
+        const dk = api.dark();
+        const head = dk ? mixc(api.c('hot'), [1, 1, 1], 0.35) : api.c('hot');
+        let s, tail = 190, k = 1, fill = 0;
+        if (t < 1900) s = v * t;
+        else if (t < 4400) { const c = seg(t, 1900, 2600); s = v * 1900 + v * 700 * (c - c * c / 2); tail = lerp(190, P, E.out(c)); k = 1 - E.sine(seg(t, 1950, 2450)); }
+        else { s = v * (t - 5250); k = E.sine(seg(t, 4400, 5250)); }
+        fill = E.sine(seg(t, 1950, 2450)) * (1 - E.sine(seg(t, 2500, 3400))) * 0.62;
+        const fc = mixc(api.c('signal'), api.c('fg2'), 0.75);
+        rim(ctx, api.dpr, box, r, [{ s, tail, head, col: api.c('signal'), k }], { fill, fc, halo: dk ? 0.22 : 0.12, wash: dk ? 0.06 : 0.05 });
+        const done = E.out(seg(t, 2300, 2540)) * (1 - seg(t, 4400, 4560));
+        op(A, (1 - seg(t, 2300, 2420)) + seg(t, 4500, 4700)); op(B, E.out(seg(t, 2400, 2640)) * (1 - seg(t, 4400, 4520)));
+        op(stop, 1 - done); op(send, done);
+      },
+    };
+  },
+});
+
+/* 11 FAULT ----------------------------------------------------------- */
+scene({
+  id: 'fault', name: 'Fault', role: 'Failed', loop: 5250, still: 3000, light: true,
+  what: 'The running light brakes to a stop over 600ms, its tail draws into the head, and it cools from violet to red. A short red mark stays on the border where the work stopped, next to the reason.',
+  tech: 'Rim shader with tail length, color and intensity driven by the error event. The mark stays until Retry.',
+  build(st, api) {
+    H(st, `
+      <div class="msg" style="left:60px;top:86px">Can you check why the deploy failed last night?</div>
+      <div class="live" data-k="a" style="left:60px;top:130px"><span>Thinking</span><span class="n sig">6s</span></div>
+      <div class="live" data-k="b" style="left:60px;top:130px;opacity:0"><span style="color:var(--fault);font-weight:540">Failed</span><span class="f2">The provider is overloaded (529).</span><span class="f2" style="text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--rule-2)">Retry</span></div>
+      <div class="composer" style="left:60px;top:206px;width:520px;height:100px">
+        <div class="ph">Ask a follow up</div><div class="model">Opus 4.7</div><div class="act"><i></i></div>
+      </div>`);
+    const ctx = api.canvas(st, 5);
+    const box = [60.5, 206.5, 519, 99], r = 9.5, P = rrPerim(519, 99, r);
+    const A = $(st, '[data-k=a]'), B = $(st, '[data-k=b]');
+    const v = P / 4000;
+    return {
+      render(t) {
+        const dk = api.dark();
+        const hot = dk ? mixc(api.c('hot'), [1, 1, 1], 0.35) : api.c('hot');
+        const fhead = dk ? mixc(api.c('fault'), [1, 1, 1], 0.25) : api.c('fault');
+        let s, tail = 190, k = 1, c = 0;
+        if (t < 1500) s = v * t + 700;
+        else if (t < 4400) {
+          const b = seg(t, 1500, 2100);
+          s = v * 1500 + 700 + v * 600 * (b - b * b / 2);
+          tail = lerp(190, 30, E.out(b));
+          c = E.out(seg(t, 1550, 2100));
+          k = 1 - 0.4 * E.sine(seg(t, 2100, 2700)) - 0.6 * E.sine(seg(t, 3700, 4300));
+        } else { s = v * (t - 5250) + 700; k = E.sine(seg(t, 4400, 5250)); }
+        rim(ctx, api.dpr, box, r, [{ s, tail, head: mixc(hot, fhead, c), col: mixc(api.c('signal'), api.c('fault'), c), k }], { halo: dk ? 0.22 : 0.12, wash: (dk ? 0.06 : 0.05) * (1 - c * 0.5) });
+        op(A, (1 - seg(t, 1900, 2020)) + seg(t, 4500, 4700)); op(B, E.out(seg(t, 2000, 2240)) * (1 - seg(t, 4400, 4520)));
+      },
+    };
+  },
+});
+
+/* 12 ECLIPSE --------------------------------------------------------- */
+scene({
+  id: 'eclipse', name: 'Eclipse', role: 'Limit reached, resumes on a countdown', loop: 8500, still: 2600, light: true,
+  what: 'A disc of light sits behind a dark disc, so only a thin corona shows. Each tick of the countdown slides the cover a step to the right in 240ms. At zero the light is clear, turns violet and work resumes.',
+  tech: 'Canvas 2D: a radial halo, a disc and a cover disc in the background color. Real waits tick once a minute, so it costs nothing between ticks.',
+  build(st, api) {
+    const ctx = api.canvas(st, 1);
+    H(st, `
+      <div class="abs" data-k="a" style="left:0;right:0;top:212px;text-align:center;font-size:14px;font-weight:540;color:var(--fg-2)">Limit reached on Opus 4.7</div>
+      <div class="abs" data-k="b" style="left:0;right:0;top:212px;text-align:center;font-size:14px;font-weight:540;color:var(--signal);opacity:0">Resumed</div>
+      <div class="abs" style="left:0;right:0;top:236px;text-align:center;font-size:12.5px;color:var(--fg-3)"><span data-k="c">Resumes at 15:42, <span class="mono" data-k="n">in 0:06</span></span></div>
+      <div class="abs" data-k="d" style="left:0;right:0;top:236px;text-align:center;font-size:12.5px;color:var(--fg-3);opacity:0">Picking up where it stopped</div>
+      <div class="abs f4" style="left:0;right:0;top:300px;text-align:center;font-size:11px">Shown at 1 tick a second. A real wait ticks once a minute.</div>`);
+    const a = $(st, '[data-k=a]'), b = $(st, '[data-k=b]'), c = $(st, '[data-k=c]'), d = $(st, '[data-k=d]'), n = $(st, '[data-k=n]');
+    const cx = 320, cy = 140, R = 30;
+    return {
+      render(t) {
+        const dk = api.dark(), D = api.dpr;
+        ctx.setTransform(D, 0, 0, D, 0, 0); ctx.clearRect(0, 0, 640, 360);
+        let o = 0;
+        for (let i = 1; i <= 6; i++) o += E.out(seg(t, i * 1000, i * 1000 + 240)) / 6;
+        const back = E.inout(seg(t, 7600, 8500));
+        const rs = E.out(seg(t, 6240, 6840)) * (1 - back);
+        const neutral = dk ? api.c('fg2') : api.c('fg3');
+        const col = mixc(neutral, api.c('signal'), rs);
+        const off = o * (2 * R + 10) * (1 - back);
+        const swell = 1 + 0.05 * rs;
+        // halo
+        const hg = ctx.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 2.1 * swell);
+        hg.addColorStop(0, css(col, dk ? 0.22 + 0.1 * rs : 0.16 + 0.06 * rs)); hg.addColorStop(0.35, css(col, dk ? 0.06 : 0.05)); hg.addColorStop(1, css(col, 0));
+        ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(cx, cy, R * 2.2, 0, TAU); ctx.fill();
+        // disc
+        const dg = ctx.createRadialGradient(cx - 8, cy - 10, 2, cx, cy, R);
+        dg.addColorStop(0, css(mixc(col, dk ? [1, 1, 1] : col, 0.12), dk ? 0.92 : 0.85)); dg.addColorStop(1, css(col, dk ? 0.82 : 0.75));
+        ctx.fillStyle = dg; ctx.beginPath(); ctx.arc(cx, cy, R * swell, 0, TAU); ctx.fill();
+        // cover
+        ctx.fillStyle = css(api.c('bg'));
+        ctx.beginPath(); ctx.arc(cx + off, cy, R + 1.2, 0, TAU); ctx.fill();
+        ctx.strokeStyle = css(api.c('rule'), (1 - E.out(seg(t, 6240, 6480))) * (1 - back) + back); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx + off, cy, R + 0.7, 0, TAU); ctx.stroke();
+        const left = Math.max(0, 6 - Math.floor(t / 1000));
+        n.textContent = `in 0:0${t >= 7600 ? 6 : left}`;
+        op(a, swapOut(t, 6240, 7600)); op(c, swapOut(t, 6240, 7600)); op(b, swapIn(t, 6240, 7600)); op(d, swapIn(t, 6240, 7600));
+      },
+    };
+  },
+});
+
+/* 13 RELAY ----------------------------------------------------------- */
+scene({
+  id: 'relay', name: 'Relay', role: 'Handoff to another model', loop: 6500, still: 2500, light: true,
+  what: 'The light running around the first model\'s card leaves through its right edge, crosses the wire as one packet, and enters the second card, where it keeps running. The first card dims; the line under them names the new owner.',
+  tech: 'Two rim draws and a canvas packet with a 70px tail. The crossing takes 400ms plus 100ms per 1K tokens of context, capped at 1.2s.',
+  build(st, api) {
+    H(st, `
+      <div class="abs" style="left:250px;right:250px;top:171px;height:1px;background:var(--rule-2)"></div>
+      <div class="abs" data-k="ca" style="left:60px;top:126px;width:190px;height:92px;border-radius:10px;border:1px solid var(--rule);background:var(--bg-raise)">
+        <div class="abs" data-k="na" style="left:16px;top:16px;font-size:14px;font-weight:540;color:var(--fg)">Opus 4.7</div>
+        <div class="abs f3" style="left:16px;top:40px;font-size:12px">Planned the migration</div>
+        <div class="abs mono f4" style="left:16px;top:62px;font-size:11px">38K tokens</div>
+      </div>
+      <div class="abs" data-k="cb" style="left:390px;top:126px;width:190px;height:92px;border-radius:10px;border:1px solid var(--rule);background:var(--bg-raise)">
+        <div class="abs" data-k="nb" style="left:16px;top:16px;font-size:14px;font-weight:540;color:var(--fg-3)">Sonnet 4.6</div>
+        <div class="abs f3" style="left:16px;top:40px;font-size:12px">Writes the code</div>
+        <div class="abs mono f4" style="left:16px;top:62px;font-size:11px">fresh context</div>
+      </div>
+      <div class="abs" data-k="s0" style="left:0;right:0;top:252px;text-align:center;font-size:13px;color:var(--fg-2)">Opus 4.7 is planning</div>
+      <div class="abs" data-k="s1" style="left:0;right:0;top:252px;text-align:center;font-size:13px;color:var(--fg-2);opacity:0">Handing off with <span class="mono">12.4K</span> tokens of context</div>
+      <div class="abs" data-k="s2" style="left:0;right:0;top:252px;text-align:center;font-size:13px;color:var(--fg-2);opacity:0">Sonnet 4.6 has it</div>`);
+    const ca = api.canvas(st, 5), cb = api.canvas(st, 6), cw = api.canvas(st, 7);
+    const bw = 189, bh = 91, r = 9.5;
+    const boxA = [60.5, 126.5, bw, bh], boxB = [390.5, 126.5, bw, bh];
+    const P = rrPerim(bw, bh, r);
+    const exitA = rrSide(bw, bh, r, 'right'), entryB = rrSide(bw, bh, r, 'left');
+    const v = P / 3200;
+    const na = $(st, '[data-k=na]'), nb = $(st, '[data-k=nb]');
+    const s0 = $(st, '[data-k=s0]'), s1 = $(st, '[data-k=s1]'), s2 = $(st, '[data-k=s2]');
+    const x0 = 250, x1 = 390, wy = 171.5;
+    return {
+      render(t) {
+        const dk = api.dark();
+        const head = dk ? mixc(api.c('hot'), [1, 1, 1], 0.35) : api.c('hot');
+        const col = api.c('signal');
+        const halo = dk ? 0.22 : 0.12, wash = dk ? 0.05 : 0.04;
+        // card A
+        let sA, tA = 150, kA = 1;
+        if (t < 2100) sA = exitA - v * (2100 - t);
+        else if (t < 5600) { sA = exitA; tA = 150 * (1 - E.in(seg(t, 2100, 2420))); kA = tA > 1 ? 1 : 0; }
+        else { sA = exitA - v * (2100 + 6500 - t); kA = E.sine(seg(t, 5600, 6500)); }
+        rim(ca, api.dpr, boxA, r, [{ s: sA, tail: Math.max(tA, 1), head, col, k: kA }], { halo, wash });
+        // wire packet
+        const D = api.dpr;
+        cw.setTransform(D, 0, 0, D, 0, 0); cw.clearRect(0, 0, 640, 360);
+        const pu = E.inout(seg(t, 2100, 2900));
+        if (t > 2100 && t < 3100) {
+          const hx = lerp(x0, x1 + 70, pu);
+          const tx = Math.max(x0, hx - 70);
+          const hx2 = Math.min(hx, x1);
+          if (hx2 > tx) {
+            const g = cw.createLinearGradient(tx, 0, hx2 + 0.01, 0);
+            g.addColorStop(0, css(col, 0)); g.addColorStop(0.75, css(col, 0.8)); g.addColorStop(1, css(head, 1));
+            cw.strokeStyle = g; cw.lineWidth = 1; cw.beginPath(); cw.moveTo(tx, wy); cw.lineTo(hx2, wy); cw.stroke();
+            const gh = cw.createLinearGradient(tx, 0, hx2 + 0.01, 0);
+            gh.addColorStop(0, css(col, 0)); gh.addColorStop(1, css(col, dk ? 0.22 : 0.12));
+            cw.strokeStyle = gh; cw.lineWidth = 5; cw.lineCap = 'round'; cw.beginPath(); cw.moveTo(tx, wy); cw.lineTo(hx2, wy); cw.stroke(); cw.lineCap = 'butt';
+          }
+        }
+        // card B
+        let kB = 0, sB = entryB, tB = 1;
+        if (t >= 2860 && t < 5600) {
+          const d = (t - 2860) * v * 1.0;
+          sB = entryB + d; tB = Math.min(150, Math.max(1, d + 20)); kB = E.out(seg(t, 2860, 2960));
+        } else if (t >= 5600) { const d = (t - 2860) * v; sB = entryB + d; tB = 150; kB = 1 - E.sine(seg(t, 5600, 6200)); }
+        rim(cb, api.dpr, boxB, r, [{ s: sB, tail: tB, head, col, k: kB }], { halo, wash });
+        // words
+        const nbOn = E.out(seg(t, 2900, 3140)) * (1 - seg(t, 5600, 6000));
+        na.style.color = css(mixc(api.c('fg'), api.c('fg3'), nbOn));
+        nb.style.color = css(mixc(api.c('fg3'), api.c('fg'), nbOn));
+        op(s0, swapOut(t, 2000, 5600)); op(s1, swapIn(t, 2000, 2900)); op(s2, swapIn(t, 2900, 5480));
+      },
+    };
+  },
+});
+
+/* 14 PRISM ----------------------------------------------------------- */
+scene({
+  id: 'prism', name: 'Prism', role: 'Jury', loop: 7500, still: 4900, light: true,
+  what: 'Each juror has a wire into a small glass prism. When a juror answers, a packet of light runs down its wire and the prism fills a little more. With every answer in, light circles the prism once, then one beam leaves it and the verdict appears.',
+  tech: 'Canvas 2D strokes with gradient packets, DOM words. The prism is a triangle path with a glass fill and an edge light.',
+  build(st, api) {
+    const J = [['Opus 4.7', 'B', 520], ['GPT-5.5', 'B', 1150], ['Gemini 3 Pro', 'A', 1700], ['Sonnet 4.6', 'B', 2350]];
+    const ys = [104, 148, 196, 240];
+    H(st, J.map(([n, pick], i) => `
+      <div class="abs nowrap" style="left:60px;top:${ys[i] - 9}px;font-size:13px" data-j="${i}"><span data-n style="color:var(--fg-3)">${n}</span></div>
+      <div class="abs mono nowrap" style="left:176px;top:${ys[i] - 8}px;font-size:11.5px;width:60px"><span data-r style="color:var(--fg-4)">running</span><span data-p style="position:absolute;left:0;opacity:0;color:var(--fg-2)">picks ${pick}</span></div>`).join('') + `
+      <div class="abs" data-k="v" style="left:478px;top:150px;opacity:0"><div style="font-size:15px;font-weight:560;color:var(--fg)">Verdict: B</div><div style="font-size:12px;color:var(--fg-3);margin-top:3px">3 of 4 agree</div></div>
+      <div class="abs" data-k="j" style="left:478px;top:160px;font-size:12.5px;color:var(--fg-3);opacity:0">Judging</div>
+      <div class="abs f3" data-k="w" style="left:478px;top:160px;font-size:12.5px">Waiting for <span class="mono" data-k="wn">4</span> of 4</div>`);
+    const ctx = api.canvas(st, 2);
+    const rows = J.map((_, i) => ({ n: $(st, `[data-j="${i}"] [data-n]`), r: $$(st, '[data-r]')[i], p: $$(st, '[data-p]')[i] }));
+    const V = $(st, '[data-k=v]'), Jw = $(st, '[data-k=j]'), W = $(st, '[data-k=w]'), WN = $(st, '[data-k=wn]');
+    const C = [404, 172], S = 34;
+    const tri = [[C[0], C[1] - S * 0.62], [C[0] + S * 0.54, C[1] + S * 0.31], [C[0] - S * 0.54, C[1] + S * 0.31]];
+    const x0 = 250, ex = [C[0] + 16, C[1]], ex2 = [466, C[1]];
+    return {
+      render(t) {
+        const dk = api.dark(), D = api.dpr;
+        const col = api.c('signal'), head = dk ? mixc(api.c('hot'), [1, 1, 1], 0.4) : api.c('hot');
+        const reset = E.inout(seg(t, 6600, 7400));
+        ctx.setTransform(D, 0, 0, D, 0, 0); ctx.clearRect(0, 0, 640, 360);
+        let fillLvl = 0, done = 0;
+        J.forEach(([, , f], i) => {
+          const y = ys[i];
+          const a = [x0, y], b = [C[0] - 14, C[1] + (y - C[1]) * 0.12];
+          const lit = seg(t, f + 500, f + 900) * (1 - reset);
+          const settle = E.sine(seg(t, 4400, 5200));
+          // base wire
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = css(api.c('rule2')); ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke();
+          ctx.strokeStyle = css(mixc(col, api.c('fg4'), settle), (dk ? 0.5 : 0.55) * lit); ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke();
+          // packet
+          const pu = E.inout(seg(t, f, f + 650));
+          if (t > f && t < f + 700) {
+            const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+            const hd = pu * (L + 60), tl = Math.max(0, hd - 60), hh = Math.min(hd, L);
+            if (hh > tl) {
+              const P1 = [lerp(a[0], b[0], tl / L), lerp(a[1], b[1], tl / L)], P2 = [lerp(a[0], b[0], hh / L), lerp(a[1], b[1], hh / L)];
+              const g = ctx.createLinearGradient(...P1, ...P2);
+              g.addColorStop(0, css(col, 0)); g.addColorStop(0.8, css(col, 0.9)); g.addColorStop(1, css(head, 1));
+              ctx.strokeStyle = g; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(...P1); ctx.lineTo(...P2); ctx.stroke();
+              const gh = ctx.createLinearGradient(...P1, ...P2);
+              gh.addColorStop(0, css(col, 0)); gh.addColorStop(1, css(col, dk ? 0.2 : 0.1));
+              ctx.strokeStyle = gh; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(...P1); ctx.lineTo(...P2); ctx.stroke(); ctx.lineCap = 'butt';
+            }
+          }
+          const arrived = E.out(seg(t, f + 560, f + 800)) * (1 - reset);
+          fillLvl += arrived / 4;
+          const ans = E.out(seg(t, f, f + 200)) * (1 - reset);
+          done += t >= f + 560 && t < 6600 ? 1 : 0;
+          rows[i].n.style.color = css(mixc(api.c('fg3'), api.c('fg'), ans));
+          // labels swap one after the other: the old word leaves, then the new one comes in
+          const a2 = seg(t, f, f + 240), rr = seg(t, 6600, 7400);
+          let rn = 1 - E.out(Math.min(1, a2 * 2)), pk = E.out(Math.max(0, a2 * 2 - 1));
+          if (rr > 0) { pk = 1 - E.out(Math.min(1, rr * 2)); rn = E.out(Math.max(0, rr * 2 - 1)); }
+          op(rows[i].r, rn); op(rows[i].p, pk);
+        });
+        // prism glass
+        const path = () => { ctx.beginPath(); ctx.moveTo(...tri[0]); ctx.lineTo(...tri[1]); ctx.lineTo(...tri[2]); ctx.closePath(); };
+        const settle = E.sine(seg(t, 4400, 5200));
+        const g = ctx.createLinearGradient(C[0] - S * 0.5, C[1] - S * 0.6, C[0] + S * 0.5, C[1] + S * 0.4);
+        g.addColorStop(0, dk ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.9)'); g.addColorStop(1, dk ? 'rgba(255,255,255,0.015)' : 'rgba(240,240,246,0.9)');
+        path(); ctx.fillStyle = g; ctx.fill();
+        const inner = fillLvl * (1 - 0.6 * settle);
+        if (inner > 0) {
+          const rg = ctx.createRadialGradient(C[0], C[1] + 4, 1, C[0], C[1] + 4, S * 0.6);
+          rg.addColorStop(0, css(col, (dk ? 0.55 : 0.4) * inner)); rg.addColorStop(1, css(col, (dk ? 0.12 : 0.08) * inner));
+          path(); ctx.fillStyle = rg; ctx.fill();
+        }
+        path(); ctx.lineWidth = 1; ctx.strokeStyle = css(dk ? [0.42, 0.42, 0.46] : [0.66, 0.66, 0.7]); ctx.stroke();
+        // edge light circling while judging
+        const ju = seg(t, 3000, 3900);
+        if (ju > 0 && ju < 1) {
+          const per = [0, 1, 2].map((i) => Math.hypot(tri[(i + 1) % 3][0] - tri[i][0], tri[(i + 1) % 3][1] - tri[i][1]));
+          const PT = per[0] * 3;
+          const at = (s) => { s = ((s % PT) + PT) % PT; const i = Math.floor(s / per[0]); const u = (s - i * per[0]) / per[0]; const A = tri[i], B = tri[(i + 1) % 3]; return [lerp(A[0], B[0], u), lerp(A[1], B[1], u)]; };
+          const hs = E.inout(ju) * PT * 1.25;
+          const k = Math.sin(Math.PI * ju);
+          for (let j = 0; j < 40; j++) {
+            const s0 = hs - j * 1.5, s1 = hs - (j + 1) * 1.5;
+            const p0 = at(s0), p1 = at(s1);
+            ctx.strokeStyle = css(j < 3 ? head : col, k * Math.pow(1 - j / 40, 1.6));
+            ctx.lineWidth = 1.3; ctx.beginPath(); ctx.moveTo(...p0); ctx.lineTo(...p1); ctx.stroke();
+          }
+        }
+        // exit beam
+        const eb = E.out(seg(t, 3900, 4400)) * (1 - reset);
+        if (eb > 0) {
+          const hx = lerp(ex[0], ex2[0], eb);
+          const bc = mixc(col, api.c('fg2'), settle);
+          const gb = ctx.createLinearGradient(ex[0], 0, hx + 0.01, 0);
+          gb.addColorStop(0, css(bc, 0.5)); gb.addColorStop(1, css(eb < 1 ? head : bc, 1));
+          ctx.strokeStyle = gb; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(...ex); ctx.lineTo(hx, ex[1]); ctx.stroke();
+        }
+        tf(V, `translateY(${(1 - E.out(seg(t, 4250, 4500))) * 4}px)`); op(V, E.out(seg(t, 4250, 4500)) * (1 - seg(t, 6600, 6760)));
+        op(Jw, swapIn(t, 2950, 4150)); op(W, swapOut(t, 2950, 6700));
+        WN.textContent = String(Math.max(1, 4 - Math.min(4, done)));
+      },
+    };
+  },
+});
+
+/* 15 LOUPE ----------------------------------------------------------- */
+scene({
+  id: 'loupe', name: 'Loupe', role: 'Second opinion', loop: 7000, still: 2200, light: true,
+  what: 'A small glass lens reads the answer line by line. Text under it is a touch larger and brighter, as if seen through glass. When it reaches the end it lifts away and the second model\'s note comes in beside the answer.',
+  tech: 'A scaled copy of the text clipped to a circle, plus a glass ring. clip-path and transform only; the lens path is a smooth reading curve.',
+  build(st, api) {
+    const lines = ['Point the A record at the tailnet IP and', 'let Caddy get a certificate with the DNS', 'challenge. Port 443 has to stay open on', 'the router for renewals to work.'];
+    const txt = lines.map((l, i) => `<div style="position:absolute;left:0;top:${i * 24}px;white-space:nowrap">${l}</div>`).join('');
+    H(st, `
+      <div class="abs f3" style="left:60px;top:74px;font-size:12px">Opus 4.7</div>
+      <div class="abs" data-k="base" style="left:60px;top:100px;width:300px;height:100px;font-size:14.5px;line-height:24px;color:var(--fg-2)">${txt}</div>
+      <div class="abs" data-k="mag" style="left:60px;top:100px;width:300px;height:100px;font-size:14.5px;line-height:24px;color:var(--fg)"><div data-k="magi" style="position:absolute;inset:0">${txt}</div></div>
+      <div class="abs" data-k="lens" style="left:0;top:0;width:44px;height:44px;margin:-22px 0 0 -22px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--lens-edge), inset 0 1px 1px var(--lens-hi), 0 6px 16px var(--lens-sh)"></div>
+      <div class="abs" style="left:384px;top:76px;width:1px;height:160px;background:var(--rule)"></div>
+      <div class="abs" data-k="note" style="left:404px;top:74px;width:180px;opacity:0">
+        <div style="font-size:12px;color:var(--fg-3)">Second opinion, GPT-5.5</div>
+        <div style="font-size:13.5px;line-height:1.45;color:var(--fg);margin-top:8px">Agrees. One fix: renewals use the DNS challenge, so port 443 can stay closed.</div>
+      </div>
+      <div class="abs" data-k="reading" style="left:404px;top:74px;font-size:12px;color:var(--fg-3)">GPT-5.5 is reading</div>`);
+    const mag = $(st, '[data-k=mag]'), magi = $(st, '[data-k=magi]'), lens = $(st, '[data-k=lens]'), note = $(st, '[data-k=note]'), reading = $(st, '[data-k=reading]');
+    const widths = [262, 268, 262, 222];
+    const L0 = [60, 100];
+    return {
+      render(t) {
+        const dk = api.dark();
+        st.style.setProperty('--lens-edge', dk ? 'oklch(1 0 0 / 0.28)' : 'oklch(0.2 0.01 286 / 0.26)');
+        st.style.setProperty('--lens-hi', dk ? 'oklch(1 0 0 / 0.25)' : 'oklch(1 0 0 / 0.9)');
+        st.style.setProperty('--lens-sh', dk ? 'oklch(0 0 0 / 0.35)' : 'oklch(0.2 0.01 286 / 0.1)');
+        // reading path: each line takes 900ms, 180ms to drop to the next
+        const T0 = 600, per = 1080;
+        let x, y, k = 1;
+        const u = t - T0;
+        if (u < 0) { x = L0[0] + 8; y = L0[1] + 12; k = E.out(seg(t, 200, 600)); }
+        else if (u < per * 4) {
+          const i = Math.floor(u / per), w = u - i * per;
+          if (w < 900) { x = L0[0] + 8 + E.sine(w / 900) * (widths[i] - 16); y = L0[1] + 12 + i * 24; }
+          else { const d = E.inout((w - 900) / 180); const nx = i < 3 ? 8 : widths[i] - 8; x = L0[0] + lerp(widths[i] - 8, nx, d); y = L0[1] + 12 + (i + (i < 3 ? d : 0)) * 24; }
+        } else { x = L0[0] + widths[3] - 8; y = L0[1] + 12 + 3 * 24; }
+        const lift = E.in(seg(t, T0 + per * 4 - 180, T0 + per * 4 + 220));
+        const back = E.out(seg(t, 6500, 7000));
+        k = k * (1 - lift);
+        const sc = 1.1;
+        const cx = x - L0[0], cy = y - L0[1];
+        mag.style.clipPath = `circle(${(20 * (0.6 + 0.4 * k)).toFixed(2)}px at ${cx.toFixed(2)}px ${cy.toFixed(2)}px)`;
+        magi.style.transformOrigin = `${cx.toFixed(2)}px ${cy.toFixed(2)}px`;
+        tf(magi, `scale(${sc})`);
+        op(mag, k);
+        tf(lens, `translate(${x.toFixed(2)}px, ${(y - 6 * lift).toFixed(2)}px) scale(${0.85 + 0.15 * k + 0.08 * lift})`);
+        op(lens, k);
+        const TN = T0 + per * 4;
+        op(note, swapIn(t, TN, 6500)); tf(note, `translateY(${(1 - E.out(seg(t, TN + 100, TN + 300))) * 4}px)`);
+        op(reading, swapOut(t, TN, 6500));
+      },
+    };
+  },
+});
+
+/* 16 LANTERN --------------------------------------------------------- */
+scene({
+  id: 'lantern', name: 'Lantern', role: 'Memory recalled', loop: 6250, still: 2000, light: true,
+  what: 'A soft pool of light moves down the saved notes. It lingers on the two that match; they brighten and keep a thin rule. Then the light goes and the line above says what was found.',
+  tech: 'One radial gradient moved with transform. Each match is a text color crossfade and a 2px rule that grows with scaleY.',
+  build(st, api) {
+    const notes = ['Deploys go through the staging tailnet first', 'Prefers bun over npm for scripts', 'The home server is called arch-desktop', 'Caddy config lives in /etc/caddy/Caddyfile', 'Never push to main without a review'];
+    const hit = [1, 3];
+    H(st, `
+      <div class="abs" data-k="s0" style="left:60px;top:76px;font-size:13px;color:var(--fg-2)">Checking memory</div>
+      <div class="abs" data-k="s1" style="left:60px;top:76px;font-size:13px;color:var(--fg-2);opacity:0">Recalled 2 notes</div>
+      <div class="abs" data-k="lamp" style="left:20px;top:0;width:600px;height:96px;margin-top:-48px;background:radial-gradient(closest-side, var(--lamp), transparent);"></div>
+      ${notes.map((n, i) => `<div class="abs" style="left:60px;right:60px;top:${108 + i * 38}px;height:38px;border-top:1px solid var(--rule)">
+        <div class="abs" data-rule="${i}" style="left:0;top:9px;width:2px;height:20px;border-radius:1px;background:var(--signal);transform:scaleY(0)"></div>
+        <div class="abs nowrap" data-t="${i}" style="left:14px;top:10px;font-size:13.5px;color:var(--fg-3)">${n}</div></div>`).join('')}`);
+    const lamp = $(st, '[data-k=lamp]'), s0 = $(st, '[data-k=s0]'), s1 = $(st, '[data-k=s1]');
+    const T = notes.map((_, i) => $(st, `[data-t="${i}"]`)), RU = notes.map((_, i) => $(st, `[data-rule="${i}"]`));
+    return {
+      render(t) {
+        const dk = api.dark();
+        st.style.setProperty('--lamp', dk ? 'oklch(0.8 0.08 303 / 0.13)' : 'oklch(0.6 0.14 300 / 0.09)');
+        // lamp path: rows centers at 127 + 38 i; linger on hits
+        const keys = [[300, 100], [700, 127], [1250, 165], [1550, 165], [1850, 203], [2400, 241], [2700, 241], [3000, 279], [3400, 300]];
+        let y = keys[0][1];
+        for (let i = 0; i < keys.length - 1; i++) { if (t >= keys[i][0] && t < keys[i + 1][0]) y = lerp(keys[i][1], keys[i + 1][1], E.sine(seg(t, keys[i][0], keys[i + 1][0]))); }
+        if (t >= keys[keys.length - 1][0]) y = keys[keys.length - 1][1];
+        const la = E.out(seg(t, 200, 600)) * (1 - E.sine(seg(t, 3100, 3700)));
+        tf(lamp, `translateY(${y.toFixed(2)}px)`); op(lamp, la);
+        const reset = E.inout(seg(t, 5600, 6200));
+        notes.forEach((_, i) => {
+          const isHit = hit.includes(i);
+          const at = [0, 1250, 0, 2400, 0][i];
+          const on = isHit ? E.out(seg(t, at, at + 300)) * (1 - reset) : 0;
+          T[i].style.color = css(mixc(api.c('fg3'), api.c('fg'), on));
+          const rr = isHit ? E.out(seg(t, at + 60, at + 300)) * (1 - reset) : 0;
+          RU[i].style.transform = `scaleY(${rr.toFixed(3)})`;
+          RU[i].style.background = css(mixc(api.c('signal'), api.c('fg3'), E.sine(seg(t, 3700, 4500))));
+        });
+        op(s0, swapOut(t, 3400, 5600)); op(s1, swapIn(t, 3400, 5600));
+      },
+    };
+  },
+});
+
+/* 17 PANE ------------------------------------------------------------ */
+scene({
+  id: 'pane', name: 'Pane', role: 'Panel and page transition', loop: 4250, still: 1500, light: true,
+  what: 'A frosted side panel slides in on the sheet curve while the page behind settles back half a percent and dims. A line of light runs down the panel\'s leading edge as it arrives. It closes faster than it opened.',
+  tech: 'translateX on the panel, scale and a scrim on the page, backdrop-filter blur. 320ms open on cubic-bezier(.32,.72,0,1), 200ms close on ease-in.',
+  build(st, api) {
+    const rows = [['Fix the deploy health check', 'potential-happiness', '4m'], ['Move migrations to the build', 'potential-happiness', '18m'], ['Daily digest', 'routine', '1h'], ['Tailscale cert renewal', 'homelab', '3h'], ['Write the motion plan', 'conclave', 'yesterday'], ['Android chat screens', 'conclave', 'yesterday']];
+    H(st, `
+      <div class="abs" data-k="page" style="inset:0;transform-origin:50% 40%">
+        <div class="abs" style="left:40px;top:60px;font-size:17px;font-weight:560">Sessions</div>
+        ${rows.map(([a, b, c], i) => `<div class="abs" style="left:40px;right:40px;top:${100 + i * 40}px;height:40px;border-top:1px solid var(--rule)">
+          <div class="abs nowrap" style="left:0;top:11px;font-size:13.5px;color:${i === 0 ? 'var(--fg)' : 'var(--fg-2)'}">${a}</div>
+          <div class="abs nowrap f4" style="left:260px;top:12px;font-size:12px">${b}</div>
+          <div class="abs mono f4" style="right:0;top:12px;font-size:11.5px">${c}</div></div>`).join('')}
+      </div>
+      <div class="abs" data-k="scrim" style="inset:0;background:var(--scrim2)"></div>
+      <div class="abs" data-k="panel" style="top:0;bottom:0;right:0;width:300px">
+        <div class="abs" style="inset:0;background:var(--pane);backdrop-filter:blur(18px) saturate(1.3);-webkit-backdrop-filter:blur(18px) saturate(1.3);border-left:1px solid var(--rule)"></div>
+        <div class="abs" data-k="edge" style="left:-1px;top:0;bottom:0;width:1px;background:linear-gradient(180deg, transparent, var(--signal) 45%, var(--hot) 52%, transparent)"></div>
+        <div class="abs" data-c="0" style="left:24px;top:60px;font-size:12px;color:var(--fg-3)">Session</div>
+        <div class="abs" data-c="1" style="left:24px;top:80px;font-size:15px;font-weight:560;color:var(--fg)">Fix the deploy health check</div>
+        <div class="abs" data-c="2" style="left:24px;top:112px;width:252px;font-size:13px;line-height:1.5;color:var(--fg-2)">Opus 4.7 on arch-desktop. Started 4m ago. 2 tools ran, 1 approval waiting.</div>
+        <div class="abs" data-c="3" style="left:24px;top:182px;right:24px;height:1px;background:var(--rule)"></div>
+        <div class="abs mono" data-c="4" style="left:24px;top:198px;font-size:12px;color:var(--fg-3);line-height:22px">bun test<br>caddy reload<br>git diff --stat</div>
+      </div>`);
+    const page = $(st, '[data-k=page]'), scrim = $(st, '[data-k=scrim]'), panel = $(st, '[data-k=panel]'), edge = $(st, '[data-k=edge]');
+    const cs = $$(st, '[data-c]');
+    return {
+      render(t) {
+        const dk = api.dark();
+        st.style.setProperty('--scrim2', dk ? 'oklch(0.1 0.005 286 / 0.5)' : 'oklch(0.2 0.01 286 / 0.06)');
+        st.style.setProperty('--pane', dk ? 'oklch(0.2 0.006 286 / 0.84)' : 'oklch(1 0 0 / 0.84)');
+        const open = E.drawer(seg(t, 400, 720)), close = E.in(seg(t, 3000, 3200));
+        const k = open * (1 - close);
+        tf(panel, `translateX(${((1 - k) * 302).toFixed(2)}px)`);
+        tf(page, `scale(${(1 - 0.006 * k).toFixed(4)})`);
+        op(scrim, k);
+        op(edge, Math.sin(Math.PI * seg(t, 420, 1100)) * 0.9);
+        tf(edge, `translateY(${(-160 + 320 * seg(t, 420, 1100)).toFixed(1)}px)`);
+        cs.forEach((c, i) => { const e = E.out(seg(t, 620 + i * 40, 800 + i * 40)); op(c, e * (1 - close)); tf(c, `translateY(${(1 - e) * 4}px)`); });
+      },
+    };
+  },
+});
+
+/* 18 SHEEN ----------------------------------------------------------- */
+scene({
+  id: 'sheen', name: 'Sheen', role: 'Toast', loop: 3625, still: 1300, light: true,
+  what: 'A glass toast rises 4px into place. A moment later one band of light crosses its face, once. It leaves with a short fade and a 4px drop.',
+  tech: 'transform and opacity. 180ms in, sheen 700ms starting 240ms after, 120ms out on ease-in.',
+  build(st, api) {
+    H(st, `
+      <div class="abs" style="left:60px;top:72px;font-size:13px;color:var(--fg-3)">Memory</div>
+      ${['Prefers bun over npm for scripts', 'Deploys go through the staging tailnet first', 'The home server is called arch-desktop', 'Caddy config lives in /etc/caddy/Caddyfile'].map((n, i) => `<div class="abs nowrap" style="left:60px;right:60px;top:${100 + i * 38}px;height:38px;border-top:1px solid var(--rule);font-size:13.5px;line-height:38px;color:var(--fg-2)">${n}</div>`).join('')}
+      <div class="abs" data-k="toast" style="right:40px;bottom:36px;width:312px;height:56px">
+        <div class="abs" style="inset:0;border-radius:10px;background:var(--glass);backdrop-filter:blur(16px) saturate(1.3);-webkit-backdrop-filter:blur(16px) saturate(1.3);box-shadow:var(--shadow-pop), inset 0 0 0 1px var(--rule), inset 0 1px 0 var(--glass-edge)"></div>
+        <div class="abs" style="inset:0;border-radius:10px;overflow:hidden"><div class="abs" data-k="band" style="left:0;top:-30px;width:80px;height:120px;background:linear-gradient(90deg, transparent, var(--spec), transparent);transform:rotate(20deg)"></div></div>
+        <div class="abs" style="left:16px;top:10px;font-size:13px;font-weight:540;color:var(--fg)">Saved to memory</div>
+        <div class="abs f3 nowrap" style="left:16px;top:29px;font-size:12px">Prefers bun over npm for scripts</div>
+        <div class="abs f2" style="right:16px;top:19px;font-size:12.5px">Undo</div>
+      </div>`);
+    const toast = $(st, '[data-k=toast]'), band = $(st, '[data-k=band]');
+    return {
+      render(t) {
+        const i = E.out(seg(t, 300, 480)), o = E.in(seg(t, 2900, 3020));
+        op(toast, i * (1 - o));
+        tf(toast, `translateY(${((1 - i) * 4 + o * 4).toFixed(2)}px)`);
+        const b = E.inout(seg(t, 720, 1420));
+        tf(band, `translateX(${(-120 + b * 470).toFixed(1)}px) rotate(20deg)`);
+        op(band, Math.sin(Math.PI * b));
+      },
+    };
+  },
+});
+
+/* 19 SYNC ------------------------------------------------------------ */
+scene({
+  id: 'sync', name: 'Sync', role: 'Device pairing', loop: 7250, still: 4200, light: true,
+  what: 'Two screens glow at their own pace. As the phone answers, its rhythm drifts into step with the laptop. When they match, the glow holds steady, a thread of light joins them, and the same code shows on both.',
+  tech: 'Two glow layers (opacity) with phases that converge, a stroked path with a moving gradient, a text crossfade.',
+  build(st, api) {
+    H(st, `
+      <svg class="abs" width="640" height="360" style="left:0;top:0;overflow:visible" fill="none">
+        <rect x="120.5" y="104.5" width="150" height="96" rx="6" stroke="var(--rule-2)"/>
+        <path d="M100.5 210.5h190l-10 8h-170z" stroke="var(--rule-2)"/>
+        <rect x="414.5" y="92.5" width="66" height="126" rx="11" stroke="var(--rule-2)"/>
+      </svg>
+      <div class="abs" data-k="gl" style="left:126px;top:110px;width:139px;height:85px;border-radius:3px;background:radial-gradient(120% 120% at 50% 40%, var(--glow), transparent 75%)"></div>
+      <div class="abs" data-k="gp" style="left:420px;top:98px;width:55px;height:115px;border-radius:7px;background:radial-gradient(120% 90% at 50% 40%, var(--glow), transparent 75%)"></div>
+      <div class="abs mono" data-k="cl" style="left:126px;top:142px;width:139px;text-align:center;font-size:13px;letter-spacing:0.08em;color:var(--fg);opacity:0">K7Q 29F</div>
+      <div class="abs mono" data-k="cp" style="left:420px;top:136px;width:55px;text-align:center;font-size:11px;line-height:16px;letter-spacing:0.06em;color:var(--fg);opacity:0">K7Q<br>29F</div>
+      <div class="abs f3" style="left:120px;top:232px;font-size:12px">arch-desktop</div>
+      <div class="abs f3" style="left:414px;top:232px;font-size:12px">Pixel 9</div>
+      <div class="abs" data-k="s0" style="left:0;right:0;top:276px;text-align:center;font-size:13px;color:var(--fg-2)">Waiting for the phone to answer</div>
+      <div class="abs" data-k="s1" style="left:0;right:0;top:276px;text-align:center;font-size:13px;color:var(--fg-2);opacity:0">Paired. Check that both screens show the same code.</div>`);
+    const ctx = api.canvas(st, 3);
+    const gl = $(st, '[data-k=gl]'), gp = $(st, '[data-k=gp]'), cl = $(st, '[data-k=cl]'), cp = $(st, '[data-k=cp]'), s0 = $(st, '[data-k=s0]'), s1 = $(st, '[data-k=s1]');
+    const breath = (t) => {
+      const pl = TAU * t / 1500;
+      const d = 2.6 * (1 - E.inout(seg(t, 300, 3000)));
+      return [0.5 + 0.5 * Math.cos(pl), 0.5 + 0.5 * Math.cos(pl + d)];
+    };
+    return {
+      render(t) {
+        const dk = api.dark(), D = api.dpr;
+        st.style.setProperty('--glow', dk ? 'oklch(0.78 0.1 303 / 0.28)' : 'oklch(0.6 0.14 300 / 0.16)');
+        const lock = E.out(seg(t, 3000, 3500)), back = E.inout(seg(t, 6400, 7250));
+        const [bl, bp] = breath(t);
+        const [bl0, bp0] = breath(t - 7250);
+        const steady = 0.85;
+        let L = lerp(0.25 + 0.75 * bl, steady, lock), Pp = lerp(0.25 + 0.75 * bp, steady, lock);
+        if (t >= 6400) { L = lerp(steady, 0.25 + 0.75 * bl0, back); Pp = lerp(steady, 0.25 + 0.75 * bp0, back); }
+        op(gl, L); op(gp, Pp);
+        const code = E.out(seg(t, 3600, 3900)) * (1 - seg(t, 6400, 6700));
+        op(cl, code); op(cp, code);
+        op(s0, swapOut(t, 3600, 6400)); op(s1, swapIn(t, 3600, 6400));
+        // thread of light between the screens
+        ctx.setTransform(D, 0, 0, D, 0, 0); ctx.clearRect(0, 0, 640, 360);
+        const A = [271, 152], B = [414, 155];
+        const cpA = [320, 120], cpB = [370, 190];
+        const th = E.inout(seg(t, 3100, 3800));
+        const fade = 1 - E.sine(seg(t, 6200, 6800));
+        if (th > 0 && fade > 0) {
+          const pts = [];
+          for (let i = 0; i <= 60; i++) { const u = i / 60; const x = (1 - u) ** 3 * A[0] + 3 * (1 - u) ** 2 * u * cpA[0] + 3 * (1 - u) * u * u * cpB[0] + u ** 3 * B[0]; const y = (1 - u) ** 3 * A[1] + 3 * (1 - u) ** 2 * u * cpA[1] + 3 * (1 - u) * u * u * cpB[1] + u ** 3 * B[1]; pts.push([x, y]); }
+          const n = Math.round(60 * th);
+          const col = api.c('signal'), settle = E.sine(seg(t, 4300, 5200));
+          const base = mixc(col, api.c('fg4'), settle * 0.6);
+          ctx.lineWidth = 1;
+          for (let i = 0; i < n; i++) {
+            const near = th < 1 ? Math.max(0, 1 - (n - i) / 14) : 0;
+            ctx.strokeStyle = css(mixc(base, dk ? [1, 1, 1] : api.c('hot'), near * 0.6), (0.55 + 0.45 * near) * fade);
+            ctx.beginPath(); ctx.moveTo(...pts[i]); ctx.lineTo(...pts[i + 1]); ctx.stroke();
+          }
+        }
+      },
+    };
+  },
+});
+
+/* 20 DAWN ------------------------------------------------------------ */
+scene({
+  id: 'dawn', name: 'Dawn', role: 'A routine fires', loop: 6000, still: 2400, light: true,
+  what: 'At the fire minute, light rises behind the routine\'s rule like a sunrise and runs out along the rule both ways. The countdown gives way to "Running" and an elapsed count, and the glow settles low while it runs.',
+  tech: 'A radial glow moved with transform and opacity, two rule segments grown with scaleX from the fire point, a text swap.',
+  build(st, api) {
+    H(st, `
+      <div class="abs" style="left:60px;top:78px;font-size:13px;color:var(--fg-3)">Routines</div>
+      <div class="abs" style="left:60px;right:60px;top:104px;height:1px;background:var(--rule)"></div>
+      <div class="abs" style="left:60px;top:118px;font-size:13.5px;color:var(--fg-2)">Inbox triage</div><div class="abs mono f4" style="right:60px;top:120px;font-size:11.5px">13:00</div>
+      <div class="abs" style="left:60px;right:60px;top:150px;height:1px;background:var(--rule)"></div>
+      <div class="abs" data-k="glow" style="left:60px;top:216px;width:520px;height:110px;margin-top:-55px;background:radial-gradient(50% 50% at 50% 50%, var(--dawn), transparent);clip-path:inset(0 0 50% 0)"></div>
+      <div class="abs" style="left:60px;top:162px;font-size:14px;font-weight:540;color:var(--fg)">Daily digest</div>
+      <div class="abs f3" style="left:60px;top:184px;font-size:12px">Weekdays at 08:00, Sonnet 4.6</div>
+      <div class="abs mono" data-k="cd" style="right:60px;top:170px;font-size:12px;color:var(--fg-3)">in 0:02</div>
+      <div class="abs" data-k="run" style="right:60px;top:168px;font-size:12.5px;color:var(--signal);opacity:0;white-space:nowrap">Running <span class="mono" data-k="el">0s</span></div>
+      <div class="abs" style="left:60px;right:60px;top:216px;height:1px;background:var(--rule)"></div>
+      <div class="abs" data-k="ra" style="left:60px;width:260px;top:216px;height:1px;background:linear-gradient(270deg, var(--hot), var(--signal) 30%, transparent);transform-origin:100% 50%"></div>
+      <div class="abs" data-k="rb" style="left:320px;width:260px;top:216px;height:1px;background:linear-gradient(90deg, var(--hot), var(--signal) 30%, transparent);transform-origin:0 50%"></div>
+      <div class="abs" style="left:60px;top:230px;font-size:13.5px;color:var(--fg-2)">Weekly usage report</div><div class="abs mono f4" style="right:60px;top:232px;font-size:11.5px">Mon 09:00</div>
+      <div class="abs" style="left:60px;right:60px;top:262px;height:1px;background:var(--rule)"></div>`);
+    const glow = $(st, '[data-k=glow]'), cd = $(st, '[data-k=cd]'), run = $(st, '[data-k=run]'), el = $(st, '[data-k=el]'), ra = $(st, '[data-k=ra]'), rb = $(st, '[data-k=rb]');
+    return {
+      render(t) {
+        const dk = api.dark();
+        st.style.setProperty('--dawn', dk ? 'oklch(0.75 0.11 303 / 0.22)' : 'oklch(0.6 0.15 300 / 0.12)');
+        const F = 2000, reset = E.inout(seg(t, 5300, 6000));
+        const rise = E.out(seg(t, F, F + 900));
+        const g = rise * (1 - 0.6 * E.sine(seg(t, F + 900, F + 2200))) * (1 - reset);
+        op(glow, g); glow.style.clipPath = `inset(0 0 ${(50 - (1 - rise) * 22 - reset * 10).toFixed(2)}% 0)`; tf(glow, `translateY(${((1 - rise) * 24 + reset * 10).toFixed(2)}px)`);
+        const run1 = E.out(seg(t, F + 60, F + 1000));
+        const rk = run1 * (1 - E.sine(seg(t, F + 1100, F + 2200)) * 0.75) * (1 - reset);
+        [ra, rb].forEach((r) => { tf(r, `scaleX(${run1.toFixed(3)})`); op(r, rk); });
+        cd.textContent = t < 1000 || t >= 5300 ? 'in 0:02' : 'in 0:01';
+        op(cd, swapOut(t, F, 5300)); op(run, swapIn(t, F, 5300));
+        el.textContent = `${Math.max(0, Math.floor((t - F) / 1000))}s`;
+      },
+    };
+  },
+});
+
+</script>
+
+<!-- ================================================================== -->
+<!-- page runtime                                                        -->
+<!-- ================================================================== -->
+<script>
+const grid = document.getElementById('grid');
+const live = [];
+function mount(s) {
+  const fig = document.createElement('figure');
+  fig.className = 'item'; fig.id = 's-' + s.id;
+  const theme = SOLO ? (qs.get('theme') || 'dark') : document.documentElement.dataset.theme;
+  fig.innerHTML = `
+    <div class="frame"><div class="cell" data-theme="${theme}">
+      <div class="stage"></div>
+      <div class="lbl"><b>${s.name}</b><span>${s.role}</span></div>
+      <div class="th">${theme}</div>
+    </div></div>
+    <figcaption>
+      <div class="nm">${s.name}<span>${s.role}</span></div>
+      <button class="tbtn" type="button">${theme === 'dark' ? 'Light' : 'Dark'}</button>
+      <div class="wm">${s.what}</div>
+      <div class="tm">Loop ${(s.loop / 1000).toFixed(1).replace(/\.0$/, '')}s. ${s.tech}</div>
+    </figcaption>`;
+  grid.appendChild(fig);
+  const cell = fig.querySelector('.cell');
+  const api = makeApi(cell);
+  const inst = s.build(fig.querySelector('.stage'), api);
+  const rec = { s, fig, cell, inst, visible: !!SOLO };
+  fig.querySelector('.tbtn').addEventListener('click', (e) => setCellTheme(rec, cell.dataset.theme === 'dark' ? 'light' : 'dark'));
+  live.push(rec);
+  return rec;
+}
+function setCellTheme(rec, th) {
+  rec.cell.dataset.theme = th;
+  rec.cell.querySelector('.th').textContent = th;
+  rec.fig.querySelector('.tbtn').textContent = th === 'dark' ? 'Light' : 'Dark';
+  rec.inst.render(rec.lastT ?? rec.s.still ?? 0);
+}
+function fit() {
+  for (const r of live) { const w = r.fig.querySelector('.frame').clientWidth; r.cell.style.setProperty('--k', String(w / 640)); }
+}
+let still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const t0 = performance.now();
+function frame(now) {
+  for (const r of live) {
+    if (!r.visible) continue;
+    const t = still ? (r.s.still ?? 0) : (now - t0) % r.s.loop;
+    if (still && r.lastT === t) continue;
+    r.lastT = t;
+    r.inst.render(t);
+  }
+  requestAnimationFrame(frame);
+}
+document.fonts.ready.then(() => {
+  if (SOLO) {
+    document.body.classList.add('solo');
+    const s = SCENES.find((x) => x.id === SOLO);
+    const rec = mount(s); rec.fig.classList.add('on');
+    window.__render = (t) => { rec.inst.render(((t % s.loop) + s.loop) % s.loop); return true; };
+    window.__scene = { id: s.id, loop: s.loop, still: s.still };
+    const t = qs.get('t');
+    if (t !== null) window.__render(Number(t)); else requestAnimationFrame(frame);
+    window.__ready = true;
+    return;
+  }
+  SCENES.forEach(mount);
+  fit(); addEventListener('resize', fit);
+  const io = new IntersectionObserver((es) => es.forEach((e) => { const r = live.find((x) => x.fig === e.target); if (r) r.visible = e.isIntersecting; }), { rootMargin: '100px' });
+  live.forEach((r) => io.observe(r.fig));
+  requestAnimationFrame(frame);
+  const segBtns = (id, f) => document.querySelectorAll(`#${id} button`).forEach((b) => b.addEventListener('click', () => { document.querySelectorAll(`#${id} button`).forEach((x) => x.setAttribute('aria-pressed', String(x === b))); f(b.dataset.v); }));
+  segBtns('themeSeg', (v) => { document.documentElement.dataset.theme = v; live.forEach((r) => setCellTheme(r, v)); });
+  segBtns('motionSeg', (v) => { still = v === 'still'; live.forEach((r) => (r.lastT = undefined)); });
+  if (still) document.querySelector('#motionSeg button[data-v=still]').click();
+  window.__ready = true;
+});
+window.__scenes = () => SCENES.map((s) => ({ id: s.id, loop: s.loop, still: s.still, light: !!s.light, name: s.name, role: s.role, what: s.what }));
+</script>
+</body>
+</html>

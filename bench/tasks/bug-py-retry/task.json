@@ -1,0 +1,57 @@
+{
+  "id": "bug-py-retry",
+  "title": "Retry hot loop",
+  "kind": "bug",
+  "lang": "python",
+  "difficulty": "medium",
+  "time_limit_s": 900,
+  "smoke": false,
+  "requires": [
+    "python3"
+  ],
+  "source": {
+    "type": "fixture",
+    "base": "tasksd",
+    "overlay": "overlay/"
+  },
+  "visible_test_cmd": "python3 -m unittest discover -s tests",
+  "hidden": {
+    "files": {
+      "hidden/tests/test_hidden_retry.py": "tests/hidden/test_hidden_retry.py"
+    },
+    "clear": [
+      "tests/hidden/"
+    ],
+    "runs": [
+      {
+        "cmd": "python3 {bench}/runners/unittest_json.py tests/hidden",
+        "format": "unittest-json",
+        "env": {}
+      }
+    ],
+    "timeout_s": 120,
+    "expected_total": 7,
+    "restore": [],
+    "move_aside": []
+  },
+  "protected": [
+    "tests/**"
+  ],
+  "artifacts": [
+    "node_modules/",
+    "target/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".bench-moved/",
+    "*.pyc",
+    "tasksd.db",
+    ".DS_Store"
+  ],
+  "reference": "hidden/reference/",
+  "naive": "hidden/naive/",
+  "license": {
+    "name": "written for this kit",
+    "holder": null,
+    "file": null
+  }
+}

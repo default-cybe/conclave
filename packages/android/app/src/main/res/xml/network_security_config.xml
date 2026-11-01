@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android blocks plain http by default, but the hub's same network address
+  is plain http (http://192.168.1.20:7777). Android cannot list allowed
+  cleartext hosts at runtime, so cleartext is permitted here and enforced in
+  the app instead (CleartextPolicy): plain http goes only to this device,
+  home and office networks, private VPN ranges, and public hosts the user
+  explicitly approved while pairing. Only system CAs are trusted in release builds.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

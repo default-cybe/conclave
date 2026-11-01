@@ -1,0 +1,174 @@
+name: Screenshots
+
+# Screenshots of the Android app on an emulator and of the Windows desktop
+# app, each connected to a demo hub with the same data (scripts/demo-hub.ts:
+# a fake model, no keys). Run it by hand. The PNGs are run artifacts, and
+# each job also pushes them to a new branch ci/screenshots/<run id>/<job>
+# (scripts/screenshots/publish-branch.sh) for machines that can fetch git
+# but not artifacts. Web and Linux desktop shots come from
+# scripts/screenshots/web.mjs and linux-desktop.sh.
+
+on:
+  workflow_dispatch:
+
+# write: each job pushes its screenshots to a new branch of their own
+permissions:
+  contents: write
+
+env:
+  BUN_VERSION: 1.4.2
+
+jobs:
+  android:
+    name: Android (emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # The emulator's data partition needs several GB; the runner had under 5 left after the
+      # build and failed with "Not enough space to create userdata partition". Toolchains this
+      # job never uses go first.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift /usr/local/share/powershell
+          df -h /
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          # the default list includes the retired "tools" package, which no longer resolves
+          packages: platform-tools
+
+      - name: Install SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "build-tools;36.0.0" "platforms;android-37" \
+            || sdkmanager "platform-tools" "build-tools;36.0.0" "platforms;android-37.0" \
+            || echo "SDK platform install failed here, AGP will try again during the build"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+
+      - name: Build the debug APK
+        working-directory: packages/android
+        run: ./gradlew --no-daemon -Pconclave.app=true :app:assembleDebug
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # The emulator reaches this machine at 10.0.2.2, so the pairing link names that address.
+      - name: Start the demo hub
+        run: |
+          nohup bun scripts/demo-hub.ts --url http://10.0.2.2:7810 --info "$RUNNER_TEMP/demo.json" > "$RUNNER_TEMP/demo-hub.log" 2>&1 &
+          for _ in $(seq 1 90); do [ -f "$RUNNER_TEMP/demo.json" ] && break; sleep 1; done
+          cat "$RUNNER_TEMP/demo-hub.log"
+          test -f "$RUNNER_TEMP/demo.json"
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # The action runs each script line on its own, so the steps live in android.sh.
+      - name: Screenshots on an emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7_pro
+          # the profile's default data partition asks for over 7 GB
+          disk-size: 3072M
+          disable-animations: true
+          script: bash scripts/screenshots/android.sh "$RUNNER_TEMP/demo.json" packages/android/app/build/outputs/apk/debug "$RUNNER_TEMP/shots/android"
+
+      - name: Demo hub log
+        if: always()
+        run: |
+          df -h /
+          cat "$RUNNER_TEMP/demo-hub.log" || true
+
+      # the PNGs, and on a failure the screen, the last UI dump and logcat (android.sh)
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: screenshots-android
+          path: ${{ runner.temp }}/shots/android/
+          if-no-files-found: error
+
+      - name: Publish screenshots to a branch
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/screenshots/publish-branch.sh "$RUNNER_TEMP/shots/android" android
+
+  windows:
+    name: Windows desktop app
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            packages/desktop/src-tauri
+            packages/daemon-rs
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # The app shows the hub's own web UI once it is connected.
+      - name: Build the web app
+        run: bun run --filter @conclave/web build
+
+      # As release.yml does: the Rust daemon the app carries, then the app. Debug is enough here.
+      - name: Build the daemon the app carries
+        shell: bash
+        run: bun scripts/build-sidecar.ts --target x86_64-pc-windows-msvc --impl rust
+
+      - name: Build the desktop app (debug)
+        working-directory: packages/desktop
+        run: bun run tauri build --debug --no-bundle
+
+      - name: Screenshots
+        shell: pwsh
+        run: ./scripts/screenshots/windows.ps1 -App packages/desktop/src-tauri/target/debug/conclave-desktop.exe -Out "$env:RUNNER_TEMP/shots/windows"
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: screenshots-windows
+          path: ${{ runner.temp }}/shots/windows/*.png
+          if-no-files-found: error
+
+      - name: Publish screenshots to a branch
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/screenshots/publish-branch.sh "$RUNNER_TEMP/shots/windows" windows

@@ -1,0 +1,57 @@
+{
+  "id": "feat-py-purge",
+  "title": "purge --dry-run with durations",
+  "kind": "feature",
+  "lang": "python",
+  "difficulty": "easy",
+  "time_limit_s": 600,
+  "smoke": true,
+  "requires": [
+    "python3"
+  ],
+  "source": {
+    "type": "fixture",
+    "base": "tasksd",
+    "overlay": null
+  },
+  "visible_test_cmd": "python3 -m unittest discover -s tests",
+  "hidden": {
+    "files": {
+      "hidden/tests/test_hidden_purge.py": "tests/hidden/test_hidden_purge.py"
+    },
+    "clear": [
+      "tests/hidden/"
+    ],
+    "runs": [
+      {
+        "cmd": "python3 {bench}/runners/unittest_json.py tests/hidden",
+        "format": "unittest-json",
+        "env": {}
+      }
+    ],
+    "timeout_s": 120,
+    "expected_total": 8,
+    "restore": [],
+    "move_aside": []
+  },
+  "protected": [
+    "tests/**"
+  ],
+  "artifacts": [
+    "node_modules/",
+    "target/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".bench-moved/",
+    "*.pyc",
+    "tasksd.db",
+    ".DS_Store"
+  ],
+  "reference": "hidden/reference/",
+  "naive": null,
+  "license": {
+    "name": "written for this kit",
+    "holder": null,
+    "file": null
+  }
+}

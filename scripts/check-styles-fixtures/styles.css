@@ -1,0 +1,14 @@
+/* Fixture for scripts/check-styles.test.ts. A token may hold a raw color: #123456 */
+:root {
+  --brand: #c41230;
+}
+.label {
+  text-transform: uppercase;
+}
+.hero {
+  background: radial-gradient(circle, var(--signal), transparent);
+}
+.box {
+  color: #abc;
+  box-shadow: 0 0 0 1px var(--rule);
+}

@@ -1,0 +1,99 @@
+:root {
+  color-scheme: light dark;
+  --bg: #fafafa;
+  --fg: #18181b;
+  --fg-2: #52525b;
+  --rule: #e4e4e7;
+  --accent: #7c4dd8;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141417;
+    --fg: #ecebef;
+    --fg-2: #a1a1aa;
+    --rule: #2a2a30;
+    --accent: #b592f0;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 17px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+}
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 72px 20px 64px;
+}
+.logo { display: block; border-radius: 16px; }
+h1 {
+  margin: 24px 0 4px;
+  font-size: 40px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+h2 { margin: 36px 0 8px; font-size: 20px; }
+.lead { margin: 0 0 24px; font-size: 21px; color: var(--fg-2); }
+p, li { color: var(--fg); }
+ul { padding-left: 20px; }
+li { margin: 6px 0; }
+a { color: var(--accent); }
+.links { margin-top: 36px; padding-top: 20px; border-top: 1px solid var(--rule); }
+.meta { color: var(--fg-2); font-size: 15px; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 15px; }
+th, td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--rule); text-align: left; vertical-align: top; }
+th { color: var(--fg-2); font-weight: 600; }
+@media (max-width: 520px) {
+  thead { display: none; }
+  tr { display: block; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+  td { display: block; padding: 2px 0; border: 0; }
+  td:first-child { font-weight: 600; }
+}
+
+/* The site's header and footer look: the transparent knot, colored by the
+   page (the symbol in privacy.html reads these custom properties). */
+:root {
+  --bg-sunk: #f3f3f5;
+  --signal: #7a4aba;
+  --kw: 7;
+  --khw: 11;
+  --kb: var(--fg);
+  --kl: var(--signal);
+  --kh: var(--bg);
+  --klo: 1;
+  --kda: 16 84;
+  --p: 84;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg-sunk: #111114; --signal: #c6a2f7; }
+}
+.defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+.top, .foot {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+.top { display: flex; align-items: center; height: 60px; border-bottom: 1px solid var(--rule); }
+.top + main { padding-top: 48px; }
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+.mark { display: block; width: 24px; height: 24px; }
+.foot {
+  max-width: none;
+  padding: 28px 20px 32px;
+  background: var(--bg-sunk);
+  border-top: 1px solid var(--rule);
+  --kh: var(--bg-sunk);
+}
+.foot .brand { display: flex; max-width: 600px; margin: 0 auto; font-size: 15px; }
+.foot .mark { width: 20px; height: 20px; }

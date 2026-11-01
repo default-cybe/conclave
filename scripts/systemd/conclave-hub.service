@@ -1,0 +1,29 @@
+# Conclave hub as a systemd user service, for a hub installed with
+# scripts/install.sh (the Docker setup does not need this).
+#
+#   cp conclave-hub.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now conclave-hub
+#   loginctl enable-linger "$USER"     # start at boot, keep running after logout
+#
+# Logs: journalctl --user -u conclave-hub -f
+# Provider keys can go in ~/.conclave/env as KEY=value lines.
+#
+# scripts/lxc/setup.sh installs this same file as a system service for a
+# container or VM, with a drop-in (conclave-hub.service.d/10-setup.conf) that
+# sets the user, paths and ExecStart.
+
+[Unit]
+Description=Conclave hub
+Documentation=https://conclave.dymnitguys.com
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/conclave serve
+Restart=on-failure
+RestartSec=5
+Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-%h/.conclave/env
+
+[Install]
+WantedBy=default.target

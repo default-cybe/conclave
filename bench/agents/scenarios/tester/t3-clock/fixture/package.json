@@ -1,0 +1,1 @@
+{ "name": "tokens", "private": true, "scripts": { "test": "bun test" } }

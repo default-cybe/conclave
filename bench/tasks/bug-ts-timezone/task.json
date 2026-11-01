@@ -1,0 +1,72 @@
+{
+  "id": "bug-ts-timezone",
+  "title": "March 31 missing in Berlin",
+  "kind": "bug",
+  "lang": "typescript",
+  "difficulty": "hard",
+  "time_limit_s": 1200,
+  "smoke": false,
+  "requires": [
+    "bun"
+  ],
+  "source": {
+    "type": "fixture",
+    "base": "ledgerkit",
+    "overlay": "overlay/"
+  },
+  "visible_test_cmd": "bun test",
+  "hidden": {
+    "files": {
+      "hidden/tests/timezone.test.ts": "tests/hidden/timezone.test.ts"
+    },
+    "clear": [
+      "tests/hidden/"
+    ],
+    "runs": [
+      {
+        "cmd": "bun test ./tests/hidden/",
+        "format": "bun",
+        "env": {
+          "TZ": "Europe/Berlin"
+        }
+      },
+      {
+        "cmd": "bun test ./tests/hidden/",
+        "format": "bun",
+        "env": {
+          "TZ": "America/Los_Angeles"
+        }
+      }
+    ],
+    "timeout_s": 120,
+    "expected_total": 16,
+    "restore": [
+      "package.json",
+      "bunfig.toml"
+    ],
+    "move_aside": []
+  },
+  "protected": [
+    "test/**",
+    "tests/**",
+    "package.json",
+    "bunfig.toml"
+  ],
+  "artifacts": [
+    "node_modules/",
+    "target/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".bench-moved/",
+    "*.pyc",
+    "tasksd.db",
+    ".DS_Store"
+  ],
+  "reference": "hidden/reference/",
+  "naive": "hidden/naive/",
+  "license": {
+    "name": "written for this kit",
+    "holder": null,
+    "file": null
+  }
+}
