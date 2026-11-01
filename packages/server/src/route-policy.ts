@@ -609,6 +609,17 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/meetings/:id/answers/:answerId/cancel': own({ id: 'meeting' }),
   'POST /api/meetings/:id/end': own({ id: 'meeting' }),
   'GET /api/meetings/:id/notes': own({ id: 'meeting' }),
+  // scheduled meetings (MEETING-MODE.md 11.6)
+  'GET /api/meetings/folders': 'self',
+  'GET /api/meetings/calendar': 'self',
+  'GET /api/meetings/presets': 'self',
+  'POST /api/meetings/:id/arm': own({ id: 'meeting' }),
+  'GET /api/meetings/:id/prep': own({ id: 'meeting' }),
+  'POST /api/meetings/:id/prep': own({ id: 'meeting' }),
+  'POST /api/meetings/:id/prep/cancel': own({ id: 'meeting' }),
+  'PUT /api/meetings/:id/prep': own({ id: 'meeting' }),
+  'DELETE /api/meetings/:id/prep/edit': own({ id: 'meeting' }),
+  'PUT /api/meetings/:id/prep/extra': own({ id: 'meeting' }),
 };
 
 /**
