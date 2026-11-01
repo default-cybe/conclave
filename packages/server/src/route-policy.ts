@@ -68,6 +68,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'DELETE /api/clients/:id': own({ id: 'client' }),
 
   // ----- accounts (routes-people.ts) -----
+  'GET /api/contacts': 'self',
   'GET /api/me': 'self',
   'PATCH /api/me': 'self',
   'GET /api/invite/:secret': 'public',

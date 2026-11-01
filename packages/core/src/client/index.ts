@@ -74,7 +74,9 @@ export type * from './websearch';
 export { SEARCH_PROVIDERS } from './websearch';
 // ----- accounts: several people on one hub, docs/design/ACCOUNTS.md -----
 import type { AccountRef, InviteDto, InviteInfo, MeDto, MePatch, PersonCreated, PersonDto, PersonInput, PersonPatch, WorkspaceCode } from './people';
+import type { Contact } from './contacts';
 export type * from './people';
+export type * from './contacts';
 export { DISPLAY_NAME_MAX, OWNER_DEFAULT_NAME, SPLIT_MAX, displayNameProblem, shownName, tidyDisplayName } from './people';
 export type * from './pim';
 import type { CaldavPreset, MailSecurity, OAuthClientKind, OAuthFlowDto, PimAccountDto, PimSettingsDto, PimWants, ProposalDto, ProposalStatus } from './pim';
@@ -1746,6 +1748,7 @@ export class ConclaveClient {
   revokeApp = (id: string) => this.request<{ ok: true }>('DELETE', `/api/clients/${encodeURIComponent(id)}`);
 
   // ----- accounts: you, and the people on the hub (owner), docs/design/ACCOUNTS.md -----
+  contacts = () => this.request<Contact[]>('GET', '/api/contacts');
   me = () => this.request<MeDto>('GET', '/api/me');
   updateMe = (patch: MePatch) => this.request<{ ok: true }>('PATCH', '/api/me', patch);
   people = () => this.request<PersonDto[]>('GET', '/api/people');

@@ -19,6 +19,7 @@
 import type { Context, Hono } from 'hono';
 import { createHash, randomBytes } from 'node:crypto';
 import type { PairResult } from '@conclave/core/client/index.ts';
+import type { Contact } from '@conclave/core/client/contacts.ts';
 import { shownName, SPLIT_MAX, type AccountRef, type InviteDto, type InviteInfo, type MeDto, type MePatch, type PersonCreated, type PersonDto, type PersonInput, type PersonPatch, type ProviderGrantsDto, type WorkspaceCode } from '@conclave/core/client/people.ts';
 import { isMember } from '@conclave/core/people/context.ts';
 import { PeopleError, accountKey, type HubAccount, type ProviderGrants } from '@conclave/core/people/store.ts';
@@ -146,6 +147,17 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
   };
 
   // ----- you ------------------------------------------------------------------
+
+  app.get('/api/contacts', (c) => {
+    const caller = accountOf(c);
+    const contacts: Contact[] = people.list().filter((a) => a.id !== caller).map((a) => ({
+      party: `account:${a.id}`,
+      name: shownName(a) ?? (a.role === 'owner' ? 'Hub owner' : 'Member'),
+    }));
+    // A member has no remote friends or hub identity. Do not expose the owner's friend cards.
+    if (!isMember(caller)) for (const f of ctx.peer.list()) if (f.status === 'active') contacts.push({ party: `friend:${f.id}`, name: f.name });
+    return c.json(contacts);
+  });
 
   app.get('/api/me', (c) => {
     const who = c.get('auth');
