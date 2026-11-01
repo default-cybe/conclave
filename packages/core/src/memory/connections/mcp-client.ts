@@ -149,10 +149,16 @@ export class McpEndpoint {
     if (!this.connecting) {
       const factory = this.deps.mcpClientFactory ?? defaultMcpClientFactory(this.deps.config);
       const inline = this.spec.inline;
-      this.connecting = withTimeout(factory(this.name, inline), MCP_CONNECT_TIMEOUT_MS, 'MCP connect')
+      const started = factory(this.name, inline);
+      this.connecting = withTimeout(started, MCP_CONNECT_TIMEOUT_MS, 'MCP connect')
         .then((h) => {
           this.handle = h;
           return h;
+        })
+        .catch((err) => {
+          // a client that connects after the timeout is nobody's: close it so no stdio process lingers
+          started.then((h) => h.close?.()).catch(() => {});
+          throw err;
         })
         .finally(() => {
           this.connecting = undefined;

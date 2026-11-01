@@ -119,6 +119,30 @@ describe('JobScheduler', () => {
     expect(status(db2, fresh.id).status).toBe('pending');
   });
 
+  test('a second scheduler on the same database leaves the first one\'s running jobs alone until its heartbeat is stale', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'conclave-sched-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const file = join(dir, 'db.sqlite');
+    const dbA = openDb(file);
+    const dbB = openDb(file);
+    cleanups.push(() => (dbA.close(), dbB.close()));
+    const a = mk(dbA).s;
+    let release!: () => void;
+    a.handle('slow', () => new Promise<void>((r) => (release = r)));
+    const id = a.enqueue('slow', Date.now() - 1);
+    a.start();
+    await waitFor(() => status(dbA, id).status === 'running');
+    const b = mk(dbB).s;
+    b.start();
+    expect(status(dbB, id)).toMatchObject({ status: 'running', attempts: 1 });
+    // A dies without a clean stop: once its heartbeat is old, B takes the job back
+    dbA.query(`UPDATE kv SET updated_at = 0 WHERE key LIKE 'scheduler:live:%'`).run();
+    b.stop();
+    b.start();
+    expect(status(dbB, id)).toMatchObject({ status: 'pending', last_error: 'interrupted by restart' });
+    release();
+  });
+
   test('never runs a job twice, even with two schedulers on one database', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'conclave-sched-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

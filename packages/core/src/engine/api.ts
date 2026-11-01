@@ -225,7 +225,7 @@ export interface EngineApi {
   todos(id: string): Todo[];
   checkpoints(id: string): Checkpoint[];
   restoreCheckpoint(id: string, checkpointId: string): Promise<void>;
-  diff(id: string): Promise<{ diff: string; files: string[] }>;
+  diff(id: string): Promise<{ diff: string; files: string[]; offline?: boolean }>;
   /** Sanitized by default (session/share.ts); raw is the stored rows, for owner backups. */
   exportSession(id: string, format: 'md' | 'json', opts?: import('../client/share').ShareOptions & { raw?: boolean }): import('../session/share').ExportResult;
   /** One account's messages (the owner's when left out). */

@@ -24,12 +24,18 @@ export interface JobSchedulerOptions {
 const MAX_TIMEOUT = 2 ** 31 - 1;
 /** shortcut: finished jobs older than this go when the scheduler starts, so a hub that never restarts keeps them. */
 const KEEP_FINISHED_MS = 30 * 86_400_000;
+/** A scheduler beats at least every maxSleepMs (60s by default); one silent this long is gone. */
+const LIVE_MS = 5 * 60_000;
+const BEAT_PREFIX = 'scheduler:live:';
 
 /**
  * Durable job runner over the jobs table. One timer is armed for the next due
  * job of a kind that has a handler; enqueue/poke/handle re-arm it. A job is
  * claimed with a conditional UPDATE so it never runs twice, even across
- * processes sharing the database.
+ * processes sharing the database. Each scheduler keeps a heartbeat row in kv;
+ * jobs left 'running' are reset only while no other scheduler beats, so a
+ * second live process never has its running jobs taken away (a crashed one's
+ * jobs come back once its heartbeat is LIVE_MS old).
  */
 export class JobScheduler implements Scheduler {
   private db: Db;
@@ -46,6 +52,7 @@ export class JobScheduler implements Scheduler {
   private readonly concurrency: number;
   private readonly maxSleepMs: number;
   private readonly now: () => number;
+  private readonly beatKey = `${BEAT_PREFIX}${crypto.randomUUID()}`;
 
   constructor(opts: JobSchedulerOptions) {
     this.db = opts.repos.db;
@@ -60,6 +67,7 @@ export class JobScheduler implements Scheduler {
   start(): void {
     if (this.started) return;
     this.started = true;
+    this.beat();
     this.recover();
     // finished jobs are history nothing reads; without this every routine fire stays a row for good
     this.db.query(`DELETE FROM jobs WHERE status IN ('done', 'failed', 'cancelled') AND run_at < ?`).run(this.now() - KEEP_FINISHED_MS);
@@ -68,6 +76,12 @@ export class JobScheduler implements Scheduler {
 
   stop(): void {
     this.started = false;
+    // a clean stop: the next start (here or elsewhere) recovers at once
+    try {
+      this.db.query(`DELETE FROM kv WHERE key = ?`).run(this.beatKey);
+    } catch {
+      // the database closed first: the beat goes stale on its own
+    }
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
     this.timerAt = undefined;
@@ -106,17 +120,27 @@ export class JobScheduler implements Scheduler {
     return this.jobs.pending(kind);
   }
 
+  private beat(): void {
+    this.db.query(`INSERT INTO kv (key, value, updated_at) VALUES (?, '1', ?) ON CONFLICT(key) DO UPDATE SET updated_at = excluded.updated_at`).run(this.beatKey, this.now());
+  }
+
   /**
-   * Jobs left 'running' by a crash go back to pending. If a newer pending job
-   * holds the same dedupe key (a rescheduled routine), the stale one is dropped.
+   * Jobs left 'running' by a crash go back to pending, unless another scheduler
+   * on this database is alive (its jobs are running, not interrupted). If a newer
+   * pending job holds the same dedupe key (a rescheduled routine), the stale one is dropped.
+   * shortcut: while any other scheduler beats, a third crashed one's jobs wait; per-job owners would fix that.
    */
   private recover(): void {
+    const other = this.db.query(`SELECT 1 FROM kv WHERE key LIKE ? AND key != ? AND updated_at > ? LIMIT 1`).get(`${BEAT_PREFIX}%`, this.beatKey, this.now() - LIVE_MS);
+    if (other) return;
+    this.db.query(`DELETE FROM kv WHERE key LIKE ? AND key != ?`).run(`${BEAT_PREFIX}%`, this.beatKey);
     const rows = this.db.query(`SELECT id, dedupe_key, attempts FROM jobs WHERE status = 'running'`).all() as Array<{ id: string; dedupe_key: string | null; attempts: number }>;
     if (!rows.length) return;
     const claimedHere = new Set(this.running.keys());
+    const lost = rows.filter((r) => !claimedHere.has(r.id));
+    if (!lost.length) return;
     this.db.transaction(() => {
-      for (const r of rows) {
-        if (claimedHere.has(r.id)) continue;
+      for (const r of lost) {
         const clash = r.dedupe_key
           ? this.db.query(`SELECT 1 FROM jobs WHERE dedupe_key = ? AND status = 'pending' AND id != ?`).get(r.dedupe_key, r.id)
           : null;
@@ -125,7 +149,7 @@ export class JobScheduler implements Scheduler {
         else this.db.query(`UPDATE jobs SET status = 'pending', last_error = 'interrupted by restart' WHERE id = ?`).run(r.id);
       }
     })();
-    log.info(`recovered ${rows.length} interrupted job(s)`);
+    log.info(`recovered ${lost.length} interrupted job(s)`);
   }
 
   /** Earliest pending job of a kind we can run. */
@@ -161,6 +185,9 @@ export class JobScheduler implements Scheduler {
     }
     this.ticking = true;
     try {
+      // every wake beats, and picks up jobs of a scheduler that died since
+      this.beat();
+      this.recover();
       do {
         this.retick = false;
         for (const job of this.dueJobs()) {

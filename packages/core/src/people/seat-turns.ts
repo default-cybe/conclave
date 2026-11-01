@@ -86,13 +86,20 @@ export class SharedChatTurns {
     for (const m of this.engine.repos.messages.list(seat)) if (m.kind === 'summary') this.engine.repos.messages.delete(m.id);
   }
 
+  /** A seat, or a chat that has (or had) other people in it: its turns read through messages() below. */
+  shared(sessionId: string): boolean {
+    const session = this.engine.requireSession(sessionId);
+    if ((session.meta?.seat as { chatId?: string } | undefined)?.chatId) return true;
+    // any row, left or removed too: their messages stay in the chat and must still reach the owner's turns as quoted data
+    return session.kind === 'chat' && !!this.engine.repos.db.query('SELECT 1 FROM chat_participants WHERE session_id = ? LIMIT 1').get(sessionId);
+  }
+
   /** No transcript copies: each inference reads the shared chat through the starter's current visibility. */
   messages(sessionId: string): Message[] {
     const engine = this.engine;
+    if (!this.shared(sessionId)) return engine.repos.messages.list(sessionId);
     const session = engine.requireSession(sessionId);
     const chatId = (session.meta?.seat as { chatId?: string } | undefined)?.chatId;
-    // any row, left or removed too: their messages stay in the chat and must still reach the owner's turns as quoted data
-    if (!chatId && (session.kind !== 'chat' || !engine.repos.db.query('SELECT 1 FROM chat_participants WHERE session_id = ? LIMIT 1').get(sessionId))) return engine.repos.messages.list(sessionId);
     const transcriptId = chatId ?? sessionId;
     const accountId = session.accountId ?? OWNER_ID;
     const store = new ChatParticipantStore(engine.repos.db);

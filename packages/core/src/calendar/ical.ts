@@ -398,7 +398,8 @@ function fold(line: string): string {
 
 /** Strip anything that could end a property line early. */
 function clean(s: string): string {
-  return s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim();
+  // CR and LF too: a raw line break would start a new property (folding is applied afterwards)
+  return s.replace(/[\u0000-\u001f]/g, '').trim();
 }
 
 export interface WriteOptions {

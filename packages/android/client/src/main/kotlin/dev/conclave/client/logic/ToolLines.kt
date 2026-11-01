@@ -219,7 +219,8 @@ object ToolLines {
             "WebSearch" -> Kind("web", null) { "searched the web ${times(it)}" }
             "WebFetch" -> Kind("fetch", s("url")) { "read ${plural(it, "page", "pages")}" }
             "Browser" -> Kind("browse", null) { "used the browser ${times(it)}" }
-            "Task" -> Kind("agent", null) { "ran ${plural(it, "subagent", "subagents")}" }            "Workflow" -> Kind("workflow", null) { "ran ${plural(it, "workflow", "workflows")}" }
+            "Task" -> Kind("agent", null) { "ran ${plural(it, "subagent", "subagents")}" }
+            "Workflow" -> Kind("workflow", null) { "ran ${plural(it, "workflow", "workflows")}" }
             "TodoWrite" -> Kind("plan", null) { "updated the plan" }
             "AskUserQuestion" -> Kind("ask", null) { "asked you" + again(it) }
             "Skill" -> {
@@ -309,7 +310,8 @@ object ToolLines {
             "LS" -> "Searching"
             "WebSearch" -> "Searching the web"
             "WebFetch" -> s("url")?.let { "Reading ${ChatSources.host(it)}" } ?: "Reading"
-            "Task" -> "Subagent working"            "Workflow" -> "Running ${WorkflowWords.workflowName(use.input)}"
+            "Task" -> "Subagent working"
+            "Workflow" -> "Running ${WorkflowWords.workflowName(use.input)}"
             "TodoWrite" -> "Planning"
             "AskUserQuestion" -> "Asking you"
             "MemorySearch" -> "Checking memory"

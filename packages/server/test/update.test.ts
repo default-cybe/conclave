@@ -7,7 +7,7 @@
  * done when it comes back with the hub's version. No network.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, generateKeyPairSync } from 'node:crypto';
@@ -27,6 +27,7 @@ import {
   parsePublicKey,
   readState,
   readUpdateKey,
+  writeState,
   rollBack,
   swapIn,
   systemdUnit,
@@ -377,6 +378,20 @@ describe('finisher', () => {
     const restarts: string[] = [];
     expect(await finishUpdate({ updatesDir, install, current: '0.4.1', key: KEY, restart: async (r) => void restarts.push(r.unit), health: async () => true })).toBeUndefined();
     expect(restarts).toEqual([]);
+  });
+
+  test('the state file is never written through a link the hub planted at the temp name', () => {
+    const root = tmp('state');
+    const updatesDir = join(root, 'updates');
+    mkdirSync(updatesDir);
+    const victim = join(root, 'victim');
+    writeFileSync(victim, 'keep');
+    // the old name was state.json.<pid>.tmp: a root finisher followed this link
+    symlinkSync(victim, join(updatesDir, `state.json.${process.pid}.tmp`));
+    writeState(updatesDir, { id: 'j', version: '0.5.0', from: '0.4.1', phase: 'installing', startedAt: 1, by: 'owner' });
+    expect(readFileSync(victim, 'utf8')).toBe('keep');
+    expect(readState(updatesDir)?.phase).toBe('installing');
+    expect(readdirSync(updatesDir).filter((f) => f.endsWith('.tmp') && f !== `state.json.${process.pid}.tmp`)).toEqual([]);
   });
 });
 

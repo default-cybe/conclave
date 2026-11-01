@@ -13,6 +13,9 @@ import { join } from 'node:path';
 import { findBrowserExecutable } from '../../src/browser';
 import { ReadTool } from '../../src/tools/read';
 import { WriteTool } from '../../src/tools/write';
+import { EditTool } from '../../src/tools/edit';
+import { MultiEditTool } from '../../src/tools/multiedit';
+import { NotebookEditTool } from '../../src/tools/notebook-edit';
 import { RenderFileTool, markdownPage } from '../../src/tools/render-file';
 import { UNTRUSTED_DENY, builtinTools } from '../../src/tools';
 import { fakeHost, makeCtx, makeSession, tempDir } from './helpers';
@@ -60,6 +63,20 @@ describe("a chat's Write and Read", () => {
       expect(r.isError).toBe(true);
       expect(String(r.content)).not.toContain('top secret');
     }
+  });
+
+  test('Edit, MultiEdit and NotebookEdit refuse paths outside the outputs folder too', async () => {
+    writeFileSync(join(home, 'victim.txt'), 'old');
+    writeFileSync(join(home, 'victim.ipynb'), JSON.stringify({ cells: [{ cell_type: 'code', source: 'old', metadata: {}, outputs: [] }], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
+    for (const p of [join(home, 'victim.txt'), 'escape/victim.txt']) {
+      const e = await EditTool.run({ file_path: p, old_string: 'old', new_string: 'new' }, chatCtx());
+      const m = await MultiEditTool.run({ file_path: p, edits: [{ old_string: 'old', new_string: 'new' }] }, chatCtx());
+      for (const r of [e, m]) expect(String(r.content)).toContain('only in its outputs folder');
+    }
+    const n = await NotebookEditTool.run({ notebook_path: join(home, 'victim.ipynb'), cell_id: '0', new_source: 'new' }, chatCtx());
+    expect(String(n.content)).toContain('only in its outputs folder');
+    expect(readFileSync(join(home, 'victim.txt'), 'utf8')).toBe('old');
+    expect(readFileSync(join(home, 'victim.ipynb'), 'utf8')).toContain('"old"');
   });
 
   test('a session that is not a chat is not confined', async () => {

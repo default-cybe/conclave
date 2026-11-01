@@ -337,6 +337,12 @@ export class MessageRepo {
     return rows.map(rowToMessage);
   }
 
+  /** The newest compaction summary, found without reading the whole transcript. */
+  lastSummary(sessionId: string): Message | undefined {
+    const r = this.db.query("SELECT * FROM messages WHERE session_id = ? AND kind = 'summary' ORDER BY seq DESC LIMIT 1").get(sessionId) as Row | null;
+    return r ? rowToMessage(r) : undefined;
+  }
+
   /** The transcript or one page of it (types.ts MessagePage): no afterSeq with a limit or beforeSeq reads the newest page back. */
   page(sessionId: string, { afterSeq, beforeSeq, limit }: MessagePage = {}): Message[] {
     if (afterSeq === undefined && (limit !== undefined || beforeSeq !== undefined)) return this.tail(sessionId, limit ?? 100_000, beforeSeq);

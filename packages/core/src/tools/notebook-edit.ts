@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { Tool } from './types';
 import { cellId, findCell, joinSource, parseNotebook, splitSource, type NotebookCell } from './notebook';
-import { extname, fail, readMarkOf, resolveAbsolute, staleCheck, unifiedDiff, pathRule } from './util';
+import { chatRefusal, extname, fail, readMarkOf, resolveAbsolute, staleCheck, unifiedDiff, pathRule } from './util';
 
 export interface NotebookEditInput {
   notebook_path: string;
@@ -47,6 +47,8 @@ export const NotebookEditTool: Tool<NotebookEditInput> = {
     const r = resolveAbsolute(ctx, input.notebook_path, 'notebook_path');
     if ('error' in r) return fail(r.error);
     const path = r.path;
+    const refusal = chatRefusal(ctx, path);
+    if (refusal) return fail(refusal, { writeRefused: true });
     if (extname(path) !== 'ipynb') return fail(`${path} is not a .ipynb file. Use Edit for other files.`);
     const mode = input.edit_mode ?? 'replace';
     if (!['replace', 'insert', 'delete'].includes(mode)) return fail('edit_mode must be replace, insert or delete.');

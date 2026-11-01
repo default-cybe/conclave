@@ -97,7 +97,7 @@ import { builtinTools, filterTools } from '../tools';
 import { QUEUE_KEY, SessionRunner, canResumeStopped, type StoredQueued } from '../session/runner';
 import { fallbackPolicyFor } from '../session/limit-tree';
 import { RunnerExtensions } from '../session/runner-ext';
-import { OfflineMachine, waitForReturn } from '../projects/offline';
+import { OfflineMachine, isOfflineError, waitForReturn } from '../projects/offline';
 import { checkMcpOff, mcpOff, sessionAllowsServerTool } from '../session/connectors';
 import { projectsOf } from '../projects/attached';
 import { workflowsOf } from '../workflows/attached';
@@ -114,7 +114,7 @@ import { friendShareOf, narrowsTools } from '../session/friend-share';
 import { takesEffort } from '../providers/anthropic';
 import { clampEffort, type Effort, type EffortSetting } from '../providers/effort';
 import { retiredAlias } from '../providers/access-programs';
-import { activeMessages, isReminder, renderTranscript } from '../session/transcript';
+import { activeMessages, activeStored, isReminder, renderTranscript } from '../session/transcript';
 import { exportSession as exportShared, type ExportResult } from '../session/share';
 import { readPastSession, searchPastSessions, type PastRead, type PastSessionHit, type PastSessionQuery } from '../session/search';
 import { toolSearchFor } from '../tools/tool-search';
@@ -1190,17 +1190,23 @@ export class Engine implements EngineApi {
     await restoreCheckpoint(this, s, this.machineFor(s), checkpointId);
   }
 
-  async diff(id: string): Promise<{ diff: string; files: string[] }> {
+  async diff(id: string): Promise<{ diff: string; files: string[]; offline?: boolean }> {
     const s = this.requireSession(id);
     const machine = this.machineFor(s);
     // a member's session on the hub's own computer: its tools never ran there, so it changed nothing (docs/design/ACCOUNTS.md 5)
+    let offline = false;
     const res = await machine.exec('git diff --no-color HEAD 2>/dev/null || git diff --no-color 2>/dev/null || true', { cwd: s.cwd, timeoutMs: 20_000 }).catch((err: unknown) => {
       if (err instanceof MachineRefused) return { stdout: '' };
+      // the device is offline: an empty diff with the flag, not a 409, so the session page still loads
+      if (isOfflineError(err)) {
+        offline = true;
+        return { stdout: '' };
+      }
       throw err;
     });
     const diff = res.stdout;
     const files = [...diff.matchAll(/^\+\+\+ b\/(.+)$/gm)].map((m) => m[1]);
-    return { diff, files };
+    return { diff, files, ...(offline ? { offline: true } : {}) };
   }
 
   /** Sanitized by default (session/share.ts); raw is the stored rows, for the owner's backups. */
@@ -2386,7 +2392,7 @@ export class Engine implements EngineApi {
     const hit = this.promoted.get(sessionId);
     if (hit?.seq === seq) return hit.names;
     const names: string[] = [];
-    for (const m of activeMessages(this.repos.messages.list(sessionId))) {
+    for (const m of activeMessages(activeStored(this.repos.messages, sessionId))) {
       for (const b of m.content) {
         if (b.type !== 'tool_result' || !Array.isArray(b.meta?.promoted)) continue;
         for (const n of b.meta.promoted) if (typeof n === 'string' && !names.includes(n)) names.push(n);

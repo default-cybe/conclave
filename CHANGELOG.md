@@ -17,6 +17,12 @@ like `## [0.4.16] - 2026-10-24`.
 - Seat turns: a participant's message starts an AI turn in their own hidden seat session, on their own account: their key serves the provider call (a scripted two-key test fails if the hub's ever does), usage rows and `turns.started_by` bill the starter, their memory only when they turned it on (off by default, never the owner's), chat tools only, and their words land in the shared chat attributed to them. Turns run one at a time per chat in a FIFO queue; the chat owner can stop anyone's running turn, each person their own; a demotion to Viewer or removal ends a running turn. The per-message "Just talk" switch posts a plain human message with no turn. The chat owner's own turns keep running on the chat itself.
 - Shared chats in the web app: a People control in the chat header (roles, "see earlier messages", remove, leave, add a contact), a "Shared with you" sidebar group with Accept and Decline, other people's messages under their name, their turns "via" their model, and a composer with "Just talk" (phone and desktop), Stop for your own running turn, and no owner pickers for a participant. A Viewer gets a read-only line instead of the box.
 
+### Changed
+
+- Web: while a reply streams, its markdown is re-parsed at most every 45 ms instead of once per delta, and code blocks stay plain until their matching fences close in both chat views. The final text still renders the moment the stream ends.
+- Agent loop: each step reads the stored transcript from the last summary's `coversThroughSeq` instead of seq 0, and the context-clearing pass shares that one read, so long sessions no longer list and parse the whole transcript two to three times per step.
+- Subagents with a schema (Task, workflow steps) no longer make one extra model call after a valid StructuredOutput call: the turn ends right away, on the batched and the serial path, with no end-of-turn notice.
+
 ### Fixed
 
 - Shared chats: the chat owner now reads a participant's turn shaped like everyone else (text and one-line tool summaries) over HTTP and the socket; full tool output stays the starter's.
@@ -28,6 +34,10 @@ like `## [0.4.16] - 2026-10-24`.
 - Shared chats: an invite notice links to `/chat`, where Accept is, not the not-yet-readable chat.
 - Shared chats: a declined, left or removed invite no longer turns the owner's chat into a shared one (sends kept going through the in-memory queue with Steer ignored).
 - Shared chats: a seat no longer appears as a second chat in the participant's sidebar.
+- Fixes from a review of the whole codebase. Security: a member's CalDAV, IMAP and SMTP servers are checked again right before every connect and the hub dials the address it checked, so a DNS name changed later cannot reach the hub's network; a chat's Edit, MultiEdit and NotebookEdit stay in its outputs folder like Write; the root update finisher writes its state file under an unguessable name it creates itself, so a link planted in the updates folder cannot redirect the write; the preview's approved command line names its folder; the daily digest reads only the account's own memories; invite text cannot add calendar properties through a line break; release and screenshot workflows keep no git credentials. Also: a provider error or JSON body that never ends now times out, a second hub process on the same database no longer resets jobs the first one is running, `conclave config set` writes the local file only when no local hub answers (a refusal is an error), an unknown OpenStreetMap place id says not found, the Android app asks before sending without a file it could not read, and smaller fixes in the bench, workflows and docs.
+- Devices: a hub event-loop stall no longer closes healthy daemon sockets. The daemon sweep now tells a late tick (more than 2 heartbeats after the last one, so every device's last-heard time is stale) from real silence: it pings and skips the 4008 heartbeat-timeout close for that round; the next on-time round closes a device that is really gone.
+- Sessions: the diff endpoint no longer fails with a 409 when the session's device is offline. It returns an empty diff with `offline: true`, the session page loads and its Changes card says the device is offline instead of the diff failing.
+- Hub: a periodic event-loop lag sample logs one warn line (rate-limited to one a minute) whenever the loop lags over 1 s, so the next stall shows when it happened and by how much in the hub's log.
 
 ## [0.4.53] - 2026-11-01
 

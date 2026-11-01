@@ -115,6 +115,11 @@ describe('places', () => {
     expect(d.value).not.toHaveProperty('openNow');
     expect(await f.maps.placeDetails('N1001').catch((e) => e.code)).toBe('bad_input');
   });
+
+  test('an id Nominatim does not know is not_found, not a crash', async () => {
+    f = osmMaps();
+    expect(await f.maps.placeDetails('osm:N999999').catch((e) => e.code)).toBe('not_found');
+  });
 });
 
 describe('routes', () => {

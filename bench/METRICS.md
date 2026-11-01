@@ -50,7 +50,8 @@ The owner asked to note everything. Every run writes one line to results.jsonl w
 
 **Quality (blind judge)**
 - judge model and prompt version
-- scores from 1 to 5: correctness beyond the tests, minimal change, readability and fit with the code style, no test tampering, explanation quality
+- scores from 1 to 5: correctness beyond the tests, minimal change, readability and fit with the code style
+- test tampering: yes or no (stored as a boolean)
 - judge notes (two or three sentences)
 - the judge never sees the arm name, and runs see each other in a random order
 

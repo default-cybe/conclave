@@ -162,7 +162,8 @@ export class OsmProvider implements MapsProvider {
     const m = /^osm:([NWR]\d+)$/.exec(id);
     if (!m) throw new MapsError('bad_input', 'That is not an OpenStreetMap place id. Use the id PlaceSearch gave, such as osm:N123.', 400);
     const list = await this.nominatim('/lookup', { osm_ids: m[1], extratags: '1', addressdetails: '0' });
-    const p = Array.isArray(list) ? nominatimPlace(list[0] as Json) : undefined;
+    const first = Array.isArray(list) ? list[0] : undefined;
+    const p = first && typeof first === 'object' ? nominatimPlace(first as Json) : undefined;
     if (!p) throw new MapsError('not_found', 'OpenStreetMap has no place with that id.', 404);
     return p;
   }

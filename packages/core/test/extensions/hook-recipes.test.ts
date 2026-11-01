@@ -52,7 +52,7 @@ describe('recipe data', () => {
     for (const r of HOOK_RECIPES) {
       if (!r.script) continue;
       const file = join(dir, `${r.id}.sh`);
-      Bun.write(file, r.script);
+      writeFileSync(file, r.script);
       const p = Bun.spawnSync(['bash', '-n', file]);
       if (p.exitCode !== 0) throw new Error(`${r.id}: ${p.stderr.toString()}`);
       expect(r.script.startsWith('#!/usr/bin/env bash')).toBe(true);

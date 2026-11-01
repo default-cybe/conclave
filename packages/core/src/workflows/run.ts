@@ -868,7 +868,8 @@ export class LiveRun {
         return run(rel && !rel.startsWith('..') ? posix.join(path, rel) : path);
       });
     }
-    const cwd = opts.cwd ? (opts.cwd.startsWith('/') ? opts.cwd : posix.join(this.row.cwd, opts.cwd)) : this.row.cwd;
+    // through machine.resolve, as agent cwds are: ~ expands, relative paths join the run's folder
+    const cwd = opts.cwd ? posix.normalize(machine.resolve(opts.cwd, this.row.cwd)) : this.row.cwd;
     return run(cwd);
   }
 

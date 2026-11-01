@@ -381,6 +381,14 @@ export async function handleLimit(engine: Engine, runner: SessionRunner, modelRe
     return {};
   }
 
+  /** The provider's name in the session's own registry (a member's model may be unknown to the hub's); the ref itself when it does not resolve. */
+  const providerWords = (e: typeof engine, id: string, ref: string): string => {
+    try {
+      return e.providerLabel(e.registryFor(e.getSession(id)!).resolve(ref).provider);
+    } catch {
+      return ref;
+    }
+  };
   const waitMs = Math.max(5_000, resetAt - Date.now());
   // the resumed run continues this user turn: the regression gate compares with the code from before it
   keepTurnBase(engine, sessionId, runner.turnCheckpoint);
@@ -390,7 +398,7 @@ export async function handleLimit(engine: Engine, runner: SessionRunner, modelRe
   engine.notice(sessionId, `Usage limit reached. This session will continue automatically when the limit resets (${new Date(resetAt).toLocaleString()}).${why}`, 'warning');
   engine.notifyEvent('limitReset', {
     title: 'Usage limit reached',
-    body: `${engine.providerLabel(engine.providers.resolve(modelRef).provider)} is rate limited. Conclave will resume this session when it resets.`,
+    body: `${providerWords(engine, sessionId, modelRef)} is rate limited. Conclave will resume this session when it resets.`,
     level: 'warning',
     sessionId,
     link: `/s/${sessionId}`,

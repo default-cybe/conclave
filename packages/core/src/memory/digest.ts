@@ -420,8 +420,8 @@ export class DailyDigest {
   private dayMemories(start: number, end: number): MemoryEntry[] {
     return (
       this.engine.repos.db
-        .query(`SELECT * FROM memories m WHERE m.created_at >= ? AND m.created_at < ? AND m.kind IN ('fact', 'procedure') AND instr(m.tags, ?) = 0 AND ${ACTIVE_SQL} ORDER BY m.created_at DESC LIMIT 40`)
-        .all(start, end, JSON.stringify(IMPORTED_TAG)) as Array<Record<string, any>>
+        .query(`SELECT * FROM memories m WHERE m.account_id = ? AND m.created_at >= ? AND m.created_at < ? AND m.kind IN ('fact', 'procedure') AND instr(m.tags, ?) = 0 AND ${ACTIVE_SQL} ORDER BY m.created_at DESC LIMIT 40`)
+        .all(this.acct, start, end, JSON.stringify(IMPORTED_TAG)) as Array<Record<string, any>>
     ).map((r) => ({ id: r.id, scope: r.scope, scopeKey: r.scope_key ?? undefined, kind: r.kind, content: r.content, tags: json<string[]>(r.tags, []), importance: r.importance, createdAt: r.created_at, updatedAt: r.updated_at, useCount: r.use_count ?? 0, ...(r.meta ? { meta: json(r.meta, {}) } : {}) }));
   }
 
@@ -429,9 +429,9 @@ export class DailyDigest {
   private links(): { projects: string[]; hosts: string[]; goals: string[] } {
     const db = this.engine.repos.db;
     const projects = new Set<string>();
-    for (const r of db.query(`SELECT DISTINCT scope_key FROM memories WHERE scope = 'project' AND scope_key IS NOT NULL LIMIT 200`).all() as Array<{ scope_key: string }>) projects.add(base(r.scope_key));
+    for (const r of db.query(`SELECT DISTINCT scope_key FROM memories WHERE account_id = ? AND scope = 'project' AND scope_key IS NOT NULL LIMIT 200`).all(this.acct) as Array<{ scope_key: string }>) projects.add(base(r.scope_key));
     const hosts = new Set<string>();
-    for (const r of db.query(`SELECT tags FROM memories WHERE instr(tags, '"host:') > 0 LIMIT 500`).all() as Array<{ tags: string }>) for (const t of json<string[]>(r.tags, [])) if (t.startsWith('host:')) hosts.add(t.slice(5));
+    for (const r of db.query(`SELECT tags FROM memories WHERE account_id = ? AND instr(tags, '"host:') > 0 LIMIT 500`).all(this.acct) as Array<{ tags: string }>) for (const t of json<string[]>(r.tags, [])) if (t.startsWith('host:')) hosts.add(t.slice(5));
     const goals = (assistantFor(this.engine, this.acct)?.goals.all() ?? []).filter((g) => !g.parentId && g.status === 'active').map((g) => g.title.replace(/[\\/:*?"<>|#[\]]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80));
     return { projects: [...projects], hosts: [...hosts], goals };
   }

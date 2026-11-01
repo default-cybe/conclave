@@ -56,6 +56,17 @@ export function activeMessages(all: Message[]): Message[] {
 }
 
 /**
+ * The stored messages a step needs: the last summary plus everything after its
+ * coversThroughSeq, read with afterSeq instead of from seq 0, so a long session
+ * does not list and parse the whole transcript on every step. activeMessages
+ * on this list returns the same messages as on a full list.
+ */
+export function activeStored(messages: { lastSummary(sessionId: string): Message | undefined; list(sessionId: string, opts?: { afterSeq?: number }): Message[] }, sessionId: string): Message[] {
+  const summary = messages.lastSummary(sessionId);
+  return messages.list(sessionId, { afterSeq: summary ? ((summary.meta?.coversThroughSeq as number | undefined) ?? summary.seq - 1) : 0 });
+}
+
+/**
  * The first seq whose thinking may be replayed, for the active messages of a
  * request: the summary's own seq after any compaction, -1 without one.
  *
