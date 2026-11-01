@@ -7,13 +7,7 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
-## [Unreleased]
-
-### Fixed
-
-- Windows with Animation effects off gets 3D and motion back. Chromium, Edge and the desktop app read that setting as reduced motion, so Memory > Map showed Rings and every animation stopped. Settings > Appearance > Reduce motion has a third choice, Off, that keeps motion even when the device asks to reduce it (System and On still stop it). With reduced motion, Memory > Map now shows 3D held still (no drift, jumps instead of flights) instead of Rings; Rings stands in only without WebGL.
-
-## [0.4.52] - 2026-11-01
+## [0.4.53] - 2026-11-01
 
 ### Added
 
@@ -23,6 +17,13 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Meetings: the overlay window fits its content (at most 75 % of the screen), is a one-line bar while no answer shows, keeps to the bottom only when you were there, and fades each new block in (none with reduced motion). Streaming a 2,000-token answer in mock mode dropped no frames.
 - Meetings: live answers may add a short table, code block, chart or diagram after the bullets when the question asks for numbers, code or structure.
+
+### Fixed
+
+- Windows with Animation effects off gets 3D and motion back. Chromium, Edge and the desktop app read that setting as reduced motion, so Memory > Map showed Rings and every animation stopped. Settings > Appearance > Reduce motion has a third choice, Off, that keeps motion even when the device asks to reduce it (System and On still stop it). With reduced motion, Memory > Map now shows 3D held still (no drift, jumps instead of flights) instead of Rings; Rings stands in only without WebGL.
+- Chat: typing no longer makes the conversation flicker. The message box shrank to 0 px for a moment on every key to measure its text, and in the Mac and Linux desktop apps (WebKit, which has no scroll anchoring) the last messages jumped 22 to 94 px each time; the box now keeps its height while it measures. Scrolling up while a reply streams now stays where you put it: any upward scroll stops following new text, instead of snapping back while within 120 px of the bottom.
+
+## [0.4.52] - 2026-11-01
 
 ### Fixed
 
