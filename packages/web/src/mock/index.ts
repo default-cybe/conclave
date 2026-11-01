@@ -474,7 +474,7 @@ async function secondOpinion(sessionId: string, reviewer: string) {
 // ---------------------------------------------------------------------------
 
 /** auth: the bearer token the request carried. */
-type Handler = (p: { params: string[]; query: URLSearchParams; body: any; auth?: string }) => unknown;
+type Handler = (p: { params: string[]; query: URLSearchParams; body: any; auth?: string; raw?: BodyInit | null }) => unknown;
 const routes: Array<[string, RegExp, Handler]> = [];
 const on = (method: string, path: string, h: Handler) => routes.push([method, new RegExp('^' + path.replace(/:[a-z]+/gi, '([^/]+)') + '$'), h]);
 
@@ -1285,7 +1285,7 @@ export async function mockFetch(input: RequestInfo | URL, init?: RequestInit): P
     try {
       // uploads send a file, not JSON
       const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
-      const result = await h({ params: match.slice(1).map(decodeURIComponent), query: url.searchParams, body, auth });
+      const result = await h({ params: match.slice(1).map(decodeURIComponent), query: url.searchParams, body, auth, raw: init?.body });
       if (result === PASS) continue;
       // a route that sends something other than JSON (a map picture) builds its own response
       if (result instanceof Response) return result;

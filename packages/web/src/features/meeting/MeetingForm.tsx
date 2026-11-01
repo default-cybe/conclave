@@ -16,8 +16,9 @@ import { folderName, relTime } from '@/lib/format';
 import { useIsMobile } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { toast, useHub } from '@/store/store';
-import type { AnswerLength, Meeting, MeetingCalendarEvent, MeetingFolder, ReminderMin, SteeringPreset } from '@/overlay/wire';
-import { meetings, openOverlay } from './api';
+import { AttachmentStrip } from '@/features/conversation/ComposerParts';
+import type { AnswerLength, AnswerModelChoice, Meeting, MeetingCalendarEvent, MeetingFile, MeetingFolder, ReminderMin, SteeringPreset } from '@/overlay/wire';
+import { meetings, openOverlay, uploadMeetingFiles } from './api';
 import { dayBounds, fromInputs, hm, toInputs, when, zoneLabel } from './time';
 
 const MIN = 60_000;
@@ -57,6 +58,83 @@ function usePresets(): SteeringPreset[] {
     void presetsOnce.then(setP);
   }, []);
   return p;
+}
+
+let modelsOnce: Promise<AnswerModelChoice[]> | undefined;
+function useAnswerModels(): AnswerModelChoice[] | undefined {
+  const [list, setList] = useState<AnswerModelChoice[]>();
+  useEffect(() => {
+    modelsOnce ??= meetings()
+      .models()
+      .catch(() => {
+        modelsOnce = undefined;
+        return [];
+      });
+    void modelsOnce.then(setList);
+  }, []);
+  return list;
+}
+
+const SPEED: Record<AnswerModelChoice['speed'], string> = { fastest: 'Fastest', fast: 'Fast', balanced: 'Balanced', best: 'Best, slow' };
+
+/** The menu's options: the hub default first, then the hub's list (fastest first). A saved ref the list lacks still shows. */
+export function modelOptions(list: AnswerModelChoice[], value: string) {
+  const opts = [{ value: '', label: 'Hub default', detail: 'The fastest model you can use', hint: SPEED.fastest }, ...list.map((c) => ({ value: c.ref, label: c.label, detail: c.note, hint: SPEED[c.speed] }))];
+  if (value && !list.some((c) => c.ref === value)) opts.push({ value, label: value, detail: 'Not in the list any more', hint: '' });
+  return opts;
+}
+
+/** "Answers from": which model writes the live answers. */
+function AnswerModelPicker({ value, onChange }: { value: string; onChange: (ref: string) => void }) {
+  const list = useAnswerModels();
+  return <SelectMenu label="Answers from" value={value} onChange={onChange} options={modelOptions(list ?? [], value)} placeholder={list ? 'Hub default' : 'Loading models'} />;
+}
+
+/** "Or add files": a drop zone with a picker, and the files as chips. Saved files and ones still to upload in one row. */
+function FilesField({ saved, pending, onAdd, onRemove, invalid }: { saved: MeetingFile[]; pending: File[]; onAdd: (f: File[]) => void; onRemove: (i: number) => void; invalid?: boolean }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [over, setOver] = useState(false);
+  const phone = useIsMobile();
+  const all = [...saved.map((f) => ({ name: f.name, size: f.size, mediaType: f.mediaType })), ...pending.map((f) => ({ name: f.name, size: f.size, mediaType: f.type }))];
+  return (
+    <div className="flex flex-col gap-2">
+      <div
+        onDragOver={(e) => {
+          if (!e.dataTransfer.types.includes('Files')) return;
+          e.preventDefault();
+          setOver(true);
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setOver(false);
+          if (e.dataTransfer.files.length) onAdd([...e.dataTransfer.files]);
+        }}
+        className={cn('flex items-center justify-between gap-3 rounded-[var(--r-2)] border border-dashed px-3 py-3 text-[13px] text-fg-3 phone:text-[14px]', over ? 'border-signal bg-hover' : invalid ? 'border-fault' : 'border-rule')}
+      >
+        <span>{phone ? 'Resume, job description, notes, slides' : 'Drop a resume, job description, notes or slides here'}</span>
+        <Button size={phone ? 'touch' : 'sm'} onClick={() => input.current?.click()}>
+          Add files
+        </Button>
+        <input
+          ref={input}
+          type="file"
+          multiple
+          hidden
+          accept=".pdf,.md,.txt,.docx,.pptx,.csv,.json,.html,text/*,application/pdf"
+          onChange={(e) => {
+            if (e.target.files?.length) onAdd([...e.target.files]);
+            e.target.value = '';
+          }}
+        />
+      </div>
+      {all.length > 0 && (
+        <div className="-mx-3 -mt-1">
+          <AttachmentStrip phone={phone} files={all} onRemove={onRemove} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 export interface Steering {
@@ -300,7 +378,10 @@ export function MeetingForm({ mode, open, onClose, onSaved, others = [], prefill
   const [date, setDate] = useState(init.date);
   const [time, setTime] = useState(init.time);
   const [duration, setDuration] = useState<string>(m?.durationMin ? String(m.durationMin) : '');
-  const [folder, setFolder] = useState<{ device: string; cwd: string; online?: boolean; deviceName?: string } | undefined>(m ? { device: m.device, cwd: m.cwd } : prefill);
+  const [folder, setFolder] = useState<{ device: string; cwd: string; online?: boolean; deviceName?: string } | undefined>(m ? (m.cwd ? { device: m.device, cwd: m.cwd } : undefined) : prefill);
+  const [answerModel, setAnswerModel] = useState(m?.answerModel ?? '');
+  const [saved, setSaved] = useState<MeetingFile[]>(m?.files ?? []);
+  const [pending, setPending] = useState<File[]>([]);
   const [event, setEvent] = useState<{ id: string; calendarId: string } | undefined>(m?.calendarEventId ? { id: m.calendarEventId, calendarId: m.calendarId ?? '' } : undefined);
   const [agenda, setAgenda] = useState(m?.agenda ?? '');
   const [steer, setSteer] = useState<Steering>({ steering: m?.steering ?? '', steeringPreset: m?.steeringPreset, answerLength: m?.answerLength ?? 'short' });
@@ -318,7 +399,7 @@ export function MeetingForm({ mode, open, onClose, onSaved, others = [], prefill
   const check = (): Record<string, string> => {
     const e: Record<string, string> = {};
     if (title.length > TITLE_MAX) e.title = `At most ${TITLE_MAX} characters.`;
-    if (!folder) e.cwd = 'Pick the project folder the meeting is about.';
+    if (!folder && !saved.length && !pending.length) e.cwd = 'Pick the project folder the meeting is about, or add files.';
     if (!start) {
       if (!at) e.scheduledAt = 'Pick a date and a time.';
       else if (at < Date.now() + 5 * MIN) e.scheduledAt = 'Pick a time at least 5 minutes from now.';
@@ -336,16 +417,30 @@ export function MeetingForm({ mode, open, onClose, onSaved, others = [], prefill
     // '' and null clear a field on the hub: JSON drops undefined, and the hub would keep the old value
     const steering = { steering: steer.steering.trim(), steeringPreset: steer.steeringPreset, answerLength: steer.answerLength };
     const durationMin = Number(duration) || null;
+    const where = folder ? { device: folder.device, cwd: folder.cwd } : {};
+    // the meeting is saved first; a file that fails to upload is said, and the meeting stays
+    const upload = async (id: string) => {
+      if (!pending.length) return;
+      try {
+        setSaved(await uploadMeetingFiles(id, pending));
+        setPending([]);
+      } catch (err) {
+        toast({ title: 'The meeting is saved, but its files did not upload', body: err instanceof Error ? err.message : String(err), level: 'error' });
+      }
+    };
     try {
       if (m) {
         const sched = m.status === 'scheduled' || (m.status === 'ready' && !m.startedAt) || !m.startedAt ? { scheduledAt: at, durationMin, tz: z } : {};
-        const out = await meetings().patch(m.id, { title: title.trim() || undefined, agenda, ...sched, ...steering, calendarEventId: event?.id ?? null, calendarId: event?.calendarId ?? null, reminders, autoPrep });
+        const out = await meetings().patch(m.id, { title: title.trim() || undefined, agenda, ...sched, ...steering, answerModel: answerModel || null, calendarEventId: event?.id ?? null, calendarId: event?.calendarId ?? null, reminders, autoPrep });
+        await upload(m.id);
         onSaved(out);
       } else if (start) {
-        const out = await meetings().create({ device: folder!.device, cwd: folder!.cwd, title: title.trim() || undefined, agenda: agenda || undefined, ...steering });
+        const out = await meetings().create({ ...where, title: title.trim() || undefined, agenda: agenda || undefined, ...steering, answerModel: answerModel || undefined });
+        await upload(out.id);
         onSaved(out, await openOverlay(out.id));
       } else {
-        const out = await meetings().create({ device: folder!.device, cwd: folder!.cwd, title: title.trim() || undefined, agenda: agenda || undefined, scheduledAt: at, durationMin: durationMin ?? undefined, tz: z, ...steering, calendarEventId: event?.id, calendarId: event?.calendarId, reminders, autoPrep });
+        const out = await meetings().create({ ...where, title: title.trim() || undefined, agenda: agenda || undefined, scheduledAt: at, durationMin: durationMin ?? undefined, tz: z, ...steering, answerModel: answerModel || undefined, calendarEventId: event?.id, calendarId: event?.calendarId, reminders, autoPrep });
+        await upload(out.id);
         onSaved(out);
       }
     } catch (err) {
@@ -397,8 +492,43 @@ export function MeetingForm({ mode, open, onClose, onSaved, others = [], prefill
           </div>
         </Field>
       )}
-      <Field label="Project folder" error={errors.cwd} help={offline ? undefined : 'Prep reads every chat on this folder and below it, its code and git history.'}>
-        <FolderPicker value={folder} invalid={!!errors.cwd} onChange={(f) => setFolder(f)} />
+      <Field label="Project folder" optional help={offline ? undefined : 'Prep reads every chat on this folder and below it, its code and git history.'}>
+        {m ? (
+          // the hub keeps the folder a meeting was made with
+          <p className="m-0 text-[13px] text-fg-2 phone:text-[15px]">{m.cwd ? <span className="font-mono text-[12.5px]">{m.cwd}</span> : 'None, files only'}</p>
+        ) : (
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <FolderPicker value={folder} invalid={!!errors.cwd} onChange={(f) => setFolder(f)} />
+            </div>
+            {folder && (
+              <Button variant="quiet" size={size} onClick={() => setFolder(undefined)}>
+                No folder
+              </Button>
+            )}
+          </div>
+        )}
+      </Field>
+      <Field label="Or add files" optional error={errors.cwd} help={folder ? 'Read with the folder: prep and the live answers use both.' : 'Prep and the live answers read these. Text is taken out of PDFs and documents the way chat attachments are.'}>
+        <FilesField
+          saved={saved}
+          pending={pending}
+          invalid={!!errors.cwd}
+          onAdd={(f) => setPending((p) => [...p, ...f])}
+          onRemove={(i) => {
+            if (i >= saved.length) return setPending((p) => p.filter((_, k) => k !== i - saved.length));
+            const f = saved[i]!;
+            void meetings()
+              .removeFile(m!.id, f.id)
+              .then(
+                () => setSaved((s) => s.filter((x) => x.id !== f.id)),
+                (err: Error) => toast({ title: `Could not remove ${f.name}`, body: err.message, level: 'error' }),
+              );
+          }}
+        />
+      </Field>
+      <Field label="Answers from" help="The model that writes live answers. Faster models answer in about a second; slower ones answer better but late.">
+        <AnswerModelPicker value={answerModel} onChange={setAnswerModel} />
       </Field>
       {offline && (
         <p className="-mt-3 text-[12px] leading-[1.4] text-warn phone:text-[13px]">
