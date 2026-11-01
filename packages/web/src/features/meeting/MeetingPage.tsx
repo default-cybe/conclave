@@ -26,9 +26,11 @@ import { meetings, openOverlay } from './api';
 import { Notes } from './NotesPage';
 
 export const STATUS_WORD: Record<MeetingStatus, [string, StateTone]> = {
+  scheduled: ['Scheduled', 'neutral'],
   preparing: ['Preparing', 'signal'],
   ready: ['Ready', 'neutral'],
-  live: ['Listening', 'signal'],
+  // red while it listens, as the sidebar's dot (11.1, 11.7)
+  live: ['Listening', 'fault'],
   paused: ['Paused', 'warn'],
   ending: ['Writing notes', 'signal'],
   ended: ['Ended', 'dim'],
