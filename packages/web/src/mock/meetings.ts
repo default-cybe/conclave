@@ -34,6 +34,13 @@ const ANSWERS: [RegExp, string][] = [
   [/block|risk/i, "Say this:\n- One blocker: the provider's rate limit on bulk calls.\n- I added a retry with backoff; I'll know tomorrow if that is enough.\nSource: session \"Fix 429s on bulk import\""],
   [/key|password|token/i, "Say this:\n- I can't share credentials on a call. I'll set you up with your own access after this.\nSource: none"],
 ];
+// richer answers, for the overlay's screenshots and frame timing: code, a table and a chart, a diagram, ~2,000 tokens
+ANSWERS.push(
+  [/retry|code/i, 'Say this:\n- The retry waits **twice as long** after each 429, up to **8 seconds**.\n- It gives up after five tries and logs the batch id.\n\n```ts\nexport async function withRetry<T>(fn: () => Promise<T>, tries = 5): Promise<T> {\n  for (let i = 0; ; i++) {\n    try {\n      return await fn();\n    } catch (e) {\n      if (i >= tries - 1 || !isRateLimit(e)) throw e;\n      await sleep(Math.min(8000, 500 * 2 ** i)); // 0.5 s, 1 s, 2 s, 4 s, 8 s\n    }\n  }\n}\n```\nSource: commit 7d2a9b1 "fix(import): retry 429s with backoff"'],
+  [/numbers|latency|how fast/i, 'Say this:\n- Imports are **3x faster** since the retry landed.\n- The p95 dropped from **4.2 s to 1.3 s** this week.\n\n| Day | p50 | p95 |\n|---|---|---|\n| Mon | 1.9 s | 4.2 s |\n| Wed | 0.8 s | 2.1 s |\n| Fri | 0.6 s | 1.3 s |\n\n```chart\n{"type":"bar","labels":["Mon","Tue","Wed","Thu","Fri"],"series":[{"name":"p50","values":[1.9,1.4,0.8,0.7,0.6]},{"name":"p95","values":[4.2,3.1,2.1,1.6,1.3]}]}\n```\nSource: session "Fix 429s on bulk import"'],
+  [/flow|architecture|diagram/i, 'Say this:\n- An import goes **client, queue, worker, provider**.\n- Only the worker retries, so the client never waits on a 429.\n\n```mermaid\nflowchart LR\n  C[Client] --> Q[(Queue)]\n  Q --> W[Worker]\n  W -->|429| W\n  W --> P[Provider]\n```\nSource: file docs/import.md'],
+  [/long answer/i, `Say this:\n- Here is **everything** on the import work, in order.\n\n${Array.from({ length: 77 }, (_, i) => `${i + 1}. Step ${i + 1}: the worker reads a batch of **${(i + 1) * 50} rows**, checks each row against the schema, retries any 429 with \`backoff(${i})\`, and writes the result.`).join('\n')}\nSource: your notes`],
+);
 const FALLBACK = "Say this:\n- I don't have that number in front of me. I'll send it after the call.\nSource: none";
 
 const BRIEF = `## What I did since last time
@@ -589,6 +596,7 @@ export function installMockDesktop(req: Req) {
   if (q.get('meeting') === 'mtg_live') Object.assign(st, { live: true, meetingId: 'mtg_live' });
   const status = () => fire('meeting://status', structuredClone(st));
   let run = 0;
+  let height = 0;
   const hear = async (meetingId: string, me: number) => {
     const seq = { me: 0, them: 0 };
     for (const [channel, text] of STANDUP) {
@@ -631,6 +639,10 @@ export function installMockDesktop(req: Req) {
         case 'meeting_click_through':
           st.clickThrough = !!args?.on;
           break;
+        case 'meeting_set_height':
+          // the height the app would give the window, for the screenshot script
+          height = Number(args?.height);
+          return undefined as T;
       }
       status();
       return undefined as T;
@@ -643,4 +655,12 @@ export function installMockDesktop(req: Req) {
     },
   };
   setDesktop(d);
+  // screenshot and timing scripts ask a question and press the history hotkeys from the page
+  Object.assign(window, {
+    __overlayMock: {
+      ask: (meetingId: string, question: string) => req('POST', `/api/meetings/${meetingId}/answer`, { question }),
+      nav: (dir: -1 | 1) => fire('meeting://nav', dir),
+      height: () => height,
+    },
+  });
 }

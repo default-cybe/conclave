@@ -11,7 +11,7 @@ import type { ChatRequest } from '../providers/types';
 import { streamCompletion } from '../session/stream';
 import { defuseFrameworkTags } from '../session/untrusted';
 import { logger } from '../util/log';
-import { LIVE_PROMPT } from './prompt';
+import { LIVE_EXTRAS, LIVE_PROMPT } from './prompt';
 import type { MeetingStore, StoredSegment } from './store';
 import { similarity } from './trigger';
 import type { Meeting, MeetingAnswer, Segment } from './wire';
@@ -45,7 +45,7 @@ function clockSec(ms: number): string {
   return `${clock(ms)}:${String(new Date(ms).getSeconds()).padStart(2, '0')}`;
 }
 
-/** The one user message (5): fenced transcript, the question, the time. Everything that changes goes here. */
+/** The one user message (5): fenced transcript, the question, the time, what the overlay can show. Everything that changes goes here. */
 export function userMessage(m: Meeting, finals: StoredSegment[], opts: { question?: string; partial?: StoredSegment; now: number }): string {
   const lines: string[] = [];
   let budget = TRANSCRIPT_TOKENS * 4;
@@ -58,7 +58,7 @@ export function userMessage(m: Meeting, finals: StoredSegment[], opts: { questio
     lines.unshift(line);
   }
   const q = opts.question ? `Question to answer: "${fenceText(opts.question.replace(/\s+/g, ' '))}"\n` : '';
-  return `<meeting-transcript>\n${lines.join('\n')}\n</meeting-transcript>\n${q}Time: ${clock(opts.now)} (local). Meeting started ${clock(m.startedAt ?? m.createdAt)}.`;
+  return `<meeting-transcript>\n${lines.join('\n')}\n</meeting-transcript>\n${q}Time: ${clock(opts.now)} (local). Meeting started ${clock(m.startedAt ?? m.createdAt)}.\n${LIVE_EXTRAS}`;
 }
 
 const LENGTH_LINE = { short: '1 to 4 bullets, each at most 20 words', long: 'up to 6 bullets, each at most 30 words' } as const;

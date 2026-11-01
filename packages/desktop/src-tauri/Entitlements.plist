@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Signed into the app by tauri build (bundle.macOS.entitlements), also with the
+  ad-hoc identity. The hardened runtime blocks the microphone without
+  audio-input, even after the owner allows it in the prompt. System sound (the
+  Core Audio tap) and the window list need no entitlement: macOS asks with
+  NSAudioCaptureUsageDescription (Info.plist) and the Screen Recording setting.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+</dict>
+</plist>

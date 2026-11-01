@@ -37,7 +37,8 @@
       "binaries/conclave-daemon"
     ],
     "macOS": {
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "entitlements": "./Entitlements.plist"
     }
   },
   "plugins": {

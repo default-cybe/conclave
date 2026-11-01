@@ -35,6 +35,8 @@ mod panel {
 /// Non-activating panel at floating level (4), on every Space and over full-screen apps,
 /// out of Cmd-Tab and window cycling. Main thread only.
 pub fn make_panel<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
+    // the class swap and AppKit setters off the main thread abort on recent macOS
+    MainThreadMarker::new().ok_or("the meeting panel can only be made on the main thread")?;
     let panel = window.to_panel::<MeetingPanel<R>>().map_err(|e| e.to_string())?;
     let mask = panel.as_panel().styleMask() | NSWindowStyleMask::NonactivatingPanel;
     panel.set_style_mask(mask).map_err(|e| format!("{e:?}"))?;

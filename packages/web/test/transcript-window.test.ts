@@ -11,7 +11,7 @@ import { describe, expect, test } from 'bun:test';
 import type { ContentBlock, Message, Session } from '@conclave/core/types';
 import { buildUnits, type Unit } from '../src/features/chat/MessageList';
 import { longSession } from '../src/mock/long';
-import { WINDOW, fillDirection, grow, growDown, growUp, idleDirection, isComplete, mountedRange, nearEdge, openSpan, partsOf, unitIndexOf, type Span } from '../src/features/chat/window';
+import { WINDOW, fillDirection, grow, growDown, growUp, idleDirection, isComplete, mountedRange, nearEdge, openSpan, partsOf, sticks, unitIndexOf, type Span } from '../src/features/chat/window';
 
 const W = { ...WINDOW, first: 6, before: 3, after: 4, chunk: 8 };
 
@@ -34,6 +34,24 @@ function idleToEnd(span: Span, count: number): Span[] {
   }
   return steps;
 }
+
+describe('following new content', () => {
+  const at = (gap: number) => ({ top: 5000 - 600 - gap, height: 5000, viewport: 600 });
+  test('at the bottom it follows', () => {
+    expect(sticks(at(0), at(0).top)).toBe(true);
+    expect(sticks(at(0), at(40).top)).toBe(true);
+  });
+  test('a few px up with a trackpad lets go at once, though still near the bottom', () => {
+    expect(sticks(at(8), at(0).top)).toBe(false);
+  });
+  test('content growing under a reader near the bottom, who did not move, keeps following', () => {
+    expect(sticks(at(40), at(40).top)).toBe(true);
+  });
+  test('scrolling back down near the bottom follows again; far up does not', () => {
+    expect(sticks(at(60), at(100).top)).toBe(true);
+    expect(sticks(at(400), at(500).top)).toBe(false);
+  });
+});
 
 describe('opening a session', () => {
   test('a long session mounts its latest pieces only, through the end', () => {

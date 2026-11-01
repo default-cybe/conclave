@@ -11,11 +11,20 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- Meetings: the overlay renders answers as streaming markdown (streaming-markdown, vendored from Pickle Glass; only the new text is parsed each frame): the "Say this" bullets large with **bold** terms, then code blocks with highlighting and a Copy button, tables, ```chart blocks drawn as small SVG bar or line charts, and ```mermaid diagrams (loaded only when one appears). Model output never becomes HTML: links open in the browser, images become links. Earlier answers are one step back with the arrows or Ctrl or Cmd + Alt + [ and ], shown as "2 of 3"; Copy copies the whole answer.
 - Meetings: a Meetings page (sidebar, `G N`, and the Android side panel) with Now, Upcoming and Past. Schedule a meeting with a project folder, a calendar event, reminders and a steering prompt (presets or your own text, short or long answers). Before it, the hub prepares a dossier from the folder's chats, workflows and commits that you can edit or re-run; your edits survive a re-run, and a prep over 500k tokens waits for your OK. At the start time a notice links to the meeting's **Open overlay**. The Meeting button in the chat header is gone; the session menu has **Schedule a meeting here...**.
+
+### Changed
+
+- Meetings: the overlay window fits its content (at most 75 % of the screen), is a one-line bar while no answer shows, keeps to the bottom only when you were there, and fades each new block in (none with reduced motion). Streaming a 2,000-token answer in mock mode dropped no frames.
+- Meetings: live answers may add a short table, code block, chart or diagram after the bullets when the question asks for numbers, code or structure.
+
+## [0.4.52] - 2026-11-01
 
 ### Fixed
 
 - Meetings: starting a meeting from a desktop app older than 0.4.51 now says to update the app in Settings > About, instead of `Command meeting_open not allowed by ACL`.
+- Desktop app on macOS: tapping Start listening in a meeting no longer quits the app (the overlay's keyboard-focus switch wrote a field the meeting panel does not have). The app is signed with the microphone entitlement so macOS can ask for the mic, and a crash now writes its reason to `~/Library/Logs/dev.conclave.desktop/panic.log` (the app's log folder on Windows and Linux).
 
 ## [0.4.51] - 2026-10-31
 

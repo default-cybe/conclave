@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { frameBuffer, levelsOrSame } from './frame';
+import { useFitAndStick } from './fit';
 import { connectWs, type WsStatus } from './ws';
 import { meetingApi, type MeetingApi, type Req } from './hub';
 import { desktop, ipc } from './desktop';
@@ -51,8 +52,16 @@ export function Overlay({ conn, meetingId: first, signedIn }: { conn: Conn; meet
   return <MeetingScreen conn={conn} api={api} meetingId={meetingId} />;
 }
 
+/** The window's height follows what the panel holds (fit.ts). */
 export function Panel({ children }: { children: React.ReactNode }) {
-  return <main className="ov-panel">{children}</main>;
+  const panel = useRef<HTMLElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  useFitAndStick(panel, content);
+  return (
+    <main ref={panel} className="ov-panel">
+      <div ref={content}>{children}</div>
+    </main>
+  );
 }
 
 /** The meeting's view, kept up to date from the socket, one render per frame at most. */

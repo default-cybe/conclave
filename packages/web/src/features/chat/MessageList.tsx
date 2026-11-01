@@ -34,7 +34,7 @@ import { PendingMessages } from './Pending';
 import { DebateGroup, JuryGroup, type GroupUnit } from './Group';
 import { revealOnMount, toolInfo } from './ToolRows';
 import { isContextOnly, isToolResultOnly, msgText, turnStartedAt, useTps } from './util';
-import { fillDirection, grow, idleDirection, mountedRange, nearEdge, openSpan, partsOf, unitIndexOf, type Direction, type Span } from './window';
+import { fillDirection, grow, idleDirection, mountedRange, nearEdge, openSpan, partsOf, sticks, unitIndexOf, type Direction, type Span } from './window';
 
 export type Unit =
   | { kind: 'user'; key: string; message: Message }
@@ -165,6 +165,16 @@ export function MessageList({ session }: { session: Session }) {
     const el = scroller.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   });
+  // and while the log itself gets shorter, as the composer under it grows a line
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (stick.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // opening, before the first paint: mount more until the latest pieces fill two screens (or the linked one has a
   // screen each side), then each piece keeps the height it has now while it is skipped off screen, so turning
@@ -238,14 +248,17 @@ export function MessageList({ session }: { session: Session }) {
     }
   };
 
+  const lastTop = useRef(0);
   const onScroll = () => {
     const el = scroller.current;
     if (!el) return;
     const { mine: m, count, tail: end } = view.current;
-    const edge = m && nearEdge(m.span, count, { top: el.scrollTop, height: el.scrollHeight, viewport: el.clientHeight });
+    const at = { top: el.scrollTop, height: el.scrollHeight, viewport: el.clientHeight };
+    const edge = m && nearEdge(m.span, count, at);
     if (edge) growOne(edge);
     // the bottom of what is mounted is the bottom of the log only when the newest pieces are there
-    const near = end && el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    const near = end && sticks(at, lastTop.current);
+    lastTop.current = at.top;
     stick.current = near;
     if (near !== atBottom) setAtBottom(near);
   };

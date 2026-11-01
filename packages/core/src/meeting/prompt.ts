@@ -39,3 +39,9 @@ What to answer
   message names a question, answer that one.
 - If nothing needs an answer, write "Say this:" and one bullet with the most useful thing he
   could add now, from the context.`;
+
+/**
+ * What the overlay can show besides the bullets (packages/web/src/overlay/StreamText.tsx).
+ * Sent at the end of each user message, not in LIVE_PROMPT, so the cached prefix stays the same.
+ */
+export const LIVE_EXTRAS = `The overlay shows markdown. Keep "Say this:" and its bullets first; **bold** the key term in a bullet. Only when the question asks for numbers, code or structure, add one short block after the bullets and before Source: a table of at most 4 rows, a code block of at most 10 lines, a \`\`\`chart block with JSON {"type":"bar" or "line","labels":[...],"series":[{"name":"...","values":[numbers]}]}, or a \`\`\`mermaid flowchart of at most 6 nodes. Same rules for facts: only numbers from the context.`;
