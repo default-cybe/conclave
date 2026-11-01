@@ -240,7 +240,8 @@ describe('Google', () => {
   });
 
   test('Google Calendar: calendars, expanded events, free/busy of others, and an approved invite', async () => {
-    const { pim } = setup();
+    // the fixture's events are in Oct 2026; finding one by id looks at most 62 days back from now
+    const { pim } = setup({ now: () => Date.parse('2026-10-20T12:00:00Z') });
     const flow = pim.oauth.startGoogle({ client: 'desktop', wants: { calendar: true, calendarWrite: true, mail: false } });
     expect(new URL(flow.url!).searchParams.get('scope')!.split(' ')).toEqual(['openid', 'email', 'https://www.googleapis.com/auth/calendar.readonly', 'https://www.googleapis.com/auth/calendar.events']);
     cloud!.google.events.set('primary', [{ id: 'e1_20261021T160000Z', recurringEventId: 'e1', summary: 'Gym', status: 'confirmed', start: { dateTime: '2026-10-21T18:00:00+02:00' }, end: { dateTime: '2026-10-21T19:00:00+02:00' } }, { id: 'h1', summary: 'Holiday', status: 'confirmed', start: { date: '2026-10-21' }, end: { date: '2026-10-22' } }]);
@@ -271,7 +272,8 @@ describe('Google', () => {
   });
 
   test('Google Calendar: a series changed from one week moves by the change and keeps its notes; an all-day event ending the day it starts lasts that day', async () => {
-    const { pim } = setup();
+    // the fixture's events are in Oct 2026; finding one by id looks at most 62 days back from now
+    const { pim } = setup({ now: () => Date.parse('2026-10-20T12:00:00Z') });
     const flow = pim.oauth.startGoogle({ client: 'desktop', wants: { calendar: true, calendarWrite: true, mail: false } });
     const long = `Dial in: ${'1'.repeat(5000)}`;
     cloud!.google.events.set('primary', [

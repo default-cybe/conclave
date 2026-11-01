@@ -635,7 +635,7 @@ describe('accounts on the hub', () => {
   });
 
   test("Kiro's usage comes from its plugin's quota read; Copilot, which has none, says so on Usage", async () => {
-    const reset = '2026-11-01T00:00:00Z';
+    const reset = new Date(Date.now() + 30 * 864e5).toISOString();
     // kiro4cpa 1.0.5's normalized answer (core/test/usage/kiro.test.ts has the full shape)
     write('kiro4cpa-k@example.test.json', { type: 'kiro4cpa', email: 'k@example.test', quota: { subscription: { plan: 'KIRO PRO' }, summary: [{ key: 'agentic_request_used', label: 'u', value: 250 }, { key: 'agentic_request_limit', label: 'l', value: 1000 }], groups: [{ displayName: 'Credits', buckets: [{ window: 'monthly', remainingFraction: 0.75, resetTime: reset, description: '250 / 1000' }] }] } });
     write('copilot-c@example.test.json', { type: 'copilot', email: 'c@example.test' });
