@@ -1,0 +1,26 @@
+{
+  "name": "@conclave/cli",
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": {
+    "conclave": "src/index.ts"
+  },
+  "scripts": {
+    "build": "bun ../../scripts/build-cli.ts --outfile ../../dist/conclave",
+    "test": "bun test test"
+  },
+  "dependencies": {
+    "@conclave/core": "workspace:*",
+    "@conclave/server": "workspace:*",
+    "ink": "^8.0.0",
+    "ink-text-input": "^6.0.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.3.1",
+    "string-width": "^8.3.0"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^19.3.0"
+  }
+}
