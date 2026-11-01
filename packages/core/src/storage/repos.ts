@@ -190,7 +190,10 @@ export class SessionRepo {
    * step sessions are left out. Newest first, no row cap.
    */
   listForFolder(q: { accountId: string; device: string; root: string; projectId?: string }): Session[] {
-    const root = q.root.length > 1 ? q.root.replace(/[\\/]+$/, '') : q.root;
+    // trailing separators off with a loop: /[\\/]+$/ is quadratic on long runs of '/' (CodeQL js/polynomial-redos)
+    let end = q.root.length;
+    while (end > 1 && (q.root[end - 1] === '/' || q.root[end - 1] === '\\')) end--;
+    const root = q.root.slice(0, end);
     const esc = root.replace(/[\\%_]/g, (c) => `\\${c}`);
     const sql = `SELECT * FROM sessions WHERE account_id = $account
       AND (kind IS NULL OR kind <> 'meeting')
