@@ -1,0 +1,10 @@
+{
+  "summary": "The CSV export is done and in review; the retry fix ships Friday.",
+  "decisions": ["Ship the CSV export behind a flag first."],
+  "actionItems": [
+    { "who": "me", "what": "Send the export benchmark numbers", "due": "2026-11-02", "taskId": "task_m1abc9" },
+    { "who": "Priya", "what": "Review the export PR" }
+  ],
+  "openQuestions": ["Do we need XLSX too?"],
+  "markdown": "# Standup export-service 09:30\n\n## Summary\n\nThe CSV export is done and in review; the retry fix ships Friday.\n"
+}

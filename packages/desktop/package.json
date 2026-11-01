@@ -1,0 +1,16 @@
+{
+  "name": "@conclave/desktop",
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev --no-dev-server",
+    "build": "tauri build",
+    "icons": "tauri icon icon.png && rm -rf src-tauri/icons/android src-tauri/icons/ios",
+    "sidecar": "bun ../../scripts/build-sidecar.ts"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.3"
+  }
+}

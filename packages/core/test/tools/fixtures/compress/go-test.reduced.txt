@@ -1,0 +1,23 @@
+[... 101 lines left out: passing tests ...]
+    cart_test.go:58: Discount(100) = 100, want 90
+--- FAIL: TestDiscount (0.00s)
+[... 1 line left out: passing tests ...]
+--- FAIL: TestPanics (0.00s)
+panic: assignment to entry in nil map [recovered]
+	panic: assignment to entry in nil map
+
+goroutine 57 [running]:
+testing.tRunner.func1.2({0x54fea0, 0x6a2850})
+	/usr/local/go1.24.7/src/testing/testing.go:1734 +0x21c
+testing.tRunner.func1()
+	/usr/local/go1.24.7/src/testing/testing.go:1737 +0x35e
+panic({0x54fea0?, 0x6a2850?})
+	/usr/local/go1.24.7/src/runtime/panic.go:792 +0x132
+example.com/cart.TestPanics(0xc00014d880?)
+	/home/u/proj/gop/cart_test.go:64 +0x28
+testing.tRunner(0xc00014d880, 0x5846f0)
+	/usr/local/go1.24.7/src/testing/testing.go:1792 +0xf4
+created by testing.(*T).Run in goroutine 1
+	/usr/local/go1.24.7/src/testing/testing.go:1851 +0x413
+FAIL	example.com/cart	0.008s
+FAIL

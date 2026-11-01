@@ -1,0 +1,24 @@
+
+> web@1.0.0 build
+[... 259 lines left out: 257 INFO ...]
+[build] INFO compiled src/store/part257.ts in 52ms
+[build] INFO compiled src/api/part258.ts in 9ms
+[build] INFO compiled src/ui/part259.ts in 16ms
+[build] WARN src/ui/Table.tsx: unused import "useMemo"
+[build] INFO bundled chunk-0.js (10 kB)
+[build] INFO bundled chunk-1.js (23 kB)
+[build] INFO bundled chunk-2.js (36 kB)
+[... 34 lines left out: 34 INFO ...]
+[build] INFO bundled chunk-37.js (41 kB)
+[build] INFO bundled chunk-38.js (54 kB)
+[build] INFO bundled chunk-39.js (67 kB)
+[build] ERROR Failed to resolve import "./charts/Line" from "src/pages/Report.tsx"
+Error: Cannot find module './charts/Line'
+    at resolve (/srv/web/node_modules/vite/dist/node/chunks/dep.js:1032:11)
+    at transform (/srv/web/node_modules/vite/dist/node/chunks/dep.js:2210:7)
+    at async Promise.all (index 3)
+[build] INFO cleaned temp file .cache/t0
+[build] INFO cleaned temp file .cache/t1
+[build] INFO cleaned temp file .cache/t2
+[... 26 lines left out: 26 INFO ...]
+[build] INFO cleaned temp file .cache/t29

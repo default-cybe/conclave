@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-local-hub-set"
+description = "Enables the local_hub_set command without any pre-configured scope."
+commands.allow = ["local_hub_set"]
+
+[[permission]]
+identifier = "deny-local-hub-set"
+description = "Denies the local_hub_set command without any pre-configured scope."
+commands.deny = ["local_hub_set"]

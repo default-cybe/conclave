@@ -1,0 +1,62 @@
+[package]
+name = "conclave-daemon"
+version = "0.1.0"
+description = "Conclave device daemon: lets your hub use this computer's files, shells and CLIs"
+license = "AGPL-3.0-only"
+edition = "2021"
+rust-version = "1.82"
+publish = false
+
+[[bin]]
+name = "conclave-daemon"
+path = "src/main.rs"
+
+[dependencies]
+# One thread runs the connection; file and search work goes to tokio's blocking pool.
+tokio = { version = "1.47", default-features = false, features = ["rt", "net", "time", "process", "io-util", "sync", "macros", "signal"] }
+# The WebSocket runs over our own TCP or TLS stream, so no TLS feature here.
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+webpki-roots = { version = "1", optional = true }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+# preserve_order: object keys keep their order, as in JavaScript (the importers read "the first key").
+serde_json = { version = "1", features = ["preserve_order"] }
+base64 = "0.22"
+regex = "1"
+# Lookahead in the secret patterns the chat import uses (memory/secrets.ts).
+fancy-regex = "0.14"
+sha2 = "0.10"
+# The update signature (minisign, as the Tauri updater makes them): Ed25519 and BLAKE2b in pure Rust, no other crates.
+minisign-verify = "0.2"
+ruzstd = "0.8"
+# The built-in search when rg is not on PATH: the same walker, globs and matcher as ripgrep.
+ignore = "0.4"
+globset = "0.4"
+grep-matcher = "0.1"
+grep-regex = "0.1"
+grep-searcher = "0.1"
+grep-printer = "0.3"
+
+[features]
+default = ["tls"]
+# https and wss. Off only to type-check other systems from Linux without their C toolchain
+# (ring compiles C): cargo check --no-default-features --target x86_64-pc-windows-msvc
+tls = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Threading", "Win32_System_SystemInformation"] }
+
+[profile.dev]
+debug = 0
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+# panic stays "unwind": a bug in one request (a strange transcript, say) fails that
+# request and leaves the connection and every running process alone.
