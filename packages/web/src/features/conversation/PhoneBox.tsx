@@ -67,11 +67,28 @@ export function fitField(el: HTMLTextAreaElement) {
   const cs = getComputedStyle(el);
   const lh = parseFloat(cs.lineHeight) || 24;
   const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
-  el.style.height = '0px';
-  const content = el.scrollHeight - pad;
   const max = lh * PHONE_LINES;
-  el.style.height = `${Math.max(lh, Math.min(content, max)) + pad}px`;
+  const content = sizeField(el, (h) => Math.max(lh, Math.min(h - pad, max)) + pad) - pad;
   el.style.overflowY = content > max + 1 ? 'auto' : 'hidden';
+}
+
+/**
+ * Set a field's height from its text: `size` gets the scrollHeight it has at
+ * height 0 and returns the height. Returns that scrollHeight. The box around
+ * the field keeps its height while it measures, so the page never sees the
+ * field at 0: the transcript above grew into the room for that moment and,
+ * without scroll anchoring (Safari, the Mac app), kept the scroll offset it
+ * was clamped to, so each key moved the chat.
+ */
+export function sizeField(el: HTMLTextAreaElement, size: (scrollHeight: number) => number): number {
+  const box = el.parentElement;
+  const held = box?.style.height ?? '';
+  if (box) box.style.height = `${box.getBoundingClientRect().height}px`;
+  el.style.height = '0px';
+  const h = el.scrollHeight;
+  el.style.height = `${size(h)}px`;
+  if (box) box.style.height = held;
+  return h;
 }
 
 const ROUND = 'grid size-11 shrink-0 place-items-center rounded-full text-fg-2 transition-colors duration-[var(--dur-1)] active:bg-hover';

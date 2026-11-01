@@ -39,7 +39,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { Rim, SendStopButton, type RimState } from '@/components/motion';
 import { Sheet, type MenuItem } from '@/components/ui/Overlay';
 import { canDictate, DictateButton } from '@/features/conversation/Dictate';
-import { AddButton, fitField, OptionsButton, PHONE_FIELD, PhoneBox, PhoneSend } from '@/features/conversation/PhoneBox';
+import { AddButton, fitField, OptionsButton, PHONE_FIELD, PhoneBox, PhoneSend, sizeField } from '@/features/conversation/PhoneBox';
 import { AgentPicker, DEFAULT_DEBATE, DEFAULT_JURY, DEFAULT_LOOP, DebatersPicker, DeviceFolderPicker, JudgePicker, JurorsPicker, LoopPicker, ModePicker, PermissionPicker } from './pickers';
 import { moveSessionTo } from './FolderChooser';
 import { MODES } from './modes';
@@ -134,10 +134,9 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
     if (!el) return;
     if (mobile) return fitField(el);
     const lh = parseFloat(getComputedStyle(el).lineHeight) || 20;
-    el.style.height = '0px';
     const max = lh * 12 + 8;
-    el.style.height = `${Math.max(lh * (mobile ? 1 : 2) + 8, Math.min(el.scrollHeight, max))}px`;
-    el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden';
+    const content = sizeField(el, (h) => Math.max(lh * 2 + 8, Math.min(h, max)));
+    el.style.overflowY = content > max ? 'auto' : 'hidden';
   }, [text, mobile]);
 
   const patch = async (p: Parameters<ReturnType<typeof api>['updateSession']>[1]) => {

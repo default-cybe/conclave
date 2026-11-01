@@ -37,7 +37,7 @@ import { isReminder } from '@/features/chat/util';
 import { useDraft } from '@/features/chat/useDraft';
 import { canDictate, DictateButton } from './Dictate';
 import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPicked, StatusLine, type EffortFollow } from './ComposerParts';
-import { AddButton, fitField, OptionsButton, PHONE_FIELD, PhoneBox, PhoneSend } from './PhoneBox';
+import { AddButton, fitField, OptionsButton, PHONE_FIELD, PhoneBox, PhoneSend, sizeField } from './PhoneBox';
 import { patchChat, sendTo, startChat, stopChat, type Outgoing } from './actions';
 import { DEFAULTS_EVENT, readDefaults, saveDefaults, setEditing, setRestore, useChatUi, type Thinking } from './state';
 
@@ -244,10 +244,8 @@ export function ChatComposer({
     const cs = getComputedStyle(el);
     const lh = parseFloat(cs.lineHeight) || 24;
     const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
-    el.style.height = '0px';
-    const content = el.scrollHeight - pad;
     const max = lh * 12;
-    el.style.height = `${Math.max(lh * (mobile ? 1 : minRows), Math.min(content, max)) + pad}px`;
+    const content = sizeField(el, (h) => Math.max(lh * minRows, Math.min(h - pad, max)) + pad) - pad;
     el.style.overflowY = content > max + 1 ? 'auto' : 'hidden';
   }, [text, mobile, minRows]);
 
