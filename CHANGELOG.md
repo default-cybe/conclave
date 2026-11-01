@@ -9,6 +9,14 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Contacts: `GET /api/contacts` and `ConclaveClient.contacts()` list the other people on the hub by shown name and `account:` party id. The owner also sees active friends as `friend:` parties; members never see the owner's friends. Contact cards omit sign-in names, emails, settings and credentials. Contact preferences and app flows are not implemented yet.
+- Shared-chat groundwork: additive `chat_participants`, `messages.sender` and `turns.started_by` storage, membership/history checks and per-reader message redaction helpers. Removing a hub member preserves their messages in another person's chat with their saved name and `account:removed` attribution.
+- Shared chats over HTTP and WebSocket: invites (accept/decline, no transcript before Accept), `GET /api/chats/invites` and `GET /api/chats/shared`, the participants list, and owner-only role/history changes, removal and leave, with seat provisioning on Accept or promotion. A `seat` route rule opens `GET /api/sessions/:id`, its messages and blocks, `POST .../messages` and `.../abort` to an active participant; every other session route stays owner-only 404. Reads and socket fan-out are shaped per viewer (`sharedSessionView`, `sharedMessageView`, an event allow list, replay filtered the same way), so another person's tool output, the owner's machine fields, pre-join history and private events never cross. Removal or leaving closes access on the next request and stops the stream.
+- Seat turns: a participant's message starts an AI turn in their own hidden seat session, on their own account: their key serves the provider call (a scripted two-key test fails if the hub's ever does), usage rows and `turns.started_by` bill the starter, their memory only when they turned it on (off by default, never the owner's), chat tools only, and their words land in the shared chat attributed to them. Turns run one at a time per chat in a FIFO queue; the chat owner can stop anyone's running turn, each person their own; a demotion to Viewer or removal ends a running turn. The per-message "Just talk" switch posts a plain human message with no turn. The chat owner's own turns keep running on the chat itself.
+- Shared chats in the web app: a People control in the chat header (roles, "see earlier messages", remove, leave, add a contact), a "Shared with you" sidebar group with Accept and Decline, other people's messages under their name, their turns "via" their model, and a composer with "Just talk" (phone and desktop), Stop for your own running turn, and no owner pickers for a participant. A Viewer gets a read-only line instead of the box.
+
 ### Changed
 
 - Web: while a reply streams, its markdown is re-parsed at most every 45 ms instead of once per delta, and code blocks stay plain until their matching fences close in both chat views. The final text still renders the moment the stream ends.
@@ -17,6 +25,15 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Fixed
 
+- Shared chats: the chat owner now reads a participant's turn shaped like everyone else (text and one-line tool summaries) over HTTP and the socket; full tool output stays the starter's.
+- Shared chats: the owner's daily digest no longer learns a participant's words or tool output; its catch-up reads the same own-turn transcript as extraction after a turn.
+- Shared chats: a seat no longer takes a direct send, resume, retry or held-message send (409), so no turn skips the chat's one-at-a-time queue or the owner's Stop.
+- Shared chats: each of several people invited to one chat can accept or decline their own invite (it was 404 for all but one), and Accept makes no seat when there is no waiting invite.
+- Shared chats: a participant's send answers `{ queued: true }` at once instead of after the queued turn; a failure reaches them as a notice.
+- Shared chats: changing someone's history from all to joined deletes their seat's summaries and stops their running turn, so their AI no longer reads a summary of hidden messages.
+- Shared chats: an invite notice links to `/chat`, where Accept is, not the not-yet-readable chat.
+- Shared chats: a declined, left or removed invite no longer turns the owner's chat into a shared one (sends kept going through the in-memory queue with Steer ignored).
+- Shared chats: a seat no longer appears as a second chat in the participant's sidebar.
 - Fixes from a review of the whole codebase. Security: a member's CalDAV, IMAP and SMTP servers are checked again right before every connect and the hub dials the address it checked, so a DNS name changed later cannot reach the hub's network; a chat's Edit, MultiEdit and NotebookEdit stay in its outputs folder like Write; the root update finisher writes its state file under an unguessable name it creates itself, so a link planted in the updates folder cannot redirect the write; the preview's approved command line names its folder; the daily digest reads only the account's own memories; invite text cannot add calendar properties through a line break; release and screenshot workflows keep no git credentials. Also: a provider error or JSON body that never ends now times out, a second hub process on the same database no longer resets jobs the first one is running, `conclave config set` writes the local file only when no local hub answers (a refusal is an error), an unknown OpenStreetMap place id says not found, the Android app asks before sending without a file it could not read, and smaller fixes in the bench, workflows and docs.
 - Devices: a hub event-loop stall no longer closes healthy daemon sockets. The daemon sweep now tells a late tick (more than 2 heartbeats after the last one, so every device's last-heard time is stale) from real silence: it pings and skips the 4008 heartbeat-timeout close for that round; the next on-time round closes a device that is really gone.
 - Sessions: the diff endpoint no longer fails with a 409 when the session's device is offline. It returns an empty diff with `offline: true`, the session page loads and its Changes card says the device is offline instead of the diff failing.

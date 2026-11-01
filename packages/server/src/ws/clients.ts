@@ -3,6 +3,7 @@ import type { EngineApi } from '@conclave/core/engine/api.ts';
 import type { EngineEventEnvelope } from '@conclave/core/types.ts';
 import { parseFrame } from '@conclave/core/machine/protocol.ts';
 import { eventVisibleTo } from '@conclave/core/people/events.ts';
+import { sharedChatEventView, sharedEventSession } from '@conclave/core/people/shared-chats.ts';
 
 export interface ClientSocketData {
   kind: 'client';
@@ -122,7 +123,7 @@ export class ClientHub {
           return;
         }
         // the replay is filtered the same way as the live stream
-        for (const e of events) if (eventVisibleTo(e.account, ws.data.accountId ?? 'owner')) ws.send(JSON.stringify(e));
+        for (const e of events) this.replayTo(ws, e);
         return;
       }
       case 'map': {
@@ -169,16 +170,40 @@ export class ClientHub {
     }
   }
 
+  /** The event as this socket's account may get it: its own, or a shared chat's shaped by sharedChatEventView. */
+  private frameFor(ws: ServerWebSocket<ClientSocketData>, e: EngineEventEnvelope): string | undefined {
+    const account = ws.data.accountId ?? 'owner';
+    if (eventVisibleTo(e.account, account)) {
+      // a seat turn writes into the chat, so its messages carry the chat owner's stamp: the owner reads them shaped too
+      const m = (e as { message?: { sender?: string } }).message;
+      if ((e.type === 'message.created' || e.type === 'message.updated') && m?.sender && m.sender !== `account:${account}`) {
+        const shaped = sharedChatEventView(this.engine.repos.db, e, account);
+        return shaped ? JSON.stringify(shaped) : undefined;
+      }
+      return JSON.stringify(e);
+    }
+    // a shared chat: only the doc's allow list, shaped per viewer, membership read per event so removal stops the stream
+    if (!sharedEventSession(e)) return undefined;
+    const shaped = sharedChatEventView(this.engine.repos.db, e, account);
+    return shaped ? JSON.stringify(shaped) : undefined;
+  }
+
+  /** One replayed event, under the same rules as the live stream. */
+  private replayTo(ws: ServerWebSocket<ClientSocketData>, e: EngineEventEnvelope): void {
+    const frame = this.frameFor(ws, e);
+    if (frame) ws.send(frame);
+  }
+
   broadcast(e: EngineEventEnvelope): void {
     if (!this.sockets.size) return;
     // map deltas go only to sockets that show the Map, and like deltas they are the first thing a slow socket skips
     const map = e.type === 'map.delta';
     if (map && !this.mapCount) return;
     const live = isLive(e) || map;
-    const frame = JSON.stringify(e);
     for (const ws of this.sockets) {
-      // another account's event never reaches this socket
-      if (!eventVisibleTo(e.account, ws.data.accountId ?? 'owner')) continue;
+      // another account's event never reaches this socket, apart from a shared chat's allowed events
+      const frame = this.frameFor(ws, e);
+      if (!frame) continue;
       if (map ? !ws.data.map : live && ws.data.filter && !ws.data.filter.has((e as { sessionId: string }).sessionId)) continue;
       const buffered = ws.getBufferedAmount();
       if (buffered > HARD_BUFFER) {

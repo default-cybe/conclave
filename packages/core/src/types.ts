@@ -142,7 +142,9 @@ export interface Message {
   /** "provider/model" that produced an assistant message. */
   model?: string;
   agent?: string;
-  /** Display label for asides, e.g. "Juror 2" or "Second opinion". */
+  /** account:<id> or friend:<id>. Missing means the session owner (including old transcripts). */
+  sender?: string;
+  /** Display label for asides, or the sender's saved shown name in a shared chat. */
   author?: string;
   /** Groups messages that belong to one jury/debate/review run. */
   group?: string;

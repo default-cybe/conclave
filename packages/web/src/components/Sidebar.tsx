@@ -37,6 +37,7 @@ import { useNow } from '@/lib/hooks';
 import { askHome } from '@/lib/asks';
 import { useIsOwner } from '@/lib/people';
 import { DELEGATED_KEY, DELEGATED_WORDS, delegatedRows, NEW_WORDS, SIDE_GROUP_WORDS, sideGroups, sideListWord, type DelegatedRow, type SideGroupBy, type SideGroupOut, type SideMode, type SideRow } from '@/lib/sidebar';
+import { SharedChatsGroup } from '@/features/chat/shared';
 import { isDelegated } from '@conclave/core/session/delegated';
 import { moveToMainList, MOVE_TO_MAIN } from '@/features/chat/delegated';
 import { setRailOpen, useChatUi } from '@/features/conversation/state';
@@ -251,7 +252,10 @@ function MoreRow({ path }: { path: string }) {
 
 /** The mode's sessions in groups, with Group by (Code) and All conversations. `phone`: the drawer's sizes. */
 export function SideSessions({ mode, phone, onPick }: { mode: SideMode; phone?: boolean; onPick?: () => void }) {
-  const sessions = useHub((s) => s.sessions);
+  const all = useHub((s) => s.sessions);
+  // a chat someone else owns lists under Shared with you, not with your own
+  const shared = useHub((s) => s.sharedChats);
+  const sessions = useMemo(() => Object.fromEntries(Object.entries(all).filter(([id]) => !shared[id])), [all, shared]);
   const projects = useHub((s) => s.projects);
   const devices = useHub((s) => s.devices);
   const approvals = useHub((s) => s.approvals);
@@ -280,6 +284,8 @@ export function SideSessions({ mode, phone, onPick }: { mode: SideMode; phone?: 
         <Group key={g.key} g={g} folded={folded.includes(`${mode}:${g.key}`)} foldKey={`${mode}:${g.key}`} path={path} phone={phone} onPick={onPick} actions={actions} titled={g.key !== 'home' && (code || groups.length > 1 || g.key !== 'today')} />
       ))}
       {delegated.length > 0 && <DelegatedGroup rows={delegated} folded={folded.includes(DELEGATED_KEY)} path={path} phone={phone} onPick={onPick} actions={actions} />}
+      {/* chats someone else owns, and invites to accept (SHARED-WITH-MEMBERS.md 6) */}
+      {mode === 'chat' && <SharedChatsGroup phone={phone} onPick={onPick} />}
       <Link
         href="/sessions"
         onClick={onPick}

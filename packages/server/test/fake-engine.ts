@@ -351,6 +351,8 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
         createdAt: now,
         updatedAt: now,
         stats: { messages: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, costUsd: 0 },
+        ...(input.kind ? { kind: input.kind } : {}),
+        ...(input.chat ? { chat: input.chat as Session['chat'] } : {}),
       };
       repos.sessions.insert(s);
       bus.emit({ type: 'session.created', session: s });
@@ -392,6 +394,44 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
       return { ...sessionOr404(id), id: newId('ses'), parentId: id };
     },
     getMessages: (id, page) => repos.messages.page(id, page),
+    // a participant's turn: the real engine queues it on their seat (people/seat-turns.ts); here it lands their words, no reply
+    async sharedTurn(chatId, accountId, input) {
+      rec('sharedTurn', chatId, { accountId, text: input.text });
+      const who = people.get(accountId);
+      const m: Message = {
+        id: newId('msg'),
+        sessionId: chatId,
+        seq: repos.messages.nextSeq(chatId),
+        createdAt: Date.now(),
+        role: 'user',
+        kind: 'normal',
+        content: [{ type: 'text', text: input.text }],
+        sender: `account:${accountId}`,
+        author: who?.displayName ?? 'Member',
+      };
+      repos.messages.insert(m);
+      bus.emit({ type: 'message.created', message: m });
+    },
+    stopChatTurn(chatId, accountId) {
+      rec('stopChatTurn', chatId, accountId);
+      // the fake runs no turns, so only the chat owner may stop (people/seat-turns.ts stop)
+      if (repos.sessions.get(chatId)?.accountId !== accountId) throw new PeopleError(403, 'You can stop only your own running turn.');
+    },
+    revokeChatTurns() {
+      rec('revokeChatTurns');
+    },
+    narrowChatHistory(chatId, accountId) {
+      rec('narrowChatHistory', chatId, accountId);
+    },
+    addMessage(sessionId, m) {
+      const seq = repos.messages.nextSeq(sessionId);
+      const msg: Message = { id: newId('msg'), sessionId, seq, createdAt: Date.now(), ...m };
+      repos.messages.insert(msg);
+      const s = repos.sessions.get(sessionId);
+      if (s) repos.sessions.update({ ...s, stats: { ...s.stats, messages: s.stats.messages + 1 }, updatedAt: Date.now() });
+      bus.emit({ type: 'message.created', message: msg });
+      return msg;
+    },
     async send(id, input) {
       rec('send', id, input);
       const m: Message = {

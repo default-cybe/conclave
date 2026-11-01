@@ -17,6 +17,8 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import type { EngineApi } from '@conclave/core/engine/api.ts';
 import { OWNER_ID } from '@conclave/core/people/context.ts';
+import { ChatParticipantStore, type ChatParticipant } from '@conclave/core/people/shared-chats.ts';
+import { PeopleError } from '@conclave/core/people/store.ts';
 import { alertsOf } from '@conclave/core/alerts/attached.ts';
 import type { HonoEnv, ServerContext } from './context';
 import { OWNER_ONLY } from './scope';
@@ -42,10 +44,12 @@ export type OwnedKind =
   | 'preset'
   | 'meeting';
 
-export type Rule = 'public' | 'admin' | 'self' | 'hub' | { own: Record<string, OwnedKind> };
+export type Rule = 'public' | 'admin' | 'self' | 'hub' | { own: Record<string, OwnedKind> } | { seat: Record<string, 'session'> };
 
 const own = (params: Record<string, OwnedKind>): Rule => ({ own: params });
 const SESSION = own({ id: 'session' });
+/** The chat's owner or an active participant (docs/design/SHARED-WITH-MEMBERS.md 6). Not a participant is 404, as for `own`. */
+const SEAT = { seat: { id: 'session' } } as const;
 
 /** Every /api route and its rule. Keys are "METHOD /path" exactly as the app registers them. */
 export const ROUTE_POLICY: Record<string, Rule> = {
@@ -68,6 +72,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'DELETE /api/clients/:id': own({ id: 'client' }),
 
   // ----- accounts (routes-people.ts) -----
+  'GET /api/contacts': 'self',
   'GET /api/me': 'self',
   'PATCH /api/me': 'self',
   'GET /api/invite/:secret': 'public',
@@ -86,7 +91,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   // ----- sessions -----
   'GET /api/sessions': 'self',
   'POST /api/sessions': 'self',
-  'GET /api/sessions/:id': SESSION,
+  'GET /api/sessions/:id': SEAT,
   'PATCH /api/sessions/:id': SESSION,
   // Move to main list: the same rule as editing the session
   'POST /api/sessions/:id/main-list': SESSION,
@@ -100,15 +105,16 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'GET /api/sessions/:id/hub-copy/back': 'admin',
   'POST /api/sessions/:id/hub-copy/back': 'admin',
   'POST /api/sessions/:id/fork': SESSION,
-  'GET /api/sessions/:id/messages': SESSION,
-  'GET /api/sessions/:id/messages/:msgId/blocks/:index': SESSION,
-  'POST /api/sessions/:id/messages': SESSION,
+  // a shared chat: the owner or an active participant; the handler shapes the reply (routes.ts, sharedMessageView)
+  'GET /api/sessions/:id/messages': SEAT,
+  'GET /api/sessions/:id/messages/:msgId/blocks/:index': SEAT,
+  'POST /api/sessions/:id/messages': SEAT,
   'GET /api/sessions/:id/queue': SESSION,
   'DELETE /api/sessions/:id/queue/:pendingId': SESSION,
   'POST /api/sessions/:id/queue/:pendingId/send': SESSION,
   // a side question: the same rule as sending a message
   'POST /api/sessions/:id/btw': SESSION,
-  'POST /api/sessions/:id/abort': SESSION,
+  'POST /api/sessions/:id/abort': SEAT,
   'POST /api/sessions/:id/pause': SESSION,
   'POST /api/sessions/:id/resume': SESSION,
   'POST /api/sessions/:id/rewind': SESSION,
@@ -137,6 +143,20 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/sessions/:id/repo/cleanup': SESSION,
   'POST /api/sessions/:id/repo/merge': SESSION,
   'GET /api/search': 'self',
+
+  // ----- shared chats: people on this hub in a chat (docs/design/SHARED-WITH-MEMBERS.md 6) -----
+  // invites and the "shared with you" list: each account's own, never another's
+  'GET /api/chats/invites': 'self',
+  'GET /api/chats/shared': 'self',
+  // a chat has one invite row per person, so the id alone names no owner: accept() and decline() read the caller's own row, 404 without one
+  'POST /api/chats/invites/:id/accept': 'self',
+  'POST /api/chats/invites/:id/decline': 'self',
+  // the chat's people: the owner invites, changes role or history, removes; a participant may list and leave
+  'GET /api/sessions/:id/participants': SEAT,
+  'POST /api/sessions/:id/participants': SESSION,
+  'PATCH /api/sessions/:id/participants/:pid': SESSION,
+  'DELETE /api/sessions/:id/participants/:pid': SESSION,
+  'POST /api/sessions/:id/leave': SEAT,
 
   // ----- folders across devices -----
   'POST /api/projects/identify': 'self',
@@ -729,6 +749,19 @@ export function ruleFor(method: string, path: string): Rule | undefined {
   return ROUTE_POLICY[`${method} ${path}`] ?? (method === 'HEAD' ? ROUTE_POLICY[`GET ${path}`] : undefined);
 }
 
+/** One membership store per request; require() reads the table, never a cache. */
+export function chatParticipants(ctx: ServerContext): ChatParticipantStore {
+  return new ChatParticipantStore(ctx.engine.repos.db);
+}
+
+/**
+ * The caller's participant row in a shared chat, or undefined for the chat's
+ * owner. Throws (PeopleError) when the caller is nobody in the chat.
+ */
+export function seatParticipant(ctx: ServerContext, chatId: string, caller: string): ChatParticipant | undefined {
+  return chatParticipants(ctx).require(chatId, caller);
+}
+
 /**
  * The middleware: after the bearer check, before the handler. Members are
  * refused admin routes and routes not in the table; an id in the path of an
@@ -746,7 +779,7 @@ export function routePolicy(ctx: ServerContext): MiddlewareHandler<HonoEnv> {
       if (who.role !== 'owner') return c.json({ error: OWNER_ONLY }, 403);
       return next();
     }
-    // own: read the target route's params (the middleware's own index has none)
+    // read the target route's params (the middleware's own index has none)
     const saved = c.req.routeIndex;
     let params: Record<string, string>;
     try {
@@ -754,6 +787,19 @@ export function routePolicy(ctx: ServerContext): MiddlewareHandler<HonoEnv> {
       params = c.req.param() as Record<string, string>;
     } finally {
       c.req.routeIndex = saved;
+    }
+    if ('seat' in rule) {
+      // a shared chat: the owner or an active participant, checked on every request (docs/design/SHARED-WITH-MEMBERS.md 6)
+      const id = params[Object.keys(rule.seat)[0]];
+      if (id !== undefined && ctx.engine.sessionAccount(id) !== who.accountId) {
+        try {
+          seatParticipant(ctx, id, who.accountId);
+        } catch (err) {
+          // the same words the handler would use for an unknown chat, so the two 404s stay indistinguishable
+          return c.json({ error: err instanceof PeopleError ? err.message : 'not found' }, 404);
+        }
+      }
+      return next();
     }
     for (const [name, kind] of Object.entries(rule.own)) {
       const id = params[name];

@@ -358,7 +358,9 @@ describe('ids of someone else', () => {
   const owned = () =>
     appRoutes()
       .map((r) => ({ ...r, rule: ruleFor(r.method, r.path) }))
-      .filter((r): r is typeof r & { rule: { own: Record<string, OwnedKind> } } => typeof r.rule === 'object');
+      // a seat rule is swept the same way: its id is a session id of the target's
+      .map((r) => (r.rule && typeof r.rule === 'object' && 'seat' in r.rule ? { ...r, rule: { own: { id: 'session' as OwnedKind } } } : r))
+      .filter((r): r is typeof r & { rule: { own: Record<string, OwnedKind> } } => typeof r.rule === 'object' && 'own' in r.rule);
 
   /** Snapshot of what an account has, to show a refused call changed nothing. */
   function state(n: Who) {

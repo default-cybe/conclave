@@ -143,7 +143,7 @@ function modelLabel(engine: Engine, ref: string): string {
 /** A turns row for a user turn. Recap data must never break a turn. */
 function startTurn(engine: Engine, sessionId: string, model: string, startedAt: number): string | undefined {
   try {
-    return engine.repos.turns.start({ sessionId, model, startedAt });
+    return engine.repos.turns.start({ sessionId, model, startedAt, startedBy: engine.sessionAccount(sessionId) });
   } catch (err) {
     log.debug('turn row not written', err);
     return undefined;
@@ -154,7 +154,7 @@ function startTurn(engine: Engine, sessionId: string, model: string, startedAt: 
 function endTurn(engine: Engine, turnId: string, sessionId: string, userSeq: number, startedAt: number, outcome: string): number | undefined {
   try {
     let tools = 0;
-    for (const m of engine.repos.messages.list(sessionId, { afterSeq: userSeq })) if (m.role === 'assistant') tools += m.content.filter((b) => b.type === 'tool_use').length;
+    for (const m of engine.turnMessages(sessionId).filter((m) => m.seq > userSeq)) if (m.role === 'assistant') tools += m.content.filter((b) => b.type === 'tool_use').length;
     engine.repos.turns.end(turnId, { tools, outcome, account: engine.repos.usage.lastAccount(sessionId, startedAt) });
     return tools;
   } catch (err) {
@@ -418,7 +418,7 @@ export class SessionRunner {
   /** Consume a failed inference boundary before starting work, so concurrent or stale retries cannot replay it. */
   retryProvider(messageId: string, model: string): void {
     const engine = this.engine;
-    const messages = engine.repos.messages.list(this.id);
+    const messages = engine.turnMessages(this.id);
     const at = messages.findIndex((m) => m.id === messageId);
     const notice = messages[at];
     if (this.busy || this.session.status !== 'error' || this.retryNotice !== messageId || !notice || messages.slice(at + 1).some((m) => m.kind !== 'notice')) {
@@ -937,14 +937,14 @@ export class SessionRunner {
     if (!retry) content.push(...designTurnBlocks(engine, this.id, startSource === 'clear' || startSource === 'compact'));
     // a retry on the next model adds nothing: the turn runs again on the same stored messages
     const userMsg = retry
-      ? ([...engine.repos.messages.list(this.id)].reverse().find((m) => m.role === 'user' && m.kind === 'normal') ?? { seq: 0 })
+      ? ([...engine.turnMessages(this.id)].reverse().find((m) => m.role === 'user' && m.kind === 'normal') ?? { seq: 0 })
       : engine.addMessage(this.id, { role: 'user', kind: 'normal', content, meta: Object.keys(userMeta).length ? userMeta : undefined });
     if (q.pending && this.starting === q) {
       this.starting = undefined;
       this.emitQueue();
     }
     // named here from the prompt before the agent works; the title model runs alongside, the turn does not wait (engine.generateTitle)
-    if (isFirstTurn && !retry) void engine.generateTitle(this.id);
+    if (isFirstTurn && !retry && !session.meta?.seat) void engine.generateTitle(this.id);
 
     // checkpoint before anything can change files (a chat has no file tools); it runs while the
     // first model call does, and the regression gate waits for it at stop (session/regression-gate.ts)
@@ -1233,6 +1233,8 @@ export class SessionRunner {
         await transcribeImages(engine, this.id, engine.sessionAccount(this.id), signal);
         stored = activeStored(engine.repos.messages, this.id);
       }
+      // a shared chat's turn reads the chat through its seat (people/seat-turns.ts); a plain session keeps the one read above
+      if (engine.sharedTurns.shared(this.id)) stored = engine.turnMessages(this.id);
       // the receipts say whether this request carried each attachment; another model may differ
       const pdf = engine.registryFor(this.session).get(resolved.provider)?.readsPdf?.(resolved.model) ?? true;
       markAttachmentInclusion(engine, stored, !imageText, pdf);
@@ -1696,7 +1698,7 @@ export class SessionRunner {
   readMark(path: string): ReadMark | undefined {
     if (!this.marks) {
       this.marks = new Map();
-      for (const m of activeMessages(this.engine.repos.messages.list(this.id))) {
+      for (const m of activeMessages(this.engine.turnMessages(this.id))) {
         if (m.seq <= this.marksAfterSeq) continue;
         for (const b of m.content) {
           const mark = b.type === 'tool_result' && !b.isError ? (b.meta?.readMark as ReadMark | undefined) : undefined;
@@ -1771,7 +1773,7 @@ export class SessionRunner {
     const system = await this.systemFor(session, agent, modelRef, mode, tools.map((t) => t.name));
     const cfg = engine.config.get();
     const build = (names: Set<string>) =>
-      buildProviderMessages(engine.repos.messages.list(this.id), {
+      buildProviderMessages(engine.turnMessages(this.id), {
         modelRef,
         toolNames: names,
         cache: cfg.context.promptCaching,
@@ -1836,7 +1838,7 @@ export class SessionRunner {
     const engine = this.engine;
     const roots = engine.shareRoots(session);
     const shared = new Set<string>();
-    for (const m of engine.repos.messages.list(this.id)) {
+    for (const m of engine.turnMessages(this.id)) {
       for (const b of m.content) if (b.type === 'tool_result' && !b.isError && typeof (b.meta?.file as { path?: unknown } | undefined)?.path === 'string') shared.add((b.meta!.file as { path: string }).path);
     }
     const uses: ToolUseBlock[] = [];

@@ -24,7 +24,7 @@ import { ACCEPT_FILES, MAX_ATTACHMENTS } from '@conclave/core/attachments/limits
 import type { EffortSetting } from '@/lib/effort';
 import type { Attachment } from '@conclave/core/client';
 import { api } from '@/lib/api';
-import { askBtw, attempt, sendQueued, toast, upsertSession, useHub } from '@/store/store';
+import { askBtw, attempt, sendQueued, toast, upsertSeat, upsertSession, useHub } from '@/store/store';
 import { BtwCards } from './Pending';
 import { CommentTray } from './CommentTray';
 import { openNewChat, openPalette } from '@/store/ui';
@@ -52,6 +52,7 @@ import { COMPOSE_EVENT, downloadExport, isReminder, type ComposeDetail } from '.
 import { sessionRepo } from '@/lib/github';
 import { findSlash, INIT_PROMPT, menuList, PHONE_TOP_COMMANDS, pickAction, SECTION_WORDS, slashItems, slashMode, type SheetId, type SlashItem } from './slash';
 import { SessionSheets } from './sheets/SessionSheets';
+import { useMeId, useParticipants } from './shared';
 import { useDraft } from './useDraft';
 
 type FileEntry = { name: string; path: string; type: 'dir' | 'file'; size?: number };
@@ -95,6 +96,18 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   const here = useThisComputer();
   const computers = useComputers();
   const code = session.kind !== 'chat' && modeOf(session) === 'code';
+  // a chat with other people in it (features/chat/shared.tsx); a Viewer reads only, and "Just talk" sends without a turn
+  const meId = useMeId();
+  const { rows: people } = useParticipants(session.id, session.kind === 'chat');
+  const sharedChat = !!people?.some((r) => r.state === 'active' || r.state === 'invited');
+  const mineRow = people?.find((r) => r.accountId === meId && r.state === 'active');
+  const [justTalk, setJustTalk] = useState(false);
+  // your own turn runs on your seat, not on the chat: its status (kept by the socket, fetched on open) drives your Stop
+  const seat = useHub((s) => s.seats[session.id]);
+  useEffect(() => {
+    if (mineRow?.seatId) void attempt(() => api().getSession(mineRow.seatId!)).then((s) => s && upsertSeat(session.id, s));
+  }, [mineRow?.seatId, session.id]);
+  const ownTurn = !!mineRow && seat?.status === 'running';
   // with no Effort of its own a session runs at its agent's level (a coding agent's medium), so the row says what runs
   const follow = useAgentFollow(session.agent, session.model, code);
 
@@ -286,10 +299,11 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
     // the box clears in the same frame as the press; if the hub refuses, the text comes back
     setText('');
     setFiles([]);
-    const input = { text: value, attachments: attachments.length ? attachments : undefined };
+    const input = { text: value, ...(sharedChat && justTalk ? { justTalk: true } : {}), attachments: attachments.length ? attachments : undefined };
     // while a turn runs (or waits on you) the message shows at once in the log, Queued, until its turn takes it (Pending.tsx)
     const r = busy && (running || waitingOnYou) ? await sendQueued(session.id, { ...input, whenBusy: busy }) : await attempt(() => api().send(session.id, { ...input, whenBusy: busy }));
     setSending(false);
+    setJustTalk(false);
     if (r) {
       if (waitingReset && session.resumeAt) toast({ title: `Queued for ${hhmm(session.resumeAt)}.`, level: 'info' });
     } else {
@@ -473,6 +487,31 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
       className="size-[30px]"
     />
   );
+  // a shared chat: your own turn runs on your account, one at a time; the phone gets Just talk here, the desktop in its bar (SHARED-WITH-MEMBERS.md 6)
+  const sharedRow = sharedChat && (mobile || ownTurn) && (
+    <div className="mt-1.5 flex items-center justify-center gap-2 px-2 text-[12px] text-fg-3 phone:text-[13px]" data-shared-running={ownTurn ? '' : undefined}>
+      {mobile && (
+        <button type="button" aria-pressed={justTalk} onClick={() => setJustTalk((v) => !v)} className={cn('min-h-9 rounded-[6px] px-2 font-medium', justTalk ? 'text-fg' : 'text-fg-3')}>
+          Just talk
+        </button>
+      )}
+      {ownTurn && (
+        <>
+          Your turn is running on your account.
+          <Button variant="quiet" size="xs" onClick={() => void attempt(() => api().abort(session.id))}>
+            Stop
+          </Button>
+        </>
+      )}
+    </div>
+  );
+  // a Viewer reads only (SHARED-WITH-MEMBERS.md 6): no box, one quiet line
+  if (mineRow?.access === 'viewer')
+    return (
+      <div className="mx-auto w-full max-w-[924px] px-8 pb-4 text-center text-[13px] text-fg-3 phone:px-3">
+        Read only: the chat's owner gave you read access.
+      </div>
+    );
   if (mobile)
     return (
       <div
@@ -518,8 +557,9 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
             />
           }
           add={<AddButton onFiles={(list) => void addFiles(list)} accept={ACCEPT} />}
-          options={<OptionsButton label="Options: agent, device and permissions" onClick={() => setSheet(true)} />}
-          model={<PhoneModelEffort model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} harnesses switchOf={messages?.length ? session : undefined} />}
+          // a participant's turns run on their own seat and its model: the owner's pickers are not theirs to change
+          options={mineRow ? undefined : <OptionsButton label="Options: agent, device and permissions" onClick={() => setSheet(true)} />}
+          model={mineRow ? undefined : <PhoneModelEffort model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} harnesses switchOf={messages?.length ? session : undefined} />}
           mic={canDictate() && <DictateButton onText={(t) => setText((x) => (x.trim() ? `${x.trimEnd()} ${t}` : t))} />}
           send={
             <PhoneSend
@@ -534,6 +574,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
             />
           }
         />
+        {sharedRow}
         <StatusLine session={session} phone />
         <Sheet open={sheet} onClose={() => setSheet(false)} title="Options">
           <div className="space-y-4 px-4 pb-4">
@@ -615,6 +656,13 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
           />
         <div ref={bar} className="flex items-center gap-1 px-2 pb-2">
           <PlusMenu items={plus} accept={ACCEPT} onFiles={(list) => void addFiles(list)} />
+          {sharedChat && (
+            <Tooltip content="Send without starting your AI turn">
+              <button type="button" aria-pressed={justTalk} onClick={() => setJustTalk((v) => !v)} className={cn('h-[24px] rounded-[6px] px-1.5 text-[12px] font-medium transition-colors duration-[var(--dur-1)] hov:bg-side-hover', justTalk ? 'text-fg' : 'text-fg-3 hov:text-fg')}>
+                Just talk
+              </button>
+            </Tooltip>
+          )}
           <span className="flex-1" />
           {running && hasText && (
             <Button variant="quiet" busy={sending === 'steer'} onClick={() => send(text, 'steer')} title={`Add this to the running turn now (${MOD}↵)`}>
@@ -628,12 +676,14 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
         </div>
       </div>
 
+      {sharedRow}
+
       <QuietRow
-        left={left}
+        left={mineRow ? undefined : left}
         right={
           <>
-            <ModelEffort model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} harnesses switchOf={messages?.length ? session : undefined} />
-            <ContextRing session={session} />
+            {!mineRow && <ModelEffort model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} harnesses switchOf={messages?.length ? session : undefined} />}
+            {!mineRow && <ContextRing session={session} />}
           </>
         }
       />

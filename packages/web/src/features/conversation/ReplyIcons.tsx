@@ -29,7 +29,8 @@ export interface ReplyIconsProps {
   text: string;
   /** Retry, when there is a message to send again. */
   onRetry?: () => void;
-  onMore: () => void;
+  /** Unset: no More menu (another person's reply in a shared chat). */
+  onMore?: () => void;
   moreOpen: boolean;
   /** An earlier reply: the same row in fg-4. */
   quiet?: boolean;
@@ -59,9 +60,11 @@ export const ReplyIcons = forwardRef<HTMLButtonElement, ReplyIconsProps>(functio
         </button>
       )}
       {extra}
-      <button ref={ref} type="button" aria-label={moreLabel} aria-haspopup="menu" aria-expanded={moreOpen} onClick={onMore} className={icon}>
-        <MoreHorizontal className="size-[18px]" strokeWidth={1.75} aria-hidden />
-      </button>
+      {onMore && (
+        <button ref={ref} type="button" aria-label={moreLabel} aria-haspopup="menu" aria-expanded={moreOpen} onClick={onMore} className={icon}>
+          <MoreHorizontal className="size-[18px]" strokeWidth={1.75} aria-hidden />
+        </button>
+      )}
     </span>
   );
 });

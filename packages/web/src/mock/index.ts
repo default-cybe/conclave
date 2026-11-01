@@ -14,6 +14,7 @@ import { registerExtensionRuntime } from './ext-runtime';
 import { registerMemoryConnections } from './memory-connections';
 import { registerPunch } from './punch';
 import { registerChat } from './chat';
+import { registerSharedChats } from './shared';
 import { createMockQueue } from './queue';
 import { registerRemote } from './remote';
 import { registerNotify } from './notify';
@@ -519,6 +520,8 @@ registerExtensionCatalog(ctx);
 registerExtensionRuntime(ctx);
 registerMemoryConnections(ctx);
 registerPunch(ctx);
+// shared chats: a chat of Nihir's you are in, an invite, your own chat shared (docs/design/SHARED-WITH-MEMBERS.md 6); before chat, so a post in Nihir's chat runs on your seat
+registerSharedChats(ctx);
 registerChat(ctx);
 registerRemote(ctx);
 registerNotify(ctx);

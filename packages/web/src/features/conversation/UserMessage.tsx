@@ -20,6 +20,7 @@ import { ImageThumb } from '@/components/ui/ImageViewer';
 import { Swap } from '@/components/motion';
 import { pendingPreview, removeQueued, useHub } from '@/store/store';
 import { msgText } from '@/features/chat/util';
+import { PersonLine, senderName } from '@/features/chat/shared';
 import { pendingWord, SendHeld, storedWord } from '@/features/chat/Pending';
 import { attachmentsOf, branchChat, replaceFrom } from './actions';
 import { BUBBLE, BubbleText } from '@/components/ui/Bubble';
@@ -94,6 +95,19 @@ export const UserMessage = memo(function UserMessage({ message, session, after, 
   const busyWord = storedWord(message.meta?.whenBusy);
 
   if (editing) return <EditBox message={message} session={session} after={after} />;
+  // another person's words in a shared chat (SHARED-WITH-MEMBERS.md 6): their name, not the owner's bubble
+  const from = senderName(message, useHub.getState().me?.id ?? 'owner');
+  if (from)
+    return (
+      <div id={`cm-${message.id}`} className="flex flex-col items-start" data-shared-from={from}>
+        <PersonLine name={from}>
+          <span className="num">{hhmm(message.createdAt)}</span>
+        </PersonLine>
+        <div className={cn(BUBBLE, 'max-w-[min(85%,520px)] phone:max-w-[85%]')}>
+          <BubbleText text={text} />
+        </div>
+      </div>
+    );
   if (queued)
     return (
       <div id={`cm-${message.id}`} className="flex flex-col items-end">

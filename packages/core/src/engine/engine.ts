@@ -141,6 +141,8 @@ import { agentModelRef } from '../extensions/agent-model';
 import { agentHookConfig, wantsVerifyGate } from '../extensions/agent-hooks';
 import { OWNER_ID, currentAccount, isMember, runAs } from '../people/context';
 import { PeopleStore, accountKey, type HubAccount } from '../people/store';
+import { SharedChatTurns } from '../people/seat-turns';
+import { hasPeople } from '../people/shared-chats';
 import { AccountSecrets } from '../people/secrets';
 import { ProviderAccess } from '../people/access';
 import { PLAN_PROVIDER } from '../people/plans';
@@ -158,6 +160,7 @@ import { MemoryConnections, MemoryConnectionService } from '../memory/connection
 import { ATTACHMENT_LOST, prepareAttachments, type ZipHost } from '../attachments/prepare';
 import { mediaTypeFor } from '../attachments/limits';
 import { checkMemberRefusalList, checkMemberUsageList } from '../session/member-fallbacks';
+import { quotedOf } from '../session/quoted';
 
 const log = logger('engine');
 /** A session still called New chat after its start is named again after each of its first turns, up to this one. */
@@ -240,6 +243,15 @@ const DEFAULT_DEFER_ABOVE = 30;
 export const OUTPUT_RETENTION_MS = 30 * 24 * 60 * 60_000;
 export const OUTPUTS_PRUNE_JOB = 'outputs.prune';
 
+/**
+ * A seat runs turns only through its chat's queue (people/seat-turns.ts):
+ * a direct send, resume or retry would skip the one-at-a-time order and the
+ * chat owner's Stop.
+ */
+function refuseSeat(s: Session): void {
+  if (s.meta?.seat) throw new EngineError(409, 'Send in the shared chat, not in your seat.');
+}
+
 function unavailableMemoryAdmin(): MemoryAdminApi {
   return new Proxy({} as MemoryAdminApi, {
     get: () => () => {
@@ -287,6 +299,8 @@ export class Engine implements EngineApi {
   private memories = new Map<string, { memory: SqliteMemory; admin: MemoryConnectionService; connections: MemoryConnections }>();
   /** Session id to account, for event routing (a session never changes account). */
   private sessionAccounts = new Map<string, string>();
+  /** Seat turns of shared chats: one queue per chat, each turn on its starter's account (people/seat-turns.ts). */
+  readonly sharedTurns = new SharedChatTurns(this);
 
   private runners = new Map<string, SessionRunner>();
   /** Sessions with a compaction in progress (one at a time per session). */
@@ -836,11 +850,18 @@ export class Engine implements EngineApi {
 
   async send(id: string, input: SendInput): Promise<SendResult> {
     const s = this.requireSession(id);
+    if (input.justTalk !== undefined && typeof input.justTalk !== 'boolean') throw new EngineError(400, 'justTalk must be true or false');
     // a reference from a friend's hub is read only (session/friend-share.ts)
     const fs = friendShareOf(s);
     if (fs?.role === 'reference') throw new EngineError(409, `This is a reference from ${fs.name}'s hub. It is read only; fork the share to continue it.`);
     // a meeting's session is a container: it never runs a turn or a tool (docs/design/MEETING-MODE.md 2.2)
     if (s.kind === 'meeting') throw new EngineError(409, 'A meeting session does not take messages.');
+    refuseSeat(s);
+    if (input.justTalk) {
+      if (input.attachments?.length) throw new EngineError(400, 'Just talk does not support attachments yet.');
+      const m = this.addMessage(id, { role: 'user', kind: 'normal', content: [{ type: 'text', text: input.text }] });
+      return { queued: false, messageId: m.id };
+    }
     // 15 files at most, and a zip turned into what the session can use (attachments/prepare.ts)
     const prepared = await prepareAttachments(input.attachments, this.zipHost(s));
     // a file the hub could not read is never dropped silently: the sender chooses to go without it
@@ -854,7 +875,12 @@ export class Engine implements EngineApi {
       this.repos.sessions.update(next);
       this.bus.emit({ type: 'session.updated', session: next });
     }
-    return this.runnerFor(id).enqueue({ ...input, attachments: prepared.attachments, ...(prepared.receipts.length ? { attachmentReceipts: prepared.receipts } : {}) });
+    const ready = { ...input, attachments: prepared.attachments, ...(prepared.receipts.length ? { attachmentReceipts: prepared.receipts } : {}) };
+    if (s.kind === 'chat' && hasPeople(this.repos.db, id)) {
+      void this.sharedTurn(id, this.accountOf(s), ready).catch((err) => this.notice(id, `Turn failed: ${err.message}`, 'error'));
+      return { queued: true };
+    }
+    return this.runnerFor(id).enqueue(ready);
   }
 
   /**
@@ -971,7 +997,7 @@ export class Engine implements EngineApi {
   }
 
   sendQueued(id: string, pendingId: string): void {
-    this.requireSession(id);
+    refuseSeat(this.requireSession(id));
     if (!this.runners.get(id)?.release(pendingId)) throw new EngineError(404, 'That message is not waiting any more.');
   }
 
@@ -1012,6 +1038,7 @@ export class Engine implements EngineApi {
    */
   async resumeSession(id: string): Promise<Session> {
     const s = this.requireSession(id);
+    refuseSeat(s);
     const runner = this.runnerFor(id);
     if (s.status !== 'paused') {
       // pause asked, the turn not yet stopped: it just goes on
@@ -1106,6 +1133,7 @@ export class Engine implements EngineApi {
   /** Retry a failed native inference in place; never rewind or resubmit its user message. */
   async retryProvider(id: string, messageId: string, model: string): Promise<{ model: string; label: string }> {
     const s = this.requireSession(id);
+    refuseSeat(s);
     if (!this.isUsable(model, s.accountId)) throw new EngineError(400, this.harnessOff(model) ?? `Model ${model} is not available`);
     const resolved = this.registryFor(s).resolve(model);
     if (!this.registryFor(s).isEnabled(resolved.provider)) throw new EngineError(400, `Provider ${resolved.provider} is disabled`);
@@ -1987,14 +2015,39 @@ export class Engine implements EngineApi {
   }
 
   // messages ---------------------------------------------------------------
+  turnMessages(sessionId: string): Message[] {
+    return this.sharedTurns.messages(sessionId);
+  }
+
   addMessage(sessionId: string, m: Partial<Message> & Pick<Message, 'role' | 'kind' | 'content'>): Message {
-    const seq = this.repos.messages.nextSeq(sessionId);
-    const msg: Message = { id: newId('msg'), sessionId, seq, createdAt: Date.now(), ...m };
+    const destination = this.sharedTurns.destination(sessionId, m);
+    const seat = this.getSession(sessionId);
+    const chatId = (seat?.meta?.seat as { chatId?: string } | undefined)?.chatId;
+    // Private summaries use shared sequence coordinates so coversThroughSeq remains meaningful.
+    const seq = this.repos.messages.nextSeq(chatId ?? sessionId);
+    sessionId = destination.sessionId;
+    const msg: Message = { id: newId('msg'), seq, createdAt: Date.now(), ...m, ...destination };
     this.repos.messages.insert(msg);
     const s = this.repos.sessions.get(sessionId);
     if (s) this.repos.sessions.update({ ...s, stats: { ...s.stats, messages: s.stats.messages + 1 }, updatedAt: Date.now() });
     this.bus.emit({ type: 'message.created', message: msg });
     return msg;
+  }
+
+  /** A shared chat participant's turn, queued on their own seat (people/seat-turns.ts). Resolves when the turn finishes. */
+  sharedTurn(chatId: string, accountId: string, input: SendInput): Promise<void> {
+    return this.sharedTurns.turn(chatId, accountId, input);
+  }
+
+  /** Stop a turn in a shared chat: the owner any, a participant their own (people/seat-turns.ts). PeopleError when they may not. */
+  stopChatTurn(chatId: string, accountId: string): void {
+    this.sharedTurns.stop(chatId, accountId);
+  }
+  revokeChatTurns(chatId: string, accountId: string): void {
+    this.sharedTurns.revoke(chatId, accountId);
+  }
+  narrowChatHistory(chatId: string, accountId: string): void {
+    this.sharedTurns.historyNarrowed(chatId, accountId);
   }
   updateMessage(id: string, patch: Partial<Message>): Message {
     const m = this.repos.messages.get(id);
@@ -2146,8 +2199,10 @@ export class Engine implements EngineApi {
     const s = this.repos.sessions.get(id);
     if (!s) return;
     if (cfg.memory.enabled && cfg.memory.autoExtract && this.agentFor(s).memory !== 'none' && s.mode !== 'jury' && this.usesMemory(s)) {
+      // a seat turn's transcript holds other people's words as quoted data: extraction learns only from the starter's own words and replies
+      const transcript = this.turnMessages(id).filter((m) => !quotedOf(m));
       void this.memoryFor(this.accountOf(s))
-        .extract(id, this.repos.messages.list(id), { project: s.cwd, agent: s.agent })
+        .extract(id, transcript, { project: s.cwd, agent: s.agent })
         .catch((err) => log.debug('memory extract failed', err));
     }
     this.notifyEvent('sessionDone', { title: s.title, body: 'Session finished a turn', level: 'success', sessionId: id, link: `/s/${id}`, thread: this.askOrigin(id).rootSessionId });
@@ -2161,7 +2216,7 @@ export class Engine implements EngineApi {
    * Only a title this hub wrote (meta.titleAuto) is revised, never one the owner gave.
    */
   private retitle(s: Session): void {
-    if (s.meta?.subagent) return;
+    if (s.meta?.subagent || s.meta?.seat) return;
     const fresh = s.title === 'New chat';
     if (!fresh && s.meta?.titleAuto !== s.title) return;
     const turns = (Number(s.meta?.titleTurns) || 0) + 1;
@@ -2268,6 +2323,10 @@ export class Engine implements EngineApi {
     const mcp = member ? [] : this.cachedMcpTools().filter((t) => (!agent.mcpServers || agent.mcpServers.some((srv) => t.name.startsWith(`mcp__${srv}__`))) && sessionAllowsServerTool(session, t.name));
     const hubOnly = member ? new Set([...MEMBER_DENY, ...(this.deps.optInTools ?? []).map((t) => t.name)]) : undefined;
     const all = [...this.allBuiltinTools().filter((t) => !hubOnly?.has(t.name)), ...mcp];
+    // Seats never inherit an owner's custom agent tools, integrations, devices or MCP servers.
+    if (session.meta?.seat) {
+      return filterTools(all.filter((t) => !t.name.startsWith('mcp__')), { allow: ['WebSearch', 'WebFetch', 'MemorySearch', 'MemorySave', 'MemoryForget', 'SessionSearch', 'SessionRead', 'PlaceSearch', 'PlaceDetails', 'Directions', 'MapImage', 'ConclaveHelp', 'Read', 'Write', 'RenderFile', 'ShareFile'], depth }).filter((t) => sessionAllowsTool(session, t.name));
+    }
     // a subagent started by an untrusted agent, and a webhook run, carry meta.untrusted (session/untrusted.ts)
     // a guarded fork of a friend's share keeps its tools and asks for each call (session/friend-share.ts)
     const untrusted = narrowsTools(session, agent.untrusted);
@@ -2346,7 +2405,7 @@ export class Engine implements EngineApi {
   /** Tools including MCP (async). The runner uses the sync toolsFor for speed; this is for listings. */
   async toolsWithMcp(session: Session, agent: AgentDef, mode: string, depth: number): Promise<Tool[]> {
     const base = this.toolsFor(session, agent, mode, depth);
-    if (mode === 'chat' || !this.deps.mcpTools) return base;
+    if (mode === 'chat' || session.meta?.seat || !this.deps.mcpTools) return base;
     const mcp = await this.deps.mcpTools().catch(() => []);
     const allowed = mcp.filter((t) => (!agent.mcpServers || agent.mcpServers.some((srv) => t.name.startsWith(`mcp__${srv}__`))) && sessionAllowsServerTool(session, t.name));
     // base went through the same rules in toolsFor; an untrusted session sees only the MCP tools its routine or agent names

@@ -181,7 +181,17 @@ export interface EngineApi {
   markSeen(id: string): Session;
   /** The whole transcript, or one page of it (types.ts MessagePage). */
   getMessages(id: string, page?: MessagePage): Message[];
+  /** A message written straight into the transcript with no turn (engine.ts): a shared chat participant's plain message, sender recorded. */
+  addMessage(sessionId: string, m: Partial<Message> & Pick<Message, 'role' | 'kind' | 'content'>): Message;
   send(id: string, input: SendInput): Promise<SendResult>;
+  /** A shared chat participant's turn, queued on their own seat session (people/seat-turns.ts). Resolves when the turn finishes. */
+  sharedTurn(chatId: string, accountId: string, input: SendInput): Promise<void>;
+  /** Stop a turn in a shared chat: the chat owner any, a participant their own. PeopleError (403) when they may not. */
+  stopChatTurn(chatId: string, accountId: string): void;
+  /** Cancel queued work and abort inference after a role, history or membership change. */
+  revokeChatTurns(chatId: string, accountId: string): void;
+  /** History went from all to joined: drop the seat's own summaries of what it may no longer read, and stop their running turn. */
+  narrowChatHistory(chatId: string, accountId: string): void;
   /** Messages waiting while the session is busy, in the order they will run. Stored: a hub restart keeps them, Stop holds them (held). */
   queue(id: string): QueuedMessage[];
   /** Send a message Stop held: it runs in its place in the queue. 404 when it is not there. */

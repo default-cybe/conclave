@@ -248,6 +248,7 @@ function rowToMessage(r: Row): Message {
     model: r.model ?? undefined,
     agent: r.agent ?? undefined,
     author: r.author ?? undefined,
+    sender: r.sender ?? undefined,
     group: r.grp ?? undefined,
     usage: json(r.usage, undefined),
     stopReason: r.stop_reason ?? undefined,
@@ -277,8 +278,8 @@ export class MessageRepo {
   insert(m: Message): void {
     this.db
       .query(
-        `INSERT INTO messages (id,session_id,seq,role,kind,content,model,agent,author,grp,usage,stop_reason,created_at,meta)
-         VALUES ($id,$sid,$seq,$role,$kind,$content,$model,$agent,$author,$grp,$usage,$stop,$created,$meta)`,
+        `INSERT INTO messages (id,session_id,seq,role,kind,content,model,agent,author,grp,usage,stop_reason,created_at,meta,sender)
+         VALUES ($id,$sid,$seq,$role,$kind,$content,$model,$agent,$author,$grp,$usage,$stop,$created,$meta,$sender)`,
       )
       .run(this.params(m));
     this.index(m);
@@ -288,7 +289,7 @@ export class MessageRepo {
     const old = this.db.query('SELECT kind, content FROM messages WHERE id = ?').get(m.id) as Row | null;
     this.db
       .query(
-        `UPDATE messages SET content=$content,model=$model,agent=$agent,author=$author,grp=$grp,usage=$usage,stop_reason=$stop,meta=$meta,kind=$kind,role=$role WHERE id=$id`,
+        `UPDATE messages SET content=$content,model=$model,agent=$agent,author=$author,grp=$grp,usage=$usage,stop_reason=$stop,meta=$meta,kind=$kind,role=$role,sender=$sender WHERE id=$id`,
       )
       .run({ ...this.params(m) });
     // finding the old index row scans the whole index (message_id is unindexed), so only when its text changed
@@ -315,6 +316,7 @@ export class MessageRepo {
       model: m.model ?? null,
       agent: m.agent ?? null,
       author: m.author ?? null,
+      sender: m.sender ?? null,
       grp: m.group ?? null,
       usage: m.usage ? JSON.stringify(m.usage) : null,
       stop: m.stopReason ?? null,
@@ -356,8 +358,19 @@ export class MessageRepo {
   }
 
   delete(id: string): void {
+    const sid = (this.db.query('SELECT session_id FROM messages WHERE id = ?').get(id) as Row | null)?.session_id as string | undefined;
     this.db.query('DELETE FROM messages_fts WHERE message_id = ?').run(id);
     this.db.query('DELETE FROM messages WHERE id = ?').run(id);
+    if (sid) this.clampMarks(sid);
+  }
+
+  /**
+   * nextSeq reuses freed seqs, so no participant mark may stay above the tail:
+   * a later message must count as after their join and as unread.
+   */
+  private clampMarks(sessionId: string): void {
+    const max = this.nextSeq(sessionId) - 1;
+    this.db.query('UPDATE chat_participants SET joined_seq = MIN(joined_seq, ?), read_upto_seq = MIN(read_upto_seq, ?) WHERE session_id = ?').run(max + 1, max, sessionId);
   }
 
   /** Delete messages with seq > given (used for edit-and-resend / rewind). One pass over the index, not one per message. */
@@ -365,6 +378,7 @@ export class MessageRepo {
     this.db.transaction(() => {
       this.db.query('DELETE FROM messages_fts WHERE message_id IN (SELECT id FROM messages WHERE session_id = ? AND seq > ?)').run(sessionId, seq);
       this.db.query('DELETE FROM messages WHERE session_id = ? AND seq > ?').run(sessionId, seq);
+      this.clampMarks(sessionId);
     })();
   }
 
@@ -803,6 +817,8 @@ export interface TurnRecord {
   endedAt?: number;
   model?: string;
   account?: string;
+  /** The account that started this turn. Missing on older rows: the session owner. */
+  startedBy?: string;
   /** Tool calls in the turn. */
   tools: number;
   /** done, aborted, error, or why the loop stopped (rate_limit, step_limit, refusal...). */
@@ -814,9 +830,9 @@ export interface TurnRecord {
 export class TurnRepo {
   constructor(private db: Db) {}
 
-  start(t: { sessionId: string; model?: string; startedAt?: number }): string {
+  start(t: { sessionId: string; model?: string; startedAt?: number; startedBy?: string }): string {
     const id = newId('turn');
-    this.db.query('INSERT INTO turns (id, session_id, started_at, model) VALUES (?,?,?,?)').run(id, t.sessionId, t.startedAt ?? Date.now(), t.model ?? null);
+    this.db.query('INSERT INTO turns (id, session_id, started_at, model, started_by) VALUES (?,?,?,?,?)').run(id, t.sessionId, t.startedAt ?? Date.now(), t.model ?? null, t.startedBy ?? null);
     return id;
   }
 
@@ -844,6 +860,7 @@ export class TurnRepo {
       ...(r.ended_at != null ? { endedAt: r.ended_at } : {}),
       ...(r.model ? { model: r.model } : {}),
       ...(r.account ? { account: r.account } : {}),
+      ...(r.started_by ? { startedBy: r.started_by } : {}),
       tools: r.tools,
       ...(r.outcome ? { outcome: r.outcome } : {}),
       ...(r.harness_session ? { harnessSession: r.harness_session } : {}),

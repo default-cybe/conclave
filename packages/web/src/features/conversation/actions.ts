@@ -19,6 +19,8 @@ const ATTACHMENT_LOST = 'Attachment not included: ';
 export interface Outgoing {
   text: string;
   attachments: Attachment[];
+  /** A shared chat: your words to the others, no AI turn (SHARED-WITH-MEMBERS.md 10.1). */
+  justTalk?: boolean;
 }
 
 const FADE_MS = 120;
@@ -111,7 +113,7 @@ export async function startChat(out: Outgoing, opts: { model?: string; chat: Par
  * the owner instead of dropping it silently: "Send without it" sends the
  * message with the loss accepted. Undefined while the choice waits.
  */
-async function sendChosen(sessionId: string, input: { text: string; attachments?: Attachment[] }, onRefused: () => void) {
+async function sendChosen(sessionId: string, input: { text: string; attachments?: Attachment[]; justTalk?: boolean }, onRefused: () => void) {
   try {
     return await api().send(sessionId, input);
   } catch (e) {
@@ -146,9 +148,10 @@ export async function sendTo(session: Session, out: Outgoing): Promise<boolean> 
   const known = (useHub.getState().messages[session.id] ?? []).map((m) => m.id);
   const attachments = out.attachments.length ? out.attachments : undefined;
   // while a reply runs it shows at once at the end, Queued, until its turn takes it (CHAT-AND-MOTION 2.11)
-  if (running) return !!(await sendQueued(session.id, { text: out.text, attachments, whenBusy: 'queue' }));
+  // Just talk starts no turn, so it never waits behind one
+  if (running && !out.justTalk) return !!(await sendQueued(session.id, { text: out.text, attachments, whenBusy: 'queue' }));
   setPending(session.id, pendingFor(out, known));
-  const r = await sendChosen(session.id, { text: out.text, attachments }, () => setPending(session.id, undefined));
+  const r = await sendChosen(session.id, { text: out.text, attachments, ...(out.justTalk ? { justTalk: true } : {}) }, () => setPending(session.id, undefined));
   if (!r) {
     setPending(session.id, undefined);
     return false;

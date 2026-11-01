@@ -1,5 +1,6 @@
 import { Database } from 'bun:sqlite';
 import { migratePeople } from '../people/migrate';
+import { migrateSharedChats } from '../people/shared-chats';
 import { ensureColumn } from '../people/tables';
 
 /**
@@ -386,6 +387,7 @@ export function openDb(file: string): Db {
   migrate(db);
   // accounts (docs/design/ACCOUNTS.md 9): every owned table gets account_id, every old row is the owner's
   migratePeople(db);
+  migrateSharedChats(db);
   // what a call is worth at API prices, kept from the day it is recorded (usage/value.ts); older rows have none
   ensureColumn(db, 'usage', 'api_value_usd', 'REAL');
   return db;
