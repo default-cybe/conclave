@@ -14,6 +14,10 @@
  *   POST   /api/meetings/:id/end                      202 Meeting
  *   GET    /api/meetings/:id/notes                    MeetingNotes
  *   DELETE /api/meetings/:id                          204
+ *   GET    /api/meetings/models                       { models: MeetingModelOption[] }
+ *   POST   /api/meetings/:id/stt-token                SttToken (409 without a key)
+ *   POST   /api/meetings/:id/files                    201 MeetingFile (multipart, field "file")
+ *   DELETE /api/meetings/:id/files/:fileId            204
  *
  * Scheduled meetings (11.6):
  *   GET    /api/meetings?view=upcoming|now|past|all&limit=&before=
@@ -35,7 +39,7 @@
  */
 import type { Hono } from 'hono';
 import { meetingsOf, type MeetingService } from '@conclave/core/meeting/index.ts';
-import { BATCH_BODY_MAX, STEERING_PRESETS, segmentBatchProblem, type AnswerNowInput, type CreateMeetingInput, type MeetingChatInput, type MeetingPatch, type SegmentBatch } from '@conclave/core/meeting/wire.ts';
+import { BATCH_BODY_MAX, MEETING_FILE_BYTES_MAX, STEERING_PRESETS, segmentBatchProblem, type AnswerNowInput, type CreateMeetingInput, type MeetingChatInput, type MeetingPatch, type SegmentBatch } from '@conclave/core/meeting/wire.ts';
 import type { HonoEnv, ServerContext } from './context';
 import { HttpError, qNum, readJson } from './http';
 import { accountOf } from './scope';
@@ -72,6 +76,32 @@ export function registerMeetingRoutes(app: Hono<HonoEnv>, ctx: ServerContext): v
   });
 
   app.get('/api/meetings/presets', (c) => c.json({ presets: STEERING_PRESETS }));
+
+  app.get('/api/meetings/models', async (c) => c.json({ models: await svc().modelList(accountOf(c)) }));
+
+  app.post('/api/meetings/:id/stt-token', async (c) => c.json(await svc().sttToken(c.req.param('id'), accountOf(c))));
+
+  app.post('/api/meetings/:id/files', async (c) => {
+    // the whole form, checked before it is parsed: one file and a little framing
+    const len = Number(c.req.header('content-length') ?? NaN);
+    if (!Number.isFinite(len)) throw new HttpError(411, 'Content-Length is required');
+    if (len > MEETING_FILE_BYTES_MAX + 64 * 1024) throw new HttpError(413, `A file is at most ${MEETING_FILE_BYTES_MAX / 1024 / 1024} MB.`);
+    let form: FormData;
+    try {
+      form = await c.req.formData();
+    } catch {
+      throw new HttpError(400, 'Send multipart/form-data with a "file" field');
+    }
+    const file = form.get('file');
+    if (!file || typeof file === 'string') throw new HttpError(400, 'Send multipart/form-data with a "file" field');
+    const f = await svc().addFile(c.req.param('id'), { name: file.name, type: file.type, bytes: new Uint8Array(await file.arrayBuffer()) }, accountOf(c));
+    return c.json(f, 201);
+  });
+
+  app.delete('/api/meetings/:id/files/:fileId', (c) => {
+    svc().deleteFile(c.req.param('id'), c.req.param('fileId'), accountOf(c));
+    return c.body(null, 204);
+  });
 
   app.post('/api/meetings', async (c) => {
     const body = await readJson<CreateMeetingInput>(c, SMALL_BODY);

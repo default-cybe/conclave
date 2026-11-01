@@ -7,6 +7,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { startTestEngine, until, type RequestBody, type TestEngine } from '../../core/test/engine/harness';
 import { meetingsOf } from '@conclave/core/meeting/index.ts';
+import { STT_HOSTS } from '@conclave/core/meeting/stt.ts';
 import { startServer, type RunningServer } from '../src/app';
 import { openWs } from './helpers';
 
@@ -70,8 +71,12 @@ describe('meeting routes', () => {
   let id = '';
   let sessionId = '';
 
-  test('create needs a folder; the meeting turns ready after the brief', async () => {
-    expect((await call(OWNER, 'POST', '/api/meetings', {})).status).toBe(400);
+  test('create works with or without a folder; the meeting turns ready after the brief', async () => {
+    const bare = await call(OWNER, 'POST', '/api/meetings', {});
+    expect(bare.status).toBe(201);
+    expect(bare.body.cwd).toBe('');
+    expect(await poll(async () => (await statusOf(bare.body.id)) === 'ready')).toBe(true);
+    expect((await call(OWNER, 'DELETE', `/api/meetings/${bare.body.id}`)).status).toBe(204);
     const r = await call(OWNER, 'POST', '/api/meetings', { cwd: t.cwd, title: 'Standup', agenda: 'Show the export' });
     expect(r.status).toBe(201);
     expect(r.body.status).toBe('preparing');
@@ -164,6 +169,61 @@ describe('meeting routes', () => {
     expect((await call(alice.token, 'GET', '/api/meetings?view=upcoming')).body.meetings).toEqual([]);
     expect((await call(alice.token, 'GET', '/api/meetings/folders')).body.folders.some((f: { cwd: string }) => f.cwd === t.cwd)).toBe(false);
     expect((await call(OWNER, 'DELETE', `/api/meetings/${sid}`)).status).toBe(204);
+  });
+
+  test('stt-token, files and the model list: each account its own keys and meetings', async () => {
+    // a fake Deepgram: never the real one
+    const auths: string[] = [];
+    const fake = Bun.serve({ port: 0, fetch: (req) => (auths.push(req.headers.get('authorization') ?? ''), Response.json({ access_token: `jwt-for-${auths.length}`, expires_in: 60 })) });
+    const saved = { ...STT_HOSTS.deepgram };
+    STT_HOSTS.deepgram = { api: `http://127.0.0.1:${fake.port}`, ws: `ws://127.0.0.1:${fake.port}` };
+    try {
+      expect((await call(OWNER, 'POST', `/api/meetings/${id}/stt-token`)).status).toBe(409);
+      expect((await call(OWNER, 'PUT', '/api/secrets', { kind: 'values', key: 'stt.deepgram', value: 'owner-dg-key' })).status).toBe(200);
+      const tok = await call(OWNER, 'POST', `/api/meetings/${id}/stt-token`);
+      expect(tok.status).toBe(200);
+      expect(tok.body).toMatchObject({ provider: 'deepgram', token: 'jwt-for-1', sampleRate: 16000, encoding: 'pcm_s16le' });
+      expect(JSON.stringify(tok.body)).not.toContain('owner-dg-key');
+      expect(auths).toEqual(['Token owner-dg-key']);
+      // a member: 404 on the owner's meeting; their own meeting never uses the owner's key
+      expect((await call(alice.token, 'POST', `/api/meetings/${id}/stt-token`)).status).toBe(404);
+      const mine = await call(alice.token, 'POST', '/api/meetings', { title: 'Alice interview' });
+      expect(mine.status).toBe(201);
+      expect((await call(alice.token, 'POST', `/api/meetings/${mine.body.id}/stt-token`)).status).toBe(409);
+      expect((await call(alice.token, 'PUT', '/api/secrets', { kind: 'values', key: 'stt.deepgram', value: 'alice-dg-key' })).status).toBe(200);
+      expect((await call(alice.token, 'POST', `/api/meetings/${mine.body.id}/stt-token`)).status).toBe(200);
+      expect(auths.at(-1)).toBe('Token alice-dg-key');
+      expect(t.engine.config.secretValue('stt.deepgram')).toBe('owner-dg-key');
+      expect((await call(alice.token, 'PUT', '/api/secrets', { kind: 'values', key: 'other', value: 'x' })).status).toBe(403);
+
+      // files: multipart upload, listed in the detail, never reachable by the member
+      const form = new FormData();
+      form.append('file', new File(['Role: backend engineer, Go.'], 'jd.txt', { type: 'text/plain' }));
+      const up = await fetch(`${running.url}/api/meetings/${id}/files`, { method: 'POST', headers: { authorization: `Bearer ${OWNER}` }, body: form });
+      expect(up.status).toBe(201);
+      const file = (await up.json()) as { id: string; name: string; chars: number };
+      expect(file).toMatchObject({ name: 'jd.txt', chars: 27 });
+      expect((await call(OWNER, 'GET', `/api/meetings/${id}`)).body.files.map((f: { id: string }) => f.id)).toEqual([file.id]);
+      const steal = new FormData();
+      steal.append('file', new File(['x'], 'x.txt'));
+      expect((await fetch(`${running.url}/api/meetings/${id}/files`, { method: 'POST', headers: { authorization: `Bearer ${alice.token}` }, body: steal })).status).toBe(404);
+      expect((await call(alice.token, 'DELETE', `/api/meetings/${id}/files/${file.id}`)).status).toBe(404);
+      expect((await call(OWNER, 'POST', `/api/meetings/${id}/files`, { not: 'multipart' })).status).toBe(400);
+      expect((await call(OWNER, 'DELETE', `/api/meetings/${id}/files/${file.id}`)).status).toBe(204);
+      expect((await call(OWNER, 'DELETE', `/api/meetings/${id}/files/${file.id}`)).status).toBe(404);
+
+      // the picker, and answerModel checked against what the account may use
+      const models = await call(OWNER, 'GET', '/api/meetings/models');
+      expect(models.status).toBe(200);
+      expect(models.body.models.map((m: { ref: string }) => m.ref)).toContain('mock/claude-sonnet-5-5');
+      expect((await call(OWNER, 'PATCH', `/api/meetings/${id}`, { answerModel: 'nope/x' })).status).toBe(400);
+      expect((await call(OWNER, 'PATCH', `/api/meetings/${id}`, { answerModel: 'mock/claude-sonnet-5-5' })).body.answerModel).toBe('mock/claude-sonnet-5-5');
+      expect((await call(OWNER, 'GET', `/api/meetings/${id}`)).body.liveModel.ref).toBe('mock/claude-sonnet-5-5');
+      expect((await call(alice.token, 'DELETE', `/api/meetings/${mine.body.id}`)).status).toBe(204);
+    } finally {
+      STT_HOSTS.deepgram = saved;
+      fake.stop(true);
+    }
   });
 
   test('end wraps up: notes, then 409 on a second end and on segments', async () => {

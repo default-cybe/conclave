@@ -9,7 +9,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { startTestEngine, until, type RequestBody, type Step, type TestEngine } from '../engine/harness';
 import { meetingsOf, type MeetingService } from '../../src/meeting/index';
-import { ANSWERS_PER_MINUTE } from '../../src/meeting/answer';
+import { ANSWER_MAX_TOKENS, ANSWERS_PER_MINUTE } from '../../src/meeting/answer';
 import type { Segment } from '../../src/meeting/wire';
 
 let t: TestEngine | undefined;
@@ -78,7 +78,7 @@ describe('meeting service', () => {
     expect(bodies.length).toBe(2);
     for (const b of bodies) {
       expect(b.tools).toBeUndefined();
-      expect(b.max_tokens).toBe(220);
+      expect(b.max_tokens).toBe(ANSWER_MAX_TOKENS);
       expect(JSON.stringify(b.system)).toContain('cache_control');
     }
     expect(JSON.stringify(bodies[0].system)).toBe(JSON.stringify(bodies[1].system));

@@ -643,6 +643,17 @@ export interface ConclaveConfig {
     watchMode?: 'chats' | 'chats-learn' | 'learn';
   };
 
+  /** Meeting mode (docs/design/MEETING-MODE.md). */
+  meetings?: {
+    /**
+     * Speech to text for live meetings: 'local' runs Parakeet on the desktop; 'assemblyai' or
+     * 'deepgram' stream audio from the desktop to that service with a short-lived token the hub
+     * mints from the secret stt.assemblyai or stt.deepgram (a member's own, for a member).
+     * Unset: the first service with a key, else local.
+     */
+    stt?: 'local' | 'assemblyai' | 'deepgram';
+  };
+
   /** Model tiers that agents and workflow steps ask for by word (extensions/model-ref.ts). Unset tiers resolve from smallModel, the session model and the catalog. */
   models?: {
     tiers?: Partial<Record<'fast' | 'smart' | 'deep', string>>;
