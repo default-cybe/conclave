@@ -692,9 +692,10 @@
 /* reduced motion: every change lands at once, staggers and delays included (a letter or a word
    that waited its turn would leave a half written label for a moment) */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  ::before,
-  ::after {
+  /* Appearance > Reduce motion: Off keeps motion when the device asks to reduce it */
+  :root:not([data-motion='full']) *,
+  :root:not([data-motion='full']) ::before,
+  :root:not([data-motion='full']) ::after {
     animation-duration: 0.001ms !important;
     animation-delay: 0s !important;
     animation-iteration-count: 1 !important;

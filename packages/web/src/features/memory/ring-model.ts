@@ -1,7 +1,7 @@
 /**
  * Memory > Map, Rings view (RingCanvas.tsx): the items and links on
  * concentric rings. Pure, so test/memory-map.test.ts checks it. Also the
- * 3D view's fallback when WebGL is missing or motion is reduced.
+ * 3D view's fallback when WebGL is missing.
  *
  * It reuses link-model.ts's items, edges and indexes as they are (so
  * edgeOn, edgesOf, byId and the filters work unchanged) and only gives

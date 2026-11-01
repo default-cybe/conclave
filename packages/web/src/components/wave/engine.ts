@@ -132,7 +132,8 @@ const schemeMQ = hasDom ? window.matchMedia('(prefers-color-scheme: dark)') : un
 
 export function motionReduced(): boolean {
   if (!hasDom) return true;
-  return !!reduceMQ?.matches || document.documentElement.dataset.motion === 'reduce';
+  const pref = document.documentElement.dataset.motion;
+  return pref === 'full' ? false : pref === 'reduce' || !!reduceMQ?.matches;
 }
 
 class Instance {

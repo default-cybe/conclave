@@ -6,7 +6,8 @@ import { applyTextSize, textSizeOf, type TextSize } from '@/lib/textSize';
 export type Theme = 'system' | 'dark' | 'light';
 export type LogoTone = 'brand' | 'mono';
 export type Density = 'comfortable' | 'compact';
-export type MotionPref = 'system' | 'reduce';
+/** full: motion even when the device asks to reduce it (Windows with Animation effects off). */
+export type MotionPref = 'system' | 'reduce' | 'full';
 /** Group by: date is Recent (time, and on the desktop list the state groups). */
 export type ListGroup = 'date' | 'project' | 'agent' | 'task' | 'device';
 /** Group by for the sidebar's Code sessions (desktop sidebar and phone drawer). Chats and the assistant's go by time. */
@@ -136,8 +137,8 @@ export function applyTheme() {
   root.dataset.theme = t;
   if (s.density === 'compact') root.dataset.density = 'compact';
   else delete root.dataset.density;
-  if (s.motion === 'reduce') root.dataset.motion = 'reduce';
-  else delete root.dataset.motion;
+  if (s.motion === 'system') delete root.dataset.motion;
+  else root.dataset.motion = s.motion;
   // the conversation's text (index.css .log-text): a variable, so it changes live
   applyTextSize(root, s.textSize);
   root.style.removeProperty('--accent-h');

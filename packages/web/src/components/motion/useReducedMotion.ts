@@ -22,16 +22,18 @@ export function shared(start: (emit: () => void) => () => void): (cb: () => void
 
 const QUERY = '(prefers-reduced-motion: reduce)';
 
-function reducedNow(): boolean {
+/** Appearance > Reduce motion first (On: 'reduce', Off: 'full'), else the system setting. */
+export function reducedNow(): boolean {
   if (typeof window === 'undefined') return true;
-  return window.matchMedia(QUERY).matches || document.documentElement.dataset.motion === 'reduce';
+  const pref = document.documentElement.dataset.motion;
+  return pref === 'full' ? false : pref === 'reduce' || window.matchMedia(QUERY).matches;
 }
 
 // one media listener and one MutationObserver for every glyph, pet and knot on the page
 const subscribe = shared((cb) => {
   const mq = window.matchMedia(QUERY);
   mq.addEventListener('change', cb);
-  // Appearance > Reduce motion sets html[data-motion="reduce"]
+  // Appearance > Reduce motion sets html[data-motion="reduce"|"full"]
   const mo = new MutationObserver(cb);
   mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-motion'] });
   return () => {
@@ -41,8 +43,9 @@ const subscribe = shared((cb) => {
 });
 
 /**
- * True when motion should stop: the system asks for reduced motion, or the
- * owner turned on Appearance > Reduce motion. Draw a still frame instead.
+ * True when motion should stop: the system asks for reduced motion (unless
+ * the owner set Appearance > Reduce motion to Off), or the owner turned it
+ * On. Draw a still frame instead.
  */
 export function useReducedMotion(): boolean {
   return useSyncExternalStore(subscribe, reducedNow, () => true);

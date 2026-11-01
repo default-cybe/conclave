@@ -15,7 +15,8 @@ import { Route, useRouter, type Parser } from 'wouter';
 import type { WorkflowCall, WorkflowRun } from '@conclave/core/client';
 import { pageKey } from '../src/App';
 import { callOrder, stateOf } from '../src/features/workflows/CallRows';
-import { shared, useLiveSlot } from '../src/components/motion/useReducedMotion';
+import { reducedNow, shared, useLiveSlot } from '../src/components/motion/useReducedMotion';
+import { scrollBehavior } from '../src/features/extensions/hooks/model';
 import { AgentGlyph } from '../src/components/motion/AgentGlyph';
 import { Pet } from '../src/components/motion/Pet';
 import { GLYPH_KINDS, GLYPH_PATHS, PET_STATES, busiestKind, glyphKind, glyphState, petState, sessionPet, stillRows } from '../src/components/motion/agentGlyphs';
@@ -252,6 +253,43 @@ describe('render', () => {
     expect(renderToStaticMarkup(<AgentGlyph type="tester" state="done" />)).not.toContain('g-light');
     expect(renderToStaticMarkup(<AgentGlyph type="tester" state="failed" />)).toContain('g-light');
     expect(renderToStaticMarkup(<AgentGlyph type="nope" />)).toContain('data-kind="general-purpose"');
+  });
+});
+
+describe('Appearance > Reduce motion over the system setting', () => {
+  const g = globalThis as Record<string, unknown>;
+  const saved = { window: g.window, document: g.document, matchMedia: g.matchMedia };
+  // the system asks to reduce, as Windows with Animation effects off does
+  const matchMedia = (q: string) => ({ matches: q === '(prefers-reduced-motion: reduce)' });
+  const withMotion = (motion: string | undefined, fn: () => void) => {
+    g.window = { matchMedia };
+    g.matchMedia = matchMedia;
+    g.document = { documentElement: { dataset: motion ? { motion } : {} } };
+    try {
+      fn();
+    } finally {
+      Object.assign(g, saved);
+    }
+  };
+
+  test('Off (full) keeps motion, On (reduce) and System under reduce stop it', () => {
+    withMotion('full', () => {
+      expect(reducedNow()).toBe(false);
+      expect(scrollBehavior()).toBe('smooth');
+    });
+    withMotion('reduce', () => {
+      expect(reducedNow()).toBe(true);
+      expect(scrollBehavior()).toBe('auto');
+    });
+    withMotion(undefined, () => {
+      expect(reducedNow()).toBe(true);
+      expect(scrollBehavior()).toBe('auto');
+    });
+  });
+
+  test('the CSS reduce rules skip html[data-motion=full]', () => {
+    const index = readFileSync(new URL('../src/styles/index.css', import.meta.url), 'utf8');
+    expect(index).toMatch(/@media \(prefers-reduced-motion: reduce\) \{[^{]*:root:not\(\[data-motion='full'\]\) \*/);
   });
 });
 

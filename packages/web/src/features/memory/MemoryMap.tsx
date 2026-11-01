@@ -18,8 +18,9 @@
  * Rings, every item a tick on a ring with every real link bundled through
  * the core (ring-model.ts, RingCanvas.tsx), and 3D, a quiet studio space of
  * area clusters or a time axis (holo-model.ts, HoloCanvas.tsx, loaded only
- * when it opens). Rings stands in for 3D without WebGL or with reduced
- * motion. Filters, search, the scrubber and the drawer work in all three.
+ * when it opens). Rings stands in for 3D only without WebGL; with reduced
+ * motion 3D holds still (no drift, jumps instead of flights). Filters,
+ * search, the scrubber and the drawer work in all three.
  * 3D opens first unless the owner picked another view on this device; an
  * area opened in 3D is kept in the URL (?cluster=People), so Back closes it.
  */
@@ -161,10 +162,9 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
   const [all, setAll] = useState(false);
   const [crossOnly, setCrossOnly] = useState(false);
   const [space, setSpace] = useState<HoloMode>('clusters');
-  // with reduced motion 3D shows Rings, until the owner asks for 3D anyway (then it holds still)
-  const [still3d, setStill3d] = useState(false);
+  // with reduced motion 3D holds still (HoloCanvas still)
   const reduced = useReducedMotion();
-  const holoOn = mode === '3d' && hasWebGL() && (!reduced || still3d);
+  const holoOn = mode === '3d' && hasWebGL();
   const ringsOn = mode === 'rings' || (mode === '3d' && !holoOn);
   // the area open in 3D Clusters, from the URL: Back in the browser closes it
   const search = useSearch();
@@ -540,21 +540,8 @@ function MemoryMindMap({ g, ix }: { g: MemoryGraph; ix: Indexed }) {
       ]}
     />
   );
-  // 3D asked for, Rings shown: say why, and offer 3D held still when motion is the reason
-  const fallback = mode === '3d' && !holoOn && (
-    <p className="m-0 text-[13px] text-fg-3 phone:text-[14px]">
-      {hasWebGL() ? (
-        <>
-          Reduced motion is on, so 3D shows as Rings.{' '}
-          <button type="button" className="link" onClick={() => setStill3d(true)}>
-            Show 3D, held still
-          </button>
-        </>
-      ) : (
-        'This browser has no WebGL, so 3D shows as Rings.'
-      )}
-    </p>
-  );
+  // 3D asked for, Rings shown: the browser has no WebGL
+  const fallback = mode === '3d' && !holoOn && <p className="m-0 text-[13px] text-fg-3 phone:text-[14px]">This browser has no WebGL, so 3D shows as Rings.</p>;
   const expandButton = (
     <Button variant="quiet" size="sm" onClick={toggleAll} title={expanded ? 'Collapse all (E)' : 'Expand all (E)'}>
       {expanded ? 'Collapse all' : 'Expand all'}
