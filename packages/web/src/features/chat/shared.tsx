@@ -52,6 +52,12 @@ export function useSharedChat(session: Session | undefined) {
   return { shared, mine, seat };
 }
 
+/** Tell every useParticipants on this chat to fetch again (an invite from the chat menu shows the header pill at once). */
+const PEOPLE_EVENT = 'conclave:chat-people';
+export function peopleChanged(sessionId: string) {
+  window.dispatchEvent(new CustomEvent(PEOPLE_EVENT, { detail: sessionId }));
+}
+
 /** The chat's people, fetched on open (GET /api/sessions/:id/participants). */
 export function useParticipants(sessionId: string, enabled: boolean) {
   const [rows, setRows] = useState<ChatParticipantDto[] | undefined>(undefined);
@@ -60,6 +66,11 @@ export function useParticipants(sessionId: string, enabled: boolean) {
     void attempt(() => api().chatParticipants(sessionId)).then((r) => r && setRows(r));
   };
   useEffect(load, [sessionId, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const on = (e: Event) => (e as CustomEvent<string>).detail === sessionId && load();
+    window.addEventListener(PEOPLE_EVENT, on);
+    return () => window.removeEventListener(PEOPLE_EVENT, on);
+  }, [sessionId, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
   return { rows, reload: load };
 }
 
@@ -243,7 +254,7 @@ function PeopleList({ session, rows, meId, mine, onChanged, onAdd }: { session: 
 }
 
 /** Pick a contact, their access and whether they see earlier messages (SHARED-WITH-MEMBERS.md 6). */
-function AddPeopleDialog({ session, taken, open, onClose, onAdded }: { session: Session; taken: ChatParticipantDto[]; open: boolean; onClose: () => void; onAdded: () => void }) {
+export function AddPeopleDialog({ session, taken, open, onClose, onAdded }: { session: Session; taken: ChatParticipantDto[]; open: boolean; onClose: () => void; onAdded: () => void }) {
   const [contacts, setContacts] = useState<Contact[] | undefined>(undefined);
   const [pick, setPick] = useState<string | null>(null);
   const [access, setAccess] = useState<Access>('participant');
@@ -259,6 +270,7 @@ function AddPeopleDialog({ session, taken, open, onClose, onAdded }: { session: 
     const p = await attempt(() => api().inviteChatParticipant(session.id, pick as `account:${string}`, access, history ? 'all' : 'joined'), 'Invited. They can Accept in their sidebar.');
     setBusy(false);
     if (p) {
+      peopleChanged(session.id);
       onAdded();
       onClose();
       setPick(null);

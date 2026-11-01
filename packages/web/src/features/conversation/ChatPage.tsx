@@ -42,7 +42,7 @@ import { PreviewPanel, PreviewSheet } from './Preview';
 import { EmptyConversation } from '@/features/home/EmptyConversation';
 import { setStartMode } from '@/features/home/start';
 import { closePreview, openContinue, useChatUi } from './state';
-import { PeopleControl, PeopleSheet, useGuest, useHasPeople } from '@/features/chat/shared';
+import { AddPeopleDialog, PeopleControl, PeopleSheet, useGuest, useHasPeople, useParticipants } from '@/features/chat/shared';
 
 
 export default function ChatPage() {
@@ -189,7 +189,7 @@ export default function ChatPage() {
           <ContextPanel session={session} onClose={() => useUi.getState().set({ drawerOpen: false })} />
         </SideSheet>
       )}
-      {phone && session && !guest && <ConversationSheet session={session} open={sheet} onClose={() => setSheet(false)} onPeople={hasPeople ? () => setPeople(true) : undefined} />}
+      {phone && session && !guest && <ConversationSheet session={session} open={sheet} onClose={() => setSheet(false)} onPeople={session.kind === 'chat' ? () => setPeople(true) : undefined} peopleLabel={hasPeople ? undefined : 'Add people…'} />}
       {phone && session && <PeopleSheet session={session} open={people} onClose={() => setPeople(false)} />}
       <ContinueDialog />
     </div>
@@ -271,6 +271,9 @@ function ChatMenu({ id, onRename }: { id: string; onRename: () => void }) {
   const [open, setOpen] = useState(false);
   const [del, setDel] = useState(false);
   const [send, setSend] = useState(false);
+  const [adding, setAdding] = useState(false);
+  // fetched only while the Add dialog is open, so it can mark who is already in
+  const { rows: people } = useParticipants(id, adding);
   const [, navigate] = useLocation();
   if (!session) return null;
   const tokens = session.stats.inputTokens + session.stats.outputTokens;
@@ -290,6 +293,7 @@ function ChatMenu({ id, onRename }: { id: string; onRename: () => void }) {
             { label: 'Continue as a session…', onSelect: () => openContinue(session.id) },
             { separator: true, label: '' },
             { label: 'Export Markdown', onSelect: () => downloadExport(session, 'md') },
+            ...(session.kind === 'chat' ? [{ label: 'Add people…', onSelect: later(() => setAdding(true)) }] : []),
             ...(canSend(session) ? [{ label: 'Send to friend…', onSelect: later(() => setSend(true)) }] : []),
             { label: 'Delete', danger: true, onSelect: later(() => setDel(true)) },
             { separator: true, label: '' },
@@ -297,6 +301,7 @@ function ChatMenu({ id, onRename }: { id: string; onRename: () => void }) {
           ]}
         />
       </Popover>
+      <AddPeopleDialog session={session} taken={(people ?? []).filter((r) => r.state === 'active' || r.state === 'invited')} open={adding} onClose={() => setAdding(false)} onAdded={() => {}} />
       <ConfirmDialog
         open={del}
         onClose={() => setDel(false)}
