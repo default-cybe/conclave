@@ -104,6 +104,14 @@ describe('a streamed reply', () => {
         expect(renderToStaticMarkup(<Component text={text} streaming />)).toContain('class="hljs"');
       }
     });
+
+    test(`${name}: final text highlights even when its fence never closes`, () => {
+      // truncated reports (RunView cuts at 1200 chars) and fences in a blockquote never end on a bare fence line
+      for (const text of [`${OPEN}…`, '> ```ts\n> const x = 1;\n> ```']) {
+        expect(renderToStaticMarkup(<Component text={text} />)).toContain('class="hljs"');
+        expect(renderToStaticMarkup(<Component text={text} streaming />)).not.toContain('class="hljs"');
+      }
+    });
   }
 
   test('an open code fence is plain text, a closed one is highlighted', () => {

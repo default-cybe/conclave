@@ -27,10 +27,10 @@ export function previewLang(lang: string | undefined, code: string): PreviewLang
 
 const LANG_WORD: Record<string, string> = { sh: 'sh', bash: 'bash', zsh: 'zsh', ts: 'ts', tsx: 'tsx', js: 'js', py: 'python', python: 'python', html: 'html', svg: 'svg', css: 'css', json: 'json', http: 'http', caddyfile: 'caddyfile', yaml: 'yaml', yml: 'yaml', toml: 'toml', sql: 'sql', go: 'go', rust: 'rust', rs: 'rust' };
 
-export function ChatCode({ code, lang, closed = true, previewKey }: { code: string; lang?: string; closed?: boolean; previewKey?: string }) {
+export function ChatCode({ code, lang, closed = true, streaming = false, previewKey }: { code: string; lang?: string; closed?: boolean; streaming?: boolean; previewKey?: string }) {
   const [copied, copy] = useCopy();
   // while the fence is still open the code changes on every delta: highlighting it each time is wasted, it renders as plain text until the fence closes
-  const html = useMemo(() => (closed ? highlight(code, lang) : null), [closed, code, lang]);
+  const html = useMemo(() => (closed || !streaming ? highlight(code, lang) : null), [closed, streaming, code, lang]);
   const pv = previewLang(lang, code);
   const open = useChatUi((s) => (previewKey ? s.preview?.key === previewKey : false));
   return (
@@ -64,7 +64,7 @@ export function ChatCode({ code, lang, closed = true, previewKey }: { code: stri
 }
 
 /** The markdown source and a key base, so code blocks can tell whether their fence closed. */
-const Source = createContext<{ text: string; id: string }>({ text: '', id: 'md' });
+const Source = createContext<{ text: string; id: string; streaming?: boolean }>({ text: '', id: 'md' });
 
 function BlockCode({ className, children, node }: { className?: string; children?: ReactNode; node?: { position?: { start: { offset?: number }; end: { offset?: number } } } }) {
   const src = useContext(Source);
@@ -78,7 +78,7 @@ function BlockCode({ className, children, node }: { className?: string; children
   const raw = start !== undefined && end !== undefined ? src.text.slice(start, end).trimEnd() : '';
   // while streaming, an open fence runs to the end of the text; the block is closed once its last line is a fence
   const closed = isCodeFenceClosed(raw);
-  return <ChatCode code={text.replace(/\n$/, '')} lang={lang} closed={closed} previewKey={`${src.id}:${start ?? 0}`} />;
+  return <ChatCode code={text.replace(/\n$/, '')} lang={lang} closed={closed} streaming={src.streaming} previewKey={`${src.id}:${start ?? 0}`} />;
 }
 
 const components: Components = {
@@ -96,7 +96,7 @@ const components: Components = {
 /** Markdown at the chat size. `id` keys previews to their block. */
 export const ChatMarkdown = memo(function ChatMarkdown({ text, streaming, className, id = 'md' }: { text: string; streaming?: boolean; className?: string; id?: string }) {
   const shown = useThrottledText(text, streaming);
-  const ctx = useMemo(() => ({ text: shown, id }), [shown, id]);
+  const ctx = useMemo(() => ({ text: shown, id, streaming }), [shown, id, streaming]);
   const markdown = useMemo(() => <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{shown}</ReactMarkdown>, [shown]);
   return (
     <Source.Provider value={ctx}>

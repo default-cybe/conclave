@@ -16,7 +16,8 @@ export function ImageLink({ src, alt }: { src?: string | Blob; alt?: string }) {
   );
 }
 
-const Source = createContext('');
+/** The streamed source, null once the text is final: only a streaming reply can have a fence that is about to close. */
+const Source = createContext<string | null>(null);
 
 /** Indented code is complete; a fenced block needs a matching fence of at least the opening length. */
 export function isCodeFenceClosed(raw: string): boolean {
@@ -33,7 +34,7 @@ const components: Components = {
     const source = useContext(Source);
     const start = node?.position?.start.offset;
     const end = node?.position?.end.offset;
-    const closed = start === undefined || end === undefined || isCodeFenceClosed(source.slice(start, end));
+    const closed = source === null || start === undefined || end === undefined || isCodeFenceClosed(source.slice(start, end));
     const m = /language-([\w+-]+)/.exec(className ?? '');
     const text = String(children ?? '');
     const isBlock = Boolean(m) || text.includes('\n');
@@ -79,7 +80,7 @@ export const Markdown = memo(function Markdown({ text, streaming, className }: {
   const shown = useThrottledText(text, streaming);
   const markdown = useMemo(() => <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{shown}</ReactMarkdown>, [shown]);
   return (
-    <Source.Provider value={shown}>
+    <Source.Provider value={streaming ? shown : null}>
       <div className={cn('md', streaming && 'md-streaming', className)}>{markdown}</div>
     </Source.Provider>
   );
