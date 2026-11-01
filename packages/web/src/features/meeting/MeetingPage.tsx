@@ -22,9 +22,10 @@ import { isDesktopApp } from '@/lib/notify';
 import { onHubEvent, toast, useHub } from '@/store/store';
 import { frameBuffer } from '@/overlay/frame';
 import { applyEvent, emptyView, loadDetail, parseAnswer, type MeetingView } from '@/overlay/model';
-import { CONSENT_NOTE, type Meeting, type MeetingEvent, type MeetingStatus } from '@/overlay/wire';
+import type { Meeting, MeetingEvent, MeetingStatus } from '@/overlay/wire';
 import { meetings, openOverlay } from './api';
 import { Notes } from './NotesPage';
+import { AfterActions } from './AfterActions';
 import { MeetingsList } from './MeetingsList';
 import { MeetingForm, useOwnerZone } from './MeetingForm';
 import { PrepPanel, startMeeting } from './Prep';
@@ -129,7 +130,6 @@ function MeetingDetail({ id }: { id: string }) {
   usePageHeader(m?.title ?? 'Meeting', '/meetings');
   const [, go] = useLocation();
   const [confirm, setConfirm] = useState<'end' | 'delete'>();
-  const [copied, setCopied] = useState(false);
   const [edit, setEdit] = useState(false);
   const [keep, setKeep] = useState<number>();
   const moved = useMovedEvent(view.meeting);
@@ -169,23 +169,12 @@ function MeetingDetail({ id }: { id: string }) {
           {held ? 'Reschedule' : 'Edit meeting'}
         </Button>
       )}
-      <Button
-        variant="quiet"
-        size={size}
-        onClick={() =>
-          void navigator.clipboard?.writeText(CONSENT_NOTE).then(
-            () => setCopied(true),
-            () => undefined,
-          )
-        }
-      >
-        {copied ? 'Copied' : 'Copy consent note'}
-      </Button>
       {desktop && !ahead && m.status !== 'ended' && m.status !== 'failed' && (
         <Button variant="outline" size={size} onClick={() => void openOverlay(m.id).catch(fail)}>
           Open overlay
         </Button>
       )}
+      {!running && m.status !== 'ending' && <AfterActions meeting={m} size={size} wrapped={!!view.notes} />}
       {running && (
         <Button variant="outline" size={size} onClick={() => setConfirm('end')}>
           End meeting

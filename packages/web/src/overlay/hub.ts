@@ -3,7 +3,7 @@
  * function, so the overlay (plain fetch, no ConclaveClient) and the app
  * (api().request) call them the same way.
  */
-import type { AnswerNowInput, CreateMeetingInput, Meeting, MeetingCalendarEvent, MeetingDetail, MeetingFolder, MeetingNotes, MeetingListView, MeetingPatch, PrepView, SteeringPreset } from './wire';
+import type { AnswerNowInput, CreateMeetingInput, Meeting, MeetingCalendarEvent, MeetingChatInput, MeetingDetail, MeetingFolder, MeetingNotes, MeetingListView, MeetingPatch, PrepView, SteeringPreset } from './wire';
 
 export type Req = <T>(method: string, path: string, body?: unknown) => Promise<T>;
 
@@ -64,6 +64,9 @@ export function meetingApi(req: Req) {
     savePrep: (id: string, markdown: string) => req<PrepView>('PUT', `${m(id)}/prep`, { markdown }),
     revertPrep: (id: string) => req<void>('DELETE', `${m(id)}/prep/edit`),
     prepExtra: (id: string, sessionIds: string[]) => req<void>('PUT', `${m(id)}/prep/extra`, { sessionIds }),
+    // after the meeting: memory and chat
+    saveMemory: (id: string) => req<Meeting>('POST', `${m(id)}/memory`),
+    toChat: (id: string, input: MeetingChatInput) => req<{ id: string; kind?: string }>('POST', `${m(id)}/chat`, input),
     /** The session's messages: the brief and the answers' text. */
     messages: (sessionId: string) => req<{ id: string; content: { type: string; text?: string }[] }[]>('GET', `/api/sessions/${encodeURIComponent(sessionId)}/messages`),
   };

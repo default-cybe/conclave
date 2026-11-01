@@ -21,7 +21,7 @@ import { BRIEF_PROMPT, buildContextPack, type PackSession } from './context';
 import { buildPrep } from './prep';
 import { MeetingStore, NOW_WINDOW_MS, canMove, type MeetingView, type StoredSegment } from './store';
 import { isQuestion, similarity } from './trigger';
-import { wrapUp } from './wrapup';
+import { chatContext, memoryText, wrapUp } from './wrapup';
 import {
   AGENDA_MAX,
   BATCHES_PER_SECOND_MAX,
@@ -35,6 +35,7 @@ import {
   type Channel,
   type CreateMeetingInput,
   type Meeting,
+  type MeetingChatInput,
   type MeetingDetail,
   type MeetingFolder,
   type MeetingNotes,
@@ -878,6 +879,64 @@ export class MeetingService {
     const n = this.store.notes(id);
     if (!n) throw err(404, 'This meeting is not wrapped up yet.');
     return n;
+  }
+
+  // ----- after the meeting: memory and chat -----
+
+  /**
+   * "Save to memory": the notes, decisions and action items as one memory
+   * of the account, in the project's scope when the meeting has one. The
+   * owner asked for it, so it is accepted (the wrap-up episode waits in To
+   * review). A second call returns the meeting with the same memoryId.
+   */
+  saveToMemory(id: string, accountId: string): Meeting {
+    const m = this.get(id, accountId);
+    const n = this.store.notes(id);
+    if (!n) throw err(409, 'This meeting is not wrapped up yet.');
+    const mem = this.engine.memoryFor(accountId);
+    if (m.memoryId && mem.get(m.memoryId)) return m;
+    const session = this.engine.repos.sessions.get(m.sessionId);
+    const key = session ? [this.engine.memoryProject(session)].flat()[0] : undefined;
+    // no sourceSessionId: deleting the meeting keeps what the owner chose to save
+    const entry = mem.saveLearnedEpisode({
+      content: memoryText(m, n),
+      scope: key ? 'project' : 'global',
+      ...(key ? { scopeKey: key } : {}),
+      tags: ['meeting'],
+      meta: { source: 'meeting', meetingId: m.id, review: 'accepted', basis: 'user_accepted', episodeKey: `meeting-saved:${m.id}`, observedAt: m.startedAt ?? m.createdAt },
+    });
+    return this.emit(this.store.update(id, { memoryId: entry.id })!);
+  }
+
+  /** The text "Open in chat" and "Add to chat" put in the chat. */
+  chatText(id: string, accountId: string): string {
+    const m = this.get(id, accountId);
+    const brief = m.briefMessageId ? this.engine.repos.messages.get(m.briefMessageId)?.content.map((b) => (b.type === 'text' ? b.text : '')).join('') : undefined;
+    return chatContext(m, { prep: this.store.prepInUse(id) ?? brief, notes: this.store.notes(id), segments: this.store.allFinals(id) });
+  }
+
+  /**
+   * The meeting's context in a chat, as a user message and a short reply, so
+   * the owner asks follow-ups and no model turn runs until then. A new chat
+   * (Chat mode, or Code in the meeting's folder), or one of the account's chats.
+   */
+  async toChat(id: string, input: MeetingChatInput, accountId: string): Promise<Session> {
+    const m = this.get(id, accountId);
+    if (input.to !== undefined && input.to !== 'chat' && input.to !== 'code') throw err(400, 'to is chat or code');
+    if (input.sessionId !== undefined && typeof input.sessionId !== 'string') throw err(400, 'sessionId must be a string');
+    const text = this.chatText(id, accountId);
+    let s: Session | undefined;
+    if (input.sessionId) {
+      s = this.engine.repos.sessions.get(input.sessionId);
+      if (!s || (s.accountId ?? 'owner') !== accountId || s.kind === 'meeting') throw err(404, 'Chat not found');
+      if (s.status === 'running' || s.status === 'waiting_approval' || s.status === 'waiting_input') throw err(409, 'That chat is answering. Add the meeting when the reply is done.');
+    } else {
+      const title = `Meeting: ${m.title}`.slice(0, TITLE_MAX);
+      s = await this.engine.createSession(input.to === 'code' ? { kind: 'agent', title, device: m.device, cwd: m.cwd } : { kind: 'chat', title }, accountId, { byPerson: true });
+    }
+    this.engine.addMessage(s.id, { role: 'user', kind: 'normal', content: [{ type: 'text', text }], meta: { meetingContext: m.id } });
+    this.engine.addMessage(s.id, { role: 'assistant', kind: 'normal', content: [{ type: 'text', text: `I have the prep, notes and transcript of **${m.title}**. Ask me anything about it.` }], meta: { meetingContext: m.id } });
+    return this.engine.repos.sessions.get(s.id) ?? s;
   }
 
   /** Rows, the session, its messages and its memory episode; the notes file and the tasks stay. */

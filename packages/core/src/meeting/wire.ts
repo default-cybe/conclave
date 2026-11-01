@@ -47,6 +47,18 @@ export interface Meeting {
   prepAt?: number;
   prepEditedAt?: number;
   prepError?: string;
+  /** The memory saved with "Save to memory" (POST /api/meetings/:id/memory). */
+  memoryId?: string;
+}
+
+/**
+ * POST /api/meetings/:id/chat: the meeting's context in a chat. No sessionId
+ * starts a new one: a Chat-mode chat, or with to 'code' a session in the
+ * meeting's device and folder. A sessionId adds it to that chat.
+ */
+export interface MeetingChatInput {
+  to?: 'chat' | 'code';
+  sessionId?: string;
 }
 
 /** Scheduling and steering fields shared by create and patch. */

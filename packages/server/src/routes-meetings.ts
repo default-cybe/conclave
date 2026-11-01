@@ -27,10 +27,15 @@
  *   PUT    /api/meetings/:id/prep                     PrepView
  *   DELETE /api/meetings/:id/prep/edit                204
  *   PUT    /api/meetings/:id/prep/extra               204
+ *
+ * After the meeting:
+ *   POST   /api/meetings/:id/memory                   Meeting (memoryId set; once)
+ *   GET    /api/meetings/:id/context                  { text } what a chat gets
+ *   POST   /api/meetings/:id/chat                     Session { to?, sessionId? }
  */
 import type { Hono } from 'hono';
 import { meetingsOf, type MeetingService } from '@conclave/core/meeting/index.ts';
-import { BATCH_BODY_MAX, STEERING_PRESETS, segmentBatchProblem, type AnswerNowInput, type CreateMeetingInput, type MeetingPatch, type SegmentBatch } from '@conclave/core/meeting/wire.ts';
+import { BATCH_BODY_MAX, STEERING_PRESETS, segmentBatchProblem, type AnswerNowInput, type CreateMeetingInput, type MeetingChatInput, type MeetingPatch, type SegmentBatch } from '@conclave/core/meeting/wire.ts';
 import type { HonoEnv, ServerContext } from './context';
 import { HttpError, qNum, readJson } from './http';
 import { accountOf } from './scope';
@@ -134,6 +139,12 @@ export function registerMeetingRoutes(app: Hono<HonoEnv>, ctx: ServerContext): v
     svc().setPrepExtra(c.req.param('id'), (await readJson<{ sessionIds?: unknown }>(c, SMALL_BODY)).sessionIds, accountOf(c));
     return c.body(null, 204);
   });
+
+  app.post('/api/meetings/:id/memory', (c) => c.json(svc().saveToMemory(c.req.param('id'), accountOf(c))));
+
+  app.get('/api/meetings/:id/context', (c) => c.json({ text: svc().chatText(c.req.param('id'), accountOf(c)) }));
+
+  app.post('/api/meetings/:id/chat', async (c) => c.json(await svc().toChat(c.req.param('id'), await readJson<MeetingChatInput>(c, SMALL_BODY), accountOf(c))));
 
   app.delete('/api/meetings/:id', async (c) => {
     await svc().delete(c.req.param('id'), accountOf(c));

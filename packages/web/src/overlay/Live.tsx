@@ -14,7 +14,6 @@ import type { DesktopMeetingStatus } from './wire';
 import type { WsStatus } from './ws';
 import { AnswerCard } from './AnswerCard';
 import { Transcript } from './Transcript';
-import { CopyConsent } from './Setup';
 
 /** Whole minutes since `since`, re-rendered once a minute (the only timer of an idle overlay). */
 function useMinutes(since?: number): number {
@@ -188,7 +187,6 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
         <button type="button" className="ov-btn ov-quiet" onClick={() => void api.patch(m.id, { autoAnswer: m.autoAnswer === 'off' ? 'questions' : 'off' }).catch(fail)}>
           {m.autoAnswer === 'off' ? 'Auto answers off' : 'Auto answers on'}
         </button>
-        <CopyConsent />
         <span className="ov-grow" />
         {ending ? (
           <>

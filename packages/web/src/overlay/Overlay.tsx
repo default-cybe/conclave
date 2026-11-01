@@ -180,7 +180,7 @@ function MeetingScreen({ conn, api, meetingId }: { conn: Conn; api: MeetingApi; 
   if (m.status === 'ending' || m.status === 'ended' || m.status === 'failed')
     return (
       <Panel>
-        <Ended view={view} wasListening={listening} />
+        <Ended api={api} view={view} wasListening={listening} />
       </Panel>
     );
   return (
@@ -190,8 +190,9 @@ function MeetingScreen({ conn, api, meetingId }: { conn: Conn; api: MeetingApi; 
   );
 }
 
-function Ended({ view, wasListening }: { view: MeetingView; wasListening: boolean }) {
+function Ended({ api, view, wasListening }: { api: MeetingApi; view: MeetingView; wasListening: boolean }) {
   const m = view.meeting!;
+  const [saved, setSaved] = useState<'saving' | 'saved' | string>(m.memoryId ? 'saved' : '');
   // the hub ended it while this app still listened (a 409 on segments): Rust stops on its own (3.5)
   useEffect(() => {
     if (wasListening) void ipc.stop()?.catch(() => undefined);
@@ -223,7 +224,27 @@ function Ended({ view, wasListening }: { view: MeetingView; wasListening: boolea
       ) : (
         m.status === 'ended' && <p className="ov-muted">The notes are on the meeting page in Conclave.</p>
       )}
+      {saved !== '' && saved !== 'saving' && saved !== 'saved' && <p className="ov-fault">{saved}</p>}
       <div className="ov-row">
+        {view.notes &&
+          (saved === 'saved' ? (
+            <span className="ov-muted">Saved to memory</span>
+          ) : (
+            <button
+              type="button"
+              className="ov-btn ov-primary"
+              disabled={saved === 'saving'}
+              onClick={() => {
+                setSaved('saving');
+                api.saveMemory(m.id).then(
+                  () => setSaved('saved'),
+                  (e: Error) => setSaved(e.message),
+                );
+              }}
+            >
+              {saved === 'saving' ? 'Saving' : 'Save to memory'}
+            </button>
+          ))}
         <button type="button" className="ov-btn" onClick={() => void ipc.hide()}>
           Close
         </button>

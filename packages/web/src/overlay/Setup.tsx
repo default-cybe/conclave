@@ -1,20 +1,18 @@
 /**
  * Before listening (docs/design/MEETING-MODE.md 1.1, 1.2): the setup screen
  * (project, title, agenda, Prepare) and the ready screen (the brief as it
- * streams, the consent line and "Start listening"). The window takes focus
+ * streams and "Start listening"). The window takes focus
  * only here (meeting_focusable, 7.6); "Start listening" gives it back.
- * The tap on "Start listening" is the consent gesture: capture never starts
- * without it.
+ * Capture never starts without the tap on "Start listening".
  */
 import { useEffect, useState } from 'react';
 import type { ProjectDto } from '@conclave/core/client';
 import type { MeetingApi, Req } from './hub';
 import { ipc } from './desktop';
 import type { MeetingView } from './model';
-import { CONSENT_NOTE, type DesktopMeetingStatus } from './wire';
+import type { DesktopMeetingStatus } from './wire';
 
 const AGENDA_MAX = 4000;
-const LEGAL_KEY = 'conclave.meeting.legalSeen';
 
 /** One choice per project folder: a project with two devices offers both. Newest project first. */
 export function folderChoices(projects: ProjectDto[]): { projectId: string; device: string; cwd: string; label: string; where: string }[] {
@@ -107,21 +105,6 @@ export function Ready({ api, view, desktop }: { api: MeetingApi; view: MeetingVi
   const m = view.meeting!;
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  // the consent law note shows on the first meeting only (8)
-  const [legal] = useState(() => {
-    try {
-      return localStorage.getItem(LEGAL_KEY) !== '1';
-    } catch {
-      return false;
-    }
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem(LEGAL_KEY, '1');
-    } catch {
-      /* no storage: it shows again next time */
-    }
-  }, []);
   // a scheduled meeting with a prep has no brief message: the prep is its brief (11.4.5)
   const [prep, setPrep] = useState<string>();
   useEffect(() => {
@@ -158,7 +141,6 @@ export function Ready({ api, view, desktop }: { api: MeetingApi; view: MeetingVi
         {brief ? <BriefText text={brief} /> : <p className="ov-muted">{m.status === 'preparing' ? 'Reading the project' : 'No brief'}</p>}
       </div>
       <p className="ov-body">Conclave will hear your microphone and this computer's sound until you end the meeting.</p>
-      {legal && <p className="ov-muted">Some places, for example California, need everyone's consent to record a call. Not legal advice.</p>}
       {mac && <p className="ov-muted">Hidden from older capture only. Zoom, Teams, OBS and Chrome on macOS 15 can see it. Hide it when you share.</p>}
       {desktop?.stt.state === 'downloading' && <p className="ov-muted">Downloading speech model {Math.round((desktop.stt.progress ?? 0) * 100)} %</p>}
       {error && (
@@ -175,7 +157,6 @@ export function Ready({ api, view, desktop }: { api: MeetingApi; view: MeetingVi
         ) : (
           <p className="ov-muted">Open this in the Conclave desktop app to listen.</p>
         )}
-        <CopyConsent />
         <button type="button" className="ov-btn ov-quiet" onClick={() => void api.remove(m.id).then(() => ipc.hide())}>
           Cancel
         </button>
@@ -214,20 +195,3 @@ export function BriefText({ text }: { text: string }) {
   return <>{out}</>;
 }
 
-export function CopyConsent() {
-  const [done, setDone] = useState(false);
-  return (
-    <button
-      type="button"
-      className="ov-btn ov-quiet"
-      onClick={() =>
-        void navigator.clipboard?.writeText(CONSENT_NOTE).then(
-          () => setDone(true),
-          () => undefined,
-        )
-      }
-    >
-      {done ? 'Copied' : 'Copy consent note'}
-    </button>
-  );
-}

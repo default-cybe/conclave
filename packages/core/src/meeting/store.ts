@@ -93,6 +93,8 @@ const ADDED: Array<[string, string]> = [
   ['prep_error', 'TEXT'],
   ['prep_sources', 'TEXT'],
   ['prep_extra', 'TEXT'],
+  // the memory the owner saved with "Save to memory"
+  ['memory_id', 'TEXT'],
 ];
 
 const MIN = 60_000;
@@ -162,6 +164,7 @@ function rowToMeeting(r: Row): Meeting {
     ...(r.prep_at ? { prepAt: r.prep_at } : {}),
     ...(r.prep_edited_at ? { prepEditedAt: r.prep_edited_at } : {}),
     ...(r.prep_error ? { prepError: r.prep_error } : {}),
+    ...(r.memory_id ? { memoryId: r.memory_id } : {}),
   };
 }
 
@@ -218,6 +221,7 @@ const COLUMNS: Partial<Record<keyof Meeting, string>> = {
   prepAt: 'prep_at',
   prepEditedAt: 'prep_edited_at',
   prepError: 'prep_error',
+  memoryId: 'memory_id',
 };
 
 export class MeetingStore {

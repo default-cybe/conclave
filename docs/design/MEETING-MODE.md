@@ -28,7 +28,7 @@ There are two ways in. Both end in the same state: a meeting row on the hub in s
 
 Creating a meeting starts the brief (1.2) at once. Listening does not start yet.
 
-**Start listening.** The overlay shows one button, "Start listening", and the line "Conclave will hear your microphone and this computer's sound until you end the meeting." The tap is the consent gesture: only then the overlay calls `meeting_start`, Rust opens the two capture streams, the tray icon turns to the recording variant and the hub sets status `live`. A meeting never starts capture without this tap in the overlay.
+**Start listening.** The overlay shows one button, "Start listening", and the line "Conclave will hear your microphone and this computer's sound until you end the meeting." Only after this tap the overlay calls `meeting_start`, Rust opens the two capture streams, the tray icon turns to the recording variant and the hub sets status `live`. A meeting never starts capture without this tap in the overlay.
 
 ### 1.2 Pre-meeting brief
 
@@ -650,7 +650,7 @@ If a hotkey is taken by another app, registration failure is shown in the overla
 ## 8. Security and privacy
 
 - **Recording indicator.** While capture runs: the tray icon switches to the recording variant and its first menu line reads "Listening: <title> (mic + system sound)"; the overlay's status line shows a red dot and "Listening" and cannot be turned off; the OS shows its own mic indicator (macOS orange dot, Windows taskbar mic). When the overlay is hidden, the tray still shows it. Pause turns all of them to "Paused".
-- **Consent line.** The overlay and the meeting page have "Copy consent note": "Heads up: I use a private note-taker that transcribes this call on my computer. No audio is saved. Tell me if you would rather I turn it off." The owner pastes it in the meeting chat. Some places (for example California, Penal Code 632) require consent of all parties to record a confidential conversation; this is shown once on the first meeting, with "Not legal advice".
+- **Telling the others.** Whether and how to tell the people in a call is the owner's call; the app shows no consent note or legal text.
 - **Data locations.** Audio: RAM only, on the desktop, never sent. Transcript: hub database, `meeting_segments`, the account's rows. Answers, brief, wrap-up: messages of the meeting session. Notes: `<cwd>/.conclave/meetings/` on the meeting device. Speech model: `<app data>/models/parakeet-tdt-0.6b-v2-int8/` on the desktop. Deleting a meeting removes rows and the session, not the notes file or tasks.
 - **Members.** Every table row carries `account_id`. `own({ id: 'meeting' })` on every `:id` route; lists filter by `accountOf`. Events carry the meeting's `sessionId` and pass `eventVisibleTo`. The context pack reads only the meeting account's sessions, tasks and memory (`memoryFor(accountOf(session))`), and git only on a device the account owns (`ownDevice`). A member's hub-device meeting gets the member's folder rule from `createSession`. Tests in 9 cover a member reading, posting segments to, ending and listing the owner's meeting: all 404.
 - **Injection through speech.** Anyone in the call can say anything, and the owner reads the answer aloud, so the risks are tool use, setting changes and leaking data into the room.

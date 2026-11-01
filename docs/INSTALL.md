@@ -1281,8 +1281,6 @@ picked. Design: docs/design/MEETING-MODE.md.
   it; on Linux it is always visible. The overlay also hides itself when it
   sees a share start, but test with your own apps before you rely on it, and
   share one window instead of the whole screen when you can.
-- **Ask first**: tell the others you use a note-taker (the overlay has **Copy
-  consent note**). Some places require everyone's consent to record a call.
 - Speech from others is treated as untrusted text: it cannot run tools or
   change settings, and answers never carry keys or passwords from your
   project.

@@ -620,6 +620,10 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'PUT /api/meetings/:id/prep': own({ id: 'meeting' }),
   'DELETE /api/meetings/:id/prep/edit': own({ id: 'meeting' }),
   'PUT /api/meetings/:id/prep/extra': own({ id: 'meeting' }),
+  // after the meeting: memory and chat (the chat's sessionId is checked by the service)
+  'POST /api/meetings/:id/memory': own({ id: 'meeting' }),
+  'GET /api/meetings/:id/context': own({ id: 'meeting' }),
+  'POST /api/meetings/:id/chat': own({ id: 'meeting' }),
 };
 
 /**

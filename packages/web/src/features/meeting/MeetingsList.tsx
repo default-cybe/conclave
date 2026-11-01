@@ -27,7 +27,8 @@ function useMeetings() {
   const [list, setList] = useState<Meeting[]>();
   const [error, setError] = useState<string>();
   const [morePast, setMorePast] = useState(false);
-  const merge = (more: Meeting[]) => setList((l) => [...(l ?? []), ...more.filter((m) => !l?.some((x) => x.id === m.id))]);
+  // by id: one meeting can come back in two views (a late ready one under Now and Upcoming)
+  const merge = (more: Meeting[]) => setList((l) => [...new Map([...(l ?? []), ...more].map((m) => [m.id, m])).values()]);
   const older = (before?: number) =>
     meetings()
       .view('past', { limit: PAST_PAGE, before })
