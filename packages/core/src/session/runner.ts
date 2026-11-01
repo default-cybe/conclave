@@ -20,7 +20,7 @@ import type { AgentDef } from '../extensions/types';
 import type { ProviderMessage, SystemBlock, ToolSpec } from '../providers/types';
 import { ProviderError } from '../providers/types';
 import type { Engine } from '../engine/engine';
-import { activeMessages, buildProviderMessages, lastAssistantText, reminder, isReminder } from './transcript';
+import { activeMessages, activeStored, buildProviderMessages, lastAssistantText, reminder, isReminder } from './transcript';
 import { buildSystemPrompt, subagentCatalog, TOOL_NOTE_TOOLS, type PromptParts } from './prompt';
 import { delegateCatalog } from '../engine/delegate';
 import { flattenLastToolTurn, isTranscriptShapeError } from './pairing';
@@ -1217,15 +1217,22 @@ export class SessionRunner {
 
       const system = await this.systemFor(session, agent, currentModel, mode, tools.map((t) => t.name));
       const cfg = engine.config.get();
+      // one transcript read per step, from the last summary's coversThroughSeq instead of seq 0; the clearing pass and the request build share it
+      let stored = activeStored(engine.repos.messages, this.id);
       // old tool output is cleared in one batch and the marks are stored, so later requests send the same bytes
       if (cfg.context.clearToolResultsAfterTurns !== 0 && cfg.context.clearBatchTokens !== 0) {
         // the stored messages got shorter, so the last usage overstates them
-        if (applyClearing(engine, this.id, { protectTokens: cfg.context.clearProtectTokens, batchTokens: cfg.context.clearBatchTokens })) this.meter = undefined;
+        if (applyClearing(engine, this.id, { protectTokens: cfg.context.clearProtectTokens, batchTokens: cfg.context.clearBatchTokens }, stored)) {
+          this.meter = undefined;
+          stored = activeStored(engine.repos.messages, this.id);
+        }
       }
       // a model without vision reads images as text another model wrote (session/image-text.ts)
       const imageText = !seesImages(resolved.model, resolved.info, cfg.providers[resolved.provider]);
-      if (imageText) await transcribeImages(engine, this.id, engine.sessionAccount(this.id), signal);
-      const stored = engine.repos.messages.list(this.id);
+      if (imageText) {
+        await transcribeImages(engine, this.id, engine.sessionAccount(this.id), signal);
+        stored = activeStored(engine.repos.messages, this.id);
+      }
       // the receipts say whether this request carried each attachment; another model may differ
       const pdf = engine.registryFor(this.session).get(resolved.provider)?.readsPdf?.(resolved.model) ?? true;
       markAttachmentInclusion(engine, stored, !imageText, pdf);
@@ -1518,6 +1525,11 @@ export class SessionRunner {
       const flush = async () => {
         if (!batch.length) return;
         const out = await Promise.all(batch.map(run));
+        // a concurrency-safe tool can end the turn too: a valid StructuredOutput call is read-only and runs in the batch
+        for (const r of out) {
+          if (r.meta?.structuredDone) structuredDone = true;
+          if (r.meta?.stopTurn) stopRequested = String(r.meta.stopTurn);
+        }
         results.push(...out);
         batch = [];
       };
@@ -1525,6 +1537,8 @@ export class SessionRunner {
       const order = new Map(toolUses.map((u, i) => [u.id, i]));
       const inOrder = (rs: ToolResultBlock[]) => rs.sort((a, b) => (order.get(a.toolUseId) ?? 0) - (order.get(b.toolUseId) ?? 0));
       let stopRequested: string | undefined;
+      // a valid StructuredOutput call (meta.structuredDone): the result is recorded, so the turn ends with no extra inference and no notice
+      let structuredDone = false;
       const refused: Array<{ verdict: Verdict; use: ToolUseBlock }> = [];
       try {
         for (const use of toolUses) {
@@ -1548,6 +1562,7 @@ export class SessionRunner {
           await flush();
           const r = await run(use);
           results.push(r);
+          if (r.meta?.structuredDone) structuredDone = true;
           if (r.meta?.stopTurn) stopRequested = String(r.meta.stopTurn);
         }
         await flush();
@@ -1622,6 +1637,7 @@ export class SessionRunner {
         await this.finalAnswerTurn(currentModel, mode, signal, loopStopReminder(guardStop), { loopGuard: halt?.verdict.code ?? 'stopped' });
         return end('loop_capped', false);
       }
+      if (structuredDone) return end('hook', true);
       if (stopRequested) {
         engine.notice(this.id, stopRequested, 'info');
         return end('hook', true);

@@ -521,7 +521,7 @@ function ChangesCard({ session }: { session: Session }) {
       id="changes"
       title="Changes"
       value={
-        files.length ? (
+        diff.data?.offline ? 'Device offline' : files.length ? (
           <span className="num font-mono text-[12.5px]">
             <span className="text-ok">+{added}</span> <span className="text-fault">−{removed}</span>
           </span>
@@ -532,7 +532,8 @@ function ChangesCard({ session }: { session: Session }) {
         )
       }
     >
-      {files.length === 0 && extra === 0 && !checkpoints?.length && <p className={EMPTY}>Files it changes show up here, with a checkpoint before each change.</p>}
+      {!diff.data?.offline && files.length === 0 && extra === 0 && !checkpoints?.length && <p className={EMPTY}>Files it changes show up here, with a checkpoint before each change.</p>}
+      {diff.data?.offline && <p className={EMPTY}>Device offline: its changes cannot be read until it is back.</p>}
       {files.length > 0 && (
         <ul className="m-0 list-none p-0">
           {files.map((f) => {
