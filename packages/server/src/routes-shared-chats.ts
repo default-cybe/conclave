@@ -29,7 +29,10 @@ function peopleError(err: unknown): never {
   throw err;
 }
 
-/** Push a notice to one account only (the bus stamps it with that account, so nobody else's socket gets it). */
+/**
+ * Push a notice to one account only (the bus stamps it with that account, so nobody else's socket gets it).
+ * An invite links to /chat, where Accept waits in the sidebar: the chat itself is 404 until then.
+ */
 function notify(ctx: ServerContext, accountId: string, title: string, link?: string): void {
   void ctx.engine.notifier.send({ accountId, title, body: '', level: 'info', ...(link ? { link } : {}) });
 }
@@ -63,7 +66,9 @@ export function registerSharedChatRoutes(app: Hono<HonoEnv>, ctx: ServerContext)
     const caller = accountOf(c);
     const store = chatParticipants(ctx);
     let seatSession;
-    if (store.get(chatId, caller)?.access === 'participant') {
+    const invited = store.get(chatId, caller);
+    // only a waiting invite makes a seat: anything else is refused by accept() below, with no orphan seat left behind
+    if (invited?.state === 'invited' && invited.access === 'participant') {
       // the seat is the participant's own chat session, memory off, pointed at the shared chat; their turns will run in it
       const chat = engine.getSession(chatId);
       const s = await engine.createSession({ kind: 'chat', title: chat?.title ?? 'Chat', chat: { memory: false } }, caller, { byPerson: true });
@@ -117,7 +122,7 @@ export function registerSharedChatRoutes(app: Hono<HonoEnv>, ctx: ServerContext)
     } catch (err) {
       peopleError(err);
     }
-    notify(ctx, accountId, `${nameOf(caller)} added you to "${engine.getSession(chatId)?.title ?? 'Chat'}" as a ${p.access === 'viewer' ? 'Viewer' : 'Participant'}.`, `/s/${chatId}`);
+    notify(ctx, accountId, `${nameOf(caller)} added you to "${engine.getSession(chatId)?.title ?? 'Chat'}" as a ${p.access === 'viewer' ? 'Viewer' : 'Participant'}.`, '/chat');
     audit(c, 'chat.invite', `${body.party} to ${chatId} as ${p.access}`);
     return c.json(p);
   });
@@ -136,6 +141,7 @@ export function registerSharedChatRoutes(app: Hono<HonoEnv>, ctx: ServerContext)
         store.setSeat(chatId, c.req.param('pid'), s.id);
       }
     }
+    const before = store.get(chatId, c.req.param('pid'));
     let p: ChatParticipant;
     try {
       p = store.change(chatId, caller, c.req.param('pid'), { access: body.access as ChatAccess | undefined, history: body.history as ChatHistory | undefined });
@@ -144,6 +150,8 @@ export function registerSharedChatRoutes(app: Hono<HonoEnv>, ctx: ServerContext)
     }
     // a role that no longer allows turns ends theirs before the change is acknowledged; a history change alone keeps a queued turn
     if (p.access !== 'participant') engine.revokeChatTurns(chatId, c.req.param('pid'));
+    // all to joined: their seat's summaries of earlier messages go, and a turn already holding them stops
+    else if (before?.history === 'all' && p.history === 'joined') engine.narrowChatHistory(chatId, c.req.param('pid'));
     audit(c, 'chat.access', `${c.req.param('pid')} in ${chatId}: ${p.access}/${p.history}`);
     return c.json(p);
   });

@@ -230,6 +230,14 @@ function checkHistory(value: unknown): asserts value is ChatHistory {
   if (value !== 'joined' && value !== 'all') throw new PeopleError(400, 'history must be joined or all.');
 }
 
+/**
+ * A chat with people in it now (invited or active). Declined, left and removed
+ * rows do not make an owner's chat shared again: its sends go the normal way.
+ */
+export function hasPeople(db: Db, chatId: string): boolean {
+  return !!db.query("SELECT 1 FROM chat_participants WHERE session_id = ? AND state IN ('active', 'invited') LIMIT 1").get(chatId);
+}
+
 /** Saved sender names survive rename/removal. Legacy NULL senders are always the chat owner's. */
 export function messageAccount(m: Pick<Message, 'sender'>, owner = OWNER_ID): string | undefined {
   if (!m.sender) return owner;
@@ -276,16 +284,18 @@ function activeParticipants(db: Db, chatId: string): ChatParticipant[] {
 /**
  * The event a participant's socket gets, or undefined when they may not have
  * it. Membership is read from the table on every event, so a leave or removal
- * stops the stream at once. The owner always gets the event as it was emitted.
+ * stops the stream at once. The owner gets every event, but a participant's
+ * messages shaped like anyone else's: full tool output is only the starter's.
  */
 export function sharedChatEventView(db: Db, e: EngineEventEnvelope, viewer: string): EngineEventEnvelope | undefined {
   const chatId = sharedEventSession(e);
   if (!chatId) return undefined;
   const owner = chatOwner(db, chatId);
-  if (owner === undefined || owner === viewer) return owner === undefined ? undefined : e;
+  if (owner === undefined) return undefined;
+  const any = e as Record<string, any>;
+  if (owner === viewer) return (e.type === 'message.created' || e.type === 'message.updated') && any.message ? ({ ...e, message: sharedMessageView(any.message as Message, viewer, owner) } as EngineEventEnvelope) : e;
   const p = activeParticipants(db, chatId).find((x) => x.accountId === viewer);
   if (!p) return undefined;
-  const any = e as Record<string, any>;
   if (e.type === 'message.delta') {
     // tool input, thinking and attachments never stream to another account
     if (any.kind !== 'text') return undefined;

@@ -42,8 +42,7 @@ export type OwnedKind =
   | 'pimAccount'
   | 'proposal'
   | 'preset'
-  | 'meeting'
-  | 'chatInvite';
+  | 'meeting';
 
 export type Rule = 'public' | 'admin' | 'self' | 'hub' | { own: Record<string, OwnedKind> } | { seat: Record<string, 'session'> };
 
@@ -149,8 +148,9 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   // invites and the "shared with you" list: each account's own, never another's
   'GET /api/chats/invites': 'self',
   'GET /api/chats/shared': 'self',
-  'POST /api/chats/invites/:id/accept': own({ id: 'chatInvite' }),
-  'POST /api/chats/invites/:id/decline': own({ id: 'chatInvite' }),
+  // a chat has one invite row per person, so the id alone names no owner: accept() and decline() read the caller's own row, 404 without one
+  'POST /api/chats/invites/:id/accept': 'self',
+  'POST /api/chats/invites/:id/decline': 'self',
   // the chat's people: the owner invites, changes role or history, removes; a participant may list and leave
   'GET /api/sessions/:id/participants': SEAT,
   'POST /api/sessions/:id/participants': SESSION,
@@ -726,9 +726,6 @@ export function ownerOf(ctx: ServerContext, kind: OwnedKind, id: string): string
       return pimAccountOwner(db, id);
     case 'meeting':
       return col('SELECT account_id FROM meetings WHERE id = ?');
-    case 'chatInvite':
-      // a chat invite row is the invitee's while it waits (state invited): someone else's invite id is 404, as unknown
-      return col("SELECT account_id FROM chat_participants WHERE session_id = ? AND state = 'invited'");
     case 'alert': {
       const a = alertsOf(engine)?.list().find((x) => x.id === id);
       return a ? (engine.sessionAccount(a.sessionId) ?? OWNER_ID) : undefined;

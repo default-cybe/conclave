@@ -420,6 +420,9 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
     revokeChatTurns() {
       rec('revokeChatTurns');
     },
+    narrowChatHistory(chatId, accountId) {
+      rec('narrowChatHistory', chatId, accountId);
+    },
     addMessage(sessionId, m) {
       const seq = repos.messages.nextSeq(sessionId);
       const msg: Message = { id: newId('msg'), sessionId, seq, createdAt: Date.now(), ...m };

@@ -40,6 +40,7 @@ import { MessageList } from './MessageList';
 import { InlineModel, MetaText } from './Log';
 import { canScheduleHere, scheduleHere } from '@/features/meeting/links';
 import { Composer } from './Composer';
+import { PeopleControl } from './shared';
 import { TodoStrip } from './TodoStrip';
 import { RunningTasks } from './RunningTasks';
 import { BrowserLive } from './BrowserLive';
@@ -282,6 +283,7 @@ function ChatHeader({ session }: { session: Session }) {
           <HeaderState session={session} />
         </div>
         <div className="-mr-2 flex shrink-0 items-center gap-0.5">
+          <PeopleControl session={session} />
           <SessionMenu session={session} />
           <IconButton label={wide ? (contextOpen ? 'Hide details' : 'Show details') : 'Details'} active={wide ? contextOpen : drawerOpen} onClick={toggleContext}>
             <PanelRight />

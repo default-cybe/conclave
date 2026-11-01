@@ -173,7 +173,15 @@ export class ClientHub {
   /** The event as this socket's account may get it: its own, or a shared chat's shaped by sharedChatEventView. */
   private frameFor(ws: ServerWebSocket<ClientSocketData>, e: EngineEventEnvelope): string | undefined {
     const account = ws.data.accountId ?? 'owner';
-    if (eventVisibleTo(e.account, account)) return JSON.stringify(e);
+    if (eventVisibleTo(e.account, account)) {
+      // a seat turn writes into the chat, so its messages carry the chat owner's stamp: the owner reads them shaped too
+      const m = (e as { message?: { sender?: string } }).message;
+      if ((e.type === 'message.created' || e.type === 'message.updated') && m?.sender && m.sender !== `account:${account}`) {
+        const shaped = sharedChatEventView(this.engine.repos.db, e, account);
+        return shaped ? JSON.stringify(shaped) : undefined;
+      }
+      return JSON.stringify(e);
+    }
     // a shared chat: only the doc's allow list, shaped per viewer, membership read per event so removal stops the stream
     if (!sharedEventSession(e)) return undefined;
     const shaped = sharedChatEventView(this.engine.repos.db, e, account);

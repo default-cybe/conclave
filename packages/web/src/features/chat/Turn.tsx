@@ -37,6 +37,7 @@ import { useFolded } from './FanOutCard';
 import { thoughtTime } from '@/lib/toolLine';
 import { COMPOSE_EVENT, msgText, readDismissed, writeDismissed, type ComposeDetail } from './util';
 import { storedWord } from './Pending';
+import { senderName } from './shared';
 
 // ---------------------------------------------------------------------------
 // The owner
@@ -243,12 +244,23 @@ export const AssistantTurn = memo(function AssistantTurn({ messages, session, st
   let shown = hhmm(first.createdAt);
   const firstTime = shown;
   const seen = new Set<string>();
+  const starter = senderName(first, useHub.getState().me?.id ?? 'owner');
 
   return (
     <div data-hover="turn">
       <LogRow time={firstTime} className={cn(arrived(known, first.id) && 'anim-fade')}>
         <AuthorLine actions={!isStreaming && <TurnActions session={session} last={last} text={text} />}>
-          <Speaker agent={first.agent ?? session.agent} model={first.model ?? session.model} />
+          {/* a shared chat: the turn's starter, with their model (SHARED-WITH-MEMBERS.md 6) */}
+          {starter ? (
+            <span className="flex min-w-0 items-center truncate">
+              <span className="shrink-0">{starter}</span>
+              <span className="inline-flex min-w-0 items-center truncate font-normal text-fg-3">
+                &nbsp;via <ModelName model={first.model ?? session.model} size={13} />
+              </span>
+            </span>
+          ) : (
+            <Speaker agent={first.agent ?? session.agent} model={first.model ?? session.model} />
+          )}
         </AuthorLine>
       </LogRow>
       {pieces.map((p, pi) => {

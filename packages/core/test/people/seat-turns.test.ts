@@ -144,6 +144,69 @@ describe(`a seat turn runs on its starter's account`, () => {
     expect(threw).toBe(true); // her next post is refused
   }, 60_000);
 
+  test('a seat takes no direct send, resume or retry: its turns run only through the chat queue', async () => {
+    t = await startTestEngine({ script: [[{ text: 'reply' }]] });
+    const { engine } = t;
+    const chat = await engine.createSession({ kind: 'chat', title: 'Seat' }, OWNER_ID);
+    const alice = await join(engine, chat.id, 'alice');
+    await expect(engine.send(alice.seatId, { text: 'jump the queue' })).rejects.toMatchObject({ status: 409 });
+    await expect(engine.resumeSession(alice.seatId)).rejects.toMatchObject({ status: 409 });
+    await expect(engine.retryProvider(alice.seatId, 'msg_x', 'mock/mock-model')).rejects.toMatchObject({ status: 409 });
+    expect(() => engine.sendQueued(alice.seatId, 'p1')).toThrow('Send in the shared chat');
+    expect(t.requests).toHaveLength(0);
+  }, 60_000);
+
+  test('a declined invite leaves the chat unshared: the owner sends the normal way', async () => {
+    t = await startTestEngine({ script: [[{ text: 'reply' }]] });
+    const { engine } = t;
+    const chat = await engine.createSession({ kind: 'chat', title: 'Solo' }, OWNER_ID);
+    const bob = engine.people.create({ name: 'bob', displayName: 'Bob' });
+    const store = new ChatParticipantStore(engine.repos.db);
+    store.invite(chat.id, OWNER_ID, bob.id, {});
+    store.decline(chat.id, bob.id);
+    const res = await engine.send(chat.id, { text: 'just me' });
+    expect(res.queued).toBe(false); // the stored runner queue, not the in-memory shared-turn tail
+    await engine.runnerFor(chat.id).waitIdle();
+  }, 60_000);
+
+  test('history narrowed from all to joined drops the seat summaries of what it may no longer read', async () => {
+    t = await startTestEngine({ script: [[{ text: 'reply' }]] });
+    const { engine } = t;
+    const chat = await engine.createSession({ kind: 'chat', title: 'History' }, OWNER_ID);
+    engine.addMessage(chat.id, { role: 'user', kind: 'normal', content: [{ type: 'text', text: 'before-join' }] });
+    const alice = await join(engine, chat.id, 'alice');
+    const store = new ChatParticipantStore(engine.repos.db);
+    store.change(chat.id, OWNER_ID, alice.id, { history: 'all' });
+    // her own compaction, saved private in her seat, summarizes the earlier messages
+    engine.addMessage(alice.seatId, { role: 'user', kind: 'summary', content: [{ type: 'text', text: 'summary-of-before-join' }] });
+    expect(JSON.stringify(engine.turnMessages(alice.seatId))).toContain('summary-of-before-join');
+    store.change(chat.id, OWNER_ID, alice.id, { history: 'joined' });
+    engine.narrowChatHistory(chat.id, alice.id);
+    const seen = JSON.stringify(engine.turnMessages(alice.seatId));
+    expect(seen).not.toContain('summary-of-before-join');
+    expect(seen).not.toContain('before-join');
+  }, 60_000);
+
+  test(`the owner's digest catch-up learns only the owner's words, never a participant's`, async () => {
+    t = await startTestEngine({ script: [[{ text: 'reply' }]], overrides: { memory: { enabled: true, autoExtract: true, autoInject: false, injectLimit: 5 } } as never });
+    const { engine } = t;
+    const chat = await engine.createSession({ kind: 'chat', title: 'Digest' }, OWNER_ID);
+    engine.addMessage(chat.id, { role: 'user', kind: 'normal', content: [{ type: 'text', text: 'owner-digest-words about the porch' }] });
+    engine.addMessage(chat.id, { role: 'assistant', kind: 'normal', content: [{ type: 'text', text: 'Noted the porch.' }] });
+    const alice = await join(engine, chat.id, 'alice');
+    // her seat turn writes into the chat (destination), her private tool output with it
+    engine.addMessage(alice.seatId, { role: 'user', kind: 'normal', content: [{ type: 'text', text: 'alice asks about her bank' }] });
+    engine.addMessage(alice.seatId, { role: 'assistant', kind: 'normal', content: [{ type: 'tool_use', id: 'm1', name: 'MemorySearch', input: { q: 'pin' } }] });
+    engine.addMessage(alice.seatId, { role: 'user', kind: 'normal', content: [{ type: 'tool_result', toolUseId: 'm1', content: 'alice-bank-pin-4417' }] });
+    expect(engine.getMessages(chat.id).some((m) => m.sender === `account:${alice.id}`)).toBe(true);
+    const { DailyDigest } = await import('../../src/memory/digest');
+    await new DailyDigest(engine, { writer: { groupedTargets: () => [], writeGrouped: async () => {} } }).digest({ zone: 'UTC' });
+    const chores = t.chores.join('\n');
+    expect(chores).toContain('owner-digest-words'); // the catch-up ran on the owner's chat
+    expect(chores).not.toContain('alice-bank-pin-4417');
+    expect(chores).not.toContain('alice asks about her bank');
+  }, 60_000);
+
   test('Just talk posts a plain human message with no provider call', async () => {
     t = await startTestEngine({ script: [[{ text: 'reply' }]] });
     const { engine } = t;

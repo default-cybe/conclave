@@ -73,11 +73,25 @@ export class SharedChatTurns {
     if (seat) this.engine.scheduler.cancel(`resume:${seat}`);
   }
 
+  /**
+   * History went from all to joined: the seat's own summaries may describe
+   * messages it can no longer read, so they go, and a running turn of theirs
+   * that already holds that context stops. A queued turn reads the new view.
+   */
+  historyNarrowed(chatId: string, accountId: string): void {
+    const seat = new ChatParticipantStore(this.engine.repos.db).get(chatId, accountId)?.seatId;
+    if (!seat) return;
+    const running = this.running.get(chatId);
+    if (running?.accountId === accountId) this.engine.abort(running.seatId);
+    for (const m of this.engine.repos.messages.list(seat)) if (m.kind === 'summary') this.engine.repos.messages.delete(m.id);
+  }
+
   /** No transcript copies: each inference reads the shared chat through the starter's current visibility. */
   messages(sessionId: string): Message[] {
     const engine = this.engine;
     const session = engine.requireSession(sessionId);
     const chatId = (session.meta?.seat as { chatId?: string } | undefined)?.chatId;
+    // any row, left or removed too: their messages stay in the chat and must still reach the owner's turns as quoted data
     if (!chatId && (session.kind !== 'chat' || !engine.repos.db.query('SELECT 1 FROM chat_participants WHERE session_id = ? LIMIT 1').get(sessionId))) return engine.repos.messages.list(sessionId);
     const transcriptId = chatId ?? sessionId;
     const accountId = session.accountId ?? OWNER_ID;
@@ -89,7 +103,7 @@ export class SharedChatTurns {
       if (messageAccount(m, owner) === accountId) return m;
       return { ...m, meta: { quoted: { from: m.author ?? 'another chat participant', fingerprint: '', shareId: transcriptId, role: m.role, kind: m.kind, author: m.author } } };
     });
-    // Compaction belongs to this seat only; a history change invalidates it in the access route.
+    // Compaction belongs to this seat only; a narrower history drops it (historyNarrowed).
     return [...shared, ...(chatId ? engine.repos.messages.list(sessionId) : [])].sort((a, b) => a.seq - b.seq);
   }
 

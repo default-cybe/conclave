@@ -395,6 +395,27 @@ export interface Attachment {
   name?: string;
 }
 
+/** One person's membership in a chat (docs/design/SHARED-WITH-MEMBERS.md 6): shown name only. */
+export interface ChatParticipantDto {
+  accountId: string;
+  name: string;
+  access: 'viewer' | 'participant';
+  state: 'invited' | 'active' | 'left' | 'removed' | 'declined';
+  history: 'joined' | 'all';
+  seatId?: string;
+  addedAt: number;
+}
+
+/** An invite or a chat you are in: its name and owner, no transcript. */
+export interface ChatInviteCard {
+  chatId: string;
+  title: string;
+  owner: string;
+  access: 'viewer' | 'participant';
+  history: 'joined' | 'all';
+  invitedAt: number;
+}
+
 export interface SendInput {
   text: string;
   /** Post human words without starting an AI turn. */
@@ -1752,6 +1773,22 @@ export class ConclaveClient {
   // ----- accounts: you, and the people on the hub (owner), docs/design/ACCOUNTS.md -----
   contacts = () => this.request<Contact[]>('GET', '/api/contacts');
   me = () => this.request<MeDto>('GET', '/api/me');
+  // ----- shared chats: membership and invites (docs/design/SHARED-WITH-MEMBERS.md 6) -----
+  /** Chats you were invited to: the chat's name and who added you, nothing else. */
+  chatInvites = () => this.request<ChatInviteCard[]>('GET', '/api/chats/invites');
+  /** Chats you are in that someone else owns. */
+  sharedChats = () => this.request<ChatInviteCard[]>('GET', '/api/chats/shared');
+  acceptChatInvite = (chatId: string) => this.request<ChatParticipantDto>('POST', `/api/chats/invites/${encodeURIComponent(chatId)}/accept`);
+  declineChatInvite = (chatId: string) => this.request<{ ok: true }>('POST', `/api/chats/invites/${encodeURIComponent(chatId)}/decline`);
+  /** The chat's people: shown names only, never a sign-in name. */
+  chatParticipants = (chatId: string) => this.request<ChatParticipantDto[]>('GET', `/api/sessions/${encodeURIComponent(chatId)}/participants`);
+  inviteChatParticipant = (chatId: string, party: Contact['party'], access: 'viewer' | 'participant', history: 'joined' | 'all') =>
+    this.request<ChatParticipantDto>('POST', `/api/sessions/${encodeURIComponent(chatId)}/participants`, { party, access, history });
+  updateChatParticipant = (chatId: string, accountId: string, patch: { access?: 'viewer' | 'participant'; history?: 'joined' | 'all' }) =>
+    this.request<ChatParticipantDto>('PATCH', `/api/sessions/${encodeURIComponent(chatId)}/participants/${encodeURIComponent(accountId)}`, patch);
+  removeChatParticipant = (chatId: string, accountId: string) => this.request<ChatParticipantDto>('DELETE', `/api/sessions/${encodeURIComponent(chatId)}/participants/${encodeURIComponent(accountId)}`);
+  /** A participant leaves; their messages stay with their name. */
+  leaveChat = (chatId: string) => this.request<ChatParticipantDto>('POST', `/api/sessions/${encodeURIComponent(chatId)}/leave`);
   updateMe = (patch: MePatch) => this.request<{ ok: true }>('PATCH', '/api/me', patch);
   people = () => this.request<PersonDto[]>('GET', '/api/people');
   person = (id: string) => this.request<PersonDto>('GET', `/api/people/${encodeURIComponent(id)}`);

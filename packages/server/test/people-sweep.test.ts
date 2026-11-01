@@ -160,10 +160,6 @@ async function seed(name: Who, token: string, accountId: string): Promise<Seeded
   // a meeting (routes-meetings.ts), this account's own
   keep('meeting', (await ok(token, 'POST', '/api/meetings', { device: ids.device, cwd: '/tmp', title: `${M} meeting` })).id);
 
-  // a chat invite waiting for this account (routes-shared-chats.ts): the row is the invitee's while it waits
-  sql("INSERT INTO chat_participants (session_id, account_id, friend_id, access, state, history, joined_seq, added_by, added_at, updated_at) VALUES (?,?,'','participant','invited','joined',1,?,?,?)", s.id, accountId, accountId, now, now);
-  keep('chatInvite', s.id);
-
   // a connected app (claude.ai) that this account allowed
   const store = new OAuthStore(engine.repos.db);
   const client = store.register({ name: `${M} connector`, redirectUris: ['https://claude.ai/api/mcp/auth_callback'], applicationType: 'web', authMethod: 'none' }).client;

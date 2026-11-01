@@ -26,7 +26,7 @@ import type {
   ToolUseBlock,
 } from '@conclave/core/types';
 import { ApiError } from '@conclave/core/client';
-import type { AccountsStatus, AlertItem, AppDto, Attachment, FriendDto, HubInfo, ImportOffer, InboxItemDto, MeDto, ModelGroup, McpStatus, ProjectDto, ReceivedShareDto, SendInput, SendResult, SentShareDto, SharedProjectDto, SubscriptionsStatus, ToolInfo } from '@conclave/core/client';
+import type { AccountsStatus, AlertItem, AppDto, Attachment, ChatInviteCard, FriendDto, HubInfo, ImportOffer, InboxItemDto, MeDto, ModelGroup, McpStatus, ProjectDto, ReceivedShareDto, SendInput, SendResult, SentShareDto, SharedProjectDto, SubscriptionsStatus, ToolInfo } from '@conclave/core/client';
 import { limitKey } from '@conclave/core/accounts/windows';
 import type { AgentDef, CommandDef, SkillDef } from '@conclave/core/extensions/types';
 import { api, connectClient, loadConnection, webSocketImpl, type Connection } from '@/lib/api';
@@ -130,6 +130,12 @@ export interface HubState {
   projects: Record<string, ProjectDto>;
   /** Who is signed in (GET /api/me, docs/design/ACCOUNTS.md). Undefined on a hub from before accounts: the owner. */
   me?: MeDto;
+  /** Chats you were invited to (GET /api/chats/invites, SHARED-WITH-MEMBERS.md 6): Accept or Decline in the sidebar. */
+  chatInvites: ChatInviteCard[];
+  /** Chats you are in that someone else owns (GET /api/chats/shared), by chat id. */
+  sharedChats: Record<string, ChatInviteCard>;
+  /** Your seat in a chat someone else owns, by that chat's id: never a chat in the list, only its status drives your Stop. */
+  seats: Record<string, Session>;
 }
 
 const initial: HubState = {
@@ -171,6 +177,9 @@ const initial: HubState = {
   sentShares: {},
   sharedProjects: {},
   projects: {},
+  chatInvites: [],
+  sharedChats: {},
+  seats: {},
 };
 
 export const useHub = create<HubState>(() => initial);
@@ -230,7 +239,7 @@ export async function loadAll(opts: { transcripts?: boolean } = {}) {
     ownerOnly(() => c.tools(), []),
     ownerOnly(() => c.mcp(), []),
   ]);
-  const [archived, imported, cfg, friends, friendNotes, alerts, receivedShares, sentShares, projects, sharedProjects, me, apps, importOffers] = await Promise.all([
+  const [archived, imported, cfg, friends, friendNotes, alerts, receivedShares, sentShares, projects, sharedProjects, me, apps, importOffers, invites, shared] = await Promise.all([
     settle(c.listSessions({ archived: true, limit: 200 }), []),
     // imported chats have a place of their own (core session/imported.ts); an export of hundreds would crowd the archive's 200
     settle(c.listSessions({ archived: true, tag: 'imported', limit: 1000 }), []),
@@ -251,6 +260,9 @@ export async function loadAll(opts: { transcripts?: boolean } = {}) {
     settle(c.apps(), []),
     // a hub from before the pairing offer answers 404: none
     settle(c.importOffers(), []),
+    // a hub from before shared chats answers 404: no invites, no chats of someone else's
+    settle(c.chatInvites(), []),
+    settle(c.sharedChats(), []),
   ]);
   registerModelNames(models.flatMap((g) => g.models.map((m) => ({ ref: m.ref, name: m.name }))));
   set({
@@ -287,8 +299,12 @@ export async function loadAll(opts: { transcripts?: boolean } = {}) {
     sentShares: byId(sentShares, (r) => r.id),
     projects: byId(projects, (p) => p.id),
     sharedProjects: byId(sharedProjects, (p) => p.id),
+    chatInvites: invites,
+    sharedChats: byId(shared, (x) => x.chatId),
     me,
   });
+  // each chat of someone else's shows in the sidebar like a chat of one's own: pull its shaped session view
+  for (const x of shared) void settle(c.getSession(x.chatId), undefined).then((s) => s && upsertSession(s));
   if (opts.transcripts) for (const id of Object.keys(get().messagesLoaded)) void loadMessages(id, true, resyncBase(get().messages[id], get().streaming));
 }
 
@@ -785,6 +801,31 @@ export async function reloadConfig() {
 export function upsertSession(s: Session) {
   set((st) => ({ sessions: { ...st.sessions, [s.id]: s } }));
 }
+
+/** Your seat in a shared chat (SHARED-WITH-MEMBERS.md 6): kept by the chat's id, out of the session list. */
+export function upsertSeat(chatId: string, s: Session) {
+  set((st) => ({ seats: { ...st.seats, [chatId]: s } }));
+}
+
+/** Refetch the shared-chat lists (after an invite, accept, leave or removal elsewhere). */
+export async function reloadSharedChats() {
+  const [invites, shared] = await Promise.all([settle(api().chatInvites(), []), settle(api().sharedChats(), [])]);
+  set({ chatInvites: invites, sharedChats: byId(shared, (x) => x.chatId) });
+  for (const x of shared) void settle(api().getSession(x.chatId), undefined).then((s) => s && upsertSession(s));
+}
+
+/** Accept an invite: join, then the chat shows in the sidebar (SHARED-WITH-MEMBERS.md 6). */
+export async function acceptChatInvite(chatId: string) {
+  await api().acceptChatInvite(chatId);
+  await reloadSharedChats();
+}
+
+/** Decline an invite: the card goes, nothing joins. */
+export async function declineChatInvite(chatId: string) {
+  await api().declineChatInvite(chatId);
+  set((st) => ({ chatInvites: st.chatInvites.filter((x) => x.chatId !== chatId) }));
+}
+
 export function upsertTask(t: Task) {
   set((st) => ({ tasks: { ...st.tasks, [t.id]: t } }));
 }
@@ -909,6 +950,12 @@ export function applyEvent(e: EngineEventEnvelope) {
   switch (e.type) {
     case 'session.created':
     case 'session.updated': {
+      // a seat is not a chat of its own (GET /api/sessions hides it too): keep it apart, for its running status
+      const seatOf = (e.session.meta?.seat as { chatId?: string } | undefined)?.chatId;
+      if (seatOf) {
+        set({ seats: { ...s.seats, [seatOf]: e.session } });
+        break;
+      }
       const streaming = e.session.status === 'running' ? s.streaming : stopStreaming(s.streaming, (s.messages[e.session.id] ?? []).map((m) => m.id));
       set({ sessions: { ...s.sessions, [e.session.id]: e.session }, streaming });
       break;

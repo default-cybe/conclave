@@ -142,6 +142,7 @@ import { agentHookConfig, wantsVerifyGate } from '../extensions/agent-hooks';
 import { OWNER_ID, currentAccount, isMember, runAs } from '../people/context';
 import { PeopleStore, accountKey, type HubAccount } from '../people/store';
 import { SharedChatTurns } from '../people/seat-turns';
+import { hasPeople } from '../people/shared-chats';
 import { AccountSecrets } from '../people/secrets';
 import { ProviderAccess } from '../people/access';
 import { PLAN_PROVIDER } from '../people/plans';
@@ -241,6 +242,15 @@ const DEFAULT_DEFER_ABOVE = 30;
 /** Stored tool outputs are kept this long, except in pinned sessions (HARNESS-REVIEW item 16). */
 export const OUTPUT_RETENTION_MS = 30 * 24 * 60 * 60_000;
 export const OUTPUTS_PRUNE_JOB = 'outputs.prune';
+
+/**
+ * A seat runs turns only through its chat's queue (people/seat-turns.ts):
+ * a direct send, resume or retry would skip the one-at-a-time order and the
+ * chat owner's Stop.
+ */
+function refuseSeat(s: Session): void {
+  if (s.meta?.seat) throw new EngineError(409, 'Send in the shared chat, not in your seat.');
+}
 
 function unavailableMemoryAdmin(): MemoryAdminApi {
   return new Proxy({} as MemoryAdminApi, {
@@ -846,6 +856,7 @@ export class Engine implements EngineApi {
     if (fs?.role === 'reference') throw new EngineError(409, `This is a reference from ${fs.name}'s hub. It is read only; fork the share to continue it.`);
     // a meeting's session is a container: it never runs a turn or a tool (docs/design/MEETING-MODE.md 2.2)
     if (s.kind === 'meeting') throw new EngineError(409, 'A meeting session does not take messages.');
+    refuseSeat(s);
     if (input.justTalk) {
       if (input.attachments?.length) throw new EngineError(400, 'Just talk does not support attachments yet.');
       const m = this.addMessage(id, { role: 'user', kind: 'normal', content: [{ type: 'text', text: input.text }] });
@@ -865,7 +876,7 @@ export class Engine implements EngineApi {
       this.bus.emit({ type: 'session.updated', session: next });
     }
     const ready = { ...input, attachments: prepared.attachments, ...(prepared.receipts.length ? { attachmentReceipts: prepared.receipts } : {}) };
-    if (s.kind === 'chat' && !s.meta?.seat && this.repos.db.query("SELECT 1 FROM chat_participants WHERE session_id = ? LIMIT 1").get(id)) {
+    if (s.kind === 'chat' && hasPeople(this.repos.db, id)) {
       void this.sharedTurn(id, this.accountOf(s), ready).catch((err) => this.notice(id, `Turn failed: ${err.message}`, 'error'));
       return { queued: true };
     }
@@ -986,7 +997,7 @@ export class Engine implements EngineApi {
   }
 
   sendQueued(id: string, pendingId: string): void {
-    this.requireSession(id);
+    refuseSeat(this.requireSession(id));
     if (!this.runners.get(id)?.release(pendingId)) throw new EngineError(404, 'That message is not waiting any more.');
   }
 
@@ -1027,6 +1038,7 @@ export class Engine implements EngineApi {
    */
   async resumeSession(id: string): Promise<Session> {
     const s = this.requireSession(id);
+    refuseSeat(s);
     const runner = this.runnerFor(id);
     if (s.status !== 'paused') {
       // pause asked, the turn not yet stopped: it just goes on
@@ -1121,6 +1133,7 @@ export class Engine implements EngineApi {
   /** Retry a failed native inference in place; never rewind or resubmit its user message. */
   async retryProvider(id: string, messageId: string, model: string): Promise<{ model: string; label: string }> {
     const s = this.requireSession(id);
+    refuseSeat(s);
     if (!this.isUsable(model, s.accountId)) throw new EngineError(400, this.harnessOff(model) ?? `Model ${model} is not available`);
     const resolved = this.registryFor(s).resolve(model);
     if (!this.registryFor(s).isEnabled(resolved.provider)) throw new EngineError(400, `Provider ${resolved.provider} is disabled`);
@@ -2026,6 +2039,9 @@ export class Engine implements EngineApi {
   }
   revokeChatTurns(chatId: string, accountId: string): void {
     this.sharedTurns.revoke(chatId, accountId);
+  }
+  narrowChatHistory(chatId: string, accountId: string): void {
+    this.sharedTurns.historyNarrowed(chatId, accountId);
   }
   updateMessage(id: string, patch: Partial<Message>): Message {
     const m = this.repos.messages.get(id);

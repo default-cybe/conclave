@@ -35,7 +35,7 @@ import { NONCE } from './identity';
 import { checkLogin, clearPassword, passwordStatus, setPassword } from './password';
 import { OWNER_ID, isMember } from '@conclave/core/people/context.ts';
 import { PeopleError } from '@conclave/core/people/store.ts';
-import { sharedSessionView } from '@conclave/core/people/shared-chats.ts';
+import { hasPeople, sharedSessionView } from '@conclave/core/people/shared-chats.ts';
 import { shownName } from '@conclave/core/client/people.ts';
 import { chatParticipants } from './route-policy';
 import type { AccountRef } from '@conclave/core/client/people.ts';
@@ -428,9 +428,9 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     const limit = qNum(c.req.query('limit'));
     if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) throw badRequest('limit must be a positive integer');
     const msgs = engine.getMessages(id, { afterSeq: qNum(c.req.query('afterSeq')), beforeSeq: qNum(c.req.query('beforeSeq')), limit });
-    // a shared chat: history starts at the participant's join, and other people's tool output stays theirs (shared-chats.ts)
+    // a shared chat: history starts at the participant's join, and other people's tool output stays theirs, the owner's view included (shared-chats.ts)
     const s = engine.getSession(id);
-    const visible = s && s.accountId !== accountOf(c) ? chatParticipants(ctx).visible(id, accountOf(c), msgs) : msgs;
+    const visible = s && (s.accountId !== accountOf(c) || msgs.some((m) => m.sender)) ? chatParticipants(ctx).visible(id, accountOf(c), msgs) : msgs;
     // trim=1: blocks over 100 KB come light, listed in meta.trimmed; the route below serves each in full
     return c.json(qBool(c.req.query('trim')) ? visible.map(trimMessage) : visible);
   });
@@ -440,8 +440,8 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     const m = engine.repos.messages.get(c.req.param('msgId'));
     if (!m || m.sessionId !== id) throw notFound('unknown message');
     const s = engine.getSession(id);
-    // a participant reads the message as the chat shows it to them; a hidden message or block is unknown
-    const view = s && s.accountId !== accountOf(c) ? chatParticipants(ctx).visible(id, accountOf(c), [m])[0] : m;
+    // everyone, the owner too, reads the message as the chat shows it to them; a hidden message or block is unknown
+    const view = s && (s.accountId !== accountOf(c) || m.sender) ? chatParticipants(ctx).visible(id, accountOf(c), [m])[0] : m;
     const block = view?.content[Number(c.req.param('index'))];
     if (!block) throw notFound('unknown block');
     return c.json(block);
@@ -481,12 +481,15 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
         return c.json({ queued: false, messageId: m.id });
       }
       // the turn runs on the sender's own seat: their models, keys, limits and memory, never the chat owner's
+      let job: Promise<void>;
       try {
-        await engine.sharedTurn(id, caller, { ...input, justTalk: undefined });
+        job = engine.sharedTurn(id, caller, { ...input, justTalk: undefined });
       } catch (err) {
         if (err instanceof PeopleError) throw new HttpError(err.status, err.message);
         throw err;
       }
+      // queued, not awaited: the turn may wait behind others, and a request held that long times out and gets resent as a second turn
+      void job.catch((err) => engine.notifier.send({ accountId: caller, title: 'Your turn failed', body: (err as Error).message, level: 'error', link: `/s/${id}` }));
       return c.json({ queued: true });
     }
     return c.json(await engine.send(id, input));
@@ -518,7 +521,7 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     const id = sid(c);
     // a shared chat: the owner stops any turn, a participant their own (people/seat-turns.ts stop)
     const chat = engine.getSession(id);
-    if (chat && chat.kind === 'chat' && !chat.meta?.seat && engine.repos.db.query('SELECT 1 FROM chat_participants WHERE session_id = ? LIMIT 1').get(id)) {
+    if (chat && chat.kind === 'chat' && !chat.meta?.seat && hasPeople(engine.repos.db, id)) {
       try {
         engine.stopChatTurn(id, accountOf(c));
       } catch (err) {

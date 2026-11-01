@@ -36,6 +36,7 @@ import { addDays, dayRange, hubZone, localDate, localMinutes, validHhmm, validZo
 import { pastSessionsBetween, type PastSessionHit } from '../session/search';
 import { DIGEST_PROMPT, ROUTINE_SUGGESTIONS } from '../scheduler/suggestions';
 import { logger } from '../util/log';
+import { quotedOf } from '../session/quoted';
 
 const log = logger('digest');
 
@@ -348,7 +349,13 @@ export class DailyDigest {
       if (!s || s.mode === 'jury' || !this.engine.usesMemory(s)) continue;
       const agent = this.engine.agentFor(s);
       if (agent.memory === 'none') continue;
-      const msgs = this.engine.repos.messages.list(id);
+      // a shared chat or a seat: only this account's own words and replies, as extraction after a turn reads them (engine.ts afterTurn)
+      let msgs;
+      try {
+        msgs = this.engine.turnMessages(id).filter((m) => !quotedOf(m));
+      } catch {
+        continue; // a seat of a chat this account left: nothing of it is theirs to read
+      }
       if (!msgs.length) continue;
       const lastSeq = Math.max(...msgs.map((m) => m.seq));
       let touched = false;

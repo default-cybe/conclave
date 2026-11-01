@@ -14,6 +14,7 @@ import { registerExtensionRuntime } from './ext-runtime';
 import { registerMemoryConnections } from './memory-connections';
 import { registerPunch } from './punch';
 import { registerChat } from './chat';
+import { registerSharedChats } from './shared';
 import { createMockQueue } from './queue';
 import { registerRemote } from './remote';
 import { registerNotify } from './notify';
@@ -520,6 +521,8 @@ registerExtensionRuntime(ctx);
 registerMemoryConnections(ctx);
 registerPunch(ctx);
 registerChat(ctx);
+// shared chats: a chat of Nihir's you are in, an invite, your own chat shared (docs/design/SHARED-WITH-MEMBERS.md 6)
+registerSharedChats(ctx);
 registerRemote(ctx);
 registerNotify(ctx);
 // OAuth on /mcp: the consent page and Settings > Connected apps

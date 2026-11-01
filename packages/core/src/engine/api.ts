@@ -190,6 +190,8 @@ export interface EngineApi {
   stopChatTurn(chatId: string, accountId: string): void;
   /** Cancel queued work and abort inference after a role, history or membership change. */
   revokeChatTurns(chatId: string, accountId: string): void;
+  /** History went from all to joined: drop the seat's own summaries of what it may no longer read, and stop their running turn. */
+  narrowChatHistory(chatId: string, accountId: string): void;
   /** Messages waiting while the session is busy, in the order they will run. Stored: a hub restart keeps them, Stop holds them (held). */
   queue(id: string): QueuedMessage[];
   /** Send a message Stop held: it runs in its place in the queue. 404 when it is not there. */

@@ -257,3 +257,90 @@ test('a participant socket gets only the chat allow list, shaped; removal stops 
 
   for (const s of [ownerS, aliceS, bobS, since]) s.close();
 });
+
+// ---- review fixes ------------------------------------------------------------
+
+test('two pending invites to one chat: each invitee accepts or declines their own', async () => {
+  const two = await hub.engine.createSession({ kind: 'chat', title: 'Two invites' }, 'owner');
+  // alice's row comes first; bob must still reach his own
+  expect((await invite(two.id, alice)).status).toBe(200);
+  expect((await invite(two.id, bob)).status).toBe(200);
+  expect((await accept(two.id, bobToken)).status).toBe(200);
+  expect((await hub.api(`/api/chats/invites/${two.id}/decline`, { method: 'POST', token: aliceToken, json: {} })).status).toBe(200);
+  // nobody accepts an invite that is not theirs: a second accept is 404
+  expect((await accept(two.id, bobToken)).status).toBe(404);
+  expect((await accept(two.id, aliceToken)).status).toBe(404);
+});
+
+test('an invite notification links to where Accept waits, not to the chat they cannot open yet', async () => {
+  const three = await hub.engine.createSession({ kind: 'chat', title: 'Link' }, 'owner');
+  const send = spyOn(hub.engine.notifier, 'send');
+  try {
+    await invite(three.id, alice);
+    const n = send.mock.calls.map((a) => a[0]).find((x) => x.accountId === alice);
+    expect(n?.link).toBe('/chat');
+  } finally {
+    send.mockRestore();
+  }
+});
+
+test(`the owner reads a participant's turn shaped: full tool output is only the starter's`, async () => {
+  const four = await hub.engine.createSession({ kind: 'chat', title: 'Owner view' }, 'owner');
+  await invite(four.id, alice);
+  await accept(four.id, aliceToken);
+  const ws = hub.url.replace(/^http/, 'ws') + '/api/ws';
+  const ownerS = await openWs(`${ws}?token=${OWNER}`);
+  const aliceS = await openWs(`${ws}?token=${aliceToken}`);
+  await Promise.all([ownerS, aliceS].map((s) => s.next((f) => f.type === 'hello')));
+  // her seat turn's tool call and result, written into the chat with her sender
+  const m = hub.engine.addMessage(four.id, {
+    role: 'user',
+    kind: 'normal',
+    sender: `account:${alice}`,
+    author: 'Alice',
+    content: [{ type: 'tool_result', toolUseId: 'w1', content: 'alice-bank-pin-4417' }],
+  });
+  const own = JSON.stringify(await (await hub.api(`/api/sessions/${four.id}/messages`)).json());
+  expect(own).not.toContain('alice-bank-pin-4417');
+  expect(own).toContain('[Tool completed]');
+  expect((await hub.api(`/api/sessions/${four.id}/messages/${m.id}/blocks/0`)).status).toBe(200);
+  expect(await (await hub.api(`/api/sessions/${four.id}/messages/${m.id}/blocks/0`)).text()).not.toContain('4417');
+  // the starter still reads her own in full
+  expect(JSON.stringify(await (await hub.api(`/api/sessions/${four.id}/messages`, { token: aliceToken })).json())).toContain('alice-bank-pin-4417');
+  // and the socket: the owner's frame is shaped, hers is whole
+  const ownerFrame = await ownerS.next((f) => f.type === 'message.created' && f.message?.id === m.id);
+  expect(JSON.stringify(ownerFrame)).not.toContain('4417');
+  const aliceFrame = await aliceS.next((f) => f.type === 'message.created' && f.message?.id === m.id);
+  expect(JSON.stringify(aliceFrame)).toContain('alice-bank-pin-4417');
+  for (const s of [ownerS, aliceS]) s.close();
+});
+
+test(`a participant's send answers at once, not after their queued turn finishes`, async () => {
+  const five = await hub.engine.createSession({ kind: 'chat', title: 'No wait' }, 'owner');
+  await invite(five.id, alice);
+  await accept(five.id, aliceToken);
+  // a turn that waits behind others for as long as it likes
+  const held = spyOn(hub.engine, 'sharedTurn').mockImplementation(() => new Promise<void>(() => {}));
+  try {
+    const res = await Promise.race([
+      hub.api(`/api/sessions/${five.id}/messages`, { method: 'POST', token: aliceToken, json: { text: 'queued words' } }),
+      Bun.sleep(2000).then(() => undefined),
+    ]);
+    expect(res?.status).toBe(200);
+    expect(await res!.json()).toEqual({ queued: true });
+  } finally {
+    held.mockRestore();
+  }
+});
+
+test('history from all to joined drops what their seat summarized; widening it does not', async () => {
+  const six = await hub.engine.createSession({ kind: 'chat', title: 'Narrow' }, 'owner');
+  await invite(six.id, alice, { history: 'all' });
+  await accept(six.id, aliceToken);
+  const before = hub.engine.calls.length;
+  expect((await hub.api(`/api/sessions/${six.id}/participants/${alice}`, { method: 'PATCH', json: { history: 'joined' } })).status).toBe(200);
+  expect(hub.engine.calls.slice(before).find((c) => c.method === 'narrowChatHistory')?.args).toEqual([six.id, alice]);
+  const wide = hub.engine.calls.length;
+  expect((await hub.api(`/api/sessions/${six.id}/participants/${alice}`, { method: 'PATCH', json: { history: 'all' } })).status).toBe(200);
+  expect(hub.engine.calls.slice(wide).some((c) => c.method === 'narrowChatHistory')).toBe(false);
+});
