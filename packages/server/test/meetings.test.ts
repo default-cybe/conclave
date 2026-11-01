@@ -132,6 +132,40 @@ describe('meeting routes', () => {
     expect((await call(OWNER, 'GET', `/api/meetings/${id}`)).body.title).toBe('Standup');
   }, 15_000);
 
+  test('scheduled: create, views, presets, prep edit, arm; a member gets 404 on every new :id route', async () => {
+    const at = Date.now() + 3 * 86_400_000;
+    const past = await call(OWNER, 'POST', '/api/meetings', { cwd: t.cwd, scheduledAt: Date.now() - 1 });
+    expect(past.status).toBe(400);
+    expect(past.body.field).toBe('scheduledAt'); // the form shows it under its field
+    const r = await call(OWNER, 'POST', '/api/meetings', { cwd: t.cwd, title: 'Capstone defence', scheduledAt: at, durationMin: 60, steeringPreset: 'defence' });
+    expect(r.status).toBe(201);
+    expect(r.body.status).toBe('scheduled');
+    const sid = r.body.id;
+    expect((await call(OWNER, 'GET', '/api/meetings?view=upcoming')).body.meetings.map((m: { id: string }) => m.id)).toContain(sid);
+    expect((await call(OWNER, 'GET', '/api/meetings?view=nope')).status).toBe(400);
+    expect((await call(OWNER, 'GET', '/api/meetings/presets')).body.presets.map((p: { id: string }) => p.id)).toContain('defence');
+    expect((await call(OWNER, 'GET', '/api/meetings/folders')).status).toBe(200);
+    expect((await call(OWNER, 'GET', `/api/meetings/calendar?from=0&to=${40 * 86_400_000}`)).status).toBe(400);
+    expect((await call(OWNER, 'PUT', `/api/meetings/${sid}/prep`, { markdown: '## Summary\nMine' })).body.edited).toBe('## Summary\nMine');
+    expect((await call(OWNER, 'GET', `/api/meetings/${sid}/prep`)).body.edited).toBe('## Summary\nMine');
+    expect((await call(OWNER, 'POST', `/api/meetings/${sid}/prep/cancel`)).status).toBe(409);
+    for (const [method, path, body] of [
+      ['POST', `/api/meetings/${sid}/arm`],
+      ['GET', `/api/meetings/${sid}/prep`],
+      ['POST', `/api/meetings/${sid}/prep`],
+      ['POST', `/api/meetings/${sid}/prep/cancel`],
+      ['PUT', `/api/meetings/${sid}/prep`, { markdown: 'mine' }],
+      ['DELETE', `/api/meetings/${sid}/prep/edit`],
+      ['PUT', `/api/meetings/${sid}/prep/extra`, { sessionIds: [] }],
+      ['PATCH', `/api/meetings/${sid}`, { scheduledAt: at + 3_600_000 }],
+    ] as const) {
+      expect([method, path, (await call(alice.token, method, path, body)).status]).toEqual([method, path, 404]);
+    }
+    expect((await call(alice.token, 'GET', '/api/meetings?view=upcoming')).body.meetings).toEqual([]);
+    expect((await call(alice.token, 'GET', '/api/meetings/folders')).body.folders.some((f: { cwd: string }) => f.cwd === t.cwd)).toBe(false);
+    expect((await call(OWNER, 'DELETE', `/api/meetings/${sid}`)).status).toBe(204);
+  });
+
   test('end wraps up: notes, then 409 on a second end and on segments', async () => {
     const r = await call(OWNER, 'POST', `/api/meetings/${id}/end`);
     expect(r.status).toBe(202);
@@ -142,7 +176,50 @@ describe('meeting routes', () => {
     expect(notes.body.decisions).toEqual(['Ship Friday']);
     expect((await call(OWNER, 'POST', `/api/meetings/${id}/end`)).status).toBe(409);
     expect((await call(OWNER, 'POST', `/api/meetings/${id}/segments`, batch(seg(9, 'late')))).status).toBe(409);
+
+    // Save to memory: accepted, marked as the meeting's, once; a member cannot.
+    // The harness runs with memory off (an override): an explicit click still saves, in the caller's account only.
+    expect(t.engine.config.get().memory.enabled).toBe(false);
+    expect((await call(alice.token, 'POST', `/api/meetings/${id}/memory`)).status).toBe(404);
+    const saved = await call(OWNER, 'POST', `/api/meetings/${id}/memory`);
+    expect([saved.status, saved.body?.error]).toEqual([200, undefined]);
+    expect(t.engine.repos.db.query('SELECT account_id FROM memories WHERE id = ?').get(saved.body.memoryId)).toEqual({ account_id: 'owner' });
+    expect(t.engine.memoryFor(alice.id).list({ limit: 200 }).some((e) => e.meta?.meetingId === id)).toBe(false);
+    const memId = saved.body.memoryId as string;
+    const entry = t.engine.memoryFor('owner').get(memId)!;
+    expect(entry.content).toContain('Ship Friday');
+    expect(entry.content).toContain('Send the numbers');
+    expect(entry.meta).toMatchObject({ source: 'meeting', meetingId: id, review: 'accepted' });
+    expect((await call(OWNER, 'POST', `/api/meetings/${id}/memory`)).body.memoryId).toBe(memId);
+    expect(t.engine.repos.db.query(`SELECT COUNT(*) AS n FROM memories WHERE json_extract(meta, '$.meetingId') = ?`).get(id)).toEqual({ n: 1 });
+
+    // Open in chat: a new chat with the context and no model turn; Add to chat appends
+    for (const [method, path, body] of [
+      ['GET', `/api/meetings/${id}/context`],
+      ['POST', `/api/meetings/${id}/chat`, { to: 'chat' }],
+    ] as const) {
+      expect([method, path, (await call(alice.token, method, path, body)).status]).toEqual([method, path, 404]);
+    }
+    const ctxText = (await call(OWNER, 'GET', `/api/meetings/${id}/context`)).body.text as string;
+    expect(ctxText).toContain('Ship Friday');
+    expect(ctxText).toContain('<meeting-transcript>');
+    const chat = await call(OWNER, 'POST', `/api/meetings/${id}/chat`, { to: 'chat' });
+    expect(chat.status).toBe(200);
+    expect(chat.body.kind).toBe('chat');
+    const msgs = t.engine.repos.messages.list(chat.body.id);
+    expect(msgs.map((m) => m.role)).toEqual(['user', 'assistant']);
+    expect(JSON.stringify(msgs[0]!.content)).toContain('Ship Friday');
+    expect((await call(OWNER, 'POST', `/api/meetings/${id}/chat`, { to: 'nope' })).status).toBe(400);
+    expect((await call(OWNER, 'POST', `/api/meetings/${id}/chat`, { sessionId: chat.body.id })).status).toBe(200);
+    expect(t.engine.repos.messages.list(chat.body.id).length).toBe(4);
+    // a member's own meeting cannot be added to the owner's chat, nor the owner's meeting to theirs
+    const theirs = await call(alice.token, 'POST', '/api/sessions', { kind: 'chat' });
+    expect((await call(OWNER, 'POST', `/api/meetings/${id}/chat`, { sessionId: theirs.body.id })).status).toBe(404);
+    expect((await call(alice.token, 'POST', `/api/meetings/${id}/chat`, { sessionId: theirs.body.id })).status).toBe(404);
+
     expect((await call(OWNER, 'DELETE', `/api/meetings/${id}`)).status).toBe(204);
+    // what the owner saved stays after the meeting is deleted
+    expect(t.engine.memoryFor('owner').get(memId)).toBeDefined();
     expect((await call(OWNER, 'GET', `/api/meetings/${id}`)).status).toBe(404);
   }, 15_000);
 });

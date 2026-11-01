@@ -182,6 +182,30 @@ export class SessionRepo {
     return (this.db.query(sql).all(params as any) as Row[]).map(rowToSession);
   }
 
+  /**
+   * Every session of the account on a project folder (meeting prep,
+   * docs/design/MEETING-MODE.md 11.4.1): chats and agent sessions, archived
+   * and imported ones too, with this project id, or on this device in the
+   * folder or below it. Meeting sessions, untrusted ones and a workflow's
+   * step sessions are left out. Newest first, no row cap.
+   */
+  listForFolder(q: { accountId: string; device: string; root: string; projectId?: string }): Session[] {
+    // trailing separators off with a loop: /[\\/]+$/ is quadratic on long runs of '/' (CodeQL js/polynomial-redos)
+    let end = q.root.length;
+    while (end > 1 && (q.root[end - 1] === '/' || q.root[end - 1] === '\\')) end--;
+    const root = q.root.slice(0, end);
+    const esc = root.replace(/[\\%_]/g, (c) => `\\${c}`);
+    const sql = `SELECT * FROM sessions WHERE account_id = $account
+      AND (kind IS NULL OR kind <> 'meeting')
+      AND COALESCE(json_extract(meta, '$.untrusted'), 0) <> 1
+      AND NOT (parent_id IS NOT NULL AND EXISTS (SELECT 1 FROM json_each(sessions.tags) WHERE value = 'workflow'))
+      AND (${q.projectId ? `json_extract(meta, '$.projectId') = $project OR ` : ''}(COALESCE(device, 'local') = $device AND (cwd = $root OR cwd LIKE $slash ESCAPE '\\' OR cwd LIKE $back ESCAPE '\\')))
+      ORDER BY updated_at DESC`;
+    const params: Record<string, string> = { account: q.accountId, device: q.device, root, slash: `${esc}/%`, back: `${esc}\\\\%` };
+    if (q.projectId) params.project = q.projectId;
+    return (this.db.query(sql).all(params as never) as Row[]).map(rowToSession);
+  }
+
   delete(id: string): void {
     this.db.query('DELETE FROM messages_fts WHERE session_id = ?').run(id);
     this.db.query('DELETE FROM sessions WHERE id = ?').run(id);
@@ -309,6 +333,12 @@ export class MessageRepo {
       .query('SELECT * FROM messages WHERE session_id = $sid AND seq > $after AND seq < $before ORDER BY seq ASC LIMIT $limit')
       .all({ sid: sessionId, after: opts.afterSeq ?? 0, before: opts.beforeSeq ?? Number.MAX_SAFE_INTEGER, limit: opts.limit ?? 100_000 }) as Row[];
     return rows.map(rowToMessage);
+  }
+
+  /** The newest compaction summary, found without reading the whole transcript. */
+  lastSummary(sessionId: string): Message | undefined {
+    const r = this.db.query("SELECT * FROM messages WHERE session_id = ? AND kind = 'summary' ORDER BY seq DESC LIMIT 1").get(sessionId) as Row | null;
+    return r ? rowToMessage(r) : undefined;
   }
 
   /** The transcript or one page of it (types.ts MessagePage): no afterSeq with a limit or beforeSeq reads the newest page back. */

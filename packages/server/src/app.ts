@@ -36,6 +36,7 @@ import { registerSubscriptionRoutes } from './routes-subscriptions';
 import { registerAccountRoutes } from './routes-accounts';
 import { registerAlertRoutes } from './routes-alerts';
 import { registerLogRoutes } from './routes-logs';
+import { startLoopLagWatch, type LoopLagWatch } from './lag';
 import { CliproxyManager, type CliproxyOptions } from './cliproxy';
 import { MemberPlansManager } from './cliproxy/member';
 import { RemoteAccess, type RemoteOptions } from './remote';
@@ -182,6 +183,8 @@ export function createServer(opts: ServerOptions): ConclaveServer {
   engine.access.setPlans(ctx.memberPlans);
   // how the last update went, and the daily check (off under bun test)
   ctx.updates.start();
+  // one warn line whenever the event loop stalls, so the cause shows in the log (optimisation review 2026-11-01, fix 3)
+  const lagWatch: LoopLagWatch = startLoopLagWatch();
   // the hub's home (CONCLAVE_HOME) first among the places a build can be put, then next to the binary
   const webPlaces = [opts.webDir, ...webDirCandidates(), engine.config.paths.web].filter((p): p is string => !!p);
   let webDir = resolveWebDir(webPlaces);
@@ -196,7 +199,9 @@ export function createServer(opts: ServerOptions): ConclaveServer {
     const retryAfter = (err as { retryAfter?: number }).retryAfter;
     if (retryAfter) headers['retry-after'] = String(retryAfter);
     const message = status >= 500 && !(err as Error)?.message ? 'internal error' : ((err as Error)?.message ?? String(err));
-    return c.json({ error: message }, status as 400, headers);
+    // field: which form field a 400 is about (meeting create/patch), so the form shows it under that field
+    const field = (err as { field?: unknown }).field;
+    return c.json({ error: message, ...(status < 500 && typeof field === 'string' ? { field } : {}) }, status as 400, headers);
   });
 
   // ----- 5xx answers go to the log files, thrown or returned (docs/DESIGN.md 33) ---
@@ -470,6 +475,7 @@ export function createServer(opts: ServerOptions): ConclaveServer {
       engine.access.setPlans(undefined);
       ctx.clients.dispose();
       ctx.daemons.dispose();
+      lagWatch.stop();
     },
   };
 }

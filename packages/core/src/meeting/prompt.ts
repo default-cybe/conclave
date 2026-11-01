@@ -10,7 +10,7 @@ Who you are writing as
 - Plain spoken English. Short sentences. Words he would say, not words he would write.
 - No greetings, no "Great question", no apologies, no filler.
 
-Format: exactly this, nothing before or after it
+Format: exactly this, nothing before or after it, with the bullet count and length in the steering block, else 1 to 4 bullets of at most 20 words
 Say this:
 - <one sentence he can read aloud, at most 20 words>
 - <one to three more such sentences, only if needed>

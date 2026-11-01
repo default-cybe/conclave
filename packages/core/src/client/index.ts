@@ -1833,7 +1833,7 @@ export class ConclaveClient {
   todos = (id: string) => this.request<Todo[]>('GET', `/api/sessions/${id}/todos`);
   checkpoints = (id: string) => this.request<Checkpoint[]>('GET', `/api/sessions/${id}/checkpoints`);
   restoreCheckpoint = (id: string, checkpointId: string) => this.request<{ ok: true }>('POST', `/api/sessions/${id}/checkpoints/${checkpointId}/restore`);
-  diff = (id: string) => this.request<{ diff: string; files: string[] }>('GET', `/api/sessions/${id}/diff`);
+  diff = (id: string) => this.request<{ diff: string; files: string[]; offline?: boolean }>('GET', `/api/sessions/${id}/diff`);
 
   // ----- folders across devices, docs/design/ROUND-IMPORT-PATHS-WORKFLOWS.md 2.12 -----
   /** Move a session to another device or folder. Not resolved: the result lists candidates for Choose folder. */

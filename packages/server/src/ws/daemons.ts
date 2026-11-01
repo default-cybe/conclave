@@ -42,12 +42,17 @@ const HELLO_TIMEOUT_MS = 15_000;
 export class DaemonHub {
   private conns = new Map<string, DaemonConn>();
   private sweeper: ReturnType<typeof setInterval>;
+  private readonly now: () => number;
+  /** When the sweep last ran, so a late tick is told from a silent device. */
+  private lastSweepAt: number;
 
   constructor(
     private readonly engine: EngineApi,
-    private readonly opts: { heartbeatMs?: number; rpcTimeoutMs?: number; /** The hub's addresses, best first (remote access). */ addresses?: () => string[] } = {},
+    private readonly opts: { heartbeatMs?: number; rpcTimeoutMs?: number; /** The hub's addresses, best first (remote access). */ addresses?: () => string[]; /** The clock, injectable so tests can fake a stalled hub. */ now?: () => number } = {},
   ) {
     const hb = opts.heartbeatMs ?? HEARTBEAT_MS;
+    this.now = opts.now ?? Date.now;
+    this.lastSweepAt = this.now();
     this.sweeper = setInterval(() => this.sweep(hb), hb);
     (this.sweeper as { unref?: () => void }).unref?.();
   }
@@ -68,7 +73,7 @@ export class DaemonHub {
   }
 
   open(ws: ServerWebSocket<DaemonSocketData>): void {
-    const conn: DaemonConn = { ws, deviceId: ws.data.deviceId, lastHeard: Date.now(), lastSeenWrite: 0, ...(ws.data.ip ? { ip: ws.data.ip } : {}) };
+    const conn: DaemonConn = { ws, deviceId: ws.data.deviceId, lastHeard: this.now(), lastSeenWrite: 0, ...(ws.data.ip ? { ip: ws.data.ip } : {}) };
     conn.helloTimer = setTimeout(() => {
       if (!conn.machine) ws.close(4003, 'no hello');
     }, HELLO_TIMEOUT_MS);
@@ -78,7 +83,7 @@ export class DaemonHub {
   message(ws: ServerWebSocket<DaemonSocketData>, raw: string | Buffer): void {
     const conn = ws.data.conn;
     if (!conn) return;
-    conn.lastHeard = Date.now();
+    conn.lastHeard = this.now();
     const msg = parseFrame(raw) as DaemonMessage | undefined;
     if (!msg) return;
     if (msg.type === 'ping') {
@@ -205,10 +210,20 @@ export class DaemonHub {
   }
 
   private sweep(heartbeatMs: number): void {
-    const cutoff = Date.now() - heartbeatMs * 3;
+    const now = this.now();
+    const lateMs = now - this.lastSweepAt;
+    this.lastSweepAt = now;
+    // the tick itself fired late: the hub's event loop stalled, so every device's lastHeard is stale. Ping and let the next round decide
+    const stalled = lateMs > heartbeatMs * 2;
+    const cutoff = now - heartbeatMs * 3;
     for (const conn of this.conns.values()) {
       if (conn.lastHeard < cutoff) {
-        log.warn('device silent, closing', { deviceId: conn.deviceId, ...(conn.name ? { name: conn.name } : {}), silentMs: Date.now() - conn.lastHeard });
+        if (stalled) {
+          log.warn('sweep ran late, pinging instead of closing', { deviceId: conn.deviceId, ...(conn.name ? { name: conn.name } : {}), lateMs, silentMs: now - conn.lastHeard });
+          send(conn.ws, { type: 'ping', ts: now });
+          continue;
+        }
+        log.warn('device silent, closing', { deviceId: conn.deviceId, ...(conn.name ? { name: conn.name } : {}), silentMs: now - conn.lastHeard });
         try {
           conn.ws.close(4008, 'heartbeat timeout');
         } catch {
@@ -216,7 +231,7 @@ export class DaemonHub {
         }
       } else {
         // hub pings too, so a half-open socket shows up on both ends
-        send(conn.ws, { type: 'ping', ts: Date.now() });
+        send(conn.ws, { type: 'ping', ts: now });
       }
     }
   }

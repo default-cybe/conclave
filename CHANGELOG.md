@@ -9,21 +9,39 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Changed
+
+- Web: while a reply streams, its markdown is re-parsed at most every 45 ms instead of once per delta, and code blocks stay plain until their matching fences close in both chat views. The final text still renders the moment the stream ends.
+- Agent loop: each step reads the stored transcript from the last summary's `coversThroughSeq` instead of seq 0, and the context-clearing pass shares that one read, so long sessions no longer list and parse the whole transcript two to three times per step.
+- Subagents with a schema (Task, workflow steps) no longer make one extra model call after a valid StructuredOutput call: the turn ends right away, on the batched and the serial path, with no end-of-turn notice.
+
 ### Fixed
 
-- Windows with Animation effects off gets 3D and motion back. Chromium, Edge and the desktop app read that setting as reduced motion, so Memory > Map showed Rings and every animation stopped. Settings > Appearance > Reduce motion has a third choice, Off, that keeps motion even when the device asks to reduce it (System and On still stop it). With reduced motion, Memory > Map now shows 3D held still (no drift, jumps instead of flights) instead of Rings; Rings stands in only without WebGL.
 - Fixes from a review of the whole codebase. Security: a member's CalDAV, IMAP and SMTP servers are checked again right before every connect and the hub dials the address it checked, so a DNS name changed later cannot reach the hub's network; a chat's Edit, MultiEdit and NotebookEdit stay in its outputs folder like Write; the root update finisher writes its state file under an unguessable name it creates itself, so a link planted in the updates folder cannot redirect the write; the preview's approved command line names its folder; the daily digest reads only the account's own memories; invite text cannot add calendar properties through a line break; release and screenshot workflows keep no git credentials. Also: a provider error or JSON body that never ends now times out, a second hub process on the same database no longer resets jobs the first one is running, `conclave config set` writes the local file only when no local hub answers (a refusal is an error), an unknown OpenStreetMap place id says not found, the Android app asks before sending without a file it could not read, and smaller fixes in the bench, workflows and docs.
+- Devices: a hub event-loop stall no longer closes healthy daemon sockets. The daemon sweep now tells a late tick (more than 2 heartbeats after the last one, so every device's last-heard time is stale) from real silence: it pings and skips the 4008 heartbeat-timeout close for that round; the next on-time round closes a device that is really gone.
+- Sessions: the diff endpoint no longer fails with a 409 when the session's device is offline. It returns an empty diff with `offline: true`, the session page loads and its Changes card says the device is offline instead of the diff failing.
+- Hub: a periodic event-loop lag sample logs one warn line (rate-limited to one a minute) whenever the loop lags over 1 s, so the next stall shows when it happened and by how much in the hub's log.
 
-## [0.4.52] - 2026-11-01
+## [0.4.53] - 2026-11-01
 
 ### Added
 
 - Meetings: the overlay renders answers as streaming markdown (streaming-markdown, vendored from Pickle Glass; only the new text is parsed each frame): the "Say this" bullets large with **bold** terms, then code blocks with highlighting and a Copy button, tables, ```chart blocks drawn as small SVG bar or line charts, and ```mermaid diagrams (loaded only when one appears). Model output never becomes HTML: links open in the browser, images become links. Earlier answers are one step back with the arrows or Ctrl or Cmd + Alt + [ and ], shown as "2 of 3"; Copy copies the whole answer.
+- Meetings: a Meetings page (sidebar, `G N`, and the Android side panel) with Now, Upcoming and Past. Schedule a meeting with a project folder, a calendar event, reminders and a steering prompt (presets or your own text, short or long answers). Before it, the hub prepares a dossier from the folder's chats, workflows and commits that you can edit or re-run; your edits survive a re-run, and a prep over 500k tokens waits for your OK. At the start time a notice links to the meeting's **Open overlay**. The Meeting button in the chat header is gone; the session menu has **Schedule a meeting here...**.
+- Meetings: **Save to memory** on an ended meeting's page and in the overlay's wrap-up saves its summary, decisions and action items as one memory of your account (the project's scope when the meeting has one), even with memory off; it then shows **Saved to memory** with a link, and never saves twice. **Open in chat** starts a new chat, or a code session in the meeting's folder, with the prep, notes and transcript as its first message, and **Add to chat...** puts them in one of your recent chats. Nothing runs until you ask.
 
 ### Changed
 
 - Meetings: the overlay window fits its content (at most 75 % of the screen), is a one-line bar while no answer shows, keeps to the bottom only when you were there, and fades each new block in (none with reduced motion). Streaming a 2,000-token answer in mock mode dropped no frames.
 - Meetings: live answers may add a short table, code block, chart or diagram after the bullets when the question asks for numbers, code or structure.
+- Meetings: the overlay and the meeting page no longer have **Copy consent note** or the one-time legal line; telling the others is up to you.
+
+### Fixed
+
+- Chat: typing no longer makes the conversation flicker. The message box shrank to 0 px for a moment on every key to measure its text, and in the Mac and Linux desktop apps (WebKit, which has no scroll anchoring) the last messages jumped 22 to 94 px each time; the box now keeps its height while it measures. Scrolling up while a reply streams now stays where you put it: any upward scroll stops following new text, instead of snapping back while within 120 px of the bottom.
+- Windows with Animation effects off gets 3D and motion back. Chromium, Edge and the desktop app read that setting as reduced motion, so Memory > Map showed Rings and every animation stopped. Settings > Appearance > Reduce motion has a third choice, Off, that keeps motion even when the device asks to reduce it (System and On still stop it). With reduced motion, Memory > Map now shows 3D held still (no drift, jumps instead of flights) instead of Rings; Rings stands in only without WebGL.
+
+## [0.4.52] - 2026-11-01
 
 ### Fixed
 
