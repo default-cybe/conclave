@@ -352,8 +352,19 @@ export class MessageRepo {
   }
 
   delete(id: string): void {
+    const sid = (this.db.query('SELECT session_id FROM messages WHERE id = ?').get(id) as Row | null)?.session_id as string | undefined;
     this.db.query('DELETE FROM messages_fts WHERE message_id = ?').run(id);
     this.db.query('DELETE FROM messages WHERE id = ?').run(id);
+    if (sid) this.clampMarks(sid);
+  }
+
+  /**
+   * nextSeq reuses freed seqs, so no participant mark may stay above the tail:
+   * a later message must count as after their join and as unread.
+   */
+  private clampMarks(sessionId: string): void {
+    const max = this.nextSeq(sessionId) - 1;
+    this.db.query('UPDATE chat_participants SET joined_seq = MIN(joined_seq, ?), read_upto_seq = MIN(read_upto_seq, ?) WHERE session_id = ?').run(max + 1, max, sessionId);
   }
 
   /** Delete messages with seq > given (used for edit-and-resend / rewind). One pass over the index, not one per message. */
@@ -361,6 +372,7 @@ export class MessageRepo {
     this.db.transaction(() => {
       this.db.query('DELETE FROM messages_fts WHERE message_id IN (SELECT id FROM messages WHERE session_id = ? AND seq > ?)').run(sessionId, seq);
       this.db.query('DELETE FROM messages WHERE session_id = ? AND seq > ?').run(sessionId, seq);
+      this.clampMarks(sessionId);
     })();
   }
 

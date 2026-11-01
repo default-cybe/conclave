@@ -57,6 +57,17 @@ export function shownName(a: Pick<AccountRef, 'name' | 'displayName' | 'role'> |
   return n.charAt(0).toUpperCase() + n.slice(1);
 }
 
+/**
+ * The name other people on the hub see: a display name set apart from the
+ * sign-in name, else "Hub owner" or "Member". Never the sign-in name, in any
+ * case, since sign-in matches it case-insensitively.
+ */
+export function contactName(a: Pick<AccountRef, 'name' | 'displayName' | 'role'>): string {
+  const d = a.displayName?.trim();
+  if (d && d.toLowerCase() !== a.name.trim().toLowerCase()) return d;
+  return a.role === 'owner' ? 'Hub owner' : 'Member';
+}
+
 /** One provider as an account may use it. */
 export interface ProviderAccessDto {
   provider: string;

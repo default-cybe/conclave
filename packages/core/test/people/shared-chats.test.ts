@@ -185,7 +185,31 @@ describe('membership and seats', () => {
     status(() => store.accept('chat', alice, seat()), 404);
   });
 
-  test('joined history is captured at invitation and changes take effect on the next read', () => {
+  test('joined history starts at Accept, not at the invitation', () => {
+    store.invite('chat', 'owner', alice);
+    repos.messages.insert(message(1));
+    expect(store.accept('chat', alice, seat()).joinedSeq).toBe(2);
+    repos.messages.insert(message(2));
+    expect(store.visible('chat', alice, repos.messages.list('chat')).map((m) => m.seq)).toEqual([2]);
+  });
+
+  test.each(['truncate', 'delete'] as const)('after a %s frees seqs, new messages count as joined and unread', (how) => {
+    for (let i = 1; i <= 10; i++) repos.messages.insert(message(i));
+    join();
+    repos.messages.insert(message(11));
+    store.preferences('chat', alice, { readUptoSeq: 11 });
+    if (how === 'truncate') repos.messages.truncateAfter('chat', 3);
+    else for (const id of ['m11', 'm10', 'm9', 'm8', 'm7', 'm6', 'm5', 'm4']) repos.messages.delete(id);
+    expect(store.get('chat', alice)).toMatchObject({ joinedSeq: 4, readUptoSeq: 3 });
+    repos.messages.insert(message(repos.messages.nextSeq('chat'), { id: 'fresh' }));
+    expect(store.visible('chat', alice, repos.messages.list('chat')).map((m) => m.id)).toEqual(['fresh']);
+    // a tail cut above the join point moves nothing
+    repos.messages.insert(message(5));
+    repos.messages.truncateAfter('chat', 4);
+    expect(store.get('chat', alice)).toMatchObject({ joinedSeq: 4, readUptoSeq: 3 });
+  });
+
+  test('joined history is captured at joining and changes take effect on the next read', () => {
     repos.messages.insert(message(1));
     join();
     repos.messages.insert(message(2));
@@ -255,6 +279,17 @@ describe('membership and seats', () => {
     expect(repos.sessions.get('chat')).toBeDefined();
   });
 
+  test('removing a member whose messages carry no saved name saves their contact name, never the sign-in name', () => {
+    const carol = people.create({ name: 'carol-login' }).id;
+    const dave = people.create({ name: 'dave', displayName: 'Dave Q' }).id;
+    repos.messages.insert(message(1, { sender: `account:${carol}` }));
+    repos.messages.insert(message(2, { sender: `account:${dave}` }));
+    people.remove(carol);
+    people.remove(dave);
+    expect(repos.messages.get('m1')).toMatchObject({ author: 'Member', sender: 'account:removed' });
+    expect(repos.messages.get('m2')).toMatchObject({ author: 'Dave Q', sender: 'account:removed' });
+  });
+
   test('deleting the chat cascades membership, while deleting a seat only clears its pointer', () => {
     join();
     repos.sessions.delete('seat');
@@ -292,6 +327,17 @@ describe('tool output is private to its starter', () => {
     expect(m.meta).toBeUndefined();
     expect(JSON.stringify(m)).not.toContain('private');
     expect(m).toMatchObject({ author: 'Saved name', sender: 'account:starter', model: 'provider/model' });
+  });
+
+  test('a person’s own image and document attachments stay visible to others; tool-result images do not', () => {
+    const image = { type: 'image' as const, mediaType: 'image/png', data: 'cGhvdG8=' };
+    const doc = { type: 'document' as const, mediaType: 'application/pdf', data: 'cGRm', title: 'plan.pdf' };
+    const human = sharedMessageView(message(1, { sender: 'account:x', content: [{ type: 'text', text: 'look' }, image, doc] }), 'owner', 'owner');
+    expect(human.content).toEqual([{ type: 'text', text: 'look' }, image, doc]);
+    const tool = sharedMessageView(message(2, { sender: 'account:x', content: [{ type: 'tool_result', toolUseId: 'c', content: 'out' }, image] }), 'owner', 'owner');
+    expect(tool.content).toEqual([{ type: 'text', text: '[Tool completed]' }]);
+    const reply = sharedMessageView(message(3, { sender: 'account:x', role: 'assistant', content: [image] }), 'owner', 'owner');
+    expect(reply.content).toEqual([]);
   });
 
   test('legacy NULL senders do not become the current reader', () => {

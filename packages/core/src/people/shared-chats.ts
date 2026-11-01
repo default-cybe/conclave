@@ -1,6 +1,6 @@
 /** Local chat membership. Execution remains in each person's own session. */
 import type { Db } from '../storage/db';
-import type { Message, Session } from '../types';
+import type { ContentBlock, Message, Session } from '../types';
 import { OWNER_ID } from './context';
 import { PeopleError } from './store';
 import { ensureColumn } from './tables';
@@ -151,7 +151,8 @@ export class ChatParticipantStore {
         if (!stored || stored.account_id !== caller || stored.kind !== 'chat' || meta?.seat?.chatId !== chatId || settings?.memory !== false) throw new PeopleError(400, 'A participant needs their own chat seat with memory off.');
         if (this.db.query('SELECT 1 FROM messages WHERE session_id = ? LIMIT 1').get(seat!.id)) throw new PeopleError(400, 'A seat must not hold a transcript.');
       } else if (seat) throw new PeopleError(400, 'A viewer has no seat.');
-      this.db.query("UPDATE chat_participants SET state = 'active', seat_id = ?, updated_at = ? WHERE session_id = ? AND account_id = ?").run(seat?.id ?? null, this.now(), chatId, caller);
+      // joined history starts at Accept: messages sent while the invite waited are earlier history.
+      this.db.query("UPDATE chat_participants SET state = 'active', seat_id = ?, joined_seq = ?, updated_at = ? WHERE session_id = ? AND account_id = ?").run(seat?.id ?? null, this.nextSeq(chatId), this.now(), chatId, caller);
       return this.get(chatId, caller)!;
     })();
   }
@@ -238,10 +239,12 @@ export function sharedMessageView(m: Message, caller: string, owner: string): Me
     // Another person's compaction must not truncate this person's view.
     kind: m.kind === 'summary' ? 'notice' : m.kind,
     sender: m.sender ?? `account:${owner}`, author: m.author, model: m.model, createdAt: m.createdAt,
-    content: m.kind === 'summary' ? [] : m.content.flatMap((b) => {
+    content: m.kind === 'summary' ? [] : m.content.flatMap((b, _, all): ContentBlock[] => {
       if (b.type === 'text' && !b.text.startsWith('<system-reminder>')) return [{ type: 'text' as const, text: b.text }];
       if (b.type === 'tool_use') return [{ type: 'text' as const, text: `[Called ${b.name.replace(/[\r\n]/g, ' ')}]` }];
       if (b.type === 'tool_result') return [{ type: 'text' as const, text: b.isError ? '[Tool failed]' : '[Tool completed]' }];
+      // A person's own attachments are for everyone; a message carrying tool results may hold tool output as images.
+      if ((b.type === 'image' || b.type === 'document') && m.role === 'user' && !all.some((x) => x.type === 'tool_result')) return [b];
       return [];
     }),
   };

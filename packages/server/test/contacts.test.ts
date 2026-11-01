@@ -66,6 +66,20 @@ test('contacts do not grant access to sessions, devices or account-management ro
   expect((await hub.api('/api/contacts', { token: null })).status).toBe(401);
 });
 
+test('a member with no display name, or one that is only their sign-in name, shows as Member', async () => {
+  const plain = hub.engine.people.create({ name: 'dave-login' }).id;
+  const echo = hub.engine.people.create({ name: 'erin-login', displayName: 'Erin-Login' }).id;
+  try {
+    const list = await contacts(aliceToken);
+    expect(list.find((c: { party: string }) => c.party === `account:${plain}`)?.name).toBe('Member');
+    expect(list.find((c: { party: string }) => c.party === `account:${echo}`)?.name).toBe('Member');
+    expect(JSON.stringify(list).toLowerCase()).not.toContain('login');
+  } finally {
+    hub.engine.people.remove(plain);
+    hub.engine.people.remove(echo);
+  }
+});
+
 test('renames and removals take effect at the next contacts request', async () => {
   hub.engine.people.update(bob, { displayName: 'Robert' });
   expect((await contacts(aliceToken)).find((c: { party: string }) => c.party === `account:${bob}`)?.name).toBe('Robert');
