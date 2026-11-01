@@ -126,16 +126,32 @@ fn build(app: &AppHandle, url: Url) -> Result<WebviewWindow, String> {
         .skip_taskbar(true)
         .focused(false)
         .shadow(false)
-        .visible_on_all_workspaces(true);
-    // transparency on macOS needs the private-API feature; the panel is opaque there
-    #[cfg(not(target_os = "macos"))]
-    let b = b.transparent(true);
+        .visible_on_all_workspaces(true)
+        // translucent: on macOS this needs tauri's macos-private-api feature (tauri.conf.json macOSPrivateApi)
+        .transparent(true);
     let w = b.build().map_err(|e| e.to_string())?;
     #[cfg(target_os = "macos")]
-    exclude_mac::make_panel(&w)?;
+    {
+        exclude_mac::make_panel(&w)?;
+        // after the class swap, on this same main thread (make_panel checks it): a blur view
+        // under the webview. sharingType belongs to the window, so a subview leaves it alone,
+        // and show() sets and reads it back after this anyway.
+        use window_vibrancy::{NSVisualEffectMaterial, NSVisualEffectState};
+        if let Err(e) = window_vibrancy::apply_vibrancy(&w, NSVisualEffectMaterial::HudWindow, Some(NSVisualEffectState::Active), Some(10.0)) {
+            log::warn!("meeting overlay: no vibrancy: {e}");
+        }
+    }
     #[cfg(target_os = "windows")]
     if let Ok(h) = w.hwnd() {
         exclude_win::tool_window(h.0 as isize, true);
+        // Windows 11 22H2+ only (the DWM system backdrop). Windows 10's acrylic lags on drag and
+        // resize, so there the page's own translucent dark panel is the background. The display
+        // affinity is a separate attribute; show() sets and verifies it after this.
+        if windows_version::OsVersion::current() >= windows_version::OsVersion::new(10, 0, 0, 22523) {
+            if let Err(e) = window_vibrancy::apply_acrylic(&w, None) {
+                log::warn!("meeting overlay: no acrylic: {e}");
+            }
+        }
     }
     let handle = app.clone();
     w.on_window_event(move |e| {

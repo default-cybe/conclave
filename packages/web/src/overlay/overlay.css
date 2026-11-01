@@ -2,7 +2,12 @@
   The meeting overlay's own styles (docs/design/MEETING-MODE.md 2.3): no
   Tailwind and no app styles. The tokens are the app's (src/styles/index.css,
   docs/design/SPEC.md 3), copied for the few this window uses. The window is
-  transparent; the panel is solid (no glass, no glow). Animations are the
+  transparent and the panel translucent (--ov-opacity, 60 to 100 %, opacity.ts):
+  the desktop app puts the OS blur behind it (macOS vibrancy, Windows 11
+  acrylic), and backdrop-filter blurs where the webview can. The answer sits
+  on a denser layer (--layer) so it reads over any background. The overlay is
+  the one place outside the phone tab bar that SPEC.md 3 lets use a backdrop
+  blur; no glow. Animations are the
   recording dot's opacity and a short fade of each new answer block, both
   run by the compositor and both off under reduced motion.
 */
@@ -26,6 +31,8 @@
   --solid: var(--fg);
   --solid-fg: var(--bg);
   --code-bg: oklch(0.14 0.005 286);
+  --panel: oklch(0.13 0.005 286);
+  --layer: oklch(0.1 0.004 286);
   --syn-kw: oklch(0.78 0.1 303);
   --syn-str: oklch(0.8 0.09 150);
   --syn-num: oklch(0.8 0.09 60);
@@ -52,6 +59,8 @@
   --meter-off: oklch(0.9 0.005 286);
   --meter-on: oklch(0.33 0.01 286);
   --code-bg: oklch(0.965 0.003 286);
+  --panel: oklch(0.99 0.002 286);
+  --layer: oklch(1 0 0);
   --syn-kw: oklch(0.48 0.16 300);
   --syn-str: oklch(0.48 0.11 150);
   --syn-num: oklch(0.52 0.12 55);
@@ -68,6 +77,9 @@
   --r-1: 3px;
   --r-2: 5px;
   --r-3: 10px;
+  /* set from the slider at boot (opacity.ts); the answer layer is 20 points denser, at most opaque */
+  --ov-opacity: 80%;
+  --ov-layer: min(100%, calc(var(--ov-opacity) + 20%));
 }
 
 * {
@@ -85,9 +97,9 @@ body {
   overflow: hidden;
 }
 
+/* no margin: the native blur fills the window, so the panel must too (its 10px corners match the blur's) */
 #root {
   height: 100%;
-  padding: 6px;
 }
 
 /* as tall as its content (the window follows it, fit.ts), scrolling once the window is at its cap */
@@ -96,7 +108,10 @@ body {
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--bg);
-  border: 1px solid var(--rule-2);
+  background: color-mix(in oklch, var(--panel) var(--ov-opacity), transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid color-mix(in oklch, var(--rule-2) 70%, transparent);
   border-radius: var(--r-3);
   padding: 12px 14px 14px;
 }
@@ -173,8 +188,10 @@ body {
 /* Status line: the red dot and "Listening" stay while capture runs (8) */
 .ov-status {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 2px 8px;
+  white-space: nowrap;
   font-size: 12px;
   user-select: none;
 }
@@ -244,6 +261,7 @@ body {
 /* The answer: the one filled box on screen */
 .ov-card {
   background: var(--bg-raise);
+  background: color-mix(in oklch, var(--layer) var(--ov-layer), transparent);
   border: 1px solid var(--rule);
   border-radius: var(--r-2);
   padding: 10px 12px;
@@ -653,7 +671,8 @@ circle.ov-s3 {
   padding: 0;
   list-style: none;
   font-size: 12.5px;
-  color: var(--fg-2);
+  /* one step brighter than on a solid panel: it sits on the translucent panel, not the answer layer */
+  color: var(--fg);
 }
 
 .ov-transcript li {
@@ -666,7 +685,7 @@ circle.ov-s3 {
 }
 
 .ov-who {
-  color: var(--fg-3);
+  color: var(--fg-2);
 }
 
 .ov-brief {
@@ -800,4 +819,18 @@ circle.ov-s3 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* the panel's opacity, in the open overlay under its controls (Live.tsx) */
+.ov-opacity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ov-opacity input {
+  flex: 1;
+  max-width: 160px;
+  margin: 0;
+  accent-color: var(--fg-2);
 }

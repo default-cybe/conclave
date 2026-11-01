@@ -14,6 +14,7 @@ import { answerTimings } from '../src/features/meeting/MeetingPage';
 import { fileNotes, modelOptions } from '../src/features/meeting/MeetingForm';
 import { memberStt, SttBody, sttInUse } from '../src/features/settings/meetings';
 import type { DesktopMeetingStatus, MeetingAnswer, MeetingDetail } from '../src/overlay/wire';
+import { readOpacity } from '../src/overlay/opacity';
 
 const desk = (p: Partial<DesktopMeetingStatus> = {}): DesktopMeetingStatus => ({
   meetingId: 'mtg_1',
@@ -129,6 +130,17 @@ describe('speech to text in use', () => {
     expect(html.indexOf('Recommended')).toBeGreaterThan(html.indexOf('Deepgram'));
     expect(html.indexOf('Recommended')).toBeLessThan(html.indexOf('AssemblyAI'));
     expect(html).toContain('$200 free credit');
+  });
+});
+
+describe('overlay opacity', () => {
+  const store = (v: string | null) => ({ getItem: () => v });
+  test('60 to 100 is kept; nothing, junk or out of range reads as 80', () => {
+    expect(readOpacity(store('60'))).toBe(60);
+    expect(readOpacity(store('100'))).toBe(100);
+    for (const v of [null, '', 'abc', '59', '101', '-5']) expect(readOpacity(store(v))).toBe(80);
+    expect(readOpacity(undefined)).toBe(80);
+    expect(readOpacity({ getItem: () => { throw new Error('denied'); } })).toBe(80);
   });
 });
 

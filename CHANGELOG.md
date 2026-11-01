@@ -15,6 +15,7 @@ like `## [0.4.16] - 2026-10-24`.
 - Meetings: pick the answer model per meeting (`answerModel`, `GET /api/meetings/models`, fastest first). The default is `models.tiers.fast`, else Gemini Flash Lite, Haiku or Gemini Flash; the meeting page warns when only a slow model is left.
 - Meetings: files and no folder. A meeting can run on attached files alone (at most 10, 10 MB each, text only kept on the hub, secrets redacted), with `POST /api/meetings/:id/files` and `DELETE /api/meetings/:id/files/:fileId`. Prep and the live context read the files.
 - Meetings: each answer stores its model and timings (speech end, arrival, model call, first word, done). The overlay shows the last "first word" time and the speech service in use; the meeting page shows a timings line per answer.
+- Overlay: translucent, like Final Round AI's. macOS puts a dark HUD vibrancy behind the panel (window-vibrancy, after the NSPanel is made), Windows 11 22H2+ acrylic, Windows 10 and Linux a translucent dark panel; the answer sits on a denser layer so it stays readable over any background, and a light theme gets the light version. An Opacity slider (60 to 100 %, 80 by default, saved per device) sits under the open overlay's controls. Capture exclusion is unchanged and still set and read back on every show, after the blur.
 - Desktop: `app.log` in the app log folder (`~/Library/Logs/dev.conclave.desktop/` on macOS), rotated at 5 MB, with meeting start and stop, provider, errors and timings, never audio, text or tokens.
 
 ### Changed

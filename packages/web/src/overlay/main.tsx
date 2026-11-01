@@ -10,6 +10,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { fetchReq } from './hub';
 import { Overlay, type Conn } from './Overlay';
+import { applyOpacity, readOpacity } from './opacity';
 
 const MOCK = import.meta.env.VITE_MOCK === '1';
 const TOKEN_KEY = 'conclave.overlay.token';
@@ -35,6 +36,7 @@ function takeToken(): string | null {
 }
 
 async function boot() {
+  applyOpacity(readOpacity());
   // the overlay never shows a native context menu: it would be a separate window that screen sharing captures (7.2)
   window.addEventListener('contextmenu', (e) => e.preventDefault());
   const baseUrl = location.origin;

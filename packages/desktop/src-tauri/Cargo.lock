@@ -576,8 +576,10 @@ dependencies = [
  "tungstenite",
  "ureq 2.12.1",
  "webpki-roots 1.0.9",
+ "window-vibrancy",
  "windows",
  "windows-registry",
+ "windows-version",
 ]
 
 [[package]]

@@ -15,6 +15,7 @@ import type { DesktopMeetingStatus, SttProvider } from './wire';
 import type { WsStatus } from './ws';
 import { AnswerCard } from './AnswerCard';
 import { Transcript } from './Transcript';
+import { OPACITY_MAX, OPACITY_MIN, readOpacity, saveOpacity } from './opacity';
 
 /** Whole minutes since `since`, re-rendered once a minute (the only timer of an idle overlay). */
 function useMinutes(since?: number): number {
@@ -77,6 +78,29 @@ function Meters({ levels }: { levels: LevelSource }) {
         </span>
       </span>
     </>
+  );
+}
+
+/** How see-through the panel is, saved on this device (opacity.ts). */
+function Opacity() {
+  const [v, setV] = useState(readOpacity);
+  return (
+    <label className="ov-opacity">
+      <span className="ov-label">Opacity</span>
+      <input
+        type="range"
+        min={OPACITY_MIN}
+        max={OPACITY_MAX}
+        step={5}
+        value={v}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          setV(n);
+          saveOpacity(n);
+        }}
+      />
+      <span className="ov-num">{v} %</span>
+    </label>
   );
 }
 
@@ -236,6 +260,7 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
         )}
       </footer>
       )}
+      {open && <Opacity />}
     </div>
   );
 }

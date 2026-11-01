@@ -598,7 +598,8 @@ On the overlay HWND (and on every other top-level window of the process while a 
 5. Re-check after every show, resize, move to another monitor, `ScaleFactorChanged`, `WM_DISPLAYCHANGE` and webview reload: read `GetWindowDisplayAffinity` and call `SetWindowDisplayAffinity` **only if it differs**. Never toggle it while it is correct: repeated calls cause DWM "affinity churn" and blank frames, and toggling is how the black-box bug appears.
 6. Hide with `ShowWindow(SW_HIDE)` and show with `ShowWindow(SW_SHOWNOACTIVATE)`, then step 5. Never destroy and rebuild the window during a meeting.
 7. A sweep every 2 s on `meeting-share`: `EnumThreadWindows` over the process's UI thread, and step 5 for each visible top-level window of our process. It cannot reach WebView2's own popups, which belong to `msedgewebview2.exe`; so the overlay page uses no `<select>`, no `title=` tooltips, no native context menu (`contextmenu` prevented), no `alert`/`confirm`, and no file pickers.
-8. `AllowWindowCaptureExclusionInRemoteSessions` is left alone; the overlay is also hidden from remote-desktop tools that capture through DWM, which the owner should know when he helps someone over Remote Desktop.
+8. Translucent (owner's choice, like Final Round AI's overlay): on Windows 11 22H2+ (build 22523, the DWM system backdrop) `window_vibrancy::apply_acrylic` right after the window is built, so before step 2 sets the affinity on show; acrylic is `DWMWA_SYSTEMBACKDROP_TYPE`, a separate attribute from the display affinity, and step 5 still reads the affinity back. Windows 10's acrylic lags on drag and resize, so there the page's own translucent dark panel is the whole background.
+9. `AllowWindowCaptureExclusionInRemoteSessions` is left alone; the overlay is also hidden from remote-desktop tools that capture through DWM, which the owner should know when he helps someone over Remote Desktop.
 
 ### 7.3 macOS
 
@@ -606,6 +607,7 @@ On the overlay HWND (and on every other top-level window of the process while a 
 2. `setSharingType(NSWindowSharingNone)` on the panel and on every `NSApp.windows` entry while a meeting runs; read `sharingType` back and report `excluded` or `failed`.
 3. Re-apply (only where the read-back differs) after each show, `NSApplicationDidChangeScreenParametersNotification`, `NSWindowDidChangeScreenNotification`, activation policy changes and app activation: WindowServer can reset it when the activation policy flips.
 4. Because ScreenCaptureKit ignores the flag on macOS 15+, the status shows `excluded` with the note "Hidden from older capture only. Zoom, Teams, OBS and Chrome on macOS 15 can see it. Hide it when you share." and share detection defaults to on.
+5. Translucent, not opaque: the window is `.transparent(true)` (tauri's `macos-private-api` feature, `macOSPrivateApi` in tauri.conf.json) and, after `make_panel` and on the main thread, `window_vibrancy::apply_vibrancy(HudWindow, Active, radius 10)` adds a blur view under the webview. Never tao's `set_focusable` on the panel (mod.rs `focusable`). `sharingType` is per window, so the blur view does not change it; step 2 runs on every show after the vibrancy, so the order is fixed anyway. The page paints the panel at the owner's opacity (60 to 100 %, 80 by default, per device) and the answer on a denser layer (overlay.css `--layer`). Linux has no OS blur: a transparent window and the same translucent panel.
 
 ### 7.4 Share detection fallback
 

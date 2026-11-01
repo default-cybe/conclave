@@ -33,7 +33,7 @@ export function atBottom(top: number, client: number, height: number): boolean {
  * app for a window that fits (HEIGHT_MS apart at least, same height not
  * asked twice) and keeps the bottom in view when the owner had it there.
  */
-export function useFitAndStick(panel: RefObject<HTMLElement | null>, content: RefObject<HTMLElement | null>, chrome = 12): void {
+export function useFitAndStick(panel: RefObject<HTMLElement | null>, content: RefObject<HTMLElement | null>, chrome = 0): void {
   useEffect(() => {
     const p = panel.current;
     const c = content.current;
