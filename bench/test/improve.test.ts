@@ -60,4 +60,10 @@ describe('offline improvement decision', () => {
     expect(remainingUsd(0.5, [row('one', 1, true)])).toBe(0);
     expect(() => remainingUsd(10, [{ ...row('one', 1, true), cost: { list_usd: null } }])).toThrow('unknown');
   });
+  test('a retried attempt with no model calls costs nothing; tokens without a price stay unknown', () => {
+    const retried = { ...row('one', 1, false), cost: { list_usd: null }, tokens: null };
+    expect(remainingUsd(10, [retried, row('one', 1, true)])).toBe(9);
+    expect(remainingUsd(10, [{ ...retried, tokens: { total: 0 } }])).toBe(10);
+    expect(() => remainingUsd(10, [{ ...retried, tokens: { total: 5 } }])).toThrow('unknown');
+  });
 });

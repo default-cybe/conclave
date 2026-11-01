@@ -19,7 +19,8 @@
  * Every step is written to <home>/updates/state.json, which the hub reads to
  * show progress and to write the audit line.
  */
-import { chownSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { closeSync, constants, copyFileSync, existsSync, fchmodSync, fchownSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { UpdateJobDto, UpdateJobPhase } from '../client/updates';
 import { checkUnpacked, hashFile, makeStage, plainFileIn, rollBack, swapIn, unpackHub, UpdateError, verifyArtifact } from './apply';
@@ -114,15 +115,26 @@ export function readState(updatesDir: string): UpdateState | undefined {
 export function writeState(updatesDir: string, state: UpdateState, owner?: { uid: number; gid: number }): void {
   mkdirSync(updatesDir, { recursive: true });
   const file = join(updatesDir, STATE_FILE);
-  const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(state, null, 2) + '\n', { mode: 0o644 });
-  if (owner) {
-    try {
-      chownSync(tmp, owner.uid, owner.gid);
-    } catch {
-      /* the hub can still read it */
+  // the hub can write updatesDir and a root finisher writes here: an unguessable name, created new
+  // (never through a planted file or symlink), and chown/chmod on the open fd, not the path
+  const tmp = `${file}.${randomBytes(8).toString('hex')}.tmp`;
+  const fd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o644);
+  try {
+    if (owner) {
+      try {
+        fchownSync(fd, owner.uid, owner.gid);
+      } catch {
+        /* the hub can still read it */
+      }
     }
+    if (process.platform !== 'win32') fchmodSync(fd, 0o644);
+    writeSync(fd, JSON.stringify(state, null, 2) + '\n');
+  } catch (err) {
+    closeSync(fd);
+    rmSync(tmp, { force: true });
+    throw err;
   }
+  closeSync(fd);
   renameSync(tmp, file);
 }
 

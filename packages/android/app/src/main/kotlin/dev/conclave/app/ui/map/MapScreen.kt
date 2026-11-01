@@ -38,6 +38,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -231,7 +232,8 @@ fun MapScreen(
                             modifier = Modifier.heightIn(min = 48.dp),
                         ) { Text("Fit") }
                     }
-                    Scrubber(from = snap.from.takeIf { it > 0 } ?: (System.currentTimeMillis() - 86_400_000), at = replay, onChange = vm::setReplay, clock = clock)
+                    val fallbackFrom = remember { System.currentTimeMillis() - 86_400_000 }
+                    Scrubber(from = snap.from.takeIf { it > 0 } ?: fallbackFrom, at = replay, onChange = vm::setReplay, clock = clock)
                 }
             }
 
@@ -307,6 +309,10 @@ private fun Scrubber(from: Long, at: Long?, onChange: (Long?) -> Unit, clock: (L
     val ticks = remember(from, now / 3_600_000) { MapWords.replayTicks(from, now, 6) }
     fun timeAt(x: Float): Long = from + ((x / max(1, width)).coerceIn(0f, 1f) * span).toLong()
     fun settle(t: Long): Long? = if (now - t < span * 0.01) null else t
+    // the gestures stay alive across recompositions (span changes with the clock); they read the latest functions
+    val timeAtNow by rememberUpdatedState(::timeAt)
+    val settleNow by rememberUpdatedState(::settle)
+    val onChangeNow by rememberUpdatedState(onChange)
 
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(
@@ -314,18 +320,18 @@ private fun Scrubber(from: Long, at: Long?, onChange: (Long?) -> Unit, clock: (L
                 .weight(1f)
                 .height(52.dp)
                 .onSizeChanged { width = it.width }
-                .pointerInput(from, span) {
-                    detectTapGestures(onTap = { p -> onChange(settle(timeAt(p.x))) })
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { p -> onChangeNow(settleNow(timeAtNow(p.x))) })
                 }
-                .pointerInput(from, span) {
+                .pointerInput(Unit) {
                     detectHorizontalDragGestures(
-                        onDragStart = { p -> drag = timeAt(p.x) },
+                        onDragStart = { p -> drag = timeAtNow(p.x) },
                         onDragEnd = {
-                            drag?.let { onChange(settle(it)) }
+                            drag?.let { onChangeNow(settleNow(it)) }
                             drag = null
                         },
                         onDragCancel = { drag = null },
-                        onHorizontalDrag = { change, _ -> drag = timeAt(change.position.x) },
+                        onHorizontalDrag = { change, _ -> drag = timeAtNow(change.position.x) },
                     )
                 }
                 .semantics { contentDescription = if (live) "Replay the last 24 hours, live" else "Replay the last 24 hours, ${MapWords.clockWords(shown, now, clock)}" },

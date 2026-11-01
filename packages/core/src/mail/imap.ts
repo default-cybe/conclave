@@ -21,6 +21,8 @@ export interface ImapOptions {
   timeoutMs?: number;
   /** Tests: accept a self-signed certificate. */
   rejectUnauthorized?: boolean;
+  /** The address to dial for host, checked right before each connect, or throws (a member's server: people/net.ts resolvePublic). */
+  dialAddress?: (host: string) => Promise<string>;
 }
 
 export class ImapError extends Error {
@@ -156,7 +158,8 @@ export class ImapClient {
 
   private async open(): Promise<void> {
     const timeout = this.o.timeoutMs ?? 20_000;
-    const tlsOpts = { host: this.o.host, port: this.o.port, servername: this.o.host, rejectUnauthorized: this.o.rejectUnauthorized ?? true };
+    const dial = this.o.dialAddress ? await this.o.dialAddress(this.o.host) : this.o.host;
+    const tlsOpts = { host: dial, port: this.o.port, servername: this.o.host, rejectUnauthorized: this.o.rejectUnauthorized ?? true };
     let greetTimer: ReturnType<typeof setTimeout> | undefined;
     const greeted = new Promise<string>((resolve, reject) => {
       this.greeting = (line) => {
@@ -169,7 +172,7 @@ export class ImapClient {
     greeted.catch(() => undefined);
     try {
       await new Promise<void>((resolve, reject) => {
-        const s = this.o.security === 'tls' ? tlsConnect(tlsOpts, () => resolve()) : netConnect({ host: this.o.host, port: this.o.port }, () => resolve());
+        const s = this.o.security === 'tls' ? tlsConnect(tlsOpts, () => resolve()) : netConnect({ host: dial, port: this.o.port }, () => resolve());
         s.once('error', (e) => reject(new ImapError(`Could not reach ${this.o.host}:${this.o.port}: ${e.message}`, 'connect')));
         this.attach(s);
       });

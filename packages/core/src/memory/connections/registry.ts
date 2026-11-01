@@ -177,6 +177,8 @@ export function validateConnection(c: MemoryConnectionConfig, existingIds: strin
       checkMcpServer(o, preset === 'custom');
       if (preset === 'custom') {
         if (!optStr(o, 'searchTool')) bad('options.searchTool is required for a custom MCP memory');
+        // preset is the inferred one too: a searchTool alone makes it custom
+        if (c.mode !== 'read' && !optStr(o, 'writeTool')) bad('a custom MCP memory without options.writeTool can only use mode "read"');
         for (const k of ['searchArgs', 'writeArgs', 'listArgs', 'fields']) if (o[k] !== undefined && !optObject(o, k)) bad(`options.${k} must be an object`);
         for (const k of ['writeTool', 'listTool']) if (o[k] !== undefined && typeof o[k] !== 'string') bad(`options.${k} must be a string`);
       }
@@ -198,9 +200,6 @@ export function validateConnection(c: MemoryConnectionConfig, existingIds: strin
       checkUrl(o.url, 'options.url');
       checkStringArray(o.nodeSet, 'options.nodeSet');
       break;
-  }
-  if ((c.mode === 'mirror' || c.mode === 'external' || c.mode === undefined) && c.type === 'mcp' && o.preset === 'custom' && !optStr(o, 'writeTool')) {
-    bad('a custom MCP memory without options.writeTool can only use mode "read"');
   }
   return c;
 }

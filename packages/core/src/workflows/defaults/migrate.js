@@ -29,7 +29,7 @@ if (!units) {
 if (!units.length) return { done: true, note: 'no units need this migration' }
 log(units.length + ' units: ' + units.map((u) => u.name).join(', '))
 
-const result = (r, u) => (r ? { unit: u.name, path: u.path, deps: u.deps || [], built: !!r.value.built, buildRan: !!r.value.buildRan, gaps: r.value.gaps || [], seq: r.seq } : { unit: u.name, path: u.path, deps: u.deps || [], built: false, buildRan: false, gaps: [], error: 'no result' })
+const result = (r, u) => (r && r.value ? { unit: u.name, path: u.path, deps: u.deps || [], built: !!r.value.built, buildRan: !!r.value.buildRan, gaps: r.value.gaps || [], seq: r.seq } : { unit: u.name, path: u.path, deps: u.deps || [], built: false, buildRan: false, gaps: [], error: 'no result' })
 const RESULT = { type: 'object', properties: { built: { type: 'boolean' }, buildRan: { type: 'boolean' }, buildCommand: { type: 'string' }, gaps: { type: 'array', items: { type: 'string' } }, filesChanged: { type: 'array', items: { type: 'string' } } }, required: ['built', 'buildRan'] }
 const migrateOne = (u, playbook, gaps, phaseName) =>
   agent(

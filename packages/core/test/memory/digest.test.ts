@@ -164,6 +164,10 @@ describe('one night', () => {
     const quiet = await engine.createSession({ kind: 'chat', chat: { memory: false }, title: 'Private' });
     engine.addMessage(quiet.id, { role: 'user', kind: 'normal', content: [{ type: 'text', text: 'Something private about my health.' }] });
     await engine.memory.save({ content: 'madx runs Grafana on port 3000', tags: ['host:madx'] });
+    // another account's memories never reach the owner's note: not the facts, not their hosts or projects
+    await engine.memory.save({ content: 'The friend keeps a diary on friendbox', tags: ['host:friendbox'] });
+    await engine.memory.save({ content: 'The friend works on a secret project', scope: 'project', scopeKey: '/home/friend/secretproj' });
+    engine.repos.db.query(`UPDATE memories SET account_id = 'acct_friend' WHERE content LIKE 'The friend %'`).run();
 
     const notes: ExternalNote[] = [];
     const digest = new DailyDigest(engine, { writer: { groupedTargets: () => ['bm'], writeGrouped: async (n) => void notes.push(n) }, now: () => NIGHT });
@@ -200,6 +204,9 @@ describe('one night', () => {
     expect(n.content).not.toContain('ghp_');
     expect(n.content).toContain('- relates_to [[homelab]]');
     expect(n.content).toContain('- relates_to [[madx]]');
+    expect(n.content).not.toContain('friendbox');
+    expect(n.content).not.toContain('secretproj');
+    expect(notePrompt).not.toContain('The friend');
     // the small model saw the day: the imported chat's summary and the Conclave session, never the private chat
     expect(notePrompt).toContain('Wrote a PBS restore test on pve');
     expect(notePrompt).toContain('Grafana dashboards');

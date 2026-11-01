@@ -60,7 +60,7 @@ The types live in `recommended.ts`. Every source maps to `CatalogItem`:
 
 Rules the data follows, and that live results must follow too:
 
-- Secrets only in `env` or `headers`. McpManager expands `${secret:}` and `${env:}` there and nowhere else, so a secret in `args` or `url` would be sent as the literal text. `/tmp/cg/ecosystem/spec-tools/check.ts` asserts this; the catalog tests must too.
+- Secrets only in `env` or `headers`. McpManager expands `${secret:}` and `${env:}` in `args`, `url` and `cwd` too (`packages/core/src/extensions/mcp.ts`), so a secret there would work, but `args` is visible in the hub's process list. Catalog items keep secrets in `env` or `headers` wherever the server allows it. `/tmp/cg/ecosystem/spec-tools/check.ts` asserts this, and so does `packages/core/test/catalog/data.test.ts` ("no secret sits in command, args, url or cwd").
 - Commits are full 40-character shas. Short shas cannot be fetched.
 - An optional input left empty removes the key that held only its placeholder.
 - Placeholders also apply to `server` (mcp-proxy names its server from an input).

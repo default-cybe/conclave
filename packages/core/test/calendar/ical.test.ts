@@ -267,6 +267,13 @@ describe('write', () => {
     expect(o.end - o.start).toBe(90 * 60_000);
   });
 
+  test('a CR or LF in an attendee or organizer address cannot start a property of its own', () => {
+    const { ics: data } = buildEvent({ title: 'x', start: '2026-10-28T09:00', end: '2026-10-28T10:00', attendees: ['ana@example.com\r\nATTENDEE:mailto:eve@evil.example'] }, { ownerZone: BERLIN, organizer: 'me@example.com\nX-EVIL:1', now: utc('2026-10-21T00:00:00Z') });
+    const lines = data.replace(/\r\n[ \t]/g, '').split(/\r?\n/);
+    expect(lines.filter((l) => /^(ATTENDEE|X-EVIL)/.test(l))).toEqual(['ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:ana@example.comATTENDEE:mailto:eve@evil.example']);
+    expect(lines).toContain('ORGANIZER:mailto:me@example.comX-EVIL:1');
+  });
+
   test('moving one occurrence adds an override; deleting one adds an EXDATE; the rest stay', () => {
     const data = ics([BERLIN_VTIMEZONE, 'BEGIN:VEVENT', 'UID:r@test', 'DTSTART;TZID=Europe/Berlin:20261019T070000', 'DTEND;TZID=Europe/Berlin:20261019T073000', 'RRULE:FREQ=DAILY;COUNT=4', 'SUMMARY:Run', 'END:VEVENT']);
     const r = range('2026-10-18T00:00:00Z', '2026-10-25T00:00:00Z');

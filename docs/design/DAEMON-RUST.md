@@ -81,8 +81,9 @@ Either binary's `install` replaces the other's.
 - `GET <hub>/api/daemon?deviceId=<id>`, upgraded to a WebSocket, with
   `Authorization: Bearer <device token>` and `x-conclave-device: <id>`. The
   token is never in the URL or on a command line.
-- `hello` with protocol version 2, the device id, the name and MachineInfo.
-  The hub accepts versions 1 to 2, so nothing changes there. MachineInfo
+- `hello` with the protocol version (`PROTOCOL_VERSION` in
+  `packages/core/src/machine/protocol.ts`), the device id, the name and MachineInfo.
+  The hub accepts `MIN_PROTOCOL_VERSION` to `PROTOCOL_VERSION`. MachineInfo
   carries one more field, `daemon: { impl: "rust", version }`; the hub keeps
   it and shows it on the Devices page.
 - Every RPC the TypeScript daemon serves: info, stat, readdir, readFile,

@@ -98,6 +98,9 @@ apt-get install -y nftables
 nft add table inet docling
 nft add chain inet docling input '{ type filter hook input priority 0; }'
 nft add rule inet docling input tcp dport 5001 ip saddr != 192.168.1.10 drop
+# keep it after a reboot: docling-serve starts at boot, so the rule must too
+nft list table inet docling >> /etc/nftables.conf
+systemctl enable nftables
 ```
 
 Note: Docker publishes the port through its own forward chain; if the rule above

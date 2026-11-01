@@ -18,7 +18,7 @@ import { OWNER_ID, currentAccount, runAs } from '../../src/people/context';
 import { accountKv } from '../../src/people/scoped';
 import { eventAccount, eventVisibleTo } from '../../src/people/events';
 import { HUB_REFUSED, MachineRefused, RefusedMachine, guardMachine } from '../../src/people/guard';
-import { PRIVATE_LOOKUP_FAILED, PRIVATE_REFUSED, checkPublicUrl, isPrivateAddress } from '../../src/people/net';
+import { PRIVATE_LOOKUP_FAILED, PRIVATE_REFUSED, checkPublicUrl, isPrivateAddress, publicOnlyFetch } from '../../src/people/net';
 import type { Session } from '../../src/types';
 
 const columns = (db: ReturnType<typeof openDb>, t: string) => (db.query(`PRAGMA table_info(${t})`).all() as Array<{ name: string }>).map((c) => c.name);
@@ -371,5 +371,29 @@ describe('public addresses', () => {
   test('a lookup that fails or finds nothing is refused (fail closed)', async () => {
     await expect(checkPublicUrl('https://notes.example/mcp', async () => Promise.reject(new Error('SERVFAIL')))).rejects.toThrow(PRIVATE_LOOKUP_FAILED);
     await expect(checkPublicUrl('https://notes.example/mcp', async () => [])).rejects.toThrow(PRIVATE_LOOKUP_FAILED);
+  });
+
+  test('publicOnlyFetch dials the checked address (no second lookup), keeps Host and the TLS name, and follows no redirect itself', async () => {
+    const calls: Array<{ url: string; init: any }> = [];
+    const base = (async (url: string, init: any) => {
+      calls.push({ url, init });
+      return new Response('ok');
+    }) as unknown as typeof fetch;
+    let lookups = 0;
+    const f = publicOnlyFetch(base, async () => (lookups++ ? ['10.0.0.5'] : ['93.184.216.34']));
+    await f('https://dav.example:8443/cal/?x=1', { method: 'PROPFIND', redirect: 'manual' });
+    expect(lookups).toBe(1);
+    expect(calls[0].url).toBe('https://93.184.216.34:8443/cal/?x=1');
+    expect(calls[0].init.headers.get('host')).toBe('dav.example:8443');
+    expect(calls[0].init.tls).toEqual({ serverName: 'dav.example' });
+    expect(calls[0].init.method).toBe('PROPFIND');
+    expect(calls[0].init.redirect).toBe('manual');
+    // a rebind to a private address on the next request is refused before any connect
+    await expect(f('https://dav.example/')).rejects.toThrow(PRIVATE_REFUSED);
+    expect(calls).toHaveLength(1);
+    await f(new URL('http://[2606:4700::1111]/'));
+    expect(calls[1].url).toBe('http://[2606:4700::1111]/');
+    expect(calls[1].init.redirect).toBe('error');
+    expect(calls[1].init.tls).toBeUndefined();
   });
 });

@@ -60,11 +60,6 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
     private val _session = MutableStateFlow(hub.sessions.value.firstOrNull { it.id == sessionId })
     val session: StateFlow<Session?> = _session
 
-    companion object {
-        /** The hub's 409 when a send would lose a file it could not read. */
-        const val ATTACHMENT_LOST = "Attachment not included: "
-    }
-
     val loading = MutableStateFlow(true)
     val error = MutableStateFlow<String?>(null)
 
@@ -205,8 +200,8 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
             } catch (e: Exception) {
                 val msg = errorText(e)
                 // the hub will not drop a file on its own: the choice is the owner's
-                if (msg.startsWith(ATTACHMENT_LOST)) lossAsk.value = msg.removePrefix(ATTACHMENT_LOST)
-                else say(msg)
+                val lost = Attach.lostWords(msg)
+                if (lost != null) lossAsk.value = lost else say(msg)
             } finally {
                 sending.value = false
             }

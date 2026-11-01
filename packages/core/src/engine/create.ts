@@ -58,7 +58,7 @@ import { hubZone } from '../assistant/time';
 import { OWNER_ID, currentAccount, isMember, runAs } from '../people/context';
 import type { AccountSecrets } from '../people/secrets';
 import { pimFor } from '../pim/registry';
-import { publicOnlyFetch } from '../people/net';
+import { publicOnlyFetch, resolvePublic } from '../people/net';
 import type { KvRepo } from '../storage/repos';
 import { guardMachine } from '../people/guard';
 import { WatchService, attachWatches, isWatch, watchExtension } from '../watches';
@@ -386,6 +386,8 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
       ...(opts.pim ?? {}),
       // a member's CalDAV server is never one on the hub's network (people/net.ts)
       ...(member ? { fetch: publicOnlyFetch(opts.pim?.fetch ?? fetch) } : {}),
+      // and its IMAP and SMTP hosts are checked again before every connect, not only when added
+      ...(member ? { mailAddress: (host: string) => resolvePublic(host) } : {}),
     };
   };
   const pim = new PimService(pimHost(OWNER_ID));

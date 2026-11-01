@@ -9,7 +9,7 @@ import { readJson, readJsonl } from './lib/util';
 
 type Row = {
   task_id: string; repeat: number; valid: boolean; flags?: { leak_suspect?: boolean };
-  tests?: { pass: boolean; passed: number }; cost?: { list_usd: number | null };
+  tests?: { pass: boolean; passed: number }; cost?: { list_usd: number | null }; tokens?: { total: number } | null;
   own_tests?: { fails_on_start: boolean | null; passes_on_final: boolean | null } | null;
   regression_gate?: { proven: number; passes: number; not_run: number; skipped: number; reminded: number } | null;
 };
@@ -35,10 +35,17 @@ export function compare(baseline: Row[], candidate: Row[], repeats: number) {
   return { decision, paired, expected: eligible.length, improvements, regressions };
 }
 
+/** A row's list cost; a retried attempt that made no model calls (no tokens) cost nothing. Unknown: null. */
+export function rowCost(r: Row): number | null {
+  const usd = r.cost?.list_usd;
+  if (typeof usd === 'number' && Number.isFinite(usd)) return usd;
+  return r.tokens === null || r.tokens?.total === 0 ? 0 : null;
+}
+
 export function remainingUsd(cap: number, results: Row[]): number {
   if (!Number.isFinite(cap) || cap <= 0) throw new Error('cost cap must be a positive USD amount');
-  const costs = results.map((r) => r.cost?.list_usd);
-  if (costs.some((x) => x === null || x === undefined || !Number.isFinite(x))) throw new Error('unknown list-price cost; cannot enforce cost cap');
+  const costs = results.map(rowCost);
+  if (costs.some((x) => x === null)) throw new Error('unknown list-price cost; cannot enforce cost cap');
   const left = cap - costs.reduce<number>((n, x) => n + (x ?? 0), 0);
   return Math.max(0, left);
 }
@@ -88,8 +95,8 @@ export async function main(argv: string[]): Promise<number> {
   const candidate = latestRuns(readJsonl<Row & { run_id: string }>(join(candidateDir, 'results.jsonl')));
   const result = compare(baseline, candidate, o.repeats);
   const total = readJsonl<Row>(join(baselineDir, 'results.jsonl')).concat(readJsonl<Row>(join(candidateDir, 'results.jsonl')));
-  const knownCosts = total.every((r) => typeof r.cost?.list_usd === 'number' && Number.isFinite(r.cost.list_usd));
-  const spend = total.reduce((n, r) => n + (r.cost?.list_usd ?? 0), 0);
+  const knownCosts = total.every((r) => rowCost(r) !== null);
+  const spend = total.reduce((n, r) => n + (rowCost(r) ?? 0), 0);
   const decision = knownCosts && spend <= cap ? result.decision : 'incomplete: cost cap or unknown cost';
   const metrics = (rows: Row[]) => `own tests (fail start/pass final): ${rows.filter((r) => r.own_tests?.fails_on_start && r.own_tests?.passes_on_final).length}/${rows.length}; regression gate proven: ${rows.filter((r) => (r.regression_gate?.proven ?? 0) > 0).length}/${rows.length}`;
   const text = `# Harness improvement: ${name}\n\n- Baseline: ${baselinePath} (${manifest.conclave.commit}); candidate: ${candidatePath} (${readJson(join(candidateDir, 'manifest.json')).conclave.commit}).\n- Model: ${o.model}; tasks: ${manifest.tasks.join(', ')}; repeats: ${o.repeats}; seed: ${o.seed}.\n- Decision: **${decision}**. Human review only; no merge or deploy.\n- Hidden tests: ${result.paired}/${result.expected} paired; ${result.improvements} improved; ${result.regressions.length} regressed${result.regressions.length ? ` (${result.regressions.join(', ')})` : ''}.\n- Baseline ${metrics(baseline)}.\n- Candidate ${metrics(candidate)}.\n- Recorded run list cost: $${spend.toFixed(2)} / $${cap.toFixed(2)} cap. The cap and reported spend exclude doctor preflight model requests (one per started set); doctor exposes no usage or cost.\n- Details: [baseline](../${name}-baseline/summary.md), [candidate](../${name}-candidate/summary.md).\n`;

@@ -8,6 +8,7 @@ import {
   parseRetryAfter,
   parseTextResetTime,
 } from '../../src/providers/errors';
+import { httpRequest, postJson } from '../../src/providers/http';
 
 const NOW = Date.parse('2026-10-16T08:00:00Z');
 const body = (o: unknown) => JSON.stringify(o);
@@ -199,6 +200,27 @@ describe('classifyHttpError', () => {
   test('Anthropic low credit balance is quota', () => {
     const e = classifyHttpError('anthropic', 400, {}, body({ error: { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API.' } }));
     expect(e.kind).toBe('quota');
+  });
+});
+
+describe('httpRequest timeout', () => {
+  test('an error or JSON body that never ends is cut off by the timeout, not read for ever', async () => {
+    const server = Bun.serve({
+      port: 0,
+      fetch: (req) => {
+        const body = new ReadableStream({ start: (c) => c.enqueue(new TextEncoder().encode('{"error":')) });
+        return new Response(body, { status: new URL(req.url).pathname === '/err' ? 500 : 200, headers: { 'content-type': 'application/json' } });
+      },
+    });
+    try {
+      const opts = { provider: 'p', timeoutMs: 300 };
+      const t0 = Date.now();
+      await expect(httpRequest(`${server.url}err`, {}, opts)).rejects.toThrow('no response after');
+      await expect(postJson(`${server.url}ok`, {}, {}, opts)).rejects.toThrow('no response after');
+      expect(Date.now() - t0).toBeLessThan(5_000);
+    } finally {
+      server.stop(true);
+    }
   });
 });
 

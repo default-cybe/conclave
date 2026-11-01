@@ -49,7 +49,9 @@ export function launchLine(c: LaunchConfig): string {
   if (!c.runtimeExecutable) return c.url ?? '';
   // env goes first, as a shell writes it: NODE_OPTIONS and the like change what runs
   const env = Object.entries(c.env ?? {}).map(([k, v]) => `${k}=${quote(v)}`);
-  return [...env, ...[c.runtimeExecutable, ...(c.runtimeArgs ?? [])].map(quote)].join(' ');
+  // the folder too: the same program in another directory runs other code
+  const cd = c.cwd ? `cd ${quote(c.cwd)} && ` : '';
+  return cd + [...env, ...[c.runtimeExecutable, ...(c.runtimeArgs ?? [])].map(quote)].join(' ');
 }
 
 /** True when the plan needs a free port from the device. */

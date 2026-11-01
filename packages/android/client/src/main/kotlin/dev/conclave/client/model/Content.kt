@@ -79,8 +79,8 @@ data class ToolResultBlock(
             is JsonPrimitive -> c.contentOrNull ?: ""
             is JsonArray -> c.joinToString("\n") { el ->
                 val obj = el as? JsonObject
-                when (obj?.get("type")?.jsonPrimitive?.contentOrNull) {
-                    "text" -> obj["text"]?.jsonPrimitive?.contentOrNull ?: ""
+                when ((obj?.get("type") as? JsonPrimitive)?.contentOrNull) {
+                    "text" -> (obj?.get("text") as? JsonPrimitive)?.contentOrNull ?: ""
                     "image" -> "[image]"
                     else -> el.toString()
                 }

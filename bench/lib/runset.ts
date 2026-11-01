@@ -170,7 +170,7 @@ export async function runSet(o: RunOptions, stopAfterGroup?: (results: any[]) =>
     manifest = readJson(join(setDir, 'manifest.json'));
     plan = manifest.plan;
     tasks = loadTasks(manifest.tasks.join(','));
-    o = { ...o, arms: manifest.arms, repeats: manifest.repeats, model: manifest.model, smallModel: manifest.small_model, seed: manifest.seed, matchEffort: manifest.match_effort, skills: manifest.skills ?? undefined, dryRun: manifest.dry_run };
+    o = { ...o, arms: manifest.arms, repeats: manifest.repeats, model: manifest.model, smallModel: manifest.small_model, seed: manifest.seed, matchEffort: manifest.match_effort, skills: manifest.skills ?? undefined, dryRun: manifest.dry_run, conclaveSrc: manifest.conclave?.src ?? o.conclaveSrc, budgetUsd: manifest.budgets?.usd ?? o.budgetUsd };
     doc = await doctor({ model: o.model, smallModel: o.smallModel, conclaveSrc: o.conclaveSrc, hubPort: o.hubPort, tapPort: o.tapPort, workRoot: join(workBase, setName), bTransport: manifest.b_transport.chosen, arms: o.arms, dryRun: o.dryRun });
     log(`resuming set ${setName}`);
   } else {

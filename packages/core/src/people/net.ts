@@ -87,13 +87,32 @@ export async function resolvePublic(name: string, resolve: (host: string) => Pro
   return addrs[0];
 }
 
-/** fetch that refuses addresses on the hub's network, for what a member points the hub at (a CalDAV server). */
-export function publicOnlyFetch(base: typeof fetch = fetch): typeof fetch {
+/**
+ * fetch that refuses addresses on the hub's network, for what a member points the hub at (a CalDAV server).
+ * It connects to the checked address itself (Host header and TLS name kept), so DNS cannot change in between,
+ * and never follows a redirect on its own: a caller that wants one asks for 'manual' and fetches the next hop through here.
+ */
+export function publicOnlyFetch(base: typeof fetch = fetch, resolve?: (host: string) => Promise<string[]>): typeof fetch {
   return Object.assign(
     async (input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      await checkPublicUrl(url);
-      return base(input, init);
+      const req = new Request(input, init);
+      const url = new URL(req.url);
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('Only http and https addresses work here.');
+      const address = await resolvePublic(url.hostname, resolve);
+      const target = new URL(url);
+      target.hostname = isIP(address) === 6 ? `[${address}]` : address;
+      const headers = new Headers(req.headers);
+      headers.set('host', url.host);
+      const name = url.hostname.replace(/^\[|\]$/g, '');
+      return base(target.href, {
+        method: req.method,
+        headers,
+        body: req.body,
+        signal: req.signal,
+        redirect: req.redirect === 'manual' ? 'manual' : 'error',
+        ...(isIP(name) ? {} : { tls: { serverName: name } }),
+        ...(req.body ? { duplex: 'half' } : {}),
+      } as RequestInit);
     },
     { preconnect: fetch.preconnect },
   ) as typeof fetch;

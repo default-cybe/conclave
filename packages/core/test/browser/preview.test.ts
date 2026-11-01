@@ -61,6 +61,11 @@ describe('launch.json', () => {
     expect(launchLine(configs[1])).toBe('http://localhost:8080/');
   });
 
+  test('launchLine names the cwd, so a launch.json moved to another folder needs a new approval', () => {
+    expect(launchLine({ name: 'w', runtimeExecutable: 'npm', runtimeArgs: ['run', 'dev'], cwd: 'apps/my web' })).toBe("cd 'apps/my web' && npm run dev");
+    expect(launchLine({ name: 'w', runtimeExecutable: 'npm', runtimeArgs: ['run', 'dev'], cwd: 'apps/web' })).not.toBe(launchLine({ name: 'w', runtimeExecutable: 'npm', runtimeArgs: ['run', 'dev'], cwd: 'apps/evil' }));
+  });
+
   test('url attaches to localhost only', () => {
     expect(planLaunch({ name: 'a', url: 'http://localhost:8080/app?x=1' })).toMatchObject({ port: 8080, path: '/app?x=1' });
     expect(() => planLaunch({ name: 'a', url: 'http://192.168.1.5:8080/' })).toThrow('only to http://localhost');

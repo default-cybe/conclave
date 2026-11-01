@@ -168,6 +168,7 @@ fun ChatScreen(
     val draft by vm.draft.collectAsStateWithLifecycle()
     val attachments by vm.attachments.collectAsStateWithLifecycle()
     val sending by vm.sending.collectAsStateWithLifecycle()
+    val lossAsk by vm.lossAsk.collectAsStateWithLifecycle()
     val nextFor by vm.nextFor.collectAsStateWithLifecycle()
     val connection by hub.connection.collectAsStateWithLifecycle()
     val models by hub.models.collectAsStateWithLifecycle()
@@ -667,6 +668,16 @@ fun ChatScreen(
                 }) { Text("Save") }
             },
             dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancel") } },
+        )
+    }
+    // the hub could not read a file: the owner chooses, it is never dropped silently
+    lossAsk?.let { words ->
+        AlertDialog(
+            onDismissRequest = vm::dismissLossAsk,
+            title = { Text("Send without it?") },
+            text = { Text(words) },
+            confirmButton = { TextButton(onClick = vm::sendWithoutLost) { Text("Send without it") } },
+            dismissButton = { TextButton(onClick = vm::dismissLossAsk) { Text("Cancel") } },
         )
     }
 }
