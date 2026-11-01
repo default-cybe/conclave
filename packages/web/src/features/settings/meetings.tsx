@@ -24,13 +24,14 @@ interface Choice {
   line: string;
   free?: string;
   signup?: string;
+  recommended?: boolean;
 }
 
 /** Prices are per audio hour; a meeting streams two (you and them). */
 export const STT_CHOICES: Choice[] = [
-  { id: 'local', name: 'Local', line: 'Parakeet in the desktop app. Free, private, works offline. About 1 to 2 s behind speech, and a 650 MB download before the first meeting.' },
+  { id: 'deepgram', name: 'Deepgram', recommended: true, line: 'Nova-3. About 0.3 s behind speech, the fastest finals. About $0.46 per audio hour.', free: '$200 free credit for a new account, no card.', signup: 'https://console.deepgram.com/signup' },
   { id: 'assemblyai', name: 'AssemblyAI', line: 'Universal-Streaming. About 0.3 s behind speech, strong on names and accents. About $0.15 per audio hour.', free: '$50 free credit for a new account, no card.', signup: 'https://www.assemblyai.com/dashboard/signup' },
-  { id: 'deepgram', name: 'Deepgram', line: 'Nova-3. About 0.3 s behind speech, the fastest finals. About $0.46 per audio hour.', free: '$200 free credit for a new account, no card.', signup: 'https://console.deepgram.com/signup' },
+  { id: 'local', name: 'Local', line: 'Parakeet in the desktop app. Free, private, works offline. About 1 to 2 s behind speech, and a 650 MB download before the first meeting.' },
 ];
 
 export const sttSecret = (p: SttProvider) => `stt.${p}`;
@@ -40,7 +41,7 @@ export const sttSecret = (p: SttProvider) => `stt.${p}`;
  * meetings.stt is the owner's (PATCH /api/config is admin only); core/src/meeting/index.ts sttToken.
  */
 export function memberStt(values: string[]): SttProvider {
-  return values.includes(sttSecret('assemblyai')) ? 'assemblyai' : values.includes(sttSecret('deepgram')) ? 'deepgram' : 'local';
+  return values.includes(sttSecret('deepgram')) ? 'deepgram' : values.includes(sttSecret('assemblyai')) ? 'assemblyai' : 'local';
 }
 
 /** What the desktop app will use: the choice, or local while the chosen service has no key. */
@@ -60,7 +61,7 @@ export function MeetingsSection() {
       .config()
       .then((r) => {
         const set = (r.config.meetings as { stt?: SttProvider } | undefined)?.stt;
-        // unset: the hub takes the first service with a key (core/src/meeting/stt.ts sttChoice)
+        // unset: the hub takes the first service with a key, Deepgram first (core/src/meeting/stt.ts sttChoice)
         const stt = member || !set ? memberStt(r.secrets.values) : set;
         setCfg({ stt, values: r.secrets.values });
       })
@@ -119,6 +120,7 @@ export function SttBody({ chosen, values, reload, member, first }: { chosen: Stt
             <li key={c.id}>
               <button type="button" aria-pressed={c.id === open} onClick={() => (setOpen(c.id), setKey(''), setTest(undefined))} className={cn('w-full rounded-md px-3 py-2.5 text-left hover:bg-hover', c.id === open && 'bg-hover')}>
                 <span className="text-[13.5px] font-medium text-fg phone:text-[15px]">{c.name}</span>
+                {c.recommended && <span className="ml-2 text-[12px] font-medium text-fg-2">Recommended</span>}
                 {c.id === chosen && <span className="ml-2 text-[12px] text-ok">Chosen</span>}
                 {c.id !== 'local' && keyed(c.id) && <span className="ml-2 text-[12px] text-fg-3">Key saved</span>}
                 <span className="mt-0.5 block text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">
@@ -162,7 +164,7 @@ export function SttBody({ chosen, values, reload, member, first }: { chosen: Stt
             </div>
           </SettingRow>
         )}
-        <SettingRow label={p.id === chosen ? 'In use' : 'Use it'} help={p.id === chosen ? `Meetings use ${p.name}.` : member ? 'Your meetings use your first saved key: AssemblyAI, then Deepgram, else local.' : `Make meetings use ${p.name}.`}>
+        <SettingRow label={p.id === chosen ? 'In use' : 'Use it'} help={p.id === chosen ? `Meetings use ${p.name}.` : member ? 'Your meetings use your first saved key: Deepgram, then AssemblyAI, else local.' : `Make meetings use ${p.name}.`}>
           <div className="flex flex-wrap items-center gap-2 md:justify-end">
             {p.id !== 'local' && (
               <Button size={size} disabled={!keyed(p.id)} busy={busy === 'test' ? 'Testing' : false} onClick={() => void runTest()}>

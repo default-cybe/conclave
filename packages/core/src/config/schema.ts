@@ -649,7 +649,7 @@ export interface ConclaveConfig {
      * Speech to text for live meetings: 'local' runs Parakeet on the desktop; 'assemblyai' or
      * 'deepgram' stream audio from the desktop to that service with a short-lived token the hub
      * mints from the secret stt.assemblyai or stt.deepgram (a member's own, for a member).
-     * Unset: the first service with a key, else local.
+     * Unset: the first service with a key (Deepgram, then AssemblyAI), else local.
      */
     stt?: 'local' | 'assemblyai' | 'deepgram';
   };

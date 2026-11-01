@@ -1276,7 +1276,7 @@ Why: on the owner's Mac no meeting ever reached `live`. The 652 MB Parakeet enco
 
 ### 12.1 Cloud speech to text
 
-- Config `meetings.stt`: `'local' | 'assemblyai' | 'deepgram'`. Unset: the first service the account has a key for, else `local` (`sttChoice` in `core/src/meeting/stt.ts`). The setting is hub-wide; keys are per account.
+- Config `meetings.stt`: `'local' | 'assemblyai' | 'deepgram'`. Unset: the first service the account has a key for, Deepgram (the default, listed first and marked Recommended in Settings) before AssemblyAI, else `local` (`sttChoice` in `core/src/meeting/stt.ts`). The setting is hub-wide; keys are per account.
 - Keys: the secret values `stt.assemblyai` and `stt.deepgram`. The owner's are hub secrets; a member saves their own with `PUT /api/secrets {kind:'values', key:'stt.<provider>'}` (the only `values` keys a member may set), and their meetings never read the owner's.
 - `POST /api/meetings/:id/stt-token` (own meeting) returns `SttToken { provider, url, token, expiresAt (ms), sampleRate: 16000, encoding: 'pcm_s16le' }`:
   - AssemblyAI v3: `GET /v3/token?expires_in_seconds=60` with the raw key; `url` is `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&encoding=pcm_s16le&format_turns=true&token=...`. The desktop counts only the formatted end of turn as a final.

@@ -112,13 +112,23 @@ describe('speech to text in use', () => {
   test('a member: their own first key, and no "Use" button (PATCH /api/config is admin only)', () => {
     expect(memberStt([])).toBe('local');
     expect(memberStt(['stt.deepgram'])).toBe('deepgram');
-    expect(memberStt(['stt.deepgram', 'stt.assemblyai'])).toBe('assemblyai');
+    expect(memberStt(['stt.assemblyai'])).toBe('assemblyai');
+    expect(memberStt(['stt.assemblyai', 'stt.deepgram'])).toBe('deepgram');
     const reload = async () => {};
     const asOwner = renderToStaticMarkup(<SttBody chosen="deepgram" values={['stt.deepgram']} reload={reload} first="local" />);
     expect(asOwner).toContain('Use Local');
     const asMember = renderToStaticMarkup(<SttBody chosen="deepgram" values={['stt.deepgram']} reload={reload} member first="local" />);
     expect(asMember).not.toContain('Use Local');
     expect(asMember).toContain('your first saved key');
+  });
+
+  test('Deepgram is listed first, marked Recommended, with its free credit', () => {
+    const html = renderToStaticMarkup(<SttBody chosen="local" values={[]} reload={async () => {}} />);
+    const names = [...html.matchAll(/<button[^>]*aria-pressed[^>]*><span[^>]*>([^<]+)</g)].map((m) => m[1]);
+    expect(names).toEqual(['Deepgram', 'AssemblyAI', 'Local']);
+    expect(html.indexOf('Recommended')).toBeGreaterThan(html.indexOf('Deepgram'));
+    expect(html.indexOf('Recommended')).toBeLessThan(html.indexOf('AssemblyAI'));
+    expect(html).toContain('$200 free credit');
   });
 });
 
