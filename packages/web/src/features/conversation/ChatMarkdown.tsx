@@ -11,7 +11,7 @@ import { cn } from '@/lib/text';
 import { useCopy } from '@/lib/hooks';
 import { highlight } from '@/lib/highlight';
 import { Swap } from '@/components/motion';
-import { ImageLink, useThrottledText } from '@/features/chat/Markdown';
+import { ImageLink, isCodeFenceClosed, useThrottledText } from '@/features/chat/Markdown';
 import { openPreview, useChatUi } from './state';
 import './chat.css';
 
@@ -77,8 +77,7 @@ function BlockCode({ className, children, node }: { className?: string; children
   const end = node?.position?.end.offset;
   const raw = start !== undefined && end !== undefined ? src.text.slice(start, end).trimEnd() : '';
   // while streaming, an open fence runs to the end of the text; the block is closed once its last line is a fence
-  const lines = raw.split('\n');
-  const closed = !raw || (lines.length > 1 && /^\s*(`{3,}|~{3,})\s*$/.test(lines[lines.length - 1]));
+  const closed = isCodeFenceClosed(raw);
   return <ChatCode code={text.replace(/\n$/, '')} lang={lang} closed={closed} previewKey={`${src.id}:${start ?? 0}`} />;
 }
 
@@ -98,12 +97,11 @@ const components: Components = {
 export const ChatMarkdown = memo(function ChatMarkdown({ text, streaming, className, id = 'md' }: { text: string; streaming?: boolean; className?: string; id?: string }) {
   const shown = useThrottledText(text, streaming);
   const ctx = useMemo(() => ({ text: shown, id }), [shown, id]);
+  const markdown = useMemo(() => <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{shown}</ReactMarkdown>, [shown]);
   return (
     <Source.Provider value={ctx}>
       <div className={cn('md md-chat', streaming && 'md-streaming', className)}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-          {shown}
-        </ReactMarkdown>
+        {markdown}
       </div>
     </Source.Provider>
   );

@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { createContext, memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/text';
@@ -16,15 +16,30 @@ export function ImageLink({ src, alt }: { src?: string | Blob; alt?: string }) {
   );
 }
 
+const Source = createContext('');
+
+/** Indented code is complete; a fenced block needs a matching fence of at least the opening length. */
+export function isCodeFenceClosed(raw: string): boolean {
+  const lines = raw.trimEnd().split('\n');
+  const opening = /^\s*(`{3,}|~{3,})/.exec(lines[0]);
+  if (!opening) return true;
+  const closing = /^\s*(`{3,}|~{3,})\s*$/.exec(lines[lines.length - 1]);
+  return lines.length > 1 && !!closing && closing[1][0] === opening[1][0] && closing[1].length >= opening[1].length;
+}
+
 const components: Components = {
   pre: ({ children }) => <>{children}</>,
-  code: ({ className, children, ...rest }) => {
+  code: ({ className, children, node, ...rest }) => {
+    const source = useContext(Source);
+    const start = node?.position?.start.offset;
+    const end = node?.position?.end.offset;
+    const closed = start === undefined || end === undefined || isCodeFenceClosed(source.slice(start, end));
     const m = /language-([\w+-]+)/.exec(className ?? '');
     const text = String(children ?? '');
     const isBlock = Boolean(m) || text.includes('\n');
     if (!isBlock) return <code {...rest}>{children}</code>;
     const lang = m?.[1]?.toLowerCase();
-    return <CodeBlock code={text.replace(/\n$/, '')} lang={lang} title={lang ? undefined : 'text'} className="my-3" />;
+    return <CodeBlock code={text.replace(/\n$/, '')} lang={lang} closed={closed} title={lang ? undefined : 'text'} className="my-3" />;
   },
   a: ({ href, children }) => (
     <a href={href} target="_blank" rel="noreferrer noopener">
@@ -62,12 +77,11 @@ export function useThrottledText(text: string, streaming: boolean | undefined, m
 /** Assistant prose: markdown at the reading size and measure (index.css .md), code in boxes, a static caret while streaming. */
 export const Markdown = memo(function Markdown({ text, streaming, className }: { text: string; streaming?: boolean; className?: string }) {
   const shown = useThrottledText(text, streaming);
+  const markdown = useMemo(() => <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{shown}</ReactMarkdown>, [shown]);
   return (
-    <div className={cn('md', streaming && 'md-streaming', className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {shown}
-      </ReactMarkdown>
-    </div>
+    <Source.Provider value={shown}>
+      <div className={cn('md', streaming && 'md-streaming', className)}>{markdown}</div>
+    </Source.Provider>
   );
 });
 

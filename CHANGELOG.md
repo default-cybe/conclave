@@ -11,7 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Changed
 
-- Web: while a reply streams, its markdown is re-parsed at most every 45 ms instead of once per delta, and a code block renders as plain text until its fence closes; the final text still renders the moment the stream ends. A 200-delta streamed reply went from 200 full re-parses to 25 and from 192 highlight passes to 8.
+- Web: while a reply streams, its markdown is re-parsed at most every 45 ms instead of once per delta, and code blocks stay plain until their matching fences close in both chat views. The final text still renders the moment the stream ends.
 
 ## [0.4.53] - 2026-11-01
 

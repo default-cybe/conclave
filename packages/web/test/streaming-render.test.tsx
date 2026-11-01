@@ -7,7 +7,9 @@
  *
  *   bun test packages/web/test/streaming-render.test.tsx
  */
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test';
+import * as markdown from 'react-markdown';
+import { Markdown } from '../src/features/chat/Markdown';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -62,6 +64,48 @@ const OPEN = 'Here is a function:\n\n```ts\nconst x = 1;';
 const CLOSED = 'Here is a function:\n\n```ts\nconst x = 1;\n```';
 
 describe('a streamed reply', () => {
+  for (const [name, Component] of [['Markdown', Markdown], ['ChatMarkdown', ChatMarkdown]] as const) {
+    test(`${name}: unchanged throttled text does not re-parse`, async () => {
+      const { act } = await import('react');
+      const { createRoot } = await import('react-dom/client');
+      const host = document.createElement('div');
+      const root = createRoot(host);
+      const parse = spyOn(markdown, 'default');
+      let tick = () => {};
+      const timer = spyOn(globalThis, 'setInterval').mockImplementation((callback: () => void, ms: number) => {
+        expect(ms).toBe(45);
+        tick = callback;
+        return 0;
+      });
+      try {
+        await act(async () => root.render(<Component text="alpha" streaming />));
+        const initial = parse.mock.calls.length;
+        expect(initial).toBeGreaterThan(0);
+        await act(async () => root.render(<Component text="alpha beta" streaming />));
+        expect(parse.mock.calls.length).toBe(initial);
+        await act(async () => tick());
+        expect(host.textContent).toContain('alpha beta');
+        expect(parse.mock.calls.length).toBe(initial + 1);
+        await act(async () => root.render(<Component text="alpha beta FINAL" streaming={false} />));
+        expect(host.textContent).toContain('FINAL');
+        expect(parse.mock.calls.length).toBe(initial + 2);
+      } finally {
+        await act(async () => root.unmount());
+        parse.mockRestore();
+        timer.mockRestore();
+      }
+    });
+
+    test(`${name}: only a matching closed fence is highlighted`, () => {
+      for (const text of [OPEN, '```ts', '````ts\nconst x = 1;\n```', '```ts\nconst x = 1;\n~~~']) {
+        expect(renderToStaticMarkup(<Component text={text} streaming />)).not.toContain('class="hljs"');
+      }
+      for (const text of [CLOSED, '~~~ts\nconst x = 1;\n~~~', '```ts\nconst x = 1;\n````']) {
+        expect(renderToStaticMarkup(<Component text={text} streaming />)).toContain('class="hljs"');
+      }
+    });
+  }
+
   test('an open code fence is plain text, a closed one is highlighted', () => {
     const open = renderToStaticMarkup(<ChatMarkdown text={OPEN} streaming />);
     expect(open).not.toContain('class="hljs"');
