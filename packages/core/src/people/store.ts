@@ -315,6 +315,8 @@ function depthOf(table: string): number {
 /** Delete every row of an account: grandchildren first, then children, then its own rows. */
 export function purgeAccount(db: Db, id: string): void {
   db.transaction(() => {
+    // Shared messages belong to the chat, not their sender. Keep the saved name, never reuse the removed identity.
+    if (tableExists(db, 'messages') && columns(db, 'messages').includes('sender')) db.query("UPDATE messages SET sender = 'account:removed' WHERE sender = ?").run(`account:${id}`);
     const children = Object.keys(CHILD_TABLES).sort((a, b) => depthOf(b) - depthOf(a));
     for (const child of children) {
       // full-text indexes are virtual tables, listed as tables too

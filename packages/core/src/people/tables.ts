@@ -16,6 +16,7 @@ import { OWNER_ID } from './context';
 export const ACCOUNT_TABLES = [
   // shared migration (storage/db.ts)
   'sessions',
+  'chat_participants',
   'tasks',
   'routines',
   'memories',
