@@ -49,6 +49,7 @@ import { isLocalPeer, isWildcard } from './remote/lan';
 import { runAs } from '@conclave/core/people/context.ts';
 import { routePolicy } from './route-policy';
 import { registerPeopleRoutes } from './routes-people';
+import { registerSharedChatRoutes } from './routes-shared-chats';
 import { SECURITY_HEADERS, placeholderPage, resolveWebDir, serveStatic, webDirCandidates } from './static';
 import { UpdateService, type UpdateOptions } from './update/service';
 import { registerUpdateRoutes } from './routes-update';
@@ -325,6 +326,9 @@ export function createServer(opts: ServerOptions): ConclaveServer {
 
   // ----- accounts: who you are, and People for the owner (docs/design/ACCOUNTS.md) -----
   registerPeopleRoutes(app, ctx);
+
+  // ----- shared chats: invites, participants, leave (docs/design/SHARED-WITH-MEMBERS.md) -----
+  registerSharedChatRoutes(app, ctx);
 
   // ----- remote access (Settings, Remote access) ----------------------------
   registerRemoteRoutes(app, ctx);

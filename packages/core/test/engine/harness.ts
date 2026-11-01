@@ -106,6 +106,8 @@ export interface TestEngine {
   log: string;
   /** Bodies of scripted requests, as JSON text. */
   requests: string[];
+  /** The API key each scripted request carried: whose account paid for the call. */
+  keys: string[];
   /** The provider each scripted request went to: "mock", or an id from extraProviders. */
   requestProviders: string[];
   /** Bodies of chore requests (no tools: titles, summaries), as JSON text. */
@@ -158,6 +160,7 @@ export async function startTestEngine(opts: TestEngineOptions): Promise<TestEngi
   const hook: TestEngine['hook'] = (mode, extra = {}) => ({ type: 'command', command: `HOOK_LOG=${log} bun ${HOOK_SCRIPT} ${mode}`, timeout: 30, ...extra });
 
   const requests: string[] = [];
+  const keys: string[] = [];
   const requestProviders: string[] = [];
   const chores: string[] = [];
   const rejected: Array<{ body: string; error: string }> = [];
@@ -187,6 +190,7 @@ export async function startTestEngine(opts: TestEngineOptions): Promise<TestEngi
       }
       const provider = /^\/p\/([^/]+)\//.exec(new URL(req.url).pathname)?.[1] ?? 'mock';
       requests.push(text);
+      keys.push(req.headers.get('x-api-key') ?? req.headers.get('authorization') ?? '');
       requestProviders.push(provider);
       const routedReply = opts.route?.(body, text, provider);
       if (typeof routedReply === 'number') return failWith(routedReply);
@@ -241,6 +245,7 @@ export async function startTestEngine(opts: TestEngineOptions): Promise<TestEngi
     claudeDir,
     log,
     requests,
+    keys,
     requestProviders,
     chores,
     rejected,

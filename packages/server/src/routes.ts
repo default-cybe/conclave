@@ -34,6 +34,10 @@ import { safeEqual, sha256, type ClientRow } from './auth';
 import { NONCE } from './identity';
 import { checkLogin, clearPassword, passwordStatus, setPassword } from './password';
 import { OWNER_ID, isMember } from '@conclave/core/people/context.ts';
+import { PeopleError } from '@conclave/core/people/store.ts';
+import { sharedSessionView } from '@conclave/core/people/shared-chats.ts';
+import { shownName } from '@conclave/core/client/people.ts';
+import { chatParticipants } from './route-policy';
 import type { AccountRef } from '@conclave/core/client/people.ts';
 import { accountRoutines } from '@conclave/core/people/scoped.ts';
 import { checkAgentAllowed, accountOf, memberConfig, ownerOnly as adminOnly } from './scope';
@@ -368,7 +372,8 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     };
     if (q.parentId === 'none') filter.parentId = null;
     else if (q.parentId) filter.parentId = q.parentId;
-    return c.json(engine.listSessions(filter));
+    // a seat session is a participant's private seat in someone else's chat, not a chat of their own (SHARED-WITH-MEMBERS.md 6)
+    return c.json(engine.listSessions(filter).filter((s) => !s.meta?.seat));
   });
 
   app.post('/api/sessions', async (c) => {
@@ -379,9 +384,11 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
   });
 
   app.get('/api/sessions/:id', (c) => {
-    const s = engine.getSession(c.req.param('id'));
-    if (!s) throw notFound(`unknown session ${c.req.param('id')}`);
-    return c.json(s);
+    const id = c.req.param('id');
+    const s = engine.getSession(id);
+    if (!s) throw notFound(`unknown session ${id}`);
+    // a participant sees the chat's shape, never the owner's machine, mode or spend
+    return c.json(sharedSessionView(s, accountOf(c)));
   });
 
   app.patch('/api/sessions/:id', async (c) => {
@@ -421,15 +428,21 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     const limit = qNum(c.req.query('limit'));
     if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) throw badRequest('limit must be a positive integer');
     const msgs = engine.getMessages(id, { afterSeq: qNum(c.req.query('afterSeq')), beforeSeq: qNum(c.req.query('beforeSeq')), limit });
+    // a shared chat: history starts at the participant's join, and other people's tool output stays theirs (shared-chats.ts)
+    const s = engine.getSession(id);
+    const visible = s && s.accountId !== accountOf(c) ? chatParticipants(ctx).visible(id, accountOf(c), msgs) : msgs;
     // trim=1: blocks over 100 KB come light, listed in meta.trimmed; the route below serves each in full
-    return c.json(qBool(c.req.query('trim')) ? msgs.map(trimMessage) : msgs);
+    return c.json(qBool(c.req.query('trim')) ? visible.map(trimMessage) : visible);
   });
 
   app.get('/api/sessions/:id/messages/:msgId/blocks/:index', (c) => {
     const id = sid(c);
     const m = engine.repos.messages.get(c.req.param('msgId'));
     if (!m || m.sessionId !== id) throw notFound('unknown message');
-    const block = m.content[Number(c.req.param('index'))];
+    const s = engine.getSession(id);
+    // a participant reads the message as the chat shows it to them; a hidden message or block is unknown
+    const view = s && s.accountId !== accountOf(c) ? chatParticipants(ctx).visible(id, accountOf(c), [m])[0] : m;
+    const block = view?.content[Number(c.req.param('index'))];
     if (!block) throw notFound('unknown block');
     return c.json(block);
   });
@@ -442,6 +455,40 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     // the apps refuse more before sending; the hub says the same (core attachments/limits.ts)
     if (input.attachments && input.attachments.length > MAX_ATTACHMENTS) throw badRequest(TOO_MANY_FILES);
     if (input.pendingId !== undefined && typeof input.pendingId !== 'string') throw badRequest('pendingId must be a string');
+    // a shared chat: a participant's message is theirs, and starts a turn on their own seat, never on the chat (SHARED-WITH-MEMBERS.md 6)
+    const caller = accountOf(c);
+    const chat = engine.getSession(id);
+    if (chat && chat.accountId !== caller) {
+      let p;
+      try {
+        p = chatParticipants(ctx).require(id, caller, true);
+      } catch (err) {
+        if (err instanceof PeopleError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+      if (!p) throw badRequest('Use the chat itself to send.');
+      if (input.attachments?.length) throw badRequest('Attachments are not available in a chat you do not own.');
+      // "Just talk": a plain human message of theirs, no turn (SHARED-WITH-MEMBERS.md 10.1)
+      if (input.justTalk) {
+        const who = engine.people.get(caller);
+        const m = engine.addMessage(id, {
+          role: 'user',
+          kind: 'normal',
+          content: [{ type: 'text', text: input.text }],
+          sender: `account:${caller}`,
+          author: who ? (shownName(who) ?? 'Member') : 'Member',
+        });
+        return c.json({ queued: false, messageId: m.id });
+      }
+      // the turn runs on the sender's own seat: their models, keys, limits and memory, never the chat owner's
+      try {
+        await engine.sharedTurn(id, caller, { ...input, justTalk: undefined });
+      } catch (err) {
+        if (err instanceof PeopleError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+      return c.json({ queued: true });
+    }
     return c.json(await engine.send(id, input));
   });
 
@@ -468,7 +515,20 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
   });
 
   app.post('/api/sessions/:id/abort', (c) => {
-    engine.abort(sid(c));
+    const id = sid(c);
+    // a shared chat: the owner stops any turn, a participant their own (people/seat-turns.ts stop)
+    const chat = engine.getSession(id);
+    if (chat && chat.kind === 'chat' && !chat.meta?.seat && engine.repos.db.query('SELECT 1 FROM chat_participants WHERE session_id = ? LIMIT 1').get(id)) {
+      try {
+        engine.stopChatTurn(id, accountOf(c));
+      } catch (err) {
+        if (err instanceof PeopleError) throw new HttpError(err.status, err.message);
+        throw err;
+      }
+      return c.json(ok);
+    }
+    if (chat && chat.accountId !== accountOf(c)) throw new HttpError(403, 'You can stop only your own turns.');
+    engine.abort(id);
     return c.json(ok);
   });
 

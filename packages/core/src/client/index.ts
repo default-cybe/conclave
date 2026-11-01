@@ -397,6 +397,8 @@ export interface Attachment {
 
 export interface SendInput {
   text: string;
+  /** Post human words without starting an AI turn. */
+  justTalk?: boolean;
   attachments?: Attachment[];
   /** Override for this turn only. */
   mode?: SessionMode;

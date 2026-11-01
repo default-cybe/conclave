@@ -160,6 +160,10 @@ async function seed(name: Who, token: string, accountId: string): Promise<Seeded
   // a meeting (routes-meetings.ts), this account's own
   keep('meeting', (await ok(token, 'POST', '/api/meetings', { device: ids.device, cwd: '/tmp', title: `${M} meeting` })).id);
 
+  // a chat invite waiting for this account (routes-shared-chats.ts): the row is the invitee's while it waits
+  sql("INSERT INTO chat_participants (session_id, account_id, friend_id, access, state, history, joined_seq, added_by, added_at, updated_at) VALUES (?,?,'','participant','invited','joined',1,?,?,?)", s.id, accountId, accountId, now, now);
+  keep('chatInvite', s.id);
+
   // a connected app (claude.ai) that this account allowed
   const store = new OAuthStore(engine.repos.db);
   const client = store.register({ name: `${M} connector`, redirectUris: ['https://claude.ai/api/mcp/auth_callback'], applicationType: 'web', authMethod: 'none' }).client;
@@ -358,7 +362,9 @@ describe('ids of someone else', () => {
   const owned = () =>
     appRoutes()
       .map((r) => ({ ...r, rule: ruleFor(r.method, r.path) }))
-      .filter((r): r is typeof r & { rule: { own: Record<string, OwnedKind> } } => typeof r.rule === 'object');
+      // a seat rule is swept the same way: its id is a session id of the target's
+      .map((r) => (r.rule && typeof r.rule === 'object' && 'seat' in r.rule ? { ...r, rule: { own: { id: 'session' as OwnedKind } } } : r))
+      .filter((r): r is typeof r & { rule: { own: Record<string, OwnedKind> } } => typeof r.rule === 'object' && 'own' in r.rule);
 
   /** Snapshot of what an account has, to show a refused call changed nothing. */
   function state(n: Who) {

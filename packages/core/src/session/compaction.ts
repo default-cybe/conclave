@@ -445,7 +445,7 @@ export interface CompactOptions {
 }
 
 async function compact(engine: Engine, sessionId: string, modelRef: string, signal: AbortSignal, trigger: 'auto' | 'manual', instructions?: string, opts: CompactOptions = {}): Promise<boolean> {
-  const all = engine.repos.messages.list(sessionId);
+  const all = engine.turnMessages(sessionId);
   const active = activeMessages(all);
   if (active.length < 4) return false;
 

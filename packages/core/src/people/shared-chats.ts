@@ -1,6 +1,6 @@
 /** Local chat membership. Execution remains in each person's own session. */
 import type { Db } from '../storage/db';
-import type { ContentBlock, Message, Session } from '../types';
+import type { ContentBlock, EngineEventEnvelope, Message, Session } from '../types';
 import { OWNER_ID } from './context';
 import { PeopleError } from './store';
 import { ensureColumn } from './tables';
@@ -162,6 +162,11 @@ export class ChatParticipantStore {
     this.db.query("UPDATE chat_participants SET state = 'declined', updated_at = ? WHERE session_id = ? AND account_id = ?").run(this.now(), chatId, caller);
   }
 
+  /** Give an active member their seat (promotion): the service makes the session, then calls this. */
+  setSeat(chatId: string, accountId: string, seatId: string): void {
+    this.db.query('UPDATE chat_participants SET seat_id = ?, updated_at = ? WHERE session_id = ? AND account_id = ?').run(seatId, this.now(), chatId, accountId);
+  }
+
   /** Return the seat to stop before acknowledging the new access to clients. */
   change(chatId: string, caller: string, accountId: string, patch: { access?: ChatAccess; history?: ChatHistory }): ChatParticipant {
     this.owner(chatId, caller);
@@ -229,6 +234,71 @@ function checkHistory(value: unknown): asserts value is ChatHistory {
 export function messageAccount(m: Pick<Message, 'sender'>, owner = OWNER_ID): string | undefined {
   if (!m.sender) return owner;
   return m.sender.startsWith('account:') ? m.sender.slice('account:'.length) : undefined;
+}
+
+/** A participant sees the chat's shape, not the owner's machine, mode or spend (docs/design/SHARED-WITH-MEMBERS.md 6). */
+export function sharedSessionView(s: Session, caller: string): Session {
+  if (s.accountId === caller) return s;
+  const { cwd: _c, device: _d, permissionMode: _p, modeConfig: _m, stats: _s, ultra: _u, chat: _ch, ...rest } = s;
+  return rest as Session;
+}
+
+/**
+ * Event types of a shared chat that may reach its participants, and nothing
+ * else (docs/design/SHARED-WITH-MEMBERS.md 6, Live updates). Approvals,
+ * questions, notices, queue entries and tool progress are never on this list.
+ */
+export const SHARED_CHAT_EVENTS = new Set<EngineEventEnvelope['type']>([
+  'message.created',
+  'message.updated',
+  'message.deleted',
+  // assistant text only: the delta fan-out below drops every other kind
+  'message.delta',
+  'session.updated',
+  'session.deleted',
+]);
+
+/** The session an allowed event is about, if any. */
+export function sharedEventSession(e: EngineEventEnvelope): string | undefined {
+  if (!SHARED_CHAT_EVENTS.has(e.type)) return undefined;
+  const any = e as Record<string, any>;
+  return typeof any.sessionId === 'string' ? any.sessionId : typeof any.message?.sessionId === 'string' ? any.message.sessionId : undefined;
+}
+
+function chatOwner(db: Db, chatId: string): string | undefined {
+  return (db.query("SELECT account_id FROM sessions WHERE id = ? AND kind = 'chat' AND json_extract(meta, '$.seat') IS NULL").get(chatId) as { account_id: string } | null)?.account_id;
+}
+
+function activeParticipants(db: Db, chatId: string): ChatParticipant[] {
+  return (db.query("SELECT * FROM chat_participants WHERE session_id = ? AND state = 'active'").all(chatId) as Row[]).map(participant);
+}
+
+/**
+ * The event a participant's socket gets, or undefined when they may not have
+ * it. Membership is read from the table on every event, so a leave or removal
+ * stops the stream at once. The owner always gets the event as it was emitted.
+ */
+export function sharedChatEventView(db: Db, e: EngineEventEnvelope, viewer: string): EngineEventEnvelope | undefined {
+  const chatId = sharedEventSession(e);
+  if (!chatId) return undefined;
+  const owner = chatOwner(db, chatId);
+  if (owner === undefined || owner === viewer) return owner === undefined ? undefined : e;
+  const p = activeParticipants(db, chatId).find((x) => x.accountId === viewer);
+  if (!p) return undefined;
+  const any = e as Record<string, any>;
+  if (e.type === 'message.delta') {
+    // tool input, thinking and attachments never stream to another account
+    if (any.kind !== 'text') return undefined;
+    return e;
+  }
+  if ((e.type === 'message.created' || e.type === 'message.updated') && any.message) {
+    const m = any.message as Message;
+    // their history starts where they joined (the store's visible() applies the same rule to reads)
+    if (p.history !== 'all' && m.seq < p.joinedSeq) return undefined;
+    return { ...e, message: sharedMessageView(m, viewer, owner) } as EngineEventEnvelope;
+  }
+  if (e.type === 'session.updated' && any.session) return { ...e, session: sharedSessionView(any.session as Session, viewer) } as EngineEventEnvelope;
+  return e;
 }
 
 /** Only the starter reads full calls, results, thinking and reminders, including when the reader owns the chat. */
