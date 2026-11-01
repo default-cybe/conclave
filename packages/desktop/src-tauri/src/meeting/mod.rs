@@ -29,7 +29,6 @@ use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindow, Webview
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use capture::ChannelShared;
-use cloud::TokenError;
 use wire::{ChannelState, DesktopMeetingStatus, Exclusion, Levels, MeetingStatus, QueueStatus, SttState, SttStatus};
 
 pub const MEETING: &str = "meeting";
@@ -377,55 +376,47 @@ struct Pipeline {
 }
 
 impl Pipeline {
-    /// The cloud provider when the hub has a key for one, else the model on this computer.
-    /// Capture starts at once either way; it never waits for a model download.
+    /// Capture starts at once; each channel's cloud thread asks the hub for its own token
+    /// meanwhile (audio waits in the feed, `cloud::FEED_FRAMES`), retries a failed one,
+    /// and hands the channel to the model on this computer when the hub has no key or
+    /// the provider keeps failing. Never waits for a model download.
     fn begin(self) {
-        let asked = Instant::now();
-        let mut cloud = match self.hub.stt_token() {
-            Ok(t) => {
-                log::info!("meeting: speech to text by {} (token in {} ms)", t.provider.name(), asked.elapsed().as_millis());
-                set_provider(Some(t.provider.name()), None);
-                set_stt(SttState::Ready, None, None);
-                Some(t)
-            }
-            Err(TokenError::NoKey) => {
-                log::info!("meeting: speech to text on this computer (no cloud key on the hub)");
-                set_provider(Some("local"), None);
-                None
-            }
-            Err(TokenError::Failed(e)) => {
-                log::warn!("meeting: speech to text token failed, using the model on this computer: {e}");
-                set_provider(Some("local"), Some(format!("Cloud speech to text unavailable ({e}); using the model on this computer.")));
-                None
-            }
-        };
-        let use_cloud = cloud.is_some();
+        log::info!("meeting: capture starts; asking the hub for cloud speech to text");
+        // nothing from the last meeting: loading until a provider answers or local takes over
+        *STT.lock().unwrap() = None;
+        set_provider(None, None);
         for (ch, shared, name) in [(wire::Channel::Me, self.mic.clone(), "meeting-mic"), (wire::Channel::Them, self.sys.clone(), "meeting-sys")] {
-            let on = Arc::new(AtomicBool::new(use_cloud));
-            let feed = use_cloud.then(|| {
-                let (tx, rx) = sync_channel(cloud::FEED_FRAMES);
-                // "them" uses the token already here; "me" asks for its own (one socket each)
-                let first = if ch == wire::Channel::Them { cloud.take() } else { None };
+            let on = Arc::new(AtomicBool::new(true));
+            let (tx, rx) = sync_channel(cloud::FEED_FRAMES);
+            {
                 let (p, on) = (self.clone(), on.clone());
                 spawn(if ch == wire::Channel::Me { "meeting-cloud-me" } else { "meeting-cloud-them" }, move || {
                     let hub = p.hub.clone();
-                    let r = cloud::run(ch, first, || hub.stt_token(), &rx, &p.stop, p.hub.t0, &p.seqs, |s| p.up.push(s));
+                    // the first session of the meeting names the provider; a reopen keeps any fallback note
+                    let opened = |provider: cloud::Provider| {
+                        if PROVIDER.lock().unwrap().is_none() {
+                            set_provider(Some(provider.name()), None);
+                            set_stt(SttState::Ready, None, None);
+                        }
+                    };
+                    let r = cloud::run(ch, None, || hub.stt_token(), &rx, &p.stop, p.hub.t0, &p.seqs, opened, |s| p.up.push(s));
                     if let Err(e) = r {
-                        log::warn!("meeting: {ch:?} falls back to the model on this computer: {e}");
                         on.store(false, Ordering::Relaxed);
-                        let who = if ch == wire::Channel::Me { "Mic" } else { "System sound" };
-                        let provider = *PROVIDER.lock().unwrap();
-                        set_provider(provider, Some(format!("{who}: cloud speech to text failed ({e}); using the model on this computer.")));
+                        if e == cloud::NO_KEY {
+                            log::info!("meeting: {ch:?}: speech to text on this computer (no cloud key on the hub)");
+                            set_provider(Some("local"), None);
+                        } else {
+                            log::warn!("meeting: {ch:?} falls back to the model on this computer: {e}");
+                            let who = if ch == wire::Channel::Me { "Mic" } else { "System sound" };
+                            let provider = PROVIDER.lock().unwrap().unwrap_or("local");
+                            set_provider(Some(provider), Some(format!("{who}: cloud speech to text failed ({e}); using the model on this computer.")));
+                        }
                         p.start_local();
                     }
                 });
-                tx
-            });
+            }
             let (q, stop, paused, idle) = (self.stt.clone(), self.stop.clone(), self.paused.clone(), self.stt.idle.clone());
-            spawn(name, move || capture::run_channel(ch, shared, stop, paused, idle, on, feed, |s| q.push(s.into())));
-        }
-        if !use_cloud {
-            self.start_local();
+            spawn(name, move || capture::run_channel(ch, shared, stop, paused, idle, on, Some(tx), |s| q.push(s.into())));
         }
     }
 

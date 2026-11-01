@@ -11,8 +11,8 @@ import { levelSource, statusOrSame } from '../src/overlay/frame';
 import { meetingApi, HubError, type Req } from '../src/overlay/hub';
 import { answerLatency, emptyView, lastLatency, loadDetail, seconds } from '../src/overlay/model';
 import { answerTimings } from '../src/features/meeting/MeetingPage';
-import { modelOptions } from '../src/features/meeting/MeetingForm';
-import { sttInUse } from '../src/features/settings/meetings';
+import { fileNotes, modelOptions } from '../src/features/meeting/MeetingForm';
+import { memberStt, SttBody, sttInUse } from '../src/features/settings/meetings';
 import type { DesktopMeetingStatus, MeetingAnswer, MeetingDetail } from '../src/overlay/wire';
 
 const desk = (p: Partial<DesktopMeetingStatus> = {}): DesktopMeetingStatus => ({
@@ -107,5 +107,24 @@ describe('speech to text in use', () => {
     expect(sttInUse('deepgram', () => false).provider).toBe('local');
     expect(sttInUse('deepgram', () => true).provider).toBe('deepgram');
     expect(sttInUse('local', () => false).words).toContain('Local');
+  });
+
+  test('a member: their own first key, and no "Use" button (PATCH /api/config is admin only)', () => {
+    expect(memberStt([])).toBe('local');
+    expect(memberStt(['stt.deepgram'])).toBe('deepgram');
+    expect(memberStt(['stt.deepgram', 'stt.assemblyai'])).toBe('assemblyai');
+    const reload = async () => {};
+    const asOwner = renderToStaticMarkup(<SttBody chosen="deepgram" values={['stt.deepgram']} reload={reload} first="local" />);
+    expect(asOwner).toContain('Use Local');
+    const asMember = renderToStaticMarkup(<SttBody chosen="deepgram" values={['stt.deepgram']} reload={reload} member first="local" />);
+    expect(asMember).not.toContain('Use Local');
+    expect(asMember).toContain('your first saved key');
+  });
+});
+
+describe('file notes', () => {
+  test('a file the hub could not read is named with the reason', () => {
+    expect(fileNotes([{ name: 'a.txt' }])).toBe('');
+    expect(fileNotes([{ name: 'a.txt' }, { name: 'cv.pdf', note: 'PDF text could not be read (pdftotext is not on the hub).' }])).toBe('cv.pdf: PDF text could not be read (pdftotext is not on the hub).');
   });
 });

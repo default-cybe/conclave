@@ -10,6 +10,7 @@ import { addDays, atLocal, hubZone, localDate, validZone } from '../assistant/ti
 import type { Engine } from '../engine/engine';
 import { EngineError } from '../engine/errors';
 import { agentModelRef } from '../extensions/agent-model';
+import { isMember } from '../people/context';
 import { pimFor } from '../pim/registry';
 import { projectsOf } from '../projects/attached';
 import { streamCompletion } from '../session/stream';
@@ -62,6 +63,8 @@ export const RUNNING_MSG = 'End the meeting that is running first.';
 /** Keep the prompt cache warm while live: under the 5-minute TTL providers that ignore the 1 h one use. */
 const WARM_EVERY_MS = 4 * 60_000;
 const MODELS_TTL_MS = 5 * 60_000;
+/** How long the first question after a hub restart waits for the model list. */
+const MODELS_WAIT_MS = 1500;
 /** "them" finals within this long of each other may be one question split by the speech model. */
 const JOIN_WINDOW_MS = 10_000;
 const JOIN_MAX = 3;
@@ -121,6 +124,7 @@ export class MeetingService {
   private preps = new Map<string, AbortController>();
   /** The answer model picker per account, for the default rule (liveModel stays sync). */
   private models = new Map<string, { at: number; list: MeetingModelOption[] }>();
+  private loadingModels = new Map<string, Promise<unknown>>();
 
   constructor(readonly engine: Engine) {
     this.store = new MeetingStore(engine.repos.db);
@@ -176,6 +180,21 @@ export class MeetingService {
     return list;
   }
 
+  /** Start filling the model cache when it is empty or old (liveModel reads it sync). */
+  private fillModels(accountId: string): Promise<unknown> | undefined {
+    const hit = this.models.get(accountId);
+    if (hit && Date.now() - hit.at < MODELS_TTL_MS) return undefined;
+    let p = this.loadingModels.get(accountId);
+    if (!p) {
+      p = this.modelList(accountId)
+        .catch(() => [])
+        .finally(() => this.loadingModels.delete(accountId));
+      this.loadingModels.set(accountId, p);
+      this.track(p);
+    }
+    return p;
+  }
+
   /**
    * The model live answers use: the meeting's pick, else models.tiers.fast,
    * else the fastest usable Haiku or Gemini Flash; anything slower comes
@@ -218,7 +237,8 @@ export class MeetingService {
   async sttToken(id: string, accountId: string): Promise<SttToken> {
     const m = this.get(id, accountId);
     if (m.status === 'ending' || m.status === 'ended' || m.status === 'failed' || m.status === 'scheduled') throw err(409, `The meeting is ${m.status}.`);
-    const choice = sttChoice(this.engine.config.get().meetings?.stt, (p) => this.sttKey(accountId, p));
+    // meetings.stt is the owner's choice for the owner's keys; a member cannot set it, so their own first key wins
+    const choice = sttChoice(isMember(accountId) ? undefined : this.engine.config.get().meetings?.stt, (p) => this.sttKey(accountId, p));
     if (choice === 'local') throw err(409, 'Speech to text runs on this device: no AssemblyAI or Deepgram key is set (Settings > Meetings).');
     const key = this.sttKey(accountId, choice);
     if (!key) throw err(409, `No ${choice === 'assemblyai' ? 'AssemblyAI' : 'Deepgram'} key is set (Settings > Meetings). Using speech to text on this device.`);
@@ -832,6 +852,8 @@ export class MeetingService {
   private liveOf(m: Meeting): Live {
     let l = this.live.get(m.id);
     if (!l) {
+      // after a hub restart the picker cache is empty: fill it now, not at the first warm-up minutes later
+      this.fillModels(m.accountId);
       l = { answerer: new Answerer(this.engine, this.store, () => this.store.get(m.id), () => this.liveModel(this.store.get(m.id) ?? m).ref), base: Date.now(), recentThem: [], fragments: [], batches: [] };
       this.live.set(m.id, l);
     }
@@ -863,7 +885,9 @@ export class MeetingService {
       set.autoAnswer = patch.autoAnswer;
     }
     // undefined clears the column (store.update): back to the hub default
-    if (patch.answerModel !== undefined) set.answerModel = this.answerModelField(patch.answerModel, accountId);
+    // the form sends the field on every save: the same value is no change (no re-check, no warm-up)
+    const sameModel = (patch.answerModel ?? '') === (m.answerModel ?? '');
+    if (patch.answerModel !== undefined && !sameModel) set.answerModel = this.answerModelField(patch.answerModel, accountId);
     Object.assign(set, this.scheduleFields(patch, accountId));
     const moving = patch.scheduledAt !== undefined || patch.durationMin !== undefined;
     if (moving && !(m.status === 'scheduled' || (m.status === 'ready' && !m.audioClientId))) throw err(409, `A meeting that is ${m.status} cannot be rescheduled.`);
@@ -931,7 +955,10 @@ export class MeetingService {
     const ack: SegmentAck = { accepted: stored.length, lastSeq: this.store.lastSeq(id) };
     if (stored.length) {
       const meeting = m;
-      setImmediate(() => this.afterIngest(meeting, stored, l));
+      // no model list at all (the hub restarted mid-meeting): wait for it a little, so the answer is not on the slow fallback
+      const models = this.models.has(m.accountId) ? undefined : this.fillModels(m.accountId);
+      if (models) void Promise.race([models, Bun.sleep(MODELS_WAIT_MS)]).then(() => this.afterIngest(meeting, stored, l));
+      else setImmediate(() => this.afterIngest(meeting, stored, l));
     }
     return ack;
   }

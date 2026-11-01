@@ -26,13 +26,29 @@ use super::wire::{now_ms, Channel, Segment};
 
 /// 50 ms at 16 kHz: AssemblyAI takes 50 to 1000 ms per message, Deepgram any size.
 pub const FRAME_SAMPLES: usize = 800;
-/// Frames waiting between the capture worker and the socket (3.2 s); more are dropped.
-pub const FEED_FRAMES: usize = 64;
+/// Frames waiting between the capture worker and the socket (10 s): capture starts before the
+/// first token is back (the hub waits up to 8 s on the provider), so the opening words wait here.
+pub const FEED_FRAMES: usize = 200;
+/// `run`'s error when the hub has no key: the caller falls back to local without a warning.
+pub const NO_KEY: &str = "no speech to text key on the hub";
 /// Connection failures in a row (no word back in between) before the channel falls back.
 pub const MAX_FAILURES: u32 = 3;
 const READ_POLL: Duration = Duration::from_millis(20);
 const KEEPALIVE_EVERY: Duration = Duration::from_secs(5);
 const CLOSE_WAIT: Duration = Duration::from_secs(2);
+/// No frame for this long (paused, or the audio device stalled): the session ends, so no
+/// provider session stays open and billed; the next frame opens a new one.
+#[cfg(not(test))]
+const IDLE_CLOSE: Duration = Duration::from_secs(15);
+#[cfg(test)]
+const IDLE_CLOSE: Duration = Duration::from_millis(300);
+
+/// Why a session ended without an error.
+#[derive(Debug, PartialEq, Eq)]
+enum Ended {
+    Stop,
+    Idle,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -327,8 +343,8 @@ pub fn connect(url: &Url, auth: Option<&str>) -> Result<WebSocket<Stream>, Strin
     Ok(ws)
 }
 
-/// Sends frames and reads turns until `stop` (then the provider's close message and up
-/// to 2 s for its last words) or until the socket fails.
+/// Sends frames and reads turns until `stop` or `IDLE_CLOSE` with no frame (then the
+/// provider's close message and up to 2 s for its last words) or until the socket fails.
 fn session<S: Read + Write>(
     ws: &mut WebSocket<S>,
     p: Provider,
@@ -337,9 +353,11 @@ fn session<S: Read + Write>(
     rx: &Receiver<Vec<u8>>,
     stop: &AtomicBool,
     mut on: impl FnMut(Turn),
-) -> Result<(), String> {
+) -> Result<Ended, String> {
     let mut last_send = Instant::now();
+    let mut last_frame = Instant::now();
     let mut closing: Option<Instant> = None;
+    let mut why = Ended::Stop;
     let err = |e: tungstenite::Error| e.to_string();
     loop {
         match closing {
@@ -354,6 +372,7 @@ fn session<S: Read + Write>(
                         Ok(f) => {
                             ws.send(Message::Binary(f.into())).map_err(err)?;
                             last_send = Instant::now();
+                            last_frame = last_send;
                         }
                         Err(TryRecvError::Empty) => break,
                         Err(TryRecvError::Disconnected) => {
@@ -361,6 +380,10 @@ fn session<S: Read + Write>(
                             break;
                         }
                     }
+                }
+                if !ending && last_frame.elapsed() >= IDLE_CLOSE {
+                    ending = true;
+                    why = Ended::Idle;
                 }
                 if ending {
                     ws.send(Message::Text(p.close_msg().to_string().into())).map_err(err)?;
@@ -372,7 +395,7 @@ fn session<S: Read + Write>(
             }
             Some(at) if at.elapsed() >= CLOSE_WAIT => {
                 let _ = ws.close(None);
-                return Ok(());
+                return Ok(why);
             }
             Some(_) => {}
         }
@@ -384,14 +407,15 @@ fn session<S: Read + Write>(
             }
             Ok(Message::Close(f)) => {
                 if closing.is_some() {
-                    return Ok(());
+                    return Ok(why);
                 }
                 let why = f.map(|f| format!("{} {}", u16::from(f.code), f.reason.as_str())).unwrap_or_default();
                 return Err(format!("closed by the provider: {why}"));
             }
             Ok(_) => {}
             Err(tungstenite::Error::Io(e)) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {}
-            Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) if closing.is_some() => return Ok(()),
+            // closing anyway: a provider that drops the socket after our close message is done, not failed
+            Err(_) if closing.is_some() => return Ok(why),
             Err(e) => return Err(err(e)),
         }
     }
@@ -442,8 +466,11 @@ impl<F: FnMut(Segment)> Out<'_, F> {
 }
 
 /// The `meeting-cloud-me` / `meeting-cloud-them` loop. Connects only while there is
-/// audio to send (a paused meeting holds no socket open). Returns Ok on `stop`, or
-/// Err with the reason when the channel must fall back to the local model.
+/// audio to send: a session with no frame for `IDLE_CLOSE` (paused, a stalled device)
+/// ends, and the next frame opens a new one. A token that fails is retried like a
+/// socket that fails. `opened` hears the provider of each new session. Returns Ok on
+/// `stop`, or Err with the reason (`NO_KEY` when the hub has none) when the channel
+/// must fall back to the local model.
 #[allow(clippy::too_many_arguments)]
 pub fn run(
     channel: Channel,
@@ -453,6 +480,7 @@ pub fn run(
     stop: &AtomicBool,
     t0: i64,
     seqs: &Mutex<Seqs>,
+    mut opened: impl FnMut(Provider),
     mut out: impl FnMut(Segment),
 ) -> Result<(), String> {
     let ch = match channel {
@@ -469,7 +497,7 @@ pub fn run(
         let asked = Instant::now();
         let tok = match first_token.take().filter(|t| t.fresh(now_ms())).map(Ok).unwrap_or_else(&mut token) {
             Ok(t) => t,
-            Err(TokenError::NoKey) => return Err("no speech to text key on the hub".into()),
+            Err(TokenError::NoKey) => return Err(NO_KEY.into()),
             Err(TokenError::Failed(e)) => {
                 log::warn!("meeting: {ch}: speech to text token: {e}");
                 failures += 1;
@@ -501,13 +529,18 @@ pub fn run(
             url.path(),
             asked.elapsed().as_millis()
         );
+        opened(p);
         let started_at = now_ms();
         let mut o = Out { channel, started_at, offset_ms: started_at - t0, seqs, out: &mut out, pending: None, heard: false };
         let mut mapper = Mapper::new(p, &url);
         let r = session(&mut ws, p, &mut mapper, Some(frame), rx, stop, |t| o.turn(t));
         o.finish();
         match r {
-            Ok(()) => return Ok(()),
+            Ok(Ended::Stop) => return Ok(()),
+            Ok(Ended::Idle) => {
+                log::info!("meeting: {ch}: no audio for {} s, {} session closed until audio comes back", IDLE_CLOSE.as_secs(), p.name());
+                failures = 0;
+            }
             Err(e) => {
                 log::warn!("meeting: {ch}: {} socket: {e}", p.name());
                 if o.heard {
@@ -654,7 +687,7 @@ mod tests {
             let (stop, got) = (stop.clone(), got.clone());
             std::thread::spawn(move || {
                 let tok = token(Provider::Deepgram, &url, "k");
-                run(Channel::Them, Some(tok), || Err(TokenError::NoKey), &rx, &stop, t0, &seqs, |s| got.lock().unwrap().push(s))
+                run(Channel::Them, Some(tok), || Err(TokenError::NoKey), &rx, &stop, t0, &seqs, |_| {}, |s| got.lock().unwrap().push(s))
             })
         };
         let until = Instant::now() + Duration::from_secs(5);
@@ -673,6 +706,122 @@ mod tests {
         drop(tx);
     }
 
+    /// Paused or a stalled device: no frame for IDLE_CLOSE ends the provider session (no
+    /// socket held open), and the next frame opens a new one on a fresh token.
+    #[test]
+    fn a_session_with_no_audio_closes_and_the_next_frame_reopens() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("ws://{}/v1/listen", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let mut closes = 0;
+            for _ in 0..2 {
+                let (s, _) = listener.accept().unwrap();
+                let mut ws = tungstenite::accept(s).unwrap_or_else(|_| panic!("server handshake"));
+                loop {
+                    match ws.read() {
+                        Ok(Message::Text(t)) if t.as_str().contains("CloseStream") => {
+                            closes += 1;
+                            break;
+                        }
+                        Ok(_) => {}
+                        Err(_) => break,
+                    }
+                }
+            }
+            closes
+        });
+        let (tx, rx) = sync_channel(FEED_FRAMES);
+        let stop = Arc::new(AtomicBool::new(false));
+        let opened = Arc::new(Mutex::new(0));
+        let client = {
+            let (stop, opened) = (stop.clone(), opened.clone());
+            std::thread::spawn(move || {
+                let seqs = Mutex::new(Seqs::default());
+                let mut asked = 0;
+                let r = run(
+                    Channel::Them,
+                    None,
+                    || {
+                        asked += 1;
+                        Ok(token(Provider::Deepgram, &url, "k"))
+                    },
+                    &rx,
+                    &stop,
+                    0,
+                    &seqs,
+                    |_| *opened.lock().unwrap() += 1,
+                    |_| {},
+                );
+                (r, asked)
+            })
+        };
+        tx.send(vec![0u8; FRAME_SAMPLES * 2]).unwrap();
+        // past IDLE_CLOSE (300 ms in tests) plus the close wait: the first session ended
+        std::thread::sleep(Duration::from_millis(1200));
+        assert_eq!(*opened.lock().unwrap(), 1);
+        tx.send(vec![0u8; FRAME_SAMPLES * 2]).unwrap();
+        let until = Instant::now() + Duration::from_secs(5);
+        while *opened.lock().unwrap() < 2 && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        stop.store(true, Ordering::Relaxed);
+        let (r, asked) = client.join().unwrap();
+        assert!(r.is_ok(), "an idle close is not a failure");
+        assert_eq!(asked, 2, "one fresh token per session");
+        assert_eq!(server.join().unwrap(), 2, "both sessions ended with CloseStream");
+        drop(tx);
+    }
+
+    /// A token that fails at the start is retried, not a fallback for the whole meeting.
+    #[test]
+    fn a_token_that_fails_at_start_is_retried() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("ws://{}/v1/listen", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (s, _) = listener.accept().unwrap();
+            let mut ws = tungstenite::accept(s).unwrap_or_else(|_| panic!("server handshake"));
+            while let Ok(m) = ws.read() {
+                if matches!(&m, Message::Text(t) if t.as_str().contains("CloseStream")) {
+                    break;
+                }
+            }
+        });
+        let (tx, rx) = sync_channel(FEED_FRAMES);
+        tx.send(vec![0u8; FRAME_SAMPLES * 2]).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let provider = Arc::new(Mutex::new(None));
+        let client = {
+            let (stop, provider) = (stop.clone(), provider.clone());
+            std::thread::spawn(move || {
+                let seqs = Mutex::new(Seqs::default());
+                let mut asked = 0;
+                run(
+                    Channel::Me,
+                    None,
+                    || {
+                        asked += 1;
+                        if asked < MAX_FAILURES { Err(TokenError::Failed("502 timeout".into())) } else { Ok(token(Provider::Deepgram, &url, "k")) }
+                    },
+                    &rx,
+                    &stop,
+                    0,
+                    &seqs,
+                    |p| *provider.lock().unwrap() = Some(p),
+                    |_| {},
+                )
+            })
+        };
+        let until = Instant::now() + Duration::from_secs(6);
+        while provider.lock().unwrap().is_none() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        stop.store(true, Ordering::Relaxed);
+        assert!(client.join().unwrap().is_ok());
+        assert_eq!(*provider.lock().unwrap(), Some(Provider::Deepgram));
+        server.join().unwrap();
+        drop(tx);
+    }
+
     #[test]
     fn no_key_falls_back_at_once_and_an_unreachable_provider_after_three_tries() {
         let stop = AtomicBool::new(false);
@@ -681,8 +830,8 @@ mod tests {
         for _ in 0..8 {
             tx.send(vec![0u8; 4]).unwrap();
         }
-        let r = run(Channel::Me, None, || Err(TokenError::NoKey), &rx, &stop, 0, &seqs, |_| {});
-        assert!(r.unwrap_err().contains("no speech to text key"));
+        let r = run(Channel::Me, None, || Err(TokenError::NoKey), &rx, &stop, 0, &seqs, |_| {}, |_| {});
+        assert_eq!(r.unwrap_err(), NO_KEY);
         let mut asked = 0;
         let started = Instant::now();
         let r = run(
@@ -696,6 +845,7 @@ mod tests {
             &stop,
             0,
             &seqs,
+            |_| {},
             |_| {},
         );
         assert!(r.is_err());

@@ -20,6 +20,9 @@ pub const CAPACITY: usize = 256;
 /// The hub refuses bodies over 64 KB; stay well under.
 const MAX_BATCH_BYTES: usize = 48 * 1024;
 pub const POST_TIMEOUT: Duration = Duration::from_secs(2);
+/// `stt-token`: above the hub's own 8 s wait on the provider (core/src/meeting/stt.ts TIMEOUT_MS),
+/// so a slow provider answers with the hub's reason instead of a timeout here.
+pub const TOKEN_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Default)]
 pub struct Outbox {
@@ -172,7 +175,7 @@ impl Hub {
         let url = self.url("stt-token").map_err(TokenError::Failed)?;
         let res = ureq::AgentBuilder::new()
             .resolver(crate::hub::Ipv4First)
-            .timeout(Duration::from_secs(6))
+            .timeout(TOKEN_TIMEOUT)
             .build()
             .post(url.as_str())
             .set("Authorization", &format!("Bearer {}", self.token))
@@ -285,6 +288,14 @@ mod tests {
 
     fn seg(seq: u64, is_final: bool) -> Segment {
         Segment { seq, channel: Channel::Them, start_ms: 0, end_ms: 1, text: format!("s{seq}"), is_final, speech_end_at: None, final_at: None }
+    }
+
+    /// The desktop must outwait the hub's own wait on the provider, or a slow provider looks like a dead hub.
+    #[test]
+    fn the_token_timeout_is_longer_than_the_hubs_provider_wait() {
+        let ts = include_str!("../../../../core/src/meeting/stt.ts");
+        let ms: u64 = ts.split("const TIMEOUT_MS = ").nth(1).and_then(|r| r.split(';').next()).and_then(|n| n.trim().replace('_', "").parse().ok()).expect("TIMEOUT_MS in stt.ts");
+        assert!(TOKEN_TIMEOUT > Duration::from_millis(ms), "{TOKEN_TIMEOUT:?} vs hub {ms} ms");
     }
 
     #[test]

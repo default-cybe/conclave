@@ -21,6 +21,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Meetings: faster live answers. A guess starts on 1.5 s of partial speech and no longer counts toward the rate limit or cancels a real answer; the live prompt reads a fixed 9k-token cut of the context; the cache is warmed every 4 minutes; more question phrasings are caught, and a question split over 2 or 3 finals is joined. Answers may be 320 tokens, 700 on Longer, and technical questions get general-knowledge answers.
 - Desktop: capture starts at once instead of waiting for the speech model, and the local model loads only when it is used.
+- Meetings: capture no longer waits for the cloud token; each channel asks for its own, retries a failed one 3 times before local takes over, and waits 10 s (over the hub's 8 s). A cloud session with no audio for 15 s (paused, a stalled device) closes and reopens with the next audio.
+- Meetings: a final with no "?" no longer cancels the answer that streams (it is answered after it); bare "should", "design", "implement" and "imagine" count only in a question's shape; guesses are capped at 6 a minute.
+- Meetings: with a prep, the live context keeps the attached files (each gets its share of the 9k cut). Attached files are labelled as reference data, and only the agenda and prep may say how to answer.
+- Meetings: a member's meetings use their own first saved key (the hub's `meetings.stt` is the owner's); Settings > Meetings hides "Use" for members. After a hub restart the answer model list is loaded before the first answer and the meeting page. Saving the form with the same answer model is no change. The form names any file whose text could not be read (a PDF needs `pdftotext` on the hub).
 - Overlay: level meters paint without re-rendering, unchanged status ticks are skipped, and resizes are sent at most 10 times a second.
 
 ### Fixed

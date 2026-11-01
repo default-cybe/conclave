@@ -1289,8 +1289,11 @@ picked. Design: docs/design/MEETING-MODE.md.
   project.
 - **No folder**: a meeting can run on files alone (a resume, a job
   description). In the form, press **No folder** and drop the files under
-  **Or add files** (at most 10 files, 10 MB each; text, Markdown, PDF and the
-  like; only the text is kept, on the hub). Files also work next to a folder.
+  **Or add files** (at most 10 files, 10 MB each; text, Markdown, Word,
+  PowerPoint and the like; only the text is kept, on the hub). PDFs need
+  `pdftotext` on the hub (`apt install poppler-utils`); without it the form
+  says the PDF text could not be read, so save it as a .txt file instead.
+  Files also work next to a folder.
 - **Answer model**: **Answers from** in the form picks the model for live
   answers. The hub default is `models.tiers.fast` when set, else the fastest
   Gemini Flash Lite, Claude Haiku or Gemini Flash you can use. A slow model

@@ -24,6 +24,8 @@ export const ANSWER_MAX_TOKENS = 320;
 export const ANSWER_LONG_MAX_TOKENS = 700;
 export const FIRST_TOKEN_TIMEOUT_MS = 6000;
 export const ANSWERS_PER_MINUTE = 6;
+/** Speculations a minute: they do not use the answer window, but each one is a model call and a session message. */
+export const SPECULATIONS_PER_MINUTE = 6;
 const TRANSCRIPT_SEGMENTS = 40;
 const TRANSCRIPT_TOKENS = 3000;
 export const SAME_QUESTION = 0.6;
@@ -114,7 +116,10 @@ interface Running {
 export class Answerer {
   private current?: Running;
   private starts: number[] = [];
+  private specs: number[] = [];
   private waiting?: ReturnType<typeof setTimeout>;
+  /** A final with no "?" that came while a real answer streamed: it starts when that answer ends. */
+  private queued?: StoredSegment;
 
   constructor(
     private readonly engine: Engine,
@@ -146,6 +151,12 @@ export class Answerer {
       if (cur?.trigger === 'speculative' && same >= RELABEL_SAME) return this.relabel(cur, seg.text);
       // the same question again (a retry, a repeat) while its answer streams
       if (cur && cur.trigger !== 'speculative' && same >= SAME_QUESTION) return;
+      // a statement the heuristic took for a question must not kill the real answer: only a "?" cancels it
+      if (cur && cur.trigger !== 'speculative' && !seg.text.trim().endsWith('?')) {
+        this.queued = seg;
+        return;
+      }
+      this.queued = undefined;
       this.start('question', seg.text, undefined, false, seg);
       return;
     }
@@ -174,6 +185,7 @@ export class Answerer {
   stop(): void {
     if (this.waiting) clearTimeout(this.waiting);
     this.waiting = undefined;
+    this.queued = undefined;
     this.cancelCurrent();
   }
 
@@ -216,7 +228,12 @@ export class Answerer {
     }
     // a speculation never takes the place of a real answer that streams
     if (trigger === 'speculative' && this.current && this.current.answer.trigger !== 'speculative') return undefined;
-    if (trigger !== 'speculative') this.starts.push(now);
+    if (trigger === 'speculative') {
+      this.specs = this.specs.filter((t) => now - t < 60_000);
+      if (this.specs.length >= SPECULATIONS_PER_MINUTE) return undefined;
+      this.specs.push(now);
+    } else this.starts.push(now);
+    if (trigger === 'answer-now') this.queued = undefined;
     this.cancelCurrent();
     return this.run(m, trigger, question, partial, from);
   }
@@ -275,6 +292,9 @@ export class Answerer {
       const fin = this.store.updateAnswer(answer.id, { state, doneAt: Date.now(), ...(error ? { error } : {}) });
       if (this.current === r) this.current = undefined;
       if (fin) this.emit(fin);
+      const q = this.queued;
+      this.queued = undefined;
+      if (q && !this.current && state === 'done') this.start('question', q.text, undefined, false, q);
     })();
     return answer;
   }

@@ -200,6 +200,13 @@ describe('meeting routes', () => {
       expect((await call(alice.token, 'PUT', '/api/secrets', { kind: 'values', key: 'stt.deepgram', value: 'alice-dg-key' })).status).toBe(200);
       expect((await call(alice.token, 'POST', `/api/meetings/${mine.body.id}/stt-token`)).status).toBe(200);
       expect(auths.at(-1)).toBe('Token alice-dg-key');
+      // the hub's meetings.stt is the owner's: local there never sends a member with a key of their own to local
+      expect((await call(alice.token, 'PATCH', '/api/config', { meetings: { stt: 'deepgram' } })).status).toBe(403);
+      expect((await call(OWNER, 'PATCH', '/api/config', { meetings: { stt: 'local' } })).status).toBe(200);
+      expect((await call(OWNER, 'POST', `/api/meetings/${id}/stt-token`)).status).toBe(409);
+      expect((await call(alice.token, 'POST', `/api/meetings/${mine.body.id}/stt-token`)).status).toBe(200);
+      expect(auths.at(-1)).toBe('Token alice-dg-key');
+      expect((await call(OWNER, 'PATCH', '/api/config', { meetings: { stt: 'deepgram' } })).status).toBe(200);
       expect(t.engine.config.secretValue('stt.deepgram')).toBe('owner-dg-key');
       expect((await call(alice.token, 'PUT', '/api/secrets', { kind: 'values', key: 'other', value: 'x' })).status).toBe(403);
 

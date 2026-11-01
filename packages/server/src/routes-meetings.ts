@@ -117,7 +117,13 @@ export function registerMeetingRoutes(app: Hono<HonoEnv>, ctx: ServerContext): v
     return c.json(await svc().create(body, accountOf(c)), 201);
   });
 
-  app.get('/api/meetings/:id', (c) => c.json(svc().detail(c.req.param('id'), accountOf(c), { before: qNum(c.req.query('before')) })));
+  app.get('/api/meetings/:id', async (c) => {
+    // liveModel reads the model cache: after a hub restart it is empty, and the "no fast model" note would be wrong
+    await svc()
+      .modelList(accountOf(c))
+      .catch(() => []);
+    return c.json(svc().detail(c.req.param('id'), accountOf(c), { before: qNum(c.req.query('before')) }));
+  });
 
   app.patch('/api/meetings/:id', async (c) => c.json(svc().patch(c.req.param('id'), await readJson<MeetingPatch>(c, SMALL_BODY), accountOf(c))));
 

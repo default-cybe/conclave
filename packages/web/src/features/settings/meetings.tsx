@@ -13,7 +13,7 @@ import { cn } from '@/lib/text';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
 import { LoadingRows } from '@/components/ui/EmptyState';
-import { toast } from '@/store/store';
+import { toast, useHub } from '@/store/store';
 import { meetings } from '@/features/meeting/api';
 import type { SttProvider, SttTestResult } from '@/overlay/wire';
 import { errText, Group, Outcome, SettingRow } from './parts';
@@ -35,6 +35,14 @@ export const STT_CHOICES: Choice[] = [
 
 export const sttSecret = (p: SttProvider) => `stt.${p}`;
 
+/**
+ * The service a member's meetings use: their own first saved key, else local. The hub's
+ * meetings.stt is the owner's (PATCH /api/config is admin only); core/src/meeting/index.ts sttToken.
+ */
+export function memberStt(values: string[]): SttProvider {
+  return values.includes(sttSecret('assemblyai')) ? 'assemblyai' : values.includes(sttSecret('deepgram')) ? 'deepgram' : 'local';
+}
+
 /** What the desktop app will use: the choice, or local while the chosen service has no key. */
 export function sttInUse(chosen: SttProvider, keyed: (p: SttProvider) => boolean): { provider: SttProvider; words: string } {
   if (chosen === 'local') return { provider: 'local', words: 'Local, on this computer.' };
@@ -44,6 +52,7 @@ export function sttInUse(chosen: SttProvider, keyed: (p: SttProvider) => boolean
 }
 
 export function MeetingsSection() {
+  const member = useHub((s) => s.me?.role === 'member');
   const [cfg, setCfg] = useState<{ stt: SttProvider; values: string[] }>();
   const [error, setError] = useState<string>();
   const load = () =>
@@ -52,20 +61,20 @@ export function MeetingsSection() {
       .then((r) => {
         const set = (r.config.meetings as { stt?: SttProvider } | undefined)?.stt;
         // unset: the hub takes the first service with a key (core/src/meeting/stt.ts sttChoice)
-        const stt = set ?? (r.secrets.values.includes(sttSecret('assemblyai')) ? 'assemblyai' : r.secrets.values.includes(sttSecret('deepgram')) ? 'deepgram' : 'local');
+        const stt = member || !set ? memberStt(r.secrets.values) : set;
         setCfg({ stt, values: r.secrets.values });
       })
       .catch((e) => setError(errText(e)));
-  useEffect(() => void load(), []);
+  useEffect(() => void load(), [member]);
   if (error) return <p className="text-[13px] text-fault">Could not load the meeting settings. {error}</p>;
   if (!cfg) return <LoadingRows loading rows={4} />;
-  return <SttBody chosen={cfg.stt} values={cfg.values} reload={load} />;
+  return <SttBody chosen={cfg.stt} values={cfg.values} reload={load} member={member} />;
 }
 
-function SttBody({ chosen, values, reload }: { chosen: SttProvider; values: string[]; reload: () => Promise<void> }) {
+export function SttBody({ chosen, values, reload, member, first }: { chosen: SttProvider; values: string[]; reload: () => Promise<void>; member?: boolean; first?: SttProvider }) {
   const mobile = useIsMobile();
   const size = mobile ? 'touch' : 'sm';
-  const [open, setOpen] = useState<SttProvider>(chosen);
+  const [open, setOpen] = useState<SttProvider>(first ?? chosen);
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState<string>();
   const [test, setTest] = useState<SttTestResult & { provider: SttProvider }>();
@@ -153,14 +162,14 @@ function SttBody({ chosen, values, reload }: { chosen: SttProvider; values: stri
             </div>
           </SettingRow>
         )}
-        <SettingRow label={p.id === chosen ? 'In use' : 'Use it'} help={p.id === chosen ? `Meetings use ${p.name}.` : `Make meetings use ${p.name}.`}>
+        <SettingRow label={p.id === chosen ? 'In use' : 'Use it'} help={p.id === chosen ? `Meetings use ${p.name}.` : member ? 'Your meetings use your first saved key: AssemblyAI, then Deepgram, else local.' : `Make meetings use ${p.name}.`}>
           <div className="flex flex-wrap items-center gap-2 md:justify-end">
             {p.id !== 'local' && (
               <Button size={size} disabled={!keyed(p.id)} busy={busy === 'test' ? 'Testing' : false} onClick={() => void runTest()}>
                 Test
               </Button>
             )}
-            {p.id !== chosen && (
+            {p.id !== chosen && !member && (
               <Button variant="solid" size={size} busy={busy === 'use' ? 'Saving' : false} onClick={() => void use(p.id)}>
                 Use {p.name}
               </Button>

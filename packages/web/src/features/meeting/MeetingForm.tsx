@@ -90,6 +90,14 @@ function AnswerModelPicker({ value, onChange }: { value: string; onChange: (ref:
   return <SelectMenu label="Answers from" value={value} onChange={onChange} options={modelOptions(list ?? [], value)} placeholder={list ? 'Hub default' : 'Loading models'} />;
 }
 
+/** "name: why" for each uploaded file the hub could not read in full (MeetingFile.note), one per line. */
+export function fileNotes(files: Pick<MeetingFile, 'name' | 'note'>[]): string {
+  return files
+    .filter((f) => f.note)
+    .map((f) => `${f.name}: ${f.note}`)
+    .join('\n');
+}
+
 /** "Or add files": a drop zone with a picker, and the files as chips. Saved files and ones still to upload in one row. */
 function FilesField({ saved, pending, onAdd, onRemove, invalid }: { saved: MeetingFile[]; pending: File[]; onAdd: (f: File[]) => void; onRemove: (i: number) => void; invalid?: boolean }) {
   const input = useRef<HTMLInputElement>(null);
@@ -425,6 +433,9 @@ export function MeetingForm({ mode, open, onClose, onSaved, others = [], prefill
         const added = await uploadMeetingFiles(id, pending);
         setSaved((s) => [...s, ...added]);
         setPending([]);
+        // a PDF on a hub with no pdftotext, a scanned PDF: say so, or the owner thinks the answers read it
+        const notes = fileNotes(added);
+        if (notes) toast({ title: 'Some file text could not be read', body: notes, level: 'warning' });
       } catch (err) {
         toast({ title: 'The meeting is saved, but its files did not upload', body: err instanceof Error ? err.message : String(err), level: 'error' });
       }
@@ -510,7 +521,7 @@ export function MeetingForm({ mode, open, onClose, onSaved, others = [], prefill
           </div>
         )}
       </Field>
-      <Field label="Or add files" optional error={errors.cwd} help={folder ? 'Read with the folder: prep and the live answers use both.' : 'Prep and the live answers read these. Text is taken out of PDFs and documents the way chat attachments are.'}>
+      <Field label="Or add files" optional error={errors.cwd} help={folder ? 'Read with the folder: prep and the live answers use both.' : 'Prep and the live answers read these. Text is taken out of documents; PDFs need pdftotext (poppler-utils) on the hub.'}>
         <FilesField
           saved={saved}
           pending={pending}
