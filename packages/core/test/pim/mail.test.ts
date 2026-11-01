@@ -150,6 +150,34 @@ describe('IMAP reading', () => {
   test('a closed server is a clear error, not a hang', async () => {
     await expect(ImapClient.connect({ host: '127.0.0.1', port: 1, security: 'none', username: 'x', password: 'y', timeoutMs: 2_000 })).rejects.toThrow(/Could not reach 127.0.0.1:1/);
   });
+
+  test('IMAP and SMTP ask dialAddress before every connect and dial what it gives, or nothing when it refuses', async () => {
+    let connects = 0;
+    const server = createServer((sock) => {
+      connects++;
+      sock.destroy();
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const port = (server.address() as { port: number }).port;
+    const asked: string[] = [];
+    const refuse = async (h: string) => {
+      asked.push(h);
+      throw new Error('Refused: private');
+    };
+    try {
+      const o = { host: 'mail.example', port, security: 'none' as const, username: 'x', password: 'y', timeoutMs: 2_000 };
+      await expect(ImapClient.connect({ ...o, dialAddress: refuse })).rejects.toThrow('Refused: private');
+      await expect(sendMail({ ...o, dialAddress: refuse }, 'a@b.org', ['c@d.org'], 'x')).rejects.toThrow('Refused: private');
+      expect(asked).toEqual(['mail.example', 'mail.example']);
+      expect(connects).toBe(0);
+      // the checked address is the one dialled; mail.example itself never resolves
+      await expect(ImapClient.connect({ ...o, dialAddress: async () => '127.0.0.1' })).rejects.toThrow();
+      await expect(sendMail({ ...o, dialAddress: async () => '127.0.0.1' }, 'a@b.org', ['c@d.org'], 'x')).rejects.toThrow();
+      expect(connects).toBe(2);
+    } finally {
+      server.close();
+    }
+  });
 });
 
 describe('drafts and sending', () => {

@@ -16,7 +16,7 @@ import type { ConfigStore } from '../config';
 import { defaultMcpClientFactory } from '../memory/connections/mcp-client';
 import { BASIC_MEMORY_DEFAULT_SERVER } from '../memory/connections/basic-memory';
 import type { McpClientFactory } from '../memory/connections/types';
-import { checkPublicUrl } from './net';
+import { checkPublicUrl, publicOnlyFetch } from './net';
 
 export const MEMBER_STDIO_REFUSED =
   'On this hub a memory connection of yours can be Basic Memory (the hub runs it in your own folder), or a server at a public address. It cannot start a program of its own on the hub.';
@@ -42,11 +42,8 @@ export function memberMcpClientFactory(view: ConfigStore, dir: string): McpClien
 }
 
 /** fetch for a member's HTTP memory connections: public addresses only, no redirects. */
+const publicFetch = publicOnlyFetch(((input: string | URL | Request, init?: RequestInit) => fetch(input, init)) as typeof fetch);
 export const memberFetch: typeof fetch = Object.assign(
-  async (input: string | URL | Request, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    await checkPublicUrl(url);
-    return fetch(input, { ...init, redirect: 'error' });
-  },
+  (input: string | URL | Request, init?: RequestInit) => publicFetch(input, { ...init, redirect: 'error' }),
   { preconnect: fetch.preconnect },
 );

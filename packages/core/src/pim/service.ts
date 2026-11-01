@@ -76,6 +76,8 @@ export interface PimHost {
   changed?(what: 'proposals' | 'accounts'): void;
   /** IMAP and SMTP over TLS: false only in tests with a self-signed server. */
   rejectUnauthorized?: boolean;
+  /** The address to dial for an IMAP or SMTP host, checked before each connect (a member's: public only). */
+  mailAddress?(host: string): Promise<string>;
 }
 
 /** How long fetched events are reused, so Home and a plan do not hit the server on every look. */
@@ -857,7 +859,10 @@ export class PimService {
 
   private imapProvider(a: PimAccount, password = this.h.secret(secretOf(a.id))): ImapProvider {
     if (!password) throw new PimError(400, `${a.label} has no app password stored. Add it again in Settings > Calendar and mail.`);
-    const tls = this.h.rejectUnauthorized === false ? { rejectUnauthorized: false } : {};
+    const tls = {
+      ...(this.h.rejectUnauthorized === false ? { rejectUnauthorized: false } : {}),
+      ...(this.h.mailAddress ? { dialAddress: (host: string) => this.h.mailAddress!(host) } : {}),
+    };
     return new ImapProvider({
       host: a.imap!.host,
       port: a.imap!.port,

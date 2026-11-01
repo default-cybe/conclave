@@ -158,7 +158,7 @@ trying the saved addresses in turn. With no subcommand at all it does the
 same. It writes the pid file on start and removes it on a clean stop.
 `--log FILE` appends its status lines to FILE instead of stdout.
 
-Its hello says how it updates (protocol 4, `docs/DESIGN.md` 37): a copy in a
+Its hello says how it updates (since protocol 4; the current version is `PROTOCOL_VERSION` in `packages/core/src/machine/protocol.ts`, `docs/DESIGN.md` 37): a copy in a
 folder with `bundled.stamp` (the app's stable copy) says `app`, and the hub
 leaves it to the app; the app updates it by replacing the stable copy as
 before. A standalone copy run by its service answers the `selfUpdate` RPC:

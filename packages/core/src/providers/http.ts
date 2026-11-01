@@ -17,9 +17,13 @@ export interface HttpOptions {
 
 /**
  * fetch with a connect timeout, abort linking and error classification.
- * Non-2xx responses throw a classified ProviderError.
+ * Non-2xx responses throw a classified ProviderError. read runs before the
+ * timeout is cleared, so a body that never ends is bounded too; a stream is
+ * returned unread and its reads watch the signal themselves (parseSse).
  */
-export async function httpRequest(url: string, init: RequestInit, opts: HttpOptions): Promise<Response> {
+export async function httpRequest(url: string, init: RequestInit, opts: HttpOptions): Promise<Response>;
+export async function httpRequest<T>(url: string, init: RequestInit, opts: HttpOptions, read: (res: Response) => Promise<T>): Promise<T>;
+export async function httpRequest<T>(url: string, init: RequestInit, opts: HttpOptions, read?: (res: Response) => Promise<T>): Promise<T | Response> {
   const { provider, signal } = opts;
   if (signal?.aborted) throw new ProviderError('aborted', 'Request aborted', { provider });
   const ctrl = new AbortController();
@@ -32,36 +36,45 @@ export async function httpRequest(url: string, init: RequestInit, opts: HttpOpti
     ctrl.abort(new Error('timeout'));
   }, timeoutMs);
 
-  let res: Response;
+  const late = () => new ProviderError('network', `${provider}: no response after ${Math.round(timeoutMs / 1000)}s`, { provider });
   try {
-    res = await (opts.fetch ?? fetch)(url, { ...init, signal: ctrl.signal });
-  } catch (err) {
-    if (timedOut) throw new ProviderError('network', `${provider}: no response after ${Math.round(timeoutMs / 1000)}s`, { provider });
-    throw classifyFetchError(provider, err, signal);
+    let res: Response;
+    try {
+      res = await (opts.fetch ?? fetch)(url, { ...init, signal: ctrl.signal });
+    } catch (err) {
+      if (timedOut) throw late();
+      throw classifyFetchError(provider, err, signal);
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      if (timedOut) throw late();
+      throw classifyHttpError(provider, res.status, res.headers, text);
+    }
+    if (!read) return res;
+    try {
+      return await read(res);
+    } catch (err) {
+      if (timedOut) throw late();
+      if (signal?.aborted) throw classifyFetchError(provider, err, signal);
+      throw err;
+    }
   } finally {
     clearTimeout(timer);
-    // Body reads watch the signal themselves (parseSse); a lingering listener would pile up on long-lived signals.
+    // a lingering listener would pile up on long-lived signals
     signal?.removeEventListener('abort', onAbort);
   }
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw classifyHttpError(provider, res.status, res.headers, text);
-  }
-  return res;
 }
 
 /** POST a streaming request and check that an event stream came back. */
 export async function openStream(url: string, headers: Record<string, string>, body: unknown, opts: HttpOptions): Promise<Response> {
-  const res = await httpRequest(
+  // Some gateways answer a stream request with a JSON error and status 200: that body is read inside the timeout.
+  const { res, text } = await httpRequest(
     url,
     { method: 'POST', headers: { 'content-type': 'application/json', accept: 'text/event-stream', ...headers }, body: JSON.stringify(body) },
     opts,
+    async (res) => ({ res, text: (res.headers.get('content-type') ?? '').includes('application/json') ? await res.text().catch(() => '') : undefined }),
   );
-  const ct = res.headers.get('content-type') ?? '';
-  if (ct.includes('application/json')) {
-    // Some gateways answer a stream request with a JSON error and status 200.
-    const text = await res.text().catch(() => '');
+  if (text !== undefined) {
     const info = extractErrorInfo(text);
     if (info.json && 'error' in info.json) throw classifyHttpError(opts.provider, 500, res.headers, text);
     throw new ProviderError('bad_request', `${opts.provider}: expected an event stream, got JSON: ${text.slice(0, 300)}`, {
@@ -73,17 +86,16 @@ export async function openStream(url: string, headers: Record<string, string>, b
 }
 
 export async function getJson<T>(url: string, headers: Record<string, string>, opts: HttpOptions): Promise<T> {
-  const res = await httpRequest(url, { method: 'GET', headers }, opts);
-  return (await res.json()) as T;
+  return httpRequest(url, { method: 'GET', headers }, opts, (res) => res.json() as Promise<T>);
 }
 
 export async function postJson<T>(url: string, headers: Record<string, string>, body: unknown, opts: HttpOptions): Promise<T> {
-  const res = await httpRequest(
+  return httpRequest(
     url,
     { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) },
     opts,
+    (res) => res.json() as Promise<T>,
   );
-  return (await res.json()) as T;
 }
 
 export function trimSlash(url: string): string {

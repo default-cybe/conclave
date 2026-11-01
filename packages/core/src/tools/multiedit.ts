@@ -1,7 +1,7 @@
 import type { Tool, ToolOutput } from './types';
 import { applyEdit, type EditSpec } from './edit-core';
 import { editedSnippet, exactUnread, loadForEdit, saveEdited } from './edit';
-import { extname, fail, lineAt, notReadYet, readMarkOf, resolveAbsolute, splitLines, unifiedDiff, pathRule } from './util';
+import { chatRefusal, extname, fail, lineAt, notReadYet, readMarkOf, resolveAbsolute, splitLines, unifiedDiff, pathRule } from './util';
 
 export interface MultiEditInput {
   file_path: string;
@@ -50,6 +50,8 @@ export const MultiEditTool: Tool<MultiEditInput> = {
     const r = resolveAbsolute(ctx, input.file_path);
     if ('error' in r) return fail(r.error);
     const path = r.path;
+    const refusal = chatRefusal(ctx, path);
+    if (refusal) return fail(refusal, { writeRefused: true });
     if (extname(path) === 'ipynb') return fail('This is a Jupyter notebook. Use NotebookEdit to change its cells.');
     if (!Array.isArray(input.edits) || input.edits.length === 0) return fail('edits must be a non-empty array of {old_string, new_string, replace_all?}.');
 

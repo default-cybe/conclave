@@ -6,7 +6,7 @@ import { formatFingerprint } from '@conclave/core/client/index.ts';
 import { out as p } from '../ansi';
 import { bool, str, type ParsedArgs } from '../args';
 import { cliPaths } from '../files';
-import { checkHealth, currentHub, loginLink } from '../hub';
+import { checkHealth, connectHub, currentHub, HubUnavailableError, loginLink } from '../hub';
 import { terminalQr } from '../qr';
 import { CliError, getClient, hubFlags, openUrl, print, prompt, requireArg } from './shared';
 
@@ -65,7 +65,9 @@ export async function configCommand(args: ParsedArgs): Promise<number> {
   if (sub === 'edit') {
     if (!existsSync(file)) writeFileSync(file, '{\n}\n', { mode: 0o600 });
     const editor = process.env.VISUAL || process.env.EDITOR || (process.platform === 'win32' ? 'notepad' : 'vi');
-    const res = spawnSync(editor, [file], { stdio: 'inherit', shell: true });
+    // one quoted command line: with shell: true the args are joined unquoted, and a path with a space would split
+    const quoted = process.platform === 'win32' ? `"${file}"` : `'${file.replace(/'/g, `'\\''`)}'`;
+    const res = spawnSync(`${editor} ${quoted}`, { stdio: 'inherit', shell: true });
     if (res.status !== 0) throw new CliError(`${editor} exited with ${res.status}`);
     let edited: Record<string, unknown>;
     try {
@@ -111,11 +113,13 @@ export async function configCommand(args: ParsedArgs): Promise<number> {
     const value = parseValue(raw);
     const patch = patchFor(path, value);
     try {
-      const { client } = await getClient(args, { autostart: false, quiet: true });
+      // connectHub, not getClient: getClient turns HubUnavailableError into a CliError
+      const { client } = await connectHub({ flags: hubFlags(args), autostart: false });
       await client.updateConfig(patch);
       print(`${p.green('✓')} ${path} = ${show(value)}`);
     } catch (e) {
-      if (str(args, 'hub')) throw e;
+      // only when no hub answers: a hub's refusal (400, 403) or a remote hub must not end up in the local file
+      if (!(e instanceof HubUnavailableError) || !currentHub(hubFlags(args)).local) throw e;
       // No hub: edit the local file directly.
       const merged = deepMerge(readLocalConfig(), patch);
       writeFileSync(file, JSON.stringify(merged, null, 2) + '\n', { mode: 0o600 });

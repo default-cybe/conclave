@@ -98,9 +98,12 @@ export class ImportOffers {
       try {
         sources = await this.deps.count(device, row.accountId);
       } catch (err) {
-        const tries = (row.tries ?? 0) + 1;
+        // dismissed, imported or removed while the scan ran: never write the old row back
+        const cur = this.row(device);
+        if (cur?.state !== 'pending') return;
+        const tries = (cur.tries ?? 0) + 1;
         log.warn(`scan of the new device ${device} for the import offer failed (${tries} of ${MAX_TRIES}): ${(err as Error).message}`);
-        this.put(device, { ...row, tries, ...(tries >= MAX_TRIES ? { state: 'empty' as const } : {}) });
+        this.put(device, { ...cur, tries, ...(tries >= MAX_TRIES ? { state: 'empty' as const } : {}) });
         return;
       }
       // dismissed, imported or removed while the scan ran

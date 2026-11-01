@@ -193,7 +193,7 @@ export async function main(argv: string[]): Promise<number> {
       const judgeModel = s('judge-model') ?? manifest.model;
       const provider = judgeProviderFor(judgeModel, s('judge-provider'));
       const p = provider === 'openai' ? proxyConfig() : claudeConfig();
-      await judgeSet({ setDir: `${out}/${set}`, model: judgeModel, provider, effort: judgeEffortFor(provider, s('judge-effort')), baseUrl: p.baseUrl, apiKey: p.apiKey, swap: flags['no-judge-swap'] !== true, dryRun: !!manifest.dry_run, workRoot: manifest.work_root });
+      await judgeSet({ setDir: `${out}/${set}`, model: judgeModel, provider, effort: judgeEffortFor(provider, s('judge-effort')), baseUrl: p.baseUrl, apiKey: p.apiKey, swap: flags['no-judge-swap'] !== true, dryRun: !!manifest.dry_run, workRoot: join(STATE_DIR, 'scratch', set) });
       writeReport(`${out}/${set}`);
       return 0;
     }

@@ -145,7 +145,8 @@ export async function runDelegate(engine: Engine, parentId: string, req: Delegat
   if (!def) throw new Error(`There is no agent called ${agentName}. For code use explore or coder; for the assistant leave agent out.`);
   if (def.name === CHAT_AGENT) throw new Error('The chat agent has no files or shell. Use explore or coder for code, or leave agent out.');
   // idea-9: the brief against the agent's tools before anything starts; a read-only job also loses the file-editing tools (engine.ts toolsFor)
-  const capability = missingTools(`${req.prompt}\n${req.title}`, def, req.readOnly ? 'read-only' : undefined);
+  const inPlan = parent.mode === 'plan' || parent.permissionMode === 'plan';
+  const capability = missingTools(`${req.prompt}\n${req.title}`, def, inPlan ? 'plan' : req.readOnly ? 'read-only' : undefined);
   if (capability) throw new Error(capability);
 
   // the model a new session of this agent gets, as createSession picks it; a model the owner named wins

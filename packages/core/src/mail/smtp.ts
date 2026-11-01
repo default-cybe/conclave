@@ -18,6 +18,8 @@ export interface SmtpOptions {
   rejectUnauthorized?: boolean;
   /** The name sent with EHLO. */
   helo?: string;
+  /** The address to dial for host, checked right before each connect, or throws (a member's server: people/net.ts resolvePublic). */
+  dialAddress?: (host: string) => Promise<string>;
 }
 
 export class SmtpError extends Error {
@@ -103,9 +105,10 @@ export function dotStuff(raw: string): string {
 /** Send one message. from is the envelope sender; to are all recipients (To and Cc). */
 export async function sendMail(o: SmtpOptions, from: string, to: string[], raw: string): Promise<{ response: string }> {
   const timeout = o.timeoutMs ?? 30_000;
-  const tlsOpts = { host: o.host, port: o.port, servername: o.host, rejectUnauthorized: o.rejectUnauthorized ?? true };
+  const dial = o.dialAddress ? await o.dialAddress(o.host) : o.host;
+  const tlsOpts = { host: dial, port: o.port, servername: o.host, rejectUnauthorized: o.rejectUnauthorized ?? true };
   const socket = await new Promise<Socket | TLSSocket>((resolve, reject) => {
-    const s = o.security === 'tls' ? tlsConnect(tlsOpts, () => resolve(s)) : netConnect({ host: o.host, port: o.port }, () => resolve(s));
+    const s = o.security === 'tls' ? tlsConnect(tlsOpts, () => resolve(s)) : netConnect({ host: dial, port: o.port }, () => resolve(s));
     s.once('error', (e) => reject(new SmtpError(`Could not reach ${o.host}:${o.port}: ${e.message}`)));
   });
   const c = new Conn(socket, timeout);

@@ -391,7 +391,7 @@ export class SqliteMemory implements MemoryService {
       }
       const entry: MemoryEntry = existing
         ? { ...existing, content, tags, updatedAt: now }
-        : { id: newId('mem'), scope: 'global', kind: 'fact', content, tags, importance: 0.4, createdAt: now, updatedAt: now, useCount: 0 };
+        : { id: newId('mem'), scope: 'global', kind: 'fact', content, tags, importance: 0.4, createdAt: now, updatedAt: now, useCount: 0, accountId: this.accountId };
       this.writeRow(entry, !existing);
       touched.push(entry);
       if (existing) out.updated++;

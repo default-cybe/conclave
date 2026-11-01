@@ -1,7 +1,7 @@
 import type { Tool, ToolContext, ToolOutput } from './types';
 import { applyEdit, type EditOutcome } from './edit-core';
 import type { ReadMark } from './types';
-import { detectLineEnding, extname, fail, fromLf, lineAt, notReadYet, numberLines, readMarkFor, readMarkOf, resolveAbsolute, splitLines, staleCheck, toLf, unifiedDiff, pathRule } from './util';
+import { chatRefusal, detectLineEnding, extname, fail, fromLf, lineAt, notReadYet, numberLines, readMarkFor, readMarkOf, resolveAbsolute, splitLines, staleCheck, toLf, unifiedDiff, pathRule } from './util';
 
 export interface EditInput {
   file_path: string;
@@ -90,6 +90,8 @@ export const EditTool: Tool<EditInput> = {
     const r = resolveAbsolute(ctx, input.file_path);
     if ('error' in r) return fail(r.error);
     const path = r.path;
+    const refusal = chatRefusal(ctx, path);
+    if (refusal) return fail(refusal, { writeRefused: true });
     if (extname(path) === 'ipynb') return fail('This is a Jupyter notebook. Use NotebookEdit to change its cells.');
 
     const loaded = await loadForEdit(ctx, path);

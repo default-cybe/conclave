@@ -131,7 +131,7 @@ export function countryCode(input: string): string | undefined {
   const raw = (input ?? '').trim().replace(/\.$/, '');
   if (!raw) return undefined;
   const low = raw.toLowerCase();
-  if (ALIASES[low]) return ALIASES[low];
+  if (Object.hasOwn(ALIASES, low)) return ALIASES[low];
   if (/^[a-z]{2}$/i.test(raw)) {
     const code = raw.toUpperCase();
     return knownCode(code) ? code : undefined;
