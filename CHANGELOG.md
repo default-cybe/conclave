@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- The desktop app's updater now uses zip 9 (tauri-plugin-updater 2.14.1), closing three zip advisories: arbitrary file overwrite through a parser differential (GHSA-m665-v7pm-7grj), unbounded symlink targets during extraction, and an AES entry HMAC bypass on premature EOF.
+
 ## [0.4.54] - 2026-11-01
 
 ### Added
