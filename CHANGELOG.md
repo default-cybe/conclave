@@ -14,6 +14,12 @@ like `## [0.4.16] - 2026-10-24`.
 - Agent loop: each step reads the stored transcript from the last summary's `coversThroughSeq` instead of seq 0, and the context-clearing pass shares that one read, so long sessions no longer list and parse the whole transcript two to three times per step.
 - Subagents with a schema (Task, workflow steps) no longer make one extra model call after a valid StructuredOutput call: the turn ends right away, on the batched and the serial path, with no end-of-turn notice.
 
+### Fixed
+
+- Devices: a hub event-loop stall no longer closes healthy daemon sockets. The daemon sweep now tells a late tick (more than 2 heartbeats after the last one, so every device's last-heard time is stale) from real silence: it pings and skips the 4008 heartbeat-timeout close for that round; the next on-time round closes a device that is really gone.
+- Sessions: the diff endpoint no longer fails with a 409 when the session's device is offline. It returns an empty diff with `offline: true`, the session page loads and its Changes card says the device is offline instead of the diff failing.
+- Hub: a periodic event-loop lag sample logs one warn line (rate-limited to one a minute) whenever the loop lags over 1 s, so the next stall shows when it happened and by how much in the hub's log.
+
 ## [0.4.53] - 2026-11-01
 
 ### Added

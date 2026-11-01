@@ -97,7 +97,7 @@ import { builtinTools, filterTools } from '../tools';
 import { QUEUE_KEY, SessionRunner, canResumeStopped, type StoredQueued } from '../session/runner';
 import { fallbackPolicyFor } from '../session/limit-tree';
 import { RunnerExtensions } from '../session/runner-ext';
-import { OfflineMachine, waitForReturn } from '../projects/offline';
+import { OfflineMachine, isOfflineError, waitForReturn } from '../projects/offline';
 import { checkMcpOff, mcpOff, sessionAllowsServerTool } from '../session/connectors';
 import { projectsOf } from '../projects/attached';
 import { workflowsOf } from '../workflows/attached';
@@ -1162,17 +1162,23 @@ export class Engine implements EngineApi {
     await restoreCheckpoint(this, s, this.machineFor(s), checkpointId);
   }
 
-  async diff(id: string): Promise<{ diff: string; files: string[] }> {
+  async diff(id: string): Promise<{ diff: string; files: string[]; offline?: boolean }> {
     const s = this.requireSession(id);
     const machine = this.machineFor(s);
     // a member's session on the hub's own computer: its tools never ran there, so it changed nothing (docs/design/ACCOUNTS.md 5)
+    let offline = false;
     const res = await machine.exec('git diff --no-color HEAD 2>/dev/null || git diff --no-color 2>/dev/null || true', { cwd: s.cwd, timeoutMs: 20_000 }).catch((err: unknown) => {
       if (err instanceof MachineRefused) return { stdout: '' };
+      // the device is offline: an empty diff with the flag, not a 409, so the session page still loads
+      if (isOfflineError(err)) {
+        offline = true;
+        return { stdout: '' };
+      }
       throw err;
     });
     const diff = res.stdout;
     const files = [...diff.matchAll(/^\+\+\+ b\/(.+)$/gm)].map((m) => m[1]);
-    return { diff, files };
+    return { diff, files, ...(offline ? { offline: true } : {}) };
   }
 
   /** Sanitized by default (session/share.ts); raw is the stored rows, for the owner's backups. */
