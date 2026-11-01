@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set up Conclave</title>
+<link rel="stylesheet" href="lab.css">
+<script src="logos.js"></script>
+<script src="wave.js"></script>
+<script src="common.js"></script>
+<style>
+  body { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 100vh; overflow: hidden; }
+  .side { border-right: 1px solid var(--rule); display: flex; flex-direction: column; padding: 18px 0 0; }
+  .side .brand { padding: 0 28px; }
+  .side canvas { width: 100%; height: 64px; display: block; margin: 22px 0 10px; }
+  .steps { list-style: none; margin: 0; padding: 0 0 0; }
+  .steps li { display: grid; grid-template-columns: 30px 1fr auto; padding: 8px 28px; font-size: var(--t-13); color: var(--fg-3); align-items: baseline; }
+  .steps li .n { font: 450 11px var(--mono); color: var(--fg-4); }
+  .steps li .s { font-size: var(--t-12); }
+  .steps li.done { color: var(--fg-2); }
+  .steps li.done .s { color: var(--fg-3); }
+  .steps li.now { color: var(--fg); font-weight: 560; background: var(--bg-raise); box-shadow: inset 2px 0 0 var(--fg); }
+  .steps li.now .n { color: var(--fg-2); }
+  .side .foot { margin-top: auto; padding: 18px 28px; border-top: 1px solid var(--rule); font-size: var(--t-12); color: var(--fg-3); }
+  .side .foot b { color: var(--fg); font-weight: 500; }
+
+  main { display: flex; flex-direction: column; min-height: 0; }
+  .wrap { padding: 34px 56px 0; max-width: 1080px; overflow: auto; flex: 1; }
+  .kicker { font-size: var(--t-13); color: var(--fg-3); }
+  h1 { font-size: 30px; font-weight: 580; letter-spacing: -0.024em; margin: 6px 0 8px; font-stretch: 104%; }
+  .lead { color: var(--fg-2); font-size: 15px; margin: 0 0 22px; max-width: 640px; }
+  .prov { display: grid; grid-template-columns: 30px 190px 132px minmax(0, 1fr) 210px; align-items: center; gap: 0 16px; padding: 11px 0; border-bottom: 1px solid var(--rule); }
+  .prov .logo { width: 22px; height: 22px; }
+  .prov .nm { font-weight: 560; font-size: var(--t-14); }
+  .prov .nm small { display: block; font-weight: 400; color: var(--fg-3); font-size: var(--t-12); margin-top: 1px; }
+  .prov .how { font-size: var(--t-13); color: var(--fg-2); }
+  .prov .field { height: 32px; }
+  .prov .field .mono { color: var(--fg-2); }
+  .prov .field input::placeholder { color: var(--fg-4); }
+  .prov .res { font-size: var(--t-13); display: flex; align-items: center; justify-content: flex-end; gap: 12px; white-space: nowrap; }
+  .prov .res .det { color: var(--fg-3); }
+  .prov.fail .field { border-color: var(--fault); }
+  .head { display: grid; grid-template-columns: 30px 190px 132px minmax(0, 1fr) 210px; gap: 0 16px; font-size: var(--t-12); color: var(--fg-3); padding: 0 0 8px; border-bottom: 1px solid var(--rule-2); }
+  .head span:last-child { text-align: right; }
+  .note { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin: 22px 0 28px; font-size: var(--t-13); color: var(--fg-2); }
+  .note b { display: block; color: var(--fg); font-weight: 560; margin-bottom: 3px; }
+  .note p { margin: 0; }
+  .act { display: flex; align-items: center; gap: 12px; padding: 16px 56px; border-top: 1px solid var(--rule); }
+  .act .sum { font-size: var(--t-13); color: var(--fg-2); }
+  .act .sum b { color: var(--ok); font-weight: 560; }
+</style>
+</head>
+<body>
+  <aside class="side">
+    <div class="brand"><span data-mark="13"></span>Conclave</div>
+    <canvas data-wave="hero" data-gap="5" data-radius="1.15" data-amplitude="0.9" data-speed="0.8" aria-hidden="true"></canvas>
+    <ol class="steps">
+      <li class="done"><span class="n">01</span><span>Hub</span><span class="s">madx</span></li>
+      <li class="now"><span class="n">02</span><span>Providers</span><span class="s"></span></li>
+      <li><span class="n">03</span><span>Harnesses</span><span class="s"></span></li>
+      <li><span class="n">04</span><span>Defaults</span><span class="s"></span></li>
+      <li><span class="n">05</span><span>Memory</span><span class="s"></span></li>
+      <li><span class="n">06</span><span>Import</span><span class="s"></span></li>
+      <li><span class="n">07</span><span>Devices</span><span class="s"></span></li>
+      <li><span class="n">08</span><span>Alerts</span><span class="s"></span></li>
+      <li><span class="n">09</span><span>Routines</span><span class="s"></span></li>
+      <li><span class="n">10</span><span>Done</span><span class="s"></span></li>
+    </ol>
+    <div class="foot">Connected to <b>madx</b> at <span class="mono">10.0.20.14:7420</span><br>over Tailscale, <span class="ok">online</span></div>
+  </aside>
+
+  <main>
+    <div class="wrap">
+      <div class="kicker">Step 2 of 10</div>
+      <h1>Providers</h1>
+      <p class="lead">Add the ones you use. Each key is tested against the provider before it is saved. You can add more later in Settings.</p>
+
+      <div class="head"><span></span><span>Provider</span><span>Sign in with</span><span>Key</span><span>Result</span></div>
+
+      <div class="prov">
+        <span data-logo="claude-color"></span>
+        <div class="nm">Anthropic<small>Claude models by API</small></div>
+        <div class="how">API key</div>
+        <label class="field"><span class="mono">sk-ant-api03-••••••••••••4f2a</span></label>
+        <div class="res"><span class="ok">Works</span><span class="det num">7 models, 212 ms</span></div>
+      </div>
+      <div class="prov">
+        <span data-logo="claudecode"></span>
+        <div class="nm">Claude Max<small>Through Claude Code</small></div>
+        <div class="how">Subscription</div>
+        <div style="font-size:13px;color:var(--fg-2)">Found a Claude Code login on arch-desktop</div>
+        <div class="res"><button class="btn">Use this login</button></div>
+      </div>
+      <div class="prov">
+        <span data-logo="openai"></span>
+        <div class="nm">OpenAI<small>GPT models, and Codex</small></div>
+        <div class="how">ChatGPT Pro</div>
+        <div style="font-size:13px;color:var(--fg-2)">Signed in through Codex on arch-desktop</div>
+        <div class="res"><span class="ok">Works</span><span class="det">5h and weekly limits read</span></div>
+      </div>
+      <div class="prov">
+        <span data-logo="zai"></span>
+        <div class="nm">Z.ai<small>GLM Coding plan</small></div>
+        <div class="how">API key</div>
+        <label class="field"><span class="mono">••••••••••••••••.Kd81</span></label>
+        <div class="res"><canvas class="live" data-wave="strip" data-gap="4" data-radius="1.35" data-rate="0.9" style="width:40px;height:13px"></canvas><span class="signal">Testing</span><span class="det">api.z.ai</span></div>
+      </div>
+      <div class="prov">
+        <span data-logo="gemini-color"></span>
+        <div class="nm">Google Gemini<small>AI Studio key</small></div>
+        <div class="how">API key</div>
+        <label class="field"><input placeholder="Paste a key that starts with AIza" aria-label="Gemini API key"></label>
+        <div class="res"><button class="btn">Test</button></div>
+      </div>
+      <div class="prov fail">
+        <span data-logo="moonshot"></span>
+        <div class="nm">Moonshot<small>Kimi models</small></div>
+        <div class="how">API key</div>
+        <label class="field"><span class="mono">sk-••••••••••••••••0c9e</span></label>
+        <div class="res"><span class="fault">Rejected</span><span class="det">401, key revoked?</span></div>
+      </div>
+      <div class="prov">
+        <span data-logo="openrouter"></span>
+        <div class="nm">OpenRouter<small>Many models, one key</small></div>
+        <div class="how">API key</div>
+        <label class="field"><input placeholder="sk-or-v1-..." aria-label="OpenRouter API key"></label>
+        <div class="res"><button class="btn">Test</button></div>
+      </div>
+      <div class="prov">
+        <span data-logo="ollama"></span>
+        <div class="nm">Ollama<small>Local models</small></div>
+        <div class="how">No key</div>
+        <label class="field"><span class="mono">http://10.0.20.15:11434</span></label>
+        <div class="res"><span class="ok">Found</span><span class="det">4 models on gpu-lxc</span></div>
+      </div>
+
+      <div class="note">
+        <div><b>Where keys live</b><p>On madx only, encrypted with the hub key. Phones and other computers never receive them.</p></div>
+        <div><b>Subscriptions</b><p>Claude Max and ChatGPT Pro run through their own CLIs. Conclave reads their limits so Home can show what is left.</p></div>
+      </div>
+    </div>
+    <div class="act">
+      <a class="btn quiet" href="onboarding.html">Back</a>
+      <span class="grow"></span>
+      <span class="sum"><b>3 ready</b>, 1 testing, 1 needs a new key</span>
+      <button class="btn">Skip for now</button>
+      <button class="btn solid">Continue</button>
+    </div>
+  </main>
+</body>
+</html>
