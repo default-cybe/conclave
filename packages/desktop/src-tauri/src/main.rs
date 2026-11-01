@@ -16,6 +16,7 @@ mod appimage;
 mod computer;
 mod hub;
 mod local;
+mod panic_log;
 #[cfg(target_os = "linux")]
 mod perf;
 mod terminal;
@@ -1557,28 +1558,31 @@ async fn meeting_start(app: AppHandle, meeting_id: String) -> Result<(), String>
     tauri::async_runtime::spawn_blocking(move || meeting::start(&app, &meeting_id)).await.map_err(|e| e.to_string())?
 }
 
+// The overlay's window commands are async, so they run off the main thread and
+// out of WebKit's message callback; their AppKit work goes to the main thread
+// through run_on_main_thread (meeting/mod.rs).
 #[tauri::command]
-fn meeting_pause(app: AppHandle, paused: bool) {
+async fn meeting_pause(app: AppHandle, paused: bool) {
     meeting::pause(&app, paused)
 }
 
 #[tauri::command]
-fn meeting_stop(app: AppHandle) {
+async fn meeting_stop(app: AppHandle) {
     meeting::stop(&app)
 }
 
 #[tauri::command]
-fn meeting_click_through(app: AppHandle, on: bool) {
+async fn meeting_click_through(app: AppHandle, on: bool) {
     meeting::click_through(&app, on)
 }
 
 #[tauri::command]
-fn meeting_hide(app: AppHandle) {
+async fn meeting_hide(app: AppHandle) {
     meeting::hide_by_owner(&app)
 }
 
 #[tauri::command]
-fn meeting_focusable(app: AppHandle, on: bool) {
+async fn meeting_focusable(app: AppHandle, on: bool) -> Result<(), String> {
     meeting::focusable(&app, on)
 }
 
@@ -1655,6 +1659,11 @@ fn main() {
             }
         })
         .setup(|app| {
+            // first, so any later panic names itself in panic.log before the abort
+            match app.path().app_log_dir() {
+                Ok(dir) => panic_log::install(dir, app.package_info().version.to_string()),
+                Err(e) => eprintln!("conclave: no log folder for panic.log: {e}"),
+            }
             let handle = app.handle().clone();
             let settings_path = app.path().app_config_dir()?.join("settings.json");
             app.manage(AppState {
@@ -1778,5 +1787,15 @@ mod tests {
         let sub = Url::parse("https://box.example/conclave/").unwrap();
         assert!(!should_park(&sub, &sub, long));
         assert!(should_park(&sub, &Url::parse("https://box.example/conclave/s/ses_1").unwrap(), long));
+    }
+
+    #[test]
+    fn the_mac_bundle_signs_with_the_microphone_entitlement() {
+        // the hardened runtime blocks the mic without it, even after the owner allows it
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let path = conf["bundle"]["macOS"]["entitlements"].as_str().expect("bundle.macOS.entitlements");
+        let plist = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(path)).unwrap();
+        let flat: String = plist.split_whitespace().collect();
+        assert!(flat.contains("<key>com.apple.security.device.audio-input</key><true/>"), "{plist}");
     }
 }

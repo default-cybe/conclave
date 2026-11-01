@@ -397,15 +397,40 @@ pub fn click_through(app: &AppHandle, on: bool) {
 }
 
 /// Only the setup screen takes keyboard focus (7.6).
-pub fn focusable(app: &AppHandle, on: bool) {
-    let Some(w) = app.get_webview_window(MEETING) else { return };
-    #[cfg(target_os = "windows")]
-    if let Ok(h) = w.hwnd() {
-        exclude_win::tool_window(h.0 as isize, !on);
+pub fn focusable(app: &AppHandle, on: bool) -> Result<(), String> {
+    let Some(w) = app.get_webview_window(MEETING) else { return Ok(()) };
+    // Never tao's set_focusable on macOS: it writes TaoWindow's "focusable" ivar, which
+    // the MeetingPanel class tauri-nspanel swaps in does not have, so objc2 panics
+    // (`ivar "focusable" not found`) and the release build aborts. The panel is
+    // non-activating and becomes key only when a text field needs it; this hands
+    // the key status over or back.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = w;
+        let handle = app.clone();
+        app.run_on_main_thread(move || {
+            use tauri_nspanel::ManagerExt;
+            if let Ok(p) = handle.get_webview_panel(MEETING) {
+                if on {
+                    p.make_key_window();
+                } else {
+                    p.resign_key_window();
+                }
+            }
+        })
+        .map_err(|e| e.to_string())
     }
-    let _ = w.set_focusable(on);
-    if on {
-        let _ = w.set_focus();
+    #[cfg(not(target_os = "macos"))]
+    {
+        #[cfg(target_os = "windows")]
+        if let Ok(h) = w.hwnd() {
+            exclude_win::tool_window(h.0 as isize, !on);
+        }
+        w.set_focusable(on).map_err(|e| e.to_string())?;
+        if on {
+            w.set_focus().map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
 }
 
