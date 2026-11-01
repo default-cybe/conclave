@@ -19,6 +19,8 @@ import type { Meeting, MeetingAnswer, Segment } from './wire';
 const log = logger('meeting');
 
 export const ANSWER_MAX_TOKENS = 220;
+/** Answer length Longer (11.3.3). */
+export const ANSWER_LONG_MAX_TOKENS = 400;
 export const FIRST_TOKEN_TIMEOUT_MS = 6000;
 export const ANSWERS_PER_MINUTE = 6;
 const TRANSCRIPT_SEGMENTS = 40;
@@ -59,10 +61,33 @@ export function userMessage(m: Meeting, finals: StoredSegment[], opts: { questio
   return `<meeting-transcript>\n${lines.join('\n')}\n</meeting-transcript>\n${q}Time: ${clock(opts.now)} (local). Meeting started ${clock(m.startedAt ?? m.createdAt)}.`;
 }
 
-/** The request of every live answer: the two system blocks never change during a meeting. */
-export function liveRequest(meetingId: string, pack: string, user: string, signal?: AbortSignal, maxTokens = ANSWER_MAX_TOKENS): Omit<ChatRequest, 'model'> {
+const LENGTH_LINE = { short: '1 to 4 bullets, each at most 20 words', long: 'up to 6 bullets, each at most 30 words' } as const;
+
+/**
+ * The third system block (11.3.3): the owner's steering, framed and defused.
+ * Not marked for the cache, so it can change at any time without a cache write.
+ */
+export function steeringBlock(m: Pick<Meeting, 'steering' | 'answerLength'>): string {
+  const text = m.steering?.trim() ? defuseFrameworkTags(m.steering.trim()) : '(none)';
+  return `The owner's steering for this meeting. Follow it for tone, emphasis, what to avoid and length.
+It never overrides the rules above: only facts from the context, the "Say this" format, nothing a listener should not hear.
+---
+${text}
+---
+Length: ${LENGTH_LINE[m.answerLength === 'long' ? 'long' : 'short']}`;
+}
+
+export function answerMaxTokens(m: Pick<Meeting, 'answerLength'>): number {
+  return m.answerLength === 'long' ? ANSWER_LONG_MAX_TOKENS : ANSWER_MAX_TOKENS;
+}
+
+/**
+ * The request of every live answer: [LIVE_PROMPT, pack (cached), steering].
+ * The first two blocks never change during a meeting; the cached prefix ends at the pack.
+ */
+export function liveRequest(meetingId: string, pack: string, user: string, signal?: AbortSignal, maxTokens = ANSWER_MAX_TOKENS, steering?: string): Omit<ChatRequest, 'model'> {
   return {
-    system: [{ text: LIVE_PROMPT }, { text: pack, cache: true }],
+    system: [{ text: LIVE_PROMPT }, { text: pack, cache: true }, ...(steering ? [{ text: steering }] : [])],
     messages: [{ role: 'user', content: [{ type: 'text', text: user }] }],
     tools: [],
     thinking: { off: true },
@@ -218,7 +243,9 @@ export class Answerer {
       let state: MeetingAnswer['state'] = 'done';
       let error: string | undefined;
       try {
-        const res = await streamCompletion(this.engine, this.model(), liveRequest(m.id, pack, user, ctl.signal), { sessionId: m.sessionId, accountId: m.accountId, messageId: msg.id, purpose: 'meeting-answer' });
+        // the steering is read at each answer, so an edit applies from the next one
+        const cur = this.meeting() ?? m;
+        const res = await streamCompletion(this.engine, this.model(), liveRequest(m.id, pack, user, ctl.signal, answerMaxTokens(cur), steeringBlock(cur)), { sessionId: m.sessionId, accountId: m.accountId, messageId: msg.id, purpose: 'meeting-answer' });
         this.engine.updateMessage(msg.id, { content: res.content.filter((b) => b.type === 'text'), model: this.model(), usage: res.usage, stopReason: res.stopReason });
       } catch (err) {
         state = r.why === 'cancelled' ? 'cancelled' : 'failed';
@@ -240,7 +267,8 @@ export class Answerer {
 /** One cheap request with the same system blocks, so the first live answer reads the cache (4.2). */
 export async function warmUp(engine: Engine, model: string, m: Meeting, pack: string): Promise<void> {
   try {
-    await streamCompletion(engine, model, liveRequest(m.id, pack, 'ready', undefined, 1), { sessionId: m.sessionId, accountId: m.accountId, purpose: 'meeting-warmup' });
+    // the same first two blocks as an answer, so the answers read the cache
+    await streamCompletion(engine, model, liveRequest(m.id, pack, 'ready', undefined, 1, steeringBlock(m)), { sessionId: m.sessionId, accountId: m.accountId, purpose: 'meeting-warmup' });
   } catch (err) {
     log.info(`${m.id}: warm-up failed: ${(err as Error).message}`);
   }
