@@ -38,7 +38,7 @@ import { isTyping } from '@/components/Shell';
 import { PhoneBar } from '@/components/PhoneFrame';
 import { MessageList } from './MessageList';
 import { InlineModel, MetaText } from './Log';
-import { MeetingButton } from '@/features/meeting/MeetingButton';
+import { canScheduleHere, scheduleHere } from '@/features/meeting/links';
 import { Composer } from './Composer';
 import { TodoStrip } from './TodoStrip';
 import { RunningTasks } from './RunningTasks';
@@ -276,7 +276,6 @@ function ChatHeader({ session }: { session: Session }) {
             {MOVE_TO_MAIN}
           </Button>
         )}
-        <MeetingButton session={session} />
         <div className="flex shrink-0 items-center gap-1.5 text-[13px]">
           {/* the pet says what the word says: waiting on you, asleep until the reset, failed (CHAT-AND-MOTION 1.11) */}
           {sessionPet(session.status) && <Pet state={sessionPet(session.status)} size={24} className="-my-1 text-fg-2" />}
@@ -390,6 +389,8 @@ function SessionMenu({ session }: { session: Session }) {
               },
             },
             { label: 'Compact', detail: 'Summarize older messages', onSelect: () => attempt(() => api().compact(session.id)) },
+            // meetings start from the Meetings page now (MEETING-MODE.md 11.1); this fills in the folder
+            ...(canScheduleHere(session) ? [{ label: 'Schedule a meeting here…', onSelect: () => navigate(scheduleHere(session)) }] : []),
             ...(hub.items.length ? [{ separator: true, label: '' }, ...hub.items] : []),
             { separator: true, label: '' },
             { label: 'Export Markdown', onSelect: () => downloadExport(session, 'md') },

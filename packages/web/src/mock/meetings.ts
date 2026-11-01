@@ -559,6 +559,7 @@ export function registerMeetings(ctx: MockCtx) {
     if (m.status === 'live') fail(409, 'End the meeting before you delete it.');
     meetings.delete(m.id);
     db.messages.delete(m.sessionId);
+    emit({ type: 'session.deleted', sessionId: m.sessionId });
     return json(204);
   });
 }

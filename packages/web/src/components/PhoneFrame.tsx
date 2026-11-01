@@ -13,8 +13,8 @@
  *
  * The drawer opens from the left over a dim scrim, 85% of the width and at
  * most 360px, from the menu button or a swipe from the left edge. It is as
- * plain as the Claude app's: the switch, New and Search, the Inbox while
- * something waits on you, the mode's sessions grouped as on the desktop
+ * plain as the Claude app's: the switch, New and Search, Meetings, the Inbox
+ * while something waits on you, the mode's sessions grouped as on the desktop
  * (Code by project, device or time; chats and the assistant's by time) and
  * All conversations, with the account row at its foot. Every other page is
  * under Settings, in its More list.
@@ -22,13 +22,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'wouter';
-import { ArrowLeft, ChevronDown, Inbox, Search, SquarePen } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Inbox, Presentation, Search, SquarePen } from 'lucide-react';
 import { openPalette, useUi } from '@/store/ui';
 import { cn } from '@/lib/text';
 import { NEW_WORDS } from '@/lib/sidebar';
 import { useReducedMotion } from './motion';
 import { ModeSwitch } from '@/features/home/ModeSwitch';
 import { useStartMode, type StartMode } from '@/features/home/start';
+import { useMeetingHint } from '@/features/meeting/useMeetingHint';
 import { AccountRow } from './AccountMenu';
 import { SideSessions } from './Sidebar';
 import { useInboxCount } from './nav';
@@ -58,6 +59,7 @@ const PAGES: Array<{ to: string; label: string }> = [
   { to: '/memory', label: 'Memory' },
   { to: '/usage', label: 'Usage' },
   { to: '/devices', label: 'Devices' },
+  { to: '/meetings', label: 'Meetings' },
   { to: '/settings', label: 'Settings' },
 ];
 
@@ -78,6 +80,7 @@ function innerOf(path: string): { title: string; back: string } | undefined {
   if (path.startsWith('/workflows/runs/')) return { title: 'Run', back: '/workflows' };
   if (path.startsWith('/memory/')) return { title: 'Memory', back: '/memory' };
   if (path.startsWith('/extensions/')) return { title: 'Extensions', back: '/extensions' };
+  if (path.startsWith('/meetings/')) return { title: path === '/meetings/new' ? 'Schedule a meeting' : path.endsWith('/edit') ? 'Edit meeting' : 'Meeting', back: '/meetings' };
   return undefined;
 }
 
@@ -95,7 +98,8 @@ export function phoneTitle(path: string): { title: string; back?: string } {
   if (p in MAIN) return { title: MAIN[p] };
   const page = PAGES.find((x) => x.to === p);
   // the pages are in Settings' More list: back goes there when nothing in this app came before
-  if (page) return { title: page.label, back: p === '/settings' ? '/' : '/settings' };
+  // Meetings has its own drawer row, not a Settings one: back goes Home
+  if (page) return { title: page.label, back: p === '/settings' || p === '/meetings' ? '/' : '/settings' };
   if (p === '/workflows/runs') return { title: 'Workflows', back: '/settings' };
   return innerOf(p) ?? { title: '', back: '/' };
 }
@@ -390,6 +394,7 @@ export function SidePanel() {
 function PanelBody() {
   const [loc, navigate] = useLocation();
   const inbox = useInboxCount();
+  const meeting = useMeetingHint();
   const mode = useStartMode((s) => s.mode);
   const path = loc.split('?')[0];
   const close = () => useUi.setState({ panelOpen: false });
@@ -406,6 +411,9 @@ function PanelBody() {
             openPalette();
           }}
         />
+        <MainRow Icon={Presentation} label="Meetings" to="/meetings" active={path === '/meetings' || path.startsWith('/meetings/')}>
+          {meeting.live ? <span className="ml-auto text-[15px] font-medium text-fault">Live</span> : meeting.text && <span className="num ml-auto text-[15px] text-fg-3">{meeting.text}</span>}
+        </MainRow>
         {inbox > 0 && (
           <MainRow Icon={Inbox} label="Inbox" to="/approvals" active={path === '/approvals' || path === '/inbox'}>
             <span className="num ml-auto text-[15px] font-medium text-warn">
