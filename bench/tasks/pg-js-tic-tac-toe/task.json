@@ -1,0 +1,61 @@
+{
+  "id": "pg-js-tic-tac-toe",
+  "title": "State of tic-tac-toe",
+  "kind": "polyglot",
+  "lang": "javascript",
+  "difficulty": "medium",
+  "time_limit_s": 900,
+  "smoke": false,
+  "requires": [
+    "bun"
+  ],
+  "source": {
+    "type": "polyglot",
+    "repo": "https://github.com/Aider-AI/polyglot-benchmark",
+    "commit": "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+    "exercise": "javascript/state-of-tic-tac-toe"
+  },
+  "visible_test_cmd": null,
+  "hidden": {
+    "files": {
+      "hidden/tests/state-of-tic-tac-toe.spec.js": "state-of-tic-tac-toe.spec.js"
+    },
+    "clear": [],
+    "runs": [
+      {
+        "cmd": "bun test ./state-of-tic-tac-toe.spec.js",
+        "format": "bun",
+        "env": {}
+      }
+    ],
+    "timeout_s": 120,
+    "expected_total": 27,
+    "restore": [
+      "package.json",
+      "bunfig.toml"
+    ],
+    "move_aside": []
+  },
+  "protected": [
+    "*.spec.js",
+    "package.json",
+    "bunfig.toml"
+  ],
+  "artifacts": [
+    "node_modules/",
+    "target/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".bench-moved/",
+    "*.pyc",
+    "tasksd.db",
+    ".DS_Store"
+  ],
+  "reference": "hidden/reference/",
+  "naive": null,
+  "license": {
+    "name": "MIT",
+    "holder": "Exercism",
+    "file": "NOTICE"
+  }
+}

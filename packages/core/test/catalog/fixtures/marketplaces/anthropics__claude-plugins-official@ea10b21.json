@@ -1,0 +1,286 @@
+{
+ "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+ "name": "claude-plugins-official",
+ "description": "Directory of popular Claude Code extensions including development tools, productivity plugins, and MCP integrations",
+ "owner": {
+  "name": "Anthropic",
+  "email": "support@anthropic.com"
+ },
+ "renames": {
+  "adlc": "agentforce-adlc",
+  "airwallex": "airwallex-agentos",
+  "convex-backend": "convex",
+  "vals": "valtown",
+  "wordpress.com": "build-with-wordpress",
+  "qodo-skills": "qodo",
+  "atlassian-forge-skills": "forge-skills",
+  "azure-skills": "azure",
+  "sonarqube-agent-plugins": "sonarqube",
+  "data-agent-kit-starter-pack": "data-agent-kit"
+ },
+ "plugins": [
+  {
+   "name": "claude-md-management",
+   "description": "Tools to maintain and improve CLAUDE.md files - audit quality, capture session learnings, and keep project memory current.",
+   "author": {
+    "name": "Anthropic",
+    "email": "support@anthropic.com"
+   },
+   "source": "./plugins/claude-md-management",
+   "category": "productivity",
+   "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-md-management"
+  },
+  {
+   "name": "code-simplifier",
+   "description": "Agent that simplifies and refines code for clarity, consistency, and maintainability while preserving functionality. Focuses on recently modified code.",
+   "author": {
+    "name": "Anthropic",
+    "email": "support@anthropic.com"
+   },
+   "source": "./plugins/code-simplifier",
+   "category": "productivity",
+   "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/code-simplifier"
+  },
+  {
+   "name": "hookify",
+   "description": "Easily create custom hooks to prevent unwanted behaviors by analyzing conversation patterns or from explicit instructions. Define rules via simple markdown files.",
+   "author": {
+    "name": "Anthropic",
+    "email": "support@anthropic.com"
+   },
+   "source": "./plugins/hookify",
+   "category": "productivity",
+   "homepage": "https://github.com/anthropics/claude-plugins-public/tree/main/plugins/hookify"
+  },
+  {
+   "name": "mattpocock-skills",
+   "description": "Matt Pocock's agent skills for real engineering \u2014 grilling, spec/ticket flows, TDD, code review, domain modelling and more. Plug-and-play, not vibe coding.",
+   "author": {
+    "name": "Matt Pocock"
+   },
+   "category": "development",
+   "source": {
+    "source": "url",
+    "url": "https://github.com/mattpocock/skills.git",
+    "sha": "49dd158d1076134a641b33efb035946536778336"
+   },
+   "homepage": "https://github.com/mattpocock/skills"
+  },
+  {
+   "name": "skill-creator",
+   "description": "Create new skills, improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, update or optimize an existing skill, run evals to test a skill, or benchmark skill performance with variance analysis.",
+   "author": {
+    "name": "Anthropic",
+    "email": "support@anthropic.com"
+   },
+   "source": "./plugins/skill-creator",
+   "category": "development",
+   "homepage": "https://github.com/anthropics/claude-plugins-official/tree/main/plugins/skill-creator"
+  },
+  {
+   "name": "superpowers",
+   "description": "Superpowers teaches Claude brainstorming, subagent driven development with built in code review, systematic debugging, and red/green TDD. Additionally, it teaches Claude how to author and test new skills.",
+   "category": "development",
+   "source": {
+    "source": "url",
+    "url": "https://github.com/obra/superpowers.git",
+    "sha": "bb92a77741419a4ab5f06e711a283343f1ada0c3"
+   },
+   "homepage": "https://github.com/obra/superpowers.git"
+  },
+  {
+   "name": "42crunch-api-security-testing",
+   "description": "Automate API security directly in Claude Code with 42Crunch - automatically audit OpenAPI specs, detect vulnerabilities aligned with OWASP API Security risks (including BOLA/BFLA), and apply AI-powered fixes. Designed for AI-assisted development workflows, it provides continuous guardrails through an audit->scan->remediate->validate loop, ensuring APIs meet enterprise security standards before deployment.",
+   "author": {
+    "name": "42Crunch"
+   },
+   "category": "security",
+   "source": {
+    "source": "git-subdir",
+    "url": "https://github.com/42Crunch-AI/claude-plugins.git",
+    "path": "plugins/api-security-testing",
+    "ref": "v1.5.5",
+    "sha": "faf5305385de8afed9468904e8639be737aff39e"
+   },
+   "homepage": "https://42crunch.com"
+  },
+  {
+   "name": "adobe-for-creativity",
+   "description": "Harness Adobe's creative AI-powered tools to edit images, automate design workflows, and bring creative visions to life \u2014 from background removal to vectorization and professional retouching.",
+   "author": {
+    "name": "Adobe"
+   },
+   "category": "design",
+   "source": {
+    "source": "git-subdir",
+    "url": "https://github.com/adobe/skills.git",
+    "path": "plugins/creative-cloud/adobe-for-creativity",
+    "ref": "main",
+    "sha": "0f487c9b1b98d8e62dfc80ee4d28b29f5471261f"
+   },
+   "homepage": "https://github.com/adobe/skills/tree/main/plugins/creative-cloud/adobe-for-creativity"
+  },
+  {
+   "name": "agent-sdk-dev",
+   "description": "Development kit for working with the Claude Agent SDK",
+   "author": {
+    "name": "Anthropic",
+    "email": "support@anthropic.com"
+   },
+   "source": "./plugins/agent-sdk-dev",
+   "category": "development",
+   "homepage": "https://github.com/anthropics/claude-plugins-public/tree/main/plugins/agent-sdk-dev"
+  },
+  {
+   "name": "agentforce-adlc",
+   "description": "Agentforce Agent Development Life Cycle \u2014 author, discover, scaffold, deploy, test, and optimize .agent files",
+   "category": "development",
+   "source": {
+    "source": "url",
+    "url": "https://github.com/SalesforceAIResearch/agentforce-adlc.git",
+    "sha": "09bf1539d41f9ff355ba3eb5d05d4a75813423bb"
+   },
+   "homepage": "https://github.com/SalesforceAIResearch/agentforce-adlc"
+  },
+  {
+   "name": "ai-plugins",
+   "description": "Set up endorctl and use Endor Labs to scan, prioritize, and fix security risks across your software supply chain",
+   "source": {
+    "source": "url",
+    "url": "https://github.com/endorlabs/ai-plugins.git",
+    "sha": "2de00883bd2be8b8578b46ab09baf2c8731376de"
+   },
+   "homepage": "https://www.endorlabs.com"
+  },
+  {
+   "name": "aikido",
+   "description": "Aikido Security scanning for Claude Code \u2014 SAST, secrets, and IaC vulnerability detection powered by the Aikido MCP server.",
+   "source": {
+    "source": "url",
+    "url": "https://github.com/AikidoSec/aikido-claude-plugin.git",
+    "sha": "8fdc995a44102a30ad54164e0bdd249d158c725c"
+   },
+   "homepage": "https://github.com/AikidoSec/aikido-claude-plugin"
+  },
+  {
+   "name": "airtable",
+   "description": "Airtable is the database and operations layer for your agents \u2014 whether running product, marketing, sales, ops, HR, or a custom business app. It combines structured data with multiplayer visual surfaces (grid, kanban, calendar, gallery, timeline) humans and agents share \u2014 plus sync integrations to Jira, Salesforce, Zendesk, Google Drive, Databricks, and the rest of your stack, all backed by enterprise governance. This plugin makes Claude fluent in Airtable: creating bases and schema, working with records, and sharing UI for collaboration. Bundles the official Airtable MCP server.",
+   "author": {
+    "name": "Airtable"
+   },
+   "category": "productivity",
+   "source": {
+    "source": "git-subdir",
+    "url": "https://github.com/Airtable/skills.git",
+    "path": "plugins/airtable",
+    "ref": "main",
+    "sha": "812ee67f1fd3d76fb45ff8df40afaa0448602ba8"
+   },
+   "homepage": "https://www.airtable.com"
+  },
+  {
+   "name": "airwallex-agentos",
+   "displayName": "Airwallex",
+   "description": "Bring Airwallex's global financial infrastructure to Claude. Orchestrate actions across your account in plain language, e.g., set up invoices from a PO, onboard suppliers from invoices, and check current cash position across currencies. AgentOS bundles pre-built finance Skills with MCP servers. A public CLI connects your agent to Airwallex's capabilities.",
+   "author": {
+    "name": "Airwallex"
+   },
+   "category": "productivity",
+   "source": {
+    "source": "git-subdir",
+    "url": "https://github.com/airwallex/airwallex-marketplace.git",
+    "path": "plugins/airwallex-agentos",
+    "ref": "master",
+    "sha": "877551077786664d1cbeb32013443291c66e69e6"
+   },
+   "homepage": "https://www.airwallex.com/docs"
+  },
+  {
+   "name": "airwallex-dev",
+   "description": "Build Airwallex payment integrations in your own codebase. Generates the checkout, card-element, onboarding, and subscription-billing code for an Airwallex integration and wires it into your project: Hosted Payment Page, Drop-in and Split Card elements, connected-account KYC onboarding, and Billing Hosted Checkout for subscriptions and card-saving. Also plans card-on-file merchant-initiated flows for AI providers such as top-ups and auto-recharge.",
+   "author": {
+    "name": "Airwallex"
+   },
+   "category": "development",
+   "source": {
+    "source": "git-subdir",
+    "url": "https://github.com/airwallex/airwallex-marketplace.git",
+    "path": "plugins/airwallex-dev",
+    "ref": "master",
+    "sha": "877551077786664d1cbeb32013443291c66e69e6"
+   },
+   "homepage": "https://www.airwallex.com/docs"
+  },
+  {
+   "name": "aiven",
+   "description": "Easily deploy managed PostgreSQL (pg), Kafka, OpenSearch, Clickhouse and other databases, streaming and apps. Free tier available, up and running in minutes.",
+   "author": {
+    "name": "Aiven"
+   },
+   "category": "database",
+   "source": {
+    "source": "url",
+    "url": "https://github.com/aiven/aiven-ai-plugins.git",
+    "sha": "634f41d6852957cb9280e9245f2ea6f74645b4f1"
+   },
+   "homepage": "https://aiven.io"
+  },
+  {
+   "name": "alloydb",
+   "description": "Create, connect, and interact with an AlloyDB for PostgreSQL database and data.",
+   "author": {
+    "name": "Google LLC"
+   },
+   "category": "database",
+   "source": {
+    "source": "url",
+    "url": "https://github.com/gemini-cli-extensions/alloydb.git",
+    "sha": "2954566c7f791d0cef47cabeae76f7a75dd42f2b"
+   },
+   "homepage": "https://cloud.google.com/alloydb"
+  },
+  {
+   "name": "alloydb-omni",
+   "description": "Create, connect, and interact with an AlloyDB Omni database and data.",
+   "author": {
+    "name": "Google LLC"
+   },
+   "category": "database",
+   "source": {
+    "source": "url",
+    "url": "https://github.com/gemini-cli-extensions/alloydb-omni.git",
+    "sha": "37101e3f9aaf0bd4d0acaeee540a0da2fd773d00"
+   },
+   "homepage": "https://github.com/gemini-cli-extensions/alloydb-omni"
+  },
+  {
+   "name": "altimate-code",
+   "description": "Delegates dbt and warehouse work to altimate-code, a specialized CLI agent with 100+ purpose-built data tools (SQL analysis, column-level lineage, dbt build/test/run, warehouse profiling, FinOps, connectivity to Snowflake, BigQuery, Redshift, Databricks, Postgres, MySQL, DuckDB).",
+   "author": {
+    "name": "AltimateAI"
+   },
+   "category": "database",
+   "source": {
+    "source": "git-subdir",
+    "url": "https://github.com/AltimateAI/altimate-claude-plugin.git",
+    "path": "plugins/altimate-code",
+    "ref": "main",
+    "sha": "b7c8f68b3dfd303ab3ccf2f43934098811dfe2aa"
+   },
+   "homepage": "https://www.altimate.ai"
+  },
+  {
+   "name": "amazon-location-service",
+   "description": "Guide developers through adding maps, places search, geocoding, routing, and other geospatial features with Amazon Location Service, including authentication setup, SDK integration, and best practices.",
+   "category": "location",
+   "source": {
+    "source": "git-subdir",
+    "url": "https://github.com/awslabs/agent-plugins.git",
+    "path": "plugins/amazon-location-service",
+    "ref": "main",
+    "sha": "097fe8ad56d8a1d5e2c81d7880adf145553cf244"
+   },
+   "homepage": "https://github.com/awslabs/agent-plugins"
+  }
+ ]
+}

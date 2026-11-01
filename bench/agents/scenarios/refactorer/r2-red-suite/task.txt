@@ -1,0 +1,1 @@
+Rename calcTotal to sumAmounts everywhere in this repo.

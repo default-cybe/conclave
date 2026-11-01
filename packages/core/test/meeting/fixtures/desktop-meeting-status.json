@@ -1,0 +1,12 @@
+{
+  "meetingId": "mtg_m1abc2def3",
+  "live": true,
+  "paused": false,
+  "clickThrough": true,
+  "hiddenForShare": false,
+  "exclusion": "excluded",
+  "mic": { "ok": true, "device": "MacBook Pro Microphone" },
+  "system": { "ok": false, "error": "no system sound" },
+  "stt": { "state": "downloading", "progress": 0.42 },
+  "queue": { "stt": 1, "upload": 0, "dropped": 0 }
+}

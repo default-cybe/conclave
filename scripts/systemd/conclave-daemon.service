@@ -1,0 +1,29 @@
+# Conclave device daemon as a systemd user service. It lets the hub use this
+# machine's files, shells and agent CLIs.
+#
+# `conclave daemon install` writes this same unit with your current PATH, which
+# is the easier way. To use this copy instead:
+#
+#   conclave daemon pair <hubUrl> <code>
+#   cp conclave-daemon.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now conclave-daemon
+#   loginctl enable-linger "$USER"     # keep running after logout
+#
+# Logs: journalctl --user -u conclave-daemon -f
+# Tools the agent runs (git, rg, claude, codex...) must be on PATH below. Add
+# directories with: systemctl --user edit conclave-daemon
+
+[Unit]
+Description=Conclave device daemon
+Documentation=https://conclave.dymnitguys.com
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/conclave daemon
+Restart=always
+RestartSec=5
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target

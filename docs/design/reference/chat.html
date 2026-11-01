@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conclave Chats</title>
+<link rel="stylesheet" href="lab.css">
+<script src="logos.js"></script>
+<script src="wave.js"></script>
+<script src="common.js"></script>
+<style>
+  body { overflow: hidden; }
+  .app { display: grid; grid-template-columns: 300px minmax(0, 1fr) 316px; height: calc(100vh - 48px); }
+
+  /* sessions */
+  .list { border-right: 1px solid var(--rule); display: flex; flex-direction: column; min-height: 0; }
+  .list .bar { display: flex; gap: 8px; padding: 14px 16px 12px; }
+  .list .bar .field { flex: 1; height: 30px; color: var(--fg-3); }
+  .list .scroll { overflow: auto; padding: 0 0 16px; }
+  .grp { padding: 14px 16px 6px; font-size: var(--t-12); color: var(--fg-3); font-weight: 500; display: flex; gap: 6px; }
+  .grp .num { color: var(--fg-4); }
+  .grp.w { color: var(--warn); }
+  .s { display: grid; grid-template-columns: 1fr auto; gap: 1px 10px; padding: 8px 16px 9px; position: relative; cursor: default; }
+  .s:hover { background: var(--bg-hover); }
+  .s[aria-current] { background: var(--bg-raise); }
+  .s[aria-current]::before { content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; background: var(--fg); }
+  .s .t { font-size: var(--t-13); font-weight: 520; min-width: 0; }
+  .s .m { font-size: var(--t-12); color: var(--fg-3); grid-column: 1; min-width: 0; }
+  .s .m .logo { width: 12px; height: 12px; vertical-align: -1.5px; margin-right: 5px; }
+  .s .r { font-size: var(--t-12); color: var(--fg-3); text-align: right; grid-row: 1; grid-column: 2; }
+  .s .r2 { font-size: var(--t-12); text-align: right; grid-row: 2; grid-column: 2; }
+
+  /* conversation */
+  .conv { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  .ch { padding: 14px 32px 13px; border-bottom: 1px solid var(--rule); display: flex; align-items: center; gap: 16px; }
+  .ch h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.012em; }
+  .ch .m { font-size: var(--t-12); color: var(--fg-3); margin-top: 2px; }
+  .ch .m .logo { width: 12px; height: 12px; vertical-align: -1.5px; margin-right: 4px; }
+  .ch .m .mono { color: var(--fg-2); }
+  .ch .st { margin-left: auto; font-size: var(--t-13); white-space: nowrap; }
+  .log { flex: 1; overflow: auto; padding: 20px 32px 8px; min-height: 0; }
+  .turn { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 0 8px; margin-bottom: 18px; max-width: 860px; }
+  .turn .ts { font: 450 11.5px/22px var(--mono); color: var(--fg-4); }
+  .turn .who { font-size: var(--t-12); font-weight: 600; color: var(--fg-2); line-height: 22px; }
+  .turn .who .logo { width: 13px; height: 13px; vertical-align: -2px; margin-right: 6px; }
+  .turn .body { grid-column: 2; font-size: 14.5px; line-height: 1.6; }
+  .turn .body p { margin: 2px 0 8px; }
+  .turn.you .body { color: var(--fg); }
+  .turn.you .who { color: var(--fg-3); }
+  .tool { display: grid; grid-template-columns: 52px minmax(0,1fr) auto; gap: 10px; font-size: var(--t-13); padding: 5px 0; align-items: baseline; border-top: 1px solid var(--rule); }
+  .tool:last-child { border-bottom: 1px solid var(--rule); }
+  .tool .k { color: var(--fg-2); font-weight: 520; }
+  .tool .a { color: var(--fg-2); }
+  .tool .res { color: var(--fg-3); font-size: var(--t-12); }
+  .tools { margin: 6px 0 12px; }
+  ol.plan { margin: 2px 0 8px; padding-left: 20px; color: var(--fg); }
+  ol.plan li { padding: 1px 0; }
+  ol.plan li::marker { color: var(--fg-3); font-variant-numeric: tabular-nums; font-size: 13px; }
+
+  .diff { border: 1px solid var(--rule); border-radius: var(--r-2); overflow: hidden; margin: 8px 0 12px; background: var(--bg-sunk); }
+  .diff .hd { display: flex; gap: 12px; align-items: baseline; padding: 8px 12px; border-bottom: 1px solid var(--rule); font-size: var(--t-13); background: var(--bg); }
+  .diff .hd .k { font-weight: 560; }
+  .diff .hd .ad { color: var(--ok); }
+  .diff .hd .de { color: var(--fault); }
+  .diff pre { margin: 0; padding: 6px 0; font: 450 12.5px/1.65 var(--mono); font-feature-settings: 'zero' on; }
+  .diff .ln { display: grid; grid-template-columns: 40px 18px 1fr; }
+  .diff .ln .n { color: var(--fg-4); text-align: right; padding-right: 8px; }
+  .diff .ln .g { color: var(--fg-4); text-align: center; }
+  .diff .ln.add { background: var(--add-bg); }
+  .diff .ln.add .g { color: var(--ok); }
+  .diff .ln.del { background: var(--del-bg); }
+  .diff .ln.del .g { color: var(--fault); }
+  .kw { color: var(--signal); }
+  .str { color: var(--ok); }
+  .cm { color: var(--fg-3); }
+  code.i { font: 450 0.88em var(--mono); background: var(--bg-raise); border: 1px solid var(--rule); border-radius: 3px; padding: 0 4px; }
+
+  .term { font: 450 12.5px/1.65 var(--mono); color: var(--fg-2); padding: 8px 12px; background: var(--bg-sunk); border: 1px solid var(--rule); border-radius: var(--r-2); margin-top: 6px; }
+  .term .pass { color: var(--ok); }
+
+  .livebar { display: grid; grid-template-columns: 56px 1fr; gap: 8px; max-width: 860px; align-items: center; margin: 4px 0 6px; }
+  .livebar .meta { display: flex; justify-content: space-between; font-size: var(--t-12); color: var(--fg-3); margin-bottom: 6px; }
+  .livebar .meta .signal { font-weight: 500; }
+  .livebar canvas { width: 100%; height: 26px; display: block; --wave-ink: var(--signal); --wave-hot: var(--signal); }
+
+  .comp { padding: 6px 32px 18px; }
+  .box { border: 1px solid var(--rule-2); border-radius: var(--r-2); background: var(--bg-sunk); max-width: 916px; }
+  .box textarea { width: 100%; border: 0; outline: 0; background: transparent; resize: none; padding: 12px 14px 4px; font-size: var(--t-14); height: 50px; }
+  .box textarea::placeholder { color: var(--fg-3); }
+  .box .row { display: flex; align-items: center; gap: 0; padding: 6px 6px 6px 8px; }
+  .pk { height: 28px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; font-size: var(--t-13); color: var(--fg-2); border-radius: var(--r-1); white-space: nowrap; }
+  .pk:hover { background: var(--bg-hover); color: var(--fg); }
+  .pk .car { color: var(--fg-4); font-size: 9px; }
+  .pk .lbl { color: var(--fg-3); }
+  .sep { width: 1px; height: 16px; background: var(--rule); margin: 0 4px; }
+  .hint { font-size: var(--t-12); color: var(--fg-4); margin-top: 7px; display: flex; gap: 16px; max-width: 916px; }
+  .hint b { font-weight: 500; color: var(--fg-3); }
+
+  /* context */
+  .ctx { border-left: 1px solid var(--rule); overflow: auto; padding: 16px 20px 24px; }
+  .ctx section + section { margin-top: 26px; }
+  .ro { display: grid; grid-template-columns: 1fr 1fr 1fr; margin-top: 12px; }
+  .ro > div { padding: 0 10px; border-left: 1px solid var(--rule); }
+  .ro > div:first-child { padding-left: 0; border-left: 0; }
+  .ro .v { font-size: 19px; font-weight: 540; letter-spacing: -0.02em; line-height: 1.2; }
+  .ro .k { font-size: var(--t-12); color: var(--fg-3); }
+  .cw { margin-top: 16px; font-size: var(--t-12); color: var(--fg-3); }
+  .cw .top-l { display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .cw .top-l .num { color: var(--fg-2); }
+  .cw .meter { height: 8px; }
+  .steps { margin: 8px 0 0; padding: 0; list-style: none; counter-reset: s; font-size: var(--t-13); }
+  .steps li { counter-increment: s; display: grid; grid-template-columns: 20px 1fr auto; gap: 6px; padding: 6px 0; border-bottom: 1px solid var(--rule); }
+  .steps li:last-child { border-bottom: 0; }
+  .steps li::before { content: counter(s); color: var(--fg-4); font-variant-numeric: tabular-nums; }
+  .steps li.done { color: var(--fg-3); }
+  .steps li .x { font-size: var(--t-12); color: var(--fg-4); }
+  .steps li.now .x { color: var(--signal); }
+  .files { font-size: var(--t-13); margin-top: 6px; }
+  .files div { display: grid; grid-template-columns: 1fr auto; padding: 5px 0; border-bottom: 1px solid var(--rule); }
+  .files div:last-child { border-bottom: 0; }
+  .files .p { font-family: var(--mono); font-size: 12px; color: var(--fg-2); }
+  .files .p b { color: var(--fg); font-weight: 500; }
+  .files .c { font: 450 12px var(--mono); }
+  .kv { display: grid; grid-template-columns: 84px 1fr; gap: 6px 10px; font-size: var(--t-13); margin-top: 10px; }
+  .kv dt { color: var(--fg-3); }
+  .kv dd { margin: 0; min-width: 0; }
+
+  /* jury */
+  .ballot { width: 100%; border-collapse: collapse; font-size: var(--t-13); margin: 8px 0 16px; }
+  .ballot th { text-align: left; font-weight: 450; color: var(--fg-3); font-size: var(--t-12); padding: 0 14px 6px 0; border-bottom: 1px solid var(--rule-2); }
+  .ballot td { padding: 10px 14px 10px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  .ballot td.pick { font-weight: 600; white-space: nowrap; }
+  .ballot td.why { color: var(--fg-2); line-height: 1.5; }
+  .ballot .r { text-align: right; padding-right: 14px; white-space: nowrap; color: var(--fg-3); }
+  .ballot td.m { white-space: nowrap; }
+  .verdict { border-top: 2px solid var(--fg); padding-top: 14px; margin-top: 4px; }
+  .verdict .lab { font-size: var(--t-12); color: var(--fg-3); }
+  .verdict .big { display: flex; align-items: baseline; gap: 14px; margin: 2px 0 10px; }
+  .verdict .big b { font-size: 34px; font-weight: 600; letter-spacing: -0.03em; font-stretch: 106%; }
+  .verdict .big span { color: var(--fg-2); font-size: var(--t-14); }
+  .verdict p { margin: 0 0 8px; }
+  .verdict .dis { color: var(--fg-2); font-size: var(--t-13); border-left: 2px solid var(--rule-2); padding-left: 12px; margin: 12px 0 14px; }
+  .tally { display: flex; gap: 3px; }
+  .tally i { width: 14px; height: 6px; background: var(--fg); }
+  .tally i.o { background: var(--meter-off); }
+
+  [data-view] { display: none; }
+  body.v-code .conv[data-view='code'], body.v-jury .conv[data-view='jury'] { display: flex; }
+  body.v-code .ctx[data-view='code'], body.v-jury .ctx[data-view='jury'] { display: block; }
+</style>
+</head>
+<body class="v-code">
+<header class="top">
+  <div class="brand"><span data-mark="13"></span>Conclave</div>
+  <nav class="nav" aria-label="Main">
+    <a href="home.html">Home</a>
+    <a href="chat.html" aria-current="page">Chats<span class="n">2</span></a>
+    <a href="#">Tasks</a>
+    <a href="#">Routines</a>
+    <a href="#">Memory</a>
+    <a href="#">Usage</a>
+    <a href="#">Devices</a>
+  </nav>
+  <div class="right">
+    <div class="search"><span>Search or run a command</span><kbd>⌘K</kbd></div>
+    <div class="hub">Hub <b>madx</b> <span class="ok">online</span></div>
+  </div>
+</header>
+
+<div class="app">
+  <aside class="list" aria-label="Sessions">
+    <div class="bar"><label class="field"><input placeholder="Filter" aria-label="Filter sessions"><kbd>/</kbd></label><button class="btn solid" style="height:30px">New</button></div>
+    <div class="scroll">
+      <div class="grp w">Waiting on you <span class="num">2</span></div>
+      <a class="s" href="#"><span class="t ell">Verify PBS backups for all LXCs</span><span class="m ell">sysadmin, <span data-logo="claudecode"></span>Claude Code</span><span class="r num">2m</span><span class="r2 warn">approve</span></a>
+      <a class="s" href="#"><span class="t ell">pwn 300: heap note service</span><span class="m ell">security, <span data-logo="zai"></span>GLM-5</span><span class="r num">14m</span><span class="r2 warn">question</span></a>
+
+      <div class="grp">Running <span class="num">2</span></div>
+      <a class="s" href="#code" data-sel="code"><span class="t ell">Move auth middleware to jose</span><span class="m ell">coder, <span data-logo="claude-color"></span>Sonnet 5.5</span><span class="r num">12m</span><span class="r2"><canvas class="live" data-wave="strip" data-gap="4" data-rate="0.9" data-radius="1.35" style="width:40px;height:13px"></canvas></span></a>
+      <a class="s" href="#"><span class="t ell">OS assignment: MLFQ scheduler</span><span class="m ell">tutor, <span data-logo="codex"></span>Codex</span><span class="r num">31m</span><span class="r2"><canvas class="live" data-wave="strip" data-gap="4" data-rate="0.3" data-radius="1.35" data-speed="0.7" style="width:40px;height:13px"></canvas></span></a>
+
+      <div class="grp">Today</div>
+      <a class="s" href="#jury" data-sel="jury"><span class="t ell">Reverse proxy for the Proxmox homelab</span><span class="m ell">Jury of 4, verdict Caddy</span><span class="r num">2h</span></a>
+      <a class="s" href="#"><span class="t ell">Suspend broken after kernel 6.17</span><span class="m ell">sysadmin, <span data-logo="claude-color"></span>Opus 5.5</span><span class="r num">3h</span></a>
+      <a class="s" href="#"><span class="t ell">Morning brief</span><span class="m ell">Routine, <span data-logo="gemini-color"></span>Gemini 3 Flash</span><span class="r num">07:30</span></a>
+
+      <div class="grp">This week</div>
+      <a class="s" href="#"><span class="t ell">Rust or Go for the device daemon</span><span class="m ell">Jury of 3, verdict Go</span><span class="r">Wed</span></a>
+      <a class="s" href="#"><span class="t ell">WireGuard split tunnel for uni VPN</span><span class="m ell">sysadmin, <span data-logo="claude-color"></span>Opus 5.5</span><span class="r">Mon</span></a>
+      <a class="s" href="#"><span class="t ell">Parse nmap XML into a report</span><span class="m ell">coder, <span data-logo="ollama"></span>qwen3-coder 30b</span><span class="r">Sun</span><span class="r2 fault">failed</span></a>
+      <a class="s" href="#"><span class="t ell">Week 6 lab: page replacement</span><span class="m ell">tutor, <span data-logo="codex"></span>Codex</span><span class="r">Sun</span></a>
+    </div>
+  </aside>
+
+  <!-- coding session -->
+  <div class="conv" data-view="code">
+    <div class="ch">
+      <div>
+        <h2>Move auth middleware to jose</h2>
+        <div class="m">coder on <span data-logo="claudecode"></span>Claude Code, <span data-logo="claude-color"></span>Sonnet 5.5, arch-desktop <span class="mono">~/code/conclave</span></div>
+      </div>
+      <div class="st"><span class="signal">Running</span> <span class="dim num">12:04</span></div>
+      <button class="btn">Stop <kbd>esc</kbd></button>
+    </div>
+    <div class="log">
+      <div class="turn you">
+        <div class="ts">09:14</div><div class="who">You</div>
+        <div class="body"><p>Move the auth middleware from jsonwebtoken to jose. Keep the same claims and error responses, then run the server tests.</p></div>
+      </div>
+      <div class="turn">
+        <div class="ts">09:15</div><div class="who"><span data-logo="claude-color"></span>coder</div>
+        <div class="body">
+          <div class="tools">
+            <div class="tool"><span class="k">Grep</span><span class="a mono ell">jsonwebtoken</span><span class="res">6 matches in 3 files</span></div>
+            <div class="tool"><span class="k">Read</span><span class="a mono ell">packages/server/src/auth.ts</span><span class="res">48 lines</span></div>
+            <div class="tool"><span class="k">Agent</span><span class="a ell">Find all JWT usages, Haiku 5.5</span><span class="res">done in 41s</span></div>
+          </div>
+          <p>Two things to fix while porting. <code class="i">jwtVerify</code> accepts any algorithm the key allows, so I pin <code class="i">HS256</code>. An empty bearer token currently reaches verify and throws, so it now returns 401 early.</p>
+          <div class="diff">
+            <div class="hd"><span class="k">Edit</span><span class="mono" style="color:var(--fg-2)">packages/server/src/auth.ts</span><span class="grow"></span><span class="mono ad">+3</span><span class="mono de">−1</span></div>
+<pre><div class="ln"><span class="n">4</span><span class="g"></span><span><span class="kw">const</span> SECRET = <span class="kw">new</span> TextEncoder().encode(process.env.CONCLAVE_JWT_SECRET!);</span></div><div class="ln add"><span class="n">5</span><span class="g">+</span><span><span class="kw">const</span> VERIFY = { algorithms: [<span class="str">'HS256'</span>], issuer: <span class="str">'conclave'</span> } <span class="kw">as const</span>;</span></div><div class="ln"><span class="n">6</span><span class="g"></span><span></span></div><div class="ln"><span class="n">7</span><span class="g"></span><span><span class="kw">export const</span> auth: MiddlewareHandler = <span class="kw">async</span> (c, next) =&gt; {</span></div><div class="ln"><span class="n">8</span><span class="g"></span><span>  <span class="kw">const</span> header = c.req.header(<span class="str">'authorization'</span>) ?? <span class="str">''</span>;</span></div><div class="ln"><span class="n">9</span><span class="g"></span><span>  <span class="kw">const</span> token = header.replace(<span class="str">/^Bearer /</span>, <span class="str">''</span>);</span></div><div class="ln add"><span class="n">10</span><span class="g">+</span><span>  <span class="kw">if</span> (!token) <span class="kw">return</span> c.json({ error: <span class="str">'unauthorized'</span> }, 401);</span></div><div class="ln del"><span class="n">11</span><span class="g">−</span><span>  <span class="kw">const</span> { payload } = <span class="kw">await</span> jwtVerify&lt;Claims&gt;(token, SECRET);</span></div><div class="ln add"><span class="n">11</span><span class="g">+</span><span>  <span class="kw">const</span> { payload } = <span class="kw">await</span> jwtVerify&lt;Claims&gt;(token, SECRET, VERIFY);</span></div><div class="ln"><span class="n">12</span><span class="g"></span><span>  c.set(<span class="str">'user'</span>, payload.sub);</span></div></pre>
+          </div>
+          <div class="tools" style="margin-bottom:0">
+            <div class="tool"><span class="k">Bash</span><span class="a mono ell">bun test packages/server</span><span class="res signal">running, 14s</span></div>
+          </div>
+          <div class="term"><span class="pass">pass</span> auth &gt; rejects alg none <span class="dim">2ms</span><br><span class="pass">pass</span> auth &gt; rejects empty bearer with 401 <span class="dim">1ms</span><br><span class="pass">pass</span> auth &gt; accepts HS256 from issuer conclave <span class="dim">3ms</span><br><span class="dim">pair &gt; signs device token ...</span></div>
+        </div>
+      </div>
+      <div class="livebar">
+        <div></div>
+        <div>
+          <div class="meta"><span><span class="signal">Writing</span> while tests run</span><span class="num">38 tokens per second</span></div>
+          <canvas data-wave="strip" data-gap="4.5" data-radius="1.3" data-rate="0.75" aria-label="Model is working"></canvas>
+        </div>
+      </div>
+    </div>
+    <div class="comp">
+      <div class="box">
+        <textarea placeholder="Reply, or steer the running turn" aria-label="Message"></textarea>
+        <div class="row">
+          <span class="pk"><span class="lbl">Agent</span> coder <span class="car">▾</span></span>
+          <span class="sep"></span>
+          <span class="pk"><span data-logo="claude-color" class="s14"></span>Sonnet 5.5 <span class="car">▾</span></span>
+          <span class="sep"></span>
+          <span class="pk"><span class="lbl">On</span> arch-desktop <span class="mono" style="color:var(--fg-3)">~/code/conclave</span> <span class="car">▾</span></span>
+          <span class="sep"></span>
+          <span class="pk">Ask before edits <span class="car">▾</span></span>
+          <span class="grow"></span>
+          <button class="btn solid">Queue</button>
+        </div>
+      </div>
+      <div class="hint"><span><b>↵</b> send</span><span><b>⇧↵</b> new line</span><span><b>/</b> commands</span><span><b>@</b> files</span><span><b>esc</b> stop</span></div>
+    </div>
+  </div>
+
+  <aside class="ctx" data-view="code" aria-label="Session details">
+    <section>
+      <div class="sh">This session</div>
+      <div class="ro">
+        <div><div class="v num">335K</div><div class="k">tokens in</div></div>
+        <div><div class="v num">9.4K</div><div class="k">tokens out</div></div>
+        <div><div class="v num">$0.71</div><div class="k">cost</div></div>
+      </div>
+      <div class="cw"><div class="top-l"><span>Context</span><span class="num">46K of 1M</span></div><div class="meter" data-v="5" data-n="40"></div></div>
+      <div class="cw"><div class="top-l"><span>Cache hits</span><span class="num">45%</span></div><div class="meter" data-v="45" data-n="40"></div></div>
+    </section>
+    <section>
+      <div class="sh">Plan <span class="c">4 of 5</span></div>
+      <ol class="steps">
+        <li class="done">Find every jsonwebtoken call site<span class="x">done</span></li>
+        <li class="done">Port auth.ts to jose<span class="x">done</span></li>
+        <li class="done">Port pairing sign and verify<span class="x">done</span></li>
+        <li class="done">Pin HS256, handle empty tokens<span class="x">done</span></li>
+        <li class="now">Run server tests and push the branch<span class="x">now</span></li>
+      </ol>
+    </section>
+    <section>
+      <div class="sh">Changed <span class="c">3 files</span></div>
+      <div class="files">
+        <div><span class="p">server/src/<b>auth.ts</b></span><span class="c"><span class="ok">+3</span> <span class="fault">−1</span></span></div>
+        <div><span class="p">server/src/<b>pair.ts</b></span><span class="c"><span class="ok">+8</span> <span class="fault">−6</span></span></div>
+        <div><span class="p">server/<b>package.json</b></span><span class="c"><span class="ok">+1</span> <span class="fault">−1</span></span></div>
+      </div>
+    </section>
+    <section>
+      <div class="sh">Workspace</div>
+      <dl class="kv">
+        <dt>Device</dt><dd>arch-desktop</dd>
+        <dt>Folder</dt><dd class="mono ell">~/code/conclave</dd>
+        <dt>Branch</dt><dd class="mono">auth-jose</dd>
+        <dt>Checkpoints</dt><dd>3, last at <span class="num">09:20</span> <a class="link" href="#">Rewind</a></dd>
+      </dl>
+    </section>
+  </aside>
+
+  <!-- jury session -->
+  <div class="conv" data-view="jury">
+    <div class="ch">
+      <div>
+        <h2>Reverse proxy for the Proxmox homelab</h2>
+        <div class="m">Jury of 4, judged by <span data-logo="claude-color"></span>Opus 5.5, finished at <span class="num">12:06</span></div>
+      </div>
+      <div class="st dim">Finished <span class="num">12:06</span></div>
+      <button class="btn">Rerun</button>
+    </div>
+    <div class="log">
+      <div class="turn you">
+        <div class="ts">12:05</div><div class="who">You</div>
+        <div class="body"><p>I want one reverse proxy in front of everything on the Proxmox box: Proxmox UI, PBS, Gitea, Jellyfin, the hub. TLS from my own domain over Tailscale. Caddy, Traefik or nginx?</p></div>
+      </div>
+      <div class="turn">
+        <div class="ts">12:05</div><div class="who">Jury</div>
+        <div class="body">
+          <table class="ballot">
+            <thead><tr><th style="width:150px">Model</th><th style="width:72px">Pick</th><th>Main reason</th><th class="r">Time</th><th class="r" style="padding-right:0">Cost</th></tr></thead>
+            <tbody>
+              <tr><td class="m"><span class="who"><span data-logo="claude-color" class="s14"></span>Sonnet 5.5</span></td><td class="pick">Caddy</td><td class="why">Automatic certs with the Cloudflare DNS plugin, short config, runs well in an unprivileged LXC.</td><td class="r num">14s</td><td class="r num" style="padding-right:0">$0.04</td></tr>
+              <tr><td class="m"><span class="who"><span data-logo="openai" class="s14"></span>GPT-5.5</span></td><td class="pick">Caddy</td><td class="why">Fewer moving parts than Traefik when nothing runs in Docker. Proxmox UI needs only a self-signed upstream skip.</td><td class="r num">19s</td><td class="r num" style="padding-right:0">$0.06</td></tr>
+              <tr><td class="m"><span class="who"><span data-logo="zai" class="s14"></span>GLM-5</span></td><td class="pick">Traefik</td><td class="why">Label based discovery scales better if you move services into containers later.</td><td class="r num">22s</td><td class="r num" style="padding-right:0">$0.01</td></tr>
+              <tr><td class="m"><span class="who"><span data-logo="gemini-color" class="s14"></span>Gemini 3 Pro</span></td><td class="pick">Caddy</td><td class="why">Tailscale integration gives certs for the tailnet name with no public DNS at all.</td><td class="r num">11s</td><td class="r num" style="padding-right:0">$0.03</td></tr>
+            </tbody>
+          </table>
+          <div class="verdict">
+            <div class="lab">Verdict</div>
+            <div class="big"><b>Caddy</b><span class="tally" aria-label="3 of 4"><i></i><i></i><i></i><i class="o"></i></span><span>3 of 4 jurors</span></div>
+            <p>Run Caddy in its own LXC with the Cloudflare DNS module. One site block per service, <code class="i">tls_insecure_skip_verify</code> only for the Proxmox and PBS upstreams, and bind to the Tailscale interface so nothing is exposed on the LAN by accident.</p>
+            <div class="dis">GLM-5 preferred Traefik for label discovery. That pays off with Docker, and you run LXCs, so the judge set it aside.</div>
+            <div style="display:flex;gap:8px"><button class="btn solid">Continue with Caddy</button><button class="btn">Read all four answers</button><button class="btn quiet">Ask a follow up</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="comp">
+      <div class="box">
+        <textarea placeholder="Ask the jury a follow up" aria-label="Message"></textarea>
+        <div class="row">
+          <span class="pk"><span class="lbl">Mode</span> Jury <span class="car">▾</span></span>
+          <span class="sep"></span>
+          <span class="pk"><span data-logo="claude-color" class="s14"></span><span data-logo="openai" class="s14"></span><span data-logo="zai" class="s14"></span><span data-logo="gemini-color" class="s14"></span>4 jurors <span class="car">▾</span></span>
+          <span class="sep"></span>
+          <span class="pk"><span class="lbl">Judge</span> Opus 5.5 <span class="car">▾</span></span>
+          <span class="sep"></span>
+          <span class="pk"><span class="lbl">On</span> madx <span class="car">▾</span></span>
+          <span class="grow"></span>
+          <button class="btn solid">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <aside class="ctx" data-view="jury" aria-label="Jury details">
+    <section>
+      <div class="sh">This run</div>
+      <div class="ro">
+        <div><div class="v num">48s</div><div class="k">wall time</div></div>
+        <div><div class="v num">$0.21</div><div class="k">cost</div></div>
+        <div><div class="v num">3 of 4</div><div class="k">agree</div></div>
+      </div>
+    </section>
+    <section>
+      <div class="sh">Jurors</div>
+      <table class="t" style="margin-top:2px">
+        <tbody>
+          <tr><td><span class="who"><span data-logo="claude-color" class="s14"></span>Sonnet 5.5</span></td><td class="r num dim">2.1K out</td></tr>
+          <tr><td><span class="who"><span data-logo="openai" class="s14"></span>GPT-5.5</span></td><td class="r num dim">2.8K out</td></tr>
+          <tr><td><span class="who"><span data-logo="zai" class="s14"></span>GLM-5</span></td><td class="r num dim">3.4K out</td></tr>
+          <tr><td><span class="who"><span data-logo="gemini-color" class="s14"></span>Gemini 3 Pro</span></td><td class="r num dim">1.9K out</td></tr>
+          <tr><td><span class="who"><span data-logo="claude-color" class="s14"></span>Opus 5.5</span> <span class="dim">judge</span></td><td class="r num dim">1.2K out</td></tr>
+        </tbody>
+      </table>
+    </section>
+    <section>
+      <div class="sh">Memory learned</div>
+      <div style="font-size:13px;padding-top:10px">Caddy runs in LXC 101 at <span class="mono">10.0.20.11</span></div>
+      <div style="font-size:12px;color:var(--fg-3);margin-top:3px">Saved after you confirmed the setup. <a class="link" href="#">Edit</a></div>
+    </section>
+  </aside>
+</div>
+
+<script>
+  function route() {
+    const v = location.hash === '#jury' ? 'jury' : 'code';
+    document.body.className = 'v-' + v;
+    document.querySelectorAll('.s').forEach((s) => s.toggleAttribute('aria-current', s.dataset.sel === v));
+    setTimeout(() => { window.Wave && Wave.autoMount(); document.querySelectorAll('.log').forEach((l) => { if (l.offsetParent) l.scrollTop = v === 'code' ? l.scrollHeight : 0; }); }, 0);
+  }
+  addEventListener('hashchange', route);
+  route();
+</script>
+</body>
+</html>

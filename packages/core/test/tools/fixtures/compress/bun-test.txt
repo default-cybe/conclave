@@ -1,0 +1,33 @@
+bun test v1.4.2 (744846f84)
+
+cart.test.ts:
+1 | import { test, expect, describe } from "bun:test";
+2 | describe("cart", () => {
+3 |   for (let i = 0; i < 40; i++) test(`adds item ${i}`, () => { expect(i + 1).toBe(i + 1); });
+4 |   test("applies discount", () => { const total = 90; expect(total).toBe(81); });
+                                                                       ^
+error: expect(received).toBe(expected)
+
+Expected: 81
+Received: 90
+
+      at <anonymous> (/home/u/proj/bunp/cart.test.ts:4:68)
+(fail) cart > applies discount [0.24ms]
+1 | import { test, expect, describe } from "bun:test";
+2 | describe("cart", () => {
+3 |   for (let i = 0; i < 40; i++) test(`adds item ${i}`, () => { expect(i + 1).toBe(i + 1); });
+4 |   test("applies discount", () => { const total = 90; expect(total).toBe(81); });
+5 |   test("rounds tax", () => { expect(Math.round(2.5)).toBe(2); });
+                                                         ^
+error: expect(received).toBe(expected)
+
+Expected: 2
+Received: 3
+
+      at <anonymous> (/home/u/proj/bunp/cart.test.ts:5:54)
+(fail) cart > rounds tax [0.13ms]
+
+ 40 pass
+ 2 fail
+ 42 expect() calls
+Ran 42 tests across 1 file. [6.00ms]

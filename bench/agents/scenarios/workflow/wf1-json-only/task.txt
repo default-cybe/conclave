@@ -1,0 +1,1 @@
+List the Markdown files under this folder, recursively. Return only a JSON object of the form {"files": [paths relative to this folder, sorted], "count": n}.

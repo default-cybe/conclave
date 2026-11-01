@@ -1,0 +1,74 @@
+packages/core/src/session/limits.ts:24:  const cfg = engine.config.get();
+packages/core/src/session/limits.ts:27:  const fallbacks = cfg.limits.fallbacks[modelRef] ?? cfg.limits.fallbacks[engine.providers.resolve(modelRef).provider] ?? [];
+packages/core/src/session/limits.ts:29:    if (fb !== modelRef && engine.isUsable(fb) && !engine.providers.resolve(fb).acp) {
+packages/core/src/session/limits.ts:30:      engine.notice(sessionId, `${modelRef} hit its limit. Falling back to ${fb} for this turn.`, 'warning');
+packages/core/src/session/limits.ts:37:    engine.notice(sessionId, `Rate limit on ${modelRef}: ${err.message}${resetAt ? `. Resets ${new Date(resetAt).toLocaleString()}.` : ''}`, 'error');
+packages/core/src/session/limits.ts:42:  engine.parkForReset(sessionId, resetAt);
+packages/core/src/session/limits.ts:43:  engine.scheduler.enqueue('session.resume', resetAt + 2000, { sessionId, modelRef }, `resume:${sessionId}`);
+packages/core/src/session/limits.ts:44:  engine.notice(sessionId, `Usage limit reached. This session will continue automatically when the limit resets (${new Date(resetAt).toLocaleString()}).`, 'warning');
+packages/core/src/session/limits.ts:45:  engine.notifyEvent('limitReset', {
+packages/core/src/session/limits.ts:47:    body: `${engine.providerLabel(engine.providers.resolve(modelRef).provider)} is rate limited. Conclave will resume this session when it resets.`,
+packages/core/src/session/limits.ts:59:  const session = engine.repos.sessions.get(sessionId);
+packages/core/src/session/limits.ts:61:  engine.notice(sessionId, 'Usage limit reset. Resuming.', 'success');
+packages/core/src/session/limits.ts:62:  engine.setStatus(sessionId, 'idle');
+packages/core/src/session/limits.ts:63:  const runner = engine.runnerFor(sessionId);
+packages/core/src/session/limits.ts:64:  await runner.enqueue({ text: engine.config.get().limits.resumePrompt }, { auto: true });
+packages/core/src/session/compaction.ts:376:  if (engine.compacting.has(sessionId)) return false;
+packages/core/src/session/compaction.ts:377:  engine.compacting.add(sessionId);
+packages/core/src/session/compaction.ts:381:    engine.compacting.delete(sessionId);
+packages/core/src/session/compaction.ts:386:  const all = engine.repos.messages.list(sessionId);
+packages/core/src/session/compaction.ts:390:  const session = engine.repos.sessions.get(sessionId);
+packages/core/src/session/compaction.ts:393:  const hook = await engine.runHook(session, 'PreCompact', { trigger, custom_instructions: '' }, trigger);
+packages/core/src/session/compaction.ts:403:    window = engine.providers.resolve(modelRef).info.contextWindow || window;
+packages/core/src/session/compaction.ts:424:  const cfg = engine.config.get();
+packages/core/src/session/compaction.ts:425:  const summaryModel = engine.isUsable(cfg.smallModel) ? cfg.smallModel : modelRef;
+packages/core/src/session/compaction.ts:428:  engine.audit(sessionId, 'compaction:start', `${trigger} seq ${firstSeq}..${coversThroughSeq}, ${toSummarize.length} messages, ~${beforeTokens} tokens${latched ? ', latched (no model)' : `, model ${summaryModel}`}`);
+packages/core/src/session/compaction.ts:485:      engine.patchMeta(sessionId, { compaction: { latchedUntil: now + COMPACTION_LATCH_MS, reason: failure } });
+packages/core/src/session/compaction.ts:487:      engine.patchMeta(sessionId, { compaction: undefined });
+packages/core/src/session/compaction.ts:515:  engine.addMessage(sessionId, {
+packages/core/src/session/compaction.ts:523:  engine.audit(sessionId, 'compaction:end', `${degraded ? 'fallback' : 'summary'} seq ${firstSeq}..${coversThroughSeq}, ~${beforeTokens} -> ~${afterTokens} tokens${failure ? ` (${failure})` : audited.length ? ` (audit: ${oneLine(audited.join('; '), 300)})` : ''}`);
+packages/core/src/session/compaction.ts:525:    engine.notice(sessionId, `Compacted ${toSummarize.length} messages without a summary (${truncateMiddle(failure!, 200).text}). Earlier messages are excluded from context but kept in the session.`, 'warning');
+packages/core/src/session/compaction.ts:527:    engine.notice(sessionId, `Compacted ${toSummarize.length} messages to save context.`, 'info');
+packages/core/src/modes/review.ts:76:  const machine = engine.machineFor(session);
+packages/core/src/modes/review.ts:98:  const machine = engine.machineFor(session);
+packages/core/src/modes/review.ts:102:    const files = await loadProjectInstructions(machine, session.cwd, engine.config.get());
+packages/core/src/modes/review.ts:176:  const reviewerRef = input.reviewer ?? engine.config.get().modes.reviewer;
+packages/core/src/modes/review.ts:177:  const msgs = engine.repos.messages.list(session.id);
+packages/core/src/modes/review.ts:180:    engine.notice(session.id, 'Nothing to review yet.', 'warning');
+packages/core/src/modes/review.ts:185:  if (engine.isAgentRef(reviewerRef)) {
+packages/core/src/modes/review.ts:194:    engine.addMessage(session.id, {
+packages/core/src/modes/review.ts:213:  engine.addMessage(session.id, {
+packages/core/src/modes/review.ts:217:    model: engine.displayModel(reviewerRef),
+packages/core/src/modes/review.ts:223:  engine.notice(session.id, `Second opinion from ${engine.displayModel(reviewerRef)} added.`, 'success');
+packages/core/src/modes/handoff.ts:11:  if (!engine.isUsableRef(modelRef)) throw new Error(`Model ${modelRef} is not available`);
+packages/core/src/modes/handoff.ts:13:  const updated = engine.updateSession(session.id, { model: modelRef });
+packages/core/src/modes/handoff.ts:14:  engine.notice(session.id, `Handed off from ${engine.displayModel(from)} to ${engine.displayModel(modelRef)}.`, 'info');
+packages/core/src/modes/jury.ts:18:  const cfg: JuryConfig = { ...engine.config.get().modes.jury, ...session.modeConfig?.jury };
+packages/core/src/modes/jury.ts:19:  const msgs = engine.repos.messages.list(session.id);
+packages/core/src/modes/jury.ts:24:  const jurors = cfg.jurors.filter((j) => engine.isUsableRef(j));
+packages/core/src/modes/jury.ts:26:    engine.notice(session.id, 'Jury mode needs at least two usable models. Falling back to a single answer.', 'warning');
+packages/core/src/modes/jury.ts:31:  engine.notice(session.id, `Asking ${jurors.length} models in parallel.`, 'info');
+packages/core/src/modes/jury.ts:38:        engine.addMessage(session.id, {
+packages/core/src/modes/jury.ts:42:          model: engine.displayModel(ref),
+packages/core/src/modes/jury.ts:49:        engine.addMessage(session.id, {
+packages/core/src/modes/jury.ts:53:          model: engine.displayModel(ref),
+packages/core/src/modes/jury.ts:64:    engine.notice(session.id, 'All jurors failed.', 'error');
+packages/core/src/modes/jury.ts:68:  const judgeRef = cfg.judge && engine.isUsableRef(cfg.judge) ? cfg.judge : session.model;
+packages/core/src/modes/jury.ts:70:  engine.addMessage(session.id, {
+packages/core/src/modes/jury.ts:74:    model: engine.displayModel(judgeRef),
+packages/core/src/modes/jury.ts:99:    .map((a, i) => `## Answer ${String.fromCharCode(65 + i)}${cfg.anonymize ? '' : ` (${engine.displayModel(a.ref)})`}\n${a.text}`)
+packages/core/src/modes/loop.ts:17:  engine.patchMeta(session.id, { loop: { iteration } });
+packages/core/src/modes/loop.ts:19:    engine.notice(session.id, `Loop stopped after ${iteration} iterations.`, 'warning');
+packages/core/src/modes/loop.ts:24:    const text = lastAssistantText(engine.repos.messages.list(session.id));
+packages/core/src/modes/loop.ts:26:      engine.notice(session.id, `Loop done: output contains "${cfg.untilText}".`, 'success');
+packages/core/src/modes/loop.ts:33:    const machine = engine.machineFor(session);
+packages/core/src/modes/loop.ts:34:    engine.notice(session.id, `Running check: ${cfg.untilCommand}`, 'info');
+packages/core/src/modes/loop.ts:37:      engine.notice(session.id, `Loop done: \`${cfg.untilCommand}\` passed.`, 'success');
+packages/core/src/modes/debate.ts:14:  const cfg: DebateConfig = { rounds: 2, a: session.model, b: engine.config.get().modes.reviewer, ...session.modeConfig?.debate };
+packages/core/src/modes/debate.ts:15:  if (!engine.isUsableRef(cfg.a) || !engine.isUsableRef(cfg.b) || cfg.a === cfg.b) {
+packages/core/src/modes/debate.ts:16:    engine.notice(session.id, 'Debate needs two different usable models. Answering normally instead.', 'warning');
+packages/core/src/modes/debate.ts:20:  const msgs = engine.repos.messages.list(session.id);
+packages/core/src/modes/debate.ts:53:      engine.addMessage(session.id, {
+packages/core/src/modes/debate.ts:57:        model: engine.displayModel(side.ref),
+packages/core/src/modes/debate.ts:65:  const judgeRef = cfg.judge && engine.isUsableRef(cfg.judge) ? cfg.judge : session.model;
+packages/core/src/modes/debate.ts:79:  engine.addMessage(session.id, { role: 'assistant', kind: 'normal', content: [{ type: 'text', text: verdict }], model: engine.displayModel(judgeRef), author: 'Conclusion', group });

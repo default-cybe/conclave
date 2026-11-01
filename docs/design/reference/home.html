@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conclave Home</title>
+<link rel="stylesheet" href="lab.css">
+<script src="logos.js"></script>
+<script src="wave.js"></script>
+<script src="common.js"></script>
+<style>
+  main { padding: 0 var(--s6) var(--s6); }
+  .head {
+    display: grid; grid-template-columns: minmax(0, 1fr) 560px; gap: var(--s7);
+    padding: 22px 0 24px; border-bottom: 1px solid var(--rule);
+  }
+  .when { font-size: var(--t-13); color: var(--fg-3); }
+  .when .num { color: var(--fg-2); }
+  h1 { font-size: 28px; line-height: 1.12; font-weight: 560; letter-spacing: -0.022em; margin: 6px 0 18px; font-stretch: 104%; }
+  h1 .w { color: var(--warn); }
+  h1 .s { color: var(--signal); }
+  .start { display: flex; align-items: center; height: 44px; border: 1px solid var(--rule-2); border-radius: var(--r-2); background: var(--bg-sunk); padding: 0 6px 0 14px; gap: 14px; }
+  .start input { flex: 1; border: 0; outline: 0; background: transparent; font-size: var(--t-14); }
+  .start input::placeholder { color: var(--fg-3); }
+  .pick { font-size: var(--t-13); color: var(--fg-2); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .pick + .pick { padding-left: 14px; border-left: 1px solid var(--rule); }
+  .pick .car { color: var(--fg-4); font-size: 10px; }
+
+  .scope { display: grid; grid-template-rows: auto 1fr auto; gap: 8px; }
+  .scope .lbl { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--t-12); color: var(--fg-3); }
+  .scope .lbl b { font-weight: 560; color: var(--fg); font-size: var(--t-20); letter-spacing: -0.01em; }
+  .scope .lbl b small { font-size: var(--t-12); color: var(--fg-3); font-weight: 450; margin-left: 4px; letter-spacing: 0; }
+  .scope canvas { width: 100%; height: 104px; display: block; border-left: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+  .axis { display: flex; justify-content: space-between; font: 450 10.5px/1 var(--mono); color: var(--fg-4); padding-left: 1px; }
+
+  .cols { display: grid; grid-template-columns: minmax(0, 1.42fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .cols > div { padding: 24px 0 0; min-width: 0; }
+  .cols > div + div { padding-left: 28px; margin-left: 28px; border-left: 1px solid var(--rule); }
+
+  section + section { margin-top: 28px; }
+  .ask { margin-top: 14px; }
+  .ask .code { margin: 10px 0 12px; font-size: 12px; white-space: nowrap; }
+  .qrow { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; padding: 12px 0 2px; align-items: baseline; }
+  .qrow .t { font-weight: 560; font-size: var(--t-14); }
+  .qrow .m { grid-column: 1; font-size: var(--t-13); color: var(--fg-2); }
+  .qrow .m q { quotes: none; color: var(--fg); }
+  .opts { grid-column: 1 / -1; display: flex; gap: 6px; margin-top: 8px; }
+  .opts .btn { height: 28px; font-size: 12.5px; }
+
+  .run td { height: 40px; }
+  .run .state { color: var(--signal); }
+  .run .state.w { color: var(--warn); }
+
+  .lim { padding: 13px 0 12px; }
+  .lim .top-l { display: flex; align-items: center; gap: 8px; font-size: var(--t-13); font-weight: 560; margin-bottom: 10px; }
+  .lim .top-l .plan { color: var(--fg-3); font-weight: 450; }
+  .lw { display: grid; grid-template-columns: 54px 1fr 40px; align-items: center; gap: 12px; font-size: var(--t-12); height: 24px; }
+  .lw .k { color: var(--fg-3); }
+  .lw .p { text-align: right; font-weight: 560; font-size: var(--t-13); }
+  .lw-reset { font-size: var(--t-12); color: var(--fg-3); padding-left: 66px; margin-top: -2px; }
+  .lw-reset .num { color: var(--fg-2); }
+
+  .spend { display: grid; grid-template-columns: repeat(3, 1fr); padding-top: 12px; }
+  .spend div + div { padding-left: 14px; border-left: 1px solid var(--rule); }
+  .spend .v { font-size: 22px; font-weight: 540; letter-spacing: -0.02em; line-height: 1.15; }
+  .spend .k { font-size: var(--t-12); color: var(--fg-3); margin-top: 2px; }
+
+  .day { margin: 14px 0 6px; }
+  .day svg { display: block; width: 100%; height: 38px; overflow: visible; }
+  .rt { display: grid; grid-template-columns: 46px 1fr auto; gap: 0 12px; padding: 9px 0; font-size: var(--t-13); align-items: baseline; }
+  .rt .tm { font: 450 12px var(--mono); color: var(--fg-3); }
+  .rt .n { font-weight: 520; }
+  .rt .d { color: var(--fg-3); font-size: var(--t-12); grid-column: 2; margin-top: 1px; }
+  .rt .r { text-align: right; font-size: var(--t-12); grid-row: 1; grid-column: 3; }
+
+  .dev { display: grid; grid-template-columns: 96px 1fr auto; gap: 12px; padding: 9px 0; font-size: var(--t-13); align-items: baseline; }
+  .dev .n { font-weight: 520; }
+  .dev .d { color: var(--fg-3); font-size: var(--t-12); }
+  .dev .s { text-align: right; font-size: var(--t-12); }
+
+  .mem { padding: 10px 0; font-size: var(--t-13); }
+  .mem p { margin: 0; color: var(--fg); }
+  .mem .src { color: var(--fg-3); font-size: var(--t-12); margin-top: 3px; }
+
+  .task { display: grid; grid-template-columns: 1fr 120px 52px; gap: 14px; align-items: center; padding: 9px 0; font-size: var(--t-13); }
+  .task .n { font-weight: 500; }
+  .task .meter { height: 6px; }
+  .task .c { text-align: right; color: var(--fg-3); font-size: var(--t-12); }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span data-mark="13"></span>Conclave</div>
+  <nav class="nav" aria-label="Main">
+    <a href="home.html" aria-current="page">Home</a>
+    <a href="chat.html">Chats</a>
+    <a href="#">Tasks</a>
+    <a href="#">Routines</a>
+    <a href="#">Memory</a>
+    <a href="#">Usage</a>
+    <a href="#">Devices</a>
+  </nav>
+  <div class="right">
+    <div class="search"><span>Search or run a command</span><kbd>⌘K</kbd></div>
+    <div class="hub">Hub <b>madx</b> <span class="ok">online</span></div>
+  </div>
+</header>
+
+<main>
+  <div class="head">
+    <div>
+      <div class="when">Friday 16 October, <span class="num">14:08</span></div>
+      <h1>Two sessions running. <span class="w">Two are waiting on you.</span><br>Claude’s 5 hour window is at 72%.</h1>
+      <div class="start">
+        <input placeholder="Start a session, or type / for commands" aria-label="Start a session">
+        <span class="pick">coder <span class="car">▾</span></span>
+        <span class="pick"><span data-logo="claude-color" class="s14"></span>Sonnet 5.5 <span class="car">▾</span></span>
+        <span class="pick">arch-desktop <span class="car">▾</span></span>
+        <button class="btn solid">Start</button>
+      </div>
+    </div>
+    <div class="scope">
+      <div class="lbl"><span>Model output, last 60 minutes</span><b class="num">41<small>tokens per second</small></b></div>
+      <canvas data-wave="scope" data-gap="4" data-radius="1.1" aria-label="Activity over the last hour"
+        data-series="[0.18,0.2,0.22,0.3,0.42,0.5,0.46,0.4,0.35,0.3,0.27,0.24,0.22,0.2,0.18,0.16,0.15,0.14,0.18,0.28,0.4,0.55,0.62,0.58,0.5,0.44,0.38,0.3,0.24,0.2,0.18,0.17,0.16,0.18,0.22,0.3,0.36,0.4,0.43,0.45,0.48,0.52,0.5,0.47,0.44,0.46,0.5,0.56,0.62,0.66,0.63,0.6,0.58,0.6,0.64,0.68,0.66,0.62,0.6,0.62]"></canvas>
+      <div class="axis"><span>−60m</span><span>−45</span><span>−30</span><span>−15</span><span>now</span></div>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div>
+      <section>
+        <div class="sh">Waiting on you <span class="c">2</span><a class="act" href="#">Open approvals</a></div>
+        <div class="ask">
+          <div class="q">Run this command on madx?</div>
+          <div class="meta">Verify PBS backups for all LXCs, sysadmin on Claude Code, asked 2 min ago</div>
+          <div class="code"><span class="p">$ </span>proxmox-backup-client verify --repository root@pam@pbs:tank ct/103</div>
+          <div class="acts">
+            <button class="btn solid">Allow once</button>
+            <button class="btn">Allow for this session</button>
+            <button class="btn quiet">Deny</button>
+            <span class="grow"></span>
+            <a class="link" style="font-size:12px" href="#">Open session</a>
+          </div>
+        </div>
+        <div class="qrow">
+          <div class="t">pwn 300: heap note service</div>
+          <span class="dim" style="font-size:12px">14 min ago</span>
+          <div class="m">Security agent on GLM-5 asks <q>Which libc does the remote run?</q></div>
+          <div class="opts"><button class="btn">glibc 2.35</button><button class="btn">glibc 2.39</button><button class="btn">Not sure, leak it first</button></div>
+        </div>
+      </section>
+
+      <section>
+        <div class="sh">Running <span class="c">2</span><a class="act" href="chat.html">All sessions</a></div>
+        <table class="t run">
+          <tbody>
+            <tr>
+              <td class="title">Move auth middleware to jose</td>
+              <td><span class="who"><span data-logo="claude-color" class="s14"></span>Sonnet 5.5</span></td>
+              <td class="dim">arch-desktop</td>
+              <td class="r num dim">12m</td>
+              <td class="r" style="width:120px"><canvas class="live" data-wave="strip" data-gap="4" data-radius="1.35" data-rate="0.9" style="width:40px;height:13px"></canvas> <span class="state num">38 t/s</span></td>
+            </tr>
+            <tr>
+              <td class="title">OS assignment: MLFQ scheduler</td>
+              <td><span class="who"><span data-logo="openai" class="s14"></span>GPT-5.5</span></td>
+              <td class="dim">madx</td>
+              <td class="r num dim">31m</td>
+              <td class="r"><canvas class="live" data-wave="strip" data-gap="4" data-radius="1.35" data-rate="0.3" data-speed="0.7" style="width:40px;height:13px"></canvas> <span class="state num">&nbsp;&nbsp;3 t/s</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <div class="sh">Tasks in progress <span class="c">3</span><a class="act" href="#">Board</a></div>
+        <div class="rows">
+          <div class="task"><span class="n ell">Port auth to jose and pin HS256</span><div class="meter" data-v="80" data-n="20"></div><span class="c num">4 of 5</span></div>
+          <div class="task"><span class="n ell">MLFQ report, sections 2 to 4</span><div class="meter" data-v="33" data-n="20"></div><span class="c num">2 of 6</span></div>
+          <div class="task"><span class="n ell">Move Caddy config into git</span><div class="meter" data-v="0" data-n="20"></div><span class="c">queued</span></div>
+        </div>
+      </section>
+    </div>
+
+    <div>
+      <section>
+        <div class="sh">Limits<a class="act" href="#">Usage</a></div>
+        <div class="rows">
+          <div class="lim">
+            <div class="top-l"><span data-logo="claude-color" class="s14"></span>Claude <span class="plan">Max</span></div>
+            <div class="lw"><span class="k">5 hours</span><div class="meter warn" data-v="72" data-n="30"></div><span class="p num warn">72%</span></div>
+            <div class="lw-reset">resets in <span class="num">1h 22m</span></div>
+            <div class="lw" style="margin-top:6px"><span class="k">Week</span><div class="meter" data-v="58" data-n="30"></div><span class="p num">58%</span></div>
+          </div>
+          <div class="lim">
+            <div class="top-l"><span data-logo="openai" class="s14"></span>ChatGPT <span class="plan">Pro, Codex</span></div>
+            <div class="lw"><span class="k">5 hours</span><div class="meter" data-v="18" data-n="30"></div><span class="p num">18%</span></div>
+            <div class="lw"><span class="k">Week</span><div class="meter" data-v="63" data-n="30"></div><span class="p num">63%</span></div>
+          </div>
+          <div class="lim">
+            <div class="top-l"><span data-logo="zai" class="s14"></span>Z.ai <span class="plan">Coding</span></div>
+            <div class="lw"><span class="k">5 hours</span><div class="meter" data-v="34" data-n="30"></div><span class="p num">34%</span></div>
+          </div>
+        </div>
+      </section>
+      <section>
+        <div class="sh">Spend</div>
+        <div class="spend">
+          <div><div class="v num">$4.20</div><div class="k">today</div></div>
+          <div><div class="v num">$149.07</div><div class="k">30 days</div></div>
+          <div><div class="v num">73%</div><div class="k">cache hits</div></div>
+        </div>
+      </section>
+      <section>
+        <div class="sh">Memory learned<a class="act" href="#">Review</a></div>
+        <div class="rows">
+          <div class="mem"><p>Caddy runs in LXC 101 at <span class="mono">10.0.20.11</span></p><div class="src">From Reverse proxy for the Proxmox homelab, 2h ago</div></div>
+          <div class="mem"><p>Prefers short answers and no em dashes</p><div class="src">From 4 sessions this week</div></div>
+        </div>
+      </section>
+    </div>
+
+    <div>
+      <section>
+        <div class="sh">Routines today<a class="act" href="#">Edit</a></div>
+        <div class="day" id="day"></div>
+        <div class="rows">
+          <div class="rt"><span class="tm">03:00</span><span class="n">Nightly librarian</span><span class="r dim">done</span><span class="d">Filed 6 notes, merged 2 duplicates</span></div>
+          <div class="rt"><span class="tm">07:30</span><span class="n">Morning brief</span><span class="r dim">done</span><span class="d">Sent to phone</span></div>
+          <div class="rt"><span class="tm">30 min</span><span class="n">Server watchdog</span><span class="r"><span class="dim">next</span> <span class="num">14:30</span></span><span class="d">Last run 14:00, all 9 checks passed</span></div>
+          <div class="rt"><span class="tm">18:00</span><span class="n">Uni deadlines</span><span class="r"><span class="dim">in</span> <span class="num">3h 52m</span></span><span class="d">Weekdays and Sunday</span></div>
+        </div>
+      </section>
+      <section>
+        <div class="sh">Devices</div>
+        <div class="rows">
+          <div class="dev"><span class="n">madx</span><span class="d">Hub, Proxmox LXC 104</span><span class="s ok">online</span></div>
+          <div class="dev"><span class="n">arch-desktop</span><span class="d">1 session running</span><span class="s ok">online</span></div>
+          <div class="dev"><span class="n">macbook</span><span class="d">Last seen 9h ago</span><span class="s dim">offline</span></div>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script>
+// 24 hour axis with routine runs. Past runs are solid, upcoming are hollow.
+(function () {
+  const W = 1000, now = 14 + 8 / 60;
+  const x = (h) => (h / 24) * W;
+  let s = `<svg viewBox="0 0 ${W} 38" preserveAspectRatio="none">`;
+  s += `<line x1="0" x2="${W}" y1="18" y2="18" stroke="var(--rule-2)" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+  for (let h = 0; h <= 24; h++) {
+    const big = h % 6 === 0;
+    s += `<line x1="${x(h)}" x2="${x(h)}" y1="${big ? 12 : 15}" y2="18" stroke="var(--fg-4)" vector-effect="non-scaling-stroke"/>`;
+  }
+  for (let h = 0; h < 24; h += 0.5) {
+    if (h === 3 || h === 7.5 || h === 18) continue;
+    s += `<rect x="${x(h) - 0.7}" y="21" width="1.4" height="5" fill="${h <= now ? 'var(--fg-3)' : 'var(--fg-4)'}" opacity="${h <= now ? 0.9 : 0.5}"/>`;
+  }
+  s += `<line x1="${x(now)}" x2="${x(now)}" y1="4" y2="32" stroke="var(--signal)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+  s += '</svg>';
+  const runs = [[3, 1], [7.5, 1], [18, 0]];
+  let marks = runs.map(([h, done]) => `<span style="position:absolute;left:${(h / 24) * 100}%;top:13px;width:9px;height:9px;margin-left:-4.5px;border-radius:50%;${done ? 'background:var(--fg)' : 'border:1.5px solid var(--fg-2);background:var(--bg)'}"></span>`).join('');
+  const lbl = [0, 6, 12, 18, 24].map((h) => `<span style="position:absolute;left:${(h / 24) * 100}%;transform:translateX(${h === 0 ? '0' : h === 24 ? '-100%' : '-50%'});">${String(h).padStart(2, '0')}</span>`).join('');
+  document.getElementById('day').innerHTML = `<div style="position:relative">${s}${marks}</div><div style="position:relative;height:12px;font:450 10.5px/1 var(--mono);color:var(--fg-4)">${lbl}</div>`;
+})();
+</script>
+</body>
+</html>

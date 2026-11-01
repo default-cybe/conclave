@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["vite/client"],
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker.ImportScripts"],
+    "baseUrl": ".",
+    "paths": {
+      "@conclave/core/client": ["../core/src/client/index.ts"],
+      "@conclave/core/*": ["../core/src/*"],
+      "@/*": ["src/*"]
+    }
+  },
+  "include": ["src", "build", "vite.config.ts"]
+}

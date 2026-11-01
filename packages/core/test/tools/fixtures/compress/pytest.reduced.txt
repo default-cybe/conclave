@@ -1,0 +1,33 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.3.2, pluggy-1.5.0 -- /usr/bin/python3
+cachedir: .pytest_cache
+rootdir: /home/u/proj/tasksd
+collected 202 items
+
+[... 200 lines left out: passing tests ...]
+tests/test_queue.py::test_retry_backoff FAILED                          [ 99%]
+tests/test_store.py::test_save_roundtrip FAILED                         [100%]
+
+=================================== FAILURES ===================================
+______________________________ test_retry_backoff ______________________________
+
+    def test_retry_backoff():
+        q = Queue(retries=3)
+>       assert q.delay(2) == 4.0
+E       assert 2.0 == 4.0
+E        +  where 2.0 = <bound method Queue.delay of <tasksd.queue.Queue object at 0x7f3a>>(2)
+
+tests/test_queue.py:41: AssertionError
+_____________________________ test_save_roundtrip ______________________________
+
+    def test_save_roundtrip(tmp_path):
+        s = Store(tmp_path / "db.json")
+        s.save({"id": 1})
+>       assert s.load(1)["id"] == 1
+E       KeyError: 1
+
+tasksd/store.py:58: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_queue.py::test_retry_backoff - assert 2.0 == 4.0
+FAILED tests/test_store.py::test_save_roundtrip - KeyError: 1
+======================== 2 failed, 200 passed in 1.84s ========================

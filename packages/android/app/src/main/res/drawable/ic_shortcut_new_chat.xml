@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher shortcut: a plus on the graphite app icon color. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#FF141417"
+        android:pathData="M 4 24 a 20 20 0 1 0 40 0 a 20 20 0 1 0 -40 0 z" />
+    <path
+        android:fillColor="#FFECEBEF"
+        android:pathData="M 23 16 h 2 v 7 h 7 v 2 h -7 v 7 h -2 v -7 h -7 v -2 h 7 z" />
+</vector>

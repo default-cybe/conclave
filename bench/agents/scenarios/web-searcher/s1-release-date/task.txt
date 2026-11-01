@@ -1,0 +1,1 @@
+Sub-question: what is the newest stable release of jq (the JSON command-line tool), and on what date was it released? Prefer primary sources such as the project's GitHub releases or changelog.

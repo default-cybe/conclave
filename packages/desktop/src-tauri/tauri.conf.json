@@ -1,0 +1,61 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Conclave",
+  "mainBinaryName": "conclave-desktop",
+  "version": "../package.json",
+  "identifier": "dev.conclave.desktop",
+  "build": {
+    "frontendDist": "../src",
+    "beforeDevCommand": {
+      "script": "bun ../../scripts/build-sidecar.ts --if-missing",
+      "wait": true
+    },
+    "beforeBuildCommand": "bun ../../scripts/build-sidecar.ts --if-missing"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "Conclave desktop app",
+    "longDescription": "Desktop window, tray, quick ask and notifications for your self-hosted Conclave hub.",
+    "copyright": "MIT",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/conclave-daemon"
+    ],
+    "macOS": {
+      "signingIdentity": "-"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": [
+        "https://github.com/default-cybe/conclave/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    },
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "conclave"
+        ]
+      }
+    }
+  }
+}

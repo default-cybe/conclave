@@ -1,0 +1,277 @@
+/*
+ * Memory > Map, 3D view (HoloCanvas.tsx). A quiet studio space: points and
+ * links in faint --signal violet, full violet for focus, neutral text,
+ * hairlines, no glow. What it
+ * still does differently from other screens is in docs/DESIGN.md (Memory >
+ * Map, 3D view): the soft key light behind the space. Words stay in
+ * sentence case; mono only for numbers.
+ */
+.holo {
+  /* warm off-white in light, the app's near-black in dark */
+  --h-bg: oklch(0.975 0.005 80);
+  --h-key: oklch(1 0 0 / 0.75);
+  overflow: hidden;
+  outline: none;
+  background:
+    radial-gradient(ellipse 80% 70% at 50% 18%, var(--h-key), transparent 72%),
+    var(--h-bg);
+}
+.holo[data-dark] {
+  --h-bg: var(--bg);
+  --h-key: oklch(1 0 0 / 0.035);
+}
+.holo canvas {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+.holo-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.holo-area,
+.holo-item,
+.holo-tick,
+.holo-core,
+.holo-mark,
+.holo-leader,
+.holo-callout {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  white-space: nowrap;
+}
+/* counts and dates: tabular mono figures */
+.holo-n,
+.holo-tick,
+.holo-row dd {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.holo-area,
+.holo-item {
+  pointer-events: auto;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+}
+.holo-area {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  line-height: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-2);
+}
+.holo-area .holo-n {
+  font-size: 11px;
+  color: var(--fg-4);
+}
+.holo-area:hover,
+.holo-area[data-lit] {
+  color: var(--fg);
+}
+.holo-area[data-lit] .holo-area-n {
+  text-decoration: underline 1px var(--signal);
+  text-underline-offset: 4px;
+}
+.holo-item {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  line-height: 16px;
+  text-align: left;
+  color: var(--fg-3);
+}
+/* an open area: titles a step larger and darker, so a zoomed sphere reads */
+.holo-item[data-open] {
+  padding: 0 2px;
+  border-radius: 3px;
+  font-size: 12.5px;
+  color: var(--fg-2);
+  /* a quiet backing so points behind a title do not break its letters */
+  background: color-mix(in oklch, var(--h-bg) 82%, transparent);
+}
+.holo-item[data-near='1'],
+.holo-item:hover {
+  color: var(--fg);
+}
+/* an open area's sphere: one fine circle */
+.holo-orb {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  border: 1px solid color-mix(in oklch, var(--signal) 35%, transparent);
+  border-radius: 50%;
+}
+.holo-tick {
+  font-size: 10.5px;
+  line-height: 16px;
+  color: var(--fg-4);
+}
+.holo-tick[data-year='1'] {
+  color: var(--fg-2);
+}
+/* the origin: a small dot, then "Memory 2,980" */
+.holo-core {
+  display: flex;
+  height: 20px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-2);
+}
+.holo-core-dot {
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--fg-2);
+  border-radius: 50%;
+}
+.holo-core .holo-n {
+  margin-left: -3px;
+  font-weight: 400;
+  color: var(--fg-3);
+}
+/* focus: a fine ring on the item, one hairline to its card */
+.holo-mark {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--signal);
+  border-radius: 50%;
+}
+.holo-leader {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.holo-leader line {
+  stroke: var(--fg-2);
+  stroke-width: 1;
+  shape-rendering: geometricPrecision;
+}
+.holo-callout {
+  z-index: 2;
+  display: flex;
+  max-width: 280px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 11px 8px;
+  text-align: left;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-2);
+  background: var(--bg-raise);
+  cursor: pointer;
+}
+.holo-callout-t {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.holo-callout-m {
+  font-size: 11.5px;
+  color: var(--fg-3);
+}
+.holo-callout:hover {
+  border-color: var(--fg-4);
+}
+.holo-callout:focus-visible,
+.holo-area:focus-visible,
+.holo-areas button:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+/* readouts: aligned text under a hairline rule, numbers in mono */
+.holo-read {
+  position: absolute;
+  z-index: 1;
+  margin: 0;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--fg-3);
+  pointer-events: none;
+}
+.holo-subject {
+  max-width: 220px;
+  margin-bottom: 4px;
+  padding-bottom: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--rule);
+  font-weight: 500;
+  color: var(--fg);
+}
+.holo-row {
+  display: flex;
+  min-width: 200px;
+  justify-content: space-between;
+  gap: 16px;
+}
+.holo-row dt,
+.holo-row dd {
+  margin: 0;
+}
+.holo-row dd {
+  font-size: 11.5px;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.holo-right {
+  text-align: right;
+}
+.holo-right .holo-subject {
+  margin-left: auto;
+}
+.holo-mode {
+  color: var(--fg-3);
+}
+.holo-line {
+  position: absolute;
+  z-index: 1;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--fg-3);
+}
+.holo-v {
+  color: var(--fg);
+}
+.holo-sep {
+  color: var(--fg-4);
+}
+/* the text alternative: read by screen readers, shown when a key moves focus into it */
+.holo-areas {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.holo-areas:focus-within {
+  left: 12px;
+  bottom: 12px;
+  z-index: 3;
+  width: auto;
+  height: auto;
+  clip-path: none;
+  padding: 6px 10px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-2);
+  background: var(--bg-raise);
+}
+.holo-areas ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--fg-2);
+}

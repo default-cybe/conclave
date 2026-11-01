@@ -1,0 +1,10 @@
+{
+  "name": "ledgerkit",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "bin": { "ledgerkit": "src/cli.ts" },
+  "scripts": {
+    "test": "bun test"
+  }
+}

@@ -1,0 +1,1377 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conclave UI Motion</title>
+<style>
+@font-face { font-family: 'Mona Sans Variable'; src: url(fonts/mona-sans-latin-standard-normal.woff2) format('woff2'); font-weight: 200 900; font-stretch: 75% 125%; font-display: block; }
+@font-face { font-family: 'JetBrains Mono Variable'; src: url(fonts/jetbrains-mono-latin-wght-normal.woff2) format('woff2'); font-weight: 100 800; font-display: block; }
+
+/* tokens: packages/web/src/styles/index.css */
+:root, :root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: oklch(0.163 0.005 286); --bg-sunk: oklch(0.138 0.005 286); --bg-raise: oklch(0.198 0.006 286); --bg-hover: oklch(0.215 0.007 286);
+  --rule: oklch(0.262 0.007 286); --rule-2: oklch(0.335 0.009 286); --edge: oklch(0.48 0.009 286);
+  --fg: oklch(0.945 0.004 286); --fg-2: oklch(0.765 0.008 286); --fg-3: oklch(0.61 0.01 286); --fg-4: oklch(0.5 0.01 286);
+  --signal: oklch(0.775 0.125 303); --signal-dim: oklch(0.775 0.125 303 / 0.14);
+  --ok: oklch(0.79 0.12 158); --warn: oklch(0.83 0.125 80); --fault: oklch(0.705 0.155 26);
+  --solid: var(--fg); --solid-fg: var(--bg);
+  --scrim: oklch(0.1 0.005 286 / 0.6); --shadow-pop: 0 12px 32px oklch(0 0 0 / 0.35);
+  --sh: 0 0 0; --sh-a: 0.42;
+  --sk: oklch(0.205 0.007 286); --sk-hi: oklch(0.285 0.009 286);
+  --under: oklch(0.07 0.004 286); --bezel: oklch(0.11 0.004 286);
+}
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: oklch(0.982 0.002 286); --bg-sunk: oklch(0.96 0.003 286); --bg-raise: oklch(1 0 0); --bg-hover: oklch(0.95 0.004 286);
+  --rule: oklch(0.905 0.005 286); --rule-2: oklch(0.82 0.008 286); --edge: oklch(0.64 0.008 286);
+  --fg: oklch(0.205 0.01 286); --fg-2: oklch(0.405 0.012 286); --fg-3: oklch(0.52 0.012 286); --fg-4: oklch(0.62 0.01 286);
+  --signal: oklch(0.52 0.17 300); --signal-dim: oklch(0.52 0.17 300 / 0.09);
+  --ok: oklch(0.52 0.13 155); --warn: oklch(0.555 0.13 65); --fault: oklch(0.56 0.19 27);
+  --scrim: oklch(0.2 0.01 286 / 0.28); --shadow-pop: 0 12px 32px oklch(0.2 0.01 286 / 0.12);
+  --sh: 40 40 60; --sh-a: 0.16;
+  --sk: oklch(0.945 0.004 286); --sk-hi: oklch(0.985 0.002 286);
+  --under: oklch(0.86 0.004 286); --bezel: oklch(0.93 0.003 286);
+}
+:root {
+  --sans: 'Mona Sans Variable', ui-sans-serif, system-ui, sans-serif;
+  --mono: 'JetBrains Mono Variable', ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg-sunk); }
+body { color: var(--fg); font: 14px/1.45 var(--sans); -webkit-font-smoothing: antialiased; font-synthesis: none; }
+
+/* page */
+main { max-width: 1340px; margin: 0 auto; padding: 32px 16px 96px; }
+header.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px; border-bottom: 1px solid var(--rule); padding-bottom: 16px; margin-bottom: 24px; }
+header.top h1 { font-size: 20px; font-weight: 600; font-stretch: 106%; letter-spacing: -0.012em; margin: 0; }
+header.top p { margin: 0; color: var(--fg-3); font-size: 13px; max-width: 760px; }
+.ctrl { margin-left: auto; display: flex; gap: 8px; }
+.ctrl button { font: inherit; font-size: 12.5px; color: var(--fg-2); background: transparent; border: 1px solid var(--rule-2); border-radius: 5px; padding: 3px 10px; cursor: pointer; }
+.ctrl button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.grid { display: flex; flex-wrap: wrap; gap: 20px; }
+.wrap { max-width: 100%; overflow-x: auto; }
+.wrap .cap { color: var(--fg-3); font-size: 12.5px; line-height: 1.5; max-width: 640px; margin: 8px 2px 0; }
+
+/* a prototype cell */
+.cell { position: relative; width: 640px; background: var(--bg); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+.lbl { height: 36px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-bottom: 1px solid var(--rule); font-size: 12.5px; white-space: nowrap; overflow: hidden; }
+.lbl .no { font: 500 11px var(--mono); color: var(--fg-4); }
+.lbl .nm { font-weight: 600; font-stretch: 104%; }
+.lbl .ds { color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; }
+.stage { position: relative; width: 640px; height: 400px; overflow: hidden; background: var(--bg); font-size: 13px; line-height: 1.4; contain: strict; }
+.stage * { transition: none !important; }
+
+body.solo { background: var(--bg); }
+body.solo main { padding: 0; max-width: none; }
+body.solo header.top { display: none; }
+body.solo .grid { display: block; }
+body.solo .wrap:not(.on) { display: none; }
+body.solo .cap { display: none; }
+body.solo .cell { border: 0; border-radius: 0; }
+
+/* mock UI kit */
+.a { position: absolute; }
+.bar { position: absolute; left: 0; top: 0; width: 640px; height: 44px; border-bottom: 1px solid var(--rule); display: flex; align-items: stretch; padding: 0 18px; background: var(--bg); z-index: 4; }
+.brand { display: flex; align-items: center; gap: 7px; font-size: 13.5px; font-weight: 600; font-stretch: 110%; letter-spacing: -0.01em; }
+.nav { display: flex; margin-left: 18px; }
+.nav .it { position: relative; display: flex; align-items: center; padding: 0 8px; font-size: 12px; font-weight: 500; color: var(--fg-3); white-space: nowrap; }
+.nav .it.on { color: var(--fg); }
+.nav .it.on::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--fg); }
+.nav .cnt { margin-left: 5px; font-variant-numeric: tabular-nums; color: var(--fg-3); }
+.nav .cnt.warn { color: var(--warn); }
+.ph { position: absolute; font-size: 18px; line-height: 1; font-weight: 600; font-stretch: 104%; letter-spacing: -0.012em; white-space: nowrap; }
+.sec { position: absolute; font-size: 12px; line-height: 1; color: var(--fg-3); font-weight: 500; white-space: nowrap; }
+.btn { position: absolute; height: 28px; padding: 0 11px; border: 1px solid var(--rule-2); border-radius: 5px; font-size: 12.5px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--fg); white-space: nowrap; background: var(--bg); }
+.btn.solid { background: var(--solid); color: var(--solid-fg); border-color: transparent; }
+.btn svg, .chip svg { display: block; flex: none; }
+.mono { font-family: var(--mono); font-size: 12px; letter-spacing: -0.01em; font-feature-settings: 'zero' 1; }
+.num { font-variant-numeric: tabular-nums; }
+.f2 { color: var(--fg-2); } .f3 { color: var(--fg-3); } .f4 { color: var(--fg-4); } .sig { color: var(--signal); } .wrn { color: var(--warn); } .okc { color: var(--ok); }
+.row { position: absolute; left: 24px; width: 592px; height: 44px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--rule); font-size: 13.5px; font-weight: 500; white-space: nowrap; }
+.bubble { position: absolute; background: var(--bg-raise); border: 1px solid var(--rule); border-radius: 10px; padding: 8px 12px; font-size: 13.5px; line-height: 1.45; white-space: nowrap; }
+.prose { position: absolute; font-size: 13.5px; line-height: 1.6; color: var(--fg-2); }
+.code { position: absolute; background: var(--bg-sunk); border: 1px solid var(--rule); border-radius: 5px; padding: 9px 12px; font-family: var(--mono); font-size: 11.5px; line-height: 1.7; color: var(--fg-2); white-space: nowrap; letter-spacing: -0.01em; }
+.composer { position: absolute; background: var(--bg-raise); border: 1px solid var(--rule-2); border-radius: 10px; }
+.chip { position: absolute; display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border: 1px solid var(--rule-2); border-radius: 5px; font-size: 12px; font-weight: 500; color: var(--fg-2); white-space: nowrap; }
+.card { position: absolute; background: var(--bg-raise); border: 1px solid var(--rule); border-radius: 10px; }
+.tile { display: grid; place-items: center; border: 1px solid var(--rule-2); border-radius: 6px; color: var(--fg); flex: none; }
+.sw { display: inline-grid; } .sw > * { grid-area: 1 / 1; white-space: nowrap; }
+.sw.r { justify-items: end; }
+.roll { display: inline-grid; overflow: hidden; vertical-align: top; } .roll > * { grid-area: 1 / 1; }
+.cur { position: absolute; left: 0; top: 0; z-index: 50; pointer-events: none; transform-origin: 3px 2.2px; filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.4)); }
+.cur svg { display: block; }
+.touch { position: absolute; left: 0; top: 0; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; background: oklch(1 0 0 / 0.2); border: 1px solid oklch(1 0 0 / 0.45); z-index: 40; pointer-events: none; opacity: 0; }
+:root[data-theme='light'] .touch { background: oklch(0.2 0 0 / 0.12); border-color: oklch(0.2 0 0 / 0.35); }
+.hair { position: absolute; height: 1px; background: var(--rule); }
+.sk { position: absolute; border-radius: 4px; background-color: var(--sk); background-repeat: no-repeat; background-size: 1280px 400px;
+  background-image: linear-gradient(105deg, var(--sk) 0%, var(--sk) 40%, color-mix(in oklch, var(--sk) 65%, var(--sk-hi)) 45%, var(--sk-hi) 50%, color-mix(in oklch, var(--sk) 65%, var(--sk-hi)) 55%, var(--sk) 60%, var(--sk) 100%); }
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <h1>Conclave UI motion</h1>
+    <p>App-wide motion in a working mock of the app. Rows, cards, sheets and buttons move on springs and short curves. Most moves settle in 150 to 450ms. Only the jury flip, the handoff and the memory flight take longer.</p>
+    <div class="ctrl"><button id="theme" type="button">Light theme</button><button id="replay" type="button">Replay</button></div>
+  </header>
+  <div class="grid" id="grid"></div>
+</main>
+<script>
+'use strict';
+const Q = new URLSearchParams(location.search);
+if (Q.get('theme') === 'light') document.documentElement.dataset.theme = 'light';
+const SOLO = Q.get('solo');
+
+/* ---------------- time and easing ---------------- */
+function bezier(x1, y1, x2, y2) {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sx = (t) => ((ax * t + bx) * t + cx) * t, sy = (t) => ((ay * t + by) * t + cy) * t, dx = (t) => (3 * ax * t + 2 * bx) * t + cx;
+  return (x) => {
+    if (x <= 0) return 0; if (x >= 1) return 1;
+    let t = x;
+    for (let i = 0; i < 8; i++) { const e = sx(t) - x, d = dx(t); if (Math.abs(e) < 1e-7 || Math.abs(d) < 1e-6) break; t -= e / d; }
+    if (Math.abs(sx(t) - x) > 1e-5) { let lo = 0, hi = 1; t = x; for (let i = 0; i < 40; i++) { if (sx(t) < x) lo = t; else hi = t; t = (lo + hi) / 2; } }
+    return sy(t);
+  };
+}
+const E = {
+  out: bezier(0.2, 0.7, 0.2, 1),      // --ease
+  in: bezier(0.4, 0, 1, 1),           // --ease-in
+  sine: bezier(0.37, 0, 0.63, 1),     // --ease-sine
+  drawer: bezier(0.32, 0.72, 0, 1),   // --ease-drawer
+  emph: bezier(0.2, 0, 0, 1),         // emphasized, for container moves
+  std: bezier(0.4, 0, 0.2, 1),
+  io: bezier(0.65, 0, 0.35, 1),
+  lin: (x) => x,
+};
+const cl = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, k) => a + (b - a) * k;
+const P = (t, t0, d, e = E.out) => e(cl((t - t0) / d));
+/* step response of a damped spring, 0 to 1. response: period in ms (as in SwiftUI), z: damping ratio */
+function spring(t, response = 400, z = 0.92) {
+  if (t <= 0) return 0;
+  const w = (2 * Math.PI) / response;
+  if (z >= 1) return 1 - Math.exp(-w * t) * (1 + w * t);
+  const wd = w * Math.sqrt(1 - z * z);
+  return 1 - Math.exp(-z * w * t) * (Math.cos(wd * t) + ((z * w) / wd) * Math.sin(wd * t));
+}
+/* free spring: displacement from target with a start offset x0 and velocity v0 (px per ms) */
+function springFree(t, x0, v0, response = 360, z = 1) {
+  const w = (2 * Math.PI) / response;
+  if (z >= 1) return (x0 + (v0 + w * x0) * t) * Math.exp(-w * t);
+  const wd = w * Math.sqrt(1 - z * z);
+  return Math.exp(-z * w * t) * (x0 * Math.cos(wd * t) + ((v0 + z * w * x0) / wd) * Math.sin(wd * t));
+}
+/* keyframes [[t, a, b, ...]], eased between keys */
+function kf(t, keys, e = E.io) {
+  if (t <= keys[0][0]) return keys[0].slice(1);
+  for (let i = 0; i < keys.length - 1; i++) {
+    const a = keys[i], b = keys[i + 1];
+    if (t < b[0]) { const k = e((t - a[0]) / (b[0] - a[0])); return a.slice(1).map((v, j) => lerp(v, b[j + 1], k)); }
+  }
+  return keys[keys.length - 1].slice(1);
+}
+const bump = (t, t0, up, hold, down) => P(t, t0, up) * (1 - P(t, t0 + up + hold, down, E.in));
+
+/* ---------------- dom helpers ---------------- */
+function el(tag, cls, parent, style, html) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls; if (style) e.style.cssText = style; if (html != null) e.innerHTML = html;
+  if (parent) parent.appendChild(e); return e;
+}
+const add = (st, html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); const nodes = [...t.content.children]; nodes.forEach((n) => st.appendChild(n)); return nodes.length === 1 ? nodes[0] : nodes; };
+const rel = (e, st) => { const a = e.getBoundingClientRect(), b = st.getBoundingClientRect(); return { x: a.left - b.left, y: a.top - b.top, w: a.width, h: a.height }; };
+const T = (e, x = 0, y = 0, s = 1, extra = '') => { e.style.transform = `translate(${x.toFixed(2)}px,${y.toFixed(2)}px) scale(${s.toFixed(4)}) ${extra}`; };
+const O = (e, v) => { e.style.opacity = cl(v).toFixed(3); };
+const mix = (a, b, k) => `color-mix(in oklch, ${b} ${(cl(k) * 100).toFixed(1)}%, ${a})`;
+const svgNS = 'http://www.w3.org/2000/svg';
+
+/* swap: one child gives way to another. states [[t, index], ...], the first is the start */
+function swapper(box, dist = 4, dur = 160) {
+  const kids = [...box.children];
+  return (t, states) => {
+    let cur = states[0][1], prev = null, t0 = -1e9;
+    for (let i = 1; i < states.length; i++) { const [ts, j] = states[i]; if (t >= ts && j !== cur) { prev = cur; cur = j; t0 = ts; } }
+    // the old child is mostly gone before the new one comes up, so the two never read as one smudge
+    const k = P(t, t0 + dur * 0.3, dur * 0.7, E.out), ko = P(t, t0, dur * 0.42, E.in);
+    kids.forEach((c, j) => {
+      let o = 0, y = 0;
+      if (j === cur) { o = prev === null ? 1 : k; y = prev === null ? 0 : dist * (1 - k); }
+      else if (j === prev) { o = 1 - ko; y = -dist * ko; }
+      c.style.opacity = o.toFixed(3); c.style.transform = `translateY(${y.toFixed(2)}px)`;
+    });
+  };
+}
+/* roll: a number cell. values up roll up, values down roll down. children are the values in order */
+function roller(box, h) {
+  const kids = [...box.children];
+  box.style.height = h + 'px';
+  kids.forEach((c) => { c.style.lineHeight = h + 'px'; });
+  return (t, states, dur = 240) => {
+    let cur = states[0][1], prev = null, t0 = -1e9;
+    for (let i = 1; i < states.length; i++) { const [ts, j] = states[i]; if (t >= ts && j !== cur) { prev = cur; cur = j; t0 = ts; } }
+    const k = P(t, t0, dur, E.out), dir = prev === null ? 1 : cur > prev ? 1 : -1;
+    kids.forEach((c, j) => {
+      let y = 99, o = 0;
+      if (j === cur) { y = prev === null ? 0 : dir * h * (1 - k); o = 1; }
+      else if (j === prev) { y = -dir * h * k; o = 1; }
+      c.style.opacity = o; c.style.transform = `translateY(${y.toFixed(2)}px)`;
+    });
+  };
+}
+
+/* ---------------- icons and marks ---------------- */
+const ic = (d, s = 14, w = 1.5) => `<svg width="${s}" height="${s}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const I = {
+  plus: ic('<path d="M8 3.5v9M3.5 8h9"/>', 13),
+  chevL: ic('<path d="M10 3.5 5.5 8l4.5 4.5"/>', 15),
+  chevD: ic('<path d="m4.5 6.5 3.5 3.5 3.5-3.5"/>', 12),
+  check: ic('<path d="m3.5 8.5 3 3 6-7"/>', 14, 1.7),
+  x: ic('<path d="m4.5 4.5 7 7m0-7-7 7"/>', 14),
+  link: ic('<path d="M6.8 9.2 9.2 6.8"/><path d="M7.6 4.6 8.9 3.3a2.5 2.5 0 0 1 3.6 3.6l-1.3 1.3"/><path d="M8.4 11.4 7.1 12.7a2.5 2.5 0 0 1-3.6-3.6l1.3-1.3"/>', 15),
+  mark: ic('<path d="M4.5 2.5h7v11L8 11l-3.5 2.5z"/>', 15),
+  term: ic('<path d="m3.5 5 3 3-3 3"/><path d="M8.5 11.5h4"/>', 15),
+  edit: ic('<path d="M10.5 3.2 12.8 5.5 6 12.3l-3 .7.7-3z"/>', 15),
+  globe: ic('<circle cx="8" cy="8" r="5.5"/><path d="M2.5 8h11M8 2.5c1.6 1.6 2.3 3.5 2.3 5.5S9.6 11.9 8 13.5C6.4 11.9 5.7 10 5.7 8S6.4 4.1 8 2.5z"/>', 15),
+  clock: ic('<circle cx="8" cy="8" r="5.6"/><path d="M8 5v3.2l2 1.3"/>', 16),
+  file: ic('<path d="M4.5 2.5h4.8l2.7 2.7v8.3h-7.5z"/><path d="M9.2 2.5v2.8H12"/>', 14),
+  scale: ic('<path d="M8 3v10M5 13h6M3.5 5h9"/><path d="M1.8 9.2 3.5 5l1.7 4.2a1.8 1.8 0 0 1-3.4 0zM10.8 9.2 12.5 5l1.7 4.2a1.8 1.8 0 0 1-3.4 0z"/>', 15, 1.3),
+};
+const MARK = '<svg viewBox="0 0 30 18" width="22" height="13" fill="currentColor" style="display:block"><circle cx="3" cy="7.17" r="1.9"/><circle cx="7" cy="2.95" r="1.9" fill="var(--signal)"/><circle cx="11" cy="4.79" r="1.9"/><circle cx="15" cy="10.83" r="1.9"/><circle cx="19" cy="15.05" r="1.9"/><circle cx="23" cy="13.21" r="1.9"/><circle cx="27" cy="7.17" r="1.9"/></svg>';
+
+/* model glyphs: original placeholder marks, one soft polar shape per model */
+const GF = {
+  A: (th) => 1 + 0.13 * Math.cos(4 * th),                       // Opus 5.5
+  B: (th) => 1 + 0.075 * Math.cos(6 * th),                      // GPT-5.5
+  C: (th) => 1 + 0.15 * Math.cos(3 * th + Math.PI / 2),         // Gemini 3 Pro
+  D: (th) => { const c = Math.abs(Math.cos(th + Math.PI / 4)), s = Math.abs(Math.sin(th + Math.PI / 4)); return Math.pow(Math.pow(c, 4) + Math.pow(s, 4), -1 / 4); }, // Kimi K3
+  E: (th) => 1 + 0.1 * Math.cos(5 * th + Math.PI / 2),          // DeepSeek V4
+};
+const MODELS = { A: 'Opus 5.5', B: 'GPT-5.5', C: 'Gemini 3 Pro', D: 'Kimi K3', E: 'DeepSeek V4' };
+function gPts(kind, cx, cy, R, n = 120) {
+  const f = GF[kind]; const raw = []; let mx = 0;
+  for (let i = 0; i < n; i++) { const th = -Math.PI / 2 + (i / n) * 2 * Math.PI; const r = f(th); raw.push([th, r]); if (r > mx) mx = r; }
+  return raw.map(([th, r]) => [cx + (Math.cos(th) * r * R) / mx, cy + (Math.sin(th) * r * R) / mx]);
+}
+const dPts = (pts) => 'M' + pts.map((p) => p[0].toFixed(2) + ' ' + p[1].toFixed(2)).join('L') + 'Z';
+const hole = (cx, cy, r) => `M${(cx + r).toFixed(2)} ${cy}a${r} ${r} 0 1 0 ${(-2 * r).toFixed(2)} 0a${r} ${r} 0 1 0 ${(2 * r).toFixed(2)} 0Z`;
+const gD = (kind, cx, cy, R, n = 120) => dPts(gPts(kind, cx, cy, R, n)) + dPts(gPts(kind, cx, cy, R * 0.42, n));
+const gDm = (a, b, k, cx, cy, R, n = 120) => dPts(lerpPts(gPts(a, cx, cy, R, n), gPts(b, cx, cy, R, n), k)) + dPts(lerpPts(gPts(a, cx, cy, R * 0.42, n), gPts(b, cx, cy, R * 0.42, n), k));
+const lerpPts = (a, b, k) => a.map((p, i) => [lerp(p[0], b[i][0], k), lerp(p[1], b[i][1], k)]);
+function glyph(kind, size, color = 'currentColor') {
+  const R = size / 2;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="display:block;flex:none"><path d="${gD(kind, R, R, R * 0.94)}" fill="${color}" fill-rule="evenodd"/></svg>`;
+}
+const tile = (kind, s = 22, g = 12) => `<span class="tile" style="width:${s}px;height:${s}px">${glyph(kind, g)}</span>`;
+
+const NAV = ['Home', 'Chat', 'Sessions', 'Inbox', 'Tasks', 'Routines', 'Memory'];
+function topbar(st, active, o = {}) {
+  const items = o.items || NAV;
+  const bar = el('div', 'bar', st);
+  bar.innerHTML = `<div class="brand">${MARK}<span>Conclave</span></div><nav class="nav">${items.map((n) => `<span class="it${n === active ? ' on' : ''}" data-n="${n}">${n}${o.counts && o.counts[n] != null ? `<span class="cnt${o.warn === n ? ' warn' : ''}">${o.counts[n]}</span>` : ''}</span>`).join('')}</nav>`;
+  return bar;
+}
+const CUR = '<svg width="20" height="24" viewBox="0 0 20 24"><path d="M3 2.2v16.3l4.1-3.9 2.6 6.1 2.9-1.2-2.6-6h5.8z" fill="#fff" stroke="#16161a" stroke-width="1.3" stroke-linejoin="round"/></svg>';
+function cursor(st) {
+  const c = el('div', 'cur', st); c.innerHTML = CUR;
+  return (t, keys, clicks = []) => {
+    const [x, y] = kf(t, keys);
+    let pr = 0;
+    for (const ck of clicks) { const d = t - ck; if (d >= 0 && d < 220) pr = Math.max(pr, d < 70 ? d / 70 : 1 - (d - 70) / 150); }
+    c.style.transform = `translate(${(x - 3).toFixed(2)}px,${(y - 2.2).toFixed(2)}px) scale(${(1 - 0.12 * pr).toFixed(3)})`;
+  };
+}
+
+/* ---------------- scenes ---------------- */
+const S = [];
+const scene = (d) => S.push(d);
+
+/* 01 ------------------------------------------------------------------ */
+scene({
+  id: 'route-title', name: 'Open a chat', ds: 'Route change with a shared title', loop: 5000,
+  for: 'Opening a chat or session from a list, and going back.',
+  moves: 'The row title travels and grows into the page header while the list and the chat crossfade.',
+  build(st) {
+    topbar(st, 'Chat');
+    const CH = [['Weekly review for the hub', 'Opus 5.5', '9:12'], ['Caddy config for tailscale', 'GPT-5.5', 'Yesterday'], ['Why is the upload test flaky', 'Opus 5.5', 'Tue'], ['Plan the Android release', 'Gemini 3 Pro', 'Mon'], ['Compare jury judges', 'Kimi K3', 'Oct 9']];
+    const L = el('div', 'a', st, 'left:0;top:0;width:640px;height:400px');
+    L.innerHTML = `<div class="ph" style="left:24px;top:63px">Chat</div>
+      <div class="btn" style="right:24px;top:58px">${I.plus}New chat</div>
+      <div class="sec" style="left:24px;top:106px">Recent</div>
+      <div class="a hov" style="left:14px;top:${122 + 46}px;width:612px;height:45px;border-radius:6px;background:var(--bg-hover);opacity:0"></div>
+      ${CH.map((c, i) => `<div class="row" style="top:${122 + i * 46}px;height:46px"><span class="t" style="line-height:1">${c[0]}</span><span style="margin-left:auto;font-size:12.5px;font-weight:400" class="f3">${c[1]}</span><span class="f4 num" style="width:64px;text-align:right;font-size:12.5px;font-weight:400">${c[2]}</span></div>`).join('')}`;
+    const D = el('div', 'a', st, 'left:0;top:0;width:640px;height:400px;opacity:0');
+    D.innerHTML = `<div class="a bk" style="left:16px;top:57px;width:26px;height:26px;border-radius:5px;display:grid;place-items:center;color:var(--fg-2)"><div class="a bkbg" style="inset:0;border-radius:5px;background:var(--bg-hover);opacity:0"></div><span style="position:relative">${I.chevL}</span></div>
+      <div class="a ht" style="left:48px;top:62px;font-size:17px;line-height:1;font-weight:600;font-stretch:102%;letter-spacing:-.01em;white-space:nowrap">Caddy config for tailscale</div>
+      <div class="chip" style="right:24px;top:57px">${glyph('B', 12)}GPT-5.5</div>
+      <div class="bubble" style="right:24px;top:102px">How do I put Caddy behind tailscale on the arch box?</div>
+      <div class="prose" style="left:24px;top:154px;width:580px">Serve Caddy on the tailnet address and let tailscale issue the cert:</div>
+      <div class="code" style="left:24px;top:186px;width:592px">tailscale cert arch.tail0c1.ts.net<br>caddy reverse-proxy --from arch.tail0c1.ts.net --to :7420</div>
+      <div class="prose" style="left:24px;top:256px;width:580px">Then point the hub at port 7420 and restart it.</div>
+      <div class="composer" style="left:24px;top:318px;width:592px;height:62px"><span class="a f4" style="left:14px;top:11px;font-size:13.5px">Reply to GPT-5.5</span></div>`;
+    const F = el('div', 'a', st, 'left:0;top:0;z-index:6;visibility:hidden');
+    F.innerHTML = `<span class="a fa" style="left:0;top:0;white-space:nowrap;line-height:1;font-size:13.5px;font-weight:500;transform-origin:0 0">Caddy config for tailscale</span><span class="a fb" style="left:0;top:0;white-space:nowrap;line-height:1;font-size:17px;font-weight:600;font-stretch:102%;letter-spacing:-.01em;transform-origin:0 0;opacity:0">Caddy config for tailscale</span>`;
+    const rowT = L.querySelectorAll('.row .t')[1], hT = D.querySelector('.ht'), fa = F.querySelector('.fa'), fb = F.querySelector('.fb');
+    const r0 = rel(rowT, st), r1 = rel(hT, st), hov = L.querySelector('.hov'), bkbg = D.querySelector('.bkbg');
+    const cur = cursor(st), SC = 17 / 13.5;
+    const keys = [[0, 560, 386], [250, 560, 386], [850, 300, 170], [1250, 300, 170], [1750, 440, 300], [2850, 440, 300], [3350, 30, 71], [3800, 30, 71], [4550, 560, 386]];
+    return (t) => {
+      // the page under the title clears first, then the title travels, so it never crosses live text
+      const fw = 1080, fs = fw + 50, fe = fs + 300, bk = 3640, bs = bk + 50, be = bs + 230;
+      const k = t < bk ? P(t, fs, 300, E.emph) : 1 - P(t, bs, 230, E.emph);
+      const flying = (t >= fw && t < fe) || (t >= bk && t < be);
+      let lo, dO, dY;
+      if (t < bk) { lo = 1 - P(t, fw, 60, E.lin); dO = P(t, fw + 100, 210, E.out); dY = 6 * (1 - dO); }
+      else { dO = 1 - P(t, bk, 60, E.lin); lo = P(t, bk + 110, 170, E.out); dY = 0; }
+      O(L, lo); O(D, dO); D.style.transform = `translateY(${dY.toFixed(2)}px)`;
+      rowT.style.visibility = t >= fw && t < be ? 'hidden' : 'visible';
+      hT.style.visibility = t >= fe && t < bk ? 'visible' : 'hidden';
+      F.style.visibility = flying ? 'visible' : 'hidden';
+      if (flying) {
+        T(F, lerp(r0.x, r1.x, k), lerp(r0.y, r1.y, k));
+        fa.style.transform = `scale(${lerp(1, SC, k)})`; fb.style.transform = `scale(${lerp(1 / SC, 1, k)})`;
+        const c = cl((k - 0.15) / 0.6); O(fa, 1 - c); O(fb, c);
+      }
+      O(hov, P(t, 850, 120) * (1 - P(t, fw, 60, E.lin)) * (t > 1000 && t < 1120 ? 1 : 0.85));
+      O(bkbg, P(t, 3330, 120) * (1 - P(t, bk, 90, E.in)));
+      cur(t, keys, [1000, 3560]);
+    };
+  },
+});
+
+/* 02 ------------------------------------------------------------------ */
+scene({
+  id: 'list-springs', name: 'Sessions list', ds: 'Rows enter, leave and reorder on springs', loop: 5500,
+  for: 'Session, chat, task and routine lists when rows arrive, close or change order.',
+  moves: 'Each row rides a damped spring to its slot; a row on the move lifts, a new row rises in, a closed row slides out.',
+  build(st) {
+    topbar(st, 'Sessions');
+    add(st, `<div class="ph" style="left:24px;top:63px">Sessions</div>`);
+    const cnt = add(st, `<div class="a f3 num" style="right:24px;top:64px;font-size:12.5px;line-height:16px;display:flex;gap:4px"><span class="roll rl"><span>1</span><span>2</span><span>3</span></span><span>running</span></div>`);
+    add(st, `<div class="a f4" style="left:24px;top:100px;width:592px;display:flex;font-size:11.5px;line-height:1"><span style="margin-left:26px">Session</span><span style="margin-left:auto;width:118px">Model</span><span style="width:70px;text-align:right">Status</span></div>`);
+    const R = {
+      A: ['Refactor auth middleware', 'Opus 5.5'], B: ['Draft release notes', 'GPT-5.5'], C: ['Port wave engine to Kotlin', 'Gemini 3 Pro'],
+      D: ['Audit Caddy routes', 'Kimi K3'], E: ['Bump bun to 1.3', 'Opus 5.5'], N: ['Fix flaky upload test', 'GPT-5.5'],
+    };
+    const glyphs = `<svg width="14" height="14" viewBox="0 0 14 14" style="display:block"><g class="g0"><circle cx="7" cy="7" r="4.6" fill="none" stroke="var(--fg-4)" stroke-width="1.2"/></g><g class="g1"><circle cx="7" cy="7" r="4.6" fill="none" stroke="var(--signal)" stroke-width="1.6" opacity=".35"/><path d="M7 2.4a4.6 4.6 0 0 1 4.6 4.6" fill="none" stroke="var(--signal)" stroke-width="1.6" stroke-linecap="round"/></g><g class="g2"><path d="m3.6 7.3 2.3 2.3 4.6-5" fill="none" stroke="var(--fg-3)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g></svg>`;
+    const rows = {};
+    add(st, `<div class="hair" style="left:24px;top:115px;width:592px"></div>`);
+    const lc = add(st, `<div class="a" style="left:0;top:116px;width:640px;height:284px;overflow:hidden"></div>`);
+    for (const id of Object.keys(R)) {
+      const r = add(lc, `<div class="row" style="top:0;background:var(--bg);border-radius:0">
+        <div class="a fl" style="inset:0;background:var(--bg-hover);opacity:0"></div>
+        <span style="position:relative;width:14px;height:14px">${glyphs}</span>
+        <span style="position:relative">${R[id][0]}</span>
+        <span style="position:relative;margin-left:auto;width:118px;font-size:12.5px;font-weight:400" class="f3">${R[id][1]}</span>
+        <span class="sw r st" style="position:relative;width:70px;font-size:12.5px;font-weight:400"><span class="f4">Idle</span><span class="sig">Running</span><span class="f3">Done</span></span></div>`);
+      rows[id] = { el: r, fl: r.querySelector('.fl'), g: [0, 1, 2].map((i) => r.querySelector('.g' + i)), sw: swapper(r.querySelector('.st'), 3) };
+    }
+    const fade = add(st, `<div class="a" style="left:0;top:356px;width:640px;height:44px;background:linear-gradient(to bottom, transparent, var(--bg));z-index:3"></div>`);
+    const orders = [[-1e9, 'ABCDE'], [500, 'NABCDE'], [1700, 'CNABDE'], [2960, 'CABDE'], [4000, 'ABCDE']];
+    const status = { A: [[0, 1]], B: [[0, 0]], D: [[0, 0]], E: [[0, 0]], C: [[0, 0], [1700, 1], [4000, 0]], N: [[0, 1], [2700, 2]] };
+    const runRoll = roller(cnt.querySelector('.rl'), 16);
+    const idxAt = (id, oi) => { for (let i = oi; i >= 0; i--) { const p = orders[i][1].indexOf(id); if (p >= 0) return p; } return 0; };
+    return (t) => {
+      for (const id of Object.keys(rows)) {
+        const r = rows[id];
+        let idx = idxAt(id, 0);
+        for (let i = 1; i < orders.length; i++) idx += (idxAt(id, i) - idxAt(id, i - 1)) * spring(t - orders[i][0], 460, 0.94);
+        // rows sit in a clipped list under the column header; a new row slides out from under it with the rest
+        let x = 0, o = 1, y = 3 + idx * 44, lift = 0;
+        if (id === 'N') {
+          o = P(t, 500, 320) * (1 - P(t, 2900, 180, E.in));
+          y -= 44 * (1 - spring(t - 500, 460, 0.94));
+          x = -14 * P(t, 2900, 180, E.in);
+          O(r.fl, P(t, 500, 120) * (1 - P(t, 900, 800, E.lin)));
+        }
+        if (id === 'C') lift = Math.max(bump(t, 1700, 110, 220, 260), bump(t, 4000, 110, 220, 260));
+        r.el.style.zIndex = lift > 0.01 ? 2 : 1;
+        r.el.style.background = lift > 0.01 ? mix('var(--bg)', 'var(--bg-raise)', lift) : 'var(--bg)';
+        r.el.style.boxShadow = lift > 0.01 ? `0 ${(8 * lift).toFixed(1)}px ${(22 * lift).toFixed(1)}px rgb(var(--sh) / ${(0.32 * lift).toFixed(3)}), 0 0 0 1px ${mix('transparent', 'var(--rule)', lift)}` : 'none';
+        r.el.style.borderRadius = (6 * lift).toFixed(1) + 'px';
+        r.el.style.borderBottomColor = mix('var(--rule)', 'transparent', lift);
+        T(r.el, x, y, 1 + 0.012 * lift);
+        O(r.el, o);
+        r.sw(t, status[id]);
+        const s = status[id]; let cur = s[0][1], prev = cur, t0 = -1e9;
+        for (let i = 1; i < s.length; i++) if (t >= s[i][0]) { prev = cur; cur = s[i][1]; t0 = s[i][0]; }
+        const k = P(t, t0, 200);
+        r.g.forEach((g, j) => { g.style.opacity = j === cur ? (prev === cur ? 1 : k) : j === prev && prev !== cur ? 1 - k : 0; });
+      }
+      runRoll(t, [[0, 0], [500, 1], [1700, 2], [2700, 1], [4000, 0]]);
+    };
+  },
+});
+
+/* 03 ------------------------------------------------------------------ */
+scene({
+  id: 'card-panel', name: 'Card to panel', ds: 'Container transform', loop: 5250,
+  for: 'Opening a routine, agent or extension card into its detail panel.',
+  moves: 'The card itself grows into the panel; its title glides into the panel header while the page dims behind it.',
+  build(st) {
+    topbar(st, 'Routines');
+    add(st, `<div class="ph" style="left:24px;top:63px">Routines</div>`);
+    add(st, `<div class="btn" style="right:24px;top:58px">${I.plus}New routine</div>`);
+    const RT = [
+      ['Nightly triage', 'Every day at 09:00', 'Next in 6h', [5, 7, 6, 9, 6, 8, 7, 6]], ['Inbox digest', 'Weekdays at 08:30', 'Next in 23h', [3, 4, 3, 5, 4, 3, 4, 5]],
+      ['Dependency check', 'Mondays at 10:00', 'Next in 2d', [8, 6, 9, 7, 10, 8, 9, 7]], ['Usage report', 'First of the month', 'Next in 14d', [4, 5, 6, 5, 7, 6, 5, 6]],
+      ['Backup memory', 'Sundays at 03:00', 'Next in 4d', [6, 7, 5, 8, 6, 9, 7, 8]], ['Weekly review', 'Fridays at 17:00', 'Next in 1d', [7, 9, 8, 10, 9, 8, 10, 9]],
+    ];
+    const spark = (b) => `<svg class="a" style="right:14px;bottom:15px" width="46" height="14" viewBox="0 0 46 14">${b.map((v, i) => `<rect x="${i * 6}" y="${14 - v * 1.3}" width="3" height="${v * 1.3}" rx="1" fill="var(--fg-4)"/>`).join('')}</svg>`;
+    const inner = (r) => `<div class="a" style="left:14px;top:13px;color:var(--fg-3)">${I.clock}</div><div class="a ct" style="left:14px;top:44px;font-size:13.5px;font-weight:600;line-height:1;white-space:nowrap">${r[0]}</div><div class="a f3" style="left:14px;top:62px;font-size:12px;white-space:nowrap">${r[1]}</div><div class="a f4" style="left:14px;top:92px;font-size:11.5px;white-space:nowrap">${r[2]}</div>${spark(r[3])}`;
+    const pos = RT.map((r, i) => ({ x: 24 + (i % 3) * 201, y: 98 + Math.floor(i / 3) * 132, w: 190, h: 120 }));
+    RT.forEach((r, i) => { if (i !== 4) add(st, `<div class="card" style="left:${pos[i].x}px;top:${pos[i].y}px;width:190px;height:120px">${inner(r)}</div>`); });
+    const scrim = add(st, `<div class="a" style="inset:0;background:var(--scrim);opacity:0;z-index:5"></div>`);
+    const svg = add(st, `<svg class="a" style="left:0;top:0;z-index:6;overflow:visible" width="640" height="400"><rect class="bx" fill="var(--bg-raise)" stroke="var(--rule)" stroke-width="1"/></svg>`);
+    const bx = svg.querySelector('.bx');
+    const clip = add(st, `<div class="a" style="left:0;top:0;width:640px;height:400px;z-index:7"></div>`);
+    const cc = el('div', 'a', clip, 'left:0;top:0;width:190px;height:120px', inner(RT[4]));
+    const PW = 616, PH = 332;
+    const runs = [['Oct 12', '41s'], ['Oct 5', '38s'], ['Sep 28', '52s'], ['Sep 21', '40s']];
+    const pc = el('div', 'a', clip, `left:0;top:0;width:${PW}px;height:${PH}px;opacity:0`, `
+      <div class="a" style="left:20px;top:19px;color:var(--fg-3)">${I.clock}</div>
+      <div class="a pt" style="left:46px;top:20px;font-size:17px;font-weight:600;font-stretch:102%;letter-spacing:-.01em;line-height:1;white-space:nowrap">Backup memory</div>
+      <div class="a f3" style="left:46px;top:43px;font-size:12.5px;white-space:nowrap">Sundays at 03:00, Opus 5.5</div>
+      <div class="btn solid" style="left:${PW - 20 - 28 - 10 - 80}px;top:16px;width:80px">Run now</div>
+      <div class="a xb" style="left:${PW - 20 - 28}px;top:16px;width:28px;height:28px;border-radius:5px;display:grid;place-items:center;color:var(--fg-2)"><div class="a xbg" style="inset:0;border-radius:5px;background:var(--bg-hover);opacity:0"></div><span style="position:relative">${I.x}</span></div>
+      <div class="hair" style="left:20px;top:72px;width:${PW - 40}px"></div>
+      <div class="sec" style="left:20px;top:90px">Duration, last 8 runs</div>
+      <svg class="a" style="left:20px;top:110px" width="260" height="92">${[38, 41, 36, 52, 40, 44, 38, 41].map((v, i) => `<rect x="${4 + i * 32}" y="${88 - v * 1.5}" width="16" height="${v * 1.5}" rx="2" fill="${i === 7 ? 'var(--fg-2)' : 'var(--rule-2)'}"/>`).join('')}<rect x="0" y="88" width="260" height="1" fill="var(--rule)"/></svg>
+      <div class="sec" style="left:316px;top:90px">Recent runs</div>
+      ${runs.map((r, i) => `<div class="a" style="left:316px;top:${106 + i * 26}px;width:280px;height:26px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--rule);font-size:12.5px"><span class="f2">${r[0]}, 03:00</span><span class="mono f3" style="margin-left:auto">${r[1]}</span><span class="okc">${I.check}</span></div>`).join('')}
+      <div class="sec" style="left:20px;top:226px">Prompt</div>
+      <div class="code" style="left:20px;top:244px;width:${PW - 40}px;white-space:normal">Export memory to ~/backups/conclave and remove notes older than 90 days. Report what changed.</div>`);
+    const F = el('div', 'a', clip, 'left:0;top:0;visibility:hidden', `<span class="a fa" style="left:0;top:0;white-space:nowrap;line-height:1;font-size:13.5px;font-weight:600;transform-origin:0 0">Backup memory</span><span class="a fb" style="left:0;top:0;white-space:nowrap;line-height:1;font-size:17px;font-weight:600;font-stretch:102%;letter-spacing:-.01em;transform-origin:0 0;opacity:0">Backup memory</span>`);
+    const ct = cc.querySelector('.ct'), pt = pc.querySelector('.pt'), fa = F.querySelector('.fa'), fb = F.querySelector('.fb'), xbg = pc.querySelector('.xbg');
+    const A0 = { x: pos[4].x, y: pos[4].y, w: 190, h: 120, r: 10 }, A1 = { x: 12, y: 54, w: PW, h: PH, r: 12 };
+    const ctR = { x: 14, y: 44 }, ptR = { x: 46, y: 20 }, SC = 17 / 13.5;
+    const cur = cursor(st);
+    const keys = [[0, 560, 388], [200, 560, 388], [800, 318, 296], [1300, 318, 296], [1700, 470, 236], [2500, 470, 236], [2900, 594, 84], [3300, 594, 84], [4100, 560, 388]];
+    return (t) => {
+      const ex = 1040, ed = 420, co = 3140, cd = 320;
+      const k = t < co ? P(t, ex, ed, E.emph) : 1 - P(t, co, cd, E.std);
+      const hv = P(t, 800, 120) * (1 - P(t, ex, 120));
+      const x = lerp(A0.x, A1.x, k), y = lerp(A0.y, A1.y, k) - hv, w = lerp(A0.w, A1.w, k), h = lerp(A0.h, A1.h, k), r = lerp(A0.r, A1.r, k);
+      bx.setAttribute('x', x + 0.5); bx.setAttribute('y', y + 0.5); bx.setAttribute('width', w - 1); bx.setAttribute('height', h - 1); bx.setAttribute('rx', r - 0.5);
+      bx.setAttribute('stroke', mix('var(--rule)', 'var(--rule-2)', Math.max(hv, k)));
+      svg.style.filter = `drop-shadow(0 ${(4 + 12 * k).toFixed(1)}px ${(8 + 24 * k).toFixed(1)}px rgb(var(--sh) / ${(Math.max(0.12 * hv, 0.42 * k) * (getComputedStyle(st).getPropertyValue('--sh-a') / 0.42)).toFixed(3)}))`;
+      clip.style.clipPath = `inset(${y}px ${640 - x - w}px ${400 - y - h}px ${x}px round ${r}px)`;
+      T(cc, x, y); T(pc, x, y);
+      let cO, pO;
+      if (t < co) { cO = 1 - P(t, ex, 110, E.in); pO = P(t, ex + 150, 230); }
+      else { pO = 1 - P(t, co, 100, E.in); cO = P(t, co + 160, 150); }
+      O(cc, cO); O(pc, pO);
+      O(scrim, t < co ? P(t, ex, 300) : 1 - P(t, co, 280));
+      const moving = (t >= ex && t < ex + ed) || (t >= co && t < co + cd);
+      F.style.visibility = moving ? 'visible' : 'hidden';
+      ct.style.visibility = t >= ex && t < co + cd ? 'hidden' : 'visible';
+      pt.style.visibility = t >= ex + ed && t < co ? 'visible' : 'hidden';
+      if (moving) {
+        T(F, x + lerp(ctR.x, ptR.x, k), y + lerp(ctR.y, ptR.y, k));
+        fa.style.transform = `scale(${lerp(1, SC, k)})`; fb.style.transform = `scale(${lerp(1 / SC, 1, k)})`;
+        const c = cl((k - 0.2) / 0.6); O(fa, 1 - c); O(fb, c);
+      }
+      O(xbg, P(t, 2880, 120) * (1 - P(t, co, 100)));
+      cur(t, keys, [960, 3060]);
+    };
+  },
+});
+
+/* 04 ------------------------------------------------------------------ */
+scene({
+  id: 'sheet-spring', name: 'Bottom sheet', ds: 'Phone sheet on a spring, with drag', loop: 4250, h: 440,
+  for: 'Phone sheets: model picker, session actions, More.',
+  moves: 'The sheet springs up while the page behind recedes; a drag up meets resistance, a flick down carries its speed into the close.',
+  build(st) {
+    st.style.background = 'var(--bg-sunk)';
+    const ph = add(st, `<div class="a" style="left:196px;top:8px;width:248px;height:424px;border-radius:40px;background:var(--bezel);border:1px solid var(--rule-2)"></div>`);
+    const scr = add(st, `<div class="a" style="left:202px;top:14px;width:236px;height:412px;border-radius:34px;overflow:hidden;background:var(--under)"></div>`);
+    const pg = el('div', 'a', scr, 'left:0;top:0;width:236px;height:412px;background:var(--bg);transform-origin:50% 0;overflow:hidden', `
+      <div class="a" style="left:8px;top:34px;color:var(--fg-2)">${I.chevL}</div>
+      <div class="a" style="left:32px;top:35px;font-size:13.5px;font-weight:600;line-height:1.2">Caddy config</div>
+      <div class="hair" style="left:0;top:62px;width:236px"></div>
+      <div class="bubble" style="right:12px;top:74px;font-size:12.5px;padding:6px 10px">Put Caddy behind tailscale?</div>
+      <div class="prose" style="left:14px;top:118px;width:208px;font-size:12.5px;line-height:1.55">Serve Caddy on the tailnet address and let tailscale issue the cert.</div>
+      <div class="code" style="left:14px;top:184px;width:208px;font-size:10px;padding:7px 9px">tailscale cert arch<br>caddy reverse-proxy</div>
+      <div class="prose" style="left:14px;top:240px;width:208px;font-size:12.5px;line-height:1.55">Then restart the hub on port 7420.</div>
+      <div class="composer" style="left:10px;top:326px;width:216px;height:68px;border-radius:12px">
+        <span class="a f4" style="left:12px;top:9px;font-size:13px">Reply</span>
+        <div class="a chp" style="left:6px;top:36px;height:24px;padding:0 7px;border-radius:6px;display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:500;color:var(--fg-2)"><div class="a cbg" style="inset:0;border-radius:6px;background:var(--bg-hover);opacity:0"></div><span style="position:relative">${glyph('A', 11)}</span><span style="position:relative">Opus 5.5</span><span style="position:relative;color:var(--fg-3)">${I.chevD}</span></div>
+        <div class="a" style="right:8px;top:36px;width:24px;height:24px;border-radius:7px;background:var(--rule-2);display:grid;place-items:center;color:var(--fg-4)">${ic('<path d="M8 12.5v-9M4.5 7 8 3.5 11.5 7"/>', 12, 1.7)}</div>
+      </div>`);
+    const scrim = el('div', 'a', scr, 'inset:0;background:oklch(0 0 0 / 0.5);opacity:0');
+    el('div', 'a', scr, 'left:20px;top:11px;font-size:11px;font-weight:600;line-height:1;z-index:3', '9:41');
+    el('div', 'a', scr, 'right:18px;top:11px;z-index:3;display:flex;gap:4px;align-items:center', `<svg width="15" height="9" viewBox="0 0 15 9"><rect x="0" y="6" width="2.4" height="3" rx=".6" fill="currentColor"/><rect x="4" y="4" width="2.4" height="5" rx=".6" fill="currentColor"/><rect x="8" y="2" width="2.4" height="7" rx=".6" fill="currentColor"/><rect x="12" y="0" width="2.4" height="9" rx=".6" fill="currentColor" opacity=".35"/></svg><svg width="20" height="9" viewBox="0 0 20 9"><rect x=".5" y=".5" width="16" height="8" rx="2.2" fill="none" stroke="currentColor" opacity=".45"/><rect x="2" y="2" width="11" height="5" rx="1.2" fill="currentColor"/><rect x="17.6" y="3" width="1.4" height="3" rx=".6" fill="currentColor" opacity=".45"/></svg>`);
+    const SH = 262;
+    const M = [['A', 'Opus 5.5', 'Deep work, current', 1], ['B', 'GPT-5.5', 'Fast and broad'], ['C', 'Gemini 3 Pro', 'Long context'], ['D', 'Kimi K3', 'Low cost']];
+    const sh = el('div', 'a', scr, `left:0;top:${412 - SH}px;width:236px;height:${SH + 60}px;background:var(--bg-raise);border-radius:16px 16px 0 0;box-shadow:0 0 0 1px var(--rule), 0 -8px 30px rgb(var(--sh) / 0.25)`, `
+      <div class="a" style="left:102px;top:7px;width:32px;height:4px;border-radius:2px;background:var(--rule-2)"></div>
+      <div class="a" style="left:16px;top:24px;font-size:14px;font-weight:600;line-height:1">Model</div>
+      <div class="a f3" style="left:16px;top:43px;font-size:11.5px;line-height:1">For this chat</div>
+      ${M.map((m, i) => `<div class="a" style="left:0;top:${62 + i * 46}px;width:236px;height:46px;display:flex;align-items:center;gap:11px;padding:0 16px;${i ? 'border-top:1px solid var(--rule)' : ''}">${tile(m[0], 26, 14)}<div style="line-height:1.25"><div style="font-size:13px;font-weight:500">${m[1]}</div><div class="f3" style="font-size:11px">${m[2]}</div></div>${m[3] ? `<span style="margin-left:auto;color:var(--fg)">${I.check}</span>` : ''}</div>`).join('')}`);
+    el('div', 'a', scr, 'left:82px;top:402px;width:72px;height:4px;border-radius:2px;background:var(--fg-2);z-index:3;opacity:.7');
+    const touch = el('div', 'touch', scr);
+    const cbg = pg.querySelector('.cbg');
+    const OPEN = 480, FD = 1500, UPS = 1550, UPE = 1800, DNS = 1900, DNE = 2300, HID = SH + 60;
+    const rub = (d) => (d >= 0 ? d : -(1 - 1 / ((-d * 0.55) / 40 + 1)) * 40);
+    return (t) => {
+      let fd = 0;
+      if (t >= UPS && t < DNS) fd = -44 * P(t, UPS, UPE - UPS, E.io);
+      if (t >= DNS) { const u = cl((t - DNS) / (DNE - DNS)); fd = lerp(-44, 150, u * u); }
+      let off;
+      if (t < OPEN) off = HID;
+      else if (t < FD) off = HID * (1 - spring(t - OPEN, 540, 0.86));
+      else if (t < DNE) off = rub(fd);
+      else off = HID + springFree(t - DNE, 150 - HID, (2 * 194) / 400, 380, 1);
+      const f = cl(1 - off / SH);
+      T(sh, 0, off);
+      pg.style.transform = `translateY(${(9 * f).toFixed(2)}px) scale(${(1 - 0.065 * f).toFixed(4)})`;
+      pg.style.borderRadius = (16 * f).toFixed(1) + 'px';
+      O(scrim, f);
+      O(cbg, bump(t, 340, 60, 100, 200));
+      // touch indicator
+      let tx = 0, ty = 0, to = 0, ts = 1;
+      if (t < 900) { tx = 56; ty = 374; to = bump(t, 340, 70, 70, 160); ts = 0.85 + 0.15 * P(t, 340, 90); }
+      else { tx = 118; ty = 412 - SH + 12 + fd; to = bump(t, FD - 20, 80, DNE - FD - 60, 160); ts = 0.85 + 0.15 * P(t, FD - 20, 100); }
+      touch.style.transform = `translate(${tx}px,${ty}px) scale(${ts.toFixed(3)})`; O(touch, to);
+    };
+  },
+});
+
+/* 05 ------------------------------------------------------------------ */
+scene({
+  id: 'toast-stack', name: 'Toast stack', ds: 'Toasts stack, fan out on hover, restack', loop: 6000,
+  for: 'Toasts: copied, saved, undo.',
+  moves: 'New toasts rise from below and push older ones into a stack; hover fans them out, dismissing one lets the rest slide into place.',
+  build(st) {
+    topbar(st, 'Memory');
+    add(st, `<div class="ph" style="left:24px;top:63px">Memory</div>`);
+    add(st, `<div class="a f3" style="left:24px;top:92px;font-size:12.5px">24 notes, 3 added this week</div>`);
+    const notes = ['Deploys with Caddy on arch-desktop', 'Prefers bun over npm for scripts', 'Release notes go in docs/releases', 'Uses Opus 5.5 for reviews', 'Phone is a Pixel 10'];
+    notes.forEach((n, i) => add(st, `<div class="row" style="top:${118 + i * 44}px;font-weight:400;font-size:13.5px"><span style="width:2px;height:16px;background:var(--rule-2);border-radius:1px"></span><span class="f2">${n}</span><span class="f4" style="margin-left:auto;font-size:12px">${['2d', '5d', '1w', '2w', '3w'][i]}</span></div>`));
+    const TS = [['okc', I.check, 'Routine saved', 'View'], ['f3', I.link, 'Link copied', ''], ['f3', I.mark, 'Memory updated', 'Undo']];
+    const toasts = TS.map((d) => {
+      const e = add(st, `<div class="a" style="right:20px;bottom:20px;width:300px;height:48px;background:var(--bg-raise);border:1px solid var(--rule-2);border-radius:10px;box-shadow:var(--shadow-pop);transform-origin:50% 100%;z-index:5;opacity:0">
+        <div class="a in" style="inset:0;display:flex;align-items:center;gap:10px;padding:0 10px 0 14px;font-size:13px;font-weight:500">
+        <span class="${d[0]}" style="display:grid">${d[1]}</span><span>${d[2]}</span>
+        <span class="f2" style="margin-left:auto;font-size:12.5px">${d[3]}</span>
+        <span class="xx f3" style="display:grid;place-items:center;width:24px;height:24px;border-radius:5px;position:relative"><span class="xbg a" style="inset:0;border-radius:5px;background:var(--bg-hover);opacity:0"></span><span style="position:relative;display:grid">${I.x}</span></span></div></div>`);
+      return { e, inn: e.querySelector('.in'), xx: e.querySelector('.xx'), xbg: e.querySelector('.xbg') };
+    });
+    // stack index of each toast over time: [time, delta]
+    const enter = [300, 900, 1400];
+    const steps = [[[900, 1], [1400, 1], [2960, -1]], [[1400, 1], [2960, -1]], []];
+    const leave = [4300, 4800, 2900];
+    const cur = cursor(st);
+    const keys = [[0, 300, 230], [1850, 300, 230], [2150, 520, 362], [2450, 520, 362], [2780, 603, 356], [3100, 603, 356], [3550, 300, 230]];
+    return (t) => {
+      const e = spring(t - 2150, 420, 0.95) - spring(t - 3450, 420, 0.95);
+      toasts.forEach((ts, i) => {
+        let idx = 0; for (const [t0, d] of steps[i]) idx += d * spring(t - t0, 440, 0.95);
+        let y = -idx * lerp(11, 56, e), s = 1 - idx * 0.05 * (1 - e), x = 0;
+        let o = P(t, enter[i], 200) * cl(3 - idx + e * 3);
+        y += 18 * (1 - spring(t - enter[i], 440, 1));
+        if (i === 2) { const k = P(t, leave[i], 180, E.in); x += 22 * k; o *= 1 - k; }
+        else { const k = P(t, leave[i], 200, E.in); o *= 1 - k; y += 6 * k; }
+        if (t < enter[i]) o = 0;
+        ts.e.style.zIndex = 10 - Math.round(idx);
+        T(ts.e, x, y, s); O(ts.e, o);
+        O(ts.inn, 1 - cl(idx) * (1 - e));
+        O(ts.xx, e); O(ts.xbg, i === 2 ? P(t, 2760, 100) * (1 - P(t, 2900, 100)) : 0);
+      });
+      cur(t, keys, [2900]);
+    };
+  },
+});
+
+/* 06 ------------------------------------------------------------------ */
+scene({
+  id: 'send-stop', name: 'Send to stop', ds: 'The send arrow folds into a stop square', loop: 6000,
+  for: 'The composer button while a reply streams.',
+  moves: 'On send the arrow folds into a square and a violet ring draws around it; your text lifts into the transcript; at the end the square opens back into an arrow.',
+  build(st) {
+    topbar(st, 'Chat');
+    add(st, `<div class="a" style="left:24px;top:62px;font-size:15px;font-weight:600;line-height:1">New chat</div>`);
+    const tr = add(st, `<div class="a" style="left:0;top:0;width:640px;height:290px"></div>`);
+    const bub = el('div', 'a', tr, 'right:24px;top:94px;padding:8px 12px;font-size:14px;line-height:20px;white-space:nowrap;opacity:0;z-index:5');
+    const bbg = el('div', 'a', bub, 'inset:0;background:var(--bg-raise);border:1px solid var(--rule);border-radius:10px;opacity:0');
+    const btx = el('span', '', bub, 'position:relative', 'Summarize the last three sessions');
+    const LINES = ['Three sessions ran today.', 'Refactor auth middleware is still running, with 4 files changed so far.', 'Draft release notes finished in 3m and is ready for review.', 'Fix flaky upload test failed once, then passed on retry.'];
+    let wi = 0;
+    const words = [];
+    LINES.forEach((l, li) => {
+      const line = el('div', 'prose', tr, `left:24px;top:${150 + li * 26}px;white-space:nowrap;color:${li ? 'var(--fg-2)' : 'var(--fg)'}`);
+      l.split(' ').forEach((w) => { const s = el('span', '', line, 'opacity:0', w + ' '); words.push({ s, at: 1950 + wi * 42 }); wi++; });
+    });
+    const box = add(st, `<div class="composer" style="left:24px;top:292px;width:592px;height:90px"></div>`);
+    const ph = el('span', 'a f4', box, 'left:14px;top:13px;font-size:14px;line-height:20px', 'Message Opus 5.5');
+    const TXT = 'Summarize the last three sessions';
+    const typed = el('span', 'a', box, 'left:14px;top:13px;font-size:14px;line-height:20px;white-space:nowrap', '');
+    const caret = el('span', 'a', box, 'left:14px;top:15px;width:1.5px;height:16px;background:var(--signal)');
+    add(box, `<div class="chip" style="left:8px;top:54px;border-color:transparent">${glyph('A', 12)}Opus 5.5<span class="f3">${I.chevD}</span></div>`);
+    add(box, `<div class="a f3" style="left:108px;top:59px">${ic('<path d="M10.5 5.5 6.2 9.8a1.5 1.5 0 0 0 2.1 2.1l4.6-4.6a3 3 0 0 0-4.2-4.2L4.1 7.7a4.5 4.5 0 0 0 6.4 6.4l3-3"/>', 15)}</div>`);
+    const btn = add(box, `<svg class="a" style="left:${592 - 14 - 30 - 8}px;top:${50 - 8}px;overflow:visible" width="46" height="46" viewBox="-8 -8 46 46">
+      <circle class="ring0" cx="15" cy="15" r="19.5" fill="none" stroke="var(--signal)" stroke-width="1.5" opacity="0"/>
+      <circle class="ring1" cx="15" cy="15" r="19.5" fill="none" stroke="var(--signal)" stroke-width="1.5" stroke-linecap="round" opacity="0" transform="rotate(-90 15 15)"/>
+      <rect class="bg" x="0" y="0" width="30" height="30" rx="8"/>
+      <path class="icn" stroke-width="1.6" stroke-linejoin="round"/></svg>`);
+    const bg = btn.querySelector('.bg'), icn = btn.querySelector('.icn'), r0 = btn.querySelector('.ring0'), r1 = btn.querySelector('.ring1');
+    const ARW = [[15, 7.6], [20.4, 13], [19.1, 14.3], [16, 11.3], [16, 22], [14, 22], [14, 11.3], [10.9, 14.3], [9.6, 13]];
+    // the square's points sit on its edges in an order that lets the notches under the arrow wings close without crossing
+    const SQ = [[15, 10.8], [19.2, 10.8], [19.2, 14.6], [19.2, 12.6], [19.2, 19.2], [10.8, 19.2], [10.8, 12.6], [10.8, 14.6], [10.8, 10.8]];
+    const CIRC = 2 * Math.PI * 19.5;
+    typed.textContent = TXT;
+    const tStart = rel(typed, st), bubR = rel(btx, st);
+    typed.textContent = '';
+    const DX = tStart.x - bubR.x, DY = tStart.y - bubR.y;
+    const SEND = 1580, END = 3950, CLR = 5350;
+    return (t) => {
+      const n = t < 300 ? 0 : Math.min(TXT.length, Math.floor((t - 300) / 32) + 1);
+      const sent = t >= SEND;
+      typed.textContent = sent ? '' : TXT.slice(0, n);
+      O(ph, sent ? P(t, SEND + 120, 160) : n === 0 ? 1 : 0);
+      caret.style.transform = `translateX(${sent ? 0 : typed.offsetWidth}px)`;
+      O(caret, sent && t < SEND + 120 ? 0 : 1);
+      // button
+      const en = n > 0 && !sent ? P(t, 300, 120) : 0;
+      const m = P(t, SEND, 230, E.emph) - P(t, END, 230, E.emph);
+      const live = sent && t < END + 230;
+      const solid = Math.max(en, live ? 1 - P(t, END + 60, 180) : 0);
+      bg.setAttribute('fill', mix('var(--rule-2)', 'var(--solid)', solid));
+      icn.setAttribute('fill', mix('var(--fg-4)', 'var(--solid-fg)', solid)); icn.setAttribute('stroke', mix('var(--fg-4)', 'var(--solid-fg)', solid));
+      // the icon dips a little while it changes shape, so the in-between poses stay small
+      const dip = 1 - 0.22 * Math.sin(Math.PI * cl(m));
+      icn.setAttribute('d', dPts(lerpPts(ARW, SQ, m).map(([x, y]) => [15 + (x - 15) * dip, 15 + (y - 15) * dip])));
+      const press = bump(t, SEND - 60, 60, 20, 140);
+      btn.style.transform = `scale(${(1 - 0.08 * press).toFixed(4)})`; btn.style.transformOrigin = '23px 23px';
+      const draw = P(t, SEND + 60, 460, E.std), rfade = 1 - P(t, END, 200, E.in);
+      r0.setAttribute('opacity', (0.28 * draw * rfade).toFixed(3));
+      r1.setAttribute('opacity', (0.95 * rfade * (sent && draw > 0.005 ? 1 : 0)).toFixed(3));
+      const head = draw < 1 ? 0 : ((t - SEND - 520) / 1500) * 360;
+      const segLen = lerp(CIRC * draw, CIRC * 0.22, P(t, SEND + 520, 380, E.io));
+      r1.setAttribute('stroke-dasharray', `${segLen.toFixed(2)} ${CIRC}`);
+      r1.setAttribute('transform', `rotate(${(-90 + head).toFixed(2)} 15 15)`);
+      // message lifts into the transcript
+      const fk = P(t, SEND, 380, E.emph);
+      O(bub, sent ? 1 : 0);
+      T(bub, DX * (1 - fk), DY * (1 - fk));
+      const bo = P(fk, 0.3, 0.7, E.out);
+      O(bbg, bo); bbg.style.transform = `scale(${lerp(0.94, 1, bo).toFixed(4)})`;
+      for (const w of words) O(w.s, P(t, w.at, 160));
+      O(tr, 1 - P(t, CLR, 220, E.in));
+    };
+  },
+});
+
+/* 07 ------------------------------------------------------------------ */
+scene({
+  id: 'save-check', name: 'Save to check', ds: 'A button that turns into a check', loop: 5000,
+  for: 'Save, Test connection and other buttons with a quick result.',
+  moves: 'The button narrows into a circle, a ring traces once around it, then it turns green and a check draws in.',
+  build(st) {
+    topbar(st, 'Settings', { items: ['Home', 'Chat', 'Sessions', 'Inbox', 'Tasks', 'Routines', 'Settings'], counts: {} });
+    add(st, `<div class="ph" style="left:24px;top:63px">Settings</div>`);
+    ['General', 'Models', 'Appearance', 'Notifications', 'Devices'].forEach((n, i) => add(st, `<div class="a ${i ? 'f3' : ''}" style="left:24px;top:${102 + i * 30}px;width:140px;height:26px;padding:0 10px;border-radius:5px;display:flex;align-items:center;font-size:13px;font-weight:500;${i ? '' : 'background:var(--bg-hover)'}">${n}</div>`));
+    const F = [['Hub name', 'arch-desktop', 0], ['Default model', 'Opus 5.5', 2], ['Time zone', 'Europe/Berlin', 1]];
+    F.forEach((f, i) => add(st, `<div class="a" style="left:196px;top:${102 + i * 66}px"><div class="f2" style="font-size:12.5px;font-weight:500;margin-bottom:7px">${f[0]}</div><div style="width:420px;height:32px;border:1px solid var(--rule-2);border-radius:5px;background:var(--bg-sunk);display:flex;align-items:center;padding:0 11px;font-size:13px">${f[2] === 2 ? glyph('A', 12) + '<span style="margin-left:7px"></span>' : ''}${f[1]}${f[2] ? `<span class="f3" style="margin-left:auto">${I.chevD}</span>` : ''}</div></div>`));
+    add(st, `<div class="hair" style="left:196px;top:318px;width:420px"></div>`);
+    add(st, `<div class="btn" style="left:${616 - 112 - 8 - 70}px;top:336px;width:70px">Cancel</div>`);
+    const note = add(st, `<div class="a f3" style="left:196px;top:342px;font-size:12.5px;line-height:16px;opacity:0;display:flex;gap:6px;align-items:center"><span class="okc">${ic('<path d="m3.5 8.5 3 3 6-7"/>', 13, 1.7)}</span>Saved 14:02</div>`);
+    const svg = add(st, `<svg class="a" style="left:0;top:0;overflow:visible" width="640" height="400">
+      <circle class="rg" fill="none" stroke="var(--fg-3)" stroke-width="1.5" stroke-linecap="round"/>
+      <rect class="bx"/>
+      <path class="ck" d="M-5.2 0.3 L-1.6 3.9 L5.2 -3.8" fill="none" stroke="var(--solid-fg)" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>`);
+    const lab = add(st, `<div class="a" style="left:${616 - 112}px;top:336px;width:112px;height:28px;display:grid;place-items:center;font-size:12.5px;font-weight:560;color:var(--solid-fg);pointer-events:none">Save changes</div>`);
+    const rg = svg.querySelector('.rg'), bx = svg.querySelector('.bx'), ck = svg.querySelector('.ck');
+    const CKL = 16.5, RIGHT = 616, TOP = 336, H = 28;
+    const cur = cursor(st);
+    const keys = [[0, 420, 250], [300, 420, 250], [900, 566, 350], [3000, 566, 350], [3700, 420, 250]];
+    return (t) => {
+      const CLK = 1000, SH = 1060, RG = 1320, OK = 1880, BK = 3300;
+      const s = P(t, SH, 260, E.emph) - P(t, BK + 30, 280, E.emph);
+      const w = lerp(112, H, s), rx = lerp(5, H / 2, s);
+      const press = bump(t, CLK - 60, 60, 20, 160);
+      const okk = P(t, OK, 160) * (1 - P(t, BK + 30, 220));
+      const pop = t >= OK && t < BK ? 1 - 0.07 * (1 - spring(t - OK, 300, 0.8)) : 1;
+      const sc = (1 - 0.03 * press) * pop;
+      const cx = RIGHT - w / 2, cy = TOP + H / 2;
+      bx.setAttribute('x', (cx - (w * sc) / 2).toFixed(2)); bx.setAttribute('y', (cy - (H * sc) / 2).toFixed(2));
+      bx.setAttribute('width', (w * sc).toFixed(2)); bx.setAttribute('height', (H * sc).toFixed(2)); bx.setAttribute('rx', (rx * sc).toFixed(2));
+      bx.setAttribute('fill', mix('var(--solid)', 'var(--ok)', okk));
+      O(lab, (1 - P(t, CLK + 40, 100, E.in)) + P(t, BK + 190, 160)); lab.style.transform = `scale(${sc.toFixed(4)})`;
+      // ring traces once around the circle while saving
+      const R = 19, C = 2 * Math.PI * R, prog = P(t, RG, OK - RG, E.io);
+      rg.setAttribute('cx', cx); rg.setAttribute('cy', cy);
+      const rr = R + 4 * P(t, OK, 300); rg.setAttribute('r', rr.toFixed(2));
+      rg.setAttribute('stroke-dasharray', `${(prog * 2 * Math.PI * rr).toFixed(2)} ${C * 2}`);
+      rg.setAttribute('transform', `rotate(-90 ${cx} ${cy})`);
+      rg.setAttribute('opacity', (t >= RG ? 1 - P(t, OK, 300) : 0).toFixed(3));
+      const cd = P(t, OK + 40, 240, E.std);
+      ck.setAttribute('transform', `translate(${cx} ${cy}) scale(${sc})`);
+      ck.setAttribute('stroke-dasharray', `${(cd * CKL).toFixed(2)} 40`);
+      ck.setAttribute('opacity', (1 - P(t, BK, 100, E.in)) * (cd > 0.02 ? 1 : 0));
+      O(note, P(t, OK + 80, 180) * (1 - P(t, BK, 140, E.in))); note.style.transform = `translateY(${(3 * (1 - P(t, OK + 80, 180))).toFixed(2)}px)`;
+      cur(t, keys, [CLK]);
+    };
+  },
+});
+
+/* 08 ------------------------------------------------------------------ */
+scene({
+  id: 'tab-glide', name: 'Tab indicator', ds: 'One indicator glides between tabs', loop: 6000,
+  for: 'Top nav, phone tab bar and segmented controls.',
+  moves: 'The bar stretches toward the new tab with its leading edge first, then the trailing edge catches up; the segment thumb slides the same way.',
+  build(st) {
+    const ITEMS = ['Home', 'Chat', 'Sessions', 'Inbox', 'Tasks', 'Routines', 'Usage'];
+    const bar = topbar(st, null, { items: ITEMS });
+    const its = [...bar.querySelectorAll('.it')];
+    const ir = its.map((e) => rel(e, st));
+    const ind = el('div', 'a', st, 'left:0;top:42px;width:100px;height:2px;background:var(--fg);transform-origin:0 0;z-index:6');
+    const row = (a, b, c, d) => `<div class="row" style="top:${a}px;font-size:13.5px"><span>${b}</span><span class="f3" style="margin-left:auto;font-size:12.5px;font-weight:400">${c}</span><span class="f4" style="width:64px;text-align:right;font-size:12.5px;font-weight:400">${d}</span></div>`;
+    const pages = [
+      `<div class="ph" style="left:24px;top:63px">Home</div><div class="a f2" style="left:24px;top:92px;font-size:13.5px">2 running, 1 waiting on you.</div>${row(124, 'Refactor auth middleware', 'Opus 5.5', '4m')}${row(168, 'Fix flaky upload test', 'GPT-5.5', '1m')}${row(212, 'Audit Caddy routes', 'Kimi K3', 'waiting')}`,
+      `<div class="ph" style="left:24px;top:63px">Sessions</div>${row(100, 'Refactor auth middleware', 'Opus 5.5', 'Running')}${row(144, 'Draft release notes', 'GPT-5.5', '2h')}${row(188, 'Port wave engine to Kotlin', 'Gemini 3 Pro', '5h')}${row(232, 'Audit Caddy routes', 'Kimi K3', '1d')}`,
+      `<div class="ph" style="left:24px;top:63px">Routines</div>${row(100, 'Nightly triage', 'Every day at 09:00', '6h')}${row(144, 'Inbox digest', 'Weekdays at 08:30', '23h')}${row(188, 'Backup memory', 'Sundays at 03:00', '4d')}`,
+      `<div class="ph" style="left:24px;top:63px">Usage</div>
+       <div class="a seg" style="left:24px;top:94px;width:182px;height:30px;border:1px solid var(--rule-2);border-radius:6px"><div class="a th" style="left:2px;top:2px;width:58px;height:24px;border-radius:4px;background:var(--bg-hover);box-shadow:0 0 0 1px var(--rule-2)"></div>${['Day', 'Week', 'Month'].map((s, i) => `<div class="a sl" style="left:${i * 60}px;top:0;width:60px;height:28px;display:grid;place-items:center;font-size:12.5px;font-weight:500">${s}</div>`).join('')}</div>
+       <div class="a f3" style="right:24px;top:100px;font-size:12.5px">Tokens</div>
+       <div class="a bars" style="left:24px;top:146px;width:592px;height:200px"></div><div class="hair" style="left:24px;top:346px;width:592px"></div>`,
+    ];
+    const pl = pages.map((h) => el('div', 'a', st, 'left:0;top:0;width:640px;height:400px;opacity:0', h));
+    const barsBox = pl[3].querySelector('.bars');
+    const DATA = [[40, 62, 55, 80, 48, 70, 92, 66, 58, 74, 86, 60, 52, 78], [60, 72, 64, 58, 76, 88, 70, 62, 84, 90, 68, 74, 80, 66], [30, 44, 52, 66, 72, 80, 86, 90, 84, 92, 96, 88, 94, 98]];
+    const bars = DATA[0].map((v, i) => el('div', 'a', barsBox, `left:${2 + i * 42}px;bottom:0;width:28px;height:200px;border-radius:3px 3px 0 0;background:${i === 13 ? 'var(--fg-2)' : 'var(--rule-2)'};transform-origin:50% 100%`));
+    const th = pl[3].querySelector('.th'), sls = [...pl[3].querySelectorAll('.sl')];
+    const NV = [[-1e9, 0], [500, 2], [1300, 5], [2100, 6], [4800, 0]];
+    const SG = [[-1e9, 0], [2800, 1], [3400, 2], [4000, 0]];
+    const PG = { 0: 0, 2: 1, 5: 2, 6: 3 };
+    const edge = (i) => [ir[i].x + 8, ir[i].x + ir[i].w - 8];
+    const cur = cursor(st);
+    const segX = (i) => 24 + 30 + i * 60;
+    const at = (i) => [ir[i].x + ir[i].w / 2, 22];
+    const keys = [[0, 330, 236], [150, 330, 236], [400, ...at(2)], [800, ...at(2)], [1180, ...at(5)], [1600, ...at(5)], [1980, ...at(6)], [2300, ...at(6)], [2680, segX(1), 110], [3000, segX(1), 110], [3280, segX(2), 110], [3600, segX(2), 110], [3880, segX(0), 110], [4300, segX(0), 110], [4680, ...at(0)], [5100, ...at(0)], [5700, 330, 236]];
+    return (t) => {
+      let L = edge(0)[0], R = edge(0)[1];
+      for (let i = 1; i < NV.length; i++) {
+        const [a0, a1] = edge(NV[i - 1][1]), [b0, b1] = edge(NV[i][1]), right = b0 > a0;
+        L += (b0 - a0) * spring(t - NV[i][0], right ? 420 : 250, 1);
+        R += (b1 - a1) * spring(t - NV[i][0], right ? 250 : 420, 1);
+      }
+      ind.style.transform = `translateX(${L.toFixed(2)}px) scaleX(${((R - L) / 100).toFixed(4)})`;
+      let curI = 0, prevI = 0, t0 = -1e9;
+      for (let i = 1; i < NV.length; i++) if (t >= NV[i][0]) { prevI = curI; curI = NV[i][1]; t0 = NV[i][0]; }
+      const kc = P(t, t0, 120);
+      its.forEach((e, i) => { const w = i === curI ? kc : i === prevI ? 1 - kc : 0; e.style.color = mix('var(--fg-3)', 'var(--fg)', curI === prevI && i === curI ? 1 : w); });
+      pl.forEach((p, j) => {
+        let o = 0, y = 0;
+        if (PG[curI] === j) { o = t0 < 0 ? 1 : P(t, t0 + 80, 170); y = 4 * (1 - o); }
+        else if (PG[prevI] === j && t0 > 0) { o = 1 - P(t, t0, 80, E.in); }
+        O(p, o); p.style.transform = `translateY(${y.toFixed(2)}px)`;
+      });
+      // segmented thumb and bars
+      let tx = 0; for (let i = 1; i < SG.length; i++) tx += (SG[i][1] - SG[i - 1][1]) * 60 * spring(t - SG[i][0], 340, 0.94);
+      th.style.transform = `translateX(${tx.toFixed(2)}px)`;
+      let sc = 0, sp = 0, s0 = -1e9; for (let i = 1; i < SG.length; i++) if (t >= SG[i][0]) { sp = sc; sc = SG[i][1]; s0 = SG[i][0]; }
+      const ks = P(t, s0, 70, E.lin);
+      sls.forEach((e, i) => { e.style.color = mix('var(--fg-3)', 'var(--fg)', i === sc ? (sp === sc ? 1 : ks) : i === sp && sp !== sc ? 1 - ks : 0); });
+      const km = P(t, s0, 280, E.out);
+      bars.forEach((b, i) => { const v = lerp(DATA[sp][i], DATA[sc][i], km); b.style.transform = `scaleY(${(v / 100).toFixed(4)})`; });
+      cur(t, keys, [500, 1300, 2100, 2800, 3400, 4000, 4800]);
+    };
+  },
+});
+
+/* 09 ------------------------------------------------------------------ */
+scene({
+  id: 'approve-gap', name: 'Approve and close the gap', ds: 'An approval resolves and slides away', loop: 5250,
+  for: 'Inbox and Home approval cards.',
+  moves: 'The button confirms in place and the rule turns green, the card slides out to the right, the cards below spring up into the gap and the count rolls down.',
+  build(st) {
+    const bar = topbar(st, 'Inbox');
+    const ib = bar.querySelector('[data-n="Inbox"]');
+    ib.insertAdjacentHTML('beforeend', `<span class="roll wrn num nr" style="margin-left:5px"><span>2</span><span>3</span></span>`);
+    add(st, `<div class="ph" style="left:24px;top:63px">Inbox</div>`);
+    const hc = add(st, `<div class="a wrn num" style="right:24px;top:62px;font-size:12.5px;display:flex;gap:4px;line-height:18px"><span class="roll hr"><span>2</span><span>3</span></span><span>waiting on you</span></div>`);
+    const C = [[I.term, 'Run a shell command', 'Fix flaky upload test, GPT-5.5', 'bun test --filter upload', 'now'], [I.edit, 'Edit 3 files', 'Refactor auth middleware, Opus 5.5', 'src/auth/session.ts  +42  -18', '4m'], [I.globe, 'Fetch a web page', 'Audit Caddy routes, Kimi K3', 'caddyserver.com/docs/caddyfile', '9m']];
+    const cards = C.map((c, i) => {
+      const e = add(st, `<div class="card" style="left:24px;top:0;width:592px;height:88px;overflow:hidden">
+        <div class="a fl" style="inset:0;background:var(--bg-hover);opacity:0"></div>
+        <div class="a rl" style="left:0;top:0;width:2px;height:88px;background:var(--warn)"></div>
+        <div class="a f3" style="left:16px;top:13px">${c[0]}</div>
+        <div class="a" style="left:40px;top:13px;font-size:13.5px;font-weight:600;line-height:16px">${c[1]}</div>
+        <div class="a f4" style="right:16px;top:14px;font-size:12px">${c[4]}</div>
+        <div class="a f3" style="left:40px;top:33px;font-size:12px">${c[2]}</div>
+        <div class="a mono f2" style="left:40px;top:54px;height:22px;padding:0 8px;border-radius:4px;background:var(--bg-sunk);border:1px solid var(--rule);display:flex;align-items:center;font-size:11.5px">${c[3]}</div>
+        <div class="btn" style="right:${16 + 104 + 8}px;top:50px;width:58px">Deny</div>
+        <div class="a al" style="right:16px;top:50px;width:104px;height:28px;border-radius:5px">
+          <div class="a abg" style="inset:0;border-radius:5px;background:var(--solid)"></div>
+          <div class="a abd" style="inset:0;border-radius:5px;border:1px solid var(--rule-2);opacity:0"></div>
+          <div class="sw sws" style="position:absolute;inset:0;place-items:center;font-size:12.5px;font-weight:500"><span style="color:var(--solid-fg)">Allow once</span><span class="okc" style="display:flex;gap:5px;align-items:center">${ic('<path d="m3.5 8.5 3 3 6-7"/>', 13, 1.8)}Allowed once</span></div>
+        </div></div>`);
+      return { e, rl: e.querySelector('.rl'), fl: e.querySelector('.fl'), abg: e.querySelector('.abg'), abd: e.querySelector('.abd'), sw: swapper(e.querySelector('.sws'), 3, 140) };
+    });
+    const nr = roller(ib.querySelector('.nr'), 16), hr = roller(hc.querySelector('.hr'), 18);
+    const cur = cursor(st);
+    const keys = [[0, 470, 380], [300, 470, 380], [900, 566, 166], [1500, 566, 166], [2300, 470, 380]];
+    return (t) => {
+      const CLK = 1000, OUT = 1480, ARR = 3000;
+      const up = spring(t - (OUT + 90), 420, 1), dn = spring(t - ARR, 420, 1);
+      cards.forEach((c, i) => {
+        let y = 98 + i * 98, x = 0, o = 1;
+        c.e.style.zIndex = i === 0 && t >= OUT && t < ARR ? 0 : 1;
+        if (i !== 0) { c.sw(t, [[0, 0]]); O(c.abd, 0); }
+        if (i === 0) {
+          const k = P(t, OUT, 170, E.in);
+          if (t < ARR) { x = 34 * k; o = 1 - k; }
+          else {
+            // the new card is revealed top down as the cards below open the space for it
+            o = P(t, ARR, 200); y -= 4 * (1 - dn);
+            const vis = cl(98 * dn - 6, 0, 88);
+            c.e.style.clipPath = `inset(0 0 ${(88 - vis).toFixed(2)}px 0 round 10px)`;
+            O(c.fl, P(t, ARR, 100) * (1 - P(t, ARR + 300, 800, E.lin)));
+          }
+          if (t < ARR) c.e.style.clipPath = 'none';
+          const res = t >= CLK + 40 && t < ARR;
+          c.sw(t, [[0, 0], [CLK + 40, 1], [ARR - 1, 0]]);
+          const kr = P(t, CLK + 40, 140);
+          O(c.abg, res ? 1 - kr : 1); O(c.abd, res ? kr : 0);
+          c.rl.style.background = res ? mix('var(--warn)', 'var(--ok)', kr) : 'var(--warn)';
+        } else {
+          y -= 98 * (up - dn);
+        }
+        T(c.e, x, y); O(c.e, o);
+      });
+      nr(t, [[0, 1], [OUT, 0], [ARR, 1]]); hr(t, [[0, 1], [OUT, 0], [ARR, 1]]);
+      cur(t, keys, [CLK]);
+    };
+  },
+});
+
+/* 10 ------------------------------------------------------------------ */
+scene({
+  id: 'jury-flip', name: 'Jury verdict', ds: 'Answers stack, then flip to the verdict', loop: 6500,
+  for: 'Jury mode: several models answer and a judge decides.',
+  moves: 'Four juror cards arrive, gather into a loose stack, merge into one card, and the card turns over to show the verdict.',
+  build(st) {
+    topbar(st, 'Chat');
+    add(st, `<div class="bubble" style="right:24px;top:56px">Which reverse proxy should the hub ship with?</div>`);
+    add(st, `<div class="a" style="left:24px;top:106px;display:flex;align-items:center;gap:8px;font-size:13px;line-height:1"><span class="f3">${I.scale}</span><b style="font-weight:600">Jury</b><span class="f3">4 jurors, judge Opus 5.5</span></div>`);
+    const stt = add(st, `<div class="a sw r" style="right:24px;top:106px;font-size:12.5px;line-height:1"><span class="f3">Waiting for 4 jurors</span><span class="f3">4 of 4 answered</span><span class="sig">Judging</span><span class="f3">Verdict in 18s</span></div>`);
+    const sw = swapper(stt, 3);
+    const J = [['B', 'Caddy', 'Automatic TLS and a short config.', '9s'], ['C', 'Traefik', 'Docker labels make routing easy.', '14s'], ['D', 'Caddy', 'Has a plugin for tailscale certs.', '11s'], ['E', 'Caddy', 'Fewer moving parts than Nginx.', '12s']];
+    const W = 288, H = 104;
+    const grid = [[24, 126], [328, 126], [24, 240], [328, 240]];
+    const face = (j) => `<div class="a" style="left:14px;top:13px;display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:500" class="f2">${tile(j[0], 20, 11)}<span class="f2">${MODELS[j[0]]}</span></div><div class="a mono f4" style="right:14px;top:16px;font-size:11px">${j[3]}</div><div class="a" style="left:14px;top:44px;font-size:17px;font-weight:600;font-stretch:104%;letter-spacing:-.01em;line-height:1">${j[1]}</div><div class="a f3" style="left:14px;top:72px;font-size:12px">${j[2]}</div>`;
+    const verdict = `<div class="a sig" style="left:16px;top:14px;font-size:12px;font-weight:600;line-height:1">Verdict</div>
+      <div class="a" style="left:16px;top:34px;font-size:26px;font-weight:600;font-stretch:106%;letter-spacing:-.02em;line-height:1">Caddy</div>
+      <div class="a f2" style="left:16px;top:74px;font-size:12.5px">3 of 4 jurors agree</div>
+      <div class="a" style="right:16px;top:14px;display:flex;gap:5px">${['B', 'C', 'D', 'E'].map((k) => `<span style="opacity:${k === 'C' ? 0.35 : 1}">${tile(k, 22, 12)}</span>`).join('')}</div>
+      <div class="a" style="right:16px;top:78px;display:flex;gap:4px">${[1, 0, 1, 1].map((v) => `<span style="width:22px;height:3px;border-radius:1.5px;background:${v ? 'var(--fg)' : 'var(--rule-2)'}"></span>`).join('')}</div>`;
+    const sheen = `<div class="a sh" style="inset:0;border-radius:10px;background:linear-gradient(115deg, transparent 20%, oklch(1 0 0 / 0.5) 50%, transparent 80%);opacity:0;mix-blend-mode:soft-light"></div>`;
+    const cards = J.map((j, i) => {
+      const w = add(st, `<div class="a" style="left:0;top:0;width:${W}px;height:${H}px;transform-origin:50% 50%"><div class="a fl" style="inset:0;transform-style:preserve-3d">
+        <div class="card fr" style="inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;overflow:hidden">${face(j)}${sheen}</div>
+        ${i === 0 ? `<div class="card bk" style="inset:0;transform:rotateY(180deg);backface-visibility:hidden;-webkit-backface-visibility:hidden;overflow:hidden;border-color:var(--rule-2)">${verdict}${sheen}</div>` : ''}
+      </div></div>`);
+      return { w, fl: w.querySelector('.fl'), sh: [...w.querySelectorAll('.sh')] };
+    });
+    const note = add(st, `<div class="a f3" style="left:0;top:300px;width:640px;text-align:center;font-size:12.5px;opacity:0">Traefik was the one dissent, for its Docker labels.</div>`);
+    const shadow = add(st, `<div class="a" style="left:${320 - W / 2 + 16}px;top:${233 - H / 2 + 14}px;width:${W - 32}px;height:${H - 10}px;border-radius:16px;background:rgb(var(--sh) / 0.55);filter:blur(16px);opacity:0"></div>`);
+    const SX = 320 - W / 2, SY = 222 - H / 2;
+    const rot = [0, 2.2, -2.6, 1.4], depth = [0, 1, 2, 3];
+    return (t) => {
+      const ARR = [300, 420, 540, 660], GA = 1400, AB = 2250, FL = 2500, FD = 640, OUT = 5650;
+      sw(t, [[0, 0], [900, 1], [GA + 500, 2], [FL + FD - 100, 3], [OUT + 200, 0]]);
+      const out = P(t, OUT, 260, E.in);
+      cards.forEach((c, i) => {
+        const g = spring(t - (GA + (3 - i) * 70), 560, 0.86);
+        const ab = P(t, AB, 260, E.std);
+        const d = depth[i] * (1 - ab);
+        let x = lerp(grid[i][0], SX + d * 3, g), y = lerp(grid[i][1], SY + d * 6, g);
+        const a = P(t, ARR[i], 260);
+        y += 10 * (1 - a);
+        let o = a * (i === 0 ? 1 : 1 - P(t, AB + 80, 200));
+        let r = rot[i] * g * (1 - ab), s = 1 - 0.025 * d * g;
+        let ry = 0;
+        if (i === 0) {
+          const k = P(t, FL, FD, bezier(0.45, 0, 0.2, 1));
+          ry = 180 * k; s *= 1 + 0.05 * Math.sin(Math.PI * k);
+          y -= 6 * Math.sin(Math.PI * k);
+          c.sh.forEach((e) => O(e, 0.9 * Math.sin(Math.PI * k)));
+          o *= 1 - out; y += 6 * out;
+        }
+        c.w.style.zIndex = 10 - i;
+        c.w.style.transform = `translate(${x.toFixed(2)}px,${y.toFixed(2)}px) rotate(${r.toFixed(3)}deg) scale(${s.toFixed(4)})`;
+        c.fl.style.transform = `perspective(900px) rotateY(${ry.toFixed(2)}deg)`;
+        O(c.w, o);
+      });
+      const kf2 = P(t, FL, FD);
+      O(shadow, (P(t, GA, 400) * (1 - out)) * 0.5 * (0.6 + 0.4 * Math.sin(Math.PI * kf2)));
+      shadow.style.transform = `translateY(${(-11 + 6 * Math.sin(Math.PI * kf2)).toFixed(2)}px) scaleX(${(1 - 0.25 * Math.sin(Math.PI * kf2)).toFixed(3)})`;
+      O(note, P(t, FL + FD + 60, 240) * (1 - out)); note.style.transform = `translateY(${(4 * (1 - P(t, FL + FD + 60, 240)) + 6 * out).toFixed(2)}px)`;
+    };
+  },
+});
+
+/* 11 ------------------------------------------------------------------ */
+scene({
+  id: 'handoff-morph', name: 'Model handoff', ds: 'One model mark travels and becomes the other', loop: 6500,
+  for: 'Handoff between models, and the model chip that changes with it.',
+  moves: 'The mark lifts out of its tile, travels on an arc while its outline morphs into the other model, and lands; the chip in the header morphs the same way.',
+  build(st) {
+    topbar(st, 'Sessions');
+    add(st, `<div class="a" style="left:24px;top:62px;font-size:15px;font-weight:600;line-height:1">Port wave engine to Kotlin</div>`);
+    const chip = add(st, `<div class="chip" style="right:24px;top:56px;width:104px;overflow:hidden"><svg class="cg" width="13" height="13" viewBox="0 0 13 13"><path fill="currentColor" fill-rule="evenodd"/></svg><span class="sw cn"><span>Opus 5.5</span><span>GPT-5.5</span></span></div>`);
+    const cgp = chip.querySelector('path'), cnsw = swapper(chip.querySelector('.cn'), 12, 260);
+    const msg = add(st, `<div class="a sw" style="left:0;top:112px;width:640px;justify-items:center;font-size:13px"><span class="f2">Opus 5.5 hit its limit. Handing off with a summary.</span><span class="f2">Opus 5.5 is back. Handing back with a summary.</span></div>`);
+    const msgs = [...msg.children];
+    const AX = 196, BX = 444, CY = 206, TS = 68;
+    const tiles = [AX, BX].map((x) => add(st, `<div class="a" style="left:${x - TS / 2}px;top:${CY - TS / 2}px;width:${TS}px;height:${TS}px;border-radius:16px;border:1px solid var(--rule-2);background:var(--bg-raise)"></div>`));
+    const labs = [['A', AX], ['B', BX]].map(([k, x]) => add(st, `<div class="a" style="left:${x - 60}px;top:${CY + 46}px;width:120px;text-align:center;font-size:12.5px;font-weight:500">${MODELS[k]}</div>`));
+    const svg = add(st, `<svg class="a" style="left:0;top:0;overflow:visible;z-index:3" width="640" height="400">
+      <line x1="${AX + TS / 2 + 10}" y1="${CY}" x2="${BX - TS / 2 - 10}" y2="${CY}" stroke="var(--rule)" stroke-width="1"/>
+      <line class="tr" y1="${CY}" y2="${CY}" stroke="var(--signal)" stroke-width="1.5" stroke-linecap="round"/>
+      <ellipse class="shd" rx="22" ry="4" fill="rgb(var(--sh) / 0.45)" style="filter:blur(4px)"/>
+      <path class="gl" fill="var(--fg)" fill-rule="evenodd"/></svg>`);
+    const tr = svg.querySelector('.tr'), gl = svg.querySelector('.gl'), shd = svg.querySelector('.shd');
+    const cnt = add(st, `<div class="a f3 mono num" style="left:0;top:${CY + 10}px;width:640px;text-align:center;font-size:11.5px"><span class="v">0</span> tokens</div>`);
+    const cv = cnt.querySelector('.v');
+    add(st, `<div class="composer" style="left:24px;top:318px;width:592px;height:62px"><span class="a sw cp f4" style="left:14px;top:11px;font-size:13.5px"><span>Reply to Opus 5.5</span><span>Reply to GPT-5.5</span></span></div>`);
+    const csw = swapper(st.querySelector('.cp'), 4);
+    const N = 120, GR = 21;
+    const HALF = 3250;
+    return (t) => {
+      const h = t < HALF ? 0 : 1, lt = t - h * HALF;
+      const from = h ? 'B' : 'A', to = h ? 'A' : 'B', fx = h ? BX : AX, tx = h ? AX : BX;
+      const TR = 420, TD = 900;
+      const k = P(lt, TR, TD, bezier(0.6, 0, 0.25, 1));
+      const km = P(lt, TR + TD * 0.18, TD * 0.62, E.io);
+      const lift = Math.sin(Math.PI * k);
+      const x = lerp(fx, tx, k), y = CY - 34 * lift - 4 * P(lt, TR - 160, 160) * (1 - P(lt, TR + TD, 220));
+      const sc = 1 + 0.12 * lift;
+      gl.setAttribute('d', gDm(from, to, km, x, y, GR * sc, N));
+      shd.setAttribute('cx', x); shd.setAttribute('cy', CY + 26); shd.setAttribute('rx', (20 - 6 * lift).toFixed(2));
+      shd.setAttribute('opacity', (0.25 + 0.35 * lift).toFixed(3));
+      // trail along the wire
+      const w0 = AX + TS / 2 + 10, w1 = BX - TS / 2 - 10;
+      const head = cl(lerp(fx, tx, k), w0, w1), tail = h ? w1 : w0;
+      tr.setAttribute('x1', tail); tr.setAttribute('x2', head);
+      tr.setAttribute('opacity', (P(lt, TR, 120) * (1 - P(lt, TR + TD + 200, 600))).toFixed(3));
+      // tiles and labels
+      const land = P(lt, TR + TD - 60, 160);
+      tiles.forEach((e, i) => {
+        const isTo = (i === 1) !== !!h;
+        const glow = isTo ? bump(lt, TR + TD - 80, 120, 200, 700) : 0;
+        e.style.borderColor = mix('var(--rule-2)', 'var(--signal)', glow);
+        O(e, 1);
+      });
+      labs.forEach((e, i) => {
+        const isTo = (i === 1) !== !!h;
+        const on = isTo ? land : 1 - land;
+        e.style.color = mix('var(--fg-4)', 'var(--fg)', on);
+      });
+      const n = Math.round(12400 * P(lt, TR, TD, E.io));
+      cv.textContent = n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n);
+      O(cnt, P(lt, TR - 100, 200) * (1 - P(lt, HALF - 500, 300, E.in)));
+      // each half has its own line: it comes up as the handoff starts and leaves before the half ends
+      const env = P(lt, 60, 220) * (1 - P(lt, HALF - 360, 200, E.in));
+      msgs.forEach((m, i) => { O(m, i === h ? env : 0); m.style.transform = `translateY(${(4 * (1 - P(lt, 60, 220))).toFixed(2)}px)`; });
+      // header chip
+      const CH = TR + TD + 80;
+      const kc = h ? 1 - P(lt, CH, 360, E.io) : P(lt, CH, 360, E.io);
+      cgp.setAttribute('d', gDm('A', 'B', kc, 6.5, 6.5, 6.1, N));
+      const sw2 = [[0, 0], [CH, 1], [HALF + CH, 0]];
+      cnsw(t, sw2); csw(t, sw2);
+    };
+  },
+});
+
+/* 12 ------------------------------------------------------------------ */
+scene({
+  id: 'memory-fly', name: 'Memory saved', ds: 'A fact lifts and flies into Memory', loop: 5500,
+  for: 'Memory saved from a chat or session.',
+  moves: 'The saved fact lifts off its card, shrinks along an arc into the Memory tab, and the tab answers with a short violet underline.',
+  build(st) {
+    const bar = topbar(st, 'Chat');
+    const mem = bar.querySelector('[data-n="Memory"]');
+    const mu = el('span', 'a', mem, 'left:8px;right:8px;bottom:-1px;height:2px;background:var(--signal);opacity:0;transform-origin:50% 50%');
+    const plus = el('span', 'a sig num', mem, 'right:-10px;top:8px;font-size:10.5px;font-weight:600;opacity:0', '+1');
+    add(st, `<div class="bubble" style="right:24px;top:58px">Remember that I deploy with Caddy on the arch box.</div>`);
+    add(st, `<div class="prose" style="left:24px;top:110px;width:590px">Got it. I will use Caddy on arch-desktop for deploy steps from now on.</div>`);
+    const tool = add(st, `<div class="a sw" style="left:24px;top:150px;font-size:12.5px;line-height:18px;opacity:0"><span class="f3" style="display:flex;gap:7px;align-items:center">${I.mark}Saving to memory</span><span class="f2" style="display:flex;gap:7px;align-items:center">${I.mark}Saved to memory</span></div>`);
+    const tsw = swapper(tool, 3);
+    const card = add(st, `<div class="a" style="left:24px;top:178px;width:592px;height:58px;opacity:0">
+      <div class="a rule" style="left:0;top:0;width:2px;height:58px;border-radius:1px;background:var(--signal);transform-origin:50% 0"></div>
+      <div class="a fact" style="left:16px;top:9px;font-size:14px;line-height:20px;font-weight:500;white-space:nowrap">Deploys with Caddy on arch-desktop</div>
+      <div class="a f4" style="left:16px;top:33px;font-size:12px">Global, from this chat</div>
+      <div class="a f3" style="right:0;top:18px;display:flex;gap:16px;font-size:12.5px;font-weight:500"><span>Undo</span><span>Edit</span></div></div>`);
+    const rule = card.querySelector('.rule'), fact = card.querySelector('.fact');
+    add(st, `<div class="composer" style="left:24px;top:318px;width:592px;height:62px"><span class="a f4" style="left:14px;top:11px;font-size:13.5px">Reply to Opus 5.5</span></div>`);
+    const fr = rel(fact, st);
+    const chip = el('div', 'a', st, `left:0;top:0;height:30px;padding:0 10px;display:flex;align-items:center;border-radius:7px;background:var(--bg-raise);border:1px solid var(--rule-2);font-size:14px;font-weight:500;white-space:nowrap;z-index:6;visibility:hidden;transform-origin:50% 50%`, 'Deploys with Caddy on arch-desktop');
+    const cw = rel(chip, st).w || 260;
+    const mr = rel(mem, st);
+    const S0 = { x: fr.x + fr.w / 2, y: fr.y + fr.h / 2 }, S1 = { x: mr.x + mr.w / 2, y: mr.y + mr.h / 2 };
+    const C1 = { x: S0.x + 60, y: S0.y - 150 }, C2 = { x: S1.x - 30, y: S1.y + 60 };
+    const cb = (a, b, c, d, u) => { const v = 1 - u; return v * v * v * a + 3 * v * v * u * b + 3 * v * u * u * c + u * u * u * d; };
+    return (t) => {
+      const AP = 300, SV = 900, LF = 1250, FL = 1430, FD = 620, RS = 4700;
+      const out = P(t, RS, 220, E.in);
+      O(tool, P(t, AP, 180) * (1 - out)); tsw(t, [[0, 0], [SV, 1]]);
+      O(card, P(t, AP + 80, 200) * (1 - out));
+      rule.style.transform = `scaleY(${P(t, AP + 80, 260, E.std).toFixed(4)})`;
+      rule.style.background = mix('var(--signal)', 'var(--fg-3)', P(t, FL + FD, 600));
+      card.style.transform = `translateY(${(4 * (1 - P(t, AP + 80, 200)) + 4 * out).toFixed(2)}px)`;
+      // lift and flight
+      const lift = P(t, LF, 180);
+      const u = P(t, FL, FD, bezier(0.5, 0, 0.2, 1));
+      const flying = t >= LF && t < FL + FD;
+      chip.style.visibility = flying ? 'visible' : 'hidden';
+      O(fact, flying ? 0.3 : t >= FL + FD ? lerp(0.3, 1, P(t, FL + FD, 300)) : 1);
+      if (flying) {
+        const x = cb(S0.x, C1.x, C2.x, S1.x, u), y = cb(S0.y, C1.y, C2.y, S1.y, u);
+        const s = lerp(1 + 0.04 * lift, 0.16, E.in(u));
+        chip.style.transform = `translate(${(x - cw / 2).toFixed(2)}px,${(y - 15 - 2 * lift).toFixed(2)}px) scale(${s.toFixed(4)})`;
+        chip.style.boxShadow = `0 ${(10 * lift).toFixed(1)}px ${(26 * lift).toFixed(1)}px rgb(var(--sh) / ${(0.4 * lift).toFixed(3)})`;
+        O(chip, 1 - P(u, 0.82, 0.18, E.lin));
+      }
+      // the tab answers
+      const hit = FL + FD - 40;
+      const ring = bump(t, hit, 90, 260, 700);
+      O(mu, ring); mu.style.transform = `scaleX(${(0.4 + 0.6 * P(t, hit, 260)).toFixed(4)})`;
+      mem.style.color = mix('var(--fg-3)', 'var(--fg)', ring);
+      const pl = P(t, hit + 40, 500, E.out);
+      O(plus, bump(t, hit + 40, 120, 380, 400)); plus.style.transform = `translateY(${(-6 * pl).toFixed(2)}px)`;
+      mem.style.transform = t >= hit ? `scale(${(1 + 0.06 * (1 - spring(t - hit, 320, 0.9)) * P(t, hit, 60)).toFixed(4)})` : '';
+    };
+  },
+});
+
+/* 13 ------------------------------------------------------------------ */
+scene({
+  id: 'routine-dial', name: 'Routine fires', ds: 'A dial sweeps to the hour and fires', loop: 5000,
+  for: 'Routine rows and the routine page when a schedule fires.',
+  moves: 'A hand sweeps one full turn and leaves a filled wedge, then a violet ring closes around the dial, a ripple goes out and the status turns to running.',
+  build(st) {
+    topbar(st, 'Routines');
+    add(st, `<div class="ph" style="left:24px;top:63px">Routines</div>`);
+    add(st, `<div class="card" style="left:24px;top:94px;width:592px;height:140px"></div>`);
+    const CX = 92, CY = 164, R = 44;
+    const ticks = Array.from({ length: 12 }, (_, i) => { const a = (i / 12) * 2 * Math.PI - Math.PI / 2, r1 = R - 4, r2 = R - (i % 3 ? 8 : 11); return `<line x1="${CX + Math.cos(a) * r1}" y1="${CY + Math.sin(a) * r1}" x2="${CX + Math.cos(a) * r2}" y2="${CY + Math.sin(a) * r2}" stroke="${i % 3 ? 'var(--fg-4)' : 'var(--fg-3)'}" stroke-width="${i % 3 ? 1.2 : 1.6}" stroke-linecap="round"/>`; }).join('');
+    const svg = add(st, `<svg class="a" style="left:0;top:0;overflow:visible" width="640" height="400">
+      <circle class="face" cx="${CX}" cy="${CY}" r="${R}" fill="var(--bg)" stroke="var(--rule-2)" stroke-width="1"/>
+      <path class="wedge" fill="var(--fg)" opacity=".1"/>
+      ${ticks}
+      <circle class="ring" cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="var(--signal)" stroke-width="2" stroke-linecap="round" transform="rotate(-90 ${CX} ${CY})"/>
+      <circle class="rip" cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="var(--signal)" stroke-width="1.5"/>
+      <line class="hand" x1="${CX}" y1="${CY + 6}" x2="${CX}" y2="${CY - R + 13}" stroke="var(--fg)" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="${CX}" cy="${CY}" r="3.2" fill="var(--bg-raise)" stroke="var(--fg)" stroke-width="1.6"/></svg>`);
+    const wedge = svg.querySelector('.wedge'), ring = svg.querySelector('.ring'), rip = svg.querySelector('.rip'), hand = svg.querySelector('.hand');
+    add(st, `<div class="a" style="left:164px;top:116px;font-size:17px;font-weight:600;font-stretch:102%;letter-spacing:-.01em;line-height:1">Inbox sweep</div>`);
+    add(st, `<div class="a f3" style="left:164px;top:140px;font-size:12.5px">Every 15 minutes, Opus 5.5</div>`);
+    const stat = add(st, `<div class="a" style="left:164px;top:170px;font-size:13.5px;font-weight:500;line-height:18px"><span class="sw s1"><span class="f2">Next in <span class="num m0">15m</span></span><span class="sig">Running <span class="num m1">0:01</span></span><span class="okc" style="display:flex;gap:5px;align-items:center">${ic('<path d="m3.5 8.5 3 3 6-7"/>', 13, 1.8)}Done in 4s</span></span></div>`);
+    const s1 = swapper(stat.querySelector('.s1'), 3), m0 = stat.querySelector('.m0'), m1 = stat.querySelector('.m1');
+    add(st, `<div class="a f4" style="left:164px;top:196px;font-size:12px">Clears read mail and files the rest</div>`);
+    add(st, `<div class="btn" style="right:40px;top:110px">Run now</div>`);
+    [['Nightly triage', 'Every day at 09:00', 'Next in 6h'], ['Weekly review', 'Fridays at 17:00', 'Next in 1d'], ['Backup memory', 'Sundays at 03:00', 'Next in 4d']].forEach((r, i) => add(st, `<div class="row" style="top:${250 + i * 44}px"><span class="f3" style="display:grid">${I.clock}</span><span>${r[0]}</span><span class="f3" style="margin-left:auto;font-size:12.5px;font-weight:400">${r[1]}</span><span class="f4" style="width:80px;text-align:right;font-size:12.5px;font-weight:400">${r[2]}</span></div>`));
+    const C = 2 * Math.PI * R;
+    const wedgeD = (a) => { if (a <= 0.001) return ''; if (a >= 359.99) return `M${CX} ${CY - R + 0.5}A${R - 0.5} ${R - 0.5} 0 1 1 ${CX - 0.01} ${CY - R + 0.5}Z`; const r = R - 0.5, rad = ((a - 90) * Math.PI) / 180; return `M${CX} ${CY}L${CX} ${CY - r}A${r} ${r} 0 ${a > 180 ? 1 : 0} 1 ${(CX + Math.cos(rad) * r).toFixed(2)} ${(CY + Math.sin(rad) * r).toFixed(2)}Z`; };
+    return (t) => {
+      const SW = 300, SD = 2000, FIRE = SW + SD, DONE = 3700, RE = 4250;
+      const p = P(t, SW, SD, E.sine);
+      const settle = t >= FIRE ? 1.2 * (spring(t - FIRE, 260, 0.75) - 1) * -1 : 0;
+      const ang = 360 * p + (t >= FIRE ? settle * 0 : 0);
+      hand.setAttribute('transform', `rotate(${(ang % 360).toFixed(3)} ${CX} ${CY})`);
+      const wf = 1 - P(t, DONE, 400);
+      wedge.setAttribute('d', wedgeD(t < DONE + 400 ? ang : 0));
+      wedge.setAttribute('fill', t >= FIRE ? mix('var(--fg)', 'var(--signal)', P(t, FIRE, 200)) : 'var(--fg)');
+      wedge.setAttribute('opacity', (t >= FIRE ? lerp(0.1, 0.18, P(t, FIRE, 200)) * wf : 0.1).toFixed(3));
+      const rd = P(t, FIRE, 380, E.std);
+      ring.setAttribute('stroke-dasharray', `${(rd * C).toFixed(2)} ${C * 2}`);
+      ring.setAttribute('opacity', (rd > 0.01 ? 1 - P(t, DONE, 400) : 0).toFixed(3));
+      const rp = P(t, FIRE + 120, 700, E.out);
+      rip.setAttribute('r', (R + 18 * rp).toFixed(2)); rip.setAttribute('opacity', (t >= FIRE + 120 ? 0.55 * (1 - rp) : 0).toFixed(3));
+      const mins = Math.max(1, 15 - Math.floor(p * 15 + 0.0001));
+      s1(t, [[0, 0], [FIRE, 1], [DONE, 2], [RE, 0]]);
+      m0.textContent = (t < RE ? mins : 15) + 'm';
+      m1.textContent = '0:0' + Math.min(4, 1 + Math.floor(Math.max(0, t - FIRE) / 350));
+    };
+  },
+});
+
+/* 14 ------------------------------------------------------------------ */
+scene({
+  id: 'limit-ring', name: 'Limit countdown', ds: 'A ring fills, then relaxes into the live line', loop: 6500,
+  for: 'A usage limit with a known reset time, then the run resuming.',
+  moves: 'An amber ring fills as the seconds roll down; at zero it turns violet, opens at the top and relaxes into a straight live line with light running along it; at the next limit the line curls back into a ring.',
+  build(st) {
+    topbar(st, 'Sessions');
+    add(st, `<div class="a" style="left:24px;top:62px;font-size:15px;font-weight:600;line-height:1">Port wave engine to Kotlin</div>`);
+    add(st, `<div class="chip" style="right:24px;top:56px">${glyph('A', 12)}Opus 5.5</div>`);
+    add(st, `<div class="prose" style="left:24px;top:100px;width:590px">Ported the dot field and the clock. Next is the canvas renderer.</div>`);
+    add(st, `<div class="card" style="left:24px;top:138px;width:592px;height:122px"></div>`);
+    const CX = 66, CY = 184, R = 20, L = 2 * Math.PI * R;
+    const svg = add(st, `<svg class="a" style="left:0;top:0;overflow:visible" width="640" height="400">
+      <circle class="trk" cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="var(--rule-2)" stroke-width="3"/>
+      <circle class="arc" cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="var(--warn)" stroke-width="3" stroke-linecap="round" transform="rotate(-90 ${CX} ${CY})"/>
+      <path class="mo" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <line class="lt" stroke="var(--fg)" stroke-width="3" stroke-linecap="round" opacity="0"/></svg>`);
+    const trk = svg.querySelector('.trk'), arc = svg.querySelector('.arc'), mo = svg.querySelector('.mo'), lt = svg.querySelector('.lt');
+    const A = add(st, `<div class="a" style="left:104px;top:158px">
+      <div style="font-size:15px;font-weight:600;line-height:18px">Usage limit reached</div>
+      <div class="f2" style="font-size:13px;line-height:18px;margin-top:6px;display:flex">Resumes in&nbsp;<span class="num" style="display:flex">0:0<span class="roll rr"><span>0</span><span>1</span><span>2</span><span>3</span><span>4</span></span></span></div>
+      <div class="f4" style="font-size:12px;line-height:16px;margin-top:6px">Max plan, 5 hour window</div></div>`);
+    const B = add(st, `<div class="a" style="left:24px;top:158px;width:592px;opacity:0">
+      <div style="margin-left:20px;font-size:15px;font-weight:600;line-height:18px">Running again</div>
+      <div class="f3" style="margin-left:20px;font-size:13px;line-height:18px;margin-top:6px">Resumed at 14:00. Picking up the canvas renderer.</div></div>`);
+    const rr = roller(A.querySelector('.rr'), 18);
+    add(st, `<div class="composer" style="left:24px;top:318px;width:592px;height:62px"><span class="a f4" style="left:14px;top:11px;font-size:13.5px">Reply to Opus 5.5</span></div>`);
+    const N = 180, X0 = 44, X1 = 596, LY = 240;
+    const MX0 = CX, MY0 = CY + R, MX1 = X0 + L / 2, MY1 = LY;
+    // an arc of fixed length whose turning angle goes from a full turn to none: a ring that relaxes into a straight stroke
+    const curve = (k1, k2) => {
+      const th = 2 * Math.PI * (1 - k1), mx = lerp(MX0, MX1, k1), my = lerp(MY0, MY1, E.out(k1));
+      let d = '';
+      for (let i = 0; i <= N; i++) {
+        const s = -L / 2 + (L * i) / N;
+        let x, y;
+        if (th < 1e-4) { x = mx + s; y = my; } else { const Rp = L / th, ph = s / Rp; x = mx + Rp * Math.sin(ph); y = my - Rp * (1 - Math.cos(ph)); }
+        x = lerp(x, lerp(X0, X1, i / N), k2); y = lerp(y, LY, k2);
+        d += (i ? 'L' : 'M') + x.toFixed(2) + ' ' + y.toFixed(2);
+      }
+      return d;
+    };
+    return (t) => {
+      const CD = 4000, U1 = 4130, U1D = 380, U2 = 4430, U2D = 380, C2 = 5800, C2D = 300, C1 = 6000, C1D = 300;
+      const live = t >= CD && t < C1 + C1D;
+      trk.setAttribute('opacity', live ? 0 : 1);
+      arc.setAttribute('stroke-dasharray', `${(cl(t / CD) * L).toFixed(2)} ${L * 2}`);
+      arc.setAttribute('opacity', t < CD && t > 30 ? 1 : 0);
+      let k1, k2, col;
+      if (t < C2) { k1 = P(t, U1, U1D, E.io); k2 = P(t, U2, U2D, E.emph); col = mix('var(--warn)', 'var(--signal)', P(t, CD, 160)); }
+      else { k2 = 1 - P(t, C2, C2D, E.std); k1 = 1 - P(t, C1, C1D, E.io); col = mix('var(--signal)', 'var(--rule-2)', P(t, C1 + 60, 240)); }
+      mo.setAttribute('d', curve(k1, k2)); mo.setAttribute('stroke', col); mo.setAttribute('opacity', live ? 1 : 0);
+      // light running along the live line
+      const on = P(t, U2 + U2D, 200) * (1 - P(t, C2 - 200, 200));
+      const ph = Math.max(0, (t - U2 - U2D) / 1400) % 1, hx = lerp(X0 - 60, X1 + 60, E.sine(ph));
+      lt.setAttribute('x1', cl(hx - 60, X0, X1).toFixed(2)); lt.setAttribute('x2', cl(hx, X0, X1).toFixed(2)); lt.setAttribute('y1', LY); lt.setAttribute('y2', LY);
+      lt.setAttribute('opacity', (on * 0.85 * (hx - 60 < X1 && hx > X0 ? 1 : 0)).toFixed(3));
+      // words: the old line leaves before the ring opens, the new one arrives once the line has settled
+      const a = t < 3000 ? 1 : t < C2 ? 1 - P(t, CD + 40, 160, E.in) : P(t, C1 + C1D - 60, 220);
+      const b = t < C2 ? P(t, U2 + 40, 260) : 1 - P(t, C2, 150, E.in);
+      O(A, a); O(B, b); B.style.transform = `translateY(${(4 * (1 - P(t, U2 + 40, 260))).toFixed(2)}px)`;
+      rr(t, [[0, 4], [1000, 3], [2000, 2], [3000, 1], [CD, 0], [C2, 4]]);
+    };
+  },
+});
+
+/* 15 ------------------------------------------------------------------ */
+scene({
+  id: 'skeleton-sheen', name: 'Skeleton', ds: 'A soft sheen that crosses every bar together', loop: 5500,
+  for: 'First load of a list or page that takes over 300ms.',
+  moves: 'One diagonal band of light passes across all skeleton bars as a single surface, then the real rows fade up over them.',
+  build(st) {
+    topbar(st, 'Sessions');
+    add(st, `<div class="ph" style="left:24px;top:63px">Sessions</div>`);
+    const D = [['Refactor auth middleware', 'Opus 5.5', 'Running', 1], ['Draft release notes', 'GPT-5.5', '2h'], ['Port wave engine to Kotlin', 'Gemini 3 Pro', '5h'], ['Audit Caddy routes', 'Kimi K3', '1d'], ['Bump bun to 1.3', 'Opus 5.5', '2d'], ['Fix flaky upload test', 'GPT-5.5', '3d']];
+    const TW = [168, 132, 186, 124, 104, 150], MW = [58, 50, 82, 52, 58, 50], SW = [52, 22, 18, 18, 18, 18];
+    D.forEach((d, i) => el('div', 'hair', st, `left:24px;top:${100 + i * 44 + 43}px;width:592px`));
+    const skr = D.map(() => el('div', 'a', st, 'left:0;top:0;width:640px;height:400px'));
+    const bars = [];
+    const sk = (row, x, y, w, h, r = 4) => { const e = el('div', 'sk', skr[row], `left:${x}px;top:${y}px;width:${w}px;height:${h}px;border-radius:${r}px`); bars.push({ e, x, y }); };
+    D.forEach((d, i) => { const y = 100 + i * 44; sk(i, 24, y + 15, 14, 14, 7); sk(i, 50, y + 16, TW[i], 12); sk(i, 616 - 70 - 12 - MW[i], y + 17, MW[i], 10); sk(i, 616 - SW[i], y + 17, SW[i], 10); });
+    const real = D.map((d, i) => add(st, `<div class="row" style="top:${100 + i * 44}px;opacity:0"><span style="width:14px;height:14px;display:grid">${d[3] ? '<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="4.6" fill="none" stroke="var(--signal)" stroke-width="1.6" opacity=".35"/><path d="M7 2.4a4.6 4.6 0 0 1 4.6 4.6" fill="none" stroke="var(--signal)" stroke-width="1.6" stroke-linecap="round"/></svg>' : '<svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="4.6" fill="none" stroke="var(--fg-4)" stroke-width="1.2"/></svg>'}</span><span>${d[0]}</span><span class="f3" style="margin-left:auto;font-size:12.5px;font-weight:400">${d[1]}</span><span class="${d[3] ? 'sig' : 'f4'}" style="width:70px;text-align:right;font-size:12.5px;font-weight:400">${d[2]}</span></div>`));
+    return (t) => {
+      const PASS = [[200, 1500], [1850, 1500]], IN = 3450, OUT = 5000;
+      let bx = -9999;
+      for (const [s, d] of PASS) if (t >= s && t < s + d) bx = lerp(-260, 900, E.sine((t - s) / d));
+      if (t >= OUT + 100) { const s = OUT + 700, d = 1500; if (t >= s) bx = lerp(-260, 900, E.sine(cl((t - s) / d))); }
+      const off = bx - 640;
+      bars.forEach((b) => { b.e.style.backgroundPosition = `${(off - b.x).toFixed(1)}px ${-b.y}px`; });
+      real.forEach((r, i) => {
+        const a = t < OUT ? P(t, IN + i * 40, 240) : 1 - P(t, OUT + i * 25, 160, E.in);
+        O(r, a); r.style.transform = `translateY(${(3 * (1 - (t < OUT ? a : 1))).toFixed(2)}px)`;
+        O(skr[i], t < OUT ? 1 - P(t, IN + i * 40, 200, E.in) : P(t, OUT + 60 + i * 25, 200));
+      });
+    };
+  },
+});
+
+/* 16 ------------------------------------------------------------------ */
+scene({
+  id: 'onboarding-steps', name: 'Onboarding steps', ds: 'Step content slides on a shared axis, the rail fills', loop: 7000,
+  for: 'First run: connect the hub, add a model, pair a device.',
+  moves: 'Content leaves to the left and the next step slides in from the right in a short stagger; the rail fills its circle, draws a check and runs a line down to the next step.',
+  build(st) {
+    const bar = topbar(st, null, { items: [] });
+    const sc = add(bar, `<div class="a f3 num" style="right:24px;top:15px;font-size:12.5px;display:flex;line-height:14px">Step&nbsp;<span class="roll sr"><span>1</span><span>2</span><span>3</span><span>4</span></span>&nbsp;of 4</div>`);
+    const srr = roller(sc.querySelector('.sr'), 14);
+    const STEPS = ['Connect the hub', 'Add a model', 'Pair a device', 'Done'];
+    const RY = (i) => 86 + i * 62;
+    add(st, `<div class="a" style="left:206px;top:44px;width:1px;height:356px;background:var(--rule)"></div>`);
+    const rail = STEPS.map((s, i) => {
+      const g = add(st, `<div class="a" style="left:28px;top:${RY(i) - 11}px;width:22px;height:22px">
+        <svg width="22" height="22" viewBox="0 0 22 22" style="display:block;overflow:visible">
+          <circle class="o" cx="11" cy="11" r="10" fill="none" stroke="var(--rule-2)" stroke-width="1.2"/>
+          <circle class="fi" cx="11" cy="11" r="10.5" fill="var(--fg)" style="transform-origin:11px 11px"/>
+          <path class="ck" d="M6.8 11.4 9.7 14.2 15.2 8.2" fill="none" stroke="var(--bg)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg><span class="a nm num" style="left:0;top:0;width:22px;height:22px;display:grid;place-items:center;font-size:11px;font-weight:600">${i + 1}</span></div>`);
+      const lab = add(st, `<div class="a" style="left:62px;top:${RY(i) - 9}px;font-size:13px;font-weight:500;line-height:18px;white-space:nowrap">${s}</div>`);
+      let ln = null, lf = null;
+      if (i < 3) { ln = add(st, `<div class="a" style="left:38.5px;top:${RY(i) + 15}px;width:1px;height:${62 - 30}px;background:var(--rule-2)"></div>`); lf = add(st, `<div class="a" style="left:38px;top:${RY(i) + 15}px;width:2px;height:${62 - 30}px;background:var(--fg);transform-origin:50% 0;border-radius:1px"></div>`); }
+      return { o: g.querySelector('.o'), fi: g.querySelector('.fi'), ck: g.querySelector('.ck'), nm: g.querySelector('.nm'), lab, lf };
+    });
+    const X = 236;
+    const content = [
+      `<div class="a it" style="left:${X}px;top:78px;font-size:22px;font-weight:600;font-stretch:106%;letter-spacing:-.02em;line-height:1">Connect the hub</div>
+       <div class="a it f2" style="left:${X}px;top:112px;width:370px;font-size:13.5px;line-height:1.5">Conclave runs on your machine. Point the app at it.</div>
+       <div class="a it" style="left:${X}px;top:160px"><div class="f2" style="font-size:12.5px;font-weight:500;margin-bottom:7px">Hub address</div><div class="mono" style="width:380px;height:34px;border:1px solid var(--rule-2);border-radius:5px;background:var(--bg-sunk);display:flex;align-items:center;padding:0 11px;font-size:12px">http://arch-desktop:7420</div></div>
+       <div class="a it okc" style="left:${X}px;top:232px;font-size:12.5px;display:flex;gap:6px;align-items:center">${ic('<path d="m3.5 8.5 3 3 6-7"/>', 13, 1.8)}Connected, hub 0.9.2</div>`,
+      `<div class="a it" style="left:${X}px;top:78px;font-size:22px;font-weight:600;font-stretch:106%;letter-spacing:-.02em;line-height:1">Add a model</div>
+       <div class="a it f2" style="left:${X}px;top:112px;width:370px;font-size:13.5px;line-height:1.5">Sign in or paste a key. You can add more later.</div>
+       ${[['A', 'Anthropic', 'Signed in'], ['B', 'OpenAI', 'Key added'], ['C', 'Google', 'Not set']].map((m, i) => `<div class="a it" style="left:${X}px;top:${156 + i * 44}px;width:380px;height:44px;display:flex;align-items:center;gap:11px;border-bottom:1px solid var(--rule)">${tile(m[0], 24, 13)}<span style="font-size:13.5px;font-weight:500">${m[1]}</span><span class="${i < 2 ? 'okc' : 'f4'}" style="margin-left:auto;font-size:12.5px">${m[2]}</span></div>`).join('')}`,
+      `<div class="a it" style="left:${X}px;top:78px;font-size:22px;font-weight:600;font-stretch:106%;letter-spacing:-.02em;line-height:1">Pair a device</div>
+       <div class="a it f2" style="left:${X}px;top:112px;width:370px;font-size:13.5px;line-height:1.5">Open Conclave on your phone and enter this code.</div>
+       <div class="a it mono" style="left:${X}px;top:162px;font-size:30px;font-weight:600;letter-spacing:.06em;line-height:1">K7Q 4ZP</div>
+       <div class="a it f3" style="left:${X}px;top:210px;font-size:12.5px">Waiting for your phone. The code changes in 4 minutes.</div>`,
+      `<svg class="a it" style="left:${X}px;top:76px;overflow:visible" width="48" height="48" viewBox="0 0 48 48"><circle class="dc" cx="24" cy="24" r="22" fill="none" stroke="var(--ok)" stroke-width="2" stroke-linecap="round" transform="rotate(-90 24 24)"/><path class="dk" d="M15 24.5 21.5 31 33 18" fill="none" stroke="var(--ok)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+       <div class="a it" style="left:${X}px;top:140px;font-size:22px;font-weight:600;font-stretch:106%;letter-spacing:-.02em;line-height:1">You are set</div>
+       <div class="a it f2" style="left:${X}px;top:174px;width:370px;font-size:13.5px;line-height:1.5">Two models and one phone are ready.</div>
+       <div class="a it f3" style="left:${X}px;top:206px;font-size:12.5px">Start a chat, or open Home to see what runs.</div>`,
+    ];
+    const pages = content.map((h) => { const p = el('div', 'a', st, 'left:0;top:0;width:640px;height:400px;opacity:0', h); return { p, its: [...p.querySelectorAll('.it')] }; });
+    const dc = pages[3].p.querySelector('.dc'), dk = pages[3].p.querySelector('.dk');
+    const back = add(st, `<div class="btn" style="left:${X}px;top:340px;width:64px">Back</div>`);
+    const cont = add(st, `<div class="btn solid" style="left:${616 - 96}px;top:340px;width:96px"><span class="sw bt"><span>Continue</span><span>Open Home</span></span></div>`);
+    const btsw = swapper(cont.querySelector('.bt'), 3);
+    const cur = cursor(st);
+    const CL = [1200, 2700, 4200], RS = 6250, CX = 616 - 48, CY2 = 354;
+    const keys = [[0, 470, 290], [500, 470, 290], [1050, CX, CY2], [3000, CX, CY2], [4500, CX, CY2], [5000, 470, 290]];
+    return (t) => {
+      let step = 0; CL.forEach((c) => { if (t >= c) step++; });
+      const reset = t >= RS;
+      const rk = P(t, RS, 300, E.std);
+      pages.forEach((pg, i) => {
+        let o = 0, x = 0;
+        if (reset) { if (i === 3) o = 1 - P(t, RS, 140, E.in); if (i === 0) o = P(t, RS + 120, 220); }
+        else if (i === step) { const c = i ? CL[i - 1] : -1e9; o = i ? 1 : 1; x = 0;
+          pg.its.forEach((it, j) => { const k = i ? P(t, c + 90 + j * 30, 240) : 1; O(it, k); it.style.transform = `translateX(${(14 * (1 - k)).toFixed(2)}px)`; });
+          O(pg.p, 1); return; }
+        else if (i === step - 1) { const c = CL[i]; const k = P(t, c, 100, E.in); o = 1 - k; x = -14 * k; }
+        pg.its.forEach((it) => { O(it, 1); it.style.transform = ''; });
+        O(pg.p, o); pg.p.style.transform = `translateX(${x.toFixed(2)}px)`;
+      });
+      // done mark
+      const dt = CL[2] + 90;
+      dc.setAttribute('stroke-dasharray', `${(P(t, dt, 420, E.std) * 2 * Math.PI * 22).toFixed(2)} 200`);
+      const dkk = P(t, dt + 300, 240, E.std);
+      dk.setAttribute('stroke-dasharray', `${(dkk * 30).toFixed(2)} 40`); dk.setAttribute('opacity', dkk > 0.02 ? 1 : 0);
+      dc.setAttribute('opacity', t > dt + 20 ? 1 : 0);
+      // rail
+      const fade = 1 - rk;
+      rail.forEach((r, i) => {
+        const done = i < 3 ? (t >= CL[i] ? P(t, CL[i], 200, E.out) : 0) : t >= CL[2] ? P(t, CL[2] + 260, 200) : 0;
+        const ck = i < 3 ? P(t, CL[i] + 100, 180, E.std) : P(t, CL[2] + 360, 180, E.std);
+        const curK = i === 0 ? (t < CL[0] ? 1 : 0) + (reset ? rk : 0) : (t >= CL[i - 1] ? P(t, CL[i - 1] + 240, 140) : 0) * (i < 3 ? 1 - (t >= CL[i] ? 1 : 0) : 1) * fade;
+        r.fi.style.transform = `scale(${done.toFixed(4)})`; r.fi.style.opacity = fade.toFixed(3);
+        r.ck.setAttribute('stroke-dasharray', `${(ck * 13).toFixed(2)} 20`); r.ck.style.opacity = (ck > 0.02 ? fade : 0).toFixed(3);
+        r.nm.style.opacity = (1 - done * fade).toFixed(3);
+        const act = Math.max(curK, done * fade);
+        r.nm.style.color = mix('var(--fg-4)', 'var(--fg)', act);
+        r.o.setAttribute('stroke', mix('var(--rule-2)', 'var(--fg)', curK));
+        r.lab.style.color = mix('var(--fg-3)', 'var(--fg)', act);
+        if (r.lf) { r.lf.style.transform = `scaleY(${(t >= CL[i] ? P(t, CL[i] + 120, 260, E.std) : 0).toFixed(4)})`; r.lf.style.opacity = fade.toFixed(3); }
+      });
+      O(back, step === 0 || step === 3 ? (reset ? P(t, RS + 120, 200) * 0.4 : step === 3 ? 0.4 * (1 - P(t, CL[2], 120)) : 0.4) : 1);
+      btsw(t, [[0, 0], [CL[2] + 100, 1], [RS + 60, 0]]);
+      srr(t, [[0, 0], [CL[0], 1], [CL[1], 2], [CL[2], 3], [RS, 0]]);
+      cur(t, keys, CL);
+    };
+  },
+});
+
+/* 17 ------------------------------------------------------------------ */
+scene({
+  id: 'panel-slide', name: 'Preview panel', ds: 'A side panel slides in and the column makes room', loop: 5000,
+  for: 'File preview, session details and other side panels on desktop.',
+  moves: 'The chat column glides left as the panel slides in from the right edge; closing runs the same path a little faster.',
+  build(st) {
+    topbar(st, 'Chat');
+    const col = add(st, `<div class="a" style="left:160px;top:0;width:320px;height:400px">
+      <div class="bubble" style="right:0;top:58px;font-size:13px">Write a plan for the Android release</div>
+      <div class="prose" style="left:0;top:104px;width:320px;font-size:13px;line-height:1.6">Here is a plan in four steps. I kept the store review as its own step since it can take two days.</div>
+      <div class="a fc" style="left:0;top:178px;width:200px;height:44px;border:1px solid var(--rule-2);border-radius:6px;display:flex;align-items:center;gap:10px;padding:0 12px;background:var(--bg-raise)"><div class="a fcb" style="inset:0;border-radius:6px;background:var(--bg-hover);opacity:0"></div><span class="f3" style="position:relative;display:grid">${I.file}</span><span style="position:relative;line-height:1.25"><span class="mono" style="font-size:12px;display:block">plan.md</span><span class="f4" style="font-size:11px">48 lines</span></span></div>
+      <div class="composer" style="left:0;top:318px;width:320px;height:62px"><span class="a f4" style="left:14px;top:11px;font-size:13.5px">Reply to Opus 5.5</span></div></div>`);
+    const fcb = col.querySelector('.fcb');
+    const PW = 284;
+    const pn = add(st, `<div class="a" style="left:${640 - PW}px;top:45px;width:${PW}px;height:355px;background:var(--bg-raise);border-left:1px solid var(--rule);opacity:0">
+      <div class="a" style="left:16px;top:16px;display:flex;align-items:center;gap:8px"><span class="f3" style="display:grid">${I.file}</span><span class="mono" style="font-size:12.5px">plan.md</span></div>
+      <div class="a xb" style="right:12px;top:10px;width:28px;height:28px;border-radius:5px;display:grid;place-items:center;color:var(--fg-2)"><div class="a xbg" style="inset:0;border-radius:5px;background:var(--bg-hover);opacity:0"></div><span style="position:relative">${I.x}</span></div>
+      <div class="hair" style="left:0;top:48px;width:${PW}px"></div>
+      <div class="a" style="left:16px;top:66px;width:250px;font-size:12.5px;line-height:1.65">
+        <div style="font-size:14px;font-weight:600;margin-bottom:6px">Android release</div>
+        ${['Freeze the chat and sessions screens', 'Run the motion suite in both themes', 'Upload the bundle for store review', 'Ship to 10 percent, then everyone'].map((s, i) => `<div style="display:flex;gap:9px;margin:5px 0"><span class="f4 mono" style="font-size:11.5px">${i + 1}.</span><span class="f2">${s}</span></div>`).join('')}
+        <div class="f3" style="margin-top:12px">Review takes up to two days, so step 3 starts on Monday.</div></div></div>`);
+    const xbg = pn.querySelector('.xbg');
+    const cur = cursor(st);
+    const keys = [[0, 470, 300], [200, 470, 300], [800, 300, 210], [1200, 300, 210], [1600, 200, 260], [2550, 200, 260], [3000, 612, 69], [3400, 612, 69], [4100, 470, 300]];
+    return (t) => {
+      const OP = 1040, CLs = 3140;
+      const k = t < CLs ? P(t, OP, 300, E.emph) : 1 - P(t, CLs, 240, E.std);
+      T(col, -136 * k, 0);
+      O(pn, k > 0.001 ? 1 : 0); T(pn, (PW + 1) * (1 - k), 0);
+      pn.style.boxShadow = `-12px 0 32px rgb(var(--sh) / ${(0.3 * Math.sin(Math.PI * k)).toFixed(3)})`;
+      O(fcb, P(t, 800, 120) * (1 - P(t, 1500, 200)));
+      O(xbg, P(t, 2980, 120) * (1 - P(t, CLs, 100)));
+      cur(t, keys, [960, 3060]);
+    };
+  },
+});
+
+/* ---------------- page ---------------- */
+let readyResolve; window.__ready = new Promise((r) => { readyResolve = r; });
+window.__scenes = S.map((s) => ({ id: s.id, name: s.name, loop: s.loop, w: 640, h: 36 + (s.h || 400) }));
+(async () => {
+  await Promise.all([document.fonts.load('500 13px "Mona Sans Variable"'), document.fonts.load('600 13px "Mona Sans Variable"'), document.fonts.load('400 12px "JetBrains Mono Variable"')]);
+  await document.fonts.ready;
+  const grid = document.getElementById('grid');
+  const live = [];
+  S.forEach((s, i) => {
+    if (SOLO && SOLO !== s.id) return;
+    const wrap = el('div', 'wrap' + (SOLO === s.id ? ' on' : ''), grid);
+    const cell = el('section', 'cell', wrap);
+    cell.setAttribute('aria-label', s.name);
+    cell.innerHTML = `<div class="lbl"><span class="no">${String(i + 1).padStart(2, '0')}</span><span class="nm">${s.name}</span><span class="ds">${s.ds}</span></div>`;
+    const st = el('div', 'stage', cell, `height:${s.h || 400}px`);
+    el('p', 'cap', wrap, '', `${s.for} ${s.moves}`);
+    const render = s.build(st);
+    live.push({ s, render, cell, vis: true });
+  });
+  if (SOLO) document.body.classList.add('solo');
+  const t0q = Number(Q.get('t') || 0);
+  live.forEach((l) => l.render(t0q % l.s.loop));
+  window.__render = (t) => live.forEach((l) => l.render(((t % l.s.loop) + l.s.loop) % l.s.loop));
+  if (!SOLO || Q.get('play')) {
+    const rm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const io = new IntersectionObserver((es) => es.forEach((e) => { const l = live.find((x) => x.cell === e.target); if (l) l.vis = e.isIntersecting; }));
+    live.forEach((l) => io.observe(l.cell));
+    let start = performance.now();
+    document.getElementById('replay').onclick = () => { start = performance.now(); };
+    document.getElementById('theme').onclick = (ev) => {
+      const r = document.documentElement; const light = r.dataset.theme !== 'light';
+      r.dataset.theme = light ? 'light' : 'dark'; ev.target.textContent = light ? 'Dark theme' : 'Light theme';
+    };
+    const frame = (now) => {
+      if (!rm) live.forEach((l) => { if (l.vis && !document.hidden) l.render((now - start) % l.s.loop); });
+      requestAnimationFrame(frame);
+    };
+    if (!rm) requestAnimationFrame(frame);
+  }
+  readyResolve(true);
+})();
+</script>
+</body>
+</html>

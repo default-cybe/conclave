@@ -1,0 +1,1 @@
+Update README.md: make the flags section match the CLI, and add Homebrew install steps next to the npm ones.

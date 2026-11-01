@@ -1,0 +1,439 @@
+/* What every page with motion shares: the font, the tokens, the knot, buttons, the top bar and the footer.
+   home.css and details.css hold each page's own parts. */
+
+@font-face {
+  font-family: "Mona Sans";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 200 900;
+  src: url(fonts/mona-sans-latin-wght.woff2) format("woff2-variations"), url(fonts/mona-sans-latin-wght.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* The light's place on the knot (0 to 100, 84 is home) */
+@property --p { syntax: "<number>"; inherits: true; initial-value: 84; }
+
+:root {
+  color-scheme: light dark;
+  --bg: #fafafb;
+  --bg-sunk: #f3f3f5;
+  --bg-raise: #ffffff;
+  --fg: #1b1b20;
+  --fg-2: #4f4f58;
+  --fg-3: #6b6b74;
+  --rule: #e3e3e8;
+  --rule-2: #cfcfd6;
+  --accent: #7c4dd8;
+  --accent-dim: rgba(124, 77, 216, 0.07);
+  --accent-line: rgba(124, 77, 216, 0.35);
+  /* the app's state colors: violet is live work, amber is waiting on you */
+  --signal: #7a4aba;
+  --signal: oklch(0.52 0.17 300);
+  --warn: #a66000;
+  --warn: oklch(0.555 0.13 65);
+  --glow: 6%;
+  --shadow: 0 1px 2px rgba(20, 20, 30, 0.04), 0 12px 32px rgba(20, 20, 30, 0.08);
+  --lift: 0 2px 4px rgba(20, 20, 30, 0.06), 0 22px 48px rgba(20, 20, 30, 0.16);
+  --sans: "Mona Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --gutter: 32px;
+  --max: 1160px;
+  --top-h: 60px;
+  /* motion, as the app's tokens */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-morph: cubic-bezier(0.6, 0, 0.4, 1);
+  --ease-settle: cubic-bezier(0.3, 0.05, 0.15, 1);
+  --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
+  /* the mark: every <use href="#k"> reads these (base, light, halo, widths, light's dashes) */
+  --k-dim: var(--rule-2);
+  --kw: 5.2;
+  --khw: 9;
+  --kb: var(--fg);
+  --kl: var(--signal);
+  --kh: var(--bg);
+  --klo: 1;
+  --kda: 16 84;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141417;
+    --bg-sunk: #111114;
+    --bg-raise: #1a1a1e;
+    --fg: #ecebef;
+    --fg-2: #b4b3bc;
+    --fg-3: #8f8e98;
+    --rule: #29292f;
+    --rule-2: #3a3a42;
+    --accent: #b592f0;
+    --accent-dim: rgba(181, 146, 240, 0.08);
+    --accent-line: rgba(181, 146, 240, 0.4);
+    --signal: #c6a2f7;
+    --signal: oklch(0.775 0.125 303);
+    --warn: #f2be62;
+    --warn: oklch(0.83 0.125 80);
+    --glow: 10%;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 16px 40px rgba(0, 0, 0, 0.35);
+    --lift: 0 2px 4px rgba(0, 0, 0, 0.4), 0 24px 56px rgba(0, 0, 0, 0.55);
+  }
+}
+
+* { box-sizing: border-box; }
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  scroll-padding-top: calc(var(--top-h) + 16px);
+  interpolate-size: allow-keywords;
+}
+.still { scroll-behavior: auto; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.6;
+  font-weight: 420;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+img { display: block; max-width: 100%; height: auto; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+::selection { background: var(--accent-dim); }
+b, strong { font-weight: 600; }
+button { font: inherit; color: inherit; }
+code {
+  font-family: var(--mono);
+  font-size: 0.86em;
+  padding: 0.08em 0.3em;
+  border-radius: 4px;
+  background: var(--bg-sunk);
+  border: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+.sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; padding: 0; }
+
+.wrap {
+  width: 100%;
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+.skip {
+  position: absolute;
+  left: 12px;
+  top: -60px;
+  padding: 8px 12px;
+  background: var(--fg);
+  color: var(--bg);
+  border-radius: 6px;
+  z-index: 30;
+}
+.skip:focus { top: 12px; }
+
+/* ---------------------------------------------------------------- knots */
+
+/* a drawn knot (base.js): base, light and halo from the custom properties above */
+.rope { display: block; width: 100%; height: 100%; overflow: hidden; --rb: var(--kb); --rl: var(--kl); }
+.rope[overflow="visible"] { overflow: visible; }
+.rope .r-base { stroke: var(--rb); }
+.rope .r-cap { fill: var(--rb); }
+.rope .r-dim { stroke: var(--k-dim); }
+.rope .r-dimcap { fill: var(--k-dim); }
+.rope .r-lt, .rope .r-trail { stroke: var(--rl); }
+/* the faint trail ends flat, so two pieces never overlap into darker dots */
+.rope .r-trail { stroke-linecap: butt; }
+.rope .r-lt { opacity: var(--lit, 1); }
+.rope .r-halo { stroke: var(--kh); }
+.rope[data-state="thinking"], .rope[data-state="tool"], .rope[data-state="waiting"], .rope[data-state="paused"] { --rb: var(--k-dim); }
+.rope[data-state="waiting"] { --rl: var(--warn); }
+.rope[data-state="paused"] { --rl: var(--fg-3); }
+.rope[data-state="done"] { --rb: var(--fg-3); }
+
+/* ---------------------------------------------------------------- buttons */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 11px 20px;
+  border: 1px solid var(--fg);
+  border-radius: 9px;
+  background: var(--fg);
+  color: var(--bg);
+  font-weight: 560;
+  font-size: 16px;
+  line-height: 1.3;
+  text-decoration: none;
+  transition: opacity 120ms, transform 120ms, border-color 120ms;
+}
+.btn:hover { opacity: 0.88; }
+.btn:active { transform: translateY(1px); }
+.btn-quiet { background: transparent; color: var(--fg); border-color: var(--rule-2); }
+.btn-quiet:hover { opacity: 1; border-color: var(--fg-3); }
+.btn-sm { padding: 7px 14px; font-size: 14.5px; border-radius: 8px; }
+
+/* the Download button's rim: one light laps the edge (the app's Rim). A conic light turns
+   inside a masked ring, so it runs on the compositor: three laps after load, then on hover or focus */
+.rim { position: relative; isolation: isolate; }
+.rim-ring {
+  display: none;
+  position: absolute;
+  inset: -3px;
+  border-radius: 11px;
+  padding: 1.5px;
+  overflow: hidden;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  pointer-events: none;
+}
+.rim-ring i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 220px;
+  height: 220px;
+  margin: -110px 0 0 -110px;
+  background: conic-gradient(transparent 0 64%, var(--signal) 82%, transparent 96%);
+}
+.motion .rim-ring { display: block; animation: fade-late 12.2s linear both; }
+.motion .rim-ring i { animation: rim 4s linear 3 both; }
+.motion .rim:is(:hover, :focus-visible) .rim-ring { animation: none; }
+.motion .rim:is(:hover, :focus-visible) .rim-ring i { animation: rim-hover 2.4s linear infinite; }
+@keyframes rim { to { transform: rotate(1turn); } }
+@keyframes rim-hover { to { transform: rotate(1turn); } }
+@keyframes fade-late { 0%, 97% { opacity: 1; } 100% { opacity: 0; } }
+
+/* ---------------------------------------------------------------- top bar */
+
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--bg);
+  border-bottom: 1px solid transparent;
+  transition: border-color 240ms;
+}
+/* a frosted bar where it is cheap; phones get a plain one, so scrolling stays smooth */
+@media (min-width: 1000px) {
+  .top {
+    background: color-mix(in srgb, var(--bg) 84%, transparent);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+  }
+}
+.top.scrolled { border-bottom-color: var(--rule); }
+.top-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: var(--top-h);
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--fg);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+  flex: none;
+}
+.mark { display: block; width: 24px; height: 24px; --kw: 7; --khw: 11; }
+.top .mark { --kh: var(--bg); }
+/* the mark's light runs one lap over the whole page as you read */
+.motion .top .mark { animation: mark-lap linear both; animation-timeline: scroll(root); }
+@keyframes mark-lap { from { --p: 84; } to { --p: 184; } }
+@supports not (animation-timeline: scroll()) {
+  .motion .top .mark { animation: none; --p: calc(84 + var(--scroll, 0) * 100); }
+}
+.sections { flex: 1; min-width: 0; }
+.sections-row {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 28px;
+  height: var(--top-h);
+  overflow-x: auto;
+  scrollbar-width: none;
+  white-space: nowrap;
+}
+.sections-row::-webkit-scrollbar { display: none; }
+.sections a {
+  color: var(--fg-2);
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 500;
+  transition: color 240ms;
+}
+.sections a:hover, .sections a[aria-current] { color: var(--fg); }
+.ind {
+  position: absolute;
+  left: 0;
+  bottom: 13px;
+  width: 1px;
+  height: 2px;
+  background: var(--signal);
+  transform-origin: 0 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.motion .ind { transition: transform 240ms var(--ease-out), opacity 240ms; }
+.top-end { display: flex; align-items: center; gap: 12px; flex: none; }
+.pause {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg-2);
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.pause:hover { color: var(--fg); border-color: var(--rule); }
+.pause-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.pause[hidden] { display: none; }
+.pause svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.pause .i-play { display: none; fill: currentColor; stroke: none; }
+.pause[aria-pressed="true"] .i-pause { display: none; }
+.pause[aria-pressed="true"] .i-play { display: inline; }
+
+/* ---------------------------------------------------------------- type */
+
+h1 { text-wrap: balance; }
+h2 {
+  margin: 0;
+  font-size: clamp(30px, 2.6vw + 12px, 48px);
+  line-height: 1.06;
+  font-weight: 640;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+.intro {
+  margin: 18px 0 0;
+  max-width: 44em;
+  font-size: 19px;
+  color: var(--fg-2);
+}
+h3 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+h4 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.3;
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- reveals */
+
+.motion .rv:not(.in) { opacity: 0; transform: translateY(12px); }
+.motion .rv {
+  transition: opacity 480ms var(--ease-out), transform 480ms var(--ease-out), border-color 180ms, box-shadow 180ms;
+  transition-delay: calc(var(--i, 0) * 50ms), calc(var(--i, 0) * 50ms), 0s, 0s;
+}
+/* keyboard focus lands on content that has not been revealed yet: show it at once */
+.motion .rv:focus-within { opacity: 1; transform: none; transition: none; }
+/* if base.js never runs, show everything anyway */
+.motion:not(.live) .rv { animation: show 0s 1.5s forwards; }
+@keyframes show { to { opacity: 1; transform: none; } }
+
+/* ---------------------------------------------------------------- footer */
+
+.foot { position: relative; background: var(--bg-sunk); border-top: 1px solid var(--rule); --kh: var(--bg-sunk); }
+.foot-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 32px;
+  padding-top: 28px;
+  padding-bottom: 32px;
+  font-size: 14.5px;
+  color: var(--fg-3);
+}
+.foot-row p { margin: 0; }
+.foot-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 16px;
+  text-decoration: none;
+}
+.foot-brand .mark { width: 20px; height: 20px; }
+.foot-links { display: flex; flex-wrap: wrap; gap: 4px 24px; }
+.foot-links a { color: var(--fg-2); text-decoration: none; }
+.foot-links a:hover { color: var(--fg); text-decoration: underline; }
+
+/* ---------------------------------------------------------------- loops pause in a hidden tab */
+
+.tab-hidden *, .tab-hidden *::before, .tab-hidden *::after { animation-play-state: paused !important; }
+
+/* ---------------------------------------------------------------- tablet */
+
+@media (max-width: 999px) {
+  :root { --gutter: 24px; --top-h: 56px; }
+  html { scroll-padding-top: 116px; }
+  .top-row { flex-wrap: wrap; height: auto; gap: 0 16px; }
+  .brand { height: var(--top-h); }
+  .top-end { margin-left: auto; }
+  .sections { order: 3; flex-basis: 100%; margin: 0 calc(-1 * var(--gutter)); }
+  .sections-row {
+    justify-content: flex-start;
+    height: 44px;
+    padding: 0 var(--gutter);
+    gap: 24px;
+    border-top: 1px solid var(--rule);
+    /* the row scrolls sideways when it must: its edges fade so the cut-off links read as more */
+    -webkit-mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 28px), transparent);
+  }
+  .ind { bottom: 7px; }
+}
+
+/* ---------------------------------------------------------------- phone */
+
+@media (max-width: 640px) {
+  :root { --gutter: 16px; }
+  body { font-size: 16px; }
+  h2 { font-size: 32px; }
+  .intro { font-size: 17px; }
+  h3 { font-size: 20px; }
+  .foot-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+  /* tap targets: 44px at least */
+  .sections a { display: flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 0 4px; }
+  .pause { width: 44px; height: 44px; }
+  .top .btn-sm { min-height: 44px; padding: 10px 14px; }
+  .foot-brand, .foot-links a { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; }
+  summary { padding-block: 11px; }
+}
+
+/* ---------------------------------------------------------------- reduced motion, belt and braces */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; transition-delay: 0ms !important; }
+}

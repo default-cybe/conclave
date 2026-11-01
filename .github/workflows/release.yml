@@ -1,0 +1,426 @@
+name: Release
+
+# Push a tag like v0.2.0 to build everything and publish a GitHub release in
+# this repo, the home of releases (people download and update from here):
+# CLI binaries (with the web app) for the install script, desktop app bundles,
+# the Rust device daemon per system (conclave-daemon-<target>), and the hub
+# Docker image on ghcr.io.
+#
+# Updates (docs/DESIGN.md, Updates): every file an updater installs is signed
+# with one minisign key, the Tauri updater's. The secrets
+# TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD hold it, and
+# packages/core/src/update/update-key.pub holds its public half. tauri-action
+# signs the desktop updater bundles; the sign job signs the CLI archives and
+# the daemons. Without the secret nothing is signed, the release title says
+# "(unsigned)", and every updater refuses it.
+#
+# Run it by hand (workflow_dispatch) to build the same files as run artifacts
+# without a release or an image: version 0.0.<run number>.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  BUN_VERSION: 1.4.2
+  # the tag without its v, or a numeric one for a build by hand (MSI versions take numbers only)
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('0.0.{0}', github.run_number) }}
+
+jobs:
+  create-release:
+    name: Create draft release
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.release.outputs.id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      # the tag's CHANGELOG.md section is the release body; without one the release stops here
+      - name: Release notes from CHANGELOG.md
+        env:
+          TAG: ${{ github.ref_name }}
+        run: bun scripts/releases/notes.ts "$TAG" > "$RUNNER_TEMP/notes.md"
+
+      - id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ contains(github.ref_name, '-') }}
+        run: |
+          # Reuse the draft when a run is retried.
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -n 1)
+          if [ -z "$id" ]; then
+            id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+              -f tag_name="$TAG" -f name="Conclave $TAG" \
+              -F draft=true -F prerelease="$PRERELEASE" -F body=@"$RUNNER_TEMP/notes.md" \
+              --jq .id)
+          else
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F body=@"$RUNNER_TEMP/notes.md" > /dev/null
+          fi
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+  cli:
+    name: CLI ${{ matrix.target }}
+    needs: create-release
+    if: ${{ !cancelled() && needs.create-release.result != 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Bun cross-compiles every target from Linux. linux-x64-baseline is for
+        # CPUs without AVX2 (older home servers); install.sh picks it itself.
+        # The desktop app's "Run the hub on this computer" downloads these same
+        # files by name, of its own version, and checks their .sha256
+        # (packages/desktop/src-tauri/src/local.rs): keep the names and layout.
+        target: [linux-x64, linux-x64-baseline, linux-arm64, darwin-x64, darwin-arm64, windows-x64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      # the hub says the tag as its version (cli/src/version.ts reads this file at build time);
+      # the desktop app downloads the hub of its own version and the daemon reports the same one
+      # the web app shows its own version in Settings > About > This client
+      - name: Use the tag as the hub's version
+        shell: bash
+        run: |
+          bun -e 'for (const f of ["packages/cli/package.json", "packages/web/package.json"]) { const p = await Bun.file(f).json(); p.version = process.env.VERSION.replace(/^v/, ""); await Bun.write(f, JSON.stringify(p, null, 2) + "\n"); }'
+          grep '"version"' packages/cli/package.json packages/web/package.json
+
+      - name: Build web app
+        run: bun run --filter @conclave/web build
+
+      - name: Compile and package
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          name="conclave-$TARGET"
+          exe=conclave
+          case "$TARGET" in windows-*) exe=conclave.exe ;; esac
+          mkdir -p "out/$name"
+          bun scripts/build-cli.ts --target "bun-$TARGET" --outfile "out/$name/$exe"
+          # The hub serves web/ from next to the binary.
+          cp -R packages/web/dist "out/$name/web"
+          cd out
+          case "$TARGET" in
+            windows-*)
+              zip -qr "$name.zip" "$name"
+              sha256sum "$name.zip" > "$name.zip.sha256"
+              ;;
+            *)
+              mkdir -p "$name/services"
+              cp ../scripts/systemd/*.service ../scripts/launchd/*.plist "$name/services/"
+              tar -czf "$name.tar.gz" "$name"
+              sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+              ;;
+          esac
+          ls -l
+
+      - name: Smoke test
+        if: matrix.target == 'linux-x64'
+        run: scripts/smoke-hub.sh out/conclave-linux-x64/conclave --expect-web
+
+      - name: Upload to release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: find out -maxdepth 1 -type f -print0 | xargs -0 gh release upload "$GITHUB_REF_NAME" --clobber
+
+      - name: Keep as a run artifact
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: conclave-${{ matrix.target }}
+          path: out/conclave-${{ matrix.target }}.*
+
+  desktop:
+    name: Desktop ${{ matrix.target }}
+    needs: create-release
+    if: ${{ !cancelled() && needs.create-release.result != 'failure' }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each bundle carries the daemon for its own system (bundle.externalBin,
+        # binaries/conclave-daemon-<target>). The Mac builds are one per CPU, so
+        # each download carries one daemon, not two.
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            args: ''
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: System libraries
+        if: matrix.platform == 'ubuntu-22.04'
+        run: '"$GITHUB_WORKSPACE/scripts/ci/apt-install.sh" libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libasound2-dev patchelf'
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            packages/desktop/src-tauri
+            packages/daemon-rs
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Use the tag as the app and daemon version
+        shell: bash
+        run: |
+          bun -e 'for (const f of ["packages/desktop/package.json", "packages/cli/package.json", "packages/web/package.json"]) { const p = await Bun.file(f).json(); p.version = process.env.VERSION.replace(/^v/, ""); await Bun.write(f, JSON.stringify(p, null, 2) + "\n"); }'
+
+      # conclave-daemon for this bundle's system: the Rust daemon
+      # (packages/daemon-rs). Set the repository variable CONCLAVE_SIDECAR to
+      # "ts" to ship the TypeScript one (packages/cli/src/daemon-main.ts)
+      # instead. tauri build then finds it (beforeBuildCommand skips a binary
+      # that is there) and puts it next to the app.
+      - name: Build the daemon the app carries
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          IMPL: ${{ vars.CONCLAVE_SIDECAR || 'rust' }}
+        run: |
+          bun scripts/build-sidecar.ts --target "$TARGET" --impl "$IMPL"
+          bin="packages/desktop/src-tauri/binaries/conclave-daemon-$TARGET"
+          case "$TARGET" in *windows*) bin="$bin.exe" ;; esac
+          ls -l "$bin"
+          # the Mac runner is Apple silicon, so the Intel build is checked by its file type only
+          if [ "$TARGET" = x86_64-apple-darwin ]; then file "$bin"; else "$bin" --version; fi
+
+      # The updater bundles (.app.tar.gz, the signed NSIS installer and AppImage)
+      # only with the signing secret and the committed public key: tauri build
+      # fails on a half setup. TAURI_CONFIG is merged into tauri.conf.json.
+      - name: Updater config
+        shell: bash
+        env:
+          HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: echo "TAURI_CONFIG=$(bun scripts/releases/updates.ts tauri-config)" >> "$GITHUB_ENV"
+
+      # The desktop app ships only its small connection page (packages/desktop/src)
+      # and loads the web UI from the hub, so it does not need the web build.
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: packages/desktop
+          tauriScript: bun run tauri
+          releaseId: ${{ needs.create-release.outputs.id }}
+          args: ${{ matrix.args }}
+          # Publish public writes latest.json, with the other update manifest, after the APK is in
+          includeUpdaterJson: false
+
+      - name: Keep the bundles as a run artifact
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: desktop-${{ matrix.target }}
+          path: packages/desktop/src-tauri/target/**/release/bundle/
+
+  # The Rust daemon alone, one file per system, named the way Tauri's
+  # externalBin wants it (conclave-daemon-<target>[.exe]) with a .sha256 next
+  # to it. The desktop bundles build their own copy in the job above.
+  daemon:
+    name: Daemon ${{ matrix.target }}
+    needs: create-release
+    if: ${{ !cancelled() && needs.create-release.result != 'failure' }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - platform: ubuntu-22.04
+            target: aarch64-unknown-linux-gnu
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Cross compiler for Linux arm64
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: '"$GITHUB_WORKSPACE/scripts/ci/apt-install.sh" gcc-aarch64-linux-gnu'
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: packages/daemon-rs
+          key: ${{ matrix.target }}
+
+      - name: Build
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+        run: |
+          # the daemon says the tag as its version (build.rs)
+          export CONCLAVE_VERSION="${VERSION#v}"
+          cargo build --release --locked --manifest-path packages/daemon-rs/Cargo.toml --target "$TARGET"
+          exe=""
+          case "$TARGET" in *windows*) exe=.exe ;; esac
+          name="conclave-daemon-$TARGET$exe"
+          mkdir -p out
+          cp "packages/daemon-rs/target/$TARGET/release/conclave-daemon$exe" "out/$name"
+          cd out
+          if command -v sha256sum >/dev/null; then sha256sum "$name" > "$name.sha256"; else shasum -a 256 "$name" > "$name.sha256"; fi
+          ls -l
+          # cross builds (arm64 Linux, Intel Mac on an Apple silicon runner) are checked by their file type only
+          case "$TARGET" in aarch64-unknown-linux-gnu|x86_64-apple-darwin) file "$name" ;; *) "./$name" --version ;; esac
+
+      - name: Upload to release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" out/* --clobber
+
+      - name: Keep as a run artifact
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: daemon-${{ matrix.target }}
+          path: out/
+
+  docker:
+    name: Docker image
+    # no image for a tag whose release stopped (no CHANGELOG.md section)
+    needs: create-release
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # the hub in the image says the tag as its version (Dockerfile)
+          build-args: |
+            CONCLAVE_VERSION=${{ env.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Signs the CLI archives and the daemons (the desktop bundles are signed by
+  # tauri-action above), and uploads each .sig next to its file. Without the
+  # secret the release is marked unsigned instead.
+  sign:
+    name: Sign update files
+    needs: [create-release, cli, daemon]
+    if: ${{ always() && github.ref_type == 'tag' && needs.cli.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Sign
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo "::notice::No TAURI_SIGNING_PRIVATE_KEY secret: $TAG is unsigned. Updaters will not install it."
+            gh release edit "$TAG" --title "Conclave $TAG (unsigned)"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/dist"
+          gh release download "$TAG" -D "$RUNNER_TEMP/dist" -p 'conclave-*'
+          bun scripts/releases/updates.ts sign "$RUNNER_TEMP/dist" --tag "$TAG"
+          if ls "$RUNNER_TEMP"/dist/*.sig > /dev/null 2>&1; then
+            gh release upload "$TAG" "$RUNNER_TEMP"/dist/*.sig --clobber
+          fi
+
+  publish:
+    name: Publish release
+    needs: [create-release, cli, desktop, daemon, sign]
+    # The CLI assets are what install.sh needs. A failed desktop or daemon build
+    # should not hold them back; it can be re-run and uploaded later.
+    if: ${{ always() && github.ref_type == 'tag' && needs.cli.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          ID: ${{ needs.create-release.outputs.id }}
+        run: gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$ID" -F draft=false

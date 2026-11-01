@@ -1,0 +1,1 @@
+In the repository at file:///tmp/agent-bench-origin/jsonkit, does lib/parse.js still export parseLegacy? If not, which commit removed it, and what replaced it?

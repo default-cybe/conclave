@@ -1,0 +1,7 @@
+Check these claims. You get only the claims and their sources.
+
+1. jq is written in portable C and has zero runtime dependencies. Source: https://raw.githubusercontent.com/jqlang/jq/master/README.md
+2. jq's prebuilt release downloads are tar.gz archives that you extract before use. Source: https://raw.githubusercontent.com/jqlang/jq/master/README.md
+3. Building Redis with all modules works with CMake 4.x. Source: https://raw.githubusercontent.com/redis/redis/unstable/README.md
+4. The Docker example in the Redis README publishes port 63790. Source: https://raw.githubusercontent.com/redis/redis/unstable/README.md
+5. jq keeps its manual as docs/manual-v2.md in the repository. Source: https://raw.githubusercontent.com/jqlang/jq/master/docs/manual-v2.md

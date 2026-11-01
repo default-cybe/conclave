@@ -1,0 +1,1 @@
+{ "extends": "../tsconfig.base.json", "compilerOptions": { "noEmit": true }, "include": ["*.ts", "lib/**/*.ts", "checks/**/*.ts", "agents/*.ts", "test/**/*.ts"] }

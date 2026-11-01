@@ -1,0 +1,327 @@
+{
+ "count": 245,
+ "next": "https://hub.docker.com/v2/repositories/mcp/?ordering=pull_count&page=2&page_size=100",
+ "previous": null,
+ "results": [
+  {
+   "name": "signatures",
+   "namespace": "mcp",
+   "repository_type": "image",
+   "status": 1,
+   "status_description": "active",
+   "description": "Repository containing cosign signatures for images in the mcp namespace",
+   "is_private": false,
+   "star_count": 11,
+   "pull_count": 81669546,
+   "last_updated": "2026-07-21T07:00:37.28059Z",
+   "last_modified": "2025-05-03T12:27:40.423368Z",
+   "date_registered": "2025-05-01T09:30:37.214961Z",
+   "affiliation": "",
+   "media_types": [
+    "application/vnd.oci.image.config.v1+json"
+   ],
+   "content_types": [
+    "image"
+   ],
+   "categories": [],
+   "storage_size": 15251400,
+   "source": null,
+   "registry_region": {
+    "name": "us-east-1",
+    "label": "US"
+   }
+  },
+  {
+   "name": "docker-mcp-catalog",
+   "namespace": "mcp",
+   "repository_type": null,
+   "status": 1,
+   "status_description": "active",
+   "description": "",
+   "is_private": false,
+   "star_count": 4,
+   "pull_count": 7400924,
+   "last_updated": "2026-10-17T06:24:59.443694Z",
+   "last_modified": "2025-11-20T15:56:25.15441Z",
+   "date_registered": "2025-11-20T15:56:25.156585Z",
+   "affiliation": "",
+   "media_types": [
+    "application/vnd.docker.mcp.catalog.v1+json"
+   ],
+   "content_types": [
+    "unrecognized"
+   ],
+   "categories": [],
+   "storage_size": 1362007746,
+   "source": null,
+   "registry_region": {
+    "name": "us-east-1",
+    "label": "US"
+   }
+  },
+  {
+   "name": "playwright",
+   "namespace": "mcp",
+   "repository_type": null,
+   "status": 1,
+   "status_description": "active",
+   "description": "Playwright MCP server",
+   "is_private": false,
+   "star_count": 38,
+   "pull_count": 2484730,
+   "last_updated": "2026-06-26T07:39:31.811123Z",
+   "last_modified": "2026-10-17T06:23:07.678738Z",
+   "date_registered": "2025-04-28T06:46:29.806693Z",
+   "affiliation": "",
+   "media_types": [
+    "application/vnd.oci.image.index.v1+json"
+   ],
+   "content_types": [
+    "image"
+   ],
+   "categories": [
+    {
+     "name": "Machine learning & AI",
+     "slug": "machine-learning-and-ai"
+    }
+   ],
+   "storage_size": 66538298325,
+   "source": null,
+   "registry_region": {
+    "name": "us-east-1",
+    "label": "US"
+   }
+  },
+  {
+   "name": "fetch",
+   "namespace": "mcp",
+   "repository_type": null,
+   "status": 1,
+   "status_description": "active",
+   "description": "Fetches a URL from the internet and extracts its contents as markdown",
+   "is_private": false,
+   "star_count": 58,
+   "pull_count": 1920829,
+   "last_updated": "2026-07-07T07:28:12.922484Z",
+   "last_modified": "2026-10-17T06:23:06.540292Z",
+   "date_registered": "2024-12-19T20:20:08.490561Z",
+   "affiliation": "",
+   "media_types": [
+    "application/vnd.oci.image.index.v1+json"
+   ],
+   "content_types": [
+    "image"
+   ],
+   "categories": [
+    {
+     "name": "Machine learning & AI",
+     "slug": "machine-learning-and-ai"
+    }
+   ],
+   "storage_size": 3082524182,
+   "source": null,
+   "registry_region": {
+    "name": "us-east-1",
+    "label": "US"
+   }
+  },
+  {
+   "name": "sonarqube",
+   "namespace": "mcp",
+   "repository_type": null,
+   "status": 1,
+   "status_description": "active",
+   "description": "Interact with SonarQube Cloud, Server and Community build over the web API. Analyze code to ident...",
+   "is_private": false,
+   "star_count": 23,
+   "pull_count": 1535054,
+   "last_updated": "2026-07-08T07:11:02.881371Z",
+   "last_modified": "2026-10-17T06:23:07.782282Z",
+   "date_registered": "2025-06-27T13:55:10.299806Z",
+   "affiliation": "",
+   "media_types": [
+    "application/vnd.oci.image.index.v1+json"
+   ],
+   "content_types": [
+    "image"
+   ],
+   "categories": [
+    {
+     "name": "Machine learning & AI",
+     "slug": "machine-learning-and-ai"
+    }
+   ],
+   "storage_size": 8855917557,
+   "source": null,
+   "registry_region": {
+    "name": "us-east-1",
+    "label": "US"
+   }
+  },
+  {
+   "name": "grafana",
+   "namespace": "mcp",
+   "repository_type": null,
+   "status": 1,
+   "status_description": "active",
+   "description": "MCP server for Grafana",
+   "is_private": false,
+   "star_count": 22,
+   "pull_count": 1066835,
+   "last_updated": "2026-07-08T07:08:25.532745Z",
+   "last_modified": "2026-10-17T06:23:06.947506Z",
+   "date_registered": "2025-04-16T09:30:23.443294Z",
+   "affiliation": "",
+   "media_types": [
+    "application/vnd.oci.image.index.v1+json"
+   ],
+   "content_types": [
+    "image"
+   ],
+   "categories": [
+    {
+     "name": "Machine learning & AI",
+     "slug": "machine-learning-and-ai"
+    }
+   ],
+   "storage_size": 5726204130,
+   "source": null,
+   "registry_region": {
+    "name": "us-east-1",
+    "label": "US"
+   }
+  },
+  {
+   "name": "time",
+   "namespace": "mcp",
+   "repository_type": null,
+   "status": 1,
+   "status_description": "active",
+   "description": "Time and timezone conversion capabilities",
+   "is_private": false,
+   "star_count": 9,
+   "pull_count": 1015128,
+   "last_updated": "2025-06-17T16:00:45.757862Z",
+   "last_modified": "2026-10-16T06:25:27.463643Z",
+   "date_registered": "2024-12-19T20:42:21.41855Z",
+   "affiliation": "",
+   "media_types": [
+    "application/vnd.oci.image.index.v1+json"
+   ],
+   "content_types": [
+    "image"
+   ],
+   "categories": [
+    {
+     "name": "Machine learning & AI",
+     "slug": "machine-learning-and-ai"
+    }
+   ],
+   "storage_size": 1231347790,
+   "source": null,
+   "registry_region": {
+    "name": "us-east-1",
+    "label": "US"
+   }
+  },
+  {
+   "name": "duckduckgo",
+   "namespace": "mcp",
+   "repository_type": null,
+   "status": 1,
+   "status_description": "active",
+   "description": "Community-maintained server for DuckDuckGo search. Not published by or affiliated with DuckDuckGo.",
+   "is_private": false,
+   "star_count": 11,
+   "pull_count": 910085,
+   "last_updated": "2026-07-02T07:17:10.104695Z",
+   "last_modified": "2026-10-17T06:23:06.466788Z",
+   "date_registered": "2025-04-12T10:41:39.226744Z",
+   "affiliation": "",
+   "media_types": [
+    "application/vnd.oci.image.index.v1+json"
+   ],
+   "content_types": [
+    "image"
+   ],
+   "categories": [
+    {
+     "name": "Machine learning & AI",
+     "slug": "machine-learning-and-ai"
+    }
+   ],
+   "storage_size": 2134587710,
+   "source": null,
+   "registry_region": {
+    "name": "us-east-1",
+    "label": "US"
+   }
+  },
+  {
+   "name": "context7",
+   "namespace": "mcp",
+   "repository_type": null,
+   "status": 1,
+   "status_description": "active",
+   "description": "Context7 MCP Server -- Up-to-date code documentation for LLMs and AI code editors",
+   "is_private": false,
+   "star_count": 23,
+   "pull_count": 632360,
+   "last_updated": "2025-06-16T19:18:29.995325Z",
+   "last_modified": "2025-10-30T01:49:49.036999Z",
+   "date_registered": "2025-04-23T09:07:31.55527Z",
+   "affiliation": "",
+   "media_types": [
+    "application/vnd.oci.image.index.v1+json"
+   ],
+   "content_types": [
+    "image"
+   ],
+   "categories": [
+    {
+     "name": "Machine learning & AI",
+     "slug": "machine-learning-and-ai"
+    }
+   ],
+   "storage_size": 1743312187,
+   "source": null,
+   "registry_region": {
+    "name": "us-east-1",
+    "label": "US"
+   }
+  },
+  {
+   "name": "memory",
+   "namespace": "mcp",
+   "repository_type": null,
+   "status": 1,
+   "status_description": "active",
+   "description": "Knowledge graph-based persistent memory system.",
+   "is_private": false,
+   "star_count": 26,
+   "pull_count": 557509,
+   "last_updated": "2025-05-02T14:31:01.345819Z",
+   "last_modified": "2026-10-17T06:23:07.073379Z",
+   "date_registered": "2024-12-19T20:46:11.17589Z",
+   "affiliation": "",
+   "media_types": [
+    "application/vnd.oci.image.index.v1+json"
+   ],
+   "content_types": [
+    "image"
+   ],
+   "categories": [
+    {
+     "name": "Machine learning & AI",
+     "slug": "machine-learning-and-ai"
+    }
+   ],
+   "storage_size": 354086960,
+   "source": null,
+   "registry_region": {
+    "name": "us-east-1",
+    "label": "US"
+   }
+  }
+ ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "@conclave/mobile",
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "scripts": {
+    "build:web": "bun run --filter @conclave/web build",
+    "add:ios": "cap add ios --packagemanager SPM && bun run assets:ios && /usr/libexec/PlistBuddy -c \"Add :NSCameraUsageDescription string 'Conclave scans the pairing code your hub shows.'\" ios/App/App/Info.plist && /usr/libexec/PlistBuddy -c \"Add :CFBundleURLTypes array\" -c \"Add :CFBundleURLTypes:0 dict\" -c \"Add :CFBundleURLTypes:0:CFBundleURLName string google-signin\" -c \"Add :CFBundleURLTypes:0:CFBundleURLSchemes array\" -c \"Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string com.googleusercontent.apps.318321774791-q1ql9qqdrrq0vnfmt666s4vlvshpjt5e\" ios/App/App/Info.plist",
+    "assets:ios": "bun scripts/ios-assets.ts",
+    "sync": "bun run build:web && cap sync ios",
+    "ios": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/ios": "^8.5.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.3"
+  }
+}

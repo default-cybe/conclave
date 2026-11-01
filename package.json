@@ -1,0 +1,23 @@
+{
+  "name": "conclave",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Personal multi-model agent harness: one server, many models, persistent memory, every device.",
+  "license": "AGPL-3.0-only",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter @conclave/server dev",
+    "dev:web": "bun run --filter @conclave/web dev",
+    "build": "bun run --filter @conclave/web build && bun run --filter @conclave/cli build",
+    "test": "bun test packages/core packages/server packages/cli scripts/proxmox scripts/lxc scripts/releases scripts/check-styles.test.ts bench/test/model-parity.test.ts packages/web/test/composer-draft.test.tsx packages/web/test/client-log.test.ts packages/desktop/test",
+    "typecheck": "bunx tsc -p packages/core --noEmit && bunx tsc -p packages/server --noEmit && bunx tsc -p packages/cli --noEmit",
+    "lint:styles": "bun scripts/check-styles.ts",
+    "conclave": "bun packages/cli/src/index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
+  }
+}

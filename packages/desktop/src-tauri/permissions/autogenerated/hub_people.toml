@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-hub-people"
+description = "Enables the hub_people command without any pre-configured scope."
+commands.allow = ["hub_people"]
+
+[[permission]]
+identifier = "deny-hub-people"
+description = "Denies the hub_people command without any pre-configured scope."
+commands.deny = ["hub_people"]

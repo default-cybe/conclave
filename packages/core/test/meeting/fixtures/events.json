@@ -1,0 +1,43 @@
+[
+  {
+    "type": "meeting.updated",
+    "sessionId": "ses_m1abc2xyz9",
+    "meeting": {
+      "id": "mtg_m1abc2def3",
+      "accountId": "owner",
+      "sessionId": "ses_m1abc2xyz9",
+      "device": "local",
+      "cwd": "/home/me/code/export-service",
+      "title": "Standup",
+      "status": "ready",
+      "createdAt": 1793430000000,
+      "autoAnswer": "questions"
+    }
+  },
+  {
+    "type": "meeting.segment",
+    "sessionId": "ses_m1abc2xyz9",
+    "meetingId": "mtg_m1abc2def3",
+    "segment": { "seq": 3, "channel": "them", "startMs": 4000, "endMs": 6500, "text": "So where are we", "final": false }
+  },
+  {
+    "type": "meeting.answer",
+    "sessionId": "ses_m1abc2xyz9",
+    "meetingId": "mtg_m1abc2def3",
+    "answer": {
+      "id": "ans_m1abc3qrs4",
+      "meetingId": "mtg_m1abc2def3",
+      "messageId": "msg_ans1",
+      "trigger": "question",
+      "question": "So where are we on the export feature?",
+      "state": "streaming",
+      "createdAt": 1793430067200
+    }
+  },
+  {
+    "type": "meeting.notes",
+    "sessionId": "ses_m1abc2xyz9",
+    "meetingId": "mtg_m1abc2def3",
+    "notes": { "summary": "Short standup.", "decisions": [], "actionItems": [], "openQuestions": [], "markdown": "# Standup\n" }
+  }
+]

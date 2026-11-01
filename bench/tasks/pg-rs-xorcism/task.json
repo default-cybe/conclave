@@ -1,0 +1,56 @@
+{
+  "id": "pg-rs-xorcism",
+  "title": "Xorcism streaming adaptors",
+  "kind": "polyglot",
+  "lang": "rust",
+  "difficulty": "hard",
+  "time_limit_s": 1200,
+  "smoke": false,
+  "requires": [
+    "cargo"
+  ],
+  "source": {
+    "type": "polyglot",
+    "repo": "https://github.com/Aider-AI/polyglot-benchmark",
+    "commit": "7e0611e77b54e2dea774cdc0aa00cf9f7ed6144f",
+    "exercise": "rust/xorcism"
+  },
+  "visible_test_cmd": null,
+  "hidden": {
+    "files": {
+      "hidden/tests/xorcism.rs": "tests/xorcism.rs"
+    },
+    "clear": [],
+    "runs": [
+      {
+        "cmd": "cargo test --offline --all-features --test xorcism -- --include-ignored",
+        "format": "cargo",
+        "env": {}
+      }
+    ],
+    "timeout_s": 600,
+    "expected_total": 109,
+    "restore": [],
+    "move_aside": []
+  },
+  "protected": [
+    "tests/**"
+  ],
+  "artifacts": [
+    "node_modules/",
+    "target/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".bench-moved/",
+    "*.pyc",
+    "tasksd.db",
+    ".DS_Store"
+  ],
+  "reference": "hidden/reference/",
+  "naive": null,
+  "license": {
+    "name": "MIT",
+    "holder": "Exercism",
+    "file": "NOTICE"
+  }
+}

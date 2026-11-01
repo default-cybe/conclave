@@ -1,0 +1,721 @@
+/*
+  Motion tokens and the keyframes behind components/motion
+  (docs/design/CHAT-AND-MOTION.md, section 1). Calm and precise: opacity and
+  up to 4px of travel for UI; the Knot, the Rim and Ink for live work.
+  Transform and opacity only, or canvas, SVG strokes, or the Highlight API.
+  Everything here is still under prefers-reduced-motion or Appearance >
+  Reduce motion (index.css stops every animation; the components also draw
+  a still frame). components/motion/tokens.ts mirrors these numbers.
+*/
+
+:root {
+  /* durations */
+  --dur-0: 80ms; /* press feedback, a copy icon turning into a check */
+  /* --dur-1 120ms hover and press, --dur-2 180ms menus and entrances, --dur-3 240ms panels: in index.css */
+  --dur-4: 360ms; /* a live mark settling, a container growing into a panel */
+  --dur-blink: 140ms; /* the pet's eyes closed in a blink (styles/pet.css) */
+  --dur-spring: 620ms; /* the spring below, until it rests (visually done by about 300ms) */
+  /* easing: --ease (out) lives in index.css */
+  --ease-in: cubic-bezier(0.4, 0, 1, 1); /* exits */
+  --ease-sine: cubic-bezier(0.37, 0, 0.63, 1); /* loops */
+  --ease-morph: cubic-bezier(0.6, 0, 0.4, 1); /* the Knot's light writes and lets go */
+  --ease-emph: cubic-bezier(0.2, 0, 0, 1); /* a card grows into its panel */
+  --ease-std: cubic-bezier(0.4, 0, 0.2, 1); /* a panel shrinks back into its card, a fold reopens */
+  /* the one spring: critically damped (never overshoots), 420ms response. List gaps, the toast stack. */
+  --spring: linear(0, 0.058, 0.182, 0.323, 0.457, 0.575, 0.673, 0.752, 0.814, 0.862, 0.898, 0.925, 0.945, 0.96, 0.971, 0.979, 0.985, 0.989, 0.992, 0.995, 0.996, 0.997, 0.998, 0.999, 1);
+  /* loops */
+  --loop-knot: 3000ms; /* the light writes the knot 1650ms, lets go 1350ms (docs/design/brand/knot.json) */
+  --loop-knot-tool: 2000ms; /* one lap of the light along the knot while a tool runs */
+  --loop-rim: 4000ms; /* one lap of the light around the composer edge */
+  --loop-breath: 4375ms; /* amber in 1600ms, out 2200ms, rest 575ms */
+  --loop-shimmer: 2200ms; /* one pass across a live label, then a rest */
+  /* streaming (Ink) */
+  --stream-word: 40ms; /* words are released this far apart */
+  --stream-lag: 320ms; /* never more than this far behind the stream */
+  /* travel */
+  --rise: 4px; /* the most a UI element moves */
+  --stagger: 40ms; /* between items that enter together */
+}
+
+/* ------------------------------------------------------------------------ */
+/* Knot and Mark: the knot in SVG (components/brand/KnotSvg.tsx). The light's */
+/* place is set from code; colors follow data-state and change by transition. */
+/* --k-halo is the surface behind (set by the component), --k-lit how much   */
+/* of the light shows. docs/design/brand/README.md                           */
+/* ------------------------------------------------------------------------ */
+
+.cv-knot {
+  --k-base: var(--fg);
+  --k-light: var(--signal);
+  display: inline-block;
+  flex-shrink: 0;
+  vertical-align: middle;
+  overflow: visible;
+}
+.cv-knot .k-base {
+  stroke: var(--k-base);
+  transition: stroke var(--dur-4) var(--ease);
+}
+.cv-knot .k-lt {
+  stroke: var(--k-light);
+  opacity: var(--k-lit, 1);
+  transition: stroke var(--dur-3) var(--ease);
+}
+.cv-knot .k-halo {
+  stroke: var(--k-halo, var(--bg));
+}
+/* working, and held while it waits, pauses or fails: the knot dims under its light */
+.cv-knot:is([data-state='thinking'], [data-state='tool'], [data-state='waiting'], [data-state='paused'], [data-state='failed']) {
+  --k-base: var(--rule-2);
+}
+.cv-knot[data-state='waiting'] {
+  --k-light: var(--warn);
+}
+.cv-knot[data-state='paused'] {
+  --k-light: var(--fg-3);
+}
+.cv-knot[data-state='failed'] {
+  --k-light: var(--fault);
+}
+.cv-knot[data-state='done'] {
+  --k-base: var(--fg-3);
+}
+/* one color: everything in currentColor, the knot at 30% while it works */
+.cv-knot[data-mono] {
+  --k-base: currentColor;
+  --k-light: currentColor;
+}
+.cv-knot[data-mono]:is([data-state='thinking'], [data-state='tool'], [data-state='waiting'], [data-state='paused'], [data-state='failed']) {
+  --k-base: color-mix(in srgb, currentColor 30%, transparent);
+}
+
+/* ------------------------------------------------------------------------ */
+/* KnotRope: the knot as a rope that ties itself (components/motion/         */
+/* KnotRope.tsx, docs/design/KNOT-MOTION.md). Places come from code; these   */
+/* are its colors. --k-halo is the surface behind (set by the component).   */
+/* ------------------------------------------------------------------------ */
+
+.cv-rope {
+  display: block;
+  flex-shrink: 0;
+}
+.cv-rope .r-base {
+  stroke: var(--fg);
+}
+.cv-rope .r-cap {
+  fill: var(--fg);
+}
+.cv-rope .r-dim {
+  stroke: var(--rule-2);
+}
+.cv-rope .r-dim-cap {
+  fill: var(--rule-2);
+}
+.cv-rope :is(.r-lt, .r-trail) {
+  stroke: var(--signal);
+}
+.cv-rope .r-halo {
+  stroke: var(--k-halo, var(--bg));
+}
+.cv-rope-word {
+  font-size: 26px;
+  font-weight: 600;
+  font-stretch: 112%;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  color: var(--fg);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Shimmer: a dip in brightness passes through the letters of a live label  */
+/* ------------------------------------------------------------------------ */
+
+.cv-shimmer > span[aria-hidden] {
+  animation: cv-glyph var(--loop-shimmer) linear infinite;
+  animation-delay: calc(var(--i) * 45ms);
+}
+@keyframes cv-glyph {
+  0%,
+  26%,
+  100% {
+    opacity: 1;
+  }
+  9% {
+    opacity: 0.45;
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Ink: streamed text is revealed by a soft front along each line; the     */
+/* newest letters are violet and cool to ink about 0.3s behind the front.   */
+/* CSS Custom Highlight API: only the new characters repaint, nothing lays  */
+/* out. Tiers by age since a letter's release (InkReveal.tsx):              */
+/* 0 not yet released, 1 0-40ms, 2 40-90ms, 3 90-170ms, 4 170-250ms,        */
+/* 5 250-330ms, then plain ink.                                             */
+/* ------------------------------------------------------------------------ */
+
+/* while Ink runs its violet front is the caret: the static one would sit at the end of text not yet shown */
+.cv-ink[data-ink-live] .md-streaming > :is(p, h1, h2, h3, h4, blockquote):last-child::after,
+.cv-ink[data-ink-live] .md-streaming > :is(ul, ol):last-child > li:last-child::after,
+.cv-ink[data-ink-live] .stream-caret::after {
+  content: none;
+}
+
+/* explicit colors: custom properties do not reach highlight pseudos in every engine */
+::highlight(cv-ink-0) {
+  color: transparent;
+}
+::highlight(cv-ink-1) {
+  color: oklch(0.775 0.125 303 / 0.3);
+}
+::highlight(cv-ink-2) {
+  color: oklch(0.775 0.125 303 / 0.72);
+}
+::highlight(cv-ink-3) {
+  color: oklch(0.775 0.125 303);
+}
+::highlight(cv-ink-4) {
+  color: color-mix(in oklch, oklch(0.775 0.125 303) 55%, oklch(0.945 0.004 286));
+}
+::highlight(cv-ink-5) {
+  color: color-mix(in oklch, oklch(0.775 0.125 303) 22%, oklch(0.945 0.004 286));
+}
+:root[data-theme='light'] ::highlight(cv-ink-1) {
+  color: oklch(0.52 0.17 300 / 0.3);
+}
+:root[data-theme='light'] ::highlight(cv-ink-2) {
+  color: oklch(0.52 0.17 300 / 0.72);
+}
+:root[data-theme='light'] ::highlight(cv-ink-3) {
+  color: oklch(0.52 0.17 300);
+}
+:root[data-theme='light'] ::highlight(cv-ink-4) {
+  color: color-mix(in oklch, oklch(0.52 0.17 300) 55%, oklch(0.205 0.01 286));
+}
+:root[data-theme='light'] ::highlight(cv-ink-5) {
+  color: color-mix(in oklch, oklch(0.52 0.17 300) 22%, oklch(0.205 0.01 286));
+}
+/* a box around text (code block, code chip, table, quote) waits for the front to reach its first
+   letter, then fades in under it, so an empty box never shows ahead of the words */
+.cv-ink[data-ink-live] :is(.cv-code, code, table, blockquote) {
+  transition: opacity var(--dur-1) var(--ease);
+}
+/* hiding is at once (a box that just mounted must never show first); only the release fades */
+.cv-ink [data-ink-wait] {
+  opacity: 0;
+  transition: none !important;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Swap: one child gives way to another (Copy to Check, Send to Stop)        */
+/* ------------------------------------------------------------------------ */
+
+.cv-swap {
+  display: inline-grid;
+  place-items: center;
+}
+.cv-swap > * {
+  grid-area: 1 / 1;
+  transition:
+    opacity var(--dur-1) var(--ease),
+    transform var(--dur-1) var(--ease);
+}
+.cv-swap > [data-off] {
+  opacity: 0;
+  transform: translateY(2px);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Exits: what leaves fades in 120ms with --ease-in (usePresence keeps it    */
+/* mounted that long). Sheets slide back down their full height.            */
+/* ------------------------------------------------------------------------ */
+
+@keyframes cv-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes cv-sheet-down {
+  to {
+    transform: translateY(100%);
+  }
+}
+@keyframes cv-side-out {
+  to {
+    opacity: 0;
+    transform: translateX(4px);
+  }
+}
+.anim-out {
+  animation: cv-fade-out var(--dur-1) var(--ease-in) both;
+  pointer-events: none;
+}
+.anim-sheet-out {
+  animation: cv-sheet-down var(--dur-2) var(--ease-in) both;
+  pointer-events: none;
+}
+.anim-right-out {
+  animation: cv-side-out var(--dur-1) var(--ease-in) both;
+  pointer-events: none;
+}
+
+/* items that arrive together: set --n on each (0 to 4); later ones start 40ms apart */
+.anim-stagger {
+  animation-delay: calc(min(var(--n, 0), 4) * var(--stagger));
+}
+
+/* a page change (App.tsx PageFade): the fade in --dur-3, held only before it starts */
+.anim-page {
+  animation: fade-in var(--dur-3) var(--ease) backwards;
+}
+
+/* chat rows that arrive in one update (ChatMessages): their own fade waits its turn; the row drops data-msg-n once it has entered */
+[data-msg-n] :is(.anim-fade, .anim-rise) {
+  animation-delay: calc(min(var(--n, 0), 4) * var(--stagger));
+}
+
+/* off screen or in a background tab: loops hold where they are (Pet, AgentGlyph) */
+/* !important: each pose's `animation` shorthand resets the play state, with a more specific selector */
+[data-paused] * {
+  animation-play-state: paused !important;
+}
+
+/* a card's state word and its mark change color in --dur-3 (RunView, RunningTasks) */
+.cv-state {
+  transition: color var(--dur-3) var(--ease);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Rim: a canvas on the composer edge (Rim.tsx). The host is relative.      */
+/* ------------------------------------------------------------------------ */
+
+.cv-rim {
+  position: absolute;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Steps: the live status line (Steps.tsx). The old step lifts 4px and      */
+/* leaves by 180ms; the new one rises a word at a time from 190ms; its verb */
+/* gets one pass of light 600ms after it lands.                             */
+/* ------------------------------------------------------------------------ */
+
+:root {
+  --glint: oklch(0.985 0.012 300);
+}
+:root[data-theme='light'] {
+  --glint: oklch(0.2 0.03 300);
+}
+.cv-steps {
+  display: inline-grid;
+  justify-items: start;
+  min-width: 0;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.cv-steps-line {
+  grid-area: 1 / 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.cv-steps-line [data-part] {
+  display: inline-block;
+}
+.cv-steps-icon {
+  display: inline-grid;
+  color: var(--fg-3);
+}
+.cv-steps-icon svg {
+  width: 15px;
+  height: 15px;
+}
+.cv-steps-verb {
+  position: relative;
+  flex-shrink: 0;
+  color: var(--signal);
+  font-weight: 520;
+}
+.cv-steps-target {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-3);
+}
+.cv-steps-in [data-part] {
+  animation: cv-step-in var(--part-dur) var(--ease) both;
+  animation-delay: calc(var(--in-at) + var(--i) * var(--part));
+}
+.cv-steps-out [data-part] {
+  animation: cv-step-out var(--out) var(--ease-in) both;
+  animation-delay: min(calc(var(--i) * 10ms), 30ms);
+}
+.cv-steps-out {
+  pointer-events: none;
+}
+@keyframes cv-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--rise));
+  }
+}
+@keyframes cv-step-out {
+  to {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--rise)));
+  }
+}
+/* the pass of light: a brighter copy over the verb whose letters light up in turn */
+.cv-glint {
+  position: absolute;
+  inset: 0;
+  white-space: pre;
+  color: var(--glint);
+  pointer-events: none;
+}
+.cv-glint > span {
+  opacity: 0;
+  animation: cv-glint 420ms linear both;
+  animation-delay: calc(var(--at) + var(--i) * 22ms);
+}
+@keyframes cv-glint {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  40% {
+    opacity: 0.85;
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Roll: changed digits roll in their own clipped cell (Roll.tsx)           */
+/* ------------------------------------------------------------------------ */
+
+.cv-roll {
+  display: inline-flex;
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+}
+.cv-roll-cells {
+  display: inline-flex;
+}
+.cv-roll-cell {
+  position: relative;
+  display: inline-block;
+}
+.cv-roll-cell[data-rolling] {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(transparent 0, #000 18%, #000 82%, transparent 100%);
+  mask-image: linear-gradient(transparent 0, #000 18%, #000 82%, transparent 100%);
+}
+.cv-roll-new,
+.cv-roll-old {
+  display: inline-block;
+}
+.cv-roll-old {
+  position: absolute;
+  inset: 0;
+  text-align: center;
+}
+/* a value that got shorter rolls as one: the old one, wider than its cell, may show past its right edge */
+.cv-roll-cell[data-whole] {
+  overflow: visible;
+  overflow-y: clip;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.cv-roll-cell[data-whole] > .cv-roll-old {
+  right: auto;
+  text-align: left;
+}
+[data-rolling] > .cv-roll-new {
+  animation: cv-roll-in var(--roll) var(--ease) var(--lag, 0ms) both;
+}
+[data-rolling] > .cv-roll-old {
+  animation: cv-roll-out var(--roll) var(--ease) var(--lag, 0ms) both;
+}
+@keyframes cv-roll-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--dir) * 0.9em));
+  }
+}
+@keyframes cv-roll-out {
+  to {
+    opacity: 0;
+    transform: translateY(calc(var(--dir) * -0.9em));
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Fold: the "Thought for 6s" row and its reasoning (Fold.tsx)              */
+/* ------------------------------------------------------------------------ */
+
+.cv-fold-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 25px;
+  /* in a conversation, times the Text size (index.css .log-text) */
+  font-size: calc(13px * var(--log-scale, 1));
+  color: var(--fg-3);
+  border-radius: var(--r-1);
+}
+.cv-fold-row:hover {
+  color: var(--fg-2);
+}
+.cv-fold-row:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+.cv-fold-chev {
+  width: 12px;
+  height: 12px;
+  color: var(--fg-4);
+  transition: transform var(--dur-2) var(--ease);
+}
+.cv-fold-chev[data-open] {
+  transform: rotate(90deg);
+}
+.cv-fold-well {
+  overflow: hidden;
+  transform-origin: 50% 0;
+}
+.cv-fold-body {
+  position: relative;
+  padding: 4px 0 6px 12px;
+  font-size: calc(13px * var(--log-scale, 1));
+  line-height: 1.6;
+  color: var(--fg-2);
+  transform-origin: 50% 0;
+}
+.cv-fold-body > * + * {
+  margin-top: 6px;
+}
+.cv-fold-rule {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 6px;
+  width: 1px;
+  background: var(--rule-2);
+  transform-origin: 50% 0;
+}
+/* MorphLabel: the shared start stays; tone crossfades; the rest trades letters */
+.cv-morph {
+  display: inline-flex;
+  white-space: pre;
+}
+/* the label at rest: one word in the tone of its state */
+.cv-morph-word {
+  transition: color var(--dur-3) var(--ease);
+}
+.cv-morph[data-live] .cv-morph-word {
+  color: var(--signal);
+}
+.cv-morph-pre,
+.cv-morph-suf {
+  display: inline-grid;
+  justify-items: start;
+  text-align: left;
+}
+.cv-morph-pre > *,
+.cv-morph-suf > * {
+  grid-area: 1 / 1;
+  white-space: pre;
+}
+.cv-morph-pre > [data-tone] {
+  transition: opacity var(--dur-3) var(--ease);
+}
+.cv-morph-pre > [data-tone='live'],
+.cv-morph[data-live] .cv-morph-suf {
+  color: var(--signal);
+}
+.cv-morph-pre > [data-tone='live'] {
+  opacity: 0;
+}
+.cv-morph[data-live] .cv-morph-pre > [data-tone='live'] {
+  opacity: 1;
+}
+.cv-morph[data-live] .cv-morph-pre > [data-tone='done'] {
+  opacity: 0;
+}
+.cv-morph-old > span,
+.cv-morph-new > span {
+  display: inline-block;
+}
+.cv-morph-old > span {
+  animation: cv-step-out 110ms var(--ease-in) both;
+  animation-delay: calc(var(--i) * 12ms);
+}
+.cv-morph-old {
+  pointer-events: none;
+}
+.cv-morph-new > span {
+  animation: cv-morph-in 220ms var(--ease) both;
+  animation-delay: calc(var(--at, 120ms) + var(--i) * 16ms);
+}
+@keyframes cv-morph-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* GapList: a resolved row slides out, the rest close the gap (GapList.tsx) */
+/* ------------------------------------------------------------------------ */
+
+.cv-gap {
+  position: relative;
+}
+.cv-gap-out-right {
+  animation: cv-gap-right 170ms var(--ease-in) both;
+  pointer-events: none;
+  z-index: 0;
+}
+.cv-gap-out {
+  animation: cv-fade-out 170ms var(--ease-in) both;
+  pointer-events: none;
+}
+@keyframes cv-gap-right {
+  to {
+    opacity: 0;
+    transform: translateX(var(--gap-out, 34px));
+  }
+}
+/* phones: the card fills the column, so it slides only as far as the 16px gutter and never makes the page scroll sideways */
+@media (max-width: 767px) {
+  .cv-gap-out-right {
+    --gap-out: 12px;
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Send to stop (SendStop.tsx)                                              */
+/* ------------------------------------------------------------------------ */
+
+.cv-sendstop {
+  display: block;
+  pointer-events: none;
+}
+.cv-sendstop-btn:active:not([aria-disabled='true']) {
+  transform: scale(0.94);
+  transition: transform var(--dur-0) var(--ease);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Card to panel: the card grows into its panel (CardToPanel.tsx)           */
+/* ------------------------------------------------------------------------ */
+
+.cv-card {
+  display: block;
+  width: 100%;
+  text-align: left;
+}
+.cv-panel-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 72;
+}
+.cv-panel-layer[data-closing] {
+  pointer-events: none;
+}
+.cv-panel-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--scrim);
+}
+.cv-panel {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: min(640px, calc(100vw - 32px));
+  height: fit-content;
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-3);
+  background: var(--bg-raise);
+  box-shadow: var(--shadow-pop);
+  transform-origin: 0 0;
+  outline: none;
+}
+.cv-panel-inner {
+  min-height: 0;
+  overflow: auto;
+  transform-origin: 0 0;
+}
+.cv-panel-ghost {
+  position: fixed;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Toast stack (components/ui/Toast.tsx): toasts stack, fan out on hover,   */
+/* restack. Slots move on the spring; a toast rises 18px in, drops 6px out. */
+/* ------------------------------------------------------------------------ */
+
+.cv-toast-slot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  transition: transform var(--dur-spring) var(--spring);
+}
+.cv-toast-body {
+  transition: opacity var(--dur-2) var(--ease);
+}
+/* words behind the front toast go at once, so they never show through the one arriving */
+.cv-toast-body[data-hidden] {
+  opacity: 0;
+  transition: opacity var(--dur-0) var(--ease-in);
+}
+.cv-toast-in {
+  animation:
+    cv-toast-rise var(--dur-spring) var(--spring) both,
+    fade-in var(--dur-2) var(--ease) both;
+}
+.cv-toast-in-top {
+  animation:
+    cv-toast-drop var(--dur-spring) var(--spring) both,
+    fade-in var(--dur-2) var(--ease) both;
+}
+.cv-toast-out {
+  animation: cv-toast-out 200ms var(--ease-in) both;
+  pointer-events: none;
+}
+.cv-toast-gone {
+  animation: cv-toast-gone 180ms var(--ease-in) both;
+  pointer-events: none;
+}
+@keyframes cv-toast-rise {
+  from {
+    transform: translateY(18px);
+  }
+}
+@keyframes cv-toast-drop {
+  from {
+    transform: translateY(-18px);
+  }
+}
+@keyframes cv-toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes cv-toast-gone {
+  to {
+    opacity: 0;
+    transform: translateX(22px);
+  }
+}

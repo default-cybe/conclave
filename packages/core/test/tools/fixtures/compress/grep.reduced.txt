@@ -1,0 +1,39 @@
+packages/core/src/session/limits.ts:24:  const cfg = engine.config.get();
+packages/core/src/session/limits.ts:27:  const fallbacks = cfg.limits.fallbacks[modelRef] ?? cfg.limits.fallbacks[engine.providers.resolve(modelRef).provider] ?? [];
+packages/core/src/session/limits.ts:29:    if (fb !== modelRef && engine.isUsable(fb) && !engine.providers.resolve(fb).acp) {
+packages/core/src/session/limits.ts:30:      engine.notice(sessionId, `${modelRef} hit its limit. Falling back to ${fb} for this turn.`, 'warning');
+packages/core/src/session/limits.ts:37:    engine.notice(sessionId, `Rate limit on ${modelRef}: ${err.message}${resetAt ? `. Resets ${new Date(resetAt).toLocaleString()}.` : ''}`, 'error');
+[... 10 more matches in packages/core/src/session/limits.ts ...]
+packages/core/src/session/compaction.ts:376:  if (engine.compacting.has(sessionId)) return false;
+packages/core/src/session/compaction.ts:377:  engine.compacting.add(sessionId);
+packages/core/src/session/compaction.ts:381:    engine.compacting.delete(sessionId);
+packages/core/src/session/compaction.ts:386:  const all = engine.repos.messages.list(sessionId);
+packages/core/src/session/compaction.ts:390:  const session = engine.repos.sessions.get(sessionId);
+[... 11 more matches in packages/core/src/session/compaction.ts ...]
+packages/core/src/modes/review.ts:76:  const machine = engine.machineFor(session);
+packages/core/src/modes/review.ts:98:  const machine = engine.machineFor(session);
+packages/core/src/modes/review.ts:102:    const files = await loadProjectInstructions(machine, session.cwd, engine.config.get());
+packages/core/src/modes/review.ts:176:  const reviewerRef = input.reviewer ?? engine.config.get().modes.reviewer;
+packages/core/src/modes/review.ts:177:  const msgs = engine.repos.messages.list(session.id);
+[... 6 more matches in packages/core/src/modes/review.ts ...]
+packages/core/src/modes/handoff.ts:11:  if (!engine.isUsableRef(modelRef)) throw new Error(`Model ${modelRef} is not available`);
+packages/core/src/modes/handoff.ts:13:  const updated = engine.updateSession(session.id, { model: modelRef });
+packages/core/src/modes/handoff.ts:14:  engine.notice(session.id, `Handed off from ${engine.displayModel(from)} to ${engine.displayModel(modelRef)}.`, 'info');
+packages/core/src/modes/jury.ts:18:  const cfg: JuryConfig = { ...engine.config.get().modes.jury, ...session.modeConfig?.jury };
+packages/core/src/modes/jury.ts:19:  const msgs = engine.repos.messages.list(session.id);
+packages/core/src/modes/jury.ts:24:  const jurors = cfg.jurors.filter((j) => engine.isUsableRef(j));
+packages/core/src/modes/jury.ts:26:    engine.notice(session.id, 'Jury mode needs at least two usable models. Falling back to a single answer.', 'warning');
+packages/core/src/modes/jury.ts:31:  engine.notice(session.id, `Asking ${jurors.length} models in parallel.`, 'info');
+[... 9 more matches in packages/core/src/modes/jury.ts ...]
+packages/core/src/modes/loop.ts:17:  engine.patchMeta(session.id, { loop: { iteration } });
+packages/core/src/modes/loop.ts:19:    engine.notice(session.id, `Loop stopped after ${iteration} iterations.`, 'warning');
+packages/core/src/modes/loop.ts:24:    const text = lastAssistantText(engine.repos.messages.list(session.id));
+packages/core/src/modes/loop.ts:26:      engine.notice(session.id, `Loop done: output contains "${cfg.untilText}".`, 'success');
+packages/core/src/modes/loop.ts:33:    const machine = engine.machineFor(session);
+[... 2 more matches in packages/core/src/modes/loop.ts ...]
+packages/core/src/modes/debate.ts:14:  const cfg: DebateConfig = { rounds: 2, a: session.model, b: engine.config.get().modes.reviewer, ...session.modeConfig?.debate };
+packages/core/src/modes/debate.ts:15:  if (!engine.isUsableRef(cfg.a) || !engine.isUsableRef(cfg.b) || cfg.a === cfg.b) {
+packages/core/src/modes/debate.ts:16:    engine.notice(session.id, 'Debate needs two different usable models. Answering normally instead.', 'warning');
+packages/core/src/modes/debate.ts:20:  const msgs = engine.repos.messages.list(session.id);
+packages/core/src/modes/debate.ts:53:      engine.addMessage(session.id, {
+[... 3 more matches in packages/core/src/modes/debate.ts ...]

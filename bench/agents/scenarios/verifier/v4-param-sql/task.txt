@@ -1,0 +1,3 @@
+Verify this finding from a security review of this folder.
+
+Finding: users.ts:7. userById builds its SQL from the id in the URL, so a request for /users/1%20OR%201=1 returns every user (SQL injection).

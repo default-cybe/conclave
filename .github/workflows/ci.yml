@@ -1,0 +1,255 @@
+name: CI
+
+# Pushes run CI on main only; a branch is checked by its pull request or with
+# `gh workflow run CI --ref <branch>`. Docs-only changes run nothing.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['docs/**', 'site/**', '**/*.md']
+  pull_request:
+    paths-ignore: ['docs/**', 'site/**', '**/*.md']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUN_VERSION: 1.4.2
+
+jobs:
+  # Tests run in the test job's shards, next to this one
+  check:
+    name: Typecheck and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: File names that clash on macOS and Windows
+        run: bun scripts/check-case.ts
+
+      - name: Styles docs/DESIGN.md bans in the web app
+        run: bun run lint:styles
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Build web app
+        run: bun run --filter @conclave/web build
+
+      - name: Compile CLI binary
+        run: |
+          bun scripts/build-cli.ts --outfile dist/conclave
+          ./dist/conclave --version
+
+      - name: Smoke test the hub binary
+        run: scripts/smoke-hub.sh dist/conclave
+
+      # The TypeScript daemon, the fallback the release can still ship
+      # (vars.CONCLAVE_SIDECAR = ts). The daemon-rs job builds the Rust one.
+      - name: Compile the TypeScript daemon the desktop app can carry
+        run: |
+          bun scripts/build-sidecar.ts --impl ts
+          bin=packages/desktop/src-tauri/binaries/conclave-daemon-x86_64-unknown-linux-gnu
+          "$bin" --version
+          "$bin" status --json
+
+      - name: Lint shell scripts
+        run: shellcheck -s sh scripts/ci/apt-install.sh scripts/install.sh scripts/smoke-hub.sh scripts/lxc/setup.sh scripts/lxc/test-docker.sh scripts/proxmox/conclave-lxc.sh
+
+  # The suite in four shards on separate runners. Files inside a shard run one
+  # after another: with --parallel some tests hung to their timeout (shared
+  # ports, processes and timers), so the speed comes from the shards.
+  test:
+    name: Test (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        run: bun run test --shard=${{ matrix.shard }}/4
+
+  # The release cross-compiles the Windows hub on Linux and never ran it: v0.4.5's
+  # exited at once with code 0 and printed nothing. Run it on Windows, also the
+  # way the desktop app does (stdin a pipe that stays open, stop on its end).
+  windows-hub:
+    name: Windows hub binary
+    # a Windows minute costs about twice a Linux one: main and manual runs only
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Compile the Windows hub as the release does
+        run: |
+          bun scripts/build-cli.ts --target bun-windows-x64 --outfile dist/conclave.exe
+          out=$(./dist/conclave.exe --version)
+          echo "version: $out"
+          test -n "$out"
+
+      - name: Smoke test the hub binary
+        run: scripts/smoke-hub.sh dist/conclave.exe
+
+      - name: Smoke test it as the desktop app starts it
+        env:
+          SMOKE_STDIN_PIPE: '1'
+          SMOKE_PORT: '7798'
+        run: scripts/smoke-hub.sh dist/conclave.exe
+
+  desktop:
+    name: Desktop app (cargo test)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: packages/desktop/src-tauri
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: System libraries
+        run: '"$GITHUB_WORKSPACE/scripts/ci/apt-install.sh" libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libasound2-dev'
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: packages/desktop/src-tauri
+
+      # tauri-build wants the daemon the bundle carries (bundle.externalBin).
+      # A stand-in is enough to compile and test the shell; the check job
+      # compiles the real one.
+      - name: Stand-in daemon for tauri-build
+        run: |
+          mkdir -p binaries
+          printf '#!/bin/sh\necho 0.0.0\n' > binaries/conclave-daemon-x86_64-unknown-linux-gnu
+          chmod +x binaries/conclave-daemon-x86_64-unknown-linux-gnu
+
+      - name: Test
+        run: cargo test --locked
+
+  # The Windows- and macOS-only code of the desktop app (meeting overlay hiding,
+  # loopback capture, share detection) compiles only on those systems; without
+  # these jobs only release.yml would find a break (docs/design/MEETING-MODE.md 9.1).
+  desktop-native:
+    name: Desktop app (cargo check, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            triple: x86_64-pc-windows-msvc
+            ext: .exe
+          - os: macos-latest
+            triple: aarch64-apple-darwin
+            ext: ''
+    defaults:
+      run:
+        shell: bash
+        working-directory: packages/desktop/src-tauri
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: packages/desktop/src-tauri
+
+      - name: Stand-in daemon for tauri-build
+        run: |
+          mkdir -p binaries
+          printf 'stand-in' > "binaries/conclave-daemon-${{ matrix.triple }}${{ matrix.ext }}"
+
+      - name: Check
+        run: cargo check --locked --all-targets
+
+  daemon-rs:
+    name: Rust daemon (cargo test, conformance)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # glob and grep are checked against rg, as the TypeScript daemon runs them
+      - name: ripgrep
+        run: '"$GITHUB_WORKSPACE/scripts/ci/apt-install.sh" ripgrep'
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: packages/daemon-rs
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Unit tests
+        working-directory: packages/daemon-rs
+        run: cargo test --locked
+
+      - name: Build the Linux binary
+        working-directory: packages/daemon-rs
+        run: |
+          cargo build --release --locked
+          ls -l target/release/conclave-daemon
+          ./target/release/conclave-daemon --version
+
+      # The C in ring needs each system's own toolchain, so these leave TLS out;
+      # the release builds them natively with it.
+      - name: Type-check Windows and macOS
+        working-directory: packages/daemon-rs
+        run: |
+          cargo check --locked --no-default-features --target x86_64-pc-windows-msvc
+          cargo check --locked --no-default-features --target x86_64-apple-darwin
+
+      - name: Conformance against both daemons, and a hub session on the Rust one
+        env:
+          CONCLAVE_DAEMON_RS: ${{ github.workspace }}/packages/daemon-rs/target/release/conclave-daemon
+        run: bun test packages/server/test/daemon-conformance.test.ts packages/server/test/daemon-rs-session.test.ts

@@ -1,0 +1,1 @@
+{ "name": "listkit", "private": true, "scripts": { "test": "bun test" } }

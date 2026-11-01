@@ -1,0 +1,100 @@
+/**
+ * The words on Settings > Models > Accounts (src/lib/accounts.ts): window
+ * names, reset times, budgets, and the "Now using Account 2 (resets Tue
+ * 10:00, 45% left)" line.
+ *
+ *   bun test packages/web/test/accounts-words.test.ts
+ */
+import { describe, expect, test } from 'bun:test';
+import type { AccountDto, AccountNowDto, SubscriptionAccountDto, SubscriptionProviderDto } from '@conclave/core/client';
+import { budgetWords, nowLine, planActions, resetWords, rowWindows, sharedModels, usedOf, windowName } from '../src/lib/accounts';
+
+// Monday 19 October 2026, 09:00 local
+const NOW = new Date(2026, 9, 19, 9, 0).getTime();
+const at = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m).getTime();
+
+const acct = (id: string, label: string, extra: Partial<AccountDto> = {}): AccountDto => ({ id, label, vendor: 'anthropic', vendorName: 'Claude', kind: 'subscription', enabled: true, state: 'ready', windows: [], models: [], saved: true, ...extra });
+
+describe('account words', () => {
+  test('window names', () => {
+    expect(['5h', '7d', '7d opus', '7d sonnet', '7d fable', 'budget'].map((name) => windowName({ name }))).toEqual(['5 hours', 'Week', 'Week, Opus', 'Week, Sonnet', 'Fable', 'Budget']);
+    // Antigravity's quota: Gemini, and the Claude and GPT ("3p") models
+    expect(['5h gemini', '7d gemini', '5h 3p', '7d 3p'].map((name) => windowName({ name }))).toEqual(['5 hours, Gemini', 'Week, Gemini', '5 hours, Claude and GPT', 'Week, Claude and GPT']);
+  });
+
+  test('reset times: today as a time, this week with the day, later as a date', () => {
+    expect(resetWords(at(19, 14, 10), NOW)).toBe('14:10');
+    expect(resetWords(at(20, 10), NOW)).toBe('Tue 10:00');
+    expect(resetWords(at(26, 6), NOW)).toBe('Mon 06:00');
+    expect(resetWords(at(29, 10), NOW)).toBe('29 Oct');
+  });
+
+  test('a budget in dollars, unknown windows stay unknown', () => {
+    expect(budgetWords({ name: 'budget', kind: 'budget', limit: 100, remaining: 61.6 })).toBe('$38.40 of $100');
+    expect(budgetWords({ name: '5h', usedPercent: 3 })).toBeUndefined();
+    expect(usedOf({ name: '5h' })).toBeUndefined();
+    expect(usedOf({ name: '5h', usedPercent: 44.6 })).toBe(45);
+    expect(rowWindows(acct('a', 'A', { windows: [{ name: '5h' }, { name: 'requests', kind: 'rate' }, { name: '7d oauth apps' }, { name: 'budget', kind: 'budget' }] })).map((w) => w.name)).toEqual(['5h', 'budget']);
+  });
+
+  test("the owner's line: Account 1 at its 5 hour limit, Account 2 takes the call", () => {
+    const accounts = [acct('a1', 'Account 1', { state: 'limited', until: at(19, 10, 23) }), acct('a2', 'Account 2')];
+    const n: AccountNowDto = { vendor: 'anthropic', vendorName: 'Claude', account: 'a2', window: { name: '7d', usedPercent: 55, resetsAt: at(20, 10) }, skipped: [{ account: 'a1', reason: '5 hour limit reached' }] };
+    expect(nowLine(n, accounts, NOW)).toEqual({ lead: 'Now using Account 2 (resets Tue 10:00, 45% left).', why: ['Account 1: 5 hour limit reached until 10:23.'], tone: 'warn' });
+    expect(nowLine({ vendor: 'anthropic', vendorName: 'Claude', skipped: [], until: at(19, 10, 23) }, accounts, NOW)).toMatchObject({ lead: 'No Claude account can take a call until 10:23.', tone: 'fault' });
+    expect(nowLine({ vendor: 'anthropic', vendorName: 'Claude', account: 'a2', skipped: [] }, accounts, NOW)).toEqual({ lead: 'Now using Account 2.', why: [], tone: 'ok' });
+  });
+
+  test('Per model offers every model a plan lists, once, from any vendor, until it has an order', () => {
+    const opus = { id: 'claude-opus-5-5', name: 'Claude Opus 5.5' };
+    const gemini = { id: 'gemini-3-pro', name: 'Gemini 3 Pro' };
+    const sonnet = { id: 'claude-sonnet-5-5', name: 'Sonnet' };
+    const glm = { id: 'glm-5.3', name: 'GLM-5.3' };
+    const v = (m: { id: string; name: string }, vendor: string) => ({ ...m, vendor });
+    const accounts = [
+      acct('c', 'Claude', { models: [v(opus, 'anthropic'), v(sonnet, 'anthropic'), { id: 'daybreak', name: 'Daybreak' }] }),
+      acct('g', 'Antigravity', { vendor: 'gemini', vendorName: 'Gemini', models: [v({ id: 'ag/claude-opus-5-5', name: 'Claude Opus 5.5' }, 'anthropic'), v(gemini, 'gemini')] }),
+      // a plain key's models keep the registry's route: no order to offer, not even its whole catalog
+      acct('k', 'Claude API key', { kind: 'api', models: [v({ id: 'claude-haiku-5', name: 'Haiku' }, 'anthropic')] }),
+      // a plan paid with a key (the Z.ai Coding Plan) gets an order too
+      acct('z', 'Z.ai Coding Plan', { kind: 'api', vendor: 'zai', vendorName: 'GLM', subscription: 'zai-coding', models: [v(glm, 'zai')] }),
+    ];
+    // daybreak has no vendor the hub can place: an order for it would be refused
+    expect(sharedModels({ accounts, routes: [] })).toEqual([opus, gemini, glm, sonnet]);
+    expect(sharedModels({ accounts, routes: [{ vendor: 'anthropic', vendorName: 'Claude', match: 'claude-opus-5-5', order: ['g', 'c'] }] })).toEqual([gemini, glm, sonnet]);
+  });
+
+  test('Per model groups a plan that lists only an effort or thinking variant with the model (Antigravity)', () => {
+    const accounts = [
+      acct('g', 'Antigravity', { vendor: 'gemini', vendorName: 'Gemini', models: [{ id: 'claude-opus-5-5-high', name: 'Claude Opus 5.5 (High)', vendor: 'anthropic' }, { id: 'claude-opus-4-6-thinking', name: 'Claude Opus 4.6 (Thinking)', vendor: 'anthropic' }] }),
+      acct('c', 'Claude', { models: [{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5', vendor: 'anthropic' }, { id: 'claude-opus-4-6', name: 'Claude Opus 4.6', vendor: 'anthropic' }] }),
+    ];
+    expect(sharedModels({ accounts, routes: [] })).toEqual([
+      { id: 'claude-opus-4-6', name: 'Claude Opus 4.6' },
+      { id: 'claude-opus-5-5', name: 'Claude Opus 5.5' },
+    ]);
+  });
+
+  test("Per model offers Kiro's dotted claude-opus-5.5 as Opus 5.5, once", () => {
+    const accounts = [
+      acct('k', 'Kiro', { vendor: 'kiro4cpa', vendorName: 'Kiro4cpa', models: [{ id: 'claude-opus-5.5', name: 'Claude Opus 5.5', vendor: 'anthropic' }] }),
+      acct('c', 'Claude', { models: [{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5', vendor: 'anthropic' }] }),
+    ];
+    expect(sharedModels({ accounts, routes: [] })).toEqual([{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5' }]);
+  });
+
+  test('a plan row: Refresh when CLIProxyAPI can, Sign in again when it stopped working, Remove only once its sign-in is gone', () => {
+    const prov = (id: string): SubscriptionProviderDto => ({ id, name: id, plan: '', flow: 'redirect', accounts: 0 });
+    const cred = (name: string, provider: string, extra: Partial<SubscriptionAccountDto> = {}): SubscriptionAccountDto => ({ name, provider, providerName: provider, state: 'active', canRefresh: true, ...extra });
+    const providers = [prov('claude'), prov('antigravity'), prov('kiro4cpa'), prov('kiro4cpa-social')];
+    const subs = { providers, accounts: [cred('claude-a.json', 'claude'), cred('kiro4cpa-k.json', 'kiro4cpa', { state: 'error' }), cred('claude-r.json', 'claude', { canRefresh: false })] };
+    expect(planActions(acct('claude-a', 'A', { credential: 'claude-a.json' }), subs)).toEqual({ refresh: 'claude-a.json', signIn: [], remove: false });
+    expect(planActions(acct('claude-r', 'R', { credential: 'claude-r.json' }), subs)).toEqual({ signIn: [], remove: false });
+    // Kiro not working: both Kiro sign-ins (Builder ID, Google or GitHub)
+    expect(planActions(acct('kiro4cpa-k', 'K', { credential: 'kiro4cpa-k.json', state: 'unknown' }), subs).signIn.map((p) => p.id)).toEqual(['kiro4cpa', 'kiro4cpa-social']);
+    // the owner's three Gemini rows: saved, CLIProxyAPI lists them no more
+    const gone = planActions(acct('antigravity-me@gmail.com', 'Gemini 3', { vendor: 'gemini', credential: 'antigravity-me@gmail.com.json', state: 'error', detail: 'Not signed in', gone: true }), subs);
+    expect(gone).toEqual({ signIn: [prov('antigravity')], remove: true });
+    expect(planActions(acct('api-anthropic', 'Key', { kind: 'api' }), subs)).toEqual({ signIn: [], remove: false });
+  });
+});

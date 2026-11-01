@@ -1,0 +1,57 @@
+{
+  "id": "bug-py-utf8",
+  "title": "Truncated JSON for non-ASCII titles",
+  "kind": "bug",
+  "lang": "python",
+  "difficulty": "easy",
+  "time_limit_s": 600,
+  "smoke": false,
+  "requires": [
+    "python3"
+  ],
+  "source": {
+    "type": "fixture",
+    "base": "tasksd",
+    "overlay": "overlay/"
+  },
+  "visible_test_cmd": "python3 -m unittest discover -s tests",
+  "hidden": {
+    "files": {
+      "hidden/tests/test_hidden_utf8.py": "tests/hidden/test_hidden_utf8.py"
+    },
+    "clear": [
+      "tests/hidden/"
+    ],
+    "runs": [
+      {
+        "cmd": "python3 {bench}/runners/unittest_json.py tests/hidden",
+        "format": "unittest-json",
+        "env": {}
+      }
+    ],
+    "timeout_s": 120,
+    "expected_total": 6,
+    "restore": [],
+    "move_aside": []
+  },
+  "protected": [
+    "tests/**"
+  ],
+  "artifacts": [
+    "node_modules/",
+    "target/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".bench-moved/",
+    "*.pyc",
+    "tasksd.db",
+    ".DS_Store"
+  ],
+  "reference": "hidden/reference/",
+  "naive": "hidden/naive/",
+  "license": {
+    "name": "written for this kit",
+    "holder": null,
+    "file": null
+  }
+}
