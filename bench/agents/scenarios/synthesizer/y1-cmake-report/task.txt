@@ -1,0 +1,12 @@
+Question from the owner: can I build Redis with all modules on my Arch desktop, which has CMake 4.1 installed, and what do I need to do?
+
+Owner's setup: Arch desktop (arch-desktop), CMake 4.1 from the Arch repos, builds by hand with make.
+
+Checked claims (verdict from the fact-checkers, with sources):
+1. supported: Redis modules require 3.25 <= CMake <= 3.31.6; CMake 4.x is not supported and the build fails with it. Source: https://raw.githubusercontent.com/redis/redis/unstable/README.md (page date 2026-09-30), quote "CMake 4.x is *not* supported and the build will fail with it."
+2. supported: `make bootstrap` installs CMake only when it is missing or too old; it will not downgrade a pre-installed 4.x. Same source, quote "it won't downgrade a pre-installed 4.x, so remove/pin that yourself."
+3. supported: the README suggests pinning with `pip3 install 'cmake==3.31.6'`. Same source.
+4. partly: a full build needs Rust 1.94. The README lists Rust 1.94 for building with all data structures; the claim that plain Redis core needs Rust is not supported.
+5. supported, but conflicts with 1: "CMake 4.0 builds Redis modules fine." Source: https://example-blog.dev/redis-cmake (page date 2026-03-02), a personal blog post with no method shown.
+6. unverifiable: Arch ships a cmake3 package that installs next to CMake 4. The page would not open.
+7. not supported: Redis 8.10 dropped the Query Engine module. The README lists the Query Engine among the modules.

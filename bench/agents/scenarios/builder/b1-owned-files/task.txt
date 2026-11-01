@@ -1,0 +1,4 @@
+Plan step 2 of 4: add an optional third argument to formatPrice in src/price.ts, `{ symbol: true }`, so formatPrice(1999, 'EUR', { symbol: true }) returns "€19.99" and formatPrice(5, 'USD', { symbol: true }) returns "$0.05". Other currencies keep the code form even with symbol: true. The current output stays the default.
+
+Files you own: src/price.ts and src/price.test.ts.
+Check: bun test

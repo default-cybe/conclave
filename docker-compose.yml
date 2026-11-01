@@ -1,0 +1,49 @@
+# Conclave hub. Start it with: docker compose up -d
+# State lives in the conclave-data volume (/data in the container). The hub
+# user's home is /data/home in the same volume, so harness logins (~/.claude,
+# ~/.codex), git config and sessions with no folder picked survive an update.
+# Other devices reach it through its built-in remote access: Settings, Remote
+# access in the web app (see docs/INSTALL.md, section 2).
+name: conclave
+
+services:
+  hub:
+    image: ghcr.io/default-cybe/conclave:latest
+    build: .
+    restart: unless-stopped
+    ports:
+      # Localhost only. Use "7717:7717" to open it to your LAN as well.
+      - "127.0.0.1:7717:7717"
+    volumes:
+      - conclave-data:/data
+    environment:
+      TZ: ${TZ:-UTC}
+    # stdout stays small; the hub's own log files in /data/logs are the record (docs/INSTALL.md, section 12)
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Provider keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, ...) can go in a .env
+    # file next to this one, or in the web UI later.
+    env_file:
+      - path: .env
+        required: false
+
+  # Optional: Basic Memory as an MCP server over HTTP. Only the hub talks to it,
+  # so no port is published (its HTTP endpoint has no auth). Then in Conclave:
+  #   "mcpServers": { "basic-memory": { "type": "http", "url": "http://basic-memory:8000/mcp" } },
+  #   "memory": { "external": { "type": "mcp", "mcpServer": "basic-memory", "mode": "mirror" } }
+  # basic-memory:
+  #   image: ghcr.io/basicmachines-co/basic-memory:latest
+  #   restart: unless-stopped
+  #   command: ["basic-memory", "mcp", "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8000"]
+  #   environment:
+  #     BASIC_MEMORY_DEFAULT_PROJECT: main
+  #     BASIC_MEMORY_SYNC_CHANGES: "true"
+  #   volumes:
+  #     - basic-memory-config:/home/appuser/.basic-memory
+  #     - ./knowledge:/app/data
+
+volumes:
+  conclave-data:
+  # basic-memory-config:

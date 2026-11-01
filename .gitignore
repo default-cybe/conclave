@@ -1,0 +1,20 @@
+node_modules/
+dist/
+/build/
+out/
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+coverage/
+.conclave-dev/
+packages/desktop/src-tauri/target/
+packages/daemon-rs/target/
+packages/desktop/src-tauri/gen/
+# the daemon the desktop app carries, built by scripts/build-sidecar.ts
+packages/desktop/src-tauri/binaries/
+packages/mobile/android/
+packages/mobile/ios/
+*.tsbuildinfo
+/.claude/worktrees/
