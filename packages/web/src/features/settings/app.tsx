@@ -99,7 +99,7 @@ export function AppearanceSection() {
             ]}
           />
         </SettingRow>
-        <SettingRow label="Reduce motion" help="On keeps the mark and the wave still and turns off transitions. System follows this device.">
+        <SettingRow label="Reduce motion" help="On keeps the mark and the wave still and turns off transitions. System follows this device. Off keeps motion even when the device asks to reduce it (Windows with Animation effects off).">
           <Segmented<MotionPref>
             label="Reduce motion"
             size={size}
@@ -108,6 +108,7 @@ export function AppearanceSection() {
             options={[
               { value: 'system', label: 'System' },
               { value: 'reduce', label: 'On' },
+              { value: 'full', label: 'Off' },
             ]}
           />
         </SettingRow>

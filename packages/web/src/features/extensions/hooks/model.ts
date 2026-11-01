@@ -157,7 +157,8 @@ export function networkWithoutTimeout(h: Pick<HookHandlerDto, 'type' | 'command'
 /** True when scrolling should jump instead of glide (system setting or Appearance > Motion). */
 export function scrollBehavior(): ScrollBehavior {
   try {
-    if (document.documentElement.dataset.motion === 'reduce' || matchMedia('(prefers-reduced-motion: reduce)').matches) return 'auto';
+    const pref = document.documentElement.dataset.motion;
+    if (pref === 'reduce' || (pref !== 'full' && matchMedia('(prefers-reduced-motion: reduce)').matches)) return 'auto';
   } catch {
     /* no matchMedia */
   }

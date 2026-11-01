@@ -24,6 +24,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Fixed
 
 - Chat: typing no longer shifts the transcript when the composer grows a line (Safari and the Mac app included), and scrolling up while a reply streams stays where you put it.
+- Windows with Animation effects off gets 3D and motion back. Chromium, Edge and the desktop app read that setting as reduced motion, so Memory > Map showed Rings and every animation stopped. Settings > Appearance > Reduce motion has a third choice, Off, that keeps motion even when the device asks to reduce it (System and On still stop it). With reduced motion, Memory > Map now shows 3D held still (no drift, jumps instead of flights) instead of Rings; Rings stands in only without WebGL.
 
 ## [0.4.52] - 2026-11-01
 

@@ -34,8 +34,8 @@
 }
 /* the 400ms wait is timing, not motion: it holds under reduced motion too (the word then lands at once) */
 @media (prefers-reduced-motion: reduce) {
-  .cv-late,
-  .cv-thought-late > .cv-fold-row {
+  :root:not([data-motion='full']) .cv-late,
+  :root:not([data-motion='full']) .cv-thought-late > .cv-fold-row {
     animation-delay: 400ms !important;
   }
 }

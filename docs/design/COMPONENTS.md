@@ -59,7 +59,7 @@ Colors are CSS variables with Tailwind names bound in `@theme inline`. Never use
 
 Other variables: `--sans`, `--mono`, `--ease`, `--dur-1` 120ms, `--dur-2` 180ms, `--dur-3` 240ms, `--r-1` 3px (controls), `--r-2` 5px (boxes), `--r-3` 10px (phone sheets and the phone approval card), `--safe-t`, `--safe-b`, `--gutter` (32 / 24 / 16 by breakpoint), `--bar-h` 48px, `--bar-h-phone` 52px, `--tabbar-h` 56px, `--row-py` (10px, 6px in compact density), `--body-size`.
 
-Theme: `html[data-theme="dark"|"light"]`, set before paint by `public/theme.js` from `localStorage["conclave.appearance"] = {"theme","logos","density","motion"}`. The store (`store/ui.ts`) owns it: `useUi(s => s.theme | s.logos | s.density | s.motion | s.resolved)`, `toggleTheme()`, `applyTheme()`. `html[data-density="compact"]` and `html[data-motion="reduce"]` follow the Appearance settings.
+Theme: `html[data-theme="dark"|"light"]`, set before paint by `public/theme.js` from `localStorage["conclave.appearance"] = {"theme","logos","density","motion"}`. The store (`store/ui.ts`) owns it: `useUi(s => s.theme | s.logos | s.density | s.motion | s.resolved)`, `toggleTheme()`, `applyTheme()`. `html[data-density="compact"]` and `html[data-motion="reduce"|"full"]` follow the Appearance settings (`full`: motion even under `prefers-reduced-motion: reduce`).
 
 **Legacy aliases.** Old names (`bg-s1`, `border-line`, `text-accent-text`, `bg-accent`, `text-err`, `--surface-1`, `--accent` ...) still resolve to the new tokens so pages that are not rebuilt yet do not break. Do not use them in new code; delete them when no page does.
 
