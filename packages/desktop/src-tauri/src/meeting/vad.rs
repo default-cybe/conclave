@@ -360,6 +360,13 @@ mod tests {
         out
     }
 
+    /// No silero*.onnx file exists on disk by design: silero_rs compiles the model into the app.
+    #[test]
+    fn the_built_in_silero_model_loads() {
+        let mut vad = ContinuousVadProcessor::new(48000, REDEMPTION_THEM_MS).expect("silero VAD from the embedded model");
+        assert!(vad.process_audio(&vec![0.0; 4800]).expect("process").is_empty());
+    }
+
     #[test]
     fn pads_stay_below_the_redemption() {
         for r in [REDEMPTION_THEM_MS, REDEMPTION_ME_MS, 100, 2000] {
