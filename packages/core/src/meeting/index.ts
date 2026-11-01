@@ -10,6 +10,7 @@ import { addDays, atLocal, hubZone, localDate, validZone } from '../assistant/ti
 import type { Engine } from '../engine/engine';
 import { EngineError } from '../engine/errors';
 import { agentModelRef } from '../extensions/agent-model';
+import { isMember } from '../people/context';
 import { pimFor } from '../pim/registry';
 import { projectsOf } from '../projects/attached';
 import { streamCompletion } from '../session/stream';
@@ -18,13 +19,18 @@ import type { Session } from '../types';
 import { logger } from '../util/log';
 import { Answerer, warmUp } from './answer';
 import { BRIEF_PROMPT, buildContextPack, type PackSession } from './context';
+import { fileText } from './files';
+import { defaultLiveModel, modelOptions, speedOf } from './models';
 import { buildPrep } from './prep';
+import { STT_SECRETS, SttError, mintSttToken, sttChoice } from './stt';
 import { MeetingStore, NOW_WINDOW_MS, canMove, type MeetingView, type StoredSegment } from './store';
 import { isQuestion, similarity } from './trigger';
 import { chatContext, memoryText, wrapUp } from './wrapup';
 import {
   AGENDA_MAX,
   BATCHES_PER_SECOND_MAX,
+  MEETING_FILE_BYTES_MAX,
+  MEETING_FILES_MAX,
   PREP_EXTRA_MAX,
   PREP_MAX,
   REMINDER_CHOICES,
@@ -37,7 +43,9 @@ import {
   type Meeting,
   type MeetingChatInput,
   type MeetingDetail,
+  type MeetingFile,
   type MeetingFolder,
+  type MeetingModelOption,
   type MeetingNotes,
   type MeetingPatch,
   type PrepProgress,
@@ -45,12 +53,24 @@ import {
   type ScheduleFields,
   type SegmentAck,
   type SegmentBatch,
+  type SttTestResult,
+  type SttToken,
 } from './wire';
 
 const log = logger('meeting');
 
 export const RUNNING_MSG = 'End the meeting that is running first.';
-const WARM_EVERY_MS = 50 * 60_000;
+/** Keep the prompt cache warm while live: under the 5-minute TTL providers that ignore the 1 h one use. */
+const WARM_EVERY_MS = 4 * 60_000;
+const MODELS_TTL_MS = 5 * 60_000;
+/** How long the first question after a hub restart waits for the model list. */
+const MODELS_WAIT_MS = 1500;
+/** "them" finals within this long of each other may be one question split by the speech model. */
+const JOIN_WINDOW_MS = 10_000;
+const JOIN_MAX = 3;
+/** A lead-in with no end punctuation this close before a question is part of it. */
+const JOIN_GAP_MS = 2500;
+const MODEL_REF_MAX = 200;
 const SESSIONS_DAYS = 14;
 const MIN = 60_000;
 const DAY = 1440 * MIN;
@@ -90,6 +110,8 @@ interface Live {
   /** Hub-clock start of each audio stream (batch t0 is the desktop's, display only). */
   base: number;
   recentThem: StoredSegment[];
+  /** "them" finals since the last answered question, for joining a split question. */
+  fragments: StoredSegment[];
   batches: number[];
   warm?: ReturnType<typeof setInterval>;
 }
@@ -100,6 +122,9 @@ export class MeetingService {
   private work = new Set<Promise<unknown>>();
   /** Prep runs in this process, for cancel. */
   private preps = new Map<string, AbortController>();
+  /** The answer model picker per account, for the default rule (liveModel stays sync). */
+  private models = new Map<string, { at: number; list: MeetingModelOption[] }>();
+  private loadingModels = new Map<string, Promise<unknown>>();
 
   constructor(readonly engine: Engine) {
     this.store = new MeetingStore(engine.repos.db);
@@ -144,6 +169,123 @@ export class MeetingService {
 
   private smart(): string {
     return agentModelRef(this.engine, 'smart', this.engine.config.get().defaultModel).model;
+  }
+
+  /** GET /api/meetings/models: the models the account can use, fastest first. */
+  async modelList(accountId: string): Promise<MeetingModelOption[]> {
+    const hit = this.models.get(accountId);
+    if (hit && Date.now() - hit.at < MODELS_TTL_MS) return hit.list;
+    const list = modelOptions(await this.engine.listModels(accountId), (r) => this.engine.isUsable(r, accountId));
+    this.models.set(accountId, { at: Date.now(), list });
+    return list;
+  }
+
+  /** Start filling the model cache when it is empty or old (liveModel reads it sync). */
+  private fillModels(accountId: string): Promise<unknown> | undefined {
+    const hit = this.models.get(accountId);
+    if (hit && Date.now() - hit.at < MODELS_TTL_MS) return undefined;
+    let p = this.loadingModels.get(accountId);
+    if (!p) {
+      p = this.modelList(accountId)
+        .catch(() => [])
+        .finally(() => this.loadingModels.delete(accountId));
+      this.loadingModels.set(accountId, p);
+      this.track(p);
+    }
+    return p;
+  }
+
+  /**
+   * The model live answers use: the meeting's pick, else models.tiers.fast,
+   * else the fastest usable Haiku or Gemini Flash; anything slower comes
+   * with a note the meeting page shows (never silently a slow model).
+   */
+  liveModel(m: Meeting): { ref: string; note?: string } {
+    const usable = (r: string) => this.engine.isUsable(r, m.accountId);
+    if (m.answerModel && usable(m.answerModel)) return { ref: m.answerModel };
+    const gone = m.answerModel ? `${m.answerModel} cannot be used now. ` : '';
+    const pick = defaultLiveModel(this.models.get(m.accountId)?.list ?? [], this.engine.config.get().models?.tiers?.fast, usable);
+    if (pick) return { ref: pick, ...(gone ? { note: `${gone}Using ${pick}.` } : {}) };
+    const fb = this.fast(m.accountId);
+    const speed = speedOf(fb.slice(fb.lastIndexOf('/') + 1));
+    if (speed === 'fastest' || speed === 'fast') return { ref: fb, ...(gone ? { note: `${gone}Using ${fb}.` } : {}) };
+    return { ref: fb, note: `${gone}No fast model (Haiku or Gemini Flash) is set up, so live answers use ${fb} and may be slow. Pick a faster answer model for this meeting.` };
+  }
+
+  /** Check an answerModel field: a ref the account can use; null or '' clears it. */
+  private answerModelField(v: unknown, accountId: string): string | undefined {
+    if (v === null || v === '') return undefined;
+    if (typeof v !== 'string' || v.length > MODEL_REF_MAX) throw Object.assign(err(400, 'answerModel must be a model ref'), { field: 'answerModel' });
+    if (!this.engine.isUsable(v, accountId)) throw Object.assign(err(400, `You cannot use ${v.slice(0, MODEL_REF_MAX)}. Pick one from the list.`), { field: 'answerModel' });
+    return v;
+  }
+
+  /** Warm the cache with the model and pack the answers will use. */
+  private async warm(m: Meeting, pack?: string): Promise<void> {
+    await this.modelList(m.accountId).catch(() => []);
+    await warmUp(this.engine, this.liveModel(m).ref, m, pack ?? this.store.context(m.id) ?? '');
+  }
+
+  // ----- cloud speech to text -----
+
+  /** The account's key for a speech service: its own value (a member's own file, the hub's for the owner). */
+  private sttKey(accountId: string, p: keyof typeof STT_SECRETS): string | undefined {
+    return this.engine.accountSecrets.value(accountId, STT_SECRETS[p]);
+  }
+
+  /** POST /:id/stt-token: a short-lived streaming credential; 409 when the service has no key. */
+  async sttToken(id: string, accountId: string): Promise<SttToken> {
+    const m = this.get(id, accountId);
+    if (m.status === 'ending' || m.status === 'ended' || m.status === 'failed' || m.status === 'scheduled') throw err(409, `The meeting is ${m.status}.`);
+    // meetings.stt is the owner's choice for the owner's keys; a member cannot set it, so their own first key wins
+    const choice = sttChoice(isMember(accountId) ? undefined : this.engine.config.get().meetings?.stt, (p) => this.sttKey(accountId, p));
+    if (choice === 'local') throw err(409, 'Speech to text runs on this device: no AssemblyAI or Deepgram key is set (Settings > Meetings).');
+    const key = this.sttKey(accountId, choice);
+    if (!key) throw err(409, `No ${choice === 'assemblyai' ? 'AssemblyAI' : 'Deepgram'} key is set (Settings > Meetings). Using speech to text on this device.`);
+    try {
+      return await mintSttToken(choice, key);
+    } catch (e) {
+      // 502, not 409: the desktop app reads 409 as "no key" and falls back without saying why (upload.rs stt_token)
+      if (e instanceof SttError) throw err(502, e.message);
+      throw e;
+    }
+  }
+
+  /** POST /stt-test: mint one token on the saved key, as the desktop app would; 409 without a key. */
+  async sttTest(provider: unknown, accountId: string): Promise<SttTestResult> {
+    if (provider !== 'assemblyai' && provider !== 'deepgram') throw err(400, 'provider is assemblyai or deepgram');
+    const name = provider === 'assemblyai' ? 'AssemblyAI' : 'Deepgram';
+    const key = this.sttKey(accountId, provider);
+    if (!key) throw err(409, `No ${name} key is saved (Settings > Meetings).`);
+    const t0 = Date.now();
+    try {
+      await mintSttToken(provider, key);
+    } catch (e) {
+      if (e instanceof SttError) return { ok: false, message: e.message, ms: Date.now() - t0 };
+      throw e;
+    }
+    const ms = Date.now() - t0;
+    return { ok: true, message: `Works. ${name} sent a streaming token in ${ms} ms.`, ms };
+  }
+
+  // ----- files attached to a meeting -----
+
+  async addFile(id: string, file: { name: string; type?: string; bytes: Uint8Array }, accountId: string): Promise<MeetingFile> {
+    const m = this.get(id, accountId);
+    if (m.status === 'ending' || m.status === 'ended') throw err(409, `The meeting is ${m.status}.`);
+    if (this.store.files(id).length >= MEETING_FILES_MAX) throw err(400, `A meeting holds at most ${MEETING_FILES_MAX} files.`);
+    if (file.bytes.length > MEETING_FILE_BYTES_MAX) throw err(413, `A file is at most ${MEETING_FILE_BYTES_MAX / 1024 / 1024} MB.`);
+    const name = file.name.replace(/[\r\n\t]+/g, ' ').trim().slice(0, 200) || 'file';
+    const t = await fileText(name, file.type, file.bytes);
+    const f = this.store.addFile({ meetingId: id, accountId, name, mediaType: t.mediaType, size: file.bytes.length, text: t.text, ...(t.note ? { note: t.note } : {}) });
+    this.refreshPack(id, true);
+    return f;
+  }
+
+  deleteFile(id: string, fileId: string, accountId: string): void {
+    this.get(id, accountId);
+    if (!this.store.deleteFile(id, fileId)) throw err(404, 'File not found');
+    this.refreshPack(id, true);
   }
 
   private emit(m: Meeting): Meeting {
@@ -257,6 +399,7 @@ export class MeetingService {
   }
 
   private folderName(m: Meeting): string {
+    if (!m.cwd && !m.projectId) return 'No folder';
     return (m.projectId ? projectsOf(this.engine)?.get(m.projectId)?.name : undefined) ?? m.cwd.split(/[\\/]/).filter(Boolean).pop() ?? m.cwd;
   }
 
@@ -387,7 +530,7 @@ export class MeetingService {
     const m = this.get(id, accountId);
     if (m.prepState === 'queued' || m.prepState === 'running') throw err(409, 'The prep is already running.');
     if (opts.approve && m.prepState !== 'waiting') throw err(409, 'Nothing is waiting for your OK.');
-    if (this.engine.repos.devices.accountOf(m.device) !== accountId) throw err(403, `Device ${m.device} is not yours.`);
+    if (m.cwd && this.engine.repos.devices.accountOf(m.device) !== accountId) throw err(403, `Device ${m.device} is not yours.`);
     this.queuePrep(m, opts);
     return { state: 'queued' };
   }
@@ -439,7 +582,7 @@ export class MeetingService {
     const session = this.engine.repos.sessions.get(m.sessionId);
     if (!session) return;
     // checked again here: a device can be removed after scheduling
-    if (this.engine.repos.devices.accountOf(m.device) !== m.accountId) {
+    if (m.cwd && this.engine.repos.devices.accountOf(m.device) !== m.accountId) {
       this.setPrep(id, { prepState: 'failed', prepError: `Device ${m.device} is not yours.`, prepProgress: undefined });
       return;
     }
@@ -457,9 +600,10 @@ export class MeetingService {
         smart: this.smart(),
         approve,
         signal: ctl.signal,
-        machine: this.engine.devices.isOnline(m.device) ? this.engine.machineFor(session) : undefined,
+        machine: m.cwd && this.engine.devices.isOnline(m.device) ? this.engine.machineFor(session) : undefined,
         deviceName,
         steering: m.steering,
+        files: this.store.fileTexts(id),
         memory: () => this.memoryBlock(m, session, 20),
         price: (model) => {
           const info = this.engine.providersFor(m.accountId).resolve(model).info;
@@ -546,7 +690,7 @@ export class MeetingService {
 
   detail(id: string, accountId: string, opts: { before?: number } = {}): MeetingDetail {
     const m = this.get(id, accountId);
-    return { ...m, segments: this.store.finals(id, { before: opts.before }).map(({ at: _at, ...s }) => s), answers: this.store.answers(id) };
+    return { ...m, segments: this.store.finals(id, { before: opts.before }).map(({ at: _at, ...s }) => s), answers: this.store.answers(id), files: this.store.files(id), liveModel: this.liveModel(m) };
   }
 
   // ----- create and brief -----
@@ -555,6 +699,7 @@ export class MeetingService {
     const sched = this.scheduleFields(input, accountId);
     if (input.agenda !== undefined && (typeof input.agenda !== 'string' || input.agenda.length > AGENDA_MAX)) throw err(400, `agenda is at most ${AGENDA_MAX} characters`);
     if (input.title !== undefined && (typeof input.title !== 'string' || input.title.length > TITLE_MAX)) throw err(400, `title is at most ${TITLE_MAX} characters`);
+    const answerModel = input.answerModel !== undefined ? this.answerModelField(input.answerModel, accountId) : undefined;
     let device = input.device;
     let cwd = input.cwd;
     let projectId = input.projectId;
@@ -572,17 +717,19 @@ export class MeetingService {
       device = loc.device;
       cwd = loc.path;
     }
-    if (!cwd) throw err(400, 'Give a sessionId, a projectId or a cwd: a meeting runs in a project folder.');
-    device ||= 'local';
-    if (this.engine.repos.devices.accountOf(device) !== accountId) throw err(403, `Device ${device} is not yours.`);
+    // no folder: the meeting runs on its agenda and attached files only, and reads no device
+    cwd ||= '';
+    device = cwd ? device || 'local' : 'local';
+    if (cwd && this.engine.repos.devices.accountOf(device) !== accountId) throw err(403, `Device ${device} is not yours.`);
     // a scheduled meeting never blocks, nor is blocked by, the one that runs (11.5)
     if (sched.scheduledAt === undefined && this.store.running(accountId)) throw err(409, RUNNING_MSG);
     const project = projectId ? projectsOf(this.engine)?.get(projectId)?.name : undefined;
     const hm = new Date().toTimeString().slice(0, 5);
     const title = input.title?.trim() || `Meeting ${project ?? cwd.split(/[\\/]/).filter(Boolean).pop() ?? ''} ${hm}`.replace(/\s+/g, ' ');
-    const session = await this.engine.createSession({ kind: 'meeting', title, cwd, device, model: this.fast(accountId) }, accountId, { meeting: true });
+    const session = await this.engine.createSession({ kind: 'meeting', title, ...(cwd ? { cwd } : {}), device, model: this.fast(accountId) }, accountId, { meeting: true });
     const scheduled = sched.scheduledAt !== undefined;
-    const m = this.store.create({ accountId, sessionId: session.id, projectId, device, cwd, title, agenda: input.agenda?.trim() || undefined, status: scheduled ? 'scheduled' : 'preparing', ...(Object.keys(sched).length ? { extra: sched } : {}) });
+    const extra: Partial<Meeting> = { ...sched, ...(answerModel ? { answerModel } : {}) };
+    const m = this.store.create({ accountId, sessionId: session.id, projectId, device, cwd, title, agenda: input.agenda?.trim() || undefined, status: scheduled ? 'scheduled' : 'preparing', ...(Object.keys(extra).length ? { extra } : {}) });
     this.emit(m);
     if (scheduled) this.scheduleJobs(m);
     else this.track(this.prepare(m));
@@ -630,26 +777,30 @@ export class MeetingService {
       memory: await this.memoryBlock(m, session),
       lastMeeting: this.store.previousNotes(m),
       ...(prep ? { prep } : {}),
+      files: this.store.fileTexts(m.id),
     });
   }
 
   /**
    * The prep changed after arm (an edit, a revert, a new draft): build the
    * pack again while nothing listens yet, so the meeting uses what the page
-   * shows (11.4.5). Once live the pack stays as it started.
+   * shows (11.4.5). Once live the pack stays as it started, except for a
+   * file the owner attached or removed (live: true): that is worth one cache write.
    */
-  private refreshPack(id: string): void {
+  private refreshPack(id: string, live = false): void {
+    // preparing: "Prepare and start" uploads the files right after create, while the brief is written
+    const can = (x?: Meeting) => !!x && ((x.status === 'ready' && !x.audioClientId) || (live && (x.status === 'preparing' || x.status === 'ready' || x.status === 'live' || x.status === 'paused')));
     const m = this.store.get(id);
-    if (m?.status !== 'ready' || m.audioClientId) return;
-    const session = this.engine.repos.sessions.get(m.sessionId);
+    if (!can(m)) return;
+    const session = this.engine.repos.sessions.get(m!.sessionId);
     if (!session) return;
     this.track(
       (async () => {
-        const pack = await this.buildPack(m, session, this.store.prepInUse(id));
+        const pack = await this.buildPack(m!, session, this.store.prepInUse(id));
         const cur = this.store.get(id);
-        if (cur?.status !== 'ready' || cur.audioClientId) return;
+        if (!can(cur)) return;
         this.store.setContext(id, pack);
-        this.track(warmUp(this.engine, this.fast(m.accountId), cur, pack));
+        this.track(this.warm(cur!, pack));
       })(),
     );
   }
@@ -673,7 +824,7 @@ export class MeetingService {
       const ready = this.store.move(m.id, 'ready');
       if (!ready) return;
       this.emit(ready);
-      this.track(warmUp(this.engine, this.fast(m.accountId), ready, pack));
+      this.track(this.warm(ready, pack));
       return;
     }
     const msg = this.engine.addMessage(m.sessionId, { role: 'assistant', kind: 'normal', content: [], meta: { meetingBrief: true } });
@@ -693,7 +844,7 @@ export class MeetingService {
     const ready = this.store.move(m.id, 'ready');
     if (!ready) return;
     this.emit(ready);
-    this.track(warmUp(this.engine, this.fast(m.accountId), ready, pack));
+    this.track(this.warm(ready, pack));
   }
 
   // ----- live -----
@@ -701,7 +852,9 @@ export class MeetingService {
   private liveOf(m: Meeting): Live {
     let l = this.live.get(m.id);
     if (!l) {
-      l = { answerer: new Answerer(this.engine, this.store, () => this.store.get(m.id), () => this.fast(m.accountId)), base: Date.now(), recentThem: [], batches: [] };
+      // after a hub restart the picker cache is empty: fill it now, not at the first warm-up minutes later
+      this.fillModels(m.accountId);
+      l = { answerer: new Answerer(this.engine, this.store, () => this.store.get(m.id), () => this.liveModel(this.store.get(m.id) ?? m).ref), base: Date.now(), recentThem: [], fragments: [], batches: [] };
       this.live.set(m.id, l);
     }
     return l;
@@ -711,7 +864,7 @@ export class MeetingService {
     if (l.warm) return;
     l.warm = setInterval(() => {
       const cur = this.store.get(m.id);
-      if (cur?.status === 'live') this.track(warmUp(this.engine, this.fast(m.accountId), cur, this.store.context(m.id) ?? ''));
+      if (cur?.status === 'live') this.track(this.warm(cur));
     }, WARM_EVERY_MS);
     l.warm.unref?.();
   }
@@ -731,6 +884,10 @@ export class MeetingService {
       if (patch.autoAnswer !== 'questions' && patch.autoAnswer !== 'off') throw err(400, 'autoAnswer is questions or off');
       set.autoAnswer = patch.autoAnswer;
     }
+    // undefined clears the column (store.update): back to the hub default
+    // the form sends the field on every save: the same value is no change (no re-check, no warm-up)
+    const sameModel = (patch.answerModel ?? '') === (m.answerModel ?? '');
+    if (patch.answerModel !== undefined && !sameModel) set.answerModel = this.answerModelField(patch.answerModel, accountId);
     Object.assign(set, this.scheduleFields(patch, accountId));
     const moving = patch.scheduledAt !== undefined || patch.durationMin !== undefined;
     if (moving && !(m.status === 'scheduled' || (m.status === 'ready' && !m.audioClientId))) throw err(409, `A meeting that is ${m.status} cannot be rescheduled.`);
@@ -754,6 +911,8 @@ export class MeetingService {
       }
     }
     if (Object.keys(set).length) next = this.store.update(id, set)!;
+    // a new answer model reads a cold cache: warm it before the next question
+    if ('answerModel' in set && (next.status === 'ready' || next.status === 'live' || next.status === 'paused')) this.track(this.warm(next));
     const jobsChange = moving || patch.reminders !== undefined || patch.autoPrep !== undefined || patch.tz !== undefined;
     if (jobsChange && next.status === 'scheduled') this.scheduleJobs(next);
     return this.emit(next);
@@ -784,7 +943,7 @@ export class MeetingService {
     for (const s of batch.segments) {
       const text = defuseFrameworkTags(s.text.trim());
       if (!text) continue;
-      const seg: StoredSegment = { ...s, text, at: l.base + s.startMs };
+      const seg: StoredSegment = { ...s, text, at: l.base + s.startMs, receivedAt: now };
       if (seg.channel === 'me' && seg.final && this.isEcho(seg, l)) continue;
       if (!this.store.putSegment(id, m.accountId, seg, seg.at)) continue;
       stored.push(seg);
@@ -796,7 +955,10 @@ export class MeetingService {
     const ack: SegmentAck = { accepted: stored.length, lastSeq: this.store.lastSeq(id) };
     if (stored.length) {
       const meeting = m;
-      setImmediate(() => this.afterIngest(meeting, stored, l));
+      // no model list at all (the hub restarted mid-meeting): wait for it a little, so the answer is not on the slow fallback
+      const models = this.models.has(m.accountId) ? undefined : this.fillModels(m.accountId);
+      if (models) void Promise.race([models, Bun.sleep(MODELS_WAIT_MS)]).then(() => this.afterIngest(meeting, stored, l));
+      else setImmediate(() => this.afterIngest(meeting, stored, l));
     }
     return ack;
   }
@@ -819,9 +981,46 @@ export class MeetingService {
       this.engine.bus.emit({ type: 'meeting.segment', sessionId: m.sessionId, meetingId: m.id, segment });
       // trigger only on "them", never on "me" (4.3)
       if (s.channel !== 'them') continue;
-      if (isQuestion(s.text, names)) l.answerer.onQuestion(s);
-      else if (s.final) l.answerer.onFinalNotQuestion(s);
+      if (!s.final) {
+        if (isQuestion(s.text, names)) l.answerer.onQuestion(s);
+        continue;
+      }
+      const q = this.questionOf(s, l, names);
+      if (q) l.answerer.onQuestion(q);
+      else l.answerer.onFinalNotQuestion(s);
     }
+  }
+
+  /**
+   * The question a "them" final ends, if any: the final itself, or it joined
+   * with the 1 or 2 "them" finals just before it (the speech model splits one
+   * question at short pauses). The fragments start over after each question.
+   */
+  private questionOf(s: StoredSegment, l: Live, names: string[]): StoredSegment | undefined {
+    l.fragments = l.fragments.filter((f) => s.at - (f.at + (f.endMs - f.startMs)) <= JOIN_WINDOW_MS).slice(-(JOIN_MAX - 1));
+    if (isQuestion(s.text, names)) {
+      // "the cache layer you built" + "how did you handle invalidation": the lead-in that ran on into it
+      const lead: StoredSegment[] = [];
+      let end = s.at;
+      for (let i = l.fragments.length - 1; i >= 0; i--) {
+        const f = l.fragments[i];
+        if (/[.!?]$/.test(f.text.trim()) || end - (f.at + (f.endMs - f.startMs)) > JOIN_GAP_MS) break;
+        lead.unshift(f);
+        end = f.at;
+      }
+      l.fragments = [];
+      return lead.length ? { ...s, text: [...lead.map((f) => f.text), s.text].join(' ') } : s;
+    }
+    for (let i = 0; i < l.fragments.length; i++) {
+      const text = [...l.fragments.slice(i).map((f) => f.text), s.text].join(' ');
+      if (isQuestion(text, names)) {
+        const first = l.fragments[i];
+        l.fragments = [];
+        return { ...s, text, startMs: first.startMs, at: first.at, endMs: s.endMs + (s.at - first.at) - (s.startMs - first.startMs) };
+      }
+    }
+    l.fragments.push(s);
+    return undefined;
   }
 
   answerNow(id: string, input: AnswerNowInput, accountId: string): { answerId: string; messageId: string } {

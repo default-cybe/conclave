@@ -80,7 +80,7 @@ A reviewer rejects a change that adds any of these, unless a line in this spec a
 - [ ] A colored edge stripe on a card or callout (left or top accent bar). The selected list row bar in 10.2 is the only edge bar, and it is neutral.
 - [ ] Colored dots as the identity of a model, provider, agent or project. `ModelDot`, `AgentIcon` color tiles and per-agent colors are removed from the UI.
 - [ ] Background grids, crosshair corner marks, concentric rings, noise overlays, scanlines, glows, blurred blobs.
-- [ ] Gradients of any kind on surfaces, text or borders. Glassmorphism or `backdrop-filter` (except the mobile tab bar, see 12). Glowing borders. Sparkle icons. Emoji in UI chrome.
+- [ ] Gradients of any kind on surfaces, text or borders. Glassmorphism or `backdrop-filter` (except the mobile tab bar, see 12, and the meeting overlay, which floats over other apps: docs/design/MEETING-MODE.md 7.3). Glowing borders. Sparkle icons. Emoji in UI chrome.
 - [ ] KPI tile rows. Sparklines next to numbers. Charts stay on the Usage page (the Home scope, 9.4, went with the chat-first Home).
 - [ ] Lists of identical rows each ending in a colored toggle switch. Booleans are a neutral "On / Off" segmented control and live in detail views (10.11).
 - [ ] Spinners, pulsing dots, shimmering skeletons. Live work shows a wave strip or an elapsed counter. A plain static skeleton is allowed only for a first load that takes more than 300ms.

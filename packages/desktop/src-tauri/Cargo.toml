@@ -11,7 +11,8 @@ publish = false
 tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
-tauri = { version = "2.12", features = ["tray-icon"] }
+# macos-private-api: a transparent meeting overlay on macOS (src/meeting/mod.rs build)
+tauri = { version = "2.12", features = ["tray-icon", "macos-private-api"] }
 tauri-plugin-autostart = "2.7"
 tauri-plugin-deep-link = "2.6"
 tauri-plugin-global-shortcut = "2.4"
@@ -41,6 +42,11 @@ regex = "1"
 once_cell = "1"
 thiserror = "2"
 log = "0.4"
+# cloud speech to text (src/meeting/cloud.rs): a blocking websocket per channel to
+# AssemblyAI or Deepgram over the rustls, ring and webpki roots ureq already brings
+tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -57,6 +63,10 @@ windows = { version = "0.62", features = [
   "Win32_System_Threading",
   "Win32_UI_WindowsAndMessaging",
 ] }
+# meeting overlay: acrylic behind it on Windows 11 (src/meeting/mod.rs build); both already in
+# the tree through tauri and tao
+window-vibrancy = "0.8"
+windows-version = "0.1"
 
 # meeting overlay on macOS: sharingType, panel level and collection behaviour,
 # the window list for share detection (src/meeting/exclude_mac.rs, share_watch.rs)
@@ -67,6 +77,8 @@ objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSPanel", "NSRe
 objc2-core-foundation = { version = "0.3", features = ["CFArray", "CFDictionary", "CFNumber", "CFString"] }
 objc2-core-graphics = { version = "0.3", features = ["CGWindow"] }
 tauri-nspanel = "2.1"
+# the blur behind the translucent overlay (src/meeting/mod.rs build), the crate tauri already uses
+window-vibrancy = "0.8"
 
 [profile.release]
 codegen-units = 1

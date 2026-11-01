@@ -13,6 +13,7 @@
 
 #[cfg(target_os = "linux")]
 mod appimage;
+mod applog;
 mod computer;
 mod hub;
 mod local;
@@ -1669,7 +1670,10 @@ fn main() {
         .setup(|app| {
             // first, so any later panic names itself in panic.log before the abort
             match app.path().app_log_dir() {
-                Ok(dir) => panic_log::install(dir, app.package_info().version.to_string()),
+                Ok(dir) => {
+                    applog::install(dir.clone(), &app.package_info().version.to_string());
+                    panic_log::install(dir, app.package_info().version.to_string())
+                }
                 Err(e) => eprintln!("conclave: no log folder for panic.log: {e}"),
             }
             let handle = app.handle().clone();

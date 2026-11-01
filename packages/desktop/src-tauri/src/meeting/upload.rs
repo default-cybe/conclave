@@ -13,12 +13,16 @@ use std::time::{Duration, Instant};
 
 use tauri::Url;
 
-use super::wire::{AnswerNowInput, Segment, SegmentBatch, MAX_BATCH};
+use super::cloud::{SttToken, TokenError};
+use super::wire::{now_ms, AnswerNowInput, Segment, SegmentBatch, MAX_BATCH};
 
 pub const CAPACITY: usize = 256;
 /// The hub refuses bodies over 64 KB; stay well under.
 const MAX_BATCH_BYTES: usize = 48 * 1024;
 pub const POST_TIMEOUT: Duration = Duration::from_secs(2);
+/// `stt-token`: above the hub's own 8 s wait on the provider (core/src/meeting/stt.ts TIMEOUT_MS),
+/// so a slow provider answers with the hub's reason instead of a timeout here.
+pub const TOKEN_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Default)]
 pub struct Outbox {
@@ -160,8 +164,28 @@ impl Hub {
     }
 
     pub fn post_segments(&self, segments: &[Segment]) -> Posted {
-        let batch = SegmentBatch { client_id: self.client_id.clone(), t0: self.t0, segments: segments.to_vec() };
+        let batch = SegmentBatch { client_id: self.client_id.clone(), t0: self.t0, segments: segments.to_vec(), sent_at: Some(now_ms()) };
         self.post("segments", serde_json::to_value(batch).unwrap_or_default())
+    }
+
+    /// `POST .../stt-token`: a short-lived streaming credential for one socket.
+    /// 409: no cloud provider is set up on the hub. The hub mints it from the
+    /// provider, so this waits longer than a segment post.
+    pub fn stt_token(&self) -> Result<SttToken, TokenError> {
+        let url = self.url("stt-token").map_err(TokenError::Failed)?;
+        let res = ureq::AgentBuilder::new()
+            .resolver(crate::hub::Ipv4First)
+            .timeout(TOKEN_TIMEOUT)
+            .build()
+            .post(url.as_str())
+            .set("Authorization", &format!("Bearer {}", self.token))
+            .send_json(serde_json::json!({ "clientId": self.client_id }));
+        match res {
+            Ok(r) => r.into_json().map_err(|e| TokenError::Failed(format!("unreadable token reply: {e}"))),
+            Err(ureq::Error::Status(409, _)) => Err(TokenError::NoKey),
+            Err(ureq::Error::Status(code, r)) => Err(TokenError::Failed(format!("{code} {}", r.into_string().unwrap_or_default()))),
+            Err(e) => Err(TokenError::Failed(e.to_string())),
+        }
     }
 
     /// `POST .../end` (3.1): the hub wraps up. A 409 means it already ends.
@@ -206,8 +230,23 @@ pub fn run(hub: &Hub, shared: &Shared, stop: &AtomicBool) {
             }
             continue;
         }
+        let posting = Instant::now();
         match hub.post_segments(&batch) {
             Posted::Ok => {
+                let now = now_ms();
+                // the latency of each final, in the log only (no text): speech end, text back, accepted by the hub
+                for s in batch.iter().filter(|s| s.is_final) {
+                    if let (Some(end), Some(text)) = (s.speech_end_at, s.final_at) {
+                        log::info!(
+                            "meeting: {:?}#{} speech end to text {} ms, text to hub {} ms (post {} ms)",
+                            s.channel,
+                            s.seq,
+                            text - end,
+                            now - text,
+                            posting.elapsed().as_millis()
+                        );
+                    }
+                }
                 failures = 0;
                 retry_at = None;
                 shared.online.store(true, Ordering::Relaxed);
@@ -220,6 +259,9 @@ pub fn run(hub: &Hub, shared: &Shared, stop: &AtomicBool) {
             }
             Posted::Refused(e) => log::warn!("meeting: the hub refused a batch: {e}"),
             Posted::Retry(e) => {
+                if failures == 0 {
+                    log::warn!("meeting: posting segments failed, retrying: {e}");
+                }
                 shared.online.store(false, Ordering::Relaxed);
                 let mut o = shared.outbox.lock().unwrap();
                 o.put_back(batch);
@@ -245,7 +287,15 @@ mod tests {
     use std::sync::Arc;
 
     fn seg(seq: u64, is_final: bool) -> Segment {
-        Segment { seq, channel: Channel::Them, start_ms: 0, end_ms: 1, text: format!("s{seq}"), is_final }
+        Segment { seq, channel: Channel::Them, start_ms: 0, end_ms: 1, text: format!("s{seq}"), is_final, speech_end_at: None, final_at: None }
+    }
+
+    /// The desktop must outwait the hub's own wait on the provider, or a slow provider looks like a dead hub.
+    #[test]
+    fn the_token_timeout_is_longer_than_the_hubs_provider_wait() {
+        let ts = include_str!("../../../../core/src/meeting/stt.ts");
+        let ms: u64 = ts.split("const TIMEOUT_MS = ").nth(1).and_then(|r| r.split(';').next()).and_then(|n| n.trim().replace('_', "").parse().ok()).expect("TIMEOUT_MS in stt.ts");
+        assert!(TOKEN_TIMEOUT > Duration::from_millis(ms), "{TOKEN_TIMEOUT:?} vs hub {ms} ms");
     }
 
     #[test]

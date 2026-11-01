@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Live } from '../src/overlay/Live';
-import { levelsOrSame } from '../src/overlay/frame';
+import { levelSource, levelsOrSame } from '../src/overlay/frame';
 import { meetingApi, HubError, type Req } from '../src/overlay/hub';
 import { emptyView, loadDetail } from '../src/overlay/model';
 import type { DesktopMeetingStatus, MeetingDetail } from '../src/overlay/wire';
@@ -32,7 +32,7 @@ const desk = (p: Partial<DesktopMeetingStatus>): DesktopMeetingStatus => ({
 function render(status: MeetingDetail['status'], d?: DesktopMeetingStatus): string {
   const v = emptyView();
   loadDetail(v, detail({ status }));
-  return renderToStaticMarkup(<Live api={meetingApi(req)} view={v} desktop={d} levels={{ me: 0, them: 0 }} ws="open" />);
+  return renderToStaticMarkup(<Live api={meetingApi(req)} view={v} desktop={d} levels={levelSource()} ws="open" />);
 }
 
 describe('the recording dot', () => {

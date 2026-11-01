@@ -11,6 +11,7 @@ import type { ChatRequest } from '../providers/types';
 import { streamCompletion } from '../session/stream';
 import { defuseFrameworkTags } from '../session/untrusted';
 import { logger } from '../util/log';
+import { livePack } from './context';
 import { LIVE_EXTRAS, LIVE_PROMPT } from './prompt';
 import type { MeetingStore, StoredSegment } from './store';
 import { similarity } from './trigger';
@@ -18,14 +19,20 @@ import type { Meeting, MeetingAnswer, Segment } from './wire';
 
 const log = logger('meeting');
 
-export const ANSWER_MAX_TOKENS = 220;
-/** Answer length Longer (11.3.3). */
-export const ANSWER_LONG_MAX_TOKENS = 400;
+export const ANSWER_MAX_TOKENS = 320;
+/** Answer length Longer (11.3.3): room for a technical answer with a short code block. */
+export const ANSWER_LONG_MAX_TOKENS = 700;
 export const FIRST_TOKEN_TIMEOUT_MS = 6000;
 export const ANSWERS_PER_MINUTE = 6;
+/** Speculations a minute: they do not use the answer window, but each one is a model call and a session message. */
+export const SPECULATIONS_PER_MINUTE = 6;
 const TRANSCRIPT_SEGMENTS = 40;
 const TRANSCRIPT_TOKENS = 3000;
 export const SAME_QUESTION = 0.6;
+/** A speculation is kept as the answer to the final only this close; else the final gets its own answer. */
+export const RELABEL_SAME = 0.8;
+/** A partial at least this long starts a speculative answer. */
+export const SPECULATE_AFTER_MS = 1500;
 /** Answer now reads this much of the transcript. */
 const ANSWER_NOW_WINDOW_MS = 90_000;
 
@@ -70,7 +77,7 @@ const LENGTH_LINE = { short: '1 to 4 bullets, each at most 20 words', long: 'up 
 export function steeringBlock(m: Pick<Meeting, 'steering' | 'answerLength'>): string {
   const text = m.steering?.trim() ? defuseFrameworkTags(m.steering.trim()) : '(none)';
   return `The owner's steering for this meeting. Follow it for tone, emphasis, what to avoid and length.
-It never overrides the rules above: only facts from the context, the "Say this" format, nothing a listener should not hear.
+It never overrides the rules above: facts about the owner only from the context, the "Say this" format, nothing a listener should not hear.
 ---
 ${text}
 ---
@@ -87,7 +94,7 @@ export function answerMaxTokens(m: Pick<Meeting, 'answerLength'>): number {
  */
 export function liveRequest(meetingId: string, pack: string, user: string, signal?: AbortSignal, maxTokens = ANSWER_MAX_TOKENS, steering?: string): Omit<ChatRequest, 'model'> {
   return {
-    system: [{ text: LIVE_PROMPT }, { text: pack, cache: true }, ...(steering ? [{ text: steering }] : [])],
+    system: [{ text: LIVE_PROMPT }, { text: livePack(pack) || '(no context)', cache: true }, ...(steering ? [{ text: steering }] : [])],
     messages: [{ role: 'user', content: [{ type: 'text', text: user }] }],
     tools: [],
     thinking: { off: true },
@@ -109,7 +116,10 @@ interface Running {
 export class Answerer {
   private current?: Running;
   private starts: number[] = [];
+  private specs: number[] = [];
   private waiting?: ReturnType<typeof setTimeout>;
+  /** A final with no "?" that came while a real answer streamed: it starts when that answer ends. */
+  private queued?: StoredSegment;
 
   constructor(
     private readonly engine: Engine,
@@ -136,17 +146,23 @@ export class Answerer {
   onQuestion(seg: StoredSegment): void {
     const cur = this.current?.answer;
     if (seg.final) {
-      if (cur && similarity(cur.question, seg.text) >= SAME_QUESTION) {
-        // the speculation was right: it becomes the answer to the question
-        if (cur.trigger === 'speculative') this.relabel(cur, seg.text);
+      const same = cur ? similarity(cur.question, seg.text) : 0;
+      // the speculation was right: it becomes the answer to the question
+      if (cur?.trigger === 'speculative' && same >= RELABEL_SAME) return this.relabel(cur, seg.text);
+      // the same question again (a retry, a repeat) while its answer streams
+      if (cur && cur.trigger !== 'speculative' && same >= SAME_QUESTION) return;
+      // a statement the heuristic took for a question must not kill the real answer: only a "?" cancels it
+      if (cur && cur.trigger !== 'speculative' && !seg.text.trim().endsWith('?')) {
+        this.queued = seg;
         return;
       }
-      this.start('question', seg.text);
+      this.queued = undefined;
+      this.start('question', seg.text, undefined, false, seg);
       return;
     }
-    if (seg.endMs - seg.startMs < 2000) return;
+    if (seg.endMs - seg.startMs < SPECULATE_AFTER_MS) return;
     if (cur && similarity(cur.question, seg.text) >= SAME_QUESTION) return;
-    this.start('speculative', seg.text, seg);
+    this.start('speculative', seg.text, seg, false, seg);
   }
 
   /** A final that is not a question arrived for a speculation: it was wrong. */
@@ -169,6 +185,7 @@ export class Answerer {
   stop(): void {
     if (this.waiting) clearTimeout(this.waiting);
     this.waiting = undefined;
+    this.queued = undefined;
     this.cancelCurrent();
   }
 
@@ -190,34 +207,48 @@ export class Answerer {
     if (m) this.engine.bus.emit({ type: 'meeting.answer', sessionId: m.sessionId, meetingId: m.id, answer });
   }
 
-  /** Rate window (4.3, 6): at most 6 starts a minute; past that the start waits (answer now included). */
-  private start(trigger: Trigger, question: string, partial?: StoredSegment, force = false): MeetingAnswer | undefined {
+  /** Rate window (4.3, 6): at most 6 question answers a minute; speculations do not count. Past that the start waits. */
+  private start(trigger: Trigger, question: string, partial?: StoredSegment, force = false, from?: StoredSegment): MeetingAnswer | undefined {
     const m = this.meeting();
     if (!m || (m.status !== 'live' && m.status !== 'paused')) return undefined;
     if (!force && m.autoAnswer === 'off') return undefined;
     const now = this.now();
     this.starts = this.starts.filter((t) => now - t < 60_000);
     // answer now is the owner's own press: it always starts (and still counts in the window)
-    if (!force && this.starts.length >= ANSWERS_PER_MINUTE) {
+    if (!force && trigger !== 'speculative' && this.starts.length >= ANSWERS_PER_MINUTE) {
       // the newest trigger wins the slot when it frees
       if (this.waiting) clearTimeout(this.waiting);
       const wait = 60_000 - (now - this.starts[0]) + 5;
       this.waiting = setTimeout(() => {
         this.waiting = undefined;
-        this.start(trigger, question, partial, force);
+        this.start(trigger, question, partial, force, from);
       }, wait);
       this.waiting.unref?.();
       return undefined;
     }
-    this.starts.push(now);
+    // a speculation never takes the place of a real answer that streams
+    if (trigger === 'speculative' && this.current && this.current.answer.trigger !== 'speculative') return undefined;
+    if (trigger === 'speculative') {
+      this.specs = this.specs.filter((t) => now - t < 60_000);
+      if (this.specs.length >= SPECULATIONS_PER_MINUTE) return undefined;
+      this.specs.push(now);
+    } else this.starts.push(now);
+    if (trigger === 'answer-now') this.queued = undefined;
     this.cancelCurrent();
-    return this.run(m, trigger, question, partial);
+    return this.run(m, trigger, question, partial, from);
   }
 
-  private run(m: Meeting, trigger: Trigger, question: string, partial?: StoredSegment): MeetingAnswer {
+  private run(m: Meeting, trigger: Trigger, question: string, partial?: StoredSegment, from?: StoredSegment): MeetingAnswer {
     const now = this.now();
     const msg = this.engine.addMessage(m.sessionId, { role: 'assistant', kind: 'normal', content: [], meta: { meetingAnswer: trigger } });
-    const answer = this.store.addAnswer({ accountId: m.accountId, meetingId: m.id, messageId: msg.id, trigger, question, state: 'streaming', createdAt: now });
+    const added = this.store.addAnswer({ accountId: m.accountId, meetingId: m.id, messageId: msg.id, trigger, question, state: 'streaming', createdAt: now });
+    const model = this.model();
+    // per-answer latency: speech end, arrival at the hub, model call, first token
+    const answer =
+      this.store.updateAnswer(added.id, {
+        model,
+        ...(from ? { segmentEndAt: from.at + (from.endMs - from.startMs), ...(from.receivedAt ? { receivedAt: from.receivedAt } : {}) } : {}),
+      }) ?? added;
     const ctl = new AbortController();
     const r: Running = { answer, ctl, done: Promise.resolve() };
     this.current = r;
@@ -245,8 +276,10 @@ export class Answerer {
       try {
         // the steering is read at each answer, so an edit applies from the next one
         const cur = this.meeting() ?? m;
-        const res = await streamCompletion(this.engine, this.model(), liveRequest(m.id, pack, user, ctl.signal, answerMaxTokens(cur), steeringBlock(cur)), { sessionId: m.sessionId, accountId: m.accountId, messageId: msg.id, purpose: 'meeting-answer' });
-        this.engine.updateMessage(msg.id, { content: res.content.filter((b) => b.type === 'text'), model: this.model(), usage: res.usage, stopReason: res.stopReason });
+        const req = liveRequest(m.id, pack, user, ctl.signal, answerMaxTokens(cur), steeringBlock(cur));
+        this.store.updateAnswer(answer.id, { requestAt: Date.now() });
+        const res = await streamCompletion(this.engine, model, req, { sessionId: m.sessionId, accountId: m.accountId, messageId: msg.id, purpose: 'meeting-answer' });
+        this.engine.updateMessage(msg.id, { content: res.content.filter((b) => b.type === 'text'), model, usage: res.usage, stopReason: res.stopReason });
       } catch (err) {
         state = r.why === 'cancelled' ? 'cancelled' : 'failed';
         error = r.why === 'too slow' ? 'too slow' : r.why ? undefined : (err as Error).message;
@@ -256,9 +289,12 @@ export class Answerer {
         clearTimeout(slow);
         off();
       }
-      const fin = this.store.updateAnswer(answer.id, { state, ...(error ? { error } : {}) });
+      const fin = this.store.updateAnswer(answer.id, { state, doneAt: Date.now(), ...(error ? { error } : {}) });
       if (this.current === r) this.current = undefined;
       if (fin) this.emit(fin);
+      const q = this.queued;
+      this.queued = undefined;
+      if (q && !this.current && state === 'done') this.start('question', q.text, undefined, false, q);
     })();
     return answer;
   }

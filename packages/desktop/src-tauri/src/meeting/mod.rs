@@ -4,6 +4,7 @@
 //! Nothing here runs when no meeting does, except the one Ctrl/Cmd+Alt+M hotkey.
 
 pub mod capture;
+pub mod cloud;
 #[cfg(target_os = "macos")]
 pub mod exclude_mac;
 #[cfg(target_os = "windows")]
@@ -18,7 +19,9 @@ pub mod upload;
 pub mod vad;
 pub mod wire;
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::sync_channel;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -55,6 +58,9 @@ struct Run {
 static RUN: Mutex<Option<Run>> = Mutex::new(None);
 static OPEN_ID: Mutex<Option<String>> = Mutex::new(None);
 static STT: Mutex<Option<SttStatus>> = Mutex::new(None);
+/// Who transcribes ("assemblyai", "deepgram", "local") and why it fell back, if it did.
+static PROVIDER: Mutex<Option<&'static str>> = Mutex::new(None);
+static NOTE: Mutex<Option<String>> = Mutex::new(None);
 static EXCLUSION: Mutex<Exclusion> = Mutex::new(Exclusion::Unsupported);
 static CLICK_THROUGH: AtomicBool = AtomicBool::new(false);
 static HIDDEN_FOR_SHARE: AtomicBool = AtomicBool::new(false);
@@ -67,7 +73,7 @@ fn channel(c: &ChannelShared) -> ChannelState {
 
 pub fn status() -> DesktopMeetingStatus {
     let run = RUN.lock().unwrap();
-    let stt = STT.lock().unwrap().clone().unwrap_or(SttStatus { state: SttState::Loading, progress: None, error: None });
+    let stt = STT.lock().unwrap().clone().unwrap_or(SttStatus { state: SttState::Loading, progress: None, error: None, provider: None });
     let (mic, system, queue, live, paused) = match run.as_ref() {
         Some(r) => (
             channel(&r.mic),
@@ -120,16 +126,32 @@ fn build(app: &AppHandle, url: Url) -> Result<WebviewWindow, String> {
         .skip_taskbar(true)
         .focused(false)
         .shadow(false)
-        .visible_on_all_workspaces(true);
-    // transparency on macOS needs the private-API feature; the panel is opaque there
-    #[cfg(not(target_os = "macos"))]
-    let b = b.transparent(true);
+        .visible_on_all_workspaces(true)
+        // translucent: on macOS this needs tauri's macos-private-api feature (tauri.conf.json macOSPrivateApi)
+        .transparent(true);
     let w = b.build().map_err(|e| e.to_string())?;
     #[cfg(target_os = "macos")]
-    exclude_mac::make_panel(&w)?;
+    {
+        exclude_mac::make_panel(&w)?;
+        // after the class swap, on this same main thread (make_panel checks it): a blur view
+        // under the webview. sharingType belongs to the window, so a subview leaves it alone,
+        // and show() sets and reads it back after this anyway.
+        use window_vibrancy::{NSVisualEffectMaterial, NSVisualEffectState};
+        if let Err(e) = window_vibrancy::apply_vibrancy(&w, NSVisualEffectMaterial::HudWindow, Some(NSVisualEffectState::Active), Some(10.0)) {
+            log::warn!("meeting overlay: no vibrancy: {e}");
+        }
+    }
     #[cfg(target_os = "windows")]
     if let Ok(h) = w.hwnd() {
         exclude_win::tool_window(h.0 as isize, true);
+        // Windows 11 22H2+ only (the DWM system backdrop). Windows 10's acrylic lags on drag and
+        // resize, so there the page's own translucent dark panel is the background. The display
+        // affinity is a separate attribute; show() sets and verifies it after this.
+        if windows_version::OsVersion::current() >= windows_version::OsVersion::new(10, 0, 0, 22523) {
+            if let Err(e) = window_vibrancy::apply_acrylic(&w, None) {
+                log::warn!("meeting overlay: no acrylic: {e}");
+            }
+        }
     }
     let handle = app.clone();
     w.on_window_event(move |e| {
@@ -256,7 +278,20 @@ pub fn open(app: &AppHandle, meeting_id: Option<&str>) -> Result<(), String> {
 // ---- start and stop ----
 
 fn set_stt(state: SttState, progress: Option<f32>, error: Option<String>) {
-    *STT.lock().unwrap() = Some(SttStatus { state, progress, error });
+    let note = NOTE.lock().unwrap().clone();
+    let provider = PROVIDER.lock().unwrap().map(str::to_string);
+    *STT.lock().unwrap() = Some(SttStatus { state, progress, error: error.or(note), provider });
+}
+
+/// The provider or the fallback note changed: the same state, with them.
+fn set_provider(provider: Option<&'static str>, note: Option<String>) {
+    *PROVIDER.lock().unwrap() = provider;
+    *NOTE.lock().unwrap() = note;
+    let cur = STT.lock().unwrap().clone();
+    match cur {
+        Some(c) => set_stt(c.state, c.progress, if c.state == SttState::Failed { c.error } else { None }),
+        None => set_stt(SttState::Loading, None, None),
+    }
 }
 
 fn check_meeting(base: &Url, token: &str, id: &str, client_id: &str) -> Result<(), String> {
@@ -299,6 +334,9 @@ pub fn start(app: &AppHandle, id: &str) -> Result<(), String> {
     let client_id = crate::meeting_client_id(app);
     check_meeting(&base, &token, id, &client_id)?;
     let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    log::info!("meeting {id}: start");
+    *STT.lock().unwrap() = None;
+    set_provider(None, None);
 
     let run = Run {
         id: id.to_string(),
@@ -309,42 +347,24 @@ pub fn start(app: &AppHandle, id: &str) -> Result<(), String> {
         stt: Arc::new(stt::Shared::default()),
         up: Arc::new(upload::Shared::default()),
     };
-    let t0 = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
-    let hub = upload::Hub::new(base, token, client_id, id.to_string(), t0);
+    let hub = Arc::new(upload::Hub::new(base, token, client_id, id.to_string(), wire::now_ms()));
     {
-        let (up, stop) = (run.up.clone(), run.stop.clone());
+        let (up, stop, hub) = (run.up.clone(), run.stop.clone(), hub.clone());
         spawn("meeting-up", move || upload::run(&hub, &up, &stop));
     }
-    {
-        // model first (download on the first meeting), then capture, then the STT loop
-        let (stt_shared, up, stop, paused, mic, sys) =
-            (run.stt.clone(), run.up.clone(), run.stop.clone(), run.paused.clone(), run.mic.clone(), run.sys.clone());
-        spawn("meeting-stt", move || {
-            let dir = models::dir(&app_data);
-            if !models::missing(&dir).is_empty() {
-                set_stt(SttState::Downloading, Some(0.0), None);
-                if let Err(e) = models::ensure(&dir, |p| set_stt(SttState::Downloading, Some(p), None)) {
-                    set_stt(SttState::Failed, None, Some(e));
-                    return;
-                }
-            }
-            set_stt(SttState::Loading, None, None);
-            let mut model = match stt::load(&dir) {
-                Ok(m) => m,
-                Err(e) => return set_stt(SttState::Failed, None, Some(e)),
-            };
-            set_stt(SttState::Ready, None, None);
-            if stop.load(Ordering::Relaxed) {
-                return stt::keep(model);
-            }
-            for (ch, shared, name) in [(wire::Channel::Me, mic, "meeting-mic"), (wire::Channel::Them, sys, "meeting-sys")] {
-                let (q, stop, paused, idle) = (stt_shared.clone(), stop.clone(), paused.clone(), stt_shared.idle.clone());
-                spawn(name, move || capture::run_channel(ch, shared, stop, paused, idle, |s| q.push(s.into())));
-            }
-            stt::run(&mut model, &stt_shared, &stop, |seg| up.push(seg));
-            stt::keep(model);
-        });
-    }
+    let pipeline = Pipeline {
+        app_data,
+        stt: run.stt.clone(),
+        up: run.up.clone(),
+        stop: run.stop.clone(),
+        paused: run.paused.clone(),
+        mic: run.mic.clone(),
+        sys: run.sys.clone(),
+        seqs: Arc::default(),
+        local: Arc::default(),
+        hub,
+    };
+    spawn("meeting-stt", move || pipeline.begin());
     let stop = run.stop.clone();
     *RUN.lock().unwrap() = Some(run);
     register_keys(app);
@@ -354,8 +374,107 @@ pub fn start(app: &AppHandle, id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// The speech to text side of one meeting, shared by its threads.
+#[derive(Clone)]
+struct Pipeline {
+    app_data: PathBuf,
+    stt: Arc<stt::Shared>,
+    up: Arc<upload::Shared>,
+    stop: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
+    mic: Arc<ChannelShared>,
+    sys: Arc<ChannelShared>,
+    /// One numbering per channel for the cloud and the local model: a fallback leaves no gap.
+    seqs: Arc<Mutex<stt::Seqs>>,
+    /// The local model was started (once per meeting).
+    local: Arc<AtomicBool>,
+    hub: Arc<upload::Hub>,
+}
+
+impl Pipeline {
+    /// Capture starts at once; each channel's cloud thread asks the hub for its own token
+    /// meanwhile (audio waits in the feed, `cloud::FEED_FRAMES`), retries a failed one,
+    /// and hands the channel to the model on this computer when the hub has no key or
+    /// the provider keeps failing. Never waits for a model download.
+    fn begin(self) {
+        log::info!("meeting: capture starts; asking the hub for cloud speech to text");
+        // nothing from the last meeting: loading until a provider answers or local takes over
+        *STT.lock().unwrap() = None;
+        set_provider(None, None);
+        for (ch, shared, name) in [(wire::Channel::Me, self.mic.clone(), "meeting-mic"), (wire::Channel::Them, self.sys.clone(), "meeting-sys")] {
+            let on = Arc::new(AtomicBool::new(true));
+            let (tx, rx) = sync_channel(cloud::FEED_FRAMES);
+            {
+                let (p, on) = (self.clone(), on.clone());
+                spawn(if ch == wire::Channel::Me { "meeting-cloud-me" } else { "meeting-cloud-them" }, move || {
+                    let hub = p.hub.clone();
+                    // the first session of the meeting names the provider; a reopen keeps any fallback note
+                    let opened = |provider: cloud::Provider| {
+                        if PROVIDER.lock().unwrap().is_none() {
+                            set_provider(Some(provider.name()), None);
+                            set_stt(SttState::Ready, None, None);
+                        }
+                    };
+                    let r = cloud::run(ch, None, || hub.stt_token(), &rx, &p.stop, p.hub.t0, &p.seqs, opened, |s| p.up.push(s));
+                    if let Err(e) = r {
+                        on.store(false, Ordering::Relaxed);
+                        if e == cloud::NO_KEY {
+                            log::info!("meeting: {ch:?}: speech to text on this computer (no cloud key on the hub)");
+                            set_provider(Some("local"), None);
+                        } else {
+                            log::warn!("meeting: {ch:?} falls back to the model on this computer: {e}");
+                            let who = if ch == wire::Channel::Me { "Mic" } else { "System sound" };
+                            let provider = PROVIDER.lock().unwrap().unwrap_or("local");
+                            set_provider(Some(provider), Some(format!("{who}: cloud speech to text failed ({e}); using the model on this computer.")));
+                        }
+                        p.start_local();
+                    }
+                });
+            }
+            let (q, stop, paused, idle) = (self.stt.clone(), self.stop.clone(), self.paused.clone(), self.stt.idle.clone());
+            spawn(name, move || capture::run_channel(ch, shared, stop, paused, idle, on, Some(tx), |s| q.push(s.into())));
+        }
+    }
+
+    /// The local model: verified (downloaded on the first meeting), loaded, then the STT loop.
+    /// Speech the VAD finds meanwhile waits in the queue.
+    fn start_local(&self) {
+        if self.local.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let p = self.clone();
+        spawn("meeting-stt-local", move || {
+            let dir = models::dir(&p.app_data);
+            if !models::ready(&dir) {
+                log::info!("meeting: speech model not verified yet, checking or downloading it");
+                set_stt(SttState::Downloading, Some(0.0), None);
+                if let Err(e) = models::ensure(&dir, |x| set_stt(SttState::Downloading, Some(x), None)) {
+                    log::error!("meeting: speech model: {e}");
+                    set_stt(SttState::Failed, None, Some(e));
+                    return;
+                }
+            }
+            set_stt(SttState::Loading, None, None);
+            let mut model = match stt::load(&dir) {
+                Ok(m) => m,
+                Err(e) => {
+                    log::error!("meeting: {e}");
+                    return set_stt(SttState::Failed, None, Some(e));
+                }
+            };
+            set_stt(SttState::Ready, None, None);
+            if p.stop.load(Ordering::Relaxed) {
+                return stt::keep(model);
+            }
+            stt::run(&mut model, &p.stt, &p.stop, &p.seqs, |seg| p.up.push(seg));
+            stt::keep(model);
+        });
+    }
+}
+
 pub fn stop(app: &AppHandle) {
     let Some(run) = RUN.lock().unwrap().take() else { return };
+    log::info!("meeting {}: stop", run.id);
     run.stop.store(true, Ordering::Relaxed);
     run.stt.wake.notify_all();
     run.up.wake.notify_all();
@@ -612,7 +731,7 @@ fn watch(app: &AppHandle, stop: &AtomicBool) {
 
 fn stop_and_say(app: &AppHandle) {
     stop(app);
-    eprintln!("conclave: the hub ended the meeting");
+    log::info!("meeting: the hub ended the meeting");
 }
 
 #[cfg(test)]

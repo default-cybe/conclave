@@ -8,7 +8,7 @@
 import type { Db } from '../storage/db';
 import { json } from '../storage/db';
 import { newId } from '../util/ids';
-import { DEFAULT_REMINDERS, type Channel, type Meeting, type MeetingAnswer, type MeetingNotes, type MeetingStatus, type PrepSources, type Segment } from './wire';
+import { DEFAULT_REMINDERS, type Channel, type Meeting, type MeetingAnswer, type MeetingFile, type MeetingNotes, type MeetingStatus, type PrepSources, type Segment } from './wire';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meetings (
@@ -70,7 +70,28 @@ CREATE TABLE IF NOT EXISTS meeting_digests (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (account_id, session_id)
 );
+CREATE TABLE IF NOT EXISTS meeting_files (
+  id TEXT PRIMARY KEY,
+  meeting_id TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  media_type TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  note TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS meeting_files_meeting ON meeting_files(meeting_id, created_at);
 `;
+
+/** Answer timing columns (per-answer latency), added to databases made before them. */
+const ANSWER_ADDED: Array<[string, string]> = [
+  ['model', 'TEXT'],
+  ['segment_end_at', 'INTEGER'],
+  ['received_at', 'INTEGER'],
+  ['request_at', 'INTEGER'],
+  ['done_at', 'INTEGER'],
+];
 
 /** Columns of scheduled meetings (11.6), added to databases made before them. */
 const ADDED: Array<[string, string]> = [
@@ -95,6 +116,7 @@ const ADDED: Array<[string, string]> = [
   ['prep_extra', 'TEXT'],
   // the memory the owner saved with "Save to memory"
   ['memory_id', 'TEXT'],
+  ['answer_model', 'TEXT'],
 ];
 
 const MIN = 60_000;
@@ -126,6 +148,8 @@ export function canMove(from: MeetingStatus, to: MeetingStatus): boolean {
 /** A stored final or partial segment with the hub-clock time it started (t0 + startMs). */
 export interface StoredSegment extends Segment {
   at: number;
+  /** When its batch reached the hub (in memory only, for answer timings). */
+  receivedAt?: number;
 }
 
 type Row = Record<string, any>;
@@ -165,6 +189,7 @@ function rowToMeeting(r: Row): Meeting {
     ...(r.prep_edited_at ? { prepEditedAt: r.prep_edited_at } : {}),
     ...(r.prep_error ? { prepError: r.prep_error } : {}),
     ...(r.memory_id ? { memoryId: r.memory_id } : {}),
+    ...(r.answer_model ? { answerModel: r.answer_model } : {}),
   };
 }
 
@@ -191,7 +216,16 @@ function rowToAnswer(r: Row): MeetingAnswer {
     createdAt: r.created_at,
     ...(r.first_token_at ? { firstTokenAt: r.first_token_at } : {}),
     ...(r.error ? { error: r.error } : {}),
+    ...(r.model ? { model: r.model } : {}),
+    ...(r.segment_end_at ? { segmentEndAt: r.segment_end_at } : {}),
+    ...(r.received_at ? { receivedAt: r.received_at } : {}),
+    ...(r.request_at ? { requestAt: r.request_at } : {}),
+    ...(r.done_at ? { doneAt: r.done_at } : {}),
   };
+}
+
+function rowToFile(r: Row): MeetingFile {
+  return { id: r.id, name: r.name, mediaType: r.media_type, size: r.size, chars: r.text.length, ...(r.note ? { note: r.note } : {}), createdAt: r.created_at };
 }
 
 /** Columns a meeting patch may set, by field. */
@@ -222,6 +256,7 @@ const COLUMNS: Partial<Record<keyof Meeting, string>> = {
   prepEditedAt: 'prep_edited_at',
   prepError: 'prep_error',
   memoryId: 'memory_id',
+  answerModel: 'answer_model',
 };
 
 export class MeetingStore {
@@ -230,6 +265,8 @@ export class MeetingStore {
     // columns of scheduled meetings, on a database made by 0.4.51 (the projects/store.ts pattern)
     const cols = new Set((db.query('PRAGMA table_info(meetings)').all() as Row[]).map((r) => r.name));
     for (const [name, type] of ADDED) if (!cols.has(name)) db.exec(`ALTER TABLE meetings ADD COLUMN ${name} ${type}`);
+    const acols = new Set((db.query('PRAGMA table_info(meeting_answers)').all() as Row[]).map((r) => r.name));
+    for (const [name, type] of ANSWER_ADDED) if (!acols.has(name)) db.exec(`ALTER TABLE meeting_answers ADD COLUMN ${name} ${type}`);
     db.exec('CREATE INDEX IF NOT EXISTS meetings_upcoming ON meetings(account_id, status, scheduled_at)');
   }
 
@@ -400,8 +437,34 @@ export class MeetingStore {
     this.db.query('UPDATE meetings SET notes = ? WHERE id = ?').run(JSON.stringify(notes), id);
   }
 
+  // ----- files (attached per meeting; text only) -----
+
+  addFile(f: { meetingId: string; accountId: string; name: string; mediaType: string; size: number; text: string; note?: string; now?: number }): MeetingFile {
+    const id = newId('mfl');
+    this.db
+      .query('INSERT INTO meeting_files (id, meeting_id, account_id, name, media_type, size, text, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, f.meetingId, f.accountId, f.name, f.mediaType, f.size, f.text, f.note ?? null, f.now ?? Date.now());
+    return this.files(f.meetingId).find((x) => x.id === id)!;
+  }
+
+  files(meetingId: string): MeetingFile[] {
+    return (this.db.query('SELECT * FROM meeting_files WHERE meeting_id = ? ORDER BY created_at, rowid').all(meetingId) as Row[]).map(rowToFile);
+  }
+
+  /** Each file's name and text, oldest first (prep and the pack). */
+  fileTexts(meetingId: string): Array<{ name: string; text: string }> {
+    return (this.db.query('SELECT name, text FROM meeting_files WHERE meeting_id = ? ORDER BY created_at, rowid').all(meetingId) as Row[]).map((r) => ({ name: r.name, text: r.text }));
+  }
+
+  /** True when a file of this meeting was removed. */
+  deleteFile(meetingId: string, fileId: string): boolean {
+    return this.db.query('DELETE FROM meeting_files WHERE id = ? AND meeting_id = ?').run(fileId, meetingId).changes > 0;
+  }
+
   /** The newest earlier meeting of the account in the same project (projectId, else the folder) that has notes. */
   previousNotes(m: Meeting): MeetingNotes | undefined {
+    // no project and no folder: nothing ties it to an earlier meeting
+    if (!m.projectId && !m.cwd) return undefined;
     const r = (
       m.projectId
         ? this.db.query('SELECT notes FROM meetings WHERE account_id = ? AND project_id = ? AND id <> ? AND notes IS NOT NULL AND created_at <= ? ORDER BY created_at DESC LIMIT 1').get(m.accountId, m.projectId, m.id, m.createdAt)
@@ -412,6 +475,7 @@ export class MeetingStore {
 
   /** The notes of the account's other meetings in the same project (else folder), newest first. */
   notesOf(m: Meeting, limit: number): MeetingNotes[] {
+    if (!m.projectId && !m.cwd) return [];
     const rows = (
       m.projectId
         ? this.db.query('SELECT notes FROM meetings WHERE account_id = ? AND project_id = ? AND id <> ? AND notes IS NOT NULL ORDER BY created_at DESC LIMIT ?').all(m.accountId, m.projectId, m.id, limit)
@@ -476,8 +540,8 @@ export class MeetingStore {
     return { id, meetingId: a.meetingId, messageId: a.messageId, trigger: a.trigger, question: a.question, state: a.state, createdAt: a.createdAt };
   }
 
-  updateAnswer(id: string, patch: Partial<Pick<MeetingAnswer, 'trigger' | 'question' | 'state' | 'firstTokenAt' | 'error'>>): MeetingAnswer | undefined {
-    const cols: Record<string, string> = { trigger: 'trigger', question: 'question', state: 'state', firstTokenAt: 'first_token_at', error: 'error' };
+  updateAnswer(id: string, patch: Partial<Pick<MeetingAnswer, 'trigger' | 'question' | 'state' | 'firstTokenAt' | 'error' | 'model' | 'segmentEndAt' | 'receivedAt' | 'requestAt' | 'doneAt'>>): MeetingAnswer | undefined {
+    const cols: Record<string, string> = { trigger: 'trigger', question: 'question', state: 'state', firstTokenAt: 'first_token_at', error: 'error', model: 'model', segmentEndAt: 'segment_end_at', receivedAt: 'received_at', requestAt: 'request_at', doneAt: 'done_at' };
     const sets: string[] = [];
     const vals: Array<string | number | null> = [];
     for (const [k, v] of Object.entries(patch)) {
@@ -508,6 +572,7 @@ export class MeetingStore {
     this.db.transaction(() => {
       this.db.query('DELETE FROM meeting_segments WHERE meeting_id = ?').run(id);
       this.db.query('DELETE FROM meeting_answers WHERE meeting_id = ?').run(id);
+      this.db.query('DELETE FROM meeting_files WHERE meeting_id = ?').run(id);
       this.db.query('DELETE FROM meetings WHERE id = ?').run(id);
     })();
   }

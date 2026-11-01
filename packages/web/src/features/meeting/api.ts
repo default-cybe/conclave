@@ -3,11 +3,29 @@
  * client so the token, the hub key check and the mock all apply. The overlay
  * uses the same functions over plain fetch (src/overlay/hub.ts).
  */
-import { api } from '@/lib/api';
+import { ApiError } from '@conclave/core/client';
+import { api, MOCK } from '@/lib/api';
 import { ipc } from '@/overlay/desktop';
 import { meetingApi } from '@/overlay/hub';
+import type { MeetingFile } from '@/overlay/wire';
 
 export const meetings = () => meetingApi((method, path, body) => api().request(method, path, body));
+
+/** POST /api/meetings/:id/files as multipart (the JSON client cannot send it), one file per request. Returns the files added. */
+export async function uploadMeetingFiles(id: string, files: File[]): Promise<MeetingFile[]> {
+  const c = api();
+  const f = MOCK ? (await import('@/mock')).mockFetch : fetch;
+  const out: MeetingFile[] = [];
+  for (const file of files) {
+    const body = new FormData();
+    body.append('file', file, file.name);
+    const res = await f(`${c.baseUrl}/api/meetings/${encodeURIComponent(id)}/files`, { method: 'POST', headers: c.token ? { authorization: `Bearer ${c.token}` } : {}, body });
+    const data = (await res.json().catch(() => undefined)) as (MeetingFile & { error?: string }) | undefined;
+    if (!res.ok || !data) throw new ApiError(res.status, data?.error ?? res.statusText, data);
+    out.push(data);
+  }
+  return out;
+}
 
 export const OLD_DESKTOP = 'This desktop app is older than meeting mode (0.4.51). Update it in Settings > About, then start the meeting again.';
 

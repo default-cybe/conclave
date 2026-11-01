@@ -6,14 +6,16 @@
  * Ctrl or Cmd + Alt + [ and ]. Controls call the hub over HTTP and Rust over
  * IPC; both return at once.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MeetingApi } from './hub';
 import { desktop as tauri, ipc } from './desktop';
-import { lastLines, shownIndex, stepAnswer, type MeetingView } from './model';
-import type { DesktopMeetingStatus } from './wire';
+import type { LevelSource } from './frame';
+import { lastLatency, lastLines, seconds, shownIndex, stepAnswer, type MeetingView } from './model';
+import type { DesktopMeetingStatus, SttProvider } from './wire';
 import type { WsStatus } from './ws';
 import { AnswerCard } from './AnswerCard';
 import { Transcript } from './Transcript';
+import { OPACITY_MAX, OPACITY_MIN, readOpacity, saveOpacity } from './opacity';
 
 /** Whole minutes since `since`, re-rendered once a minute (the only timer of an idle overlay). */
 function useMinutes(since?: number): number {
@@ -37,25 +39,74 @@ export function statusNotes(d: DesktopMeetingStatus | undefined, ws: WsStatus): 
   if (d.stt.state === 'downloading') out.push(`Downloading speech model ${Math.round((d.stt.progress ?? 0) * 100)} %`);
   else if (d.stt.state === 'loading') out.push('Loading speech model');
   else if (d.stt.state === 'failed') out.push(`Speech model failed${d.stt.error ? `: ${d.stt.error}` : ''}`);
-  if (!d.mic.ok) out.push('no mic');
-  if (!d.system.ok) out.push('no system sound');
+  // the desktop app's fallback note: why speech to text moved to this computer
+  else if (d.stt.error) out.push(d.stt.error);
+  if (!d.mic.ok) out.push(d.mic.error ? `no mic: ${d.mic.error}` : 'no mic');
+  if (!d.system.ok) out.push(d.system.error ? `no system sound: ${d.system.error}` : 'no system sound');
   if (d.queue.stt > 0) out.push(`${d.queue.stt} waiting for text`);
+  if (ws !== 'closed' && d.queue.upload > 0) out.push(`${d.queue.upload} waiting to upload`);
   if (d.clickThrough) out.push('click-through, Ctrl or Cmd + Alt + T turns it off');
   return out;
 }
 
-function Level({ label, value }: { label: string; value: number }) {
+const scale = (v: number) => `scaleX(${Math.min(1, Math.max(0, v))})`;
+
+/** Both meters. They paint from the level source straight into the DOM, so a level never renders React. */
+function Meters({ levels }: { levels: LevelSource }) {
+  const me = useRef<HTMLSpanElement>(null);
+  const them = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const paint = (l: { me: number; them: number }) => {
+      if (me.current) me.current.style.transform = scale(l.me);
+      if (them.current) them.current.style.transform = scale(l.them);
+    };
+    paint(levels.get());
+    return levels.subscribe(paint);
+  }, [levels]);
   return (
-    <span className="ov-level">
-      {label}
-      <span className="ov-meter" aria-hidden>
-        <span style={{ transform: `scaleX(${Math.min(1, Math.max(0, value))})` }} />
+    <>
+      <span className="ov-level">
+        me
+        <span className="ov-meter" aria-hidden>
+          <span ref={me} style={{ transform: scale(0) }} />
+        </span>
       </span>
-    </span>
+      <span className="ov-level">
+        them
+        <span className="ov-meter" aria-hidden>
+          <span ref={them} style={{ transform: scale(0) }} />
+        </span>
+      </span>
+    </>
   );
 }
 
-export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view: MeetingView; desktop?: DesktopMeetingStatus; levels: { me: number; them: number }; ws: WsStatus }) {
+/** How see-through the panel is, saved on this device (opacity.ts). */
+function Opacity() {
+  const [v, setV] = useState(readOpacity);
+  return (
+    <label className="ov-opacity">
+      <span className="ov-label">Opacity</span>
+      <input
+        type="range"
+        min={OPACITY_MIN}
+        max={OPACITY_MAX}
+        step={5}
+        value={v}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          setV(n);
+          saveOpacity(n);
+        }}
+      />
+      <span className="ov-num">{v} %</span>
+    </label>
+  );
+}
+
+const STT_NAME: Record<SttProvider, string> = { local: 'Local', assemblyai: 'AssemblyAI', deepgram: 'Deepgram' };
+
+export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view: MeetingView; desktop?: DesktopMeetingStatus; levels: LevelSource; ws: WsStatus }) {
   const m = view.meeting!;
   // the dot shows what the microphone does: the capture's own state when this computer captures
   const paused = desktop?.live ? desktop.paused : m.status === 'paused';
@@ -122,6 +173,10 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
     void ipc.stop()?.catch(() => undefined);
     void api.end(m.id).catch(fail);
   };
+  const count = answers.length;
+  const nav = useMemo(() => ({ index, count, step }), [index, count, step]);
+  const notes = statusNotes(desktop, ws);
+  const latency = lastLatency(answers);
 
   return (
     <div className="ov-stack">
@@ -131,8 +186,9 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
           {paused ? 'Paused' : 'Listening'}
         </span>
         <span className="ov-num">{minutes} min</span>
-        <Level label="me" value={levels.me} />
-        <Level label="them" value={levels.them} />
+        <Meters levels={levels} />
+        {desktop?.stt.provider && <span className="ov-meta">{STT_NAME[desktop.stt.provider]}</span>}
+        {latency !== undefined && <span className="ov-meta ov-num">first word {seconds(latency)}</span>}
         <span className="ov-grow" />
         <button type="button" className="ov-link" aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? 'Less' : current ? 'Show answer' : 'More'}
@@ -141,7 +197,7 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
           Hide
         </button>
       </header>
-      {statusNotes(desktop, ws).length > 0 && <p className="ov-notes">{statusNotes(desktop, ws).join(', ')}</p>}
+      {notes.length > 0 && <p className="ov-notes">{notes.join(', ')}</p>}
       {!open ? (
         <div className="ov-bar">
           <Transcript lines={lastLines(view, 1)} />
@@ -155,7 +211,7 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
             <AnswerCard
               answer={current}
               text={view.text[current.messageId] ?? ''}
-              nav={{ index, count: answers.length, step }}
+              nav={nav}
               onStop={current === newest ? onStop : undefined}
               onRetry={current === newest ? onRetry : undefined}
             />
@@ -204,6 +260,7 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
         )}
       </footer>
       )}
+      {open && <Opacity />}
     </div>
   );
 }

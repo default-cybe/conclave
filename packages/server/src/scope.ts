@@ -69,6 +69,8 @@ export function memberConfig(engine: EngineApi, accountId: string): { config: Re
     memory: { enabled: c.memory.enabled, autoExtract: c.memory.autoExtract, autoInject: c.memory.autoInject, injectLimit: c.memory.injectLimit },
     notifications: c.notifications ? { on: c.notifications.on, idleSeconds: c.notifications.idleSeconds } : undefined,
     chat: (c as unknown as Record<string, unknown>).chat,
+    // the hub's speech-to-text choice; the member's own stt.* keys are in secrets.values
+    meetings: c.meetings,
     // ui.name is the name apps greet by: the member's own display name, never the owner's
     ui: { ...c.ui, name: shownName(account) },
     // the member's own fallback lists stand in for the hub's, so Settings shows and edits theirs (PATCH /api/me saves them)

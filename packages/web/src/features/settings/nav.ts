@@ -9,7 +9,7 @@
 export const SETTINGS_GROUPS: Array<{ label: string; ids: string[] }> = [
   { label: 'Settings', ids: ['account', 'people', 'appearance', 'notifications', 'assistant', 'reflect'] },
   { label: 'Models', ids: ['providers', 'subscriptions', 'accounts', 'refusal', 'usage', 'defaults'] },
-  { label: 'Customize', ids: ['permissions', 'apps', 'github', 'maps', 'websearch', 'calmail', 'browser', 'gateway'] },
+  { label: 'Customize', ids: ['permissions', 'apps', 'github', 'maps', 'websearch', 'meetings', 'calmail', 'browser', 'gateway'] },
   { label: 'Platform', ids: ['remote', 'friends', 'computer', 'audit', 'logs', 'about'] },
 ];
 
@@ -39,6 +39,7 @@ const KEYWORDS: Record<string, string> = {
   maps: 'google openstreetmap directions places',
   websearch: 'brave tavily exa langsearch linkup firecrawl you.com serper serpapi jina searxng duckduckgo api key internet',
   calmail: 'calendar mail email events',
+  meetings: 'speech to text transcription stt assemblyai deepgram parakeet overlay',
   browser: 'chromium profiles sites sign in logins passwords',
   gateway: 'claude code codex opencode usage keys',
   apps: 'mcp chatbot claude.ai chatgpt oauth connector',

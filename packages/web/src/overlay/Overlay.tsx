@@ -10,7 +10,7 @@
  * separate window that screen sharing captures.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { frameBuffer, levelsOrSame } from './frame';
+import { frameBuffer, levelSource, statusOrSame, type Levels } from './frame';
 import { useFitAndStick } from './fit';
 import { connectWs, type WsStatus } from './ws';
 import { meetingApi, type MeetingApi, type Req } from './hub';
@@ -137,26 +137,25 @@ const OFF: DesktopMeetingStatus = {
   queue: { stt: 0, upload: 0, dropped: 0 },
 };
 
-/** The desktop's status and channel levels; undefined status outside the desktop app. Levels come at most 10 a second and render at most once a frame. */
+/** The desktop's status and channel levels; undefined status outside the desktop app. Levels paint at most once a frame. */
 function useDesktop() {
   const [status, setStatus] = useState<DesktopMeetingStatus | undefined>(desktop() ? OFF : undefined);
-  const [levels, setLevels] = useState({ me: 0, them: 0 });
+  const [levels] = useState(levelSource);
   useEffect(() => {
     const d = desktop();
     if (!d) return;
     let alive = true;
     const offs: (() => void)[] = [];
-    void ipc.status()?.then((s) => alive && s && setStatus(s), () => undefined);
-    // the same levels keep the old object, so an overlay nobody speaks to does not render
-    const lv = frameBuffer<{ me: number; them: number }>((all) => setLevels((p) => levelsOrSame(p, all[all.length - 1]!)));
-    void d.listen<DesktopMeetingStatus>('meeting://status', (e) => setStatus(e.payload)).then((off) => (alive ? offs.push(off) : off()));
+    void ipc.status()?.then((s) => alive && s && setStatus((p) => statusOrSame(p, s)), () => undefined);
+    const lv = frameBuffer<Levels>((all) => levels.set(all[all.length - 1]!));
+    void d.listen<DesktopMeetingStatus>('meeting://status', (e) => setStatus((p) => statusOrSame(p, e.payload))).then((off) => (alive ? offs.push(off) : off()));
     void d.listen<{ me: number; them: number }>('meeting://level', (e) => lv.push(e.payload)).then((off) => (alive ? offs.push(off) : off()));
     return () => {
       alive = false;
       lv.cancel();
       for (const off of offs) off();
     };
-  }, []);
+  }, [levels]);
   return { status, levels };
 }
 

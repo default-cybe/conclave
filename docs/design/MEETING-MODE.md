@@ -8,7 +8,7 @@ Decisions the owner made:
 
 | Question | Decision |
 |---|---|
-| Speech to text | On the computer: Parakeet (local, free, about 0.3 to 1 s per phrase, audio never leaves the machine). |
+| Speech to text | On the computer: Parakeet (local, free, about 0.3 to 1 s per phrase, audio never leaves the machine). Since section 12: optionally AssemblyAI or Deepgram, streamed from the desktop app on a short-lived token. |
 | Retention | Transcript, notes and action items are kept. Audio is never stored. |
 | Models | The fast tier for live answers. The smart tier for the pre-meeting brief and the wrap-up. |
 
@@ -386,7 +386,8 @@ export interface DesktopMeetingStatus {
   exclusion: 'excluded' | 'monitor-only' | 'unsupported' | 'failed';  // what the OS confirmed (7.2/7.3)
   mic: { ok: boolean; device?: string; error?: string };
   system: { ok: boolean; device?: string; error?: string };
-  stt: { state: 'loading' | 'downloading' | 'ready' | 'failed'; progress?: number; error?: string };
+  stt: { state: 'loading' | 'downloading' | 'ready' | 'failed'; progress?: number; error?: string;
+         provider?: 'local' | 'assemblyai' | 'deepgram' };   // 12.1; on a fallback, error says why
   queue: { stt: number; upload: number; dropped: number };
 }
 ```
@@ -597,7 +598,8 @@ On the overlay HWND (and on every other top-level window of the process while a 
 5. Re-check after every show, resize, move to another monitor, `ScaleFactorChanged`, `WM_DISPLAYCHANGE` and webview reload: read `GetWindowDisplayAffinity` and call `SetWindowDisplayAffinity` **only if it differs**. Never toggle it while it is correct: repeated calls cause DWM "affinity churn" and blank frames, and toggling is how the black-box bug appears.
 6. Hide with `ShowWindow(SW_HIDE)` and show with `ShowWindow(SW_SHOWNOACTIVATE)`, then step 5. Never destroy and rebuild the window during a meeting.
 7. A sweep every 2 s on `meeting-share`: `EnumThreadWindows` over the process's UI thread, and step 5 for each visible top-level window of our process. It cannot reach WebView2's own popups, which belong to `msedgewebview2.exe`; so the overlay page uses no `<select>`, no `title=` tooltips, no native context menu (`contextmenu` prevented), no `alert`/`confirm`, and no file pickers.
-8. `AllowWindowCaptureExclusionInRemoteSessions` is left alone; the overlay is also hidden from remote-desktop tools that capture through DWM, which the owner should know when he helps someone over Remote Desktop.
+8. Translucent (owner's choice, like Final Round AI's overlay): on Windows 11 22H2+ (build 22523, the DWM system backdrop) `window_vibrancy::apply_acrylic` right after the window is built, so before step 2 sets the affinity on show; acrylic is `DWMWA_SYSTEMBACKDROP_TYPE`, a separate attribute from the display affinity, and step 5 still reads the affinity back. Windows 10's acrylic lags on drag and resize, so there the page's own translucent dark panel is the whole background.
+9. `AllowWindowCaptureExclusionInRemoteSessions` is left alone; the overlay is also hidden from remote-desktop tools that capture through DWM, which the owner should know when he helps someone over Remote Desktop.
 
 ### 7.3 macOS
 
@@ -605,6 +607,7 @@ On the overlay HWND (and on every other top-level window of the process while a 
 2. `setSharingType(NSWindowSharingNone)` on the panel and on every `NSApp.windows` entry while a meeting runs; read `sharingType` back and report `excluded` or `failed`.
 3. Re-apply (only where the read-back differs) after each show, `NSApplicationDidChangeScreenParametersNotification`, `NSWindowDidChangeScreenNotification`, activation policy changes and app activation: WindowServer can reset it when the activation policy flips.
 4. Because ScreenCaptureKit ignores the flag on macOS 15+, the status shows `excluded` with the note "Hidden from older capture only. Zoom, Teams, OBS and Chrome on macOS 15 can see it. Hide it when you share." and share detection defaults to on.
+5. Translucent, not opaque: the window is `.transparent(true)` (tauri's `macos-private-api` feature, `macOSPrivateApi` in tauri.conf.json) and, after `make_panel` and on the main thread, `window_vibrancy::apply_vibrancy(HudWindow, Active, radius 10)` adds a blur view under the webview. Never tao's `set_focusable` on the panel (mod.rs `focusable`). `sharingType` is per window, so the blur view does not change it; step 2 runs on every show after the vibrancy, so the order is fixed anyway. The page paints the panel at the owner's opacity (60 to 100 %, 80 by default, per device) and the answer on a denser layer (overlay.css `--layer`). Linux has no OS blur: a transparent window and the same translucent panel.
 
 ### 7.4 Share detection fallback
 
@@ -1268,3 +1271,49 @@ Use `bun test <path>` on the hub. Run the full `bun run test` once at the end.
 - Get the 15-minute push on the phone and the desktop notice.
 - At start, tap "Open overlay", then "Start listening".
 - Check that nothing listened before that tap: the tray icon and the OS mic indicator both stay off until then.
+
+## 12. Speed: cloud speech to text, answer model, meeting files
+
+Why: on the owner's Mac no meeting ever reached `live`. The 652 MB Parakeet encoder was rewritten on every start (capture waited for it), the app wrote no log, and live answers fell back to a slow model because `models.tiers.fast` was unset. Interview copilots that feel instant (research/interview-copilot-stt.md) stream audio from the client straight to a cloud STT on a short-lived key and answer on a small Flash model.
+
+### 12.1 Cloud speech to text
+
+- Config `meetings.stt`: `'local' | 'assemblyai' | 'deepgram'`. Unset: the first service the account has a key for, Deepgram (the default, listed first and marked Recommended in Settings) before AssemblyAI, else `local` (`sttChoice` in `core/src/meeting/stt.ts`). The setting is hub-wide; keys are per account.
+- Keys: the secret values `stt.assemblyai` and `stt.deepgram`. The owner's are hub secrets; a member saves their own with `PUT /api/secrets {kind:'values', key:'stt.<provider>'}` (the only `values` keys a member may set), and their meetings never read the owner's.
+- `POST /api/meetings/:id/stt-token` (own meeting) returns `SttToken { provider, url, token, expiresAt (ms), sampleRate: 16000, encoding: 'pcm_s16le' }`:
+  - AssemblyAI v3: `GET /v3/token?expires_in_seconds=60` with the raw key; `url` is `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&encoding=pcm_s16le&format_turns=true&token=...`. The desktop counts only the formatted end of turn as a final.
+  - Deepgram: `POST /v1/auth/grant {ttl_seconds:60}` with `Token <key>`; `url` is `/v1/listen?model=nova-3&encoding=linear16&sample_rate=16000&channels=1&interim_results=true&endpointing=300&utterance_end_ms=1000&vad_events=true&smart_format=true`, and the desktop sends `Authorization: Bearer <token>`.
+  - 409: no key (or `local`), so the desktop runs local without a note. 502: the service refused the key or did not answer, so the desktop runs local and says why in `stt.error`. The key is never in a reply or a log.
+- `POST /api/meetings/stt-test {provider}` (self): mints one token on the saved key, no audio. `SttTestResult { ok, message, ms }`; 409 without a key. Settings > Meetings > Test calls it.
+- Desktop (`src/meeting/cloud.rs`): one websocket per channel, 50 ms frames of 16 kHz mono s16le, reconnect after 0.5, 1, 2, 4, 8 s with a fresh token. A 409, or 3 failures in a row with no text in between, hands that channel to the local model. Cloud and local share one seq counter per channel. In cloud mode capture skips the VAD; the local model loads only for local mode or a fallback, and capture never waits for it.
+- `DesktopMeetingStatus.stt.provider` says which runs; on a fallback `stt.error` carries the reason. The overlay shows both.
+- Gap: during a fallback (about 1.5 s plus connect time) speech older than the 3.2 s frame buffer is lost.
+
+### 12.2 Model files and logs
+
+- `models.rs` keeps `verified.json` (size, SHA-256, mtime per file). A file that matches is used as is; a right-sized file with no marker is hashed once. A broken download resumes from `.part` with a Range request, 3 tries per file, one download at a time.
+- `app.log` in the app log folder (`~/Library/Logs/dev.conclave.desktop/` on macOS), rotated at 5 MB: start and stop, provider, token, socket and upload errors, and timings. Never audio, transcript text or tokens.
+- The Silero VAD model is built into `silero_rs`, so there is no `.onnx` file to find; a test loads it.
+
+### 12.3 Answer model
+
+- `Meeting.answerModel` (create and patch; `null` or `''` on patch clears it). A ref the account cannot use is 400 with `field: 'answerModel'`.
+- `GET /api/meetings/models` (self) returns `{ models: MeetingModelOption[] }` (`ref, label, speed: 'fastest'|'fast'|'balanced'|'best', note`), chat models only, fastest first, cached 5 minutes.
+- Default: `models.tiers.fast`, else the fastest usable Gemini Flash Lite, then Haiku, then Gemini Flash. `MeetingDetail.liveModel { ref, note? }` says what answers use; `note` warns when only a slow model is left. The meeting page shows the note.
+- A changed answer model warms the cache again. Warm-up runs every 4 min while live (under the 5-minute TTL), not every 50.
+
+### 12.4 Meeting files and no folder
+
+- A meeting may have no folder (`cwd: ''`, `device: 'local'`): pack, prep and wrap-up read no device, and the notes stay on the hub.
+- `POST /api/meetings/:id/files` (multipart, one field `file`, one file per request) returns `201 MeetingFile { id, name, mediaType, size, chars, note?, createdAt }`. `DELETE /api/meetings/:id/files/:fileId` returns 204. At most 10 files, 10 MB each, 60,000 characters of text each, about 8k tokens of all files in the pack. Only the text is kept; secrets in it are redacted; PDF text needs `pdftotext` on the hub.
+- `MeetingDetail.files` lists them. `meeting.updated` carries a plain `Meeting` without files, so the web app reads them from the detail and loads it again after an edit.
+- A file added or removed rebuilds the pack in `preparing`, `ready`, `live` and `paused`.
+
+### 12.5 Faster live answers
+
+- The live request reads the first 9k tokens of the pack, cut the same way every time so the cache holds.
+- A speculative answer starts on 1.5 s of partial speech, does not count toward the 6-a-minute limit and never cancels a real answer. It is kept for the final only at similarity 0.8 or more.
+- More question phrasings ("tell me", "explain", "walk me through", lead-ins like "okay so"); a question split over 2 or 3 "them" finals within 10 s is joined.
+- Answers: 320 tokens, 700 on Longer.
+- `MeetingAnswer` stores `model`, `segmentEndAt` (hub clock: the trigger's speech end), `receivedAt` (its batch reached the hub), `requestAt`, `firstTokenAt` and `doneAt`. The overlay shows "first word X s" (firstTokenAt minus segmentEndAt, or createdAt for Answer now); the meeting page shows one timings line per answer.
+- The desktop also sends `Segment.speechEndAt`, `finalAt` and `SegmentBatch.sentAt` (desktop clock, ms). The hub ignores them for now.

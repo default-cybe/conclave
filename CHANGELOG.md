@@ -7,6 +7,31 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Meetings: cloud speech to text. With an AssemblyAI or Deepgram key in Settings > Meetings (hub secret `stt.assemblyai` or `stt.deepgram`; a member saves their own), the desktop app streams each channel straight to the service on a 60-second token from `POST /api/meetings/:id/stt-token`, so the key never leaves the hub. The config `meetings.stt` picks the service; unset, the first one with a key (Deepgram, the default, then AssemblyAI), else local, so saving a Deepgram key is enough. Settings lists Deepgram first, marked Recommended, with its $200 free credit. Test (`POST /api/meetings/stt-test`) mints one token without sending audio. A refused key or an unreachable service falls back to local speech to text, and the overlay says why.
+- Meetings: pick the answer model per meeting (`answerModel`, `GET /api/meetings/models`, fastest first). The default is `models.tiers.fast`, else Gemini Flash Lite, Haiku or Gemini Flash; the meeting page warns when only a slow model is left.
+- Meetings: files and no folder. A meeting can run on attached files alone (at most 10, 10 MB each, text only kept on the hub, secrets redacted), with `POST /api/meetings/:id/files` and `DELETE /api/meetings/:id/files/:fileId`. Prep and the live context read the files.
+- Meetings: each answer stores its model and timings (speech end, arrival, model call, first word, done). The overlay shows the last "first word" time and the speech service in use; the meeting page shows a timings line per answer.
+- Overlay: translucent, like Final Round AI's. macOS puts a dark HUD vibrancy behind the panel (window-vibrancy, after the NSPanel is made), Windows 11 22H2+ acrylic, Windows 10 and Linux a translucent dark panel; the answer sits on a denser layer so it stays readable over any background, and a light theme gets the light version. An Opacity slider (60 to 100 %, 80 by default, saved per device) sits under the open overlay's controls. Capture exclusion is unchanged and still set and read back on every show, after the blur.
+- Desktop: `app.log` in the app log folder (`~/Library/Logs/dev.conclave.desktop/` on macOS), rotated at 5 MB, with meeting start and stop, provider, errors and timings, never audio, text or tokens.
+
+### Changed
+
+- Meetings: faster live answers. A guess starts on 1.5 s of partial speech and no longer counts toward the rate limit or cancels a real answer; the live prompt reads a fixed 9k-token cut of the context; the cache is warmed every 4 minutes; more question phrasings are caught, and a question split over 2 or 3 finals is joined. Answers may be 320 tokens, 700 on Longer, and technical questions get general-knowledge answers.
+- Desktop: capture starts at once instead of waiting for the speech model, and the local model loads only when it is used.
+- Meetings: capture no longer waits for the cloud token; each channel asks for its own, retries a failed one 3 times before local takes over, and waits 10 s (over the hub's 8 s). A cloud session with no audio for 15 s (paused, a stalled device) closes and reopens with the next audio.
+- Meetings: a final with no "?" no longer cancels the answer that streams (it is answered after it); bare "should", "design", "implement" and "imagine" count only in a question's shape; guesses are capped at 6 a minute.
+- Meetings: with a prep, the live context keeps the attached files (each gets its share of the 9k cut). Attached files are labelled as reference data, and only the agenda and prep may say how to answer.
+- Meetings: a member's meetings use their own first saved key (the hub's `meetings.stt` is the owner's); Settings > Meetings hides "Use" for members. After a hub restart the answer model list is loaded before the first answer and the meeting page. Saving the form with the same answer model is no change. The form names any file whose text could not be read (a PDF needs `pdftotext` on the hub).
+- Overlay: level meters paint without re-rendering, unchanged status ticks are skipped, and resizes are sent at most 10 times a second.
+
+### Fixed
+
+- Desktop: the 652 MB Parakeet model is no longer rewritten on every meeting start. A `verified.json` marker skips the check for unchanged files, a right-sized file is hashed once, and a broken download resumes.
+
 ## [0.4.54] - 2026-11-01
 
 ### Added
