@@ -62,7 +62,10 @@ describe('GET /api/map', () => {
   });
 
   test('the live map: the hub, its nodes with tools and usage, the groups', async () => {
-    const res = await hub.api('/api/map?tz=-120');
+    // a zone where it is now about noon, so the usage 9 minutes back is always "today"
+    // (a fixed UTC+2 failed every day between 22:00 and 22:09 UTC)
+    const d = new Date();
+    const res = await hub.api(`/api/map?tz=${d.getUTCHours() * 60 + d.getUTCMinutes() - 720}`);
     expect(res.status).toBe(200);
     const map = (await res.json()) as MapSnapshot;
     expect(map.live).toBe(true);
