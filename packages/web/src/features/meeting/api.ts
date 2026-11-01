@@ -9,10 +9,18 @@ import { meetingApi } from '@/overlay/hub';
 
 export const meetings = () => meetingApi((method, path, body) => api().request(method, path, body));
 
+export const OLD_DESKTOP = 'This desktop app is older than meeting mode (0.4.51). Update it in Settings > About, then start the meeting again.';
+
 /** Open the overlay window on a meeting (desktop app only; returns false elsewhere). */
 export async function openOverlay(meetingId: string): Promise<boolean> {
   const p = ipc.open(meetingId);
   if (!p) return false;
-  await p;
+  try {
+    await p;
+  } catch (e) {
+    // an app from before meeting mode has no meeting_open, and its ACL says so
+    if (/not allowed by ACL|not found/i.test(String(e))) throw new Error(OLD_DESKTOP);
+    throw e;
+  }
   return true;
 }
