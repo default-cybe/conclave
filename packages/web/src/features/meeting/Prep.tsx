@@ -51,6 +51,12 @@ function usePrep(m: Meeting) {
   return [prep, setPrep] as const;
 }
 
+/** Start listening: arm a scheduled meeting first (11.5), then open the overlay. */
+export async function startMeeting(m: Meeting): Promise<void> {
+  const out = m.status === 'scheduled' ? await meetings().arm(m.id) : m;
+  if (!(await openOverlay(out.id)) && !isDesktopApp()) toast({ title: 'Armed. Open the Conclave desktop app to listen.' });
+}
+
 export function PrepPanel({ meeting: m, zone, now }: { meeting: Meeting; zone: string; now: number }) {
   const phone = useIsMobile();
   const size = phone ? 'touch' : 'sm';
@@ -70,14 +76,7 @@ export function PrepPanel({ meeting: m, zone, now }: { meeting: Meeting; zone: s
   // 4 chats are read at once (11.4.3)
   const left = p?.medianMs && p.total > p.done ? Math.ceil(((p.total - p.done) * p.medianMs) / 4 / 60_000) : undefined;
 
-  const start = async () => {
-    try {
-      const out = m.status === 'scheduled' ? await meetings().arm(m.id) : m;
-      if (!(await openOverlay(out.id)) && !isDesktopApp()) toast({ title: 'Armed. Open the Conclave desktop app to listen.' });
-    } catch (e) {
-      fail(e);
-    }
-  };
+  const start = () => startMeeting(m).catch(fail);
 
   return (
     <div className="flex flex-col gap-6">
@@ -116,7 +115,7 @@ export function PrepPanel({ meeting: m, zone, now }: { meeting: Meeting; zone: s
           {prep?.state === 'waiting' && prep.estimate && (
             <div className="flex flex-col items-start gap-3">
               <p className="text-[14px] leading-[1.55] text-fg phone:text-[15px]">
-                This reads <span className="num">{prep.estimate.chats}</span> chats, about <span className="num">{compact(prep.estimate.tokens)}</span> tokens on {prep.estimate.model}
+                This reads <span className="num">{prep.estimate.sessions}</span> chats, about <span className="num">{compact(prep.estimate.tokens)}</span> tokens on {prep.estimate.model}
                 {prep.estimate.usd !== undefined && <span className="num"> (about ${prep.estimate.usd.toFixed(2)})</span>}. Continue?
               </p>
               <div className="flex gap-2">

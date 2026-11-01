@@ -134,7 +134,9 @@ describe('meeting routes', () => {
 
   test('scheduled: create, views, presets, prep edit, arm; a member gets 404 on every new :id route', async () => {
     const at = Date.now() + 3 * 86_400_000;
-    expect((await call(OWNER, 'POST', '/api/meetings', { cwd: t.cwd, scheduledAt: Date.now() - 1 })).status).toBe(400);
+    const past = await call(OWNER, 'POST', '/api/meetings', { cwd: t.cwd, scheduledAt: Date.now() - 1 });
+    expect(past.status).toBe(400);
+    expect(past.body.field).toBe('scheduledAt'); // the form shows it under its field
     const r = await call(OWNER, 'POST', '/api/meetings', { cwd: t.cwd, title: 'Capstone defence', scheduledAt: at, durationMin: 60, steeringPreset: 'defence' });
     expect(r.status).toBe(201);
     expect(r.body.status).toBe('scheduled');

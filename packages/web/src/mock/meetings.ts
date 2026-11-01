@@ -213,7 +213,6 @@ export function registerMeetings(ctx: MockCtx) {
     m.prepAt = p.at;
     m.prepEditedAt = p.editedAt;
     m.prepError = p.error;
-    m.prepSources = p.sources;
     emit({ type: 'meeting.prep', sessionId: m.sessionId, meetingId: m.id, state: p.state, progress: p.progress } as never);
     updated(m);
   };
@@ -227,19 +226,19 @@ export function registerMeetings(ctx: MockCtx) {
     const total = m.cwd === CAPSTONE ? 48 : 12;
     p.state = 'running';
     p.error = undefined;
-    p.progress = { phase: 'inventory', done: 0, total: 0, startedAt: Date.now() };
+    p.progress = { phase: 'inventory', done: 0, total: 0, startedAt: Date.now(), leftOut: 0 };
     prepEvent(m);
     await sleep(600);
     if (!alive()) return;
     if (m.cwd === CAPSTONE && !p.approved) {
       p.state = 'waiting';
-      p.progress = { ...p.progress, phase: 'waiting-approval' };
-      p.estimate = { tokens: 1_400_000, chats: 214, model: 'Gemini 3 Flash', usd: 0.4 };
+      p.estimate = { tokens: 1_400_000, sessions: 214, model: 'Gemini 3 Flash', usd: 0.4 };
+      p.progress = { ...p.progress, phase: 'waiting-approval', estimate: p.estimate };
       prepEvent(m);
       return;
     }
     p.estimate = undefined;
-    const prog: PrepProgress = { phase: 'map', done: 0, total, startedAt: Date.now(), medianMs: 8000 };
+    const prog: PrepProgress = { phase: 'map', done: 0, total, startedAt: Date.now(), leftOut: 0, medianMs: 8000 };
     for (let i = 0; i <= total; i++) {
       if (!alive()) return;
       p.progress = { ...prog, done: i };

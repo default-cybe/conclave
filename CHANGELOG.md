@@ -9,6 +9,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Meetings: a Meetings page (sidebar, `G N`, and the Android side panel) with Now, Upcoming and Past. Schedule a meeting with a project folder, a calendar event, reminders and a steering prompt (presets or your own text, short or long answers). Before it, the hub prepares a dossier from the folder's chats, workflows and commits that you can edit or re-run; your edits survive a re-run, and a prep over 500k tokens waits for your OK. At the start time a notice links to the meeting's **Open overlay**. The Meeting button in the chat header is gone; the session menu has **Schedule a meeting here...**.
+
 ### Fixed
 
 - Meetings: starting a meeting from a desktop app older than 0.4.51 now says to update the app in Settings > About, instead of `Command meeting_open not allowed by ACL`.

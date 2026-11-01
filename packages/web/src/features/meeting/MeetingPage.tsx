@@ -8,7 +8,7 @@
  * and words that say so elsewhere.
  */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Link, useLocation, useParams } from 'wouter';
+import { Link, useLocation, useParams, useSearch } from 'wouter';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/Overlay';
 import { EmptyState, LoadingRows } from '@/components/ui/EmptyState';
@@ -27,7 +27,7 @@ import { meetings, openOverlay } from './api';
 import { Notes } from './NotesPage';
 import { MeetingsList } from './MeetingsList';
 import { MeetingForm, useOwnerZone } from './MeetingForm';
-import { PrepPanel } from './Prep';
+import { PrepPanel, startMeeting } from './Prep';
 import { notHeld, tickFor, when, yourTime } from './time';
 
 export const STATUS_WORD: Record<MeetingStatus, [string, StateTone]> = {
@@ -106,6 +106,8 @@ function MeetingDetail({ id }: { id: string }) {
   const [edit, setEdit] = useState(false);
   const zone = useOwnerZone();
   const now = useNow(tickFor(m?.scheduledAt, Date.now()));
+  // ?open=1: the "starts now" notice's link (11.5); the overlay opens only on this tap
+  const due = new URLSearchParams(useSearch()).get('open') === '1';
 
   if (error)
     return (
@@ -191,6 +193,17 @@ function MeetingDetail({ id }: { id: string }) {
         actions={phone ? undefined : actions}
       />
       {phone && <div className="mb-4 flex flex-wrap gap-2">{actions}</div>}
+      {due && !m.startedAt && m.status !== 'ended' && m.status !== 'failed' && (
+        <div className="mb-6 flex flex-wrap items-center gap-3">
+          <p className="m-0 text-[14px] text-fg phone:text-[15px]">{m.title} starts now</p>
+          <Button variant="solid" size="sm" onClick={() => void startMeeting(m).then(() => go(`/meetings/${m.id}`, { replace: true }), fail)}>
+            Open overlay
+          </Button>
+          <Button variant="quiet" size="sm" onClick={() => go(`/meetings/${m.id}`, { replace: true })}>
+            Not now
+          </Button>
+        </div>
+      )}
       {ahead && <PrepPanel meeting={m} zone={zone} now={now} />}
       {edit && <MeetingForm mode={{ kind: 'edit', meeting: m }} open onClose={() => setEdit(false)} onSaved={() => setEdit(false)} />}
       <div className={ahead ? 'hidden' : 'flex flex-col gap-8'}>
