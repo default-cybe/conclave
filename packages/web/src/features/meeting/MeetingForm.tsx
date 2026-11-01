@@ -361,7 +361,7 @@ function EventPicker({ date, zone, value, onPick }: { date?: string; zone: strin
   );
 }
 
-export type FormMode = { kind: 'new' } | { kind: 'start' } | { kind: 'edit'; meeting: Meeting };
+export type FormMode = { kind: 'new' } | { kind: 'start' } | { kind: 'edit'; meeting: Meeting; files?: MeetingFile[] };
 
 /**
  * The form. `others` are the account's meetings, for the overlap note.
@@ -380,7 +380,7 @@ export function MeetingForm({ mode, open, onClose, onSaved, others = [], prefill
   const [duration, setDuration] = useState<string>(m?.durationMin ? String(m.durationMin) : '');
   const [folder, setFolder] = useState<{ device: string; cwd: string; online?: boolean; deviceName?: string } | undefined>(m ? (m.cwd ? { device: m.device, cwd: m.cwd } : undefined) : prefill);
   const [answerModel, setAnswerModel] = useState(m?.answerModel ?? '');
-  const [saved, setSaved] = useState<MeetingFile[]>(m?.files ?? []);
+  const [saved, setSaved] = useState<MeetingFile[]>(mode.kind === 'edit' ? (mode.files ?? []) : []);
   const [pending, setPending] = useState<File[]>([]);
   const [event, setEvent] = useState<{ id: string; calendarId: string } | undefined>(m?.calendarEventId ? { id: m.calendarEventId, calendarId: m.calendarId ?? '' } : undefined);
   const [agenda, setAgenda] = useState(m?.agenda ?? '');
@@ -422,7 +422,8 @@ export function MeetingForm({ mode, open, onClose, onSaved, others = [], prefill
     const upload = async (id: string) => {
       if (!pending.length) return;
       try {
-        setSaved(await uploadMeetingFiles(id, pending));
+        const added = await uploadMeetingFiles(id, pending);
+        setSaved((s) => [...s, ...added]);
         setPending([]);
       } catch (err) {
         toast({ title: 'The meeting is saved, but its files did not upload', body: err instanceof Error ? err.message : String(err), level: 'error' });

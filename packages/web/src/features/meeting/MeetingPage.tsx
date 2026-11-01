@@ -55,6 +55,8 @@ function useMeeting(id: string) {
   const view = useRef<MeetingView>(emptyView()).current;
   const subs = useRef(new Set<() => void>()).current;
   const [error, setError] = useState<string>();
+  // bumped after an edit: the files are in the detail only, not in meeting.updated
+  const [loads, setLoads] = useState(0);
   useEffect(() => {
     let stop = false;
     const notify = () => subs.forEach((fn) => fn());
@@ -85,7 +87,7 @@ function useMeeting(id: string) {
       off();
       frame.cancel();
     };
-  }, [id, view, subs]);
+  }, [id, view, subs, loads]);
   useSyncExternalStore(
     (fn) => {
       subs.add(fn);
@@ -93,7 +95,7 @@ function useMeeting(id: string) {
     },
     () => view.version,
   );
-  return { view, error };
+  return { view, error, reload: () => setLoads((n) => n + 1) };
 }
 
 const DAY = 24 * 60 * 60_000;
@@ -102,8 +104,8 @@ const DAY = 24 * 60 * 60_000;
 export function answerTimings(a: MeetingAnswer): string | undefined {
   const first = answerLatency(a);
   const parts: string[] = [];
-  if (first !== undefined) parts.push(`First word ${seconds(first)} after ${a.speechEndAt !== undefined ? 'they stopped' : 'you asked'}`);
-  if (a.doneAt !== undefined) parts.push(`done in ${seconds(a.doneAt - (a.speechEndAt ?? a.createdAt))}`);
+  if (first !== undefined) parts.push(`First word ${seconds(first)} after ${a.segmentEndAt !== undefined ? 'they stopped' : 'you asked'}`);
+  if (a.doneAt !== undefined) parts.push(`done in ${seconds(Math.max(0, a.doneAt - (a.segmentEndAt ?? a.createdAt)))}`);
   if (a.model) parts.push(a.model.split('/').pop()!);
   return parts.length ? parts.join(', ') : undefined;
 }
@@ -135,7 +137,7 @@ function useMovedEvent(m: Meeting | undefined): number | undefined {
 
 function MeetingDetail({ id }: { id: string }) {
   const phone = useIsMobile();
-  const { view, error } = useMeeting(id);
+  const { view, error, reload } = useMeeting(id);
   const m = view.meeting;
   usePageHeader(m?.title ?? 'Meeting', '/meetings');
   const [, go] = useLocation();
@@ -261,10 +263,11 @@ function MeetingDetail({ id }: { id: string }) {
         </p>
       )}
       {ahead && <PrepPanel meeting={m} zone={zone} now={now} />}
-      {!!m.files?.length && (
+      {view.liveModel?.note && m.status !== 'ended' && <p className="mb-6 text-[13px] text-warn phone:text-[14px]">{view.liveModel.note}</p>}
+      {!!view.files.length && (
         <div className="mb-8">
-          <Section title="Files" count={m.files.length}>
-            {m.files.map((f) => (
+          <Section title="Files" count={view.files.length}>
+            {view.files.map((f) => (
               <div key={f.id} className="flex items-baseline justify-between gap-3 py-2.5 text-[14px] phone:text-[15px]">
                 <span className="min-w-0 truncate text-fg">{f.name}</span>
                 <span className="num shrink-0 text-[12px] text-fg-3 phone:text-[13px]">{bytes(f.size)}</span>
@@ -273,7 +276,7 @@ function MeetingDetail({ id }: { id: string }) {
           </Section>
         </div>
       )}
-      {edit && <MeetingForm mode={{ kind: 'edit', meeting: m }} open onClose={() => setEdit(false)} onSaved={() => setEdit(false)} />}
+      {edit && <MeetingForm mode={{ kind: 'edit', meeting: m, files: view.files }} open onClose={() => setEdit(false)} onSaved={() => (setEdit(false), reload())} />}
       <div className={ahead ? 'hidden' : 'flex flex-col gap-8'}>
         {!desktop && (m.status === 'ready' || m.status === 'preparing') && (
           <p className="text-[14px] text-fg-2">

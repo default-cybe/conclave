@@ -7,6 +7,26 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Meetings: cloud speech to text. With an AssemblyAI or Deepgram key in Settings > Meetings (hub secret `stt.assemblyai` or `stt.deepgram`; a member saves their own), the desktop app streams each channel straight to the service on a 60-second token from `POST /api/meetings/:id/stt-token`, so the key never leaves the hub. The config `meetings.stt` picks the service; unset, the first one with a key, else local. Test (`POST /api/meetings/stt-test`) mints one token without sending audio. A refused key or an unreachable service falls back to local speech to text, and the overlay says why.
+- Meetings: pick the answer model per meeting (`answerModel`, `GET /api/meetings/models`, fastest first). The default is `models.tiers.fast`, else Gemini Flash Lite, Haiku or Gemini Flash; the meeting page warns when only a slow model is left.
+- Meetings: files and no folder. A meeting can run on attached files alone (at most 10, 10 MB each, text only kept on the hub, secrets redacted), with `POST /api/meetings/:id/files` and `DELETE /api/meetings/:id/files/:fileId`. Prep and the live context read the files.
+- Meetings: each answer stores its model and timings (speech end, arrival, model call, first word, done). The overlay shows the last "first word" time and the speech service in use; the meeting page shows a timings line per answer.
+- Desktop: `app.log` in the app log folder (`~/Library/Logs/dev.conclave.desktop/` on macOS), rotated at 5 MB, with meeting start and stop, provider, errors and timings, never audio, text or tokens.
+
+### Changed
+
+- Meetings: faster live answers. A guess starts on 1.5 s of partial speech and no longer counts toward the rate limit or cancels a real answer; the live prompt reads a fixed 9k-token cut of the context; the cache is warmed every 4 minutes; more question phrasings are caught, and a question split over 2 or 3 finals is joined. Answers may be 320 tokens, 700 on Longer, and technical questions get general-knowledge answers.
+- Desktop: capture starts at once instead of waiting for the speech model, and the local model loads only when it is used.
+- Overlay: level meters paint without re-rendering, unchanged status ticks are skipped, and resizes are sent at most 10 times a second.
+
+### Fixed
+
+- Desktop: the 652 MB Parakeet model is no longer rewritten on every meeting start. A `verified.json` marker skips the check for unchanged files, a right-sized file is hashed once, and a broken download resumes.
+
 ## [0.4.54] - 2026-11-01
 
 ### Added

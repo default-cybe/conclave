@@ -16,6 +16,7 @@
  *   DELETE /api/meetings/:id                          204
  *   GET    /api/meetings/models                       { models: MeetingModelOption[] }
  *   POST   /api/meetings/:id/stt-token                SttToken (409 without a key)
+ *   POST   /api/meetings/stt-test {provider}          SttTestResult (409 without a key)
  *   POST   /api/meetings/:id/files                    201 MeetingFile (multipart, field "file")
  *   DELETE /api/meetings/:id/files/:fileId            204
  *
@@ -78,6 +79,11 @@ export function registerMeetingRoutes(app: Hono<HonoEnv>, ctx: ServerContext): v
   app.get('/api/meetings/presets', (c) => c.json({ presets: STEERING_PRESETS }));
 
   app.get('/api/meetings/models', async (c) => c.json({ models: await svc().modelList(accountOf(c)) }));
+
+  app.post('/api/meetings/stt-test', async (c) => {
+    const body = await readJson<{ provider?: unknown }>(c, SMALL_BODY);
+    return c.json(await svc().sttTest(body.provider, accountOf(c)));
+  });
 
   app.post('/api/meetings/:id/stt-token', async (c) => c.json(await svc().sttToken(c.req.param('id'), accountOf(c))));
 

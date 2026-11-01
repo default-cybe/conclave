@@ -50,7 +50,9 @@ export function MeetingsSection() {
     api()
       .config()
       .then((r) => {
-        const stt = ((r.config.meetings as { stt?: SttProvider } | undefined)?.stt ?? 'local') as SttProvider;
+        const set = (r.config.meetings as { stt?: SttProvider } | undefined)?.stt;
+        // unset: the hub takes the first service with a key (core/src/meeting/stt.ts sttChoice)
+        const stt = set ?? (r.secrets.values.includes(sttSecret('assemblyai')) ? 'assemblyai' : r.secrets.values.includes(sttSecret('deepgram')) ? 'deepgram' : 'local');
         setCfg({ stt, values: r.secrets.values });
       })
       .catch((e) => setError(errText(e)));

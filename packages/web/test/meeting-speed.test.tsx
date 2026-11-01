@@ -55,7 +55,7 @@ describe('level source', () => {
 
 describe('latency', () => {
   test('from speech end, or from the ask for Answer now', () => {
-    expect(answerLatency(ans({ speechEndAt: 9_600, firstTokenAt: 10_400 }))).toBe(800);
+    expect(answerLatency(ans({ segmentEndAt: 9_600, firstTokenAt: 10_400 }))).toBe(800);
     expect(answerLatency(ans({ firstTokenAt: 10_700 }))).toBe(700);
     expect(answerLatency(ans({}))).toBeUndefined();
     expect(seconds(800)).toBe('0.8 s');
@@ -68,7 +68,7 @@ describe('latency', () => {
   });
 
   test('timings line on the meeting page', () => {
-    expect(answerTimings(ans({ speechEndAt: 9_600, firstTokenAt: 10_400, doneAt: 12_000, model: 'cliproxy/claude-haiku-5-5' }))).toBe('First word 0.8 s after they stopped, done in 2.4 s, claude-haiku-5-5');
+    expect(answerTimings(ans({ segmentEndAt: 9_600, firstTokenAt: 10_400, doneAt: 12_000, model: 'cliproxy/claude-haiku-5-5' }))).toBe('First word 0.8 s after they stopped, done in 2.4 s, claude-haiku-5-5');
     expect(answerTimings(ans({}))).toBeUndefined();
   });
 });
@@ -77,11 +77,11 @@ describe('overlay header', () => {
   const req: Req = async () => {
     throw new HubError(404, 'Not found');
   };
-  const detail = (p: Partial<MeetingDetail> = {}): MeetingDetail => ({ id: 'mtg_1', accountId: 'owner', sessionId: 'ses_1', device: 'd', cwd: '/p', title: 'Sync', status: 'live', createdAt: 1, autoAnswer: 'questions', segments: [], answers: [], ...p });
+  const detail = (p: Partial<MeetingDetail> = {}): MeetingDetail => ({ id: 'mtg_1', accountId: 'owner', sessionId: 'ses_1', device: 'd', cwd: '/p', title: 'Sync', status: 'live', createdAt: 1, autoAnswer: 'questions', segments: [], answers: [], files: [], liveModel: { ref: 'a/fast' }, ...p });
   test('shows the provider and the last first word', () => {
     const v = emptyView();
-    loadDetail(v, detail({ answers: [ans({ speechEndAt: 9_000, firstTokenAt: 9_600 })] }));
-    const html = renderToStaticMarkup(<Live api={meetingApi(req)} view={v} desktop={desk({ sttProvider: 'deepgram' })} levels={levelSource()} ws="open" />);
+    loadDetail(v, detail({ answers: [ans({ segmentEndAt: 9_000, firstTokenAt: 9_600 })] }));
+    const html = renderToStaticMarkup(<Live api={meetingApi(req)} view={v} desktop={desk({ stt: { state: 'ready', provider: 'deepgram' } })} levels={levelSource()} ws="open" />);
     expect(html).toContain('Deepgram');
     expect(html).toContain('first word 0.6 s');
   });
@@ -89,7 +89,8 @@ describe('overlay header', () => {
 
 describe('status notes', () => {
   test('fallback, channel errors and the upload queue show', () => {
-    expect(statusNotes(desk({ sttFallback: 'Deepgram refused the token', mic: { ok: false, error: 'permission denied' }, queue: { stt: 0, upload: 3, dropped: 0 } }), 'open')).toEqual(['On local speech to text: Deepgram refused the token', 'no mic: permission denied', '3 waiting to upload']);
+    const note = 'Cloud speech to text unavailable (Deepgram refused the token); using the model on this computer.';
+    expect(statusNotes(desk({ stt: { state: 'ready', provider: 'local', error: note }, mic: { ok: false, error: 'permission denied' }, queue: { stt: 0, upload: 3, dropped: 0 } }), 'open')).toEqual([note, 'no mic: permission denied', '3 waiting to upload']);
   });
 });
 

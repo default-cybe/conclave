@@ -634,6 +634,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'GET /api/meetings/calendar': 'self',
   'GET /api/meetings/presets': 'self',
   'GET /api/meetings/models': 'self',
+  'POST /api/meetings/stt-test': 'self',
   'POST /api/meetings/:id/stt-token': own({ id: 'meeting' }),
   'POST /api/meetings/:id/files': own({ id: 'meeting' }),
   'DELETE /api/meetings/:id/files/:fileId': own({ id: 'meeting' }),

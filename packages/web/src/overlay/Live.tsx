@@ -38,7 +38,8 @@ export function statusNotes(d: DesktopMeetingStatus | undefined, ws: WsStatus): 
   if (d.stt.state === 'downloading') out.push(`Downloading speech model ${Math.round((d.stt.progress ?? 0) * 100)} %`);
   else if (d.stt.state === 'loading') out.push('Loading speech model');
   else if (d.stt.state === 'failed') out.push(`Speech model failed${d.stt.error ? `: ${d.stt.error}` : ''}`);
-  if (d.sttFallback) out.push(`On local speech to text: ${d.sttFallback}`);
+  // the desktop app's fallback note: why speech to text moved to this computer
+  else if (d.stt.error) out.push(d.stt.error);
   if (!d.mic.ok) out.push(d.mic.error ? `no mic: ${d.mic.error}` : 'no mic');
   if (!d.system.ok) out.push(d.system.error ? `no system sound: ${d.system.error}` : 'no system sound');
   if (d.queue.stt > 0) out.push(`${d.queue.stt} waiting for text`);
@@ -162,7 +163,7 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
         </span>
         <span className="ov-num">{minutes} min</span>
         <Meters levels={levels} />
-        {desktop?.sttProvider && <span className="ov-meta">{STT_NAME[desktop.sttProvider]}</span>}
+        {desktop?.stt.provider && <span className="ov-meta">{STT_NAME[desktop.stt.provider]}</span>}
         {latency !== undefined && <span className="ov-meta ov-num">first word {seconds(latency)}</span>}
         <span className="ov-grow" />
         <button type="button" className="ov-link" aria-expanded={open} onClick={() => setOpen(!open)}>

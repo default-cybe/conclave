@@ -52,6 +52,7 @@ import {
   type ScheduleFields,
   type SegmentAck,
   type SegmentBatch,
+  type SttTestResult,
   type SttToken,
 } from './wire';
 
@@ -224,9 +225,27 @@ export class MeetingService {
     try {
       return await mintSttToken(choice, key);
     } catch (e) {
-      if (e instanceof SttError) throw err(e.status, e.message);
+      // 502, not 409: the desktop app reads 409 as "no key" and falls back without saying why (upload.rs stt_token)
+      if (e instanceof SttError) throw err(502, e.message);
       throw e;
     }
+  }
+
+  /** POST /stt-test: mint one token on the saved key, as the desktop app would; 409 without a key. */
+  async sttTest(provider: unknown, accountId: string): Promise<SttTestResult> {
+    if (provider !== 'assemblyai' && provider !== 'deepgram') throw err(400, 'provider is assemblyai or deepgram');
+    const name = provider === 'assemblyai' ? 'AssemblyAI' : 'Deepgram';
+    const key = this.sttKey(accountId, provider);
+    if (!key) throw err(409, `No ${name} key is saved (Settings > Meetings).`);
+    const t0 = Date.now();
+    try {
+      await mintSttToken(provider, key);
+    } catch (e) {
+      if (e instanceof SttError) return { ok: false, message: e.message, ms: Date.now() - t0 };
+      throw e;
+    }
+    const ms = Date.now() - t0;
+    return { ok: true, message: `Works. ${name} sent a streaming token in ${ms} ms.`, ms };
   }
 
   // ----- files attached to a meeting -----
@@ -749,7 +768,8 @@ export class MeetingService {
    * file the owner attached or removed (live: true): that is worth one cache write.
    */
   private refreshPack(id: string, live = false): void {
-    const can = (x?: Meeting) => !!x && ((x.status === 'ready' && !x.audioClientId) || (live && (x.status === 'ready' || x.status === 'live' || x.status === 'paused')));
+    // preparing: "Prepare and start" uploads the files right after create, while the brief is written
+    const can = (x?: Meeting) => !!x && ((x.status === 'ready' && !x.audioClientId) || (live && (x.status === 'preparing' || x.status === 'ready' || x.status === 'live' || x.status === 'paused')));
     const m = this.store.get(id);
     if (!can(m)) return;
     const session = this.engine.repos.sessions.get(m!.sessionId);

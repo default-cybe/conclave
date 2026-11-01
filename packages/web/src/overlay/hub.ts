@@ -58,7 +58,7 @@ export function meetingApi(req: Req) {
     calendar: (from: number, to: number) => req<{ events: MeetingCalendarEvent[]; errors: string[] }>('GET', `/api/meetings/calendar${qs({ from, to })}`),
     presets: () => req<{ presets: SteeringPreset[] }>('GET', '/api/meetings/presets').then((r) => r.presets),
     /** The models an answer can come from, fastest first. */
-    models: () => req<AnswerModelChoice[]>('GET', '/api/meetings/models'),
+    models: () => req<{ models: AnswerModelChoice[] }>('GET', '/api/meetings/models').then((r) => r.models),
     removeFile: (id: string, fileId: string) => req<void>('DELETE', `${m(id)}/files/${encodeURIComponent(fileId)}`),
     sttTest: (provider: Exclude<SttProvider, 'local'>) => req<SttTestResult>('POST', '/api/meetings/stt-test', { provider }),
     arm: (id: string) => req<Meeting>('POST', `${m(id)}/arm`),

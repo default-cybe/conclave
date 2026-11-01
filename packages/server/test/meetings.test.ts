@@ -185,6 +185,13 @@ describe('meeting routes', () => {
       expect(tok.body).toMatchObject({ provider: 'deepgram', token: 'jwt-for-1', sampleRate: 16000, encoding: 'pcm_s16le' });
       expect(JSON.stringify(tok.body)).not.toContain('owner-dg-key');
       expect(auths).toEqual(['Token owner-dg-key']);
+      // Settings > Meetings > Test: one token on the saved key; 409 when none is saved
+      expect((await call(OWNER, 'POST', '/api/meetings/stt-test', { provider: 'assemblyai' })).status).toBe(409);
+      const tried = await call(OWNER, 'POST', '/api/meetings/stt-test', { provider: 'deepgram' });
+      expect(tried.status).toBe(200);
+      expect(tried.body).toMatchObject({ ok: true });
+      expect(JSON.stringify(tried.body)).not.toContain('owner-dg-key');
+      auths.length = 1;
       // a member: 404 on the owner's meeting; their own meeting never uses the owner's key
       expect((await call(alice.token, 'POST', `/api/meetings/${id}/stt-token`)).status).toBe(404);
       const mine = await call(alice.token, 'POST', '/api/meetings', { title: 'Alice interview' });

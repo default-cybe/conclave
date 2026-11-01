@@ -1264,9 +1264,12 @@ picked. Design: docs/design/MEETING-MODE.md.
   questions). Nothing is heard until you press **Start listening** in the
   overlay.
 - **While it listens**: your microphone is "Me" and the computer's sound is
-  "Them". Speech becomes text on this computer (Parakeet; the 661 MB model
-  downloads on the first meeting). Audio is never saved or sent; only the
-  text goes to your hub. The tray and the overlay show that it is listening,
+  "Them". By default speech becomes text on this computer (Parakeet; the 661 MB
+  model downloads on the first local meeting and is checked, not downloaded
+  again, after that). With a cloud key (below) the desktop app streams the
+  audio straight to AssemblyAI or Deepgram instead, which is faster. Audio is
+  never saved, and it never goes to your hub; only the text does. The tray
+  and the overlay show that it is listening,
   and so does your system's mic indicator. Questions from "Them" get an
   answer by themselves. Keys: `Ctrl/Cmd+Alt+Enter` answer now,
   `Ctrl/Cmd+Alt+P` pause, `Ctrl/Cmd+Alt+T` click-through, `Ctrl/Cmd+Alt+M`
@@ -1284,6 +1287,49 @@ picked. Design: docs/design/MEETING-MODE.md.
 - Speech from others is treated as untrusted text: it cannot run tools or
   change settings, and answers never carry keys or passwords from your
   project.
+- **No folder**: a meeting can run on files alone (a resume, a job
+  description). In the form, press **No folder** and drop the files under
+  **Or add files** (at most 10 files, 10 MB each; text, Markdown, PDF and the
+  like; only the text is kept, on the hub). Files also work next to a folder.
+- **Answer model**: **Answers from** in the form picks the model for live
+  answers. The hub default is `models.tiers.fast` when set, else the fastest
+  Gemini Flash Lite, Claude Haiku or Gemini Flash you can use. A slow model
+  works, but the meeting page warns that answers may be slow.
+
+#### Cloud speech to text: AssemblyAI or Deepgram
+
+Local speech to text costs nothing and stays on your computer, but it is about
+1 to 2 s behind speech. A cloud service is about 0.3 s behind and better on
+names and accents. Your key stays on the hub: for each meeting the hub asks the
+service for a token that lasts 60 seconds, and the desktop app opens the
+stream with it.
+
+1. Make an account and copy an API key:
+   - AssemblyAI: <https://www.assemblyai.com/dashboard/signup>. A new account
+     gets $50 of free credit, no card. Universal-Streaming is $0.15 per audio
+     hour.
+   - Deepgram: <https://console.deepgram.com/signup>. A new account gets $200
+     of free credit, no card. Nova-3 streaming is $0.0077 a minute (about
+     $0.46 an hour) on pay as you go; Deepgram sometimes runs a lower promo
+     rate.
+   A meeting streams two channels (you and them), so one meeting hour costs
+   twice the hourly price: about $0.30 on AssemblyAI, about $0.92 on Deepgram.
+   Prices are from the providers' pricing pages in November 2026; check them
+   before you rely on them.
+2. In Conclave, open **Settings > Meetings**, pick the service, paste the key
+   and press **Save**. **Test** asks the service for one token (no audio is
+   sent) and says whether the key works.
+3. Press **Use AssemblyAI** or **Use Deepgram** (owner only; it sets
+   `meetings.stt` in the config). With no choice set, the hub uses the first
+   service that has a key, else local.
+
+The key is saved as the hub secret `stt.assemblyai` or `stt.deepgram`. A
+person on your hub (section 13) saves their own key the same way, in their own
+secrets file; their meetings never use yours. If the service cannot be
+reached or refuses the key, the desktop app switches to local speech to text
+and the overlay says why. Logs (no audio, no text, no keys) are in
+`app.log` in the desktop app's log folder (`~/Library/Logs/dev.conclave.desktop/`
+on a Mac).
 
 ## 8. Notifications
 

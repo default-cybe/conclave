@@ -73,6 +73,13 @@ export interface SttToken {
 
 export type SttChoice = 'local' | 'assemblyai' | 'deepgram';
 
+/** POST /api/meetings/stt-test {provider}: mint one token on the saved key (no audio is sent); 409 without a key. */
+export interface SttTestResult {
+  ok: boolean;
+  message: string;
+  ms?: number;
+}
+
 /** A file attached to one meeting (POST /api/meetings/:id/files); only its text is kept. */
 export interface MeetingFile {
   id: string; // "mfl_..."
@@ -201,7 +208,8 @@ export interface DesktopMeetingStatus {
   exclusion: 'excluded' | 'monitor-only' | 'unsupported' | 'failed'; // what the OS confirmed (7.2/7.3)
   mic: { ok: boolean; device?: string; error?: string };
   system: { ok: boolean; device?: string; error?: string };
-  stt: { state: 'loading' | 'downloading' | 'ready' | 'failed'; progress?: number; error?: string };
+  /** provider: what turns speech into text now; on a fallback to local, error says why. */
+  stt: { state: 'loading' | 'downloading' | 'ready' | 'failed'; progress?: number; error?: string; provider?: SttChoice };
   queue: { stt: number; upload: number; dropped: number };
 }
 

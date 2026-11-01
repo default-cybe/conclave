@@ -8,7 +8,7 @@ Decisions the owner made:
 
 | Question | Decision |
 |---|---|
-| Speech to text | On the computer: Parakeet (local, free, about 0.3 to 1 s per phrase, audio never leaves the machine). |
+| Speech to text | On the computer: Parakeet (local, free, about 0.3 to 1 s per phrase, audio never leaves the machine). Since section 12: optionally AssemblyAI or Deepgram, streamed from the desktop app on a short-lived token. |
 | Retention | Transcript, notes and action items are kept. Audio is never stored. |
 | Models | The fast tier for live answers. The smart tier for the pre-meeting brief and the wrap-up. |
 
@@ -386,7 +386,8 @@ export interface DesktopMeetingStatus {
   exclusion: 'excluded' | 'monitor-only' | 'unsupported' | 'failed';  // what the OS confirmed (7.2/7.3)
   mic: { ok: boolean; device?: string; error?: string };
   system: { ok: boolean; device?: string; error?: string };
-  stt: { state: 'loading' | 'downloading' | 'ready' | 'failed'; progress?: number; error?: string };
+  stt: { state: 'loading' | 'downloading' | 'ready' | 'failed'; progress?: number; error?: string;
+         provider?: 'local' | 'assemblyai' | 'deepgram' };   // 12.1; on a fallback, error says why
   queue: { stt: number; upload: number; dropped: number };
 }
 ```
@@ -1268,3 +1269,49 @@ Use `bun test <path>` on the hub. Run the full `bun run test` once at the end.
 - Get the 15-minute push on the phone and the desktop notice.
 - At start, tap "Open overlay", then "Start listening".
 - Check that nothing listened before that tap: the tray icon and the OS mic indicator both stay off until then.
+
+## 12. Speed: cloud speech to text, answer model, meeting files
+
+Why: on the owner's Mac no meeting ever reached `live`. The 652 MB Parakeet encoder was rewritten on every start (capture waited for it), the app wrote no log, and live answers fell back to a slow model because `models.tiers.fast` was unset. Interview copilots that feel instant (research/interview-copilot-stt.md) stream audio from the client straight to a cloud STT on a short-lived key and answer on a small Flash model.
+
+### 12.1 Cloud speech to text
+
+- Config `meetings.stt`: `'local' | 'assemblyai' | 'deepgram'`. Unset: the first service the account has a key for, else `local` (`sttChoice` in `core/src/meeting/stt.ts`). The setting is hub-wide; keys are per account.
+- Keys: the secret values `stt.assemblyai` and `stt.deepgram`. The owner's are hub secrets; a member saves their own with `PUT /api/secrets {kind:'values', key:'stt.<provider>'}` (the only `values` keys a member may set), and their meetings never read the owner's.
+- `POST /api/meetings/:id/stt-token` (own meeting) returns `SttToken { provider, url, token, expiresAt (ms), sampleRate: 16000, encoding: 'pcm_s16le' }`:
+  - AssemblyAI v3: `GET /v3/token?expires_in_seconds=60` with the raw key; `url` is `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&encoding=pcm_s16le&format_turns=true&token=...`. The desktop counts only the formatted end of turn as a final.
+  - Deepgram: `POST /v1/auth/grant {ttl_seconds:60}` with `Token <key>`; `url` is `/v1/listen?model=nova-3&encoding=linear16&sample_rate=16000&channels=1&interim_results=true&endpointing=300&utterance_end_ms=1000&vad_events=true&smart_format=true`, and the desktop sends `Authorization: Bearer <token>`.
+  - 409: no key (or `local`), so the desktop runs local without a note. 502: the service refused the key or did not answer, so the desktop runs local and says why in `stt.error`. The key is never in a reply or a log.
+- `POST /api/meetings/stt-test {provider}` (self): mints one token on the saved key, no audio. `SttTestResult { ok, message, ms }`; 409 without a key. Settings > Meetings > Test calls it.
+- Desktop (`src/meeting/cloud.rs`): one websocket per channel, 50 ms frames of 16 kHz mono s16le, reconnect after 0.5, 1, 2, 4, 8 s with a fresh token. A 409, or 3 failures in a row with no text in between, hands that channel to the local model. Cloud and local share one seq counter per channel. In cloud mode capture skips the VAD; the local model loads only for local mode or a fallback, and capture never waits for it.
+- `DesktopMeetingStatus.stt.provider` says which runs; on a fallback `stt.error` carries the reason. The overlay shows both.
+- Gap: during a fallback (about 1.5 s plus connect time) speech older than the 3.2 s frame buffer is lost.
+
+### 12.2 Model files and logs
+
+- `models.rs` keeps `verified.json` (size, SHA-256, mtime per file). A file that matches is used as is; a right-sized file with no marker is hashed once. A broken download resumes from `.part` with a Range request, 3 tries per file, one download at a time.
+- `app.log` in the app log folder (`~/Library/Logs/dev.conclave.desktop/` on macOS), rotated at 5 MB: start and stop, provider, token, socket and upload errors, and timings. Never audio, transcript text or tokens.
+- The Silero VAD model is built into `silero_rs`, so there is no `.onnx` file to find; a test loads it.
+
+### 12.3 Answer model
+
+- `Meeting.answerModel` (create and patch; `null` or `''` on patch clears it). A ref the account cannot use is 400 with `field: 'answerModel'`.
+- `GET /api/meetings/models` (self) returns `{ models: MeetingModelOption[] }` (`ref, label, speed: 'fastest'|'fast'|'balanced'|'best', note`), chat models only, fastest first, cached 5 minutes.
+- Default: `models.tiers.fast`, else the fastest usable Gemini Flash Lite, then Haiku, then Gemini Flash. `MeetingDetail.liveModel { ref, note? }` says what answers use; `note` warns when only a slow model is left. The meeting page shows the note.
+- A changed answer model warms the cache again. Warm-up runs every 4 min while live (under the 5-minute TTL), not every 50.
+
+### 12.4 Meeting files and no folder
+
+- A meeting may have no folder (`cwd: ''`, `device: 'local'`): pack, prep and wrap-up read no device, and the notes stay on the hub.
+- `POST /api/meetings/:id/files` (multipart, one field `file`, one file per request) returns `201 MeetingFile { id, name, mediaType, size, chars, note?, createdAt }`. `DELETE /api/meetings/:id/files/:fileId` returns 204. At most 10 files, 10 MB each, 60,000 characters of text each, about 8k tokens of all files in the pack. Only the text is kept; secrets in it are redacted; PDF text needs `pdftotext` on the hub.
+- `MeetingDetail.files` lists them. `meeting.updated` carries a plain `Meeting` without files, so the web app reads them from the detail and loads it again after an edit.
+- A file added or removed rebuilds the pack in `preparing`, `ready`, `live` and `paused`.
+
+### 12.5 Faster live answers
+
+- The live request reads the first 9k tokens of the pack, cut the same way every time so the cache holds.
+- A speculative answer starts on 1.5 s of partial speech, does not count toward the 6-a-minute limit and never cancels a real answer. It is kept for the final only at similarity 0.8 or more.
+- More question phrasings ("tell me", "explain", "walk me through", lead-ins like "okay so"); a question split over 2 or 3 "them" finals within 10 s is joined.
+- Answers: 320 tokens, 700 on Longer.
+- `MeetingAnswer` stores `model`, `segmentEndAt` (hub clock: the trigger's speech end), `receivedAt` (its batch reached the hub), `requestAt`, `firstTokenAt` and `doneAt`. The overlay shows "first word X s" (firstTokenAt minus segmentEndAt, or createdAt for Answer now); the meeting page shows one timings line per answer.
+- The desktop also sends `Segment.speechEndAt`, `finalAt` and `SegmentBatch.sentAt` (desktop clock, ms). The hub ignores them for now.
