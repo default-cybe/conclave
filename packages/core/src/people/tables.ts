@@ -42,6 +42,8 @@ export const ACCOUNT_TABLES = [
   'meetings',
   'meeting_segments',
   'meeting_answers',
+  // meeting prep digests (11.4.2): keyed by account and session
+  'meeting_digests',
 ] as const;
 
 /** Child table to the parent table whose account_id scopes it. */

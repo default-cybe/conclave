@@ -797,6 +797,8 @@ export class Engine implements EngineApi {
     if (runner?.started && session) await this.runHook(session, 'SessionEnd', { reason: 'other' }, 'other');
     this.runners.delete(id);
     this.repos.sessions.delete(id);
+    // its meeting-prep digest (meeting/store.ts) would keep its text after it is gone
+    meetingsOf(this)?.store.deleteDigests(id);
     this.repos.kv.delete(designImageKey(id));
     this.bus.emit({ type: 'session.deleted', sessionId: id, accountId: this.accountOf(session) });
   }

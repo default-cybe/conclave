@@ -182,6 +182,27 @@ export class SessionRepo {
     return (this.db.query(sql).all(params as any) as Row[]).map(rowToSession);
   }
 
+  /**
+   * Every session of the account on a project folder (meeting prep,
+   * docs/design/MEETING-MODE.md 11.4.1): chats and agent sessions, archived
+   * and imported ones too, with this project id, or on this device in the
+   * folder or below it. Meeting sessions, untrusted ones and a workflow's
+   * step sessions are left out. Newest first, no row cap.
+   */
+  listForFolder(q: { accountId: string; device: string; root: string; projectId?: string }): Session[] {
+    const root = q.root.length > 1 ? q.root.replace(/[\\/]+$/, '') : q.root;
+    const esc = root.replace(/[\\%_]/g, (c) => `\\${c}`);
+    const sql = `SELECT * FROM sessions WHERE account_id = $account
+      AND (kind IS NULL OR kind <> 'meeting')
+      AND COALESCE(json_extract(meta, '$.untrusted'), 0) <> 1
+      AND NOT (parent_id IS NOT NULL AND EXISTS (SELECT 1 FROM json_each(sessions.tags) WHERE value = 'workflow'))
+      AND (${q.projectId ? `json_extract(meta, '$.projectId') = $project OR ` : ''}(COALESCE(device, 'local') = $device AND (cwd = $root OR cwd LIKE $slash ESCAPE '\\' OR cwd LIKE $back ESCAPE '\\')))
+      ORDER BY updated_at DESC`;
+    const params: Record<string, string> = { account: q.accountId, device: q.device, root, slash: `${esc}/%`, back: `${esc}\\\\%` };
+    if (q.projectId) params.project = q.projectId;
+    return (this.db.query(sql).all(params as never) as Row[]).map(rowToSession);
+  }
+
   delete(id: string): void {
     this.db.query('DELETE FROM messages_fts WHERE session_id = ?').run(id);
     this.db.query('DELETE FROM sessions WHERE id = ?').run(id);
