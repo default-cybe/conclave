@@ -42,6 +42,7 @@ export function CodeBlock({
   code,
   lang,
   copy = true,
+  closed = true,
   shell,
   bare,
   maxLines,
@@ -52,6 +53,8 @@ export function CodeBlock({
   code: string;
   lang?: string;
   copy?: boolean;
+  /** Open markdown fences stay plain until their closing fence arrives. */
+  closed?: boolean;
   shell?: boolean;
   bare?: boolean;
   /** Collapse to this many lines with "Show all N lines". */
@@ -66,7 +69,7 @@ export function CodeBlock({
   const lines = code.replace(/\n$/, '').split('\n');
   const long = !!maxLines && lines.length > maxLines && !all;
   const shown = long ? lines.slice(0, maxLines).join('\n') : lines.join('\n');
-  const html = useMemo(() => (shell ? null : highlight(shown, lang)), [shown, lang, shell]);
+  const html = useMemo(() => (shell || !closed ? null : highlight(shown, lang)), [shown, lang, shell, closed]);
   const mobile = useIsMobile();
   // phones always get the header line, so the 44px Copy button never sits on top of the first line
   const header = !!(lang || title) || (copy && mobile);
