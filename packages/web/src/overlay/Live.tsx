@@ -1,16 +1,18 @@
 /**
  * The live overlay (docs/design/MEETING-MODE.md 1.3): the status line with
- * the recording dot (always shown while listening, 8), the current answer,
- * the last 6 transcript lines and up to 5 earlier answers. Controls call the
- * hub over HTTP and Rust over IPC; both return at once.
+ * the recording dot (always shown while listening, 8), the answer, and the
+ * last transcript lines. Idle it is a compact bar (status and the last line);
+ * a new answer opens it. Earlier answers are a step back with the arrows or
+ * Ctrl or Cmd + Alt + [ and ]. Controls call the hub over HTTP and Rust over
+ * IPC; both return at once.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MeetingApi } from './hub';
-import { ipc } from './desktop';
-import { answerStack, lastLines, type MeetingView } from './model';
+import { desktop as tauri, ipc } from './desktop';
+import { lastLines, shownIndex, stepAnswer, type MeetingView } from './model';
 import type { DesktopMeetingStatus } from './wire';
 import type { WsStatus } from './ws';
-import { AnswerCard, PreviousAnswer } from './AnswerCard';
+import { AnswerCard } from './AnswerCard';
 import { Transcript } from './Transcript';
 import { CopyConsent } from './Setup';
 
@@ -59,7 +61,41 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
   // the dot shows what the microphone does: the capture's own state when this computer captures
   const paused = desktop?.live ? desktop.paused : m.status === 'paused';
   const minutes = useMinutes(m.startedAt);
-  const { current, previous } = answerStack(view);
+  const answers = view.answers;
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
+  // the answer the owner stepped back to; undefined follows the newest
+  const [pinned, setPinned] = useState<string>();
+  const index = shownIndex(answers, pinned);
+  const current = answers[index];
+  const newest = answers[answers.length - 1];
+  const step = useCallback((dir: -1 | 1) => setPinned((p) => stepAnswer(answersRef.current, p, dir)), []);
+  // compact while idle; a new answer opens it on the newest
+  const [open, setOpen] = useState(false);
+  const newestId = newest?.id;
+  const seen = useRef(newestId);
+  useEffect(() => {
+    if (seen.current === newestId) return;
+    seen.current = newestId;
+    setPinned(undefined);
+    setOpen(true);
+  }, [newestId]);
+  useEffect(() => {
+    const d = tauri();
+    if (!d) return;
+    let off: (() => void) | undefined;
+    let alive = true;
+    void d
+      .listen<number>('meeting://nav', (e) => {
+        setOpen(true);
+        step(e.payload < 0 ? -1 : 1);
+      })
+      .then((f) => (alive ? (off = f) : f()));
+    return () => {
+      alive = false;
+      off?.();
+    };
+  }, [step]);
   const [ending, setEnding] = useState(false);
   const [error, setError] = useState<string>();
   const fail = useCallback((e: unknown) => setError(e instanceof Error ? e.message : String(e)), []);
@@ -99,36 +135,45 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
         <Level label="me" value={levels.me} />
         <Level label="them" value={levels.them} />
         <span className="ov-grow" />
+        <button type="button" className="ov-link" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? 'Less' : current ? 'Show answer' : 'More'}
+        </button>
         <button type="button" className="ov-link" onClick={() => void ipc.hide()}>
           Hide
         </button>
       </header>
       {statusNotes(desktop, ws).length > 0 && <p className="ov-notes">{statusNotes(desktop, ws).join(', ')}</p>}
-      {current ? (
-        <AnswerCard
-          answer={current}
-          text={view.text[current.messageId] ?? ''}
-          onStop={onStop}
-          onRetry={onRetry}
-        />
+      {!open ? (
+        <div className="ov-bar">
+          <Transcript lines={lastLines(view, 1)} />
+          <button type="button" className="ov-btn ov-primary" onClick={() => answerNow()}>
+            Answer now
+          </button>
+        </div>
       ) : (
-        <section className="ov-card">
-          <p className="ov-muted">Answers show here when someone asks you a question. Ctrl or Cmd + Alt + Enter answers now.</p>
-        </section>
-      )}
-      <Transcript lines={lastLines(view)} />
-      {previous.length > 0 && (
-        <ul className="ov-prevs" aria-label="Earlier answers">
-          {previous.map((a) => (
-            <PreviousAnswer key={a.id} answer={a} text={view.text[a.messageId] ?? ''} />
-          ))}
-        </ul>
+        <>
+          {current ? (
+            <AnswerCard
+              answer={current}
+              text={view.text[current.messageId] ?? ''}
+              nav={{ index, count: answers.length, step }}
+              onStop={current === newest ? onStop : undefined}
+              onRetry={current === newest ? onRetry : undefined}
+            />
+          ) : (
+            <section className="ov-card">
+              <p className="ov-muted">Answers show here when someone asks you a question. Ctrl or Cmd + Alt + Enter answers now.</p>
+            </section>
+          )}
+          <Transcript lines={lastLines(view, 3)} />
+        </>
       )}
       {error && (
         <p className="ov-fault" role="alert">
           {error}
         </p>
       )}
+      {open && (
       <footer className="ov-row">
         <button type="button" className="ov-btn ov-primary" onClick={() => answerNow()}>
           Answer now
@@ -160,6 +205,7 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
           </button>
         )}
       </footer>
+      )}
     </div>
   );
 }

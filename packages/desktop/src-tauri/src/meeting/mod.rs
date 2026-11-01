@@ -33,6 +33,12 @@ pub const KEY_TOGGLE: &str = "CommandOrControl+Alt+M";
 const KEY_ANSWER: &str = "CommandOrControl+Alt+Enter";
 const KEY_PAUSE: &str = "CommandOrControl+Alt+P";
 const KEY_CLICK: &str = "CommandOrControl+Alt+T";
+/// The previous and next answer (the overlay's "n of m"), sent as meeting://nav -1 or 1.
+const KEY_PREV: &str = "CommandOrControl+Alt+[";
+const KEY_NEXT: &str = "CommandOrControl+Alt+]";
+/// The overlay never gets shorter than its compact bar nor taller than this share of the screen.
+const MIN_HEIGHT: f64 = 96.0;
+const MAX_SCREEN_SHARE: f64 = 0.75;
 /// The exclusion of every window of the app is re-checked this often (7.2 step 7).
 const SWEEP_EVERY: Duration = Duration::from_secs(2);
 
@@ -353,7 +359,7 @@ pub fn stop(app: &AppHandle) {
     run.stop.store(true, Ordering::Relaxed);
     run.stt.wake.notify_all();
     run.up.wake.notify_all();
-    for key in [KEY_ANSWER, KEY_PAUSE, KEY_CLICK] {
+    for key in [KEY_ANSWER, KEY_PAUSE, KEY_CLICK, KEY_PREV, KEY_NEXT] {
         let _ = app.global_shortcut().unregister(key);
     }
     set_tray(app, None);
@@ -394,6 +400,24 @@ pub fn click_through(app: &AppHandle, on: bool) {
         }
     }
     emit_status(app);
+}
+
+/// The height the overlay asks for, in logical px, kept between the compact bar
+/// and 75 % of the screen's logical height.
+pub fn clamp_height(want: f64, screen: f64) -> f64 {
+    let max = (screen * MAX_SCREEN_SHARE).max(MIN_HEIGHT);
+    if want.is_finite() { want.clamp(MIN_HEIGHT, max) } else { max }
+}
+
+/// `meeting_set_height`: the window fits the overlay's content, width unchanged.
+/// Only set_size (tao's setContentSize on macOS): it never touches the
+/// "focusable" ivar the NSPanel lacks (see focusable below).
+pub fn set_height(app: &AppHandle, height: f64) -> Result<(), String> {
+    let Some(w) = app.get_webview_window(MEETING) else { return Ok(()) };
+    let scale = w.scale_factor().map_err(|e| e.to_string())?;
+    let screen = w.current_monitor().ok().flatten().map(|m| m.size().height as f64 / m.scale_factor()).unwrap_or(1080.0);
+    let width = w.inner_size().map_err(|e| e.to_string())?.width as f64 / scale;
+    w.set_size(tauri::LogicalSize::new(width, clamp_height(height, screen))).map_err(|e| e.to_string())
 }
 
 /// Only the setup screen takes keyboard focus (7.6).
@@ -477,7 +501,13 @@ fn set_tray(app: &AppHandle, line: Option<&str>) {
 
 fn register_keys(app: &AppHandle) {
     let gs = app.global_shortcut();
-    let keys: [(&str, fn(&AppHandle)); 3] = [
+    let keys: [(&str, fn(&AppHandle)); 5] = [
+        (KEY_PREV, |app| {
+            let _ = app.emit_to(MEETING, "meeting://nav", -1);
+        }),
+        (KEY_NEXT, |app| {
+            let _ = app.emit_to(MEETING, "meeting://nav", 1);
+        }),
         (KEY_ANSWER, |_| {
             if let Some(r) = RUN.lock().unwrap().as_ref() {
                 r.up.request_answer();
@@ -587,7 +617,16 @@ fn stop_and_say(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::with_rec_dot;
+    use super::{clamp_height, with_rec_dot};
+
+    #[test]
+    fn the_height_stays_between_the_compact_bar_and_three_quarters_of_the_screen() {
+        assert_eq!(clamp_height(300.0, 1080.0), 300.0);
+        assert_eq!(clamp_height(2000.0, 1080.0), 810.0);
+        assert_eq!(clamp_height(10.0, 1080.0), 96.0);
+        assert_eq!(clamp_height(f64::NAN, 1080.0), 810.0);
+        assert_eq!(clamp_height(500.0, 100.0), 96.0);
+    }
 
     #[test]
     fn the_rec_dot_is_red_in_the_corner_and_leaves_the_rest() {

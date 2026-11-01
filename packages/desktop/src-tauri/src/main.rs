@@ -259,7 +259,8 @@ fn grant_hub_ipc(app: &AppHandle, base: &Url) -> Result<(), String> {
             .permission("allow-meeting-stop")
             .permission("allow-meeting-click-through")
             .permission("allow-meeting-hide")
-            .permission("allow-meeting-focusable"),
+            .permission("allow-meeting-focusable")
+            .permission("allow-meeting-set-height"),
     )
     .map_err(|e| e.to_string())?;
     granted.insert(origin);
@@ -1586,6 +1587,12 @@ async fn meeting_focusable(app: AppHandle, on: bool) -> Result<(), String> {
     meeting::focusable(&app, on)
 }
 
+/// The overlay asks for its content's height once per frame at most (overlay/fit.ts).
+#[tauri::command]
+async fn meeting_set_height(app: AppHandle, height: f64) -> Result<(), String> {
+    meeting::set_height(&app, height)
+}
+
 /// The overlay becomes an NSPanel on macOS (tauri-nspanel keeps its panels in this plugin's state).
 #[cfg(target_os = "macos")]
 fn panel_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
@@ -1625,6 +1632,7 @@ fn main() {
             meeting_click_through,
             meeting_hide,
             meeting_focusable,
+            meeting_set_height,
             get_settings,
             connect,
             open_hub,

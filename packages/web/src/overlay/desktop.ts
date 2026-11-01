@@ -40,4 +40,6 @@ export const ipc = {
   clickThrough: (on: boolean) => desktop()?.invoke<void>('meeting_click_through', { on }),
   hide: () => desktop()?.invoke<void>('meeting_hide'),
   focusable: (on: boolean) => desktop()?.invoke<void>('meeting_focusable', { on }),
+  /** The window's height in CSS px; the app clamps it to the screen (meeting/mod.rs clamp_height). */
+  setHeight: (height: number) => desktop()?.invoke<void>('meeting_set_height', { height }),
 };

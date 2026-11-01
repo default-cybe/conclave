@@ -2,8 +2,9 @@
   The meeting overlay's own styles (docs/design/MEETING-MODE.md 2.3): no
   Tailwind and no app styles. The tokens are the app's (src/styles/index.css,
   docs/design/SPEC.md 3), copied for the few this window uses. The window is
-  transparent; the panel is solid (no glass, no glow). The only animation is
-  the recording dot's opacity, which the compositor runs.
+  transparent; the panel is solid (no glass, no glow). Animations are the
+  recording dot's opacity and a short fade of each new answer block, both
+  run by the compositor and both off under reduced motion.
 */
 
 :root,
@@ -24,6 +25,15 @@
   --meter-on: oklch(0.8 0.01 286);
   --solid: var(--fg);
   --solid-fg: var(--bg);
+  --code-bg: oklch(0.14 0.005 286);
+  --syn-kw: oklch(0.78 0.1 303);
+  --syn-str: oklch(0.8 0.09 150);
+  --syn-num: oklch(0.8 0.09 60);
+  --syn-type: oklch(0.8 0.07 220);
+  --s0: oklch(0.775 0.125 303);
+  --s1: oklch(0.78 0.11 200);
+  --s2: oklch(0.82 0.12 80);
+  --s3: oklch(0.75 0.13 150);
 }
 
 :root[data-theme='light'] {
@@ -41,6 +51,15 @@
   --fault: oklch(0.56 0.19 27);
   --meter-off: oklch(0.9 0.005 286);
   --meter-on: oklch(0.33 0.01 286);
+  --code-bg: oklch(0.965 0.003 286);
+  --syn-kw: oklch(0.48 0.16 300);
+  --syn-str: oklch(0.48 0.11 150);
+  --syn-num: oklch(0.52 0.12 55);
+  --syn-type: oklch(0.47 0.1 230);
+  --s0: oklch(0.52 0.17 300);
+  --s1: oklch(0.55 0.12 220);
+  --s2: oklch(0.62 0.13 65);
+  --s3: oklch(0.52 0.12 150);
 }
 
 :root {
@@ -71,8 +90,9 @@ body {
   padding: 6px;
 }
 
+/* as tall as its content (the window follows it, fit.ts), scrolling once the window is at its cap */
 .ov-panel {
-  height: 100%;
+  max-height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--bg);
@@ -179,7 +199,9 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ov-dot {
+  .ov-dot,
+  .ov-md > *,
+  .ov-md li {
     animation: none;
   }
 }
@@ -222,44 +244,401 @@ body {
 
 .ov-card-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 4px;
+  min-height: 22px;
+  margin-bottom: 6px;
 }
 
 .ov-question {
-  margin: 0 0 6px;
+  margin: 0 0 8px;
   color: var(--fg-3);
   font-size: 12px;
+  line-height: 1.4;
 }
 
-.ov-say {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 16px;
-  line-height: 1.5;
+/* Answer markdown (StreamText): the bullets he reads aloud, large; the rest below, smaller */
+.ov-md > :first-child {
+  margin-top: 0;
+}
+
+.ov-md > :last-child {
+  margin-bottom: 0;
+}
+
+.ov-md p,
+.ov-md ul,
+.ov-md ol,
+.ov-md blockquote {
+  margin: 0 0 8px;
+}
+
+.ov-md ul,
+.ov-md ol {
+  padding-left: 20px;
+}
+
+.ov-md li + li {
+  margin-top: 4px;
+}
+
+.ov-md li > ul,
+.ov-md li > ol {
+  margin: 4px 0 0;
+}
+
+.ov-md strong {
+  font-weight: 650;
   color: var(--fg);
 }
 
-.ov-say li + li {
-  margin-top: 4px;
-}
-
-.ov-say-small {
+.ov-md h3,
+.ov-md h4 {
+  margin: 12px 0 4px;
   font-size: 13px;
-  color: var(--fg-2);
-  margin-top: 4px;
+  font-weight: 600;
+  color: var(--fg);
 }
 
-.ov-say-rest {
-  margin: 0;
+.ov-md blockquote {
+  padding-left: 10px;
+  border-left: 2px solid var(--rule-2);
+  color: var(--fg-2);
+}
+
+.ov-md hr {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: 10px 0;
+}
+
+.ov-md a {
+  color: var(--signal);
+  text-underline-offset: 2px;
+}
+
+.ov-md :not(pre) > code {
+  font: 0.88em/1 var(--mono);
+  padding: 1px 4px;
+  border-radius: var(--r-1);
+  background: var(--code-bg);
+  border: 1px solid var(--rule);
+}
+
+.ov-say {
   font-size: 15px;
+  line-height: 1.6;
+  color: var(--fg);
+  letter-spacing: -0.003em;
+}
+
+.ov-say ul {
+  padding-left: 0;
+  list-style: none;
+}
+
+.ov-say li {
+  position: relative;
+  padding-left: 16px;
+}
+
+.ov-say li + li {
+  margin-top: 6px;
+}
+
+/* the bullet: a small round mark in the accent, centred on the first line */
+.ov-say li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0.68em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--signal);
+}
+
+.ov-rest {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--fg-2);
 }
 
 .ov-source {
-  margin: 6px 0 0;
+  margin: 10px 0 0;
   color: var(--fg-3);
+  font-size: 11.5px;
+}
+
+/* each new block fades in once, as it is added */
+.ov-md > *,
+.ov-md li {
+  animation: ov-in 180ms ease-out;
+}
+
+@keyframes ov-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Code: a header with the language and Copy, then the code, scrolled sideways */
+.ov-code {
+  margin: 0 0 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--code-bg);
+  overflow: hidden;
+}
+
+.ov-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 26px;
+  padding: 0 4px 0 10px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--fg-3);
+  font: 11px/22px var(--mono);
+}
+
+.ov-code pre {
+  margin: 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  font: 12px/1.55 var(--mono);
+  color: var(--fg);
+  tab-size: 2;
+}
+
+.ov-code code {
+  font: inherit;
+  white-space: pre;
+}
+
+.ov-copy {
+  font: inherit;
+  font-size: 11.5px;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--fg-3);
+  cursor: pointer;
+}
+
+.ov-copy:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.ov-code .ov-copy {
+  font-family: var(--sans);
+}
+
+/* highlight.js on the syntax tokens, as the app's styles/index.css */
+.hljs-comment,
+.hljs-quote {
+  color: var(--fg-3);
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-doctag,
+.hljs-literal {
+  color: var(--syn-kw);
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-template-tag {
+  color: var(--syn-str);
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--syn-num);
+}
+.hljs-title.class_,
+.hljs-type,
+.hljs-built_in {
+  color: var(--syn-type);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-property,
+.hljs-params {
+  color: var(--fg-2);
+}
+.hljs-deletion {
+  color: var(--fault);
+}
+
+/* Tables: hairlines, numbers right-aligned by the eye, scrolled sideways when wide */
+.ov-table {
+  margin: 0 0 8px;
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+}
+
+.ov-table table {
+  width: 100%;
+  border-collapse: collapse;
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-table th,
+.ov-table td {
+  padding: 5px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ov-table th {
+  color: var(--fg);
+  font-weight: 600;
+  background: var(--code-bg);
+  border-bottom: 1px solid var(--rule);
+}
+
+.ov-table tbody tr + tr td {
+  border-top: 1px solid var(--rule);
+}
+
+/* Charts (chart.ts) and diagrams (mermaid.ts) */
+.ov-chart,
+.ov-diagram {
+  margin: 0 0 8px;
+  padding: 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--code-bg);
+}
+
+.ov-chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.ov-diagram {
+  overflow-x: auto;
+  text-align: center;
+}
+
+.ov-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.ov-grid {
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+
+.ov-tick {
+  fill: var(--fg-3);
+  font: 10px var(--sans);
+}
+
+.ov-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+rect.ov-s0,
+circle.ov-s0 {
+  fill: var(--s0);
+}
+rect.ov-s1,
+circle.ov-s1 {
+  fill: var(--s1);
+}
+rect.ov-s2,
+circle.ov-s2 {
+  fill: var(--s2);
+}
+rect.ov-s3,
+circle.ov-s3 {
+  fill: var(--s3);
+}
+.ov-line.ov-s0 {
+  stroke: var(--s0);
+}
+.ov-line.ov-s1 {
+  stroke: var(--s1);
+}
+.ov-line.ov-s2 {
+  stroke: var(--s2);
+}
+.ov-line.ov-s3 {
+  stroke: var(--s3);
+}
+
+/* Answer history: previous, "n of m", next */
+.ov-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11.5px;
+}
+
+.ov-step {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+
+.ov-step:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+
+.ov-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ov-step svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Compact bar: the last line said and Answer now */
+.ov-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ov-bar .ov-transcript {
+  flex: 1;
+  min-width: 0;
+}
+
+.ov-bar .ov-transcript li {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ov-transcript {
@@ -281,30 +660,6 @@ body {
 
 .ov-who {
   color: var(--fg-3);
-}
-
-.ov-prevs {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid var(--rule);
-}
-
-.ov-prev {
-  border-bottom: 1px solid var(--rule);
-  padding: 4px 0;
-}
-
-.ov-prev-head {
-  all: unset;
-  display: block;
-  width: 100%;
-  cursor: pointer;
-  color: var(--fg-2);
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .ov-brief {
@@ -374,7 +729,8 @@ body {
 .ov-link:focus-visible,
 .ov-choice:focus-visible,
 .ov-input:focus-visible,
-.ov-prev-head:focus-visible {
+.ov-copy:focus-visible,
+.ov-step:focus-visible {
   outline: 2px solid var(--signal);
   outline-offset: 1px;
 }
