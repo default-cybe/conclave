@@ -266,7 +266,8 @@ export class MeetingStore {
   listView(accountId: string, view: MeetingView, opts: { now?: number; limit?: number; before?: number } = {}): Meeting[] {
     const now = opts.now ?? Date.now();
     const limit = Math.max(1, Math.min(200, Math.floor(opts.limit ?? 50)));
-    const notHeld = `(status IN ('scheduled', 'ready') AND audio_client_id IS NULL AND scheduled_at IS NOT NULL AND scheduled_at < $held)`;
+    // 3 h after it should have ended (start + duration), as web time.ts staleAt and the meeting.stale job
+    const notHeld = `(status IN ('scheduled', 'ready') AND audio_client_id IS NULL AND scheduled_at IS NOT NULL AND scheduled_at + COALESCE(duration_min, 0) * 60000 < $held)`;
     const p = { acct: accountId, held: now - NOT_HELD_MS, soon: now + NOW_WINDOW_MS, limit, before: opts.before ?? Number.MAX_SAFE_INTEGER };
     const key = 'COALESCE(started_at, scheduled_at, created_at)';
     let sql: string;

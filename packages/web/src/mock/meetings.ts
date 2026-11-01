@@ -547,7 +547,7 @@ export function registerMeetings(ctx: MockCtx) {
 
   function schedFields(b: CreateMeetingInput | MeetingPatch): Partial<Meeting> {
     const out: Partial<Meeting> = {};
-    for (const k of ['scheduledAt', 'durationMin', 'tz', 'steering', 'steeringPreset', 'answerLength', 'calendarEventId', 'calendarId', 'reminders', 'autoPrep'] as const) if (b[k] !== undefined) (out as Record<string, unknown>)[k] = b[k];
+    for (const k of ['scheduledAt', 'durationMin', 'tz', 'steering', 'steeringPreset', 'answerLength', 'calendarEventId', 'calendarId', 'reminders', 'autoPrep'] as const) if (b[k] !== undefined) (out as Record<string, unknown>)[k] = b[k] === null || b[k] === '' ? undefined : b[k];
     return out;
   }
 

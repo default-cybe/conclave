@@ -39,7 +39,7 @@ object Meetings {
                 m.status == "ended" || m.status == "failed" -> past += m
                 m.status in RUNNING -> nowList += m
                 m.status == "scheduled" || m.status == "ready" -> when {
-                    at != null && now - at > NOT_HELD_AFTER -> past += m
+                    at != null && now > staleAt(m, at) -> past += m
                     m.status == "ready" && (at == null || at - now <= NOW_WINDOW) -> nowList += m
                     else -> upcoming += m
                 }
@@ -56,11 +56,13 @@ object Meetings {
     /** Past is newest first by this, and pages with ?before= of the last one. */
     fun pastKey(m: Meeting): Long = m.startedAt ?: m.scheduledAt ?: m.createdAt
 
-    /** Scheduled or ready, never started, more than 3 hours past its start. */
+    /** Scheduled or ready, never started, more than 3 hours past its end (start + duration), as the web and the hub. */
     fun notHeld(m: Meeting, now: Long): Boolean {
         val at = m.scheduledAt ?: return false
-        return (m.status == "scheduled" || m.status == "ready") && m.startedAt == null && now - at > NOT_HELD_AFTER
+        return (m.status == "scheduled" || m.status == "ready") && m.startedAt == null && now > staleAt(m, at)
     }
+
+    private fun staleAt(m: Meeting, at: Long): Long = at + (m.durationMin ?: 0) * MIN + NOT_HELD_AFTER
 
     /**
      * The time slot of 11.2 for [ms] until the start (negative once it has

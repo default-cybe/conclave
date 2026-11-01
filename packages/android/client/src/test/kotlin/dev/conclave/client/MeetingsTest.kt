@@ -40,8 +40,8 @@ class MeetingsTest {
     }
 
     private fun client() = ConclaveClient(server.url("/").toString(), "t")
-    private fun m(id: String, status: String, at: Long? = null, started: Long? = null, created: Long = 1) =
-        Meeting(id = id, status = status, scheduledAt = at, startedAt = started, createdAt = created, cwd = "/home/me/capstone", device = "dev_mac")
+    private fun m(id: String, status: String, at: Long? = null, started: Long? = null, created: Long = 1, duration: Int? = null) =
+        Meeting(id = id, status = status, scheduledAt = at, startedAt = started, createdAt = created, cwd = "/home/me/capstone", device = "dev_mac", durationMin = duration)
 
     @Test
     fun sectionsFollowTheRulesOf11_2() {
@@ -55,13 +55,15 @@ class MeetingsTest {
             m("next", "scheduled", at = now + day),
             m("late", "scheduled", at = now - 2 * hour),
             m("notHeld", "scheduled", at = now - 4 * hour),
+            // a 2 h meeting is not "not held" until 3 h after its end, as on the web
+            m("longLate", "scheduled", at = now - 4 * hour, duration = 120),
             m("ended", "ended", started = now - day),
             m("failed", "failed", created = now - 3 * day),
             m("newer", "someday"),
         )
         val s = Meetings.sections(list, now)
         assertEquals(setOf("live", "soon", "ready0451", "newer"), s.now.map { it.id }.toSet())
-        assertEquals(listOf("late", "armedLater", "next", "later"), s.upcoming.map { it.id })
+        assertEquals(listOf("longLate", "late", "armedLater", "next", "later"), s.upcoming.map { it.id })
         assertEquals(listOf("notHeld", "ended", "failed"), s.past.map { it.id })
         assertTrue(Meetings.notHeld(list[7], now))
         assertEquals("Not held" to StateTone.DIM, Meetings.statusWord(list[7], now))

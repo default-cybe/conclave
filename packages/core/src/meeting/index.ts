@@ -16,10 +16,10 @@ import { streamCompletion } from '../session/stream';
 import { defuseFrameworkTags } from '../session/untrusted';
 import type { Session } from '../types';
 import { logger } from '../util/log';
-import { Answerer, steeringBlock, warmUp } from './answer';
+import { Answerer, warmUp } from './answer';
 import { BRIEF_PROMPT, buildContextPack, type PackSession } from './context';
 import { buildPrep } from './prep';
-import { MeetingStore, canMove, type MeetingView, type StoredSegment } from './store';
+import { MeetingStore, NOW_WINDOW_MS, canMove, type MeetingView, type StoredSegment } from './store';
 import { isQuestion, similarity } from './trigger';
 import { wrapUp } from './wrapup';
 import {
@@ -259,14 +259,20 @@ export class MeetingService {
     return (m.projectId ? projectsOf(this.engine)?.get(m.projectId)?.name : undefined) ?? m.cwd.split(/[\\/]/).filter(Boolean).pop() ?? m.cwd;
   }
 
-  private async remind(id: string, minutes: number): Promise<void> {
+  private async remind(id: string, minutes: number, now = Date.now()): Promise<void> {
     const m = this.store.get(id);
-    if (!m || (m.status !== 'scheduled' && m.status !== 'ready')) return;
+    if (!m || !m.scheduledAt || (m.status !== 'scheduled' && m.status !== 'ready')) return;
+    const start = m.scheduledAt;
+    // run late (the hub was down): nothing once it started, and only the newest of reminders that are all due
+    if (now >= start) return;
+    if ((m.reminders ?? []).some((r) => r < minutes && start - r * MIN <= now)) return;
     // no notices while another meeting of the account is live (7.6)
     const live = this.store.running(m.accountId);
     if (live && live.id !== id) return;
     const prepared = m.prepState === 'done' || !!this.store.prepInUse(id);
-    const when = minutes >= 1440 ? 'tomorrow' : minutes >= 60 ? `in ${Math.round(minutes / 60)} h` : `in ${minutes} min`;
+    // from the time actually left, so a late reminder never says "in 15 min" when it is 4
+    const left = Math.max(1, Math.round((start - now) / MIN));
+    const when = minutes >= 1440 && left >= 1380 ? 'tomorrow' : left >= 60 ? `in ${Math.round(left / 60)} h` : `in ${left} min`;
     let moved = '';
     if (minutes >= 1440 && m.calendarEventId) {
       const at = await this.calendarStart(m).catch(() => undefined);
@@ -279,7 +285,8 @@ export class MeetingService {
       link: `/meetings/${id}`,
       sessionId: m.sessionId,
       accountId: m.accountId,
-    });
+      // forced: it reaches the phone even while a Conclave window is in use (11.5, alert: true)
+    }, { force: true });
   }
 
   /** The linked calendar event's start now, or undefined when it cannot be read. */
@@ -302,10 +309,12 @@ export class MeetingService {
     if (m?.status === 'scheduled') this.armNow(m);
   }
 
-  private due(id: string): void {
+  private due(id: string, now = Date.now()): void {
     const m = this.store.get(id);
     if (!m || (m.status !== 'scheduled' && m.status !== 'ready' && m.status !== 'preparing')) return;
-    void this.engine.notifier.send({ title: `${m.title} starts now`, body: `${this.folderName(m)}`, level: 'info', link: `/meetings/${id}?open=1`, sessionId: m.sessionId, accountId: m.accountId }).catch(() => {});
+    // run late (the hub was down): "starts now" only within the Now window
+    if (m.scheduledAt && now > m.scheduledAt + NOW_WINDOW_MS) return;
+    void this.engine.notifier.send({ title: `${m.title} starts now`, body: `${this.folderName(m)}`, level: 'info', link: `/meetings/${id}?open=1`, sessionId: m.sessionId, accountId: m.accountId }, { force: true }).catch(() => {});
     this.engine.bus.emit({ type: 'meeting.due', sessionId: m.sessionId, meetingId: m.id });
   }
 
@@ -399,6 +408,7 @@ export class MeetingService {
     this.store.setPrepEdited(id, markdown, Date.now());
     const m = this.store.get(id)!;
     this.emit(m);
+    this.refreshPack(id);
     return this.prepView(id, accountId);
   }
 
@@ -407,6 +417,7 @@ export class MeetingService {
     this.get(id, accountId);
     this.store.setPrepEdited(id, null, Date.now());
     this.emit(this.store.get(id)!);
+    this.refreshPack(id);
   }
 
   /** PUT /:id/prep/extra: the ticked claude.ai and ChatGPT chats; each must be the account's chat. */
@@ -447,7 +458,7 @@ export class MeetingService {
         signal: ctl.signal,
         machine: this.engine.devices.isOnline(m.device) ? this.engine.machineFor(session) : undefined,
         deviceName,
-        steering: m.steering ? steeringBlock(m) : undefined,
+        steering: m.steering,
         memory: () => this.memoryBlock(m, session, 20),
         price: (model) => {
           const info = this.engine.providersFor(m.accountId).resolve(model).info;
@@ -470,6 +481,7 @@ export class MeetingService {
       if (this.store.get(id)?.prepState === 'cancelled') return;
       this.store.setPrepDraft(id, res.draft, res.sources, Date.now());
       this.setPrep(id, { prepProgress: undefined });
+      this.refreshPack(id);
     } catch (e) {
       const msg = (e as Error).message;
       if (ctl.signal.aborted || msg === 'cancelled') this.setPrep(id, { prepState: 'cancelled', prepProgress: undefined });
@@ -604,6 +616,43 @@ export class MeetingService {
     }
   }
 
+  private async buildPack(m: Meeting, session: Session, prep: string | undefined): Promise<string> {
+    return buildContextPack({
+      machine: this.engine.machineFor(session),
+      cwd: m.cwd,
+      config: this.engine.config.get(),
+      ownerName: this.ownerNames(m.accountId)[0],
+      title: m.title,
+      agenda: m.agenda,
+      sessions: this.packSessions(m),
+      tasks: this.engine.repos.tasks.list({ accountId: m.accountId }).filter((t) => t.status !== 'done' && (m.projectId ? t.project === m.projectId : !t.project)),
+      memory: await this.memoryBlock(m, session),
+      lastMeeting: this.store.previousNotes(m),
+      ...(prep ? { prep } : {}),
+    });
+  }
+
+  /**
+   * The prep changed after arm (an edit, a revert, a new draft): build the
+   * pack again while nothing listens yet, so the meeting uses what the page
+   * shows (11.4.5). Once live the pack stays as it started.
+   */
+  private refreshPack(id: string): void {
+    const m = this.store.get(id);
+    if (m?.status !== 'ready' || m.audioClientId) return;
+    const session = this.engine.repos.sessions.get(m.sessionId);
+    if (!session) return;
+    this.track(
+      (async () => {
+        const pack = await this.buildPack(m, session, this.store.prepInUse(id));
+        const cur = this.store.get(id);
+        if (cur?.status !== 'ready' || cur.audioClientId) return;
+        this.store.setContext(id, pack);
+        this.track(warmUp(this.engine, this.fast(m.accountId), cur, pack));
+      })(),
+    );
+  }
+
   /** Build the pack, stream the brief, then ready and warm-up (1.2, 4.2). */
   private async prepare(m: Meeting): Promise<void> {
     const session = this.engine.repos.sessions.get(m.sessionId);
@@ -612,20 +661,7 @@ export class MeetingService {
     const prep = this.store.prepInUse(m.id);
     let pack: string;
     try {
-      const machine = this.engine.machineFor(session);
-      pack = await buildContextPack({
-        machine,
-        cwd: m.cwd,
-        config: this.engine.config.get(),
-        ownerName: this.ownerNames(m.accountId)[0],
-        title: m.title,
-        agenda: m.agenda,
-        sessions: this.packSessions(m),
-        tasks: this.engine.repos.tasks.list({ accountId: m.accountId }).filter((t) => t.status !== 'done' && (m.projectId ? t.project === m.projectId : !t.project)),
-        memory: await this.memoryBlock(m, session),
-        lastMeeting: this.store.previousNotes(m),
-        ...(prep ? { prep } : {}),
-      });
+      pack = await this.buildPack(m, session, prep);
     } catch (e) {
       const f = this.store.move(m.id, 'failed', { error: `Could not read the project: ${(e as Error).message}` });
       if (f) this.emit(f);

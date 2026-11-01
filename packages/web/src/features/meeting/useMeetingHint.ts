@@ -17,15 +17,15 @@ const subs = new Set<() => void>();
 const ping = () => subs.forEach((f) => f());
 
 function start() {
-  void meetings()
-    .list()
-    .then(
-      (l) => {
-        list = l;
-        ping();
-      },
-      () => undefined,
-    );
+  // the view routes: a meeting scheduled long ago is not among the 50 newest created
+  const api = meetings();
+  void Promise.all([api.view('now', { limit: 200 }), api.view('upcoming', { limit: 50 })]).then(
+    ([now, up]) => {
+      list = [...now, ...up];
+      ping();
+    },
+    () => undefined,
+  );
   off = onHubEvent((e) => {
     if (e.type === 'meeting.updated') {
       const m = (e as unknown as { meeting: Meeting }).meeting;

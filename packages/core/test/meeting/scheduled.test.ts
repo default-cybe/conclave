@@ -76,7 +76,7 @@ describe('scheduled meetings', () => {
     const m = await svc.create({ cwd: t!.cwd, title: 'Capstone defence', scheduledAt: Date.now() + 2 * 24 * HOUR }, 'owner');
     const notices: Array<{ title: string; body: string; accountId?: string }> = [];
     engine.bus.on((e: any) => e.type === 'notice' && notices.push(e.notice));
-    await (svc as any).remind(m.id, 15);
+    await (svc as any).remind(m.id, 15, m.scheduledAt! - 15 * 60_000);
     expect(notices[0]).toMatchObject({ title: 'Capstone defence in 15 min', accountId: 'owner' });
     expect(notices[0].body).toContain('Not prepared');
     svc.editPrep(m.id, '## Summary\nMy prep', 'owner');
@@ -139,6 +139,84 @@ describe('scheduled meetings', () => {
     svc.revertPrep(m.id, 'owner');
     expect(svc.store.prepInUse(m.id)).toContain('Draft 3');
     expect(() => svc.editPrep(m.id, 'x'.repeat(60_001), 'owner')).toThrow(/60,000/);
+  });
+
+  test('reminders and "starts now" reach the phone while a window is in use, and are skipped when they run late', async () => {
+    const { svc, engine } = await boot();
+    const at = Date.now() + 2 * 24 * HOUR;
+    const m = await svc.create({ cwd: t!.cwd, title: 'Defence', scheduledAt: at, reminders: [1440, 15] }, 'owner');
+    const notices: Array<{ title: string; alert?: boolean }> = [];
+    engine.bus.on((e: any) => e.type === 'notice' && notices.push(e.notice));
+    (engine.notifier as any).touch('web_1', 'owner');
+    await (svc as any).remind(m.id, 15, at - 15 * 60_000);
+    (svc as any).due(m.id, at + 60_000);
+    expect(notices.map((n) => [n.title, n.alert])).toEqual([
+      ['Defence in 15 min', true],
+      ['Defence starts now', true],
+    ]);
+    notices.length = 0;
+    // the hub was down: the day-before reminder runs after the 15-min one is due too; after the start nothing
+    await (svc as any).remind(m.id, 1440, at - 10 * 60_000);
+    await (svc as any).remind(m.id, 15, at + 60_000);
+    (svc as any).due(m.id, at + 2 * HOUR);
+    expect(notices).toEqual([]);
+    // a late 15-min reminder says the time actually left
+    await (svc as any).remind(m.id, 15, at - 4 * 60_000);
+    expect(notices[0]!.title).toBe('Defence in 4 min');
+  });
+
+  test('an edit after arm reaches the pack the meeting uses', async () => {
+    const { svc } = await boot();
+    const m = await svc.create({ cwd: t!.cwd, title: 'Defence', scheduledAt: Date.now() + 2 * 24 * HOUR }, 'owner');
+    svc.editPrep(m.id, '## Summary\nFirst prep', 'owner');
+    svc.arm(m.id, 'owner');
+    await svc.settled();
+    expect(svc.store.context(m.id)).toContain('First prep');
+    svc.editPrep(m.id, '## Summary\nEdited at minus five', 'owner');
+    await svc.settled();
+    expect(svc.store.context(m.id)).toContain('Edited at minus five');
+    expect(svc.store.context(m.id)).not.toContain('First prep');
+  });
+
+  test('the prep gets the raw steering with prep framing, not the live length line; an offline device is named offline', async () => {
+    const { svc, engine } = await boot();
+    await chat(engine, t!.cwd, 'Baseline run');
+    const m = await svc.create({ cwd: t!.cwd, title: 'Defence', scheduledAt: Date.now() + 2 * 24 * HOUR, steering: 'Stress methodology' }, 'owner');
+    const online = engine.devices.isOnline.bind(engine.devices);
+    (engine.devices as any).isOnline = () => false;
+    try {
+      await runPrep(svc, m.id);
+    } finally {
+      (engine.devices as any).isOnline = online;
+    }
+    const req = JSON.stringify(prepRequests().at(-1));
+    expect(req).toContain('Stress methodology');
+    expect(req).not.toContain('1 to 4 bullets');
+    expect(req).toContain('was offline: no code or git');
+    expect(req).not.toContain("is not this account's device");
+  });
+
+  test('a reply edited after its digest gets a new digest', async () => {
+    const { svc, engine } = await boot();
+    const s = await chat(engine, t!.cwd, 'Baseline run');
+    const reply = engine.addMessage(s.id, { role: 'assistant', kind: 'normal', content: [{ type: 'text', text: 'Partial' }] });
+    const m = await svc.create({ cwd: t!.cwd, title: 'Defence', scheduledAt: Date.now() + 2 * 24 * HOUR }, 'owner');
+    await runPrep(svc, m.id);
+    const maps = mapRequests().length;
+    // the reply finished streaming after the digest: same seq, new text
+    engine.updateMessage(reply.id, { content: [{ type: 'text', text: 'Partial, then F1 0.89 on the full set' }] });
+    await runPrep(svc, m.id);
+    expect(mapRequests().length).toBe(maps + 1);
+    expect(JSON.stringify(mapRequests().at(-1))).toContain('F1 0.89');
+  });
+
+  test('Not held counts from the end of the meeting, as on the web and Android', async () => {
+    const { svc } = await boot();
+    const m = await svc.create({ cwd: t!.cwd, title: 'Long one', scheduledAt: Date.now() + 2 * 24 * HOUR, durationMin: 120 }, 'owner');
+    const at = m.scheduledAt!;
+    const ids = (now: number) => svc.store.listView('owner', 'past', { now }).map((x) => x.id);
+    expect(ids(at + 4 * HOUR)).toEqual([]);
+    expect(ids(at + 5 * HOUR + 60_000)).toEqual([m.id]);
   });
 
   test('the cached prefix is unchanged when only the steering changes', () => {

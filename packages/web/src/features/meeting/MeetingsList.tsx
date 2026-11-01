@@ -18,17 +18,31 @@ import type { Meeting } from '@/overlay/wire';
 import { meetings } from './api';
 import { MeetingForm, useOwnerZone, type FormMode } from './MeetingForm';
 import { STATUS_WORD } from './MeetingPage';
-import { countdown, notHeld, prepWord, sections, tickFor, when, yourTime } from './time';
+import { countdown, notHeld, pastKey, prepWord, sections, tickFor, when, yourTime } from './time';
 
 const PAST_PAGE = 20;
 
+/** Every Now and Upcoming meeting, and Past one page at a time (the view routes of 11.6, not the 50 newest created). */
 function useMeetings() {
   const [list, setList] = useState<Meeting[]>();
   const [error, setError] = useState<string>();
-  useEffect(() => {
+  const [morePast, setMorePast] = useState(false);
+  const merge = (more: Meeting[]) => setList((l) => [...(l ?? []), ...more.filter((m) => !l?.some((x) => x.id === m.id))]);
+  const older = (before?: number) =>
     meetings()
-      .list()
-      .then(setList, (e: Error) => setError(e.message));
+      .view('past', { limit: PAST_PAGE, before })
+      .then((p) => {
+        merge(p);
+        setMorePast(p.length === PAST_PAGE);
+      });
+  useEffect(() => {
+    const api = meetings();
+    Promise.all([api.view('now', { limit: 200 }), api.view('upcoming', { limit: 200 }), api.view('past', { limit: PAST_PAGE })])
+      .then(([now, up, past]) => {
+        merge([...now, ...up, ...past]);
+        setMorePast(past.length === PAST_PAGE);
+      })
+      .catch((e: Error) => setError(e.message));
     return onHubEvent((e) => {
       if (e.type === 'meeting.updated') {
         const m = (e as unknown as { meeting: Meeting }).meeting;
@@ -36,7 +50,7 @@ function useMeetings() {
       } else if (e.type === 'session.deleted') setList((l) => l?.filter((x) => x.sessionId !== e.sessionId));
     });
   }, []);
-  return { list, error, setList };
+  return { list, error, morePast, older };
 }
 
 export function MeetingsList({ form }: { form?: 'new' | 'start' }) {
@@ -44,8 +58,8 @@ export function MeetingsList({ form }: { form?: 'new' | 'start' }) {
   const zone = useOwnerZone();
   const [, go] = useLocation();
   const search = useSearch();
-  const { list, error } = useMeetings();
-  const [pastShown, setPastShown] = useState(PAST_PAGE);
+  const { list, error, morePast, older } = useMeetings();
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const soonest = list?.filter((m) => m.status === 'scheduled' || m.status === 'ready').map((m) => m.scheduledAt ?? Infinity).sort((a, b) => a - b)[0];
   const now = useNow(tickFor(soonest, Date.now()));
   usePageHeader(form === 'new' ? 'Schedule a meeting' : form === 'start' ? 'Start a meeting now' : 'Meetings', form ? '/meetings' : undefined);
@@ -109,10 +123,18 @@ export function MeetingsList({ form }: { form?: 'new' | 'start' }) {
           </Section>
           {s.past.length > 0 && (
             <Section title="Past" count={s.past.length}>
-              {s.past.slice(0, pastShown).map(row)}
-              {s.past.length > pastShown && (
+              {s.past.map(row)}
+              {morePast && (
                 <div className="py-2">
-                  <Button variant="quiet" size="sm" onClick={() => setPastShown((n) => n + PAST_PAGE)}>
+                  <Button
+                    variant="quiet"
+                    size={phone ? 'touch' : 'sm'}
+                    disabled={loadingOlder}
+                    onClick={() => {
+                      setLoadingOlder(true);
+                      void older(pastKey(s.past.at(-1)!)).finally(() => setLoadingOlder(false));
+                    }}
+                  >
                     Show older
                   </Button>
                 </div>

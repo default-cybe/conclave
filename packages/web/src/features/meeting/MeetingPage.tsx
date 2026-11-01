@@ -9,7 +9,7 @@
  */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link, useLocation, useParams, useSearch } from 'wouter';
-import { Button } from '@/components/ui/Button';
+import { Button, ButtonLink } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/Overlay';
 import { EmptyState, LoadingRows } from '@/components/ui/EmptyState';
 import { StateWord, type StateTone } from '@/components/ui/List';
@@ -19,10 +19,10 @@ import { Markdown } from '@/features/chat/Markdown';
 import { folderName, hhmm } from '@/lib/format';
 import { useIsMobile, useNow } from '@/lib/hooks';
 import { isDesktopApp } from '@/lib/notify';
-import { onHubEvent, toast } from '@/store/store';
+import { onHubEvent, toast, useHub } from '@/store/store';
 import { frameBuffer } from '@/overlay/frame';
 import { applyEvent, emptyView, loadDetail, parseAnswer, type MeetingView } from '@/overlay/model';
-import { CONSENT_NOTE, type MeetingEvent, type MeetingStatus } from '@/overlay/wire';
+import { CONSENT_NOTE, type Meeting, type MeetingEvent, type MeetingStatus } from '@/overlay/wire';
 import { meetings, openOverlay } from './api';
 import { Notes } from './NotesPage';
 import { MeetingsList } from './MeetingsList';
@@ -95,6 +95,33 @@ function useMeeting(id: string) {
   return { view, error };
 }
 
+const DAY = 24 * 60 * 60_000;
+
+/** 11.3.2: the linked event's start when it moved from the meeting's, read when the page opens. */
+function useMovedEvent(m: Meeting | undefined): number | undefined {
+  const [at, setAt] = useState<number>();
+  const id = m?.calendarEventId;
+  const start = m?.status === 'scheduled' ? m.scheduledAt : undefined;
+  useEffect(() => {
+    setAt(undefined);
+    if (!id || !start) return;
+    let live = true;
+    void meetings()
+      .calendar(start - 7 * DAY, start + 7 * DAY)
+      .then(
+        (r) => {
+          const e = r.events.find((x) => x.id === id);
+          if (live && e && e.start !== start && e.start > Date.now()) setAt(e.start);
+        },
+        () => undefined,
+      );
+    return () => {
+      live = false;
+    };
+  }, [id, start]);
+  return at;
+}
+
 function MeetingDetail({ id }: { id: string }) {
   const phone = useIsMobile();
   const { view, error } = useMeeting(id);
@@ -104,6 +131,10 @@ function MeetingDetail({ id }: { id: string }) {
   const [confirm, setConfirm] = useState<'end' | 'delete'>();
   const [copied, setCopied] = useState(false);
   const [edit, setEdit] = useState(false);
+  const [keep, setKeep] = useState<number>();
+  const moved = useMovedEvent(view.meeting);
+  const online = useHub((s) => (view.meeting ? s.devices[view.meeting.device]?.online : undefined));
+  const deviceName = useHub((s) => (view.meeting ? s.devices[view.meeting.device]?.name : undefined));
   const zone = useOwnerZone();
   const now = useNow(tickFor(m?.scheduledAt, Date.now()));
   // ?open=1: the "starts now" notice's link (11.5); the overlay opens only on this tap
@@ -123,22 +154,24 @@ function MeetingDetail({ id }: { id: string }) {
       </Page>
     );
 
-  const [word, tone] = STATUS_WORD[m.status];
+  const held = notHeld(m, now);
+  const [word, tone]: [string, StateTone] = held ? ['Not held', 'dim'] : STATUS_WORD[m.status];
   const running = m.status === 'live' || m.status === 'paused';
   const desktop = isDesktopApp();
   const fail = (e: unknown) => toast({ title: e instanceof Error ? e.message : String(e), level: 'error' });
   // a meeting not started yet: the prep view (11.5)
   const ahead = !m.startedAt && (m.status === 'scheduled' || m.status === 'ready' || m.status === 'preparing') && !notHeld(m, now);
+  const size = phone ? 'touch' : 'sm';
   const actions = (
     <>
-      {ahead && m.status === 'scheduled' && (
-        <Button variant="outline" size="sm" onClick={() => setEdit(true)}>
-          Edit
+      {(m.status === 'scheduled' || held) && !m.startedAt && (
+        <Button variant={held ? 'solid' : 'outline'} size={size} onClick={() => setEdit(true)}>
+          {held ? 'Reschedule' : 'Edit meeting'}
         </Button>
       )}
       <Button
         variant="quiet"
-        size="sm"
+        size={size}
         onClick={() =>
           void navigator.clipboard?.writeText(CONSENT_NOTE).then(
             () => setCopied(true),
@@ -149,17 +182,17 @@ function MeetingDetail({ id }: { id: string }) {
         {copied ? 'Copied' : 'Copy consent note'}
       </Button>
       {desktop && !ahead && m.status !== 'ended' && m.status !== 'failed' && (
-        <Button variant="outline" size="sm" onClick={() => void openOverlay(m.id).catch(fail)}>
+        <Button variant="outline" size={size} onClick={() => void openOverlay(m.id).catch(fail)}>
           Open overlay
         </Button>
       )}
       {running && (
-        <Button variant="outline" size="sm" onClick={() => setConfirm('end')}>
+        <Button variant="outline" size={size} onClick={() => setConfirm('end')}>
           End meeting
         </Button>
       )}
       {!running && m.status !== 'ending' && (
-        <Button variant="quiet" size="sm" onClick={() => setConfirm('delete')}>
+        <Button variant="quiet" size={size} onClick={() => setConfirm('delete')}>
           Delete
         </Button>
       )}
@@ -196,13 +229,37 @@ function MeetingDetail({ id }: { id: string }) {
       {due && !m.startedAt && m.status !== 'ended' && m.status !== 'failed' && (
         <div className="mb-6 flex flex-wrap items-center gap-3">
           <p className="m-0 text-[14px] text-fg phone:text-[15px]">{m.title} starts now</p>
-          <Button variant="solid" size="sm" onClick={() => void startMeeting(m).then(() => go(`/meetings/${m.id}`, { replace: true }), fail)}>
-            Open overlay
-          </Button>
-          <Button variant="quiet" size="sm" onClick={() => go(`/meetings/${m.id}`, { replace: true })}>
+          {desktop ? (
+            <Button variant="solid" size={size} onClick={() => void startMeeting(m).then(() => go(`/meetings/${m.id}`, { replace: true }), fail)}>
+              Open overlay
+            </Button>
+          ) : (
+            <ButtonLink variant="solid" size={size} href={`conclave://meeting/${encodeURIComponent(m.id)}`} target="_self">
+              Open on desktop
+            </ButtonLink>
+          )}
+          <Button variant="quiet" size={size} onClick={() => go(`/meetings/${m.id}`, { replace: true })}>
             Not now
           </Button>
         </div>
+      )}
+      {moved && keep !== moved && m.status === 'scheduled' && (
+        <div className="mb-6 flex flex-wrap items-center gap-3 rounded-[var(--r-2)] border border-rule bg-sunk px-4 py-3" role="status">
+          <p className="m-0 text-[14px] text-fg phone:text-[15px]">
+            The calendar event moved to <span className="num">{when(moved, undefined, zone)}</span>. Move this meeting too?
+          </p>
+          <Button variant="solid" size={size} onClick={() => void meetings().patch(m.id, { scheduledAt: moved }).then(() => setKeep(moved), fail)}>
+            Move
+          </Button>
+          <Button variant="quiet" size={size} onClick={() => setKeep(moved)}>
+            Keep
+          </Button>
+        </div>
+      )}
+      {ahead && online === false && (
+        <p className="mb-6 text-[13px] text-warn phone:text-[14px]">
+          {deviceName ?? m.device} is offline. Prep reads your chats now, and the code and git history only once it is online.
+        </p>
       )}
       {ahead && <PrepPanel meeting={m} zone={zone} now={now} />}
       {edit && <MeetingForm mode={{ kind: 'edit', meeting: m }} open onClose={() => setEdit(false)} onSaved={() => setEdit(false)} />}
@@ -258,6 +315,7 @@ function MeetingDetail({ id }: { id: string }) {
             <Markdown text={brief} className="py-2" />
           </Section>
         )}
+        {!ahead && !held && <PrepPanel meeting={m} zone={zone} now={now} ahead={false} />}
       </div>
       <ConfirmDialog
         open={confirm === 'end'}

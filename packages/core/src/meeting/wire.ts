@@ -52,13 +52,16 @@ export interface Meeting {
 /** Scheduling and steering fields shared by create and patch. */
 export interface ScheduleFields {
   scheduledAt?: number;
-  durationMin?: number;
+  /** null clears it (JSON drops undefined) */
+  durationMin?: number | null;
   tz?: string;
+  /** '' clears it */
   steering?: string;
   steeringPreset?: string;
   answerLength?: AnswerLength;
-  calendarEventId?: string;
-  calendarId?: string;
+  /** null unlinks the event */
+  calendarEventId?: string | null;
+  calendarId?: string | null;
   reminders?: number[];
   autoPrep?: boolean;
 }

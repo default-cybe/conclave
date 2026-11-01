@@ -122,7 +122,20 @@ export function Ready({ api, view, desktop }: { api: MeetingApi; view: MeetingVi
       /* no storage: it shows again next time */
     }
   }, []);
-  const brief = m.briefMessageId ? view.text[m.briefMessageId] : undefined;
+  // a scheduled meeting with a prep has no brief message: the prep is its brief (11.4.5)
+  const [prep, setPrep] = useState<string>();
+  useEffect(() => {
+    if (m.briefMessageId || m.status === 'preparing') return;
+    let live = true;
+    api.prep(m.id).then(
+      (p) => live && setPrep(p.edited ?? p.draft),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [api, m.id, m.briefMessageId, m.status, m.prepEditedAt, m.prepAt]);
+  const brief = m.briefMessageId ? view.text[m.briefMessageId] : prep;
   const mac = /Mac OS X|Macintosh/.test(navigator.userAgent);
 
   const start = async () => {

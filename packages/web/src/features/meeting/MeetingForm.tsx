@@ -84,26 +84,27 @@ export function SteeringFields({ value, onChange, rows }: { value: Steering; onC
   const [ask, setAsk] = useState<SteeringPreset>();
   const edited = value.steeringPreset === 'custom' || (!value.steeringPreset && !!value.steering.trim());
   const pick = (p: SteeringPreset) => onChange({ ...value, steering: p.text, steeringPreset: p.id });
+  const presetValue = value.steeringPreset && value.steeringPreset !== 'custom' ? value.steeringPreset : '';
+  const presetOptions = [...presets.map((p) => ({ value: p.id, label: p.label })), ...(edited ? [{ value: '', label: 'Custom' }] : [])];
+  const choose = (id: string) => {
+    const p = presets.find((x) => x.id === id);
+    if (!p) return;
+    if (edited && value.steering.trim()) setAsk(p);
+    else pick(p);
+  };
   return (
     <div className="flex flex-col gap-2">
-      {presets.length > 0 && (
-        <div className="overflow-x-auto">
-          <Segmented
-            label="Steering preset"
-            size={phone ? 'touch' : 'sm'}
-            value={value.steeringPreset && value.steeringPreset !== 'custom' ? value.steeringPreset : ''}
-            options={[...presets.map((p) => ({ value: p.id, label: p.label })), ...(edited ? [{ value: '', label: 'Custom' }] : [])]}
-            onChange={(id) => {
-              const p = presets.find((x) => x.id === id);
-              if (!p) return;
-              if (edited && value.steering.trim()) setAsk(p);
-              else pick(p);
-            }}
-          />
-        </div>
-      )}
+      {presets.length > 0 &&
+        // a phone has no room for every preset in one row: a menu there, so none is cut off
+        (phone ? (
+          <SelectMenu label="Steering preset" value={presetValue} onChange={choose} options={presetOptions} placeholder="Pick a preset" />
+        ) : (
+          <div className="overflow-x-auto">
+            <Segmented label="Steering preset" size="sm" value={presetValue} options={presetOptions} onChange={choose} />
+          </div>
+        ))}
       <Textarea
-        mono
+        prose
         aria-label="How it should answer"
         minRows={rows ?? (phone ? 8 : 6)}
         maxRows={16}
@@ -298,7 +299,7 @@ export function MeetingForm({ mode, open, onClose, onSaved, others = [], prefill
   const [title, setTitle] = useState(m?.title ?? '');
   const [date, setDate] = useState(init.date);
   const [time, setTime] = useState(init.time);
-  const [duration, setDuration] = useState<string>(m?.durationMin ? String(m.durationMin) : '60');
+  const [duration, setDuration] = useState<string>(m?.durationMin ? String(m.durationMin) : '');
   const [folder, setFolder] = useState<{ device: string; cwd: string; online?: boolean; deviceName?: string } | undefined>(m ? { device: m.device, cwd: m.cwd } : prefill);
   const [event, setEvent] = useState<{ id: string; calendarId: string } | undefined>(m?.calendarEventId ? { id: m.calendarEventId, calendarId: m.calendarId ?? '' } : undefined);
   const [agenda, setAgenda] = useState(m?.agenda ?? '');
@@ -332,17 +333,19 @@ export function MeetingForm({ mode, open, onClose, onSaved, others = [], prefill
     setErrors(e);
     if (Object.keys(e).length) return;
     setBusy(true);
-    const steering = { steering: steer.steering.trim() || undefined, steeringPreset: steer.steeringPreset, answerLength: steer.answerLength };
+    // '' and null clear a field on the hub: JSON drops undefined, and the hub would keep the old value
+    const steering = { steering: steer.steering.trim(), steeringPreset: steer.steeringPreset, answerLength: steer.answerLength };
+    const durationMin = Number(duration) || null;
     try {
       if (m) {
-        const sched = m.status === 'scheduled' || (m.status === 'ready' && !m.startedAt) || !m.startedAt ? { scheduledAt: at, durationMin: Number(duration) || undefined, tz: z } : {};
-        const out = await meetings().patch(m.id, { title: title.trim() || undefined, agenda, ...sched, ...steering, calendarEventId: event?.id, calendarId: event?.calendarId, reminders, autoPrep });
+        const sched = m.status === 'scheduled' || (m.status === 'ready' && !m.startedAt) || !m.startedAt ? { scheduledAt: at, durationMin, tz: z } : {};
+        const out = await meetings().patch(m.id, { title: title.trim() || undefined, agenda, ...sched, ...steering, calendarEventId: event?.id ?? null, calendarId: event?.calendarId ?? null, reminders, autoPrep });
         onSaved(out);
       } else if (start) {
         const out = await meetings().create({ device: folder!.device, cwd: folder!.cwd, title: title.trim() || undefined, agenda: agenda || undefined, ...steering });
         onSaved(out, await openOverlay(out.id));
       } else {
-        const out = await meetings().create({ device: folder!.device, cwd: folder!.cwd, title: title.trim() || undefined, agenda: agenda || undefined, scheduledAt: at, durationMin: Number(duration) || undefined, tz: z, ...steering, calendarEventId: event?.id, calendarId: event?.calendarId, reminders, autoPrep });
+        const out = await meetings().create({ device: folder!.device, cwd: folder!.cwd, title: title.trim() || undefined, agenda: agenda || undefined, scheduledAt: at, durationMin: durationMin ?? undefined, tz: z, ...steering, calendarEventId: event?.id, calendarId: event?.calendarId, reminders, autoPrep });
         onSaved(out);
       }
     } catch (err) {
@@ -377,7 +380,7 @@ export function MeetingForm({ mode, open, onClose, onSaved, others = [], prefill
       }}
     >
       <Field label="Title" optional error={errors.title}>
-        <Input value={title} maxLength={TITLE_MAX} onChange={(e) => setTitle(e.target.value)} placeholder="Capstone defence" />
+        <Input value={title} maxLength={TITLE_MAX} onChange={(e) => setTitle(e.target.value)} placeholder="Weekly sync with Dr. Moore" />
       </Field>
       {!start && (
         <Field label="Date and time" error={errors.scheduledAt} help={overlap ? `${zoneLabel(z)}. Overlaps ${overlap.title} ${hm(overlap.scheduledAt!, z)}${overlap.durationMin ? ` to ${hm(overlap.scheduledAt! + overlap.durationMin * MIN, z)}` : ''}.` : zoneLabel(z)}>
@@ -389,7 +392,7 @@ export function MeetingForm({ mode, open, onClose, onSaved, others = [], prefill
               className="w-[120px] phone:col-span-2 phone:w-full"
               value={duration}
               onChange={setDuration}
-              options={DURATIONS.map((d) => ({ value: d, label: d ? `${d} min` : 'No duration', text: d || 'none' }))}
+              options={DURATIONS.map((d) => ({ value: d, label: d ? `${d} min` : 'No duration' }))}
             />
           </div>
         </Field>
@@ -408,7 +411,7 @@ export function MeetingForm({ mode, open, onClose, onSaved, others = [], prefill
         </Field>
       )}
       <Field label="What it's for" optional error={errors.agenda}>
-        <Textarea prose minRows={3} maxRows={10} maxLength={AGENDA_MAX} value={agenda} onChange={(e) => setAgenda(e.target.value)} placeholder="Capstone defence: present all evidence, defend the findings, 10 min talk then questions." />
+        <Textarea prose minRows={3} maxRows={10} maxLength={AGENDA_MAX} value={agenda} onChange={(e) => setAgenda(e.target.value)} placeholder="Present all evidence, defend the findings, 10 min talk then questions." />
       </Field>
       <div className="flex flex-col gap-1.5">
         <span className="text-[12px] font-medium text-fg-2 phone:text-[13px]">How it should answer</span>
@@ -455,7 +458,7 @@ export function MeetingForm({ mode, open, onClose, onSaved, others = [], prefill
       </div>
     );
   return (
-    <Dialog open={open} onClose={onClose} title={heading} width={560} top="6vh" footer={actions}>
+    <Dialog open={open} onClose={onClose} title={heading} width={560} top="6vh" footer={actions} footerRule>
       {fields}
     </Dialog>
   );
