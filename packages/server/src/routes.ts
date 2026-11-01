@@ -1196,6 +1196,12 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     if (body.value !== null && body.value !== undefined && typeof body.value !== 'string') throw badRequest('value must be a string or null');
     const acct = accountOf(c);
     if (isMember(acct)) {
+      // a member's own speech-to-text keys for meetings (core/src/meeting/stt.ts), in their own file
+      if (kind === 'values' && (key === 'stt.assemblyai' || key === 'stt.deepgram')) {
+        engine.accountSecrets.set(acct, 'values', key, (body.value as string | null) ?? undefined);
+        audit(c, 'secret.set', `${kind}.${key}${body.value ? '' : ' (removed)'} (own key)`);
+        return c.json(ok);
+      }
       // a member's own provider keys, in their own secrets file; the hub's secrets are the owner's
       if (kind !== 'providers' || !engine.config.get().providers[key]) throw new HttpError(403, 'You can save keys for the providers on this hub. Ask the owner for anything else.');
       engine.accountSecrets.set(acct, 'providers', key, (body.value as string | null) ?? undefined);

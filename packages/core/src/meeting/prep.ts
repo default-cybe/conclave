@@ -20,7 +20,7 @@ import { streamCompletion } from '../session/stream';
 import { defuseFrameworkTags } from '../session/untrusted';
 import type { ContentBlock, Message, Session, Task } from '../types';
 import { estimateTokens } from '../util/text';
-import { isSecretFile } from './context';
+import { FILES_TOKENS, isSecretFile } from './context';
 import type { MeetingStore } from './store';
 import type { Meeting, MeetingNotes, PrepProgress, PrepSources } from './wire';
 
@@ -220,6 +220,8 @@ export interface PrepInput {
   steering?: string;
   /** Model prices, per million input and output tokens, when known. */
   price?: (model: string) => { input: number; output: number } | undefined;
+  /** Files attached to the meeting: name and extracted text. */
+  files?: Array<{ name: string; text: string }>;
 }
 
 export type PrepResult =
@@ -236,7 +238,8 @@ interface Item {
 
 /** The sessions the prep reads: the folder's, then the ticked extra chats, all the account's. */
 export function prepSessions(engine: Engine, store: MeetingStore, m: Meeting): Session[] {
-  const list = engine.repos.sessions.listForFolder({ accountId: m.accountId, device: m.device, root: m.cwd, projectId: m.projectId });
+  // no folder and no project: only the chats the owner ticked
+  const list = m.cwd || m.projectId ? engine.repos.sessions.listForFolder({ accountId: m.accountId, device: m.device, root: m.cwd, projectId: m.projectId }) : [];
   const seen = new Set(list.map((s) => s.id));
   for (const id of store.prepTexts(m.id).extra) {
     if (seen.has(id)) continue;
@@ -457,11 +460,13 @@ export async function buildPrep(p: PrepInput): Promise<PrepResult> {
     .map((x) => ({ s: x.session, d: store.digest(m.accountId, x.session.id) }))
     .filter((x): x is { s: Session; d: NonNullable<typeof x.d> } => !!x.d)
     .map((x) => ({ month: day(x.s.updatedAt).slice(0, 7), text: `### Chat "${clean(one(x.s.title, 200))}" (${day(x.s.createdAt)} to ${day(x.s.updatedAt)})\n${x.d.digest}` }));
-  const workflows = workflowRuns(engine, m);
+  const workflows = m.cwd ? workflowRuns(engine, m) : { text: '', count: 0 };
   let codeText = '';
   let commits = 0;
   let files = 0;
-  if (!p.machine) leftOut.push(`${p.deviceName} was offline: no code or git`);
+  if (!m.cwd) {
+    // no folder: the attached files stand in for the code
+  } else if (!p.machine) leftOut.push(`${p.deviceName} was offline: no code or git`);
   else {
     try {
       const c = await code(p.machine, m.cwd, signal, engine.config.get());
@@ -478,7 +483,7 @@ export async function buildPrep(p: PrepInput): Promise<PrepResult> {
     .filter((t) => (m.projectId ? true : !t.project))
     .slice(0, 200);
   const notes = store.notesOf(m, 5).map((n) => notesText(n));
-  if (p.machine) {
+  if (p.machine && m.cwd) {
     try {
       const found = (await p.machine.glob('.conclave/meetings/*.md', { cwd: m.cwd, limit: 50, dot: true })).sort().reverse().slice(0, 5);
       for (const f of found) if (!isSecretFile(f)) notes.push((await p.machine.readText(p.machine.resolve(f, m.cwd))).split('\n').slice(0, 200).join('\n'));
@@ -494,6 +499,7 @@ export async function buildPrep(p: PrepInput): Promise<PrepResult> {
     tasks: capTokens(tasks.map(taskLine).map(clean).join('\n'), SOURCE_TOKENS.tasks),
     notes: capTokens(notes.map(clean).join('\n\n---\n\n'), SOURCE_TOKENS.notes),
     memory: capTokens(memory ? clean(memory) : '', SOURCE_TOKENS.memory),
+    files: capTokens((p.files ?? []).filter((f) => f.text.trim()).map((f) => `### ${clean(one(f.name, 200))}\n${clean(f.text)}`).join('\n\n'), FILES_TOKENS),
   };
   const otherTokens = Object.values(other).reduce((n, t) => n + estimateTokens(t), 0) + estimateTokens(m.agenda ?? '') + 1000;
 
@@ -530,8 +536,9 @@ export async function buildPrep(p: PrepInput): Promise<PrepResult> {
   const presentMin = m.durationMin ? Math.round(m.durationMin * 0.7) : undefined;
   const src: string[] = [
     `Meeting: "${clean(m.title)}"${m.scheduledAt ? `, ${new Date(m.scheduledAt).toISOString().slice(0, 16).replace('T', ' ')} UTC` : ''}${m.durationMin ? `, ${m.durationMin} minutes; the presenting order adds up to ${presentMin} minutes (30 % left for questions)` : ', no duration given'}.`,
-    `Project folder: ${clean(m.cwd)} on ${clean(p.deviceName)}.`,
+    m.cwd ? `Project folder: ${clean(m.cwd)} on ${clean(p.deviceName)}.` : 'No project folder: the attached files and the purpose are the sources.',
     `## Purpose\n${m.agenda ? clean(m.agenda) : 'None given.'}`,
+    `## Files the owner attached (resume, job description, notes)\n${other.files || 'None.'}`,
     `## Chat summaries (newest first)\n${digests.map((d) => d.text).join('\n\n') || 'None.'}`,
     `## Workflow runs\n${other.workflows || 'None.'}`,
     `## Code and git\n${other.code || 'None.'}`,
