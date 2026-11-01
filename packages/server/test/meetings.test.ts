@@ -177,10 +177,14 @@ describe('meeting routes', () => {
     expect((await call(OWNER, 'POST', `/api/meetings/${id}/end`)).status).toBe(409);
     expect((await call(OWNER, 'POST', `/api/meetings/${id}/segments`, batch(seg(9, 'late')))).status).toBe(409);
 
-    // Save to memory: accepted, marked as the meeting's, once; a member cannot
+    // Save to memory: accepted, marked as the meeting's, once; a member cannot.
+    // The harness runs with memory off (an override): an explicit click still saves, in the caller's account only.
+    expect(t.engine.config.get().memory.enabled).toBe(false);
     expect((await call(alice.token, 'POST', `/api/meetings/${id}/memory`)).status).toBe(404);
     const saved = await call(OWNER, 'POST', `/api/meetings/${id}/memory`);
     expect([saved.status, saved.body?.error]).toEqual([200, undefined]);
+    expect(t.engine.repos.db.query('SELECT account_id FROM memories WHERE id = ?').get(saved.body.memoryId)).toEqual({ account_id: 'owner' });
+    expect(t.engine.memoryFor(alice.id).list({ limit: 200 }).some((e) => e.meta?.meetingId === id)).toBe(false);
     const memId = saved.body.memoryId as string;
     const entry = t.engine.memoryFor('owner').get(memId)!;
     expect(entry.content).toContain('Ship Friday');

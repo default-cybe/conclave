@@ -893,6 +893,7 @@ export class MeetingService {
     const m = this.get(id, accountId);
     const n = this.store.notes(id);
     if (!n) throw err(409, 'This meeting is not wrapped up yet.');
+    // an explicit click: saved even with memory off, and only ever into the caller's own memory
     const mem = this.engine.memoryFor(accountId);
     if (m.memoryId && mem.get(m.memoryId)) return m;
     const session = this.engine.repos.sessions.get(m.sessionId);
