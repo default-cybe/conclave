@@ -42,6 +42,9 @@ fn main() {
             "meeting_hide",
             "meeting_focusable",
             "meeting_set_height",
+            "meeting_displays",
+            "meeting_place",
+            "meeting_stt_retry",
         ]),
     ))
     .expect("failed to run tauri-build");

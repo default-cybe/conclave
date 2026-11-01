@@ -178,7 +178,8 @@ describe('meeting routes', () => {
     const saved = { ...STT_HOSTS.deepgram };
     STT_HOSTS.deepgram = { api: `http://127.0.0.1:${fake.port}`, ws: `ws://127.0.0.1:${fake.port}` };
     try {
-      expect((await call(OWNER, 'POST', `/api/meetings/${id}/stt-token`)).status).toBe(409);
+      // no key: 412, which the app shows and retries; 409 is only "Local was chosen"
+      expect((await call(OWNER, 'POST', `/api/meetings/${id}/stt-token`)).status).toBe(412);
       expect((await call(OWNER, 'PUT', '/api/secrets', { kind: 'values', key: 'stt.deepgram', value: 'owner-dg-key' })).status).toBe(200);
       const tok = await call(OWNER, 'POST', `/api/meetings/${id}/stt-token`);
       expect(tok.status).toBe(200);
@@ -196,7 +197,7 @@ describe('meeting routes', () => {
       expect((await call(alice.token, 'POST', `/api/meetings/${id}/stt-token`)).status).toBe(404);
       const mine = await call(alice.token, 'POST', '/api/meetings', { title: 'Alice interview' });
       expect(mine.status).toBe(201);
-      expect((await call(alice.token, 'POST', `/api/meetings/${mine.body.id}/stt-token`)).status).toBe(409);
+      expect((await call(alice.token, 'POST', `/api/meetings/${mine.body.id}/stt-token`)).status).toBe(412);
       expect((await call(alice.token, 'PUT', '/api/secrets', { kind: 'values', key: 'stt.deepgram', value: 'alice-dg-key' })).status).toBe(200);
       expect((await call(alice.token, 'POST', `/api/meetings/${mine.body.id}/stt-token`)).status).toBe(200);
       expect(auths.at(-1)).toBe('Token alice-dg-key');

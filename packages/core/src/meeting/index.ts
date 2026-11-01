@@ -233,19 +233,24 @@ export class MeetingService {
     return this.engine.accountSecrets.value(accountId, STT_SECRETS[p]);
   }
 
-  /** POST /:id/stt-token: a short-lived streaming credential; 409 when the service has no key. */
+  /**
+   * POST /:id/stt-token: a short-lived streaming credential. 409 means only one thing, the
+   * owner chose Local (the desktop app then loads the model on this computer); a missing
+   * key is 412 and a meeting that is not running 410, which the app shows and retries,
+   * never a reason to load the local model (upload.rs stt_token).
+   */
   async sttToken(id: string, accountId: string): Promise<SttToken> {
     const m = this.get(id, accountId);
-    if (m.status === 'ending' || m.status === 'ended' || m.status === 'failed' || m.status === 'scheduled') throw err(409, `The meeting is ${m.status}.`);
+    if (m.status === 'ending' || m.status === 'ended' || m.status === 'failed' || m.status === 'scheduled') throw err(410, `The meeting is ${m.status}.`);
     // meetings.stt is the owner's choice for the owner's keys; a member cannot set it, so their own first key wins
     const choice = sttChoice(isMember(accountId) ? undefined : this.engine.config.get().meetings?.stt, (p) => this.sttKey(accountId, p));
-    if (choice === 'local') throw err(409, 'Speech to text runs on this device: no AssemblyAI or Deepgram key is set (Settings > Meetings).');
+    if (choice === 'local') throw err(409, 'Speech to text runs on this computer (Local, chosen in Settings > Meetings).');
     const key = this.sttKey(accountId, choice);
-    if (!key) throw err(409, `No ${choice === 'assemblyai' ? 'AssemblyAI' : 'Deepgram'} key is set (Settings > Meetings). Using speech to text on this device.`);
+    if (!key) throw err(412, `No ${choice === 'assemblyai' ? 'AssemblyAI' : 'Deepgram'} key is set. Save one in Settings > Meetings.`);
     try {
       return await mintSttToken(choice, key);
     } catch (e) {
-      // 502, not 409: the desktop app reads 409 as "no key" and falls back without saying why (upload.rs stt_token)
+      // 502, not 409: the desktop app reads 409 as "Local was chosen" (upload.rs stt_token)
       if (e instanceof SttError) throw err(502, e.message);
       throw e;
     }

@@ -16,6 +16,8 @@ import type { WsStatus } from './ws';
 import { AnswerCard } from './AnswerCard';
 import { Transcript } from './Transcript';
 import { OPACITY_MAX, OPACITY_MIN, readOpacity, saveOpacity } from './opacity';
+import { holdOpen, moveDisplay, setPlacement, useDock } from './dock';
+import type { Mode } from './place';
 
 /** Whole minutes since `since`, re-rendered once a minute (the only timer of an idle overlay). */
 function useMinutes(since?: number): number {
@@ -38,9 +40,9 @@ export function statusNotes(d: DesktopMeetingStatus | undefined, ws: WsStatus): 
   else if (d.exclusion === 'failed') out.push('Not hidden from screen shares');
   if (d.stt.state === 'downloading') out.push(`Downloading speech model ${Math.round((d.stt.progress ?? 0) * 100)} %`);
   else if (d.stt.state === 'loading') out.push('Loading speech model');
+  // a cloud failure: the app keeps retrying (Retry below tries at once); never a switch to local
+  else if (d.stt.state === 'failed' && d.stt.provider !== 'local') out.push(`Speech to text failed, retrying${d.stt.error ? `. ${d.stt.error}` : ''}`);
   else if (d.stt.state === 'failed') out.push(`Speech model failed${d.stt.error ? `: ${d.stt.error}` : ''}`);
-  // the desktop app's fallback note: why speech to text moved to this computer
-  else if (d.stt.error) out.push(d.stt.error);
   if (!d.mic.ok) out.push(d.mic.error ? `no mic: ${d.mic.error}` : 'no mic');
   if (!d.system.ok) out.push(d.system.error ? `no system sound: ${d.system.error}` : 'no system sound');
   if (d.queue.stt > 0) out.push(`${d.queue.stt} waiting for text`);
@@ -105,6 +107,58 @@ function Opacity() {
 }
 
 const STT_NAME: Record<SttProvider, string> = { local: 'Local', assemblyai: 'AssemblyAI', deepgram: 'Deepgram' };
+
+/**
+ * What stays on screen while a docked overlay is hidden (Overlay.tsx Panel): the
+ * listening dot on the edge tab, and on the notch pill the dot and a tiny level.
+ */
+export function Handle({ levels, paused, failed }: { levels: LevelSource; paused: boolean; failed?: boolean }) {
+  const bar = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const paint = (l: { me: number; them: number }) => {
+      if (bar.current) bar.current.style.transform = scale(Math.max(l.me, l.them));
+    };
+    paint(levels.get());
+    return levels.subscribe(paint);
+  }, [levels]);
+  return (
+    <>
+      <span className={failed ? 'ov-dot ov-dot-fault' : paused ? 'ov-dot ov-dot-paused' : 'ov-dot'} />
+      <span className="ov-handle-meter">
+        <span ref={bar} style={{ transform: scale(0) }} />
+      </span>
+    </>
+  );
+}
+
+/** Placement in the overlay (dock.ts): Free, Dock to edge, Notch on a Mac; auto-hide; the next display. */
+function Placement() {
+  const d = useDock();
+  if (!d.active) return null;
+  const modes: [Mode, string][] = [
+    ['free', 'Free'],
+    ['edge', 'Edge'],
+    ...(d.mac ? [['notch', 'Notch'] as [Mode, string]] : []),
+  ];
+  return (
+    <div className="ov-row ov-place" role="group" aria-label="Placement">
+      <span className="ov-label">Place</span>
+      {modes.map(([m, label]) => (
+        <button key={m} type="button" className="ov-btn ov-quiet" aria-pressed={d.mode === m} onClick={() => setPlacement({ mode: m })}>
+          {label}
+        </button>
+      ))}
+      <button type="button" className="ov-btn ov-quiet" aria-pressed={d.saved.autoHide} onClick={() => setPlacement({ autoHide: !d.saved.autoHide })}>
+        Auto-hide {d.saved.autoHide ? 'on' : 'off'}
+      </button>
+      {d.displays > 1 && (
+        <button type="button" className="ov-btn ov-quiet" onClick={() => void moveDisplay(1)}>
+          Next display
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view: MeetingView; desktop?: DesktopMeetingStatus; levels: LevelSource; ws: WsStatus }) {
   const m = view.meeting!;
@@ -177,6 +231,10 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
   const nav = useMemo(() => ({ index, count, step }), [index, count, step]);
   const notes = statusNotes(desktop, ws);
   const latency = lastLatency(answers);
+  const sttFailed = desktop?.stt.state === 'failed' && desktop.stt.provider !== 'local';
+  // a docked overlay slides out while the newest answer streams, and back after it (dock.ts LINGER_MS)
+  const streaming = newest?.state === 'streaming';
+  useEffect(() => holdOpen(streaming), [streaming]);
 
   return (
     <div className="ov-stack">
@@ -197,7 +255,16 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
           Hide
         </button>
       </header>
-      {notes.length > 0 && <p className="ov-notes">{notes.join(', ')}</p>}
+      {notes.length > 0 && (
+        <p className="ov-notes">
+          {notes.join(', ')}
+          {sttFailed && (
+            <button type="button" className="ov-link" onClick={() => void ipc.sttRetry()?.catch(fail)}>
+              Retry
+            </button>
+          )}
+        </p>
+      )}
       {!open ? (
         <div className="ov-bar">
           <Transcript lines={lastLines(view, 1)} />
@@ -261,6 +328,7 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
       </footer>
       )}
       {open && <Opacity />}
+      {open && <Placement />}
     </div>
   );
 }

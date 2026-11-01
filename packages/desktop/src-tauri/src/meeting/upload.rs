@@ -169,7 +169,7 @@ impl Hub {
     }
 
     /// `POST .../stt-token`: a short-lived streaming credential for one socket.
-    /// 409: no cloud provider is set up on the hub. The hub mints it from the
+    /// 409: the owner chose Local; 412: no key yet (retried). The hub mints it from the
     /// provider, so this waits longer than a segment post.
     pub fn stt_token(&self) -> Result<SttToken, TokenError> {
         let url = self.url("stt-token").map_err(TokenError::Failed)?;
@@ -182,8 +182,14 @@ impl Hub {
             .send_json(serde_json::json!({ "clientId": self.client_id }));
         match res {
             Ok(r) => r.into_json().map_err(|e| TokenError::Failed(format!("unreadable token reply: {e}"))),
-            Err(ureq::Error::Status(409, _)) => Err(TokenError::NoKey),
-            Err(ureq::Error::Status(code, r)) => Err(TokenError::Failed(format!("{code} {}", r.into_string().unwrap_or_default()))),
+            // only "Local was chosen": a missing key (412) or a provider fault (502) is shown and retried
+            Err(ureq::Error::Status(409, _)) => Err(TokenError::Local),
+            Err(ureq::Error::Status(code, r)) => {
+                let body = r.into_string().unwrap_or_default();
+                // the hub's {"error": "..."} reads better in the overlay than the raw JSON
+                let why = serde_json::from_str::<serde_json::Value>(&body).ok().and_then(|v| v.get("error")?.as_str().map(str::to_string)).unwrap_or(body);
+                Err(TokenError::Failed(format!("{code} {why}")))
+            }
             Err(e) => Err(TokenError::Failed(e.to_string())),
         }
     }

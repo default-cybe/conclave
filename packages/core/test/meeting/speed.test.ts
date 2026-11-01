@@ -72,8 +72,8 @@ describe('stt tokens', () => {
     expect(e.message).not.toContain('bad-key');
   });
 
-  test('choice: the config wins, else the first service with a key (Deepgram is the default), else local', () => {
-    expect(sttChoice(undefined, () => undefined)).toBe('local');
+  test('choice: the config wins, else the first service with a key (Deepgram is the default), never local unless chosen', () => {
+    expect(sttChoice(undefined, () => undefined)).toBe('deepgram');
     expect(sttChoice(undefined, (p) => (p === 'assemblyai' ? 'k' : undefined))).toBe('assemblyai');
     // saving a Deepgram key with no provider chosen makes Deepgram the one in use
     expect(sttChoice(undefined, () => 'k')).toBe('deepgram');

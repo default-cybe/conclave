@@ -18,7 +18,8 @@ import { desktop, ipc } from './desktop';
 import { applyEvent, emptyView, loadDetail, type MeetingView } from './model';
 import type { DesktopMeetingStatus, MeetingEvent } from './wire';
 import { Ready, Setup } from './Setup';
-import { Live } from './Live';
+import { Handle, Live } from './Live';
+import { setHover, setLive, startDock, useDock } from './dock';
 
 export interface Conn {
   req: Req;
@@ -52,15 +53,36 @@ export function Overlay({ conn, meetingId: first, signedIn }: { conn: Conn; meet
   return <MeetingScreen conn={conn} api={api} meetingId={meetingId} />;
 }
 
-/** The window's height follows what the panel holds (fit.ts). */
-export function Panel({ children }: { children: React.ReactNode }) {
+/**
+ * The window's height follows what the panel holds (fit.ts). Docked (dock.ts), the
+ * panel slides out from its edge or grows down from the notch; `handle` is what
+ * stays on screen while it is hidden (the live screen's tab or pill), and only
+ * the live screen hides.
+ */
+export function Panel({ children, handle }: { children: React.ReactNode; handle?: React.ReactNode }) {
   const panel = useRef<HTMLElement>(null);
   const content = useRef<HTMLDivElement>(null);
   useFitAndStick(panel, content);
+  const dock = useDock();
+  const live = !!handle;
+  useEffect(() => {
+    startDock();
+    setLive(live);
+  }, [live]);
+  const hidden = dock.active && dock.hidden && live;
+  const notch = dock.active && dock.mode === 'notch';
+  const style = notch && dock.pill ? ({ '--ov-pill-w': `${dock.pill.w}px`, '--ov-pill-h': `${dock.pill.h}px`, '--ov-notch-w': `${dock.notch?.w ?? 0}px` } as React.CSSProperties) : undefined;
   return (
-    <main ref={panel} className="ov-panel">
-      <div ref={content}>{children}</div>
-    </main>
+    <div className="ov-dock" data-mode={dock.active ? dock.mode : 'free'} data-edge={dock.edge} data-hidden={hidden ? '' : undefined} style={style} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      {live && (
+        <div className="ov-handle" aria-hidden={!hidden}>
+          {handle}
+        </div>
+      )}
+      <main ref={panel} className="ov-panel" inert={hidden || undefined}>
+        <div ref={content}>{children}</div>
+      </main>
+    </div>
   );
 }
 
@@ -183,7 +205,7 @@ function MeetingScreen({ conn, api, meetingId }: { conn: Conn; api: MeetingApi; 
       </Panel>
     );
   return (
-    <Panel>
+    <Panel handle={<Handle levels={levels} paused={status?.live ? status.paused : m.status === 'paused'} failed={status?.stt.state === 'failed'} />}>
       <Live api={api} view={view} desktop={status} levels={levels} ws={ws} />
     </Panel>
   );

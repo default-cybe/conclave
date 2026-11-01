@@ -643,8 +643,21 @@ Registered with the global-shortcut plugin while a meeting runs, handled in Rust
 | `CommandOrControl+Alt+Enter` | answer now (`POST /api/meetings/:id/answer` from `meeting-up`) |
 | `CommandOrControl+Alt+P` | pause/resume listening (capture stops, the tray shows "Paused") |
 | `CommandOrControl+Alt+T` | click-through on/off (`set_ignore_cursor_events`); the overlay shows a small "click-through" label while on |
+| `CommandOrControl+Alt+Shift+Right` / `Left` | move the overlay to the next / previous display (7.8). Shift because Teams uses Ctrl+Alt+Left/Right, Intel graphics rotate the screen on it, and Windows uses Win+Shift+Left/Right |
+| `CommandOrControl+Alt+O` | a docked or notch overlay slides out, or back in (7.8) |
 
 If a hotkey is taken by another app, registration failure is shown in the overlay with the key, and the tray menu has the same four actions.
+
+### 7.8 Placement: free, docked to an edge, or the Mac notch
+
+Saved per device in the overlay's localStorage (`conclave.overlay.place`: mode, auto-hide, display, edge, position along it). Set in the overlay's open view (Place: Free / Edge / Notch, Auto-hide, Next display), in Settings > Meetings > Meeting overlay, and "Move overlay to next display" in the tray menu. The math is `packages/web/src/overlay/place.ts` (unit-tested in `test/overlay-place.test.ts`); `overlay/dock.ts` keeps the state and calls `meeting_displays` and `meeting_place` (`src/meeting/place.rs`).
+
+- **Units.** A display's frame and work area are in points on macOS and in virtual-screen pixels on Windows and Linux (negative left of or above the primary). macOS moves in points because tao#816 and tauri#7890 make a physical position there depend on the window's current display. The work area is Tauri's `Monitor::work_area` (2.6+, macOS y fixed in 2.11): `visibleFrame` on macOS (no menu bar, no Dock), `rcWork` on Windows (no taskbar).
+- **Edge.** The OS reports no drag end, so `meeting://moved` is debounced 300 ms. Dropped within 24 CSS px (times the display scale) of a work-area edge, it snaps to that edge and keeps its position along it (0 to 1). Dragged away it floats where it was dropped. With auto-hide on, it hides to a 10 by 64 px tab on that edge with the listening dot. It slides out on hover (Rust polls the cursor every 250 ms: a non-key panel gets no mouse-moved events on macOS), on `CommandOrControl+Alt+O`, or while an answer streams. It slides back 6 s after the answer, unless the cursor is on it. Hiding slides the panel first and then shrinks the window; showing grows the window first. Reduced motion: no slide.
+- **Displays.** Next and previous go left to right and wrap. The edge and the position along it carry over to the new display, and sizes are CSS px times that display's scale. A saved display that is gone falls back to the primary one.
+- **Notch (macOS only, the default on a Mac with a notch).** The notch size comes from `NSScreen.safeAreaInsets.top` and the widths of `auxiliaryTopLeftArea` / `auxiliaryTopRightArea` (macOS 12+): width = frame width less both areas. This is DynamicNotchKit's formula (MrKai77/DynamicNotchKit@cd0b3e5, MIT); the formula is reused, no code is copied. Collapsed, the overlay is a black pill: the notch plus 44 px on each side, with the dot left of the notch and a tiny level right of it. On a screen without a notch it is a 200 px pill as tall as the menu bar, at top centre. It springs down into the panel (420 ms overshoot curve) when an answer streams, on hover or on the hotkey, and collapses after. In notch mode the panel level is 27 (NSMainMenuWindowLevel + 3, as boring.notch and Atoll use), so it sits over the menu bar. It keeps its collection behaviour (all Spaces, full-screen auxiliary), never takes focus, and gets `sharingType = none` again after each level change. Apple calls `sharingType none` a legacy value that ScreenCaptureKit on macOS 15+ ignores (7.3), so capture exclusion there is as before, not better.
+- The native blur (vibrancy, acrylic) is on only in free mode. Docked or in the notch, the window is briefly larger than the panel while it moves.
+- The macOS menu bar shows only the tray icon, with no "REC" title next to it. The red dot drawn on the icon is the recording indicator.
 
 ### 7.6 No noise while a meeting runs
 

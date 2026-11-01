@@ -116,6 +116,144 @@ body {
   padding: 12px 14px 14px;
 }
 
+/*
+  Placement (dock.ts, MEETING-MODE.md 7.8). Docked: the panel slides off its
+  edge while the window is still big, then the window shrinks to the tab; the
+  way out is the reverse. Notch: a black pill around the notch that springs
+  down into the panel. transform and opacity only; off under reduced motion.
+*/
+.ov-dock {
+  --ov-motion: 320ms;
+  --ov-spring: cubic-bezier(0.32, 1.28, 0.5, 1);
+  /* the notch's own black, in both themes */
+  --notch: oklch(0 0 0);
+  position: relative;
+  height: 100%;
+}
+
+.ov-dock .ov-panel {
+  height: auto;
+  transition:
+    transform var(--ov-motion) cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity var(--ov-motion) ease-out;
+}
+
+.ov-handle {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms linear;
+}
+
+.ov-dock[data-hidden] .ov-handle {
+  opacity: 1;
+  pointer-events: auto;
+  transition-delay: var(--ov-motion);
+}
+
+/* the edge tab: a slim handle on the work area's edge with the listening dot */
+.ov-dock[data-mode='edge'] .ov-handle {
+  background: color-mix(in oklch, var(--panel) 92%, transparent);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-2);
+}
+
+.ov-dock[data-mode='edge'] .ov-handle-meter {
+  display: none;
+}
+
+.ov-dock[data-hidden][data-edge='left'] .ov-panel {
+  transform: translateX(-104%);
+  opacity: 0;
+}
+.ov-dock[data-hidden][data-edge='right'] .ov-panel {
+  transform: translateX(104%);
+  opacity: 0;
+}
+.ov-dock[data-hidden][data-edge='top'] .ov-panel {
+  transform: translateY(-104%);
+  opacity: 0;
+}
+.ov-dock[data-hidden][data-edge='bottom'] .ov-panel {
+  transform: translateY(104%);
+  opacity: 0;
+}
+
+/* the notch: black like the notch, square at the top where it meets the screen edge */
+.ov-dock[data-mode='notch'] .ov-panel {
+  background: var(--notch);
+  color-scheme: dark;
+  --fg: oklch(0.945 0.004 286);
+  --fg-2: oklch(0.765 0.008 286);
+  --fg-3: oklch(0.61 0.01 286);
+  --layer: oklch(0.12 0.004 286);
+  --rule-2: oklch(0.3 0.008 286);
+  color: var(--fg);
+  border: 0;
+  border-radius: 0 0 20px 20px;
+  padding-top: calc(var(--ov-pill-h, 32px) + 6px);
+  transform-origin: top center;
+  transition:
+    transform 420ms var(--ov-spring),
+    opacity 200ms ease-out;
+}
+
+.ov-dock[data-mode='notch'][data-hidden] .ov-panel {
+  transform: scale(0.4, 0.1);
+  opacity: 0;
+}
+
+.ov-dock[data-mode='notch'] .ov-handle {
+  inset: 0 auto auto 50%;
+  width: var(--ov-pill-w, 200px);
+  height: var(--ov-pill-h, 32px);
+  transform: translateX(-50%);
+  background: var(--notch);
+  border-radius: 0 0 14px 14px;
+  justify-content: space-between;
+  padding: 0 14px;
+}
+
+/* the notch itself sits in the middle of the pill: the dot left of it, the level right */
+.ov-handle-meter {
+  width: 18px;
+  height: 4px;
+  border-radius: 2px;
+  background: oklch(0.3 0.008 286);
+  overflow: hidden;
+}
+
+.ov-handle-meter > span {
+  display: block;
+  height: 100%;
+  background: oklch(0.8 0.01 286);
+  transform-origin: left;
+}
+
+.ov-dot-fault {
+  background: var(--fault);
+  animation: none;
+}
+
+.ov-place .ov-btn[aria-pressed='true'] {
+  color: var(--fg);
+  border-color: var(--rule-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ov-dock .ov-panel,
+  .ov-dock[data-mode='notch'] .ov-panel,
+  .ov-handle,
+  .ov-dock[data-hidden] .ov-handle {
+    transition: none;
+  }
+}
+
 .ov-stack {
   display: flex;
   flex-direction: column;

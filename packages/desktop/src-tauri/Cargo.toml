@@ -69,11 +69,12 @@ window-vibrancy = "0.8"
 windows-version = "0.1"
 
 # meeting overlay on macOS: sharingType, panel level and collection behaviour,
-# the window list for share detection (src/meeting/exclude_mac.rs, share_watch.rs)
+# the window list for share detection (src/meeting/exclude_mac.rs, share_watch.rs), the
+# notch from each screen's insets (src/meeting/place.rs)
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = "0.3"
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSPanel", "NSResponder", "NSWindow", "NSGraphics"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSPanel", "NSResponder", "NSWindow", "NSGraphics", "NSScreen"] }
 objc2-core-foundation = { version = "0.3", features = ["CFArray", "CFDictionary", "CFNumber", "CFString"] }
 objc2-core-graphics = { version = "0.3", features = ["CGWindow"] }
 tauri-nspanel = "2.1"

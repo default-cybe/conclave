@@ -164,7 +164,8 @@ pub struct SttStatus {
     pub progress: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    /// "assemblyai", "deepgram" or "local"; with a fallback, `error` says why.
+    /// "assemblyai", "deepgram" or "local" (only when chosen); while the cloud fails, state is
+    /// failed and `error` says why (the overlay offers Retry, the app keeps retrying).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
 }

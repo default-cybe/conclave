@@ -89,9 +89,20 @@ describe('overlay header', () => {
 });
 
 describe('status notes', () => {
-  test('fallback, channel errors and the upload queue show', () => {
-    const note = 'Cloud speech to text unavailable (Deepgram refused the token); using the model on this computer.';
-    expect(statusNotes(desk({ stt: { state: 'ready', provider: 'local', error: note }, mic: { ok: false, error: 'permission denied' }, queue: { stt: 0, upload: 3, dropped: 0 } }), 'open')).toEqual([note, 'no mic: permission denied', '3 waiting to upload']);
+  test('a cloud failure, channel errors and the upload queue show; no fallback note', () => {
+    const failed = desk({ stt: { state: 'failed', provider: 'deepgram', error: 'Mic: deepgram unreachable: refused' }, mic: { ok: false, error: 'permission denied' }, queue: { stt: 0, upload: 3, dropped: 0 } });
+    expect(statusNotes(failed, 'open')).toEqual(['Speech to text failed, retrying. Mic: deepgram unreachable: refused', 'no mic: permission denied', '3 waiting to upload']);
+    // the local model's own failure (Local chosen) keeps its words
+    expect(statusNotes(desk({ stt: { state: 'failed', provider: 'local', error: 'bad file' } }), 'open')).toEqual(['Speech model failed: bad file']);
+  });
+
+  test('a cloud failure shows a Retry in the overlay', () => {
+    const v = emptyView();
+    v.meeting = { id: 'mtg_1', title: 'Sync', status: 'live', startedAt: Date.now() } as never;
+    const html = renderToStaticMarkup(<Live api={meetingApi(async () => ({}) as never)} view={v} desktop={desk({ stt: { state: 'failed', provider: 'deepgram', error: 'Mic: 412 No Deepgram key is set.' } })} levels={levelSource()} ws="open" />);
+    expect(html).toContain('Retry');
+    expect(html).toContain('No Deepgram key is set');
+    expect(html).not.toContain('this computer');
   });
 });
 
@@ -104,14 +115,14 @@ describe('answer model menu', () => {
 });
 
 describe('speech to text in use', () => {
-  test('a cloud choice with no key stays local', () => {
-    expect(sttInUse('deepgram', () => false).provider).toBe('local');
+  test('a cloud choice with no key never turns into local', () => {
+    expect(sttInUse('deepgram', () => false)).toMatchObject({ provider: 'deepgram', missing: true });
     expect(sttInUse('deepgram', () => true).provider).toBe('deepgram');
-    expect(sttInUse('local', () => false).words).toContain('Local');
+    expect(sttInUse('local', () => false).words).toContain('slower, uses your computer');
   });
 
   test('a member: their own first key, and no "Use" button (PATCH /api/config is admin only)', () => {
-    expect(memberStt([])).toBe('local');
+    expect(memberStt([])).toBe('deepgram');
     expect(memberStt(['stt.deepgram'])).toBe('deepgram');
     expect(memberStt(['stt.assemblyai'])).toBe('assemblyai');
     expect(memberStt(['stt.assemblyai', 'stt.deepgram'])).toBe('deepgram');

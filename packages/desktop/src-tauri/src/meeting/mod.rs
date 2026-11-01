@@ -13,6 +13,7 @@ pub mod models;
 pub mod parakeet {
     pub mod model;
 }
+pub mod place;
 pub mod share_watch;
 pub mod stt;
 pub mod upload;
@@ -39,6 +40,19 @@ const KEY_CLICK: &str = "CommandOrControl+Alt+T";
 /// The previous and next answer (the overlay's "n of m"), sent as meeting://nav -1 or 1.
 const KEY_PREV: &str = "CommandOrControl+Alt+[";
 const KEY_NEXT: &str = "CommandOrControl+Alt+]";
+/// The overlay to the next or previous display (meeting://display 1 or -1). With Shift: Teams
+/// takes Ctrl+Alt+Left/Right, Intel graphics rotate the screen on it, and Windows moves the
+/// focused window between displays with Win+Shift+Left/Right.
+const KEY_DISPLAY_NEXT: &str = "CommandOrControl+Alt+Shift+Right";
+const KEY_DISPLAY_PREV: &str = "CommandOrControl+Alt+Shift+Left";
+/// A docked overlay slides out (or back in): meeting://peek.
+const KEY_PEEK: &str = "CommandOrControl+Alt+O";
+/// macOS window levels: floating (4), and over the menu bar for the notch
+/// (NSMainMenuWindowLevel 24 + 3, as TheBoredTeam/boring.notch and Ebullioscopic/Atoll).
+#[cfg(target_os = "macos")]
+const LEVEL_FLOATING: i64 = 4;
+#[cfg(target_os = "macos")]
+const LEVEL_NOTCH: i64 = 27;
 /// The overlay never gets shorter than its compact bar nor taller than this share of the screen.
 const MIN_HEIGHT: f64 = 96.0;
 const MAX_SCREEN_SHARE: f64 = 0.75;
@@ -66,6 +80,13 @@ static CLICK_THROUGH: AtomicBool = AtomicBool::new(false);
 static HIDDEN_FOR_SHARE: AtomicBool = AtomicBool::new(false);
 /// The owner hid it with the hotkey: share detection does not bring it back.
 static HIDDEN_BY_OWNER: AtomicBool = AtomicBool::new(false);
+/// The overlay's native blur is on (it is from build). Off while docked or in the notch,
+/// where the window is briefly larger than the panel as it slides or grows.
+static BLUR: AtomicBool = AtomicBool::new(true);
+/// The panel sits over the menu bar (notch mode).
+static NOTCH: AtomicBool = AtomicBool::new(false);
+/// The cursor was over the overlay at the last look (meeting://hover on change).
+static HOVER: AtomicBool = AtomicBool::new(false);
 
 fn channel(c: &ChannelShared) -> ChannelState {
     ChannelState { ok: c.ok.load(Ordering::Relaxed), device: c.device.lock().unwrap().clone(), error: c.error.lock().unwrap().clone() }
@@ -159,8 +180,66 @@ fn build(app: &AppHandle, url: Url) -> Result<WebviewWindow, String> {
         if matches!(e, Resized(_) | Moved(_) | ScaleFactorChanged { .. } | Focused(_)) {
             recheck(&handle);
         }
+        // the page snaps it once the drag settles (overlay/dock.ts): the OS says nothing when a drag ends
+        if let Moved(p) = e {
+            if let Some(w) = handle.get_webview_window(MEETING) {
+                let _ = handle.emit_to(MEETING, "meeting://moved", place::moved(&w, *p));
+            }
+        }
     });
     Ok(w)
+}
+
+/// `meeting_place`: the page's placement (overlay/place.ts). The notch puts the panel over
+/// the menu bar; docked and notch turn the native blur off. Capture exclusion is set again
+/// after a level change.
+pub fn place_window(app: &AppHandle, x: f64, y: f64, width: f64, height: f64, notch: bool, blur: bool) -> Result<(), String> {
+    let Some(w) = app.get_webview_window(MEETING) else { return Ok(()) };
+    let level_changed = NOTCH.swap(notch, Ordering::Relaxed) != notch;
+    let blur_changed = BLUR.swap(blur, Ordering::Relaxed) != blur;
+    #[cfg(target_os = "macos")]
+    if level_changed || blur_changed {
+        let (handle, win) = (app.clone(), w.clone());
+        let _ = app.run_on_main_thread(move || {
+            use tauri_nspanel::ManagerExt;
+            if level_changed {
+                if let Ok(p) = handle.get_webview_panel(MEETING) {
+                    p.set_level(if notch { LEVEL_NOTCH } else { LEVEL_FLOATING });
+                }
+            }
+            if blur_changed {
+                use window_vibrancy::{NSVisualEffectMaterial, NSVisualEffectState};
+                let r = if blur {
+                    window_vibrancy::apply_vibrancy(&win, NSVisualEffectMaterial::HudWindow, Some(NSVisualEffectState::Active), Some(10.0))
+                } else {
+                    window_vibrancy::clear_vibrancy(&win).map(|_| ())
+                };
+                if let Err(e) = r {
+                    log::warn!("meeting overlay: vibrancy: {e}");
+                }
+            }
+            if let Some(x) = exclude_mac::ensure_all() {
+                *EXCLUSION.lock().unwrap() = x;
+            }
+        });
+    }
+    #[cfg(target_os = "windows")]
+    if blur_changed && windows_version::OsVersion::current() >= windows_version::OsVersion::new(10, 0, 0, 22523) {
+        let r = if blur { window_vibrancy::apply_acrylic(&w, None) } else { window_vibrancy::clear_acrylic(&w) };
+        if let Err(e) = r {
+            log::warn!("meeting overlay: acrylic: {e}");
+        }
+    }
+    // not every OS reads both
+    let _ = (level_changed, blur_changed);
+    place::place(&w, x, y, width, height)?;
+    recheck(app);
+    Ok(())
+}
+
+/// The tray's "Move overlay to next display": the page moves it (it knows the placement).
+pub fn next_display(app: &AppHandle) {
+    let _ = app.emit_to(MEETING, "meeting://display", 1);
 }
 
 /// Re-read the exclusion and set it only where it differs.
@@ -384,7 +463,7 @@ struct Pipeline {
     paused: Arc<AtomicBool>,
     mic: Arc<ChannelShared>,
     sys: Arc<ChannelShared>,
-    /// One numbering per channel for the cloud and the local model: a fallback leaves no gap.
+    /// One numbering per channel for the cloud and the local model.
     seqs: Arc<Mutex<stt::Seqs>>,
     /// The local model was started (once per meeting).
     local: Arc<AtomicBool>,
@@ -393,9 +472,10 @@ struct Pipeline {
 
 impl Pipeline {
     /// Capture starts at once; each channel's cloud thread asks the hub for its own token
-    /// meanwhile (audio waits in the feed, `cloud::FEED_FRAMES`), retries a failed one,
-    /// and hands the channel to the model on this computer when the hub has no key or
-    /// the provider keeps failing. Never waits for a model download.
+    /// meanwhile (audio waits in the feed, `cloud::FEED_FRAMES`) and retries a failed one
+    /// with backoff for the whole meeting. The model on this computer loads (and on the
+    /// first meeting downloads) only when the owner chose Local in Settings: never as a
+    /// fallback, it slows the computer down.
     fn begin(self) {
         log::info!("meeting: capture starts; asking the hub for cloud speech to text");
         // nothing from the last meeting: loading until a provider answers or local takes over
@@ -408,26 +488,31 @@ impl Pipeline {
                 let (p, on) = (self.clone(), on.clone());
                 spawn(if ch == wire::Channel::Me { "meeting-cloud-me" } else { "meeting-cloud-them" }, move || {
                     let hub = p.hub.clone();
-                    // the first session of the meeting names the provider; a reopen keeps any fallback note
-                    let opened = |provider: cloud::Provider| {
-                        if PROVIDER.lock().unwrap().is_none() {
+                    let who = if ch == wire::Channel::Me { "Mic" } else { "System sound" };
+                    // a session that opens names the provider and clears an earlier failure; a failure
+                    // shows in the overlay with Retry while the loop keeps trying the cloud
+                    let state = |s: Result<cloud::Provider, String>| match s {
+                        Ok(provider) => {
                             set_provider(Some(provider.name()), None);
                             set_stt(SttState::Ready, None, None);
                         }
-                    };
-                    let r = cloud::run(ch, None, || hub.stt_token(), &rx, &p.stop, p.hub.t0, &p.seqs, opened, |s| p.up.push(s));
-                    if let Err(e) = r {
-                        on.store(false, Ordering::Relaxed);
-                        if e == cloud::NO_KEY {
-                            log::info!("meeting: {ch:?}: speech to text on this computer (no cloud key on the hub)");
-                            set_provider(Some("local"), None);
-                        } else {
-                            log::warn!("meeting: {ch:?} falls back to the model on this computer: {e}");
-                            let who = if ch == wire::Channel::Me { "Mic" } else { "System sound" };
-                            let provider = PROVIDER.lock().unwrap().unwrap_or("local");
-                            set_provider(Some(provider), Some(format!("{who}: cloud speech to text failed ({e}); using the model on this computer.")));
+                        Err(e) => {
+                            let provider = *PROVIDER.lock().unwrap();
+                            set_provider(provider, None);
+                            set_stt(SttState::Failed, None, Some(format!("{who}: {e}")));
                         }
-                        p.start_local();
+                    };
+                    let r = cloud::run(ch, None, || hub.stt_token(), &rx, &p.stop, p.hub.t0, &p.seqs, state, |s| p.up.push(s));
+                    match r {
+                        // the owner picked Local in Settings: the only way the model here loads
+                        Err(e) if e == cloud::LOCAL => {
+                            log::info!("meeting: {ch:?}: speech to text on this computer (Local chosen in Settings)");
+                            on.store(false, Ordering::Relaxed);
+                            set_provider(Some("local"), None);
+                            p.start_local();
+                        }
+                        Err(e) => log::error!("meeting: {ch:?}: speech to text stopped: {e}"),
+                        Ok(()) => {}
                     }
                 });
             }
@@ -478,7 +563,7 @@ pub fn stop(app: &AppHandle) {
     run.stop.store(true, Ordering::Relaxed);
     run.stt.wake.notify_all();
     run.up.wake.notify_all();
-    for key in [KEY_ANSWER, KEY_PAUSE, KEY_CLICK, KEY_PREV, KEY_NEXT] {
+    for key in [KEY_ANSWER, KEY_PAUSE, KEY_CLICK, KEY_PREV, KEY_NEXT, KEY_DISPLAY_NEXT, KEY_DISPLAY_PREV, KEY_PEEK] {
         let _ = app.global_shortcut().unregister(key);
     }
     set_tray(app, None);
@@ -612,15 +697,20 @@ fn set_tray(app: &AppHandle, line: Option<&str>) {
             };
             let _ = tray.set_icon(Some(icon));
         }
-        // macOS shows this next to the icon: the recording indicator stays visible when the overlay is hidden
-        #[cfg(target_os = "macos")]
-        let _ = tray.set_title(line.map(|l| if l == "Paused" { "Paused" } else { "● REC" }));
+        // no title next to the icon on macOS: the red dot on the icon is the recording indicator
     }
 }
 
 fn register_keys(app: &AppHandle) {
     let gs = app.global_shortcut();
-    let keys: [(&str, fn(&AppHandle)); 5] = [
+    let keys: [(&str, fn(&AppHandle)); 8] = [
+        (KEY_DISPLAY_NEXT, next_display),
+        (KEY_DISPLAY_PREV, |app| {
+            let _ = app.emit_to(MEETING, "meeting://display", -1);
+        }),
+        (KEY_PEEK, |app| {
+            let _ = app.emit_to(MEETING, "meeting://peek", ());
+        }),
         (KEY_PREV, |app| {
             let _ = app.emit_to(MEETING, "meeting://nav", -1);
         }),
@@ -718,6 +808,11 @@ fn watch(app: &AppHandle, stop: &AtomicBool) {
         }
         if let Some(r) = RUN.lock().unwrap().as_ref() {
             let _ = app.emit_to(MEETING, "meeting://level", Levels { me: r.mic.level(), them: r.sys.level() });
+        }
+        if let Some(inside) = app.get_webview_window(MEETING).and_then(|w| place::cursor_inside(&w)) {
+            if HOVER.swap(inside, Ordering::Relaxed) != inside {
+                let _ = app.emit_to(MEETING, "meeting://hover", inside);
+            }
         }
         let s = status();
         let text = serde_json::to_string(&s).unwrap_or_default();
