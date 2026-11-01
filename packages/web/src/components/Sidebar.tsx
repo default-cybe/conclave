@@ -252,7 +252,10 @@ function MoreRow({ path }: { path: string }) {
 
 /** The mode's sessions in groups, with Group by (Code) and All conversations. `phone`: the drawer's sizes. */
 export function SideSessions({ mode, phone, onPick }: { mode: SideMode; phone?: boolean; onPick?: () => void }) {
-  const sessions = useHub((s) => s.sessions);
+  const all = useHub((s) => s.sessions);
+  // a chat someone else owns lists under Shared with you, not with your own
+  const shared = useHub((s) => s.sharedChats);
+  const sessions = useMemo(() => Object.fromEntries(Object.entries(all).filter(([id]) => !shared[id])), [all, shared]);
   const projects = useHub((s) => s.projects);
   const devices = useHub((s) => s.devices);
   const approvals = useHub((s) => s.approvals);

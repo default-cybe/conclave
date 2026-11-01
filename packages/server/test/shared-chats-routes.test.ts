@@ -272,6 +272,22 @@ test('two pending invites to one chat: each invitee accepts or declines their ow
   expect((await accept(two.id, aliceToken)).status).toBe(404);
 });
 
+test(`a participant reads only their own seat id; the owner reads everyone's`, async () => {
+  const seats = await hub.engine.createSession({ kind: 'chat', title: 'Seats' }, 'owner');
+  for (const [id, token] of [[alice, aliceToken], [bob, bobToken]] as const) {
+    await invite(seats.id, id);
+    await accept(seats.id, token);
+  }
+  const seatOf = (rows: { accountId: string; seatId?: string }[], id: string) => rows.find((r) => r.accountId === id)?.seatId;
+  const owner = await (await hub.api(`/api/sessions/${seats.id}/participants`)).json();
+  expect(seatOf(owner, alice)).toBeString();
+  expect(seatOf(owner, bob)).toBeString();
+  const asAlice = await (await hub.api(`/api/sessions/${seats.id}/participants`, { token: aliceToken })).json();
+  expect(seatOf(asAlice, alice)).toBe(seatOf(owner, alice));
+  expect(seatOf(asAlice, bob)).toBeUndefined();
+  expect(JSON.stringify(asAlice)).not.toContain(seatOf(owner, bob)!);
+});
+
 test('an invite notification links to where Accept waits, not to the chat they cannot open yet', async () => {
   const three = await hub.engine.createSession({ kind: 'chat', title: 'Link' }, 'owner');
   const send = spyOn(hub.engine.notifier, 'send');

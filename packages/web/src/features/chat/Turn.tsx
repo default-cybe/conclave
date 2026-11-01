@@ -35,7 +35,7 @@ import { ToolGroup, type ThoughtItem, type WorkItem } from './ToolRows';
 import { workName } from './toolGroups';
 import { useFolded } from './FanOutCard';
 import { thoughtTime } from '@/lib/toolLine';
-import { COMPOSE_EVENT, msgText, readDismissed, writeDismissed, type ComposeDetail } from './util';
+import { COMPOSE_EVENT, SHAPED_CALL, msgText, readDismissed, writeDismissed, type ComposeDetail } from './util';
 import { storedWord } from './Pending';
 import { senderName } from './shared';
 
@@ -295,8 +295,12 @@ function drawThought(t: ThoughtItem) {
 
 export function BlockView({ block, streaming }: { block: ContentBlock; streaming: boolean }) {
   switch (block.type) {
-    case 'text':
+    case 'text': {
+      // another person's tool call in a shared chat: one quiet line, like a tool row, never their output
+      const call = !streaming && SHAPED_CALL.exec(block.text);
+      if (call) return <p className="py-0.5 tx-12 leading-[22px] text-fg-3 phone:tx-13">Used {workName(call[1])}</p>;
       return block.text ? <StreamedMarkdown text={block.text} streaming={streaming} className="my-1" /> : streaming ? <span className="stream-caret inline-block h-5" /> : null;
+    }
     case 'thinking':
       return <Thinking text={block.thinking} streaming={streaming} durationMs={block.durationMs} />;
     case 'redacted_thinking':

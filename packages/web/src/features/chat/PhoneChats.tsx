@@ -33,6 +33,7 @@ import { hrefOf, liveState } from '@/lib/recents';
 import { usePageHeader } from '@/components/ui/Page';
 import { ImportSheet } from '@/features/import/ImportSheet';
 import { isDuplicateCopy } from '@/features/import/ImportedLine';
+import { SharedChatsGroup } from './shared';
 import { ShareProjectButton } from '@/features/friends/ShareProject';
 import { isChat } from './util';
 import { AsciiField } from '@/components/ascii/AsciiField';
@@ -55,6 +56,7 @@ export function PhoneChats({ kind }: { kind: Kind }) {
   const approvals = useHub((s) => s.approvals);
   const questions = useHub((s) => s.questions);
   const booted = useHub((s) => s.booted);
+  const shared = useHub((s) => s.sharedChats);
   const now = useNow(60_000);
   // phones offer Recent, Project and Device; Agent and Task stay on the desktop list
   const stored = useUi((s) => s.listGroup);
@@ -67,8 +69,9 @@ export function PhoneChats({ kind }: { kind: Kind }) {
   // the archived list leads back to the list
   usePageHeader(archived ? (kind === 'chats' ? 'Archived chats' : 'Archived sessions') : undefined, words.root);
 
-  const mine = (s: Session) => !isDuplicateCopy(s) && (kind === 'chats' ? isChat(s) : !isChat(s) && !underParent(s) && !(s.meta as { workflow?: unknown } | undefined)?.workflow);
-  const all = useMemo(() => Object.values(sessions).filter(mine), [sessions, kind]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a chat someone else owns lists under Shared with you (features/chat/shared.tsx)
+  const mine = (s: Session) => !isDuplicateCopy(s) && !shared[s.id] && (kind === 'chats' ? isChat(s) : !isChat(s) && !underParent(s) && !(s.meta as { workflow?: unknown } | undefined)?.workflow);
+  const all = useMemo(() => Object.values(sessions).filter(mine), [sessions, kind, shared]); // eslint-disable-line react-hooks/exhaustive-deps
   // imported chats not continued yet have a section of their own, not the archive (core session/imported.ts)
   const archivedCount = useMemo(() => all.filter((s) => s.archived && !inImported(s)).length, [all]);
   // a subagent's request waits on you in the conversation it shows in (lib/asks.ts)
@@ -183,6 +186,11 @@ export function PhoneChats({ kind }: { kind: Kind }) {
               </li>
             ))}
           </ul>
+        )}
+        {!hits && !archived && !q && kind === 'chats' && (
+          <div className="px-2.5 pt-2">
+            <SharedChatsGroup phone />
+          </div>
         )}
         {!hits && imported.length > 0 && (
           <section aria-label={IMPORTED_WORDS}>

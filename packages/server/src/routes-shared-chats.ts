@@ -105,8 +105,9 @@ export function registerSharedChatRoutes(app: Hono<HonoEnv>, ctx: ServerContext)
     } catch (err) {
       peopleError(err);
     }
-    // shown names only: a member's sign-in name and email never cross accounts
-    return c.json(rows.map((p) => ({ accountId: p.accountId, name: nameOf(p.accountId), access: p.access, state: p.state, history: p.history, ...(p.seatId ? { seatId: p.seatId } : {}), addedAt: p.addedAt })));
+    // shown names only: a member's sign-in name and email never cross accounts; a seat id goes only to the owner and to that person
+    const owner = (engine.sessionAccount(chatId) ?? 'owner') === caller;
+    return c.json(rows.map((p) => ({ accountId: p.accountId, name: nameOf(p.accountId), access: p.access, state: p.state, history: p.history, ...(p.seatId && (owner || p.accountId === caller) ? { seatId: p.seatId } : {}), addedAt: p.addedAt })));
   });
 
   app.post('/api/sessions/:id/participants', async (c) => {

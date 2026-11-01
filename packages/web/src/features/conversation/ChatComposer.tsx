@@ -40,6 +40,8 @@ import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, 
 import { AddButton, fitField, OptionsButton, PHONE_FIELD, PhoneBox, PhoneSend, sizeField } from './PhoneBox';
 import { patchChat, sendTo, startChat, stopChat, type Outgoing } from './actions';
 import { DEFAULTS_EVENT, readDefaults, saveDefaults, setEditing, setRestore, useChatUi, type Thinking } from './state';
+import { useSharedChat } from '@/features/chat/shared';
+import { ModelName } from '@/components/logo';
 
 /** One file; 15 in a message at most, and together what the hub reads in one request (core attachments/limits.ts). */
 const MAX_BYTES = 20 * 1024 * 1024;
@@ -197,9 +199,14 @@ export function ChatComposer({
   const [, navigate] = useLocation();
   const [sw, change] = useSwitches(session);
   const restore = useChatUi((s) => s.restore[chatId]);
+  // a chat with other people in it (features/chat/shared.tsx): in someone else's chat (`mine`) your turns run on your
+  // seat, so its status is your Send and Stop; the owner's settings, files and usage are not yours to change
+  const { shared, mine, seat } = useSharedChat(target ? undefined : session);
+  const [justTalk, setJustTalk] = useState(false);
+  const own = mine ? seat : session;
   // waiting on you (an approval or a question) is still a reply in flight: Stop stays, the Rim breathes amber
-  const onYou = session?.status === 'waiting_approval' || session?.status === 'waiting_input';
-  const running = session?.status === 'running' || onYou;
+  const onYou = own?.status === 'waiting_approval' || own?.status === 'waiting_input';
+  const running = own?.status === 'running' || onYou;
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -306,7 +313,7 @@ export function ChatComposer({
     const ok = target
       ? await target.send(out)
       : session
-        ? await sendTo(session, out)
+        ? await sendTo(mine ? { ...session, status: 'idle' } : session, shared && justTalk ? { ...out, justTalk: true } : out)
         : await startChat(out, { model: sw.model, chat: { webSearch: sw.webSearch, memory: sw.memory, ...(sw.thinking ? { thinking: sw.thinking } : {}), ...(sw.cyber ? { cyber: sw.cyber } : {}) } }, navigate);
     if (!ok) {
       if (alive.current) {
@@ -392,11 +399,33 @@ export function ChatComposer({
   // one light on the box's edge says what the reply is doing (spec 1.3): it runs while the reply
   // runs (from the moment you send), breathes amber while it waits on you, settles
   // when it ends and stays as a short red mark when it fails
-  const status = session?.status;
+  const status = own?.status;
   // a limit has no light (spec 1.3): the reply's grey stub and its countdown say it
   const rim: RimState = onYou ? 'waiting' : running || busy ? 'live' : status === 'error' ? 'failed' : status === 'waiting_reset' ? 'idle' : session ? 'done' : 'idle';
 
-  const placeholder = placeholderProp ?? target?.placeholder ?? (!session ? 'Ask anything' : running ? 'Reply, it will be sent when this one finishes' : 'Reply');
+  const placeholder = placeholderProp ?? target?.placeholder ?? (!session ? 'Ask anything' : shared && justTalk ? 'Message everyone, no AI reply' : running ? 'Reply, it will be sent when this one finishes' : 'Reply');
+  // "Just talk": your words go to the others and start no AI turn (SHARED-WITH-MEMBERS.md 10.1)
+  const talk = shared && (
+    <Tooltip content={justTalk ? 'On: sends to everyone, no AI reply' : 'Send to everyone without an AI reply'}>
+      <button
+        type="button"
+        aria-pressed={justTalk}
+        onClick={() => setJustTalk((v) => !v)}
+        className={cn('shrink-0 rounded-full px-2.5 font-medium transition-colors duration-[var(--dur-1)]', mobile ? 'h-9 text-[14px]' : 'h-[26px] text-[12px]', justTalk ? 'bg-hover text-fg' : 'text-fg-3 hov:bg-hover hov:text-fg')}
+      >
+        Just talk
+      </button>
+    </Tooltip>
+  );
+  // your turns in someone else's chat run on your own account and model: said, not picked here
+  const seatModel = mine && (
+    <span className="flex min-w-0 items-center gap-1 truncate text-[12px] text-fg-3 phone:text-[13px]">
+      Your turns: {seat?.model ? <ModelName model={seat.model} size={13} /> : 'your default model'}
+    </span>
+  );
+  // a Viewer reads only: no box, one quiet line
+  if (mine?.access === 'viewer')
+    return <p className="mx-auto w-full max-w-[784px] px-8 pb-4 text-center text-[13px] text-fg-3 phone:px-4">Read only: the owner gave you read access.</p>;
   const sendLabel = target?.sendLabel ?? 'Send';
 
   const memoryNote = !target && !sw.memory;
@@ -470,14 +499,23 @@ export function ChatComposer({
             rim={rim}
             attachments={<AttachmentStrip phone files={files} onRemove={(i) => setFiles((x) => x.filter((_, k) => k !== i))} />}
             field={field(PHONE_FIELD)}
-            add={<AddButton onFiles={(list) => void addFiles(list)} accept={ACCEPT} />}
-            options={target ? target.phoneOptions : <OptionsButton label="Options: web and memory" onClick={() => setSheet(true)} />}
-            model={target ? <PhoneModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} cyber={target.cyber} onCyber={target.onCyber} harnesses={target.harnesses} /> : <PhoneModelEffort model={sw.model} value={sw.thinking} onModel={(m) => change({ model: m })} onEffort={(v) => change({ thinking: v })} cyber={sw.cyber} onCyber={(v) => change({ cyber: v })} />}
+            add={mine ? null : <AddButton onFiles={(list) => void addFiles(list)} accept={ACCEPT} />}
+            options={
+              target ? (
+                target.phoneOptions
+              ) : (
+                <>
+                  {!mine && <OptionsButton label="Options: web and memory" onClick={() => setSheet(true)} />}
+                  {talk}
+                </>
+              )
+            }
+            model={mine ? undefined : target ? <PhoneModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} cyber={target.cyber} onCyber={target.onCyber} harnesses={target.harnesses} /> : <PhoneModelEffort model={sw.model} value={sw.thinking} onModel={(m) => change({ model: m })} onEffort={(v) => change({ thinking: v })} cyber={sw.cyber} onCyber={(v) => change({ cyber: v })} />}
             mic={canDictate() && <DictateButton onText={(t) => setText((x) => (x.trim() ? `${x.trimEnd()} ${t}` : t))} />}
             send={<PhoneSend running={running} ready={hasText} label={sendLabel} onSend={send} onStop={stop} keepFocus={() => document.activeElement === box.current} />}
           />
         </div>
-        {session && <StatusLine session={session} phone />}
+        {mine ? <div className="mt-1.5 flex justify-center px-2">{seatModel}</div> : session && <StatusLine session={session} phone />}
         {notes}
         {!target && (
           <Sheet open={sheet} onClose={() => setSheet(false)} title="Options">
@@ -517,7 +555,8 @@ export function ChatComposer({
           <AttachmentStrip files={files} onRemove={(i) => setFiles((x) => x.filter((_, k) => k !== i))} />
           {field('t-chat block w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-fg outline-none placeholder:text-fg-3 focus-visible:outline-none')}
           <div className="flex items-center gap-1 px-2 pb-2">
-            <PlusMenu items={plus} accept={ACCEPT} onFiles={(list) => void addFiles(list)} />
+            {!mine && <PlusMenu items={plus} accept={ACCEPT} onFiles={(list) => void addFiles(list)} />}
+            {talk}
             <span className="flex-1" />
             {canDictate() && <DictateButton onText={(t) => setText((x) => (x.trim() ? `${x.trimEnd()} ${t}` : t))} className="size-[30px] [&_svg]:size-[18px]" />}
             <Tooltip content={running && !hasText ? (<span className="inline-flex items-center gap-1.5">Stop <Kbd>esc</Kbd></span>) : running ? 'Send when this reply ends' : sendLabel}>
@@ -540,13 +579,17 @@ export function ChatComposer({
       <QuietRow
         left={target?.left}
         right={
-          <>
-            {modelEffort}
-            <ContextRing session={session} model={target ? target.model : sw.model} />
-          </>
+          mine ? (
+            seatModel
+          ) : (
+            <>
+              {modelEffort}
+              <ContextRing session={session} model={target ? target.model : sw.model} />
+            </>
+          )
         }
       />
-      {session && <StatusLine session={session} />}
+      {session && !mine && <StatusLine session={session} />}
       {notes}
     </div>
   );

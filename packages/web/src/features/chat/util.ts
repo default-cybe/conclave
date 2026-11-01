@@ -61,8 +61,12 @@ export function isChat(s: Pick<Session, 'kind'> | undefined): boolean {
 }
 
 export function isToolResultOnly(m: Message) {
-  return m.role === 'user' && m.content.length > 0 && m.content.every((b) => b.type === 'tool_result');
+  // another person's turn in a shared chat reads its results as "[Tool completed]" lines (core sharedMessageView)
+  return m.role === 'user' && m.content.length > 0 && m.content.every((b) => b.type === 'tool_result' || (b.type === 'text' && SHAPED_RESULT.test(b.text)));
 }
+const SHAPED_RESULT = /^\[Tool (completed|failed)\]$/;
+/** The one-line summary of another person's tool call in a shared chat ("[Called WebSearch]"), as the hub shapes it. */
+export const SHAPED_CALL = /^\[Called ([^\]\n]+)\]$/;
 
 /** Strip markdown down to plain words for one line summaries. */
 export function plain(md: string): string {

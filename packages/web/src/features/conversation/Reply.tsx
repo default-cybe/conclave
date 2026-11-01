@@ -29,7 +29,8 @@ import { Button, ButtonLink, IconButton } from '@/components/ui/Button';
 import { ConfirmDialog, MenuList, Popover } from '@/components/ui/Overlay';
 import { ModelList } from '@/components/pickers/ModelPicker';
 import { Fold, InkReveal, Knot, LiveStatus, Steps, Swap, type MarkState, type Step } from '@/components/motion';
-import { readDismissed, resultText, writeDismissed } from '@/features/chat/util';
+import { readDismissed, resultText, SHAPED_CALL, writeDismissed } from '@/features/chat/util';
+import { PersonLine, senderName, useGuest, useMeId } from '@/features/chat/shared';
 import { canSend, SendToFriendDialog } from '@/features/friends/SendToFriend';
 import { ReplyIcons } from './ReplyIcons';
 import { ChatCode, ChatMarkdown } from './ChatMarkdown';
@@ -410,6 +411,11 @@ export const Reply = memo(function Reply({ reply, session, isLast, live, phase, 
   const thinks = useModelThinks(session.model) && !!session.chat?.thinking && session.chat.thinking !== 'off';
   // the reply ended without finishing: it failed, or it waits for a limit to reset; its Knot says so in place
   const held: 'failed' | 'paused' | null = isLast && !live ? (failed ? 'failed' : resuming ? 'paused' : null) : null;
+  // a shared chat: another person's turn says who started it and on which model; its actions are theirs, Copy is yours
+  const meId = useMeId();
+  const guest = useGuest(session);
+  const first = reply.messages.find((m) => m.role === 'assistant');
+  const starter = first ? senderName(first, meId) : undefined;
 
   if (!pieces.length && !live && !held) return null;
 
@@ -434,6 +440,13 @@ export const Reply = memo(function Reply({ reply, session, isLast, live, phase, 
 
   return (
     <div id={last ? `cm-${last.id}` : undefined} className={cn('group/reply relative', leaving && 'cv-leave')}>
+      {starter && (
+        <PersonLine name={starter}>
+          <span className="inline-flex min-w-0 items-center gap-1 truncate">
+            via <ModelName model={first?.model ?? session.model} size={13} />
+          </span>
+        </PersonLine>
+      )}
       {placeholder && <ThoughtFold key="thought-0" keyId="" block={NO_THOUGHT} live late={lateStart} />}
       {pieces.map((p) => {
         switch (p.kind) {
@@ -462,6 +475,9 @@ export const Reply = memo(function Reply({ reply, session, isLast, live, phase, 
             return <img key={p.key} src={p.src} alt="Image from the model" className="my-2 max-h-80 rounded-[var(--r-2)] border border-rule" />;
           case 'text': {
             const on = live && phase === 'writing' && p.last && !!streaming[p.msg.id];
+            // another person's tool call, as the hub shapes it for you: one line, like a finished tool row
+            const call = !on && SHAPED_CALL.exec(p.text);
+            if (call) return <Line key={p.key}>Used {call[1].replace(/^mcp__/, '').replace(/__/g, ' ')}</Line>;
             return (
               <InkReveal key={p.key} active={on} className="my-1 first:mt-0">
                 <ChatMarkdown text={p.text} streaming={on} id={p.key} />
@@ -473,7 +489,7 @@ export const Reply = memo(function Reply({ reply, session, isLast, live, phase, 
       {sources.length > 0 && <Sources list={sources} />}
       {/* every finished reply ends with its actions: on hover on a desktop (always on the last), always on a phone */}
       {(live ? isLast : !!last || !!held) && (
-        <ReplyFoot reply={reply} session={session} text={text} mark={foot} via={onYou && phase === 'tool' ? 'tool' : undefined} live={live} held={held} isLast={isLast} after={after} menuOpen={menuOpen} setMenuOpen={setMenuOpen} extra={extraAction}>
+        <ReplyFoot copyOnly={!!starter || guest} reply={reply} session={session} text={text} mark={foot} via={onYou && phase === 'tool' ? 'tool' : undefined} live={live} held={held} isLast={isLast} after={after} menuOpen={menuOpen} setMenuOpen={setMenuOpen} extra={extraAction}>
           {live && <FootStatus waiting={phase === 'waiting' && !placeholder} onYou={!!onYou} startedAt={startedAt} step={shownStep} />}
         </ReplyFoot>
       )}
@@ -530,6 +546,7 @@ function Sources({ list }: { list: Array<{ n: number; url: string; host: string;
 const REVEAL = 'opacity-0 transition-opacity duration-[var(--dur-1)] group-hover/reply:opacity-100 group-focus-within/reply:opacity-100 coarse:opacity-100';
 
 function ReplyFoot({
+  copyOnly,
   reply,
   session,
   text,
@@ -544,6 +561,8 @@ function ReplyFoot({
   extra,
   children,
 }: {
+  /** Another person's turn, or a chat you do not own: Copy only (Retry, Branch and the rest are the owner's, on their account). */
+  copyOnly?: boolean;
   reply: ReplyUnit;
   session: Session;
   text: string;
@@ -577,7 +596,7 @@ function ReplyFoot({
   const model = reply.model ?? last?.model ?? (fromImport ? ((session.meta?.import as { model?: string } | undefined)?.model ?? '') : session.model);
   const source = fromImport && !model ? importedSourceName(session) : undefined;
   const suggestsSession = /continue as a session/i.test(text);
-  const user = reply.user;
+  const user = copyOnly ? undefined : reply.user;
 
   const retry = async (withModel?: string) => {
     if (!user) return;
@@ -629,7 +648,7 @@ function ReplyFoot({
       {held === 'failed' && <FailedWords session={session} user={user} />}
       {held === 'paused' && <LiveStatus state="resuming" resumeAt={session.resumeAt} countdown={!!session.resumeAt} label={session.resumeAt ? undefined : 'Resumes when the limit resets'} mark={false} />}
       {live && children}
-      {!live && !held && last && mobile && <ReplyIcons ref={moreRef} text={text} onRetry={user ? () => askRetry() : undefined} onMore={() => setMenuOpen(!menuOpen)} moreOpen={menuOpen} quiet={!isLast} extra={extra} />}
+      {!live && !held && last && mobile && <ReplyIcons ref={moreRef} text={text} onRetry={user ? () => askRetry() : undefined} onMore={copyOnly ? undefined : () => setMenuOpen(!menuOpen)} moreOpen={menuOpen} quiet={!isLast} extra={extra} />}
       {!live && !held && last && !mobile && (
         <>
           <span className={cn('flex min-w-0 items-center', !mark && '-ml-1.5', !isLast && REVEAL, (pick || menuOpen) && 'opacity-100')}>
@@ -641,7 +660,7 @@ function ReplyFoot({
                 </Swap>
               </Act>
             )}
-            {!mobile && (
+            {!mobile && !copyOnly && (
               <>
                 {user && <Act onClick={() => askRetry()}>Retry</Act>}
                 {extra}
@@ -652,9 +671,9 @@ function ReplyFoot({
                 {suggestsSession && <Act onClick={() => openContinue(session.id)}>Continue as a session</Act>}
               </>
             )}
-            <IconButton ref={moreRef} label="More actions" size={mobile ? 'lg' : 'sm'} aria-haspopup="menu" aria-expanded={menuOpen} active={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
+            {!copyOnly && <IconButton ref={moreRef} label="More actions" size={mobile ? 'lg' : 'sm'} aria-haspopup="menu" aria-expanded={menuOpen} active={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
               <MoreHorizontal />
-            </IconButton>
+            </IconButton>}
           </span>
           {/* a narrow column (a preview open beside it) keeps the actions and drops the model and time */}
           <span className={cn('ml-auto flex shrink-0 items-center gap-2 pl-3 text-[12px] text-fg-3 @max-[640px]:hidden phone:text-[13px]', !isLast && REVEAL, mobile && 'hidden')}>

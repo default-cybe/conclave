@@ -36,7 +36,7 @@ export function startedWords(ts: number, now = Date.now()): string {
   return `${day(ts) === day(now) ? 'Today' : shortDate(ts)}, ${hhmm(ts)}`;
 }
 
-export function ConversationSheet({ session, open, onClose }: { session: Session; open: boolean; onClose: () => void }) {
+export function ConversationSheet({ session, open, onClose, onPeople }: { session: Session; open: boolean; onClose: () => void; /** A chat shared with others: its people (features/chat/shared.tsx). */ onPeople?: () => void }) {
   const device = useHub((s) => s.devices[session.device]?.name ?? session.device);
   const [, navigate] = useLocation();
   const [renaming, setRenaming] = useState(false);
@@ -97,6 +97,7 @@ export function ConversationSheet({ session, open, onClose }: { session: Session
         <div aria-hidden className="mx-4 my-2 h-px bg-rule" />
         <div className="px-2 pb-3">
           {live && <Action onClick={() => (onClose(), chat ? void stopChat(session.id) : void attempt(() => api().abort(session.id)))}>Stop</Action>}
+          {onPeople && <Action onClick={later(onPeople)}>People in this chat…</Action>}
           {isDelegated(session) && <Action onClick={() => (onClose(), void moveToMainList(session.id))}>{MOVE_TO_MAIN}</Action>}
           <Action onClick={later(() => setRenaming(true))}>Rename</Action>
           <RepoSheetActions session={session} onClose={onClose} Action={Action} />

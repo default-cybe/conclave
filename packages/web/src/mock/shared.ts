@@ -50,6 +50,7 @@ export function registerSharedChats(ctx: MockCtx) {
   // Nihir's chat you are in. His turn is shaped as you read it: text and a one-line tool summary, "via" his model.
   const trip: Session = {
     id: 'c_trip',
+    kind: 'chat',
     accountId: 'acc_nihir',
     title: 'Lisbon weekend',
     agent: 'chat',
@@ -72,6 +73,7 @@ export function registerSharedChats(ctx: MockCtx) {
   // your own chat, shared: Nihir writes and his turns run on his account, Mira waits on the invite
   const secu: Session = {
     id: 'c_secu',
+    kind: 'chat',
     title: 'SECU2002 study group',
     agent: 'chat',
     model: SONNET,
@@ -99,16 +101,18 @@ export function registerSharedChats(ctx: MockCtx) {
     db.sessions.set('c_trip', trip);
     db.messages.set('c_trip', [
       msg('c_trip', 1, 'user', [t('Three days in Lisbon in April: what should we not miss?')], { sender: 'account:acc_nihir', author: 'Nihir' }),
-      msg('c_trip', 2, 'assistant', [t('[Called WebSearch]')], { sender: 'account:acc_nihir', author: 'Nihir', model: GLM, kind: 'aside' }),
-      msg('c_trip', 3, 'assistant', [t('Skip Alfama at noon. Take tram 15 to Belém in the morning, then the Gulbenkian after lunch, and keep the evening for the old town once the day-trippers leave.')], { sender: 'account:acc_nihir', author: 'Nihir', model: GLM }),
-      msg('c_trip', 4, 'user', [t('Works for me. Mira, does the Saturday flight work?')], { sender: `account:${ME}`, author: 'Kai' }),
+      msg('c_trip', 2, 'assistant', [t('Checking what is on in April.'), t('[Called WebSearch]')], { sender: 'account:acc_nihir', author: 'Nihir', model: GLM }),
+      msg('c_trip', 3, 'user', [t('[Tool completed]')], { sender: 'account:acc_nihir', author: 'Nihir' }),
+      msg('c_trip', 4, 'assistant', [t('Skip Alfama at noon. Take tram 15 to Belém in the morning, then the Gulbenkian after lunch, and keep the evening for the old town once the day-trippers leave.')], { sender: 'account:acc_nihir', author: 'Nihir', model: GLM }),
+      msg('c_trip', 5, 'user', [t('Works for me. Mira, does the Saturday flight work?')], { sender: `account:${ME}`, author: 'Kai' }),
     ]);
     db.sessions.set('c_secu', secu);
     db.messages.set('c_secu', [
       msg('c_secu', 1, 'user', [t('For the secure coding review, I want to cover integer overflow with the PDF activity as the example.')], { sender: `account:${ME}` }),
       msg('c_secu', 2, 'user', [t('I can take the CSRF part. I already have slides from last year.')], { sender: 'account:acc_nihir', author: 'Nihir' }),
-      msg('c_secu', 3, 'assistant', [t('[Called WebSearch]')], { sender: 'account:acc_nihir', author: 'Nihir', model: GLM, kind: 'aside' }),
-      msg('c_secu', 4, 'assistant', [t('CSRF slides are in. The OWASP cheat sheet changed its double-submit guidance this year, so slide 4 needs a re-read before you present it.')], { sender: 'account:acc_nihir', author: 'Nihir', model: GLM }),
+      msg('c_secu', 3, 'assistant', [t('Pulling the current OWASP guidance.'), t('[Called WebSearch]')], { sender: 'account:acc_nihir', author: 'Nihir', model: GLM }),
+      msg('c_secu', 4, 'user', [t('[Tool completed]')], { sender: 'account:acc_nihir', author: 'Nihir' }),
+      msg('c_secu', 5, 'assistant', [t('CSRF slides are in. The OWASP cheat sheet changed its double-submit guidance this year, so slide 4 needs a re-read before you present it.')], { sender: 'account:acc_nihir', author: 'Nihir', model: GLM }),
     ]);
   }
 
@@ -117,14 +121,17 @@ export function registerSharedChats(ctx: MockCtx) {
       const s = db.sessions.get(r.chatId);
       return { chatId: r.chatId, title: s?.title ?? 'Shared chat', owner: NAMES[s?.accountId as string] ?? 'Nihir', access: r.access, history: r.history, invitedAt: r.addedAt };
     });
-  const of = (chatId: string) =>
-    [...rows.values()].filter((r) => r.chatId === chatId && r.state !== 'declined').map(({ name: _n, ...r }) => r);
+  // as the hub: shown names, and a seat id only for the owner and for that person (routes-shared-chats.ts)
+  const of = (chatId: string) => {
+    const owner = !db.sessions.get(chatId)?.accountId;
+    return [...rows.values()].filter((r) => r.chatId === chatId && r.state !== 'declined').map(({ seatId, ...r }) => ({ ...r, ...(seatId && (owner || r.accountId === ME) ? { seatId } : {}) }));
+  };
 
   const { on } = ctx;
   on('GET', '/api/contacts', () => [NAMES.acc_nihir, NAMES.acc_mira].map((name, i) => ({ party: `account:${i === 0 ? 'acc_nihir' : 'acc_mira'}` as const, name })));
   on('GET', '/api/chats/invites', () => [...invites.values()]);
   on('GET', '/api/chats/shared', () => myCards());
-  on('GET', '/api/sessions/:id', ({ params }) => db.sessions.get(params[0]) ?? ctx.notFound());
+  on('GET', '/api/sessions/:id', ({ params }) => db.sessions.get(params[0]) ?? [...seats.values()].find((s) => s.id === params[0]) ?? ctx.notFound());
   on('GET', '/api/sessions/:id/participants', ({ params }) => of(params[0]));
   on('POST', '/api/chats/invites/:id/accept', ({ params }) => {
     const key = `${params[0]}:${ME}`;
@@ -169,6 +176,23 @@ export function registerSharedChats(ctx: MockCtx) {
     return r;
   });
 
+  // your seat in Nihir's chat: your own session your turns run in, kept out of the chat list; its status drives your Stop
+  const seats = new Map<string, Session>([['c_trip', { ...trip, id: 'seat_kai_trip', accountId: ME, model: SONNET, status: 'idle', meta: { seat: { chatId: 'c_trip' } } }]]);
+  const seatSet = (chatId: string, status: Session['status']) => {
+    const s = seats.get(chatId);
+    if (!s) return;
+    s.status = status;
+    s.updatedAt = Date.now();
+    emit({ type: 'session.updated', session: structuredClone(s) });
+  };
+  const stopped = new Set<string>();
+  on('POST', '/api/sessions/:id/abort', ({ params }) => {
+    if (!seats.has(params[0]) || seats.get(params[0])!.status !== 'running') return ctx.pass;
+    stopped.add(params[0]);
+    seatSet(params[0], 'idle');
+    return { ok: true };
+  });
+
   // a post in someone else's chat: your message, then your turn on your own account
   on('POST', '/api/sessions/:id/messages', async ({ params, body }) => {
     const mine = rows.get(`${params[0]}:${ME}`);
@@ -181,18 +205,17 @@ export function registerSharedChats(ctx: MockCtx) {
     db.messages.set(params[0], [...list, m]);
     emit({ type: 'message.created', message: structuredClone(m) });
     if (body?.justTalk) return { message: structuredClone(m), queued: false as const };
-    const s = db.sessions.get(params[0])!;
-    patch({ ...s, status: 'running' });
-    await sleep(2_500);
-    const a = msg(params[0], seq + 1, 'assistant', [t('On it from my own account. Two options that fit, and one to avoid: the Saturday ferry books out, so lock that first.')], { sender: `account:${ME}`, author: 'Kai', model: s.model, createdAt: Date.now() });
-    db.messages.set(params[0], [...(db.messages.get(params[0]) ?? []), a]);
-    emit({ type: 'message.created', message: structuredClone(a) });
-    patch({ ...s, status: 'idle' });
-    return { message: structuredClone(a), queued: false as const };
+    // the send answers at once; your turn runs on your seat, with your model (MOCK_SEAT_MS holds it for screenshots)
+    const chatId = params[0];
+    stopped.delete(chatId);
+    seatSet(chatId, 'running');
+    void sleep(Number(globalThis.localStorage?.getItem('MOCK_SEAT_MS')) || 2_500).then(() => {
+      if (stopped.has(chatId)) return;
+      const a = msg(chatId, (db.messages.get(chatId) ?? []).length + 1, 'assistant', [t('On it from my own account. Two options that fit, and one to avoid: the Saturday ferry books out, so lock that first.')], { sender: `account:${ME}`, author: 'Kai', model: seats.get(chatId)?.model, createdAt: Date.now() });
+      db.messages.set(chatId, [...(db.messages.get(chatId) ?? []), a]);
+      emit({ type: 'message.created', message: structuredClone(a) });
+      seatSet(chatId, 'idle');
+    });
+    return { message: structuredClone(m), queued: false as const };
   });
-
-  function patch(s: Session) {
-    db.sessions.set(s.id, { ...s, updatedAt: Date.now() });
-    emit({ type: 'session.updated', session: structuredClone(db.sessions.get(s.id)!) });
-  }
 }

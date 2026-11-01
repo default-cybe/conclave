@@ -20,7 +20,7 @@ import { ImageThumb } from '@/components/ui/ImageViewer';
 import { Swap } from '@/components/motion';
 import { pendingPreview, removeQueued, useHub } from '@/store/store';
 import { msgText } from '@/features/chat/util';
-import { senderName } from '@/features/chat/shared';
+import { PersonLine, senderName } from '@/features/chat/shared';
 import { pendingWord, SendHeld, storedWord } from '@/features/chat/Pending';
 import { attachmentsOf, branchChat, replaceFrom } from './actions';
 import { BUBBLE, BubbleText } from '@/components/ui/Bubble';
@@ -100,14 +100,10 @@ export const UserMessage = memo(function UserMessage({ message, session, after, 
   if (from)
     return (
       <div id={`cm-${message.id}`} className="flex flex-col items-start" data-shared-from={from}>
-        <span className="mb-1 flex items-center gap-1.5 text-[12px] text-fg-3 phone:text-[13px]">
-          <span aria-hidden className="grid size-4 place-items-center rounded-full border border-rule-2 bg-sunk text-[9px] font-medium text-fg-2">
-            {from.trim().charAt(0).toUpperCase()}
-          </span>
-          <span className="truncate">{from}</span>
+        <PersonLine name={from}>
           <span className="num">{hhmm(message.createdAt)}</span>
-        </span>
-        <div className={cn(BUBBLE.replace('text-fg', 'text-fg-2'), 'max-w-[min(85%,520px)] phone:max-w-[85%]')}>
+        </PersonLine>
+        <div className={cn(BUBBLE, 'max-w-[min(85%,520px)] phone:max-w-[85%]')}>
           <BubbleText text={text} />
         </div>
       </div>

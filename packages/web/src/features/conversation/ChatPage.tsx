@@ -42,6 +42,7 @@ import { PreviewPanel, PreviewSheet } from './Preview';
 import { EmptyConversation } from '@/features/home/EmptyConversation';
 import { setStartMode } from '@/features/home/start';
 import { closePreview, openContinue, useChatUi } from './state';
+import { PeopleControl, PeopleSheet, useGuest, useHasPeople } from '@/features/chat/shared';
 
 
 export default function ChatPage() {
@@ -61,6 +62,10 @@ export default function ChatPage() {
   const [drag, setDrag] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [sheet, setSheet] = useState(false);
+  const [people, setPeople] = useState(false);
+  // someone else's chat you are in: no settings, usage or details of the owner's (features/chat/shared.tsx)
+  const guest = useGuest(session);
+  const hasPeople = useHasPeople(phone ? session : undefined);
 
   useEffect(() => (id ? retainTranscript(id) : undefined), [id]);
   // the sidebar's switch follows the open page: a chat, or a new one
@@ -113,7 +118,7 @@ export default function ChatPage() {
   const previewW = dockPreview && preview ? Math.max(420, Math.round(width * 0.46)) : 0;
   // the chat's cards at the right on wide screens, unless a preview has that place
   const wide = bp === 'wide';
-  const panel = !!session && wide && contextOpen && !previewW;
+  const panel = !!session && !guest && wide && contextOpen && !previewW;
   const missing = !!id && !session && booted;
 
   const onDragOver = (e: DragEvent) => {
@@ -170,7 +175,7 @@ export default function ChatPage() {
         onDragLeave={onDragLeave}
         onDrop={onDrop}
       >
-        {phone && <PhoneBar title={session?.title ?? (id ? 'Chat' : 'New chat')} onTitle={session ? () => setSheet(true) : undefined} titleLabel={session ? `${session.title}, details` : undefined} />}
+        {phone && <PhoneBar title={session?.title ?? (id ? 'Chat' : 'New chat')} onTitle={session ? () => (guest ? setPeople(true) : setSheet(true)) : undefined} titleLabel={session ? (guest ? `${session.title}, people` : `${session.title}, details`) : undefined} />}
         {column}
       </div>
       {dockPreview ? <PreviewPanel width={previewW} /> : <PreviewSheet />}
@@ -179,12 +184,13 @@ export default function ChatPage() {
           <ContextPanel session={session} />
         </div>
       )}
-      {!phone && !wide && session && (
+      {!phone && !wide && session && !guest && (
         <SideSheet open={drawer} onClose={() => useUi.getState().set({ drawerOpen: false })} width={PANEL_W} label="Chat details" modal={false}>
           <ContextPanel session={session} onClose={() => useUi.getState().set({ drawerOpen: false })} />
         </SideSheet>
       )}
-      {phone && session && <ConversationSheet session={session} open={sheet} onClose={() => setSheet(false)} />}
+      {phone && session && !guest && <ConversationSheet session={session} open={sheet} onClose={() => setSheet(false)} onPeople={hasPeople ? () => setPeople(true) : undefined} />}
+      {phone && session && <PeopleSheet session={session} open={people} onClose={() => setPeople(false)} />}
       <ContinueDialog />
     </div>
   );
@@ -201,6 +207,7 @@ function ChatHeader({ id, renaming, setRenaming }: { id?: string; renaming: bool
   const drawer = useUi((s) => s.drawerOpen);
   const wide = useBreakpoint() === 'wide';
   const scrolled = useChatUi((s) => s.scrolled);
+  const guest = useGuest(session);
   const [title, setTitle] = useState('');
   // start from the current title when renaming opens; updates while you type (status, stats) leave your words alone
   useEffect(() => {
@@ -236,6 +243,8 @@ function ChatHeader({ id, renaming, setRenaming }: { id?: string; renaming: bool
               }}
               className="w-full max-w-[480px]"
             />
+          ) : guest ? (
+            <span className="t-title min-w-0 truncate px-2 py-0.5 text-fg">{session.title}</span>
           ) : (
             <button type="button" onClick={() => setRenaming(true)} title="Rename" className="t-title min-w-0 truncate rounded-[var(--r-1)] px-2 py-0.5 text-fg hov:bg-hover">
               {session.title}
@@ -243,8 +252,9 @@ function ChatHeader({ id, renaming, setRenaming }: { id?: string; renaming: bool
           ))}
       </div>
       <div className="flex items-center justify-end gap-0.5 pr-3">
-        {session && <ChatMenu id={session.id} onRename={() => setRenaming(true)} />}
-        {session && (
+        {session && <PeopleControl session={session} />}
+        {session && !guest && <ChatMenu id={session.id} onRename={() => setRenaming(true)} />}
+        {session && !guest && (
           <IconButton label={wide ? (contextOpen ? 'Hide details' : 'Show details') : 'Details'} active={wide ? contextOpen : drawer} onClick={toggleContext}>
             <PanelRight />
           </IconButton>
