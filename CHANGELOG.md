@@ -9,6 +9,11 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Changed
+
+- Agent loop: each step reads the stored transcript from the last summary's `coversThroughSeq` instead of seq 0, and the context-clearing pass shares that one read, so long sessions no longer list and parse the whole transcript two to three times per step.
+- Subagents with a schema (Task, workflow steps) no longer make one extra model call after a valid StructuredOutput call: the turn ends right away, on the batched and the serial path, with no end-of-turn notice.
+
 ### Fixed
 
 - Devices: a hub event-loop stall no longer closes healthy daemon sockets. The daemon sweep now tells a late tick (more than 2 heartbeats after the last one, so every device's last-heard time is stale) from real silence: it pings and skips the 4008 heartbeat-timeout close for that round; the next on-time round closes a device that is really gone.

@@ -177,10 +177,11 @@ export function markCleared(all: Message[], plan: ClearPlan, at: number): Messag
 
 /**
  * Plan and store one clearing batch for a session. Returns how many results
- * and payloads it cleared (0 when the threshold was not reached).
+ * and payloads it cleared (0 when the threshold was not reached). `all` is the
+ * caller's already-read active list (transcript.ts activeStored), so a step
+ * shares one transcript read with this pass; without it the full list is read.
  */
-export function applyClearing(engine: Engine, sessionId: string, opts: ClearOptions = {}): number {
-  const all = engine.repos.messages.list(sessionId);
+export function applyClearing(engine: Engine, sessionId: string, opts: ClearOptions = {}, all: Message[] = engine.repos.messages.list(sessionId)): number {
   const plan = planClearing(activeMessages(all), opts);
   const n = plan.results.size + plan.inputs.size;
   if (!n) return 0;
