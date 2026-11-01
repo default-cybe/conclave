@@ -1,0 +1,513 @@
+/*
+  The pet and the agent glyphs (components/motion/Pet.tsx, AgentGlyph.tsx;
+  docs/design/CHAT-AND-MOTION.md 1.11). SVG strokes in currentColor, --signal
+  for the light, transform, opacity and stroke-dashoffset only. The base
+  styles are each state's key pose: [data-still] (reduced motion or `still`)
+  drops the animations and leaves that pose. [data-paused] (off screen, a
+  background tab) holds them where they are (motion.css).
+*/
+
+.cv-pet,
+.cv-glyph {
+  flex: none;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.cv-pet *,
+.cv-glyph * {
+  transform-box: view-box;
+}
+:is(.cv-pet, .cv-glyph)[data-still] * {
+  animation: none !important;
+}
+
+/* ---- the pet ---------------------------------------------------------- */
+
+/* the body is tinted, not filled, so it reads on --bg, --bg-raise and the wave */
+.cv-pet .p-loop {
+  fill: currentColor;
+  fill-opacity: 0.08;
+}
+.cv-pet .p-shadow {
+  stroke-width: 1;
+  opacity: 0.2;
+  transform-origin: 14px 23px;
+}
+.cv-pet .p-curl {
+  stroke-width: 1.4;
+  transform-origin: 14px 5px;
+}
+.cv-pet .p-eye {
+  fill: currentColor;
+  stroke: none;
+}
+.cv-pet .p-glint {
+  fill: var(--bg);
+  stroke: none;
+}
+.cv-pet .p-face {
+  stroke-width: 1.25;
+}
+.cv-pet .p-thin {
+  stroke-width: 1.1;
+}
+.cv-pet .p-fault {
+  stroke: var(--fault);
+}
+.cv-pet .p-warn {
+  stroke: var(--warn);
+}
+.cv-pet .p-hand {
+  fill: var(--warn);
+  stroke: none;
+}
+
+/* breath from the seat; the arm and its prop stay put */
+.cv-pet .p-body {
+  transform-origin: 14px 20.5px;
+  animation: pet-breath var(--loop-breath) var(--ease-sine) infinite;
+}
+.cv-pet:is([data-state='done'], [data-state='failed']) .p-body {
+  animation: none;
+}
+.cv-pet .p-blink {
+  transform-origin: 14px 12.6px;
+}
+/* three 5.3s blink cycles, the third a double blink; a blink is --dur-blink (140ms, 0.88%) */
+.cv-pet:is([data-state='idle'], [data-state='waiting']) .p-blink {
+  animation: pet-blink 15.9s linear infinite;
+}
+/* the arm swings round the shoulder (PET_SHOULDER) */
+.cv-pet .p-swing {
+  transform-origin: 23.3px 14.6px;
+}
+
+/* thinking: eyes up and right, the curl lights, the light runs round the body */
+.cv-pet[data-state='thinking'] .p-look {
+  transform: translate(0.6px, -0.8px);
+}
+.cv-pet[data-state='thinking'] .p-curl {
+  stroke: var(--signal);
+}
+.cv-pet .p-light {
+  stroke: var(--signal);
+  stroke-dasharray: 18 82;
+  stroke-dashoffset: 36;
+  animation: pet-lap var(--loop-knot) var(--ease-morph) infinite;
+}
+
+/* researching: the magnifier sweeps and the eyes follow it */
+.cv-pet[data-state='researching'] .p-look {
+  transform: translateX(0.7px);
+  animation: pet-follow var(--loop-knot-tool) var(--ease-sine) infinite;
+}
+.cv-pet[data-state='researching'] .p-swing {
+  animation: pet-sweep var(--loop-knot-tool) var(--ease-sine) infinite;
+}
+
+/* building: eyes on the work, the hammer taps in --dur-2, a block steps in on each of the first three taps */
+.cv-pet[data-state='building'] .p-look {
+  transform: translate(0.6px, 0.5px);
+}
+.cv-pet[data-state='building'] .p-swing {
+  animation: pet-tap calc(var(--loop-knot) / 4) var(--ease) infinite;
+}
+.cv-pet .p-block {
+  stroke-width: 1;
+}
+.cv-pet .p-block:nth-of-type(3) {
+  opacity: 0;
+}
+.cv-pet .p-block:nth-of-type(1) {
+  animation: pet-b1 var(--loop-knot) var(--ease) infinite;
+}
+.cv-pet .p-block:nth-of-type(2) {
+  animation: pet-b2 var(--loop-knot) var(--ease) infinite;
+}
+.cv-pet .p-block:nth-of-type(3) {
+  animation: pet-b3 var(--loop-knot) var(--ease) infinite;
+}
+
+/* testing: eyes on the list, three ticks draw one after the other and stay, then a rest */
+.cv-pet[data-state='testing'] .p-look {
+  transform: translate(0.7px, -0.3px);
+}
+.cv-pet .p-tick {
+  stroke: var(--ok);
+  stroke-width: 1.25;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  animation: pet-tick var(--loop-knot) var(--ease) infinite;
+  animation-delay: calc(var(--i) * var(--dur-3));
+}
+
+/* reviewing: round glasses; the eyes scan inside them */
+.cv-pet[data-state='reviewing'] .p-look {
+  animation: pet-scan var(--loop-knot-tool) var(--ease-sine) infinite;
+}
+
+/* waiting: eyes up, the amber hand waves twice, then holds up */
+.cv-pet[data-state='waiting'] .p-look {
+  transform: translate(0.5px, -0.8px);
+}
+.cv-pet[data-state='waiting'] .p-swing {
+  animation: pet-wave var(--loop-knot) var(--ease-sine) infinite;
+}
+
+/* parked: asleep and slumped, the curl droops, three z's fade in one at a time */
+.cv-pet[data-state='parked'] .p-body {
+  transform: scale(1.02, 0.95);
+  animation: pet-sleep calc(var(--loop-breath) * 1.5) var(--ease-sine) infinite;
+}
+.cv-pet[data-state='parked'] .p-curl {
+  transform: rotate(40deg);
+}
+.cv-pet .p-z {
+  stroke-width: 1;
+  animation: pet-z var(--loop-knot) var(--ease) infinite;
+  animation-delay: calc(var(--i) * var(--loop-knot) / 6);
+}
+
+/* done: one hop off its shadow and a squash on landing; two sparkles pop */
+.cv-pet[data-state='done'] .p-all {
+  transform-origin: 14px 21px;
+  animation: pet-hop calc(var(--dur-4) * 2) var(--ease);
+}
+.cv-pet[data-state='done'] .p-shadow {
+  animation: pet-shadow calc(var(--dur-4) * 2) var(--ease);
+}
+.cv-pet .p-spark {
+  fill: var(--ok);
+  stroke: var(--ok);
+  stroke-width: 0.6;
+  animation: pet-pop var(--dur-4) var(--ease) backwards;
+  animation-delay: calc(var(--dur-3) + var(--i) * var(--dur-1));
+}
+
+/* failed: eyes down, sad brows, a frown; it droops once and a sweat drop appears */
+.cv-pet[data-state='failed'] .p-look {
+  transform: translateY(0.6px);
+}
+.cv-pet[data-state='failed'] .p-curl {
+  transform: rotate(-30deg);
+}
+.cv-pet[data-state='failed'] .p-all {
+  transform-origin: 14px 21px;
+  animation: pet-droop var(--dur-4) var(--ease);
+}
+.cv-pet .p-drop {
+  fill: currentColor;
+  fill-opacity: 0.25;
+  stroke-width: 1;
+  opacity: 0.7;
+  animation: pet-drip var(--dur-4) var(--ease) backwards;
+  animation-delay: var(--dur-3);
+}
+
+@keyframes pet-breath {
+  0%,
+  100% {
+    transform: scaleY(0.97);
+  }
+  50% {
+    transform: scaleY(1.03);
+  }
+}
+@keyframes pet-sleep {
+  0%,
+  100% {
+    transform: scale(1.02, 0.95);
+  }
+  50% {
+    transform: scale(1.03, 0.92);
+  }
+}
+@keyframes pet-blink {
+  0%,
+  32.9%,
+  33.8%,
+  66.2%,
+  67.1%,
+  96.6%,
+  97.5%,
+  98.2%,
+  99.1%,
+  100% {
+    transform: scaleY(1);
+  }
+  33.35%,
+  66.65%,
+  97.05%,
+  98.65% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes pet-lap {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes pet-sweep {
+  0%,
+  50%,
+  100% {
+    transform: rotate(0);
+  }
+  25% {
+    transform: rotate(-9deg);
+  }
+  75% {
+    transform: rotate(7deg);
+  }
+}
+@keyframes pet-follow {
+  0%,
+  50%,
+  100% {
+    transform: translateX(0.7px);
+  }
+  25% {
+    transform: translate(0.7px, -0.5px);
+  }
+  75% {
+    transform: translate(0.7px, 0.4px);
+  }
+}
+@keyframes pet-tap {
+  0%,
+  24%,
+  100% {
+    transform: rotate(0);
+  }
+  12% {
+    transform: rotate(-22deg);
+  }
+}
+@keyframes pet-wave {
+  0%,
+  40%,
+  100% {
+    transform: rotate(0);
+  }
+  10%,
+  30% {
+    transform: rotate(14deg);
+  }
+  20% {
+    transform: rotate(-6deg);
+  }
+}
+@keyframes pet-b1 {
+  0%,
+  3% {
+    opacity: 0;
+    transform: translateY(-1px);
+  }
+  8%,
+  92% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes pet-b2 {
+  0%,
+  28% {
+    opacity: 0;
+    transform: translateY(-1px);
+  }
+  33%,
+  92% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes pet-b3 {
+  0%,
+  53% {
+    opacity: 0;
+    transform: translateY(-1px);
+  }
+  58%,
+  92% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes pet-tick {
+  0% {
+    stroke-dashoffset: 1;
+    opacity: 1;
+  }
+  8%,
+  80% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+@keyframes pet-scan {
+  0%,
+  50%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(0.8px);
+  }
+  75% {
+    transform: translateX(-0.8px);
+  }
+}
+@keyframes pet-z {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  20%,
+  80% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+@keyframes pet-hop {
+  0% {
+    transform: none;
+  }
+  20% {
+    transform: scale(1.04, 0.92);
+  }
+  50% {
+    transform: translateY(-4px) scale(0.97, 1.04);
+  }
+  80% {
+    transform: scale(1.03, 0.95);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes pet-shadow {
+  50% {
+    transform: scaleX(0.7);
+    opacity: 0.1;
+  }
+}
+@keyframes pet-pop {
+  from {
+    opacity: 0;
+    transform: scale(0);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.3);
+  }
+}
+@keyframes pet-droop {
+  40% {
+    transform: rotate(-6deg) scaleY(0.94);
+  }
+  70% {
+    transform: rotate(3deg);
+  }
+}
+@keyframes pet-drip {
+  from {
+    opacity: 0;
+    transform: translateY(-1.5px);
+  }
+}
+
+/* ---- the agent glyphs ------------------------------------------------- */
+
+.cv-glyph path {
+  transition:
+    stroke var(--dur-3) var(--ease),
+    opacity var(--dur-3) var(--ease);
+}
+.cv-glyph .g-base {
+  opacity: 0.35;
+}
+.cv-glyph[data-state='done'] .g-base {
+  stroke: var(--fg-3);
+  opacity: 1;
+}
+/* the light rests about 3/4 along (GLYPH_LIGHT) */
+.cv-glyph .g-light {
+  stroke: var(--signal);
+  stroke-dasharray: 22 78;
+  stroke-dashoffset: 36;
+}
+.cv-glyph[data-motion='draw'] .g-light {
+  stroke-dasharray: 100 100;
+  stroke-dashoffset: 25;
+}
+.cv-glyph[data-state='waiting'] .g-light {
+  stroke: var(--warn);
+}
+.cv-glyph[data-state='failed'] .g-light {
+  stroke: var(--fault);
+}
+.cv-glyph[data-state='running'] .g-light {
+  animation: glyph-travel var(--loop-knot-tool) linear infinite;
+}
+.cv-glyph[data-state='running'][data-motion='hop'] .g-light {
+  animation-timing-function: steps(3);
+}
+.cv-glyph[data-state='running'][data-motion='draw'] .g-light {
+  animation: glyph-draw var(--loop-knot-tool) var(--ease) infinite;
+}
+.cv-glyph[data-state='running'][data-motion='tighten'] .g-light {
+  animation: glyph-tighten var(--loop-knot-tool) var(--ease-sine) infinite;
+}
+
+@keyframes glyph-travel {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes glyph-draw {
+  0% {
+    stroke-dashoffset: 100;
+  }
+  70%,
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes glyph-tighten {
+  0%,
+  100% {
+    stroke-dasharray: 40 60;
+    stroke-dashoffset: 100;
+  }
+  50% {
+    stroke-dasharray: 10 90;
+    stroke-dashoffset: 50;
+  }
+}

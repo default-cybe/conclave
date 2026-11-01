@@ -1,0 +1,1072 @@
+@import 'tailwindcss';
+@import './motion.css';
+@import './pet.css';
+
+/*
+  Conclave tokens (docs/design/SPEC.md, section 3).
+  Dark is the default. public/theme.js resolves "system" and sets
+  html[data-theme] before first paint. Color means one thing each:
+  signal = live work, focus, brand; warn = waiting on you or a limit at 70%;
+  ok = healthy; fault = failed or a limit at 90%. Neutrals carry the rest.
+*/
+
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: oklch(0.163 0.005 286);
+  --bg-sunk: oklch(0.138 0.005 286);
+  --bg-raise: oklch(0.198 0.006 286);
+  --bg-hover: oklch(0.215 0.007 286);
+  /* phones: the composer and your message bubble (docs/design/MOBILE-V2.md) */
+  --surface-2: oklch(0.232 0.007 286);
+  /* the sidebar and the phone's drawer, a step under the page, and its rows (docs/design/SPEC.md 5.3) */
+  --side: oklch(0.142 0.005 286);
+  --side-hover: oklch(0.188 0.006 286);
+  --side-active: oklch(0.212 0.007 286);
+  /* the session panel's cards */
+  --card: oklch(0.192 0.006 286);
+  --rule: oklch(0.262 0.007 286);
+  --rule-2: oklch(0.335 0.009 286);
+  --edge: oklch(0.48 0.009 286);
+  --fg: oklch(0.945 0.004 286);
+  --fg-2: oklch(0.765 0.008 286);
+  --fg-3: oklch(0.61 0.01 286);
+  --fg-4: oklch(0.5 0.01 286);
+  --signal: oklch(0.775 0.125 303);
+  --signal-dim: oklch(0.775 0.125 303 / 0.14);
+  --ok: oklch(0.79 0.12 158);
+  --warn: oklch(0.83 0.125 80);
+  --fault: oklch(0.705 0.155 26);
+  --add-bg: oklch(0.79 0.12 158 / 0.09);
+  --del-bg: oklch(0.705 0.155 26 / 0.1);
+  --solid: var(--fg);
+  --solid-fg: var(--bg);
+  --meter-off: oklch(0.3 0.008 286);
+  --meter-on: oklch(0.8 0.01 286);
+  --wave-ink: oklch(0.7 0.02 300);
+  --wave-hot: oklch(0.86 0.11 303);
+  --scrim: oklch(0.1 0.005 286 / 0.6);
+  --shadow-pop: 0 12px 32px oklch(0 0 0 / 0.35);
+  --syn-kw: oklch(0.78 0.1 303);
+  --syn-str: oklch(0.8 0.09 150);
+  --syn-num: oklch(0.8 0.09 60);
+  --syn-type: oklch(0.8 0.07 220);
+  --syn-fn: var(--fg);
+  --syn-com: var(--fg-3);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: oklch(0.982 0.002 286);
+  --bg-sunk: oklch(0.96 0.003 286);
+  --bg-raise: oklch(1 0 0);
+  --bg-hover: oklch(0.95 0.004 286);
+  --surface-2: oklch(0.948 0.004 286);
+  --side: oklch(0.958 0.003 286);
+  --side-hover: oklch(0.928 0.004 286);
+  --side-active: oklch(0.912 0.005 286);
+  --card: oklch(1 0 0);
+  --rule: oklch(0.905 0.005 286);
+  --rule-2: oklch(0.82 0.008 286);
+  --edge: oklch(0.64 0.008 286);
+  --fg: oklch(0.205 0.01 286);
+  --fg-2: oklch(0.405 0.012 286);
+  --fg-3: oklch(0.52 0.012 286);
+  --fg-4: oklch(0.62 0.01 286);
+  --signal: oklch(0.52 0.17 300);
+  --signal-dim: oklch(0.52 0.17 300 / 0.09);
+  --ok: oklch(0.52 0.13 155);
+  --warn: oklch(0.555 0.13 65);
+  --fault: oklch(0.56 0.19 27);
+  --add-bg: oklch(0.7 0.13 155 / 0.12);
+  --del-bg: oklch(0.65 0.17 27 / 0.1);
+  --solid: var(--fg);
+  --solid-fg: var(--bg);
+  --meter-off: oklch(0.9 0.005 286);
+  --meter-on: oklch(0.33 0.01 286);
+  --wave-ink: oklch(0.48 0.03 295);
+  --wave-hot: oklch(0.5 0.17 300);
+  --scrim: oklch(0.2 0.01 286 / 0.28);
+  --shadow-pop: 0 12px 32px oklch(0.2 0.01 286 / 0.12);
+  --syn-kw: oklch(0.48 0.16 300);
+  --syn-str: oklch(0.48 0.11 150);
+  --syn-num: oklch(0.52 0.12 55);
+  --syn-type: oklch(0.47 0.1 230);
+  --syn-fn: var(--fg);
+  --syn-com: var(--fg-3);
+}
+
+/* Higher contrast on request (spec 14). */
+@media (prefers-contrast: more) {
+  :root:not([data-theme='light']) {
+    --rule: oklch(0.335 0.009 286);
+    --fg-3: oklch(0.765 0.008 286);
+  }
+  :root[data-theme='light'] {
+    --rule: oklch(0.82 0.008 286);
+    --fg-3: oklch(0.405 0.012 286);
+  }
+}
+
+:root {
+  --sans: 'Mona Sans Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur-1: 120ms;
+  --dur-2: 180ms;
+  --dur-3: 240ms;
+  --r-1: 3px;
+  --r-2: 5px;
+  --r-3: 10px;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  /* layout */
+  --bar-h: 48px;
+  --gutter: 32px;
+  --row-py: 10px;
+  --body-size: 14px;
+  /*
+    Reading: an answer's prose, your messages, a thought opened
+    (docs/design/CHAT-AND-MOTION.md 6). 15/1.6 (a 24px line), as in
+    Claude's apps; phones 16/1.55. A measure of 36em, about 75 characters
+    of Mona Sans (0.48em a character on average): WCAG 1.4.8 asks for at
+    most 80 and line spacing of at least 1.5. A paragraph gap of 0.9em
+    puts paragraphs 1.56 lines apart (1.4.8: 1.5).
+  */
+  --read-base: 15px;
+  --read-size: var(--read-base);
+  --read-leading: 1.6;
+  --read-measure: 36em;
+  --read-gap: 0.9em;
+  /*
+    Text size (Settings > Appearance, this device): 0.875, 1, 1.125 or 1.25.
+    store/ui.ts sets it on <html>, public/theme.js before first paint.
+    Only a conversation (.log-text) reads it; the rest of the app stays.
+  */
+  --text-scale: 1;
+}
+@media (max-width: 1023px) {
+  :root {
+    --gutter: 24px;
+  }
+}
+@media (max-width: 767px) {
+  :root {
+    --gutter: 20px;
+    --body-size: 15px;
+    --read-base: 16px;
+    --read-leading: 1.55;
+    --read-measure: none;
+  }
+}
+:root[data-density='compact'] {
+  --row-py: 6px;
+  --body-size: 13px;
+  --read-base: 14px;
+}
+@media (max-width: 767px) {
+  :root[data-density='compact'] {
+    --read-base: 15px;
+  }
+}
+/*
+  A conversation at the Text size you picked: the session log, the phone
+  transcript and the Chat page carry .log-text. In it replies (.md), your
+  messages (t-chat), tool rows and thoughts (tx-*), code and terminal
+  output (t-code) scale by --text-scale; the chrome around them does not.
+  --log-scale is unset outside, so the same pieces elsewhere stay at 1.
+*/
+.log-text {
+  --log-scale: var(--text-scale);
+  --read-size: calc(var(--read-base) * var(--text-scale));
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-sunk: var(--bg-sunk);
+  --color-raise: var(--bg-raise);
+  --color-hover: var(--bg-hover);
+  --color-surface-2: var(--surface-2);
+  --color-side: var(--side);
+  --color-side-hover: var(--side-hover);
+  --color-side-active: var(--side-active);
+  --color-card: var(--card);
+  --color-rule: var(--rule);
+  --color-rule-2: var(--rule-2);
+  --color-edge: var(--edge);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-fg-4: var(--fg-4);
+  --color-signal: var(--signal);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-fault: var(--fault);
+  --color-solid: var(--solid);
+  --color-solid-fg: var(--solid-fg);
+  --color-meter-off: var(--meter-off);
+  --color-meter-on: var(--meter-on);
+  --font-sans: var(--sans);
+  --font-mono: var(--mono);
+  --radius-1: var(--r-1);
+  --radius-2: var(--r-2);
+  --radius-3: var(--r-3);
+  --ease-out: var(--ease);
+  --font-weight-book: 450;
+  --font-weight-stat: 540;
+  --font-weight-strong: 560;
+
+  /* type sizes (roles with weight and width are the t-* utilities below) */
+  --text-micro: 11px;
+  --text-micro--line-height: 1.3;
+  --text-meta: 12px;
+  --text-meta--line-height: 1.4;
+  --text-code: 12.5px;
+  --text-code--line-height: 1.6;
+  --text-section: 13px;
+  --text-section--line-height: 1.3;
+  --text-row: 13.5px;
+  --text-row--line-height: 1.35;
+  --text-body: 14px;
+  --text-body--line-height: 1.45;
+  --text-prose: 14.5px;
+  --text-prose--line-height: 1.6;
+  --text-title: 17px;
+  --text-title--line-height: 1.3;
+  --text-page: 20px;
+  --text-page--line-height: 1.25;
+  --text-status: 28px;
+  --text-status--line-height: 1.15;
+}
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+@custom-variant light (&:where([data-theme='light'], [data-theme='light'] *));
+@custom-variant phone (@media (max-width: 767px));
+@custom-variant coarse (@media (pointer: coarse));
+/* hover and press that skip disabled controls (aria-disabled or :disabled) */
+@custom-variant hov {
+  @media (hover: hover) {
+    &:hover:not([aria-disabled='true'], :disabled) {
+      @slot;
+    }
+  }
+}
+@custom-variant press {
+  &:active:not([aria-disabled='true'], :disabled) {
+    @slot;
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Base                                                                      */
+/* ------------------------------------------------------------------------ */
+
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--rule);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  html {
+    background: var(--bg);
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    /* no double-tap zoom delay on phones; pinch zoom still works */
+    touch-action: manipulation;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: var(--body-size);
+    line-height: 1.45;
+    font-weight: 400;
+    font-synthesis: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  ::selection {
+    background: var(--signal-dim);
+  }
+  :focus-visible {
+    outline: 2px solid var(--signal);
+    outline-offset: 2px;
+  }
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+  }
+  button {
+    cursor: default;
+  }
+  /* placeholders are words: fg-3 holds 4.5:1 on both grounds, fg-4 does not */
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--fg-3);
+    opacity: 1;
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--mono);
+    font-feature-settings: 'zero' 1;
+    letter-spacing: -0.01em;
+  }
+  em,
+  i {
+    font-style: normal;
+    font-weight: 560;
+  }
+  b,
+  strong {
+    font-weight: 600;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-weight: 600;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--rule-2) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--rule-2);
+    border-radius: 10px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  /* inputs stay 16px on phones so iOS does not zoom */
+  @media (max-width: 767px) {
+    input:not([type='checkbox']):not([type='radio']),
+    textarea,
+    select {
+      font-size: 16px;
+    }
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Type roles (spec 4.2). Each sets size, line height, weight, width, track. */
+/* ------------------------------------------------------------------------ */
+
+@utility t-wordmark {
+  font-size: 92px;
+  line-height: 0.95;
+  font-weight: 600;
+  font-stretch: 118%;
+  letter-spacing: -0.035em;
+  @media (max-width: 767px) {
+    font-size: 64px;
+  }
+}
+@utility t-status {
+  font-size: 28px;
+  line-height: 1.15;
+  font-weight: 560;
+  font-stretch: 106%;
+  letter-spacing: -0.02em;
+  @media (max-width: 767px) {
+    font-size: 23px;
+    line-height: 1.18;
+  }
+}
+@utility t-verdict {
+  font-size: 34px;
+  line-height: 1.1;
+  font-weight: 600;
+  font-stretch: 108%;
+  letter-spacing: -0.025em;
+  @media (max-width: 767px) {
+    font-size: 28px;
+  }
+}
+@utility t-step {
+  font-size: 30px;
+  line-height: 1.15;
+  font-weight: 600;
+  font-stretch: 106%;
+  letter-spacing: -0.02em;
+  @media (max-width: 767px) {
+    font-size: 24px;
+  }
+}
+@utility t-page {
+  font-size: 20px;
+  line-height: 1.25;
+  font-weight: 600;
+  font-stretch: 104%;
+  letter-spacing: -0.012em;
+}
+@utility t-title {
+  font-size: 17px;
+  line-height: 1.3;
+  font-weight: 600;
+  font-stretch: 102%;
+  letter-spacing: -0.01em;
+}
+@utility t-stat {
+  font-size: 20px;
+  line-height: 1.1;
+  font-weight: 540;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+@utility t-section {
+  font-size: 13px;
+  line-height: 1.3;
+  font-weight: 600;
+  @media (max-width: 767px) {
+    font-size: 14px;
+  }
+}
+@utility t-row {
+  font-size: 13.5px;
+  line-height: 1.35;
+  font-weight: 500;
+  @media (max-width: 767px) {
+    font-size: 15px;
+  }
+}
+@utility t-body {
+  font-size: 14px;
+  line-height: 1.45;
+  @media (max-width: 767px) {
+    font-size: 15px;
+  }
+}
+@utility t-prose {
+  font-size: 14.5px;
+  line-height: 1.6;
+  @media (max-width: 767px) {
+    font-size: 15.5px;
+  }
+}
+/* Replies and your messages, in Chat and in sessions: the reading size (--read-size, 15/1.6; phones 16/1.55), times the Text size in a conversation. */
+@utility t-chat {
+  font-size: var(--read-size);
+  line-height: var(--read-leading);
+}
+/* Text in a conversation that is not prose (tool rows, thoughts, author lines): N px times the Text size, `tx-13.5`. */
+@utility tx-* {
+  font-size: calc(var(--log-scale, 1) * --value(number) * 1px);
+}
+@utility t-meta {
+  font-size: 12px;
+  line-height: 1.4;
+  @media (max-width: 767px) {
+    font-size: 13px;
+  }
+}
+@utility t-micro {
+  font-size: 11px;
+  line-height: 1.3;
+  font-weight: 450;
+}
+@utility t-code {
+  font-family: var(--mono);
+  font-size: calc(12.5px * var(--log-scale, 1));
+  line-height: 1.6;
+  font-weight: 450;
+  letter-spacing: -0.01em;
+  font-feature-settings: 'zero' 1;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Utilities                                                                 */
+/* ------------------------------------------------------------------------ */
+
+/* tabular figures: tables, meters, counters, readouts. Never on prose. */
+@utility num {
+  font-variant-numeric: tabular-nums;
+}
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* inline mono for paths, ids, commands inside sans text */
+@utility mono {
+  font-family: var(--mono);
+  font-size: 0.93em;
+  font-feature-settings: 'zero' 1;
+  letter-spacing: -0.01em;
+}
+
+/* text link: underline on a quiet rule; on phones a 44px tall place to tap, as tap gives */
+@utility link {
+  color: var(--fg-2);
+  text-decoration: underline;
+  text-decoration-color: var(--rule-2);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: color var(--dur-1) var(--ease);
+  &:hover {
+    color: var(--fg);
+    text-decoration-color: var(--fg-3);
+  }
+  @media (max-width: 767px) {
+    position: relative;
+    &::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: max(calc(100% + 12px), 44px);
+      height: max(100%, 44px);
+      transform: translate(-50%, -50%);
+    }
+  }
+}
+
+/* rows split by hairlines, the last one open */
+@utility rows {
+  & > * + * {
+    border-top: 1px solid var(--rule);
+  }
+}
+
+@utility scroll-y {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@utility pb-safe {
+  padding-bottom: var(--safe-b);
+}
+
+@utility pt-safe {
+  padding-top: var(--safe-t);
+}
+
+@utility transition-quick {
+  transition-duration: var(--dur-1);
+  transition-timing-function: var(--ease);
+  transition-property: color, background-color, border-color, opacity, box-shadow, text-decoration-color;
+}
+
+/* Legacy utilities kept as no-ops so old markup does not break.
+   The decoration they drew (grids, crosshairs, tracked caps) is banned. */
+@utility label {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--fg-3);
+  font-weight: 500;
+}
+@utility display {
+  font-stretch: 104%;
+  letter-spacing: -0.012em;
+  font-weight: 600;
+}
+@utility grid-bg {
+  background: none;
+}
+@utility grid-fade {
+  mask-image: none;
+}
+@utility xhair {
+  position: relative;
+}
+@utility hairline-b {
+  box-shadow: inset 0 -1px 0 var(--rule);
+}
+
+/* ------------------------------------------------------------------------ */
+/* Motion: opacity and up to 4px of travel. Sheets slide their full height.  */
+/* ------------------------------------------------------------------------ */
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes side-in {
+  from {
+    opacity: 0;
+    transform: translateX(4px);
+  }
+}
+@keyframes side-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+}
+
+.anim-fade {
+  animation: fade-in var(--dur-2) var(--ease) both;
+}
+.anim-rise {
+  animation: rise-in var(--dur-2) var(--ease) both;
+}
+.anim-pop {
+  animation: drop-in var(--dur-2) var(--ease) both;
+}
+.anim-sheet {
+  animation: sheet-up var(--dur-2) var(--ease) both;
+}
+.anim-right {
+  animation: side-in var(--dur-2) var(--ease) both;
+}
+/* back out of a level (the model picker's makers): the list comes in from the left */
+.anim-left {
+  animation: side-in-left var(--dur-2) var(--ease) both;
+}
+/* a dot that says something runs (the phone's side panel): it breathes, still under reduced motion */
+@keyframes dot-pulse {
+  50% {
+    opacity: 0.3;
+    transform: scale(0.75);
+  }
+}
+.cv-dot-pulse {
+  animation: dot-pulse 1600ms var(--ease) infinite;
+}
+/* state word that finishes: signal to fg-3 over 240ms */
+.state-word {
+  transition: color var(--dur-3) var(--ease);
+}
+
+/* a static caret after streaming text */
+.md-streaming > :is(p, h1, h2, h3, h4, blockquote):last-child::after,
+.md-streaming > :is(ul, ol):last-child > li:last-child::after,
+.stream-caret::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.17em;
+  background: var(--signal);
+}
+
+/* reduced motion: every change lands at once, staggers and delays included (a letter or a word
+   that waited its turn would leave a half written label for a moment) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+}
+:root[data-motion='reduce'] *,
+:root[data-motion='reduce'] ::before,
+:root[data-motion='reduce'] ::after {
+  animation-duration: 0.001ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  transition-delay: 0s !important;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Tables (spec 10.7). Use <table class="tbl"> or the Table component.       */
+/* ------------------------------------------------------------------------ */
+
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.tbl th {
+  text-align: left;
+  font-weight: 450;
+  color: var(--fg-3);
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 8px 12px 7px 0;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--rule);
+}
+.tbl td {
+  padding: 9px 12px 9px 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: baseline;
+}
+.tbl tr:last-child td {
+  border-bottom: 0;
+}
+.tbl :is(th, td):last-child {
+  padding-right: 0;
+}
+.tbl .r {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tbl tbody tr[data-click] {
+  cursor: default;
+}
+/* The row sets the fill and its cells take it. A rule like `tr:hover td`
+   made every change of hover anywhere in the app look through all the
+   cells below the element for a td to restyle (a long transcript has
+   thousands, in its diffs). */
+.tbl tbody tr[data-click]:is(:hover, :focus-visible) {
+  --tbl-fill: var(--bg-hover);
+}
+.tbl tbody tr[data-click] td {
+  background: var(--tbl-fill, transparent);
+}
+/* The fill reaches 10px past the first and last column so text never sits on its edge. */
+.tbl tbody tr[data-click] td:first-child {
+  box-shadow: -10px 0 0 var(--tbl-fill, transparent);
+}
+.tbl tbody tr[data-click] td:last-child {
+  box-shadow: 10px 0 0 var(--tbl-fill, transparent);
+}
+/* Phones: text links keep their size but get a 44px tall hit area that does not move the layout. */
+@utility tap {
+  position: relative;
+  @media (max-width: 767px) {
+    &::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: max(calc(100% + 12px), 44px);
+      height: max(100%, 44px);
+      transform: translate(-50%, -50%);
+    }
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Transcript pieces (MessageList) and conversation rows (ChatMessages)       */
+/* ------------------------------------------------------------------------ */
+
+/* A long session has hundreds of turns. Once the transcript has laid out,
+   a finished piece off screen is skipped: no style, layout, paint or hit
+   testing until it nears the viewport, at the height it had (measured then,
+   and remembered after). The padding, taken back by the margin, keeps focus
+   rings and what else pokes out of a row inside the box paint containment
+   clips to, so nothing looks or sits differently. A piece mounted later
+   (older turns mount as you scroll up, window.ts) and never drawn yet
+   starts at the average height of the first ones, --log-unit-h; scroll
+   anchoring keeps what is on screen in place once it draws at its own. */
+.log-unit {
+  padding: 6px;
+  margin: -6px;
+  contain-intrinsic-height: auto var(--log-unit-h, 240px);
+}
+.log-unit:empty {
+  display: none;
+}
+[data-skip-offscreen] > .log-part > .log-unit:not(.log-unit-last) {
+  content-visibility: auto;
+}
+
+/* Quiet actions on a turn (REVEAL in chat/Log.tsx) and Copy on a code block
+   show while the turn or block is under the pointer or holds focus, and
+   always on touch (coarse:opacity-100 where they are used). lib/hover.ts
+   marks the turn and the code block under the pointer with data-hot. A
+   group's own :hover (Tailwind group-hover) restyled everything inside the
+   turn the pointer left and the one it entered, and wheel scrolling moves
+   turns under a still pointer all the time: thousands of elements a step,
+   the biggest cost of scrolling a long session. data-hot restyles the
+   controls only. */
+[data-hover='turn']:is([data-hot], :focus-within) .reveal-turn,
+[data-hover='code'][data-hot] .reveal-code {
+  opacity: 1;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Markdown (assistant prose)                                                */
+/* ------------------------------------------------------------------------ */
+
+/*
+  The answer is the strongest thing on the page: fg (16:1 on both grounds),
+  the reading size and leading, a measure of about 75 characters, room
+  between paragraphs and list items, and headings a clear step up. Tool rows,
+  thoughts and meta are quieter around it (fg-2 and fg-3, 12 to 13.5px).
+  docs/design/CHAT-AND-MOTION.md 6.
+*/
+.md {
+  font-size: var(--read-size);
+  line-height: var(--read-leading);
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+/* the measure: text blocks only; code, tables and diffs may use the column */
+.md > :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6),
+.md > blockquote > *,
+.md li > :is(p, ul, ol) {
+  max-width: var(--read-measure);
+}
+@media (max-width: 767px) {
+  /* inline code on a phone: a soft fill, no box around it */
+  .md-phone .md :not(pre) > code,
+  .md.md-chat :not(pre) > code {
+    border-color: transparent;
+    background: var(--surface-2);
+    border-radius: 5px;
+    padding: 1px 5px;
+  }
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p,
+.md ul,
+.md ol,
+.md blockquote,
+.md table,
+.md > pre {
+  margin: var(--read-gap) 0;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4,
+.md h5,
+.md h6 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1.5em 0 0.5em;
+  color: var(--fg);
+  text-wrap: balance;
+}
+.md h1 {
+  font-size: 1.375em;
+  font-stretch: 104%;
+  letter-spacing: -0.012em;
+}
+.md h2 {
+  font-size: 1.2em;
+  font-stretch: 102%;
+  letter-spacing: -0.01em;
+}
+.md h3 {
+  font-size: 1.0625em;
+}
+.md :is(h4, h5, h6) {
+  font-size: 1em;
+  color: var(--fg-2);
+}
+/* a heading's own space above holds the gap; the paragraph under it sits close */
+.md :is(h1, h2, h3, h4, h5, h6) + :is(p, ul, ol) {
+  margin-top: 0;
+}
+.md ul,
+.md ol {
+  padding-left: 1.35em;
+}
+.md ul {
+  list-style: none;
+}
+.md ul > li {
+  position: relative;
+}
+.md ul > li::before {
+  content: '';
+  position: absolute;
+  left: -0.95em;
+  top: calc(var(--read-leading) * 0.5em);
+  width: 6px;
+  height: 1px;
+  background: var(--fg-3);
+}
+.md ol {
+  list-style: decimal;
+}
+.md ol > li::marker {
+  color: var(--fg-3);
+  font-variant-numeric: tabular-nums;
+}
+.md li + li {
+  margin-top: 0.4em;
+}
+.md li > p {
+  margin: 0.4em 0;
+}
+.md li > :is(ul, ol) {
+  margin: 0.4em 0;
+}
+/* links: the text stays fg, the underline is visible in both themes (fg-3) and turns fg on hover */
+.md a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--fg-3);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--dur-1) var(--ease);
+}
+.md a:hover {
+  text-decoration-color: var(--fg);
+}
+.md strong {
+  font-weight: 600;
+}
+.md em {
+  font-weight: 560;
+}
+.md blockquote {
+  border-left: 1px solid var(--rule-2);
+  padding: 0 0 0 14px;
+  color: var(--fg-2);
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: 1.75em 0;
+}
+.md :not(pre) > code {
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  font-size: 0.875em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--bg-sunk);
+  border: 1px solid var(--rule);
+  color: var(--fg);
+}
+/* code blocks in an answer read a step up from code in tool rows (13 against 12.5), both times the Text size */
+.md :is([data-hover='code'], .cv-code) pre {
+  font-size: calc(13px * var(--log-scale, 1));
+}
+.md table {
+  border-collapse: collapse;
+  font-size: 0.875em;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.md th,
+.md td {
+  overflow-wrap: normal;
+  min-width: 4.5em;
+  border-bottom: 1px solid var(--rule);
+  padding: 8px 16px 8px 0;
+  text-align: left;
+  vertical-align: top;
+}
+.md th {
+  font-weight: 500;
+  color: var(--fg-2);
+  font-size: 0.93em;
+}
+.md tr:last-child td {
+  border-bottom: 0;
+}
+.md input[type='checkbox'] {
+  accent-color: var(--fg);
+  margin-right: 0.4em;
+}
+.md li:has(> input[type='checkbox'])::before {
+  display: none;
+}
+
+/* ------------------------------------------------------------------------ */
+/* highlight.js on the syntax tokens (code blocks and diffs only)            */
+/* ------------------------------------------------------------------------ */
+
+.hljs {
+  color: var(--fg);
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--syn-com);
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-meta .hljs-keyword,
+.hljs-doctag,
+.hljs-literal {
+  color: var(--syn-kw);
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute .hljs-string,
+.hljs-template-tag {
+  color: var(--syn-str);
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--syn-num);
+}
+.hljs-title.class_,
+.hljs-type,
+.hljs-built_in {
+  color: var(--syn-type);
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-section {
+  color: var(--syn-fn);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-property,
+.hljs-params {
+  color: var(--fg-2);
+}
+.hljs-meta,
+.hljs-tag,
+.hljs-name {
+  color: var(--fg-3);
+}
+.hljs-deletion {
+  color: var(--fault);
+}
+.hljs-strong {
+  font-weight: 600;
+}

@@ -1,0 +1,422 @@
+/**
+ * Accounts in the web app (Settings > Models > Accounts, Usage): the status
+ * hook, words for each state, window names, reset times, and the "Now using
+ * Account 2 (resets Tue 10:00, 45% left)" line. The hub never sends a key
+ * or token here.
+ */
+import { useEffect, useState } from 'react';
+import type { AccountDto, AccountNowDto, AccountState, AccountsStatus, StarterDto, SubscriptionProviderDto, SubscriptionsStatus } from '@conclave/core/client';
+import type { LimitWindow } from '@conclave/core/types';
+import type { LimitFallbackConfig, RefusalFallbackConfig } from '@conclave/core/config/schema';
+import { parseRefusalEntries } from '@conclave/core/session/refusal-entries';
+import { suggestPrefixes } from '@conclave/core/accounts/prefix';
+import { modelBase } from '@conclave/core/providers/model-id';
+import { annotateWindow, governing, windowFull } from '@conclave/core/accounts/windows';
+import type { LogoId } from '@/components/logo';
+import { api } from './api';
+import { useHub } from '@/store/store';
+import type { Tone } from './subscriptions';
+
+function errText(e: unknown): string {
+  const m = e instanceof Error ? e.message : String(e);
+  return /[.!?]$/.test(m) ? m : `${m}.`;
+}
+
+/**
+ * The status: loaded once, then kept current by accounts.updated events.
+ * `fresh` reads it again on mount (Settings); elsewhere the first reader loads it.
+ */
+export function useAccounts(fresh = false): { status: AccountsStatus | undefined; set: (s: AccountsStatus) => void; error?: string; reload: () => void } {
+  const live = useHub((s) => s.accounts);
+  const [error, setError] = useState<string>();
+  const set = (s: AccountsStatus) => useHub.setState({ accounts: s });
+  const reload = () => {
+    setError(undefined);
+    // a member's answer is their own plans (docs/design/ACCOUNTS.md 12)
+    api()
+      .accounts()
+      .then(set)
+      .catch((e) => setError(errText(e)));
+  };
+  useEffect(() => {
+    if (fresh || !useHub.getState().accounts) reload();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return { status: live, set, error, reload };
+}
+
+export const STATE_WORD: Record<AccountState, { word: string; tone: Tone }> = {
+  ready: { word: 'Ready', tone: 'ok' },
+  unknown: { word: 'Ready', tone: 'ok' },
+  limited: { word: 'At its limit', tone: 'warn' },
+  cooldown: { word: 'Resting', tone: 'warn' },
+  budget: { word: 'Budget spent', tone: 'fault' },
+  paused: { word: 'Paused', tone: 'dim' },
+  error: { word: 'Not working', tone: 'fault' },
+};
+
+/** Company mark per vendor. */
+export const VENDOR_LOGO: Record<string, LogoId> = {
+  anthropic: 'anthropic',
+  openai: 'openai',
+  gemini: 'google',
+  xai: 'xai',
+  moonshot: 'moonshot',
+  meta: 'llama',
+  zai: 'zai',
+  deepseek: 'deepseek',
+  qwen: 'qwen',
+  minimax: 'minimax',
+};
+
+/** "5 hours", "Week", "Week, Opus", "Fable", "Budget". */
+export function windowName(w: Pick<LimitWindow, 'name'>): string {
+  const n = w.name.trim().toLowerCase();
+  if (n === '5h') return '5 hours';
+  if (n === '7d') return 'Week';
+  if (n === '7d fable') return 'Fable';
+  if (n === 'budget') return 'Budget';
+  const m = /^(5h|7d) (.+)$/.exec(n);
+  if (m) return `${m[1] === '5h' ? '5 hours' : 'Week'}, ${m[2] === '3p' ? 'Claude and GPT' : m[2][0].toUpperCase() + m[2].slice(1)}`;
+  if (n === 'requests') return 'Requests per minute';
+  if (n === 'tokens' || n === 'input-tokens' || n === 'output-tokens') return 'Tokens per minute';
+  return n[0].toUpperCase() + n.slice(1);
+}
+
+/** The windows a row shows: 5 hours, week, the model weeks, Fable, the budget. Rates and info-only weeks stay out. */
+export function rowWindows(a: Pick<AccountDto, 'windows'>): LimitWindow[] {
+  return a.windows.filter((w) => balanceWords(w) !== undefined || (w.kind !== 'rate' && w.kind !== 'extra' && !/oauth apps|cowork|code review|credits/i.test(w.name)));
+}
+
+const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const hm = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+/** "14:10" today, "Tue 10:00" within the next 7 days, "22 Nov" after that. */
+export function resetWords(ts: number, now = Date.now()): string {
+  const d = new Date(ts);
+  const today = new Date(now);
+  if (d.toDateString() === today.toDateString()) return hm(d);
+  if (ts - now < 7 * 86_400_000 && ts > now) return `${WEEKDAY[d.getDay()]} ${hm(d)}`;
+  return `${d.getDate()} ${MONTH[d.getMonth()]}`;
+}
+
+/** A raw informational balance has no reported quota or percentage. */
+export function balanceWords(w: LimitWindow): string | undefined {
+  return w.kind === 'extra' && w.remaining !== undefined && w.limit === undefined && w.usedPercent === undefined ? `${w.remaining} balance` : undefined;
+}
+
+/** Percent used, rounded, or undefined when unknown. */
+export function usedOf(w: LimitWindow): number | undefined {
+  if (w.usedPercent !== undefined) return Math.round(w.usedPercent);
+  if (w.limit && w.remaining !== undefined) return Math.round((1 - w.remaining / w.limit) * 100);
+  return undefined;
+}
+
+/** "$38.40 of $100" for a budget window. */
+export function budgetWords(w: LimitWindow): string | undefined {
+  if (w.kind !== 'budget' || w.limit === undefined) return undefined;
+  const spent = Math.max(0, w.limit - (w.remaining ?? 0));
+  const usd = (n: number) => `$${n >= 100 ? Math.round(n) : n.toFixed(2).replace(/\.00$/, '')}`;
+  return `${usd(spent)} of ${usd(w.limit)}`;
+}
+
+/**
+ * The line for a vendor: "Now using Account 2 (resets Tue 10:00, 45% left)",
+ * and why the accounts before it were passed over.
+ */
+export function nowLine(n: AccountNowDto, accounts: AccountDto[], now = Date.now()): { lead: string; why: string[]; tone: Tone } {
+  const name = (id: string) => accounts.find((a) => a.id === id)?.label ?? id;
+  const why = n.skipped.map((s) => {
+    const a = accounts.find((x) => x.id === s.account);
+    const until = a?.until ? ` until ${resetWords(a.until, now)}` : '';
+    return `${name(s.account)}: ${s.reason.toLowerCase()}${until}.`;
+  });
+  if (!n.account) {
+    return { lead: `No ${n.vendorName} account can take a call${n.until ? ` until ${resetWords(n.until, now)}` : ''}.`, why, tone: 'fault' };
+  }
+  const w = n.window;
+  const used = w ? usedOf(w) : undefined;
+  const parts = [w?.resetsAt && `resets ${resetWords(w.resetsAt, now)}`, used !== undefined && `${Math.max(0, 100 - used)}% left`].filter(Boolean);
+  return { lead: `Now using ${name(n.account)}${parts.length ? ` (${parts.join(', ')})` : ''}.`, why, tone: n.skipped.length ? 'warn' : 'ok' };
+}
+
+/**
+ * Where a model at its limit on every account goes, as core limitFallback
+ * picks it for the owner: the usage fallback list when it is on and has
+ * models, else the refusal fallback entries (on or off, the list is used),
+ * else none. Owner only: a member never gets the owner's lists.
+ */
+export function limitFallbackRoute(models: { limitFallback?: LimitFallbackConfig; refusalFallback?: RefusalFallbackConfig } | undefined): { kind: 'usage'; models: string[] } | { kind: 'refusal' } | { kind: 'none' } {
+  const chain = models?.limitFallback;
+  const list = chain?.enabled === true && Array.isArray(chain.models) ? chain.models.filter((r): r is string => typeof r === 'string' && r.includes('/')) : [];
+  if (list.length) return { kind: 'usage', models: list };
+  return parseRefusalEntries(models?.refusalFallback?.entries).length ? { kind: 'refusal' } : { kind: 'none' };
+}
+
+// ---------------------------------------------------------------------------
+// The plan a session is on (the context ring under the composer)
+// ---------------------------------------------------------------------------
+
+/** Why a session runs this model on this plan. */
+export type PlanReason = { kind: 'default' } | { kind: 'picked' } | { kind: 'switched'; from: string; was?: AccountDto } | { kind: 'fallback'; from: string };
+
+export interface SessionPlan {
+  /** The plan or key the next call goes to, as the hub picks it (core AccountsService.accountFor). */
+  current?: AccountDto;
+  /** The model id names the plan by its short name (cliproxy/neu/claude-opus-5-5), or the key's own provider: not chosen by the order. */
+  pinned: boolean;
+  reason: PlanReason;
+  /** The other plans and keys that serve this model, in the owner's order for it. */
+  others: AccountDto[];
+}
+
+/** The gateway whose ids carry a plan's short name (as ModelPicker's PLAN_GATEWAY). */
+const PLAN_GATEWAY = 'cliproxy';
+const bareId = (id: string) => id.slice(id.lastIndexOf('/') + 1);
+// core wirePattern (providers/split.ts), copied: that module pulls in the provider SDKs
+const globTest = (glob: string, s: string) => new RegExp(`^${glob.trim().split('*').map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`, 'i').test(s);
+
+/**
+ * Which plan or key a session's model runs on and why, and which others
+ * could serve it, from GET /api/accounts. Mirrors core accountFor: a key
+ * whose provider is the model's, else on the gateway the plan named by the
+ * prefix, else the first plan in the owner's order for the model (routeFor)
+ * that is ready for this model. Why: a
+ * sticky usage fallback (meta.limitFallback), an account failover
+ * (meta.limitSwitch), a model other than the agent's or hub's default, else
+ * the default.
+ * shortcut: the hub keeps a session on the plan it last used while it stays ready; this shows the order's pick, upgrade when the hub sends the session's account.
+ */
+export function sessionPlan(model: string | undefined, meta: Record<string, unknown> | undefined, defaultModel: string | undefined, status: Pick<AccountsStatus, 'accounts' | 'routes'> | undefined, now = Date.now()): SessionPlan | undefined {
+  const here = model && status ? routeOf(model, status, now) : undefined;
+  if (!model || !status || !here) return undefined;
+  const { current, pinned, ordered } = here;
+  const lf = meta?.limitFallback as { from?: string; to?: string } | undefined;
+  const ls = meta?.limitSwitch as { from?: string; to?: string } | undefined;
+  // the plan it left: the one a prefix or key names, else (a bare ref, the owner's usual pick) the first plan in the order not ready for it, else the first
+  const left = ls?.from ? routeOf(ls.from, status, now) : undefined;
+  const was = left && (left.pinned ? left.current : (left.plans.find((a) => !left.ready(a)) ?? left.plans[0]));
+  const reason: PlanReason =
+    lf?.to === model && lf.from
+      ? { kind: 'fallback', from: lf.from }
+      : ls?.to === model && ls.from
+        ? { kind: 'switched', from: ls.from, ...(was ? { was } : {}) }
+        : defaultModel && defaultModel !== model
+          ? { kind: 'picked' }
+          : { kind: 'default' };
+  return { current, pinned, reason, others: ordered.filter((a) => a !== current) };
+}
+
+/** core accountFor for one model ref, with the plans and keys that serve it in order; undefined when none stands behind it. */
+function routeOf(model: string, status: Pick<AccountsStatus, 'accounts' | 'routes'>, now: number) {
+  const slash = model.indexOf('/');
+  if (slash < 0) return undefined;
+  const provider = model.slice(0, slash);
+  const wire = model.slice(slash + 1);
+  const key = status.accounts.find((a) => a.kind === 'api' && a.provider === provider);
+  // only the gateway's ids name a plan by a prefix, and only its calls go to plans; elsewhere a prefix is the vendor (OpenRouter's "anthropic/")
+  if (!key && provider !== PLAN_GATEWAY) return undefined;
+  const cut = wire.lastIndexOf('/');
+  const prefix = key || cut < 0 ? '' : wire.slice(0, cut);
+  const bare = bareId(wire);
+  const base = modelBase(bare).toLowerCase();
+  const vendor = key?.vendor ?? status.accounts.flatMap((a) => a.models).find((m) => m.vendor && modelBase(bareId(m.id)).toLowerCase() === base)?.vendor;
+  // core reaches(): a plan whose model list is not read yet serves its vendor's every model
+  const lists = (a: AccountDto) => a.models.some((m) => modelBase(bareId(m.id)).toLowerCase() === base) || (a.kind === 'subscription' && !a.models.length && !!vendor && a.vendor === vendor);
+  const serving = status.accounts.filter((a) => lists(a) || (a.kind === 'api' && (a === key || a.vendor === vendor)));
+  const routes = status.routes.filter((r) => r.vendor === vendor);
+  const order = (routes.find((r) => r.match && globTest(r.match, bare)) ?? routes.find((r) => !r.match))?.order ?? [];
+  // core ordered(): the order's ids, then the rest (plans before keys); another vendor's plan the order leaves out goes before the first key
+  const rank = (a: AccountDto) => (order.includes(a.id) ? order.indexOf(a.id) : order.length + (a.kind === 'api' ? 1 : 0));
+  const loose = (a: AccountDto) => a.kind === 'subscription' && a.vendor !== vendor && !order.includes(a.id);
+  const rest = serving.filter((a) => !loose(a)).sort((x, y) => rank(x) - rank(y));
+  const firstKey = rest.findIndex((a) => a.kind === 'api');
+  const ordered = [...rest];
+  ordered.splice(firstKey < 0 ? ordered.length : firstKey, 0, ...serving.filter(loose));
+  const plans = ordered.filter((a) => a.kind === 'subscription');
+  // state comes from core assess() with no model, which skips scoped windows ("7d opus") and model cooldowns: check those for this model, as accountFor does
+  const ready = (a: AccountDto) =>
+    a.enabled &&
+    (a.state === 'ready' || a.state === 'unknown') &&
+    !governing(a.windows.map((w) => (w.kind ? w : annotateWindow(w))), bare).some((w) => windowFull(w, now)) &&
+    !(a.cooldowns ?? []).some((c) => c.until > now && (!c.model || modelBase(bareId(c.model)).toLowerCase() === base));
+  const current = key ?? (prefix ? status.accounts.find((a) => a.kind === 'subscription' && a.prefix === prefix) : (plans.find(ready) ?? plans[0]));
+  // a harness, or a provider no plan or key stands behind: nothing to say
+  if (!current && !serving.length) return undefined;
+  return { current, pinned: !!key || !!prefix, ordered, plans, ready };
+}
+
+// ---------------------------------------------------------------------------
+// Short names (CLIProxyAPI prefixes, core/src/accounts/prefix.ts)
+// ---------------------------------------------------------------------------
+
+/** Where the owner gives a plan its short name, for hints elsewhere. */
+export const SHORT_NAME_WHERE = 'Settings > Models > Accounts';
+
+/** What a signed in plan's short name and its "Use when a model refuses" switch need, said where they are off. */
+export const MANAGEMENT_NOTE = "Short names and Use when a model refuses need CLIProxyAPI's management key. Add it in Subscriptions.";
+
+// ---------------------------------------------------------------------------
+// Use when a model refuses (core/src/session/refusal-fallback.ts)
+// ---------------------------------------------------------------------------
+
+export const REFUSAL_SWITCH = 'Use when a model refuses';
+export const REFUSAL_HINT = 'A refused reply is tried again here first, same model.';
+
+/** How a marked account is named in the Refusal fallback line (and the context ring): a plan by its short name, a key by its label. */
+export function markedName(a: AccountDto): string {
+  return a.kind === 'subscription' ? (a.prefix ?? a.label) : a.label;
+}
+
+/**
+ * The line at the top of Refusal fallback: the marked plans and keys, in
+ * Accounts order per vendor ("Tried first: personal-claude on Claude."), or
+ * how to mark one.
+ */
+export function refusalMarkedLine(status: Pick<AccountsStatus, 'accounts' | 'routes'> | undefined): { marked: boolean; text: string } {
+  const accounts = status?.accounts ?? [];
+  const order = (a: AccountDto) => status?.routes.find((r) => r.vendor === a.vendor && !r.match)?.order.indexOf(a.id) ?? 0;
+  const marked = accounts.filter((a) => a.refusal);
+  if (!marked.length) return { marked: false, text: `No plan or key is marked yet. Turn on ${REFUSAL_SWITCH} on one in Accounts, and a refused reply is tried there first, same model, before this list.` };
+  const vendors = [...new Set(marked.map((a) => a.vendor))];
+  const parts = vendors.map((v) => {
+    const list = marked.filter((a) => a.vendor === v).sort((x, y) => order(x) - order(y));
+    const names = list.map(markedName);
+    const joined = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0];
+    return `${joined} on ${list[0].vendorName}`;
+  });
+  return { marked: true, text: `Tried first: ${parts.join('; ')}.` };
+}
+
+/** The short names of the plans other than `except`. */
+export function takenPrefixes(accounts: AccountDto[], except?: string): string[] {
+  return accounts.filter((a) => a.id !== except && a.prefix).map((a) => a.prefix!);
+}
+
+/** A short name to offer each plan that has none, by account id. */
+export function shortNameSuggestions(accounts: AccountDto[]): Map<string, string> {
+  const plans = accounts.filter((a) => a.kind === 'subscription' && !a.prefix);
+  return suggestPrefixes(plans, takenPrefixes(accounts));
+}
+
+/** Every model a plan lists, a subscription or one paid with a key (the Z.ai Coding Plan), once (Opus on Claude and Antigravity), account prefix and effort or thinking variant dropped (Antigravity's claude-opus-5-5-high), that the hub can file under a vendor and that has no order of its own yet: what "Per model" offers. A plain key's models follow the registry (core providersFor), so they are left out. */
+export function sharedModels(status: Pick<AccountsStatus, 'accounts' | 'routes'>): Array<{ id: string; name: string }> {
+  const taken = new Set(status.routes.filter((r) => r.match).map((r) => r.match!.toLowerCase()));
+  const seen = new Map<string, { id: string; name: string }>();
+  for (const a of status.accounts) {
+    if (a.kind !== 'subscription' && !a.subscription) continue;
+    for (const m of a.models) {
+      // setAccountOrder rejects a model the hub cannot place ("Unknown model")
+      if (!m.vendor) continue;
+      const own = m.id.slice(m.id.lastIndexOf('/') + 1);
+      const id = modelBase(own);
+      // a variant's name says its level ("Claude Opus 5.5 (High)"); the model's own entry names it when a plan lists it
+      const name = id === own ? m.name || id : (m.name || id).replace(/\s*\([^)]*\)$/, '');
+      const e = seen.get(id.toLowerCase()) ?? { id, name };
+      if (id === own && m.name) e.name = m.name;
+      seen.set(id.toLowerCase(), e);
+    }
+  }
+  return [...seen.entries()].filter(([k]) => !taken.has(k)).map(([, e]) => e).sort((x, y) => x.name.localeCompare(y.name));
+}
+
+/**
+ * What a plan's row on Accounts offers besides the order, from the
+ * Subscriptions status: Refresh (its credential, when CLIProxyAPI can
+ * refresh it), Sign in again (the sign-ins that make its kind of account,
+ * when it is not working or its sign-in is gone), and Remove (only a saved
+ * plan whose sign-in CLIProxyAPI no longer lists).
+ */
+export function planActions(a: AccountDto, subs: Pick<SubscriptionsStatus, 'accounts' | 'providers'> | undefined): { refresh?: string; signIn: SubscriptionProviderDto[]; remove: boolean } {
+  if (a.kind !== 'subscription' || !a.credential) return { signIn: [], remove: false };
+  const cred = subs?.accounts.find((s) => s.name === a.credential);
+  // a credential CLIProxyAPI no longer lists keeps its file name: "antigravity-me@gmail.com.json"
+  const provider = cred?.provider ?? [...(subs?.providers ?? [])].sort((x, y) => y.id.length - x.id.length).find((p) => a.credential!.startsWith(`${p.id}-`))?.id;
+  const broken = !!a.gone || a.state === 'error' || cred?.state === 'error' || cred?.state === 'disabled';
+  // Kiro signs in with Builder ID (kiro4cpa) or Google and GitHub (kiro4cpa-social): both make a kiro4cpa account
+  const signIn = broken && provider ? (subs?.providers ?? []).filter((p) => p.id === provider || p.id.startsWith(`${provider}-`)) : [];
+  return { ...(cred?.canRefresh ? { refresh: cred.name } : {}), signIn, remove: !!a.gone };
+}
+
+/** Vendors with two or more signed in plans that have no short name: CLIProxyAPI picks among them. */
+export function unnamedPlans(accounts: AccountDto[]): Array<{ vendor: string; vendorName: string; count: number; plans: AccountDto[] }> {
+  const out: Array<{ vendor: string; vendorName: string; count: number; plans: AccountDto[] }> = [];
+  for (const vendor of [...new Set(accounts.map((a) => a.vendor))]) {
+    const subs = accounts.filter((a) => a.vendor === vendor && a.kind === 'subscription');
+    const plans = subs.filter((a) => !a.prefix);
+    if (plans.length >= 2) out.push({ vendor, vendorName: subs[0].vendorName, count: subs.length, plans });
+  }
+  return out;
+}
+
+/** "You have 2 Claude plans. Give each a short name so Conclave can pick one (Refusal fallback, Window starter)." */
+export function unnamedLine(g: { vendorName: string; count: number }): string {
+  return `You have ${g.count} ${g.vendorName} plans. Give each a short name so Conclave can pick one (Refusal fallback, Window starter).`;
+}
+
+// ---------------------------------------------------------------------------
+// Window starter (core/src/accounts/starter.ts)
+// ---------------------------------------------------------------------------
+
+/** The note shown once, when the owner first turns a window starter on. */
+export const STARTER_NOTE = 'Some providers limit automated use of subscription accounts. This sends one tiny request per window. Use at your own risk.';
+
+/** "09:00" today, "yesterday 21:40", "22 Oct": when it last started a window. */
+export function sinceWords(ts: number, now = Date.now()): string {
+  const d = new Date(ts);
+  const today = new Date(now);
+  if (d.toDateString() === today.toDateString()) return hm(d);
+  const y = new Date(now);
+  y.setDate(y.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return `yesterday ${hm(d)}`;
+  return `${d.getDate()} ${MONTH[d.getMonth()]}`;
+}
+
+/** "tomorrow", "07:00" later today, else the reset words: how long a stop lasts. */
+function untilWords(ts: number, now: number): string {
+  const d = new Date(ts);
+  const t = new Date(now);
+  if (d.toDateString() === t.toDateString()) return hm(d);
+  t.setDate(t.getDate() + 1);
+  if (d.toDateString() === t.toDateString()) return 'tomorrow';
+  return resetWords(ts, now);
+}
+
+const SETUP_WORDS: Record<string, string> = {
+  'Cannot pin a request to it': `Cannot reach this account alone. Give it a short name in ${SHORT_NAME_WHERE}.`,
+  'Pick a model': 'No model to ask. Pick one.',
+};
+
+/**
+ * The starter's line on an account row: "Next start 14:03. Started 09:00.",
+ * "Stopped until tomorrow: 429.", "Paused: weekly limit used up until Tue
+ * 10:00." Empty when it is off.
+ */
+export function starterLine(s: StarterDto | undefined, now = Date.now()): { text: string; tone: Tone } {
+  if (!s?.enabled) return { text: '', tone: 'dim' };
+  switch (s.state) {
+    case 'scheduled': {
+      // a time already past means it goes now
+      const next = s.nextAt ? (s.nextAt <= now ? 'Starting now.' : `Next start ${resetWords(s.nextAt, now)}.`) : '';
+      if (s.failures) return { text: `Failed: ${(s.reason ?? 'error').toLowerCase()}. Next try ${s.nextAt ? resetWords(s.nextAt, now) : 'soon'}.`, tone: 'warn' };
+      return { text: [next, s.startedAt ? `Started ${sinceWords(s.startedAt, now)}.` : ''].filter(Boolean).join(' '), tone: 'ok' };
+    }
+    case 'checking':
+      return { text: 'Sent its request. Checking that the window started.', tone: 'live' };
+    case 'stopped':
+      return { text: `Stopped until ${s.until ? untilWords(s.until, now) : 'tomorrow'}: ${s.reason ?? 'error'}.`, tone: 'fault' };
+    case 'paused':
+      return { text: `Paused: weekly limit used up${s.until ? ` until ${resetWords(s.until, now)}` : ''}.`, tone: 'warn' };
+    case 'never':
+      return { text: 'This plan has no 5-hour window, so there is nothing to start.', tone: 'dim' };
+    case 'setup':
+      return { text: SETUP_WORDS[s.reason ?? ''] ?? `${s.reason ?? 'Cannot run as set'}.`, tone: 'warn' };
+    case 'waiting':
+      if (s.reason === 'No usage read yet') return { text: 'Waiting for the first usage read.', tone: 'dim' };
+      if (s.reason === 'Account paused') return { text: 'Waits while the account is paused.', tone: 'dim' };
+      return { text: `Waiting: ${s.reason ?? 'not signed in'}.`, tone: 'dim' };
+    default:
+      return { text: '', tone: 'dim' };
+  }
+}
