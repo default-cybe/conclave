@@ -509,8 +509,8 @@ pub fn run(
             }
         };
         let p = tok.provider;
-        let opened = tok.request().and_then(|(url, auth)| Ok((connect(&url, auth.as_deref())?, url)));
-        let (mut ws, url) = match opened {
+        let socket = tok.request().and_then(|(url, auth)| Ok((connect(&url, auth.as_deref())?, url)));
+        let (mut ws, url) = match socket {
             Ok(v) => v,
             Err(e) => {
                 log::warn!("meeting: {ch}: {} connect failed: {e}", p.name());
