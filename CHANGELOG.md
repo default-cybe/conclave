@@ -12,6 +12,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Fixed
 
 - Meetings: starting a meeting from a desktop app older than 0.4.51 now says to update the app in Settings > About, instead of `Command meeting_open not allowed by ACL`.
+- Desktop app on macOS: tapping Start listening in a meeting no longer quits the app (the overlay's keyboard-focus switch wrote a field the meeting panel does not have). The app is signed with the microphone entitlement so macOS can ask for the mic, and a crash now writes its reason to `~/Library/Logs/dev.conclave.desktop/panic.log` (the app's log folder on Windows and Linux).
 
 ## [0.4.51] - 2026-10-31
 
