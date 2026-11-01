@@ -134,6 +134,9 @@ sealed class DeepLink {
     /** conclave://memory-map?view=tree|rings|clusters|timeline&item=<node id>, or the hub path /memory/map: Memory > Map. */
     data class MemoryMap(val view: String? = null, val item: String? = null) : DeepLink()
 
+    /** conclave://meetings/<id> or the hub path /meetings/<id> (a meeting reminder): one meeting; /meetings alone the list. */
+    data class Meetings(val id: String? = null) : DeepLink()
+
     companion object {
         fun parse(raw: String?): DeepLink? {
             if (raw.isNullOrBlank()) return null
@@ -167,6 +170,7 @@ sealed class DeepLink {
                     "friends" -> Friends(path.substringBefore('/').takeIf { it.isNotBlank() }?.let { decode(it) })
                     "shares", "share" -> Shares(path.substringBefore('/').takeIf { it.isNotBlank() }?.let { decode(it) })
                     "map" -> MapPage
+                    "meetings", "meeting" -> Meetings(path.substringBefore('/').takeIf { it.isNotBlank() }?.let { decode(it) })
                     "memory-map" -> query(uri.rawQuery).let { q -> MemoryMap(q["view"]?.firstOrNull()?.ifBlank { null }, q["item"]?.firstOrNull()?.ifBlank { null }) }
                     else -> null
                 }
@@ -175,7 +179,9 @@ sealed class DeepLink {
             return null
         }
 
-        private fun sessionFromPath(path: String): DeepLink? {
+        private fun sessionFromPath(raw: String): DeepLink? {
+            // a reminder's link carries ?open=1: the path alone names the page
+            val path = raw.substringBefore('?').substringBefore('#')
             val parts = path.trim('/').split('/')
             if (parts.size >= 2 && (parts[0] == "s" || parts[0] == "sessions" || parts[0] == "session") && parts[1].isNotBlank()) {
                 return Session(decode(parts[1]))
@@ -185,6 +191,7 @@ sealed class DeepLink {
             if (parts.size >= 2 && parts[0] == "settings" && parts[1] == "friends") return Friends(parts.getOrNull(2)?.takeIf { it.isNotBlank() }?.let { decode(it) })
             if (parts[0] == "shares") return Shares(parts.getOrNull(1)?.takeIf { it.isNotBlank() }?.let { decode(it) })
             if (parts.size == 1 && parts[0] == "map") return MapPage
+            if (parts[0] == "meetings") return Meetings(parts.getOrNull(1)?.takeIf { it.isNotBlank() && it != "new" }?.let { decode(it) })
             if (parts.size == 2 && parts[0] == "memory" && parts[1] == "map") return MemoryMap()
             return null
         }

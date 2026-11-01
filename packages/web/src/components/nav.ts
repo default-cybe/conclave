@@ -22,6 +22,7 @@ export const NAV: NavItem[] = [
   { to: '/chat', label: 'Chat', key: 'c', match: (p) => p === '/chat' || p.startsWith('/chat/') },
   { to: '/sessions', label: 'Sessions', key: 's', match: (p) => p.startsWith('/sessions') || p.startsWith('/chats') || p.startsWith('/s/') },
   { to: '/approvals', label: 'Inbox', key: 'i', match: (p) => p.startsWith('/approvals') || p.startsWith('/inbox') },
+  { to: '/meetings', label: 'Meetings', key: 'n' },
   { to: '/map', label: 'Map', key: 'p' },
   { to: '/tasks', label: 'Tasks', key: 't' },
   { to: '/goals', label: 'Goals', key: 'o' },
@@ -47,7 +48,7 @@ export function useNav(): NavItem[] {
 export const isActive = (n: Pick<NavItem, 'to' | 'match'>, path: string) => (n.match ? n.match(path) : path === n.to || path.startsWith(n.to + '/'));
 
 /** The sidebar's rows after Search and New, in order. */
-export const SIDE_PAGES = ['/approvals', '/workflows', '/routines', '/memory', '/extensions'];
+export const SIDE_PAGES = ['/approvals', '/meetings', '/workflows', '/routines', '/memory', '/extensions'];
 
 /**
  * The sidebar's More menu: the pages that have no row, then the friends,

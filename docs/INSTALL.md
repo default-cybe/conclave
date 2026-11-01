@@ -1241,9 +1241,26 @@ A small overlay that listens to a meeting on your computer and shows short
 "Say this" answers you can read out, written as you from the project you
 picked. Design: docs/design/MEETING-MODE.md.
 
-- **Start**: the **Meeting** button in a Code session's header, or the tray's
-  **Start meeting...** (`Ctrl+Alt+M`, `Cmd+Alt+M` on a Mac) and a project. The
-  hub writes a brief first (what you did lately, what to present, likely
+- **Meetings page**: **Meetings** in the sidebar (`G N`) or the phone's side
+  panel lists meetings under Now, Upcoming and Past. **Schedule** sets a title,
+  time, length, project folder (from the folders you have chats in), an
+  optional calendar event, what it is for, reminders (1 day, 1 hour, 15
+  minutes) and **Prepare the evening before**. A Code session's menu has
+  **Schedule a meeting here...**. Past meetings that never started show as not
+  held, with Reschedule and Delete.
+- **Prep**: before a scheduled meeting the hub reads the folder's chats
+  (imported ones too), workflows and recent commits and writes a dossier you
+  can read, edit or re-run. Your edits win: a re-run keeps them and offers the
+  new draft. A prep that would read more than 500k tokens waits for your OK
+  with a size and cost estimate.
+- **Steering**: a preset (defence, status update, interview, demo) or your own
+  text tells the answers how to sound, plus short or long answers. The prep's
+  likely questions follow it too.
+- **Start**: at the meeting's time a notice says it starts now; its link opens
+  the meeting with **Open overlay**. **Start now** on the Meetings page, or the
+  tray's **Start meeting...** (`Ctrl+Alt+M`, `Cmd+Alt+M` on a Mac), starts one
+  straight away. The overlay never opens by itself, and the phone does not
+  listen. The hub writes a brief first (what you did lately, what to present, likely
   questions). Nothing is heard until you press **Start listening** in the
   overlay.
 - **While it listens**: your microphone is "Me" and the computer's sound is
@@ -1264,8 +1281,6 @@ picked. Design: docs/design/MEETING-MODE.md.
   it; on Linux it is always visible. The overlay also hides itself when it
   sees a share start, but test with your own apps before you rely on it, and
   share one window instead of the whole screen when you can.
-- **Ask first**: tell the others you use a note-taker (the overlay has **Copy
-  consent note**). Some places require everyone's consent to record a call.
 - Speech from others is treated as untrusted text: it cannot run tools or
   change settings, and answers never carry keys or passwords from your
   project.

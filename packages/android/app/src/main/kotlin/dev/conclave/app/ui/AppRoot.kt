@@ -85,6 +85,9 @@ import dev.conclave.app.ui.friends.ShareScreen
 import dev.conclave.app.ui.friends.SharesScreen
 import dev.conclave.app.ui.home.HomeScreen
 import dev.conclave.app.ui.map.MapScreen
+import dev.conclave.app.ui.meetings.MeetingDetailScreen
+import dev.conclave.app.ui.meetings.MeetingFormScreen
+import dev.conclave.app.ui.meetings.MeetingsScreen
 import dev.conclave.app.ui.memory.ImportScreen
 import dev.conclave.app.ui.memory.MemoryMapScreen
 import dev.conclave.app.ui.memory.MemoryScreen
@@ -188,6 +191,11 @@ object Routes {
     /** One share from a friend. */
     const val SHARE = "share/{id}"
 
+    /** Meetings (docs/design/MEETING-MODE.md 11.2), one meeting, and the form: new, start now, or edit one. */
+    const val MEETINGS = "meetings"
+    const val MEETING = "meeting/{id}"
+    const val MEETING_FORM = "meeting-form?edit={edit}&now={now}"
+
     fun chat(id: String) = "chat/${android.net.Uri.encode(id)}"
     fun session(id: String) = "session/${android.net.Uri.encode(id)}"
     fun chats(archived: Boolean = false) = if (archived) "chats?archived=true" else "chats"
@@ -198,6 +206,8 @@ object Routes {
     fun friends(link: String? = null) = if (link == null) "friends" else "friends?link=${android.net.Uri.encode(link)}"
     fun friend(id: String) = "friend/${android.net.Uri.encode(id)}"
     fun share(id: String) = "share/${android.net.Uri.encode(id)}"
+    fun meeting(id: String) = "meeting/${android.net.Uri.encode(id)}"
+    fun meetingForm(edit: String? = null, now: Boolean = false) = "meeting-form?edit=${android.net.Uri.encode(edit.orEmpty())}&now=$now"
     fun memoryMap(view: String? = null, item: String? = null) =
         "memory/map?view=${android.net.Uri.encode(view.orEmpty())}&item=${android.net.Uri.encode(item.orEmpty())}"
 }
@@ -358,6 +368,11 @@ private fun MainScaffold() {
                 navigateTop(nav, Routes.MAP)
                 hub.pendingLink.value = null
             }
+            is DeepLink.Meetings -> {
+                val id = link.id
+                if (id == null) navigateTop(nav, Routes.MEETINGS) else nav.navigate(Routes.meeting(id)) { launchSingleTop = true }
+                hub.pendingLink.value = null
+            }
             is DeepLink.MemoryMap -> {
                 // not single top: a link with another view or item opens it, not the map already open
                 nav.navigate(Routes.memoryMap(link.view, link.item))
@@ -399,6 +414,8 @@ private fun MainScaffold() {
                     onNew = { close { startNew(StartModes.mode.value) } },
                     onOpen = { id, chat -> close { openFromPanel(nav, if (chat) Routes.chat(id) else Routes.session(id)) } },
                     onSettings = { close { navigateTop(nav, Routes.SETTINGS) } },
+                    inMeetings = route == Routes.MEETINGS,
+                    onMeetings = { close { navigateTop(nav, Routes.MEETINGS) } },
                     modifier = m,
                     open = wide || drawer.isOpen,
                 )
@@ -710,6 +727,36 @@ private fun AppNavHost(nav: NavHostController, modifier: Modifier) {
                 key(id) {
                     FriendScreen(id = id, onBack = back, onOpenShare = { sid -> nav.navigate(Routes.share(sid)) }, onOpenSession = openChat)
                 }
+            }
+            composable(Routes.MEETINGS) {
+                MeetingsScreen(
+                    onOpen = { id -> nav.navigate(Routes.meeting(id)) { launchSingleTop = true } },
+                    onSchedule = { nav.navigate(Routes.meetingForm()) },
+                    onStartNow = { nav.navigate(Routes.meetingForm(now = true)) },
+                    onReschedule = { id -> nav.navigate(Routes.meetingForm(edit = id)) },
+                )
+            }
+            composable(Routes.MEETING, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+                val id = entry.arguments?.getString("id").orEmpty()
+                MeetingDetailScreen(id, onBack = back, onEdit = { mid -> nav.navigate(Routes.meetingForm(edit = mid)) })
+            }
+            composable(
+                Routes.MEETING_FORM,
+                arguments = listOf(
+                    navArgument("edit") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("now") { type = NavType.BoolType; defaultValue = false },
+                ),
+            ) { entry ->
+                val edit = entry.arguments?.getString("edit")?.ifBlank { null }
+                MeetingFormScreen(
+                    editId = edit,
+                    startNow = entry.arguments?.getBoolean("now") == true,
+                    onBack = back,
+                    // saved: the meeting's page in place of the form (an edit goes back to the page it came from)
+                    onSaved = { id ->
+                        if (edit != null) nav.popBackStack() else nav.navigate(Routes.meeting(id)) { popUpTo(Routes.MEETING_FORM) { inclusive = true } }
+                    },
+                )
             }
             composable(Routes.SHARES) {
                 SharesScreen(onBack = back, onOpenShare = { sid -> nav.navigate(Routes.share(sid)) }, onOpenSession = openChat)

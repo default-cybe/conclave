@@ -9,7 +9,7 @@ import { CALDAV_PRESETS } from '@conclave/core/calendar/types';
 import { MAIL_PRESETS } from '@conclave/core/mail/types';
 import type { MockCtx } from './index';
 
-const ZONE = 'Europe/Berlin';
+const ZONE = 'America/Los_Angeles';
 const MIN = 60_000;
 
 /** Today at a local time in the owner's zone. */

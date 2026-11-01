@@ -14,7 +14,8 @@ import type { MockCtx } from './index';
 import { pimTodayExtras } from './pim';
 
 const DAY = 86_400_000;
-const ZONE = 'Europe/Berlin';
+// the owner's zone, so screenshots show his times
+const ZONE = 'America/Los_Angeles';
 
 function localDate(ts: number): string {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(ts)).map((x) => [x.type, x.value]));

@@ -36,6 +36,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.DropdownMenu
@@ -77,6 +78,7 @@ import dev.conclave.app.ui.common.ConfirmDialog
 import dev.conclave.app.ui.common.Glyphs
 import dev.conclave.app.ui.common.LocalAppContainer
 import dev.conclave.app.ui.common.hubName
+import dev.conclave.app.ui.common.rememberNow
 import dev.conclave.app.ui.home.ModeSwitch
 import dev.conclave.app.ui.motion.Motion
 import dev.conclave.app.ui.motion.reducedMotion
@@ -88,9 +90,13 @@ import dev.conclave.client.logic.Delegated
 import dev.conclave.client.logic.DelegatedRow
 import dev.conclave.client.logic.Drawer
 import dev.conclave.client.logic.GroupBy
+import dev.conclave.client.logic.Meetings
 import dev.conclave.client.logic.Recent
 import dev.conclave.client.logic.RecentDot
 import dev.conclave.client.logic.StartMode
+import dev.conclave.client.meetings
+import dev.conclave.client.model.EngineEvent
+import dev.conclave.client.model.Meeting
 import dev.conclave.client.update.UpdatePrompt
 import kotlinx.coroutines.launch
 
@@ -100,8 +106,9 @@ import kotlinx.coroutines.launch
  * Code switch, then the conversations of that [mode] in groups (Group by:
  * project, device or time), Delegated work (a Delegate call's sessions, in
  * every mode, folding), and at the foot the account row (avatar, name,
- * the hub's state) that opens Settings. Every other page is in Settings;
- * the Inbox count is in the top bar. [currentId] marks the open
+ * the hub's state) that opens Settings. Every other page is in Settings,
+ * except Meetings under Search (docs/design/MEETING-MODE.md 11.1); the
+ * Inbox count is in the top bar. [currentId] marks the open
  * conversation, [inSettings] the account row. Closed ([open] false), the
  * panel lets go of its search, and so of the keyboard.
  */
@@ -116,6 +123,8 @@ fun SidePanel(
     onSettings: () -> Unit,
     modifier: Modifier = Modifier,
     open: Boolean = true,
+    inMeetings: Boolean = false,
+    onMeetings: () -> Unit = {},
 ) {
     val container = LocalAppContainer.current
     val hub = container.hub
@@ -173,6 +182,10 @@ fun SidePanel(
                     Icon(Icons.Outlined.Search, contentDescription = null, tint = c.fg2, modifier = Modifier.size(20.dp))
                 })
             }
+            MeetingsRow(open, selected = inMeetings, onClick = {
+                endSearch()
+                onMeetings()
+            })
             ModeSwitch(mode, onChange = onMode, modifier = Modifier.padding(start = 4.dp, top = 12.dp))
         }
 
@@ -396,6 +409,32 @@ private fun GroupByRow(by: GroupBy, onPick: (GroupBy) -> Unit) {
             }
         }
     }
+}
+
+/**
+ * Meetings, with "Live" in fault red while one listens, else the countdown
+ * to the next one within a day. The list is read while the panel is open
+ * and again when a meeting changes; a hub without meetings shows the row bare.
+ */
+@Composable
+private fun MeetingsRow(open: Boolean, selected: Boolean, onClick: () -> Unit) {
+    val c = Conclave.colors
+    val hub = LocalAppContainer.current.hub
+    var list by remember { mutableStateOf<List<Meeting>>(emptyList()) }
+    LaunchedEffect(open) {
+        if (!open) return@LaunchedEffect
+        list = runCatching { hub.api { it.meetings(view = "all", limit = 50) } }.getOrElse { list }
+        hub.events.collect { e ->
+            if (e is EngineEvent.MeetingUpdated) list = list.filterNot { it.id == e.meeting.id } + e.meeting
+        }
+    }
+    val now by rememberNow(60_000)
+    val meta = remember(list, now) { Meetings.panelMeta(list, now) }
+    PanelRow("Meetings", selected = selected, onClick = onClick, strong = true, leading = {
+        Icon(Icons.Outlined.Event, contentDescription = null, tint = c.fg2, modifier = Modifier.size(20.dp))
+    }, trailing = if (meta == null) null else {
+        { Text(meta, style = ConclaveType.metaNum, color = if (meta == "Live") c.fault else c.fg3, maxLines = 1) }
+    })
 }
 
 /** One row of the panel: 48dp to touch, the open conversation on a quiet fill. */

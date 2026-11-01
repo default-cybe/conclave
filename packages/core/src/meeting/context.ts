@@ -25,6 +25,9 @@ export function isSecretFile(path: string): boolean {
 /** Token caps per source (1.2), in table order; the pack is cut from the bottom up past TOTAL. */
 export const CAPS = { instructions: 6000, git: 3000, readme: 1500, sessions: 4000, tasks: 1500, memory: 1500, lastMeeting: 2000, agenda: 1500 } as const;
 export const PACK_TOKENS_MAX = 20_000;
+/** With a prep (11.4.5): the prep replaces most of the pack, and the total grows. */
+export const PREP_CAPS = { agenda: 1500, prep: 9000, instructions: 3000, git: 2000, tasks: 1500, lastMeeting: 1500, memory: 1000, sessions: 1500, readme: 1000 } as const;
+export const PREP_PACK_TOKENS_MAX = 22_000;
 const SESSIONS_MAX = 20;
 const TASKS_MAX = 50;
 
@@ -48,6 +51,8 @@ export interface PackSources {
   /** The memory block (profile and recall), already built for the account. */
   memory: string;
   lastMeeting?: MeetingNotes;
+  /** The prep in use (prepEdited ?? prepDraft), when the meeting has one. */
+  prep?: string;
 }
 
 /** Cut text to about `tokens` tokens, on a line boundary when it can. */
@@ -139,26 +144,32 @@ function notesText(n: MeetingNotes): string {
  */
 export async function buildContextPack(src: PackSources): Promise<string> {
   const [ins, gitText, readmeText] = await Promise.all([instructions(src), git(src), readme(src)]);
-  const sources: Array<[keyof typeof CAPS, string, string]> = [
-    ['instructions', 'Project instructions', ins],
-    ['git', 'Git', gitText],
-    ['readme', 'README', readmeText],
-    ['sessions', 'Recent work sessions in this project', sessionLines(src.sessions)],
-    ['tasks', 'Open tasks', taskLines(src.tasks)],
-    ['memory', 'What Conclave remembers about the owner', src.memory],
-    ['lastMeeting', 'Notes of the last meeting in this project', src.lastMeeting ? notesText(src.lastMeeting) : ''],
-    ['agenda', 'Agenda the owner typed', src.agenda ?? ''],
-  ];
+  const text: Record<keyof typeof PREP_CAPS, [string, string]> = {
+    agenda: ['Agenda the owner typed', src.agenda ?? ''],
+    prep: ['Prep the owner prepared for this meeting', src.prep ?? ''],
+    instructions: ['Project instructions', ins],
+    git: ['Git', gitText],
+    readme: ['README', readmeText],
+    sessions: ['Recent work sessions in this project', sessionLines(src.sessions)],
+    tasks: ['Open tasks', taskLines(src.tasks)],
+    memory: ['What Conclave remembers about the owner', src.memory],
+    lastMeeting: ['Notes of the last meeting in this project', src.lastMeeting ? notesText(src.lastMeeting) : ''],
+  };
+  // the agenda first, so it is cut last (11.4.5); with a prep, the prep right after it
+  const { agenda, ...rest } = CAPS;
+  const caps: Partial<Record<keyof typeof PREP_CAPS, number>> = src.prep ? PREP_CAPS : { agenda, ...rest };
+  const max = src.prep ? PREP_PACK_TOKENS_MAX : PACK_TOKENS_MAX;
   const head = clean(`Project context for the meeting "${src.title}". The owner${src.ownerName ? ` is ${src.ownerName}` : ''}. Project folder: ${src.cwd}.`);
-  const blocks = sources.map(([k, label, text]) => {
-    const body = cap(clean(text), CAPS[k]);
+  const blocks = (Object.keys(caps) as Array<keyof typeof PREP_CAPS>).map((k) => {
+    const [label, t] = text[k];
+    const body = cap(clean(t), caps[k]!);
     return body ? `## ${label}\n${body}` : '';
   });
   // cut from the bottom of the table up until the whole fits
   let total = estimateTokens(head) + blocks.reduce((n, b) => n + estimateTokens(b) + 1, 0);
-  for (let i = blocks.length - 1; i >= 0 && total > PACK_TOKENS_MAX; i--) {
+  for (let i = blocks.length - 1; i >= 0 && total > max; i--) {
     if (!blocks[i]) continue;
-    const over = total - PACK_TOKENS_MAX;
+    const over = total - max;
     const keep = estimateTokens(blocks[i]) - over;
     const next = keep > 50 ? cap(blocks[i], keep) : '';
     total -= estimateTokens(blocks[i]) - estimateTokens(next);
