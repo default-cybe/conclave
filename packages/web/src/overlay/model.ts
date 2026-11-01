@@ -154,3 +154,69 @@ export function parseAnswer(text: string): ParsedAnswer {
   }
   return { bullets, source, rest: rest.join(' ') };
 }
+
+const BULLET = /^\s*[-*•+]\s+/;
+/** A line that starts a markdown block, so it does not continue the bullet above it. */
+const BLOCK = /^\s*(```|~~~|\||#|>|\d+[.)]\s)/;
+/** A line still being written that may yet turn into "Say this:", "Source:", a bullet or a block: held back until it is clear. */
+const UNDECIDED = (line: string) => (line.length > 0 && line.length < 9 && ['say this:', 'source:'].some((w) => w.startsWith(line.toLowerCase()))) || /^([-*•+]|`{1,2}|~{1,2}|\d+[.)]?)$/.test(line);
+
+/**
+ * The answer as two markdown texts: `say`, the "Say this" bullets (read
+ * aloud, shown large), and `rest`, everything after them (details, code,
+ * tables, charts), without the Source line. While it streams, each text only
+ * grows (a later call returns a continuation of the earlier one), so the
+ * renderer parses only the new slice.
+ */
+export function splitAnswer(text: string, done = false): { say: string; rest: string; source?: string } {
+  const lines = text.split('\n');
+  const tail = done ? undefined : lines.pop();
+  const say: string[] = [];
+  const rest: string[] = [];
+  let source: string | undefined;
+  let phase: 'head' | 'say' | 'rest' = 'head';
+  let afterBullet = false;
+  let fence = false;
+  const take = (raw: string, partial: boolean) => {
+    const line = raw.trim();
+    // inside a code fence every line is code, "source: x" in YAML too
+    if (fence) {
+      if (!partial && /^(```|~~~)/.test(line)) fence = false;
+      return void rest.push(raw);
+    }
+    if (!partial && /^(```|~~~)/.test(line)) fence = true;
+    const src = /^source:\s*(.*)$/i.exec(line);
+    if (src) return void (source = src[1]);
+    if (partial && UNDECIDED(line)) return;
+    if (phase !== 'rest') {
+      if (!line || /^say this:?$/i.test(line)) return void (afterBullet = false);
+      if (BULLET.test(raw)) {
+        phase = 'say';
+        afterBullet = true;
+        return void say.push(`- ${raw.replace(BULLET, '')}`);
+      }
+      if (phase === 'say' && afterBullet && !BLOCK.test(raw)) return void (say[say.length - 1] += ` ${line}`);
+      phase = 'rest';
+    }
+    rest.push(raw);
+  };
+  for (const l of lines) take(l, false);
+  // an empty last line is only a newline so far: held back too, so rest never ends in a newline it may take back
+  if (tail) take(tail, true);
+  return { say: say.join('\n'), rest: rest.join('\n'), source };
+}
+
+/**
+ * Which answer the card shows (cheating-daddy's response index, see Live.tsx):
+ * `pinned` is the id the owner stepped to, undefined for the newest.
+ */
+export function shownIndex(answers: { id: string }[], pinned?: string): number {
+  const i = pinned ? answers.findIndex((a) => a.id === pinned) : -1;
+  return i >= 0 ? i : answers.length - 1;
+}
+
+/** One step back (-1) or forward (+1), stopping at the ends; back at the newest it unpins. */
+export function stepAnswer(answers: { id: string }[], pinned: string | undefined, dir: -1 | 1): string | undefined {
+  const i = Math.min(answers.length - 1, Math.max(0, shownIndex(answers, pinned) + dir));
+  return i >= answers.length - 1 ? undefined : answers[i]?.id;
+}

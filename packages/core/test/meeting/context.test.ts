@@ -2,7 +2,9 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
 import { DEFAULT_CONFIG } from '../../src/config';
 import { buildContextPack, isSecretFile, PACK_TOKENS_MAX } from '../../src/meeting/context';
-import { LIVE_PROMPT } from '../../src/meeting/prompt';
+import { LIVE_EXTRAS, LIVE_PROMPT } from '../../src/meeting/prompt';
+import { liveRequest, userMessage } from '../../src/meeting/answer';
+import type { Meeting } from '../../src/meeting/wire';
 import { defuseFrameworkTags } from '../../src/session/untrusted';
 import type { Machine } from '../../src/machine/types';
 import { FakeMachine, cleanup, tempDir, write } from '../extensions/_helpers';
@@ -94,6 +96,17 @@ describe('context pack', () => {
   test('the live prompt is byte-stable and has no dates or ids', () => {
     expect(LIVE_PROMPT).not.toMatch(/\d{4}-\d{2}-\d{2}|mtg_|ses_/);
     expect(LIVE_PROMPT.startsWith('You help the owner during a live meeting.')).toBe(true);
+  });
+
+  test('the overlay formats (table, code, chart, mermaid) go in the uncached user message, the cached system blocks stay as they were', () => {
+    const m = { id: 'mtg_1', createdAt: 0, startedAt: 0 } as Meeting;
+    const user = userMessage(m, [], { now: 0, question: 'What are the numbers?' });
+    expect(user.endsWith(LIVE_EXTRAS)).toBe(true);
+    for (const w of ['```chart', '```mermaid', 'table', 'code block', 'Say this:']) expect(LIVE_EXTRAS).toContain(w);
+    expect(LIVE_PROMPT).not.toContain('chart');
+    const req = liveRequest('mtg_1', 'PACK', user);
+    expect(req.system).toEqual([{ text: LIVE_PROMPT }, { text: 'PACK', cache: true }]);
+    expect(LIVE_EXTRAS).not.toMatch(/\d{4}-\d{2}-\d{2}|mtg_|ses_/);
   });
 
   test('meeting-transcript is a framework tag', () => {

@@ -1,18 +1,76 @@
-/** The "Say this" card (docs/design/MEETING-MODE.md 1.3, 3.5). */
+/*
+ * The "Say this" card (docs/design/MEETING-MODE.md 1.3, 3.5): the bullets to
+ * read aloud, large, then the rest of the answer (details, code, tables,
+ * charts) smaller, then the source. Earlier answers show in the same card.
+ *
+ * The "n of m" stepper is ported from cheating-daddy, github.com/sohzm/cheating-daddy
+ * @3cccc36f5ed63d7116e4bf93566899871e0199dc:src/components/views/AssistantView.js
+ * 387-410 and 675-681 (previous and next response, disabled at the ends, the
+ * counter between them). Copyright (C) 2025 sohzm. Licensed GPL-3.0-or-later;
+ * combined into Conclave (AGPL-3.0-only) under GPLv3 section 13.
+ */
 import { memo, useState } from 'react';
-import { parseAnswer } from './model';
+import { splitAnswer } from './model';
+import { StreamText } from './StreamText';
 import type { MeetingAnswer } from './wire';
 
 const STATE: Record<MeetingAnswer['state'], string> = { streaming: 'Writing', done: '', cancelled: 'Stopped', failed: 'No answer' };
 
-export const AnswerCard = memo(function AnswerCard({ answer, text, onStop, onRetry }: { answer: MeetingAnswer; text: string; onStop?: () => void; onRetry?: () => void }) {
-  const a = parseAnswer(text);
+function Copy({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
   return (
-    <section className="ov-card" aria-label="Say this" aria-live="polite">
+    <button
+      type="button"
+      className="ov-copy"
+      onClick={() =>
+        void navigator.clipboard?.writeText(text).then(
+          () => {
+            setDone(true);
+            setTimeout(() => setDone(false), 1500);
+          },
+          () => undefined,
+        )
+      }
+    >
+      {done ? 'Copied' : 'Copy'}
+    </button>
+  );
+}
+
+export interface Nav {
+  index: number;
+  count: number;
+  step: (dir: -1 | 1) => void;
+}
+
+export const AnswerCard = memo(function AnswerCard({ answer, text, nav, onStop, onRetry }: { answer: MeetingAnswer; text: string; nav?: Nav; onStop?: () => void; onRetry?: () => void }) {
+  const done = answer.state !== 'streaming';
+  const a = splitAnswer(text, done);
+  return (
+    <section className="ov-card" aria-label="Say this">
       <header className="ov-card-head">
         <span className="ov-label">Say this</span>
         {STATE[answer.state] && <span className={answer.state === 'failed' ? 'ov-fault' : 'ov-state'}>{STATE[answer.state]}</span>}
-        {answer.state === 'streaming' && onStop && (
+        <span className="ov-grow" />
+        {nav && nav.count > 1 && (
+          <span className="ov-nav" aria-label="Answers">
+            <button type="button" className="ov-step" aria-label="Previous answer" disabled={nav.index <= 0} onClick={() => nav.step(-1)}>
+              <svg viewBox="0 0 20 20" aria-hidden>
+                <path d="M12 5l-5 5 5 5" />
+              </svg>
+            </button>
+            <span className="ov-num">
+              {nav.index + 1} of {nav.count}
+            </span>
+            <button type="button" className="ov-step" aria-label="Next answer" disabled={nav.index >= nav.count - 1} onClick={() => nav.step(1)}>
+              <svg viewBox="0 0 20 20" aria-hidden>
+                <path d="M8 5l5 5-5 5" />
+              </svg>
+            </button>
+          </span>
+        )}
+        {done && text && <Copy text={answer.question ? `Question: ${answer.question}\n\n${text}` : text} />}
+        {!done && onStop && (
           <button type="button" className="ov-link" onClick={onStop}>
             Stop
           </button>
@@ -29,39 +87,14 @@ export const AnswerCard = memo(function AnswerCard({ answer, text, onStop, onRet
           )}
         </div>
       ) : (
-        <>
-          {a.bullets.length > 0 && (
-            <ul className="ov-say">
-              {a.bullets.map((b, i) => (
-                <li key={i}>{b}</li>
-              ))}
-            </ul>
-          )}
-          {a.rest && <p className="ov-say-rest">{a.rest}</p>}
-          {!a.bullets.length && !a.rest && answer.state === 'streaming' && <p className="ov-muted">Thinking of an answer</p>}
+        <div aria-live="polite">
+          {/* keyed by answer: one parser per answer and part (StreamText) */}
+          {a.say && <StreamText key={`${answer.id}:say`} className="ov-md ov-say" text={a.say} done={done} />}
+          {a.rest.trim() && <StreamText key={`${answer.id}:rest`} className="ov-md ov-rest" text={a.rest} done={done} />}
+          {!a.say && !a.rest.trim() && !done && <p className="ov-muted">Thinking of an answer</p>}
           {a.source !== undefined && <p className="ov-source">Source: {a.source}</p>}
-        </>
+        </div>
       )}
     </section>
   );
 });
-
-/** An earlier answer, one line until opened. */
-export function PreviousAnswer({ answer, text }: { answer: MeetingAnswer; text: string }) {
-  const [open, setOpen] = useState(false);
-  const a = parseAnswer(text);
-  return (
-    <li className="ov-prev">
-      <button type="button" className="ov-prev-head" aria-expanded={open} onClick={() => setOpen(!open)}>
-        {answer.question || a.bullets[0] || 'Answer'}
-      </button>
-      {open && (
-        <ul className="ov-say ov-say-small">
-          {a.bullets.map((b, i) => (
-            <li key={i}>{b}</li>
-          ))}
-        </ul>
-      )}
-    </li>
-  );
-}

@@ -9,6 +9,15 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Meetings: the overlay renders answers as streaming markdown (streaming-markdown, vendored from Pickle Glass; only the new text is parsed each frame): the "Say this" bullets large with **bold** terms, then code blocks with highlighting and a Copy button, tables, ```chart blocks drawn as small SVG bar or line charts, and ```mermaid diagrams (loaded only when one appears). Model output never becomes HTML: links open in the browser, images become links. Earlier answers are one step back with the arrows or Ctrl or Cmd + Alt + [ and ], shown as "2 of 3"; Copy copies the whole answer.
+
+### Changed
+
+- Meetings: the overlay window fits its content (at most 75 % of the screen), is a one-line bar while no answer shows, keeps to the bottom only when you were there, and fades each new block in (none with reduced motion). Streaming a 2,000-token answer in mock mode dropped no frames.
+- Meetings: live answers may add a short table, code block, chart or diagram after the bullets when the question asks for numbers, code or structure.
+
 ### Fixed
 
 - Meetings: starting a meeting from a desktop app older than 0.4.51 now says to update the app in Settings > About, instead of `Command meeting_open not allowed by ACL`.
