@@ -488,8 +488,10 @@ pub fn run(
         Channel::Them => "them",
     };
     let mut failures = 0u32;
+    // the frame that woke a try that failed: the next try sends it, so no audio is lost to a retry
+    let mut held: Option<Vec<u8>> = None;
     while !stop.load(Ordering::Relaxed) {
-        let frame = match rx.recv_timeout(Duration::from_millis(200)) {
+        let frame = match held.take().map(Ok).unwrap_or_else(|| rx.recv_timeout(Duration::from_millis(200))) {
             Ok(f) => f,
             Err(RecvTimeoutError::Timeout) => continue,
             Err(RecvTimeoutError::Disconnected) => return Ok(()),
@@ -504,6 +506,7 @@ pub fn run(
                 if failures >= MAX_FAILURES {
                     return Err(format!("no speech to text token: {e}"));
                 }
+                held = Some(frame);
                 wait(stop, super::upload::backoff(failures - 1));
                 continue;
             }
@@ -518,6 +521,7 @@ pub fn run(
                 if failures >= MAX_FAILURES {
                     return Err(format!("{} unreachable: {e}", p.name()));
                 }
+                held = Some(frame);
                 wait(stop, super::upload::backoff(failures - 1));
                 continue;
             }
