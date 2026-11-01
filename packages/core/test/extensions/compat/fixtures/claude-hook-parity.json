@@ -1,0 +1,92 @@
+{
+  "about": "What real Claude Code did with fixtures/hooks/parity-hook.ts. Recorded with /tmp/cg/claude-iso.sh -p --model sonnet --settings <hooks json> --output-format stream-json --verbose --include-hook-events in an empty, untrusted temp folder. Six runs, about $0.24 in total.",
+  "claudeCode": "2.1.301",
+  "recorded": "2026-10-16",
+  "permissionMode": "default (headless -p, nobody to answer a prompt)",
+  "pretool": {
+    "cg-exit2": {
+      "ran": false,
+      "isError": true,
+      "toolResult": "PreToolUse:Bash hook error: [<hook command>]: cg-exit2 is not allowed here"
+    },
+    "cg-deny": {
+      "ran": false,
+      "isError": true,
+      "toolResult": "PreToolUse:Bash hook error: cg-deny refused by policy"
+    },
+    "cg-ask": {
+      "ran": false,
+      "isError": true,
+      "toolResult": "cg-ask needs a human",
+      "note": "ask forced a permission prompt; headless mode denied it and emitted system/permission_denied with the hook's reason"
+    },
+    "cg-allow": {
+      "ran": true,
+      "isError": false,
+      "toolResult": "(Bash completed with no output)",
+      "note": "control run: the same touch without the hook was denied with 'touch in ... needs approval'"
+    },
+    "cg-rewrite": {
+      "ran": true,
+      "isError": false,
+      "toolResult": "cg-rewritten-by-hook",
+      "note": "updatedInput alone, with no permissionDecision, replaced the command"
+    }
+  },
+  "posttool": {
+    "cg-post2": {
+      "toolResult": "cg-post2",
+      "feedbackReachedModel": true,
+      "delivery": "separate hook_blocking_error attachment after the tool result: '[<hook command>]: cg-post2 output looked wrong'"
+    },
+    "cg-postctx": {
+      "toolResult": "cg-postctx",
+      "feedbackReachedModel": true,
+      "delivery": "separate hook_additional_context attachment: 'Note from hook: the post codeword is FIG.'"
+    },
+    "toolResponseShape": { "stdout": "string", "stderr": "string", "interrupted": "boolean", "isImage": "boolean", "noOutputExpected": "boolean" },
+    "durationMsPresent": true
+  },
+  "ifFilter": {
+    "rule": "Bash(echo cg-if*)",
+    "cg-if-yes": { "hookRan": true, "blocked": true },
+    "cg-plain": { "hookRan": false, "blocked": false }
+  },
+  "sessionStart": {
+    "source": "startup",
+    "matcherValue": "startup",
+    "jsonAdditionalContextReachedModel": true,
+    "plainStdoutReachedModel": true,
+    "claudeEnvFileSet": true
+  },
+  "userPromptSubmit": {
+    "jsonAdditionalContextReachedModel": true,
+    "plainStdoutReachedModel": true,
+    "claudeEnvFileSet": false
+  },
+  "stop": {
+    "firstInput": { "stop_hook_active": false, "afterToolTurn": true, "lastAssistantMessagePresent": true },
+    "secondInput": { "stop_hook_active": true },
+    "feedbackMessage": "Stop hook feedback:\nBefore finishing, write the word MANGO on its own line.",
+    "finalText": "MANGO"
+  },
+  "stdinFields": {
+    "common": ["session_id", "transcript_path", "cwd", "prompt_id", "permission_mode", "effort", "hook_event_name"],
+    "PreToolUse": ["tool_name", "tool_input", "tool_use_id"],
+    "PostToolUse": ["tool_name", "tool_input", "tool_response", "tool_use_id", "duration_ms"],
+    "Stop": ["stop_hook_active", "last_assistant_message"],
+    "SessionStart": ["source"],
+    "UserPromptSubmit": ["prompt"]
+  },
+  "env": {
+    "CLAUDE_PROJECT_DIR": "the session cwd, on every hook",
+    "CLAUDE_ENV_FILE": "set only for SessionStart"
+  },
+  "naming": {
+    "pluginSkill": "hookify:writing-rules (folder name; frontmatter name was writing-hookify-rules)",
+    "projectSkill": "folder-name (frontmatter name front-name was ignored)",
+    "projectAgent": "agent-front (frontmatter name wins for agents; file was agent-file.md)",
+    "pluginCommands": ["hookify:configure", "hookify:help", "hookify:hookify", "hookify:list"],
+    "pluginAgent": "hookify:conversation-analyzer"
+  }
+}
