@@ -7,6 +7,13 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Contacts: `GET /api/contacts` and `ConclaveClient.contacts()` list the other people on the hub by shown name and `account:` party id. The owner also sees active friends as `friend:` parties; members never see the owner's friends. Contact cards omit sign-in names, emails, settings and credentials. Contact preferences and app flows are not implemented yet.
+- Shared-chat groundwork, not an enabled feature: additive `chat_participants`, `messages.sender` and `turns.started_by` storage, membership/history checks and per-reader message redaction helpers. Removing a hub member preserves their messages in another person's chat with their saved name and `account:removed` attribution. Shared-chat routes, seat turns, queueing and UI remain unimplemented.
+
 ## [0.4.53] - 2026-11-01
 
 ### Added

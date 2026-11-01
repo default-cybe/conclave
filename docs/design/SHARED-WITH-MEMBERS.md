@@ -8,7 +8,7 @@ Three things:
 2. **Start a project together.** A shared project with a person on this hub, using the shared projects that already exist between hubs.
 3. **Chats with more than one person.** Add Nihir, or a friend on another hub, to a chat you are in. Everyone reads the same chat. Each person's messages start their own agent turn, on their own account, models, limits and devices.
 
-This is a design. Nothing here is built yet. Paths with line numbers are the code as it is on `main` at 2db22c31.
+This design is not yet implemented end to end. The `feat/shared-chats` branch adds the contacts API and client, additive membership/sender/turn-starter storage, and tested membership and message-redaction helpers. Chat membership is not exposed over HTTP or WebSocket: seat execution, transcript routing, the turn queue, local share delivery, notifications and the app flows remain unimplemented. The helpers alone do not establish runtime isolation. Contacts currently have no opt-out controls or avatars. Paths with line numbers below describe `main` at 2db22c31.
 
 ## 0. The owner's answers
 
@@ -580,11 +580,12 @@ Two hubs on one machine, with `PeerOptions.loopback` as the friends tests do.
 - **Memory.** The friend's words reach neither hub's memory except the friend's own, from their own turns.
 - **Remove and end.** `friend.remove` and `chat.remove` make the mirror read only.
 
-## 10. Open questions for the owner
+## 10. Final owner decisions
 
-1. **Talking without the agent.** In a chat with others, should every message start the sender's agent, or should people be able to just talk? This design starts a turn for each message, with a "Just talk" switch in the composer that sends without one.
-2. **One turn at a time.** Turns run one after another, in order. Is that fine, or should two people's agents be able to work at the same time? That would be later: the transcript gets harder to read.
-3. **Stopping.** The owner can stop anyone's turn in their chat (it is your chat). Is that right?
-4. **Default access.** When you add someone, should they start as a Participant (this design) or a Viewer?
-5. **Their memory.** A participant's own memory starts off in your chat, so you do not read what their agent recalls about them. Keep that default?
-6. **Tool output.** Others see one-line summaries of tool calls by default, not full output. Keep that default?
+1. **Talking without the agent.** A normal send starts the sender's own AI turn. The per-message "Just talk" switch sends a plain human message with no turn.
+2. **One turn at a time.** Turns run one after another, in order.
+3. **Stopping.** The chat owner can stop anyone's running turn. Each person can stop their own turn.
+4. **Default access.** New people start as Participants, with chat tools only. Phase 1 has Viewer and Participant roles. Earlier history is off by default. The owner can change role/history or remove a person anytime.
+5. **Their memory.** A participant's own memory starts off in someone else's chat. They can turn it on for themselves. Their turn never reads the chat owner's personal memory, and each turn learns only into its starter's memory.
+6. **Tool output.** Others see one-line tool summaries. Only the turn starter sees full tool output.
+7. **Payer and identity.** Every turn runs in a seat owned by its starter, using their models, plans, keys, limits and fallbacks, billed to them. Hub members see each other as contacts by default. Removing a member keeps their messages and saved name.
