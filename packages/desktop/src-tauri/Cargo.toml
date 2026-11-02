@@ -78,6 +78,9 @@ objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSPanel", "NSRe
 objc2-core-foundation = { version = "0.3", features = ["CFArray", "CFDictionary", "CFNumber", "CFString"] }
 objc2-core-graphics = { version = "0.3", features = ["CGWindow"] }
 tauri-nspanel = "2.1"
+# system sound from every app on any output device: the Core Audio global process tap
+# (src/meeting/tap_mac.rs); the version cpal already brings
+objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware", "objc2", "objc2-foundation"] }
 # the blur behind the translucent overlay (src/meeting/mod.rs build), the crate tauri already uses
 window-vibrancy = "0.8"
 

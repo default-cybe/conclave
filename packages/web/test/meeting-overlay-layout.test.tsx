@@ -9,7 +9,7 @@ import { beforeAll, describe, expect, test } from 'bun:test';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { isAnswerKey, Live, Menu } from '../src/overlay/Live';
+import { clickKeyLabel, isAnswerKey, Live, Menu, statusNotes } from '../src/overlay/Live';
 import { levelSource } from '../src/overlay/frame';
 import { HubError, meetingApi, type Req } from '../src/overlay/hub';
 import { emptyView, loadDetail } from '../src/overlay/model';
@@ -75,6 +75,27 @@ describe('layout', () => {
     const noop = () => undefined;
     const text = parse(renderToStaticMarkup(<Menu autoAnswer onAutoAnswer={noop} onClickThrough={noop} onEnd={noop} />)).body.textContent!;
     for (const w of ['Text size', 'A-', 'A+', 'Opacity', 'Click-through', 'Auto answers: on', 'End meeting']) expect(text).toContain(w);
+  });
+
+  test('click-through on: a pill that takes no clicks says how to turn it off; the menu names the key that works', () => {
+    expect(live().querySelector('.ov-ct-pill')).toBeNull();
+    const pill = live(desk({ clickThrough: true, clickKey: 'CommandOrControl+Alt+T' })).querySelector('.ov-ct-pill')!;
+    expect(pill.tagName).toBe('P');
+    expect(pill.querySelector('button, a')).toBeNull();
+    expect(pill.textContent).toMatch(/^Click-through on · (⌘⌥T|Ctrl\+Alt\+T) to turn off$/);
+    expect(clickKeyLabel('CommandOrControl+Alt+T', true)).toBe('⌘⌥T');
+    expect(clickKeyLabel('CommandOrControl+Alt+T', false)).toBe('Ctrl+Alt+T');
+    expect(clickKeyLabel('CommandOrControl+Alt+Shift+T', true)).toBe('⌘⌥⇧T');
+    expect(clickKeyLabel('CommandOrControl+Alt+Shift+T', false)).toBe('Ctrl+Alt+Shift+T');
+    const noop = () => undefined;
+    const menu = parse(renderToStaticMarkup(<Menu autoAnswer clickKey="CommandOrControl+Alt+Shift+T" onAutoAnswer={noop} onClickThrough={noop} onEnd={noop} />)).body.textContent!;
+    expect(menu).toMatch(/Click-through \((⌘⌥⇧T|Ctrl\+Alt\+Shift\+T) turns it off\)/);
+  });
+
+  test('the system sound note shows while capture runs', () => {
+    const note = "Not hearing the meeting. Check the meeting app's speaker.";
+    expect(statusNotes(desk({ system: { ok: true, device: 'global tap (all apps)', error: note } }), 'open')).toEqual([note]);
+    expect(statusNotes(desk(), 'open')).toEqual([]);
   });
 });
 

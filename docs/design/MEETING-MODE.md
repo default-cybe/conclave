@@ -885,26 +885,27 @@ Presets live in `packages/core/src/meeting/wire.ts` as `STEERING_PRESETS` and ar
 
 ```text
 defence (Defence / viva)
-Panel members are examiners testing whether I did and understand the work.
-- Lead with the claim, then the evidence that backs it: the number, the experiment, the file or commit.
-- Confident, not defensive. Admit a limitation in one sentence, then say what I did about it or would do next.
-- Never overstate a result. If a result is preliminary, say "preliminary".
-- Stress: methodology, why I chose it over alternatives, and how I validated it.
-- Avoid: jargon the panel did not use first, apologising, and "I think" before facts.
+Panel members are examiners testing whether I did the work and understand it.
+- Lead with the claim, then the proof: the number, the experiment, the file or commit.
+- Confident, not defensive. Own a limitation in 1 line, then say what I did or would do next.
+- Don't overstate a result. If it's preliminary, say "preliminary".
+- Stress: my method, why I picked it over the alternatives, and how I checked it.
+- Avoid: jargon the panel hasn't used, apologising, and "I think" before facts.
 
 status (Status update)
-- What changed since last time, what is blocked, what I need from them. In that order.
-- Numbers and dates over adjectives. Name owners of blocked items when the context has them.
-- Avoid: implementation detail unless asked.
+- Only when they ask for an update: what's changed, what's blocked, what I need from them. In that order.
+- Digits and short dates ("Oct 28", "3 tests left") over adjectives. Name who owns a blocker when the context says.
+- Small talk stays small talk: "how's it going" gets a short friendly line, not the update.
+- Avoid: implementation detail unless they ask.
 
 interview (Interview)
-- Answer with a short situation, what I did, and the result with a number when there is one.
-- Tie answers to the role when the purpose names it. Keep each answer under 30 seconds spoken.
-- Avoid: talking down former teams, and claims the context cannot back.
+- Answer with a quick situation, what I did, and the result, with a number when there's one.
+- Tie it to the role when the purpose names it. Keep each answer under 30 seconds out loud.
+- Avoid: knocking past teams, and claims the context can't back.
 
 demo (Demo)
-- Say what the audience is looking at, then why it matters to them.
-- If something breaks, give a one-line recovery and move to the next step of the presenting order.
+- Say what they're looking at, then why it matters to them.
+- If something breaks, give a 1-line recovery and move on to the next step of the presenting order.
 - Avoid: reading code aloud; point to the file instead.
 ```
 

@@ -186,6 +186,9 @@ pub struct DesktopMeetingStatus {
     pub live: bool,
     pub paused: bool,
     pub click_through: bool,
+    /// The click-through hotkey that registered ("CommandOrControl+Alt+T" or its Shift fallback).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub click_key: Option<String>,
     pub hidden_for_share: bool,
     pub exclusion: Exclusion,
     pub mic: ChannelState,
@@ -250,7 +253,7 @@ mod tests {
     fn desktop_status_matches_the_contract() {
         round_trip::<DesktopMeetingStatus>(json!({
             "meetingId": "mtg_1", "live": true, "paused": false, "clickThrough": false,
-            "hiddenForShare": false, "exclusion": "monitor-only",
+            "clickKey": "CommandOrControl+Alt+Shift+T", "hiddenForShare": false, "exclusion": "monitor-only",
             "mic": { "ok": true, "device": "Built-in" }, "system": { "ok": false, "error": "no system sound" },
             "stt": { "state": "downloading", "progress": 0.5, "provider": "local", "error": "Deepgram failed; using local" },
             "queue": { "stt": 1, "upload": 0, "dropped": 3 }

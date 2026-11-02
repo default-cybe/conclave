@@ -55,8 +55,8 @@ pub const PARTIAL_EVERY: Duration = Duration::from_millis(1000);
 /// No partial of open speech longer than this: a partial cannot be stopped once it runs, so a
 /// long one would hold up the question's final; speculation needs only the first 2 s.
 pub const PARTIAL_LAST_MS: f64 = 6000.0;
-/// 30 s of exact zeros on the system channel means macOS denied the capture (6).
-const SILENT_DENIED: Duration = Duration::from_secs(30);
+/// The default mic or speaker is checked this often; a change reopens the channel on the new one.
+const FOLLOW_EVERY: Duration = Duration::from_millis(500);
 
 /// A mono ring of `seconds` at `rate`.
 pub fn ring(rate: u32, seconds: usize) -> (HeapProd<f32>, HeapCons<f32>) {
@@ -133,6 +133,9 @@ pub fn run_channel(
         Channel::Me => super::vad::REDEMPTION_ME_MS,
     };
     let mut block = vec![0f32; 4800];
+    let who = if channel == Channel::Me { "me" } else { "them" };
+    // the global tap until it fails once in this meeting (macOS before 14.4, or no permission)
+    let mut try_tap = cfg!(target_os = "macos");
     while !stop.load(Ordering::Relaxed) {
         if paused.load(Ordering::Relaxed) {
             shared.ok.store(false, Ordering::Relaxed);
@@ -140,40 +143,49 @@ pub fn run_channel(
             continue;
         }
         let failed = Arc::new(AtomicBool::new(false));
-        let opened = open(channel, &shared, &failed);
-        let (stream, mut cons, rate, name) = match opened {
+        let opened = open(channel, &shared, &failed, &mut try_tap);
+        let o = match opened {
             Ok(v) => v,
             Err(e) => {
+                log::warn!("meeting: {who}: cannot open: {e}");
                 shared.set(false, None, Some(e));
                 sleep_unless(&stop, REOPEN_EVERY);
                 continue;
             }
         };
-        if let Err(e) = stream.play() {
+        let (rate, name) = (o.rate, o.name.clone());
+        let mut cons = o.cons;
+        if let Err(e) = o.stream.play() {
+            log::warn!("meeting: {who}: cannot start {name}: {e}");
             shared.set(false, Some(name), Some(e.to_string()));
             sleep_unless(&stop, REOPEN_EVERY);
             continue;
         }
         shared.set(true, Some(name.clone()), None);
-        log::info!("meeting: {channel:?} capture on {name} at {rate} Hz");
+        log::info!("meeting: {}", method_line(channel, o.tap.is_some(), &name, rate));
         // made when the local model needs it: not at all while the cloud transcribes
         let mut vad: Option<ContinuousVadProcessor> = None;
         let mut framer = Framer::default();
         let mut last_partial: Option<Instant> = None;
-        let mut nonzero_at = Instant::now();
-        let mut silence_reported = false;
         let mut vad_failed = false;
-        while !stop.load(Ordering::Relaxed) && !paused.load(Ordering::Relaxed) && !failed.load(Ordering::Relaxed) && !vad_failed {
+        let mut followed_at = Instant::now();
+        let mut switched = false;
+        while !stop.load(Ordering::Relaxed) && !paused.load(Ordering::Relaxed) && !failed.load(Ordering::Relaxed) && !vad_failed && !switched {
             std::thread::sleep(DRAIN_EVERY);
+            if o.follow.is_some() && followed_at.elapsed() >= FOLLOW_EVERY {
+                followed_at = Instant::now();
+                let now = default_id(&cpal::default_host(), channel);
+                if moved(o.follow.as_deref(), now.as_deref()) {
+                    log::info!("meeting: {who}: the default device changed from {name}; reopening on the new one");
+                    switched = true;
+                }
+            }
             let mut peak = 0f32;
             while cons.occupied_len() > 0 {
                 let n = cons.pop_slice(&mut block);
                 let data = &block[..n];
                 for s in data {
                     peak = peak.max(s.abs());
-                }
-                if data.iter().any(|s| *s != 0.0) {
-                    nonzero_at = Instant::now();
                 }
                 if let Some(tx) = feed.as_ref().filter(|_| cloud.load(Ordering::Relaxed)) {
                     framer.push(&resample_to_16k(rate, data), |f| {
@@ -209,12 +221,8 @@ pub fn run_channel(
                 }
             }
             shared.level.store(peak.min(1.0).to_bits(), Ordering::Relaxed);
+            // "them" silent while "me" talks is watched in mod.rs (not_hearing), which sees both levels
             if channel == Channel::Them {
-                let denied = nonzero_at.elapsed() >= SILENT_DENIED;
-                if denied != silence_reported {
-                    silence_reported = denied;
-                    *shared.error.lock().unwrap() = denied.then(|| "no system sound".to_string());
-                }
                 if let Some(seg) = vad.as_ref().and_then(|v| partial_due(v, last_partial, stt_idle.load(Ordering::Relaxed))) {
                     last_partial = Some(Instant::now());
                     send(Speech::Partial(channel, seg));
@@ -227,7 +235,8 @@ pub fn run_channel(
                 send(Speech::Final(channel, seg));
             }
         }
-        drop(stream);
+        // the stream first; the tap under it goes with the rest of `o` at the end of this pass
+        drop(o.stream);
         if vad_failed {
             sleep_unless(&stop, REOPEN_EVERY);
             continue;
@@ -238,7 +247,7 @@ pub fn run_channel(
                 Channel::Me => "no mic",
                 Channel::Them => "no system sound",
             };
-            log::warn!("meeting: {channel:?}: {what} ({name}); reopening");
+            log::warn!("meeting: {who}: {what} ({name}); reopening");
             shared.set(false, Some(name), Some(what.into()));
             sleep_unless(&stop, REOPEN_EVERY);
         }
@@ -273,10 +282,59 @@ fn sleep_unless(stop: &AtomicBool, total: Duration) {
     }
 }
 
-type Opened = (Stream, HeapCons<f32>, u32, String);
+#[cfg(target_os = "macos")]
+type Tap = super::tap_mac::GlobalTap;
+#[cfg(not(target_os = "macos"))]
+type Tap = ();
 
-fn open(channel: Channel, shared: &Arc<ChannelShared>, failed: &Arc<AtomicBool>) -> Result<Opened, String> {
+struct Opened {
+    stream: Stream,
+    cons: HeapCons<f32>,
+    rate: u32,
+    name: String,
+    /// The default device's id this stream was opened on; None when it follows no default (the tap, a Linux monitor).
+    follow: Option<String>,
+    tap: Option<Tap>,
+}
+
+/// What app.log says about a channel that opened.
+fn method_line(channel: Channel, tap: bool, name: &str, rate: u32) -> String {
+    match (channel, tap) {
+        (Channel::Them, true) => format!("them: global tap at {rate} Hz"),
+        (Channel::Them, false) => format!("them: loopback on {name} at {rate} Hz"),
+        (Channel::Me, _) => format!("me: mic {name} at {rate} Hz"),
+    }
+}
+
+/// Reopen when the OS has a default device and it is not the one the stream is on.
+/// No default for a moment (a Bluetooth handover) is no reason: a lost device fails on its own.
+fn moved(opened: Option<&str>, now: Option<&str>) -> bool {
+    matches!((opened, now), (Some(a), Some(b)) if a != b)
+}
+
+/// The id of the device the channel follows: the default mic, or the default output for the loopback.
+fn default_id(host: &cpal::Host, channel: Channel) -> Option<String> {
+    let d = match channel {
+        Channel::Me => host.default_input_device(),
+        Channel::Them if cfg!(target_os = "linux") => None,
+        Channel::Them => host.default_output_device(),
+    }?;
+    d.id().ok().map(|i| i.to_string())
+}
+
+fn open(channel: Channel, shared: &Arc<ChannelShared>, failed: &Arc<AtomicBool>, try_tap: &mut bool) -> Result<Opened, String> {
     let host = cpal::default_host();
+    #[cfg(target_os = "macos")]
+    if channel == Channel::Them && *try_tap {
+        match open_tap(&host, shared, failed) {
+            Ok(o) => return Ok(o),
+            Err(e) => {
+                log::warn!("meeting: them: global tap unavailable ({e}); loopback on the default output instead");
+                *try_tap = false;
+            }
+        }
+    }
+    let _ = &try_tap;
     let (device, supported) = match channel {
         Channel::Me => {
             let d = host.default_input_device().ok_or("no mic")?;
@@ -286,22 +344,48 @@ fn open(channel: Channel, shared: &Arc<ChannelShared>, failed: &Arc<AtomicBool>)
         Channel::Them => system_device(&host)?,
     };
     let name = device.description().map(|d| d.name().to_string()).unwrap_or_else(|_| "default".into());
+    let follow = if channel == Channel::Them && cfg!(target_os = "linux") { None } else { device.id().ok().map(|i| i.to_string()) };
+    let (stream, cons, rate) = stream_on(&device, supported, shared, failed)?;
+    Ok(Opened { stream, cons, rate, name, follow, tap: None })
+}
+
+/// macOS 14.4+: every process's sound but ours, on whatever device it plays (tap_mac.rs).
+#[cfg(target_os = "macos")]
+fn open_tap(host: &cpal::Host, shared: &Arc<ChannelShared>, failed: &Arc<AtomicBool>) -> Result<Opened, String> {
+    let tap = super::tap_mac::GlobalTap::new()?;
+    let id = cpal::DeviceId::new(cpal::HostId::CoreAudio, &tap.uid);
+    // the new aggregate device can take a moment to show in the device list
+    let mut device = None;
+    for _ in 0..10 {
+        device = host.device_by_id(&id);
+        if device.is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let device = device.ok_or("the tap's aggregate device did not appear")?;
+    let supported = device.default_input_config().map_err(|e| e.to_string())?;
+    let (stream, cons, rate) = stream_on(&device, supported, shared, failed)?;
+    Ok(Opened { stream, cons, rate, name: "global tap (all apps)".into(), follow: None, tap: Some(tap) })
+}
+
+fn stream_on(device: &cpal::Device, supported: cpal::SupportedStreamConfig, shared: &Arc<ChannelShared>, failed: &Arc<AtomicBool>) -> Result<(Stream, HeapCons<f32>, u32), String> {
     let format = supported.sample_format();
     let config: StreamConfig = supported.config();
     let rate = config.sample_rate;
     let (prod, cons) = ring(rate, RING_SECONDS);
     let stream = match format {
-        SampleFormat::F32 => build::<f32>(&device, config, prod, shared, failed),
-        SampleFormat::F64 => build::<f64>(&device, config, prod, shared, failed),
-        SampleFormat::I8 => build::<i8>(&device, config, prod, shared, failed),
-        SampleFormat::I16 => build::<i16>(&device, config, prod, shared, failed),
-        SampleFormat::I32 => build::<i32>(&device, config, prod, shared, failed),
-        SampleFormat::U8 => build::<u8>(&device, config, prod, shared, failed),
-        SampleFormat::U16 => build::<u16>(&device, config, prod, shared, failed),
+        SampleFormat::F32 => build::<f32>(device, config, prod, shared, failed),
+        SampleFormat::F64 => build::<f64>(device, config, prod, shared, failed),
+        SampleFormat::I8 => build::<i8>(device, config, prod, shared, failed),
+        SampleFormat::I16 => build::<i16>(device, config, prod, shared, failed),
+        SampleFormat::I32 => build::<i32>(device, config, prod, shared, failed),
+        SampleFormat::U8 => build::<u8>(device, config, prod, shared, failed),
+        SampleFormat::U16 => build::<u16>(device, config, prod, shared, failed),
         other => return Err(format!("unsupported sample format {other:?}")),
     }
     .map_err(|e| e.to_string())?;
-    Ok((stream, cons, rate, name))
+    Ok((stream, cons, rate))
 }
 
 fn build<T>(
@@ -331,9 +415,9 @@ where
     )
 }
 
-/// The system sound: loopback on the default output device on Windows
-/// (WASAPI) and macOS 14.6+ (Core Audio tap, cpal builds an input stream on
-/// an output device that way), a PulseAudio/PipeWire "monitor" source on Linux.
+/// The system sound without the global tap: loopback on the default output device on Windows
+/// (WASAPI) and macOS (cpal's per-device Core Audio tap), followed when the default changes
+/// (`moved`), and a PulseAudio/PipeWire "monitor" source on Linux.
 #[cfg(not(target_os = "linux"))]
 fn system_device(host: &cpal::Host) -> Result<(cpal::Device, cpal::SupportedStreamConfig), String> {
     let d = host.default_output_device().ok_or("no system sound")?;
@@ -397,6 +481,23 @@ mod tests {
         assert!((out[0] - 0.5).abs() < 0.01, "{out:?}");
         assert!((out[1] + 1.0).abs() < 0.01, "{out:?}");
         assert_eq!(out[2], 1.0);
+    }
+
+    #[test]
+    fn a_new_default_device_reopens_the_channel_and_a_gap_does_not() {
+        // AirPods connect: the default output moves off the speakers
+        assert!(moved(Some("BuiltInSpeakerDevice"), Some("AirPods-Pro:output")));
+        assert!(!moved(Some("BuiltInSpeakerDevice"), Some("BuiltInSpeakerDevice")));
+        // a Bluetooth handover with no default for a moment, and the tap that follows nothing
+        assert!(!moved(Some("BuiltInSpeakerDevice"), None));
+        assert!(!moved(None, Some("AirPods-Pro:output")));
+    }
+
+    #[test]
+    fn the_log_names_the_method_and_the_device() {
+        assert_eq!(method_line(Channel::Them, true, "global tap (all apps)", 48000), "them: global tap at 48000 Hz");
+        assert_eq!(method_line(Channel::Them, false, "AirPods Pro", 48000), "them: loopback on AirPods Pro at 48000 Hz");
+        assert_eq!(method_line(Channel::Me, false, "AirPods Pro", 24000), "me: mic AirPods Pro at 24000 Hz");
     }
 
     #[test]

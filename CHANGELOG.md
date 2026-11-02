@@ -7,6 +7,14 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Meeting mode hears the meeting on any speaker. On macOS 14.4 and later the system sound is a Core Audio global tap of every app but Conclave, so sound in AirPods, the speakers or a meeting app's own output device (such as Microsoft Teams Audio) is all heard; before 14.4, or when the tap is refused, it records the default output and reopens on the new one within 1 s when it changes. Windows records the default output and follows it the same way, and the mic follows the default input (AirPods mic when they connect). app.log names the method and device (`them: global tap`, `them: loopback on <device>`, `me: mic <device>`) and every switch. When the meeting is silent for 20 s while you talk, the overlay says "Not hearing the meeting. Check the meeting app's speaker."
+- Meeting answers sound like you talking: contractions, digits and short dates ("Oct 28", "92%") instead of spelled-out numbers, one friendly line for small talk instead of a status report, and Answer now with no question gives the most useful next line from the last few turns instead of a summary of your notes. The Defence, Status update, Interview and Demo presets use the same voice.
+- Meeting click-through: the hotkey's result is in app.log, the change runs on the macOS main thread and is read back, a pill in the overlay says "Click-through on · ⌘⌥T to turn off" (Ctrl+Alt+T on Windows) while it is on, and when Cmd/Ctrl+Alt+T is taken Cmd/Ctrl+Alt+Shift+T registers instead and the overlay menu shows the key that works. Ending the meeting turns click-through off.
+
 ## [0.4.59] - 2026-11-02
 
 ### Added
