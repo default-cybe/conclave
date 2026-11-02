@@ -39,9 +39,9 @@ use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
 use ringbuf::traits::{Consumer, Observer, Producer, Split};
 use ringbuf::{HeapCons, HeapProd, HeapRb};
 
-use super::cloud::{Framer, FRAME_SAMPLES};
+use super::cloud::{Frame, Framer, FRAME_MS, FRAME_SAMPLES};
 use super::vad::{resample_to_16k, ContinuousVadProcessor, SpeechSegment};
-use super::wire::Channel;
+use super::wire::{now_ms, Channel};
 
 /// Seconds of audio the ring between the callback and the worker holds.
 pub const RING_SECONDS: usize = 2;
@@ -125,7 +125,7 @@ pub fn run_channel(
     paused: Arc<AtomicBool>,
     stt_idle: Arc<AtomicBool>,
     cloud: Arc<AtomicBool>,
-    feed: Option<SyncSender<Vec<u8>>>,
+    feed: Option<SyncSender<Frame>>,
     mut send: impl FnMut(Speech),
 ) {
     let redemption = match channel {
@@ -177,7 +177,8 @@ pub fn run_channel(
                 }
                 if let Some(tx) = feed.as_ref().filter(|_| cloud.load(Ordering::Relaxed)) {
                     framer.push(&resample_to_16k(rate, data), |f| {
-                        if tx.try_send(f).is_err() {
+                        // a frame is done when its last sample is: it began 50 ms before (give or take the drain)
+                        if tx.try_send((now_ms() - FRAME_MS as i64, f)).is_err() {
                             shared.dropped.fetch_add(FRAME_SAMPLES as u64, Ordering::Relaxed);
                         }
                     });

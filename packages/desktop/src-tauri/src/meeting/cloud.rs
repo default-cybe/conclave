@@ -27,6 +27,14 @@ use super::wire::{now_ms, Channel, Segment};
 
 /// 50 ms at 16 kHz: AssemblyAI takes 50 to 1000 ms per message, Deepgram any size.
 pub const FRAME_SAMPLES: usize = 800;
+pub const FRAME_MS: u64 = 50;
+/// One frame for the socket: the unix ms its first sample was captured, and its s16le bytes.
+pub type Frame = (i64, Vec<u8>);
+/// A frame captured this much later than the audio sent before it ends starts a new span
+/// (`Clock`): the capture paused, or the macOS tap sent nothing while no sound played.
+const GAP_MS: i64 = 200;
+/// Spans kept per socket: turns name recent audio only.
+const SPANS: usize = 256;
 /// Frames waiting between the capture worker and the socket (10 s): capture starts before the
 /// first token is back (the hub waits up to 8 s on the provider), so the opening words wait here.
 pub const FEED_FRAMES: usize = 200;
@@ -347,16 +355,47 @@ pub fn connect(url: &Url, auth: Option<&str>) -> Result<WebSocket<Stream>, Strin
     Ok(ws)
 }
 
+/// A socket's audio time (ms from its first frame) to the wall time it was captured.
+/// Frames go up back to back, so audio time drifts from the clock across a capture gap
+/// and runs ahead of it while a backlog queued before the connect goes up in a burst.
+#[derive(Default)]
+struct Clock {
+    sent_ms: u64,
+    /// (audio ms, capture unix ms) where each run of back to back frames starts.
+    spans: Vec<(u64, i64)>,
+}
+
+impl Clock {
+    fn sent(&mut self, at: i64) {
+        let expected = self.spans.last().map(|&(a, w)| w + (self.sent_ms - a) as i64);
+        // frames drained together share a stamp (earlier than expected): still back to back
+        if expected.map_or(true, |e| at > e + GAP_MS) {
+            if self.spans.len() >= SPANS {
+                self.spans.remove(0);
+            }
+            self.spans.push((self.sent_ms, at));
+        }
+        self.sent_ms += FRAME_MS;
+    }
+
+    fn wall(&self, audio_ms: u64) -> Option<i64> {
+        let &(a, w) = self.spans.iter().rev().find(|(a, _)| *a <= audio_ms).or(self.spans.first())?;
+        Some(w + audio_ms as i64 - a as i64)
+    }
+}
+
 /// Sends frames and reads turns until `stop` or `IDLE_CLOSE` with no frame (then the
 /// provider's close message and up to 2 s for its last words) or until the socket fails.
+#[allow(clippy::too_many_arguments)]
 fn session<S: Read + Write>(
     ws: &mut WebSocket<S>,
     p: Provider,
     mapper: &mut Mapper,
-    mut first: Option<Vec<u8>>,
-    rx: &Receiver<Vec<u8>>,
+    mut first: Option<Frame>,
+    rx: &Receiver<Frame>,
     stop: &AtomicBool,
-    mut on: impl FnMut(Turn),
+    clock: &mut Clock,
+    mut on: impl FnMut(Turn, &Clock),
 ) -> Result<Ended, String> {
     let mut last_send = Instant::now();
     let mut last_frame = Instant::now();
@@ -367,14 +406,16 @@ fn session<S: Read + Write>(
         match closing {
             None => {
                 let mut ending = stop.load(Ordering::Relaxed);
-                if let Some(f) = first.take() {
+                if let Some((at, f)) = first.take() {
                     ws.send(Message::Binary(f.into())).map_err(err)?;
+                    clock.sent(at);
                     last_send = Instant::now();
                 }
                 loop {
                     match rx.try_recv() {
-                        Ok(f) => {
+                        Ok((at, f)) => {
                             ws.send(Message::Binary(f.into())).map_err(err)?;
+                            clock.sent(at);
                             last_send = Instant::now();
                             last_frame = last_send;
                         }
@@ -406,7 +447,7 @@ fn session<S: Read + Write>(
         match ws.read() {
             Ok(Message::Text(t)) => {
                 if let Some(turn) = mapper.on_text(t.as_str())? {
-                    on(turn);
+                    on(turn, &*clock);
                 }
             }
             Ok(Message::Close(f)) => {
@@ -429,9 +470,8 @@ fn session<S: Read + Write>(
 /// socket that drops becomes a final, so no turn is lost with the socket.
 struct Out<'a, F: FnMut(Segment)> {
     channel: Channel,
-    /// This socket's audio start: unix ms, and ms from the meeting's t0.
-    started_at: i64,
-    offset_ms: i64,
+    /// The meeting's start, unix ms: segment times are ms from it.
+    t0: i64,
     seqs: &'a Mutex<Seqs>,
     out: F,
     pending: Option<Turn>,
@@ -439,7 +479,7 @@ struct Out<'a, F: FnMut(Segment)> {
 }
 
 impl<F: FnMut(Segment)> Out<'_, F> {
-    fn turn(&mut self, t: Turn) {
+    fn turn(&mut self, t: Turn, clock: &Clock) {
         self.heard = true;
         let text = clean(&t.text);
         if text.is_empty() {
@@ -447,24 +487,25 @@ impl<F: FnMut(Segment)> Out<'_, F> {
         }
         self.pending = (!t.is_final).then(|| t.clone());
         let seq = self.seqs.lock().unwrap().next(self.channel, t.is_final);
-        let start_ms = (self.offset_ms + t.start_ms as i64).max(0) as u64;
         let now = now_ms();
+        let wall = |ms: u64| clock.wall(ms).unwrap_or(now);
+        let start_ms = (wall(t.start_ms) - self.t0).max(0) as u64;
         (self.out)(Segment {
             seq,
             channel: self.channel,
             start_ms,
-            end_ms: ((self.offset_ms + t.end_ms as i64).max(0) as u64).max(start_ms),
+            end_ms: ((wall(t.end_ms) - self.t0).max(0) as u64).max(start_ms),
             text,
             is_final: t.is_final,
-            // audio time runs ahead of the clock when frames queued during a reconnect go up in a burst
-            speech_end_at: Some((self.started_at + t.end_ms as i64).min(now)),
+            // capture time, so a backlog sent after the connect still counts its wait; the min is a guard
+            speech_end_at: Some(wall(t.end_ms).min(now)),
             final_at: Some(now),
         });
     }
 
-    fn finish(&mut self) {
+    fn finish(&mut self, clock: &Clock) {
         if let Some(t) = self.pending.take() {
-            self.turn(Turn { is_final: true, ..t });
+            self.turn(Turn { is_final: true, ..t }, clock);
         }
     }
 }
@@ -480,7 +521,7 @@ pub fn run(
     channel: Channel,
     mut first_token: Option<SttToken>,
     mut token: impl FnMut() -> Result<SttToken, TokenError>,
-    rx: &Receiver<Vec<u8>>,
+    rx: &Receiver<Frame>,
     stop: &AtomicBool,
     t0: i64,
     seqs: &Mutex<Seqs>,
@@ -493,7 +534,7 @@ pub fn run(
     };
     let mut failures = 0u32;
     // the frame that woke a try that failed: the next try sends it, so no audio is lost to a retry
-    let mut held: Option<Vec<u8>> = None;
+    let mut held: Option<Frame> = None;
     while !stop.load(Ordering::Relaxed) {
         let frame = match held.take().map(Ok).unwrap_or_else(|| rx.recv_timeout(Duration::from_millis(200))) {
             Ok(f) => f,
@@ -538,11 +579,11 @@ pub fn run(
             asked.elapsed().as_millis()
         );
         state(Ok(p));
-        let started_at = now_ms();
-        let mut o = Out { channel, started_at, offset_ms: started_at - t0, seqs, out: &mut out, pending: None, heard: false };
+        let mut o = Out { channel, t0, seqs, out: &mut out, pending: None, heard: false };
         let mut mapper = Mapper::new(p, &url);
-        let r = session(&mut ws, p, &mut mapper, Some(frame), rx, stop, |t| o.turn(t));
-        o.finish();
+        let mut clock = Clock::default();
+        let r = session(&mut ws, p, &mut mapper, Some(frame), rx, stop, &mut clock, |t, c| o.turn(t, c));
+        o.finish(&clock);
         match r {
             Ok(Ended::Stop) => return Ok(()),
             Ok(Ended::Idle) => {
@@ -585,6 +626,78 @@ mod tests {
 
     fn token(provider: Provider, url: &str, token: &str) -> SttToken {
         SttToken { provider, url: url.into(), token: token.into(), expires_at: now_ms() + 60_000 }
+    }
+
+    fn frame() -> Frame {
+        (now_ms(), vec![0u8; FRAME_SAMPLES * 2])
+    }
+
+    #[test]
+    fn audio_time_maps_to_capture_time_across_gaps_and_bursts() {
+        let mut c = Clock::default();
+        assert_eq!(c.wall(0), None);
+        // 4 frames drained together (one stamp), then one on time: one span
+        for at in [1000, 1000, 1000, 1000, 1200] {
+            c.sent(at);
+        }
+        assert_eq!(c.wall(120), Some(1120));
+        // 5 s with no buffers (the macOS tap while silent): audio time 250 ms is wall 6000
+        c.sent(6000);
+        assert_eq!(c.wall(240), Some(1240));
+        assert_eq!(c.wall(300), Some(6050));
+        assert_eq!(c.spans.len(), 2);
+    }
+
+    /// Frames queued 1.5 s before the socket opened (token and connect): the end of speech
+    /// is the end's capture time, not the connect time plus audio time clamped to now (0 ms).
+    #[test]
+    fn speech_end_at_is_capture_time_for_frames_queued_before_the_connect() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("ws://{}/v1/listen", listener.local_addr().unwrap());
+        let (tx, rx) = sync_channel(FEED_FRAMES);
+        let first = now_ms() - 1500;
+        for i in 0..20 {
+            tx.send((first + i * FRAME_MS as i64, vec![0u8; FRAME_SAMPLES * 2])).unwrap();
+        }
+        let server = std::thread::spawn(move || {
+            let (s, _) = listener.accept().unwrap();
+            let mut ws = tungstenite::accept(s).unwrap_or_else(|_| panic!("server handshake"));
+            let mut frames = 0;
+            while frames < 20 {
+                if let Message::Binary(_) = ws.read().unwrap() {
+                    frames += 1;
+                }
+            }
+            let reply = r#"{"type":"Results","start":0.4,"duration":0.6,"is_final":true,"speech_final":true,"channel":{"alternatives":[{"transcript":"what about latency?"}]}}"#;
+            ws.send(Message::Text(reply.to_string().into())).unwrap();
+            while ws.read().is_ok() {}
+        });
+        let stop = Arc::new(AtomicBool::new(false));
+        let got = Arc::new(Mutex::new(Vec::new()));
+        let t0 = first - 10_000;
+        let client = {
+            let (stop, got) = (stop.clone(), got.clone());
+            std::thread::spawn(move || {
+                let seqs = Mutex::new(Seqs::default());
+                let tok = token(Provider::Deepgram, &url, "k");
+                run(Channel::Them, Some(tok), || Err(TokenError::Local), &rx, &stop, t0, &seqs, |_| {}, |s| got.lock().unwrap().push(s))
+            })
+        };
+        let until = Instant::now() + Duration::from_secs(5);
+        while got.lock().unwrap().is_empty() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        stop.store(true, Ordering::Relaxed);
+        assert!(client.join().unwrap().is_ok());
+        server.join().unwrap();
+        let got = got.lock().unwrap();
+        let s = &got[0];
+        let (end, fin) = (s.speech_end_at.unwrap(), s.final_at.unwrap());
+        assert_eq!(end, first + 1000);
+        assert!(end <= fin);
+        assert!(fin - end >= 500, "end of speech to final: {} ms", fin - end);
+        assert_eq!((s.start_ms, s.end_ms), (10_400, 11_000));
+        drop(tx);
     }
 
     #[test]
@@ -690,8 +803,8 @@ mod tests {
             }
         });
         let (tx, rx) = sync_channel(FEED_FRAMES);
-        tx.send(vec![0u8; FRAME_SAMPLES * 2]).unwrap();
-        tx.send(vec![0u8; FRAME_SAMPLES * 2]).unwrap();
+        tx.send(frame()).unwrap();
+        tx.send(frame()).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let seqs = Mutex::new(Seqs::default());
         seqs.lock().unwrap().next(Channel::Them, true); // seq 0 went to the local model earlier
@@ -773,11 +886,11 @@ mod tests {
                 (r, asked)
             })
         };
-        tx.send(vec![0u8; FRAME_SAMPLES * 2]).unwrap();
+        tx.send(frame()).unwrap();
         // past IDLE_CLOSE (300 ms in tests) plus the close wait: the first session ended
         std::thread::sleep(Duration::from_millis(1200));
         assert_eq!(*opened.lock().unwrap(), 1);
-        tx.send(vec![0u8; FRAME_SAMPLES * 2]).unwrap();
+        tx.send(frame()).unwrap();
         let until = Instant::now() + Duration::from_secs(5);
         while *opened.lock().unwrap() < 2 && Instant::now() < until {
             std::thread::sleep(Duration::from_millis(20));
@@ -805,7 +918,7 @@ mod tests {
             }
         });
         let (tx, rx) = sync_channel(FEED_FRAMES);
-        tx.send(vec![0u8; FRAME_SAMPLES * 2]).unwrap();
+        tx.send(frame()).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let provider = Arc::new(Mutex::new(None));
         let client = {
@@ -850,7 +963,7 @@ mod tests {
         let stop = AtomicBool::new(false);
         let seqs = Mutex::new(Seqs::default());
         let (tx, rx) = sync_channel(FEED_FRAMES);
-        tx.send(vec![0u8; 4]).unwrap();
+        tx.send((0, vec![0u8; 4])).unwrap();
         let r = run(Channel::Me, None, || Err(TokenError::Local), &rx, &stop, 0, &seqs, |_| {}, |_| {});
         assert_eq!(r.unwrap_err(), LOCAL);
     }
@@ -863,7 +976,7 @@ mod tests {
         let asked = Arc::new(Mutex::new(0u32));
         let errors = Arc::new(Mutex::new(Vec::<String>::new()));
         let (tx, rx) = sync_channel(FEED_FRAMES);
-        tx.send(vec![0u8; 4]).unwrap();
+        tx.send((0, vec![0u8; 4])).unwrap();
         let client = {
             let (stop, asked, errors) = (stop.clone(), asked.clone(), errors.clone());
             std::thread::spawn(move || {
