@@ -7,6 +7,19 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Meetings: the speech-to-text token request tries again when a DNS lookup stalls, and a Deepgram 403 says the key needs Member permission or higher.
+
+## [0.4.57] - 2026-11-02
+
+### Fixed
+
+- The desktop app's updater now uses zip 9 (tauri-plugin-updater 2.14.1), closing three zip advisories: arbitrary file overwrite through a parser differential (GHSA-m665-v7pm-7grj), unbounded symlink targets during extraction, and an AES entry HMAC bypass on premature EOF.
+- macOS keeps Conclave's permissions (Files and Folders, Full Disk Access, Microphone, Screen Recording) across updates. Every Mac release, the app, the daemon inside it and the standalone `conclave-daemon-*-apple-darwin` files, is now signed with one stable self-signed certificate instead of ad hoc, so macOS sees the same app after each update. The first update from an ad-hoc build asks once more.
+
 ## [0.4.56] - 2026-11-02
 
 ### Added

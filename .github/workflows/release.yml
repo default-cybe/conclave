@@ -236,6 +236,17 @@ jobs:
           HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
         run: echo "TAURI_CONFIG=$(bun scripts/releases/updates.ts tauri-config)" >> "$GITHUB_ENV"
 
+      # One stable self-signed identity for every Mac release, so macOS keeps the
+      # app's permissions across updates. Sets APPLE_SIGNING_IDENTITY, which
+      # tauri build uses for the app and the daemon inside it; without the
+      # secrets the app stays ad-hoc signed (bundle.macOS.signingIdentity "-").
+      - name: Mac signing keychain
+        if: runner.os == 'macOS'
+        env:
+          MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
+          MACOS_SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+        run: scripts/ci/macos-keychain.sh
+
       # The desktop app ships only its small connection page (packages/desktop/src)
       # and loads the web UI from the hub, so it does not need the web build.
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
@@ -251,7 +262,8 @@ jobs:
           # Publish public writes latest.json, with the other update manifest, after the APK is in
           includeUpdaterJson: false
 
-      # the hardened runtime blocks the mic without it (src-tauri/Entitlements.plist)
+      # the hardened runtime blocks the mic without it (src-tauri/Entitlements.plist);
+      # with the signing secrets, the app and its daemon carry the stable identity
       - name: Check the Mac app is signed with the microphone entitlement
         if: runner.os == 'macOS'
         shell: bash
@@ -259,6 +271,15 @@ jobs:
           app="packages/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Conclave.app"
           ents="$(codesign -d --entitlements - --xml "$app")"
           grep -q com.apple.security.device.audio-input <<<"$ents"
+          codesign --verify --deep --strict "$app"
+          if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
+            for code in "$app" "$app/Contents/MacOS/conclave-daemon"; do
+              info="$(codesign -dvv "$code" 2>&1)"
+              grep -E '^(Identifier|Authority|TeamIdentifier)=' <<<"$info"
+              grep -qx "Authority=$MACOS_SIGN_IDENTITY" <<<"$info"
+            done
+            codesign -d -r- "$app" 2>&1 | grep designated
+          fi
 
       - name: Keep the bundles as a run artifact
         if: github.ref_type != 'tag'
@@ -309,6 +330,14 @@ jobs:
           workspaces: packages/daemon-rs
           key: ${{ matrix.target }}
 
+      # sets MACOS_SIGN_IDENTITY when the signing secrets are there (desktop job above)
+      - name: Mac signing keychain
+        if: runner.os == 'macOS'
+        env:
+          MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
+          MACOS_SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
+        run: scripts/ci/macos-keychain.sh
+
       - name: Build
         shell: bash
         env:
@@ -324,6 +353,12 @@ jobs:
           name="conclave-daemon-$TARGET$exe"
           mkdir -p out
           cp "packages/daemon-rs/target/$TARGET/release/conclave-daemon$exe" "out/$name"
+          # the same stable identity as the app, so macOS keeps its permissions across updates;
+          # without the secrets it keeps the linker's ad-hoc signature, as before
+          if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
+            codesign --force --options runtime --timestamp=none -s "$MACOS_SIGN_IDENTITY" --identifier dev.conclave.daemon "out/$name"
+            codesign -dvv "out/$name" 2>&1 | grep -qx "Authority=$MACOS_SIGN_IDENTITY"
+          fi
           cd out
           if command -v sha256sum >/dev/null; then sha256sum "$name" > "$name.sha256"; else shasum -a 256 "$name" > "$name.sha256"; fi
           ls -l
