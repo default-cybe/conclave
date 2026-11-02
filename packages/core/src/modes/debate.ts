@@ -4,6 +4,7 @@ import type { SessionRunner } from '../session/runner';
 import { lastQuestion, renderTranscript } from '../session/transcript';
 import { streamCompletion } from '../session/stream';
 import { newId } from '../util/ids';
+import { storeVerdict } from './jury';
 
 /**
  * Debate mode: two models argue a question for a set number of rounds, each
@@ -77,4 +78,5 @@ export async function runDebate(engine: Engine, runner: SessionRunner, session: 
   );
   const verdict = res.content.filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('').trim();
   engine.addMessage(session.id, { role: 'assistant', kind: 'normal', content: [{ type: 'text', text: verdict }], model: engine.displayModel(judgeRef), author: 'Conclusion', group });
+  storeVerdict(engine, session.id, verdict);
 }

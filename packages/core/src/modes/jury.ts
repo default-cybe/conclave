@@ -75,6 +75,12 @@ export async function runJury(engine: Engine, runner: SessionRunner, session: Se
     author: 'Verdict',
     group,
   });
+  storeVerdict(engine, session.id, verdict);
+}
+
+/** Enough of the verdict for the sidebar's "verdict Caddy" (web splitVerdict reads the first bold run or sentence), so the list need not load the transcript. */
+export function storeVerdict(engine: Engine, sessionId: string, text: string): void {
+  engine.patchMeta(sessionId, { verdict: text.slice(0, 300) });
 }
 
 async function askOne(engine: Engine, ref: string, question: string, context: string, cfg: JuryConfig, session: Session, signal: AbortSignal): Promise<string> {
