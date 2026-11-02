@@ -29,6 +29,7 @@ beforeAll(() => {
       const auth = req.headers.get('authorization');
       seen.push({ path: u.pathname + u.search, method: req.method, auth, body: await req.text() });
       if (auth?.includes('bad')) return new Response('{"error":"Invalid API key"}', { status: 401 });
+      if (auth?.includes('member-less')) return new Response('{"err_code":"FORBIDDEN","err_msg":"Insufficient permissions."}', { status: 403 });
       if (u.pathname === '/v3/token') return Response.json({ token: 'aai-temp-1', expires_in_seconds: Number(u.searchParams.get('expires_in_seconds')) });
       if (u.pathname === '/v1/auth/grant') return Response.json({ access_token: 'dg-jwt-1', expires_in: 60 });
       return new Response('no', { status: 404 });
@@ -70,6 +71,28 @@ describe('stt tokens', () => {
     expect(e).toBeInstanceOf(SttError);
     expect(e.status).toBe(409);
     expect(e.message).not.toContain('bad-key');
+  });
+
+  test('Deepgram 403 says which permission the key needs', async () => {
+    const e = (await mintSttToken('deepgram', 'member-less').catch((x) => x)) as SttError;
+    expect(e.status).toBe(409);
+    expect(e.message).toContain('Member permission');
+  });
+
+  test('a lookup that fails once is tried again; two failures report "did not answer"', async () => {
+    const real = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async (...a: Parameters<typeof fetch>) => (++calls === 1 ? Promise.reject(new Error('getaddrinfo ETIMEOUT api.deepgram.com')) : real(...a))) as typeof fetch;
+    try {
+      expect((await mintSttToken('deepgram', 'dg-key', 0)).token).toBe('dg-jwt-1');
+      expect(calls).toBe(2);
+      globalThis.fetch = (async () => Promise.reject(new Error('getaddrinfo ETIMEOUT api.deepgram.com'))) as unknown as typeof fetch;
+      const e = (await mintSttToken('deepgram', 'dg-key').catch((x) => x)) as SttError;
+      expect(e.status).toBe(502);
+      expect(e.message).toContain('did not answer');
+    } finally {
+      globalThis.fetch = real;
+    }
   });
 
   test('choice: the config wins, else the first service with a key (Deepgram is the default), never local unless chosen', () => {

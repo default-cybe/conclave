@@ -47,17 +47,21 @@ export class SttError extends Error {
 }
 
 async function call(url: string, init: RequestInit, what: string): Promise<Record<string, unknown>> {
-  let res: Response;
-  try {
-    res = await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
-  } catch (e) {
-    throw new SttError(502, `${what} did not answer: ${(e as Error).message}`);
+  let res: Response | undefined;
+  // two tries: a home router's DNS can stall one lookup for 5 s (getaddrinfo ETIMEOUT) and answer the next at once
+  for (let attempt = 0; !res; attempt++) {
+    try {
+      res = await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    } catch (e) {
+      if (attempt >= 1) throw new SttError(502, `${what} did not answer: ${(e as Error).message}`);
+    }
   }
   const text = await res.text();
   if (!res.ok) {
     // the provider's own words, short: never echoes the key (it is not in the body)
     const why = text.replace(/\s+/g, ' ').slice(0, 200);
-    throw new SttError(res.status === 401 || res.status === 403 ? 409 : 502, `${what} refused the key (HTTP ${res.status})${why ? `: ${why}` : ''}`);
+    const fix = what === 'Deepgram' && res.status === 403 ? ' Create a key with Member permission or higher in the Deepgram console.' : '';
+    throw new SttError(res.status === 401 || res.status === 403 ? 409 : 502, `${what} refused the key (HTTP ${res.status})${why ? `: ${why}` : ''}.${fix}`);
   }
   try {
     return JSON.parse(text) as Record<string, unknown>;

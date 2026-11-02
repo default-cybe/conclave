@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Meetings: the speech-to-text token request tries again when a DNS lookup stalls, and a Deepgram 403 says the key needs Member permission or higher.
+
 ## [0.4.57] - 2026-11-02
 
 ### Fixed
