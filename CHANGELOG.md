@@ -25,7 +25,7 @@ like `## [0.4.16] - 2026-10-24`.
 - Deleting a session clears its cached deferred MCP tools, promoted tools, test command and workspace facts.
 - Android: `ThoughtFold` reuses a shared whitespace regex instead of compiling one on every recomposition.
 - Remote browser frames stop polling while the page is hidden and fetch immediately when it becomes visible again.
-- Sidebar: jury and debate rows read the verdict the hub now keeps on the session when it writes one, instead of loading up to 6 transcripts to find it. Sessions from before this still load theirs.
+- Sidebar: jury and debate rows read the verdict the hub now keeps on the session when it writes one, instead of loading up to 6 transcripts to find it. Sessions from before this still load theirs. A rewind clears the stored verdict, so a cut verdict no longer stays on the row.
 - Every web test now runs in `bun run test` and CI; before, only 2 of the 119 files in `packages/web/test` did.
 - Routine summaries and resumed subagent reports read the latest 20 messages first, falling back to the full transcript only when no assistant answer is in the tail.
 - Meetings: answer timings use one clock. Speech end is taken from when the audio was captured, not from when the speech socket connected, and the hub maps desktop and overlay times onto its own clock, so clock skew between the computers no longer shifts the step times, and speech queued before the connect no longer shows a 0 ms gap. An answer started from partial speech and kept for the final question no longer shows its model request before the final arrived.

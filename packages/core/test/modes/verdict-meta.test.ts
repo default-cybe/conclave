@@ -28,6 +28,11 @@ describe('verdict on session meta', () => {
         expect(verdict.startsWith('**Use Caddy.**')).toBe(true);
         expect(verdict.length).toBe(300);
         expect(updates.at(-1)?.meta?.verdict).toBe(verdict);
+
+        // a rewind past the verdict must not leave it on the row
+        const asked = t.engine.repos.messages.list(s.id).find((m) => m.role === 'user')!;
+        await t.engine.rewind(s.id, asked.seq);
+        expect(t.engine.getSession(s.id)?.meta?.verdict).toBeUndefined();
       } finally {
         await t.close();
       }

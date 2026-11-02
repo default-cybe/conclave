@@ -1066,7 +1066,8 @@ export class Engine implements EngineApi {
     runner?.abort();
     // the cut turn settles first, so it neither writes past the cut nor marks it for Resume after Stop
     await runner?.waitIdle();
-    this.patchMeta(id, { stoppedTurn: undefined });
+    // the stored jury/debate verdict may be cut below; the sidebar then reads it from the messages left
+    this.patchMeta(id, { stoppedTurn: undefined, verdict: undefined });
     // Keeps messages up to and including `seq`. Files go back to how they were right
     // after that message: the first checkpoint taken at or after it (a checkpoint at
     // seq N is taken when prompt N arrives, before its tools run).
