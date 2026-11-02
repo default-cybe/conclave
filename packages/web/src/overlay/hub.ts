@@ -3,7 +3,7 @@
  * function, so the overlay (plain fetch, no ConclaveClient) and the app
  * (api().request) call them the same way.
  */
-import type { AnswerModelChoice, AnswerNowInput, CreateMeetingInput, Meeting, MeetingCalendarEvent, MeetingChatInput, MeetingDetail, MeetingFolder, MeetingNotes, MeetingListView, MeetingPatch, PrepView, SteeringPreset, SttProvider, SttTestResult } from './wire';
+import type { AnswerModelChoice, AnswerNowInput, AnswerPaint, CreateMeetingInput, Meeting, MeetingCalendarEvent, MeetingChatInput, MeetingDetail, MeetingFolder, MeetingNotes, MeetingListView, MeetingPatch, PrepView, SteeringPreset, SttProvider, SttTestResult } from './wire';
 
 export type Req = <T>(method: string, path: string, body?: unknown) => Promise<T>;
 
@@ -50,6 +50,8 @@ export function meetingApi(req: Req) {
     patch: (id: string, patch: MeetingPatch) => req<Meeting>('PATCH', m(id), patch),
     answer: (id: string, input: AnswerNowInput) => req<{ answerId: string; messageId: string }>('POST', `${m(id)}/answer`, input),
     cancel: (id: string, answerId: string) => req<void>('POST', `${m(id)}/answers/${encodeURIComponent(answerId)}/cancel`),
+    /** The overlay showed the answer's first words (desktop clock). */
+    paint: (id: string, answerId: string, body: AnswerPaint) => req<void>('POST', `${m(id)}/answers/${encodeURIComponent(answerId)}/paint`, body),
     end: (id: string) => req<Meeting>('POST', `${m(id)}/end`),
     notes: (id: string) => req<MeetingNotes>('GET', `${m(id)}/notes`),
     remove: (id: string) => req<void>('DELETE', m(id)),

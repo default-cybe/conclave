@@ -588,6 +588,18 @@ export function registerMeetings(ctx: MockCtx) {
     return json(204);
   });
 
+  // one clock in the mock: paintedAt as sent
+  on('POST', '/api/meetings/:id/answers/:answer/paint', ({ params, body }) => {
+    const m = get(params[0]!);
+    const a = answers.get(m.id)?.find((x) => x.id === params[1]) ?? fail(404, 'Answer not found');
+    const at = Number((body as { paintedAt?: number })?.paintedAt);
+    if (a.paintedAt === undefined && Number.isFinite(at)) {
+      a.paintedAt = at;
+      emit({ type: 'meeting.answer', sessionId: m.sessionId, meetingId: m.id, answer: { ...a } } as never);
+    }
+    return json(204);
+  });
+
   on('POST', '/api/meetings/:id/end', ({ params }) => {
     const m = get(params[0]!);
     if (m.status === 'ending' || m.status === 'ended') fail(409, 'The meeting already ended.');

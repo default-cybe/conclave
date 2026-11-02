@@ -5,9 +5,27 @@
  * The scheduled-meeting types of 11.6 (Meeting, PrepView, MeetingFolder...)
  * come from the hub's file too.
  */
-import type { MeetingEvent as HubMeetingEvent, MeetingModelOption, SttChoice } from '@conclave/core/meeting/wire';
+import type { MeetingAnswer as HubMeetingAnswer, MeetingEvent as HubMeetingEvent, MeetingModelOption, SttChoice } from '@conclave/core/meeting/wire';
 
 export type * from '@conclave/core/meeting/wire';
+
+/**
+ * The hub's answer plus the step times a hub with speech-end timing sends,
+ * all on the hub clock: speechEndAt (the trigger's speech ended, desktop
+ * clock converted), finalAt (its final transcript), paintedAt (the overlay
+ * showed its first words, POST .../paint). Older hubs leave them out.
+ */
+export interface MeetingAnswer extends HubMeetingAnswer {
+  speechEndAt?: number;
+  finalAt?: number;
+  paintedAt?: number;
+}
+
+/** POST /api/meetings/:id/answers/:answerId/paint, desktop clock: sentAt lets the hub convert paintedAt as it does segment times. */
+export interface AnswerPaint {
+  paintedAt: number;
+  sentAt: number;
+}
 
 /** One of REMINDER_CHOICES. */
 export type ReminderMin = 1440 | 60 | 15;
