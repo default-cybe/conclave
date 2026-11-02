@@ -3,7 +3,9 @@
 //! short-lived credential the hub mints (`POST /api/meetings/:id/stt-token`; the
 //! API key stays on the hub). Audio goes up as 16 kHz mono s16le in 50 ms frames;
 //! the provider's partials and finals (its endpointing ends a turn) become the
-//! same segments the local model makes. A dropped socket reconnects with a fresh
+//! same segments the local model makes. Both sockets open when the meeting starts and stay
+//! open through silence (Deepgram's KeepAlive every 5 s), so the first word after a quiet
+//! spell does not wait for a token, TLS and a handshake; only a pause closes them. A dropped socket reconnects with a fresh
 //! token after 0.5, 1, 2, 4, 8 s and keeps trying for the whole meeting; after three
 //! failures in a row without a word back the overlay shows why, with a Retry. It never
 //! hands the channel to the local model: that runs only when the owner chose Local.
@@ -12,7 +14,7 @@
 use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
+use std::sync::mpsc::{Receiver, TryRecvError};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -46,10 +48,14 @@ pub const MAX_FAILURES: u32 = 3;
 /// Bumped by the overlay's Retry (`retry_now`): a backoff wait ends at once.
 static RETRY: AtomicU64 = AtomicU64::new(0);
 const READ_POLL: Duration = Duration::from_millis(20);
+#[cfg(not(test))]
 const KEEPALIVE_EVERY: Duration = Duration::from_secs(5);
+#[cfg(test)]
+const KEEPALIVE_EVERY: Duration = Duration::from_millis(200);
 const CLOSE_WAIT: Duration = Duration::from_secs(2);
-/// No frame for this long (paused, or the audio device stalled): the session ends, so no
-/// provider session stays open and billed; the next frame opens a new one.
+/// Paused with no frame for this long: the session ends, so no provider session stays
+/// open and billed while the owner paused; it opens again when listening resumes.
+/// Silence without a pause keeps the socket (the macOS tap sends nothing then).
 #[cfg(not(test))]
 const IDLE_CLOSE: Duration = Duration::from_secs(15);
 #[cfg(test)]
@@ -59,7 +65,7 @@ const IDLE_CLOSE: Duration = Duration::from_millis(300);
 #[derive(Debug, PartialEq, Eq)]
 enum Ended {
     Stop,
-    Idle,
+    Paused,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -384,16 +390,16 @@ impl Clock {
     }
 }
 
-/// Sends frames and reads turns until `stop` or `IDLE_CLOSE` with no frame (then the
-/// provider's close message and up to 2 s for its last words) or until the socket fails.
+/// Sends frames and reads turns until `stop` or a pause with no frame for `IDLE_CLOSE`
+/// (then the provider's close message and up to 2 s for its last words) or until the socket fails.
 #[allow(clippy::too_many_arguments)]
 fn session<S: Read + Write>(
     ws: &mut WebSocket<S>,
     p: Provider,
     mapper: &mut Mapper,
-    mut first: Option<Frame>,
     rx: &Receiver<Frame>,
     stop: &AtomicBool,
+    paused: &AtomicBool,
     clock: &mut Clock,
     mut on: impl FnMut(Turn, &Clock),
 ) -> Result<Ended, String> {
@@ -406,11 +412,6 @@ fn session<S: Read + Write>(
         match closing {
             None => {
                 let mut ending = stop.load(Ordering::Relaxed);
-                if let Some((at, f)) = first.take() {
-                    ws.send(Message::Binary(f.into())).map_err(err)?;
-                    clock.sent(at);
-                    last_send = Instant::now();
-                }
                 loop {
                     match rx.try_recv() {
                         Ok((at, f)) => {
@@ -426,9 +427,9 @@ fn session<S: Read + Write>(
                         }
                     }
                 }
-                if !ending && last_frame.elapsed() >= IDLE_CLOSE {
+                if !ending && paused.load(Ordering::Relaxed) && last_frame.elapsed() >= IDLE_CLOSE {
                     ending = true;
-                    why = Ended::Idle;
+                    why = Ended::Paused;
                 }
                 if ending {
                     ws.send(Message::Text(p.close_msg().to_string().into())).map_err(err)?;
@@ -510,9 +511,9 @@ impl<F: FnMut(Segment)> Out<'_, F> {
     }
 }
 
-/// The `meeting-cloud-me` / `meeting-cloud-them` loop. Connects only while there is
-/// audio to send: a session with no frame for `IDLE_CLOSE` (paused, a stalled device)
-/// ends, and the next frame opens a new one. A token that fails is retried like a
+/// The `meeting-cloud-me` / `meeting-cloud-them` loop. Connects at once, before the first
+/// frame (audio waits in `rx` meanwhile), and keeps the session through silence. A pause
+/// with no frame for `IDLE_CLOSE` ends it; it opens again when listening resumes. A token that fails is retried like a
 /// socket that fails, for as long as the meeting runs. `state` hears Ok(provider) for
 /// each new session and Err(why) after `MAX_FAILURES` failures in a row (and on each
 /// failure after). Returns Ok on `stop`, or Err(`LOCAL`) when the owner chose Local.
@@ -523,6 +524,7 @@ pub fn run(
     mut token: impl FnMut() -> Result<SttToken, TokenError>,
     rx: &Receiver<Frame>,
     stop: &AtomicBool,
+    paused: &AtomicBool,
     t0: i64,
     seqs: &Mutex<Seqs>,
     mut state: impl FnMut(Result<Provider, String>),
@@ -533,14 +535,12 @@ pub fn run(
         Channel::Them => "them",
     };
     let mut failures = 0u32;
-    // the frame that woke a try that failed: the next try sends it, so no audio is lost to a retry
-    let mut held: Option<Frame> = None;
     while !stop.load(Ordering::Relaxed) {
-        let frame = match held.take().map(Ok).unwrap_or_else(|| rx.recv_timeout(Duration::from_millis(200))) {
-            Ok(f) => f,
-            Err(RecvTimeoutError::Timeout) => continue,
-            Err(RecvTimeoutError::Disconnected) => return Ok(()),
-        };
+        // paused: no socket is open (or billed); audio waits in rx through a retry, none is lost
+        if paused.load(Ordering::Relaxed) {
+            std::thread::sleep(Duration::from_millis(100));
+            continue;
+        }
         let asked = Instant::now();
         let tok = match first_token.take().filter(|t| t.fresh(now_ms())).map(Ok).unwrap_or_else(&mut token) {
             Ok(t) => t,
@@ -551,7 +551,6 @@ pub fn run(
                 if failures >= MAX_FAILURES {
                     state(Err(format!("no speech to text token: {e}")));
                 }
-                held = Some(frame);
                 wait(stop, super::upload::backoff(failures - 1));
                 continue;
             }
@@ -566,7 +565,6 @@ pub fn run(
                 if failures >= MAX_FAILURES {
                     state(Err(format!("{} unreachable: {e}", p.name())));
                 }
-                held = Some(frame);
                 wait(stop, super::upload::backoff(failures - 1));
                 continue;
             }
@@ -582,12 +580,12 @@ pub fn run(
         let mut o = Out { channel, t0, seqs, out: &mut out, pending: None, heard: false };
         let mut mapper = Mapper::new(p, &url);
         let mut clock = Clock::default();
-        let r = session(&mut ws, p, &mut mapper, Some(frame), rx, stop, &mut clock, |t, c| o.turn(t, c));
+        let r = session(&mut ws, p, &mut mapper, rx, stop, paused, &mut clock, |t, c| o.turn(t, c));
         o.finish(&clock);
         match r {
             Ok(Ended::Stop) => return Ok(()),
-            Ok(Ended::Idle) => {
-                log::info!("meeting: {ch}: no audio for {} s, {} session closed until audio comes back", IDLE_CLOSE.as_secs(), p.name());
+            Ok(Ended::Paused) => {
+                log::info!("meeting: {ch}: paused for {} s, {} session closed until listening resumes", IDLE_CLOSE.as_secs(), p.name());
                 failures = 0;
             }
             Err(e) => {
@@ -680,7 +678,7 @@ mod tests {
             std::thread::spawn(move || {
                 let seqs = Mutex::new(Seqs::default());
                 let tok = token(Provider::Deepgram, &url, "k");
-                run(Channel::Them, Some(tok), || Err(TokenError::Local), &rx, &stop, t0, &seqs, |_| {}, |s| got.lock().unwrap().push(s))
+                run(Channel::Them, Some(tok), || Err(TokenError::Local), &rx, &stop, &AtomicBool::new(false), t0, &seqs, |_| {}, |s| got.lock().unwrap().push(s))
             })
         };
         let until = Instant::now() + Duration::from_secs(5);
@@ -814,7 +812,7 @@ mod tests {
             let (stop, got) = (stop.clone(), got.clone());
             std::thread::spawn(move || {
                 let tok = token(Provider::Deepgram, &url, "k");
-                run(Channel::Them, Some(tok), || Err(TokenError::Local), &rx, &stop, t0, &seqs, |_| {}, |s| got.lock().unwrap().push(s))
+                run(Channel::Them, Some(tok), || Err(TokenError::Local), &rx, &stop, &AtomicBool::new(false), t0, &seqs, |_| {}, |s| got.lock().unwrap().push(s))
             })
         };
         let until = Instant::now() + Duration::from_secs(5);
@@ -833,35 +831,49 @@ mod tests {
         drop(tx);
     }
 
-    /// Paused or a stalled device: no frame for IDLE_CLOSE ends the provider session (no
-    /// socket held open), and the next frame opens a new one on a fresh token.
+    /// The socket opens before any audio and stays open through silence on KeepAlive (the
+    /// macOS tap sends nothing then); only a pause closes it, and resuming opens a new one.
+    /// Test times: IDLE_CLOSE 300 ms, KEEPALIVE_EVERY 200 ms.
     #[test]
-    fn a_session_with_no_audio_closes_and_the_next_frame_reopens() {
+    fn the_socket_opens_before_audio_stays_open_through_silence_and_closes_on_pause() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("ws://{}/v1/listen", listener.local_addr().unwrap());
-        let server = std::thread::spawn(move || {
-            let mut closes = 0;
-            for _ in 0..2 {
-                let (s, _) = listener.accept().unwrap();
-                let mut ws = tungstenite::accept(s).unwrap_or_else(|_| panic!("server handshake"));
-                loop {
-                    match ws.read() {
-                        Ok(Message::Text(t)) if t.as_str().contains("CloseStream") => {
-                            closes += 1;
+        let events = Arc::new(Mutex::new(Vec::<&'static str>::new()));
+        let server = {
+            let events = events.clone();
+            std::thread::spawn(move || {
+                for _ in 0..2 {
+                    let (s, _) = listener.accept().unwrap();
+                    let mut ws = tungstenite::accept(s).unwrap_or_else(|_| panic!("server handshake"));
+                    events.lock().unwrap().push("open");
+                    loop {
+                        let e = match ws.read() {
+                            Ok(Message::Binary(_)) => "frame",
+                            Ok(Message::Text(t)) if t.as_str().contains("KeepAlive") => "keepalive",
+                            Ok(Message::Text(t)) if t.as_str().contains("CloseStream") => "close",
+                            Ok(_) => continue,
+                            Err(_) => break,
+                        };
+                        events.lock().unwrap().push(e);
+                        if e == "close" {
                             break;
                         }
-                        Ok(_) => {}
-                        Err(_) => break,
                     }
                 }
+            })
+        };
+        let count = |e: &str| events.lock().unwrap().iter().filter(|x| **x == e).count();
+        let wait_for = |e: &str, n: usize| {
+            let until = Instant::now() + Duration::from_secs(3);
+            while count(e) < n && Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(20));
             }
-            closes
-        });
+        };
         let (tx, rx) = sync_channel(FEED_FRAMES);
         let stop = Arc::new(AtomicBool::new(false));
-        let opened = Arc::new(Mutex::new(0));
+        let paused = Arc::new(AtomicBool::new(false));
         let client = {
-            let (stop, opened) = (stop.clone(), opened.clone());
+            let (stop, paused) = (stop.clone(), paused.clone());
             std::thread::spawn(move || {
                 let seqs = Mutex::new(Seqs::default());
                 let mut asked = 0;
@@ -874,32 +886,37 @@ mod tests {
                     },
                     &rx,
                     &stop,
+                    &paused,
                     0,
                     &seqs,
-                    |s| {
-                        if s.is_ok() {
-                            *opened.lock().unwrap() += 1;
-                        }
-                    },
+                    |_| {},
                     |_| {},
                 );
                 (r, asked)
             })
         };
+        wait_for("open", 1);
+        assert_eq!((count("open"), count("frame")), (1, 0), "connected before the first frame");
+        // 5 IDLE_CLOSEs of silence: KeepAlive only, no close
+        std::thread::sleep(Duration::from_millis(1500));
+        assert!(count("keepalive") >= 3, "{:?}", events.lock().unwrap());
+        assert_eq!((count("open"), count("close")), (1, 0), "silence keeps the socket");
         tx.send(frame()).unwrap();
-        // past IDLE_CLOSE (300 ms in tests) plus the close wait: the first session ended
-        std::thread::sleep(Duration::from_millis(1200));
-        assert_eq!(*opened.lock().unwrap(), 1);
-        tx.send(frame()).unwrap();
-        let until = Instant::now() + Duration::from_secs(5);
-        while *opened.lock().unwrap() < 2 && Instant::now() < until {
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        wait_for("frame", 1);
+        assert_eq!((count("open"), count("frame")), (1, 1), "the first word goes up the open socket");
+        paused.store(true, Ordering::Relaxed);
+        wait_for("close", 1);
+        assert_eq!(count("close"), 1, "a pause closes it");
+        std::thread::sleep(Duration::from_millis(500));
+        assert_eq!(count("open"), 1, "nothing opens while paused");
+        paused.store(false, Ordering::Relaxed);
+        wait_for("open", 2);
+        assert_eq!(count("open"), 2, "resuming opens a new session");
         stop.store(true, Ordering::Relaxed);
         let (r, asked) = client.join().unwrap();
-        assert!(r.is_ok(), "an idle close is not a failure");
+        assert!(r.is_ok(), "a pause close is not a failure");
         assert_eq!(asked, 2, "one fresh token per session");
-        assert_eq!(server.join().unwrap(), 2, "both sessions ended with CloseStream");
+        server.join().unwrap();
         drop(tx);
     }
 
@@ -935,6 +952,7 @@ mod tests {
                     },
                     &rx,
                     &stop,
+                    &AtomicBool::new(false),
                     0,
                     &seqs,
                     |p| {
@@ -964,7 +982,7 @@ mod tests {
         let seqs = Mutex::new(Seqs::default());
         let (tx, rx) = sync_channel(FEED_FRAMES);
         tx.send((0, vec![0u8; 4])).unwrap();
-        let r = run(Channel::Me, None, || Err(TokenError::Local), &rx, &stop, 0, &seqs, |_| {}, |_| {});
+        let r = run(Channel::Me, None, || Err(TokenError::Local), &rx, &stop, &AtomicBool::new(false), 0, &seqs, |_| {}, |_| {});
         assert_eq!(r.unwrap_err(), LOCAL);
     }
 
@@ -990,6 +1008,7 @@ mod tests {
                     },
                     &rx,
                     &stop,
+                    &AtomicBool::new(false),
                     0,
                     &seqs,
                     |s| {

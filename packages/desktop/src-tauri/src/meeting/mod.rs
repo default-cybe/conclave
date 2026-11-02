@@ -471,8 +471,9 @@ struct Pipeline {
 }
 
 impl Pipeline {
-    /// Capture starts at once; each channel's cloud thread asks the hub for its own token
-    /// meanwhile (audio waits in the feed, `cloud::FEED_FRAMES`) and retries a failed one
+    /// Capture starts at once; each channel's cloud thread asks the hub for its own token and
+    /// opens its socket meanwhile, before any audio (which waits in the feed, `cloud::FEED_FRAMES`),
+    /// keeps it open until a pause or the end, and retries a failed one
     /// with backoff for the whole meeting. The model on this computer loads (and on the
     /// first meeting downloads) only when the owner chose Local in Settings: never as a
     /// fallback, it slows the computer down.
@@ -502,7 +503,7 @@ impl Pipeline {
                             set_stt(SttState::Failed, None, Some(format!("{who}: {e}")));
                         }
                     };
-                    let r = cloud::run(ch, None, || hub.stt_token(), &rx, &p.stop, p.hub.t0, &p.seqs, state, |s| p.up.push(s));
+                    let r = cloud::run(ch, None, || hub.stt_token(), &rx, &p.stop, &p.paused, p.hub.t0, &p.seqs, state, |s| p.up.push(s));
                     match r {
                         // the owner picked Local in Settings: the only way the model here loads
                         Err(e) if e == cloud::LOCAL => {
