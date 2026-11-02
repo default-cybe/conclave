@@ -139,11 +139,12 @@ fn build(app: &AppHandle, url: Url) -> Result<WebviewWindow, String> {
         return Ok(w);
     }
     let nav = app.clone();
+    let (width, height) = place::primary_work(app).map_or(place::DEFAULT_SIZE, |(w, h)| place::default_size(w, h));
     let b = WebviewWindowBuilder::new(app, MEETING, WebviewUrl::External(url))
         // the same guard as the main and quick windows: this window holds the capture commands
         .on_navigation(move |url| crate::allow_navigation(&nav, url))
         .title("Conclave meeting")
-        .inner_size(380.0, 520.0)
+        .inner_size(width, height)
         .visible(false)
         .content_protected(true)
         .decorations(false)

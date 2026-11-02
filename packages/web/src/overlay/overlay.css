@@ -84,6 +84,8 @@
   /* set from the slider at boot (opacity.ts); the answer layer is 20 points denser, at most opaque */
   --ov-opacity: 80%;
   --ov-layer: min(100%, calc(var(--ov-opacity) + 20%));
+  /* the answer's text size, A- and A+ in the menu (textsize.ts), 16 to 26 px */
+  --ov-text: 19px;
 }
 
 * {
@@ -106,9 +108,10 @@ body {
   height: 100%;
 }
 
-/* as tall as its content (the window follows it, fit.ts), scrolling once the window is at its cap */
+/* fills the window (its size is the owner's, dock.ts); the setup and end screens scroll inside */
 .ov-panel {
-  max-height: 100%;
+  position: relative;
+  height: 100%;
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--bg);
@@ -135,8 +138,13 @@ body {
   height: 100%;
 }
 
+/* the live screen: the top bar, the transcript strip and the answer, which scrolls on its own */
+.ov-panel-live {
+  overflow: hidden;
+  padding: 0;
+}
+
 .ov-dock .ov-panel {
-  height: auto;
   transition:
     transform var(--ov-motion) cubic-bezier(0.2, 0.8, 0.2, 1),
     opacity var(--ov-motion) ease-out;
@@ -349,20 +357,252 @@ body {
   color: var(--fg-panel);
 }
 
-/* Status line: the red dot and "Listening" stay while capture runs (8) */
-.ov-status {
+/* The live layout: one top bar, the transcript strip, the answer filling the rest */
+.ov-live {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* The top bar: the red dot and "Listening" stay while capture runs (8); four controls at the right */
+.ov-top {
+  display: flex;
   align-items: center;
-  gap: 2px 8px;
+  gap: 10px;
+  flex: none;
+  min-height: 48px;
+  padding: 8px 10px 8px 16px;
+  border-bottom: 1px solid color-mix(in oklch, var(--rule-2) 60%, transparent);
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 14px;
   user-select: none;
 }
 
-.ov-dot {
+.ov-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ov-top .ov-btn {
+  height: 32px;
+  font-size: 14px;
+  padding: 0 12px;
+}
+
+.ov-kbd {
+  margin-left: 6px;
+  font: 11px/1 var(--sans);
+  opacity: 0.6;
+}
+
+/* narrow (the 520 px minimum): the four controls keep their room; the key hint and provider go */
+@media (max-width: 640px) {
+  .ov-kbd,
+  .ov-top .ov-provider {
+    display: none;
+  }
+  .ov-top {
+    gap: 8px;
+    padding-left: 12px;
+  }
+}
+
+.ov-more {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  padding: 0;
+}
+
+.ov-top .ov-more {
+  padding: 0;
+}
+
+.ov-more svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+/* drawn by the page, never title=: a native tooltip is its own window that a share captures (7.2) */
+.ov-tip {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  color: var(--warn);
+}
+
+.ov-tip:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: 4px 8px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-2);
+  background: var(--bg-raise);
+  color: var(--fg);
+  font-size: 12px;
+}
+
+.ov-share svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+}
+
+.ov-live > .ov-notes {
+  flex: none;
+  padding: 6px 16px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.ov-notes .ov-link {
+  margin-left: 8px;
+}
+
+/* The transcript strip: the last lines said, small, one line each */
+.ov-strip {
+  flex: none;
+  padding: 8px 16px;
+  background: color-mix(in oklch, var(--layer) var(--ov-layer), transparent);
+  border-bottom: 1px solid var(--rule);
+}
+
+/* The answer: the hero, large, scrolled on its own; a new one starts at its top */
+.ov-answer {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 18px 18px;
+  background: color-mix(in oklch, var(--layer) var(--ov-layer), transparent);
+  /* the dense layer: the quiet grey reads here (4.7:1 or more at 60 %) */
+  --fg-panel: var(--fg-3);
+}
+
+.ov-empty {
+  margin: 0;
+  padding-top: 8px;
+  color: var(--fg-2);
+  font-size: var(--ov-text);
+  line-height: 1.5;
+}
+
+/* The "..." menu: drawn in this window over the answer, closed by a click outside or Escape */
+.ov-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+}
+
+.ov-menu {
+  position: absolute;
+  top: 52px;
+  right: 10px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 300px;
+  max-height: calc(100% - 62px);
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-3);
+  background: var(--bg-raise);
+  font-size: 14px;
+}
+
+.ov-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 8px;
+}
+
+.ov-menu-label {
+  flex: 1;
+  color: var(--fg-2);
+}
+
+.ov-menu-row input[type='range'] {
+  width: 110px;
+  margin: 0;
+  accent-color: var(--fg-2);
+}
+
+.ov-menu-item {
+  all: unset;
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 8px;
+  border-radius: var(--r-2);
+  cursor: pointer;
+}
+
+.ov-menu-item:hover {
+  background: var(--bg-hover);
+}
+
+.ov-menu-item:focus-visible {
+  outline: 2px solid var(--signal);
+}
+
+.ov-menu-end {
+  margin-top: 4px;
+  border-top: 1px solid var(--rule);
+  border-radius: 0;
+  color: var(--fault);
+}
+
+.ov-menu-meta {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 12.5px;
+}
+
+/* The resize grip, lower right (Overlay.tsx Grip) */
+.ov-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+/* a small corner mark inside the grip's hit area */
+.ov-grip::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
   width: 8px;
   height: 8px;
+  border-right: 2px solid var(--rule-2);
+  border-bottom: 2px solid var(--rule-2);
+  border-bottom-right-radius: 2px;
+}
+
+.ov-dock[data-hidden] .ov-grip {
+  display: none;
+}
+
+.ov-dot {
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--fault);
   /* steady, never pulsing: an endless animation keeps the compositor and GPU busy the whole meeting */
@@ -385,59 +625,27 @@ body {
   font-weight: 600;
 }
 
-/* the speech-to-text in use and the last answer's speed, quiet, after the meters */
+/* the time and the speech-to-text in use, quiet */
 .ov-meta {
   color: var(--fg-panel);
-  font-size: 12px;
+  font-size: 13px;
   white-space: nowrap;
 }
 
-.ov-level {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--fg-panel);
-}
-
-.ov-meter {
-  display: inline-block;
-  width: 28px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--meter-off);
-  overflow: hidden;
-}
-
-.ov-meter > span {
-  display: block;
-  height: 100%;
-  background: var(--meter-on);
-  transform-origin: left;
-}
-
-/* The answer: the one filled box on screen */
-.ov-card {
-  /* the dense layer: the quiet grey reads here (4.7:1 or more at 60 %) */
-  --fg-panel: var(--fg-3);
-  background: var(--bg-raise);
-  background: color-mix(in oklch, var(--layer) var(--ov-layer), transparent);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-2);
-  padding: 10px 12px;
-}
-
+/* The answer card: no box of its own, the answer region is the layer */
 .ov-card-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 22px;
+  min-height: 26px;
   margin-bottom: 6px;
+  font-size: 13px;
 }
 
 .ov-question {
-  margin: 0 0 8px;
-  color: var(--fg-3);
-  font-size: 12px;
+  margin: 0 0 10px;
+  color: var(--fg-2);
+  font-size: calc(var(--ov-text) - 4px);
   line-height: 1.4;
 }
 
@@ -510,8 +718,8 @@ body {
 }
 
 .ov-say {
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: calc(var(--ov-text) + 2px);
+  line-height: 1.5;
   color: var(--fg);
   letter-spacing: -0.003em;
 }
@@ -527,7 +735,7 @@ body {
 }
 
 .ov-say li + li {
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 /* the bullet: a small round mark in the accent, centred on the first line */
@@ -535,26 +743,26 @@ body {
   content: '';
   position: absolute;
   left: 2px;
-  top: 0.68em;
-  width: 5px;
-  height: 5px;
+  top: 0.62em;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--signal);
 }
 
 .ov-rest {
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid var(--rule);
-  font-size: 12.5px;
-  line-height: 1.55;
+  font-size: var(--ov-text);
+  line-height: 1.5;
   color: var(--fg-2);
 }
 
 .ov-source {
   margin: 10px 0 0;
   color: var(--fg-3);
-  font-size: 11.5px;
+  font-size: 13px;
 }
 
 /* each new block fades in once, as it is added */
@@ -591,9 +799,9 @@ body {
 
 .ov-code pre {
   margin: 0;
-  padding: 8px 10px;
+  padding: 10px 12px;
   overflow-x: auto;
-  font: 12px/1.55 var(--mono);
+  font: calc(var(--ov-text) - 4px) / 1.5 var(--mono);
   color: var(--fg);
   tab-size: 2;
 }
@@ -673,7 +881,7 @@ body {
 .ov-table table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: calc(var(--ov-text) - 3px);
   font-variant-numeric: tabular-nums;
 }
 
@@ -807,45 +1015,49 @@ circle.ov-s3 {
   stroke-linejoin: round;
 }
 
-/* Compact bar: the last line said and Answer now */
-.ov-bar {
+/* on the strip's dense layer, so "Them" and "Me" keep 4.5:1 over a white page or a busy one at 60 % */
+.ov-transcript {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--fg-2);
+}
+
+.ov-transcript li {
   display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.ov-bar .ov-transcript {
-  flex: 1;
-  min-width: 0;
-}
-
-.ov-bar .ov-transcript li {
+  gap: 8px;
+  padding: 1px 0;
   white-space: nowrap;
+}
+
+.ov-said {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* on the answer's dense layer, so "Them:" and "Me:" keep 4.5:1 over a white page or a busy one at 60 % */
-.ov-transcript {
-  margin: 0;
-  padding: 4px 8px;
-  list-style: none;
-  font-size: 12.5px;
-  color: var(--fg);
-  background: color-mix(in oklch, var(--layer) var(--ov-layer), transparent);
-  border-radius: var(--r-2);
-}
-
-.ov-transcript li {
-  padding: 1px 0;
-}
-
-.ov-partial {
-  color: var(--fg-2);
+.ov-partial .ov-said {
+  opacity: 0.7;
 }
 
 .ov-who {
-  color: var(--fg-2);
+  flex: none;
+  width: 40px;
+  font-weight: 600;
+}
+
+.ov-them .ov-who {
+  color: var(--s1);
+}
+
+.ov-me .ov-who {
+  color: var(--s0);
+}
+
+.ov-transcript-empty {
+  color: var(--fg-3);
 }
 
 .ov-brief {
@@ -981,16 +1193,3 @@ circle.ov-s3 {
   white-space: nowrap;
 }
 
-/* the panel's opacity, in the open overlay under its controls (Live.tsx) */
-.ov-opacity {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.ov-opacity input {
-  flex: 1;
-  max-width: 160px;
-  margin: 0;
-  accent-color: var(--fg-2);
-}

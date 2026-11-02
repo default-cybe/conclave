@@ -11,7 +11,6 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { frameBuffer, levelSource, statusOrSame, type Levels } from './frame';
-import { useFitAndStick } from './fit';
 import { connectWs, type WsStatus } from './ws';
 import { meetingApi, type MeetingApi, type Req } from './hub';
 import { desktop, ipc } from './desktop';
@@ -19,7 +18,7 @@ import { applyEvent, emptyView, loadDetail, type MeetingView } from './model';
 import type { DesktopMeetingStatus, MeetingEvent } from './wire';
 import { Ready, Setup } from './Setup';
 import { Handle, Live } from './Live';
-import { setHover, setLive, startDock, useDock } from './dock';
+import { currentSize, setHover, setLive, setSize, startDock, useDock } from './dock';
 
 export interface Conn {
   req: Req;
@@ -54,15 +53,46 @@ export function Overlay({ conn, meetingId: first, signedIn }: { conn: Conn; meet
 }
 
 /**
- * The window's height follows what the panel holds (fit.ts). Docked (dock.ts), the
- * panel slides out from its edge or grows down from the notch; `handle` is what
- * stays on screen while it is hidden (the live screen's tab or pill), and only
- * the live screen hides.
+ * The resize grip in the panel's lower right corner: dragging it sets the window's
+ * size (dock.ts setSize, kept on this device). The OS gives a borderless window no
+ * resize edge on every platform, so the page does it.
+ * shortcut: the grip grows right and down only, also docked on the right edge; a grip per edge if that bothers.
+ */
+function Grip() {
+  const start = useRef<{ x: number; y: number; w: number; h: number }>(undefined);
+  const frame = useRef<number>(undefined);
+  return (
+    <span
+      className="ov-grip"
+      aria-hidden
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        start.current = { x: e.screenX, y: e.screenY, ...currentSize() };
+      }}
+      onPointerMove={(e) => {
+        const s = start.current;
+        if (!s) return;
+        const [x, y] = [e.screenX, e.screenY];
+        if (frame.current !== undefined) cancelAnimationFrame(frame.current);
+        frame.current = requestAnimationFrame(() => {
+          frame.current = undefined;
+          setSize(s.w + x - s.x, s.h + y - s.y);
+        });
+      }}
+      onPointerUp={() => (start.current = undefined)}
+      onPointerCancel={() => (start.current = undefined)}
+    />
+  );
+}
+
+/**
+ * The window has a set size (dock.ts, 760 by 460 at first) and the panel fills it.
+ * Docked, the panel slides out from its edge or grows down from the notch; `handle`
+ * is what stays on screen while it is hidden (the live screen's tab or pill), and
+ * only the live screen hides.
  */
 export function Panel({ children, handle }: { children: React.ReactNode; handle?: React.ReactNode }) {
-  const panel = useRef<HTMLElement>(null);
-  const content = useRef<HTMLDivElement>(null);
-  useFitAndStick(panel, content);
   const dock = useDock();
   const live = !!handle;
   useEffect(() => {
@@ -79,8 +109,9 @@ export function Panel({ children, handle }: { children: React.ReactNode; handle?
           {handle}
         </div>
       )}
-      <main ref={panel} className="ov-panel" inert={hidden || undefined}>
-        <div ref={content}>{children}</div>
+      <main className={live ? 'ov-panel ov-panel-live' : 'ov-panel'} inert={hidden || undefined}>
+        {children}
+        {dock.active && <Grip />}
       </main>
     </div>
   );

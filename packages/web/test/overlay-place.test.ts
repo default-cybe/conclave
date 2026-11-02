@@ -5,7 +5,10 @@
  *   cd packages/web && bun test test/overlay-place.test.ts
  */
 import { describe, expect, test } from 'bun:test';
-import { afterDrag, defaults, displayAt, edgeRect, nextDisplay, notchRect, notchSize, pickDisplay, readSaved, snapEdge, TAB, TAB_LEN, WIDTH, type Display, type Saved } from '../src/overlay/place';
+import { afterDrag, defaults, displayAt, edgeRect, nextDisplay, notchRect, notchSize, pickDisplay, readSaved, sizeOn, snapEdge, target, DEFAULT_H, DEFAULT_W, MIN_H, MIN_W, TAB, TAB_LEN, type Display, type Saved } from '../src/overlay/place';
+
+const SIZE = { w: DEFAULT_W, h: DEFAULT_H };
+const WIDTH = DEFAULT_W;
 
 // a MacBook (points): 1512x982, menu bar 38 with the notch, Dock 70 at the bottom
 const mac: Display = { id: 'Built-in', frame: { x: 0, y: 0, w: 1512, h: 982 }, work: { x: 0, y: 38, w: 1512, h: 874 }, unit: 1, scale: 2, primary: true, notch: { top: 38, left: 662, right: 662 } };
@@ -22,16 +25,17 @@ describe('notch', () => {
   });
 
   test('the pill wraps the notch at the top centre over the menu bar, and opens down', () => {
-    const shut = notchRect(mac, false, 300);
+    const shut = notchRect(mac, false, SIZE);
     expect(shut.pill).toEqual({ w: 188 + 88, h: 38 });
     expect(shut).toMatchObject({ x: 756 - 138, y: 0, w: 276, h: 38 });
-    const open = notchRect(mac, true, 300);
-    expect(open).toMatchObject({ x: 756 - WIDTH / 2, y: 0, w: WIDTH, h: 300 });
+    // open: the same size as a free overlay, under the pill
+    const open = notchRect(mac, true, SIZE);
+    expect(open).toMatchObject({ x: 756 - WIDTH / 2, y: 0, w: WIDTH, h: DEFAULT_H + 38 });
   });
 
   test('no notch: a pill as tall as the menu bar at the top centre', () => {
     const ext: Display = { ...mac, id: 'LG', notch: undefined, frame: { x: 1512, y: -300, w: 2560, h: 1440 }, work: { x: 1512, y: -275, w: 2560, h: 1415 } };
-    expect(notchRect(ext, false, 0)).toMatchObject({ x: 1512 + 1280 - 100, y: -300, w: 200, h: 25 });
+    expect(notchRect(ext, false, SIZE)).toMatchObject({ x: 1512 + 1280 - 100, y: -300, w: 200, h: 25 });
   });
 });
 
@@ -58,12 +62,10 @@ describe('snapping', () => {
   });
 
   test('the tab sits on its edge inside the work area, scaled to physical px', () => {
-    expect(edgeRect(laptop, 'right', 0.5, 300, true)).toEqual({ x: 2880 - TAB * 1.5, y: 864 - (TAB_LEN * 1.5) / 2, w: TAB, h: TAB_LEN });
-    expect(edgeRect(mac, 'bottom', 1, 300, true)).toEqual({ x: 1512 - TAB_LEN, y: 38 + 874 - TAB, w: TAB_LEN, h: TAB });
-    const open = edgeRect(left, 'left', 0, 5000, false);
-    expect(open.x).toBe(-1920);
-    expect(open.y).toBe(-200);
-    expect(open.h).toBe((1032 * 3) / 4);
+    expect(edgeRect(laptop, 'right', 0.5, SIZE, true)).toEqual({ x: 2880 - TAB * 1.5, y: 864 - (TAB_LEN * 1.5) / 2, w: TAB, h: TAB_LEN });
+    expect(edgeRect(mac, 'bottom', 1, SIZE, true)).toEqual({ x: 1512 - TAB_LEN, y: 38 + 874 - TAB, w: TAB_LEN, h: TAB });
+    const open = edgeRect(left, 'left', 0, SIZE, false);
+    expect(open).toEqual({ x: -1920, y: -200, w: DEFAULT_W, h: DEFAULT_H });
   });
 });
 
@@ -83,8 +85,8 @@ describe('displays', () => {
   });
 
   test('the same edge and along on another display with another scale', () => {
-    const a = edgeRect(laptop, 'right', 0.25, 200, false);
-    const b = edgeRect(left, 'right', 0.25, 200, false);
+    const a = edgeRect(laptop, 'right', 0.25, SIZE, false);
+    const b = edgeRect(left, 'right', 0.25, SIZE, false);
     expect(a.x + WIDTH * 1.5).toBe(2880);
     expect(b.x + WIDTH).toBe(0);
     expect(b.w).toBe(a.w);
@@ -98,5 +100,31 @@ describe('saved', () => {
     expect(readSaved('{"mode":"weird","along":7}', edge()).mode).toBe('edge');
     expect(readSaved('{"mode":"free","along":7}', edge()).along).toBe(1);
     expect(readSaved('not json', edge({ along: 0.3 })).along).toBe(0.3);
+  });
+
+  test('the size is kept, and garbage in it is dropped', () => {
+    expect(readSaved('{"mode":"free","w":900.4,"h":600}', edge())).toMatchObject({ w: 900, h: 600 });
+    const bad = readSaved('{"mode":"free","w":-1,"h":"big"}', edge());
+    expect([bad.w, bad.h]).toEqual([undefined, undefined]);
+  });
+});
+
+describe('size', () => {
+  test('760 by 460 at first, at least 520 by 320, at most the work area', () => {
+    expect(sizeOn({}, mac)).toEqual({ w: 760, h: 460 });
+    expect(sizeOn({ w: 100, h: 100 }, mac)).toEqual({ w: MIN_W, h: MIN_H });
+    expect(sizeOn({ w: 5000, h: 5000 }, mac)).toEqual({ w: 1512, h: 874 });
+    // physical px at 150 %: the work area is 1920 by 1152 CSS px
+    expect(sizeOn({ w: 5000, h: 5000 }, laptop)).toEqual({ w: 1920, h: 1152 });
+    // a screen smaller than the minimum: the screen wins
+    const tiny: Display = { ...left, work: { x: 0, y: 0, w: 480, h: 300 } };
+    expect(sizeOn({}, tiny)).toEqual({ w: 480, h: 300 });
+  });
+
+  test('free, edge and notch all open at the saved size', () => {
+    const s = { w: 900, h: 560 };
+    expect(target({ mode: 'free', autoHide: false, along: 0.5, ...s }, laptop, false)).toMatchObject(s);
+    expect(target(edge({ edge: 'right', ...s }), laptop, false)).toMatchObject(s);
+    expect(target({ mode: 'notch', autoHide: true, along: 0.5, ...s }, mac, false)).toMatchObject({ w: 900, h: 560 + 38 });
   });
 });
