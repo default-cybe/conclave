@@ -335,8 +335,9 @@ export class Answerer {
 export async function warmUp(engine: Engine, model: string, m: Meeting, pack: string): Promise<void> {
   try {
     // the same first two blocks as an answer, so the answers read the cache
-    await streamCompletion(engine, model, liveRequest(m.id, pack, 'ready', undefined, 1, steeringBlock(m)), { sessionId: m.sessionId, accountId: m.accountId, purpose: 'meeting-warmup' });
+    // ends with the hub: a warm-up still retrying after shutdown would log into whatever runs next
+    await streamCompletion(engine, model, liveRequest(m.id, pack, 'ready', engine.stopSignal, 1, steeringBlock(m)), { sessionId: m.sessionId, accountId: m.accountId, purpose: 'meeting-warmup' });
   } catch (err) {
-    log.info(`${m.id}: warm-up failed: ${(err as Error).message}`);
+    if (!engine.stopSignal.aborted) log.info(`${m.id}: warm-up failed: ${(err as Error).message}`);
   }
 }
