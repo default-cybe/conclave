@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Android: home-screen widgets. Usage (plan limits and today's tokens), Inbox (what waits on you and the first three, each opening its chat), Calendar (today's next three events), and one widget that swipes through all three. They show the signed-in account only, keep nothing on disk, and refresh with WorkManager every 30 minutes and shortly after approvals, questions, alerts, usage or leaving the app.
+
 ## [0.4.58] - 2026-11-02
 
 ### Added
