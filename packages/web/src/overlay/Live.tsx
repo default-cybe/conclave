@@ -1,10 +1,11 @@
 /**
- * The live overlay (docs/design/MEETING-MODE.md 1.3): the status line with
- * the recording dot (always shown while listening, 8), the answer, and the
- * last transcript lines. Idle it is a compact bar (status and the last line);
- * a new answer opens it. Earlier answers are a step back with the arrows or
- * Ctrl or Cmd + Alt + [ and ]. Controls call the hub over HTTP and Rust over
- * IPC; both return at once.
+ * The live overlay (docs/design/MEETING-MODE.md 1.3), laid out like Parakeet AI's
+ * and Final Round AI's: one top bar (the recording dot, always shown while
+ * listening, 8; the time; the speech provider; Answer now, Pause, Hide and a
+ * "..." menu for everything else), a slim strip with the last lines said, and
+ * the answer, large, filling the rest. Earlier answers are a step back with the
+ * arrows in the answer's header or Ctrl or Cmd + Alt + [ and ]. Space answers
+ * now. Controls call the hub over HTTP and Rust over IPC; both return at once.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MeetingApi } from './hub';
@@ -16,6 +17,7 @@ import type { WsStatus } from './ws';
 import { AnswerCard, paintReporter } from './AnswerCard';
 import { Transcript } from './Transcript';
 import { OPACITY_MAX, OPACITY_MIN, readOpacity, saveOpacity } from './opacity';
+import { readTextSize, stepTextSize, TEXT_MAX, TEXT_MIN } from './textsize';
 import { holdOpen, moveDisplay, setPlacement, useDock } from './dock';
 import type { Mode } from './place';
 
@@ -30,14 +32,11 @@ function useMinutes(since?: number): number {
   return since ? Math.max(0, Math.floor((now - since) / 60_000)) : 0;
 }
 
-/** The notes after the level meters, most important first. Pure, for tests. */
+/** The one line under the top bar: only what is wrong, most important first. Pure, for tests. */
 export function statusNotes(d: DesktopMeetingStatus | undefined, ws: WsStatus): string[] {
   const out: string[] = [];
   if (ws === 'closed') out.push(`Hub offline: transcript queued (${d?.queue.upload ?? 0})`);
   if (!d) return [...out, 'Not listening on this computer'];
-  if (d.exclusion === 'unsupported') out.push('Visible in screen shares');
-  else if (d.exclusion === 'monitor-only') out.push('Shows as a black box in shares');
-  else if (d.exclusion === 'failed') out.push('Not hidden from screen shares');
   if (d.stt.state === 'downloading') out.push(`Downloading speech model ${Math.round((d.stt.progress ?? 0) * 100)} %`);
   else if (d.stt.state === 'loading') out.push('Loading speech model');
   // a cloud failure: the app keeps retrying (Retry below tries at once); never a switch to local
@@ -51,44 +50,22 @@ export function statusNotes(d: DesktopMeetingStatus | undefined, ws: WsStatus): 
   return out;
 }
 
-const scale = (v: number) => `scaleX(${Math.min(1, Math.max(0, v))})`;
-
-/** Both meters. They paint from the level source straight into the DOM, so a level never renders React. */
-function Meters({ levels }: { levels: LevelSource }) {
-  const me = useRef<HTMLSpanElement>(null);
-  const them = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    const paint = (l: { me: number; them: number }) => {
-      if (me.current) me.current.style.transform = scale(l.me);
-      if (them.current) them.current.style.transform = scale(l.them);
-    };
-    paint(levels.get());
-    return levels.subscribe(paint);
-  }, [levels]);
-  return (
-    <>
-      <span className="ov-level">
-        me
-        <span className="ov-meter" aria-hidden>
-          <span ref={me} style={{ transform: scale(0) }} />
-        </span>
-      </span>
-      <span className="ov-level">
-        them
-        <span className="ov-meter" aria-hidden>
-          <span ref={them} style={{ transform: scale(0) }} />
-        </span>
-      </span>
-    </>
-  );
+/** What a screen share shows of the overlay, when it is not hidden from it: the share icon's tooltip. */
+export function shareNote(d: DesktopMeetingStatus | undefined): string | undefined {
+  if (d?.exclusion === 'unsupported') return 'Visible in screen shares';
+  if (d?.exclusion === 'monitor-only') return 'Shows as a black box in shares';
+  if (d?.exclusion === 'failed') return 'Not hidden from screen shares';
+  return undefined;
 }
+
+const scale = (v: number) => `scaleX(${Math.min(1, Math.max(0, v))})`;
 
 /** How see-through the panel is, saved on this device (opacity.ts). */
 function Opacity() {
   const [v, setV] = useState(readOpacity);
   return (
-    <label className="ov-opacity">
-      <span className="ov-label">Opacity</span>
+    <label className="ov-menu-row">
+      <span className="ov-menu-label">Opacity</span>
       <input
         type="range"
         min={OPACITY_MIN}
@@ -103,6 +80,23 @@ function Opacity() {
       />
       <span className="ov-num">{v} %</span>
     </label>
+  );
+}
+
+/** The answer's text size, A- and A+, saved on this device (textsize.ts). */
+function TextSize() {
+  const [v, setV] = useState(readTextSize);
+  return (
+    <div className="ov-menu-row" role="group" aria-label="Text size">
+      <span className="ov-menu-label">Text size</span>
+      <button type="button" className="ov-btn ov-quiet" aria-label="Smaller text" disabled={v <= TEXT_MIN} onClick={() => setV(stepTextSize(v, -1))}>
+        A-
+      </button>
+      <span className="ov-num">{v} px</span>
+      <button type="button" className="ov-btn ov-quiet" aria-label="Larger text" disabled={v >= TEXT_MAX} onClick={() => setV(stepTextSize(v, 1))}>
+        A+
+      </button>
+    </div>
   );
 }
 
@@ -131,7 +125,7 @@ export function Handle({ levels, paused, failed }: { levels: LevelSource; paused
   );
 }
 
-/** Placement in the overlay (dock.ts): Free, Dock to edge, Notch on a Mac; auto-hide; the next display. */
+/** Placement (dock.ts): Free, Dock to edge, Notch on a Mac; auto-hide; the next display. */
 function Placement() {
   const d = useDock();
   if (!d.active) return null;
@@ -141,26 +135,69 @@ function Placement() {
     ...(d.mac ? [['notch', 'Notch'] as [Mode, string]] : []),
   ];
   return (
-    <div className="ov-row ov-place" role="group" aria-label="Placement">
-      <span className="ov-label">Place</span>
-      {modes.map(([m, label]) => (
-        <button key={m} type="button" className="ov-btn ov-quiet" aria-pressed={d.mode === m} onClick={() => setPlacement({ mode: m })}>
-          {label}
-        </button>
-      ))}
-      <button type="button" className="ov-btn ov-quiet" aria-pressed={d.saved.autoHide} onClick={() => setPlacement({ autoHide: !d.saved.autoHide })}>
-        Auto-hide {d.saved.autoHide ? 'on' : 'off'}
+    <>
+      <div className="ov-menu-row ov-place" role="group" aria-label="Placement">
+        <span className="ov-menu-label">Place</span>
+        {modes.map(([m, label]) => (
+          <button key={m} type="button" className="ov-btn ov-quiet" aria-pressed={d.mode === m} onClick={() => setPlacement({ mode: m })}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <button type="button" className="ov-menu-item" aria-pressed={d.saved.autoHide} onClick={() => setPlacement({ autoHide: !d.saved.autoHide })}>
+        Auto-hide when docked: {d.saved.autoHide ? 'on' : 'off'}
       </button>
       {d.displays > 1 && (
-        <button type="button" className="ov-btn ov-quiet" onClick={() => void moveDisplay(1)}>
+        <button type="button" className="ov-menu-item" onClick={() => void moveDisplay(1)}>
           Next display
+        </button>
+      )}
+    </>
+  );
+}
+
+/** Everything that is not Answer now, Pause or Hide: the "..." menu, drawn in this window (no native menu, 7.2). */
+export function Menu({ autoAnswer, latency, onAutoAnswer, onClickThrough, onEnd }: { autoAnswer: boolean; latency?: number; onAutoAnswer: () => void; onClickThrough: () => void; onEnd: () => void }) {
+  const [ending, setEnding] = useState(false);
+  return (
+    <div className="ov-menu" role="menu" aria-label="More">
+      <TextSize />
+      <Opacity />
+      <Placement />
+      {/* once on, clicks pass through this window: the hotkey turns it off */}
+      <button type="button" className="ov-menu-item" onClick={onClickThrough}>
+        Click-through
+      </button>
+      <button type="button" className="ov-menu-item" aria-pressed={autoAnswer} onClick={onAutoAnswer}>
+        Auto answers: {autoAnswer ? 'on' : 'off'}
+      </button>
+      {latency !== undefined && <p className="ov-menu-meta ov-num">Last answer: first word in {seconds(latency)}</p>}
+      {ending ? (
+        <div className="ov-menu-row">
+          <button type="button" className="ov-btn ov-danger" onClick={onEnd}>
+            End now
+          </button>
+          <button type="button" className="ov-btn ov-quiet" onClick={() => setEnding(false)}>
+            Keep going
+          </button>
+        </div>
+      ) : (
+        <button type="button" className="ov-menu-item ov-menu-end" onClick={() => setEnding(true)}>
+          End meeting
         </button>
       )}
     </div>
   );
 }
 
-export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view: MeetingView; desktop?: DesktopMeetingStatus; levels: LevelSource; ws: WsStatus }) {
+/** Space answers now, unless a field or a button has the key (it is theirs then). */
+export function isAnswerKey(e: Pick<KeyboardEvent, 'key' | 'repeat' | 'ctrlKey' | 'metaKey' | 'altKey'>, target: EventTarget | null): boolean {
+  if (e.key !== ' ' || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return false;
+  const el = target as HTMLElement | null;
+  return !(el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(el.tagName ?? '')));
+}
+
+export function Live({ api, view, desktop, ws }: { api: MeetingApi; view: MeetingView; desktop?: DesktopMeetingStatus; levels: LevelSource; ws: WsStatus }) {
   const m = view.meeting!;
   // the dot shows what the microphone does: the capture's own state when this computer captures
   const paused = desktop?.live ? desktop.paused : m.status === 'paused';
@@ -174,15 +211,15 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
   const current = answers[index];
   const newest = answers[answers.length - 1];
   const step = useCallback((dir: -1 | 1) => setPinned((p) => stepAnswer(answersRef.current, p, dir)), []);
-  // compact while idle; a new answer opens it on the newest
-  const [open, setOpen] = useState(false);
+  // a new answer shows on top, from its first line
   const newestId = newest?.id;
   const seen = useRef(newestId);
+  const region = useRef<HTMLElement>(null);
   useEffect(() => {
     if (seen.current === newestId) return;
     seen.current = newestId;
     setPinned(undefined);
-    setOpen(true);
+    if (region.current) region.current.scrollTop = 0;
   }, [newestId]);
   useEffect(() => {
     const d = tauri();
@@ -190,17 +227,14 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
     let off: (() => void) | undefined;
     let alive = true;
     void d
-      .listen<number>('meeting://nav', (e) => {
-        setOpen(true);
-        step(e.payload < 0 ? -1 : 1);
-      })
+      .listen<number>('meeting://nav', (e) => step(e.payload < 0 ? -1 : 1))
       .then((f) => (alive ? (off = f) : f()));
     return () => {
       alive = false;
       off?.();
     };
   }, [step]);
-  const [ending, setEnding] = useState(false);
+  const [menu, setMenu] = useState(false);
   const [error, setError] = useState<string>();
   const fail = useCallback((e: unknown) => setError(e instanceof Error ? e.message : String(e)), []);
 
@@ -214,6 +248,16 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
   }, [capturePaused]);
 
   const answerNow = useCallback((question?: string) => void api.answer(m.id, { reason: 'button', question }).catch(fail), [api, m.id, fail]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenu(false);
+      if (!isAnswerKey(e, e.target)) return;
+      e.preventDefault();
+      answerNow();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [answerNow]);
   const currentId = current?.id;
   const currentQuestion = current?.question;
   const onStop = useCallback(() => void (currentId && api.cancel(m.id, currentId).catch(fail)), [api, m.id, currentId, fail]);
@@ -231,106 +275,91 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
   const count = answers.length;
   const nav = useMemo(() => ({ index, count, step }), [index, count, step]);
   const notes = statusNotes(desktop, ws);
-  const latency = lastLatency(answers);
+  const share = shareNote(desktop);
   const sttFailed = desktop?.stt.state === 'failed' && desktop.stt.provider !== 'local';
   // a docked overlay slides out while the newest answer streams, and back after it (dock.ts LINGER_MS)
   const streaming = newest?.state === 'streaming';
   useEffect(() => holdOpen(streaming), [streaming]);
 
   return (
-    <div className="ov-stack">
-      <header className="ov-status" data-tauri-drag-region>
+    <div className="ov-live">
+      <header className="ov-top" data-tauri-drag-region>
         <span className={paused ? 'ov-dot ov-dot-paused' : 'ov-dot'} aria-hidden />
         <span className="ov-state-live" aria-live="polite">
           {paused ? 'Paused' : 'Listening'}
         </span>
-        <span className="ov-num">{minutes} min</span>
-        <Meters levels={levels} />
-        {desktop?.stt.provider && <span className="ov-meta">{STT_NAME[desktop.stt.provider]}</span>}
-        {latency !== undefined && <span className="ov-meta ov-num">first word {seconds(latency)}</span>}
-        <span className="ov-grow" />
-        <button type="button" className="ov-link" aria-expanded={open} onClick={() => setOpen(!open)}>
-          {open ? 'Less' : current ? 'Show answer' : 'More'}
-        </button>
-        <button type="button" className="ov-link" onClick={() => void ipc.hide()}>
-          Hide
-        </button>
+        <span className="ov-meta ov-num">{minutes} min</span>
+        {desktop?.stt.provider && <span className="ov-meta ov-provider">{STT_NAME[desktop.stt.provider]}</span>}
+        {share && (
+          <span className="ov-tip ov-share" role="img" aria-label={share} data-tip={share}>
+            <svg viewBox="0 0 20 20" aria-hidden>
+              <path d="M1.5 10s3-6 8.5-6 8.5 6 8.5 6-3 6-8.5 6-8.5-6-8.5-6z" />
+              <circle cx="10" cy="10" r="2.5" />
+            </svg>
+          </span>
+        )}
+        <span className="ov-grow" data-tauri-drag-region />
+        <div className="ov-controls">
+          <button type="button" className="ov-btn ov-primary" aria-keyshortcuts="Space" onClick={() => answerNow()}>
+            Answer now <kbd className="ov-kbd">Space</kbd>
+          </button>
+          <button type="button" className="ov-btn" onClick={togglePause}>
+            {paused ? 'Resume' : 'Pause'}
+          </button>
+          <button type="button" className="ov-btn" onClick={() => void ipc.hide()}>
+            Hide
+          </button>
+          <button type="button" className="ov-btn ov-more" aria-label="More" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)}>
+            <svg viewBox="0 0 20 20" aria-hidden>
+              <circle cx="4.5" cy="10" r="1.6" />
+              <circle cx="10" cy="10" r="1.6" />
+              <circle cx="15.5" cy="10" r="1.6" />
+            </svg>
+          </button>
+        </div>
       </header>
-      {notes.length > 0 && (
-        <p className="ov-notes">
-          {notes.join(', ')}
-          {sttFailed && (
+      {(notes.length > 0 || error) && (
+        <p className={error ? 'ov-notes ov-fault' : 'ov-notes'} role={error ? 'alert' : undefined}>
+          {error ?? notes.join(', ')}
+          {!error && sttFailed && (
             <button type="button" className="ov-link" onClick={() => void ipc.sttRetry()?.catch(fail)}>
               Retry
             </button>
           )}
         </p>
       )}
-      {!open ? (
-        <div className="ov-bar">
-          <Transcript lines={lastLines(view, 1)} />
-          <button type="button" className="ov-btn ov-primary" onClick={() => answerNow()}>
-            Answer now
-          </button>
-        </div>
-      ) : (
+      <section className="ov-strip" aria-label="Live transcript">
+        <Transcript lines={lastLines(view, 3)} />
+      </section>
+      <section ref={region} className="ov-answer" aria-label="Answer">
+        {current ? (
+          <AnswerCard
+            answer={current}
+            text={view.text[current.messageId] ?? ''}
+            nav={nav}
+            onStop={current === newest ? onStop : undefined}
+            onRetry={current === newest ? onRetry : undefined}
+            onPaint={onPaint}
+          />
+        ) : (
+          <p className="ov-empty">{paused ? 'Paused. Resume to hear the meeting again.' : 'Listening. Answers appear here when someone asks you something.'}</p>
+        )}
+      </section>
+      {menu && (
         <>
-          {current ? (
-            <AnswerCard
-              answer={current}
-              text={view.text[current.messageId] ?? ''}
-              nav={nav}
-              onStop={current === newest ? onStop : undefined}
-              onRetry={current === newest ? onRetry : undefined}
-              onPaint={onPaint}
-            />
-          ) : (
-            <section className="ov-card">
-              <p className="ov-muted">Answers show here when someone asks you a question. Ctrl or Cmd + Alt + Enter answers now.</p>
-            </section>
-          )}
-          <Transcript lines={lastLines(view, 3)} />
+          <div className="ov-scrim" onPointerDown={() => setMenu(false)} />
+          <Menu
+            autoAnswer={m.autoAnswer !== 'off'}
+            latency={lastLatency(answers)}
+            onAutoAnswer={() => void api.patch(m.id, { autoAnswer: m.autoAnswer === 'off' ? 'questions' : 'off' }).catch(fail)}
+            onClickThrough={() => {
+              setMenu(false);
+              void ipc.clickThrough(true)?.catch(fail);
+            }}
+            onEnd={end}
+          />
         </>
       )}
-      {error && (
-        <p className="ov-fault" role="alert">
-          {error}
-        </p>
-      )}
-      {open && (
-      <footer className="ov-row">
-        <button type="button" className="ov-btn ov-primary" onClick={() => answerNow()}>
-          Answer now
-        </button>
-        <button type="button" className="ov-btn" onClick={togglePause}>
-          {paused ? 'Resume' : 'Pause'}
-        </button>
-        {/* once on, clicks pass through this window: the hotkey turns it off */}
-        <button type="button" className="ov-btn ov-quiet" onClick={() => void ipc.clickThrough(true)?.catch(fail)}>
-          Click-through
-        </button>
-        <button type="button" className="ov-btn ov-quiet" onClick={() => void api.patch(m.id, { autoAnswer: m.autoAnswer === 'off' ? 'questions' : 'off' }).catch(fail)}>
-          {m.autoAnswer === 'off' ? 'Auto answers off' : 'Auto answers on'}
-        </button>
-        <span className="ov-grow" />
-        {ending ? (
-          <>
-            <button type="button" className="ov-btn ov-danger" onClick={end}>
-              End now
-            </button>
-            <button type="button" className="ov-btn ov-quiet" onClick={() => setEnding(false)}>
-              Keep going
-            </button>
-          </>
-        ) : (
-          <button type="button" className="ov-btn" onClick={() => setEnding(true)}>
-            End meeting
-          </button>
-        )}
-      </footer>
-      )}
-      {open && <Opacity />}
-      {open && <Placement />}
     </div>
   );
 }

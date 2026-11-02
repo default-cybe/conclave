@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Live, statusNotes } from '../src/overlay/Live';
+import { Live, Menu, statusNotes } from '../src/overlay/Live';
 import { levelSource, statusOrSame } from '../src/overlay/frame';
 import { meetingApi, HubError, type Req } from '../src/overlay/hub';
 import { answerLatency, emptyView, lastLatency, loadDetail, seconds } from '../src/overlay/model';
@@ -79,12 +79,15 @@ describe('overlay header', () => {
     throw new HubError(404, 'Not found');
   };
   const detail = (p: Partial<MeetingDetail> = {}): MeetingDetail => ({ id: 'mtg_1', accountId: 'owner', sessionId: 'ses_1', device: 'd', cwd: '/p', title: 'Sync', status: 'live', createdAt: 1, autoAnswer: 'questions', segments: [], answers: [], files: [], liveModel: { ref: 'a/fast' }, ...p });
-  test('shows the provider and the last first word', () => {
+  test('shows the provider in the top bar, the last first word in the menu only', () => {
     const v = emptyView();
     loadDetail(v, detail({ answers: [ans({ segmentEndAt: 9_000, firstTokenAt: 9_600 })] }));
     const html = renderToStaticMarkup(<Live api={meetingApi(req)} view={v} desktop={desk({ stt: { state: 'ready', provider: 'deepgram' } })} levels={levelSource()} ws="open" />);
     expect(html).toContain('Deepgram');
-    expect(html).toContain('first word 0.6 s');
+    expect(html).not.toContain('first word');
+    const noop = () => undefined;
+    const menu = renderToStaticMarkup(<Menu autoAnswer latency={lastLatency(v.answers)} onAutoAnswer={noop} onClickThrough={noop} onEnd={noop} />);
+    expect(menu).toContain('first word in 0.6 s');
   });
 });
 
