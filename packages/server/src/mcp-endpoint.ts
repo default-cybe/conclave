@@ -62,6 +62,9 @@ function mcpCaller(ctx: ServerContext, req: Request): McpCaller | undefined {
   if (!token) return undefined;
   if (token.startsWith(ACCESS_PREFIX)) {
     const access = ctx.oauth.store.access(token);
+    // an app a removed or disabled account allowed stops with it
+    const account = access && ctx.engine.people.get(access.grant.accountId);
+    if (!account || account.disabled) return undefined;
     // a token is only good for the resource it was issued for: this hub's /mcp (RFC 8707)
     return access && isHubResource(ctx, req, access.resource) ? { kind: 'oauth', access } : undefined;
   }

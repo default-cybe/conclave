@@ -120,6 +120,21 @@ describe('disable', () => {
   });
 });
 
+describe('disable an OAuth-connected app', () => {
+  test('an MCP app the member allowed stops while they are disabled', async () => {
+    const store = (hub.running.conclave.ctx as { oauth: { store: any } }).oauth.store;
+    const { client } = store.register({ name: 'tool', redirectUris: ['https://claude.ai/api/mcp/auth_callback'], applicationType: 'web', authMethod: 'none' });
+    const grant = store.createGrant({ id: 'oag_alice', client: client.id, scope: ['memory:read'], resource: `${hub.url}/mcp`, redirectUri: 'https://claude.ai/api/mcp/auth_callback', approvedBy: 'alice', accountId: alice.id });
+    const { accessToken } = store.issue(grant.id, ['memory:read']);
+    const rpc = () => fetch(`${hub.url}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
+    expect((await rpc()).status).toBe(200);
+    await hub.api(`/api/people/${alice.id}/disable`, { method: 'POST' });
+    expect((await rpc()).status).toBe(401);
+    await hub.api(`/api/people/${alice.id}/enable`, { method: 'POST' });
+    expect((await rpc()).status).toBe(200);
+  });
+});
+
 describe('usage', () => {
   test('each account sees its own week and month; the owner sees everyone\'s in People', async () => {
     const now = Date.now();
