@@ -19,6 +19,7 @@
  */
 import { useEffect, type RefObject } from 'react';
 import { ipc } from './desktop';
+import { setDockHeight } from './dock';
 
 /** The least time between two meeting_set_height calls; the last height always goes out. */
 export const HEIGHT_MS = 100;
@@ -49,7 +50,8 @@ export function useFitAndStick(panel: RefObject<HTMLElement | null>, content: Re
       if (want === asked) return;
       asked = want;
       sentAt = performance.now();
-      void ipc.setHeight(want)?.catch(() => undefined);
+      // placed by dock.ts (a desktop with displays): it keeps the window on its edge or the notch
+      if (!setDockHeight(want)) void ipc.setHeight(want)?.catch(() => undefined);
     };
     const onScroll = () => {
       stick = atBottom(p.scrollTop, p.clientHeight, p.scrollHeight);

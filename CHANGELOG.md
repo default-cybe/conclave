@@ -7,6 +7,24 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Meetings: the overlay can dock. Drag it within 24 px of a screen edge and it snaps there; the work area leaves out the macOS menu bar and Dock and the Windows taskbar. With auto-hide on, a docked overlay hides to a slim tab with the listening dot. It slides out on hover, on Ctrl or Cmd + Alt + O, or when an answer comes, and slides back after. Drag it away to unsnap. Placement, edge, position and display are saved per device. Pick Free, Dock to edge or Notch in the overlay or in Settings > Meetings.
+- Meetings on a Mac: Notch mode, the default on a Mac with a notch. Like the Dynamic Island, the overlay is a black pill around the notch, sitting above the menu bar on every Space, including full-screen apps. It springs down into the answer panel and collapses after. A screen without a notch gets a pill at top centre.
+- Meetings: move the overlay to the next or previous display with Ctrl or Cmd + Alt + Shift + Right or Left, or with "Move overlay to next display" in the tray menu. It keeps its edge and position, and it handles different scale factors. If the saved display is gone, it goes to the primary display.
+
+### Changed
+
+- Meetings: no automatic local speech to text. When the cloud service fails (no key, a refused token, a dropped socket), the overlay shows why with a Retry, and the app keeps retrying the cloud with backoff. The Parakeet model is never downloaded or loaded unless you pick Local in Settings > Meetings, which is now labelled "slower, uses your computer". The hub's `stt-token` route answers 409 only when Local is chosen: a missing key is 412 and a meeting that is not running is 410.
+- Meetings on macOS: the menu bar no longer shows "● REC" or "Paused" next to the tray icon. The red dot on the icon stays.
+
+### Fixed
+
+- Overlay contrast: the transcript sits on the answer's denser layer, and the status line, notes, labels and quiet buttons on the see-through panel use full ink in the dark theme and the second ink in the light one. Every text now reaches 4.5:1 at 60 % opacity over a white page and over a busy image, in both themes; "Them:" and "Me:" went from 2.56:1 to 8.57:1 in the dark theme over white.
+- Meeting page on a phone: Delete moved into a "..." menu next to Save to memory and Open in chat, so the actions fit one row at 390 px. It still asks before it deletes.
+
 ## [0.4.55] - 2026-11-01
 
 ### Added

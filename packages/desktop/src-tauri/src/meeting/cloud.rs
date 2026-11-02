@@ -4,13 +4,14 @@
 //! API key stays on the hub). Audio goes up as 16 kHz mono s16le in 50 ms frames;
 //! the provider's partials and finals (its endpointing ends a turn) become the
 //! same segments the local model makes. A dropped socket reconnects with a fresh
-//! token after 0.5, 1, 2, 4, 8 s; three failures in a row without a word back, or
-//! no key on the hub, hand the channel to the local model (the caller does that).
+//! token after 0.5, 1, 2, 4, 8 s and keeps trying for the whole meeting; after three
+//! failures in a row without a word back the overlay shows why, with a Retry. It never
+//! hands the channel to the local model: that runs only when the owner chose Local.
 //! Logs say which provider and why it failed; never the token or the audio.
 
 use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -29,10 +30,13 @@ pub const FRAME_SAMPLES: usize = 800;
 /// Frames waiting between the capture worker and the socket (10 s): capture starts before the
 /// first token is back (the hub waits up to 8 s on the provider), so the opening words wait here.
 pub const FEED_FRAMES: usize = 200;
-/// `run`'s error when the hub has no key: the caller falls back to local without a warning.
-pub const NO_KEY: &str = "no speech to text key on the hub";
-/// Connection failures in a row (no word back in between) before the channel falls back.
+/// `run`'s only error: the owner chose Local in Settings, so the caller loads the model here.
+pub const LOCAL: &str = "local speech to text was chosen";
+/// Connection failures in a row (no word back in between) before the overlay says so. The
+/// loop keeps retrying the cloud with backoff after that: it never falls back to local.
 pub const MAX_FAILURES: u32 = 3;
+/// Bumped by the overlay's Retry (`retry_now`): a backoff wait ends at once.
+static RETRY: AtomicU64 = AtomicU64::new(0);
 const READ_POLL: Duration = Duration::from_millis(20);
 const KEEPALIVE_EVERY: Duration = Duration::from_secs(5);
 const CLOSE_WAIT: Duration = Duration::from_secs(2);
@@ -89,8 +93,8 @@ pub struct SttToken {
 }
 
 pub enum TokenError {
-    /// 409: no provider key on the hub (or meetings.stt is local).
-    NoKey,
+    /// 409: meetings.stt is Local (only then; a missing key is 412, a Failed).
+    Local,
     Failed(String),
 }
 
@@ -468,9 +472,9 @@ impl<F: FnMut(Segment)> Out<'_, F> {
 /// The `meeting-cloud-me` / `meeting-cloud-them` loop. Connects only while there is
 /// audio to send: a session with no frame for `IDLE_CLOSE` (paused, a stalled device)
 /// ends, and the next frame opens a new one. A token that fails is retried like a
-/// socket that fails. `opened` hears the provider of each new session. Returns Ok on
-/// `stop`, or Err with the reason (`NO_KEY` when the hub has none) when the channel
-/// must fall back to the local model.
+/// socket that fails, for as long as the meeting runs. `state` hears Ok(provider) for
+/// each new session and Err(why) after `MAX_FAILURES` failures in a row (and on each
+/// failure after). Returns Ok on `stop`, or Err(`LOCAL`) when the owner chose Local.
 #[allow(clippy::too_many_arguments)]
 pub fn run(
     channel: Channel,
@@ -480,7 +484,7 @@ pub fn run(
     stop: &AtomicBool,
     t0: i64,
     seqs: &Mutex<Seqs>,
-    mut opened: impl FnMut(Provider),
+    mut state: impl FnMut(Result<Provider, String>),
     mut out: impl FnMut(Segment),
 ) -> Result<(), String> {
     let ch = match channel {
@@ -499,12 +503,12 @@ pub fn run(
         let asked = Instant::now();
         let tok = match first_token.take().filter(|t| t.fresh(now_ms())).map(Ok).unwrap_or_else(&mut token) {
             Ok(t) => t,
-            Err(TokenError::NoKey) => return Err(NO_KEY.into()),
+            Err(TokenError::Local) => return Err(LOCAL.into()),
             Err(TokenError::Failed(e)) => {
                 log::warn!("meeting: {ch}: speech to text token: {e}");
                 failures += 1;
                 if failures >= MAX_FAILURES {
-                    return Err(format!("no speech to text token: {e}"));
+                    state(Err(format!("no speech to text token: {e}")));
                 }
                 held = Some(frame);
                 wait(stop, super::upload::backoff(failures - 1));
@@ -519,7 +523,7 @@ pub fn run(
                 log::warn!("meeting: {ch}: {} connect failed: {e}", p.name());
                 failures += 1;
                 if failures >= MAX_FAILURES {
-                    return Err(format!("{} unreachable: {e}", p.name()));
+                    state(Err(format!("{} unreachable: {e}", p.name())));
                 }
                 held = Some(frame);
                 wait(stop, super::upload::backoff(failures - 1));
@@ -533,7 +537,7 @@ pub fn run(
             url.path(),
             asked.elapsed().as_millis()
         );
-        opened(p);
+        state(Ok(p));
         let started_at = now_ms();
         let mut o = Out { channel, started_at, offset_ms: started_at - t0, seqs, out: &mut out, pending: None, heard: false };
         let mut mapper = Mapper::new(p, &url);
@@ -552,7 +556,7 @@ pub fn run(
                 }
                 failures += 1;
                 if failures >= MAX_FAILURES {
-                    return Err(format!("{}: {e}", p.name()));
+                    state(Err(format!("{}: {e}", p.name())));
                 }
                 wait(stop, super::upload::backoff(failures - 1));
             }
@@ -561,9 +565,15 @@ pub fn run(
     Ok(())
 }
 
+/// The overlay's Retry: every channel waiting out a backoff tries again now.
+pub fn retry_now() {
+    RETRY.fetch_add(1, Ordering::Relaxed);
+}
+
 fn wait(stop: &AtomicBool, total: Duration) {
     let until = Instant::now() + total;
-    while !stop.load(Ordering::Relaxed) && Instant::now() < until {
+    let asked = RETRY.load(Ordering::Relaxed);
+    while !stop.load(Ordering::Relaxed) && Instant::now() < until && RETRY.load(Ordering::Relaxed) == asked {
         std::thread::sleep(Duration::from_millis(50));
     }
 }
@@ -691,7 +701,7 @@ mod tests {
             let (stop, got) = (stop.clone(), got.clone());
             std::thread::spawn(move || {
                 let tok = token(Provider::Deepgram, &url, "k");
-                run(Channel::Them, Some(tok), || Err(TokenError::NoKey), &rx, &stop, t0, &seqs, |_| {}, |s| got.lock().unwrap().push(s))
+                run(Channel::Them, Some(tok), || Err(TokenError::Local), &rx, &stop, t0, &seqs, |_| {}, |s| got.lock().unwrap().push(s))
             })
         };
         let until = Instant::now() + Duration::from_secs(5);
@@ -753,7 +763,11 @@ mod tests {
                     &stop,
                     0,
                     &seqs,
-                    |_| *opened.lock().unwrap() += 1,
+                    |s| {
+                        if s.is_ok() {
+                            *opened.lock().unwrap() += 1;
+                        }
+                    },
                     |_| {},
                 );
                 (r, asked)
@@ -810,7 +824,11 @@ mod tests {
                     &stop,
                     0,
                     &seqs,
-                    |p| *provider.lock().unwrap() = Some(p),
+                    |p| {
+                        if let Ok(p) = p {
+                            *provider.lock().unwrap() = Some(p);
+                        }
+                    },
                     |_| {},
                 )
             })
@@ -826,35 +844,67 @@ mod tests {
         drop(tx);
     }
 
+    /// Local only when chosen: the 409 ends the loop at once, and nothing else does.
     #[test]
-    fn no_key_falls_back_at_once_and_an_unreachable_provider_after_three_tries() {
+    fn local_ends_the_loop_only_when_chosen() {
         let stop = AtomicBool::new(false);
         let seqs = Mutex::new(Seqs::default());
         let (tx, rx) = sync_channel(FEED_FRAMES);
-        for _ in 0..8 {
-            tx.send(vec![0u8; 4]).unwrap();
+        tx.send(vec![0u8; 4]).unwrap();
+        let r = run(Channel::Me, None, || Err(TokenError::Local), &rx, &stop, 0, &seqs, |_| {}, |_| {});
+        assert_eq!(r.unwrap_err(), LOCAL);
+    }
+
+    /// An unreachable provider never falls back: after MAX_FAILURES the overlay hears why,
+    /// the loop keeps trying with backoff, Retry cuts the wait short, and stop ends it with Ok.
+    #[test]
+    fn an_unreachable_provider_is_reported_and_retried_never_dropped() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let asked = Arc::new(Mutex::new(0u32));
+        let errors = Arc::new(Mutex::new(Vec::<String>::new()));
+        let (tx, rx) = sync_channel(FEED_FRAMES);
+        tx.send(vec![0u8; 4]).unwrap();
+        let client = {
+            let (stop, asked, errors) = (stop.clone(), asked.clone(), errors.clone());
+            std::thread::spawn(move || {
+                let seqs = Mutex::new(Seqs::default());
+                run(
+                    Channel::Me,
+                    None,
+                    || {
+                        *asked.lock().unwrap() += 1;
+                        Ok(token(Provider::Deepgram, "ws://127.0.0.1:1/v1/listen", "k"))
+                    },
+                    &rx,
+                    &stop,
+                    0,
+                    &seqs,
+                    |s| {
+                        if let Err(e) = s {
+                            errors.lock().unwrap().push(e);
+                        }
+                    },
+                    |_| {},
+                )
+            })
+        };
+        // backoff 0.5, 1 and 2 s: the fourth try starts about 3.5 s in
+        let until = Instant::now() + Duration::from_secs(8);
+        while *asked.lock().unwrap() < MAX_FAILURES + 1 && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
         }
-        let r = run(Channel::Me, None, || Err(TokenError::NoKey), &rx, &stop, 0, &seqs, |_| {}, |_| {});
-        assert_eq!(r.unwrap_err(), NO_KEY);
-        let mut asked = 0;
-        let started = Instant::now();
-        let r = run(
-            Channel::Me,
-            None,
-            || {
-                asked += 1;
-                Ok(token(Provider::Deepgram, "ws://127.0.0.1:1/v1/listen", "k"))
-            },
-            &rx,
-            &stop,
-            0,
-            &seqs,
-            |_| {},
-            |_| {},
-        );
-        assert!(r.is_err());
-        assert_eq!(asked, MAX_FAILURES);
-        // backoff 0.5 s then 1 s between the three tries
-        assert!(started.elapsed() >= Duration::from_millis(1400), "{:?}", started.elapsed());
+        assert_eq!(*asked.lock().unwrap(), MAX_FAILURES + 1, "it kept trying after {MAX_FAILURES} failures");
+        assert!(errors.lock().unwrap().first().is_some_and(|e| e.contains("deepgram unreachable")), "{:?}", errors.lock().unwrap());
+        // the fourth failure waits 4 s; Retry tries again at once
+        std::thread::sleep(Duration::from_millis(300));
+        retry_now();
+        let until = Instant::now() + Duration::from_millis(1500);
+        while *asked.lock().unwrap() < MAX_FAILURES + 2 && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(*asked.lock().unwrap(), MAX_FAILURES + 2, "Retry cut the backoff short");
+        stop.store(true, Ordering::Relaxed);
+        assert!(client.join().unwrap().is_ok(), "stop ends it with Ok, never an error to fall back on");
+        drop(tx);
     }
 }

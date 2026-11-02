@@ -4,14 +4,18 @@
  * Deepgram stream from the desktop app straight to the provider on a
  * short-lived token the hub mints (POST /api/meetings/:id/stt-token), so
  * the key itself (hub secret stt.assemblyai or stt.deepgram) never leaves
- * the hub. With no key the desktop app stays on local.
+ * the hub. Local is only ever the owner's explicit choice: with no key, or a
+ * provider that fails, the overlay says so and keeps retrying the cloud; the
+ * Parakeet model is never downloaded or loaded unless Local is picked here.
  */
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useIsMobile } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Field';
+import { Input, OnOff, Segmented } from '@/components/ui/Field';
+import { readPlacement, writePlacement } from '@/overlay/dock';
+import type { Mode } from '@/overlay/place';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { toast, useHub } from '@/store/store';
 import { meetings } from '@/features/meeting/api';
@@ -31,25 +35,50 @@ interface Choice {
 export const STT_CHOICES: Choice[] = [
   { id: 'deepgram', name: 'Deepgram', recommended: true, line: 'Nova-3. About 0.3 s behind speech, the fastest finals. About $0.46 per audio hour.', free: '$200 free credit for a new account, no card.', signup: 'https://console.deepgram.com/signup' },
   { id: 'assemblyai', name: 'AssemblyAI', line: 'Universal-Streaming. About 0.3 s behind speech, strong on names and accents. About $0.15 per audio hour.', free: '$50 free credit for a new account, no card.', signup: 'https://www.assemblyai.com/dashboard/signup' },
-  { id: 'local', name: 'Local', line: 'Parakeet in the desktop app. Free, private, works offline. About 1 to 2 s behind speech, and a 650 MB download before the first meeting.' },
+  { id: 'local', name: 'Local', line: 'Slower, uses your computer. Parakeet runs in the desktop app: free, private, works offline, but about 1 to 2 s behind speech, it loads your CPU during the meeting, and it is a 650 MB download before the first one. Never used unless you pick it.' },
 ];
 
 export const sttSecret = (p: SttProvider) => `stt.${p}`;
 
 /**
- * The service a member's meetings use: their own first saved key, else local. The hub's
- * meetings.stt is the owner's (PATCH /api/config is admin only); core/src/meeting/index.ts sttToken.
+ * The service a member's meetings use: their own first saved key, else Deepgram (which then
+ * asks for a key). The hub's meetings.stt is the owner's (PATCH /api/config is admin only);
+ * core/src/meeting/index.ts sttToken.
  */
 export function memberStt(values: string[]): SttProvider {
-  return values.includes(sttSecret('deepgram')) ? 'deepgram' : values.includes(sttSecret('assemblyai')) ? 'assemblyai' : 'local';
+  return values.includes(sttSecret('assemblyai')) && !values.includes(sttSecret('deepgram')) ? 'assemblyai' : 'deepgram';
 }
 
-/** What the desktop app will use: the choice, or local while the chosen service has no key. */
-export function sttInUse(chosen: SttProvider, keyed: (p: SttProvider) => boolean): { provider: SttProvider; words: string } {
-  if (chosen === 'local') return { provider: 'local', words: 'Local, on this computer.' };
+/** What the desktop app will use: the choice. A cloud choice with no key does not listen until one is saved. */
+export function sttInUse(chosen: SttProvider, keyed: (p: SttProvider) => boolean): { provider: SttProvider; words: string; missing?: boolean } {
+  if (chosen === 'local') return { provider: 'local', words: 'Local, on this computer (slower, uses your computer).' };
   const name = STT_CHOICES.find((c) => c.id === chosen)!.name;
-  if (!keyed(chosen)) return { provider: 'local', words: `Local, until you save a ${name} key.` };
-  return { provider: chosen, words: `${name}. If it cannot connect, the desktop app falls back to local and says so in the overlay.` };
+  if (!keyed(chosen)) return { provider: chosen, missing: true, words: `${name}, once you save a key. Until then the overlay says no key is set; it never switches to Local by itself.` };
+  return { provider: chosen, words: `${name}. If it cannot connect, the overlay says why with a Retry and keeps trying; it never switches to Local by itself.` };
+}
+
+/** Where the overlay sits on this device (overlay/dock.ts); the overlay reads the same key. */
+export function PlacementGroup({ mac = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent) }: { mac?: boolean }) {
+  const [p, setP] = useState(readPlacement);
+  const set = (v: Partial<typeof p>) => {
+    writePlacement(v);
+    setP(readPlacement());
+  };
+  const options: { value: Mode; label: string }[] = [
+    { value: 'free', label: 'Free' },
+    { value: 'edge', label: 'Dock to edge' },
+    ...(mac ? [{ value: 'notch' as Mode, label: 'Notch' }] : []),
+  ];
+  return (
+    <Group title="Meeting overlay" help="Saved on this device. Ctrl or Cmd + Alt + Shift + Right or Left, or the tray menu, moves it to another display.">
+      <SettingRow label="Placement" help={mac ? 'Notch sits on the menu bar like the Dynamic Island and grows down when an answer comes.' : 'Dragged within 24 px of a screen edge, a docked overlay snaps there.'}>
+        <Segmented<Mode> label="Placement" size="sm" value={p.mode === 'notch' && !mac ? 'edge' : p.mode} onChange={(v) => set({ mode: v })} options={options} />
+      </SettingRow>
+      <SettingRow label="Auto-hide" help="Docked, it hides to a slim tab (or the notch pill) and slides out on hover, Ctrl or Cmd + Alt + O, or a new answer.">
+        <OnOff label="Auto-hide" checked={p.autoHide} onChange={(v) => set({ autoHide: v })} />
+      </SettingRow>
+    </Group>
+  );
 }
 
 export function MeetingsSection() {
@@ -133,7 +162,7 @@ export function SttBody({ chosen, values, reload, member, first }: { chosen: Stt
         </ul>
       </Group>
 
-      <Group title={p.name} help={p.id === 'local' ? 'Nothing to set up. The model downloads in the desktop app.' : undefined}>
+      <Group title={p.name} help={p.id === 'local' ? 'Slower, uses your computer. The model downloads in the desktop app the first time you pick Local, never before.' : undefined}>
         {p.signup && (
           <SettingRow label="Get a key" help="Sign up, then copy the API key from the dashboard." top>
             <a href={p.signup} target="_blank" rel="noreferrer" className="link text-[13px] phone:text-[15px]">
@@ -164,7 +193,7 @@ export function SttBody({ chosen, values, reload, member, first }: { chosen: Stt
             </div>
           </SettingRow>
         )}
-        <SettingRow label={p.id === chosen ? 'In use' : 'Use it'} help={p.id === chosen ? `Meetings use ${p.name}.` : member ? 'Your meetings use your first saved key: Deepgram, then AssemblyAI, else local.' : `Make meetings use ${p.name}.`}>
+        <SettingRow label={p.id === chosen ? 'In use' : 'Use it'} help={p.id === chosen ? `Meetings use ${p.name}.` : member ? 'Your meetings use your first saved key: Deepgram, then AssemblyAI.' : `Make meetings use ${p.name}.`}>
           <div className="flex flex-wrap items-center gap-2 md:justify-end">
             {p.id !== 'local' && (
               <Button size={size} disabled={!keyed(p.id)} busy={busy === 'test' ? 'Testing' : false} onClick={() => void runTest()}>
@@ -186,6 +215,7 @@ export function SttBody({ chosen, values, reload, member, first }: { chosen: Stt
           </p>
         )}
       </Group>
+      <PlacementGroup />
     </div>
   );
 }

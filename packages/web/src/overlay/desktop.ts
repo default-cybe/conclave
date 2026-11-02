@@ -5,6 +5,7 @@
  * app (a browser, the mock) there is no desktop and calls return undefined.
  */
 import type { DesktopMeetingStatus } from './wire';
+import type { Display, Placed, Rect } from './place';
 
 type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 type Listen = <T>(event: string, cb: (e: { payload: T }) => void) => Promise<() => void>;
@@ -42,4 +43,10 @@ export const ipc = {
   focusable: (on: boolean) => desktop()?.invoke<void>('meeting_focusable', { on }),
   /** The window's height in CSS px; the app clamps it to the screen (meeting/mod.rs clamp_height). */
   setHeight: (height: number) => desktop()?.invoke<void>('meeting_set_height', { height }),
+  /** The displays for placement (meeting/place.rs, overlay/place.ts). */
+  displays: () => desktop()?.invoke<{ displays: Display[]; window?: Rect; mac: boolean }>('meeting_displays'),
+  /** Top left in desktop units, size in CSS px; notch puts it over the menu bar, blur is the native blur behind it. */
+  place: (r: Placed, notch: boolean, blur: boolean) => desktop()?.invoke<void>('meeting_place', { x: r.x, y: r.y, width: r.w, height: r.h, notch, blur }),
+  /** Cloud speech to text failed: try again now. */
+  sttRetry: () => desktop()?.invoke<void>('meeting_stt_retry'),
 };

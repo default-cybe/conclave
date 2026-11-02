@@ -26,12 +26,15 @@ export const STT_HOSTS: Record<SttProvider, { api: string; ws: string }> = {
   deepgram: { api: 'https://api.deepgram.com', ws: 'wss://api.deepgram.com' },
 };
 
-/** The provider to use: the config's choice, else the first one with a key (Deepgram, the default, then AssemblyAI), else local. */
+/**
+ * The provider to use: the config's choice, else the first one with a key (Deepgram, the
+ * default, then AssemblyAI), else Deepgram, whose missing key the overlay then names. Local
+ * only when it was chosen: it is slower and loads the computer, so it is never a fallback.
+ */
 export function sttChoice(configured: SttChoice | undefined, key: (p: SttProvider) => string | undefined): SttChoice {
   if (configured) return configured;
-  if (key('deepgram')) return 'deepgram';
-  if (key('assemblyai')) return 'assemblyai';
-  return 'local';
+  if (key('assemblyai') && !key('deepgram')) return 'assemblyai';
+  return 'deepgram';
 }
 
 export class SttError extends Error {

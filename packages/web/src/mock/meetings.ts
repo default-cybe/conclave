@@ -17,6 +17,7 @@
 import type { Desktop } from '@/overlay/desktop';
 import { setDesktop } from '@/overlay/desktop';
 import type { Req } from '@/overlay/hub';
+import { displayAt, notchSize, type Display, type Rect } from '@/overlay/place';
 import type { AnswerModelChoice, Channel, CreateMeetingInput, DesktopMeetingStatus, Meeting, MeetingAnswer, MeetingCalendarEvent, MeetingFile, MeetingFolder, MeetingNotes, MeetingPatch, PrepProgress, PrepView, Segment, SegmentBatch, SteeringPreset } from '@/overlay/wire';
 import type { MockCtx } from './index';
 
@@ -675,6 +676,7 @@ export function registerMeetings(ctx: MockCtx) {
  * "them" line, and a level event as each line starts and ends.
  */
 export function installMockDesktop(req: Req) {
+  if (desk) injectDeskStyle();
   const listeners = new Map<string, Set<(e: { payload: unknown }) => void>>();
   const fire = (event: string, payload: unknown) => {
     for (const cb of listeners.get(event) ?? []) cb({ payload });
@@ -745,6 +747,13 @@ export function installMockDesktop(req: Req) {
           // the height the app would give the window, for the screenshot script
           height = Number(args?.height);
           return undefined as T;
+        case 'meeting_displays':
+          return (desk ? { displays: desk.displays, mac: desk.mac, window: placed } : { displays: [], mac: false }) as T;
+        case 'meeting_place':
+          placed = { x: Number(args?.x), y: Number(args?.y), w: Number(args?.width), h: Number(args?.height) };
+          height = placed.h;
+          if (desk) drawDesk(desk, placed);
+          return undefined as T;
       }
       status();
       return undefined as T;
@@ -763,6 +772,73 @@ export function installMockDesktop(req: Req) {
       ask: (meetingId: string, question: string) => req('POST', `/api/meetings/${meetingId}/answer`, { question }),
       nav: (dir: -1 | 1) => fire('meeting://nav', dir),
       height: () => height,
+      peek: () => fire('meeting://peek', null),
+      display: (dir: -1 | 1) => fire('meeting://display', dir),
+      placed: () => placed,
     },
   });
+}
+
+/**
+ * ?desk=mac or ?desk=win: fake displays for the overlay's placement (overlay/place.ts),
+ * so a browser shows every placement. mac: a 14" MacBook with a notch (points, 2x) and
+ * an external display to its left at negative x with no notch. win: a 150 % laptop as
+ * the primary (physical px, taskbar 48 px) and a 100 % monitor to its left, higher up.
+ */
+const DESKS: Record<string, { mac: boolean; displays: Display[] }> = {
+  mac: {
+    mac: true,
+    displays: [
+      { id: 'Built-in Retina Display', frame: { x: 0, y: 0, w: 1512, h: 982 }, work: { x: 0, y: 38, w: 1512, h: 874 }, unit: 1, scale: 2, primary: true, notch: { top: 38, left: 662, right: 662 } },
+      { id: 'LG UltraFine', frame: { x: -1920, y: -98, w: 1920, h: 1080 }, work: { x: -1920, y: -74, w: 1920, h: 1056 }, unit: 1, scale: 1, primary: false },
+    ],
+  },
+  win: {
+    mac: false,
+    displays: [
+      { id: '\\\\.\\DISPLAY1', frame: { x: 0, y: 0, w: 2880, h: 1800 }, work: { x: 0, y: 0, w: 2880, h: 1728 }, unit: 1.5, scale: 1.5, primary: true },
+      { id: '\\\\.\\DISPLAY2', frame: { x: -1920, y: -200, w: 1920, h: 1080 }, work: { x: -1920, y: -200, w: 1920, h: 1032 }, unit: 1, scale: 1, primary: false },
+    ],
+  },
+};
+const desk = typeof location !== 'undefined' ? DESKS[new URLSearchParams(location.search).get('desk') ?? ''] : undefined;
+let placed: Rect | undefined;
+
+/** The fake desktop's look, mock only: a wallpaper, the menu bar and notch, the taskbar. */
+function injectDeskStyle() {
+  const s = document.createElement('style');
+  s.textContent = `
+    html[data-mock-desk], html[data-mock-desk] body { background: linear-gradient(135deg, oklch(0.42 0.06 250), oklch(0.3 0.05 300) 60%, oklch(0.22 0.03 280)); }
+    html[data-mock-desk][data-theme='light'], html[data-mock-desk][data-theme='light'] body { background: linear-gradient(135deg, oklch(0.9 0.04 230), oklch(0.82 0.05 300) 60%, oklch(0.76 0.04 280)); }
+    #mock-desk { position: fixed; inset: 0; z-index: 0; font: 13px/1 -apple-system, 'Segoe UI', system-ui, sans-serif; }
+    .mock-bar { position: absolute; inset: 0 0 auto 0; display: flex; align-items: center; gap: 18px; padding: 0 16px; background: oklch(0.2 0.01 280 / 0.55); color: oklch(0.96 0 0); }
+    [data-theme='light'] .mock-bar { background: oklch(0.97 0 0 / 0.6); color: oklch(0.2 0 0); }
+    .mock-bar i { margin-left: auto; font-style: normal; opacity: 0.7; }
+    .mock-notch { position: absolute; top: 0; left: 50%; transform: translateX(-50%); background: oklch(0 0 0); border-radius: 0 0 10px 10px; z-index: 1; }
+    .mock-task { position: absolute; inset: auto 0 0 0; background: oklch(0.18 0.01 260 / 0.85); }
+    [data-theme='light'] .mock-task { background: oklch(0.95 0.005 260 / 0.85); }
+    .mock-label { position: absolute; left: 20px; bottom: 64px; color: oklch(1 0 0 / 0.5); font-size: 12px; }
+    [data-theme='light'] .mock-label { color: oklch(0 0 0 / 0.45); }
+  `;
+  document.head.append(s);
+}
+
+/** The page stands in for the display the window is on: the window's box sits where it would on it. */
+function drawDesk(dk: { mac: boolean; displays: Display[] }, r: Rect) {
+  const d = displayAt(dk.displays, r.x + 1, r.y + 1) ?? dk.displays[0]!;
+  const root = document.documentElement;
+  root.dataset.mockDesk = dk.mac ? 'mac' : 'win';
+  let bg = document.getElementById('mock-desk');
+  if (!bg) {
+    bg = document.createElement('div');
+    bg.id = 'mock-desk';
+    document.body.prepend(bg);
+  }
+  const u = d.unit;
+  const n = notchSize(d);
+  const bar = dk.mac ? (d.work.y - d.frame.y) / u : 0;
+  const task = dk.mac ? 0 : (d.frame.y + d.frame.h - (d.work.y + d.work.h)) / u;
+  bg.innerHTML = `${bar ? `<div class="mock-bar" style="height:${bar}px"><b>Zoom</b><span>Meeting</span><span>View</span><i>${d.id}</i></div>` : ''}${n ? `<div class="mock-notch" style="width:${n.w}px;height:${n.h}px"></div>` : ''}${task ? `<div class="mock-task" style="height:${task}px"></div>` : ''}<div class="mock-label">${d.id} · ${d.scale * 100} %</div>`;
+  const box = document.getElementById('root')!;
+  Object.assign(box.style, { position: 'fixed', left: `${(r.x - d.frame.x) / u}px`, top: `${(r.y - d.frame.y) / u}px`, width: `${r.w}px`, height: `${r.h}px`, overflow: 'hidden', zIndex: '2' });
 }
