@@ -1,5 +1,5 @@
 /**
- * Where the overlay window sits (docs/design/MEETING-MODE.md 7.8): free, docked
+ * Where the overlay window sits (docs/design/MEETING-MODE.md 7.7): free, docked
  * to a screen edge (a slim tab when hidden), or the Mac notch. Pure geometry,
  * unit-tested (test/overlay-place.test.ts); dock.ts applies it.
  *

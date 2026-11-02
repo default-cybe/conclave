@@ -1,4 +1,4 @@
-//! Where the overlay sits (MEETING-MODE.md 7.8): the displays as the overlay page
+//! Where the overlay sits (MEETING-MODE.md 7.7): the displays as the overlay page
 //! sees them, and moving and sizing the window there. The snapping, docking and
 //! notch math is the page's (packages/web/src/overlay/place.ts, unit-tested); this
 //! only reports and applies.

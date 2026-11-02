@@ -1,5 +1,5 @@
 /**
- * The overlay's placement on this device (docs/design/MEETING-MODE.md 7.8):
+ * The overlay's placement on this device (docs/design/MEETING-MODE.md 7.7):
  * free, docked to a screen edge, or the Mac notch; auto-hide to a slim tab or
  * pill; moving between displays. The math is place.ts; this keeps the state,
  * listens to the app (meeting://moved, display, peek, hover) and moves the

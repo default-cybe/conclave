@@ -13,7 +13,8 @@
 */
 
 :root,
-:root[data-theme='dark'] {
+:root[data-theme='dark'],
+.ov-dock[data-mode='notch'] .ov-panel {
   color-scheme: dark;
   --bg: oklch(0.163 0.005 286);
   --bg-raise: oklch(0.198 0.006 286);
@@ -117,7 +118,7 @@ body {
 }
 
 /*
-  Placement (dock.ts, MEETING-MODE.md 7.8). Docked: the panel slides off its
+  Placement (dock.ts, MEETING-MODE.md 7.7). Docked: the panel slides off its
   edge while the window is still big, then the window shrinks to the tab; the
   way out is the reverse. Notch: a black pill around the notch that springs
   down into the panel. transform and opacity only; off under reduced motion.
@@ -167,6 +168,32 @@ body {
   display: none;
 }
 
+/* docked: square and borderless on the screen edge it sits on */
+.ov-dock[data-edge='left'] .ov-panel,
+.ov-dock[data-edge='left'] .ov-handle {
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.ov-dock[data-edge='right'] .ov-panel,
+.ov-dock[data-edge='right'] .ov-handle {
+  border-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.ov-dock[data-edge='top'] .ov-panel,
+.ov-dock[data-edge='top'] .ov-handle {
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.ov-dock[data-edge='bottom'] .ov-panel,
+.ov-dock[data-edge='bottom'] .ov-handle {
+  border-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
 .ov-dock[data-hidden][data-edge='left'] .ov-panel {
   transform: translateX(-104%);
   opacity: 0;
@@ -186,13 +213,9 @@ body {
 
 /* the notch: black like the notch, square at the top where it meets the screen edge */
 .ov-dock[data-mode='notch'] .ov-panel {
+  /* the dark tokens in both themes (the token block at the top): it is the notch's black */
   background: var(--notch);
-  color-scheme: dark;
-  --fg: oklch(0.945 0.004 286);
-  --fg-2: oklch(0.765 0.008 286);
-  --fg-3: oklch(0.61 0.01 286);
   --layer: oklch(0.12 0.004 286);
-  --rule-2: oklch(0.3 0.008 286);
   color: var(--fg);
   border: 0;
   border-radius: 0 0 20px 20px;
