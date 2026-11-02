@@ -242,6 +242,19 @@ describe('Gemini helpers', () => {
     });
   });
 
+  test('thinking off on Gemini 3 asks for the least thinking the model takes; 2.5 and no thinking field are unchanged', () => {
+    const off = { ...ask('x'), thinking: { off: true } } as ChatRequest;
+    const cfg = (id: string, r: ChatRequest = off) => geminiThinkingConfig(id, r, lookupModel('g', id));
+    expect(cfg('gemini-3.1-flash-lite')).toEqual({ thinkingLevel: 'minimal' });
+    expect(cfg('gemini-3-flash-preview')).toEqual({ thinkingLevel: 'minimal' });
+    expect(cfg('gemini-3-pro')).toEqual({ thinkingLevel: 'low' });
+    expect(cfg('gemini-3.1-pro-preview')).toEqual({ thinkingLevel: 'low' });
+    // 3.8 Flash refuses minimal with a 400
+    expect(cfg('gemini-3.8-flash')).toEqual({ thinkingLevel: 'low' });
+    expect(cfg('gemini-2.5-flash')).toEqual({ includeThoughts: true });
+    expect(cfg('gemini-3.1-flash-lite', ask('x'))).toEqual({ includeThoughts: true });
+  });
+
   test('listModels, embed, countTokens', async () => {
     const models = await provider().listModels();
     expect(models.map((m) => m.id)).toEqual(['gemini-3.1-pro-preview']);

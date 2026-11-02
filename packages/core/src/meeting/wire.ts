@@ -135,12 +135,23 @@ export interface Segment {
   endMs: number;
   text: string; // at most 2000 chars
   final: boolean; // false: a partial, replaced by a later one with the same seq
+  /** Latency marks, desktop clock: when the speech ended, and when the text came back from speech-to-text. */
+  speechEndAt?: number;
+  finalAt?: number;
 }
 
 export interface SegmentBatch {
   clientId: string; // the desktop app's paired client id
-  t0: number; // desktop clock at stream start, for display only
+  t0: number; // desktop clock at stream start
   segments: Segment[]; // 1 to 32
+  /** Desktop clock when this batch was posted: the hub maps desktop times to its clock with receivedAt - sentAt. */
+  sentAt?: number;
+}
+
+/** POST /api/meetings/:id/answers/:answerId/paint: the overlay showed the first words (both overlay clock). */
+export interface AnswerPaintInput {
+  paintedAt: number;
+  sentAt: number;
 }
 
 /** lastSeq: the highest final seq stored per channel, -1 when none yet. */
@@ -171,6 +182,10 @@ export interface MeetingAnswer {
   receivedAt?: number;
   requestAt?: number;
   doneAt?: number;
+  /** Hub-clock times from the desktop's marks: speech ended, speech-to-text returned the text, the overlay painted the first words. */
+  speechEndAt?: number;
+  finalAt?: number;
+  paintedAt?: number;
 }
 
 export interface MeetingDetail extends Meeting {
@@ -331,6 +346,7 @@ export function segmentBatchProblem(v: unknown): string | undefined {
   const b = v as Record<string, unknown>;
   if (typeof b.clientId !== 'string' || !b.clientId || b.clientId.length > 200) return 'clientId is required';
   if (typeof b.t0 !== 'number' || !Number.isFinite(b.t0)) return 't0 must be a number';
+  if (b.sentAt !== undefined && !finite(b.sentAt)) return 'sentAt must be a number';
   if (!Array.isArray(b.segments) || b.segments.length < 1 || b.segments.length > BATCH_SEGMENTS_MAX) return `segments must hold 1 to ${BATCH_SEGMENTS_MAX} items`;
   for (let i = 0; i < b.segments.length; i++) {
     const s = b.segments[i] as Record<string, unknown> | null;
@@ -342,6 +358,19 @@ export function segmentBatchProblem(v: unknown): string | undefined {
     if (typeof s.text !== 'string') return `${at}.text must be a string`;
     if (s.text.length > SEGMENT_TEXT_MAX) return `${at}.text is over ${SEGMENT_TEXT_MAX} characters`;
     if (typeof s.final !== 'boolean') return `${at}.final must be true or false`;
+    if ((s.speechEndAt !== undefined && !finite(s.speechEndAt)) || (s.finalAt !== undefined && !finite(s.finalAt))) return `${at}: speechEndAt and finalAt must be numbers`;
   }
+  return undefined;
+}
+
+function finite(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+/** Why an AnswerPaintInput is malformed, or undefined when it is fine. */
+export function answerPaintProblem(v: unknown): string | undefined {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return 'body must be an object';
+  const b = v as Record<string, unknown>;
+  if (!finite(b.paintedAt) || !finite(b.sentAt)) return 'paintedAt and sentAt must be numbers';
   return undefined;
 }

@@ -286,3 +286,45 @@ describe('the overlay stays its own small bundle', () => {
     expect(size(entry.file)).toBeLessThan(70_000);
   });
 });
+
+describe('idle overlay does no work', () => {
+  test('no endless CSS animation: the recording dot is steady', () => {
+    // a 2 s infinite pulse kept the GPU process at about 15 % of a core for the whole meeting
+    const css = readFileSync(join(WEB, 'src/overlay/overlay.css'), 'utf8');
+    expect(css).not.toMatch(/\binfinite\b/);
+    expect(css).not.toMatch(/animation-iteration-count/);
+  });
+
+  test('the socket closes once the meeting has ended, so its ping stops', async () => {
+    const { followMeeting } = await import('../src/overlay/Overlay');
+    const g = globalThis as Record<string, unknown>;
+    const saved = [g.requestAnimationFrame, g.cancelAnimationFrame];
+    g.requestAnimationFrame = (fn: () => void) => setTimeout(fn, 0);
+    g.cancelAnimationFrame = (t: ReturnType<typeof setTimeout>) => clearTimeout(t);
+    FakeWs.all = [];
+    try {
+      const view = emptyView();
+      const ws: string[] = [];
+      let notes = 0;
+      const api = { get: async () => detail(), messages: async () => [], notes: async () => (notes++, { summary: 'S', decisions: [], actionItems: [] }) } as never;
+      const stop = followMeeting({ conn: { req: (async () => undefined) as never, baseUrl: 'https://hub.example', token: 't', WebSocketImpl: FakeWs as unknown as typeof WebSocket }, api, meetingId: 'mtg_1', view, notify: () => undefined, setWs: (s) => ws.push(s), setError: () => undefined });
+      await Bun.sleep(5);
+      const s = FakeWs.all[0]!;
+      s.open();
+      s.msg({ type: 'meeting.updated', seq: 1, sessionId: 'ses_1', meeting: { ...detail(), status: 'ending' } });
+      await Bun.sleep(5);
+      expect(s.readyState).toBe(1);
+      s.msg({ type: 'meeting.updated', seq: 2, sessionId: 'ses_1', meeting: { ...detail(), status: 'ended' } });
+      await Bun.sleep(5);
+      expect(s.readyState).toBe(3);
+      expect(FakeWs.all).toHaveLength(1);
+      // the ended screen reads the notes, never "Hub offline"
+      expect(notes).toBe(1);
+      expect(view.notes?.summary).toBe('S');
+      expect(ws).not.toContain('closed');
+      stop();
+    } finally {
+      [g.requestAnimationFrame, g.cancelAnimationFrame] = saved;
+    }
+  });
+});

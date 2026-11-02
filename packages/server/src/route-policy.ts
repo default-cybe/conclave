@@ -627,6 +627,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/meetings/:id/segments': own({ id: 'meeting' }),
   'POST /api/meetings/:id/answer': own({ id: 'meeting' }),
   'POST /api/meetings/:id/answers/:answerId/cancel': own({ id: 'meeting' }),
+  'POST /api/meetings/:id/answers/:answerId/paint': own({ id: 'meeting' }),
   'POST /api/meetings/:id/end': own({ id: 'meeting' }),
   'GET /api/meetings/:id/notes': own({ id: 'meeting' }),
   // scheduled meetings (MEETING-MODE.md 11.6)
