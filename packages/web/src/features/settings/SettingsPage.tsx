@@ -41,6 +41,7 @@ import { ReflectSection } from './reflect';
 import { MapsSection } from './maps';
 import { WebSearchSection } from './websearch';
 import { CalMailSection } from './calmail';
+import { MeetingsSection } from './meetings';
 import { BrowserSection } from './browser';
 import { GatewaySection } from './gateway';
 import { AppsSection } from './apps';
@@ -180,6 +181,13 @@ const ALL_SECTIONS: SectionDef[] = [
     C: WebSearchSection,
     // a member's own keys and proxy, on the same page; the hub's search only if the owner allows it
     member: { C: WebSearchSection, desc: 'Your own search engine keys and proxy. Your keys stay in your account.' },
+  },
+  {
+    id: 'meetings',
+    label: 'Meetings',
+    desc: 'Where meeting speech becomes text: on this computer, or AssemblyAI or Deepgram for faster, better transcripts. Keys stay on the hub.',
+    C: MeetingsSection,
+    member: { C: MeetingsSection, desc: 'Where your meeting speech becomes text, and your own AssemblyAI or Deepgram key. Your key stays in your account.' },
   },
   {
     id: 'calmail',

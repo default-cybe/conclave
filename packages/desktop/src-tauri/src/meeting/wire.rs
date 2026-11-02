@@ -69,6 +69,11 @@ pub struct Meeting {
     pub error: Option<String>,
 }
 
+/// The desktop clock in unix ms, for t0 and the latency marks.
+pub fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
 /// At most this many characters of text per segment (3.1).
 pub const MAX_TEXT_CHARS: usize = 2000;
 /// 1 to 32 segments per batch (3.1).
@@ -84,6 +89,12 @@ pub struct Segment {
     pub text: String,
     #[serde(rename = "final")]
     pub is_final: bool,
+    /// Latency marks, desktop clock in unix ms (the hub ignores them until it reads them):
+    /// when the speech ended, and when this text came back from the speech model or the provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speech_end_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -92,6 +103,9 @@ pub struct SegmentBatch {
     pub client_id: String,
     pub t0: i64,
     pub segments: Vec<Segment>,
+    /// When this batch was posted (desktop clock, unix ms): the third latency mark.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -150,6 +164,10 @@ pub struct SttStatus {
     pub progress: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// "assemblyai", "deepgram" or "local" (only when chosen); while the cloud fails, state is
+    /// failed and `error` says why (the overlay offers Retry, the app keeps retrying).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -203,6 +221,11 @@ mod tests {
                 { "seq": 0, "channel": "me", "startMs": 300, "endMs": 900, "text": "Hm", "final": false }
             ]
         }));
+        round_trip::<SegmentBatch>(json!({
+            "clientId": "c1", "t0": 1, "sentAt": 2500,
+            "segments": [{ "seq": 1, "channel": "them", "startMs": 0, "endMs": 900, "text": "Why?", "final": true,
+                "speechEndAt": 1901, "finalAt": 2300 }]
+        }));
         round_trip::<SegmentAck>(json!({ "accepted": 2, "lastSeq": { "me": 0, "them": -1 } }));
         round_trip::<AnswerNowInput>(json!({ "reason": "hotkey" }));
     }
@@ -229,7 +252,7 @@ mod tests {
             "meetingId": "mtg_1", "live": true, "paused": false, "clickThrough": false,
             "hiddenForShare": false, "exclusion": "monitor-only",
             "mic": { "ok": true, "device": "Built-in" }, "system": { "ok": false, "error": "no system sound" },
-            "stt": { "state": "downloading", "progress": 0.5 },
+            "stt": { "state": "downloading", "progress": 0.5, "provider": "local", "error": "Deepgram failed; using local" },
             "queue": { "stt": 1, "upload": 0, "dropped": 3 }
         }));
         round_trip::<Levels>(json!({ "me": 0.5, "them": 0.25 }));

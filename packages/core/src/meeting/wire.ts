@@ -19,7 +19,7 @@ export interface Meeting {
   sessionId: string; // the kind:'meeting' session
   projectId?: string;
   device: string; // where the project folder is
-  cwd: string;
+  cwd: string; // '' for a meeting with no folder (attached files only)
   title: string;
   agenda?: string;
   status: MeetingStatus;
@@ -49,6 +49,46 @@ export interface Meeting {
   prepError?: string;
   /** The memory saved with "Save to memory" (POST /api/meetings/:id/memory). */
   memoryId?: string;
+  /** The model live answers use; unset: the hub default (models.tiers.fast, else the fastest usable Haiku or Gemini Flash). */
+  answerModel?: string;
+}
+
+/** GET /api/meetings/models: the answer model picker. */
+export interface MeetingModelOption {
+  ref: string;
+  label: string;
+  speed: 'fastest' | 'fast' | 'balanced' | 'best';
+  note: string;
+}
+
+/** POST /api/meetings/:id/stt-token: a short-lived credential to stream audio straight to the provider. */
+export interface SttToken {
+  provider: 'assemblyai' | 'deepgram';
+  url: string; // wss, with every query parameter set
+  token: string; // AssemblyAI: already in url as ?token=; Deepgram: send as Authorization: Bearer <token>
+  expiresAt: number; // epoch ms: open the sockets before this
+  sampleRate: 16000;
+  encoding: 'pcm_s16le';
+}
+
+export type SttChoice = 'local' | 'assemblyai' | 'deepgram';
+
+/** POST /api/meetings/stt-test {provider}: mint one token on the saved key (no audio is sent); 409 without a key. */
+export interface SttTestResult {
+  ok: boolean;
+  message: string;
+  ms?: number;
+}
+
+/** A file attached to one meeting (POST /api/meetings/:id/files); only its text is kept. */
+export interface MeetingFile {
+  id: string; // "mfl_..."
+  name: string;
+  mediaType: string;
+  size: number; // bytes uploaded
+  chars: number; // text kept
+  note?: string; // why some or all of the text is missing
+  createdAt: number;
 }
 
 /**
@@ -85,6 +125,7 @@ export interface CreateMeetingInput extends ScheduleFields {
   cwd?: string;
   title?: string; // default: "Meeting <project> <HH:MM>"
   agenda?: string; // at most 4000 chars
+  answerModel?: string;
 }
 
 export interface Segment {
@@ -123,11 +164,21 @@ export interface MeetingAnswer {
   createdAt: number;
   firstTokenAt?: number;
   error?: string;
+  /** The model that answered. */
+  model?: string;
+  /** Hub-clock times: segmentEndAt (the trigger's speech ended), receivedAt (its batch reached the hub), requestAt (the model call started), doneAt. */
+  segmentEndAt?: number;
+  receivedAt?: number;
+  requestAt?: number;
+  doneAt?: number;
 }
 
 export interface MeetingDetail extends Meeting {
   segments: Segment[]; // final ones, oldest first, at most 2000 (page with ?before=)
   answers: MeetingAnswer[];
+  files: MeetingFile[];
+  /** The model live answers use now, and a note when it is not a fast model. */
+  liveModel: { ref: string; note?: string };
 }
 
 export interface MeetingNotes {
@@ -139,6 +190,8 @@ export interface MeetingNotes {
 }
 
 export interface MeetingPatch extends ScheduleFields {
+  /** null: back to the hub default */
+  answerModel?: string | null;
   title?: string;
   agenda?: string;
   autoAnswer?: Meeting['autoAnswer'];
@@ -155,7 +208,8 @@ export interface DesktopMeetingStatus {
   exclusion: 'excluded' | 'monitor-only' | 'unsupported' | 'failed'; // what the OS confirmed (7.2/7.3)
   mic: { ok: boolean; device?: string; error?: string };
   system: { ok: boolean; device?: string; error?: string };
-  stt: { state: 'loading' | 'downloading' | 'ready' | 'failed'; progress?: number; error?: string };
+  /** provider: what turns speech into text now; on a fallback to local, error says why. */
+  stt: { state: 'loading' | 'downloading' | 'ready' | 'failed'; progress?: number; error?: string; provider?: SttChoice };
   queue: { stt: number; upload: number; dropped: number };
 }
 
@@ -179,6 +233,10 @@ export const STEERING_MAX = 4000;
 export const PREP_MAX = 60_000;
 export const PREP_EXTRA_MAX = 200;
 export const REMINDER_CHOICES = [1440, 60, 15] as const;
+export const MEETING_FILES_MAX = 10;
+export const MEETING_FILE_BYTES_MAX = 10 * 1024 * 1024;
+/** Text kept per file; the pack caps all files together again. */
+export const MEETING_FILE_TEXT_MAX = 60_000;
 export const DEFAULT_REMINDERS = [1440, 15];
 
 /** A device and folder pair the account has worked in (11.3.1). */

@@ -30,6 +30,7 @@
 // stream (cpal streams are not Send everywhere), drains the ring, and runs the VAD.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::mpsc::SyncSender;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -38,7 +39,8 @@ use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
 use ringbuf::traits::{Consumer, Observer, Producer, Split};
 use ringbuf::{HeapCons, HeapProd, HeapRb};
 
-use super::vad::{ContinuousVadProcessor, SpeechSegment};
+use super::cloud::{Framer, FRAME_SAMPLES};
+use super::vad::{resample_to_16k, ContinuousVadProcessor, SpeechSegment};
 use super::wire::Channel;
 
 /// Seconds of audio the ring between the callback and the worker holds.
@@ -112,13 +114,18 @@ pub enum Speech {
 /// Runs on a `meeting-mic` / `meeting-sys` thread until `stop` is set. Opens
 /// the device, reopens it every 2 s when it fails, and sends speech through
 /// `send` (which must never block). Paused: the stream is dropped, so the OS
-/// mic indicator goes off too.
+/// mic indicator goes off too. While `cloud` is set, the audio goes to `feed`
+/// as 16 kHz s16le frames instead (no VAD: the provider finds the turns); when
+/// the cloud stream gives up, `cloud` is cleared and the VAD takes over.
+#[allow(clippy::too_many_arguments)]
 pub fn run_channel(
     channel: Channel,
     shared: Arc<ChannelShared>,
     stop: Arc<AtomicBool>,
     paused: Arc<AtomicBool>,
     stt_idle: Arc<AtomicBool>,
+    cloud: Arc<AtomicBool>,
+    feed: Option<SyncSender<Vec<u8>>>,
     mut send: impl FnMut(Speech),
 ) {
     let redemption = match channel {
@@ -148,18 +155,15 @@ pub fn run_channel(
             continue;
         }
         shared.set(true, Some(name.clone()), None);
-        let mut vad = match ContinuousVadProcessor::new(rate, redemption) {
-            Ok(v) => v,
-            Err(e) => {
-                shared.set(false, Some(name), Some(e));
-                sleep_unless(&stop, REOPEN_EVERY);
-                continue;
-            }
-        };
+        log::info!("meeting: {channel:?} capture on {name} at {rate} Hz");
+        // made when the local model needs it: not at all while the cloud transcribes
+        let mut vad: Option<ContinuousVadProcessor> = None;
+        let mut framer = Framer::default();
         let mut last_partial: Option<Instant> = None;
         let mut nonzero_at = Instant::now();
         let mut silence_reported = false;
-        while !stop.load(Ordering::Relaxed) && !paused.load(Ordering::Relaxed) && !failed.load(Ordering::Relaxed) {
+        let mut vad_failed = false;
+        while !stop.load(Ordering::Relaxed) && !paused.load(Ordering::Relaxed) && !failed.load(Ordering::Relaxed) && !vad_failed {
             std::thread::sleep(DRAIN_EVERY);
             let mut peak = 0f32;
             while cons.occupied_len() > 0 {
@@ -171,7 +175,29 @@ pub fn run_channel(
                 if data.iter().any(|s| *s != 0.0) {
                     nonzero_at = Instant::now();
                 }
-                match vad.process_audio(data) {
+                if let Some(tx) = feed.as_ref().filter(|_| cloud.load(Ordering::Relaxed)) {
+                    framer.push(&resample_to_16k(rate, data), |f| {
+                        if tx.try_send(f).is_err() {
+                            shared.dropped.fetch_add(FRAME_SAMPLES as u64, Ordering::Relaxed);
+                        }
+                    });
+                    continue;
+                }
+                if vad.is_none() {
+                    match ContinuousVadProcessor::new(rate, redemption) {
+                        Ok(v) => vad = Some(v),
+                        Err(e) => {
+                            // silero's model is compiled into the app (silero_rs include_bytes), so this is ONNX Runtime failing
+                            let e = format!("speech detector (Silero VAD) failed to start: {e}");
+                            log::error!("meeting: {channel:?}: {e}");
+                            shared.set(false, Some(name.clone()), Some(e));
+                            vad_failed = true;
+                            break;
+                        }
+                    }
+                }
+                let Some(v) = vad.as_mut() else { break };
+                match v.process_audio(data) {
                     Ok(segments) => {
                         for seg in segments {
                             last_partial = None;
@@ -188,25 +214,30 @@ pub fn run_channel(
                     silence_reported = denied;
                     *shared.error.lock().unwrap() = denied.then(|| "no system sound".to_string());
                 }
-                if let Some(seg) = partial_due(&vad, last_partial, stt_idle.load(Ordering::Relaxed)) {
+                if let Some(seg) = vad.as_ref().and_then(|v| partial_due(v, last_partial, stt_idle.load(Ordering::Relaxed))) {
                     last_partial = Some(Instant::now());
                     send(Speech::Partial(channel, seg));
                 }
             }
         }
         // the last open segment (at most 1 s of work, 1.4)
-        if let Ok(segments) = vad.flush() {
+        if let Some(Ok(segments)) = vad.as_mut().map(|v| v.flush()) {
             for seg in segments {
                 send(Speech::Final(channel, seg));
             }
         }
         drop(stream);
+        if vad_failed {
+            sleep_unless(&stop, REOPEN_EVERY);
+            continue;
+        }
         shared.level.store(0, Ordering::Relaxed);
         if failed.load(Ordering::Relaxed) && !stop.load(Ordering::Relaxed) {
             let what = match channel {
                 Channel::Me => "no mic",
                 Channel::Them => "no system sound",
             };
+            log::warn!("meeting: {channel:?}: {what} ({name}); reopening");
             shared.set(false, Some(name), Some(what.into()));
             sleep_unless(&stop, REOPEN_EVERY);
         }

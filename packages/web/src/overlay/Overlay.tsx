@@ -10,7 +10,7 @@
  * separate window that screen sharing captures.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { frameBuffer, levelsOrSame } from './frame';
+import { frameBuffer, levelSource, statusOrSame, type Levels } from './frame';
 import { useFitAndStick } from './fit';
 import { connectWs, type WsStatus } from './ws';
 import { meetingApi, type MeetingApi, type Req } from './hub';
@@ -18,7 +18,8 @@ import { desktop, ipc } from './desktop';
 import { applyEvent, emptyView, loadDetail, type MeetingView } from './model';
 import type { DesktopMeetingStatus, MeetingEvent } from './wire';
 import { Ready, Setup } from './Setup';
-import { Live } from './Live';
+import { Handle, Live } from './Live';
+import { setHover, setLive, startDock, useDock } from './dock';
 
 export interface Conn {
   req: Req;
@@ -52,15 +53,36 @@ export function Overlay({ conn, meetingId: first, signedIn }: { conn: Conn; meet
   return <MeetingScreen conn={conn} api={api} meetingId={meetingId} />;
 }
 
-/** The window's height follows what the panel holds (fit.ts). */
-export function Panel({ children }: { children: React.ReactNode }) {
+/**
+ * The window's height follows what the panel holds (fit.ts). Docked (dock.ts), the
+ * panel slides out from its edge or grows down from the notch; `handle` is what
+ * stays on screen while it is hidden (the live screen's tab or pill), and only
+ * the live screen hides.
+ */
+export function Panel({ children, handle }: { children: React.ReactNode; handle?: React.ReactNode }) {
   const panel = useRef<HTMLElement>(null);
   const content = useRef<HTMLDivElement>(null);
   useFitAndStick(panel, content);
+  const dock = useDock();
+  const live = !!handle;
+  useEffect(() => {
+    startDock();
+    setLive(live);
+  }, [live]);
+  const hidden = dock.active && dock.hidden && live;
+  const notch = dock.active && dock.mode === 'notch';
+  const style = notch && dock.pill ? ({ '--ov-pill-w': `${dock.pill.w}px`, '--ov-pill-h': `${dock.pill.h}px`, '--ov-notch-w': `${dock.notch?.w ?? 0}px` } as React.CSSProperties) : undefined;
   return (
-    <main ref={panel} className="ov-panel">
-      <div ref={content}>{children}</div>
-    </main>
+    <div className="ov-dock" data-mode={dock.active ? dock.mode : 'free'} data-edge={dock.edge} data-hidden={hidden ? '' : undefined} style={style} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      {live && (
+        <div className="ov-handle" aria-hidden={!hidden}>
+          {handle}
+        </div>
+      )}
+      <main ref={panel} className="ov-panel" inert={hidden || undefined}>
+        <div ref={content}>{children}</div>
+      </main>
+    </div>
   );
 }
 
@@ -137,26 +159,25 @@ const OFF: DesktopMeetingStatus = {
   queue: { stt: 0, upload: 0, dropped: 0 },
 };
 
-/** The desktop's status and channel levels; undefined status outside the desktop app. Levels come at most 10 a second and render at most once a frame. */
+/** The desktop's status and channel levels; undefined status outside the desktop app. Levels paint at most once a frame. */
 function useDesktop() {
   const [status, setStatus] = useState<DesktopMeetingStatus | undefined>(desktop() ? OFF : undefined);
-  const [levels, setLevels] = useState({ me: 0, them: 0 });
+  const [levels] = useState(levelSource);
   useEffect(() => {
     const d = desktop();
     if (!d) return;
     let alive = true;
     const offs: (() => void)[] = [];
-    void ipc.status()?.then((s) => alive && s && setStatus(s), () => undefined);
-    // the same levels keep the old object, so an overlay nobody speaks to does not render
-    const lv = frameBuffer<{ me: number; them: number }>((all) => setLevels((p) => levelsOrSame(p, all[all.length - 1]!)));
-    void d.listen<DesktopMeetingStatus>('meeting://status', (e) => setStatus(e.payload)).then((off) => (alive ? offs.push(off) : off()));
+    void ipc.status()?.then((s) => alive && s && setStatus((p) => statusOrSame(p, s)), () => undefined);
+    const lv = frameBuffer<Levels>((all) => levels.set(all[all.length - 1]!));
+    void d.listen<DesktopMeetingStatus>('meeting://status', (e) => setStatus((p) => statusOrSame(p, e.payload))).then((off) => (alive ? offs.push(off) : off()));
     void d.listen<{ me: number; them: number }>('meeting://level', (e) => lv.push(e.payload)).then((off) => (alive ? offs.push(off) : off()));
     return () => {
       alive = false;
       lv.cancel();
       for (const off of offs) off();
     };
-  }, []);
+  }, [levels]);
   return { status, levels };
 }
 
@@ -184,7 +205,7 @@ function MeetingScreen({ conn, api, meetingId }: { conn: Conn; api: MeetingApi; 
       </Panel>
     );
   return (
-    <Panel>
+    <Panel handle={<Handle levels={levels} paused={status?.live ? status.paused : m.status === 'paused'} failed={status?.stt.state === 'failed'} />}>
       <Live api={api} view={view} desktop={status} levels={levels} ws={ws} />
     </Panel>
   );

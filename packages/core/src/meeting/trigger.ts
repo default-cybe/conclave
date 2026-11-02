@@ -26,13 +26,75 @@ export const QUESTION_STARTS = [
   'any update',
   'any updates',
   'tell us',
+  'tell me',
   'walk us through',
+  'walk me through',
+  'talk me through',
+  'take me through',
   'what about',
   'thoughts on',
+  'explain',
+  'describe',
+  'give me',
+  'give us',
+  // verbs that also start plain statements ("Design review is on Friday", "Should be fun"): only in a question's shape
+  'design a',
+  'design an',
+  'design the',
+  'design your',
+  'implement a',
+  'implement an',
+  'implement the',
+  'write a',
+  'write me',
+  'should i',
+  'should we',
+  'should you',
+  'should they',
+  'is there',
+  'are there',
+  'have we',
+  "what's",
+  "how's",
+  "why's",
+  "who's",
+  "where's",
+  'how about',
+  'let\'s say',
+  'suppose',
+  'imagine you',
+  'imagine a',
+  'imagine that',
+  'imagine we',
 ];
 
 /** A segment that contains one of these is a question. */
-export const QUESTION_PHRASES = ['your update', 'your status', 'where are we on', 'can you share', 'can you show', 'can you present'];
+export const QUESTION_PHRASES = [
+  'your update',
+  'your status',
+  'where are we on',
+  'can you share',
+  'can you show',
+  'can you present',
+  'can you explain',
+  'can you tell',
+  'can you walk',
+  'could you explain',
+  'tell me about',
+  'walk me through',
+  'i would love to hear',
+  "i'd love to hear",
+  "i'm curious",
+  'i am curious',
+  'what would you',
+  'how would you',
+  'how do you',
+  'why did you',
+  'what is the difference',
+  "what's the difference",
+];
+
+const FILLERS = new Set(['so', 'okay', 'ok', 'and', 'alright', 'right', 'now', 'well', 'um', 'uh', 'great', 'cool', 'next', 'then', 'nice', 'sure']);
 
 /** How many words after the owner's name a start may begin. */
 const NAME_REACH = 6;
@@ -58,7 +120,10 @@ export function isQuestion(text: string, names: string[] = []): boolean {
   const ws = words(t);
   if (ws.length < 3) return false;
   if (t.endsWith('?')) return true;
-  if (startsAt(ws, 0)) return true;
+  // "okay so tell me...", "great, and how would you...": skip a few lead-in words
+  let lead = 0;
+  while (lead < 3 && FILLERS.has(ws[lead])) lead++;
+  if (startsAt(ws, lead)) return true;
   const flat = ` ${ws.join(' ')} `;
   if (QUESTION_PHRASES.some((p) => flat.includes(` ${p} `))) return true;
   const nameWords = new Set(names.flatMap((n) => words(n)).filter((w) => w.length >= 2));

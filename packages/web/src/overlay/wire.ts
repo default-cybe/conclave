@@ -5,7 +5,7 @@
  * The scheduled-meeting types of 11.6 (Meeting, PrepView, MeetingFolder...)
  * come from the hub's file too.
  */
-import type { MeetingEvent as HubMeetingEvent } from '@conclave/core/meeting/wire';
+import type { MeetingEvent as HubMeetingEvent, MeetingModelOption, SttChoice } from '@conclave/core/meeting/wire';
 
 export type * from '@conclave/core/meeting/wire';
 
@@ -30,6 +30,12 @@ export interface SteeringPreset {
 
 /** GET /api/meetings?view= */
 export type MeetingListView = 'upcoming' | 'now' | 'past' | 'all';
+
+/** config meetings.stt: where speech becomes text. Keys are the hub secrets stt.assemblyai and stt.deepgram. */
+export type SttProvider = SttChoice;
+
+/** GET /api/meetings/models: one model the answers can come from, for the picker. */
+export type AnswerModelChoice = MeetingModelOption;
 
 /** 3.2 and 11.6: the meeting events on /api/ws, plus the existing message events the overlay reads. */
 export type MeetingEvent =

@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use super::capture::Speech;
 use super::parakeet::model::ParakeetModel;
 use super::vad::SpeechSegment;
-use super::wire::{Channel, Segment, MAX_TEXT_CHARS};
+use super::wire::{now_ms, Channel, Segment, MAX_TEXT_CHARS};
 
 pub const PER_CHANNEL: usize = 4;
 /// The model is dropped this long after the last meeting ended (4.5).
@@ -24,14 +24,22 @@ pub struct Job {
     pub channel: Channel,
     pub is_final: bool,
     pub segment: SpeechSegment,
+    /// When the speech ended (unix ms): for a final, the VAD's redemption before it was cut.
+    pub speech_end_at: i64,
 }
 
 impl From<Speech> for Job {
     fn from(s: Speech) -> Self {
-        match s {
-            Speech::Final(channel, segment) => Job { channel, is_final: true, segment },
-            Speech::Partial(channel, segment) => Job { channel, is_final: false, segment },
-        }
+        let (channel, is_final, segment) = match s {
+            Speech::Final(channel, segment) => (channel, true, segment),
+            Speech::Partial(channel, segment) => (channel, false, segment),
+        };
+        let redemption = match (is_final, channel) {
+            (false, _) => 0,
+            (true, Channel::Them) => super::vad::REDEMPTION_THEM_MS,
+            (true, Channel::Me) => super::vad::REDEMPTION_ME_MS,
+        };
+        Job { channel, is_final, segment, speech_end_at: now_ms() - redemption as i64 }
     }
 }
 
@@ -75,6 +83,7 @@ impl Queue {
         let mut idx = self.jobs.iter().enumerate().filter(|(_, j)| j.channel == Channel::Me && j.is_final).map(|(i, _)| i);
         let (Some(a), Some(b)) = (idx.next(), idx.next()) else { return false };
         let second = self.jobs.remove(b).expect("index from iter");
+        self.jobs[a].speech_end_at = second.speech_end_at;
         let first = &mut self.jobs[a].segment;
         first.samples.extend_from_slice(&second.segment.samples);
         first.end_timestamp_ms = second.segment.end_timestamp_ms;
@@ -97,23 +106,30 @@ impl Queue {
 pub struct Seqs([u64; 2]);
 
 impl Seqs {
+    /// The seq for the next segment of `ch`; a final uses it up. Shared by the cloud
+    /// streams and the local model, so a fallback mid-meeting leaves no gap.
+    pub fn next(&mut self, ch: Channel, is_final: bool) -> u64 {
+        let seq = self.0[ch.index()];
+        if is_final {
+            self.0[ch.index()] += 1;
+        }
+        seq
+    }
+
     pub fn segment(&mut self, job: &Job, text: &str) -> Option<Segment> {
         let text = clean(text);
         if text.is_empty() {
             return None;
         }
-        let i = job.channel.index();
-        let seq = self.0[i];
-        if job.is_final {
-            self.0[i] += 1;
-        }
         Some(Segment {
-            seq,
+            seq: self.next(job.channel, job.is_final),
             channel: job.channel,
             start_ms: job.segment.start_timestamp_ms.max(0.0) as u64,
             end_ms: job.segment.end_timestamp_ms.max(0.0) as u64,
             text,
             is_final: job.is_final,
+            speech_end_at: Some(job.speech_end_at),
+            final_at: Some(now_ms()),
         })
     }
 }
@@ -195,9 +211,13 @@ static KEPT: Mutex<Option<(ParakeetModel, Instant)>> = Mutex::new(None);
 
 pub fn load(dir: &PathBuf) -> Result<ParakeetModel, String> {
     if let Some((m, _)) = KEPT.lock().unwrap().take() {
+        log::info!("meeting: speech model kept from the last meeting");
         return Ok(m);
     }
-    ParakeetModel::new(dir, true, intra_threads()).map_err(|e| format!("speech model: {e}"))
+    let started = Instant::now();
+    let m = ParakeetModel::new(dir, true, intra_threads()).map_err(|e| format!("speech model: {e}"))?;
+    log::info!("meeting: speech model loaded in {} ms", started.elapsed().as_millis());
+    Ok(m)
 }
 
 pub fn keep(model: ParakeetModel) {
@@ -212,13 +232,13 @@ pub fn keep(model: ParakeetModel) {
 }
 
 /// The `meeting-stt` loop: one inference at a time, results to `out`, which must not block.
-pub fn run<T: Transcriber>(model: &mut T, shared: &Shared, stop: &AtomicBool, mut out: impl FnMut(Segment)) {
-    let mut seqs = Seqs::default();
+pub fn run<T: Transcriber>(model: &mut T, shared: &Shared, stop: &AtomicBool, seqs: &Mutex<Seqs>, mut out: impl FnMut(Segment)) {
     while let Some(mut job) = shared.next(stop) {
         let samples = std::mem::take(&mut job.segment.samples);
         match model.transcribe(samples) {
             Ok(text) => {
-                if let Some(seg) = seqs.segment(&job, &text) {
+                let seg = seqs.lock().unwrap().segment(&job, &text);
+                if let Some(seg) = seg {
                     out(seg);
                 }
             }
@@ -237,6 +257,7 @@ mod tests {
             channel,
             is_final,
             segment: SpeechSegment { samples: vec![0.0; 160], start_timestamp_ms: start, end_timestamp_ms: start + 10.0 },
+            speech_end_at: 0,
         }
     }
 
@@ -318,7 +339,7 @@ mod tests {
         let out = Arc::new(Mutex::new(Vec::new()));
         let worker = {
             let (shared, stop, out) = (shared.clone(), stop.clone(), out.clone());
-            std::thread::spawn(move || run(&mut Slow(Duration::from_millis(200)), &shared, &stop, |s| out.lock().unwrap().push(s)))
+            std::thread::spawn(move || run(&mut Slow(Duration::from_millis(200)), &shared, &stop, &Mutex::default(), |s| out.lock().unwrap().push(s)))
         };
         let started = Instant::now();
         for i in 0..10 {

@@ -4,7 +4,7 @@
  * docs/design/MEETING-MODE.md 3.2. Plain mutable state: the overlay applies
  * a frame's events in one go and renders once (frame.ts).
  */
-import type { Channel, Meeting, MeetingAnswer, MeetingDetail, MeetingEvent, MeetingNotes, Segment } from './wire';
+import type { Channel, Meeting, MeetingAnswer, MeetingDetail, MeetingEvent, MeetingFile, MeetingNotes, Segment } from './wire';
 
 /** Final lines kept in memory; the overlay shows 6, the meeting page loads its own. */
 const KEEP_FINALS = 400;
@@ -19,6 +19,9 @@ export interface MeetingView {
   finals: Line[];
   partials: Map<string, Line>;
   answers: MeetingAnswer[];
+  /** From the detail only: meeting.updated carries a plain Meeting without them. */
+  files: MeetingFile[];
+  liveModel?: MeetingDetail['liveModel'];
   /** Message text by id: the brief and each answer. */
   text: Record<string, string>;
   notes?: MeetingNotes;
@@ -28,7 +31,7 @@ export interface MeetingView {
 }
 
 export function emptyView(): MeetingView {
-  return { finals: [], partials: new Map(), answers: [], text: {}, version: 0, order: 0 };
+  return { finals: [], partials: new Map(), answers: [], files: [], text: {}, version: 0, order: 0 };
 }
 
 const key = (channel: Channel, seq: number) => `${channel}:${seq}`;
@@ -41,8 +44,10 @@ function textOf(content: { type: string; text?: string }[]): string {
 }
 
 export function loadDetail(v: MeetingView, d: MeetingDetail, messages: { id: string; content: { type: string; text?: string }[] }[] = []): void {
-  const { segments, answers, ...meeting } = d;
+  const { segments, answers, files, liveModel, ...meeting } = d;
   v.meeting = meeting;
+  v.files = files ?? [];
+  v.liveModel = liveModel;
   v.finals = [];
   v.partials.clear();
   for (const s of segments) if (s.final) v.finals.push({ ...s, at: v.order++ });
@@ -204,6 +209,26 @@ export function splitAnswer(text: string, done = false): { say: string; rest: st
   // an empty last line is only a newline so far: held back too, so rest never ends in a newline it may take back
   if (tail) take(tail, true);
   return { say: say.join('\n'), rest: rest.join('\n'), source };
+}
+
+/** Speech end (or the answer's start, for Answer now) to the first word, in ms; undefined until a word came. */
+export function answerLatency(a: Pick<MeetingAnswer, 'createdAt' | 'firstTokenAt' | 'segmentEndAt'>): number | undefined {
+  if (a.firstTokenAt === undefined) return undefined;
+  return Math.max(0, a.firstTokenAt - (a.segmentEndAt ?? a.createdAt));
+}
+
+/** "0.8 s", "12 s". */
+export function seconds(ms: number): string {
+  return ms < 10_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms / 1000)} s`;
+}
+
+/** The newest answer that has a first word: the overlay's latency readout. */
+export function lastLatency(answers: MeetingAnswer[]): number | undefined {
+  for (let i = answers.length - 1; i >= 0; i--) {
+    const ms = answerLatency(answers[i]!);
+    if (ms !== undefined) return ms;
+  }
+  return undefined;
 }
 
 /**

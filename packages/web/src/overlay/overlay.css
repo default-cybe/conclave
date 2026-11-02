@@ -2,13 +2,19 @@
   The meeting overlay's own styles (docs/design/MEETING-MODE.md 2.3): no
   Tailwind and no app styles. The tokens are the app's (src/styles/index.css,
   docs/design/SPEC.md 3), copied for the few this window uses. The window is
-  transparent; the panel is solid (no glass, no glow). Animations are the
+  transparent and the panel translucent (--ov-opacity, 60 to 100 %, opacity.ts):
+  the desktop app puts the OS blur behind it (macOS vibrancy, Windows 11
+  acrylic), and backdrop-filter blurs where the webview can. The answer sits
+  on a denser layer (--layer) so it reads over any background. The overlay is
+  the one place outside the phone tab bar that SPEC.md 3 lets use a backdrop
+  blur; no glow. Animations are the
   recording dot's opacity and a short fade of each new answer block, both
   run by the compositor and both off under reduced motion.
 */
 
 :root,
-:root[data-theme='dark'] {
+:root[data-theme='dark'],
+.ov-dock[data-mode='notch'] .ov-panel {
   color-scheme: dark;
   --bg: oklch(0.163 0.005 286);
   --bg-raise: oklch(0.198 0.006 286);
@@ -18,6 +24,8 @@
   --fg: oklch(0.945 0.004 286);
   --fg-2: oklch(0.765 0.008 286);
   --fg-3: oklch(0.61 0.01 286);
+  /* quiet text on the see-through panel: only full ink reaches 4.5:1 at 60 % over white */
+  --fg-panel: var(--fg);
   --signal: oklch(0.775 0.125 303);
   --warn: oklch(0.83 0.125 80);
   --fault: oklch(0.705 0.155 26);
@@ -26,6 +34,8 @@
   --solid: var(--fg);
   --solid-fg: var(--bg);
   --code-bg: oklch(0.14 0.005 286);
+  --panel: oklch(0.13 0.005 286);
+  --layer: oklch(0.1 0.004 286);
   --syn-kw: oklch(0.78 0.1 303);
   --syn-str: oklch(0.8 0.09 150);
   --syn-num: oklch(0.8 0.09 60);
@@ -46,12 +56,15 @@
   --fg: oklch(0.205 0.01 286);
   --fg-2: oklch(0.405 0.012 286);
   --fg-3: oklch(0.52 0.012 286);
+  --fg-panel: var(--fg-2);
   --signal: oklch(0.52 0.17 300);
   --warn: oklch(0.555 0.13 65);
   --fault: oklch(0.56 0.19 27);
   --meter-off: oklch(0.9 0.005 286);
   --meter-on: oklch(0.33 0.01 286);
   --code-bg: oklch(0.965 0.003 286);
+  --panel: oklch(0.99 0.002 286);
+  --layer: oklch(1 0 0);
   --syn-kw: oklch(0.48 0.16 300);
   --syn-str: oklch(0.48 0.11 150);
   --syn-num: oklch(0.52 0.12 55);
@@ -68,6 +81,9 @@
   --r-1: 3px;
   --r-2: 5px;
   --r-3: 10px;
+  /* set from the slider at boot (opacity.ts); the answer layer is 20 points denser, at most opaque */
+  --ov-opacity: 80%;
+  --ov-layer: min(100%, calc(var(--ov-opacity) + 20%));
 }
 
 * {
@@ -85,9 +101,9 @@ body {
   overflow: hidden;
 }
 
+/* no margin: the native blur fills the window, so the panel must too (its 10px corners match the blur's) */
 #root {
   height: 100%;
-  padding: 6px;
 }
 
 /* as tall as its content (the window follows it, fit.ts), scrolling once the window is at its cap */
@@ -96,9 +112,172 @@ body {
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--bg);
-  border: 1px solid var(--rule-2);
+  background: color-mix(in oklch, var(--panel) var(--ov-opacity), transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid color-mix(in oklch, var(--rule-2) 70%, transparent);
   border-radius: var(--r-3);
   padding: 12px 14px 14px;
+}
+
+/*
+  Placement (dock.ts, MEETING-MODE.md 7.7). Docked: the panel slides off its
+  edge while the window is still big, then the window shrinks to the tab; the
+  way out is the reverse. Notch: a black pill around the notch that springs
+  down into the panel. transform and opacity only; off under reduced motion.
+*/
+.ov-dock {
+  --ov-motion: 320ms;
+  --ov-spring: cubic-bezier(0.32, 1.28, 0.5, 1);
+  /* the notch's own black, in both themes */
+  --notch: oklch(0 0 0);
+  position: relative;
+  height: 100%;
+}
+
+.ov-dock .ov-panel {
+  height: auto;
+  transition:
+    transform var(--ov-motion) cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity var(--ov-motion) ease-out;
+}
+
+.ov-handle {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms linear;
+}
+
+.ov-dock[data-hidden] .ov-handle {
+  opacity: 1;
+  pointer-events: auto;
+  transition-delay: var(--ov-motion);
+}
+
+/* the edge tab: a slim handle on the work area's edge with the listening dot */
+.ov-dock[data-mode='edge'] .ov-handle {
+  background: color-mix(in oklch, var(--panel) 92%, transparent);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-2);
+}
+
+.ov-dock[data-mode='edge'] .ov-handle-meter {
+  display: none;
+}
+
+/* docked: square and borderless on the screen edge it sits on */
+.ov-dock[data-edge='left'] .ov-panel,
+.ov-dock[data-edge='left'] .ov-handle {
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.ov-dock[data-edge='right'] .ov-panel,
+.ov-dock[data-edge='right'] .ov-handle {
+  border-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.ov-dock[data-edge='top'] .ov-panel,
+.ov-dock[data-edge='top'] .ov-handle {
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.ov-dock[data-edge='bottom'] .ov-panel,
+.ov-dock[data-edge='bottom'] .ov-handle {
+  border-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.ov-dock[data-hidden][data-edge='left'] .ov-panel {
+  transform: translateX(-104%);
+  opacity: 0;
+}
+.ov-dock[data-hidden][data-edge='right'] .ov-panel {
+  transform: translateX(104%);
+  opacity: 0;
+}
+.ov-dock[data-hidden][data-edge='top'] .ov-panel {
+  transform: translateY(-104%);
+  opacity: 0;
+}
+.ov-dock[data-hidden][data-edge='bottom'] .ov-panel {
+  transform: translateY(104%);
+  opacity: 0;
+}
+
+/* the notch: black like the notch, square at the top where it meets the screen edge */
+.ov-dock[data-mode='notch'] .ov-panel {
+  /* the dark tokens in both themes (the token block at the top): it is the notch's black */
+  background: var(--notch);
+  --layer: oklch(0.12 0.004 286);
+  color: var(--fg);
+  border: 0;
+  border-radius: 0 0 20px 20px;
+  padding-top: calc(var(--ov-pill-h, 32px) + 6px);
+  transform-origin: top center;
+  transition:
+    transform 420ms var(--ov-spring),
+    opacity 200ms ease-out;
+}
+
+.ov-dock[data-mode='notch'][data-hidden] .ov-panel {
+  transform: scale(0.4, 0.1);
+  opacity: 0;
+}
+
+.ov-dock[data-mode='notch'] .ov-handle {
+  inset: 0 auto auto 50%;
+  width: var(--ov-pill-w, 200px);
+  height: var(--ov-pill-h, 32px);
+  transform: translateX(-50%);
+  background: var(--notch);
+  border-radius: 0 0 14px 14px;
+  justify-content: space-between;
+  padding: 0 14px;
+}
+
+/* the notch itself sits in the middle of the pill: the dot left of it, the level right */
+.ov-handle-meter {
+  width: 18px;
+  height: 4px;
+  border-radius: 2px;
+  background: oklch(0.3 0.008 286);
+  overflow: hidden;
+}
+
+.ov-handle-meter > span {
+  display: block;
+  height: 100%;
+  background: oklch(0.8 0.01 286);
+  transform-origin: left;
+}
+
+.ov-dot-fault {
+  background: var(--fault);
+  animation: none;
+}
+
+.ov-place .ov-btn[aria-pressed='true'] {
+  color: var(--fg);
+  border-color: var(--rule-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ov-dock .ov-panel,
+  .ov-dock[data-mode='notch'] .ov-panel,
+  .ov-handle,
+  .ov-dock[data-hidden] .ov-handle {
+    transition: none;
+  }
 }
 
 .ov-stack {
@@ -134,13 +313,13 @@ body {
 .ov-body,
 .ov-brief p {
   margin: 0;
-  color: var(--fg-2);
+  color: var(--fg-panel);
 }
 
 .ov-muted,
 .ov-notes {
   margin: 0;
-  color: var(--fg-3);
+  color: var(--fg-panel);
   font-size: 12px;
 }
 
@@ -151,30 +330,32 @@ body {
 
 .ov-state {
   margin: 0;
-  color: var(--fg-3);
+  color: var(--fg-panel);
 }
 
 .ov-label {
-  color: var(--fg-3);
+  color: var(--fg-panel);
   font-size: 12px;
 }
 
 .ov-num {
   font-variant-numeric: tabular-nums;
-  color: var(--fg-3);
+  color: var(--fg-panel);
 }
 
 .ov-list {
   margin: 2px 0;
   padding-left: 18px;
-  color: var(--fg-2);
+  color: var(--fg-panel);
 }
 
 /* Status line: the red dot and "Listening" stay while capture runs (8) */
 .ov-status {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 2px 8px;
+  white-space: nowrap;
   font-size: 12px;
   user-select: none;
 }
@@ -211,11 +392,18 @@ body {
   font-weight: 600;
 }
 
+/* the speech-to-text in use and the last answer's speed, quiet, after the meters */
+.ov-meta {
+  color: var(--fg-panel);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .ov-level {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--fg-3);
+  color: var(--fg-panel);
 }
 
 .ov-meter {
@@ -236,7 +424,10 @@ body {
 
 /* The answer: the one filled box on screen */
 .ov-card {
+  /* the dense layer: the quiet grey reads here (4.7:1 or more at 60 %) */
+  --fg-panel: var(--fg-3);
   background: var(--bg-raise);
+  background: color-mix(in oklch, var(--layer) var(--ov-layer), transparent);
   border: 1px solid var(--rule);
   border-radius: var(--r-2);
   padding: 10px 12px;
@@ -641,12 +832,15 @@ circle.ov-s3 {
   text-overflow: ellipsis;
 }
 
+/* on the answer's dense layer, so "Them:" and "Me:" keep 4.5:1 over a white page or a busy one at 60 % */
 .ov-transcript {
   margin: 0;
-  padding: 0;
+  padding: 4px 8px;
   list-style: none;
   font-size: 12.5px;
-  color: var(--fg-2);
+  color: var(--fg);
+  background: color-mix(in oklch, var(--layer) var(--ov-layer), transparent);
+  border-radius: var(--r-2);
 }
 
 .ov-transcript li {
@@ -654,12 +848,11 @@ circle.ov-s3 {
 }
 
 .ov-partial {
-  color: var(--fg-3);
-  opacity: 0.75;
+  color: var(--fg-2);
 }
 
 .ov-who {
-  color: var(--fg-3);
+  color: var(--fg-2);
 }
 
 .ov-brief {
@@ -705,7 +898,7 @@ circle.ov-s3 {
 
 .ov-quiet {
   border-color: transparent;
-  color: var(--fg-2);
+  color: var(--fg-panel);
 }
 
 .ov-danger {
@@ -719,7 +912,7 @@ circle.ov-s3 {
   border: 0;
   background: none;
   padding: 0;
-  color: var(--fg-2);
+  color: var(--fg-panel);
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -788,9 +981,23 @@ circle.ov-s3 {
 }
 
 .ov-choice-where {
-  color: var(--fg-3);
+  color: var(--fg-panel);
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* the panel's opacity, in the open overlay under its controls (Live.tsx) */
+.ov-opacity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ov-opacity input {
+  flex: 1;
+  max-width: 160px;
+  margin: 0;
+  accent-color: var(--fg-2);
 }

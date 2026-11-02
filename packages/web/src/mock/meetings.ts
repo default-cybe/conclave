@@ -17,7 +17,8 @@
 import type { Desktop } from '@/overlay/desktop';
 import { setDesktop } from '@/overlay/desktop';
 import type { Req } from '@/overlay/hub';
-import type { Channel, CreateMeetingInput, DesktopMeetingStatus, Meeting, MeetingAnswer, MeetingCalendarEvent, MeetingFolder, MeetingNotes, MeetingPatch, PrepProgress, PrepView, Segment, SegmentBatch, SteeringPreset } from '@/overlay/wire';
+import { displayAt, notchSize, type Display, type Rect } from '@/overlay/place';
+import type { AnswerModelChoice, Channel, CreateMeetingInput, DesktopMeetingStatus, Meeting, MeetingAnswer, MeetingCalendarEvent, MeetingFile, MeetingFolder, MeetingNotes, MeetingPatch, PrepProgress, PrepView, Segment, SegmentBatch, SteeringPreset } from '@/overlay/wire';
 import type { MockCtx } from './index';
 
 const MIN = 60_000;
@@ -91,6 +92,15 @@ export const PRESETS: SteeringPreset[] = [
   { id: 'demo', label: 'Demo', text: '- Say what the audience is looking at, then why it matters to them.\n- If something breaks, give a one-line recovery and move to the next step of the presenting order.\n- Avoid: reading code aloud; point to the file instead.' },
 ];
 
+/** GET /api/meetings/models, as the hub ranks them (fastest first). */
+export const ANSWER_MODELS: AnswerModelChoice[] = [
+  { ref: 'antigravity/gemini-3-flash-lite', label: 'Gemini 3 Flash Lite', speed: 'fastest', note: 'About 0.5 s to the first word. Good for short answers.' },
+  { ref: 'cliproxy/claude-haiku-5-5', label: 'Claude Haiku 5.5', speed: 'fastest', note: 'About 0.7 s to the first word. The default.' },
+  { ref: 'antigravity/gemini-3-flash', label: 'Gemini 3 Flash', speed: 'fast', note: 'About 1 s. Better at technical questions.' },
+  { ref: 'cliproxy/claude-sonnet-5-5', label: 'Claude Sonnet 5.5', speed: 'balanced', note: 'About 2 to 3 s. Better answers, slower.' },
+  { ref: 'cliproxy/claude-opus-5-5', label: 'Claude Opus 5.5', speed: 'best', note: 'About 4 s or more. Too slow for most live questions.' },
+];
+
 const CAPSTONE = '/home/kai/uni/capstone';
 
 const FOLDERS: Omit<MeetingFolder, 'lastAt'>[] = [
@@ -144,6 +154,7 @@ export function registerMeetings(ctx: MockCtx) {
   const segments = new Map<string, Segment[]>();
   const answers = new Map<string, MeetingAnswer[]>();
   const notes = new Map<string, MeetingNotes>();
+  const files = new Map<string, MeetingFile[]>();
   const aborts = new Map<string, { stop: boolean }>();
   const now = Date.now();
 
@@ -177,7 +188,7 @@ export function registerMeetings(ctx: MockCtx) {
       { seq: 1, channel: 'them', startMs: 6200, endMs: 9000, text: 'Nice. Where are we on the export feature?', final: true },
     ]);
     say(live.sessionId, 'msg_ans_1', ANSWERS[0]![1]);
-    answers.set(live.id, [{ id: 'ans_1', meetingId: live.id, messageId: 'msg_ans_1', trigger: 'question', question: 'Nice. Where are we on the export feature?', state: 'done', createdAt: now - 2 * MIN, firstTokenAt: now - 2 * MIN + 900 }]);
+    answers.set(live.id, [{ id: 'ans_1', meetingId: live.id, messageId: 'msg_ans_1', trigger: 'question', question: 'Nice. Where are we on the export feature?', state: 'done', segmentEndAt: now - 2 * MIN - 380, receivedAt: now - 2 * MIN - 60, requestAt: now - 2 * MIN + 2, createdAt: now - 2 * MIN, firstTokenAt: now - 2 * MIN + 520, doneAt: now - 2 * MIN + 2100, model: 'cliproxy/claude-haiku-5-5' }]);
     const ended = base({ id: 'mtg_review', title: 'Design review, export page', status: 'ended', createdAt: now - 26 * 60 * MIN, startedAt: now - 26 * 60 * MIN, endedAt: now - 25 * 60 * MIN, notesPath: '/home/kai/code/conclave/.conclave/meetings/2026-10-30-1000-design-review.md' });
     meetings.set(ended.id, ended);
     segments.set(ended.id, [
@@ -197,6 +208,14 @@ export function registerMeetings(ctx: MockCtx) {
     })();
     const sched = (m: Partial<Meeting> & Pick<Meeting, 'id' | 'title' | 'scheduledAt'>): Meeting =>
       base({ status: 'scheduled', device: 'arch-desktop', cwd: CAPSTONE, projectId: undefined, createdAt: now - 2 * 24 * 60 * MIN, reminders: [1440, 15], autoPrep: true, answerLength: 'short', prepState: 'none', ...m });
+    // an interview with no project folder, only files
+    const interview = sched({ id: 'mtg_interview', title: 'Interview, Microsoft security', scheduledAt: now + 26 * 60 * MIN, durationMin: 45, device: 'local', cwd: '', steeringPreset: 'interview', steering: PRESETS[2]!.text, answerModel: 'antigravity/gemini-3-flash-lite', agenda: 'Second round: OS security code review and system design.' });
+    meetings.set(interview.id, interview);
+    preps.set(interview.id, { state: 'none' });
+    files.set(interview.id, [
+      { id: 'mfl_resume', name: 'Kaivalya-Ahir-resume.pdf', size: 184_320, mediaType: 'application/pdf', chars: 5_812, createdAt: now - 3 * 60 * MIN },
+      { id: 'mfl_jd', name: 'job-description.md', size: 6_210, mediaType: 'text/markdown', chars: 6_102, createdAt: now - 3 * 60 * MIN },
+    ]);
     const capstone = sched({ id: 'mtg_capstone', title: 'Capstone defence', scheduledAt: monday, durationMin: 60, calendarEventId: 'ev_capstone', calendarId: 'cal_uni', steeringPreset: 'defence', steering: PRESETS[0]!.text, agenda: 'Capstone defence: present all evidence, defend the findings, 10 min talk then questions.' });
     meetings.set(capstone.id, capstone);
     preps.set(capstone.id, { state: 'none' });
@@ -287,6 +306,40 @@ export function registerMeetings(ctx: MockCtx) {
   });
 
   on('GET', '/api/meetings/presets', () => ({ presets: PRESETS }));
+
+  on('GET', '/api/meetings/models', () => ({ models: ANSWER_MODELS }));
+
+  // a real hub mints one streaming token on the saved key (no audio)
+  on('POST', '/api/meetings/stt-test', async ({ body }) => {
+    const p = String((body as { provider?: string })?.provider);
+    if (p !== 'assemblyai' && p !== 'deepgram') fail(400, 'provider is assemblyai or deepgram');
+    await sleep(500);
+    if (!db.values.includes(`stt.${p}`)) return json(409, { error: `No ${p === 'assemblyai' ? 'AssemblyAI' : 'Deepgram'} key saved yet.` });
+    return { ok: true, message: `Works. A streaming token came back in ${p === 'deepgram' ? 180 : 240} ms.`, ms: p === 'deepgram' ? 180 : 240 };
+  });
+
+  on('POST', '/api/meetings/:id/files', async ({ params, raw }) => {
+    const m = get(params[0]!);
+    const form = raw instanceof FormData ? raw : fail(400, 'Send the files as multipart/form-data.');
+    const list = files.get(m.id) ?? [];
+    // the hub takes one file per request, field "file"
+    const got = form.get('file');
+    const v = got instanceof File ? got : fail(400, 'Send multipart/form-data with a "file" field');
+    if (list.length >= 10) fail(400, 'A meeting holds at most 10 files.');
+    if (v.size > 10 * 1024 * 1024) fail(413, 'A file is at most 10 MB.');
+    const f: MeetingFile = { id: uid('mfl'), name: v.name, size: v.size, mediaType: v.type || 'text/plain', chars: Math.min(v.size, 60_000), createdAt: Date.now() };
+    list.push(f);
+    files.set(m.id, list);
+    return json(201, structuredClone(f));
+  });
+
+  on('DELETE', '/api/meetings/:id/files/:file', ({ params }) => {
+    const m = get(params[0]!);
+    const list = files.get(m.id) ?? [];
+    if (!list.some((f) => f.id === params[1])) fail(404, 'File not found');
+    files.set(m.id, list.filter((f) => f.id !== params[1]));
+    return json(204);
+  });
 
   on('POST', '/api/meetings/:id/arm', ({ params }) => {
     const m = get(params[0]!);
@@ -388,7 +441,7 @@ export function registerMeetings(ctx: MockCtx) {
         a.state = 'cancelled';
         emit({ type: 'meeting.answer', sessionId: m.sessionId, meetingId: m.id, answer: { ...a } } as never);
       }
-    const a: MeetingAnswer = { id: uid('ans'), meetingId: m.id, messageId: uid('msg'), trigger, question, state: 'streaming', createdAt: Date.now() };
+    const a: MeetingAnswer = { id: uid('ans'), meetingId: m.id, messageId: uid('msg'), trigger, question, state: 'streaming', segmentEndAt: trigger === 'answer-now' ? undefined : Date.now() - 320, createdAt: Date.now(), model: m.answerModel ?? ANSWER_MODELS[1]!.ref };
     list.push(a);
     const abort = { stop: false };
     aborts.set(a.id, abort);
@@ -401,6 +454,7 @@ export function registerMeetings(ctx: MockCtx) {
       const text = ANSWERS.find(([re]) => re.test(question))?.[1] ?? FALLBACK;
       if (await streamInto(m, a.messageId, text, abort)) {
         a.state = 'done';
+        a.doneAt = Date.now();
         emit({ type: 'meeting.answer', sessionId: m.sessionId, meetingId: m.id, answer: { ...a } } as never);
       }
     })();
@@ -427,7 +481,7 @@ export function registerMeetings(ctx: MockCtx) {
 
   on('POST', '/api/meetings', ({ body }) => {
     const b = (body ?? {}) as CreateMeetingInput;
-    if (!b.sessionId && !b.projectId && !b.cwd) fail(400, 'Pick a project folder for the meeting.');
+    // a meeting may have only files: no folder is fine (the files come after, POST /files)
     if (b.agenda && b.agenda.length > 4000) fail(400, 'The agenda is longer than 4000 characters.');
     if (b.scheduledAt !== undefined) {
       if (b.scheduledAt < Date.now() || b.scheduledAt > Date.now() + 365 * 24 * 60 * MIN) return json(400, { field: 'scheduledAt', error: 'Pick a time from now to a year ahead.' });
@@ -454,7 +508,7 @@ export function registerMeetings(ctx: MockCtx) {
 
   on('GET', '/api/meetings/:id', ({ params }) => {
     const m = get(params[0]!);
-    return { ...structuredClone(m), segments: (segments.get(m.id) ?? []).filter((s) => s.final), answers: structuredClone(answers.get(m.id) ?? []) };
+    return { ...structuredClone(m), files: structuredClone(files.get(m.id) ?? []), liveModel: { ref: m.answerModel ?? ANSWER_MODELS[1]!.ref }, segments: (segments.get(m.id) ?? []).filter((s) => s.final), answers: structuredClone(answers.get(m.id) ?? []) };
   });
 
   on('PATCH', '/api/meetings/:id', ({ params, body }) => {
@@ -554,7 +608,7 @@ export function registerMeetings(ctx: MockCtx) {
 
   function schedFields(b: CreateMeetingInput | MeetingPatch): Partial<Meeting> {
     const out: Partial<Meeting> = {};
-    for (const k of ['scheduledAt', 'durationMin', 'tz', 'steering', 'steeringPreset', 'answerLength', 'calendarEventId', 'calendarId', 'reminders', 'autoPrep'] as const) if (b[k] !== undefined) (out as Record<string, unknown>)[k] = b[k] === null || b[k] === '' ? undefined : b[k];
+    for (const k of ['scheduledAt', 'durationMin', 'tz', 'steering', 'steeringPreset', 'answerLength', 'calendarEventId', 'calendarId', 'reminders', 'autoPrep', 'answerModel'] as const) if (b[k] !== undefined) (out as Record<string, unknown>)[k] = b[k] === null || b[k] === '' ? undefined : b[k];
     return out;
   }
 
@@ -622,6 +676,7 @@ export function registerMeetings(ctx: MockCtx) {
  * "them" line, and a level event as each line starts and ends.
  */
 export function installMockDesktop(req: Req) {
+  if (desk) injectDeskStyle();
   const listeners = new Map<string, Set<(e: { payload: unknown }) => void>>();
   const fire = (event: string, payload: unknown) => {
     for (const cb of listeners.get(event) ?? []) cb({ payload });
@@ -634,10 +689,13 @@ export function installMockDesktop(req: Req) {
     exclusion: /Linux/.test(navigator.userAgent) ? 'unsupported' : 'excluded',
     mic: { ok: true, device: 'Built-in microphone' },
     system: { ok: true, device: 'Speakers (loopback)' },
-    stt: { state: 'ready' },
+    stt: { state: 'ready', provider: 'deepgram' },
     queue: { stt: 0, upload: 0, dropped: 0 },
   };
   const q = new URLSearchParams(location.search);
+  // ?stt=local&fallback=... shows the fallback note in screenshots
+  if (q.get('stt')) st.stt.provider = q.get('stt') as DesktopMeetingStatus['stt']['provider'];
+  if (q.get('fallback')) st.stt.error = q.get('fallback')!;
   // ?meeting=mtg_live opens on the seeded live meeting as if this app listened to it
   if (q.get('meeting') === 'mtg_live') Object.assign(st, { live: true, meetingId: 'mtg_live' });
   const status = () => fire('meeting://status', structuredClone(st));
@@ -689,6 +747,13 @@ export function installMockDesktop(req: Req) {
           // the height the app would give the window, for the screenshot script
           height = Number(args?.height);
           return undefined as T;
+        case 'meeting_displays':
+          return (desk ? { displays: desk.displays, mac: desk.mac, window: placed } : { displays: [], mac: false }) as T;
+        case 'meeting_place':
+          placed = { x: Number(args?.x), y: Number(args?.y), w: Number(args?.width), h: Number(args?.height) };
+          height = placed.h;
+          if (desk) drawDesk(desk, placed);
+          return undefined as T;
       }
       status();
       return undefined as T;
@@ -707,6 +772,73 @@ export function installMockDesktop(req: Req) {
       ask: (meetingId: string, question: string) => req('POST', `/api/meetings/${meetingId}/answer`, { question }),
       nav: (dir: -1 | 1) => fire('meeting://nav', dir),
       height: () => height,
+      peek: () => fire('meeting://peek', null),
+      display: (dir: -1 | 1) => fire('meeting://display', dir),
+      placed: () => placed,
     },
   });
+}
+
+/**
+ * ?desk=mac or ?desk=win: fake displays for the overlay's placement (overlay/place.ts),
+ * so a browser shows every placement. mac: a 14" MacBook with a notch (points, 2x) and
+ * an external display to its left at negative x with no notch. win: a 150 % laptop as
+ * the primary (physical px, taskbar 48 px) and a 100 % monitor to its left, higher up.
+ */
+const DESKS: Record<string, { mac: boolean; displays: Display[] }> = {
+  mac: {
+    mac: true,
+    displays: [
+      { id: 'Built-in Retina Display', frame: { x: 0, y: 0, w: 1512, h: 982 }, work: { x: 0, y: 38, w: 1512, h: 874 }, unit: 1, scale: 2, primary: true, notch: { top: 38, left: 662, right: 662 } },
+      { id: 'LG UltraFine', frame: { x: -1920, y: -98, w: 1920, h: 1080 }, work: { x: -1920, y: -74, w: 1920, h: 1056 }, unit: 1, scale: 1, primary: false },
+    ],
+  },
+  win: {
+    mac: false,
+    displays: [
+      { id: '\\\\.\\DISPLAY1', frame: { x: 0, y: 0, w: 2880, h: 1800 }, work: { x: 0, y: 0, w: 2880, h: 1728 }, unit: 1.5, scale: 1.5, primary: true },
+      { id: '\\\\.\\DISPLAY2', frame: { x: -1920, y: -200, w: 1920, h: 1080 }, work: { x: -1920, y: -200, w: 1920, h: 1032 }, unit: 1, scale: 1, primary: false },
+    ],
+  },
+};
+const desk = typeof location !== 'undefined' ? DESKS[new URLSearchParams(location.search).get('desk') ?? ''] : undefined;
+let placed: Rect | undefined;
+
+/** The fake desktop's look, mock only: a wallpaper, the menu bar and notch, the taskbar. */
+function injectDeskStyle() {
+  const s = document.createElement('style');
+  s.textContent = `
+    html[data-mock-desk], html[data-mock-desk] body { background: linear-gradient(135deg, oklch(0.42 0.06 250), oklch(0.3 0.05 300) 60%, oklch(0.22 0.03 280)); }
+    html[data-mock-desk][data-theme='light'], html[data-mock-desk][data-theme='light'] body { background: linear-gradient(135deg, oklch(0.9 0.04 230), oklch(0.82 0.05 300) 60%, oklch(0.76 0.04 280)); }
+    #mock-desk { position: fixed; inset: 0; z-index: 0; font: 13px/1 -apple-system, 'Segoe UI', system-ui, sans-serif; }
+    .mock-bar { position: absolute; inset: 0 0 auto 0; display: flex; align-items: center; gap: 18px; padding: 0 16px; background: oklch(0.2 0.01 280 / 0.55); color: oklch(0.96 0 0); }
+    [data-theme='light'] .mock-bar { background: oklch(0.97 0 0 / 0.6); color: oklch(0.2 0 0); }
+    .mock-bar i { margin-left: auto; font-style: normal; opacity: 0.7; }
+    .mock-notch { position: absolute; top: 0; left: 50%; transform: translateX(-50%); background: oklch(0 0 0); border-radius: 0 0 10px 10px; z-index: 1; }
+    .mock-task { position: absolute; inset: auto 0 0 0; background: oklch(0.18 0.01 260 / 0.85); }
+    [data-theme='light'] .mock-task { background: oklch(0.95 0.005 260 / 0.85); }
+    .mock-label { position: absolute; left: 20px; bottom: 64px; color: oklch(1 0 0 / 0.5); font-size: 12px; }
+    [data-theme='light'] .mock-label { color: oklch(0 0 0 / 0.45); }
+  `;
+  document.head.append(s);
+}
+
+/** The page stands in for the display the window is on: the window's box sits where it would on it. */
+function drawDesk(dk: { mac: boolean; displays: Display[] }, r: Rect) {
+  const d = displayAt(dk.displays, r.x + 1, r.y + 1) ?? dk.displays[0]!;
+  const root = document.documentElement;
+  root.dataset.mockDesk = dk.mac ? 'mac' : 'win';
+  let bg = document.getElementById('mock-desk');
+  if (!bg) {
+    bg = document.createElement('div');
+    bg.id = 'mock-desk';
+    document.body.prepend(bg);
+  }
+  const u = d.unit;
+  const n = notchSize(d);
+  const bar = dk.mac ? (d.work.y - d.frame.y) / u : 0;
+  const task = dk.mac ? 0 : (d.frame.y + d.frame.h - (d.work.y + d.work.h)) / u;
+  bg.innerHTML = `${bar ? `<div class="mock-bar" style="height:${bar}px"><b>Zoom</b><span>Meeting</span><span>View</span><i>${d.id}</i></div>` : ''}${n ? `<div class="mock-notch" style="width:${n.w}px;height:${n.h}px"></div>` : ''}${task ? `<div class="mock-task" style="height:${task}px"></div>` : ''}<div class="mock-label">${d.id} · ${d.scale * 100} %</div>`;
+  const box = document.getElementById('root')!;
+  Object.assign(box.style, { position: 'fixed', left: `${(r.x - d.frame.x) / u}px`, top: `${(r.y - d.frame.y) / u}px`, width: `${r.w}px`, height: `${r.h}px`, overflow: 'hidden', zIndex: '2' });
 }

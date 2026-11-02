@@ -84,7 +84,7 @@ export function MeetingsList({ form }: { form?: 'new' | 'start' }) {
         key={m.id}
         href={`/meetings/${m.id}`}
         title={m.title}
-        meta={<MetaLine parts={[m.scheduledAt && !held ? `${when(m.scheduledAt, m.durationMin, zone)} ${yourTime(m.scheduledAt, zone)}`.trim() : undefined, <span title={m.cwd}>{folderName(m.cwd)}</span>, m.steeringPreset && m.steeringPreset !== 'custom' ? m.steeringPreset : undefined]} />}
+        meta={<MetaLine parts={[m.scheduledAt && !held ? `${when(m.scheduledAt, m.durationMin, zone)} ${yourTime(m.scheduledAt, zone)}`.trim() : undefined, m.cwd ? <span title={m.cwd}>{folderName(m.cwd)}</span> : 'files only', m.steeringPreset && m.steeringPreset !== 'custom' ? m.steeringPreset : undefined]} />}
         time={right}
         state={word}
         stateTone={tone}

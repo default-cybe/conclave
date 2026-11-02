@@ -9,20 +9,21 @@
  */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link, useLocation, useParams, useSearch } from 'wouter';
-import { Button, ButtonLink } from '@/components/ui/Button';
-import { ConfirmDialog } from '@/components/ui/Overlay';
+import { MoreHorizontal } from 'lucide-react';
+import { Button, ButtonLink, IconButton } from '@/components/ui/Button';
+import { ConfirmDialog, Menu } from '@/components/ui/Overlay';
 import { EmptyState, LoadingRows } from '@/components/ui/EmptyState';
 import { StateWord, type StateTone } from '@/components/ui/List';
 import { Page, PageHeader, usePageHeader } from '@/components/ui/Page';
 import { Section } from '@/components/ui/Section';
 import { Markdown } from '@/features/chat/Markdown';
-import { folderName, hhmm } from '@/lib/format';
+import { bytes, folderName, hhmm } from '@/lib/format';
 import { useIsMobile, useNow } from '@/lib/hooks';
 import { isDesktopApp } from '@/lib/notify';
 import { onHubEvent, toast, useHub } from '@/store/store';
 import { frameBuffer } from '@/overlay/frame';
-import { applyEvent, emptyView, loadDetail, parseAnswer, type MeetingView } from '@/overlay/model';
-import type { Meeting, MeetingEvent, MeetingStatus } from '@/overlay/wire';
+import { answerLatency, applyEvent, emptyView, loadDetail, parseAnswer, seconds, type MeetingView } from '@/overlay/model';
+import type { Meeting, MeetingAnswer, MeetingEvent, MeetingStatus } from '@/overlay/wire';
 import { meetings, openOverlay } from './api';
 import { Notes } from './NotesPage';
 import { AfterActions } from './AfterActions';
@@ -55,6 +56,8 @@ function useMeeting(id: string) {
   const view = useRef<MeetingView>(emptyView()).current;
   const subs = useRef(new Set<() => void>()).current;
   const [error, setError] = useState<string>();
+  // bumped after an edit: the files are in the detail only, not in meeting.updated
+  const [loads, setLoads] = useState(0);
   useEffect(() => {
     let stop = false;
     const notify = () => subs.forEach((fn) => fn());
@@ -85,7 +88,7 @@ function useMeeting(id: string) {
       off();
       frame.cancel();
     };
-  }, [id, view, subs]);
+  }, [id, view, subs, loads]);
   useSyncExternalStore(
     (fn) => {
       subs.add(fn);
@@ -93,10 +96,20 @@ function useMeeting(id: string) {
     },
     () => view.version,
   );
-  return { view, error };
+  return { view, error, reload: () => setLoads((n) => n + 1) };
 }
 
 const DAY = 24 * 60 * 60_000;
+
+/** "First word 0.8 s after they stopped, done in 2.4 s, haiku-5-5": one answer's timings. */
+export function answerTimings(a: MeetingAnswer): string | undefined {
+  const first = answerLatency(a);
+  const parts: string[] = [];
+  if (first !== undefined) parts.push(`First word ${seconds(first)} after ${a.segmentEndAt !== undefined ? 'they stopped' : 'you asked'}`);
+  if (a.doneAt !== undefined) parts.push(`done in ${seconds(Math.max(0, a.doneAt - (a.segmentEndAt ?? a.createdAt)))}`);
+  if (a.model) parts.push(a.model.split('/').pop()!);
+  return parts.length ? parts.join(', ') : undefined;
+}
 
 /** 11.3.2: the linked event's start when it moved from the meeting's, read when the page opens. */
 function useMovedEvent(m: Meeting | undefined): number | undefined {
@@ -125,7 +138,7 @@ function useMovedEvent(m: Meeting | undefined): number | undefined {
 
 function MeetingDetail({ id }: { id: string }) {
   const phone = useIsMobile();
-  const { view, error } = useMeeting(id);
+  const { view, error, reload } = useMeeting(id);
   const m = view.meeting;
   usePageHeader(m?.title ?? 'Meeting', '/meetings');
   const [, go] = useLocation();
@@ -180,10 +193,17 @@ function MeetingDetail({ id }: { id: string }) {
           End meeting
         </Button>
       )}
+      {/* Delete in a "..." menu, so the actions keep one row on a 390 px phone; it still asks first */}
       {!running && m.status !== 'ending' && (
-        <Button variant="quiet" size={size} onClick={() => setConfirm('delete')}>
-          Delete
-        </Button>
+        <Menu
+          label="Meeting actions"
+          items={[{ label: 'Delete', danger: true, onSelect: () => setConfirm('delete') }]}
+          trigger={({ ref, props }) => (
+            <IconButton ref={ref} label="Meeting actions" size={size} tooltip={false} {...props}>
+              <MoreHorizontal />
+            </IconButton>
+          )}
+        />
       )}
     </>
   );
@@ -199,7 +219,7 @@ function MeetingDetail({ id }: { id: string }) {
             <StateWord tone={tone} live>
               {word}
             </StateWord>
-            , <span title={m.cwd}>{folderName(m.cwd)}</span>
+            , {m.cwd ? <span title={m.cwd}>{folderName(m.cwd)}</span> : <span>files only</span>}
             {m.scheduledAt && !m.startedAt && (
               <>
                 , <span className="num">{when(m.scheduledAt, m.durationMin, zone)}</span> <span className="num">{yourTime(m.scheduledAt, zone)}</span>
@@ -251,7 +271,20 @@ function MeetingDetail({ id }: { id: string }) {
         </p>
       )}
       {ahead && <PrepPanel meeting={m} zone={zone} now={now} />}
-      {edit && <MeetingForm mode={{ kind: 'edit', meeting: m }} open onClose={() => setEdit(false)} onSaved={() => setEdit(false)} />}
+      {view.liveModel?.note && m.status !== 'ended' && <p className="mb-6 text-[13px] text-warn phone:text-[14px]">{view.liveModel.note}</p>}
+      {!!view.files.length && (
+        <div className="mb-8">
+          <Section title="Files" count={view.files.length}>
+            {view.files.map((f) => (
+              <div key={f.id} className="flex items-baseline justify-between gap-3 py-2.5 text-[14px] phone:text-[15px]">
+                <span className="min-w-0 truncate text-fg">{f.name}</span>
+                <span className="num shrink-0 text-[12px] text-fg-3 phone:text-[13px]">{bytes(f.size)}</span>
+              </div>
+            ))}
+          </Section>
+        </div>
+      )}
+      {edit && <MeetingForm mode={{ kind: 'edit', meeting: m, files: view.files }} open onClose={() => setEdit(false)} onSaved={() => (setEdit(false), reload())} />}
       <div className={ahead ? 'hidden' : 'flex flex-col gap-8'}>
         {!desktop && (m.status === 'ready' || m.status === 'preparing') && (
           <p className="text-[14px] text-fg-2">
@@ -268,6 +301,7 @@ function MeetingDetail({ id }: { id: string }) {
           <Section title="Answers" count={view.answers.length}>
             {[...view.answers].reverse().map((a) => {
               const p = parseAnswer(view.text[a.messageId] ?? '');
+              const timings = answerTimings(a);
               return (
                 <div key={a.id} className="py-3">
                   <p className="text-[13px] text-fg-3">
@@ -281,6 +315,7 @@ function MeetingDetail({ id }: { id: string }) {
                   </ul>
                   {p.rest && <p className="mt-1 text-[15px] text-fg">{p.rest}</p>}
                   {p.source !== undefined && <p className="mt-1 text-[12px] text-fg-3">Source: {p.source}</p>}
+                  {timings && <p className="num mt-1 text-[12px] text-fg-3 phone:text-[13px]">{timings}</p>}
                 </div>
               );
             })}

@@ -13,6 +13,7 @@
 
 #[cfg(target_os = "linux")]
 mod appimage;
+mod applog;
 mod computer;
 mod hub;
 mod local;
@@ -260,7 +261,10 @@ fn grant_hub_ipc(app: &AppHandle, base: &Url) -> Result<(), String> {
             .permission("allow-meeting-click-through")
             .permission("allow-meeting-hide")
             .permission("allow-meeting-focusable")
-            .permission("allow-meeting-set-height"),
+            .permission("allow-meeting-set-height")
+            .permission("allow-meeting-displays")
+            .permission("allow-meeting-place")
+            .permission("allow-meeting-stt-retry"),
     )
     .map_err(|e| e.to_string())?;
     granted.insert(origin);
@@ -1484,6 +1488,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             &MenuItem::with_id(app, "quick", "Quick ask", true, None::<&str>)?,
             &MenuItem::with_id(app, "meeting_toggle", "Start meeting... / Show-hide overlay", true, None::<&str>)?,
             &MenuItem::with_id(app, "meeting_end", "End meeting", true, None::<&str>)?,
+            &MenuItem::with_id(app, "meeting_display", "Move overlay to next display", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "settings", "Settings...", true, None::<&str>)?,
             &MenuItem::with_id(app, "pair_phone", "Pair a phone...", true, None::<&str>)?,
@@ -1508,6 +1513,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "quick" => toggle_quick(app),
             "meeting_toggle" => meeting::toggle(app),
             "meeting_end" => meeting::end(app),
+            "meeting_display" => meeting::next_display(app),
             "settings" => show_settings(app),
             "pair_phone" => show_pairing(app),
             "change_hub" => show_setup(app, &[]),
@@ -1593,6 +1599,25 @@ async fn meeting_set_height(app: AppHandle, height: f64) -> Result<(), String> {
     meeting::set_height(&app, height)
 }
 
+/// The displays for the overlay's placement (overlay/place.ts), with the Mac notch insets.
+#[tauri::command]
+async fn meeting_displays(app: AppHandle) -> Result<meeting::place::Displays, String> {
+    meeting::place::displays(&app)
+}
+
+/// Move and size the overlay: top left in desktop units, size in CSS px (meeting/place.rs).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn meeting_place(app: AppHandle, x: f64, y: f64, width: f64, height: f64, notch: bool, blur: bool) -> Result<(), String> {
+    meeting::place_window(&app, x, y, width, height, notch, blur)
+}
+
+/// The overlay's Retry while cloud speech to text fails: try again now, not after the backoff.
+#[tauri::command]
+async fn meeting_stt_retry() {
+    meeting::cloud::retry_now()
+}
+
 /// The overlay becomes an NSPanel on macOS (tauri-nspanel keeps its panels in this plugin's state).
 #[cfg(target_os = "macos")]
 fn panel_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
@@ -1633,6 +1658,9 @@ fn main() {
             meeting_hide,
             meeting_focusable,
             meeting_set_height,
+            meeting_displays,
+            meeting_place,
+            meeting_stt_retry,
             get_settings,
             connect,
             open_hub,
@@ -1669,7 +1697,10 @@ fn main() {
         .setup(|app| {
             // first, so any later panic names itself in panic.log before the abort
             match app.path().app_log_dir() {
-                Ok(dir) => panic_log::install(dir, app.package_info().version.to_string()),
+                Ok(dir) => {
+                    applog::install(dir.clone(), &app.package_info().version.to_string());
+                    panic_log::install(dir, app.package_info().version.to_string())
+                }
                 Err(e) => eprintln!("conclave: no log folder for panic.log: {e}"),
             }
             let handle = app.handle().clone();

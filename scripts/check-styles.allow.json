@@ -46,5 +46,11 @@
     "rule": "glow",
     "match": "text-shadow:",
     "reason": "Not a glow: a hard halo in the page background colour (no blur) that keeps map labels readable over the link lines."
+  },
+  {
+    "file": "packages/web/src/overlay/overlay.css",
+    "rule": "glass",
+    "match": "backdrop-filter: blur(24px) saturate(1.4);",
+    "reason": "The meeting overlay floats over other apps, and the owner asked for it translucent like Final Round AI's: the blur keeps its text readable over whatever is behind it. Its own window, not app chrome; the answer sits on a denser layer (docs/design/SPEC.md 3, MEETING-MODE.md 7.3)."
   }
 ]
