@@ -11,6 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Fixed
 
+- Routine summaries and resumed subagent reports read the latest 20 messages first, falling back to the full transcript only when no assistant answer is in the tail.
 - Meetings: the speech-to-text token request tries again when a DNS lookup stalls, and a Deepgram 403 says the key needs Member permission or higher.
 
 ## [0.4.57] - 2026-11-02

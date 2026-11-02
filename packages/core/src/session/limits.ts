@@ -3,7 +3,7 @@ import type { Engine } from '../engine/engine';
 import type { SessionRunner } from './runner';
 import { keepTurnBase } from './checkpoints';
 import { checkFallback } from './limit-tree';
-import { activeMessages, lastAssistantText } from './transcript';
+import { activeMessages, storedAssistantText } from './transcript';
 import { regionTokens } from './compaction';
 import { SWITCH_BRIEF_AT } from '../modes/switch-math';
 import { logger } from '../util/log';
@@ -651,7 +651,7 @@ export async function afterWokenTurn(engine: Engine, sessionId: string): Promise
   if (!s || s.status === 'waiting_reset' || s.status === 'running' || !sub.waitsForParent(s)) return;
   engine.scheduler.cancel(`resume:${sessionId}`);
   engine.patchMeta(sessionId, { background: { ...(s.meta?.background as Record<string, unknown>), waitingReset: false } });
-  const text = lastAssistantText(engine.repos.messages.list(sessionId));
+  const text = storedAssistantText(engine.repos.messages, sessionId);
   if (s.status === 'error') sub.deliverSubagentResult(engine, s.parentId!, sessionId, 'error', `${text}\n\nError: ${s.error ?? 'the turn failed'}`);
   else sub.deliverSubagentResult(engine, s.parentId!, sessionId, 'completed', text);
 }
