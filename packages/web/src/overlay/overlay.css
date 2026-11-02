@@ -365,7 +365,7 @@ body {
   height: 8px;
   border-radius: 50%;
   background: var(--fault);
-  animation: ov-rec 2s ease-in-out infinite alternate;
+  /* steady, never pulsing: an endless animation keeps the compositor and GPU busy the whole meeting */
 }
 
 .ov-dot-paused {
@@ -373,14 +373,7 @@ body {
   animation: none;
 }
 
-@keyframes ov-rec {
-  to {
-    opacity: 0.35;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .ov-dot,
   .ov-md > *,
   .ov-md li {
     animation: none;

@@ -188,7 +188,7 @@ export function registerMeetings(ctx: MockCtx) {
       { seq: 1, channel: 'them', startMs: 6200, endMs: 9000, text: 'Nice. Where are we on the export feature?', final: true },
     ]);
     say(live.sessionId, 'msg_ans_1', ANSWERS[0]![1]);
-    answers.set(live.id, [{ id: 'ans_1', meetingId: live.id, messageId: 'msg_ans_1', trigger: 'question', question: 'Nice. Where are we on the export feature?', state: 'done', segmentEndAt: now - 2 * MIN - 380, receivedAt: now - 2 * MIN - 60, requestAt: now - 2 * MIN + 2, createdAt: now - 2 * MIN, firstTokenAt: now - 2 * MIN + 520, doneAt: now - 2 * MIN + 2100, model: 'cliproxy/claude-haiku-5-5' }]);
+    answers.set(live.id, [{ id: 'ans_1', meetingId: live.id, messageId: 'msg_ans_1', trigger: 'question', question: 'Nice. Where are we on the export feature?', state: 'done', segmentEndAt: now - 2 * MIN - 380, speechEndAt: now - 2 * MIN - 380, finalAt: now - 2 * MIN - 150, paintedAt: now - 2 * MIN + 560, receivedAt: now - 2 * MIN - 60, requestAt: now - 2 * MIN + 2, createdAt: now - 2 * MIN, firstTokenAt: now - 2 * MIN + 520, doneAt: now - 2 * MIN + 2100, model: 'cliproxy/claude-haiku-5-5' }]);
     const ended = base({ id: 'mtg_review', title: 'Design review, export page', status: 'ended', createdAt: now - 26 * 60 * MIN, startedAt: now - 26 * 60 * MIN, endedAt: now - 25 * 60 * MIN, notesPath: '/home/kai/code/conclave/.conclave/meetings/2026-10-30-1000-design-review.md' });
     meetings.set(ended.id, ended);
     segments.set(ended.id, [
@@ -431,7 +431,8 @@ export function registerMeetings(ctx: MockCtx) {
     return true;
   }
 
-  async function answer(m: Meeting, trigger: MeetingAnswer['trigger'], question: string): Promise<MeetingAnswer> {
+  /** from: the segment and the hub-clock times of its batch, mapped as the hub does (receivedAt - sentAt). */
+  async function answer(m: Meeting, trigger: MeetingAnswer['trigger'], question: string, from?: { seg: Segment; t0: number; receivedAt: number; off: number }): Promise<MeetingAnswer> {
     const list = answers.get(m.id) ?? [];
     answers.set(m.id, list);
     // one answer streams at a time: a new one stops the old (4.3)
@@ -441,7 +442,11 @@ export function registerMeetings(ctx: MockCtx) {
         a.state = 'cancelled';
         emit({ type: 'meeting.answer', sessionId: m.sessionId, meetingId: m.id, answer: { ...a } } as never);
       }
-    const a: MeetingAnswer = { id: uid('ans'), meetingId: m.id, messageId: uid('msg'), trigger, question, state: 'streaming', segmentEndAt: trigger === 'answer-now' ? undefined : Date.now() - 320, createdAt: Date.now(), model: m.answerModel ?? ANSWER_MODELS[1]!.ref };
+    const segEnd = from && from.t0 + from.seg.endMs + from.off;
+    const timing = from
+      ? { segmentEndAt: segEnd, speechEndAt: from.seg.speechEndAt !== undefined ? from.seg.speechEndAt + from.off : segEnd, finalAt: from.seg.finalAt !== undefined ? from.seg.finalAt + from.off : from.receivedAt, receivedAt: from.receivedAt }
+      : {};
+    const a: MeetingAnswer = { id: uid('ans'), meetingId: m.id, messageId: uid('msg'), trigger, question, state: 'streaming', ...timing, createdAt: Date.now(), requestAt: Date.now(), model: m.answerModel ?? ANSWER_MODELS[1]!.ref };
     list.push(a);
     const abort = { stop: false };
     aborts.set(a.id, abort);
@@ -541,6 +546,8 @@ export function registerMeetings(ctx: MockCtx) {
     if (m.audioClientId && m.audioClientId !== b.clientId) fail(409, 'Another app is listening to this meeting.');
     const list = segments.get(m.id)!;
     const fresh: Segment[] = [];
+    const receivedAt = Date.now();
+    const off = typeof b.sentAt === 'number' ? receivedAt - b.sentAt : 0;
     for (const s of b.segments) {
       if ((s.channel !== 'me' && s.channel !== 'them') || !Number.isInteger(s.seq) || s.seq < 0 || typeof s.text !== 'string' || s.text.length > 2000) fail(400, 'Malformed segment.');
       const text = s.text.trim();
@@ -562,7 +569,7 @@ export function registerMeetings(ctx: MockCtx) {
     setTimeout(() => {
       for (const seg of fresh) {
         emit({ type: 'meeting.segment', sessionId: m.sessionId, meetingId: m.id, segment: seg } as never);
-        if (seg.final && seg.channel === 'them' && m.autoAnswer === 'questions' && isQuestion(seg.text)) void answer(m, 'question', seg.text);
+        if (seg.final && seg.channel === 'them' && m.autoAnswer === 'questions' && isQuestion(seg.text)) void answer(m, 'question', seg.text, { seg, t0: b.t0, receivedAt, off });
       }
     }, 0);
     const last = (c: Channel) => Math.max(-1, ...list.filter((x) => x.channel === c && x.final).map((x) => x.seq));
@@ -583,6 +590,18 @@ export function registerMeetings(ctx: MockCtx) {
     if (a.state === 'streaming') {
       aborts.get(a.id)!.stop = true;
       a.state = 'cancelled';
+      emit({ type: 'meeting.answer', sessionId: m.sessionId, meetingId: m.id, answer: { ...a } } as never);
+    }
+    return json(204);
+  });
+
+  // one clock in the mock: paintedAt as sent
+  on('POST', '/api/meetings/:id/answers/:answer/paint', ({ params, body }) => {
+    const m = get(params[0]!);
+    const a = answers.get(m.id)?.find((x) => x.id === params[1]) ?? fail(404, 'Answer not found');
+    const at = Number((body as { paintedAt?: number })?.paintedAt);
+    if (a.paintedAt === undefined && Number.isFinite(at)) {
+      a.paintedAt = at;
       emit({ type: 'meeting.answer', sessionId: m.sessionId, meetingId: m.id, answer: { ...a } } as never);
     }
     return json(204);
@@ -709,7 +728,12 @@ export function installMockDesktop(req: Req) {
       while (st.paused) await new Promise((r) => setTimeout(r, 500));
       fire('meeting://level', channel === 'me' ? { me: 0.6, them: 0.05 } : { me: 0.05, them: 0.7 });
       const s: Segment = { seq: seq[channel]++, channel, startMs: 0, endMs: 2000, text, final: true };
-      const post = (segs: Segment[]) => req('POST', `/api/meetings/${meetingId}/segments`, { clientId: 'app_desktop', t0: Date.now(), segments: segs });
+      // the desktop's marks as Rust sends them: speech ended 150 ms ago, the text came 50 ms ago
+      const post = (segs: Segment[]) => {
+        const now = Date.now();
+        const t0 = now - 150 - s.endMs;
+        return req('POST', `/api/meetings/${meetingId}/segments`, { clientId: 'app_desktop', t0, sentAt: now, segments: segs.map((x) => ({ ...x, speechEndAt: t0 + x.endMs, finalAt: now - 50 })) });
+      };
       if (channel === 'them') await post([{ ...s, final: false, text: text.split(' ').slice(0, 4).join(' ') }]).catch(() => undefined);
       await new Promise((r) => setTimeout(r, 600));
       const ok = await post([s]).then(

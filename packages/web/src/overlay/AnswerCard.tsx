@@ -9,10 +9,27 @@
  * counter between them). Copyright (C) 2025 sohzm. Licensed GPL-3.0-or-later;
  * combined into Conclave (AGPL-3.0-only) under GPLv3 section 13.
  */
-import { memo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { splitAnswer } from './model';
 import { StreamText } from './StreamText';
-import type { MeetingAnswer } from './wire';
+import type { AnswerPaintInput, MeetingAnswer } from './wire';
+
+/**
+ * Reports each answer's first paint once: a frame after its first words
+ * commit, POST .../paint with the desktop clock, fire and forget (a hub
+ * without the route answers 404, and that is fine).
+ */
+export function paintReporter(post: (answerId: string, body: AnswerPaintInput) => Promise<unknown>, raf: (cb: () => void) => unknown = (cb) => requestAnimationFrame(cb)) {
+  const sent = new Set<string>();
+  return (answerId: string) => {
+    if (sent.has(answerId)) return;
+    sent.add(answerId);
+    raf(() => {
+      const paintedAt = Date.now();
+      void post(answerId, { paintedAt, sentAt: Date.now() }).catch(() => undefined);
+    });
+  };
+}
 
 const STATE: Record<MeetingAnswer['state'], string> = { streaming: 'Writing', done: '', cancelled: 'Stopped', failed: 'No answer' };
 
@@ -43,9 +60,13 @@ export interface Nav {
   step: (dir: -1 | 1) => void;
 }
 
-export const AnswerCard = memo(function AnswerCard({ answer, text, nav, onStop, onRetry }: { answer: MeetingAnswer; text: string; nav?: Nav; onStop?: () => void; onRetry?: () => void }) {
+export const AnswerCard = memo(function AnswerCard({ answer, text, nav, onStop, onRetry, onPaint }: { answer: MeetingAnswer; text: string; nav?: Nav; onStop?: () => void; onRetry?: () => void; onPaint?: (answerId: string) => void }) {
   const done = answer.state !== 'streaming';
   const a = splitAnswer(text, done);
+  // the first words on screen: a held back "Say this:" alone is not visible yet
+  const visible = !!(a.say || a.rest.trim());
+  const report = visible && !done && answer.paintedAt === undefined;
+  useEffect(() => void (report && onPaint?.(answer.id)), [report, onPaint, answer.id]);
   return (
     <section className="ov-card" aria-label="Say this">
       <header className="ov-card-head">
