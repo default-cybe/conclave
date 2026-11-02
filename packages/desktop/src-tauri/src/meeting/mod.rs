@@ -182,6 +182,11 @@ fn build(app: &AppHandle, url: Url) -> Result<WebviewWindow, String> {
         if matches!(e, Resized(_) | Moved(_) | ScaleFactorChanged { .. } | Focused(_)) {
             recheck(&handle);
         }
+        if matches!(e, ScaleFactorChanged { .. }) {
+            if let Some(w) = handle.get_webview_window(MEETING) {
+                place::refresh_primary_scale(&w);
+            }
+        }
         // the page snaps it once the drag settles (overlay/dock.ts): the OS says nothing when a drag ends
         if let Moved(p) = e {
             if let Some(w) = handle.get_webview_window(MEETING) {
@@ -816,6 +821,11 @@ fn watch(app: &AppHandle, stop: &AtomicBool) {
                 exclude_win::sweep(h.0 as isize);
             }
             recheck(app);
+            // a display plugged in or its scale changed: the cached primary scale for the hover
+            #[cfg(target_os = "macos")]
+            if let Some(w) = app.get_webview_window(MEETING).filter(|_| place::wants_hover(NOTCH.load(Ordering::Relaxed), BLUR.load(Ordering::Relaxed))) {
+                place::refresh_primary_scale(&w);
+            }
         }
         if let Some(r) = RUN.lock().unwrap().as_ref() {
             let next = Levels { me: r.mic.level(), them: r.sys.level() };
@@ -828,7 +838,9 @@ fn watch(app: &AppHandle, stop: &AtomicBool) {
                 last_level = None;
             }
         }
-        if let Some(inside) = app.get_webview_window(MEETING).and_then(|w| place::cursor_inside(&w)) {
+        // free, nothing hides on hover: no cursor and window queries 4 times a second
+        let hover = place::wants_hover(NOTCH.load(Ordering::Relaxed), BLUR.load(Ordering::Relaxed));
+        if let Some(inside) = app.get_webview_window(MEETING).filter(|_| hover).and_then(|w| place::cursor_inside(&w)) {
             if HOVER.swap(inside, Ordering::Relaxed) != inside {
                 let _ = app.emit_to(MEETING, "meeting://hover", inside);
             }
