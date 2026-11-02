@@ -13,6 +13,8 @@ export interface AccountRef {
   /** What the apps show and greet by ("Kai Ahir"). Missing: none given (the owner's default account), or an older hub. */
   displayName?: string;
   role: AccountRole;
+  /** Public profile image revision, fetched with authentication. */
+  avatarVersion?: number;
 }
 
 /** What the owner's account is called until the owner gives a name (core people/migrate.ts). */
@@ -101,6 +103,12 @@ export interface MePreferences {
   splitView?: string[];
 }
 
+export interface AccountUsage {
+  /** Calendar periods in the hub's timezone; weeks start Monday. */
+  week: { from: number; tokens: number; costUsd: number };
+  month: { from: number; tokens: number; costUsd: number };
+}
+
 /** GET /api/me */
 export interface MeDto extends AccountRef {
   email?: string;
@@ -143,6 +151,8 @@ export type ProviderGrantsDto = Record<string, { monthlyUsd?: number | null }>;
 
 /** GET /api/people (owner) */
 export interface PersonDto extends AccountRef {
+  disabled?: boolean;
+  usage?: AccountUsage;
   email?: string;
   passwordSet: boolean;
   /** An invite link waits until this time. */

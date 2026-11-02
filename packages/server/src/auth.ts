@@ -144,7 +144,7 @@ export class Auth {
     if (!c) return undefined;
     // an app of a removed person stops working, even if its row was missed
     const account = this.engine.people.get(c.accountId);
-    if (!account) return undefined;
+    if (!account || account.disabled) return undefined;
     return { kind: 'client', clientId: c.id, name: c.name, accountId: account.id, role: account.role };
   }
 
@@ -162,7 +162,11 @@ export class Auth {
       safeEqual(sha256(token), sha256(''));
       return undefined;
     }
-    return safeEqual(sha256(token), stored) ? deviceId : undefined;
+    if (!safeEqual(sha256(token), stored)) return undefined;
+    // checked after the compare so a disabled account's ids cannot be probed by timing either
+    const accountId = this.engine.repos.devices.accountOf(deviceId);
+    const account = accountId ? this.engine.people.get(accountId) : undefined;
+    return account && !account.disabled ? deviceId : undefined;
   }
 
   checkGatewayKey(key: string | undefined): GatewayKey | undefined {

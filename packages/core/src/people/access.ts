@@ -14,6 +14,7 @@ import type { Provider } from '../providers/types';
 import { createProvider, isLocalUrl, type RegistryOverlay } from '../providers/registry';
 import { OWNER_ID } from './context';
 import type { PeopleStore } from './store';
+import type { AccountUsage } from '../client/people';
 import type { AccountSecrets } from './secrets';
 import { MemberPlanProvider, PLAN_PROVIDER, entryServes, memberPlanConfig, type MemberPlans } from './plans';
 
@@ -53,6 +54,21 @@ export class AccessError extends Error {
 export function monthWindow(now = Date.now()): { from: number; to: number } {
   const d = new Date(now);
   return { from: new Date(d.getFullYear(), d.getMonth(), 1).getTime(), to: new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime() };
+}
+
+/** This Monday 00:00 in the hub's local time. */
+export function weekStart(now = Date.now()): number {
+  const d = new Date(now);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)).getTime();
+}
+
+/** An account's tokens (in + out) and cost this week and this month, whoever's key paid. */
+export function usageSummary(db: Db, accountId: string, now = Date.now()): AccountUsage {
+  const sum = (from: number) => {
+    const r = db.query('SELECT COALESCE(SUM(input_tokens + output_tokens), 0) AS t, COALESCE(SUM(cost_usd), 0) AS c FROM usage WHERE account_id = ? AND ts >= ? AND ts <= ?').get(accountId, from, now) as { t: number; c: number };
+    return { from, tokens: r.t, costUsd: Math.round(r.c * 10_000) / 10_000 };
+  };
+  return { week: sum(weekStart(now)), month: sum(monthWindow(now).from) };
 }
 
 export class ProviderAccess {
@@ -252,6 +268,8 @@ export class ProviderAccess {
    * and no allowance on the hub's, or the month's budget on the hub's key is spent.
    */
   check(accountId: string, provider: string, model?: string): KeySource {
+    // a disabled account's routines, watches and queued turns stop at their next model call
+    if (accountId !== OWNER_ID && this.deps.people.get(accountId)?.disabled) throw new AccessError('no_access', 'This account is disabled. Ask the owner of the hub.');
     const src = this.source(accountId, provider, model);
     if (src === 'none') throw new AccessError('no_access', noAccess(this.label(provider)));
     if (src === 'own' || accountId === OWNER_ID) return src;

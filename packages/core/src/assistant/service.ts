@@ -21,6 +21,8 @@ import { ASSISTANT_AGENT, PrefsService } from './prefs';
 import { buildDay, renderDay, type DayReport } from './day';
 import { addDays, atLocal, cronHours, dayRange, daysBetween, insideHours, localDate, localHhmm, localLong } from './time';
 import { QUIET_JOB } from './quiet';
+import { buildRecap } from './recap';
+import type { RecapDto, RecapPeriod, RecapSummaryDto } from '../client/recap';
 import { OWNER_ID } from '../people/context';
 import type { AssistantRoutineDto, AssistantSettingsDto, DayPlan, DayPlanItem, PrefsPatch, ProactivePrefs, ReflectDto, ReflectNowDto, ReflectPatch, ReflectRunDto, TodayDto, TodayGoal } from './types';
 
@@ -57,6 +59,8 @@ export interface AssistantHost {
   untrustedAgent?(name: string, cwd?: string): boolean;
   now?: () => number;
   hubZone?: () => string;
+  /** One text call on this account's small (fast-tier) model and keys: Reflect's Summarise. */
+  complete?(o: { system: string; prompt: string; maxTokens: number; purpose: string }): Promise<string>;
   /** Whose assistant (docs/design/ACCOUNTS.md). Sessions it reads are this account's. Default: the owner's. */
   accountId?: string;
 }
@@ -257,6 +261,27 @@ export class AssistantService {
     if (cur) return cur;
     const { id: _id, description: _d, ...input } = this.template('nightly-reflection');
     return this.host.routines.create({ ...input, template: 'nightly-reflection', enabled: false, timezone: this.zone() });
+  }
+
+  /** Reflect's recap: this account's week, month or year from the hub's tables, in its own zone. No model call. */
+  recap(period: RecapPeriod): RecapDto {
+    return buildRecap(this.host.db, this.host.accountId ?? OWNER_ID, period, this.zone(), this.now());
+  }
+
+  /** Summarise: the recap in a short paragraph, one call on the account's small model. */
+  async recapSummary(period: RecapPeriod): Promise<RecapSummaryDto> {
+    if (!this.host.complete) throw new AssistantError(501, 'This hub has no model for summaries.');
+    const r = this.recap(period);
+    if (!r.totals.chats && !r.totals.sessions && !r.totals.workflows) return { summary: `Nothing to summarise this ${period} yet.` };
+    const { people, preferences, ...rest } = r;
+    const data = { ...rest, people: people.map((p) => p.content), preferences: preferences.map((p) => p.content) };
+    const text = await this.host.complete({
+      system: 'You write a warm, plain recap of what one person did with their AI assistant hub in a period. Three or four short sentences, second person, no lists, no headings, no emojis, no em dashes. Use only the numbers and names in the data; never invent anything.',
+      prompt: `Recap data for this ${period} (JSON):\n${JSON.stringify(data)}`,
+      maxTokens: 400,
+      purpose: 'reflect-recap',
+    });
+    return { summary: text.trim() };
   }
 
   /** Settings > Reflect: the switch, the time, the model, the last run in words and the notes. */

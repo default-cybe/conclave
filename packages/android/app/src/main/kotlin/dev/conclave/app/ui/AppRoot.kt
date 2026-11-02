@@ -378,6 +378,15 @@ private fun MainScaffold() {
                 nav.navigate(Routes.memoryMap(link.view, link.item))
                 hub.pendingLink.value = null
             }
+            // the home-screen widgets (widgets/Widgets.kt)
+            DeepLink.Usage -> {
+                nav.navigate(Routes.USAGE) { launchSingleTop = true }
+                hub.pendingLink.value = null
+            }
+            DeepLink.Today -> {
+                nav.navigate(Routes.TODAY) { launchSingleTop = true }
+                hub.pendingLink.value = null
+            }
         }
     }
 

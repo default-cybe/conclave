@@ -87,6 +87,16 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/people/:id/workspace': 'admin',
   'GET /api/people/:id/clients': 'admin',
   'DELETE /api/people/:id/clients/:client': 'admin',
+  'POST /api/people/:id/disable': 'admin',
+  'POST /api/people/:id/enable': 'admin',
+  'GET /api/people/:id/devices': 'admin',
+  'DELETE /api/people/:id/devices/:device': 'admin',
+  'GET /api/me/usage': 'self',
+  'GET /api/me/avatar': 'self',
+  'PUT /api/me/avatar': 'self',
+  'DELETE /api/me/avatar': 'self',
+  // the handler answers 404 unless the id is the caller's or a contact's (routes-people.ts)
+  'GET /api/avatars/:id': 'self',
 
   // ----- sessions -----
   'GET /api/sessions': 'self',
@@ -293,6 +303,9 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'PUT /api/assistant/reflect': 'self',
   // one reflection now, with a model call on the hub's keys: the owner's
   'POST /api/assistant/reflect/run': 'admin',
+  // the recap reads only the caller's account; Summarise runs on the caller's own small model and keys
+  'GET /api/reflect/recap': 'self',
+  'POST /api/reflect/recap/summary': 'self',
   'GET /api/assistant/today': 'self',
   'POST /api/assistant/today/answer': 'self',
 

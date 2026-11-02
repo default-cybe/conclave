@@ -12,4 +12,16 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
+
+    <!-- A home-screen widget's row (layout/widget_page.xml): one line, tall enough to tap. -->
+    <style name="WidgetRow">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">32dp</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:textColor">@color/widget_text</item>
+        <item name="android:textSize">13sp</item>
+    </style>
 </resources>

@@ -3,4 +3,10 @@
     <string name="app_name">Conclave</string>
     <string name="shortcut_new_chat_short">New chat</string>
     <string name="shortcut_new_chat_long">Start a new chat</string>
+    <!-- Home-screen widgets (widgets/Widgets.kt): the names in the launcher's widget picker -->
+    <string name="widget_loading">Loading…</string>
+    <string name="widget_usage">Plan limits and today\'s tokens</string>
+    <string name="widget_inbox">What waits on you</string>
+    <string name="widget_calendar">Your next events today</string>
+    <string name="widget_combined">Usage, Inbox and Calendar, swipe between them</string>
 </resources>

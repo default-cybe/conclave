@@ -67,13 +67,15 @@ import type {
 export type * from '../catalog/types';
 export type { AddSuggestionRequest, AddSuggestionResult, RoutineSuggestionDto, RoutineSuggestionsDto } from '../scheduler/suggest';
 export type * from './assistant';
+import type { RecapDto, RecapPeriod, RecapSummaryDto } from './recap';
+export type * from './recap';
 import type { LeaveByDto, MapsSettingsDto, MapsSettingsPatch, MapsTestResult } from './maps';
 export type * from './maps';
 import type { MemberProxyDto, MemberProxyUpdate, WebSearchSettingsDto, WebSearchSettingsPatch, WebSearchTestResult } from './websearch';
 export type * from './websearch';
 export { SEARCH_PROVIDERS } from './websearch';
 // ----- accounts: several people on one hub, docs/design/ACCOUNTS.md -----
-import type { AccountRef, InviteDto, InviteInfo, MeDto, MePatch, PersonCreated, PersonDto, PersonInput, PersonPatch, WorkspaceCode } from './people';
+import type { AccountRef, AccountUsage, InviteDto, InviteInfo, MeDto, MePatch, PersonCreated, PersonDto, PersonInput, PersonPatch, WorkspaceCode } from './people';
 import type { Contact } from './contacts';
 export type * from './people';
 export type * from './contacts';
@@ -399,6 +401,8 @@ export interface Attachment {
 export interface ChatParticipantDto {
   accountId: string;
   name: string;
+  /** Profile picture revision (GET /api/avatars/:id); missing: initials. */
+  avatarVersion?: number;
   access: 'viewer' | 'participant';
   state: 'invited' | 'active' | 'left' | 'removed' | 'declined';
   history: 'joined' | 'all';
@@ -1806,6 +1810,28 @@ export class ConclaveClient {
   personApps = (id: string) => this.request<AppDto[]>('GET', `/api/people/${encodeURIComponent(id)}/clients`);
   /** Sign one of a person's apps out. */
   revokePersonApp = (id: string, appId: string) => this.request<{ ok: true }>('DELETE', `/api/people/${encodeURIComponent(id)}/clients/${encodeURIComponent(appId)}`);
+  /** Disable a member: their work stops and their apps and computers are cut off at once. Nothing is deleted. */
+  disablePerson = (id: string) => this.request<PersonDto>('POST', `/api/people/${encodeURIComponent(id)}/disable`);
+  enablePerson = (id: string) => this.request<PersonDto>('POST', `/api/people/${encodeURIComponent(id)}/enable`);
+  /** A person's paired computers (the owner's view in People). */
+  personDevices = (id: string) => this.request<Device[]>('GET', `/api/people/${encodeURIComponent(id)}/devices`);
+  removePersonDevice = (id: string, deviceId: string) => this.request<{ ok: true }>('DELETE', `/api/people/${encodeURIComponent(id)}/devices/${encodeURIComponent(deviceId)}`);
+  /** Your tokens and cost this week and this month. */
+  myUsage = () => this.request<AccountUsage>('GET', '/api/me/usage');
+  /** Someone's profile picture: yours, or a contact's. */
+  avatar = (accountId: string, version?: number): Promise<Blob> => this.blob(`/api/avatars/${encodeURIComponent(accountId)}${version ? `?v=${version}` : ''}`);
+  /** Set your profile picture: a PNG, JPEG, GIF or WebP file of 512 KB at most. */
+  setAvatar = async (file: Blob): Promise<{ avatarVersion: number }> => {
+    const check = this.guard();
+    if (check) await check;
+    const headers: Record<string, string> = { 'content-type': file.type || 'application/octet-stream' };
+    if (this.token) headers.authorization = `Bearer ${this.token}`;
+    const res = await this.f(`${this.baseUrl}/api/me/avatar`, { method: 'PUT', headers, body: file });
+    const data = (await res.json().catch(() => undefined)) as { error?: string; avatarVersion: number } | undefined;
+    if (!res.ok) throw new ApiError(res.status, data?.error ?? res.statusText, data);
+    return data!;
+  };
+  removeAvatar = () => this.request<{ ok: true }>('DELETE', '/api/me/avatar');
   /** Who an invite is for (no auth needed). */
   invite = (secret: string) => this.call<InviteInfo>('GET', `/api/invite/${encodeURIComponent(secret)}`);
   /** Set a password from an invite and sign in (no auth needed). */
@@ -2091,6 +2117,10 @@ export class ConclaveClient {
   setReflect = (patch: ReflectPatch) => this.request<ReflectDto>('PUT', '/api/assistant/reflect', patch);
   /** The hub's owner only. Starts one reflection with the night's rules; returns as soon as it started. */
   reflectNow = () => this.request<ReflectNowDto>('POST', '/api/assistant/reflect/run');
+  /** Reflect: the caller's own week, month or year in numbers. No model call. */
+  reflectRecap = (period: RecapPeriod) => this.request<RecapDto>('GET', `/api/reflect/recap?period=${period}`);
+  /** Reflect's Summarise: one call on the caller's small model. */
+  reflectSummary = (period: RecapPeriod) => this.request<RecapSummaryDto>('POST', `/api/reflect/recap/summary?period=${period}`);
   today = () => this.request<TodayDto>('GET', '/api/assistant/today');
   answerToday = (option: string) => this.request<{ plan: DayPlan; sessionId?: string }>('POST', '/api/assistant/today/answer', { option });
 

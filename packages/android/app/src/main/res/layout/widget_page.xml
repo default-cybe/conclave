@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One widget page (widgets/Widgets.kt): a title, a line under it, up to three rows that open their item. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_page"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:orientation="vertical"
+    android:padding="14dp">
+
+    <TextView
+        android:id="@+id/widget_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text="@string/app_name"
+        android:textColor="@color/violet"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/widget_detail"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="6dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text="@string/widget_loading"
+        android:textColor="@color/widget_muted"
+        android:textSize="12sp" />
+
+    <TextView
+        android:id="@+id/widget_row_1"
+        style="@style/WidgetRow"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/widget_row_2"
+        style="@style/WidgetRow"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/widget_row_3"
+        style="@style/WidgetRow"
+        android:visibility="gone" />
+</LinearLayout>

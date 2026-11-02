@@ -50,6 +50,9 @@ export interface Saved {
   /** Not snapped: the top left as a share (0 to 1) of the room it can move in on the work area. */
   fx?: number;
   fy?: number;
+  /** The open overlay's size in CSS px, once the owner resized it (DEFAULT_W by DEFAULT_H before). */
+  w?: number;
+  h?: number;
 }
 
 /** A window to place: its top left in desktop units, its size in CSS px (meeting_place). */
@@ -62,9 +65,11 @@ export interface Placed {
 
 /** Drag within this many CSS px of a work-area edge and it snaps there. */
 export const SNAP_PX = 24;
-/** The overlay's width, and the shortest it gets (meeting/mod.rs MIN_HEIGHT). */
-export const WIDTH = 380;
-export const MIN_HEIGHT = 96;
+/** The open overlay's size (meeting/place.rs default_size), and the smallest a resize makes it, CSS px. */
+export const DEFAULT_W = 760;
+export const DEFAULT_H = 460;
+export const MIN_W = 520;
+export const MIN_H = 320;
 /** The hidden overlay's tab on an edge: TAB thick, TAB_LEN long (CSS px). */
 export const TAB = 10;
 export const TAB_LEN = 64;
@@ -141,17 +146,18 @@ export function freeShares(win: Rect, work: Rect): { fx: number; fy: number } {
   return { fx: rx > 0 ? share((win.x - work.x) / rx) : 0, fy: ry > 0 ? share((win.y - work.y) / ry) : 0 };
 }
 
-/** The tallest the overlay gets: three quarters of the work area (meeting/mod.rs clamp_height). */
-export function clampHeight(h: number, d: Display): number {
-  const max = Math.max(MIN_HEIGHT, ((d.work.h / d.unit) * 3) / 4);
-  return Number.isFinite(h) ? clamp(h, MIN_HEIGHT, max) : max;
+/** The open overlay's size on `d`: the saved one (or the default), at least MIN_W by MIN_H, at most the work area. */
+export function sizeOn(saved: Pick<Saved, 'w' | 'h'>, d: Display): { w: number; h: number } {
+  const [ww, wh] = [d.work.w / d.unit, d.work.h / d.unit];
+  const fit = (v: number | undefined, def: number, min: number, max: number) => Math.round(Math.min(max, Math.max(Math.min(min, max), v !== undefined && Number.isFinite(v) ? v : def)));
+  return { w: fit(saved.w, DEFAULT_W, MIN_W, ww), h: fit(saved.h, DEFAULT_H, MIN_H, wh) };
 }
 
-/** Docked to an edge: open (WIDTH by h) or hidden (the tab), kept inside the work area. */
-export function edgeRect(d: Display, edge: Edge, along: number, h: number, hidden: boolean): Placed {
+/** Docked to an edge: open (`size`) or hidden (the tab), kept inside the work area. */
+export function edgeRect(d: Display, edge: Edge, along: number, size: { w: number; h: number }, hidden: boolean): Placed {
   const side = edge === 'left' || edge === 'right';
-  const w = hidden ? (side ? TAB : TAB_LEN) : WIDTH;
-  const hh = hidden ? (side ? TAB_LEN : TAB) : clampHeight(h, d);
+  const w = hidden ? (side ? TAB : TAB_LEN) : size.w;
+  const hh = hidden ? (side ? TAB_LEN : TAB) : size.h;
   const [pw, ph] = [w * d.unit, hh * d.unit];
   const k = d.work;
   const a = share(along);
@@ -160,10 +166,9 @@ export function edgeRect(d: Display, edge: Edge, along: number, h: number, hidde
 }
 
 /** Free: at its saved shares of the work area (centred the first time). */
-export function freeRect(d: Display, fx: number | undefined, fy: number | undefined, h: number): Placed {
-  const hh = clampHeight(h, d);
+export function freeRect(d: Display, fx: number | undefined, fy: number | undefined, size: { w: number; h: number }): Placed {
   const k = d.work;
-  return { x: k.x + share(fx ?? 0.5) * Math.max(0, k.w - WIDTH * d.unit), y: k.y + share(fy ?? 0.2) * Math.max(0, k.h - hh * d.unit), w: WIDTH, h: hh };
+  return { x: k.x + share(fx ?? 0.5) * Math.max(0, k.w - size.w * d.unit), y: k.y + share(fy ?? 0.2) * Math.max(0, k.h - size.h * d.unit), w: size.w, h: size.h };
 }
 
 /**
@@ -172,12 +177,13 @@ export function freeRect(d: Display, fx: number | undefined, fy: number | undefi
  * notch gets a PILL_W pill as tall as its menu bar. `pill` is the hidden size,
  * for the shape the page animates from.
  */
-export function notchRect(d: Display, open: boolean, h: number): Placed & { pill: { w: number; h: number }; notch?: { w: number; h: number } } {
+export function notchRect(d: Display, open: boolean, size: { w: number; h: number }): Placed & { pill: { w: number; h: number }; notch?: { w: number; h: number } } {
   const notch = notchSize(d);
   const bar = (d.work.y - d.frame.y) / d.unit;
   const pill = notch ? { w: notch.w + 2 * EAR, h: notch.h } : { w: PILL_W, h: bar >= 20 && bar <= 60 ? bar : PILL_H };
-  const w = open ? Math.max(WIDTH, pill.w) : pill.w;
-  const hh = open ? Math.max(pill.h, clampHeight(h, d)) : pill.h;
+  const w = open ? Math.max(size.w, pill.w) : pill.w;
+  // open, it grows down from the menu bar: the panel's own height below the pill
+  const hh = open ? Math.max(pill.h, Math.min(size.h + pill.h, d.frame.h / d.unit)) : pill.h;
   return { x: d.frame.x + d.frame.w / 2 - (w * d.unit) / 2, y: d.frame.y, w, h: hh, pill, notch };
 }
 
@@ -204,10 +210,11 @@ export function afterDrag(saved: Saved, displays: Display[], x: number, y: numbe
 }
 
 /** Where the window goes for the saved placement on display `d`. */
-export function target(saved: Saved, d: Display, h: number, hidden: boolean): Placed {
-  if (saved.mode === 'notch') return notchRect(d, !hidden, h);
-  if (saved.mode === 'edge' && saved.edge) return edgeRect(d, saved.edge, saved.along, h, hidden);
-  return freeRect(d, saved.fx, saved.fy, h);
+export function target(saved: Saved, d: Display, hidden: boolean): Placed {
+  const size = sizeOn(saved, d);
+  if (saved.mode === 'notch') return notchRect(d, !hidden, size);
+  if (saved.mode === 'edge' && saved.edge) return edgeRect(d, saved.edge, saved.along, size, hidden);
+  return freeRect(d, saved.fx, saved.fy, size);
 }
 
 /** A first visit: the notch on a Mac whose screen has one, else docking to edges; auto-hide on. */
@@ -224,7 +231,8 @@ export function readSaved(raw: string | null | undefined, base: Saved): Saved {
     const mode: Mode = v.mode === 'free' || v.mode === 'edge' || v.mode === 'notch' ? v.mode : base.mode;
     const edge = v.edge === 'left' || v.edge === 'right' || v.edge === 'top' || v.edge === 'bottom' ? v.edge : undefined;
     const num = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? share(n) : undefined);
-    return { mode, autoHide: typeof v.autoHide === 'boolean' ? v.autoHide : base.autoHide, display: typeof v.display === 'string' ? v.display : undefined, edge, along: num(v.along) ?? 0.5, fx: num(v.fx), fy: num(v.fy) };
+    const px = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) && n > 0 && n < 20_000 ? Math.round(n) : undefined);
+    return { mode, autoHide: typeof v.autoHide === 'boolean' ? v.autoHide : base.autoHide, display: typeof v.display === 'string' ? v.display : undefined, edge, along: num(v.along) ?? 0.5, fx: num(v.fx), fy: num(v.fy), w: px(v.w), h: px(v.h) };
   } catch {
     return base;
   }

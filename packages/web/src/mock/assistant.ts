@@ -6,7 +6,7 @@
  * none. Also answers GET /api/routines/templates with the hub's own list.
  */
 import type { Task } from '@conclave/core/types';
-import type { AssistantRoutineDto, AssistantSettingsDto, DayPlan, Goal, GoalArea, GoalDetail, GoalEntry, GoalSummary, ProactivePrefs, ReflectDto, ReflectNowDto, ReflectRunDto, TodayDto } from '@conclave/core/client';
+import type { AssistantRoutineDto, AssistantSettingsDto, DayPlan, Goal, GoalArea, GoalDetail, GoalEntry, GoalSummary, ProactivePrefs, RecapDto, RecapPeriod, ReflectDto, ReflectNowDto, ReflectRunDto, TodayDto } from '@conclave/core/client';
 import type { MemoryEntry } from '@conclave/core/types';
 import { DEFAULT_PREFS, GOAL_AREAS } from '@conclave/core/assistant/types';
 import { ROUTINE_TEMPLATES } from '@conclave/core/scheduler/templates';
@@ -406,6 +406,55 @@ export function registerAssistant(ctx: MockCtx) {
       reflectRun = { ...run, status: 'ok', finishedAt: Date.now(), saved: 1 };
     }, 4000);
     return { run, reflect: reflectDto() };
+  });
+
+  // Reflect's recap: a made-up busy week, month and year; a fresh hub, or a new member (?member=1, index.ts), has nothing yet
+  const emptyRecap = ctx.FRESH || new URLSearchParams(location.search).get('member') === '1';
+  const recapDto = (period: RecapPeriod): RecapDto => {
+    const x = period === 'week' ? 1 : period === 'month' ? 4 : 38;
+    const first = period === 'week' ? addDays(today, -((new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7)) : period === 'month' ? `${today.slice(0, 7)}-01` : `${today.slice(0, 4)}-01-01`;
+    const start = Date.parse(`${first}T08:00:00Z`);
+    const base = { period, start, end: now + 1, timezone: ZONE };
+    if (emptyRecap) return { ...base, totals: { chats: 0, sessions: 0, workflows: 0, tokens: 0, costUsd: 0, models: 0 }, models: [], projects: [], topics: [], people: [], preferences: [], rhythm: { activeDays: 0, longestStreak: 0 }, facts: [] };
+    const mem = (id: string, content: string, ago: number) => ({ id, content, firstSeen: now - ago * DAY });
+    const models = [
+      { name: 'anthropic/claude-opus-5-5', count: 212 * x, tokens: 4_810_000 * x, costUsd: 31.4 * x },
+      { name: 'anthropic/claude-sonnet-5-5', count: 340 * x, tokens: 2_260_000 * x, costUsd: 9.1 * x },
+      { name: 'openai/gpt-5.5', count: 48 * x, tokens: 610_000 * x, costUsd: 3.8 * x },
+      { name: 'zai/glm-5', count: 31 * x, tokens: 240_000 * x, costUsd: 0.4 * x },
+    ];
+    return {
+      ...base,
+      totals: { chats: 23 * x, sessions: 14 * x, workflows: 3 * x, tokens: models.reduce((a, m) => a + m.tokens, 0), costUsd: models.reduce((a, m) => a + m.costUsd, 0), models: models.length },
+      models,
+      projects: [
+        { name: '/home/conclave/work/conclave', count: 9 * x },
+        { name: '/home/kai/uni/14-735', count: 3 * x },
+        { name: '/home/kai/homelab', count: 2 * x },
+      ],
+      topics: [
+        { name: 'reflect', count: 6 * x },
+        { name: 'meeting', count: 4 * x },
+        { name: 'authentik', count: 3 * x },
+        { name: 'backup', count: 2 * x },
+        { name: 'integers', count: 2 * x },
+        { name: 'plex', count: 1 * x },
+      ],
+      people: [mem('p1', 'Priya: TA for 14-735 Secure Coding, holds office hours on Thursdays', 2), mem('p2', 'Marco: runs the homelab Discord, knows Proxmox networking', 4)],
+      preferences: [mem('f1', 'Likes short, bullet-only answers that cite line numbers.', 1), mem('f2', 'Dislikes em dashes and AI-sounding phrasing in anything he sends.', 3), mem('f3', 'Prefers work split across parallel subagents.', 5)],
+      rhythm: { activeDays: Math.min(6 * x, 300), longestStreak: period === 'week' ? 5 : period === 'month' ? 11 : 26, busiestDay: { name: addDays(today, -1), count: 41 }, busiestHour: { name: '22:00', count: 18 * x }, timeOfDay: { name: 'Evening (18–23)', count: 70 * x } },
+      facts: [`${period === 'week' ? 5 : period === 'month' ? 11 : 26}-day active streak.`, 'Most-used model: anthropic/claude-opus-5-5.', 'Top workspace: conclave.', 'Peak hours: Evening (18–23).'],
+    };
+  };
+  const periodOf = (q: URLSearchParams): RecapPeriod => (q.get('period') === 'month' || q.get('period') === 'year' ? (q.get('period') as RecapPeriod) : 'week');
+  on('GET', '/api/reflect/recap', async ({ query }) => {
+    await ctx.sleep(150);
+    return recapDto(periodOf(query));
+  });
+  on('POST', '/api/reflect/recap/summary', async ({ query }) => {
+    await ctx.sleep(900);
+    const p = periodOf(query);
+    return { summary: `A steady ${p} with most of your time in Conclave, mostly in the evenings around 22:00. Opus did the heavy lifting, Sonnet handled the quick chats, and two new people joined your memory. You kept asking for short answers with no em dashes, and the assistant noted it.` };
   });
 
   // ----- Today -----------------------------------------------------------------

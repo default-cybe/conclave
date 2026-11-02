@@ -137,6 +137,12 @@ sealed class DeepLink {
     /** conclave://meetings/<id> or the hub path /meetings/<id> (a meeting reminder): one meeting; /meetings alone the list. */
     data class Meetings(val id: String? = null) : DeepLink()
 
+    /** conclave://usage (the Usage widget): the Usage page. */
+    data object Usage : DeepLink()
+
+    /** conclave://today (the Calendar widget, a proposal on the Inbox widget): the day plan. */
+    data object Today : DeepLink()
+
     companion object {
         fun parse(raw: String?): DeepLink? {
             if (raw.isNullOrBlank()) return null
@@ -170,6 +176,8 @@ sealed class DeepLink {
                     "friends" -> Friends(path.substringBefore('/').takeIf { it.isNotBlank() }?.let { decode(it) })
                     "shares", "share" -> Shares(path.substringBefore('/').takeIf { it.isNotBlank() }?.let { decode(it) })
                     "map" -> MapPage
+                    "usage" -> Usage
+                    "today" -> Today
                     "meetings", "meeting" -> Meetings(path.substringBefore('/').takeIf { it.isNotBlank() }?.let { decode(it) })
                     "memory-map" -> query(uri.rawQuery).let { q -> MemoryMap(q["view"]?.firstOrNull()?.ifBlank { null }, q["item"]?.firstOrNull()?.ifBlank { null }) }
                     else -> null

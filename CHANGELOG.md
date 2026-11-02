@@ -11,14 +11,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
-- Meeting page: each answer shows where its time went (speech end, final transcript, hub, model request, first token, first paint on the overlay), and the Answers header shows "Speech end to first word: p50, p95 (n)". The overlay reports when it first paints an answer's words, and the hub stores it on its own clock.
-
-### Changed
-
-- Meetings: answers start sooner. The desktop opens both speech sockets when the meeting starts and keeps them open through silence (KeepAlive), so the first words after a quiet spell no longer wait about 0.5 s for a new connection. Deepgram ends a phrase after 150 ms of silence instead of 300 ms. A speculative answer starts after 0.6 s of partial speech and is kept when the final question only grew.
-- Gemini 3: with thinking off, the answer model asks for the least thinking level the model takes (`minimal` on 3.0 and 3.1 Flash and Flash-Lite, `low` on the others). Gemini 2.5 is unchanged.
-- Meetings: the overlay stops lagging. The desktop sends audio levels only when they move and the overlay shows (not to the hidden edge tab), and checks the hover only when docked or in the notch (in Free mode, from 4 checks a second to none). The recording dot is steady instead of pulsing, which took an idle overlay from about 17 % to 0.4 % of a core in a headless profile, and the overlay closes its connection to the hub once the meeting has ended.
-- Memory: the 3D map stops drawing 30 seconds after the last input or when the window loses focus, and wakes on pointer, scroll, keys or focus.
+- Android: home-screen widgets. Usage (plan limits and today's tokens), Inbox (what waits on you and the first three, each opening its chat), Calendar (today's next three events), and one widget that swipes through all three. They show the signed-in account only, keep nothing on disk, and refresh with WorkManager every 30 minutes and shortly after approvals, questions, alerts, usage or leaving the app.
+- Reflect: a recap of your week, month or year at the top of Settings > Reflect. Chats, sessions, workflows, tokens, cost and top models; the folders and topics you worked on; people first seen in memory and preferences saved in the period; active days, longest streak, busiest day and hour; and a few facts. It reads only your own account, so a member sees only their own recap (`GET /api/reflect/recap?period=week|month|year`). Summarise writes it as a short paragraph with one call on your small model (`POST /api/reflect/recap/summary`); nothing else calls a model.
+- People: the owner can disable and enable a member. Disabling stops their running work and cuts their open apps and paired computers at once; they cannot sign in until enabled, and nothing is deleted. Each member's row shows their picture, status, tokens and cost this week and month, and their computers with Unpair.
+- Your account: a profile picture (PNG, JPEG, GIF or WebP, 512 KB at most), your tokens and cost this week and month, and your paired computers with Unpair. Pictures show in the sidebar footer, People and a shared chat's people, with initials when there is none.
 
 ### Fixed
 
@@ -28,8 +24,31 @@ like `## [0.4.16] - 2026-10-24`.
 - Sidebar: jury and debate rows read the verdict the hub now keeps on the session when it writes one, instead of loading up to 6 transcripts to find it. Sessions from before this still load theirs. A rewind clears the stored verdict, so a cut verdict no longer stays on the row.
 - Every web test now runs in `bun run test` and CI; before, only 2 of the 119 files in `packages/web/test` did.
 - Routine summaries and resumed subagent reports read the latest 20 messages first, falling back to the full transcript only when no assistant answer is in the tail.
+
+### Security
+
+- Daemon sign in checks the account only after the token compare, so a disabled account's device ids cannot be told apart by timing.
+- Profile pictures are checked by their bytes, never the claimed type, and served with `nosniff` and a sandbox policy; another account's picture is served only to the owner or a contact.
+
+## [0.4.58] - 2026-11-02
+
+### Added
+
+- Meeting page: each answer shows where its time went (speech end, final transcript, hub, model request, first token, first paint on the overlay), and the Answers header shows "Speech end to first word: p50, p95 (n)". The overlay reports when it first paints an answer's words, and the hub stores it on its own clock.
+
+### Changed
+
+- Meeting overlay: bigger and simpler, laid out like Parakeet AI and Final Round AI. It opens at 760 x 460 (kept inside the screen), resizes from its corner down to 520 x 320, and remembers its size on each device; the edge and notch placements open at the same size. One top bar holds the listening dot, the time, the speech provider and four controls: Answer now (also Space), Pause, Hide and a "..." menu with everything else (text size A- and A+ from 16 to 26 px, opacity, placement, click-through, auto answers, end meeting). Under it, a slim strip shows the last three lines with "Them" and "Me" in their own colours, and the answer fills the rest at 19 px ("Say this" bullets at 21 px), newest on top, with the earlier ones behind the arrows in its header. "Visible in screen shares" is now an icon with a tooltip, shown only when it is true.
+- Meetings: answers start sooner. The desktop opens both speech sockets when the meeting starts and keeps them open through silence (KeepAlive), so the first words after a quiet spell no longer wait about 0.5 s for a new connection. Deepgram ends a phrase after 150 ms of silence instead of 300 ms. A speculative answer starts after 0.6 s of partial speech and is kept when the final question only grew.
+- Gemini 3: with thinking off, the answer model asks for the least thinking level the model takes (`minimal` on 3.0 and 3.1 Flash and Flash-Lite, `low` on the others). Gemini 2.5 is unchanged.
+- Meetings: the overlay stops lagging. The desktop sends audio levels only when they move and the overlay shows (not to the hidden edge tab), and checks the hover only when docked or in the notch (in Free mode, from 4 checks a second to none). The recording dot is steady instead of pulsing, which took an idle overlay from about 17 % to 0.4 % of a core in a headless profile, and the overlay closes its connection to the hub once the meeting has ended.
+- Memory: the 3D map stops drawing 30 seconds after the last input or when the window loses focus, and wakes on pointer, scroll, keys or focus.
+
+### Fixed
+
 - Meetings: answer timings use one clock. Speech end is taken from when the audio was captured, not from when the speech socket connected, and the hub maps desktop and overlay times onto its own clock, so clock skew between the computers no longer shifts the step times, and speech queued before the connect no longer shows a 0 ms gap. An answer started from partial speech and kept for the final question no longer shows its model request before the final arrived.
 - Meetings: the speech-to-text token request tries again when a DNS lookup stalls, and a Deepgram 403 says the key needs Member permission or higher.
+- Meetings: a cache warm-up still retrying when the hub shuts down now stops with the hub and stays quiet, instead of logging "warm-up failed" after shutdown.
 
 ## [0.4.57] - 2026-11-02
 
