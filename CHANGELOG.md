@@ -20,6 +20,11 @@ like `## [0.4.16] - 2026-10-24`.
 - Meetings: no automatic local speech to text. When the cloud service fails (no key, a refused token, a dropped socket), the overlay shows why with a Retry, and the app keeps retrying the cloud with backoff. The Parakeet model is never downloaded or loaded unless you pick Local in Settings > Meetings, which is now labelled "slower, uses your computer". The hub's `stt-token` route answers 409 only when Local is chosen: a missing key is 412 and a meeting that is not running is 410.
 - Meetings on macOS: the menu bar no longer shows "● REC" or "Paused" next to the tray icon. The red dot on the icon stays.
 
+### Fixed
+
+- Overlay contrast: the transcript sits on the answer's denser layer, and the status line, notes, labels and quiet buttons on the see-through panel use full ink in the dark theme and the second ink in the light one. Every text now reaches 4.5:1 at 60 % opacity over a white page and over a busy image, in both themes; "Them:" and "Me:" went from 2.56:1 to 8.57:1 in the dark theme over white.
+- Meeting page on a phone: Delete moved into a "..." menu next to Save to memory and Open in chat, so the actions fit one row at 390 px. It still asks before it deletes.
+
 ## [0.4.55] - 2026-11-01
 
 ### Added

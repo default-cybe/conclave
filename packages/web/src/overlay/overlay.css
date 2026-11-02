@@ -24,6 +24,8 @@
   --fg: oklch(0.945 0.004 286);
   --fg-2: oklch(0.765 0.008 286);
   --fg-3: oklch(0.61 0.01 286);
+  /* quiet text on the see-through panel: only full ink reaches 4.5:1 at 60 % over white */
+  --fg-panel: var(--fg);
   --signal: oklch(0.775 0.125 303);
   --warn: oklch(0.83 0.125 80);
   --fault: oklch(0.705 0.155 26);
@@ -54,6 +56,7 @@
   --fg: oklch(0.205 0.01 286);
   --fg-2: oklch(0.405 0.012 286);
   --fg-3: oklch(0.52 0.012 286);
+  --fg-panel: var(--fg-2);
   --signal: oklch(0.52 0.17 300);
   --warn: oklch(0.555 0.13 65);
   --fault: oklch(0.56 0.19 27);
@@ -310,13 +313,13 @@ body {
 .ov-body,
 .ov-brief p {
   margin: 0;
-  color: var(--fg-2);
+  color: var(--fg-panel);
 }
 
 .ov-muted,
 .ov-notes {
   margin: 0;
-  color: var(--fg-3);
+  color: var(--fg-panel);
   font-size: 12px;
 }
 
@@ -327,23 +330,23 @@ body {
 
 .ov-state {
   margin: 0;
-  color: var(--fg-3);
+  color: var(--fg-panel);
 }
 
 .ov-label {
-  color: var(--fg-3);
+  color: var(--fg-panel);
   font-size: 12px;
 }
 
 .ov-num {
   font-variant-numeric: tabular-nums;
-  color: var(--fg-3);
+  color: var(--fg-panel);
 }
 
 .ov-list {
   margin: 2px 0;
   padding-left: 18px;
-  color: var(--fg-2);
+  color: var(--fg-panel);
 }
 
 /* Status line: the red dot and "Listening" stay while capture runs (8) */
@@ -391,7 +394,7 @@ body {
 
 /* the speech-to-text in use and the last answer's speed, quiet, after the meters */
 .ov-meta {
-  color: var(--fg-3);
+  color: var(--fg-panel);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -400,7 +403,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--fg-3);
+  color: var(--fg-panel);
 }
 
 .ov-meter {
@@ -421,6 +424,8 @@ body {
 
 /* The answer: the one filled box on screen */
 .ov-card {
+  /* the dense layer: the quiet grey reads here (4.7:1 or more at 60 %) */
+  --fg-panel: var(--fg-3);
   background: var(--bg-raise);
   background: color-mix(in oklch, var(--layer) var(--ov-layer), transparent);
   border: 1px solid var(--rule);
@@ -827,13 +832,15 @@ circle.ov-s3 {
   text-overflow: ellipsis;
 }
 
+/* on the answer's dense layer, so "Them:" and "Me:" keep 4.5:1 over a white page or a busy one at 60 % */
 .ov-transcript {
   margin: 0;
-  padding: 0;
+  padding: 4px 8px;
   list-style: none;
   font-size: 12.5px;
-  /* one step brighter than on a solid panel: it sits on the translucent panel, not the answer layer */
   color: var(--fg);
+  background: color-mix(in oklch, var(--layer) var(--ov-layer), transparent);
+  border-radius: var(--r-2);
 }
 
 .ov-transcript li {
@@ -841,8 +848,7 @@ circle.ov-s3 {
 }
 
 .ov-partial {
-  color: var(--fg-3);
-  opacity: 0.75;
+  color: var(--fg-2);
 }
 
 .ov-who {
@@ -892,7 +898,7 @@ circle.ov-s3 {
 
 .ov-quiet {
   border-color: transparent;
-  color: var(--fg-2);
+  color: var(--fg-panel);
 }
 
 .ov-danger {
@@ -906,7 +912,7 @@ circle.ov-s3 {
   border: 0;
   background: none;
   padding: 0;
-  color: var(--fg-2);
+  color: var(--fg-panel);
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -975,7 +981,7 @@ circle.ov-s3 {
 }
 
 .ov-choice-where {
-  color: var(--fg-3);
+  color: var(--fg-panel);
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;

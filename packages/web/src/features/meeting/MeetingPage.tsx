@@ -9,8 +9,9 @@
  */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link, useLocation, useParams, useSearch } from 'wouter';
-import { Button, ButtonLink } from '@/components/ui/Button';
-import { ConfirmDialog } from '@/components/ui/Overlay';
+import { MoreHorizontal } from 'lucide-react';
+import { Button, ButtonLink, IconButton } from '@/components/ui/Button';
+import { ConfirmDialog, Menu } from '@/components/ui/Overlay';
 import { EmptyState, LoadingRows } from '@/components/ui/EmptyState';
 import { StateWord, type StateTone } from '@/components/ui/List';
 import { Page, PageHeader, usePageHeader } from '@/components/ui/Page';
@@ -192,10 +193,17 @@ function MeetingDetail({ id }: { id: string }) {
           End meeting
         </Button>
       )}
+      {/* Delete in a "..." menu, so the actions keep one row on a 390 px phone; it still asks first */}
       {!running && m.status !== 'ending' && (
-        <Button variant="quiet" size={size} onClick={() => setConfirm('delete')}>
-          Delete
-        </Button>
+        <Menu
+          label="Meeting actions"
+          items={[{ label: 'Delete', danger: true, onSelect: () => setConfirm('delete') }]}
+          trigger={({ ref, props }) => (
+            <IconButton ref={ref} label="Meeting actions" size={size} tooltip={false} {...props}>
+              <MoreHorizontal />
+            </IconButton>
+          )}
+        />
       )}
     </>
   );
