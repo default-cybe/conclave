@@ -16,6 +16,15 @@ like `## [0.4.16] - 2026-10-24`.
 - People: the owner can disable and enable a member. Disabling stops their running work and cuts their open apps and paired computers at once; they cannot sign in until enabled, and nothing is deleted. Each member's row shows their picture, status, tokens and cost this week and month, and their computers with Unpair.
 - Your account: a profile picture (PNG, JPEG, GIF or WebP, 512 KB at most), your tokens and cost this week and month, and your paired computers with Unpair. Pictures show in the sidebar footer, People and a shared chat's people, with initials when there is none.
 
+### Fixed
+
+- Deleting a session clears its cached deferred MCP tools, promoted tools, test command and workspace facts.
+- Android: `ThoughtFold` reuses a shared whitespace regex instead of compiling one on every recomposition.
+- Remote browser frames stop polling while the page is hidden and fetch immediately when it becomes visible again.
+- Sidebar: jury and debate rows read the verdict the hub now keeps on the session when it writes one, instead of loading up to 6 transcripts to find it. Sessions from before this still load theirs. A rewind clears the stored verdict, so a cut verdict no longer stays on the row.
+- Every web test now runs in `bun run test` and CI; before, only 2 of the 119 files in `packages/web/test` did.
+- Routine summaries and resumed subagent reports read the latest 20 messages first, falling back to the full transcript only when no assistant answer is in the tail.
+
 ### Security
 
 - Daemon sign in checks the account only after the token compare, so a disabled account's device ids cannot be told apart by timing.

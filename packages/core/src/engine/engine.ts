@@ -814,6 +814,11 @@ export class Engine implements EngineApi {
     void shellRegistry.disposeSession(id).catch((err) => log.warn(`could not stop the background shells of ${id}`, err));
     if (runner?.started && session) await this.runHook(session, 'SessionEnd', { reason: 'other' }, 'other');
     this.runners.delete(id);
+    this.deferred.delete(id);
+    this.promoted.delete(id);
+    const prefix = `${id}\n`;
+    for (const k of this.testCommands.keys()) if (k.startsWith(prefix)) this.testCommands.delete(k);
+    for (const k of this.workspaceFacts.keys()) if (k.startsWith(prefix)) this.workspaceFacts.delete(k);
     this.repos.sessions.delete(id);
     // its meeting-prep digest (meeting/store.ts) would keep its text after it is gone
     meetingsOf(this)?.store.deleteDigests(id);
@@ -1065,7 +1070,8 @@ export class Engine implements EngineApi {
     runner?.abort();
     // the cut turn settles first, so it neither writes past the cut nor marks it for Resume after Stop
     await runner?.waitIdle();
-    this.patchMeta(id, { stoppedTurn: undefined });
+    // the stored jury/debate verdict may be cut below; the sidebar then reads it from the messages left
+    this.patchMeta(id, { stoppedTurn: undefined, verdict: undefined });
     // Keeps messages up to and including `seq`. Files go back to how they were right
     // after that message: the first checkpoint taken at or after it (a checkpoint at
     // seq N is taken when prompt N arrives, before its tools run).

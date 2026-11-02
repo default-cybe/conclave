@@ -282,6 +282,11 @@ export function renderTranscript(
   return out;
 }
 
+/** Read the usual short tail first; tool-heavy turns may leave the answer further back. */
+export function storedAssistantText(messages: { tail(sessionId: string, n: number): Message[]; list(sessionId: string): Message[] }, sessionId: string): string {
+  return lastAssistantText(messages.tail(sessionId, 20)) || lastAssistantText(messages.list(sessionId));
+}
+
 /** Final assistant text of a turn (last assistant message's text). */
 export function lastAssistantText(msgs: Message[]): string {
   for (let i = msgs.length - 1; i >= 0; i--) {

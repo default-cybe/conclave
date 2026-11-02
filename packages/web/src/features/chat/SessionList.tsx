@@ -118,9 +118,9 @@ export function SessionList({ activeId }: { activeId?: string }) {
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
 
-  // jury and debate rows show their verdict, which lives in the messages
+  // jury and debate rows show their verdict: the hub keeps it on meta; older sessions only have it in the messages
   useEffect(() => {
-    const want = flat.filter((s) => s.mode === 'jury' || s.mode === 'debate').slice(0, 6);
+    const want = flat.filter((s) => (s.mode === 'jury' || s.mode === 'debate') && typeof s.meta?.verdict !== 'string').slice(0, 6);
     const release = want.map((s) => retainTranscript(s.id));
     return () => release.forEach((r) => r());
   }, [flat]);
@@ -380,6 +380,7 @@ function useRowMeta(s: Session, device?: string): ReactNode {
   const routine = useHub((st) => (s.routineId ? st.routines[s.routineId] : undefined));
   const verdict = useHub((st) => {
     if (s.mode !== 'jury' && s.mode !== 'debate') return undefined;
+    if (typeof s.meta?.verdict === 'string') return verdictWord(splitVerdict(s.meta.verdict).sentence);
     const list = st.messages[s.id];
     if (!list) return undefined;
     for (let i = list.length - 1; i >= 0; i--) {

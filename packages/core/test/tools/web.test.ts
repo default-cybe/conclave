@@ -17,6 +17,12 @@ let server: ReturnType<typeof Bun.serve>;
 let base = '';
 let hits = 0;
 
+/** Put the environment back in place: a plain copy assigned to process.env cuts Bun's live env, so a later test's TZ change no longer applies. */
+function restoreEnv(saved: Record<string, string | undefined>): void {
+  for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+  Object.assign(process.env, saved);
+}
+
 const ARTICLE = `<!doctype html><html><head><title>Bun Guide</title><style>body{color:red}</style></head>
 <body><nav><a href="/">Home</a> | <a href="/about">About</a></nav>
 <article><h1>Getting started with Bun</h1>
@@ -502,7 +508,7 @@ describe('WebSearch providers map their answers', () => {
       expect(f.calls[0].headers.authorization).toBe('Bearer tvly-saved');
     } finally {
       f.restore();
-      process.env = saved;
+      restoreEnv(saved);
     }
   });
 });
@@ -529,7 +535,7 @@ describe('Settings > Web search storage', () => {
       }
       expect(picked).toEqual(ORDER);
     } finally {
-      process.env = saved;
+      restoreEnv(saved);
     }
   });
 
@@ -571,7 +577,7 @@ describe('Settings > Web search storage', () => {
       expect(searchSettings(config).active).toBe('brave');
       expect(patchSearchSettings(config, { provider: 'auto' }).active).toBe('duckduckgo');
     } finally {
-      process.env = saved;
+      restoreEnv(saved);
     }
   });
 });
@@ -596,7 +602,7 @@ describe('WebSearch helpers', () => {
       expect(pickProvider({ provider: 'searxng', url: 'http://sx' })).toEqual({ id: 'searxng', key: undefined, url: 'http://sx' });
       expect(pickProvider({ provider: 'brave', apiKey: 'k' }).key).toBe('k');
     } finally {
-      process.env = saved;
+      restoreEnv(saved);
     }
   });
 });

@@ -663,8 +663,8 @@ async function runRoutine(
     } finally {
       if (away && !home) engine.unattended.delete(id);
     }
-    const { lastAssistantText } = await import('../session/transcript');
-    const summary = lastAssistantText(engine.repos.messages.list(id)).slice(0, 500);
+    const { storedAssistantText } = await import('../session/transcript');
+    const summary = storedAssistantText(engine.repos.messages, id).slice(0, 500);
     if (stopped) throw new Error(stopped);
     // the turn can end in an error (no key, provider down) without throwing here
     const after = engine.getSession(id);
