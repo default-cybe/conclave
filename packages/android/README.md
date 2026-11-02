@@ -134,6 +134,20 @@ asks to unlock first (Android 12 and newer).
 - A periodic check (every 15 minutes) catches approvals that slipped through.
 - Settings, Send a test shows a local notification.
 
+## Home-screen widgets
+
+Four widgets in the launcher's picker: **Usage** (plan limits, the fullest first, and today's
+tokens), **Inbox** (how many things wait on you and the first three; a tap opens that chat),
+**Calendar** (today's next three events) and **Conclave**, the three in one widget you swipe
+through.
+
+- They show the signed-in account only, read with its own token, so a member sees their own
+  Inbox and day. The pages live in memory, never on disk; signing out or switching account
+  clears them, and a reply for the old account is dropped.
+- Battery: WorkManager refreshes them every 30 minutes while one is placed (only online), and
+  10 seconds after an approval, question, alert, usage or limit change, or after you leave the
+  app. Bursts fold into one refresh. They open no connection of their own.
+
 ## The side panel
 
 No tab bar (docs/design/MOBILE-V2.md). Every main screen has a top bar: the menu button, the

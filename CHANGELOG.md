@@ -11,6 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- Android: home-screen widgets. Usage (plan limits and today's tokens), Inbox (what waits on you and the first three, each opening its chat), Calendar (today's next three events), and one widget that swipes through all three. They show the signed-in account only, keep nothing on disk, and refresh with WorkManager every 30 minutes and shortly after approvals, questions, alerts, usage or leaving the app.
 - Meeting page: each answer shows where its time went (speech end, final transcript, hub, model request, first token, first paint on the overlay), and the Answers header shows "Speech end to first word: p50, p95 (n)". The overlay reports when it first paints an answer's words, and the hub stores it on its own clock.
 
 ### Changed
