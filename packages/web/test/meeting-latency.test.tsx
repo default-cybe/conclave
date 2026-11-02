@@ -11,9 +11,42 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { AnswerCard, paintReporter } from '../src/overlay/AnswerCard';
 import { meetingApi, type Req } from '../src/overlay/hub';
+import { answerLatency, latencyStats, stepTimes } from '../src/overlay/model';
+import { answerSteps, latencyLine } from '../src/features/meeting/MeetingPage';
 import type { AnswerPaint, MeetingAnswer } from '../src/overlay/wire';
 
 const ans = (p: Partial<MeetingAnswer>): MeetingAnswer => ({ id: 'a', meetingId: 'm', messageId: 'x', trigger: 'question', question: '', state: 'done', createdAt: 10_000, ...p });
+
+describe('latency stats', () => {
+  test('p50 and p95 by nearest rank over answers with a paint and a speech end', () => {
+    const list = [500, 1000, 1500, 2000, 4000].map((ms, i) => ans({ id: `a${i}`, speechEndAt: 1000, paintedAt: 1000 + ms }));
+    expect(latencyStats(list)).toEqual({ p50: 1500, p95: 4000, n: 5 });
+    // no paint, or no speech end (Answer now): left out
+    expect(latencyStats([...list, ans({ paintedAt: 9_000 }), ans({ speechEndAt: 9_000, firstTokenAt: 9_500 })])).toEqual({ p50: 1500, p95: 4000, n: 5 });
+    expect(latencyLine(list)).toBe('Speech end to first word: p50 1.5 s, p95 4.0 s (5)');
+  });
+
+  test('n = 0 renders nothing', () => {
+    expect(latencyStats([])).toBeUndefined();
+    expect(latencyLine([ans({ firstTokenAt: 10_500 })])).toBeUndefined();
+  });
+
+  test('steps from speech end, and the first word switches to the paint', () => {
+    const a = ans({ speechEndAt: 9_000, segmentEndAt: 8_000, finalAt: 9_200, receivedAt: 9_300, requestAt: 9_310, firstTokenAt: 9_800, paintedAt: 9_870 });
+    expect(stepTimes(a)).toEqual([
+      { step: 'final', ms: 200 },
+      { step: 'hub', ms: 300 },
+      { step: 'request', ms: 310 },
+      { step: 'first token', ms: 800 },
+      { step: 'painted', ms: 870 },
+    ]);
+    expect(answerSteps(a)).toBe('Speech end, final 0.2 s, hub 0.3 s, request 0.3 s, first token 0.8 s, painted 0.9 s');
+    expect(answerLatency(a)).toBe(870);
+    // an older hub: no paint, the first token from segmentEndAt as before
+    expect(answerLatency(ans({ segmentEndAt: 9_600, firstTokenAt: 10_400 }))).toBe(800);
+    expect(answerSteps(ans({}))).toBeUndefined();
+  });
+});
 
 describe('first paint report', () => {
   const GLOBALS = ['window', 'document', 'navigator', 'HTMLElement', 'Node', 'IS_REACT_ACT_ENVIRONMENT'];

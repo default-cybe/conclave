@@ -22,7 +22,7 @@ import { useIsMobile, useNow } from '@/lib/hooks';
 import { isDesktopApp } from '@/lib/notify';
 import { onHubEvent, toast, useHub } from '@/store/store';
 import { frameBuffer } from '@/overlay/frame';
-import { answerLatency, applyEvent, emptyView, loadDetail, parseAnswer, seconds, type MeetingView } from '@/overlay/model';
+import { answerLatency, applyEvent, emptyView, latencyStats, loadDetail, parseAnswer, seconds, stepTimes, type MeetingView } from '@/overlay/model';
 import type { Meeting, MeetingAnswer, MeetingEvent, MeetingStatus } from '@/overlay/wire';
 import { meetings, openOverlay } from './api';
 import { Notes } from './NotesPage';
@@ -105,10 +105,23 @@ const DAY = 24 * 60 * 60_000;
 export function answerTimings(a: MeetingAnswer): string | undefined {
   const first = answerLatency(a);
   const parts: string[] = [];
-  if (first !== undefined) parts.push(`First word ${seconds(first)} after ${a.segmentEndAt !== undefined ? 'they stopped' : 'you asked'}`);
+  if (first !== undefined) parts.push(`First word ${seconds(first)} after ${a.speechEndAt !== undefined || a.segmentEndAt !== undefined ? 'they stopped' : 'you asked'}`);
   if (a.doneAt !== undefined) parts.push(`done in ${seconds(Math.max(0, a.doneAt - (a.segmentEndAt ?? a.createdAt)))}`);
   if (a.model) parts.push(a.model.split('/').pop()!);
   return parts.length ? parts.join(', ') : undefined;
+}
+
+/** "Speech end, final 0.2 s, hub 0.3 s, request 0.3 s, first token 0.8 s, painted 0.9 s": where one answer's time went. */
+export function answerSteps(a: MeetingAnswer): string | undefined {
+  const steps = stepTimes(a);
+  if (!steps.length) return undefined;
+  return [a.speechEndAt !== undefined || a.segmentEndAt !== undefined ? 'Speech end' : 'Asked', ...steps.map((s) => `${s.step} ${seconds(s.ms)}`)].join(', ');
+}
+
+/** "Speech end to first word: p50 0.9 s, p95 1.4 s (12)", or nothing before an answer has both times. */
+export function latencyLine(answers: MeetingAnswer[]): string | undefined {
+  const s = latencyStats(answers);
+  return s && `Speech end to first word: p50 ${seconds(s.p50)}, p95 ${seconds(s.p95)} (${s.n})`;
 }
 
 /** 11.3.2: the linked event's start when it moved from the meeting's, read when the page opens. */
@@ -208,6 +221,7 @@ function MeetingDetail({ id }: { id: string }) {
     </>
   );
   const finals = view.finals;
+  const latency = latencyLine(view.answers);
   const brief = m.briefMessageId ? view.text[m.briefMessageId] : undefined;
 
   return (
@@ -299,9 +313,11 @@ function MeetingDetail({ id }: { id: string }) {
         {view.notes && <Notes meeting={m} notes={view.notes} />}
         {view.answers.length > 0 && (
           <Section title="Answers" count={view.answers.length}>
+            {latency && <p className="num py-2 text-[13px] text-fg-2">{latency}</p>}
             {[...view.answers].reverse().map((a) => {
               const p = parseAnswer(view.text[a.messageId] ?? '');
               const timings = answerTimings(a);
+              const steps = answerSteps(a);
               return (
                 <div key={a.id} className="py-3">
                   <p className="text-[13px] text-fg-3">
@@ -316,6 +332,7 @@ function MeetingDetail({ id }: { id: string }) {
                   {p.rest && <p className="mt-1 text-[15px] text-fg">{p.rest}</p>}
                   {p.source !== undefined && <p className="mt-1 text-[12px] text-fg-3">Source: {p.source}</p>}
                   {timings && <p className="num mt-1 text-[12px] text-fg-3 phone:text-[13px]">{timings}</p>}
+                  {steps && <p className="num text-[12px] text-fg-3 phone:text-[13px]">{steps}</p>}
                 </div>
               );
             })}
