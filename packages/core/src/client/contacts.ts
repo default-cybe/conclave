@@ -5,4 +5,6 @@ export type Party = `account:${string}` | `friend:${string}`;
 export interface Contact {
   party: Party;
   name: string;
+  /** Profile picture revision, for GET /api/avatars/:id?v=; missing: initials. Accounts on this hub only. */
+  avatarVersion?: number;
 }

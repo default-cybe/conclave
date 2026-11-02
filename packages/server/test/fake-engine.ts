@@ -294,6 +294,7 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
       return sid ? sessionAccount(sid) : undefined;
     },
     async forgetAccount() {},
+    stopAccount: (id) => void rec('stopAccount', id),
     bus,
     config,
     repos,

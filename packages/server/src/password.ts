@@ -63,7 +63,7 @@ export async function checkLogin(people: PeopleStore, name: string | undefined, 
   // a guess longer than any password that can be set is wrong either way
   if (password.length > PASSWORD_MAX) return undefined;
   const account = name && name.trim() ? people.bySignIn(name) : people.owner();
-  const hash = account ? people.passwordHash(account.id) : undefined;
+  const hash = account && !account.disabled ? people.passwordHash(account.id) : undefined;
   let ok = false;
   try {
     ok = await Bun.password.verify(password, hash ?? STAND_IN);

@@ -247,7 +247,7 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     } catch {
       /* auditing must not break the request */
     }
-    const ref: AccountRef | undefined = account ? { id: account.id, name: account.name, ...(account.displayName ? { displayName: account.displayName } : {}), role: account.role } : undefined;
+    const ref: AccountRef | undefined = account ? { id: account.id, name: account.name, ...(account.displayName ? { displayName: account.displayName } : {}), role: account.role, ...(account.avatarVersion ? { avatarVersion: account.avatarVersion } : {}) } : undefined;
     const reply: PairResult & { account?: AccountRef } = { token, clientId: id, hub: hubInfo(ctx), addresses: hubAddresses(ctx, c.req.raw), identity: ctx.identity.identity(), ...(ref ? { account: ref } : {}) };
     // the page that showed the code (setup's Devices step, Devices) sees the phone at once
     announceApp(ctx, id);
@@ -259,7 +259,7 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     const body = await readJson<{ code?: unknown; name?: unknown; platform?: unknown }>(c);
     const code = requireString(body.code, 'code');
     const hit = engine.repos.devices.consumeCode(code);
-    if (hit?.kind !== 'client' || !engine.people.get(hit.accountId)) pairFailed(c, 'client', code);
+    if (hit?.kind !== 'client' || !engine.people.get(hit.accountId) || engine.people.get(hit.accountId)?.disabled) pairFailed(c, 'client', code);
     return clientReply(c, clientLabel(body), 'pair.client', hit!.accountId);
   });
 
@@ -324,7 +324,7 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     const code = requireString(body.code, 'code');
     const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : 'device';
     const hit = engine.repos.devices.consumeCode(code);
-    if (hit?.kind !== 'device' || !engine.people.get(hit.accountId)) pairFailed(c, 'device', code);
+    if (hit?.kind !== 'device' || !engine.people.get(hit.accountId) || engine.people.get(hit.accountId)?.disabled) pairFailed(c, 'device', code);
     // a code the desktop app asked for gives its own computer the same device again (routes-daemon.ts); the device is the code's account's
     const { deviceId, token, again } = registerDevice(ctx, code, name, hit!.accountId);
     // a computer paired for the first time: once it is online, the hub offers to import its chats (import/offers.ts)

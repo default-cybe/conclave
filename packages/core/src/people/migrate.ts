@@ -57,6 +57,9 @@ export function migratePeople(db: Database, now = Date.now()): void {
       for (const r of db.query('SELECT id, email FROM hub_accounts WHERE email IS NOT NULL').all() as Array<{ id: string; email: string }>) set.run(emailKey(r.email) ?? null, r.id);
     }
     db.exec('CREATE INDEX IF NOT EXISTS hub_accounts_email ON hub_accounts(email_key)');
+    ensureColumn(db, 'hub_accounts', 'disabled', 'INTEGER NOT NULL DEFAULT 0');
+    ensureColumn(db, 'hub_accounts', 'avatar_version', 'INTEGER');
+    db.exec('CREATE TABLE IF NOT EXISTS account_avatars (account_id TEXT PRIMARY KEY REFERENCES hub_accounts(id) ON DELETE CASCADE, mime TEXT NOT NULL, data BLOB NOT NULL)');
     for (const t of ACCOUNT_TABLES) ensureAccountColumn(db, t);
     // whose key served a call: budgets count only the hub's
     ensureColumn(db, 'usage', 'paid_by', 'TEXT');

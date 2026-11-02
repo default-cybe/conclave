@@ -46,6 +46,8 @@ export const ACCOUNT_TABLES = [
   'meeting_files',
   // meeting prep digests (11.4.2): keyed by account and session
   'meeting_digests',
+  // profile pictures (people/store.ts setAvatar): one row per account
+  'account_avatars',
 ] as const;
 
 /** Child table to the parent table whose account_id scopes it. */
