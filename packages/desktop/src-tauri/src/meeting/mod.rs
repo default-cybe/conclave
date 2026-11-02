@@ -58,6 +58,8 @@ const MIN_HEIGHT: f64 = 96.0;
 const MAX_SCREEN_SHARE: f64 = 0.75;
 /// The exclusion of every window of the app is re-checked this often (7.2 step 7).
 const SWEEP_EVERY: Duration = Duration::from_secs(2);
+/// meeting://level goes out when a channel's level moved this much: each emit runs script in the overlay.
+const LEVEL_STEP: f32 = 0.02;
 
 struct Run {
     id: String,
@@ -767,10 +769,18 @@ fn send_status(app: &AppHandle, s: DesktopMeetingStatus) {
     let _ = app.emit_to(crate::MAIN, "meeting://status", s);
 }
 
+/// Send meeting://level? Only to an overlay on screen, and only when a level moved by
+/// LEVEL_STEP or fell to silence (or none went out since it was shown).
+fn should_emit(prev: Option<Levels>, next: Levels, visible: bool) -> bool {
+    let moved = |a: f32, b: f32| (a - b).abs() >= LEVEL_STEP || (b == 0.0 && a != 0.0);
+    visible && prev.map_or(true, |p| moved(p.me, next.me) || moved(p.them, next.them))
+}
+
 /// `meeting-share`: share detection every 250 ms, exclusion sweep every 2 s,
-/// levels at 4 per second and the status on change (at most 2 per second).
+/// levels at most 4 per second when they change and the status on change (at most 2 per second).
 fn watch(app: &AppHandle, stop: &AtomicBool) {
     let mut debounce = share_watch::Debounce::default();
+    let mut last_level: Option<Levels> = None;
     let mut last_sweep = Instant::now();
     let mut last_status: Option<String> = None;
     let mut last_status_at = Instant::now() - Duration::from_secs(1);
@@ -808,7 +818,15 @@ fn watch(app: &AppHandle, stop: &AtomicBool) {
             recheck(app);
         }
         if let Some(r) = RUN.lock().unwrap().as_ref() {
-            let _ = app.emit_to(MEETING, "meeting://level", Levels { me: r.mic.level(), them: r.sys.level() });
+            let next = Levels { me: r.mic.level(), them: r.sys.level() };
+            // the hide paths set these flags (hide() has no other caller): no window query per pass
+            let shown = !HIDDEN_FOR_SHARE.load(Ordering::Relaxed) && !HIDDEN_BY_OWNER.load(Ordering::Relaxed);
+            if should_emit(last_level, next, shown) {
+                let _ = app.emit_to(MEETING, "meeting://level", next);
+                last_level = Some(next);
+            } else if !shown {
+                last_level = None;
+            }
         }
         if let Some(inside) = app.get_webview_window(MEETING).and_then(|w| place::cursor_inside(&w)) {
             if HOVER.swap(inside, Ordering::Relaxed) != inside {
@@ -832,7 +850,30 @@ fn stop_and_say(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_height, with_rec_dot};
+    use super::{clamp_height, should_emit, with_rec_dot, Levels};
+
+    #[test]
+    fn levels_go_out_only_when_they_move_and_the_overlay_shows() {
+        let l = |me: f32, them: f32| Levels { me, them };
+        assert!(should_emit(None, l(0.0, 0.0), true), "the first after showing");
+        assert!(!should_emit(Some(l(0.3, 0.1)), l(0.3, 0.1), true), "unchanged");
+        assert!(!should_emit(Some(l(0.3, 0.1)), l(0.31, 0.1), true), "under the step");
+        assert!(should_emit(Some(l(0.0, 0.0)), l(0.0, 0.02), true), "a 0.02 move");
+        assert!(should_emit(Some(l(0.01, 0.0)), l(0.0, 0.0), true), "down to silence");
+        assert!(!should_emit(None, l(0.9, 0.9), false), "hidden");
+        // 10 s of silence at 4 passes a second: 40 emits before, 1 now
+        let mut last = None;
+        let sent = (0..40)
+            .filter(|_| {
+                let go = should_emit(last, l(0.0, 0.0), true);
+                if go {
+                    last = Some(l(0.0, 0.0));
+                }
+                go
+            })
+            .count();
+        assert_eq!(sent, 1);
+    }
 
     #[test]
     fn the_height_stays_between_the_compact_bar_and_three_quarters_of_the_screen() {
