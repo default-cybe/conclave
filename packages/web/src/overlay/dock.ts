@@ -11,7 +11,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import { desktop, ipc } from './desktop';
-import { afterDrag, defaults, nextDisplay, pickDisplay, readSaved, displayAt, target, type Display, type Edge, type Mode, type Placed, type Saved } from './place';
+import { afterDrag, defaults, nextDisplay, pickDisplay, readSaved, displayAt, sizeOn, target, DEFAULT_H, DEFAULT_W, type Display, type Edge, type Mode, type Placed, type Saved } from './place';
 
 export const KEY = 'conclave.overlay.place';
 /** The slide or spring (overlay.css --ov-motion). */
@@ -42,7 +42,6 @@ export interface DockView {
 interface State {
   view: DockView;
   displays: Display[];
-  height: number;
   hover: boolean;
   peek: boolean;
   hold: boolean;
@@ -66,7 +65,6 @@ const base: Saved = { mode: 'free', autoHide: true, along: 0.5 };
 const s: State = {
   view: { active: false, mac: false, saved: readSaved(read(), base), hidden: false, mode: 'free', displays: 0 },
   displays: [],
-  height: 160,
   hover: false,
   peek: false,
   hold: false,
@@ -105,7 +103,7 @@ function apply() {
   if (!s.view.active || !d) return;
   const v = s.view.saved;
   const hidden = wantHidden();
-  const r = target(v, d, s.height, hidden);
+  const r = target(v, d, hidden);
   const wasHidden = s.view.hidden;
   s.view = {
     ...s.view,
@@ -151,7 +149,7 @@ function moved(p: { x: number; y: number }) {
     settle = undefined;
     await refresh();
     const l = s.last;
-    save(afterDrag(s.view.saved, s.displays, p.x, p.y, l?.w ?? 380, l?.h ?? s.height));
+    save(afterDrag(s.view.saved, s.displays, p.x, p.y, l?.w ?? DEFAULT_W, l?.h ?? DEFAULT_H));
     apply();
   }, SETTLE_MS);
 }
@@ -194,13 +192,21 @@ export function setPlacement(p: Partial<Pick<Saved, 'mode' | 'autoHide'>>) {
   apply();
 }
 
-/** The content's height (fit.ts): the window follows it, anchored to its edge or the notch. */
-export function setDockHeight(h: number): boolean {
-  if (!s.view.active) return false;
-  if (Math.abs(h - s.height) < 1) return true;
-  s.height = h;
+/** The open overlay's size now, CSS px (the resize grip starts from it). */
+export function currentSize(): { w: number; h: number } {
+  const d = display();
+  return d ? sizeOn(s.view.saved, d) : { w: DEFAULT_W, h: DEFAULT_H };
+}
+
+/** The resize grip (Live.tsx): the new size, kept on this device and clamped to MIN_W by MIN_H and the work area. */
+export function setSize(w: number, h: number) {
+  const d = display();
+  if (!s.view.active || !d) return;
+  const next = sizeOn({ w, h }, d);
+  const now = sizeOn(s.view.saved, d);
+  if (next.w === now.w && next.h === now.h) return;
+  save({ ...s.view.saved, ...next });
   if (!s.view.hidden) apply();
-  return true;
 }
 
 export function setLive(on: boolean) {

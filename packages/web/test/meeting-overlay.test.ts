@@ -17,7 +17,7 @@ import { gzipSync } from 'node:zlib';
 import { frameBuffer } from '../src/overlay/frame';
 import { backoff, connectWs } from '../src/overlay/ws';
 import { answerStack, applyEvent, emptyView, lastLines, loadDetail, parseAnswer } from '../src/overlay/model';
-import { statusNotes } from '../src/overlay/Live';
+import { shareNote, statusNotes } from '../src/overlay/Live';
 import { folderChoices } from '../src/overlay/Setup';
 import { isQuestion } from '../src/mock/meetings';
 import { OLD_DESKTOP, openOverlay } from '../src/features/meeting/api';
@@ -211,10 +211,16 @@ const status = (p: Partial<DesktopMeetingStatus> = {}): DesktopMeetingStatus => 
 
 describe('status notes', () => {
   test('quiet when all is well', () => expect(statusNotes(status(), 'open')).toEqual([]));
-  test('says what is wrong, in words', () => {
-    expect(statusNotes(status({ exclusion: 'unsupported', mic: { ok: false }, queue: { stt: 3, upload: 4, dropped: 0 } }), 'closed')).toEqual(['Hub offline: transcript queued (4)', 'Visible in screen shares', 'no mic', '3 waiting for text']);
+  test('says what is wrong, in words; the share state is the icon, not a note', () => {
+    expect(statusNotes(status({ exclusion: 'unsupported', mic: { ok: false }, queue: { stt: 3, upload: 4, dropped: 0 } }), 'closed')).toEqual(['Hub offline: transcript queued (4)', 'no mic', '3 waiting for text']);
     expect(statusNotes(undefined, 'open')).toEqual(['Not listening on this computer']);
-    expect(statusNotes(status({ exclusion: 'monitor-only' }), 'open')).toEqual(['Shows as a black box in shares']);
+    expect(statusNotes(status({ exclusion: 'monitor-only' }), 'open')).toEqual([]);
+  });
+  test('visible in shares is the share icon tooltip, only when true', () => {
+    expect(shareNote(status({ exclusion: 'unsupported' }))).toBe('Visible in screen shares');
+    expect(shareNote(status({ exclusion: 'monitor-only' }))).toBe('Shows as a black box in shares');
+    expect(shareNote(status())).toBeUndefined();
+    expect(shareNote(undefined)).toBeUndefined();
   });
 });
 

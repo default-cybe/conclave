@@ -13,7 +13,6 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { mdStream, safeHref } from '../src/overlay/StreamText';
 import { chartSvg, parseChart } from '../src/overlay/chart';
-import { atBottom } from '../src/overlay/fit';
 import { shownIndex, splitAnswer, stepAnswer } from '../src/overlay/model';
 
 let doc: Document;
@@ -167,13 +166,6 @@ describe('chart fence', () => {
     expect(line).toContain('>B</text>');
     expect(line).not.toContain('NaN');
   });
-});
-
-test('sticks to the bottom only within 10 px of it', () => {
-  expect(atBottom(490, 100, 600)).toBe(true);
-  expect(atBottom(500, 100, 600)).toBe(true);
-  expect(atBottom(489, 100, 600)).toBe(false);
-  expect(atBottom(0, 600, 600)).toBe(true);
 });
 
 test('answer history: n of m, stops at the ends, back at the newest follows new answers', () => {
