@@ -13,7 +13,7 @@ import { AnswerCard, paintReporter } from '../src/overlay/AnswerCard';
 import { meetingApi, type Req } from '../src/overlay/hub';
 import { answerLatency, latencyStats, stepTimes } from '../src/overlay/model';
 import { answerSteps, latencyLine } from '../src/features/meeting/MeetingPage';
-import type { AnswerPaint, MeetingAnswer } from '../src/overlay/wire';
+import type { AnswerPaintInput as AnswerPaint, MeetingAnswer } from '../src/overlay/wire';
 
 const ans = (p: Partial<MeetingAnswer>): MeetingAnswer => ({ id: 'a', meetingId: 'm', messageId: 'x', trigger: 'question', question: '', state: 'done', createdAt: 10_000, ...p });
 

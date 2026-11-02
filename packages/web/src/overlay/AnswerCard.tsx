@@ -12,14 +12,14 @@
 import { memo, useEffect, useState } from 'react';
 import { splitAnswer } from './model';
 import { StreamText } from './StreamText';
-import type { AnswerPaint, MeetingAnswer } from './wire';
+import type { AnswerPaintInput, MeetingAnswer } from './wire';
 
 /**
  * Reports each answer's first paint once: a frame after its first words
  * commit, POST .../paint with the desktop clock, fire and forget (a hub
  * without the route answers 404, and that is fine).
  */
-export function paintReporter(post: (answerId: string, body: AnswerPaint) => Promise<unknown>, raf: (cb: () => void) => unknown = (cb) => requestAnimationFrame(cb)) {
+export function paintReporter(post: (answerId: string, body: AnswerPaintInput) => Promise<unknown>, raf: (cb: () => void) => unknown = (cb) => requestAnimationFrame(cb)) {
   const sent = new Set<string>();
   return (answerId: string) => {
     if (sent.has(answerId)) return;

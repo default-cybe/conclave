@@ -1061,6 +1061,9 @@ export class MeetingService {
     const a = this.store.answer(answerId);
     if (!a || a.meetingId !== m.id) throw err(404, 'Answer not found');
     if (!this.store.paintAnswer(answerId, input.paintedAt + (Date.now() - input.sentAt))) throw err(409, 'The paint time is set already.');
+    // the meeting page shows paintedAt live (p50/p95 header), not only after a reload
+    const answer = this.store.answer(answerId);
+    if (answer) this.engine.bus.emit({ type: 'meeting.answer', sessionId: m.sessionId, meetingId: m.id, answer });
   }
 
   // ----- end -----
