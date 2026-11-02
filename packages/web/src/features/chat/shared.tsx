@@ -13,6 +13,7 @@ import { Link, useLocation } from 'wouter';
 import type { Session } from '@conclave/core/types';
 import type { ChatParticipantDto, Contact } from '@conclave/core/client';
 import { api } from '@/lib/api';
+import { useAvatar } from '@/lib/people';
 import { attempt, removeKey, reloadSharedChats, upsertSeat, useHub } from '@/store/store';
 import { cn } from '@/lib/text';
 import { Button } from '@/components/ui/Button';
@@ -90,8 +91,13 @@ export function PersonLine({ name, children }: { name: string; children?: ReactN
   );
 }
 
-function Avatar({ name, className }: { name: string; className?: string }) {
-  return <span className={cn('grid size-6 shrink-0 place-items-center rounded-full border border-rule-2 bg-sunk text-[11px] font-medium text-fg-2', className)}>{name.trim().charAt(0).toUpperCase()}</span>;
+function Avatar({ name, className, accountId, version }: { name: string; className?: string; accountId?: string; version?: number }) {
+  const src = useAvatar(accountId, version);
+  return (
+    <span className={cn('grid size-6 shrink-0 place-items-center overflow-hidden rounded-full border border-rule-2 bg-sunk text-[11px] font-medium text-fg-2', className)}>
+      {src ? <img src={src} alt="" draggable={false} className="size-full object-cover" /> : name.trim().charAt(0).toUpperCase()}
+    </span>
+  );
 }
 
 /** The chat header control: avatars of the chat's people, opening the list. */
@@ -119,7 +125,7 @@ export function PeopleControl({ session }: { session: Session }) {
       >
         <span className="flex items-center -space-x-1.5">
           {shown.slice(0, 3).map((r) => (
-            <Avatar key={r.accountId} name={r.name} className="size-5 bg-raise text-[10px]" />
+            <Avatar key={r.accountId} name={r.name} accountId={r.accountId} version={r.avatarVersion} className="size-5 bg-raise text-[10px]" />
           ))}
         </span>
         <span className="num">{shown.length + 1}</span>
@@ -179,7 +185,7 @@ function PeopleList({ session, rows, meId, mine, onChanged, onAdd }: { session: 
       {rows.map((r) => (
         <div key={r.accountId} className="flex flex-col gap-1 rounded-[var(--r-1)] px-1.5 py-1.5">
           <div className="flex items-center gap-2.5">
-            <Avatar name={r.name} />
+            <Avatar name={r.name} accountId={r.accountId} version={r.avatarVersion} />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px] leading-[1.3] text-fg phone:text-[15px]">
                 {r.name}
@@ -308,7 +314,7 @@ export function AddPeopleDialog({ session, taken, open, onClose, onAdded }: { se
               onClick={() => setPick(c.party)}
               className={cn('flex min-h-9 items-center gap-2.5 rounded-[var(--r-1)] px-2 text-left text-[13px] transition-colors duration-[var(--dur-1)] phone:min-h-11 phone:text-[15px]', row ? 'text-fg-3' : pick === c.party ? 'bg-hover text-fg' : 'text-fg-2 hov:bg-hover')}
             >
-              <Avatar name={c.name} />
+              <Avatar name={c.name} accountId={c.party.startsWith('account:') ? c.party.slice(8) : undefined} version={c.avatarVersion} />
               <span className="min-w-0 flex-1 truncate">{c.name}</span>
               <span className="text-[12px] text-fg-3 phone:text-[13px]">{row ? (row.state === 'invited' ? 'Invited' : 'In this chat') : pick === c.party ? 'Picked' : ''}</span>
             </button>

@@ -500,6 +500,10 @@ export class Engine implements EngineApi {
     return bundle;
   }
 
+  stopAccount(accountId: string): void {
+    for (const [id, r] of this.runners) if (this.sessionAccount(id) === accountId) r.abort();
+  }
+
   /** Forget a removed member: their memory connections close, their registry goes. */
   async forgetAccount(accountId: string): Promise<void> {
     const b = this.memories.get(accountId);

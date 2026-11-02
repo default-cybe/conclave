@@ -162,6 +162,8 @@ export interface EngineApi {
   pendingAccount(id: string): string | undefined;
   /** Stop a removed member's work and forget their stores. */
   forgetAccount(accountId: string): Promise<void>;
+  /** Stop every running turn of an account (disabled), keeping its data. */
+  stopAccount(accountId: string): void;
 
   info(): HubInfo;
 

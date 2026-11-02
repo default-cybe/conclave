@@ -13,6 +13,13 @@
  *   POST  /api/people/:id/workspace     (owner) a device code for their workspace on the hub machine
  *   GET   /api/people/:id/clients       (owner) the apps they are signed in with
  *   DELETE /api/people/:id/clients/:client (owner) sign one of them out
+ *   POST  /api/people/:id/disable       (owner) a member stops: running work stops, sockets and daemons are cut, sign in is refused; nothing is deleted
+ *   POST  /api/people/:id/enable        (owner) let them back in
+ *   GET   /api/people/:id/devices       (owner) their paired computers
+ *   DELETE /api/people/:id/devices/:device (owner) unpair one
+ *   GET   /api/me/usage                 tokens and cost this week and month
+ *   GET|PUT|DELETE /api/me/avatar       your profile picture (PNG, JPEG, GIF or WebP, 512 KB at most)
+ *   GET   /api/avatars/:id              someone's picture: yours, or a contact's (404 otherwise)
  *   GET   /api/invite/:secret           (no token) who an invite is for
  *   POST  /api/invite/:secret           (no token) set a password and sign in
  */
@@ -28,7 +35,8 @@ import { forgetAssistant } from '@conclave/core/assistant/registry.ts';
 import { forgetPim } from '@conclave/core/pim/registry.ts';
 import type { ConclaveConfig } from '@conclave/core/config/index.ts';
 import type { HonoEnv, ServerContext } from './context';
-import { HttpError, auditFor, badRequest, clientIp, isDirectLocal, notFound, readJson } from './http';
+import { BodyTooLarge, HttpError, auditFor, badRequest, clientIp, isDirectLocal, notFound, readCapped, readJson } from './http';
+import { usageSummary } from '@conclave/core/people/access.ts';
 import { accountOf, ownerOnly } from './scope';
 import { checkNewPassword, hashPassword } from './password';
 import { appDto, hubAddresses, hubInfo, revokeApp } from './routes';
@@ -39,6 +47,32 @@ const INVITE_TTL_MS = 7 * 24 * 3_600_000;
 const WORKSPACE_TTL_MS = 60 * 60_000;
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+
+export const AVATAR_MAX = 512 * 1024;
+
+/** The image type from the file's first bytes; never the type the client claims. SVG and anything else is refused. */
+export function imageType(b: Uint8Array): string | undefined {
+  const at = (i: number, ...xs: number[]) => xs.every((x, j) => b[i + j] === x);
+  if (at(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return 'image/png';
+  if (at(0, 0xff, 0xd8, 0xff)) return 'image/jpeg';
+  if (at(0, 0x47, 0x49, 0x46, 0x38)) return 'image/gif';
+  if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return 'image/webp';
+  return undefined;
+}
+
+/** A stored picture, with a type the browser cannot second-guess and no way to run as a page. */
+function avatarResponse(img: { mime: string; data: Uint8Array } | undefined): Response {
+  if (!img) throw notFound('No picture.');
+  return new Response(img.data as BodyInit, {
+    headers: {
+      'content-type': img.mime,
+      'x-content-type-options': 'nosniff',
+      'content-security-policy': "default-src 'none'; sandbox",
+      'content-disposition': 'inline; filename="avatar"',
+      'cache-control': 'private, max-age=86400',
+    },
+  });
+}
 
 function peopleError(err: unknown): never {
   if (err instanceof PeopleError) throw new HttpError(err.status, err.message);
@@ -68,7 +102,7 @@ function grantsOf(ctx: ServerContext, raw: unknown): ProviderGrants {
 }
 
 function ref(a: HubAccount): AccountRef {
-  return { id: a.id, name: a.name, ...(a.displayName ? { displayName: a.displayName } : {}), role: a.role };
+  return { id: a.id, name: a.name, ...(a.displayName ? { displayName: a.displayName } : {}), role: a.role, ...(a.avatarVersion ? { avatarVersion: a.avatarVersion } : {}) };
 }
 
 export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
@@ -83,6 +117,8 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
       ...ref(a),
       ...(a.email ? { email: a.email } : {}),
       passwordSet: a.passwordSet,
+      ...(a.disabled ? { disabled: true } : {}),
+      usage: usageSummary(engine.repos.db, a.id),
       ...(a.inviteExpiresAt ? { inviteExpiresAt: a.inviteExpiresAt } : {}),
       createdAt: a.createdAt,
       devices: engine.repos.devices.list(a.id).length,
@@ -146,13 +182,17 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
     ctx.clients.disconnectAccount(accountId, reason);
   };
 
+  /** The people on this hub the caller sees as contacts (docs/design/SHARED-WITH-MEMBERS.md 3). */
+  const contactAccounts = (caller: string): HubAccount[] => people.list().filter((a) => a.id !== caller && !a.disabled);
+
   // ----- you ------------------------------------------------------------------
 
   app.get('/api/contacts', (c) => {
     const caller = accountOf(c);
-    const contacts: Contact[] = people.list().filter((a) => a.id !== caller).map((a) => ({
+    const contacts: Contact[] = contactAccounts(caller).map((a) => ({
       party: `account:${a.id}`,
       name: contactName(a),
+      ...(a.avatarVersion ? { avatarVersion: a.avatarVersion } : {}),
     }));
     // A member has no remote friends or hub identity. Do not expose the owner's friend cards.
     if (!isMember(caller)) for (const f of ctx.peer.list()) if (f.status === 'active') contacts.push({ party: `friend:${f.id}`, name: f.name });
@@ -180,6 +220,44 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
       ...(isMember(a.id) ? { allow: engine.repos.kv.get<string[]>(accountKey(a.id, MEMBER_ALLOW_KEY), []), disk: engine.diskUse(a.id) } : {}),
     };
     return c.json(me);
+  });
+
+  app.get('/api/me/usage', (c) => c.json(usageSummary(engine.repos.db, accountOf(c))));
+
+  app.get('/api/me/avatar', (c) => avatarResponse(people.avatar(accountOf(c))));
+
+  app.put('/api/me/avatar', async (c) => {
+    const acct = accountOf(c);
+    const length = Number(c.req.header('content-length'));
+    if (Number.isFinite(length) && length > AVATAR_MAX) throw new HttpError(413, 'A picture is 512 KB at most.');
+    let data: Uint8Array;
+    try {
+      data = await readCapped(c.req.raw.body, AVATAR_MAX);
+    } catch (err) {
+      if (err instanceof BodyTooLarge) throw new HttpError(413, 'A picture is 512 KB at most.');
+      throw err;
+    }
+    const mime = imageType(data);
+    if (!mime) throw new HttpError(415, 'A picture is a PNG, JPEG, GIF or WebP file.');
+    people.setAvatar(acct, { mime, data });
+    audit(c, 'account.avatar', `${mime}, ${data.length} bytes`);
+    engine.bus.emit({ type: 'config.updated' });
+    return c.json({ avatarVersion: people.get(acct)?.avatarVersion });
+  });
+
+  app.delete('/api/me/avatar', (c) => {
+    people.setAvatar(accountOf(c));
+    audit(c, 'account.avatar', 'removed');
+    engine.bus.emit({ type: 'config.updated' });
+    return c.json({ ok: true });
+  });
+
+  // someone's picture: yours, a contact's, or anyone's for the owner; everyone else's answers as missing
+  app.get('/api/avatars/:id', (c) => {
+    const caller = accountOf(c);
+    const id = c.req.param('id');
+    const visible = id === caller || c.get('auth')?.role === 'owner' || contactAccounts(caller).some((a) => a.id === id);
+    return avatarResponse(visible ? people.avatar(id) : undefined);
   });
 
   app.patch('/api/me', async (c) => {
@@ -357,6 +435,45 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
     // an app of someone else answers as an unknown one
     if (!row || row.accountId !== a.id || row.revoked) throw notFound('unknown client');
     revokeApp(ctx, c, row.id);
+    return c.json({ ok: true });
+  });
+
+  const setDisabled = (c: Context<HonoEnv>, disabled: boolean) => {
+    ownerOnly(c);
+    const a = requirePerson(c.req.param('id') ?? '');
+    try {
+      people.setDisabled(a.id, disabled);
+    } catch (err) {
+      peopleError(err);
+    }
+    if (disabled) {
+      // now, not at the next request: turns stop, sockets and daemons close and cannot come back (auth.ts refuses a disabled account)
+      engine.stopAccount(a.id);
+      ctx.clients.disconnectAccount(a.id, 'this account was disabled');
+      for (const d of engine.repos.devices.list(a.id)) ctx.daemons.disconnect(d.id, 'its account was disabled');
+    }
+    audit(c, disabled ? 'people.disable' : 'people.enable', a.name);
+    engine.bus.emit({ type: 'config.updated' });
+    return c.json(person(people.get(a.id)!));
+  };
+  app.post('/api/people/:id/disable', (c) => setDisabled(c, true));
+  app.post('/api/people/:id/enable', (c) => setDisabled(c, false));
+
+  // a person's paired computers: the owner sees and unpairs them
+  app.get('/api/people/:id/devices', (c) => {
+    ownerOnly(c);
+    const a = requirePerson(c.req.param('id'));
+    return c.json(engine.devices.list(a.id).filter((d) => d.id !== 'local'));
+  });
+
+  app.delete('/api/people/:id/devices/:device', (c) => {
+    ownerOnly(c);
+    const a = requirePerson(c.req.param('id'));
+    const id = c.req.param('device');
+    // a device of someone else answers as an unknown one
+    if (id === 'local' || !engine.repos.devices.get(id) || engine.repos.devices.accountOf(id) !== a.id) throw notFound(`unknown device ${id}`);
+    removeDevice(ctx, id, 'removed by the owner');
+    audit(c, 'device.delete', `${id} of ${a.name}`, { device: id });
     return c.json({ ok: true });
   });
 

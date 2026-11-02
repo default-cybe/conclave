@@ -50,6 +50,8 @@ export interface HubAccount {
   email?: string;
   role: AccountRole;
   passwordSet: boolean;
+  disabled: boolean;
+  avatarVersion?: number;
   passwordSetAt?: number;
   /** An invite link waits until this time. */
   inviteExpiresAt?: number;
@@ -85,6 +87,8 @@ function toAccount(r: Row): HubAccount {
     ...(r.email ? { email: r.email } : {}),
     role: r.role === 'owner' ? 'owner' : 'member',
     passwordSet: !!r.password_hash,
+    disabled: !!r.disabled,
+    ...(r.avatar_version ? { avatarVersion: r.avatar_version } : {}),
     ...(r.password_set_at ? { passwordSetAt: r.password_set_at } : {}),
     ...(r.invite_hash && r.invite_expires_at > Date.now() ? { inviteExpiresAt: r.invite_expires_at } : {}),
     settings: json<AccountSettings>(r.settings, {}),
@@ -219,6 +223,35 @@ export class PeopleStore {
     return this.get(id)!;
   }
 
+  /** Disable without deleting data. Old apps, invites and pairing codes never become valid again. */
+  setDisabled(id: string, disabled: boolean): HubAccount {
+    const a = this.get(id);
+    if (!a) throw new PeopleError(404, 'There is nobody with that id on this hub.');
+    if (a.role === 'owner') throw new PeopleError(400, 'The owner cannot be disabled.');
+    this.db.transaction(() => {
+      this.db.query('UPDATE hub_accounts SET disabled = ?, updated_at = ? WHERE id = ?').run(disabled ? 1 : 0, Date.now(), id);
+      if (disabled) {
+        this.db.query('UPDATE hub_accounts SET invite_hash = NULL, invite_expires_at = NULL WHERE id = ?').run(id);
+        this.db.query('UPDATE pairing_codes SET used = 1 WHERE account_id = ?').run(id);
+      }
+    })();
+    this.fresh();
+    return this.get(id)!;
+  }
+
+  avatar(id: string): { mime: string; data: Uint8Array } | undefined {
+    return (this.db.query('SELECT mime, data FROM account_avatars WHERE account_id = ?').get(id) as { mime: string; data: Uint8Array } | null) ?? undefined;
+  }
+
+  setAvatar(id: string, image?: { mime: string; data: Uint8Array }): void {
+    this.db.transaction(() => {
+      if (image) this.db.query('INSERT OR REPLACE INTO account_avatars (account_id, mime, data) VALUES (?,?,?)').run(id, image.mime, image.data);
+      else this.db.query('DELETE FROM account_avatars WHERE account_id = ?').run(id);
+      this.db.query('UPDATE hub_accounts SET avatar_version = ? WHERE id = ?').run(image ? Math.max(Date.now(), (this.get(id)?.avatarVersion ?? 0) + 1) : null, id);
+    })();
+    this.fresh();
+  }
+
   passwordHash(id: string): string | undefined {
     const r = this.db.query('SELECT password_hash FROM hub_accounts WHERE id = ?').get(id) as { password_hash: string | null } | null;
     return r?.password_hash ?? undefined;
@@ -237,7 +270,7 @@ export class PeopleStore {
 
   /** The account a live invite belongs to. */
   byInvite(hash: string): HubAccount | undefined {
-    const r = this.db.query('SELECT * FROM hub_accounts WHERE invite_hash = ? AND invite_expires_at > ?').get(hash, Date.now()) as Row | null;
+    const r = this.db.query('SELECT * FROM hub_accounts WHERE invite_hash = ? AND invite_expires_at > ? AND disabled = 0').get(hash, Date.now()) as Row | null;
     return r ? toAccount(r) : undefined;
   }
 
@@ -248,7 +281,7 @@ export class PeopleStore {
    */
   claimInvite(hash: string): HubAccount | undefined {
     const now = Date.now();
-    const r = this.db.query('SELECT * FROM hub_accounts WHERE invite_hash = ? AND invite_expires_at > ?').get(hash, now) as Row | null;
+    const r = this.db.query('SELECT * FROM hub_accounts WHERE invite_hash = ? AND invite_expires_at > ? AND disabled = 0').get(hash, now) as Row | null;
     if (!r) return undefined;
     const done = this.db.query('UPDATE hub_accounts SET invite_hash = NULL, invite_expires_at = NULL, updated_at = ? WHERE id = ? AND invite_hash = ?').run(now, r.id, hash);
     this.fresh();

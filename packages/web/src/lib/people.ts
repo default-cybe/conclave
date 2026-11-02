@@ -7,6 +7,7 @@
  * localStorage under conclave.accounts; switching saves the picked one as
  * the connection and reloads, so every store and socket starts clean.
  */
+import { useEffect, useState } from 'react';
 import { shownName, type MeDto } from '@conclave/core/client';
 import { api, clearConnection, loadConnection, saveConnection, type Connection } from './api';
 import { useHub } from '@/store/store';
@@ -144,6 +145,37 @@ export { displayNameProblem, tidyDisplayName, DISPLAY_NAME_MAX } from '@conclave
 /** Who is signed in. Undefined on a hub from before accounts: then it is the owner. */
 export function useMe(): MeDto | undefined {
   return useHub((s) => s.me);
+}
+
+const pictures = new Map<string, Promise<string>>();
+
+/**
+ * Someone's profile picture as an object URL, fetched with the token (an
+ * img tag cannot send it). Nothing without a version: initials instead.
+ * One fetch per account and version for the page's life.
+ */
+export function useAvatar(accountId: string | undefined, version: number | undefined): string | undefined {
+  const key = accountId && version ? `${accountId}:${version}` : '';
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    setUrl(undefined);
+    if (!key) return;
+    let p = pictures.get(key);
+    if (!p) {
+      p = api()
+        .avatar(accountId!, version)
+        .then((b) => URL.createObjectURL(b));
+      p.catch(() => pictures.delete(key));
+      pictures.set(key, p);
+    }
+    let alive = true;
+    p.then((u) => alive && setUrl(u)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return url;
 }
 
 /** The hub's owner sees everything; a member sees their own things and no hub settings. */

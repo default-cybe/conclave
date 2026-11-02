@@ -14,11 +14,13 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'wouter';
-import type { InviteDto, MeDto, PersonDto, ProviderAccessDto, ProviderGrantsDto, WorkspaceCode } from '@conclave/core/client';
+import type { AccountUsage, InviteDto, MeDto, PersonDto, ProviderAccessDto, ProviderGrantsDto, WorkspaceCode } from '@conclave/core/client';
+import type { Device } from '@conclave/core/types';
+import { Avatar } from '@/components/AccountMenu';
 import { api } from '@/lib/api';
 import { DISPLAY_NAME_MAX, accountLabel, addAccount, displayNameProblem, isCurrent, nameProblem, personName, refreshAccount, savedAccounts, signOut, switchAccount, tidyDisplayName, useMe } from '@/lib/people';
 import { useIsMobile } from '@/lib/hooks';
-import { shortDate, usd } from '@/lib/format';
+import { compact, relTime, shortDate, usd } from '@/lib/format';
 import { hubKeyProviders, providerInfo } from '@/lib/providers';
 import { toast, useHub } from '@/store/store';
 import { Button } from '@/components/ui/Button';
@@ -52,6 +54,61 @@ function displayNamePatch(typed: string, had: string | undefined): { displayName
   return { displayName: n || null };
 }
 
+/** "This week 12.3k tokens, $0.40 · this month 80k tokens, $2.10" */
+function usageLine(u: AccountUsage): string {
+  return `This week ${compact(u.week.tokens)} tokens, ${usd(u.week.costUsd, { precise: true })} · this month ${compact(u.month.tokens)} tokens, ${usd(u.month.costUsd, { precise: true })}`;
+}
+
+const initialOf = (name: string) => (name.trim()[0] ?? '?').toUpperCase();
+
+/** Paired computers with Unpair: a person's for the owner (People), or your own. */
+function DeviceRows({ load, remove, onChange }: { load: () => Promise<Device[]>; remove: (id: string) => Promise<unknown>; onChange?: () => void }) {
+  const [devices, setDevices] = useState<Device[]>();
+  const [ending, setEnding] = useState<Device>();
+  const size = useIsMobile() ? 'touch' : 'sm';
+  const reload = () =>
+    load()
+      .then((d) => setDevices(d.filter((x) => x.id !== 'local')))
+      .catch(() => setDevices([]));
+  useEffect(() => {
+    void reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  if (!devices?.length) return null;
+  return (
+    <>
+      {devices.map((d) => (
+        <SettingRow key={d.id} label={d.name} help={d.online ? <span className="text-ok">online</span> : d.lastSeenAt ? `last seen ${relTime(d.lastSeenAt)}` : 'not seen yet'}>
+          <div className="flex md:justify-end">
+            <Button variant="outline" size={size} onClick={() => setEnding(d)}>
+              Unpair
+            </Button>
+          </div>
+        </SettingRow>
+      ))}
+      <ConfirmDialog
+        open={!!ending}
+        onClose={() => setEnding(undefined)}
+        title={ending ? `Unpair ${ending.name}?` : ''}
+        body="It disconnects now and needs a new pairing code to come back."
+        confirm="Unpair"
+        busy="Unpairing"
+        onConfirm={async () => {
+          if (!ending) return;
+          try {
+            await remove(ending.id);
+          } catch (e) {
+            toast({ title: `Could not unpair. ${errText(e)}`, level: 'error' });
+          }
+          setEnding(undefined);
+          void reload();
+          onChange?.();
+        }}
+      />
+    </>
+  );
+}
+
 /** 1.5 for 1.5 GB, 5 for 5 GB. */
 const gbWords = (bytes: number) => (bytes / 1024 ** 3).toFixed(1).replace(/\.0$/, '');
 
@@ -70,6 +127,7 @@ export function PeopleSection() {
   const [editing, setEditing] = useState<PersonDto>();
   const [resetting, setResetting] = useState<PersonDto>();
   const [removing, setRemoving] = useState<PersonDto>();
+  const [toggling, setToggling] = useState<PersonDto>();
   const [workspace, setWorkspace] = useState<{ person: PersonDto; code: WorkspaceCode }>();
   const [link, setLink] = useState<{ person: string; invite: InviteDto }>();
   const mobile = useIsMobile();
@@ -120,10 +178,14 @@ export function PeopleSection() {
             key={p.id}
             top
             label={
-              <>
-                {called(p)}
-                {p.role === 'owner' && <span className="ml-2 font-normal text-fg-3">owner, you</span>}
-              </>
+              <span className="flex items-center gap-2.5">
+                <Avatar initial={initialOf(called(p))} size={28} accountId={p.id} version={p.avatarVersion} />
+                <span>
+                  {called(p)}
+                  {p.role === 'owner' && <span className="ml-2 font-normal text-fg-3">owner, you</span>}
+                  {p.disabled && <span className="ml-2 font-normal text-warn">Disabled</span>}
+                </span>
+              </span>
             }
             help={
               <>
@@ -134,6 +196,7 @@ export function PeopleSection() {
                   <span className="block">{p.spend.length ? p.spend.map(spendLine).join(', ') + ' this month' : "No access to the hub's keys"}</span>
                 )}
                 {p.role === 'member' && p.ownPlans ? <span className="block">Has {p.ownPlans} own {p.ownPlans === 1 ? 'plan' : 'plans'}</span> : null}
+                {p.usage && <span className="block">{usageLine(p.usage)}</span>}
                 {p.role === 'member' && p.apps > 0 && <PersonApps person={p} onChange={() => void load()} />}
               </>
             }
@@ -152,6 +215,9 @@ export function PeopleSection() {
                 <Button variant="outline" size={size} onClick={() => void openWorkspace(p)}>
                   Workspace
                 </Button>
+                <Button variant="outline" size={size} onClick={() => setToggling(p)}>
+                  {p.disabled ? 'Enable' : 'Disable'}
+                </Button>
                 <Button variant="danger" size={size} onClick={() => setRemoving(p)}>
                   Remove
                 </Button>
@@ -159,6 +225,11 @@ export function PeopleSection() {
             )}
           </SettingRow>
         ))}
+        {members
+          .filter((p) => p.devices > 0)
+          .map((p) => (
+            <DeviceRowsFor key={`dev-${p.id}`} person={p} onChange={() => void load()} />
+          ))}
         {!members.length && <SettingRow label="Nobody else yet" help="Add a person and send them the invite link, or set a password for them." />}
       </Group>
 
@@ -225,6 +296,28 @@ export function PeopleSection() {
         )}
       </Dialog>
       <ConfirmDialog
+        open={!!toggling}
+        onClose={() => setToggling(undefined)}
+        title={toggling ? `${toggling.disabled ? 'Enable' : 'Disable'} ${called(toggling)}?` : ''}
+        body={
+          toggling?.disabled
+            ? 'They can sign in again, and their apps and computers reconnect.'
+            : 'Their running work stops, and their apps and computers are cut off now. They cannot sign in until you enable them. Nothing is deleted.'
+        }
+        confirm={toggling?.disabled ? 'Enable' : 'Disable'}
+        busy={toggling?.disabled ? 'Enabling' : 'Disabling'}
+        onConfirm={async () => {
+          if (!toggling) return;
+          try {
+            await (toggling.disabled ? api().enablePerson(toggling.id) : api().disablePerson(toggling.id));
+          } catch (e) {
+            toast({ title: `Could not change it. ${errText(e)}`, level: 'error' });
+          }
+          setToggling(undefined);
+          void load();
+        }}
+      />
+      <ConfirmDialog
         open={!!removing}
         onClose={() => setRemoving(undefined)}
         title={removing ? `Remove ${called(removing)}?` : ''}
@@ -244,6 +337,64 @@ export function PeopleSection() {
         }}
       />
     </div>
+  );
+}
+
+/** A member's computers under People, headed by their name. */
+function DeviceRowsFor({ person, onChange }: { person: PersonDto; onChange: () => void }) {
+  return (
+    <>
+      <div className="pt-3 text-[12px] font-medium text-fg-3">{called(person)}'s computers</div>
+      <DeviceRows load={() => api().personDevices(person.id)} remove={(id) => api().removePersonDevice(person.id, id)} onChange={onChange} />
+    </>
+  );
+}
+
+/** Your picture: upload, change or remove. The hub checks the file is a picture. */
+function AvatarRow({ me }: { me: MeDto }) {
+  const [busy, setBusy] = useState(false);
+  const size = useIsMobile() ? 'touch' : 'sm';
+  const run = async (f: () => Promise<unknown>) => {
+    setBusy(true);
+    try {
+      await f();
+      await reloadMe();
+    } catch (e) {
+      toast({ title: `Could not save the picture. ${errText(e)}`, level: 'error' });
+    }
+    setBusy(false);
+  };
+  return (
+    <SettingRow
+      label={
+        <span className="flex items-center gap-3">
+          <Avatar initial={initialOf(personName(me) ?? me.name)} size={44} accountId={me.id} version={me.avatarVersion} />
+          Picture
+        </span>
+      }
+      help="PNG, JPEG, GIF or WebP, 512 KB at most. People on this hub see it."
+    >
+      <div className="flex flex-wrap gap-2 md:justify-end">
+        <label className={busy ? 'pointer-events-none opacity-60' : undefined}>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            className="sr-only"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (file) void run(() => api().setAvatar(file));
+            }}
+          />
+          <span className="inline-flex h-8 cursor-pointer items-center rounded-[var(--r-1)] border border-rule-2 px-3 text-[13px] font-medium text-fg hov:bg-hover">{me.avatarVersion ? 'Change' : 'Upload'}</span>
+        </label>
+        {me.avatarVersion ? (
+          <Button variant="ghost" size={size} disabled={busy} onClick={() => void run(() => api().removeAvatar())}>
+            Remove
+          </Button>
+        ) : null}
+      </div>
+    </SettingRow>
   );
 }
 
@@ -527,6 +678,13 @@ export function YourAccountSection() {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState<string>();
   const [confirmOut, setConfirmOut] = useState(false);
+  const [usage, setUsage] = useState<AccountUsage>();
+  useEffect(() => {
+    api()
+      .myUsage()
+      .then(setUsage)
+      .catch(() => {});
+  }, []);
   const models = useHub((s) => s.models);
   const saved = savedAccounts();
   useEffect(() => {
@@ -577,6 +735,7 @@ export function YourAccountSection() {
     <div className="space-y-9">
       <Group title="You">
         <SettingRow label={personName(me) ?? me.name} help={member ? 'A member of this hub. The owner manages the hub and its settings.' : 'The owner of this hub.'} />
+        <AvatarRow me={me} />
         <SettingRow label="Display name" htmlFor="me-display-name" help={shownBad ?? 'What the apps call you. Spaces are fine.'}>
           <Input id="me-display-name" className="w-full md:w-[240px]" value={shown} onChange={(e) => setShown(e.target.value)} maxLength={DISPLAY_NAME_MAX} invalid={!!shownBad} autoComplete="name" />
         </SettingRow>
@@ -635,6 +794,17 @@ export function YourAccountSection() {
           {me.disk && <SettingRow label="Disk on the hub" help="Your browser, downloads and files on the hub. The owner sets the cap.">{`${gbWords(me.disk.usedBytes)} of ${gbWords(me.disk.limitBytes)} GB`}</SettingRow>}
         </Group>
       )}
+
+      {usage && (
+        <Group title="Usage">
+          <SettingRow label="This week" help="Since Monday, every model call of yours.">{`${compact(usage.week.tokens)} tokens, ${usd(usage.week.costUsd, { precise: true })}`}</SettingRow>
+          <SettingRow label="This month">{`${compact(usage.month.tokens)} tokens, ${usd(usage.month.costUsd, { precise: true })}`}</SettingRow>
+        </Group>
+      )}
+
+      <Group title="Your computers" help="Computers you paired. Pair a new one in Devices.">
+        <DeviceRows load={() => api().devices()} remove={(id) => api().deleteDevice(id)} />
+      </Group>
 
       <SignedInGroup />
 

@@ -13,6 +13,13 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Android: home-screen widgets. Usage (plan limits and today's tokens), Inbox (what waits on you and the first three, each opening its chat), Calendar (today's next three events), and one widget that swipes through all three. They show the signed-in account only, keep nothing on disk, and refresh with WorkManager every 30 minutes and shortly after approvals, questions, alerts, usage or leaving the app.
 - Reflect: a recap of your week, month or year at the top of Settings > Reflect. Chats, sessions, workflows, tokens, cost and top models; the folders and topics you worked on; people first seen in memory and preferences saved in the period; active days, longest streak, busiest day and hour; and a few facts. It reads only your own account, so a member sees only their own recap (`GET /api/reflect/recap?period=week|month|year`). Summarise writes it as a short paragraph with one call on your small model (`POST /api/reflect/recap/summary`); nothing else calls a model.
+- People: the owner can disable and enable a member. Disabling stops their running work and cuts their open apps and paired computers at once; they cannot sign in until enabled, and nothing is deleted. Each member's row shows their picture, status, tokens and cost this week and month, and their computers with Unpair.
+- Your account: a profile picture (PNG, JPEG, GIF or WebP, 512 KB at most), your tokens and cost this week and month, and your paired computers with Unpair. Pictures show in the sidebar footer, People and a shared chat's people, with initials when there is none.
+
+### Security
+
+- Daemon sign in checks the account only after the token compare, so a disabled account's device ids cannot be told apart by timing.
+- Profile pictures are checked by their bytes, never the claimed type, and served with `nosniff` and a sandbox policy; another account's picture is served only to the owner or a contact.
 
 ## [0.4.58] - 2026-11-02
 

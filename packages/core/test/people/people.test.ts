@@ -57,8 +57,9 @@ describe('the migration', () => {
       const repos = new Repos(db);
       repos.sessions.insert(session('ses_old'));
       repos.kv.set('memory.extract.ses_old', 3);
-      // This membership table did not exist before accounts; its composite key cannot drop account_id.
+      // These tables did not exist before accounts; their keys cannot drop account_id.
       db.exec('DROP TABLE chat_participants');
+      db.exec('DROP TABLE IF EXISTS account_avatars');
       db.query("INSERT INTO memories (id, scope, kind, content, created_at, updated_at) VALUES ('mem_old', 'global', 'fact', 'old fact', 1, 1)").run();
       for (const t of ACCOUNT_TABLES) {
         if (!tables(db).includes(t) || !columns(db, t).includes('account_id')) continue;
