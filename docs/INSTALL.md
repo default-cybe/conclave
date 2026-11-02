@@ -973,11 +973,16 @@ release:
 
 - **Mac with Apple silicon**: `Conclave_<version>_aarch64.dmg`. **Intel Mac**:
   `Conclave_<version>_x64.dmg`. Drag Conclave to Applications. The app is
-  signed ad hoc but not notarized, so the first open is blocked: open
+  signed with Conclave's own certificate but not notarized, so the first
+  open is blocked: right-click Conclave and choose **Open**, or open
   **System Settings > Privacy & Security**, scroll to Security and choose
   **Open Anyway** for Conclave, once. If an older build says it is damaged,
   clear the download flag instead:
   `xattr -dr com.apple.quarantine /Applications/Conclave.app`
+  Every release is signed with the same certificate, so the permissions you
+  give it (Files and Folders, Full Disk Access, Microphone, Screen
+  Recording) stay after an update. The first update from an ad-hoc build
+  asks once more.
 - **Windows**: `Conclave_<version>_x64-setup.exe`. If SmartScreen warns,
   choose **More info**, then **Run anyway**.
 - **Linux**: `Conclave_<version>_amd64.AppImage` (or the `.deb` or `.rpm`).
@@ -2040,6 +2045,12 @@ Put the private key file's contents in the repository secret
 `~/.tauri/conclave-update.key.pub` and commit it. Never commit the private key.
 Releases built before that commit cannot check signatures, so devices on them
 update by hand once more.
+
+The Mac app and daemons are code-signed with one self-signed certificate, so
+macOS keeps their permissions across updates: the secrets `MACOS_SIGNING_P12`
+(the base64 `.p12`) and `MACOS_SIGNING_P12_PASSWORD` hold it
+(`scripts/ci/macos-keychain.sh`). Keep a copy; a new certificate makes every
+Mac ask for its permissions again. Without them the Mac builds are signed ad hoc.
 
 ## 15. The hub's browser
 
