@@ -38,6 +38,7 @@ import {
   STEERING_PRESETS,
   TITLE_MAX,
   type AnswerNowInput,
+  type AnswerPaintInput,
   type Channel,
   type CreateMeetingInput,
   type Meeting,
@@ -107,8 +108,10 @@ const err = (status: number, msg: string) => new EngineError(status, msg);
 /** Live state of one meeting, in memory only. */
 interface Live {
   answerer: Answerer;
-  /** Hub-clock start of each audio stream (batch t0 is the desktop's, display only). */
+  /** Hub-clock start of each audio stream (batch t0 is the desktop's). */
   base: number;
+  /** The desktop t0 that base was mapped from with sentAt; a new t0 maps again. */
+  baseT0?: number;
   recentThem: StoredSegment[];
   /** "them" finals since the last answered question, for joining a split question. */
   fragments: StoredSegment[];
@@ -944,11 +947,19 @@ export class MeetingService {
       this.startWarm(m, l);
       this.emit(m);
     }
+    // desktop time + off = hub time; the error is the one-way POST time, whatever the clock skew
+    const off = batch.sentAt !== undefined ? now - batch.sentAt : undefined;
+    if (off !== undefined) {
+      // t0 on the hub clock; the smallest estimate is the batch with the fastest POST
+      const t0 = batch.t0 + off;
+      l.base = l.baseT0 === batch.t0 ? Math.min(l.base, t0) : t0;
+      l.baseT0 = batch.t0;
+    }
     const stored: StoredSegment[] = [];
     for (const s of batch.segments) {
       const text = defuseFrameworkTags(s.text.trim());
       if (!text) continue;
-      const seg: StoredSegment = { ...s, text, at: l.base + s.startMs, receivedAt: now };
+      const seg: StoredSegment = { ...s, text, at: l.base + s.startMs, receivedAt: now, ...(off !== undefined ? { clockOff: off } : {}) };
       if (seg.channel === 'me' && seg.final && this.isEcho(seg, l)) continue;
       if (!this.store.putSegment(id, m.accountId, seg, seg.at)) continue;
       stored.push(seg);
@@ -982,7 +993,7 @@ export class MeetingService {
   private afterIngest(m: Meeting, segs: StoredSegment[], l: Live): void {
     const names = this.ownerNames(m.accountId);
     for (const s of segs) {
-      const { at: _at, ...segment } = s;
+      const { at: _at, clockOff: _off, ...segment } = s;
       this.engine.bus.emit({ type: 'meeting.segment', sessionId: m.sessionId, meetingId: m.id, segment });
       // trigger only on "them", never on "me" (4.3)
       if (s.channel !== 'them') continue;
@@ -1042,6 +1053,14 @@ export class MeetingService {
     const a = this.store.answer(answerId);
     if (!a || a.meetingId !== m.id) throw err(404, 'Answer not found');
     this.live.get(m.id)?.answerer.cancel(answerId);
+  }
+
+  /** The overlay painted the answer's first words (input in overlay clock): stored once, on the hub clock. */
+  paintAnswer(id: string, answerId: string, input: AnswerPaintInput, accountId: string): void {
+    const m = this.get(id, accountId);
+    const a = this.store.answer(answerId);
+    if (!a || a.meetingId !== m.id) throw err(404, 'Answer not found');
+    if (!this.store.paintAnswer(answerId, input.paintedAt + (Date.now() - input.sentAt))) throw err(409, 'The paint time is set already.');
   }
 
   // ----- end -----

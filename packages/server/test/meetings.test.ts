@@ -110,6 +110,18 @@ describe('meeting routes', () => {
     expect(now.status).toBe(202);
     expect(now.body.answerId).toStartWith('ans_');
     expect((await call(OWNER, 'POST', `/api/meetings/${id}/answers/ans_nope/cancel`)).status).toBe(404);
+    // first paint: the overlay clock maps to the hub clock with sentAt; only the first write counts
+    const paint = `/api/meetings/${id}/answers/${now.body.answerId}/paint`;
+    expect((await call(OWNER, 'POST', paint, { paintedAt: Number.NaN, sentAt: 1 })).status).toBe(400);
+    expect((await call(OWNER, 'POST', paint, undefined, '{"paintedAt":"1","sentAt":2}')).status).toBe(400);
+    expect((await call(alice.token, 'POST', paint, { paintedAt: 1000, sentAt: 1100 })).status).toBe(404);
+    const before = Date.now();
+    expect((await call(OWNER, 'POST', paint, { paintedAt: 1000, sentAt: 1100 })).status).toBe(204);
+    const painted = meetingsOf(t.engine)!.store.answer(now.body.answerId)!.paintedAt!;
+    expect(painted).toBeGreaterThanOrEqual(before - 100);
+    expect(painted).toBeLessThanOrEqual(Date.now() - 100);
+    expect((await call(OWNER, 'POST', paint, { paintedAt: 5000, sentAt: 5000 })).status).toBe(409);
+    expect(meetingsOf(t.engine)!.store.answer(now.body.answerId)!.paintedAt).toBe(painted);
   }, 15_000);
 
   test('a member cannot read, post to, answer, end, delete or list the owner meeting, nor see its events', async () => {

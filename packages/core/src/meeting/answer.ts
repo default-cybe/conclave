@@ -148,7 +148,7 @@ export class Answerer {
     if (seg.final) {
       const same = cur ? similarity(cur.question, seg.text) : 0;
       // the speculation was right: it becomes the answer to the question
-      if (cur?.trigger === 'speculative' && same >= RELABEL_SAME) return this.relabel(cur, seg.text);
+      if (cur?.trigger === 'speculative' && same >= RELABEL_SAME) return this.relabel(cur, seg);
       // the same question again (a retry, a repeat) while its answer streams
       if (cur && cur.trigger !== 'speculative' && same >= SAME_QUESTION) return;
       // a statement the heuristic took for a question must not kill the real answer: only a "?" cancels it
@@ -196,8 +196,17 @@ export class Answerer {
     r.ctl.abort();
   }
 
-  private relabel(a: MeetingAnswer, question: string): void {
-    const next = this.store.updateAnswer(a.id, { trigger: 'question', question });
+  private relabel(a: MeetingAnswer, seg: StoredSegment): void {
+    // the timings of the final it now answers: its first token can come before the final did
+    const off = seg.clockOff;
+    const next = this.store.updateAnswer(a.id, {
+      trigger: 'question',
+      question: seg.text,
+      segmentEndAt: seg.at + (seg.endMs - seg.startMs),
+      ...(seg.receivedAt ? { receivedAt: seg.receivedAt } : {}),
+      ...(off !== undefined && seg.speechEndAt !== undefined ? { speechEndAt: seg.speechEndAt + off } : {}),
+      ...(off !== undefined && seg.finalAt !== undefined ? { finalAt: seg.finalAt + off } : {}),
+    });
     if (next && this.current?.answer.id === a.id) this.current.answer = next;
     if (next) this.emit(next);
   }
@@ -244,10 +253,14 @@ export class Answerer {
     const added = this.store.addAnswer({ accountId: m.accountId, meetingId: m.id, messageId: msg.id, trigger, question, state: 'streaming', createdAt: now });
     const model = this.model();
     // per-answer latency: speech end, arrival at the hub, model call, first token
+    const skew = from?.clockOff;
     const answer =
       this.store.updateAnswer(added.id, {
         model,
         ...(from ? { segmentEndAt: from.at + (from.endMs - from.startMs), ...(from.receivedAt ? { receivedAt: from.receivedAt } : {}) } : {}),
+        // the desktop's marks on the hub clock
+        ...(skew !== undefined && from?.speechEndAt !== undefined ? { speechEndAt: from.speechEndAt + skew } : {}),
+        ...(skew !== undefined && from?.finalAt !== undefined ? { finalAt: from.finalAt + skew } : {}),
       }) ?? added;
     const ctl = new AbortController();
     const r: Running = { answer, ctl, done: Promise.resolve() };

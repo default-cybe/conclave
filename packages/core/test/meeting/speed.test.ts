@@ -4,7 +4,7 @@
  * a question split over several finals, per-answer timings, and a latency
  * benchmark with a fake model that takes a fixed time to the first token.
  */
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test } from 'bun:test';
 import { startTestEngine, until, type RequestBody, type TestEngine } from '../engine/harness';
 import { meetingsOf } from '../../src/meeting/index';
 import { defaultLiveModel, modelOptions, speedOf } from '../../src/meeting/models';
@@ -15,7 +15,7 @@ import { isQuestion } from '../../src/meeting/trigger';
 import { LIVE_PROMPT } from '../../src/meeting/prompt';
 import { SPECULATIONS_PER_MINUTE } from '../../src/meeting/answer';
 import { estimateTokens } from '../../src/util/text';
-import type { Segment } from '../../src/meeting/wire';
+import { answerPaintProblem, segmentBatchProblem, type Segment } from '../../src/meeting/wire';
 
 // ----- fake AssemblyAI and Deepgram -----
 const seen: Array<{ path: string; method: string; auth: string | null; body: string }> = [];
@@ -319,6 +319,62 @@ describe('review fixes', () => {
     expect(svc.patch(m2.id, { title: 'Still none', answerModel: null }, 'owner').answerModel).toBeUndefined();
     await svc.settled();
     expect(warms()).toBe(before);
+  });
+});
+
+describe('one hub timebase per answer', () => {
+  test('desktop marks map to the hub clock with receivedAt - sentAt; at counts from the desktop t0', async () => {
+    const svc = await boot();
+    const m = await svc.create({ title: 'Clock' }, 'owner');
+    expect(await until(() => svc.store.get(m.id)!.status === 'ready')).toBe(true);
+    const s = seg(0, 'What is your main language?', { startMs: 43_000, endMs: 44_800, speechEndAt: 45_900, finalAt: 45_950 });
+    // the first batch reaches the hub 45 s after the desktop stream started
+    setSystemTime(new Date(10_000_050));
+    try {
+      svc.ingest(m.id, { clientId: 'cli_1', t0: 1000, sentAt: 46_000, segments: [s] }, 'owner');
+    } finally {
+      setSystemTime();
+    }
+    expect(svc.store.finals(m.id)[0].at).toBe(10_000_050 - 45_000 + 43_000);
+    expect(await until(() => svc.store.answers(m.id)[0]?.state === 'done', 5000)).toBe(true);
+    const a = svc.store.answers(m.id)[0];
+    expect(a.speechEndAt).toBe(45_900 + (10_000_050 - 46_000));
+    expect(a.finalAt).toBe(45_950 + (10_000_050 - 46_000));
+    expect(a.receivedAt).toBe(10_000_050);
+    expect(a.segmentEndAt).toBe(10_000_050 - 45_000 + 44_800);
+    const order = [a.speechEndAt!, a.finalAt!, a.receivedAt!, a.requestAt!, a.firstTokenAt!];
+    expect(order).toEqual([...order].sort((x, y) => x - y));
+  });
+
+  test('a batch with a NaN or string mark is refused at the boundary', () => {
+    const ok = { clientId: 'c', t0: 1, segments: [seg(0, 'x')] };
+    expect(segmentBatchProblem({ ...ok, sentAt: 5 })).toBeUndefined();
+    expect(segmentBatchProblem({ ...ok, sentAt: Number.NaN })).toMatch(/sentAt/);
+    expect(segmentBatchProblem({ ...ok, sentAt: '5' })).toMatch(/sentAt/);
+    expect(segmentBatchProblem({ ...ok, segments: [seg(0, 'x', { speechEndAt: Infinity })] })).toMatch(/speechEndAt/);
+    expect(segmentBatchProblem({ ...ok, segments: [seg(0, 'x', { finalAt: 'now' as never })] })).toMatch(/finalAt/);
+    expect(answerPaintProblem({ paintedAt: 1, sentAt: 2 })).toBeUndefined();
+    expect(answerPaintProblem({ paintedAt: Number.NaN, sentAt: 2 })).toBeTruthy();
+    expect(answerPaintProblem([1, 2])).toBeTruthy();
+  });
+
+  test('the paint time is stored once, on the hub clock, and only for the meeting it belongs to', async () => {
+    const svc = await boot();
+    const m = await svc.create({ title: 'Paint' }, 'owner');
+    const other = await svc.create({ title: 'Other', scheduledAt: Date.now() + 86_400_000 }, 'owner');
+    expect(await until(() => svc.store.get(m.id)!.status === 'ready')).toBe(true);
+    svc.ingest(m.id, batch(seg(0, 'What is your main language?')), 'owner');
+    expect(await until(() => svc.store.answers(m.id)[0]?.state === 'done', 5000)).toBe(true);
+    const a = svc.store.answers(m.id)[0];
+    expect(() => svc.paintAnswer(other.id, a.id, { paintedAt: 1, sentAt: 1 }, 'owner')).toThrow(/not found/);
+    expect(() => svc.paintAnswer(m.id, a.id, { paintedAt: 1, sentAt: 1 }, 'someone-else')).toThrow();
+    const before = Date.now();
+    svc.paintAnswer(m.id, a.id, { paintedAt: 9_000, sentAt: 9_040 }, 'owner');
+    const p = svc.store.answer(a.id)!.paintedAt!;
+    expect(p).toBeGreaterThanOrEqual(before - 40);
+    expect(p).toBeLessThanOrEqual(Date.now() - 40);
+    expect(() => svc.paintAnswer(m.id, a.id, { paintedAt: 1, sentAt: 1 }, 'owner')).toThrow(/set already/);
+    expect(svc.store.answer(a.id)!.paintedAt).toBe(p);
   });
 });
 
