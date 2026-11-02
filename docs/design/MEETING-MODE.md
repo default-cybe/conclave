@@ -484,7 +484,7 @@ cpal callback (OS audio thread) ─push─► SPSC ring 2 s f32 ─► meeting-m
 - Audio callbacks only copy into the ring: no allocation, no lock, no logging.
 - No worker touches the main thread or the webview. The main thread only builds windows, handles IPC returns and tray events.
 - ORT: `intra_op_threads = min(4, max(2, physical_cores / 2))`, `inter_op_threads = 1`, so Zoom's video encode keeps cores.
-- The overlay's web page does no work when no delta arrives: no timers, no animation loop, no CSS animation except the recording dot (a 2 s opacity transition, compositor only).
+- The overlay's web page does no work when no delta arrives: no timers, no animation loop, no endless CSS animation (the recording dot is steady: a 2 s pulse kept the GPU process at about 15 % of a core in a headless profile). Its timers are the minute clock and the socket's 25 s ping; the socket closes once the meeting has ended. Docked to an edge and hidden, the tab shows no level, so Rust sends no `meeting://level` (the cursor check for hover stays).
 
 Budgets on the same laptop, checked on real hardware (9.4):
 

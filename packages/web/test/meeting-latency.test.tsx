@@ -13,6 +13,7 @@ import { AnswerCard, paintReporter } from '../src/overlay/AnswerCard';
 import { meetingApi, type Req } from '../src/overlay/hub';
 import { answerLatency, latencyStats, stepTimes } from '../src/overlay/model';
 import { answerSteps, latencyLine } from '../src/features/meeting/MeetingPage';
+import { registerMeetings } from '../src/mock/meetings';
 import type { AnswerPaintInput as AnswerPaint, MeetingAnswer } from '../src/overlay/wire';
 
 const ans = (p: Partial<MeetingAnswer>): MeetingAnswer => ({ id: 'a', meetingId: 'm', messageId: 'x', trigger: 'question', question: '', state: 'done', createdAt: 10_000, ...p });
@@ -116,5 +117,47 @@ describe('first paint report', () => {
     await flush();
     expect(posts).toHaveLength(1);
     await act(async () => root.unmount());
+  });
+});
+
+describe('mock answer timings', () => {
+  test('a question answer carries every hub step, in order, from the batch it came in', async () => {
+    type H = (p: { params: string[]; query: URLSearchParams; body: unknown }) => unknown;
+    const routes: [string, RegExp, H][] = [];
+    const ctx = {
+      on: (m: string, path: string, h: H) => routes.push([m, new RegExp('^' + path.replace(/:[a-z]+/gi, '([^/]+)') + '$'), h]),
+      db: { messages: new Map(), sessions: new Map(), values: [], memories: [] },
+      emit: () => undefined,
+      uid: (p: string) => `${p}_${Math.random().toString(36).slice(2)}`,
+      sleep: async () => undefined,
+      fail: (status: number, msg: string): never => {
+        throw Object.assign(new Error(msg), { status });
+      },
+      FRESH: false,
+    };
+    registerMeetings(ctx as never);
+    const call = async (method: string, path: string, body?: unknown) => {
+      for (const [m, re, h] of routes) {
+        const hit = m === method && re.exec(path);
+        if (hit) return h({ params: hit.slice(1), query: new URLSearchParams(), body });
+      }
+      throw new Error(`no route ${method} ${path}`);
+    };
+    const sent = Date.now();
+    // desktop clock 45 s behind the hub
+    const t0 = sent - 45_000 - 3000;
+    await call('POST', '/api/meetings/mtg_live/segments', { clientId: 'app_desktop', t0, sentAt: sent - 45_000, segments: [{ seq: 9, channel: 'them', startMs: 0, endMs: 2800, text: 'Where are we on the export feature?', final: true, speechEndAt: t0 + 2850, finalAt: sent - 45_000 - 60 }] });
+    let a: MeetingAnswer | undefined;
+    for (let i = 0; i < 50 && a?.state !== 'done'; i++) {
+      await Bun.sleep(20);
+      a = ((await call('GET', '/api/meetings/mtg_live')) as { answers: MeetingAnswer[] }).answers.find((x) => x.question.startsWith('Where are we') && x.id !== 'ans_1');
+    }
+    expect(a?.state).toBe('done');
+    const order = [a!.speechEndAt!, a!.finalAt!, a!.receivedAt!, a!.requestAt!, a!.firstTokenAt!, a!.doneAt!];
+    expect(order.every((x) => Number.isFinite(x))).toBe(true);
+    expect(order).toEqual([...order].sort((x, y) => x - y));
+    // on the hub clock: the 45 s skew is gone
+    expect(Math.abs(a!.receivedAt! - sent)).toBeLessThan(1000);
+    expect(a!.receivedAt! - a!.finalAt!).toBeGreaterThanOrEqual(60);
   });
 });

@@ -89,6 +89,8 @@ static BLUR: AtomicBool = AtomicBool::new(true);
 static NOTCH: AtomicBool = AtomicBool::new(false);
 /// The cursor was over the overlay at the last look (meeting://hover on change).
 static HOVER: AtomicBool = AtomicBool::new(false);
+/// Docked to an edge and auto-hidden: the window is the 10 px tab, which shows no level.
+static EDGE_TAB: AtomicBool = AtomicBool::new(false);
 
 fn channel(c: &ChannelShared) -> ChannelState {
     ChannelState { ok: c.ok.load(Ordering::Relaxed), device: c.device.lock().unwrap().clone(), error: c.error.lock().unwrap().clone() }
@@ -239,6 +241,7 @@ pub fn place_window(app: &AppHandle, x: f64, y: f64, width: f64, height: f64, no
     }
     // not every OS reads both
     let _ = (level_changed, blur_changed);
+    EDGE_TAB.store(edge_tab(notch, width, height), Ordering::Relaxed);
     place::place(&w, x, y, width, height)?;
     recheck(app);
     Ok(())
@@ -774,6 +777,11 @@ fn send_status(app: &AppHandle, s: DesktopMeetingStatus) {
     let _ = app.emit_to(crate::MAIN, "meeting://status", s);
 }
 
+/// The hidden edge tab is TAB (10) CSS px thick (overlay/place.ts); a shown panel or the notch pill is far wider.
+fn edge_tab(notch: bool, width: f64, height: f64) -> bool {
+    !notch && width.min(height) < 16.0
+}
+
 /// Send meeting://level? Only to an overlay on screen, and only when a level moved by
 /// LEVEL_STEP or fell to silence (or none went out since it was shown).
 fn should_emit(prev: Option<Levels>, next: Levels, visible: bool) -> bool {
@@ -830,7 +838,7 @@ fn watch(app: &AppHandle, stop: &AtomicBool) {
         if let Some(r) = RUN.lock().unwrap().as_ref() {
             let next = Levels { me: r.mic.level(), them: r.sys.level() };
             // the hide paths set these flags (hide() has no other caller): no window query per pass
-            let shown = !HIDDEN_FOR_SHARE.load(Ordering::Relaxed) && !HIDDEN_BY_OWNER.load(Ordering::Relaxed);
+            let shown = !HIDDEN_FOR_SHARE.load(Ordering::Relaxed) && !HIDDEN_BY_OWNER.load(Ordering::Relaxed) && !EDGE_TAB.load(Ordering::Relaxed);
             if should_emit(last_level, next, shown) {
                 let _ = app.emit_to(MEETING, "meeting://level", next);
                 last_level = Some(next);
@@ -862,7 +870,15 @@ fn stop_and_say(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_height, should_emit, with_rec_dot, Levels};
+    use super::{clamp_height, edge_tab, should_emit, with_rec_dot, Levels};
+
+    #[test]
+    fn the_hidden_edge_tab_gets_no_levels_and_the_notch_pill_does() {
+        assert!(edge_tab(false, 10.0, 64.0), "left or right tab");
+        assert!(edge_tab(false, 64.0, 10.0), "top or bottom tab");
+        assert!(!edge_tab(false, 360.0, 120.0), "docked and shown");
+        assert!(!edge_tab(true, 290.0, 32.0), "notch pill: its tiny level stays");
+    }
 
     #[test]
     fn levels_go_out_only_when_they_move_and_the_overlay_shows() {

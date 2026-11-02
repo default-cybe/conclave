@@ -208,9 +208,16 @@ export class Answerer {
   }
 
   private relabel(a: MeetingAnswer, seg: StoredSegment): void {
-    // the timings of the final it now answers: its first token can come before the final did
+    // the timings of the final it now answers
     const off = seg.clockOff;
+    // the model call (and maybe the first token) came before this final arrived: from the final's side they took 0 ms
+    const was = this.store.answer(a.id) ?? a;
+    const at = seg.receivedAt;
+    const early = at !== undefined && was.requestAt !== undefined && was.requestAt < at ? at - was.requestAt : 0;
+    if (early) log.info(`${was.meetingId}: kept speculation ${a.id}, model call ${early} ms before the final`);
     const next = this.store.updateAnswer(a.id, {
+      ...(early ? { requestAt: at } : {}),
+      ...(at !== undefined && was.firstTokenAt !== undefined && was.firstTokenAt < at ? { firstTokenAt: at } : {}),
       trigger: 'question',
       question: seg.text,
       segmentEndAt: seg.at + (seg.endMs - seg.startMs),

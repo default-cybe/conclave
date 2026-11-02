@@ -437,6 +437,10 @@ describe('latency benchmark (fake model, first token after 150 ms)', () => {
     expect(liveBodies()).toHaveLength(1);
     console.log(`meeting speculation bench: final received to first token ${a.firstTokenAt! - a.receivedAt!} ms, model requests ${liveBodies().length} (model first token ${FIRST_TOKEN_MS} ms)`);
     expect(a.firstTokenAt! - a.receivedAt!).toBeLessThan(FIRST_TOKEN_MS);
+    // the call went out before the final: the steps stay in order, the request taking 0 ms after it
+    const order = [a.receivedAt!, a.requestAt!, a.firstTokenAt!, a.doneAt!];
+    expect(order).toEqual([...order].sort((x, y) => x - y));
+    expect(a.requestAt).toBe(a.receivedAt);
   });
 
   test('an unrelated final still cancels the speculation and starts its own answer', async () => {
