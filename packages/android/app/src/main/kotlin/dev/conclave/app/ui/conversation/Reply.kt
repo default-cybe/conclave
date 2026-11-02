@@ -515,6 +515,8 @@ fun PendingReplyLine(startedAt: Long?) {
     }
 }
 
+private val WHITESPACE = Regex("\\s+")
+
 /**
  * The thought (Fold): while it streams the row reads "Thinking" in violet
  * over it, and the new words come in with Ink. In the same frame the answer
@@ -523,7 +525,7 @@ fun PendingReplyLine(startedAt: Long?) {
 @Composable
 private fun ThoughtFold(block: ThinkingBlock, live: Boolean, measuredMs: Long?) {
     val text = block.thinking.trim()
-    val words = text.split(Regex("\\s+")).count { it.isNotEmpty() }
+    val words = text.split(WHITESPACE).count { it.isNotEmpty() }
     // the hub stores the time when the message ends; until then the phone's own measure
     val label = (block.durationMs ?: measuredMs)?.let { ChatLive.thoughtFor(it) } ?: "Thought, $words ${if (words == 1) "word" else "words"}"
     Fold(live = live, label = label) {
