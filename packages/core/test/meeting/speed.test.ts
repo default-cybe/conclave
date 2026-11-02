@@ -380,23 +380,31 @@ describe('one hub timebase per answer', () => {
 });
 
 describe('latency benchmark (fake model, first token after 150 ms)', () => {
-  test('speech end to first token stays within the model time plus a small hub overhead', async () => {
+  test('the hub adds under 20 ms p95 from segment received to model request', async () => {
     const svc = await boot();
     const m = await svc.create({ title: 'Bench' }, 'owner');
     expect(await until(() => svc.store.get(m.id)!.status === 'ready')).toBe(true);
-    const qs = ['What is your main language?', 'How do you test your services?', 'Why did you pick Postgres?', 'Explain your deploy process'];
+    await svc.modelList('owner');
+    await svc.settled();
+    // 6 finals and 6 speculative partials: both rate windows full, each a different question
+    const qs = ['What is your main language?', 'How do you test your services?', 'Why did you pick Postgres?', 'Explain your deploy process', 'How do you handle outages?', 'Who reviews your code?'];
+    const partials = ['How would you shard the orders table', 'What would you cache first here', 'Why would you pick Kafka over SQS', 'Where would the retries live', 'Which metrics would you alert on', 'Can you walk me through the rollout'];
     const hub: number[] = [];
-    for (let i = 0; i < qs.length; i++) {
-      svc.ingest(m.id, batch(seg(i, qs[i])), 'owner');
-      expect(await until(() => svc.store.answers(m.id)[i]?.state === 'done', 5000)).toBe(true);
-      const a = svc.store.answers(m.id)[i];
+    let n = 0;
+    for (let i = 0; i < qs.length * 2; i++) {
+      const s = i % 2 ? seg(i, partials[i >> 1], { final: false, startMs: i * 3000, endMs: i * 3000 + 800 }) : seg(i, qs[i >> 1]);
+      svc.ingest(m.id, batch(s), 'owner');
+      expect(await until(() => svc.store.answers(m.id)[n]?.state === 'done', 5000)).toBe(true);
+      const a = svc.store.answers(m.id)[n++];
+      expect(a.trigger).toBe(i % 2 ? 'speculative' : 'question');
       // receivedAt -> requestAt is the hub's own work before the model call
       hub.push(a.requestAt! - a.receivedAt!);
       expect(a.firstTokenAt! - a.requestAt!).toBeGreaterThanOrEqual(FIRST_TOKEN_MS - 5);
     }
     hub.sort((x, y) => x - y);
-    console.log(`meeting answer bench: hub overhead p50 ${hub[Math.floor(hub.length / 2)]} ms, max ${hub.at(-1)} ms (model first token ${FIRST_TOKEN_MS} ms)`);
-    expect(hub.at(-1)!).toBeLessThan(250);
+    const p95 = hub[Math.ceil(hub.length * 0.95) - 1];
+    console.log(`meeting answer bench: segment received to model request p50 ${hub[Math.floor(hub.length / 2)]} ms, p95 ${p95} ms, max ${hub.at(-1)} ms over ${hub.length} answers (model first token ${FIRST_TOKEN_MS} ms)`);
+    expect(p95).toBeLessThan(20);
   });
 
   test('a long partial starts the answer before the final arrives, and the final keeps it', async () => {
