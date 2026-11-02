@@ -67,6 +67,15 @@ describe('Reflect recap', () => {
     expect(JSON.stringify(r)).not.toContain('Private member');
   });
 
+  test("a member's imported people come from the member's own import key", () => {
+    memory('m-lin', 'Lin: Member collaborator', ['imported'], at('2026-11-04'), 'member');
+    memory('o-kim', 'Kim: Owner collaborator', ['imported'], at('2026-11-04'));
+    db.query(`INSERT INTO kv (key, value, updated_at) VALUES ('acct:member:memory.import.bm', ?, ?), ('memory.import.bm', ?, ?)`)
+      .run(JSON.stringify({ 'people/lin': { id: 'm-lin' } }), now, JSON.stringify({ 'people/kim': { id: 'o-kim' } }), now);
+    expect(buildRecap(db, 'member', 'week', 'America/Los_Angeles', now).people.map((p) => p.content)).toEqual(['Lin: Member collaborator']);
+    expect(buildRecap(db, 'owner', 'week', 'America/Los_Angeles', now).people.map((p) => p.content)).toEqual(['Kim: Owner collaborator']);
+  });
+
   test('empty periods have no invented rhythm or fun facts; bounds exclude future data', () => {
     session('future', 'owner', now + 1); usage('future-u', 'owner', now + 1);
     const r = buildRecap(db, 'owner', 'week', 'UTC', now);

@@ -2,6 +2,7 @@
 import type { RecapDto, RecapMemory, RecapPeriod, RecapRank } from '../client/recap';
 import { ACTIVE_SQL } from '../memory/store';
 import { OWNER_ID } from '../people/context';
+import { accountKey } from '../people/store';
 import type { Db } from '../storage/db';
 import { addDays, atLocal, hubZone, localDate, localMinutes, validZone } from './time';
 
@@ -83,7 +84,8 @@ function readMemories(db: Db, accountId: string, start: number, end: number): { 
 }
 
 function importedPersonIds(db: Db, accountId: string): Set<string> {
-  const prefix = accountId === OWNER_ID ? 'memory.import.%' : `acct.${accountId}.memory.import.%`;
+  // same key MemoryStore writes (memory/store.ts); rows are matched to this account's memories anyway
+  const prefix = `${accountKey(accountId, 'memory.import.')}%`;
   const rows = db.query<{ value: string }, [string]>(`SELECT value FROM kv WHERE key LIKE ?`).all(prefix);
   const ids = new Set<string>();
   for (const row of rows) {
