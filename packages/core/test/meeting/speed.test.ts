@@ -4,7 +4,7 @@
  * a question split over several finals, per-answer timings, and a latency
  * benchmark with a fake model that takes a fixed time to the first token.
  */
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test } from 'bun:test';
 import { startTestEngine, until, type RequestBody, type TestEngine } from '../engine/harness';
 import { meetingsOf } from '../../src/meeting/index';
 import { defaultLiveModel, modelOptions, speedOf } from '../../src/meeting/models';
@@ -13,9 +13,9 @@ import { STT_HOSTS, mintSttToken, sttChoice, SttError } from '../../src/meeting/
 import { buildContextPack, livePack, LIVE_PACK_TOKENS_MAX } from '../../src/meeting/context';
 import { isQuestion } from '../../src/meeting/trigger';
 import { LIVE_PROMPT } from '../../src/meeting/prompt';
-import { SPECULATIONS_PER_MINUTE } from '../../src/meeting/answer';
+import { SPECULATIONS_PER_MINUTE, grewFrom } from '../../src/meeting/answer';
 import { estimateTokens } from '../../src/util/text';
-import type { Segment } from '../../src/meeting/wire';
+import { answerPaintProblem, segmentBatchProblem, type Segment } from '../../src/meeting/wire';
 
 // ----- fake AssemblyAI and Deepgram -----
 const seen: Array<{ path: string; method: string; auth: string | null; body: string }> = [];
@@ -61,7 +61,8 @@ describe('stt tokens', () => {
     const u = new URL(t.url);
     expect(u.pathname).toBe('/v1/listen');
     for (const [k, v] of Object.entries({ model: 'nova-3', interim_results: 'true', smart_format: 'true', encoding: 'linear16', sample_rate: '16000' })) expect(u.searchParams.get(k)).toBe(v);
-    expect(u.searchParams.get('endpointing')).toBeTruthy();
+    expect(u.searchParams.get('endpointing')).toBe('150');
+    expect(u.searchParams.get('utterance_end_ms')).toBe('1000');
     expect(t.url).not.toContain('dg-key');
   });
 
@@ -322,24 +323,88 @@ describe('review fixes', () => {
   });
 });
 
+describe('one hub timebase per answer', () => {
+  test('desktop marks map to the hub clock with receivedAt - sentAt; at counts from the desktop t0', async () => {
+    const svc = await boot();
+    const m = await svc.create({ title: 'Clock' }, 'owner');
+    expect(await until(() => svc.store.get(m.id)!.status === 'ready')).toBe(true);
+    const s = seg(0, 'What is your main language?', { startMs: 43_000, endMs: 44_800, speechEndAt: 45_900, finalAt: 45_950 });
+    // the first batch reaches the hub 45 s after the desktop stream started
+    setSystemTime(new Date(10_000_050));
+    try {
+      svc.ingest(m.id, { clientId: 'cli_1', t0: 1000, sentAt: 46_000, segments: [s] }, 'owner');
+    } finally {
+      setSystemTime();
+    }
+    expect(svc.store.finals(m.id)[0].at).toBe(10_000_050 - 45_000 + 43_000);
+    expect(await until(() => svc.store.answers(m.id)[0]?.state === 'done', 5000)).toBe(true);
+    const a = svc.store.answers(m.id)[0];
+    expect(a.speechEndAt).toBe(45_900 + (10_000_050 - 46_000));
+    expect(a.finalAt).toBe(45_950 + (10_000_050 - 46_000));
+    expect(a.receivedAt).toBe(10_000_050);
+    expect(a.segmentEndAt).toBe(10_000_050 - 45_000 + 44_800);
+    const order = [a.speechEndAt!, a.finalAt!, a.receivedAt!, a.requestAt!, a.firstTokenAt!];
+    expect(order).toEqual([...order].sort((x, y) => x - y));
+  });
+
+  test('a batch with a NaN or string mark is refused at the boundary', () => {
+    const ok = { clientId: 'c', t0: 1, segments: [seg(0, 'x')] };
+    expect(segmentBatchProblem({ ...ok, sentAt: 5 })).toBeUndefined();
+    expect(segmentBatchProblem({ ...ok, sentAt: Number.NaN })).toMatch(/sentAt/);
+    expect(segmentBatchProblem({ ...ok, sentAt: '5' })).toMatch(/sentAt/);
+    expect(segmentBatchProblem({ ...ok, segments: [seg(0, 'x', { speechEndAt: Infinity })] })).toMatch(/speechEndAt/);
+    expect(segmentBatchProblem({ ...ok, segments: [seg(0, 'x', { finalAt: 'now' as never })] })).toMatch(/finalAt/);
+    expect(answerPaintProblem({ paintedAt: 1, sentAt: 2 })).toBeUndefined();
+    expect(answerPaintProblem({ paintedAt: Number.NaN, sentAt: 2 })).toBeTruthy();
+    expect(answerPaintProblem([1, 2])).toBeTruthy();
+  });
+
+  test('the paint time is stored once, on the hub clock, and only for the meeting it belongs to', async () => {
+    const svc = await boot();
+    const m = await svc.create({ title: 'Paint' }, 'owner');
+    const other = await svc.create({ title: 'Other', scheduledAt: Date.now() + 86_400_000 }, 'owner');
+    expect(await until(() => svc.store.get(m.id)!.status === 'ready')).toBe(true);
+    svc.ingest(m.id, batch(seg(0, 'What is your main language?')), 'owner');
+    expect(await until(() => svc.store.answers(m.id)[0]?.state === 'done', 5000)).toBe(true);
+    const a = svc.store.answers(m.id)[0];
+    expect(() => svc.paintAnswer(other.id, a.id, { paintedAt: 1, sentAt: 1 }, 'owner')).toThrow(/not found/);
+    expect(() => svc.paintAnswer(m.id, a.id, { paintedAt: 1, sentAt: 1 }, 'someone-else')).toThrow();
+    const before = Date.now();
+    svc.paintAnswer(m.id, a.id, { paintedAt: 9_000, sentAt: 9_040 }, 'owner');
+    const p = svc.store.answer(a.id)!.paintedAt!;
+    expect(p).toBeGreaterThanOrEqual(before - 40);
+    expect(p).toBeLessThanOrEqual(Date.now() - 40);
+    expect(() => svc.paintAnswer(m.id, a.id, { paintedAt: 1, sentAt: 1 }, 'owner')).toThrow(/set already/);
+    expect(svc.store.answer(a.id)!.paintedAt).toBe(p);
+  });
+});
+
 describe('latency benchmark (fake model, first token after 150 ms)', () => {
-  test('speech end to first token stays within the model time plus a small hub overhead', async () => {
+  test('the hub adds under 20 ms p95 from segment received to model request', async () => {
     const svc = await boot();
     const m = await svc.create({ title: 'Bench' }, 'owner');
     expect(await until(() => svc.store.get(m.id)!.status === 'ready')).toBe(true);
-    const qs = ['What is your main language?', 'How do you test your services?', 'Why did you pick Postgres?', 'Explain your deploy process'];
+    await svc.modelList('owner');
+    await svc.settled();
+    // 6 finals and 6 speculative partials: both rate windows full, each a different question
+    const qs = ['What is your main language?', 'How do you test your services?', 'Why did you pick Postgres?', 'Explain your deploy process', 'How do you handle outages?', 'Who reviews your code?'];
+    const partials = ['How would you shard the orders table', 'What would you cache first here', 'Why would you pick Kafka over SQS', 'Where would the retries live', 'Which metrics would you alert on', 'Can you walk me through the rollout'];
     const hub: number[] = [];
-    for (let i = 0; i < qs.length; i++) {
-      svc.ingest(m.id, batch(seg(i, qs[i])), 'owner');
-      expect(await until(() => svc.store.answers(m.id)[i]?.state === 'done', 5000)).toBe(true);
-      const a = svc.store.answers(m.id)[i];
+    let n = 0;
+    for (let i = 0; i < qs.length * 2; i++) {
+      const s = i % 2 ? seg(i, partials[i >> 1], { final: false, startMs: i * 3000, endMs: i * 3000 + 800 }) : seg(i, qs[i >> 1]);
+      svc.ingest(m.id, batch(s), 'owner');
+      expect(await until(() => svc.store.answers(m.id)[n]?.state === 'done', 5000)).toBe(true);
+      const a = svc.store.answers(m.id)[n++];
+      expect(a.trigger).toBe(i % 2 ? 'speculative' : 'question');
       // receivedAt -> requestAt is the hub's own work before the model call
       hub.push(a.requestAt! - a.receivedAt!);
       expect(a.firstTokenAt! - a.requestAt!).toBeGreaterThanOrEqual(FIRST_TOKEN_MS - 5);
     }
     hub.sort((x, y) => x - y);
-    console.log(`meeting answer bench: hub overhead p50 ${hub[Math.floor(hub.length / 2)]} ms, max ${hub.at(-1)} ms (model first token ${FIRST_TOKEN_MS} ms)`);
-    expect(hub.at(-1)!).toBeLessThan(250);
+    const p95 = hub[Math.ceil(hub.length * 0.95) - 1];
+    console.log(`meeting answer bench: segment received to model request p50 ${hub[Math.floor(hub.length / 2)]} ms, p95 ${p95} ms, max ${hub.at(-1)} ms over ${hub.length} answers (model first token ${FIRST_TOKEN_MS} ms)`);
+    expect(p95).toBeLessThan(20);
   });
 
   test('a long partial starts the answer before the final arrives, and the final keeps it', async () => {
@@ -353,5 +418,48 @@ describe('latency benchmark (fake model, first token after 150 ms)', () => {
     expect(await until(() => svc.store.answers(m.id)[0].state === 'done', 5000)).toBe(true);
     expect(svc.store.answers(m.id)).toHaveLength(1);
     expect(svc.store.answers(m.id)[0]).toMatchObject({ trigger: 'question', createdAt: started });
+  });
+
+  test('a 700 ms partial speculates; the final that grew from it keeps it with no second model call', async () => {
+    const svc = await boot();
+    const m = await svc.create({ title: 'Bench' }, 'owner');
+    expect(await until(() => svc.store.get(m.id)!.status === 'ready')).toBe(true);
+    await svc.settled();
+    svc.ingest(m.id, batch(seg(0, 'Tell me about', { final: false, startMs: 0, endMs: 700 })), 'owner');
+    expect(await until(() => svc.store.answers(m.id)[0]?.trigger === 'speculative')).toBe(true);
+    // the endpoint wait: the final comes 100 ms later
+    await Bun.sleep(100);
+    svc.ingest(m.id, batch(seg(0, 'Tell me about yourself.', { startMs: 0, endMs: 1300 })), 'owner');
+    expect(await until(() => svc.store.answers(m.id)[0]?.state === 'done', 5000)).toBe(true);
+    const [a] = svc.store.answers(m.id);
+    expect(svc.store.answers(m.id)).toHaveLength(1);
+    expect(a).toMatchObject({ trigger: 'question', question: 'Tell me about yourself.' });
+    expect(liveBodies()).toHaveLength(1);
+    console.log(`meeting speculation bench: final received to first token ${a.firstTokenAt! - a.receivedAt!} ms, model requests ${liveBodies().length} (model first token ${FIRST_TOKEN_MS} ms)`);
+    expect(a.firstTokenAt! - a.receivedAt!).toBeLessThan(FIRST_TOKEN_MS);
+  });
+
+  test('an unrelated final still cancels the speculation and starts its own answer', async () => {
+    const svc = await boot();
+    const m = await svc.create({ title: 'Bench' }, 'owner');
+    expect(await until(() => svc.store.get(m.id)!.status === 'ready')).toBe(true);
+    await svc.settled();
+    svc.ingest(m.id, batch(seg(0, 'Tell me about', { final: false, startMs: 0, endMs: 700 })), 'owner');
+    expect(await until(() => svc.store.answers(m.id)[0]?.state === 'streaming')).toBe(true);
+    svc.ingest(m.id, batch(seg(0, 'Why did you leave Acme?', { startMs: 0, endMs: 1300 })), 'owner');
+    expect(await until(() => svc.store.answers(m.id)[1]?.state === 'done', 5000)).toBe(true);
+    const [spec, real] = svc.store.answers(m.id);
+    expect(spec).toMatchObject({ trigger: 'speculative', state: 'cancelled' });
+    expect(real).toMatchObject({ trigger: 'question', question: 'Why did you leave Acme?', state: 'done' });
+    expect(liveBodies()).toHaveLength(2);
+  });
+
+  test('grewFrom: a word prefix holding at least half the words', () => {
+    expect(grewFrom('Tell me about', 'Tell me about yourself.')).toBe(true);
+    expect(grewFrom('How would you design', 'How would you design the retry queue?')).toBe(true);
+    // a two-word guess at a long question is answered again
+    expect(grewFrom('Tell me', 'Tell me about a time you handled an outage')).toBe(false);
+    expect(grewFrom('Tell me about', 'Tell us about yourself')).toBe(false);
+    expect(grewFrom('', 'Anything')).toBe(false);
   });
 });

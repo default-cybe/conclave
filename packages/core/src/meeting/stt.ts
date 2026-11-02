@@ -87,7 +87,8 @@ export async function mintSttToken(provider: SttProvider, apiKey: string, now = 
     sample_rate: '16000',
     channels: '1',
     interim_results: 'true',
-    endpointing: '300',
+    // 150 ms of silence ends a final; a question split at a short pause is joined again on the hub (questionOf)
+    endpointing: '150',
     utterance_end_ms: '1000',
     vad_events: 'true',
     smart_format: 'true',

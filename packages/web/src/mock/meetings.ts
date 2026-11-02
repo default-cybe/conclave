@@ -188,7 +188,7 @@ export function registerMeetings(ctx: MockCtx) {
       { seq: 1, channel: 'them', startMs: 6200, endMs: 9000, text: 'Nice. Where are we on the export feature?', final: true },
     ]);
     say(live.sessionId, 'msg_ans_1', ANSWERS[0]![1]);
-    answers.set(live.id, [{ id: 'ans_1', meetingId: live.id, messageId: 'msg_ans_1', trigger: 'question', question: 'Nice. Where are we on the export feature?', state: 'done', segmentEndAt: now - 2 * MIN - 380, receivedAt: now - 2 * MIN - 60, requestAt: now - 2 * MIN + 2, createdAt: now - 2 * MIN, firstTokenAt: now - 2 * MIN + 520, doneAt: now - 2 * MIN + 2100, model: 'cliproxy/claude-haiku-5-5' }]);
+    answers.set(live.id, [{ id: 'ans_1', meetingId: live.id, messageId: 'msg_ans_1', trigger: 'question', question: 'Nice. Where are we on the export feature?', state: 'done', segmentEndAt: now - 2 * MIN - 380, speechEndAt: now - 2 * MIN - 380, finalAt: now - 2 * MIN - 150, paintedAt: now - 2 * MIN + 560, receivedAt: now - 2 * MIN - 60, requestAt: now - 2 * MIN + 2, createdAt: now - 2 * MIN, firstTokenAt: now - 2 * MIN + 520, doneAt: now - 2 * MIN + 2100, model: 'cliproxy/claude-haiku-5-5' }]);
     const ended = base({ id: 'mtg_review', title: 'Design review, export page', status: 'ended', createdAt: now - 26 * 60 * MIN, startedAt: now - 26 * 60 * MIN, endedAt: now - 25 * 60 * MIN, notesPath: '/home/kai/code/conclave/.conclave/meetings/2026-10-30-1000-design-review.md' });
     meetings.set(ended.id, ended);
     segments.set(ended.id, [
@@ -441,7 +441,7 @@ export function registerMeetings(ctx: MockCtx) {
         a.state = 'cancelled';
         emit({ type: 'meeting.answer', sessionId: m.sessionId, meetingId: m.id, answer: { ...a } } as never);
       }
-    const a: MeetingAnswer = { id: uid('ans'), meetingId: m.id, messageId: uid('msg'), trigger, question, state: 'streaming', segmentEndAt: trigger === 'answer-now' ? undefined : Date.now() - 320, createdAt: Date.now(), model: m.answerModel ?? ANSWER_MODELS[1]!.ref };
+    const a: MeetingAnswer = { id: uid('ans'), meetingId: m.id, messageId: uid('msg'), trigger, question, state: 'streaming', ...(trigger === 'answer-now' ? {} : { segmentEndAt: Date.now() - 320, speechEndAt: Date.now() - 320, finalAt: Date.now() - 120 }), createdAt: Date.now(), model: m.answerModel ?? ANSWER_MODELS[1]!.ref };
     list.push(a);
     const abort = { stop: false };
     aborts.set(a.id, abort);
@@ -583,6 +583,18 @@ export function registerMeetings(ctx: MockCtx) {
     if (a.state === 'streaming') {
       aborts.get(a.id)!.stop = true;
       a.state = 'cancelled';
+      emit({ type: 'meeting.answer', sessionId: m.sessionId, meetingId: m.id, answer: { ...a } } as never);
+    }
+    return json(204);
+  });
+
+  // one clock in the mock: paintedAt as sent
+  on('POST', '/api/meetings/:id/answers/:answer/paint', ({ params, body }) => {
+    const m = get(params[0]!);
+    const a = answers.get(m.id)?.find((x) => x.id === params[1]) ?? fail(404, 'Answer not found');
+    const at = Number((body as { paintedAt?: number })?.paintedAt);
+    if (a.paintedAt === undefined && Number.isFinite(at)) {
+      a.paintedAt = at;
       emit({ type: 'meeting.answer', sessionId: m.sessionId, meetingId: m.id, answer: { ...a } } as never);
     }
     return json(204);

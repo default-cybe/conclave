@@ -7,6 +7,23 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Meeting page: each answer shows where its time went (speech end, final transcript, hub, model request, first token, first paint on the overlay), and the Answers header shows "Speech end to first word: p50, p95 (n)". The overlay reports when it first paints an answer's words, and the hub stores it on its own clock.
+
+### Changed
+
+- Meetings: answers start sooner. The desktop opens both speech sockets when the meeting starts and keeps them open through silence (KeepAlive), so the first words after a quiet spell no longer wait about 0.5 s for a new connection. Deepgram ends a phrase after 150 ms of silence instead of 300 ms. A speculative answer starts after 0.6 s of partial speech and is kept when the final question only grew.
+- Gemini 3: with thinking off, the answer model asks for the least thinking level the model takes (`minimal` on 3.0 and 3.1 Flash and Flash-Lite, `low` on the others). Gemini 2.5 is unchanged.
+- Meetings: the overlay stops lagging. The desktop sends audio levels only when they move and the overlay shows, and checks the hover only when docked or in the notch (in Free mode, from 4 checks a second to none).
+- Memory: the 3D map stops drawing 30 seconds after the last input or when the window loses focus, and wakes on pointer, scroll, keys or focus.
+
+### Fixed
+
+- Meetings: answer timings use one clock. Speech end is taken from when the audio was captured, not from when the speech socket connected, and the hub maps desktop and overlay times onto its own clock, so clock skew between the computers no longer shifts the step times, and speech queued before the connect no longer shows a 0 ms gap.
+
 ## [0.4.56] - 2026-11-02
 
 ### Added

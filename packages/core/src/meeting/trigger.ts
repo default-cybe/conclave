@@ -99,7 +99,7 @@ const FILLERS = new Set(['so', 'okay', 'ok', 'and', 'alright', 'right', 'now', '
 /** How many words after the owner's name a start may begin. */
 const NAME_REACH = 6;
 
-function words(text: string): string[] {
+export function words(text: string): string[] {
   return text.toLowerCase().match(/[\p{L}\p{N}']+/gu) ?? [];
 }
 
