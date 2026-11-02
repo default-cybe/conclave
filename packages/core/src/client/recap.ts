@@ -20,6 +20,11 @@ export interface RecapDto {
   topics: RecapRank[];
   people: RecapMemory[];
   preferences: RecapMemory[];
-  rhythm: { activeDays: number; longestStreak: number; busiestDay?: RecapRank; timeOfDay?: RecapRank };
+  /** busiestDay is YYYY-MM-DD and busiestHour HH:00, both in the account's timezone. */
+  rhythm: { activeDays: number; longestStreak: number; busiestDay?: RecapRank; busiestHour?: RecapRank; timeOfDay?: RecapRank };
   facts: string[];
+}
+/** The optional Summarise button: one call on the account's fast-tier (small) model. */
+export interface RecapSummaryDto {
+  summary: string;
 }

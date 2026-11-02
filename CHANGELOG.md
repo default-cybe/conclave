@@ -12,6 +12,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Added
 
 - Meeting page: each answer shows where its time went (speech end, final transcript, hub, model request, first token, first paint on the overlay), and the Answers header shows "Speech end to first word: p50, p95 (n)". The overlay reports when it first paints an answer's words, and the hub stores it on its own clock.
+- Reflect: a recap of your week, month or year at the top of Settings > Reflect. Chats, sessions, workflows, tokens, cost and top models; the folders and topics you worked on; people first seen in memory and preferences saved in the period; active days, longest streak, busiest day and hour; and a few facts. It reads only your own account, so a member sees only their own recap (`GET /api/reflect/recap?period=week|month|year`). Summarise writes it as a short paragraph with one call on your small model (`POST /api/reflect/recap/summary`); nothing else calls a model.
 
 ### Changed
 

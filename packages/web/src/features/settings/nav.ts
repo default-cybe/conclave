@@ -35,7 +35,7 @@ const KEYWORDS: Record<string, string> = {
   permissions: 'rules allow ask deny mode',
   notifications: 'notify push alerts phone browser hold',
   assistant: 'proactive quiet hours heartbeat reflection timezone',
-  reflect: 'reflection nightly notes learn memory how to work with me',
+  reflect: 'reflection nightly notes learn memory how to work with me recap week month year stats tokens people likes streak',
   maps: 'google openstreetmap directions places',
   websearch: 'brave tavily exa langsearch linkup firecrawl you.com serper serpapi jina searxng duckduckgo api key internet',
   calmail: 'calendar mail email events',

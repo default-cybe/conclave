@@ -114,10 +114,13 @@ function buildRhythm(db: Db, accountId: string, sessions: SessionRow[], start: n
   const stamps = [...msgs.map((m) => m.ts), ...sessions.filter((s) => !withMsg.has(s.id)).map((s) => s.ts)];
   const days = new Map<string, number>();
   const bands = new Map<string, number>();
+  const hours = new Map<string, number>();
   for (const ts of stamps) {
     const day = localDate(ts, tz);
     days.set(day, (days.get(day) ?? 0) + 1);
     const h = Math.floor(localMinutes(ts, tz) / 60);
+    const hour = `${String(h).padStart(2, '0')}:00`;
+    hours.set(hour, (hours.get(hour) ?? 0) + 1);
     const band = h < 6 ? 'Night (00–05)' : h < 12 ? 'Morning (06–11)' : h < 18 ? 'Afternoon (12–17)' : 'Evening (18–23)';
     bands.set(band, (bands.get(band) ?? 0) + 1);
   }
@@ -130,7 +133,8 @@ function buildRhythm(db: Db, accountId: string, sessions: SessionRow[], start: n
   }
   const busiestDay = topCount(days);
   const timeOfDay = topCount(bands);
-  return { activeDays: sortedDays.length, longestStreak, ...(busiestDay ? { busiestDay } : {}), ...(timeOfDay ? { timeOfDay } : {}) };
+  const busiestHour = topCount(hours);
+  return { activeDays: sortedDays.length, longestStreak, ...(busiestDay ? { busiestDay } : {}), ...(busiestHour ? { busiestHour } : {}), ...(timeOfDay ? { timeOfDay } : {}) };
 }
 
 function buildFacts(totals: RecapDto['totals'], models: RecapDto['models'], projects: RecapRank[], people: RecapMemory[], prefs: RecapMemory[], rhythm: RecapDto['rhythm']): string[] {

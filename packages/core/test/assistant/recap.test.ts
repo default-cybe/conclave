@@ -45,7 +45,7 @@ describe('Reflect recap', () => {
     expect(r.models).toEqual([{ name: 'test/model', count: 1, tokens: 155, costUsd: 0.25 }]);
     expect(r.projects).toEqual([{ name: '/work/conclave', count: 3 }]);
     expect(r.topics).toContainEqual({ name: 'conclave', count: 3 });
-    expect(r.rhythm).toMatchObject({ activeDays: 3, longestStreak: 3 });
+    expect(r.rhythm).toMatchObject({ activeDays: 3, longestStreak: 3, busiestHour: { name: '12:00', count: 3 } });
     expect(buildRecap(db, 'member', 'week', 'America/Los_Angeles', now).totals).toMatchObject({ chats: 0, sessions: 1, workflows: 1, tokens: 155 });
   });
 
