@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- macOS keeps Conclave's permissions (Files and Folders, Full Disk Access, Microphone, Screen Recording) across updates. Every Mac release, the app, the daemon inside it and the standalone `conclave-daemon-*-apple-darwin` files, is now signed with one stable self-signed certificate instead of ad hoc, so macOS sees the same app after each update. The first update from an ad-hoc build asks once more.
+
 ## [0.4.56] - 2026-11-02
 
 ### Added
