@@ -271,10 +271,14 @@ export function geminiContents(req: ChatRequest, names: ToolNameMap, vision = tr
 /** thinkingLevel for Gemini 3+, thinkingBudget for 2.5. Thought summaries are always requested. */
 export function geminiThinkingConfig(model: string, req: ChatRequest, info: ModelInfo): Wire | undefined {
   if (!info.thinking) return undefined;
+  const id = normalizeModelId(model);
+  const gemini3 = /^gemini-([3-9]|\d{2})/.test(id);
+  // thinking off: Gemini 3 cannot turn it off, and its default level is slow, so ask for the least.
+  // minimal only where Google lists it (3 Flash, 3.1 Flash-Lite); 3.8 Flash and Pro answer 400 to it, low is their least
+  if (gemini3 && req.thinking?.off) return { thinkingLevel: /^gemini-3(\.[01])?-flash/.test(id) ? 'minimal' : 'low' };
   const cfg: Wire = { includeThoughts: true };
   if (!wantsThinking(req.thinking)) return cfg;
-  const id = normalizeModelId(model);
-  if (/^gemini-([3-9]|\d{2})/.test(id)) {
+  if (gemini3) {
     const asked = effortOf(req.thinking);
     // nothing above high; Pro models take low or high only
     const effort = asked === 'xhigh' || asked === 'max' ? 'high' : asked;
