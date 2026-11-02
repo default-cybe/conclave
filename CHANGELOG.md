@@ -7,7 +7,7 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
-## [Unreleased]
+## [0.4.58] - 2026-11-02
 
 ### Added
 
@@ -25,6 +25,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Meetings: answer timings use one clock. Speech end is taken from when the audio was captured, not from when the speech socket connected, and the hub maps desktop and overlay times onto its own clock, so clock skew between the computers no longer shifts the step times, and speech queued before the connect no longer shows a 0 ms gap. An answer started from partial speech and kept for the final question no longer shows its model request before the final arrived.
 - Meetings: the speech-to-text token request tries again when a DNS lookup stalls, and a Deepgram 403 says the key needs Member permission or higher.
+- Meetings: a cache warm-up still retrying when the hub shuts down now stops with the hub and stays quiet, instead of logging "warm-up failed" after shutdown.
 
 ## [0.4.57] - 2026-11-02
 
