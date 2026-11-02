@@ -13,7 +13,7 @@ import type { LevelSource } from './frame';
 import { lastLatency, lastLines, seconds, shownIndex, stepAnswer, type MeetingView } from './model';
 import type { DesktopMeetingStatus, SttProvider } from './wire';
 import type { WsStatus } from './ws';
-import { AnswerCard } from './AnswerCard';
+import { AnswerCard, paintReporter } from './AnswerCard';
 import { Transcript } from './Transcript';
 import { OPACITY_MAX, OPACITY_MIN, readOpacity, saveOpacity } from './opacity';
 import { holdOpen, moveDisplay, setPlacement, useDock } from './dock';
@@ -218,6 +218,7 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
   const currentQuestion = current?.question;
   const onStop = useCallback(() => void (currentId && api.cancel(m.id, currentId).catch(fail)), [api, m.id, currentId, fail]);
   const onRetry = useCallback(() => answerNow(currentQuestion || undefined), [answerNow, currentQuestion]);
+  const onPaint = useMemo(() => paintReporter((answerId, body) => api.paint(m.id, answerId, body)), [api, m.id]);
   const togglePause = () => {
     void ipc.pause(!paused)?.catch(fail);
     // the hub's status follows; a 409 means it is already there
@@ -281,6 +282,7 @@ export function Live({ api, view, desktop, levels, ws }: { api: MeetingApi; view
               nav={nav}
               onStop={current === newest ? onStop : undefined}
               onRetry={current === newest ? onRetry : undefined}
+              onPaint={onPaint}
             />
           ) : (
             <section className="ov-card">
