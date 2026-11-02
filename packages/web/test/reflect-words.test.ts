@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { groupSections, searchSections, SETTINGS_GROUPS } from '../src/features/settings/nav';
-import { lastRunWords, modelChoice, REFLECT_LINE, TIME, timeWords } from '../src/features/settings/reflectWords';
+import { dayWords, lastRunWords, modelChoice, projectName, recapHeadline, recapRange, REFLECT_LINE, TIME, timeWords } from '../src/features/settings/reflectWords';
 
 const at = (h: number, m: number) => {
   const d = new Date();
@@ -51,5 +51,16 @@ describe('Settings > Reflect', () => {
     expect(REFLECT_LINE).toContain('at most 3 notes');
     expect(REFLECT_LINE).toContain('$0.07');
     expect(REFLECT_LINE).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  test('recap words: headline, range, day and folder', () => {
+    const totals = { chats: 12, sessions: 1, workflows: 0, tokens: 3_200_000, costUsd: 4, models: 2 };
+    expect(recapHeadline({ period: 'week', totals })).toBe('This week: 12 chats and 1 session, 3.2M tokens.');
+    expect(recapHeadline({ period: 'year', totals: { ...totals, chats: 0, sessions: 0 } })).toContain('nothing yet');
+    const start = Date.parse('2026-11-02T08:00:00Z');
+    expect(recapRange({ period: 'week', start, end: Date.parse('2026-11-05T18:00:00Z'), timezone: 'America/Los_Angeles' })).toBe('2 Nov to 5 Nov');
+    expect(recapRange({ period: 'month', start, end: start + 1, timezone: 'America/Los_Angeles' })).toBe('November 2026');
+    expect(dayWords('2026-11-03')).toBe('Tue 3 Nov');
+    expect(projectName('/home/kai/work/conclave/')).toBe('conclave');
   });
 });

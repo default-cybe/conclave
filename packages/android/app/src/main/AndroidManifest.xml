@@ -102,6 +102,57 @@
                 android:value="Keeps a WebSocket open to the user's self-hosted hub so notifications and tool approvals arrive without a push service." />
         </service>
 
+        <!-- Home-screen widgets (widgets/Widgets.kt): Usage, Inbox, Calendar and the three in one -->
+        <receiver
+            android:name=".widgets.UsageWidget"
+            android:exported="false"
+            android:label="Conclave Usage">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_usage" />
+        </receiver>
+        <receiver
+            android:name=".widgets.InboxWidget"
+            android:exported="false"
+            android:label="Conclave Inbox">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_inbox" />
+        </receiver>
+        <receiver
+            android:name=".widgets.CalendarWidget"
+            android:exported="false"
+            android:label="Conclave Calendar">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_calendar" />
+        </receiver>
+        <receiver
+            android:name=".widgets.CombinedWidget"
+            android:exported="false"
+            android:label="Conclave">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_combined" />
+        </receiver>
+        <!-- the combined widget's pages; only the launcher may bind it -->
+        <service
+            android:name=".widgets.WidgetStackService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

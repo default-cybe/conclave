@@ -67,6 +67,8 @@ import type {
 export type * from '../catalog/types';
 export type { AddSuggestionRequest, AddSuggestionResult, RoutineSuggestionDto, RoutineSuggestionsDto } from '../scheduler/suggest';
 export type * from './assistant';
+import type { RecapDto, RecapPeriod, RecapSummaryDto } from './recap';
+export type * from './recap';
 import type { LeaveByDto, MapsSettingsDto, MapsSettingsPatch, MapsTestResult } from './maps';
 export type * from './maps';
 import type { MemberProxyDto, MemberProxyUpdate, WebSearchSettingsDto, WebSearchSettingsPatch, WebSearchTestResult } from './websearch';
@@ -2115,6 +2117,10 @@ export class ConclaveClient {
   setReflect = (patch: ReflectPatch) => this.request<ReflectDto>('PUT', '/api/assistant/reflect', patch);
   /** The hub's owner only. Starts one reflection with the night's rules; returns as soon as it started. */
   reflectNow = () => this.request<ReflectNowDto>('POST', '/api/assistant/reflect/run');
+  /** Reflect: the caller's own week, month or year in numbers. No model call. */
+  reflectRecap = (period: RecapPeriod) => this.request<RecapDto>('GET', `/api/reflect/recap?period=${period}`);
+  /** Reflect's Summarise: one call on the caller's small model. */
+  reflectSummary = (period: RecapPeriod) => this.request<RecapSummaryDto>('POST', `/api/reflect/recap/summary?period=${period}`);
   today = () => this.request<TodayDto>('GET', '/api/assistant/today');
   answerToday = (option: string) => this.request<{ plan: DayPlan; sessionId?: string }>('POST', '/api/assistant/today/answer', { option });
 
