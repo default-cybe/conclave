@@ -810,6 +810,11 @@ export class Engine implements EngineApi {
     void shellRegistry.disposeSession(id).catch((err) => log.warn(`could not stop the background shells of ${id}`, err));
     if (runner?.started && session) await this.runHook(session, 'SessionEnd', { reason: 'other' }, 'other');
     this.runners.delete(id);
+    this.deferred.delete(id);
+    this.promoted.delete(id);
+    const prefix = `${id}\n`;
+    for (const k of this.testCommands.keys()) if (k.startsWith(prefix)) this.testCommands.delete(k);
+    for (const k of this.workspaceFacts.keys()) if (k.startsWith(prefix)) this.workspaceFacts.delete(k);
     this.repos.sessions.delete(id);
     // its meeting-prep digest (meeting/store.ts) would keep its text after it is gone
     meetingsOf(this)?.store.deleteDigests(id);
