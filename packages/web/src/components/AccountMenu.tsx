@@ -18,7 +18,7 @@ import { cn } from '@/lib/text';
 import { useHub } from '@/store/store';
 import { openShortcuts } from '@/store/ui';
 import { loadConnection, MOCK } from '@/lib/api';
-import { accountLabel, addAccount, isCurrent, personName, savedAccounts, signOut, switchAccount, useIsOwner, useMe } from '@/lib/people';
+import { accountLabel, addAccount, isCurrent, personName, savedAccounts, signOut, switchAccount, useAvatar, useIsOwner, useMe } from '@/lib/people';
 import { hostOf } from '@/lib/remote';
 import { useReach } from '@/lib/reach';
 import { durationShort } from '@/lib/format';
@@ -116,11 +116,12 @@ export function useAccountMenu(): MenuItem[] {
   ];
 }
 
-/** The initial in a circle. */
-export function Avatar({ initial, size = 28, className }: { initial: string; size?: number; className?: string }) {
+/** The person's picture in a circle, or their initial while there is none. */
+export function Avatar({ initial, size = 28, className, accountId, version }: { initial: string; size?: number; className?: string; accountId?: string; version?: number }) {
+  const src = useAvatar(accountId, version);
   return (
-    <span aria-hidden className={cn('grid shrink-0 place-items-center rounded-full bg-surface-2 font-semibold text-fg-2 shadow-[inset_0_0_0_1px_var(--rule)]', className)} style={{ width: size, height: size, fontSize: Math.round(size * 0.46) }}>
-      {initial}
+    <span aria-hidden className={cn('grid shrink-0 place-items-center overflow-hidden rounded-full bg-surface-2 font-semibold text-fg-2 shadow-[inset_0_0_0_1px_var(--rule)]', className)} style={{ width: size, height: size, fontSize: Math.round(size * 0.46) }}>
+      {src ? <img src={src} alt="" draggable={false} className="size-full object-cover" /> : initial}
     </span>
   );
 }
@@ -133,6 +134,7 @@ export function AccountRow({ compact, phone, className }: { compact?: boolean; p
   const ref = useRef<HTMLButtonElement>(null);
   const [menu, setMenu] = useState(false);
   const account = useAccount();
+  const me = useMe();
   const hub = useHubState();
   const dot = useUpdateDot();
   const items = useAccountMenu();
@@ -155,7 +157,7 @@ export function AccountRow({ compact, phone, className }: { compact?: boolean; p
         )}
       >
         <span className="relative">
-          <Avatar initial={account.initial} size={phone ? 34 : compact ? 28 : 30} />
+          <Avatar initial={account.initial} size={phone ? 34 : compact ? 28 : 30} accountId={me?.id} version={me?.avatarVersion} />
           {dot && <span aria-hidden className="absolute -top-px -right-px size-[9px] rounded-full border-2 border-side bg-signal" />}
         </span>
         {!compact && (

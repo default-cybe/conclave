@@ -11,7 +11,14 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- People: the owner can disable and enable a member. Disabling stops their running work and cuts their open apps and paired computers at once; they cannot sign in until enabled, and nothing is deleted. Each member's row shows their picture, status, tokens and cost this week and month, and their computers with Unpair.
+- Your account: a profile picture (PNG, JPEG, GIF or WebP, 512 KB at most), your tokens and cost this week and month, and your paired computers with Unpair. Pictures show in the sidebar footer, People and a shared chat's people, with initials when there is none.
 - Meeting page: each answer shows where its time went (speech end, final transcript, hub, model request, first token, first paint on the overlay), and the Answers header shows "Speech end to first word: p50, p95 (n)". The overlay reports when it first paints an answer's words, and the hub stores it on its own clock.
+
+### Security
+
+- Daemon sign in checks the account only after the token compare, so a disabled account's device ids cannot be told apart by timing.
+- Profile pictures are checked by their bytes, never the claimed type, and served with `nosniff` and a sandbox policy; another account's picture is served only to the owner or a contact.
 
 ### Changed
 

@@ -576,7 +576,23 @@ const mePrefs: { splitView?: string[] } = FRESH || new URLSearchParams(location.
 // ?member=1 signs in as a member (nihir), with their own fallback lists in Settings > Models
 const MEMBER = new URLSearchParams(location.search).get('member') === '1';
 const memberLists: Record<string, unknown> = { limitFallback: { enabled: true, models: ['anthropic/claude-sonnet-5-5', 'openai/gpt-6-mini'] }, refusalFallback: { enabled: true, entries: [{ model: 'anthropic/claude-sonnet-5-5' }, { model: 'openai/gpt-6-mini' }] } };
-on('GET', '/api/me', () => (MEMBER ? { id: 'acc_nihir', name: 'nihir', displayName: 'Nihir', role: 'member', people: true, hubMachine: false, passwordSet: true, providers: [], preferences: {} } : { id: 'owner', name: 'owner', role: 'owner', people: false, hubMachine: true, passwordSet: false, providers: [], preferences: { ...mePrefs } }));
+on('GET', '/api/me', () => (MEMBER ? { id: 'acc_nihir', name: 'nihir', displayName: 'Nihir', role: 'member', avatarVersion: 1, people: true, hubMachine: false, passwordSet: true, providers: [], preferences: {} } : { id: 'owner', name: 'owner', role: 'owner', people: false, hubMachine: true, passwordSet: false, providers: [], preferences: { ...mePrefs } }));
+// account management: People with pictures, usage, devices and a disabled member
+const mockUsage = (w: number, m: number) => ({ week: { from: Date.now() - 3 * 86_400_000, tokens: w * 1000, costUsd: w / 40 }, month: { from: Date.now() - 20 * 86_400_000, tokens: m * 1000, costUsd: m / 40 } });
+const mockPeople = [
+  { id: 'owner', name: 'owner', displayName: 'Kai Ahir', role: 'owner', passwordSet: true, createdAt: 1, devices: 2, apps: 3, providers: {}, spend: [], usage: mockUsage(412, 1830) },
+  { id: 'acc_nihir', name: 'nihir', displayName: 'Nihir', role: 'member', avatarVersion: 1, email: 'nihir@example.com', passwordSet: true, createdAt: 1, devices: 1, apps: 1, providers: { anthropic: { monthlyUsd: 20 } }, spend: [{ provider: 'anthropic', name: 'Anthropic', monthlyUsd: 20, spentUsd: 4.2 }], usage: mockUsage(96, 310) },
+  { id: 'acc_mira', name: 'mira', displayName: 'Mira', role: 'member', disabled: true, passwordSet: true, createdAt: 1, devices: 0, apps: 0, providers: {}, spend: [], usage: mockUsage(0, 42) },
+] as Array<Record<string, unknown>>;
+on('GET', '/api/people', () => mockPeople);
+on('POST', '/api/people/:id/disable', ({ params }) => Object.assign(mockPeople.find((p) => p.id === params[0]) ?? notFound(), { disabled: true }));
+on('POST', '/api/people/:id/enable', ({ params }) => Object.assign(mockPeople.find((p) => p.id === params[0]) ?? notFound(), { disabled: undefined }));
+on('GET', '/api/people/:id/devices', ({ params }) => (params[0] === 'acc_nihir' ? [{ id: 'dev_nihir', accountId: 'acc_nihir', name: 'nihir-thinkpad', online: true, roots: [], createdAt: 1 }] : []));
+on('DELETE', '/api/people/:id/devices/:device', () => ({ ok: true }));
+on('GET', '/api/me/usage', () => (MEMBER ? mockUsage(96, 310) : mockUsage(412, 1830)));
+on('PUT', '/api/me/avatar', () => ({ avatarVersion: Date.now() }));
+on('DELETE', '/api/me/avatar', () => ({ ok: true }));
+on('GET', '/api/avatars/:id', () => new Response('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5b8def"/><stop offset="1" stop-color="#b06ab3"/></linearGradient></defs><rect width="40" height="40" fill="url(#g)"/><circle cx="20" cy="16" r="7" fill="#fff" opacity=".85"/><ellipse cx="20" cy="36" rx="13" ry="10" fill="#fff" opacity=".85"/></svg>', { headers: { 'content-type': 'image/svg+xml' } }));
 on('PATCH', '/api/me', ({ body }) => {
   if (MEMBER && body?.usageFallback !== undefined) memberLists.limitFallback = body.usageFallback;
   if (MEMBER && body?.refusalFallback !== undefined) memberLists.refusalFallback = body.refusalFallback;
