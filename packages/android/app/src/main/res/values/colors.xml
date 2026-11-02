@@ -7,6 +7,9 @@
     <color name="ink">#FFF9F9FA</color>
     <!-- The light signal token (violet). -->
     <color name="violet">#FF7A4ABA</color>
+    <!-- Home-screen widgets: text and the quieter line under the title. -->
+    <color name="widget_text">#FF1A1A1E</color>
+    <color name="widget_muted">#FF6B6B75</color>
     <!-- App icon background from docs/design/reference/app-icon.svg. -->
     <color name="ic_launcher_background">#FF141417</color>
 </resources>

@@ -188,6 +188,23 @@ fn primary_scale(w: &WebviewWindow) -> Option<f64> {
     Some(f64::from_bits(PRIMARY_SCALE.load(Ordering::Relaxed))).filter(|k| *k > 0.0)
 }
 
+/// The overlay's first size in logical px (overlay/place.ts DEFAULT_W and DEFAULT_H), kept
+/// inside the work area. The page sets the owner's own size once it has the displays.
+pub const DEFAULT_SIZE: (f64, f64) = (760.0, 460.0);
+
+pub fn default_size(work_w: f64, work_h: f64) -> (f64, f64) {
+    let fit = |want: f64, room: f64| if room.is_finite() && room > 0.0 { want.min(room) } else { want };
+    (fit(DEFAULT_SIZE.0, work_w), fit(DEFAULT_SIZE.1, work_h))
+}
+
+/// The primary display's work area in logical px, before the overlay exists.
+pub fn primary_work(app: &AppHandle) -> Option<(f64, f64)> {
+    let m = app.primary_monitor().ok().flatten()?;
+    let k = m.scale_factor();
+    let s = m.work_area().size;
+    Some((s.width as f64 / k, s.height as f64 / k))
+}
+
 /// Is the hover worth polling? Only docked to an edge or in the notch, where the panel
 /// hides until hovered (overlay/dock.ts); a free overlay (the native blur on) never hides.
 pub fn wants_hover(notch: bool, blur: bool) -> bool {
@@ -213,6 +230,13 @@ mod tests {
         } else {
             assert_eq!(r, Rect { x: -2880.0, y: 0.0, w: 2880.0, h: 1800.0 });
         }
+    }
+
+    #[test]
+    fn the_first_size_is_760_by_460_inside_the_work_area() {
+        assert_eq!(default_size(1512.0, 874.0), (760.0, 460.0));
+        assert_eq!(default_size(700.0, 400.0), (700.0, 400.0), "a small screen");
+        assert_eq!(default_size(f64::NAN, 0.0), (760.0, 460.0), "no work area read");
     }
 
     #[test]

@@ -18,13 +18,19 @@ import dev.conclave.app.notify.LiveConnectionService
 import dev.conclave.app.notify.Notifications
 import dev.conclave.app.notify.RefreshWorker
 import dev.conclave.app.update.AppUpdater
+import dev.conclave.app.widgets.Widgets
+import dev.conclave.client.logic.WidgetWords
 import dev.conclave.client.logic.DraftStore
 import dev.conclave.client.model.EngineEvent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -58,6 +64,7 @@ class ConclaveApp : Application() {
         container.network.start()
         container.hub.start()
         schedulePeriodicRefresh()
+        startWidgets()
         container.updates.checkIfDue(coldStart = true)
     }
 
@@ -67,6 +74,16 @@ class ConclaveApp : Application() {
             .build()
         WorkManager.getInstance(this)
             .enqueueUniquePeriodicWork(RefreshWorker.NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+    }
+
+    /** Home-screen widgets: the signed-in account's own pages, refreshed after what changes them (widgets/Widgets.kt). */
+    private fun startWidgets() {
+        val c = container
+        Widgets.schedule(this)
+        c.appScope.launch { c.hub.client.map { it?.token }.distinctUntilChanged().collect { Widgets.bind(this@ConclaveApp, it) } }
+        c.appScope.launch { c.hub.events.filter { WidgetWords.relevant(it) }.collect { Widgets.request(this@ConclaveApp) } }
+        // leaving the app: the widgets catch up with what was done in it
+        c.appScope.launch { c.hub.visible.drop(1).filter { !it }.collect { Widgets.request(this@ConclaveApp) } }
     }
 
     /** Forgets the hub: the background connection, the addresses and the encrypted token. */
