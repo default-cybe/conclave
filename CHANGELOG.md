@@ -12,6 +12,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Added
 
 - Android: home-screen widgets. Usage (plan limits and today's tokens), Inbox (what waits on you and the first three, each opening its chat), Calendar (today's next three events), and one widget that swipes through all three. They show the signed-in account only, keep nothing on disk, and refresh with WorkManager every 30 minutes and shortly after approvals, questions, alerts, usage or leaving the app.
+- Reflect: a recap of your week, month or year at the top of Settings > Reflect. Chats, sessions, workflows, tokens, cost and top models; the folders and topics you worked on; people first seen in memory and preferences saved in the period; active days, longest streak, busiest day and hour; and a few facts. It reads only your own account, so a member sees only their own recap (`GET /api/reflect/recap?period=week|month|year`). Summarise writes it as a short paragraph with one call on your small model (`POST /api/reflect/recap/summary`); nothing else calls a model.
 
 ## [0.4.58] - 2026-11-02
 

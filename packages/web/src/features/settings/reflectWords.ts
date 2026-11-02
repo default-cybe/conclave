@@ -2,8 +2,8 @@
  * Settings > Reflect in words (docs/ASSISTANT.md, Nightly reflection). Pure,
  * so test/reflect-words.test.ts checks it.
  */
-import type { ReflectDto, ReflectRunDto } from '@conclave/core/client';
-import { hhmm, shortDate } from '@/lib/format';
+import type { RecapDto, RecapPeriod, ReflectDto, ReflectRunDto } from '@conclave/core/client';
+import { compact, hhmm, shortDate } from '@/lib/format';
 
 /** What it does and what it costs, in one line, from docs/ASSISTANT.md. */
 export const REFLECT_LINE =
@@ -46,3 +46,36 @@ export function timeWords(r: Pick<ReflectDto, 'enabled' | 'nextRunAt' | 'timezon
 
 /** A valid time for the box: HH:MM, 24 hours. */
 export const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+// ----- the recap (GET /api/reflect/recap) ------------------------------------
+
+const PERIOD_WORD: Record<RecapPeriod, string> = { week: 'This week', month: 'This month', year: 'This year' };
+
+/** The page's one status line: "This week: 12 chats, 4 sessions and 1 workflow, 3.2M tokens." or the empty line. */
+export function recapHeadline(r: Pick<RecapDto, 'period' | 'totals'>): string {
+  const t = r.totals;
+  const parts = [t.chats && n(t.chats, 'chat', 'chats'), t.sessions && n(t.sessions, 'session', 'sessions'), t.workflows && n(t.workflows, 'workflow', 'workflows')].filter(Boolean) as string[];
+  if (!parts.length) return `${PERIOD_WORD[r.period]}: nothing yet. Chats, sessions and workflows show up here as you go.`;
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
+  return `${PERIOD_WORD[r.period]}: ${list}${t.tokens ? `, ${compact(t.tokens)} tokens` : ''}.`;
+}
+
+/** "1 to 5 Nov", "Nov 2026", "2026": the range the tab covers, in the account's zone. */
+export function recapRange(r: Pick<RecapDto, 'period' | 'start' | 'end' | 'timezone'>): string {
+  const day = (ts: number, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-GB', { timeZone: r.timezone, ...o }).format(ts);
+  if (r.period === 'year') return day(r.start, { year: 'numeric' });
+  if (r.period === 'month') return day(r.start, { month: 'long', year: 'numeric' });
+  const a = day(r.start, { day: 'numeric', month: 'short' });
+  const b = day(r.end - 1, { day: 'numeric', month: 'short' });
+  return a === b ? a : `${a} to ${b}`;
+}
+
+/** "Tue 3 Nov" from the recap's YYYY-MM-DD. */
+export function dayWords(date: string): string {
+  return new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' }).format(Date.parse(`${date}T12:00:00Z`));
+}
+
+/** The last folder of a session's cwd, or the cwd when it has none. */
+export function projectName(cwd: string): string {
+  return cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd;
+}

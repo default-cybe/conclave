@@ -6,6 +6,7 @@
 import type { Context, Hono } from 'hono';
 import { assistantFor, GOAL_AREAS, type AssistantService, type GoalArea, type GoalPatch, type GoalStatus } from '@conclave/core/assistant/index.ts';
 import { pimFor } from '@conclave/core/pim/index.ts';
+import type { RecapPeriod } from '@conclave/core/client/recap.ts';
 import type { HonoEnv, ServerContext } from './context';
 import { HttpError, badRequest, notFound, readJson } from './http';
 import type { AuditFn } from './routes-extensions';
@@ -119,6 +120,15 @@ export function registerAssistantRoutes(app: Hono<HonoEnv>, ctx: ServerContext, 
     audit(c, 'assistant.reflect', out.skipped ? `skipped: ${out.skipped}` : 'started');
     return c.json(out);
   });
+
+  // Reflect's recap: the caller's own week, month or year (assistant/recap.ts), and Summarise on their small model
+  const periodOf = (c: Context<HonoEnv>): RecapPeriod => {
+    const p = c.req.query('period') || 'week';
+    if (p !== 'week' && p !== 'month' && p !== 'year') throw badRequest('period must be week, month or year');
+    return p;
+  };
+  app.get('/api/reflect/recap', (c) => c.json(svc(c).recap(periodOf(c))));
+  app.post('/api/reflect/recap/summary', async (c) => c.json(await svc(c).recapSummary(periodOf(c))));
 
   app.get('/api/assistant/today', async (c) => {
     const today = svc(c).todayDto();

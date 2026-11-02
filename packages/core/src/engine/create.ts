@@ -333,6 +333,8 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
       createTask: (input) => engine.createTask(input, acct),
       send: async (id, text) => void (await engine.send(id, { text })),
       untrustedAgent: (name, cwd) => !!engine.extensions.agent(name, cwd)?.untrusted,
+      // no model named: completeText picks this account's small model on its own keys
+      complete: (o) => completeText(engine, { ...o, accountId: acct }),
     });
   assistant = assistantFor(OWNER_ID, memory);
   attachAssistant(engine, assistant, (acct) => {
