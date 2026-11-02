@@ -27,7 +27,8 @@
  * outside the sphere flies out. A click on an item label opens the drawer;
  * double click flies to the item and keeps its neighbours lit; Fit returns
  * to the overview (or the open sphere). Rendering stops when the tab is
- * hidden or the view is off screen. Reduced motion stops the drift and
+ * hidden or the view is off screen, and the drift stops 30 s after the last
+ * input or when the window loses focus. Reduced motion stops the drift and
  * jumps instead of flying, so 3D stays the view (MemoryMap shows Rings
  * only without WebGL).
  *
@@ -76,6 +77,8 @@ const OPEN_LABELS = { desk: 34, phone: 12 } as const;
 const LOCK_MS = 420;
 /** Rest before the slow drift starts, ms. */
 const DRIFT_AFTER = 6000;
+/** Rest after which the drift stops and nothing draws until the next input, ms. */
+const REST_AFTER = 30_000;
 /** Timeline: where the axis ends, past now (the origin's label sits there), and its tick lengths, world units. */
 const SPAN_END = SPAN / 2 + 200;
 const TICK_M = 9;
@@ -1221,6 +1224,8 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
   let down: { x: number; y: number; id: number } | undefined;
   let hoverRaf = 0;
   const onMove = (ev: PointerEvent) => {
+    // any pointer over the map wakes the drift (idleAt is Infinity while a drag holds it)
+    if (idleAt !== Infinity) ((idleAt = performance.now()), request());
     if (ev.pointerType !== 'mouse' || ev.buttons) return;
     const [x, y] = local(ev);
     cancelAnimationFrame(hoverRaf);
@@ -1292,7 +1297,12 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
   const request = () => {
     if (!raf && running) raf = requestAnimationFrame(frame);
   };
-  const animating = () => !S().still || !!fly || !!morph || (lockT && performance.now() - lockT < LOCK_MS);
+  const animating = () => (!S().still && performance.now() - idleAt < REST_AFTER) || !!fly || !!morph || (lockT && performance.now() - lockT < LOCK_MS);
+  // a window in the background rests at once; focus wakes it. Not run(false): a hover or paint still draws a frame
+  const onBlur = () => (idleAt = -Infinity);
+  const onFocus = () => ((idleAt = performance.now()), request());
+  window.addEventListener('blur', onBlur);
+  window.addEventListener('focus', onFocus);
   function frame(now: number) {
     raf = 0;
     const c0 = performance.now();
@@ -1323,7 +1333,7 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
       }
       labelsDirty = true;
     }
-    controls.autoRotate = !sp && !s.still && !fly && s.focusItem === undefined && s.lockI === undefined && now - idleAt > DRIFT_AFTER;
+    controls.autoRotate = !sp && !s.still && !fly && s.focusItem === undefined && s.lockI === undefined && now - idleAt > DRIFT_AFTER && now - idleAt < REST_AFTER;
     controls.update();
     // depth fog: from a little in front of the target to well behind it
     const dist = camera.position.distanceTo(controls.target);
@@ -1381,6 +1391,8 @@ function engine(canvas: HTMLCanvasElement, wrap: HTMLDivElement, L: LinkViewProp
       canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('dblclick', onDbl);
       canvas.removeEventListener('pointerleave', onLeave);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
       scene.traverse((o) => {
         const m = o as Points;
         m.geometry?.dispose();

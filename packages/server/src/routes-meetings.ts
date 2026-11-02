@@ -11,6 +11,7 @@
  *   POST   /api/meetings/:id/segments                 SegmentAck (the desktop app)
  *   POST   /api/meetings/:id/answer                   202 { answerId, messageId }
  *   POST   /api/meetings/:id/answers/:answerId/cancel 204
+ *   POST   /api/meetings/:id/answers/:answerId/paint  204 {paintedAt, sentAt} (409 after the first)
  *   POST   /api/meetings/:id/end                      202 Meeting
  *   GET    /api/meetings/:id/notes                    MeetingNotes
  *   DELETE /api/meetings/:id                          204
@@ -40,7 +41,7 @@
  */
 import type { Hono } from 'hono';
 import { meetingsOf, type MeetingService } from '@conclave/core/meeting/index.ts';
-import { BATCH_BODY_MAX, MEETING_FILE_BYTES_MAX, STEERING_PRESETS, segmentBatchProblem, type AnswerNowInput, type CreateMeetingInput, type MeetingChatInput, type MeetingPatch, type SegmentBatch } from '@conclave/core/meeting/wire.ts';
+import { BATCH_BODY_MAX, MEETING_FILE_BYTES_MAX, STEERING_PRESETS, answerPaintProblem, segmentBatchProblem, type AnswerNowInput, type AnswerPaintInput, type CreateMeetingInput, type MeetingChatInput, type MeetingPatch, type SegmentBatch } from '@conclave/core/meeting/wire.ts';
 import type { HonoEnv, ServerContext } from './context';
 import { HttpError, qNum, readJson } from './http';
 import { accountOf } from './scope';
@@ -142,6 +143,14 @@ export function registerMeetingRoutes(app: Hono<HonoEnv>, ctx: ServerContext): v
 
   app.post('/api/meetings/:id/answers/:answerId/cancel', (c) => {
     svc().cancelAnswer(c.req.param('id'), c.req.param('answerId'), accountOf(c));
+    return c.body(null, 204);
+  });
+
+  app.post('/api/meetings/:id/answers/:answerId/paint', async (c) => {
+    const body = await readJson<AnswerPaintInput>(c, SMALL_BODY);
+    const problem = answerPaintProblem(body);
+    if (problem) throw new HttpError(400, problem);
+    svc().paintAnswer(c.req.param('id'), c.req.param('answerId'), body, accountOf(c));
     return c.body(null, 204);
   });
 

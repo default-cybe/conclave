@@ -86,6 +86,71 @@ export function Panel({ children, handle }: { children: React.ReactNode; handle?
   );
 }
 
+/**
+ * Loads the meeting and follows it over the socket; returns the cleanup. Once the
+ * meeting has ended nothing more can arrive: the socket closes, so its ping stops too.
+ */
+export function followMeeting(o: { conn: Conn; api: MeetingApi; meetingId: string; view: MeetingView; notify: () => void; setWs: (s: WsStatus) => void; setError: (e?: string) => void }): () => void {
+  const { conn, api, meetingId, view, notify, setError } = o;
+  let stop = false;
+  let sock: ReturnType<typeof connectWs> | undefined;
+  const over = () => {
+    if (view.meeting?.status !== 'ended' || !sock) return;
+    const s = sock;
+    // unset first: its "closed" is not "Hub offline"
+    sock = undefined;
+    s.close();
+    if (!view.notes)
+      void api
+        .notes(meetingId)
+        .then((n) => {
+          if (stop || !n) return;
+          view.notes = n;
+          view.version++;
+          notify();
+        })
+        .catch(() => undefined);
+  };
+  const load = async () => {
+    try {
+      const d = await api.get(meetingId);
+      const msgs = await api.messages(d.sessionId).catch(() => []);
+      if (stop) return;
+      loadDetail(view, d, msgs);
+      if (d.status === 'ended') view.notes = await api.notes(meetingId).catch(() => undefined);
+      setError(undefined);
+      sock?.resubscribe();
+      notify();
+      over();
+    } catch (e) {
+      if (!stop) setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const frame = frameBuffer<MeetingEvent>((events) => {
+    let changed = false;
+    for (const e of events) changed = applyEvent(view, e) || changed;
+    if (changed) notify();
+    over();
+  });
+  sock = connectWs({
+    baseUrl: conn.baseUrl,
+    token: conn.token,
+    WebSocketImpl: conn.WebSocketImpl,
+    sessions: () => (view.meeting ? [view.meeting.sessionId] : []),
+    onEvent: (e) => {
+      if (e.type.startsWith('meeting.') || e.type.startsWith('message.')) frame.push(e as unknown as MeetingEvent);
+    },
+    onStatus: (s) => sock && o.setWs(s),
+    onResync: () => void load(),
+  });
+  void load();
+  return () => {
+    stop = true;
+    frame.cancel();
+    sock?.close();
+  };
+}
+
 /** The meeting's view, kept up to date from the socket, one render per frame at most. */
 function useMeetingView(conn: Conn, api: MeetingApi, meetingId: string) {
   const view = useRef<MeetingView>(emptyView()).current;
@@ -96,46 +161,7 @@ function useMeetingView(conn: Conn, api: MeetingApi, meetingId: string) {
     for (const fn of listeners) fn();
   }, [listeners]);
 
-  useEffect(() => {
-    let stop = false;
-    let sock: ReturnType<typeof connectWs> | undefined;
-    const load = async () => {
-      try {
-        const d = await api.get(meetingId);
-        const msgs = await api.messages(d.sessionId).catch(() => []);
-        if (stop) return;
-        loadDetail(view, d, msgs);
-        if (d.status === 'ended') view.notes = await api.notes(meetingId).catch(() => undefined);
-        setError(undefined);
-        sock?.resubscribe();
-        notify();
-      } catch (e) {
-        if (!stop) setError(e instanceof Error ? e.message : String(e));
-      }
-    };
-    const frame = frameBuffer<MeetingEvent>((events) => {
-      let changed = false;
-      for (const e of events) changed = applyEvent(view, e) || changed;
-      if (changed) notify();
-    });
-    void load();
-    sock = connectWs({
-      baseUrl: conn.baseUrl,
-      token: conn.token,
-      WebSocketImpl: conn.WebSocketImpl,
-      sessions: () => (view.meeting ? [view.meeting.sessionId] : []),
-      onEvent: (e) => {
-        if (e.type.startsWith('meeting.') || e.type.startsWith('message.')) frame.push(e as unknown as MeetingEvent);
-      },
-      onStatus: setWs,
-      onResync: () => void load(),
-    });
-    return () => {
-      stop = true;
-      frame.cancel();
-      sock?.close();
-    };
-  }, [conn, api, meetingId, view, notify]);
+  useEffect(() => followMeeting({ conn, api, meetingId, view, notify, setWs, setError }), [conn, api, meetingId, view, notify]);
 
   const version = useSyncExternalStore(
     (fn) => {

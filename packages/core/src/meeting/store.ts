@@ -91,6 +91,9 @@ const ANSWER_ADDED: Array<[string, string]> = [
   ['received_at', 'INTEGER'],
   ['request_at', 'INTEGER'],
   ['done_at', 'INTEGER'],
+  ['speech_end_at', 'INTEGER'],
+  ['final_at', 'INTEGER'],
+  ['painted_at', 'INTEGER'],
 ];
 
 /** Columns of scheduled meetings (11.6), added to databases made before them. */
@@ -150,6 +153,8 @@ export interface StoredSegment extends Segment {
   at: number;
   /** When its batch reached the hub (in memory only, for answer timings). */
   receivedAt?: number;
+  /** receivedAt - the batch's sentAt: adds to a desktop time to make it a hub time (in memory only). */
+  clockOff?: number;
 }
 
 type Row = Record<string, any>;
@@ -221,6 +226,9 @@ function rowToAnswer(r: Row): MeetingAnswer {
     ...(r.received_at ? { receivedAt: r.received_at } : {}),
     ...(r.request_at ? { requestAt: r.request_at } : {}),
     ...(r.done_at ? { doneAt: r.done_at } : {}),
+    ...(r.speech_end_at ? { speechEndAt: r.speech_end_at } : {}),
+    ...(r.final_at ? { finalAt: r.final_at } : {}),
+    ...(r.painted_at ? { paintedAt: r.painted_at } : {}),
   };
 }
 
@@ -540,8 +548,8 @@ export class MeetingStore {
     return { id, meetingId: a.meetingId, messageId: a.messageId, trigger: a.trigger, question: a.question, state: a.state, createdAt: a.createdAt };
   }
 
-  updateAnswer(id: string, patch: Partial<Pick<MeetingAnswer, 'trigger' | 'question' | 'state' | 'firstTokenAt' | 'error' | 'model' | 'segmentEndAt' | 'receivedAt' | 'requestAt' | 'doneAt'>>): MeetingAnswer | undefined {
-    const cols: Record<string, string> = { trigger: 'trigger', question: 'question', state: 'state', firstTokenAt: 'first_token_at', error: 'error', model: 'model', segmentEndAt: 'segment_end_at', receivedAt: 'received_at', requestAt: 'request_at', doneAt: 'done_at' };
+  updateAnswer(id: string, patch: Partial<Pick<MeetingAnswer, 'trigger' | 'question' | 'state' | 'firstTokenAt' | 'error' | 'model' | 'segmentEndAt' | 'receivedAt' | 'requestAt' | 'doneAt' | 'speechEndAt' | 'finalAt'>>): MeetingAnswer | undefined {
+    const cols: Record<string, string> = { trigger: 'trigger', question: 'question', state: 'state', firstTokenAt: 'first_token_at', error: 'error', model: 'model', segmentEndAt: 'segment_end_at', receivedAt: 'received_at', requestAt: 'request_at', doneAt: 'done_at', speechEndAt: 'speech_end_at', finalAt: 'final_at' };
     const sets: string[] = [];
     const vals: Array<string | number | null> = [];
     for (const [k, v] of Object.entries(patch)) {
@@ -551,6 +559,11 @@ export class MeetingStore {
     }
     if (sets.length) this.db.query(`UPDATE meeting_answers SET ${sets.join(', ')} WHERE id = ?`).run(...vals, id);
     return this.answer(id);
+  }
+
+  /** The overlay's first paint, hub clock; only the first write counts. False when it was set already. */
+  paintAnswer(id: string, at: number): boolean {
+    return this.db.query('UPDATE meeting_answers SET painted_at = ? WHERE id = ? AND painted_at IS NULL').run(Math.round(at), id).changes > 0;
   }
 
   answer(id: string): MeetingAnswer | undefined {

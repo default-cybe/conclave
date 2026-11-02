@@ -211,10 +211,32 @@ export function splitAnswer(text: string, done = false): { say: string; rest: st
   return { say: say.join('\n'), rest: rest.join('\n'), source };
 }
 
-/** Speech end (or the answer's start, for Answer now) to the first word, in ms; undefined until a word came. */
-export function answerLatency(a: Pick<MeetingAnswer, 'createdAt' | 'firstTokenAt' | 'segmentEndAt'>): number | undefined {
+/** Speech end (or the answer's start, for Answer now) to the first word on screen, or to the first token before the overlay reports a paint; in ms, undefined until a word came. */
+export function answerLatency(a: Pick<MeetingAnswer, 'createdAt' | 'firstTokenAt' | 'segmentEndAt' | 'speechEndAt' | 'paintedAt'>): number | undefined {
+  if (a.paintedAt !== undefined && a.speechEndAt !== undefined) return Math.max(0, a.paintedAt - a.speechEndAt);
   if (a.firstTokenAt === undefined) return undefined;
   return Math.max(0, a.firstTokenAt - (a.segmentEndAt ?? a.createdAt));
+}
+
+/** One answer's steps on the hub clock, ms after its speech ended (or after the ask for Answer now); a step the hub did not record is left out. */
+export function stepTimes(a: MeetingAnswer): { step: string; ms: number }[] {
+  const zero = a.speechEndAt ?? a.segmentEndAt ?? a.createdAt;
+  const steps: [string, number | undefined][] = [
+    ['final', a.finalAt],
+    ['hub', a.receivedAt],
+    ['request', a.requestAt],
+    ['first token', a.firstTokenAt],
+    ['painted', a.paintedAt],
+  ];
+  return steps.flatMap(([step, at]) => (at === undefined ? [] : [{ step, ms: Math.max(0, at - zero) }]));
+}
+
+/** Speech end to first paint over the answers that have both: p50 and p95 by nearest rank, and n. */
+export function latencyStats(answers: MeetingAnswer[]): { p50: number; p95: number; n: number } | undefined {
+  const ms = answers.flatMap((a) => (a.paintedAt !== undefined && a.speechEndAt !== undefined ? [Math.max(0, a.paintedAt - a.speechEndAt)] : [])).sort((x, y) => x - y);
+  if (!ms.length) return undefined;
+  const rank = (p: number) => ms[Math.max(0, Math.ceil(p * ms.length) - 1)]!;
+  return { p50: rank(0.5), p95: rank(0.95), n: ms.length };
 }
 
 /** "0.8 s", "12 s". */
