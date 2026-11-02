@@ -61,7 +61,8 @@ describe('stt tokens', () => {
     const u = new URL(t.url);
     expect(u.pathname).toBe('/v1/listen');
     for (const [k, v] of Object.entries({ model: 'nova-3', interim_results: 'true', smart_format: 'true', encoding: 'linear16', sample_rate: '16000' })) expect(u.searchParams.get(k)).toBe(v);
-    expect(u.searchParams.get('endpointing')).toBeTruthy();
+    expect(u.searchParams.get('endpointing')).toBe('150');
+    expect(u.searchParams.get('utterance_end_ms')).toBe('1000');
     expect(t.url).not.toContain('dg-key');
   });
 
