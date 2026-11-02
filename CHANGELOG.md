@@ -11,6 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Fixed
 
+- The desktop app's updater now uses zip 9 (tauri-plugin-updater 2.14.1), closing three zip advisories: arbitrary file overwrite through a parser differential (GHSA-m665-v7pm-7grj), unbounded symlink targets during extraction, and an AES entry HMAC bypass on premature EOF.
 - macOS keeps Conclave's permissions (Files and Folders, Full Disk Access, Microphone, Screen Recording) across updates. Every Mac release, the app, the daemon inside it and the standalone `conclave-daemon-*-apple-darwin` files, is now signed with one stable self-signed certificate instead of ad hoc, so macOS sees the same app after each update. The first update from an ad-hoc build asks once more.
 
 ## [0.4.56] - 2026-11-02
