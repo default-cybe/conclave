@@ -13,7 +13,7 @@ import { STT_HOSTS, mintSttToken, sttChoice, SttError } from '../../src/meeting/
 import { buildContextPack, livePack, LIVE_PACK_TOKENS_MAX } from '../../src/meeting/context';
 import { isQuestion } from '../../src/meeting/trigger';
 import { LIVE_PROMPT } from '../../src/meeting/prompt';
-import { SPECULATIONS_PER_MINUTE } from '../../src/meeting/answer';
+import { SPECULATIONS_PER_MINUTE, grewFrom } from '../../src/meeting/answer';
 import { estimateTokens } from '../../src/util/text';
 import { answerPaintProblem, segmentBatchProblem, type Segment } from '../../src/meeting/wire';
 
@@ -409,5 +409,48 @@ describe('latency benchmark (fake model, first token after 150 ms)', () => {
     expect(await until(() => svc.store.answers(m.id)[0].state === 'done', 5000)).toBe(true);
     expect(svc.store.answers(m.id)).toHaveLength(1);
     expect(svc.store.answers(m.id)[0]).toMatchObject({ trigger: 'question', createdAt: started });
+  });
+
+  test('a 700 ms partial speculates; the final that grew from it keeps it with no second model call', async () => {
+    const svc = await boot();
+    const m = await svc.create({ title: 'Bench' }, 'owner');
+    expect(await until(() => svc.store.get(m.id)!.status === 'ready')).toBe(true);
+    await svc.settled();
+    svc.ingest(m.id, batch(seg(0, 'Tell me about', { final: false, startMs: 0, endMs: 700 })), 'owner');
+    expect(await until(() => svc.store.answers(m.id)[0]?.trigger === 'speculative')).toBe(true);
+    // the endpoint wait: the final comes 100 ms later
+    await Bun.sleep(100);
+    svc.ingest(m.id, batch(seg(0, 'Tell me about yourself.', { startMs: 0, endMs: 1300 })), 'owner');
+    expect(await until(() => svc.store.answers(m.id)[0]?.state === 'done', 5000)).toBe(true);
+    const [a] = svc.store.answers(m.id);
+    expect(svc.store.answers(m.id)).toHaveLength(1);
+    expect(a).toMatchObject({ trigger: 'question', question: 'Tell me about yourself.' });
+    expect(liveBodies()).toHaveLength(1);
+    console.log(`meeting speculation bench: final received to first token ${a.firstTokenAt! - a.receivedAt!} ms, model requests ${liveBodies().length} (model first token ${FIRST_TOKEN_MS} ms)`);
+    expect(a.firstTokenAt! - a.receivedAt!).toBeLessThan(FIRST_TOKEN_MS);
+  });
+
+  test('an unrelated final still cancels the speculation and starts its own answer', async () => {
+    const svc = await boot();
+    const m = await svc.create({ title: 'Bench' }, 'owner');
+    expect(await until(() => svc.store.get(m.id)!.status === 'ready')).toBe(true);
+    await svc.settled();
+    svc.ingest(m.id, batch(seg(0, 'Tell me about', { final: false, startMs: 0, endMs: 700 })), 'owner');
+    expect(await until(() => svc.store.answers(m.id)[0]?.state === 'streaming')).toBe(true);
+    svc.ingest(m.id, batch(seg(0, 'Why did you leave Acme?', { startMs: 0, endMs: 1300 })), 'owner');
+    expect(await until(() => svc.store.answers(m.id)[1]?.state === 'done', 5000)).toBe(true);
+    const [spec, real] = svc.store.answers(m.id);
+    expect(spec).toMatchObject({ trigger: 'speculative', state: 'cancelled' });
+    expect(real).toMatchObject({ trigger: 'question', question: 'Why did you leave Acme?', state: 'done' });
+    expect(liveBodies()).toHaveLength(2);
+  });
+
+  test('grewFrom: a word prefix holding at least half the words', () => {
+    expect(grewFrom('Tell me about', 'Tell me about yourself.')).toBe(true);
+    expect(grewFrom('How would you design', 'How would you design the retry queue?')).toBe(true);
+    // a two-word guess at a long question is answered again
+    expect(grewFrom('Tell me', 'Tell me about a time you handled an outage')).toBe(false);
+    expect(grewFrom('Tell me about', 'Tell us about yourself')).toBe(false);
+    expect(grewFrom('', 'Anything')).toBe(false);
   });
 });
