@@ -13,6 +13,7 @@ import { cn } from '@/lib/text';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
 import { errText } from './parts';
+import { usePageVisible } from '@/components/motion/useReducedMotion';
 
 /** Keys the view sends as key presses; everything printable goes as text. */
 const KEYS = new Set(['Enter', 'Backspace', 'Tab', 'Escape', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown']);
@@ -48,6 +49,7 @@ export function RemotePage({
   maxHeight?: string;
 }) {
   const phone = useIsMobile();
+  const visible = usePageVisible();
   const [frame, setFrame] = useState<SignInFrameDto>();
   const [problem, setProblem] = useState<string>();
   const [text, setText] = useState('');
@@ -57,8 +59,12 @@ export function RemotePage({
   const wheel = useRef(0);
 
   useEffect(() => {
-    let live = true;
     seq.current = 0;
+  }, [viewKey]);
+
+  useEffect(() => {
+    if (!visible) return;
+    let live = true;
     const tick = async () => {
       while (live) {
         try {
@@ -81,7 +87,7 @@ export function RemotePage({
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewKey]);
+  }, [viewKey, visible]);
 
   useEffect(() => {
     if (frame?.url) setAddress(frame.url);
