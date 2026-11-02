@@ -9,6 +9,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Design (`docs/design/MEMBERS-SANDBOX.md`) for members phase 2: per-account private hub sandboxes (`<hub-data>/accounts/<account-id>/sandbox/home`), a bubblewrap profile with an empty root, private `/proc` and seccomp, network egress through an isolated pasta namespace and the existing public-only SOCKS fence, aggregate cgroup and filesystem quota gates, sandboxed stdio MCP servers and command hooks, `SandboxMachine` selection for member hub Code sessions, and the escape-path threat model, rollout phases and native escape test plan.
+
 ### Fixed
 
 - Meetings: the speech-to-text token request tries again when a DNS lookup stalls, and a Deepgram 403 says the key needs Member permission or higher.
