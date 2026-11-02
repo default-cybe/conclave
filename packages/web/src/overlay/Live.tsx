@@ -44,11 +44,20 @@ export function statusNotes(d: DesktopMeetingStatus | undefined, ws: WsStatus): 
   else if (d.stt.state === 'failed') out.push(`Speech model failed${d.stt.error ? `: ${d.stt.error}` : ''}`);
   if (!d.mic.ok) out.push(d.mic.error ? `no mic: ${d.mic.error}` : 'no mic');
   if (!d.system.ok) out.push(d.system.error ? `no system sound: ${d.system.error}` : 'no system sound');
+  // capture runs but says something, such as "Not hearing the meeting. Check the meeting app's speaker."
+  else if (d.system.error) out.push(d.system.error);
   if (d.queue.stt > 0) out.push(`${d.queue.stt} waiting for text`);
   if (ws !== 'closed' && d.queue.upload > 0) out.push(`${d.queue.upload} waiting to upload`);
-  if (d.clickThrough) out.push('click-through, Ctrl or Cmd + Alt + T turns it off');
   return out;
 }
+
+/** The click-through hotkey as the owner presses it: ⌘⌥T on a Mac, Ctrl+Alt+T elsewhere, with Shift for the fallback. */
+export function clickKeyLabel(key: string | undefined, mac: boolean): string {
+  const shift = /Shift/.test(key ?? '');
+  return mac ? `⌘⌥${shift ? '⇧' : ''}T` : `Ctrl+Alt+${shift ? 'Shift+' : ''}T`;
+}
+
+const MAC = typeof navigator !== 'undefined' && /Mac OS X|Macintosh/.test(navigator.userAgent);
 
 /** What a screen share shows of the overlay, when it is not hidden from it: the share icon's tooltip. */
 export function shareNote(d: DesktopMeetingStatus | undefined): string | undefined {
@@ -157,7 +166,7 @@ function Placement() {
 }
 
 /** Everything that is not Answer now, Pause or Hide: the "..." menu, drawn in this window (no native menu, 7.2). */
-export function Menu({ autoAnswer, latency, onAutoAnswer, onClickThrough, onEnd }: { autoAnswer: boolean; latency?: number; onAutoAnswer: () => void; onClickThrough: () => void; onEnd: () => void }) {
+export function Menu({ autoAnswer, latency, clickKey, onAutoAnswer, onClickThrough, onEnd }: { autoAnswer: boolean; latency?: number; clickKey?: string; onAutoAnswer: () => void; onClickThrough: () => void; onEnd: () => void }) {
   const [ending, setEnding] = useState(false);
   return (
     <div className="ov-menu" role="menu" aria-label="More">
@@ -166,7 +175,7 @@ export function Menu({ autoAnswer, latency, onAutoAnswer, onClickThrough, onEnd 
       <Placement />
       {/* once on, clicks pass through this window: the hotkey turns it off */}
       <button type="button" className="ov-menu-item" onClick={onClickThrough}>
-        Click-through
+        Click-through {clickKey ? `(${clickKeyLabel(clickKey, MAC)} turns it off)` : '(no hotkey: off when the meeting ends)'}
       </button>
       <button type="button" className="ov-menu-item" aria-pressed={autoAnswer} onClick={onAutoAnswer}>
         Auto answers: {autoAnswer ? 'on' : 'off'}
@@ -345,12 +354,19 @@ export function Live({ api, view, desktop, ws }: { api: MeetingApi; view: Meetin
           <p className="ov-empty">{paused ? 'Paused. Resume to hear the meeting again.' : 'Listening. Answers appear here when someone asks you something.'}</p>
         )}
       </section>
+      {/* clicks pass through the whole window now, this too: it only says how to get out */}
+      {desktop?.clickThrough && (
+        <p className="ov-ct-pill" role="status">
+          Click-through on · {clickKeyLabel(desktop.clickKey, MAC)} to turn off
+        </p>
+      )}
       {menu && (
         <>
           <div className="ov-scrim" onPointerDown={() => setMenu(false)} />
           <Menu
             autoAnswer={m.autoAnswer !== 'off'}
             latency={lastLatency(answers)}
+            clickKey={desktop?.clickKey}
             onAutoAnswer={() => void api.patch(m.id, { autoAnswer: m.autoAnswer === 'off' ? 'questions' : 'off' }).catch(fail)}
             onClickThrough={() => {
               setMenu(false);

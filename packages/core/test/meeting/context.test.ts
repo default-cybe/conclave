@@ -98,6 +98,14 @@ describe('context pack', () => {
     expect(LIVE_PROMPT.startsWith('You help the owner during a live meeting.')).toBe(true);
   });
 
+  test('the live prompt asks for a spoken voice: digits, contractions, small talk, and a no-question Answer now', () => {
+    expect(LIVE_PROMPT).toMatch(/digits/);
+    expect(LIVE_PROMPT).toMatch(/never spell/i);
+    expect(LIVE_PROMPT).toMatch(/contractions/);
+    expect(LIVE_PROMPT).toMatch(/small talk/);
+    expect(LIVE_PROMPT).toMatch(/Answer now with no question[^\n]*last few turns/);
+  });
+
   test('the overlay formats (table, code, chart, mermaid) go in the uncached user message, the cached system blocks stay as they were', () => {
     const m = { id: 'mtg_1', createdAt: 0, startedAt: 0 } as Meeting;
     const user = userMessage(m, [], { now: 0, question: 'What are the numbers?' });

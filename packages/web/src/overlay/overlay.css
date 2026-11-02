@@ -468,6 +468,24 @@ body {
   margin-left: 8px;
 }
 
+/* Click-through is on: the way out stays on screen; the window takes no clicks, nor does this */
+.ov-ct-pill {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  margin: 0;
+  padding: 4px 12px;
+  border: 1px solid var(--rule-2);
+  border-radius: 999px;
+  background: var(--bg-raise);
+  color: var(--fg);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 /* The transcript strip: the last lines said, small, one line each */
 .ov-strip {
   flex: none;

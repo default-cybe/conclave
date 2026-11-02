@@ -16,6 +16,8 @@ pub mod parakeet {
 pub mod place;
 pub mod share_watch;
 pub mod stt;
+#[cfg(target_os = "macos")]
+pub mod tap_mac;
 pub mod upload;
 pub mod vad;
 pub mod wire;
@@ -37,6 +39,8 @@ pub const KEY_TOGGLE: &str = "CommandOrControl+Alt+M";
 const KEY_ANSWER: &str = "CommandOrControl+Alt+Enter";
 const KEY_PAUSE: &str = "CommandOrControl+Alt+P";
 const KEY_CLICK: &str = "CommandOrControl+Alt+T";
+/// When another app holds Cmd/Ctrl+Alt+T; the overlay menu shows whichever one registered.
+const KEY_CLICK_FALLBACK: &str = "CommandOrControl+Alt+Shift+T";
 /// The previous and next answer (the overlay's "n of m"), sent as meeting://nav -1 or 1.
 const KEY_PREV: &str = "CommandOrControl+Alt+[";
 const KEY_NEXT: &str = "CommandOrControl+Alt+]";
@@ -60,6 +64,12 @@ const MAX_SCREEN_SHARE: f64 = 0.75;
 const SWEEP_EVERY: Duration = Duration::from_secs(2);
 /// meeting://level goes out when a channel's level moved this much: each emit runs script in the overlay.
 const LEVEL_STEP: f32 = 0.02;
+/// "them" quiet this long while "me" talks: the overlay says the meeting is not heard.
+const NOT_HEARING_AFTER: Duration = Duration::from_secs(20);
+pub const NOT_HEARING: &str = "Not hearing the meeting. Check the meeting app's speaker.";
+/// Peak levels: any sound on the system channel, speech on the mic.
+const THEM_SOUND: f32 = 0.005;
+const ME_SPEECH: f32 = 0.08;
 
 struct Run {
     id: String,
@@ -79,6 +89,8 @@ static PROVIDER: Mutex<Option<&'static str>> = Mutex::new(None);
 static NOTE: Mutex<Option<String>> = Mutex::new(None);
 static EXCLUSION: Mutex<Exclusion> = Mutex::new(Exclusion::Unsupported);
 static CLICK_THROUGH: AtomicBool = AtomicBool::new(false);
+/// The click-through hotkey that registered: KEY_CLICK, its fallback, or none.
+static CLICK_KEY: Mutex<Option<&'static str>> = Mutex::new(None);
 static HIDDEN_FOR_SHARE: AtomicBool = AtomicBool::new(false);
 /// The owner hid it with the hotkey: share detection does not bring it back.
 static HIDDEN_BY_OWNER: AtomicBool = AtomicBool::new(false);
@@ -118,6 +130,7 @@ pub fn status() -> DesktopMeetingStatus {
         live,
         paused,
         click_through: CLICK_THROUGH.load(Ordering::Relaxed),
+        click_key: CLICK_KEY.lock().unwrap().map(str::to_string),
         hidden_for_share: HIDDEN_FOR_SHARE.load(Ordering::Relaxed),
         exclusion: *EXCLUSION.lock().unwrap(),
         mic,
@@ -345,7 +358,7 @@ pub fn toggle(app: &AppHandle) {
         HIDDEN_FOR_SHARE.store(false, Ordering::Relaxed);
         show(app);
     } else if let Err(e) = open(app, None) {
-        eprintln!("conclave: meeting overlay: {e}");
+        log::warn!("meeting overlay: {e}");
     }
 }
 
@@ -575,8 +588,13 @@ pub fn stop(app: &AppHandle) {
     run.stop.store(true, Ordering::Relaxed);
     run.stt.wake.notify_all();
     run.up.wake.notify_all();
-    for key in [KEY_ANSWER, KEY_PAUSE, KEY_CLICK, KEY_PREV, KEY_NEXT, KEY_DISPLAY_NEXT, KEY_DISPLAY_PREV, KEY_PEEK] {
+    let click = CLICK_KEY.lock().unwrap().take();
+    for key in [KEY_ANSWER, KEY_PAUSE, KEY_PREV, KEY_NEXT, KEY_DISPLAY_NEXT, KEY_DISPLAY_PREV, KEY_PEEK].into_iter().chain(click) {
         let _ = app.global_shortcut().unregister(key);
+    }
+    // nothing can turn it off once the hotkey is gone
+    if CLICK_THROUGH.load(Ordering::Relaxed) {
+        click_through(app, false);
     }
     set_tray(app, None);
     HIDDEN_FOR_SHARE.store(false, Ordering::Relaxed);
@@ -609,11 +627,47 @@ pub fn pause(app: &AppHandle, on: bool) {
     emit_status(app);
 }
 
+/// Clicks pass through the overlay (on) or reach it again (off). On macOS the NSPanel's
+/// setIgnoresMouseEvents runs on the main thread and is read back; the IPC command and the
+/// hotkey both arrive on other threads.
 pub fn click_through(app: &AppHandle, on: bool) {
-    if let Some(w) = app.get_webview_window(MEETING) {
-        if w.set_ignore_cursor_events(on).is_ok() {
-            CLICK_THROUGH.store(on, Ordering::Relaxed);
+    #[cfg(target_os = "macos")]
+    {
+        let handle = app.clone();
+        let r = app.run_on_main_thread(move || {
+            use tauri_nspanel::ManagerExt;
+            let took = match handle.get_webview_panel(MEETING) {
+                Ok(p) => {
+                    p.set_ignores_mouse_events(on);
+                    p.as_panel().ignoresMouseEvents() == on
+                }
+                Err(_) => false,
+            };
+            set_click_through(&handle, on, took);
+        });
+        if let Err(e) = r {
+            log::warn!("meeting: click-through {on}: main thread unavailable: {e}");
         }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let took = app.get_webview_window(MEETING).is_some_and(|w| match w.set_ignore_cursor_events(on) {
+            Ok(()) => true,
+            Err(e) => {
+                log::warn!("meeting: click-through {on}: {e}");
+                false
+            }
+        });
+        set_click_through(app, on, took);
+    }
+}
+
+fn set_click_through(app: &AppHandle, on: bool, took: bool) {
+    if took {
+        CLICK_THROUGH.store(on, Ordering::Relaxed);
+        log::info!("meeting: click-through {}", if on { "on" } else { "off" });
+    } else {
+        log::warn!("meeting: click-through {} did not take effect", if on { "on" } else { "off" });
     }
     emit_status(app);
 }
@@ -713,9 +767,35 @@ fn set_tray(app: &AppHandle, line: Option<&str>) {
     }
 }
 
+/// The first key that registers, each result in app.log.
+fn first_registered(keys: &[&'static str], mut register: impl FnMut(&'static str) -> Result<(), String>) -> Option<&'static str> {
+    keys.iter().copied().find(|&key| match register(key) {
+        Ok(()) => {
+            log::info!("meeting: hotkey {key} registered");
+            true
+        }
+        Err(e) => {
+            log::warn!("meeting: hotkey {key} unavailable: {e}");
+            false
+        }
+    })
+}
+
+fn on_press(app: &AppHandle, key: &'static str, f: fn(&AppHandle)) -> Result<(), String> {
+    app.global_shortcut()
+        .on_shortcut(key, move |app, _, e| {
+            if e.state() == ShortcutState::Pressed {
+                f(app);
+            }
+        })
+        .map_err(|e| e.to_string())
+}
+
 fn register_keys(app: &AppHandle) {
-    let gs = app.global_shortcut();
-    let keys: [(&str, fn(&AppHandle)); 8] = [
+    let click: fn(&AppHandle) = |app| click_through(app, !CLICK_THROUGH.load(Ordering::Relaxed));
+    let key = first_registered(&[KEY_CLICK, KEY_CLICK_FALLBACK], |k| on_press(app, k, click));
+    *CLICK_KEY.lock().unwrap() = key;
+    let keys: [(&'static str, fn(&AppHandle)); 7] = [
         (KEY_DISPLAY_NEXT, next_display),
         (KEY_DISPLAY_PREV, |app| {
             let _ = app.emit_to(MEETING, "meeting://display", -1);
@@ -738,30 +818,15 @@ fn register_keys(app: &AppHandle) {
             let on = RUN.lock().unwrap().as_ref().map(|r| !r.paused.load(Ordering::Relaxed)).unwrap_or(false);
             pause(app, on);
         }),
-        (KEY_CLICK, |app| click_through(app, !CLICK_THROUGH.load(Ordering::Relaxed))),
     ];
     for (key, f) in keys {
-        let r = gs.on_shortcut(key, move |app, _, e| {
-            if e.state() == ShortcutState::Pressed {
-                f(app);
-            }
-        });
-        if let Err(e) = r {
-            eprintln!("conclave: meeting hotkey {key} unavailable: {e}");
-        }
+        first_registered(&[key], |k| on_press(app, k, f));
     }
 }
 
 /// The toggle key is there from the start: it opens the setup screen when no meeting runs.
 pub fn setup(app: &AppHandle) {
-    let r = app.global_shortcut().on_shortcut(KEY_TOGGLE, |app, _, e| {
-        if e.state() == ShortcutState::Pressed {
-            toggle(app);
-        }
-    });
-    if let Err(e) = r {
-        eprintln!("conclave: meeting hotkey {KEY_TOGGLE} unavailable: {e}");
-    }
+    first_registered(&[KEY_TOGGLE], |k| on_press(app, k, toggle));
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         *EXCLUSION.lock().unwrap() = Exclusion::Unsupported;
@@ -790,6 +855,43 @@ fn should_emit(prev: Option<Levels>, next: Levels, visible: bool) -> bool {
     visible && prev.map_or(true, |p| moved(p.me, next.me) || moved(p.them, next.them))
 }
 
+/// When "them" last had sound and "me" last spoke, from the sampled levels.
+#[derive(Default)]
+struct Hearing {
+    since: Option<Instant>,
+    them_at: Option<Instant>,
+    me_at: Option<Instant>,
+}
+
+impl Hearing {
+    /// True while "them" has been silent for 20 s and "me" spoke in that time.
+    fn step(&mut self, l: Levels, now: Instant) -> bool {
+        let since = *self.since.get_or_insert(now);
+        if l.them >= THEM_SOUND {
+            self.them_at = Some(now);
+        }
+        if l.me >= ME_SPEECH {
+            self.me_at = Some(now);
+        }
+        let quiet = now.duration_since(self.them_at.unwrap_or(since)) >= NOT_HEARING_AFTER;
+        quiet && self.me_at.is_some_and(|t| now.duration_since(t) < NOT_HEARING_AFTER)
+    }
+}
+
+/// The system channel's note: set when the meeting is not heard, cleared only if it is that note.
+fn note_not_hearing(sys: &ChannelShared, deaf: bool) {
+    // device before error: ChannelShared::set locks them in that order
+    let device = sys.device.lock().unwrap().clone();
+    let mut err = sys.error.lock().unwrap();
+    if deaf && err.is_none() {
+        log::warn!("meeting: them: silent for 20 s while the mic hears speech ({})", device.as_deref().unwrap_or("no device"));
+        *err = Some(NOT_HEARING.into());
+    } else if !deaf && err.as_deref() == Some(NOT_HEARING) {
+        log::info!("meeting: them: sound again");
+        *err = None;
+    }
+}
+
 /// `meeting-share`: share detection every 250 ms, exclusion sweep every 2 s,
 /// levels at most 4 per second when they change and the status on change (at most 2 per second).
 fn watch(app: &AppHandle, stop: &AtomicBool) {
@@ -798,6 +900,7 @@ fn watch(app: &AppHandle, stop: &AtomicBool) {
     let mut last_sweep = Instant::now();
     let mut last_status: Option<String> = None;
     let mut last_status_at = Instant::now() - Duration::from_secs(1);
+    let mut hearing = Hearing::default();
     while !stop.load(Ordering::Relaxed) {
         std::thread::sleep(share_watch::POLL);
         let ended = RUN.lock().unwrap().as_ref().is_some_and(|r| r.up.ended.load(Ordering::Relaxed));
@@ -838,6 +941,12 @@ fn watch(app: &AppHandle, stop: &AtomicBool) {
         }
         if let Some(r) = RUN.lock().unwrap().as_ref() {
             let next = Levels { me: r.mic.level(), them: r.sys.level() };
+            if r.paused.load(Ordering::Relaxed) {
+                hearing = Hearing::default();
+                note_not_hearing(&r.sys, false);
+            } else {
+                note_not_hearing(&r.sys, hearing.step(next, Instant::now()));
+            }
             // the hide paths set these flags (hide() has no other caller): no window query per pass
             let shown = !HIDDEN_FOR_SHARE.load(Ordering::Relaxed) && !HIDDEN_BY_OWNER.load(Ordering::Relaxed) && !EDGE_TAB.load(Ordering::Relaxed);
             if should_emit(last_level, next, shown) {
@@ -871,7 +980,37 @@ fn stop_and_say(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_height, edge_tab, should_emit, with_rec_dot, Levels};
+    use super::{clamp_height, edge_tab, first_registered, should_emit, with_rec_dot, Hearing, Levels, KEY_CLICK, KEY_CLICK_FALLBACK};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn click_through_falls_back_to_shift_when_the_hotkey_is_taken() {
+        let mut tried = vec![];
+        let got = first_registered(&[KEY_CLICK, KEY_CLICK_FALLBACK], |k| {
+            tried.push(k.to_string());
+            if k == KEY_CLICK { Err("HotKey already registered".into()) } else { Ok(()) }
+        });
+        assert_eq!(got, Some(KEY_CLICK_FALLBACK));
+        assert_eq!(tried, [KEY_CLICK, KEY_CLICK_FALLBACK]);
+        assert_eq!(first_registered(&[KEY_CLICK, KEY_CLICK_FALLBACK], |_| Ok(())), Some(KEY_CLICK), "the first wins");
+        assert_eq!(first_registered(&[KEY_CLICK, KEY_CLICK_FALLBACK], |_| Err("no".into())), None);
+    }
+
+    #[test]
+    fn silence_from_them_while_me_talks_for_20_s_is_not_hearing() {
+        let t0 = Instant::now();
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        let l = |me: f32, them: f32| Levels { me, them };
+        let mut h = Hearing::default();
+        assert!(!h.step(l(0.3, 0.0), at(0)));
+        assert!(!h.step(l(0.3, 0.0), at(19)), "not yet 20 s");
+        assert!(h.step(l(0.3, 0.0), at(20)), "20 s of silence while I talk");
+        assert!(!h.step(l(0.0, 0.2), at(21)), "them is heard again");
+        // both quiet: a pause in the meeting, not a wrong speaker
+        let mut quiet = Hearing::default();
+        assert!(!quiet.step(l(0.0, 0.0), at(0)));
+        assert!(!quiet.step(l(0.01, 0.0), at(40)));
+    }
 
     #[test]
     fn the_hidden_edge_tab_gets_no_levels_and_the_notch_pill_does() {
