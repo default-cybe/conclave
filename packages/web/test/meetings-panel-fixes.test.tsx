@@ -135,13 +135,16 @@ describe('meetings panel fixes', () => {
     const box = r.host.querySelector('textarea') as HTMLTextAreaElement;
     // stand-ins for the IE calls React falls back to under linkedom (run-sheet.test.tsx)
     Object.assign(box, { attachEvent() {}, detachEvent() {} });
-    await r.act(async () => box.dispatchEvent(new win.Event('focusin', { bubbles: true })));
-    await r.act(async () => {
-      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(box), 'value')!.set!.call(box, '');
-      box.dispatchEvent(new win.Event('input', { bubbles: true }));
-      box.dispatchEvent(new win.Event('keyup', { bubbles: true }));
-    });
-    await r.settle(() => !!r.byText('Save steering'));
+    // shortcut: under linkedom React sometimes drops the first input after mount (about 1 run in 3), so type again until it lands
+    for (let i = 0; i < 3 && !r.byText('Save steering'); i++) {
+      await r.act(async () => box.dispatchEvent(new win.Event('focusin', { bubbles: true })));
+      await r.act(async () => {
+        Object.getOwnPropertyDescriptor(Object.getPrototypeOf(box), 'value')!.set!.call(box, '');
+        box.dispatchEvent(new win.Event('input', { bubbles: true }));
+        box.dispatchEvent(new win.Event('keyup', { bubbles: true }));
+      });
+      await r.settle(() => !!r.byText('Save steering'));
+    }
     await r.click(r.byText('Save steering')!);
     await r.settle(() => calls.some((c) => c.method === 'PATCH'));
     const patch = calls.find((c) => c.method === 'PATCH')!;
