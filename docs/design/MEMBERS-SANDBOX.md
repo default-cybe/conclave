@@ -47,6 +47,10 @@ Let `<hub-data>` be `config.paths.home`, not the OS user's home. Use the immutab
   secrets.json                    existing hub-managed store; never mounted
   cliproxy/                       existing hub-managed sign-ins; never mounted
   browser-profile/                existing browser copy; never mounted
+  browser-logins.{json,key,secrets.json}  existing saved logins and key; never mounted
+  basic-memory/                   existing member memory data (people/memory.ts); never mounted
+  inspiration/, workflows/        existing account app data; never mounted
+  agents/, skills/, commands/, learned-skills/  existing phase-1 account extensions (extensions/registry.ts accountHome); never mounted
   sandbox/
     home/                         only persistent writable tree visible to code
       work/                       private clones and session folders
@@ -157,7 +161,7 @@ Create a member McpManager/transport registry from their own definitions. Do not
 
 The transport calls sandbox spawn with an argv array, sandbox cwd and selected member secret values. SDK retries/reconnects capture the original account and generation explicitly; an AsyncLocalStorage context at initial connection time is not enough for a later timer. Streams carry MCP only; they are not authority to call arbitrary hub APIs. Reject host `inheritEnv`, config expansion of owner secrets, external host cwd and requests for extra mounts. HTTP/SSE MCP remains subject to the member public-only policy on every connection, redirect and reconnect; no unsandboxed HTTP transport fallback to the hub's fetch/network.
 
-Basic Memory is an explicit private data copy: migrate or stage only its member-owned data into the sandbox, without mounting the account parent. Stop its old process before switching and preserve a recoverable copy; never run old and new writers concurrently. The design does not migrate it now. Provider calls and budgets continue in the trusted hub. A harness may use its own member sign-in in its sandbox home; it never receives shared hub provider keys or the CLIProxyAPI management/client keys. Any future API broker token must be short-lived and narrowly scoped to the member/session with budget checks; no generic hub token is issued by this phase. A harness needing unsupported host-network auth fails rather than using the owner's login.
+Basic Memory is an explicit private data copy: migrate or stage only its member-owned data (today `<hub-data>/accounts/<account-id>/basic-memory`) into the sandbox, without mounting the account parent. Stop its old process before switching and preserve a recoverable copy; never run old and new writers concurrently. The design does not migrate it now. Provider calls and budgets continue in the trusted hub. A harness may use its own member sign-in in its sandbox home; it never receives shared hub provider keys or the CLIProxyAPI management/client keys. Any future API broker token must be short-lived and narrowly scoped to the member/session with budget checks; no generic hub token is issued by this phase. A harness needing unsupported host-network auth fails rather than using the owner's login.
 
 ### Hooks and command expansion
 
