@@ -19,11 +19,15 @@ import androidx.annotation.RequiresApi
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -59,6 +63,7 @@ import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
 import dev.conclave.client.logic.FileCardData
 import dev.conclave.client.logic.FileCards
+import dev.conclave.client.model.ImageBlock
 import dev.conclave.client.model.ToolResultBlock
 import dev.conclave.client.model.ToolUseBlock
 import dev.conclave.client.sessionFile
@@ -83,14 +88,75 @@ import kotlinx.coroutines.withContext
  * generated chart or graph) draws in a locked-down WebView (inertWebView):
  * one base64 data: <img> (FileCards.svgDocument), no script, no network, no
  * files, no navigation, destroyed when the card leaves. Anything else is a card.
+ *
+ * Pictures a GenerateImage call made come first, as a grid (the web's
+ * ImageGrid): one shows large, two to four in two columns. They draw from the
+ * call's result (meta.files) as soon as it ends, fetched with ?image=N, and a
+ * tap opens the full-screen viewer (Reply.kt FullImage). The turn-end cards
+ * of the same files are left out (FileCards.cards).
  */
 @Composable
 fun FileCardsView(uses: List<ToolUseBlock>, results: Map<String, ToolResultBlock>) {
     val sessionId = LocalSessionWork.current.session?.id ?: return
+    val pics = FileCards.generated(uses, results)
     val cards = FileCards.cards(uses, results)
-    if (cards.isEmpty()) return
+    if (cards.isEmpty() && pics.isEmpty()) return
     Column(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (pics.isNotEmpty()) ImageGrid(sessionId, pics)
         cards.forEach { FileCard(sessionId, it) }
+    }
+}
+
+@Composable
+private fun ImageGrid(sessionId: String, cards: List<FileCardData>) {
+    val one = cards.size == 1
+    Column(Modifier.widthIn(max = if (one) 420.dp else 560.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        cards.chunked(if (one) 1 else 2).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { GridCell(sessionId, it, one, Modifier.weight(1f)) }
+                if (row.size == 1 && !one) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** One generated picture: square and cropped in a grid, whole when alone. A tap opens it full screen (pinch to zoom). */
+@Composable
+private fun GridCell(sessionId: String, card: FileCardData, one: Boolean, modifier: Modifier) {
+    val c = Conclave.colors
+    val hub = LocalAppContainer.current.hub
+    val target = with(LocalDensity.current) { 560.dp.roundToPx() }
+    var failed by remember(card.toolUseId, card.image) { mutableStateOf(false) }
+    val loaded by produceState<Pair<ByteArray, ImageBitmap>?>(null, card.toolUseId, card.image) {
+        val got = try {
+            val (bytes, _) = hub.api { it.sessionFile(sessionId, card.toolUseId, card.image) }
+            withContext(Dispatchers.Default) { decodeScaled(bytes, target) }?.let { bytes to it }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+        if (got == null) failed = true
+        value = got
+    }
+    var open by remember { mutableStateOf(false) }
+    val shape = Modifier.clip(CardShape).border(1.dp, c.rule, CardShape)
+    val l = loaded
+    when {
+        l != null -> Image(
+            bitmap = l.second,
+            contentDescription = card.title ?: "Generated image",
+            contentScale = if (one) ContentScale.Fit else ContentScale.Crop,
+            modifier = (if (one) modifier.heightIn(max = 420.dp) else modifier.aspectRatio(1f)).then(shape).clickable(onClickLabel = "Open full screen") { open = true },
+        )
+        failed -> Box(modifier.aspectRatio(1f).then(shape).background(c.bgSunk).padding(12.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
+            Text("Could not load ${card.name}", style = ConclaveType.meta, color = c.fault)
+        }
+        else -> Box(modifier.aspectRatio(1f).then(shape).background(c.bgSunk))
+    }
+    if (open && l != null) {
+        val block = remember(l) { ImageBlock(mediaType = card.mediaType, data = java.util.Base64.getEncoder().encodeToString(l.first)) }
+        FullImage(block) { open = false }
     }
 }
 

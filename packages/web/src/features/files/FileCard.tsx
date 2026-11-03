@@ -24,12 +24,12 @@ const BOX = 'rounded-[var(--r-2)] border border-rule-2 bg-raise';
 const blobs = new Map<string, Promise<{ url: string; blob: Blob }>>();
 
 function fileBlob(sessionId: string, card: FileCardData): Promise<{ url: string; blob: Blob }> {
-  const key = `${sessionId}/${card.toolUseId}`;
+  const key = `${sessionId}/${card.toolUseId}/${card.image ?? ''}`;
   let p = blobs.get(key);
   if (!p) {
     // typed from the card, so a blob URL never opens as anything but what the hub said it is
     p = api()
-      .sessionFile(sessionId, card.toolUseId)
+      .sessionFile(sessionId, card.toolUseId, false, card.image)
       .then((b) => {
         const blob = new Blob([b], { type: card.mediaType });
         return { url: URL.createObjectURL(blob), blob };
@@ -69,7 +69,7 @@ function usePreview(sessionId: string, card: FileCardData): { src?: string; svg?
     return () => {
       alive = false;
     };
-  }, [sessionId, card.toolUseId, kind, tab]);
+  }, [sessionId, card.toolUseId, card.image, kind, tab]);
   return state;
 }
 
@@ -126,7 +126,7 @@ export function ImageGrid({ cards, sessionId, className }: { cards: FileCardData
   return (
     <div className={cn('grid gap-2', one ? 'max-w-[420px] grid-cols-1' : 'max-w-[560px] grid-cols-2', className)} data-image-grid={cards.length}>
       {cards.map((c) => (
-        <GridCell key={c.toolUseId} card={c} sessionId={sessionId} one={one} />
+        <GridCell key={`${c.toolUseId}/${c.image ?? ''}`} card={c} sessionId={sessionId} one={one} />
       ))}
     </div>
   );
@@ -135,7 +135,7 @@ export function ImageGrid({ cards, sessionId, className }: { cards: FileCardData
 /** The cards of a turn's ShareFile calls, in order: what sits under a phone's folded tool line. Generated pictures go in one grid instead. */
 export function FileCards({ calls, sessionId, className }: { calls: Array<{ name: string; result?: ToolResultBlock }>; sessionId: string; className?: string }) {
   const made = generatedNames(calls);
-  const pics = generatedCards(calls, made);
+  const pics = generatedCards(calls);
   const cards = shareCards(calls).filter((c) => !made.has(c.name));
   if (!cards.length && !pics.length) return null;
   return (

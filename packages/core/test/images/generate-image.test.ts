@@ -99,6 +99,17 @@ describe('generateImageFor', () => {
     expect(rows[0]).toMatchObject({ purpose: 'image', provider: 'cliproxy', model: 'gpt-image-2.5', sessionId: 's1', costUsd: 0, apiValueUsd: 0.042 });
   });
 
+  test('the live hub\'s cliproxy (subscription: "cliproxy") records $0 with the list price as value; no subscription pays the list price', async () => {
+    const live = deps();
+    live.d.config.get = () => ({ providers: { cliproxy: { type: 'openai', subscription: 'cliproxy' } } as never });
+    await generateImageFor(live.d, { prompt: 'fox', quality: 'medium', size: '1024x1024', n: 2, accountId: 'owner' });
+    expect(live.rows[0]).toMatchObject({ purpose: 'image', costUsd: 0, apiValueUsd: 0.042 });
+    const paid = deps();
+    paid.d.config.get = () => ({ providers: { cliproxy: { type: 'openai' } } as never });
+    await generateImageFor(paid.d, { prompt: 'fox', quality: 'medium', size: '1024x1024', accountId: 'owner' });
+    expect(paid.rows[0]).toMatchObject({ costUsd: 0.042, apiValueUsd: 0.042 });
+  });
+
   test('a member with their own key uses it; without one is refused', async () => {
     const own = deps({ source: 'own' });
     await generateImageFor(own.d, { prompt: 'fox', accountId: 'acct_m1' });
@@ -131,6 +142,7 @@ describe('GenerateImage tool', () => {
     expect(readFileSync(join(dir, png))).toEqual(PNG);
     expect(JSON.parse(readFileSync(join(dir, `${png}.json`), 'utf8'))).toMatchObject({ prompt: 'a fox', model: 'cliproxy/gpt-image-2.5', size: '1536x1024', quality: 'high', revisedPrompt: 'a red fox' });
     expect((res.meta?.images as string[])[0]).toBe(join(dir, png));
+    expect(res.meta?.files).toEqual([{ path: join(dir, png), device: 'local', name: png, mediaType: 'image/png', size: PNG.length }]);
   });
 
   test('standard is medium; provider errors show plainly', async () => {

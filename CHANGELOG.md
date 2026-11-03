@@ -11,7 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
-- Image generation: ask a chat or the assistant for a picture in plain words ("draw a fox", "a logo for my shop", "a phone wallpaper") and it calls the new GenerateImage tool. Pictures save to the outputs folder with a .json sidecar (prompt, model, size, quality, revised prompt), show as a grid with a full-screen viewer in the web reply, and write a usage row with purpose `image`. Settings > Models has an Image model choice (default `cliproxy/gpt-image-2.5`); quality is medium unless you ask for the best. Members make images only on their own plans or keys.
+- Image generation: ask a chat or the assistant for a picture in plain words ("draw a fox", "a logo for my shop", "a phone wallpaper") and it calls the new GenerateImage tool. Pictures save to the outputs folder with a .json sidecar (prompt, model, size, quality, revised prompt), show as a grid with a full-screen viewer in the reply on the web and Android as soon as the call ends, and write a usage row with purpose `image`. Settings > Models has an Image model choice (default `cliproxy/gpt-image-2.5`); quality is medium unless you ask for the best. Members make images only on their own plans or keys.
 
 ### Fixed
 

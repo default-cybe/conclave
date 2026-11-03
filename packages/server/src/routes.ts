@@ -626,7 +626,10 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     const id = sid(c);
     const toolUseId = c.req.param('toolUseId');
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(toolUseId)) throw notFound(`unknown session ${id}`);
-    const f = await engine.sharedFile(id, toolUseId);
+    // ?image=N: picture N of a GenerateImage call (its meta.files), drawn before the turn ends
+    const image = c.req.query('image');
+    if (image !== undefined && !/^[0-3]$/.test(image)) throw notFound(`unknown session ${id}`);
+    const f = await engine.sharedFile(id, toolUseId, image === undefined ? undefined : Number(image));
     const inline = qBool(c.req.query('inline')) === true && INLINE_TYPES.has(f.mediaType);
     const ascii = f.name.replace(/[^A-Za-z0-9._ -]/g, '_');
     audit(c, 'session.file.download', `${f.name} (${f.size} bytes)`, { sessionId: id });

@@ -10,6 +10,8 @@ export interface FileCardData {
   mediaType: string;
   size: number;
   title?: string;
+  /** Picture N of a GenerateImage call (its meta.files), served with ?image=N; absent for a ShareFile card. */
+  image?: number;
 }
 
 /** The card a ShareFile result carries, when it is one the app can draw. */
@@ -42,15 +44,18 @@ export function generatedNames(calls: CallLike[]): Set<string> {
 }
 
 /**
- * The cards the turn-end pass gave a set of generated pictures, in order:
- * the ShareFile results whose file is one of `names`. Matched by file name,
- * which GenerateImage makes unique by timestamp.
+ * The pictures a turn's GenerateImage calls saved, in order, from each
+ * result's meta.files: there as soon as the call ends, before the turn-end
+ * cards. Each is served by its GenerateImage call's id and its index.
  */
-export function generatedCards(calls: CallLike[], names: Set<string>): FileCardData[] {
-  if (!names.size) return [];
+export function generatedCards(calls: CallLike[]): FileCardData[] {
   return calls.flatMap((c) => {
-    const card = c.name === 'ShareFile' ? fileCardOf(c.result) : undefined;
-    return card && names.has(card.name) && previewOf(card) === 'image' ? [card] : [];
+    const r = c.name === 'GenerateImage' && !c.result?.isError ? c.result : undefined;
+    const list = r?.toolUseId && Array.isArray(r.meta?.files) ? (r.meta.files as unknown[]) : [];
+    return list.flatMap((f, image) => {
+      const card = fileCardOf({ toolUseId: r!.toolUseId, meta: { file: f } });
+      return card && previewOf(card) === 'image' ? [{ ...card, image }] : [];
+    });
   });
 }
 

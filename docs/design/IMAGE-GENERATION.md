@@ -1,6 +1,6 @@
 # Image generation: make and edit pictures from chat
 
-Status: phase 1 built (feat/image-generation, 2026-11-03): GenerateImage on the chat and assistant agents, cliproxy/gpt-image-2.5 by default, medium quality unless the owner asks for the best, no daily cap, members on their own keys only. Web shows a grid; Android shows file cards.
+Status: phase 1 built (feat/image-generation, 2026-11-03): GenerateImage on the chat and assistant agents, cliproxy/gpt-image-2.5 by default, medium quality unless the owner asks for the best, no daily cap, members on their own keys only. Web and Android show a grid with a full-screen viewer as soon as the call ends.
 
 The owner asked: "then its time to have image generation feature on conclave. research and think of where and how it can be exist in our conclave".
 
@@ -17,7 +17,7 @@ Decisions this doc makes (the owner can change them in section 9):
 | Cost | A usage row per call with `purpose: 'image'`. Subscription calls cost 0 and keep an API value. |
 | Phase 1 surfaces | The tool on `chat` and `assistant`, inline image cards with a full-screen viewer on web. Nothing else. |
 
-What phase 1 does not build: an Images page, a composer toggle or `/image` command, mask painting, Gemini images, local ComfyUI, Android full-screen viewer, partial-image streaming.
+What phase 1 does not build: an Images page, a composer toggle or `/image` command, mask painting, Gemini images, local ComfyUI, partial-image streaming.
 
 ## 1. What the evidence says
 
@@ -98,7 +98,7 @@ Each surface, decided:
 | `GenerateImage` tool | Yes. The one entry point. Agents call it when the owner asks for a picture. | 1 |
 | `EditImage` tool | No separate tool. `GenerateImage` takes `images` (references or the image to edit) and an optional `mask`. One tool is easier for the model to choose. | 1 (references), 2 (mask) |
 | Inline image cards in the reply | Yes. Reuse ShareFile cards, which already show PNG, JPEG, GIF and WebP up to 20 MB inline (`files/words.ts` `IMAGE_PREVIEW_MAX`). Several images from one call sit in a grid. | 1 |
-| Full-screen viewer | Yes on web: reuse `ImageThumb`'s dialog (`components/ui/ImageViewer.tsx`) in `FileCard`. Android: phase 2. | 1 web, 2 Android |
+| Full-screen viewer | Yes: on web `ImageThumb`'s dialog (`components/ui/ImageViewer.tsx`) in `ImageGrid`; on Android the chat's `FullImage` (pinch to zoom) from `FileCardsView`'s grid. | 1 |
 | Composer "Image" toggle or `/image` | Not in phase 1. The model already sees the ask in plain words. Add only if the model misses image asks in practice. | 3, if needed |
 | Images page (gallery) | Phase 2. A list of the account's generated images across sessions, with "Use as reference" and Download. | 2 |
 | Image model setting | Phase 1, in Settings > Models: "Image model", a picker that shows only image models (the inverse of `NON_CHAT`). | 1 |
@@ -212,7 +212,7 @@ Phase 2 adds a mask painter in the web full-screen viewer: a brush over the imag
 | Size | Refuse a result over 30 MB (the ShareFile limit). At 3840x2160 PNG this is near the limit. |
 | Sidecar | `<name>.json` next to the image: prompt, revised prompt, model, size, quality, source images, usage id. The gallery (phase 2) reads these. |
 | Thumbnails | None in phase 1. Cards show the file itself under 20 MB. Phase 2 gallery: a 384 px WebP made once by the hub with the Chromium that RenderFile already uses, so no new dependency. |
-| Cards | The tool's result lists the paths. The runner's turn-end pass (`session/runner.ts:1866`) already adds a ShareFile card for outputs files no call covered. The tool calls nothing extra. |
+| Cards | The tool's result carries `meta.files` (path, device, name, mediaType, size, like ShareFile's `meta.file`), so the clients draw the grid as soon as the call ends; `GET /api/sessions/:id/files/:toolUseId?image=N` serves picture N of the call. The runner's turn-end pass (`session/runner.ts:1866`) still adds a ShareFile card for each file; the clients hide those behind the grid by file name. |
 
 ### 5.2 Usage and price
 
@@ -303,7 +303,7 @@ Phase 2: with `partial_images: 2`, the tool sends `tool_progress` events with `{
 |---|---|---|
 | 0 | The owner's curl (1.4), proxy update if needed | One 200 with an image from the hub's cliproxy |
 | 1 | `generateImage` on the OpenAI provider, `GenerateImage` tool (generate and references), `kind` on ModelInfo, Image model setting, outputs files and sidecars, usage rows, per-image price table, full-screen viewer in web `FileCard`, `chat` and `assistant` agents, prompt note | The owner asks the Chat page for a picture and sees it inline, on web and Android, with a usage row |
-| 2 | Mask painter, Gemini (cliproxy chat route and key), Images page, Android full-screen viewer, partial images, web-studio and inspiration hooks, workflow step | |
+| 2 | Mask painter, Gemini (cliproxy chat route and key), Images page, partial images, web-studio and inspiration hooks, workflow step | |
 | 3 | Cloudflare and ComfyUI providers, composer toggle if needed | |
 
 ### 7.1 Tests

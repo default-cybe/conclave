@@ -4,12 +4,15 @@
  * writes the usage row (images/generate.ts); this tool maps the plain tiers,
  * reads reference images, and saves each result in the session's outputs
  * folder with a .json sidecar (prompt, model, size, quality, revised prompt).
- * The runner's turn-end pass gives every new outputs file a card, so the
- * pictures show in the reply. Opt-in: the chat and the assistant name it.
+ * The result's meta.files (path, name, type, size, like ShareFile's meta.file)
+ * lets the clients draw the grid as soon as the call ends; GET
+ * /api/sessions/:id/files/:toolUseId?image=N serves each one. The runner's
+ * turn-end cards for the same files are hidden behind the grid. Opt-in: the
+ * chat and the assistant name it.
  */
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join, resolve } from 'node:path';
-import { insideFolder, mediaTypeOf, SHARE_MAX_BYTES, usesOutputs } from '../files/share';
+import { insideFolder, mediaTypeOf, SHARE_MAX_BYTES, usesOutputs, type SharedFileMeta } from '../files/share';
 import type { ImageRequest } from '../providers/types';
 import { ProviderError } from '../providers/types';
 import type { Tool } from './types';
@@ -98,6 +101,7 @@ export const GenerateImageTool: Tool<GenerateImageInput> = {
     await mkdir(dir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
     const saved: string[] = [];
+    const files: SharedFileMeta[] = [];
     for (const [i, img] of out.images.entries()) {
       if (img.bytes.length > SHARE_MAX_BYTES) return fail(`Image ${i + 1} came out at ${(img.bytes.length / 1024 / 1024).toFixed(1)} MB, over the 30 MB file limit.`);
       const ext = img.mime === 'image/jpeg' ? 'jpg' : img.mime === 'image/webp' ? 'webp' : 'png';
@@ -106,11 +110,12 @@ export const GenerateImageTool: Tool<GenerateImageInput> = {
       const sidecar = { prompt, model: out.ref, size, quality, ...(img.revisedPrompt ? { revisedPrompt: img.revisedPrompt } : {}), ...(refs.names.length ? { references: refs.names } : {}), createdAt: new Date().toISOString() };
       await writeFile(`${path}.json`, `${JSON.stringify(sidecar, null, 2)}\n`);
       saved.push(path);
+      files.push({ path, device: 'local', name: basename(path), mediaType: img.mime, size: img.bytes.length });
     }
     const revised = out.images.find((x) => x.revisedPrompt)?.revisedPrompt;
     const secs = Math.round(out.latencyMs / 1000);
     const words = `Saved ${saved.length} image${saved.length > 1 ? 's' : ''}: ${saved.map((p) => basename(p)).join(', ')} (${out.ref}, ${size}, ${quality}, ${secs} s). They show to the user as cards in your reply.${revised ? `\nRevised prompt: ${revised}` : ''}`;
-    return { content: words, meta: { images: saved, model: out.ref, size, quality, latencyMs: out.latencyMs } };
+    return { content: words, meta: { images: saved, files, model: out.ref, size, quality, latencyMs: out.latencyMs } };
   },
 };
 

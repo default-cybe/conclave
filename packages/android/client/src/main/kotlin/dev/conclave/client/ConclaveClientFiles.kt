@@ -7,5 +7,9 @@ package dev.conclave.client
 /** The path of a shared file: /api/sessions/{id}/files/{toolUseId}. Ids are path-encoded by OkHttp. */
 internal fun sessionFilePath(id: String, toolUseId: String): List<String> = listOf("api", "sessions", id, "files", toolUseId)
 
-/** A file a ShareFile call in session [id] shared, with its content type. Fetched with the hub token like any call. */
-suspend fun ConclaveClient.sessionFile(id: String, toolUseId: String): Pair<ByteArray, String> = getBytes(sessionFilePath(id, toolUseId))
+/**
+ * A file a ShareFile call in session [id] shared, with its content type. Fetched with the hub token like any call.
+ * With [image], picture N (0-based) of a GenerateImage call instead (?image=N, its meta.files).
+ */
+suspend fun ConclaveClient.sessionFile(id: String, toolUseId: String, image: Int? = null): Pair<ByteArray, String> =
+    getBytes(sessionFilePath(id, toolUseId), mapOf("image" to image))

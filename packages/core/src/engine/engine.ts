@@ -1773,21 +1773,26 @@ export class Engine implements EngineApi {
     return roots;
   }
 
-  /** The bytes of a file a ShareFile call in this session shared, checked again now (GET /api/sessions/:id/files/:toolUseId). */
-  async sharedFile(sessionId: string, toolUseId: string): Promise<{ bytes: Uint8Array; name: string; mediaType: string; size: number }> {
+  /**
+   * The bytes of a file a ShareFile call in this session shared, checked again now (GET /api/sessions/:id/files/:toolUseId).
+   * With `image`, picture N (0-based) of a GenerateImage call's meta.files instead.
+   */
+  async sharedFile(sessionId: string, toolUseId: string, image?: number): Promise<{ bytes: Uint8Array; name: string; mediaType: string; size: number }> {
     const s = this.requireSession(sessionId);
     const gone = () => new EngineError(404, `unknown session ${sessionId}`);
+    const want = image === undefined ? 'ShareFile' : 'GenerateImage';
+    const fileOf = (meta: Record<string, unknown> | undefined) => (image === undefined ? meta?.file : Array.isArray(meta?.files) ? meta.files[image] : undefined) as SharedFileMeta | undefined;
     let shareCall = false;
     let meta: SharedFileMeta | undefined;
     for (const m of this.repos.messages.list(sessionId)) {
       for (const b of m.content) {
-        if (b.type === 'tool_use' && b.id === toolUseId) shareCall = b.name === 'ShareFile';
-        if (b.type === 'tool_result' && b.toolUseId === toolUseId && !b.isError) meta = b.meta?.file as SharedFileMeta | undefined;
+        if (b.type === 'tool_use' && b.id === toolUseId) shareCall = b.name === want;
+        if (b.type === 'tool_result' && b.toolUseId === toolUseId && !b.isError) meta = fileOf(b.meta);
       }
     }
     // the step stores its results only when every call in it is done (an AskUserQuestion can wait minutes); the card is shown already
     const live = this.runners.get(sessionId)?.stepResults.get(toolUseId);
-    if (shareCall && !meta && live && !live.isError) meta = live.meta?.file as SharedFileMeta | undefined;
+    if (shareCall && !meta && live && !live.isError) meta = fileOf(live.meta);
     if (!shareCall || !meta || typeof meta.path !== 'string' || typeof meta.device !== 'string') throw gone();
     const check = await checkShareable(meta.path, this.shareRoots(s).filter((r) => r.device === meta!.device), this.config.paths.home);
     if (!check.ok) throw check.code === 'missing' ? gone() : new EngineError(check.code === 'too_big' ? 413 : 403, check.message);

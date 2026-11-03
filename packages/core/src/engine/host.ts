@@ -310,10 +310,10 @@ export class EngineToolHost implements ToolHost {
     return generateImageFor(this.engine, { ...req, accountId: this.engine.accountOf(this.session), sessionId: this.runner.id });
   }
 
-  /** Pictures the user attached in this session, newest first. */
+  /** Pictures the user attached in this session, newest first; a seat turn reads the shared chat as its starter may see it. */
   chatImages() {
     const out: Array<{ bytes: Uint8Array; mime: string }> = [];
-    for (const m of this.engine.repos.messages.list(this.runner.id)) {
+    for (const m of this.engine.turnMessages(this.runner.id)) {
       if (m.role !== 'user') continue;
       for (const b of m.content) if (b.type === 'image' && b.data) out.push({ bytes: Buffer.from(b.data, 'base64'), mime: b.mediaType });
     }

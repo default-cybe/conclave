@@ -314,12 +314,13 @@ function ToolLine({ tool, result, run, live, messages, results, folded }: { tool
     case 'GenerateImage': {
       if (running) return <Line>Making an image</Line>;
       if (failed) return <Expand label="Could not make the image" tone="fault"><p className="max-w-[72ch] tx-13 leading-[1.5] text-fg-2">{res ? resultText(res) : ''}</p></Expand>;
-      const own = generatedNames([{ name: tool.name, result: res }]);
-      const n = own.size;
+      // the result carries the saved files, so the grid draws as soon as the call ends
+      const cards = generatedCards([{ name: tool.name, result: res }]);
+      const n = cards.length;
       return (
         <div className="py-0.5">
           <Line>{n ? `Made ${n === 1 ? 'an image' : `${n} images`}` : 'Made an image'}</Line>
-          {!folded && <ImageGrid cards={generatedCards(replyCalls(messages, results), own)} sessionId={messages[0]?.sessionId ?? ''} className="mt-1 mb-1.5" />}
+          {!folded && <ImageGrid cards={cards} sessionId={messages[0]?.sessionId ?? ''} className="mt-1 mb-1.5" />}
         </div>
       );
     }

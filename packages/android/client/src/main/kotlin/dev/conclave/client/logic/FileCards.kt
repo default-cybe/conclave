@@ -3,12 +3,16 @@ package dev.conclave.client.logic
 import dev.conclave.client.model.ToolResultBlock
 import dev.conclave.client.model.ToolUseBlock
 import java.util.Locale
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
 
-/** A file a ShareFile call handed the owner: what its card shows. The bytes come from the hub by [toolUseId]. */
-data class FileCardData(val toolUseId: String, val name: String, val mediaType: String, val size: Long, val title: String? = null)
+/**
+ * A file a ShareFile call handed the owner: what its card shows. The bytes come from the hub by [toolUseId].
+ * [image] is picture N of a GenerateImage call (its meta.files), fetched with ?image=N; null for a ShareFile card.
+ */
+data class FileCardData(val toolUseId: String, val name: String, val mediaType: String, val size: Long, val title: String? = null, val image: Int? = null)
 
 /*
  * File cards on the phone (packages/web/src/features/files/words.ts, the
@@ -18,22 +22,40 @@ data class FileCardData(val toolUseId: String, val name: String, val mediaType: 
 object FileCards {
 
     const val TOOL = "ShareFile"
+    const val IMAGE_TOOL = "GenerateImage"
 
     /** The card a result carries, when it is one the app can draw. A failed call has none. */
     fun of(result: ToolResultBlock?): FileCardData? {
         if (result == null || result.isError) return null
-        val f = result.meta?.file ?: return null
+        return parse(result.meta?.file ?: return null, result.toolUseId, null)
+    }
+
+    private fun parse(f: JsonObject, toolUseId: String, image: Int?): FileCardData? {
         val name = (f["name"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull ?: return null
         val type = (f["mediaType"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull ?: return null
         val size = (f["size"] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull ?: return null
-        if (result.toolUseId.isBlank()) return null
+        if (toolUseId.isBlank()) return null
         val title = (f["title"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.takeIf { it.isNotBlank() }
-        return FileCardData(result.toolUseId, name, type, size, title)
+        return FileCardData(toolUseId, name, type, size, title, image)
     }
 
-    /** The cards of a turn's calls, in order: only a ShareFile call's result is a file card. */
-    fun cards(uses: List<ToolUseBlock>, results: Map<String, ToolResultBlock>): List<FileCardData> =
-        uses.filter { it.name == TOOL }.mapNotNull { of(results[it.id]) }
+    /**
+     * The pictures a turn's GenerateImage calls saved, in order, from each
+     * result's meta.files (words.ts generatedCards): there as soon as the call
+     * ends. Only raster pictures the grid can draw.
+     */
+    fun generated(uses: List<ToolUseBlock>, results: Map<String, ToolResultBlock>): List<FileCardData> =
+        uses.filter { it.name == IMAGE_TOOL }.flatMap { use ->
+            val r = results[use.id]?.takeUnless { it.isError } ?: return@flatMap emptyList()
+            r.meta?.files.orEmpty().mapIndexedNotNull { i, f -> (f as? JsonObject)?.let { parse(it, r.toolUseId, i) } }
+                .filter { inlineImage(it.mediaType) }
+        }
+
+    /** The cards of a turn's calls, in order: only a ShareFile call's result is a file card. The turn-end cards of generated pictures are left out: the grid shows those. */
+    fun cards(uses: List<ToolUseBlock>, results: Map<String, ToolResultBlock>): List<FileCardData> {
+        val made = generated(uses, results).map { it.name }.toSet()
+        return uses.filter { it.name == TOOL }.mapNotNull { of(results[it.id]) }.filterNot { it.name in made }
+    }
 
     /** "512 B", "14.2 KB", "3.1 MB". */
     fun sizeWords(n: Long): String = when {
