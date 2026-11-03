@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Subagents that fell back to Gemini 4 Argon on an Antigravity plan no longer die mid tool loop with "400: Request contains an invalid argument." A user turn that holds only tool results now carries a short text naming the answered tools, the shape CLIProxyAPI's own pending fix sends. A 400 that names the rejected field (Google's field violations, OpenAI's `param`) now says it in the error, so a failed subagent shows which part of the request was refused.
+
 ## [0.4.62] - 2026-11-03
 
 ### Added

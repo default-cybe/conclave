@@ -1,7 +1,7 @@
 import type { ContentBlock, DocumentBlock, ImageBlock, TextBlock, ToolResultBlock } from '../types';
 import { isZip, mediaTypeFor } from '../attachments/limits';
 import type { ProviderConfig } from '../config/schema';
-import { catalogEntries, familyForProvider, findCatalogEntry, lookupModel, type CatalogEntry } from './catalog';
+import { catalogEntries, familyForProvider, findCatalogEntry, lookupModel, normalizeModelId, type CatalogEntry } from './catalog';
 import { DEFAULT_IDLE_TIMEOUT_MS, type FetchFn, type HttpOptions } from './http';
 import type { Effort } from './effort';
 import type { ChatRequest, ModelInfo, Provider, StreamEvent } from './types';
@@ -79,6 +79,21 @@ export abstract class BaseProvider implements Provider {
 /** False only when the catalog or config says the model has no vision; an unknown model (a gateway's new one) keeps its images. */
 export function seesImages(id: string, info: ModelInfo, config?: Pick<ProviderConfig, 'modelOverrides'>): boolean {
   return info.vision || (!findCatalogEntry(id) && config?.modelOverrides?.[id]?.vision === undefined);
+}
+
+/**
+ * Gemini 4 Argon on Antigravity (CLIProxyAPI) can end a long tool loop with an
+ * in-stream 400 "Request contains an invalid argument." when a user turn holds
+ * only tool results (router-for-me/CLIProxyAPI PR 7156). Such a turn gets a
+ * text part naming the answered tools, as that fix sends. Every such turn gets
+ * it, not only the last, so the bytes of earlier turns never change between
+ * requests. Undefined for other models and for turns with text or media.
+ */
+export function toolTurnLabel(model: string, content: ContentBlock[], nameOf: (toolUseId: string) => string | undefined): string | undefined {
+  if (!/^gemini-4-argon/.test(normalizeModelId(model))) return undefined;
+  const results = content.filter((b): b is ToolResultBlock => b.type === 'tool_result');
+  if (!results.length || content.some((b) => b.type !== 'tool_result' && !(b.type === 'text' && !b.text.trim())) || results.some((r) => toolResultMedia(r).length)) return undefined;
+  return results.map((r) => nameOf(r.toolUseId) ?? 'tool').join('\n');
 }
 
 /** Parse streamed tool input JSON. Invalid JSON is kept under _raw and marked with _parseError. */

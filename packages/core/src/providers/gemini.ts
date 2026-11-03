@@ -1,6 +1,6 @@
 import type { ContentBlock, JsonSchema, StopReason, Usage } from '../types';
 import { normalizeModelId } from './catalog';
-import { BaseProvider, budgetOf, documentsForWire, effortOf, toolResultMedia, toolResultText, wantsThinking } from './common';
+import { BaseProvider, budgetOf, documentsForWire, effortOf, toolResultMedia, toolResultText, toolTurnLabel, wantsThinking } from './common';
 import { classifyStreamError } from './errors';
 import { getJson, openStream, postJson, trimSlash } from './http';
 import { ownSignature, tagSignature } from './signatures';
@@ -217,7 +217,7 @@ function modelParts(m: ProviderMessage, names: ToolNameMap, model: string, gemin
   return parts;
 }
 
-function userParts(m: ProviderMessage, toolNames: Map<string, string>, vision: boolean): Part[] {
+function userParts(m: ProviderMessage, toolNames: Map<string, string>, vision: boolean, model: string): Part[] {
   const responses: Part[] = [];
   const parts: Part[] = [];
   for (const b of documentsForWire(m.content, true, vision)) {
@@ -249,6 +249,8 @@ function userParts(m: ProviderMessage, toolNames: Map<string, string>, vision: b
       }
     }
   }
+  const label = toolTurnLabel(model, m.content, (id) => toolNames.get(id));
+  if (label) parts.push({ text: label });
   return [...responses, ...parts];
 }
 
@@ -259,7 +261,7 @@ export function geminiContents(req: ChatRequest, names: ToolNameMap, vision = tr
   const contents: Array<{ role: 'user' | 'model'; parts: Part[] }> = [];
   for (const m of req.messages) {
     const role = m.role === 'assistant' ? 'model' : 'user';
-    const parts = m.role === 'assistant' ? modelParts(m, names, req.model, gemini3) : userParts(m, toolNames, vision);
+    const parts = m.role === 'assistant' ? modelParts(m, names, req.model, gemini3) : userParts(m, toolNames, vision, req.model);
     if (!parts.length) continue;
     const last = contents[contents.length - 1];
     if (last?.role === role) last.parts.push(...parts);
