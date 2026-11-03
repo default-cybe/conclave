@@ -23,6 +23,19 @@ function same(a: Connection, b: Connection): boolean {
   return a.token === b.token;
 }
 
+/**
+ * The sign in in use, with who it is. A token the desktop app hands its page
+ * (#token=, lib/api.ts consumeHashToken) carries no account: without the one
+ * GET /api/me gave, an older sign in of the same person in this window would
+ * not match it and the person would be listed twice.
+ */
+function current(): Connection | null {
+  const cur = loadConnection();
+  const me = useHub.getState().me;
+  if (!cur || cur.account || !me) return cur;
+  return { ...cur, account: { id: me.id, name: me.name, ...(me.displayName ? { displayName: me.displayName } : {}), role: me.role } };
+}
+
 /** Every sign in this browser keeps, the current one first. */
 export function savedAccounts(): Connection[] {
   let list: Connection[] = [];
@@ -32,7 +45,7 @@ export function savedAccounts(): Connection[] {
   } catch {
     list = [];
   }
-  const cur = loadConnection();
+  const cur = current();
   if (cur) list = [cur, ...list.filter((c) => !same(c, cur))];
   return list;
 }
@@ -67,7 +80,7 @@ export function refreshAccount(me: Pick<MeDto, 'id' | 'name' | 'displayName' | '
 
 /** True when this is the sign in the app runs on now. */
 export function isCurrent(c: Connection): boolean {
-  const cur = loadConnection();
+  const cur = current();
   return !!cur && same(c, cur);
 }
 
