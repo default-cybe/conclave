@@ -7,6 +7,7 @@
 import type { Hono } from 'hono';
 import type { FindingVerdict, KeepWinnerHow, StartWorkflowInput, WorkflowRunStatus, WorktreeAction } from '@conclave/core/client/workflows.ts';
 import type { GraphEditField } from '@conclave/core/client/graph.ts';
+import { INSERT_KINDS, type InsertKind } from '@conclave/core/workflows/graph.ts';
 import { workflowsOf } from '@conclave/core/workflows/attached.ts';
 import type { WorkflowService } from '@conclave/core/workflows/service.ts';
 import type { HonoEnv, ServerContext } from './context';
@@ -178,6 +179,36 @@ export function registerWorkflowRoutes(app: Hono<HonoEnv>, ctx: ServerContext, a
     const res = await svc().editGraph(c.req.param('id'), { nodeId, field: body.field as GraphEditField, value: body.value, baseSha, ...(body.part !== undefined ? { part: body.part as number } : {}) }, sessionQuery(c));
     audit(c, 'workflow.graph.edit', `${c.req.param('id')} ${nodeId}.${body.field}`);
     return c.json(res);
+  });
+
+  // a new Agent, Parallel, Check, Approve or Ask node from the canvas's search, as a new statement in the script
+  app.post('/api/workflows/:id/graph/insert', async (c) => {
+    const body = await readJson<{ kind?: unknown; after?: unknown; baseSha?: unknown }>(c);
+    const baseSha = optString(body.baseSha, 'baseSha', 100);
+    const after = optString(body.after, 'after', 100);
+    if (!baseSha) throw badRequest('baseSha is required');
+    if (!INSERT_KINDS.includes(body.kind as InsertKind)) throw badRequest(`kind must be one of ${INSERT_KINDS.join(', ')}`);
+    const res = await svc().insertGraph(c.req.param('id'), { kind: body.kind as InsertKind, baseSha, ...(after ? { after } : {}) }, sessionQuery(c));
+    audit(c, 'workflow.graph.insert', `${c.req.param('id')} ${res.nodeId}`);
+    return c.json(res);
+  });
+
+  // undo and redo: put back a version of the script the hub wrote itself, if the file is still baseSha
+  app.post('/api/workflows/:id/graph/restore', async (c) => {
+    const body = await readJson<{ sha?: unknown; baseSha?: unknown }>(c);
+    const sha = optString(body.sha, 'sha', 100);
+    const baseSha = optString(body.baseSha, 'baseSha', 100);
+    if (!sha || !baseSha) throw badRequest('sha and baseSha are required');
+    const res = await svc().restoreGraph(c.req.param('id'), { sha, baseSha }, sessionQuery(c));
+    audit(c, 'workflow.graph.restore', `${c.req.param('id')} ${sha.slice(0, 12)}`);
+    return c.json(res);
+  });
+
+  // where the owner dragged the nodes, in the layout side file; the script is not touched
+  app.put('/api/workflows/:id/graph/layout', async (c) => {
+    const body = await readJson<{ nodes?: unknown }>(c);
+    if (!body.nodes || typeof body.nodes !== 'object' || Array.isArray(body.nodes)) throw badRequest('nodes must be an object of { x, y } by node id');
+    return c.json({ nodes: await svc().saveLayout(c.req.param('id'), body.nodes, sessionQuery(c)) });
   });
 
   // a built-in or plugin workflow copied into the caller's own folder, where the canvas can edit it

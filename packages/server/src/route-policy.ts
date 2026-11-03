@@ -399,6 +399,9 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   // the service resolves the id in the caller's own library (a member never reaches the owner's), and writes only their own folder or project
   'GET /api/workflows/:id/graph': 'self',
   'POST /api/workflows/:id/graph/edit': 'self',
+  'PUT /api/workflows/:id/graph/layout': 'self',
+  'POST /api/workflows/:id/graph/restore': 'self',
+  'POST /api/workflows/:id/graph/insert': 'self',
   'POST /api/workflows/:id/copy': 'self',
   'GET /api/workflows/runs': 'self',
   'POST /api/workflows/runs': 'self',

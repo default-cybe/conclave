@@ -28,7 +28,7 @@ import type {
 } from '@conclave/core/client';
 import type { Message, Session } from '@conclave/core/types';
 import type { WorkflowGraphView } from '@conclave/core/client';
-import { parseGraph } from '@conclave/core/workflows/graph';
+import { insertNode, lineDiff, parseGraph, type InsertKind } from '@conclave/core/workflows/graph';
 import type { MockCtx } from './index';
 
 /** Scripts the graph view parses (the mock's library has no real scripts). */
@@ -674,10 +674,35 @@ export function registerWorkflows(ctx: MockCtx): void {
     return { graph: parseGraph(script), sha: 'mock', source: editable ? 'user' : 'builtin', editable, ...(editable ? {} : { readOnly: 'This workflow ships with Conclave. Copy it to your workflows to edit it.' }) };
   };
   ctx.on('GET', '/api/workflows/runs/:id/graph', ({ params }) => ({ ...graphView(find(params[0]).run.name, false), readOnly: 'A run keeps the script it ran. Edit the workflow, then Re-run.', workflowId: find(params[0]).run.name }));
+  // the layout side file, kept in memory for the session
+  const layouts = new Map<string, Record<string, { x: number; y: number }>>();
   ctx.on('GET', '/api/workflows/:id/graph', ({ params }) => {
     const e = LIBRARY.find((x) => x.id === decodeURIComponent(params[0]));
     if (!e) return ctx.notFound();
-    return graphView(e.id, e.source === 'user');
+    const layout = layouts.get(e.id);
+    return { ...graphView(e.id, e.source === 'user'), ...(layout ? { layout } : {}) };
+  });
+  // a node from the search, on the same parser the hub uses; the mock's script does not change on disk
+  ctx.on('POST', '/api/workflows/:id/graph/insert', ({ params, body }) => {
+    const e = LIBRARY.find((x) => x.id === decodeURIComponent(params[0]));
+    if (!e) return ctx.notFound();
+    if (e.source !== 'user') return ctx.fail(403, 'This workflow ships with Conclave. Copy it to your workflows to edit it.');
+    const before = GRAPH_SCRIPTS[e.id] ?? GRAPH_SCRIPTS['deep-research'];
+    try {
+      const r = insertNode(before, { kind: body?.kind as InsertKind, ...(body?.after ? { after: String(body.after) } : {}) });
+      GRAPH_SCRIPTS[e.id] = r.script;
+      return { sha: 'mock', diff: lineDiff(before, r.script), view: graphView(e.id, true), nodeId: r.nodeId };
+    } catch (err) {
+      return ctx.fail(400, (err as Error).message);
+    }
+  });
+  ctx.on('PUT', '/api/workflows/:id/graph/layout', ({ params, body }) => {
+    const e = LIBRARY.find((x) => x.id === decodeURIComponent(params[0]));
+    if (!e) return ctx.notFound();
+    if (e.source !== 'user') return ctx.fail(403, 'This workflow ships with Conclave. Copy it to your workflows to edit it.');
+    const nodes = (body?.nodes ?? {}) as Record<string, { x: number; y: number }>;
+    layouts.set(e.id, nodes);
+    return { nodes };
   });
   ctx.on('GET', '/api/workflows/:id', ({ params }) => {
     const id = decodeURIComponent(params[0]);

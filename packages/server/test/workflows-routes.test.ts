@@ -42,6 +42,9 @@ function stub(): void {
     runGraph: async (...args: unknown[]) => rec('runGraph', { graph: { nodes: [] }, sha: 'abc', editable: false })(...args),
     editGraph: async (...args: unknown[]) => rec('editGraph', { sha: 'def', diff: '', view: {} })(...args),
     copyWorkflow: async (...args: unknown[]) => rec('copyWorkflow', { id: 'fix-until-green', path: '/x/fix-until-green.js' })(...args),
+    saveLayout: async (...args: unknown[]) => rec('saveLayout', { 'agent-1': { x: 8, y: 16 } })(...args),
+    insertGraph: async (...args: unknown[]) => rec('insertGraph', { sha: 'n', diff: '', view: {}, nodeId: 'check-1' })(...args),
+    restoreGraph: async (...args: unknown[]) => rec('restoreGraph', { sha: 'old', diff: '', view: {} })(...args),
   };
   setWorkflows(hub.engine, svc as unknown as WorkflowService);
 }
@@ -143,6 +146,25 @@ describe('with a workflow service', () => {
     expect(calls.find((c) => c.method === 'editGraph')?.args.slice(0, 2)).toEqual(['mine', { nodeId: 'agent-1', field: 'prompt', value: 'hi', baseSha: 'abc', part: 1 }]);
 
     expect((await hub.api('/api/workflows/fix-until-green/copy', { method: 'POST' })).status).toBe(201);
+
+    const ins = (json: unknown) => hub.api('/api/workflows/mine/graph/insert', { method: 'POST', json });
+    expect((await ins({ kind: 'pipeline', baseSha: 'abc' })).status).toBe(400);
+    expect((await ins({ kind: 'agent' })).status).toBe(400);
+    expect((await ins({ kind: 'check', after: 'agent-1', baseSha: 'abc' })).status).toBe(200);
+    expect(calls.find((c) => c.method === 'insertGraph')?.args.slice(0, 2)).toEqual(['mine', { kind: 'check', after: 'agent-1', baseSha: 'abc' }]);
+
+    const restore = (json: unknown) => hub.api('/api/workflows/mine/graph/restore', { method: 'POST', json });
+    expect((await restore({ sha: 'old' })).status).toBe(400);
+    expect((await restore({ sha: 'old', baseSha: 'def' })).status).toBe(200);
+    expect(calls.find((c) => c.method === 'restoreGraph')?.args.slice(0, 2)).toEqual(['mine', { sha: 'old', baseSha: 'def' }]);
+
+    const lay = (json: unknown) => hub.api('/api/workflows/mine/graph/layout', { method: 'PUT', json });
+    expect((await lay({})).status).toBe(400);
+    expect((await lay({ nodes: [1] })).status).toBe(400);
+    const laid = await lay({ nodes: { 'agent-1': { x: 7, y: 15 } } });
+    expect(laid.status).toBe(200);
+    expect(await laid.json()).toEqual({ nodes: { 'agent-1': { x: 8, y: 16 } } });
+    expect(calls.find((c) => c.method === 'saveLayout')?.args.slice(0, 2)).toEqual(['mine', { 'agent-1': { x: 7, y: 15 } }]);
 
     const rr = (json: unknown) => hub.api('/api/workflows/runs/wfr_1/rerun', { method: 'POST', json });
     expect((await rr({ seqs: [] })).status).toBe(400);

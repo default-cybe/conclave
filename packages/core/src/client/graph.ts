@@ -80,6 +80,8 @@ export interface WorkflowGraphView {
   stale?: string[];
   /** Run graph: the library workflow it came from, when it still exists. */
   workflowId?: string;
+  /** Node positions the owner dragged, from `<name>.layout.json`; nodes not in it are laid out. */
+  layout?: Record<string, { x: number; y: number }>;
 }
 
 export type GraphEditField = 'model' | 'agentType' | 'label' | 'prompt';
@@ -90,6 +92,14 @@ export interface GraphEditInput {
   value: string;
   /** prompt: which string part. */
   part?: number;
+  baseSha: string;
+}
+
+/** POST /api/workflows/:id/graph/insert: a new node as a new statement. */
+export interface GraphInsertInput {
+  kind: 'agent' | 'parallel' | 'check' | 'approve' | 'ask';
+  /** The node it goes after (a wire dropped from it); left out, before the script's last return. */
+  after?: string;
   baseSha: string;
 }
 

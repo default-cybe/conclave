@@ -1,17 +1,18 @@
 /**
  * The workflow canvas (docs/design/VISUAL-PROGRAMMING.md 7.5) on React Flow:
  * phase bands, one node per statement, wires from a name's declaration to
- * where it is read. Read-only layout: no dragging, no wiring by hand; pinch
- * or wheel zooms, one finger or drag pans, a tap or Enter opens the
- * inspector. F fits the view.
+ * where it is read. No wiring by hand; pinch or wheel zooms, one finger or
+ * drag pans, a tap or Enter opens the inspector. F fits the view. With
+ * onMove (a workflow you own, wide screens) nodes drag, and the page saves
+ * where they land in the layout side file.
  */
 import '@xyflow/react/dist/base.css';
 import './graph.css';
-import { useEffect, useMemo } from 'react';
-import { Controls, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type Node } from '@xyflow/react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Controls, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type Node, type NodeChange } from '@xyflow/react';
 import type { NodeRun, WorkflowGraph } from '@conclave/core/client';
 import { useIsMobile } from '@/lib/hooks';
-import { layoutGraph } from './layout';
+import { NODE_H, NODE_W, clearOf, placedGraph } from './layout';
 import { NODE_TYPES, type BandData, type FlowNodeData } from './nodes';
 
 export interface GraphCanvasProps {
@@ -23,13 +24,95 @@ export interface GraphCanvasProps {
   currentPhase?: string;
   onSelect: (id: string | undefined) => void;
   className?: string;
+  /** Positions the owner dragged (the layout side file); the rest are laid out. */
+  positions?: Record<string, { x: number; y: number }>;
+  /** Nodes drag when set; called once where a node is dropped. */
+  onMove?: (id: string, at: { x: number; y: number }) => void;
+  /** Set on a workflow you own: a double-click on empty canvas, or a wire dropped there, opens the node search. */
+  onInsert?: (kind: InsertKind, after?: string) => void;
 }
 
-function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className }: GraphCanvasProps) {
+type InsertKind = 'agent' | 'parallel' | 'check' | 'approve' | 'ask';
+const INSERTS: Array<{ kind: InsertKind; word: string; help: string }> = [
+  { kind: 'agent', word: 'Agent', help: 'One agent call' },
+  { kind: 'parallel', word: 'Parallel', help: 'Two agents at once' },
+  { kind: 'check', word: 'Check', help: 'Run a command' },
+  { kind: 'approve', word: 'Approve', help: 'Wait for your yes' },
+  { kind: 'ask', word: 'Ask', help: 'A question for you' },
+];
+
+/** The node search: type to filter, arrows and Enter pick, Escape closes. */
+function NodeSearch({ at, after, onPick, onClose }: { at: { x: number; y: number }; after?: string; onPick: (k: InsertKind) => void; onClose: () => void }) {
+  const [q, setQ] = useState('');
+  const [i, setI] = useState(0);
+  const list = INSERTS.filter((x) => `${x.word} ${x.help}`.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <div className="absolute z-10 w-[240px] rounded-[var(--r-2)] border border-rule-2 bg-raise p-1.5" style={{ left: at.x, top: at.y }} role="dialog" aria-label="Add a node">
+      <input
+        autoFocus
+        value={q}
+        placeholder={after ? 'Add a node after this one' : 'Add a node'}
+        aria-label="Search nodes"
+        className="w-full rounded-[var(--r-1)] bg-sunk px-2 py-1.5 text-[13px] text-fg outline-none"
+        onChange={(e) => {
+          setQ(e.target.value);
+          setI(0);
+        }}
+        onBlur={() => setTimeout(onClose, 150)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onClose();
+          else if (e.key === 'ArrowDown') setI((n) => Math.min(n + 1, list.length - 1));
+          else if (e.key === 'ArrowUp') setI((n) => Math.max(n - 1, 0));
+          else if (e.key === 'Enter' && list[i]) onPick(list[i].kind);
+          else return;
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+      />
+      <ul role="listbox" className="pt-1">
+        {list.map((x, n) => (
+          <li key={x.kind} role="option" aria-selected={n === i}>
+            <button type="button" className={`flex w-full items-baseline justify-between gap-2 rounded-[var(--r-1)] px-2 py-1.5 text-left text-[13px] ${n === i ? 'bg-hover text-fg' : 'text-fg-2'}`} onMouseDown={(e) => e.preventDefault()} onClick={() => onPick(x.kind)}>
+              <span>{x.word}</span>
+              <span className="text-[12px] text-fg-3">{x.help}</span>
+            </button>
+          </li>
+        ))}
+        {!list.length && <li className="px-2 py-1.5 text-[12px] text-fg-3">No node by that name.</li>}
+      </ul>
+    </div>
+  );
+}
+
+function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className, positions, onMove, onInsert }: GraphCanvasProps) {
+  const [search, setSearch] = useState<{ x: number; y: number; after?: string }>();
+  const openSearch = (clientX: number, clientY: number, after?: string) => {
+    const r = box.current?.getBoundingClientRect();
+    if (r) setSearch({ x: Math.max(8, Math.min(clientX - r.left, r.width - 248)), y: Math.max(8, Math.min(clientY - r.top, r.height - 240)), after });
+  };
   const flow = useReactFlow();
   const vertical = useIsMobile();
+  const box = useRef<HTMLDivElement>(null);
+  // the node under the pointer while it drags; it is saved only on drop
+  const [drag, setDrag] = useState<{ id: string; x: number; y: number }>();
+  const last = useRef<{ id: string; x: number; y: number }>(undefined);
+  const draggable = !!onMove && !vertical;
+  const onNodesChange = (changes: NodeChange[]) => {
+    for (const c of changes) {
+      if (c.type !== 'position') continue;
+      if (c.dragging && c.position) {
+        last.current = { id: c.id, ...c.position };
+        setDrag(last.current);
+      } else if (!c.dragging) {
+        const d = last.current;
+        last.current = undefined;
+        setDrag(undefined);
+        if (d && d.id === c.id) onMove?.(d.id, { x: d.x, y: d.y });
+      }
+    }
+  };
   const { nodes, edges } = useMemo(() => {
-    const { pos, bands } = layoutGraph(graph, vertical);
+    const { pos, bands } = placedGraph(graph, vertical, drag ? { ...positions, [drag.id]: { x: drag.x, y: drag.y } } : positions);
     const staleSet = new Set(stale);
     const bandNodes: Node[] = bands.map((b, i) => ({
       id: `band-${i}`,
@@ -46,13 +129,14 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       position: pos.get(n.id) ?? { x: 0, y: 0 },
       data: { node: n, run: runs?.get(n.id), stale: staleSet.has(n.id), selected: n.id === selected, vertical } satisfies FlowNodeData,
       ariaLabel: `${n.label}, ${n.kind}${runs?.get(n.id) ? `, ${runs.get(n.id)!.state}` : ''}`,
+      draggable,
     }));
     const es: Edge[] = graph.edges.map((e) => {
       const live = runs?.get(e.to)?.state === 'running';
       return { id: `${e.from}>${e.to}`, source: e.from, target: e.to, type: 'smoothstep', className: live ? 'cv-wire-live' : undefined, focusable: false };
     });
     return { nodes: [...bandNodes, ...wf], edges: es };
-  }, [graph, runs, stale, selected, currentPhase, vertical]);
+  }, [graph, runs, stale, selected, currentPhase, vertical, positions, drag, draggable]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -65,15 +149,43 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
     return () => window.removeEventListener('keydown', onKey);
   }, [flow, onSelect]);
 
+  // the inspector opens over the canvas: once it has slid in, pan so the tapped node sits in the part it leaves free
+  useEffect(() => {
+    if (!selected) return;
+    const t = setTimeout(() => {
+      const cover = document.querySelector('.cv-inspector')?.getBoundingClientRect();
+      const n = flow.getInternalNode(selected);
+      const canvas = box.current?.getBoundingClientRect();
+      if (!cover || !n || !canvas) return;
+      const p = n.internals.positionAbsolute;
+      const vp = clearOf({ x: p.x, y: p.y, w: n.measured.width ?? NODE_W, h: n.measured.height ?? NODE_H }, flow.getViewport(), canvas, cover);
+      if (vp) void flow.setViewport(vp, { duration: 200 });
+    }, 240);
+    return () => clearTimeout(t);
+  }, [selected, flow]);
+
   return (
-    <div className={className}>
+    <div className={className} ref={box} style={{ position: 'relative' }}>
       <ReactFlow
         className="cv-graph"
         nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
-        nodesDraggable={false}
-        nodesConnectable={false}
+        nodesDraggable={draggable}
+        onNodesChange={draggable ? onNodesChange : undefined}
+        nodesConnectable={!!onInsert && !vertical}
+        zoomOnDoubleClick={!onInsert}
+        onDoubleClick={onInsert ? (e) => (e.target as HTMLElement).classList.contains('react-flow__pane') && openSearch(e.clientX, e.clientY) : undefined}
+        // a wire let go on empty canvas: the new node goes after the one it came from
+        onConnectEnd={
+          onInsert
+            ? (e, s) => {
+                if (s.isValid || !s.fromNode) return;
+                const p = 'changedTouches' in e ? e.changedTouches[0] : e;
+                openSearch(p.clientX, p.clientY, s.fromNode.id);
+              }
+            : undefined
+        }
         elementsSelectable
         zoomOnPinch
         panOnDrag
@@ -95,6 +207,17 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         {/* a phone pinches; the buttons covered the column's nodes */}
         {!vertical && <Controls showInteractive={false} position="bottom-right" />}
       </ReactFlow>
+      {search && onInsert && (
+        <NodeSearch
+          at={search}
+          after={search.after}
+          onClose={() => setSearch(undefined)}
+          onPick={(k) => {
+            setSearch(undefined);
+            onInsert(k, search.after);
+          }}
+        />
+      )}
     </div>
   );
 }

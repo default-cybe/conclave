@@ -10,7 +10,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ReactFlowProvider } from '@xyflow/react';
 import type { GraphNode, NodeRun, NodeRunState, WorkflowGraph } from '@conclave/core/client';
 import { WorkflowNode, metaLine, stateWord } from '../src/features/graph/nodes';
-import { layoutGraph } from '../src/features/graph/layout';
+import { clearOf, layoutGraph, placedGraph } from '../src/features/graph/layout';
 
 const node: GraphNode = { id: 'agent-1', kind: 'agent', label: 'review', span: { start: 4, end: 6 }, declares: ['r'], calls: [], source: "await agent('x')", opts: { model: { value: 'deep', start: 0, end: 1, quote: "'" } } };
 const run = (state: NodeRunState, o: Partial<NodeRun> = {}): NodeRun => ({ state, seqs: [1], total: 1, done: state === 'done' ? 1 : 0, cached: state === 'cached' ? 1 : 0, running: state === 'running' ? 1 : 0, failed: state === 'failed' ? 1 : 0, inputTokens: 1200, outputTokens: 300, costUsd: 0.04, cachedCostUsd: 0, ...o });
@@ -54,6 +54,29 @@ describe('graph node states', () => {
   });
 });
 
+describe('the inspector never covers the tapped node', () => {
+  const canvas = { left: 0, top: 100, right: 1400, bottom: 800 };
+  const node = { x: 1000, y: 100, w: 248, h: 92 };
+  test('a side panel: the node pans left of it, the zoom stays', () => {
+    const panel = { left: 960, top: 0, right: 1440, bottom: 900 };
+    const vp = clearOf(node, { x: 0, y: 0, zoom: 1 }, canvas, panel)!;
+    expect(vp.zoom).toBe(1);
+    expect(vp.y).toBe(0);
+    // the node's right edge ends a margin left of the panel
+    expect(canvas.left + vp.x + node.x + node.w).toBe(960 - 24);
+  });
+  test('a bottom sheet: the node pans above it', () => {
+    const sheet = { left: 0, top: 500, right: 390, bottom: 844 };
+    const n = { x: 16, y: 400, w: 248, h: 92 };
+    const vp = clearOf(n, { x: 0, y: 0, zoom: 1 }, { left: 0, top: 56, right: 390, bottom: 844 }, sheet)!;
+    expect(vp.x).toBe(0);
+    expect(56 + vp.y + n.y + n.h).toBe(500 - 24);
+  });
+  test('a node clear of the panel does not move', () => {
+    expect(clearOf({ x: 40, y: 40, w: 248, h: 92 }, { x: 0, y: 0, zoom: 1 }, canvas, { left: 960, top: 0, right: 1440, bottom: 900 })).toBeUndefined();
+  });
+});
+
 describe('layout', () => {
   test('phase bands run left to right in statement order', () => {
     const g: WorkflowGraph = { name: 'x', phases: ['A', 'B'], edges: [], nodes: ['A', 'A', 'B'].map((p, i) => ({ ...node, id: `n${i}`, phase: p })) };
@@ -62,5 +85,17 @@ describe('layout', () => {
     expect(pos.get('n0')!.x).toBe(pos.get('n1')!.x);
     expect(pos.get('n1')!.y).toBeGreaterThan(pos.get('n0')!.y);
     expect(pos.get('n2')!.x).toBeGreaterThan(bands[0].x + bands[0].w);
+  });
+
+  test('a dragged node keeps its place, its band wraps it, the others stay laid out; a phone keeps its column', () => {
+    const g: WorkflowGraph = { name: 'x', phases: ['A', 'B'], edges: [], nodes: ['A', 'A', 'B'].map((p, i) => ({ ...node, id: `n${i}`, phase: p })) };
+    const auto = layoutGraph(g);
+    const { pos, bands } = placedGraph(g, false, { n1: { x: 40, y: 600 } });
+    expect(pos.get('n1')).toEqual({ x: 40, y: 600 });
+    expect(pos.get('n0')).toEqual(auto.pos.get('n0')!);
+    expect(pos.get('n2')).toEqual(auto.pos.get('n2')!);
+    expect(bands[0].y + bands[0].h).toBeGreaterThanOrEqual(600 + 92);
+    expect(bands[1]).toEqual(auto.bands[1]);
+    expect(placedGraph(g, true, { n1: { x: 40, y: 600 } })).toEqual(layoutGraph(g, true));
   });
 });

@@ -11,6 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- Workflow graphs, phase 2. The node inspector no longer covers the node you tapped: the canvas pans it into view beside the panel. On your own workflows you can drag nodes, and their places save in `<name>.layout.json` next to the script. Ctrl+Z and Ctrl+Shift+Z (or the Undo and Redo buttons) undo and redo moves and script edits. Double-click empty canvas, or drop a wire there, to add an Agent, Parallel, Check, Approve or Ask step; it is written as a new statement in the script, and refused with the reason where it cannot be placed safely.
 - Android: the full-screen image viewer (generated pictures and images in messages) has Save and Share. Save writes the picture to Pictures/Conclave on Android 10+ with no storage permission and shows "Saved to Pictures/Conclave"; on Android 8 and 9 it asks where to save. Share opens the share sheet with the picture.
 
 ### Fixed

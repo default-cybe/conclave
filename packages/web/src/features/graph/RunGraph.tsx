@@ -6,7 +6,7 @@
  * - WorkflowGraphPage (/workflows/graph/:id): a library workflow's graph with
  *   Run, Re-run of the last run, the inspector and literal edits.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useParams } from 'wouter';
 import { nodeRuns, type WorkflowCall, type WorkflowGraphView, type WorkflowRunDetail } from '@conclave/core/client';
 import { Page, PageHeader, usePageHeader } from '@/components/ui/Page';
@@ -21,17 +21,21 @@ import { attempt } from '@/store/store';
 import { isLive } from '../workflows/words';
 import { GraphCanvas } from './GraphCanvas';
 import { Inspector, type InspectorProps } from './Inspector';
+import { insertStep, useHistory } from './history';
+
+type Positions = Record<string, { x: number; y: number }>;
 
 function InspectorPanel({ open, onClose, props }: { open: boolean; onClose: () => void; props?: InspectorProps }) {
   const phone = useIsMobile();
   if (phone)
     return (
-      <Sheet open={open} onClose={onClose} label={props?.node.label ?? 'Node'}>
+      <Sheet open={open} onClose={onClose} label={props?.node.label ?? 'Node'} className="cv-inspector">
         {props && <Inspector {...props} />}
       </Sheet>
     );
+  // cv-inspector: the canvas pans the tapped node out from under it
   return (
-    <SideSheet open={open} onClose={onClose} width={480} modal={false} label={props?.node.label ?? 'Node'}>
+    <SideSheet open={open} onClose={onClose} width={480} modal={false} label={props?.node.label ?? 'Node'} className="cv-inspector">
       {props && <Inspector {...props} />}
     </SideSheet>
   );
@@ -82,7 +86,12 @@ export default function WorkflowGraphPage() {
   const [error, setError] = useState<string>();
   const [sel, setSel] = useState<string>();
   const [runDetail, setRunDetail] = useState<WorkflowRunDetail>();
+  const [positions, setPositions] = useState<Positions>({});
   const phone = useIsMobile();
+  const history = useHistory(!!view?.editable);
+  // steps run later than the render that made them: they read the sha the canvas shows now
+  const shaNow = useRef('');
+  shaNow.current = view?.sha ?? '';
   usePageHeader(view?.graph.name || id, '/workflows');
   useEffect(() => {
     let alive = true;
@@ -90,6 +99,7 @@ export default function WorkflowGraphPage() {
       .then(([v, d]) => {
         if (!alive) return;
         setView(v);
+        setPositions(v.layout ?? {});
         setLastRun(d.lastRun?.id);
         if (d.lastRun) void api().workflowRun(d.lastRun.id).then((r) => alive && setRunDetail(r)).catch(() => {});
       })
@@ -99,6 +109,34 @@ export default function WorkflowGraphPage() {
     };
   }, [id]);
   const runs = useMemo(() => (view && runDetail ? nodeRuns(view.graph, runDetail.calls).byNode : undefined), [view, runDetail]);
+  // a drop saves the whole layout: the side file is small, and the last write wins
+  const saveLayout = async (next: Positions) => {
+    setPositions(next);
+    await api().saveWorkflowLayout(id, next);
+  };
+  const moved = (prev: Positions, next: Positions) => {
+    void attempt(() => saveLayout(next));
+    history.push({ label: 'move', undo: () => saveLayout(prev), redo: () => saveLayout(next) });
+  };
+  // a script write: undo asks the hub to put back the version it had before, redo the one it wrote
+  const restore = async (sha: string) => {
+    const res = await api().restoreWorkflowGraph(id, sha, shaNow.current);
+    setView((v) => ({ ...res.view, layout: v?.layout }));
+    setDiff(res.diff || undefined);
+  };
+  const edited = (label: string, before: string, after: string) => history.push({ label, undo: () => restore(before), redo: () => restore(after) });
+  // a node from the search: a new statement in the script; a refusal comes back as a toast with the reason
+  const insert = (kind: 'agent' | 'parallel' | 'check' | 'approve' | 'ask', after?: string) => {
+    const prev = positions;
+    void attempt(() => api().insertWorkflowNode(id, { kind, baseSha: shaNow.current, ...(after ? { after } : {}) }), 'Added to the script').then((res) => {
+      if (!res || !view) return;
+      history.push(insertStep(restore, saveLayout, { sha: view.sha, layout: prev }, { sha: res.sha, layout: res.view.layout }));
+      setView(res.view);
+      if (res.view.layout) setPositions(res.view.layout);
+      setDiff(res.diff || undefined);
+      setSel(res.nodeId);
+    });
+  };
   const start = (resume?: string) => void attempt(() => api().startWorkflow({ name: id, ...(resume ? { resumeFromRunId: resume } : {}) })).then((r) => r && go(`/workflows/runs/${r.id}?view=graph`));
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -135,6 +173,16 @@ export default function WorkflowGraphPage() {
         className="pt-1 phone:pt-2 phone:pb-0"
         actions={
           <>
+            {view.editable && (
+              <>
+                <Button variant="ghost" size={phone ? 'touch' : 'md'} disabled={!history.canUndo} title={history.nextUndo ? `Undo ${history.nextUndo} (Ctrl+Z)` : 'Nothing to undo'} onClick={history.undo}>
+                  Undo
+                </Button>
+                <Button variant="ghost" size={phone ? 'touch' : 'md'} disabled={!history.canRedo} title={history.nextRedo ? `Redo ${history.nextRedo} (Ctrl+Shift+Z)` : 'Nothing to redo'} onClick={history.redo}>
+                  Redo
+                </Button>
+              </>
+            )}
             {lastRun && (
               <Button variant="outline" size={phone ? 'touch' : 'md'} onClick={() => start(lastRun)}>
                 Re-run
@@ -151,7 +199,15 @@ export default function WorkflowGraphPage() {
         {lastRun ? ' Re-run replays unchanged nodes from the last run.' : ''}
       </p>
       {diff && <CodeBlock code={diff} lang="diff" className="mb-3" />}
-      <GraphCanvas graph={view.graph} runs={runs} selected={sel} onSelect={setSel} className="h-[min(74vh,780px)] rounded-[var(--r-2)] border border-rule phone:h-[66vh]" />
+      <GraphCanvas
+        graph={view.graph}
+        runs={runs}
+        selected={sel}
+        onSelect={setSel}
+        positions={positions}
+        onInsert={view.editable ? insert : undefined}
+        onMove={view.editable ? (nid, at) => moved(positions, { ...positions, [nid]: { x: Math.round(at.x / 8) * 8, y: Math.round(at.y / 8) * 8 } }) : undefined}
+        className="h-[min(74vh,780px)] rounded-[var(--r-2)] border border-rule phone:h-[66vh]" />
       <InspectorPanel
         open={!!node}
         onClose={() => setSel(undefined)}
@@ -164,6 +220,7 @@ export default function WorkflowGraphPage() {
                 view,
                 workflowId: id,
                 onEdited: (v, d) => {
+                  if (view.editable && v.sha !== view.sha) edited('setting', view.sha, v.sha);
                   setView(v);
                   setDiff(d || undefined);
                 },
