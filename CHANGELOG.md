@@ -13,6 +13,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Image generation: ask a chat or the assistant for a picture in plain words ("draw a fox", "a logo for my shop", "a phone wallpaper") and it calls the new GenerateImage tool. Pictures save to the outputs folder with a .json sidecar (prompt, model, size, quality, revised prompt), show as a grid with a full-screen viewer in the web reply, and write a usage row with purpose `image`. Settings > Models has an Image model choice (default `cliproxy/gpt-image-2.5`); quality is medium unless you ask for the best. Members make images only on their own plans or keys.
 
+### Fixed
+
+- The desktop app no longer lists you twice. The account menu showed your name and also "Switch to" your name, and Settings, Your account, Accounts on this browser listed you twice. This happened after you had signed in once on the Connect screen inside the desktop window. The token the desktop app gives its page carries no account, so that older sign in did not match it. The app now uses who the hub says is signed in to match them.
+
 ## [0.4.61] - 2026-11-03
 
 ### Fixed

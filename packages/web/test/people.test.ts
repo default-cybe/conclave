@@ -46,6 +46,39 @@ describe('kept sign ins', () => {
     expect(accountLabel({ baseUrl: hub, token: 'x', hubName: 'madx' })).toBe('madx');
     expect(accountLabel({ baseUrl: hub, token: 'x' })).toBe('hub.example.com');
   });
+
+  test('the desktop app lists its owner once: its own token (#token=, no account) and an older sign in on this window are the same person', async () => {
+    // found on a Mac: the account menu said Kaivalya and "Switch to Kaivalya"
+    const { saveConnection } = await import('../src/lib/api');
+    const { useHub } = await import('../src/store/store');
+    const { accountLabel, isCurrent, rememberAccount, savedAccounts, signOut } = await import('../src/lib/people');
+    store.clear();
+    const kai = { id: 'owner', name: 'Kaivalya', displayName: 'Kaivalya', role: 'owner' as const };
+    // signed in on the Connect screen inside the desktop window once, then a member too
+    rememberAccount({ baseUrl: hub, token: 'cnc_connect', hubName: 'conclave', account: kai, clientId: 'cli_connect' });
+    rememberAccount(alice);
+    // every start the desktop shell opens the hub's page with its own token: no account in it
+    const shell: Connection = { baseUrl: hub, token: 'cnc_shell' };
+    saveConnection(shell);
+    useHub.setState({ me: { ...kai, people: true, hubMachine: true, passwordSet: true, providers: [], preferences: {} } as never });
+    const g2 = globalThis as { window?: unknown };
+    const hadWindow = g2.window;
+    try {
+      const list = savedAccounts();
+      expect(list.map(accountLabel)).toEqual(['Kaivalya', 'Alice']);
+      expect(list[0].token).toBe('cnc_shell');
+      expect(isCurrent(list[0])).toBe(true);
+      expect(list.filter((c) => !isCurrent(c)).map(accountLabel)).toEqual(['Alice']);
+      // logging out goes to the next person, not the same one again
+      g2.window = { location: { assign: () => {} } };
+      await signOut();
+      expect(savedAccounts().map(accountLabel)).toEqual(['Alice']);
+    } finally {
+      g2.window = hadWindow;
+      useHub.setState({ me: undefined });
+      store.clear();
+    }
+  });
 });
 
 describe('the forced Connect screen', () => {
