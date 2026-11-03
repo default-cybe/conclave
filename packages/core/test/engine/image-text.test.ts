@@ -120,6 +120,25 @@ describe('images for a model without vision', () => {
     expect(t.chores.filter(isVision).length).toBe(0);
   });
 
+  test('a model that answers "accepts text only" to an image gets it transcribed and the turn retried once', async () => {
+    t = await startTestEngine({
+      models: ['claude-sonnet-5-5', 'house-reader-1'],
+      script: [[{ text: 'It says 4721.' }]],
+      chore,
+      route: (_b, text) =>
+        text.includes('"type":"image"') ? { status: 400, error: 'Message 1 of 1 in this request (role user) carries an image, and the selected model route accepts text only.' } : undefined,
+    });
+    // not in the catalog, so trusted to see images until the route says otherwise
+    const s = await t.engine.createSession({ title: 'reader', agent: 'coder', cwd: t.cwd, model: 'mock/house-reader-1' });
+    await send(t, s.id, 'What are the digits?', PNG);
+    expect(t.requests.length).toBe(2);
+    expect(t.requests[0]).toContain('"type":"image"');
+    expect(t.requests[1]).not.toContain('"type":"image"');
+    expect(t.requests[1]).toContain('transcribed by mock/claude-sonnet-5-5:\\n4721\\n]');
+    const last = t.engine.repos.messages.list(s.id).filter((m) => m.role === 'assistant').at(-1);
+    expect(last?.stopReason).not.toBe('error');
+  });
+
   test('a failed vision call leaves a note with the reason and the turn goes on', async () => {
     t = await startTestEngine({ models: ['claude-sonnet-5-5', 'glm-5.3'], script: [[{ text: 'Cannot see it.' }]], chore: (_b, text) => (isVision(text) ? 400 : undefined) });
     const s = await t.engine.createSession({ title: 'glm', agent: 'coder', cwd: t.cwd, model: 'mock/glm-5.3' });

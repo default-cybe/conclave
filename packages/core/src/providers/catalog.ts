@@ -369,8 +369,9 @@ export function lookupModel(provider: string, id: string, opts: LookupOptions = 
   const entry = match?.entry;
   // another model built on the entry (a fine-tune on a custom provider): its name keeps the rest of the id
   const rest = match?.rest ?? '';
-  // a router ('any') serves the vendor's models under their names: the vendor price stands
-  const unpriced = !!rest && !!opts.servedBy && opts.servedBy !== 'any' && opts.servedBy !== entry?.family;
+  // a router ('any') serves the vendor's models under their names: the vendor price stands.
+  // Another provider's build of the entry gets neither its prices nor its vision: only config (modelOverrides) says it sees
+  const derived = !!rest && !!opts.servedBy && opts.servedBy !== 'any' && opts.servedBy !== entry?.family;
   const lite = liteLookup(entry ? entry.id : normalizeModelId(modelId), entry?.family) ?? (entry ? undefined : liteLookup(modelId.toLowerCase()));
 
   const info: ModelInfo = entry
@@ -381,7 +382,7 @@ export function lookupModel(provider: string, id: string, opts: LookupOptions = 
         name: rest ? `${entry.name} ${titleWords(rest)}` : entry.name,
         contextWindow: entry.contextWindow,
         maxOutput: entry.maxOutput,
-        vision: entry.vision,
+        vision: entry.vision && !derived,
         tools: entry.tools,
         thinking: entry.thinking,
         caching: entry.caching,
@@ -409,7 +410,7 @@ export function lookupModel(provider: string, id: string, opts: LookupOptions = 
         cacheWritePrice: 0,
       };
 
-  if (unpriced) {
+  if (derived) {
     info.inputPrice = info.outputPrice = info.cacheReadPrice = info.cacheWritePrice = 0;
     delete info.cacheWrite1hPrice;
   } else if (lite) {

@@ -52,11 +52,15 @@ describe('normalizeModelId and fuzzy lookup', () => {
     const glm = custom.model('glm-5.3-uncensored');
     expect(glm).toMatchObject({ name: 'GLM-5.3 Uncensored', inputPrice: 0, outputPrice: 0, cacheReadPrice: 0, contextWindow: 1_000_000, tools: true, thinking: true, tier: 'deep' });
     expect(findCatalogEntry('glm-5.3-uncensored')?.family).toBe('zai');
-    expect(custom.model('glm-5.3-flash-uncensored')).toMatchObject({ name: 'GLM-5.3 Flash Uncensored', inputPrice: 0, vision: true });
+    // nor its vision: the vendor's Flash reads images, this build's route may not (a 400 "accepts text only")
+    expect(custom.model('glm-5.3-flash-uncensored')).toMatchObject({ name: 'GLM-5.3 Flash Uncensored', inputPrice: 0, vision: false });
+    const seeing = new OpenAIProvider({ id: 'experientiallabs', config: { type: 'openai', baseUrl: 'https://api.experientiallabs.ai/v1', modelOverrides: { 'glm-5.3-flash-uncensored': { vision: true } } }, apiKey: 'k' });
+    expect(seeing.model('glm-5.3-flash-uncensored').vision).toBe(true);
     // the vendor's own API, an exact id, a variant and a date keep the catalog's name and price
     const zai = new OpenAIProvider({ id: 'zai', config: { type: 'openai', baseUrl: 'https://api.z.ai/api/coding/paas/v4' }, apiKey: 'k' });
     expect(zai.model('glm-5.3')).toMatchObject({ name: 'GLM-5.3', inputPrice: 1.4, outputPrice: 4.4 });
     expect(custom.model('glm-5.3')).toMatchObject({ name: 'GLM-5.3', inputPrice: 1.4 });
+    expect(custom.model('glm-5.3-flash').vision).toBe(true);
     expect(custom.model('claude-opus-5-5-high')).toMatchObject({ name: 'Claude Opus 5.5', inputPrice: 4 });
     expect(custom.model('claude-sonnet-4-5-20250929').name).toBe('Claude Sonnet 4.5');
     expect(zai.model('glm-4.7-turbo')).toMatchObject({ name: 'GLM-4.7 Turbo', inputPrice: 0.6 });
