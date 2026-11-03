@@ -44,6 +44,7 @@ import { RenderFileTool } from './render-file';
 import { CaptureTool } from './capture';
 import { ReadPostTool } from './read-post';
 import { SaveInspirationTool } from './save-inspiration';
+import { GenerateImageTool } from './generate-image';
 
 export * from './types';
 export { shellRegistry, ShellRegistry, type ShellInfo } from './shells';
@@ -110,6 +111,7 @@ export {
   CaptureTool,
   ReadPostTool,
   SaveInspirationTool,
+  GenerateImageTool,
 };
 
 /** Order matters for prompt caching: keep it stable. */
@@ -187,6 +189,8 @@ const BUILTINS: Tool[] = [
   ReadPostTool,
   // the owner's inspiration board, memories of kind inspiration (tools/save-inspiration.ts), opt-in; appended so the cached order stays
   SaveInspirationTool,
+  // pictures from an image model into the outputs folder (tools/generate-image.ts), opt-in; appended so the cached order stays
+  GenerateImageTool,
 ] as Tool[];
 
 const BY_NAME = new Map(BUILTINS.map((t) => [t.name, t]));
@@ -208,7 +212,7 @@ export function toolByName(name: string): Tool | undefined {
  * rule with content ("Bash(zpool status -x)") brings one back, and then only
  * the calls that rule covers run without asking.
  */
-export const UNTRUSTED_DENY = ['Bash', 'BashOutput', 'KillShell', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'MemorySave', 'MemoryForget', 'ScheduleRoutine', 'GoalList', 'GoalGet', 'GoalCreate', 'GoalUpdate', 'GoalLog', 'DayPlan', 'ProactivePrefs', 'Workflow', 'WorkflowStatus', 'SessionSearch', 'SessionRead', 'SkillManage', 'PlaceSearch', 'PlaceDetails', 'Directions', 'MapImage', 'CalendarList', 'CalendarFreeBusy', 'CalendarEvent', 'MailDraft', 'WatchCreate', 'Delegate', 'ShareFile', 'RenderFile', 'Capture', 'ReadPost', 'SaveInspiration', 'preview_start'];
+export const UNTRUSTED_DENY = ['Bash', 'BashOutput', 'KillShell', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'MemorySave', 'MemoryForget', 'ScheduleRoutine', 'GoalList', 'GoalGet', 'GoalCreate', 'GoalUpdate', 'GoalLog', 'DayPlan', 'ProactivePrefs', 'Workflow', 'WorkflowStatus', 'SessionSearch', 'SessionRead', 'SkillManage', 'PlaceSearch', 'PlaceDetails', 'Directions', 'MapImage', 'CalendarList', 'CalendarFreeBusy', 'CalendarEvent', 'MailDraft', 'WatchCreate', 'Delegate', 'ShareFile', 'RenderFile', 'Capture', 'ReadPost', 'SaveInspiration', 'GenerateImage', 'preview_start'];
 
 /** Tools an untrusted session keeps without naming them: they touch nothing outside the session. */
 export const UNTRUSTED_SAFE = ['TodoWrite', 'AskUserQuestion', 'ReadToolOutput', 'EnterPlanMode', 'ExitPlanMode', 'StructuredOutput'];

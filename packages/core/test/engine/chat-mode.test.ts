@@ -18,7 +18,7 @@ describe('the chat agent', () => {
     expect(chat).toBeDefined();
     expect(chat.primary).toBe(true);
     expect(chat.memory).toBe('global');
-    expect([...(chat.tools ?? [])].sort()).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'Read', 'RenderFile', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch', 'Write']);
+    expect([...(chat.tools ?? [])].sort()).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'GenerateImage', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'Read', 'RenderFile', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch', 'Write']);
     expect(chat.tools).not.toContain('Bash');
     expect(chat.prompt).toContain('Continue as a session');
     // it makes files itself; Delegate is for the owner's machines, and a file is attached only once ShareFile returns a card
@@ -105,7 +105,7 @@ describe('chat sessions in the engine', () => {
     const { engine } = t;
     const chat = await engine.createSession({ kind: 'chat', cwd: t.cwd });
     await t.run(chat.id, 'what listens on 8080 on madx?');
-    expect(toolNames(t.requests[0])).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'Read', 'RenderFile', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch', 'Write']);
+    expect(toolNames(t.requests[0])).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'GenerateImage', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'Read', 'RenderFile', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch', 'Write']);
     expect(engine.checkpoints(chat.id)).toEqual([]);
     // the chat makes files itself: its file note says Write and RenderFile, not Delegate
     expect(t.requests[0]).toContain('Save it with Write (RenderFile turns HTML, SVG or Markdown into a PDF or PNG), then call ShareFile');
@@ -115,15 +115,15 @@ describe('chat sessions in the engine', () => {
 
     engine.updateSession(chat.id, { chat: { webSearch: false } });
     await t.run(chat.id, 'and on pve?');
-    expect(toolNames(t.requests[1])).toEqual(['ConclaveHelp', 'Delegate', 'MemoryForget', 'MemorySave', 'MemorySearch', 'Read', 'RenderFile', 'SessionRead', 'SessionSearch', 'ShareFile', 'Write']);
+    expect(toolNames(t.requests[1])).toEqual(['ConclaveHelp', 'Delegate', 'GenerateImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'Read', 'RenderFile', 'SessionRead', 'SessionSearch', 'ShareFile', 'Write']);
 
     // memory off and web off: Delegate, which reaches the owner's own devices, the shipped docs, and the file tools for its outputs folder
     engine.updateSession(chat.id, { chat: { memory: false } });
     const agent = engine.agentFor(engine.getSession(chat.id)!);
-    expect(engine.toolsFor(engine.getSession(chat.id)!, agent, 'agent', 0).map((x) => x.name)).toEqual(['Read', 'Write', 'Delegate', 'ConclaveHelp', 'ShareFile', 'RenderFile']);
+    expect(engine.toolsFor(engine.getSession(chat.id)!, agent, 'agent', 0).map((x) => x.name)).toEqual(['Read', 'Write', 'Delegate', 'ConclaveHelp', 'ShareFile', 'RenderFile', 'GenerateImage']);
 
     const plain = await engine.createSession({ agent: 'chat', cwd: t.cwd });
-    expect(engine.toolsFor(plain, agent, 'agent', 0).map((x) => x.name).sort()).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'Read', 'RenderFile', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch', 'Write']);
+    expect(engine.toolsFor(plain, agent, 'agent', 0).map((x) => x.name).sort()).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'GenerateImage', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'Read', 'RenderFile', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch', 'Write']);
   });
 
   test("a chat's thinking switch wins over the agent", async () => {
@@ -161,7 +161,7 @@ describe('memory off leaves no trace', () => {
     const without = t.requests[1];
     expect(without).not.toContain('The owner runs Proxmox on madx.');
     expect(without).not.toContain('Paperless runs in CT 112');
-    expect(toolNames(without)).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'PlaceDetails', 'PlaceSearch', 'Read', 'RenderFile', 'ShareFile', 'WebFetch', 'WebSearch', 'Write']);
+    expect(toolNames(without)).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'GenerateImage', 'MapImage', 'PlaceDetails', 'PlaceSearch', 'Read', 'RenderFile', 'ShareFile', 'WebFetch', 'WebSearch', 'Write']);
   });
 });
 

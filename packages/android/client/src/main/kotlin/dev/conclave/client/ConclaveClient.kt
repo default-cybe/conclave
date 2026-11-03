@@ -251,8 +251,8 @@ class ConclaveClient(
      * picture). The same checks as [call]: the address proves the hub's key
      * first, and a non-2xx answer throws with the hub's words.
      */
-    internal suspend fun getBytes(segments: List<String>): Pair<ByteArray, String> {
-        val reqBuilder = Request.Builder().url(url(segments, emptyMap())).get()
+    internal suspend fun getBytes(segments: List<String>, query: Map<String, Any?> = emptyMap()): Pair<ByteArray, String> {
+        val reqBuilder = Request.Builder().url(url(segments, query)).get()
         if (token != null) {
             identity?.ensure(this)
             reqBuilder.header("Authorization", "Bearer $token")

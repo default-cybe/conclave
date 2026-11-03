@@ -31,6 +31,8 @@ import { hubCapture, type CaptureOptions, type CaptureResult } from '../browser/
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { findFfmpeg } from '../util/ffmpeg';
+import { generateImageFor } from '../images/generate';
+import type { ImageRequest } from '../providers/types';
 
 /** ToolHost bound to one running session. Tools call this, never the engine directly. */
 export class EngineToolHost implements ToolHost {
@@ -301,6 +303,21 @@ export class EngineToolHost implements ToolHost {
 
   ffmpeg() {
     return findFfmpeg(this.engine.config.paths.home);
+  }
+
+  /** GenerateImage: the session account's own providers (a member's own plans or keys only), one usage row. */
+  generateImage(req: Omit<ImageRequest, 'model'> & { model?: string }) {
+    return generateImageFor(this.engine, { ...req, accountId: this.engine.accountOf(this.session), sessionId: this.runner.id });
+  }
+
+  /** Pictures the user attached in this session, newest first; a seat turn reads the shared chat as its starter may see it. */
+  chatImages() {
+    const out: Array<{ bytes: Uint8Array; mime: string }> = [];
+    for (const m of this.engine.turnMessages(this.runner.id)) {
+      if (m.role !== 'user') continue;
+      for (const b of m.content) if (b.type === 'image' && b.data) out.push({ bytes: Buffer.from(b.data, 'base64'), mime: b.mediaType });
+    }
+    return out.reverse();
   }
 
   /** The owner's board files in <home>/inspiration; a member's in their own folder. */

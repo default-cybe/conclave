@@ -11,6 +11,7 @@ import { toast, useHub } from '@/store/store';
 import { useIsMobile, useLoad } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { modelName } from '@/lib/models';
+import { isOwnerNow } from '@/lib/people';
 import { AgentPicker } from '@/components/pickers/Pickers';
 import { ModelPicker } from '@/components/pickers/ModelPicker';
 import { SelectMenu } from '@/components/ui/Select';
@@ -77,6 +78,20 @@ function DeviceSelect({ value, onChange, label, look = 'text', inherit }: { valu
   return <SelectMenu look={look} label={label} value={v} placeholder={fallback} onChange={(id) => onChange(id === INHERIT ? '' : id)} options={options} width={240} />;
 }
 
+export const DEFAULT_IMAGE_MODEL = 'cliproxy/gpt-image-2.5';
+
+/** The models GenerateImage may use: every listed image model, the default and the saved one always among them. */
+export function imageModelOptions(groups: Array<{ models: Array<{ ref: string; id: string; kind?: string }> }>, value: string): Array<{ value: string; label: string; text: string }> {
+  const refs = new Set([DEFAULT_IMAGE_MODEL, value]);
+  for (const g of groups) for (const m of g.models) if (m.kind === 'image') refs.add(m.ref);
+  return [...refs].map((r) => ({ value: r, label: modelName(r), text: r }));
+}
+
+function ImageModelSelect({ value }: { value: string }) {
+  const groups = useHub((s) => s.models);
+  return <SelectMenu look="field" label="Image model" value={value} onChange={(m) => void save({ imageModel: m })} options={imageModelOptions(groups, value)} width={300} />;
+}
+
 export function DefaultsSection() {
   const mobile = useIsMobile();
   const config = useHub((s) => s.config);
@@ -84,6 +99,7 @@ export function DefaultsSection() {
   const conns = useConnectionList();
   const defaultModel = (config?.defaultModel as string | undefined) ?? 'anthropic/claude-sonnet-5-5';
   const smallModel = config?.smallModel as string | undefined;
+  const imageModel = (config?.imageModel as string | undefined) ?? DEFAULT_IMAGE_MODEL;
   const defaultAgent = config?.defaultAgent as string | undefined;
   const defaultDevice = config?.defaultDevice as string | undefined;
   const reviewer = (config?.modes as { reviewer?: string } | undefined)?.reviewer;
@@ -127,6 +143,12 @@ export function DefaultsSection() {
         <SettingRow label="Small model" help="Titles, summaries and memory notes. Pick something fast and cheap.">
           <ModelPicker look="field" label="Small model" value={smallModel} onChange={(m) => void save({ smallModel: m })} harnesses={false} className="md:max-w-[300px]" />
         </SettingRow>
+        {/* the hub's choice (PATCH /api/config is the owner's); a member's images still go through their own keys */}
+        {isOwnerNow() && <SettingRow label="Image model" help="Makes pictures when you ask a chat or the assistant for one. Standard quality unless you ask for the best.">
+          <div className="w-full md:max-w-[300px]">
+            <ImageModelSelect value={imageModel} />
+          </div>
+        </SettingRow>}
         <SettingRow label="Second opinions" help="The model that reviews an answer when you ask for one.">
           <ModelPicker look="field" label="Second opinion model" value={reviewer} onChange={(m) => void save({ modes: { reviewer: m } })} harnesses={false} className="md:max-w-[300px]" />
         </SettingRow>

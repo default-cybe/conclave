@@ -2233,11 +2233,12 @@ export class ConclaveClient {
     return res.blob();
   };
 
-  /** A file a ShareFile call shared (GET /api/sessions/:id/files/:toolUseId), as a Blob of its bytes. */
-  sessionFile = async (id: string, toolUseId: string, inline = false): Promise<Blob> => {
+  /** A file a ShareFile call shared (GET /api/sessions/:id/files/:toolUseId), as a Blob of its bytes; with `image`, picture N of a GenerateImage call. */
+  sessionFile = async (id: string, toolUseId: string, inline = false, image?: number): Promise<Blob> => {
     const check = this.guard();
     if (check) await check;
-    const res = await this.f(`${this.baseUrl}/api/sessions/${encodeURIComponent(id)}/files/${encodeURIComponent(toolUseId)}${inline ? '?inline=1' : ''}`, { headers: this.token ? { authorization: `Bearer ${this.token}` } : {} });
+    const q = new URLSearchParams({ ...(inline ? { inline: '1' } : {}), ...(image !== undefined ? { image: String(image) } : {}) }).toString();
+    const res = await this.f(`${this.baseUrl}/api/sessions/${encodeURIComponent(id)}/files/${encodeURIComponent(toolUseId)}${q ? `?${q}` : ''}`, { headers: this.token ? { authorization: `Bearer ${this.token}` } : {} });
     if (!res.ok) {
       let msg = res.statusText;
       try {

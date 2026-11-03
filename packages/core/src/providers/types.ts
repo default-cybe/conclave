@@ -37,6 +37,31 @@ export interface ModelInfo {
   effort?: ModelEffort;
   /** Cyber access programs a ChatGPT plan model takes (providers/access-programs.ts); absent where there is no choice. */
   cyber?: CyberProgram[];
+  /** What the model makes. Unset: chat. Image models stay out of chat pickers and show in the Image model picker. */
+  kind?: 'chat' | 'image' | 'embedding';
+}
+
+/** Ids of image generators (the web's and Android's NON_CHAT image part). */
+export const IMAGE_MODEL = /(^|\/)(gpt-image|dall-e)|-image(-|$)/i;
+
+export interface ImageRequest {
+  model: string;
+  prompt: string;
+  /** 1 to 4. Default 1. */
+  n?: number;
+  /** 'WxH' or 'auto'. */
+  size?: string;
+  quality?: 'low' | 'medium' | 'high' | 'auto';
+  format?: 'png' | 'jpeg' | 'webp';
+  /** References or the image to edit: sent to /images/edits instead of /images/generations. */
+  images?: { bytes: Uint8Array; mime: string; name?: string }[];
+  signal?: AbortSignal;
+}
+
+export interface ImageResult {
+  images: { bytes: Uint8Array; mime: string; revisedPrompt?: string }[];
+  /** When the provider reports image tokens. */
+  usage?: Usage;
 }
 
 export interface SystemBlock {
@@ -110,6 +135,8 @@ export interface Provider {
   model(id: string): ModelInfo;
   /** Optional: embeddings for memory search. */
   embed?(texts: string[], model?: string): Promise<number[][]>;
+  /** Optional: make images (OpenAI /images/generations and /images/edits). */
+  generateImage?(req: ImageRequest): Promise<ImageResult>;
   /** Optional: exact token count. */
   countTokens?(req: ChatRequest): Promise<number>;
   /** Optional: whether this wire carries a model's PDFs (documentsForWire's pdf flag). Default true. */

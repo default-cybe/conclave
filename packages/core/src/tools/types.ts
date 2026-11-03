@@ -125,6 +125,10 @@ export interface ToolHost {
   capture?(url: string, opts: import('../browser/capture').CaptureOptions, signal?: AbortSignal): Promise<import('../browser/capture').CaptureResult>;
   /** The hub's ffmpeg, fetched on first use (util/ffmpeg.ts findFfmpeg), for ReadPost. */
   ffmpeg?(): Promise<{ path: string } | { error: string }>;
+  /** One image call on the session account's own providers, with its usage row (images/generate.ts), for GenerateImage. */
+  generateImage?(req: Omit<import('../providers/types').ImageRequest, 'model'> & { model?: string }): Promise<import('../images/generate').ImageOutcome>;
+  /** Pictures the user attached in this chat, newest first, for GenerateImage's "attached:N". */
+  chatImages?(): Array<{ bytes: Uint8Array; mime: string; name?: string }>;
   /** <home>/inspiration on the hub, where SaveInspiration keeps each item's sheets and screenshot (outputs folders are pruned). */
   inspirationDir?(): string;
 }
