@@ -10,6 +10,7 @@ import './graph.css';
 import { useEffect, useMemo } from 'react';
 import { Controls, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type Node } from '@xyflow/react';
 import type { NodeRun, WorkflowGraph } from '@conclave/core/client';
+import { useIsMobile } from '@/lib/hooks';
 import { layoutGraph } from './layout';
 import { NODE_TYPES, type BandData, type FlowNodeData } from './nodes';
 
@@ -26,8 +27,9 @@ export interface GraphCanvasProps {
 
 function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className }: GraphCanvasProps) {
   const flow = useReactFlow();
+  const vertical = useIsMobile();
   const { nodes, edges } = useMemo(() => {
-    const { pos, bands } = layoutGraph(graph);
+    const { pos, bands } = layoutGraph(graph, vertical);
     const staleSet = new Set(stale);
     const bandNodes: Node[] = bands.map((b, i) => ({
       id: `band-${i}`,
@@ -42,7 +44,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       id: n.id,
       type: 'wf',
       position: pos.get(n.id) ?? { x: 0, y: 0 },
-      data: { node: n, run: runs?.get(n.id), stale: staleSet.has(n.id), selected: n.id === selected } satisfies FlowNodeData,
+      data: { node: n, run: runs?.get(n.id), stale: staleSet.has(n.id), selected: n.id === selected, vertical } satisfies FlowNodeData,
       ariaLabel: `${n.label}, ${n.kind}${runs?.get(n.id) ? `, ${runs.get(n.id)!.state}` : ''}`,
     }));
     const es: Edge[] = graph.edges.map((e) => {
@@ -50,7 +52,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       return { id: `${e.from}>${e.to}`, source: e.from, target: e.to, type: 'smoothstep', className: live ? 'cv-wire-live' : undefined, focusable: false };
     });
     return { nodes: [...bandNodes, ...wf], edges: es };
-  }, [graph, runs, stale, selected, currentPhase]);
+  }, [graph, runs, stale, selected, currentPhase, vertical]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -77,8 +79,8 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         panOnDrag
         minZoom={0.2}
         maxZoom={1.6}
-        fitView
-        fitViewOptions={{ padding: 0.12 }}
+        // open on the first band at a readable size, top left: a centred fit clipped the first band and shrank the text
+        defaultViewport={{ x: 16, y: 16, zoom: vertical ? 1 : 0.9 }}
         proOptions={{ hideAttribution: true }}
         onNodeClick={(_, n) => n.type === 'wf' && onSelect(n.id)}
         onPaneClick={() => onSelect(undefined)}
@@ -90,7 +92,8 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
           }
         }}
       >
-        <Controls showInteractive={false} position="bottom-right" />
+        {/* a phone pinches; the buttons covered the column's nodes */}
+        {!vertical && <Controls showInteractive={false} position="bottom-right" />}
       </ReactFlow>
     </div>
   );

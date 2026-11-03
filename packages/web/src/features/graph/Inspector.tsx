@@ -111,7 +111,7 @@ export function Inspector({ node, run, calls, runCtx, view, workflowId, onRerun,
 
         <div>
           <div className="t-section pb-1.5 text-fg">Script</div>
-          <CodeBlock code={node.source} lang="javascript" maxLines={phone ? 12 : 24} />
+          <CodeBlock code={node.source} lang="javascript" wrap maxLines={phone ? 12 : 24} />
         </div>
       </div>
     </div>
@@ -155,7 +155,7 @@ function Edit({ node, view, workflowId, onEdited }: { node: GraphNode; view: Wor
   if (!view.editable)
     return (
       <Notice
-        action={workflowId ? { label: 'Copy to my workflows', onClick: () => void attempt(() => api().copyWorkflow(workflowId), 'Copied. The copy is yours to edit.').then((d) => d && onEdited && api().workflowGraph(workflowId).then((v) => onEdited(v, ''))) } : undefined}
+        action={workflowId && (view.source === 'builtin' || view.source === 'plugin') ? { label: 'Copy to my workflows', onClick: () => void attempt(() => api().copyWorkflow(workflowId), 'Copied. The copy is yours to edit.').then((d) => d && onEdited && api().workflowGraph(workflowId).then((v) => onEdited(v, ''))) } : undefined}
       >
         {view.readOnly ?? 'Read only.'}
       </Notice>

@@ -17,6 +17,8 @@ export interface FlowNodeData extends Record<string, unknown> {
   run?: NodeRun;
   stale?: boolean;
   selected?: boolean;
+  /** Wires enter at the top and leave at the bottom (the phone's vertical layout). */
+  vertical?: boolean;
 }
 
 export interface BandData extends Record<string, unknown> {
@@ -93,7 +95,7 @@ export function stateWord(run?: NodeRun): string {
 }
 
 export const WorkflowNode = memo(function WorkflowNode({ data }: NodeProps) {
-  const { node, run, stale, selected } = data as FlowNodeData;
+  const { node, run, stale, selected, vertical } = data as FlowNodeData;
   const tone = stateTone(run?.state);
   return (
     <div
@@ -101,7 +103,7 @@ export const WorkflowNode = memo(function WorkflowNode({ data }: NodeProps) {
       style={{ width: NODE_W, height: NODE_H }}
       data-state={run?.state ?? 'idle'}
     >
-      <Handle type="target" position={Position.Left} isConnectable={false} />
+      <Handle type="target" position={vertical ? Position.Top : Position.Left} isConnectable={false} />
       <div className="flex items-baseline justify-between gap-2">
         <span className="min-w-0 truncate text-[13px] font-medium text-fg">{node.label}</span>
         <span className="mono shrink-0 text-[11px] text-fg-4">{node.span.start === node.span.end ? `L${node.span.start}` : `L${node.span.start}-${node.span.end}`}</span>
@@ -119,7 +121,7 @@ export const WorkflowNode = memo(function WorkflowNode({ data }: NodeProps) {
         </span>
         {stale && <span className="shrink-0 text-fg-3">changed since</span>}
       </div>
-      <Handle type="source" position={Position.Right} isConnectable={false} />
+      <Handle type="source" position={vertical ? Position.Bottom : Position.Right} isConnectable={false} />
     </div>
   );
 });

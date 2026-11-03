@@ -30,7 +30,8 @@ export interface Layout {
   bands: Band[];
 }
 
-export function layoutGraph(g: WorkflowGraph): Layout {
+/** vertical: bands top to bottom with one node per row, for a phone's narrow screen. */
+export function layoutGraph(g: WorkflowGraph, vertical = false): Layout {
   const pos = new Map<string, { x: number; y: number }>();
   const bands: Band[] = [];
   const runs: Array<{ title: string; ids: string[] }> = [];
@@ -39,6 +40,16 @@ export function layoutGraph(g: WorkflowGraph): Layout {
     const last = runs[runs.length - 1];
     if (last && last.title === title) last.ids.push(n.id);
     else runs.push({ title, ids: [n.id] });
+  }
+  if (vertical) {
+    let y = 0;
+    for (const r of runs) {
+      r.ids.forEach((id, i) => pos.set(id, { x: BAND_PAD, y: y + BAND_HEAD + i * (NODE_H + ROW_GAP) }));
+      const h = BAND_HEAD + r.ids.length * NODE_H + (r.ids.length - 1) * ROW_GAP + BAND_PAD;
+      bands.push({ title: r.title, x: 0, y, w: NODE_W + BAND_PAD * 2, h });
+      y += h + ROW_GAP;
+    }
+    return { pos, bands };
   }
   let x = 0;
   for (const r of runs) {
