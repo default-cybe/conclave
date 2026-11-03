@@ -43,6 +43,7 @@ function stub(): void {
     editGraph: async (...args: unknown[]) => rec('editGraph', { sha: 'def', diff: '', view: {} })(...args),
     copyWorkflow: async (...args: unknown[]) => rec('copyWorkflow', { id: 'fix-until-green', path: '/x/fix-until-green.js' })(...args),
     saveLayout: async (...args: unknown[]) => rec('saveLayout', { 'agent-1': { x: 8, y: 16 } })(...args),
+    restoreGraph: async (...args: unknown[]) => rec('restoreGraph', { sha: 'old', diff: '', view: {} })(...args),
   };
   setWorkflows(hub.engine, svc as unknown as WorkflowService);
 }
@@ -144,6 +145,11 @@ describe('with a workflow service', () => {
     expect(calls.find((c) => c.method === 'editGraph')?.args.slice(0, 2)).toEqual(['mine', { nodeId: 'agent-1', field: 'prompt', value: 'hi', baseSha: 'abc', part: 1 }]);
 
     expect((await hub.api('/api/workflows/fix-until-green/copy', { method: 'POST' })).status).toBe(201);
+
+    const restore = (json: unknown) => hub.api('/api/workflows/mine/graph/restore', { method: 'POST', json });
+    expect((await restore({ sha: 'old' })).status).toBe(400);
+    expect((await restore({ sha: 'old', baseSha: 'def' })).status).toBe(200);
+    expect(calls.find((c) => c.method === 'restoreGraph')?.args.slice(0, 2)).toEqual(['mine', { sha: 'old', baseSha: 'def' }]);
 
     const lay = (json: unknown) => hub.api('/api/workflows/mine/graph/layout', { method: 'PUT', json });
     expect((await lay({})).status).toBe(400);

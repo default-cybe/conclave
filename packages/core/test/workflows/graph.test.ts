@@ -285,6 +285,32 @@ return [a, b, c]`;
     await expect(svc.copyWorkflow('fix-until-green')).rejects.toMatchObject({ status: 409 });
   });
 
+  test('undo and redo put back a version the hub wrote, only over the version the canvas shows', async () => {
+    const svc = svcOf(t.engine);
+    const path = join(svc.registry.userDir, 'undo-me.js');
+    const v1 = `export const meta = { name: 'undo-me', description: 'u' }\nconst a = await agent('say hi', { model: 'smart' })\nreturn a\n`;
+    writeFileSync(path, v1);
+    const view = await svc.graph('undo-me');
+    const e1 = await svc.editGraph('undo-me', { nodeId: 'agent-1', field: 'model', value: 'deep', baseSha: view.sha });
+    const back = await svc.restoreGraph('undo-me', { sha: view.sha, baseSha: e1.sha });
+    expect(readFileSync(path, 'utf8')).toBe(v1);
+    expect(back.sha).toBe(view.sha);
+    expect(back.diff).toContain("+ const a = await agent('say hi', { model: 'smart' })");
+    // redo
+    await svc.restoreGraph('undo-me', { sha: e1.sha, baseSha: view.sha });
+    expect(readFileSync(path, 'utf8')).toContain("model: 'deep'");
+    // the file changed outside the canvas: 409, and nothing is written
+    writeFileSync(path, v1.replace('hi', 'yo'));
+    await expect(svc.restoreGraph('undo-me', { sha: view.sha, baseSha: e1.sha })).rejects.toMatchObject({ status: 409 });
+    expect(readFileSync(path, 'utf8')).toContain('yo');
+    // a sha the hub never wrote is not a way to write any text
+    await expect(svc.restoreGraph('undo-me', { sha: sha256('anything'), baseSha: sha256(v1.replace('hi', 'yo')) })).rejects.toMatchObject({ status: 404 });
+    // a member has no versions of the owner's file and no access to it
+    await runAs('acct_graph_u', async () => {
+      await expect(svc.restoreGraph('undo-me', { sha: view.sha, baseSha: sha256(v1.replace('hi', 'yo')) })).rejects.toMatchObject({ status: 404 });
+    });
+  });
+
   test('dragged positions save in <name>.layout.json next to the script, which stays as it was', async () => {
     const svc = svcOf(t.engine);
     const path = join(svc.registry.userDir, 'lay-me.js');

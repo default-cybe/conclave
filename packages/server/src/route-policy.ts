@@ -400,6 +400,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'GET /api/workflows/:id/graph': 'self',
   'POST /api/workflows/:id/graph/edit': 'self',
   'PUT /api/workflows/:id/graph/layout': 'self',
+  'POST /api/workflows/:id/graph/restore': 'self',
   'POST /api/workflows/:id/copy': 'self',
   'GET /api/workflows/runs': 'self',
   'POST /api/workflows/runs': 'self',

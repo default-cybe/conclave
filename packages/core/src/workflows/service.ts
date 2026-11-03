@@ -494,7 +494,54 @@ export class WorkflowService {
     if (after.nodes.map((n) => n.id).join(',') !== before) throw new EngineError(400, 'the edit would change the graph shape; edit it in the script');
     if (Buffer.byteLength(next, 'utf8') > MAX_SCRIPT_BYTES) throw new EngineError(400, `the script would be larger than ${MAX_SCRIPT_BYTES / 1024} KB`);
     await files.write(e.path, next);
+    this.remember(e.path, disk, next);
     if (sessionId) this.engine.audit(sessionId, 'workflow.graph.edit', `${id} ${input.nodeId}.${input.field}`);
+    return { sha: sha256(next), diff: lineDiff(disk, next), view: this.viewOf(next, e.source, e.path, e.meta) };
+  }
+
+  /**
+   * Script versions the canvas wrote, by the caller's account and the file,
+   * so undo and redo can put one back. Only versions the hub itself had on
+   * disk around one of its own writes: the web app never sends a script.
+   * In memory: a hub restart forgets them.
+   */
+  private readonly versions = new Map<string, Map<string, string>>();
+
+  private remember(path: string, ...scripts: string[]): void {
+    const key = `${currentAccount() ?? OWNER_ID}\0${path}`;
+    const m = this.versions.get(key) ?? new Map<string, string>();
+    for (const s of scripts) {
+      m.delete(sha256(s));
+      m.set(sha256(s), s);
+    }
+    // shortcut: only the last 40 versions per file are kept, raise it if owners undo further back
+    while (m.size > 40) m.delete(m.keys().next().value!);
+    this.versions.set(key, m);
+  }
+
+  /**
+   * Undo or redo a canvas edit: put back the version `sha` of the script, if
+   * the file is still `baseSha` (the version the canvas shows). 404 when the
+   * hub no longer has that version.
+   */
+  async restoreGraph(id: string, input: { sha: string; baseSha: string }, sessionId?: string): Promise<GraphEditResult> {
+    const e = await this.entryFor(id, sessionId);
+    const view = this.viewOf(e.script, e.source, e.path, e.meta);
+    if (!view.editable || !e.path) throw new EngineError(403, view.readOnly ?? 'this workflow cannot be edited here');
+    const files = this.filesOf(e, sessionId);
+    const disk = await files.readScript(e.path);
+    if (disk === undefined) throw new EngineError(404, `cannot read ${e.path}`);
+    if (sha256(disk) !== input.baseSha) throw new EngineError(409, 'script changed: the file changed since the graph was read; reload it');
+    const next = this.versions.get(`${currentAccount() ?? OWNER_ID}\0${e.path}`)?.get(input.sha);
+    if (next === undefined) throw new EngineError(404, 'that version is gone (the hub restarted or it is too old); edit it in the script');
+    try {
+      await loadMeta(next);
+    } catch (err) {
+      throw new EngineError(400, `that version would not load: ${(err as Error).message}`);
+    }
+    await files.write(e.path, next);
+    this.remember(e.path, disk, next);
+    if (sessionId) this.engine.audit(sessionId, 'workflow.graph.restore', `${id} ${input.sha.slice(0, 12)}`);
     return { sha: sha256(next), diff: lineDiff(disk, next), view: this.viewOf(next, e.source, e.path, e.meta) };
   }
 

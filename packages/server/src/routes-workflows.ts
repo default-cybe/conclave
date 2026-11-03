@@ -180,6 +180,17 @@ export function registerWorkflowRoutes(app: Hono<HonoEnv>, ctx: ServerContext, a
     return c.json(res);
   });
 
+  // undo and redo: put back a version of the script the hub wrote itself, if the file is still baseSha
+  app.post('/api/workflows/:id/graph/restore', async (c) => {
+    const body = await readJson<{ sha?: unknown; baseSha?: unknown }>(c);
+    const sha = optString(body.sha, 'sha', 100);
+    const baseSha = optString(body.baseSha, 'baseSha', 100);
+    if (!sha || !baseSha) throw badRequest('sha and baseSha are required');
+    const res = await svc().restoreGraph(c.req.param('id'), { sha, baseSha }, sessionQuery(c));
+    audit(c, 'workflow.graph.restore', `${c.req.param('id')} ${sha.slice(0, 12)}`);
+    return c.json(res);
+  });
+
   // where the owner dragged the nodes, in the layout side file; the script is not touched
   app.put('/api/workflows/:id/graph/layout', async (c) => {
     const body = await readJson<{ nodes?: unknown }>(c);

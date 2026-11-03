@@ -2391,6 +2391,8 @@ export class ConclaveClient {
   /** The graph of the script a run ran, with nodes the library script changed since marked stale. */
   workflowRunGraph = (id: string) => this.request<WorkflowGraphView>('GET', `/api/workflows/runs/${encodeURIComponent(id)}/graph`);
   editWorkflowGraph = (id: string, edit: GraphEditInput) => this.request<GraphEditResult>('POST', `/api/workflows/${encodeURIComponent(id)}/graph/edit`, edit);
+  /** Undo or redo: put back version sha of the script, if the file is still baseSha. */
+  restoreWorkflowGraph = (id: string, sha: string, baseSha: string) => this.request<GraphEditResult>('POST', `/api/workflows/${encodeURIComponent(id)}/graph/restore`, { sha, baseSha });
   /** Save where the nodes were dragged, in the workflow's layout side file. */
   saveWorkflowLayout = (id: string, nodes: Record<string, { x: number; y: number }>) => this.request<{ nodes: Record<string, { x: number; y: number }> }>('PUT', `/api/workflows/${encodeURIComponent(id)}/graph/layout`, { nodes });
   /** Copy a built-in or plugin workflow into your own workflows, where it can be edited. */
