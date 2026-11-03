@@ -11,7 +11,9 @@ import { dayOf } from '../src/features/goals/words';
 
 const tz = process.env.TZ;
 afterAll(() => {
-  process.env.TZ = tz;
+  // assigning undefined stores the string "undefined", which Bun reads as the last zone set: later files in the shard ran in Berlin time
+  if (tz === undefined) delete process.env.TZ;
+  else process.env.TZ = tz;
 });
 
 test('the done day is the local day', () => {
