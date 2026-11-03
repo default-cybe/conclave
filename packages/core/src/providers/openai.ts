@@ -1,6 +1,6 @@
 import type { ContentBlock, ImageBlock, StopReason, Usage } from '../types';
 import { findCatalogEntry, normalizeModelId } from './catalog';
-import { BaseProvider, budgetOf, dataUrl, documentsForWire, effortOf, parseToolInput, toolResultMedia, toolResultString, wantsThinking } from './common';
+import { BaseProvider, budgetOf, dataUrl, documentsForWire, effortOf, parseToolInput, toolResultMedia, toolResultString, toolTurnLabel, wantsThinking } from './common';
 import { classifyStreamError, parseRateLimitHeaders } from './errors';
 import { SKIP_SIGNATURE as GEMINI_SKIP_SIGNATURE } from './gemini';
 import { hostOf, openStream, trimSlash } from './http';
@@ -78,6 +78,8 @@ export function chatMessages(req: ChatRequest, names: ToolNameMap, pdf = true, v
     .filter(Boolean)
     .join('\n\n');
   if (system) out.push({ role: 'system', content: system });
+  const toolNames = new Map<string, string>();
+  for (const m of req.messages) for (const b of m.content) if (b.type === 'tool_use') toolNames.set(b.id, names.wire(b.name));
   for (const m of req.messages) {
     if (m.role === 'assistant') {
       const a = assistantMessage(m, names, req.model);
@@ -99,6 +101,8 @@ export function chatMessages(req: ChatRequest, names: ToolNameMap, pdf = true, v
       }
     }
     out.push(...tools);
+    const label = toolTurnLabel(req.model, m.content, (id) => toolNames.get(id));
+    if (label) parts.push({ type: 'text', text: label });
     if (parts.length) out.push({ role: 'user', content: partsToContent(parts) });
   }
   return out;
