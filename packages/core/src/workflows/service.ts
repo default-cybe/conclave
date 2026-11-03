@@ -394,7 +394,9 @@ export class WorkflowService {
       sha: sha256(script),
       source,
       editable,
-      ...(editable ? {} : { readOnly: source === 'inline' ? 'This script came from a run; save it to your workflows to edit it.' : 'This workflow ships with Conclave or a plugin. Copy it to your workflows to edit it.' }),
+      ...(editable
+        ? {}
+        : { readOnly: source === 'inline' ? 'This script came from a run; save it to your workflows to edit it.' : source === 'claude-code' ? 'This workflow comes from a .claude folder; edit it there.' : 'This workflow ships with Conclave or a plugin. Copy it to your workflows to edit it.' }),
     };
   }
 
@@ -466,6 +468,8 @@ export class WorkflowService {
     const e = await this.entryFor(id, sessionId);
     if (e.error || !e.meta) throw new EngineError(400, `workflow ${id} cannot load: ${e.error ?? 'no meta'}`);
     if (e.source === 'user' || e.source === 'account') throw new EngineError(409, `${id} is already in your workflows`);
+    // a repository's script (project, .claude) copied under ~/.conclave/workflows would gain trusted meta.permissions.allow (trustedAllow)
+    if (e.source !== 'builtin' && e.source !== 'plugin') throw new EngineError(400, `only a built-in or plugin workflow is copied; ${id} comes from ${e.source}`);
     const acct = currentAccount() ?? OWNER_ID;
     const dir = isMember(acct) ? this.registry.accountDir(acct) : this.registry.userDir;
     const file = `${e.meta.name.replace(/[^A-Za-z0-9._-]/g, '-').replace(/^\.+/, '') || 'workflow'}.js`;

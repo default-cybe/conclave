@@ -11,6 +11,7 @@ import { DEFAULT_WORKFLOWS } from '../../src/workflows/defaults';
 import { applyEdit, GraphEditError, parseGraph } from '../../src/workflows/graph';
 import { loadMeta } from '../../src/workflows/registry';
 import { sha256 } from '../../src/workflows/store';
+import { runAs } from '../../src/people/context';
 import { nodeOf, nodeRuns, staleNodes } from '../../src/client/graph';
 import type { WorkflowCall } from '../../src/client/workflows';
 import { firstUserText, startTestEngine, until, type TestEngine } from '../engine/harness';
@@ -74,6 +75,12 @@ return { plan, ok, a, b }`);
   test('never throws: broken or odd scripts give a graph or an error, not an exception', () => {
     for (const s of ['', 'const x = `unterminated', '}}}{{{', 'return', '/* only a comment */', 'await agent(', "'use strict'\nconst a = 1"]) {
       expect(() => parseGraph(s)).not.toThrow();
+    }
+  });
+
+  test('bad escapes in a string neither throw nor hang (an unclosed \\u{ used to loop forever)', () => {
+    for (const s of ["const a = await agent('\\u{12')", "const a = await agent('\\u{110000}')", "const a = await agent('\\u{zz}', { label: '\\xZZ' })"]) {
+      expect(parseGraph(s).nodes.map((n) => n.kind)).toEqual(['agent']);
     }
   });
 });
@@ -170,6 +177,12 @@ describe('applyEdit', () => {
     expect(() => applyEdit(s, { nodeId: 'agent-9', field: 'model', value: 'deep' })).toThrow(/not in the script/);
     expect(() => applyEdit(s, { nodeId: 'agent-1', field: 'model', value: 'rm -rf /' })).toThrow(/model/);
     expect(() => applyEdit(s, { nodeId: 'agent-1', field: 'agentType', value: 'ghost' }, { agentType: () => false })).toThrow(/not installed/);
+    // the key in a form that is not a literal, or a spread that may set it: an inserted key would do nothing
+    expect(() => applyEdit("await agent('x', { 'model': pick() })", { nodeId: 'agent-1', field: 'model', value: 'deep' })).toThrow(/computed/);
+    expect(() => applyEdit("await agent('x', { model })", { nodeId: 'agent-1', field: 'model', value: 'deep' })).toThrow(/computed/);
+    expect(() => applyEdit("await agent('x', { ...base })", { nodeId: 'agent-1', field: 'model', value: 'deep' })).toThrow(/spread/);
+    // a nested key of the same name is not the option
+    expect(applyEdit("await agent('x', { schema: { model: 1 } })", { nodeId: 'agent-1', field: 'model', value: 'deep' })).toBe("await agent('x', { model: 'deep', schema: { model: 1 } })");
   });
 });
 
@@ -259,5 +272,32 @@ return [a, b, c]`;
     expect(copy.source).toBe('user');
     expect((await svc.graph('fix-until-green')).editable).toBe(true);
     await expect(svc.copyWorkflow('fix-until-green')).rejects.toMatchObject({ status: 409 });
+  });
+
+  test("a member never reads or edits the owner's workflow; a copy goes to their own folder", async () => {
+    const svc = svcOf(t.engine);
+    // edit-me is in the owner's folder (the test above)
+    const owner = await svc.graph('edit-me');
+    await runAs('acct_graph_m', async () => {
+      await expect(svc.graph('edit-me')).rejects.toMatchObject({ status: 404 });
+      await expect(svc.editGraph('edit-me', { nodeId: 'agent-1', field: 'model', value: 'fast', baseSha: owner.sha })).rejects.toMatchObject({ status: 404 });
+      await expect(svc.copyWorkflow('edit-me')).rejects.toMatchObject({ status: 404 });
+      // the owner's copy of fix-until-green is not theirs: they see the built-in and copy it to their account folder
+      expect((await svc.graph('fix-until-green')).source).toBe('builtin');
+      const copy = await svc.copyWorkflow('fix-until-green');
+      expect(copy.source).toBe('account');
+      expect(copy.path?.startsWith(svc.registry.accountDir('acct_graph_m'))).toBe(true);
+    });
+    expect(readFileSync(join(svc.registry.userDir, 'edit-me.js'), 'utf8')).toContain("model: 'deep'");
+  });
+
+  test("a project's workflow is not copied into the owner's trusted folder", async () => {
+    const svc = svcOf(t.engine);
+    const s = await t.engine.createSession({ cwd: t.cwd });
+    mkdirSync(join(t.cwd, '.conclave', 'workflows'), { recursive: true });
+    writeFileSync(join(t.cwd, '.conclave', 'workflows', 'repo-wf.js'), `export const meta = { name: 'repo-wf', description: 'r' }\nreturn 1\n`);
+    const view = await svc.graph('repo-wf', s.id);
+    expect(view.source).toBe('project');
+    await expect(svc.copyWorkflow('repo-wf', s.id)).rejects.toMatchObject({ status: 400 });
   });
 });

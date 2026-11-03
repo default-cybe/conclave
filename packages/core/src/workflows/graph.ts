@@ -140,6 +140,12 @@ function splitArgs(toks: Tok[], open: number, close: number): Array<[number, num
   return out;
 }
 
+/** A hex escape's character; a bad one (not hex, past U+10FFFF) reads as U+FFFD instead of throwing. */
+function codePoint(hex: string): string {
+  const cp = /^[0-9a-fA-F]+$/.test(hex) ? parseInt(hex, 16) : NaN;
+  return cp <= 0x10ffff ? String.fromCodePoint(cp) : '\ufffd';
+}
+
 /** The value of a string literal token (', " or a template with no ${}). Undefined when it is not a plain literal. */
 export function stringValue(t: Tok): string | undefined {
   if (t.kind !== 'str' && !(t.kind === 'tmpl' && !t.interp)) return undefined;
@@ -161,15 +167,17 @@ export function stringValue(t: Tok): string | undefined {
     else if (n === 'v') out += '\v';
     else if (n === '0' && !/[0-9]/.test(body[i + 1] ?? '')) out += '\0';
     else if (n === 'x') {
-      out += String.fromCharCode(parseInt(body.slice(i + 1, i + 3), 16));
+      out += codePoint(body.slice(i + 1, i + 3));
       i += 2;
     } else if (n === 'u') {
       if (body[i + 1] === '{') {
+        // an unclosed \u{ ends the value (going back to -1 looped forever)
         const e = body.indexOf('}', i);
-        out += String.fromCodePoint(parseInt(body.slice(i + 2, e), 16));
+        if (e < 0) break;
+        out += codePoint(body.slice(i + 2, e));
         i = e;
       } else {
-        out += String.fromCharCode(parseInt(body.slice(i + 1, i + 5), 16));
+        out += codePoint(body.slice(i + 1, i + 5));
         i += 4;
       }
     } else if (n === '\n') {
@@ -363,6 +371,15 @@ function promptOf(toks: Tok[], a: number, b: number): { parts: GraphLiteral[]; l
 
 /** The node graph of a workflow script. Never throws: a script that does not tokenize gives no nodes. */
 export function parseGraph(script: string, metaPhases: string[] = []): WorkflowGraph & { error?: string } {
+  try {
+    return parse(script, metaPhases);
+  } catch (err) {
+    // a backstop: a parser bug must not turn a workflow file into a 500
+    return { name: '', phases: metaPhases, nodes: [], edges: [], error: (err as Error).message };
+  }
+}
+
+function parse(script: string, metaPhases: string[]): WorkflowGraph & { error?: string } {
   let toks: Tok[];
   try {
     toks = tokenize(script);
@@ -529,9 +546,15 @@ export function applyEdit(script: string, edit: Pick<GraphEditInput, 'nodeId' | 
     return splice(have.start, have.end, quoteString(v, have.quote ?? "'"));
   }
   if (!node.optsObject) throw new GraphEditError(`the options are not an object literal; add ${edit.field} in the script`);
-  // a computed value under that key (label: 'fix ' + round) is not a literal to replace
+  // the key may be there in a form that is not a literal (label: 'fix ' + round, 'model': x, { model }), or a spread may
+  // set it: an inserted key would be overridden at run time, so refuse rather than write an edit that does nothing
   const inner = script.slice(node.optsObject.open, node.optsObject.close);
-  if (new RegExp(`[{,\\s]${edit.field}\\s*:`).test(inner)) throw new GraphEditError(`${edit.field} is computed; edit it in the script`);
+  const ot = tokenize(script.slice(node.optsObject.open, node.optsObject.close + 1));
+  for (const [a] of splitArgs(ot, 0, ot.length - 1)) {
+    const k = ot[a];
+    if (k.text === '...') throw new GraphEditError(`the options spread another object that may set ${edit.field}; edit it in the script`);
+    if ((k.kind === 'ident' ? k.text : stringValue(k)) === edit.field) throw new GraphEditError(`${edit.field} is computed; edit it in the script`);
+  }
   const quote = Object.values(node.opts ?? {}).find((o) => o.quote)?.quote ?? "'";
   const empty = !inner.slice(1).trim();
   return splice(node.optsObject.open + 1, node.optsObject.open + 1, `${empty ? ' ' : ' '}${edit.field}: ${quoteString(v, quote)}${empty ? ' ' : ','}`);
