@@ -18,7 +18,7 @@ describe('the chat agent', () => {
     expect(chat).toBeDefined();
     expect(chat.primary).toBe(true);
     expect(chat.memory).toBe('global');
-    expect([...(chat.tools ?? [])].sort()).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'Read', 'RenderFile', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch', 'Write']);
+    expect([...(chat.tools ?? [])].sort()).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'GenerateImage', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'Read', 'RenderFile', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch', 'Write']);
     expect(chat.tools).not.toContain('Bash');
     expect(chat.prompt).toContain('Continue as a session');
     // it makes files itself; Delegate is for the owner's machines, and a file is attached only once ShareFile returns a card
@@ -105,7 +105,7 @@ describe('chat sessions in the engine', () => {
     const { engine } = t;
     const chat = await engine.createSession({ kind: 'chat', cwd: t.cwd });
     await t.run(chat.id, 'what listens on 8080 on madx?');
-    expect(toolNames(t.requests[0])).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'Read', 'RenderFile', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch', 'Write']);
+    expect(toolNames(t.requests[0])).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'GenerateImage', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'Read', 'RenderFile', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch', 'Write']);
     expect(engine.checkpoints(chat.id)).toEqual([]);
     // the chat makes files itself: its file note says Write and RenderFile, not Delegate
     expect(t.requests[0]).toContain('Save it with Write (RenderFile turns HTML, SVG or Markdown into a PDF or PNG), then call ShareFile');
@@ -161,7 +161,7 @@ describe('memory off leaves no trace', () => {
     const without = t.requests[1];
     expect(without).not.toContain('The owner runs Proxmox on madx.');
     expect(without).not.toContain('Paperless runs in CT 112');
-    expect(toolNames(without)).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'PlaceDetails', 'PlaceSearch', 'Read', 'RenderFile', 'ShareFile', 'WebFetch', 'WebSearch', 'Write']);
+    expect(toolNames(without)).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'GenerateImage', 'MapImage', 'PlaceDetails', 'PlaceSearch', 'Read', 'RenderFile', 'ShareFile', 'WebFetch', 'WebSearch', 'Write']);
   });
 });
 
