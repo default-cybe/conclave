@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- The desktop app no longer lists you twice. The account menu showed your name and also "Switch to" your name, and Settings, Your account, Accounts on this browser listed you twice. This happened after you had signed in once on the Connect screen inside the desktop window. The token the desktop app gives its page carries no account, so that older sign in did not match it. The app now uses who the hub says is signed in to match them.
+
 ## [0.4.61] - 2026-11-03
 
 ### Fixed
