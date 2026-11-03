@@ -125,6 +125,16 @@ export default function WorkflowGraphPage() {
     setDiff(res.diff || undefined);
   };
   const edited = (label: string, before: string, after: string) => history.push({ label, undo: () => restore(before), redo: () => restore(after) });
+  // a node from the search: a new statement in the script; a refusal comes back as a toast with the reason
+  const insert = (kind: 'agent' | 'parallel' | 'check' | 'approve' | 'ask', after?: string) =>
+    void attempt(() => api().insertWorkflowNode(id, { kind, baseSha: shaNow.current, ...(after ? { after } : {}) }), 'Added to the script').then((res) => {
+      if (!res || !view) return;
+      edited('new node', view.sha, res.sha);
+      setView(res.view);
+      if (res.view.layout) setPositions(res.view.layout);
+      setDiff(res.diff || undefined);
+      setSel(res.nodeId);
+    });
   const start = (resume?: string) => void attempt(() => api().startWorkflow({ name: id, ...(resume ? { resumeFromRunId: resume } : {}) })).then((r) => r && go(`/workflows/runs/${r.id}?view=graph`));
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -193,6 +203,7 @@ export default function WorkflowGraphPage() {
         selected={sel}
         onSelect={setSel}
         positions={positions}
+        onInsert={view.editable ? insert : undefined}
         onMove={view.editable ? (nid, at) => moved(positions, { ...positions, [nid]: { x: Math.round(at.x / 8) * 8, y: Math.round(at.y / 8) * 8 } }) : undefined}
         className="h-[min(74vh,780px)] rounded-[var(--r-2)] border border-rule phone:h-[66vh]" />
       <InspectorPanel

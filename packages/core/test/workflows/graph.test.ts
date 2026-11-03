@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_WORKFLOWS } from '../../src/workflows/defaults';
-import { applyEdit, GraphEditError, layoutPathOf, parseGraph, printLayout, readLayout } from '../../src/workflows/graph';
+import { applyEdit, GraphEditError, insertNode, layoutPathOf, parseGraph, printLayout, readLayout, shiftLayout } from '../../src/workflows/graph';
 import { loadMeta } from '../../src/workflows/registry';
 import { sha256 } from '../../src/workflows/store';
 import { runAs } from '../../src/people/context';
@@ -82,6 +82,42 @@ return { plan, ok, a, b }`);
     for (const s of ["const a = await agent('\\u{12')", "const a = await agent('\\u{110000}')", "const a = await agent('\\u{zz}', { label: '\\xZZ' })"]) {
       expect(parseGraph(s).nodes.map((n) => n.kind)).toEqual(['agent']);
     }
+  });
+});
+
+describe('insertNode', () => {
+  const s = `export const meta = { name: 'ins', description: 'i' }
+phase('A')
+const plan = await agent('plan it', { label: 'plan' })
+const step = await agent('go ' + plan)
+return step
+`;
+  test('after a node: a new statement on the next line that reads its name, in its phase', () => {
+    const r = insertNode(s, { kind: 'agent', after: 'agent-1' });
+    expect(r.script.split('\n')[3]).toBe("const step2 = await agent('Work from this result: ' + JSON.stringify(plan), { label: 'new step' })");
+    expect(r.nodeId).toBe('agent-2');
+    const g = parseGraph(r.script);
+    expect(g.nodes.find((n) => n.id === 'agent-2')?.phase).toBe('A');
+    expect(g.edges).toContainEqual({ from: 'agent-1', to: 'agent-2', name: 'plan' });
+  });
+  test('no anchor: before the last return; every kind parses back as its own node', () => {
+    for (const kind of ['agent', 'parallel', 'check', 'approve', 'ask'] as const) {
+      const r = insertNode(s, { kind });
+      const lines = r.script.split('\n');
+      expect(lines[lines.length - 2]).toBe('return step');
+      expect(parseGraph(r.script).nodes.find((n) => n.id === r.nodeId)?.kind).toBe(kind);
+    }
+    expect(insertNode("export const meta = { name: 'x', description: 'x' }\nconst a = 1", { kind: 'check' }).script).toEndWith("\nconst check = await lib.runCheck('bun test')\n");
+  });
+  test('refuses where it cannot place it, with the reason', () => {
+    expect(() => insertNode(s, { kind: 'agent', after: 'return-1' })).toThrow(/after return/);
+    expect(() => insertNode(s, { kind: 'agent', after: 'agent-9' })).toThrow(/no node/);
+    expect(() => insertNode(s.replace("{ label: 'plan' })", "{ label: 'plan' }); log(1)"), { kind: 'agent', after: 'agent-1' })).toThrow(/shares its last line/);
+    expect(() => insertNode(s.replace('return step', 'log(1); return step'), { kind: 'agent' })).toThrow(/shares its line/);
+    expect(() => insertNode(s, { kind: 'pipeline' as never })).toThrow(/one of/);
+  });
+  test('saved positions follow the nodes whose numbers moved', () => {
+    expect(shiftLayout({ 'agent-1': { x: 0, y: 0 }, 'agent-2': { x: 8, y: 8 }, 'check-2': { x: 16, y: 16 } }, 'agent-2')).toEqual({ 'agent-1': { x: 0, y: 0 }, 'agent-3': { x: 8, y: 8 }, 'check-2': { x: 16, y: 16 } });
   });
 });
 
@@ -309,6 +345,25 @@ return [a, b, c]`;
     await runAs('acct_graph_u', async () => {
       await expect(svc.restoreGraph('undo-me', { sha: view.sha, baseSha: sha256(v1.replace('hi', 'yo')) })).rejects.toMatchObject({ status: 404 });
     });
+  });
+
+  test('a node from the search writes a new statement, keeps positions with their nodes, and undo takes it out', async () => {
+    const svc = svcOf(t.engine);
+    const path = join(svc.registry.userDir, 'grow-me.js');
+    const script = `export const meta = { name: 'grow-me', description: 'g' }\nconst a = await agent('say a')\nconst b = await agent('say b')\nreturn b\n`;
+    writeFileSync(path, script);
+    const view = await svc.graph('grow-me');
+    await svc.saveLayout('grow-me', { 'agent-2': { x: 80, y: 80 } });
+    const res = await svc.insertGraph('grow-me', { kind: 'agent', after: 'agent-1', baseSha: view.sha });
+    expect(res.nodeId).toBe('agent-2');
+    expect(readFileSync(path, 'utf8').split('\n')[2]).toContain("JSON.stringify(a), { label: 'new step' })");
+    expect(res.view.layout).toEqual({ 'agent-3': { x: 80, y: 80 } });
+    expect((await svc.graph('grow-me')).layout).toEqual({ 'agent-3': { x: 80, y: 80 } });
+    await expect(svc.insertGraph('grow-me', { kind: 'agent', baseSha: view.sha })).rejects.toMatchObject({ status: 409 });
+    await expect(svc.insertGraph('grow-me', { kind: 'agent', after: 'return-1', baseSha: res.sha })).rejects.toMatchObject({ status: 400 });
+    await expect(svc.insertGraph('review-changes', { kind: 'agent', baseSha: 'x' })).rejects.toMatchObject({ status: 403 });
+    await svc.restoreGraph('grow-me', { sha: view.sha, baseSha: res.sha });
+    expect(readFileSync(path, 'utf8')).toBe(script);
   });
 
   test('dragged positions save in <name>.layout.json next to the script, which stays as it was', async () => {

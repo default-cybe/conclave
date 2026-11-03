@@ -560,6 +560,98 @@ export function applyEdit(script: string, edit: Pick<GraphEditInput, 'nodeId' | 
   return splice(node.optsObject.open + 1, node.optsObject.open + 1, `${empty ? ' ' : ' '}${edit.field}: ${quoteString(v, quote)}${empty ? ' ' : ','}`);
 }
 
+// ----- a new node from the canvas (docs/design/VISUAL-PROGRAMMING.md 7.5, phase 2) -----
+
+export type InsertKind = 'agent' | 'parallel' | 'check' | 'approve' | 'ask';
+export const INSERT_KINDS: InsertKind[] = ['agent', 'parallel', 'check', 'approve', 'ask'];
+
+/** A name no statement in the script uses yet: base, base2, base3... */
+function freshName(toks: Tok[], base: string): string {
+  const used = new Set(toks.filter((t) => t.kind === 'ident').map((t) => t.text));
+  for (let i = 1; ; i++) if (!used.has(i === 1 ? base : `${base}${i}`)) return i === 1 ? base : `${base}${i}`;
+}
+
+function newStatement(kind: InsertKind, toks: Tok[], reads?: string): string {
+  const plus = reads ? ` + JSON.stringify(${reads})` : '';
+  switch (kind) {
+    case 'agent':
+      return `const ${freshName(toks, 'step')} = await agent(${reads ? `'Work from this result: '${plus}` : "'Describe the task.'"}, { label: 'new step' })`;
+    case 'parallel':
+      return `const ${freshName(toks, 'results')} = await parallel([() => agent('First angle.'${plus}, { label: 'angle 1' }), () => agent('Second angle.'${plus}, { label: 'angle 2' })])`;
+    case 'check':
+      return `const ${freshName(toks, 'check')} = await lib.runCheck('bun test')`;
+    case 'approve':
+      return `await lib.approve('Go on?')`;
+    case 'ask':
+      return `const ${freshName(toks, 'answer')} = await lib.ask('Which way?', ['Yes', 'No'])`;
+  }
+}
+
+/**
+ * Insert a new statement for a node: on the line after node `after`, or
+ * (no after) before the script's last top-level `return`, else at the end.
+ * A wire dropped from a node passes after; the new node reads its first
+ * name, so the wire shows. Refuses with GraphEditError (the reason) where
+ * the parser cannot place it on a line of its own: after a return, after a
+ * statement that shares its last line with another, or when the result does
+ * not parse back as exactly one new node of that kind.
+ */
+export function insertNode(script: string, input: { kind: InsertKind; after?: string }): { script: string; nodeId: string } {
+  if (!INSERT_KINDS.includes(input.kind)) throw new GraphEditError(`a new node is one of ${INSERT_KINDS.join(', ')}`);
+  const g = parseGraph(script);
+  if (g.error) throw new GraphEditError(`the script does not parse: ${g.error}`);
+  const toks = tokenize(script);
+  const stmts = statements(script, toks);
+  const starts = lineStarts(script);
+  const line = (o: number) => lineAt(starts, o);
+  const lineEnd = (l: number) => (l < starts.length ? starts[l] - 1 : script.length);
+  const indentOf = (l: number) => /^[ \t]*/.exec(script.slice(starts[l - 1], lineEnd(l)))![0];
+  let at: number;
+  let text: string;
+  if (input.after) {
+    const a = g.nodes.find((n) => n.id === input.after);
+    if (!a) throw new GraphEditError(`no node ${input.after}; reload the graph`);
+    if (a.kind === 'return') throw new GraphEditError('nothing runs after return; add the node before it');
+    // the first statement ending on the node's last line: anything after it on that line is other code
+    const st = stmts.find((s) => line(s.end) === a.span.end);
+    if (!st) throw new GraphEditError(`cannot find where ${a.label} ends; add it in the script`);
+    const rest = script.slice(st.end, lineEnd(a.span.end)).trim();
+    if (rest && !rest.startsWith('//')) throw new GraphEditError(`${a.label} shares its last line with other code; add it in the script`);
+    at = lineEnd(a.span.end);
+    text = `\n${indentOf(a.span.start)}${newStatement(input.kind, toks, a.fn ? undefined : a.declares[0])}`;
+  } else {
+    const last = stmts.at(-1);
+    if (last && last.toks[0]?.text === 'return') {
+      const l = line(last.start);
+      if (script.slice(starts[l - 1], last.start).trim()) throw new GraphEditError('the return shares its line with other code; add it in the script');
+      at = starts[l - 1];
+      text = `${indentOf(l)}${newStatement(input.kind, toks)}\n`;
+    } else {
+      at = script.length;
+      text = `${script.endsWith('\n') || !script ? '' : '\n'}${newStatement(input.kind, toks)}\n`;
+    }
+  }
+  const next = script.slice(0, at) + text + script.slice(at);
+  // the parser must read it back as one more node of this kind, on its own line
+  const g2 = parseGraph(next);
+  const kindOf = (x: WorkflowGraph) => x.nodes.filter((n) => n.kind === input.kind).length;
+  const newLine = lineAt(lineStarts(next), at + (text.startsWith('\n') ? 1 : 0));
+  const added = g2.nodes.find((n) => n.span.start === newLine && n.kind === input.kind);
+  if (g2.error || g2.nodes.length !== g.nodes.length + 1 || kindOf(g2) !== kindOf(g) + 1 || !added) throw new GraphEditError('the new node would not read as its own step here; add it in the script');
+  return { script: next, nodeId: added.id };
+}
+
+/** Layout ids after a node of kind was added as `nodeId`: later nodes of that kind moved up one number. */
+export function shiftLayout(positions: GraphPositions, nodeId: string): GraphPositions {
+  const [kind, n] = [nodeId.replace(/-\d+$/, ''), Number(nodeId.replace(/^.*-/, ''))];
+  const out: GraphPositions = {};
+  for (const [id, p] of Object.entries(positions)) {
+    const m = /^([a-z]+)-(\d+)$/.exec(id);
+    out[m && m[1] === kind && Number(m[2]) >= n ? `${kind}-${Number(m[2]) + 1}` : id] = p;
+  }
+  return out;
+}
+
 // ----- the layout side file (docs/design/VISUAL-PROGRAMMING.md 3.2) -----
 
 export type GraphPositions = Record<string, { x: number; y: number }>;

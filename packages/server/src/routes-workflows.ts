@@ -7,6 +7,7 @@
 import type { Hono } from 'hono';
 import type { FindingVerdict, KeepWinnerHow, StartWorkflowInput, WorkflowRunStatus, WorktreeAction } from '@conclave/core/client/workflows.ts';
 import type { GraphEditField } from '@conclave/core/client/graph.ts';
+import { INSERT_KINDS, type InsertKind } from '@conclave/core/workflows/graph.ts';
 import { workflowsOf } from '@conclave/core/workflows/attached.ts';
 import type { WorkflowService } from '@conclave/core/workflows/service.ts';
 import type { HonoEnv, ServerContext } from './context';
@@ -177,6 +178,18 @@ export function registerWorkflowRoutes(app: Hono<HonoEnv>, ctx: ServerContext, a
     if (body.part !== undefined && (typeof body.part !== 'number' || !Number.isInteger(body.part) || body.part < 0)) throw badRequest('part must be a part number');
     const res = await svc().editGraph(c.req.param('id'), { nodeId, field: body.field as GraphEditField, value: body.value, baseSha, ...(body.part !== undefined ? { part: body.part as number } : {}) }, sessionQuery(c));
     audit(c, 'workflow.graph.edit', `${c.req.param('id')} ${nodeId}.${body.field}`);
+    return c.json(res);
+  });
+
+  // a new Agent, Parallel, Check, Approve or Ask node from the canvas's search, as a new statement in the script
+  app.post('/api/workflows/:id/graph/insert', async (c) => {
+    const body = await readJson<{ kind?: unknown; after?: unknown; baseSha?: unknown }>(c);
+    const baseSha = optString(body.baseSha, 'baseSha', 100);
+    const after = optString(body.after, 'after', 100);
+    if (!baseSha) throw badRequest('baseSha is required');
+    if (!INSERT_KINDS.includes(body.kind as InsertKind)) throw badRequest(`kind must be one of ${INSERT_KINDS.join(', ')}`);
+    const res = await svc().insertGraph(c.req.param('id'), { kind: body.kind as InsertKind, baseSha, ...(after ? { after } : {}) }, sessionQuery(c));
+    audit(c, 'workflow.graph.insert', `${c.req.param('id')} ${res.nodeId}`);
     return c.json(res);
   });
 

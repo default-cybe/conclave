@@ -28,9 +28,68 @@ export interface GraphCanvasProps {
   positions?: Record<string, { x: number; y: number }>;
   /** Nodes drag when set; called once where a node is dropped. */
   onMove?: (id: string, at: { x: number; y: number }) => void;
+  /** Set on a workflow you own: a double-click on empty canvas, or a wire dropped there, opens the node search. */
+  onInsert?: (kind: InsertKind, after?: string) => void;
 }
 
-function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className, positions, onMove }: GraphCanvasProps) {
+type InsertKind = 'agent' | 'parallel' | 'check' | 'approve' | 'ask';
+const INSERTS: Array<{ kind: InsertKind; word: string; help: string }> = [
+  { kind: 'agent', word: 'Agent', help: 'One agent call' },
+  { kind: 'parallel', word: 'Parallel', help: 'Two agents at once' },
+  { kind: 'check', word: 'Check', help: 'Run a command' },
+  { kind: 'approve', word: 'Approve', help: 'Wait for your yes' },
+  { kind: 'ask', word: 'Ask', help: 'A question for you' },
+];
+
+/** The node search: type to filter, arrows and Enter pick, Escape closes. */
+function NodeSearch({ at, after, onPick, onClose }: { at: { x: number; y: number }; after?: string; onPick: (k: InsertKind) => void; onClose: () => void }) {
+  const [q, setQ] = useState('');
+  const [i, setI] = useState(0);
+  const list = INSERTS.filter((x) => `${x.word} ${x.help}`.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <div className="absolute z-10 w-[240px] rounded-[var(--r-2)] border border-rule-2 bg-raise p-1.5" style={{ left: at.x, top: at.y }} role="dialog" aria-label="Add a node">
+      <input
+        autoFocus
+        value={q}
+        placeholder={after ? 'Add a node after this one' : 'Add a node'}
+        aria-label="Search nodes"
+        className="w-full rounded-[var(--r-1)] bg-sunk px-2 py-1.5 text-[13px] text-fg outline-none"
+        onChange={(e) => {
+          setQ(e.target.value);
+          setI(0);
+        }}
+        onBlur={() => setTimeout(onClose, 150)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') onClose();
+          else if (e.key === 'ArrowDown') setI((n) => Math.min(n + 1, list.length - 1));
+          else if (e.key === 'ArrowUp') setI((n) => Math.max(n - 1, 0));
+          else if (e.key === 'Enter' && list[i]) onPick(list[i].kind);
+          else return;
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+      />
+      <ul role="listbox" className="pt-1">
+        {list.map((x, n) => (
+          <li key={x.kind} role="option" aria-selected={n === i}>
+            <button type="button" className={`flex w-full items-baseline justify-between gap-2 rounded-[var(--r-1)] px-2 py-1.5 text-left text-[13px] ${n === i ? 'bg-hover text-fg' : 'text-fg-2'}`} onMouseDown={(e) => e.preventDefault()} onClick={() => onPick(x.kind)}>
+              <span>{x.word}</span>
+              <span className="text-[12px] text-fg-3">{x.help}</span>
+            </button>
+          </li>
+        ))}
+        {!list.length && <li className="px-2 py-1.5 text-[12px] text-fg-3">No node by that name.</li>}
+      </ul>
+    </div>
+  );
+}
+
+function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className, positions, onMove, onInsert }: GraphCanvasProps) {
+  const [search, setSearch] = useState<{ x: number; y: number; after?: string }>();
+  const openSearch = (clientX: number, clientY: number, after?: string) => {
+    const r = box.current?.getBoundingClientRect();
+    if (r) setSearch({ x: Math.max(8, Math.min(clientX - r.left, r.width - 248)), y: Math.max(8, Math.min(clientY - r.top, r.height - 240)), after });
+  };
   const flow = useReactFlow();
   const vertical = useIsMobile();
   const box = useRef<HTMLDivElement>(null);
@@ -106,7 +165,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
   }, [selected, flow]);
 
   return (
-    <div className={className} ref={box}>
+    <div className={className} ref={box} style={{ position: 'relative' }}>
       <ReactFlow
         className="cv-graph"
         nodes={nodes}
@@ -114,7 +173,19 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         nodeTypes={NODE_TYPES}
         nodesDraggable={draggable}
         onNodesChange={draggable ? onNodesChange : undefined}
-        nodesConnectable={false}
+        nodesConnectable={!!onInsert && !vertical}
+        zoomOnDoubleClick={!onInsert}
+        onDoubleClick={onInsert ? (e) => (e.target as HTMLElement).classList.contains('react-flow__pane') && openSearch(e.clientX, e.clientY) : undefined}
+        // a wire let go on empty canvas: the new node goes after the one it came from
+        onConnectEnd={
+          onInsert
+            ? (e, s) => {
+                if (s.isValid || !s.fromNode) return;
+                const p = 'changedTouches' in e ? e.changedTouches[0] : e;
+                openSearch(p.clientX, p.clientY, s.fromNode.id);
+              }
+            : undefined
+        }
         elementsSelectable
         zoomOnPinch
         panOnDrag
@@ -136,6 +207,17 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         {/* a phone pinches; the buttons covered the column's nodes */}
         {!vertical && <Controls showInteractive={false} position="bottom-right" />}
       </ReactFlow>
+      {search && onInsert && (
+        <NodeSearch
+          at={search}
+          after={search.after}
+          onClose={() => setSearch(undefined)}
+          onPick={(k) => {
+            setSearch(undefined);
+            onInsert(k, search.after);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -171,7 +171,7 @@ import type {
   WorktreeActionResult,
 } from './workflows';
 export type * from './workflows';
-import type { GraphEditInput, GraphEditResult, WorkflowGraphView } from './graph';
+import type { GraphEditInput, GraphEditResult, GraphInsertInput, WorkflowGraphView } from './graph';
 export type * from './graph';
 export { nodeOf, nodeRuns, staleNodes } from './graph';
 // ----- alerts: file conflicts and stuck turns, docs/DESIGN.md 28 -----
@@ -2391,6 +2391,8 @@ export class ConclaveClient {
   /** The graph of the script a run ran, with nodes the library script changed since marked stale. */
   workflowRunGraph = (id: string) => this.request<WorkflowGraphView>('GET', `/api/workflows/runs/${encodeURIComponent(id)}/graph`);
   editWorkflowGraph = (id: string, edit: GraphEditInput) => this.request<GraphEditResult>('POST', `/api/workflows/${encodeURIComponent(id)}/graph/edit`, edit);
+  /** Add a node as a new statement: after node `after`, or before the script's last return. */
+  insertWorkflowNode = (id: string, input: GraphInsertInput) => this.request<GraphEditResult & { nodeId: string }>('POST', `/api/workflows/${encodeURIComponent(id)}/graph/insert`, input);
   /** Undo or redo: put back version sha of the script, if the file is still baseSha. */
   restoreWorkflowGraph = (id: string, sha: string, baseSha: string) => this.request<GraphEditResult>('POST', `/api/workflows/${encodeURIComponent(id)}/graph/restore`, { sha, baseSha });
   /** Save where the nodes were dragged, in the workflow's layout side file. */

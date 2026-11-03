@@ -32,7 +32,7 @@ import type {
   WorktreeActionResult,
 } from '../client/workflows';
 import { staleNodes, type GraphEditInput, type GraphEditResult, type WorkflowGraphView } from '../client/graph';
-import { GraphEditError, applyEdit, cleanPositions, layoutPathOf, lineDiff, parseGraph, printLayout, readLayout, type GraphPositions } from './graph';
+import { GraphEditError, applyEdit, cleanPositions, insertNode, layoutPathOf, lineDiff, parseGraph, printLayout, readLayout, shiftLayout, type GraphPositions, type InsertKind } from './graph';
 import type { Tool } from '../tools/types';
 import { toolByName } from '../tools';
 import { reminder } from '../session/transcript';
@@ -497,6 +497,40 @@ export class WorkflowService {
     this.remember(e.path, disk, next);
     if (sessionId) this.engine.audit(sessionId, 'workflow.graph.edit', `${id} ${input.nodeId}.${input.field}`);
     return { sha: sha256(next), diff: lineDiff(disk, next), view: this.viewOf(next, e.source, e.path, e.meta) };
+  }
+
+  /**
+   * Add a node from the canvas's search as a new statement in the script
+   * (insertNode), over the version the canvas shows. Later nodes of the same
+   * kind move up one number, so their saved positions move with them.
+   */
+  async insertGraph(id: string, input: { kind: InsertKind; after?: string; baseSha: string }, sessionId?: string): Promise<GraphEditResult & { nodeId: string }> {
+    const e = await this.entryFor(id, sessionId);
+    const view = this.viewOf(e.script, e.source, e.path, e.meta);
+    if (!view.editable || !e.path) throw new EngineError(403, view.readOnly ?? 'this workflow cannot be edited here');
+    const files = this.filesOf(e, sessionId);
+    const disk = await files.readScript(e.path);
+    if (disk === undefined) throw new EngineError(404, `cannot read ${e.path}`);
+    if (sha256(disk) !== input.baseSha) throw new EngineError(409, 'script changed: the file changed since the graph was read; reload it');
+    let res: { script: string; nodeId: string };
+    try {
+      res = insertNode(disk, input);
+      await loadMeta(res.script);
+    } catch (err) {
+      throw new EngineError(400, err instanceof GraphEditError ? err.message : `the new node would not load: ${(err as Error).message}`);
+    }
+    if (Buffer.byteLength(res.script, 'utf8') > MAX_SCRIPT_BYTES) throw new EngineError(400, `the script would be larger than ${MAX_SCRIPT_BYTES / 1024} KB`);
+    await files.write(e.path, res.script);
+    this.remember(e.path, disk, res.script);
+    const lp = layoutPathOf(e.path);
+    const layout = readLayout(await files.read(lp));
+    const next = this.viewOf(res.script, e.source, e.path, e.meta);
+    if (Object.keys(layout).length) {
+      next.layout = shiftLayout(layout, res.nodeId);
+      await files.write(lp, printLayout(next.layout, next.sha));
+    }
+    if (sessionId) this.engine.audit(sessionId, 'workflow.graph.insert', `${id} ${res.nodeId}`);
+    return { sha: next.sha, diff: lineDiff(disk, res.script), view: next, nodeId: res.nodeId };
   }
 
   /**

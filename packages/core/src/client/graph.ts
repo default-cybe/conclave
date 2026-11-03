@@ -95,6 +95,14 @@ export interface GraphEditInput {
   baseSha: string;
 }
 
+/** POST /api/workflows/:id/graph/insert: a new node as a new statement. */
+export interface GraphInsertInput {
+  kind: 'agent' | 'parallel' | 'check' | 'approve' | 'ask';
+  /** The node it goes after (a wire dropped from it); left out, before the script's last return. */
+  after?: string;
+  baseSha: string;
+}
+
 export interface GraphEditResult {
   sha: string;
   /** The changed lines, before and after. */
