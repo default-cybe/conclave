@@ -7,11 +7,11 @@
  */
 import '@xyflow/react/dist/base.css';
 import './graph.css';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Controls, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type Node } from '@xyflow/react';
 import type { NodeRun, WorkflowGraph } from '@conclave/core/client';
 import { useIsMobile } from '@/lib/hooks';
-import { layoutGraph } from './layout';
+import { NODE_H, NODE_W, clearOf, layoutGraph } from './layout';
 import { NODE_TYPES, type BandData, type FlowNodeData } from './nodes';
 
 export interface GraphCanvasProps {
@@ -28,6 +28,7 @@ export interface GraphCanvasProps {
 function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className }: GraphCanvasProps) {
   const flow = useReactFlow();
   const vertical = useIsMobile();
+  const box = useRef<HTMLDivElement>(null);
   const { nodes, edges } = useMemo(() => {
     const { pos, bands } = layoutGraph(graph, vertical);
     const staleSet = new Set(stale);
@@ -65,8 +66,23 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
     return () => window.removeEventListener('keydown', onKey);
   }, [flow, onSelect]);
 
+  // the inspector opens over the canvas: once it has slid in, pan so the tapped node sits in the part it leaves free
+  useEffect(() => {
+    if (!selected) return;
+    const t = setTimeout(() => {
+      const cover = document.querySelector('.cv-inspector')?.getBoundingClientRect();
+      const n = flow.getInternalNode(selected);
+      const canvas = box.current?.getBoundingClientRect();
+      if (!cover || !n || !canvas) return;
+      const p = n.internals.positionAbsolute;
+      const vp = clearOf({ x: p.x, y: p.y, w: n.measured.width ?? NODE_W, h: n.measured.height ?? NODE_H }, flow.getViewport(), canvas, cover);
+      if (vp) void flow.setViewport(vp, { duration: 200 });
+    }, 240);
+    return () => clearTimeout(t);
+  }, [selected, flow]);
+
   return (
-    <div className={className}>
+    <div className={className} ref={box}>
       <ReactFlow
         className="cv-graph"
         nodes={nodes}

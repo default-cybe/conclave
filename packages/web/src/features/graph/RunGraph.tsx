@@ -26,12 +26,13 @@ function InspectorPanel({ open, onClose, props }: { open: boolean; onClose: () =
   const phone = useIsMobile();
   if (phone)
     return (
-      <Sheet open={open} onClose={onClose} label={props?.node.label ?? 'Node'}>
+      <Sheet open={open} onClose={onClose} label={props?.node.label ?? 'Node'} className="cv-inspector">
         {props && <Inspector {...props} />}
       </Sheet>
     );
+  // cv-inspector: the canvas pans the tapped node out from under it
   return (
-    <SideSheet open={open} onClose={onClose} width={480} modal={false} label={props?.node.label ?? 'Node'}>
+    <SideSheet open={open} onClose={onClose} width={480} modal={false} label={props?.node.label ?? 'Node'} className="cv-inspector">
       {props && <Inspector {...props} />}
     </SideSheet>
   );

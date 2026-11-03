@@ -30,6 +30,38 @@ export interface Layout {
   bands: Band[];
 }
 
+type Rect = { left: number; top: number; right: number; bottom: number };
+
+/**
+ * The viewport that moves a node out from under a panel (the inspector) into
+ * the part of the canvas the panel leaves free, or undefined when the node is
+ * clear already. node is in flow coordinates; canvas and cover are screen
+ * rects. A cover starting right of the canvas's left edge is a side panel (the
+ * free part is left of it); otherwise it is a bottom sheet (the free part is
+ * above it).
+ */
+export function clearOf(node: { x: number; y: number; w: number; h: number }, vp: { x: number; y: number; zoom: number }, canvas: Rect, cover: Rect, margin = 24): { x: number; y: number; zoom: number } | undefined {
+  const s = { left: canvas.left + vp.x + node.x * vp.zoom, top: canvas.top + vp.y + node.y * vp.zoom, right: 0, bottom: 0 };
+  s.right = s.left + node.w * vp.zoom;
+  s.bottom = s.top + node.h * vp.zoom;
+  const overlaps = s.left < cover.right && s.right > cover.left && s.top < cover.bottom && s.bottom > cover.top;
+  if (!overlaps) return undefined;
+  const side = cover.left > canvas.left;
+  const free = side ? { ...canvas, right: Math.min(canvas.right, cover.left) } : { ...canvas, bottom: Math.max(canvas.top, cover.top) };
+  const shift = (lo: number, hi: number, a: number, b: number) => {
+    // already inside the free part on this axis: leave it
+    if (a >= lo && b <= hi) return 0;
+    let d = 0;
+    if (hi - margin < b) d = hi - margin - b;
+    // the start edge wins when the free part is smaller than the node
+    if (a + d < lo + margin) d = lo + margin - a;
+    return d;
+  };
+  const dx = shift(free.left, free.right, s.left, s.right);
+  const dy = shift(free.top, free.bottom, s.top, s.bottom);
+  return { x: vp.x + dx, y: vp.y + dy, zoom: vp.zoom };
+}
+
 /** vertical: bands top to bottom with one node per row, for a phone's narrow screen. */
 export function layoutGraph(g: WorkflowGraph, vertical = false): Layout {
   const pos = new Map<string, { x: number; y: number }>();
