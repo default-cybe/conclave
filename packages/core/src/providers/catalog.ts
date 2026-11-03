@@ -4,7 +4,7 @@ import type { Usage } from '../types';
 import type { ModelOverride, ProviderType } from '../config/schema';
 import { hostOf, type FetchFn } from './http';
 import { MODEL_VARIANT, normalizeModelId } from './model-id';
-import type { ModelInfo } from './types';
+import { IMAGE_MODEL, type ModelInfo } from './types';
 
 /** Model vendor, used to pick catalog entries for a provider and LiteLLM key prefixes. */
 export type ModelFamily = 'anthropic' | 'openai' | 'gemini' | 'zai' | 'deepseek' | 'moonshot' | 'qwen' | 'minimax';
@@ -422,11 +422,30 @@ export function lookupModel(provider: string, id: string, opts: LookupOptions = 
     if (lite.cacheWrite1hPrice !== undefined) info.cacheWrite1hPrice = lite.cacheWrite1hPrice;
     else if (info.cacheWrite1hPrice !== undefined) info.cacheWrite1hPrice = info.inputPrice * 2;
   }
+  if (IMAGE_MODEL.test(modelId)) info.kind = 'image';
   if (opts.override) {
     Object.assign(info, stripUndefined(opts.override));
     if (opts.override.inputPrice !== undefined && opts.override.cacheWrite1hPrice === undefined && info.cacheWrite1hPrice !== undefined) info.cacheWrite1hPrice = info.inputPrice * 2;
   }
   return info;
+}
+
+/**
+ * List price of one generated image in USD, by quality and size. OpenAI bills
+ * image output tokens with no per-image table for gpt-image-2.5, so this uses
+ * the per-image prices OpenAI published for its gpt-image models (1024x1024:
+ * low 0.011, medium 0.042, high 0.167; larger sizes about 1.5x).
+ * shortcut: one table for every image model, checked 2026-11-03; replace with tokens x catalog price once LiteLLM image modes are imported.
+ */
+const IMAGE_PRICE: Record<string, [square: number, large: number]> = {
+  low: [0.011, 0.016],
+  medium: [0.042, 0.063],
+  high: [0.167, 0.25],
+};
+
+export function imagePriceUsd(quality: string, size: string, n = 1): number {
+  const row = IMAGE_PRICE[quality] ?? IMAGE_PRICE.medium;
+  return (size === '1024x1024' || size === 'auto' ? row[0] : row[1]) * n;
 }
 
 /** "flash-uncensored" -> "Flash Uncensored" */

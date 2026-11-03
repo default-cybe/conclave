@@ -110,7 +110,7 @@ const TOOL_NOTES: Array<[string, string]> = [
 ];
 
 /** The tools the tool-use section and the file-delivery note depend on: a change in which of them a session has changes the prompt. */
-export const TOOL_NOTE_TOOLS = [...new Set([...TOOL_NOTES.map(([tool]) => tool).filter(Boolean), 'ShareFile', 'Write', 'RenderFile'])];
+export const TOOL_NOTE_TOOLS = [...new Set([...TOOL_NOTES.map(([tool]) => tool).filter(Boolean), 'ShareFile', 'Write', 'RenderFile', 'GenerateImage'])];
 
 /**
  * How whole files reach the owner: saved, then shared with ShareFile as a
@@ -146,6 +146,8 @@ export function fileDeliveryNote(toolNames: string[]): string | undefined {
         '- A file reaches the owner only as a ShareFile card. Until ShareFile returns one, do not say a file is saved, attached or ready to download; if saving or sharing fails or is denied, say so.',
       ]
     : ['- You cannot create files in this session; ShareFile only shares a file that already exists in a folder it allows. When the owner asks for a new file, give the content in your reply and say in one line that you could not save it as a file. Never say a file was saved or attached without a ShareFile card.'];
+  // the model spots image asks in plain words; the tool description holds the examples
+  if (toolNames.includes('GenerateImage')) lines.push('- When the owner asks for a picture in any words (generate, make, draw, a logo, an icon, a wallpaper, a photo of), call GenerateImage yourself; its pictures show as cards without ShareFile. RenderFile is for layouts and charts, GenerateImage for pictures.');
   return `# Files you deliver\n${lines.join('\n')}`;
 }
 

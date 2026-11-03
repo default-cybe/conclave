@@ -1860,6 +1860,8 @@ export class SessionRunner {
       }
       for (const name of names) {
         if (uses.length >= 10) break;
+        // a GenerateImage sidecar (image.png.json) rides with its picture, no card of its own
+        if (name.endsWith('.json') && names.includes(name.slice(0, -5))) continue;
         const check = await checkShareable(join(root.dir, name), roots, engine.config.paths.home);
         if (!check.ok || shared.has(check.file.path)) continue;
         const id = newId('toolu');

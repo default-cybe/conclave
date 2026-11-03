@@ -11,7 +11,7 @@
  * calls never reach a member's: the owner's registry has no overlay.
  */
 import type { ProviderConfig } from '../config/schema';
-import type { ChatRequest, ModelInfo, Provider, StreamEvent } from '../providers/types';
+import type { ChatRequest, ImageRequest, ImageResult, ModelInfo, Provider, StreamEvent } from '../providers/types';
 import { ProviderError } from '../providers/types';
 import type { AccountDto } from '../client/accounts';
 
@@ -91,6 +91,14 @@ export class MemberPlanProvider implements Provider {
     const seen = new Set(own.map((m) => m.id));
     const hub = await this.hub.listModels().catch(() => [] as ModelInfo[]);
     return [...own, ...hub.filter((m) => !seen.has(m.id))];
+  }
+
+  /** Only the member's own plans make images: a grant to the hub's plans covers chat, never the owner's image quota. */
+  generateImage(req: ImageRequest): Promise<ImageResult> {
+    if (!this.opts.serves(req.model) || !this.own.generateImage) {
+      return Promise.reject(new ProviderError('auth', `None of your own signed in plans offers ${req.model}. Images are made only on your own plans or keys; sign in a ChatGPT plan in Settings > Accounts, or add an API key.`, { provider: this.id, code: 'access' }));
+    }
+    return this.own.generateImage(req);
   }
 
   countTokens(req: ChatRequest): Promise<number> {

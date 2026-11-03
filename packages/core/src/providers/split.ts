@@ -23,7 +23,7 @@ import type { ProviderOptions } from './common';
 import { GeminiProvider } from './gemini';
 import { OpenAIProvider } from './openai';
 import { OpenAIResponsesProvider } from './openai-responses';
-import type { ChatRequest, ModelInfo, Provider, StreamEvent } from './types';
+import type { ChatRequest, ImageRequest, ImageResult, ModelInfo, Provider, StreamEvent } from './types';
 import { cyberChoices, cyberLabel, retiredAlias } from './access-programs';
 
 /** "claude-*" style pattern to a test: * is any run of characters, the rest is literal. Case-insensitive. */
@@ -136,5 +136,11 @@ export class SplitWireProvider implements Provider {
   embed(texts: string[], model?: string): Promise<number[][]> {
     if (!this.openai.embed) return Promise.reject(new Error('embeddings are not available on this provider'));
     return this.openai.embed(texts, model);
+  }
+
+  /** Image models live only on /v1/images/*, which the OpenAI side serves. */
+  generateImage(req: ImageRequest): Promise<ImageResult> {
+    if (!this.openai.generateImage) return Promise.reject(new Error('image generation is not available on this provider'));
+    return this.openai.generateImage(req);
   }
 }
