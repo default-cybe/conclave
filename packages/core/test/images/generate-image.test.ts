@@ -8,7 +8,8 @@ import { GenerateImageTool, IMAGE_QUALITY } from '../../src/tools/generate-image
 import { lookupModel } from '../../src/providers/catalog';
 import type { Provider } from '../../src/providers/types';
 
-const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
 const dirs: string[] = [];
 const tmp = () => {
   const d = mkdtempSync(join(tmpdir(), 'cv-img-'));
@@ -24,6 +25,7 @@ function fakeServer(reply: (body: Record<string, unknown>, origin: string) => un
     async fetch(req) {
       const url = new URL(req.url);
       if (url.pathname === '/pic.png') return new Response(PNG, { headers: { 'content-type': 'image/png' } });
+      if (url.pathname === '/evil.png') return new Response('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', { headers: { 'content-type': 'image/png' } });
       const body = (await req.json()) as Record<string, unknown>;
       seen.push({ path: url.pathname, auth: req.headers.get('authorization'), ...body });
       const r = reply(body, url.origin);
@@ -51,6 +53,16 @@ describe('openaiGenerateImage', () => {
     s.stop();
     expect(Buffer.from(out.images[0].bytes)).toEqual(PNG);
     expect(out.images[0].mime).toBe('image/png');
+  });
+
+  test('the type comes from the bytes: a JPEG is image/jpeg, a non-image is no image', async () => {
+    const s = fakeServer((_b, origin) => ({ data: [{ b64_json: JPEG.toString('base64') }, { url: `${origin}/evil.png` }] }));
+    const out = await openaiGenerateImage(s.base, {}, http, { model: 'gpt-image-2.5', prompt: 'fox', n: 2 });
+    expect(out.images.map((i) => i.mime)).toEqual(['image/jpeg']);
+    const bad = fakeServer((_b, origin) => ({ data: [{ url: `${origin}/evil.png` }] }));
+    await expect(openaiGenerateImage(bad.base, {}, http, { model: 'gpt-image-2.5', prompt: 'fox' })).rejects.toThrow(/returned no image/);
+    s.stop();
+    bad.stop();
   });
 
   test('a refusal shows as the provider error', async () => {
