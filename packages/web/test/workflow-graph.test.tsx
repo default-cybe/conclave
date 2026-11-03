@@ -10,7 +10,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ReactFlowProvider } from '@xyflow/react';
 import type { GraphNode, NodeRun, NodeRunState, WorkflowGraph } from '@conclave/core/client';
 import { WorkflowNode, metaLine, stateWord } from '../src/features/graph/nodes';
-import { clearOf, layoutGraph } from '../src/features/graph/layout';
+import { clearOf, layoutGraph, placedGraph } from '../src/features/graph/layout';
 
 const node: GraphNode = { id: 'agent-1', kind: 'agent', label: 'review', span: { start: 4, end: 6 }, declares: ['r'], calls: [], source: "await agent('x')", opts: { model: { value: 'deep', start: 0, end: 1, quote: "'" } } };
 const run = (state: NodeRunState, o: Partial<NodeRun> = {}): NodeRun => ({ state, seqs: [1], total: 1, done: state === 'done' ? 1 : 0, cached: state === 'cached' ? 1 : 0, running: state === 'running' ? 1 : 0, failed: state === 'failed' ? 1 : 0, inputTokens: 1200, outputTokens: 300, costUsd: 0.04, cachedCostUsd: 0, ...o });
@@ -85,5 +85,17 @@ describe('layout', () => {
     expect(pos.get('n0')!.x).toBe(pos.get('n1')!.x);
     expect(pos.get('n1')!.y).toBeGreaterThan(pos.get('n0')!.y);
     expect(pos.get('n2')!.x).toBeGreaterThan(bands[0].x + bands[0].w);
+  });
+
+  test('a dragged node keeps its place, its band wraps it, the others stay laid out; a phone keeps its column', () => {
+    const g: WorkflowGraph = { name: 'x', phases: ['A', 'B'], edges: [], nodes: ['A', 'A', 'B'].map((p, i) => ({ ...node, id: `n${i}`, phase: p })) };
+    const auto = layoutGraph(g);
+    const { pos, bands } = placedGraph(g, false, { n1: { x: 40, y: 600 } });
+    expect(pos.get('n1')).toEqual({ x: 40, y: 600 });
+    expect(pos.get('n0')).toEqual(auto.pos.get('n0')!);
+    expect(pos.get('n2')).toEqual(auto.pos.get('n2')!);
+    expect(bands[0].y + bands[0].h).toBeGreaterThanOrEqual(600 + 92);
+    expect(bands[1]).toEqual(auto.bands[1]);
+    expect(placedGraph(g, true, { n1: { x: 40, y: 600 } })).toEqual(layoutGraph(g, true));
   });
 });

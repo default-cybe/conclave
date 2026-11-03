@@ -674,10 +674,21 @@ export function registerWorkflows(ctx: MockCtx): void {
     return { graph: parseGraph(script), sha: 'mock', source: editable ? 'user' : 'builtin', editable, ...(editable ? {} : { readOnly: 'This workflow ships with Conclave. Copy it to your workflows to edit it.' }) };
   };
   ctx.on('GET', '/api/workflows/runs/:id/graph', ({ params }) => ({ ...graphView(find(params[0]).run.name, false), readOnly: 'A run keeps the script it ran. Edit the workflow, then Re-run.', workflowId: find(params[0]).run.name }));
+  // the layout side file, kept in memory for the session
+  const layouts = new Map<string, Record<string, { x: number; y: number }>>();
   ctx.on('GET', '/api/workflows/:id/graph', ({ params }) => {
     const e = LIBRARY.find((x) => x.id === decodeURIComponent(params[0]));
     if (!e) return ctx.notFound();
-    return graphView(e.id, e.source === 'user');
+    const layout = layouts.get(e.id);
+    return { ...graphView(e.id, e.source === 'user'), ...(layout ? { layout } : {}) };
+  });
+  ctx.on('PUT', '/api/workflows/:id/graph/layout', ({ params, body }) => {
+    const e = LIBRARY.find((x) => x.id === decodeURIComponent(params[0]));
+    if (!e) return ctx.notFound();
+    if (e.source !== 'user') return ctx.fail(403, 'This workflow ships with Conclave. Copy it to your workflows to edit it.');
+    const nodes = (body?.nodes ?? {}) as Record<string, { x: number; y: number }>;
+    layouts.set(e.id, nodes);
+    return { nodes };
   });
   ctx.on('GET', '/api/workflows/:id', ({ params }) => {
     const id = decodeURIComponent(params[0]);

@@ -80,6 +80,8 @@ export interface WorkflowGraphView {
   stale?: string[];
   /** Run graph: the library workflow it came from, when it still exists. */
   workflowId?: string;
+  /** Node positions the owner dragged, from `<name>.layout.json`; nodes not in it are laid out. */
+  layout?: Record<string, { x: number; y: number }>;
 }
 
 export type GraphEditField = 'model' | 'agentType' | 'label' | 'prompt';

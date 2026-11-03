@@ -83,6 +83,7 @@ export default function WorkflowGraphPage() {
   const [error, setError] = useState<string>();
   const [sel, setSel] = useState<string>();
   const [runDetail, setRunDetail] = useState<WorkflowRunDetail>();
+  const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
   const phone = useIsMobile();
   usePageHeader(view?.graph.name || id, '/workflows');
   useEffect(() => {
@@ -91,6 +92,7 @@ export default function WorkflowGraphPage() {
       .then(([v, d]) => {
         if (!alive) return;
         setView(v);
+        setPositions(v.layout ?? {});
         setLastRun(d.lastRun?.id);
         if (d.lastRun) void api().workflowRun(d.lastRun.id).then((r) => alive && setRunDetail(r)).catch(() => {});
       })
@@ -100,6 +102,11 @@ export default function WorkflowGraphPage() {
     };
   }, [id]);
   const runs = useMemo(() => (view && runDetail ? nodeRuns(view.graph, runDetail.calls).byNode : undefined), [view, runDetail]);
+  // a drop saves the whole layout: the side file is small, and the last write wins
+  const place = (next: Record<string, { x: number; y: number }>) => {
+    setPositions(next);
+    void attempt(() => api().saveWorkflowLayout(id, next));
+  };
   const start = (resume?: string) => void attempt(() => api().startWorkflow({ name: id, ...(resume ? { resumeFromRunId: resume } : {}) })).then((r) => r && go(`/workflows/runs/${r.id}?view=graph`));
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -152,7 +159,14 @@ export default function WorkflowGraphPage() {
         {lastRun ? ' Re-run replays unchanged nodes from the last run.' : ''}
       </p>
       {diff && <CodeBlock code={diff} lang="diff" className="mb-3" />}
-      <GraphCanvas graph={view.graph} runs={runs} selected={sel} onSelect={setSel} className="h-[min(74vh,780px)] rounded-[var(--r-2)] border border-rule phone:h-[66vh]" />
+      <GraphCanvas
+        graph={view.graph}
+        runs={runs}
+        selected={sel}
+        onSelect={setSel}
+        positions={positions}
+        onMove={view.editable ? (nid, at) => place({ ...positions, [nid]: { x: Math.round(at.x / 8) * 8, y: Math.round(at.y / 8) * 8 } }) : undefined}
+        className="h-[min(74vh,780px)] rounded-[var(--r-2)] border border-rule phone:h-[66vh]" />
       <InspectorPanel
         open={!!node}
         onClose={() => setSel(undefined)}

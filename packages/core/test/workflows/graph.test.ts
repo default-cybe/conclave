@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_WORKFLOWS } from '../../src/workflows/defaults';
-import { applyEdit, GraphEditError, parseGraph } from '../../src/workflows/graph';
+import { applyEdit, GraphEditError, layoutPathOf, parseGraph, printLayout, readLayout } from '../../src/workflows/graph';
 import { loadMeta } from '../../src/workflows/registry';
 import { sha256 } from '../../src/workflows/store';
 import { runAs } from '../../src/people/context';
@@ -82,6 +82,17 @@ return { plan, ok, a, b }`);
     for (const s of ["const a = await agent('\\u{12')", "const a = await agent('\\u{110000}')", "const a = await agent('\\u{zz}', { label: '\\xZZ' })"]) {
       expect(parseGraph(s).nodes.map((n) => n.kind)).toEqual(['agent']);
     }
+  });
+});
+
+describe('layout file', () => {
+  test('keys sorted by number, one node per line; a broken file reads as no positions', () => {
+    const text = printLayout({ 'agent-10': { x: 8, y: 0 }, 'agent-2': { x: 16, y: 24 } }, 'abc');
+    expect(text.split('\n').slice(4, 7)).toEqual(['    "agent-2": { "x": 16, "y": 24 },', '    "agent-10": { "x": 8, "y": 0 }', '  }']);
+    expect(readLayout(text)).toEqual({ 'agent-2': { x: 16, y: 24 }, 'agent-10': { x: 8, y: 0 } });
+    expect(readLayout('{ nope')).toEqual({});
+    expect(readLayout(undefined)).toEqual({});
+    expect(readLayout('{"nodes": {"__proto__": {"x": 1, "y": 1}, "code-1": {"x": 1e9, "y": 0}}}')).toEqual({});
   });
 });
 
@@ -272,6 +283,31 @@ return [a, b, c]`;
     expect(copy.source).toBe('user');
     expect((await svc.graph('fix-until-green')).editable).toBe(true);
     await expect(svc.copyWorkflow('fix-until-green')).rejects.toMatchObject({ status: 409 });
+  });
+
+  test('dragged positions save in <name>.layout.json next to the script, which stays as it was', async () => {
+    const svc = svcOf(t.engine);
+    const path = join(svc.registry.userDir, 'lay-me.js');
+    const script = `export const meta = { name: 'lay-me', description: 'l' }\nconst a = await agent('say hi')\nreturn a\n`;
+    writeFileSync(path, script);
+    expect((await svc.graph('lay-me')).layout).toBeUndefined();
+    // snapped to 8px; an id the graph does not have and a bad number are dropped
+    const saved = await svc.saveLayout('lay-me', { 'agent-1': { x: 403, y: 99 }, 'agent-9': { x: 1, y: 1 }, 'return-1': { x: 'a', y: 0 } });
+    expect(saved).toEqual({ 'agent-1': { x: 400, y: 96 } });
+    const file = readFileSync(layoutPathOf(path), 'utf8');
+    expect(layoutPathOf(path)).toBe(join(svc.registry.userDir, 'lay-me.layout.json'));
+    expect(file).toBe(`{\n  "v": 1,\n  "hash": "sha256:${sha256(script)}",\n  "nodes": {\n    "agent-1": { "x": 400, "y": 96 }\n  }\n}\n`);
+    expect(readFileSync(path, 'utf8')).toBe(script);
+    expect((await svc.graph('lay-me')).layout).toEqual({ 'agent-1': { x: 400, y: 96 } });
+    // the registry loads only *.js: the side file is not a workflow
+    expect((await svc.library()).some((w) => w.id.includes('layout'))).toBe(false);
+    // a built-in has no side file
+    await expect(svc.saveLayout('review-changes', { 'agent-1': { x: 0, y: 0 } })).rejects.toMatchObject({ status: 403 });
+    // a member never writes the owner's layout
+    await runAs('acct_graph_l', async () => {
+      await expect(svc.saveLayout('lay-me', { 'agent-1': { x: 0, y: 0 } })).rejects.toMatchObject({ status: 404 });
+    });
+    expect(readLayout(readFileSync(layoutPathOf(path), 'utf8'))).toEqual({ 'agent-1': { x: 400, y: 96 } });
   });
 
   test("a member never reads or edits the owner's workflow; a copy goes to their own folder", async () => {

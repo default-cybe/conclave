@@ -97,3 +97,30 @@ export function layoutGraph(g: WorkflowGraph, vertical = false): Layout {
   }
   return { pos, bands };
 }
+
+/**
+ * The auto layout with the positions the owner dragged put over it (the
+ * layout side file). Each band then wraps its own nodes, wherever they are.
+ * Only the wide layout: the phone keeps its one column.
+ */
+export function placedGraph(g: WorkflowGraph, vertical: boolean, saved?: Record<string, { x: number; y: number }>): Layout {
+  const auto = layoutGraph(g, vertical);
+  if (vertical || !saved || !g.nodes.some((n) => saved[n.id])) return auto;
+  const pos = new Map(auto.pos);
+  for (const n of g.nodes) if (saved[n.id]) pos.set(n.id, saved[n.id]);
+  // the same runs of nodes in one phase that layoutGraph made its bands from
+  const runs: string[][] = [];
+  g.nodes.forEach((n, i) => {
+    if (i && (g.nodes[i - 1].phase ?? 'Start') === (n.phase ?? 'Start')) runs[runs.length - 1].push(n.id);
+    else runs.push([n.id]);
+  });
+  const bands = auto.bands.map((b, i) => {
+    const ps = runs[i].map((id) => pos.get(id)!);
+    const left = Math.min(...ps.map((p) => p.x)) - BAND_PAD;
+    const top = Math.min(...ps.map((p) => p.y)) - BAND_HEAD;
+    const right = Math.max(...ps.map((p) => p.x)) + NODE_W + BAND_PAD;
+    const bottom = Math.max(...ps.map((p) => p.y)) + NODE_H + BAND_PAD;
+    return { title: b.title, x: left, y: top, w: right - left, h: bottom - top };
+  });
+  return { pos, bands };
+}

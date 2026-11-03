@@ -4,7 +4,7 @@
  * extension that gives workflow agents their StructuredOutput tool, their
  * step note and their limits.
  */
-import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, resolve as resolvePath } from 'node:path';
 import type { Engine } from '../engine/engine';
 import { EngineError } from '../engine/errors';
@@ -32,7 +32,7 @@ import type {
   WorktreeActionResult,
 } from '../client/workflows';
 import { staleNodes, type GraphEditInput, type GraphEditResult, type WorkflowGraphView } from '../client/graph';
-import { GraphEditError, applyEdit, lineDiff, parseGraph } from './graph';
+import { GraphEditError, applyEdit, cleanPositions, layoutPathOf, lineDiff, parseGraph, printLayout, readLayout, type GraphPositions } from './graph';
 import type { Tool } from '../tools/types';
 import { toolByName } from '../tools';
 import { reminder } from '../session/transcript';
@@ -400,10 +400,53 @@ export class WorkflowService {
     };
   }
 
-  /** A library workflow as a node graph. */
+  /**
+   * Read and write files of a workflow the caller may edit: the hub's own
+   * folders, or a project's on its session's device. Writes go to a temp file
+   * then a rename, so a reader never sees half a file.
+   */
+  private filesOf(e: { source: WorkflowSource }, sessionId?: string) {
+    const project = e.source === 'project' ? this.projectFor(sessionId) : undefined;
+    if (e.source === 'project' && !project) throw new EngineError(400, 'a project workflow is edited from its session');
+    return {
+      read: async (p: string): Promise<string | undefined> => (project ? await project.machine.readText(p).catch(() => undefined) : existsSync(p) ? readFileSync(p, 'utf8') : undefined),
+      readScript: async (p: string): Promise<string | undefined> => (project ? await project.machine.readText(p) : readScriptFile(p).script),
+      write: async (p: string, text: string) => {
+        const tmp = `${p}.${newId('tmp')}.tmp`;
+        if (project) {
+          await project.machine.writeFile(tmp, text);
+          await project.machine.rename(tmp, p);
+        } else {
+          writeFileSync(tmp, text, { mode: 0o600 });
+          renameSync(tmp, p);
+        }
+      },
+    };
+  }
+
+  /** A library workflow as a node graph, with the positions its layout file keeps. */
   async graph(id: string, sessionId?: string): Promise<WorkflowGraphView> {
     const e = await this.entryFor(id, sessionId);
-    return this.viewOf(e.script, e.source, e.path, e.meta);
+    const view = this.viewOf(e.script, e.source, e.path, e.meta);
+    if (view.editable && e.path) {
+      const layout = readLayout(await this.filesOf(e, sessionId).read(layoutPathOf(e.path)));
+      if (Object.keys(layout).length) view.layout = layout;
+    }
+    return view;
+  }
+
+  /**
+   * Save where the owner dragged the nodes, in `<name>.layout.json` next to
+   * the script. Layout only: the script is not touched. Ids not in the graph
+   * are dropped; a wrong position costs nothing, so there is no sha check.
+   */
+  async saveLayout(id: string, positions: unknown, sessionId?: string): Promise<GraphPositions> {
+    const e = await this.entryFor(id, sessionId);
+    const view = this.viewOf(e.script, e.source, e.path, e.meta);
+    if (!view.editable || !e.path) throw new EngineError(403, view.readOnly ?? 'this workflow cannot be edited here');
+    const clean = cleanPositions(positions, new Set(view.graph.nodes.map((n) => n.id)));
+    await this.filesOf(e, sessionId).write(layoutPathOf(e.path), printLayout(clean, view.sha));
+    return clean;
   }
 
   /** The graph of the script a run ran (its own copy), with the nodes the current library script changed marked stale. */
@@ -427,9 +470,9 @@ export class WorkflowService {
     const e = await this.entryFor(id, sessionId);
     const view = this.viewOf(e.script, e.source, e.path, e.meta);
     if (!view.editable || !e.path) throw new EngineError(403, view.readOnly ?? 'this workflow cannot be edited here');
+    const files = this.filesOf(e, sessionId);
     const project = e.source === 'project' ? this.projectFor(sessionId) : undefined;
-    if (e.source === 'project' && !project) throw new EngineError(400, 'a project workflow is edited from its session');
-    const disk = project ? await project.machine.readText(e.path) : readScriptFile(e.path).script;
+    const disk = await files.readScript(e.path);
     if (disk === undefined) throw new EngineError(404, `cannot read ${e.path}`);
     if (sha256(disk) !== input.baseSha) throw new EngineError(409, 'script changed: the file changed since the graph was read; reload it');
     const acct = currentAccount() ?? OWNER_ID;
@@ -450,15 +493,7 @@ export class WorkflowService {
     const after = parseGraph(next);
     if (after.nodes.map((n) => n.id).join(',') !== before) throw new EngineError(400, 'the edit would change the graph shape; edit it in the script');
     if (Buffer.byteLength(next, 'utf8') > MAX_SCRIPT_BYTES) throw new EngineError(400, `the script would be larger than ${MAX_SCRIPT_BYTES / 1024} KB`);
-    // a temp file then a rename, so a reader never sees half a script
-    const tmp = `${e.path}.${newId('tmp')}.tmp`;
-    if (project) {
-      await project.machine.writeFile(tmp, next);
-      await project.machine.rename(tmp, e.path);
-    } else {
-      writeFileSync(tmp, next, { mode: 0o600 });
-      renameSync(tmp, e.path);
-    }
+    await files.write(e.path, next);
     if (sessionId) this.engine.audit(sessionId, 'workflow.graph.edit', `${id} ${input.nodeId}.${input.field}`);
     return { sha: sha256(next), diff: lineDiff(disk, next), view: this.viewOf(next, e.source, e.path, e.meta) };
   }

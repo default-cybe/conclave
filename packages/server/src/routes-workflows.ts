@@ -180,6 +180,13 @@ export function registerWorkflowRoutes(app: Hono<HonoEnv>, ctx: ServerContext, a
     return c.json(res);
   });
 
+  // where the owner dragged the nodes, in the layout side file; the script is not touched
+  app.put('/api/workflows/:id/graph/layout', async (c) => {
+    const body = await readJson<{ nodes?: unknown }>(c);
+    if (!body.nodes || typeof body.nodes !== 'object' || Array.isArray(body.nodes)) throw badRequest('nodes must be an object of { x, y } by node id');
+    return c.json({ nodes: await svc().saveLayout(c.req.param('id'), body.nodes, sessionQuery(c)) });
+  });
+
   // a built-in or plugin workflow copied into the caller's own folder, where the canvas can edit it
   app.post('/api/workflows/:id/copy', async (c) => {
     const detail = await svc().copyWorkflow(c.req.param('id'), sessionQuery(c));

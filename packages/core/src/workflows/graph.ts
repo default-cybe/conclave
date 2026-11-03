@@ -560,6 +560,48 @@ export function applyEdit(script: string, edit: Pick<GraphEditInput, 'nodeId' | 
   return splice(node.optsObject.open + 1, node.optsObject.open + 1, `${empty ? ' ' : ' '}${edit.field}: ${quoteString(v, quote)}${empty ? ' ' : ','}`);
 }
 
+// ----- the layout side file (docs/design/VISUAL-PROGRAMMING.md 3.2) -----
+
+export type GraphPositions = Record<string, { x: number; y: number }>;
+
+/** `<name>.layout.json` next to `<name>.js`; the registry loads only `*.js`, so it never reads as a workflow. */
+export function layoutPathOf(scriptPath: string): string {
+  return `${scriptPath.replace(/\.js$/, '')}.layout.json`;
+}
+
+const NODE_ID_RE = /^[a-z]+-\d{1,5}$/;
+const snap = (v: number) => Math.round(v / 8) * 8;
+
+/** Positions a canvas sent or a file holds: node ids only, finite numbers on the 8px grid. Anything else is dropped. */
+export function cleanPositions(raw: unknown, ids?: Set<string>): GraphPositions {
+  const out: GraphPositions = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [id, p] of Object.entries(raw as Record<string, unknown>).slice(0, 2000)) {
+    if (!NODE_ID_RE.test(id) || (ids && !ids.has(id)) || !p || typeof p !== 'object') continue;
+    const { x, y } = p as { x?: unknown; y?: unknown };
+    if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > 1e6 || Math.abs(y) > 1e6) continue;
+    out[id] = { x: snap(x), y: snap(y) };
+  }
+  return out;
+}
+
+/** The positions of a layout file's text; a missing or broken file is no positions (the canvas lays out the rest). */
+export function readLayout(text: string | undefined): GraphPositions {
+  if (!text) return {};
+  try {
+    return cleanPositions((JSON.parse(text) as { nodes?: unknown }).nodes);
+  } catch {
+    return {};
+  }
+}
+
+/** The layout file: keys sorted, one node per line, so a diff shows only the nodes that moved. */
+export function printLayout(positions: GraphPositions, scriptSha: string): string {
+  const ids = Object.keys(positions).sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+  const lines = ids.map((id) => `    ${JSON.stringify(id)}: { "x": ${positions[id].x}, "y": ${positions[id].y} }`);
+  return `{\n  "v": 1,\n  "hash": ${JSON.stringify(`sha256:${scriptSha}`)},\n  "nodes": {${lines.length ? `\n${lines.join(',\n')}\n  ` : ''}}\n}\n`;
+}
+
 /** The lines that differ between two texts, as - and + lines (one edit changes a small span). */
 export function lineDiff(before: string, after: string): string {
   const a = before.split('\n');
