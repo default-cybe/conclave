@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Workflow graphs, phase 2. The node inspector no longer covers the node you tapped: the canvas pans it into view beside the panel. On your own workflows you can drag nodes, and their places save in `<name>.layout.json` next to the script. Ctrl+Z and Ctrl+Shift+Z (or the Undo and Redo buttons) undo and redo moves and script edits. Double-click empty canvas, or drop a wire there, to add an Agent, Parallel, Check, Approve or Ask step; it is written as a new statement in the script, and refused with the reason where it cannot be placed safely.
+
 ## [0.4.62] - 2026-11-03
 
 ### Added
