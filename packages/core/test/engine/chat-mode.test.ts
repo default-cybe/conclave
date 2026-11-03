@@ -115,15 +115,15 @@ describe('chat sessions in the engine', () => {
 
     engine.updateSession(chat.id, { chat: { webSearch: false } });
     await t.run(chat.id, 'and on pve?');
-    expect(toolNames(t.requests[1])).toEqual(['ConclaveHelp', 'Delegate', 'MemoryForget', 'MemorySave', 'MemorySearch', 'Read', 'RenderFile', 'SessionRead', 'SessionSearch', 'ShareFile', 'Write']);
+    expect(toolNames(t.requests[1])).toEqual(['ConclaveHelp', 'Delegate', 'GenerateImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'Read', 'RenderFile', 'SessionRead', 'SessionSearch', 'ShareFile', 'Write']);
 
     // memory off and web off: Delegate, which reaches the owner's own devices, the shipped docs, and the file tools for its outputs folder
     engine.updateSession(chat.id, { chat: { memory: false } });
     const agent = engine.agentFor(engine.getSession(chat.id)!);
-    expect(engine.toolsFor(engine.getSession(chat.id)!, agent, 'agent', 0).map((x) => x.name)).toEqual(['Read', 'Write', 'Delegate', 'ConclaveHelp', 'ShareFile', 'RenderFile']);
+    expect(engine.toolsFor(engine.getSession(chat.id)!, agent, 'agent', 0).map((x) => x.name)).toEqual(['Read', 'Write', 'Delegate', 'ConclaveHelp', 'ShareFile', 'RenderFile', 'GenerateImage']);
 
     const plain = await engine.createSession({ agent: 'chat', cwd: t.cwd });
-    expect(engine.toolsFor(plain, agent, 'agent', 0).map((x) => x.name).sort()).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'Read', 'RenderFile', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch', 'Write']);
+    expect(engine.toolsFor(plain, agent, 'agent', 0).map((x) => x.name).sort()).toEqual(['ConclaveHelp', 'Delegate', 'Directions', 'GenerateImage', 'MapImage', 'MemoryForget', 'MemorySave', 'MemorySearch', 'PlaceDetails', 'PlaceSearch', 'Read', 'RenderFile', 'SessionRead', 'SessionSearch', 'ShareFile', 'WebFetch', 'WebSearch', 'Write']);
   });
 
   test("a chat's thinking switch wins over the agent", async () => {
