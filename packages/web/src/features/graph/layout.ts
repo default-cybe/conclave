@@ -44,10 +44,10 @@ export function clearOf(node: { x: number; y: number; w: number; h: number }, vp
   const s = { left: canvas.left + vp.x + node.x * vp.zoom, top: canvas.top + vp.y + node.y * vp.zoom, right: 0, bottom: 0 };
   s.right = s.left + node.w * vp.zoom;
   s.bottom = s.top + node.h * vp.zoom;
-  const overlaps = s.left < cover.right && s.right > cover.left && s.top < cover.bottom && s.bottom > cover.top;
-  if (!overlaps) return undefined;
   const side = cover.left > canvas.left;
   const free = side ? { ...canvas, right: Math.min(canvas.right, cover.left) } : { ...canvas, bottom: Math.max(canvas.top, cover.top) };
+  // under the panel or off past it (a node just added far right): pan; already in the free part: leave it
+  if (s.left >= free.left && s.right <= free.right && s.top >= free.top && s.bottom <= free.bottom) return undefined;
   const shift = (lo: number, hi: number, a: number, b: number) => {
     // already inside the free part on this axis: leave it
     if (a >= lo && b <= hi) return 0;
