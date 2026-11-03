@@ -119,9 +119,28 @@ object FileCards {
     fun facts(c: FileCardData): String = "${KIND[c.mediaType] ?: "File"}, ${sizeWords(c.size)}"
 
     /** The name the cached copy gets: no folders and no dot files, so it stays inside the cache's shared/ folder. */
-    fun cacheName(c: FileCardData): String {
-        val n = c.name.substringAfterLast('/').replace(Regex("[^A-Za-z0-9._ -]"), "_").trimStart('.').take(120)
-        return n.ifBlank { "file" }
+    fun cacheName(c: FileCardData): String = safeName(c.name).ifBlank { "file" }
+
+    private fun safeName(name: String): String = name.substringAfterLast('/').replace(Regex("[^A-Za-z0-9._ -]"), "_").trimStart('.').take(120)
+
+    private val EXTENSION = mapOf("image/png" to "png", "image/jpeg" to "jpg", "image/webp" to "webp", "image/gif" to "gif")
+
+    /** The file extension of a raster picture's type ("image/jpeg" is "jpg"), or null for any other type. */
+    fun extension(mediaType: String): String? = EXTENSION[mediaType.substringBefore(';').trim().lowercase(Locale.US)]
+
+    /**
+     * The name a picture gets when the full-screen viewer saves it to
+     * Pictures/Conclave or shares it: the name made safe like [cacheName],
+     * ending in the extension its type needs (a wrong picture extension is
+     * replaced, anything else kept). No name: "conclave-image".
+     */
+    fun pictureName(name: String?, mediaType: String): String {
+        val n = safeName(name.orEmpty()).trimEnd('.', ' ').ifBlank { "conclave-image" }
+        val ext = extension(mediaType) ?: return n
+        val has = n.substringAfterLast('.', "").lowercase(Locale.US)
+        if (has == ext || (ext == "jpg" && has == "jpeg")) return n
+        val base = if (has in EXTENSION.values || has == "jpeg") n.substringBeforeLast('.') else n
+        return "$base.$ext"
     }
 
     /** The folder under the cache's shared/ for one card, by its call id, so two files of one name never meet. */

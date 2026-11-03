@@ -13,7 +13,8 @@ export function normalizeModelId(id: string): string {
   s = s.replace(/^models\//, '');
   if (s.includes('/')) s = s.slice(s.lastIndexOf('/') + 1);
   s = s.replace(/^(?:[a-z]{2,6}\.)?anthropic\./, '');
-  s = s.replace(/\[[^\]]*\]$/, '');
+  // no '[' inside the brackets, so a run of '[' is not rescanned from each one (polynomial regex)
+  s = s.replace(/\[[^[\]]*\]$/, '');
   s = s.replace(/:(free|beta|thinking|extended|nitro|floor|online|exacto)$/, '');
   s = s.replace(/-v\d+(?::\d+)?$/, '');
   s = s.replace(/@\d{8}$/, '');

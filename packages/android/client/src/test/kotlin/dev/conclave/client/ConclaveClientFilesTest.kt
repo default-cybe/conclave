@@ -124,4 +124,21 @@ class ConclaveClientFilesTest {
         assertEquals("file", FileCards.cacheName(card.copy(name = "...")))
         assertEquals("______x", FileCards.cacheFolder(card.copy(toolUseId = "../../x")))
     }
+
+    @Test
+    fun aSavedPictureGetsTheExtensionItsTypeNeeds() {
+        assertEquals("png", FileCards.extension("image/png"))
+        assertEquals("jpg", FileCards.extension("Image/JPEG; q=1"))
+        assertEquals("webp", FileCards.extension("image/webp"))
+        assertEquals("gif", FileCards.extension("image/gif"))
+        assertEquals(null, FileCards.extension("image/svg+xml"))
+        assertEquals("cat.png", FileCards.pictureName("cat.png", "image/png"))
+        assertEquals("cat.jpeg", FileCards.pictureName("cat.jpeg", "image/jpeg"))
+        assertEquals("cat.webp", FileCards.pictureName("cat.png", "image/webp"))
+        assertEquals("cat.v2.png", FileCards.pictureName("cat.v2", "image/png"))
+        assertEquals("passwd.png", FileCards.pictureName("../../etc/passwd", "image/png"))
+        assertEquals("conclave-image.jpg", FileCards.pictureName(null, "image/jpeg"))
+        assertEquals("conclave-image.gif", FileCards.pictureName("...", "image/gif"))
+        assertEquals("notes.txt", FileCards.pictureName("notes.txt", "text/plain"))
+    }
 }
