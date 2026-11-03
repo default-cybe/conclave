@@ -6,6 +6,7 @@
  */
 import type { Hono } from 'hono';
 import type { FindingVerdict, KeepWinnerHow, StartWorkflowInput, WorkflowRunStatus, WorktreeAction } from '@conclave/core/client/workflows.ts';
+import type { GraphEditField } from '@conclave/core/client/graph.ts';
 import { workflowsOf } from '@conclave/core/workflows/attached.ts';
 import type { WorkflowService } from '@conclave/core/workflows/service.ts';
 import type { HonoEnv, ServerContext } from './context';
@@ -17,6 +18,7 @@ const STATUSES: WorkflowRunStatus[] = ['queued', 'running', 'paused', 'waiting_r
 const ACTIONS: WorktreeAction[] = ['diff', 'merge', 'cherry-pick', 'discard'];
 const VERDICTS: FindingVerdict[] = ['fixed', 'dismissed', 'ignored'];
 const KEEP: KeepWinnerHow[] = ['apply', 'pr'];
+const GRAPH_FIELDS: GraphEditField[] = ['model', 'agentType', 'label', 'prompt'];
 
 function optPositive(v: unknown, name: string): number | undefined {
   if (v === undefined || v === null) return undefined;
@@ -108,11 +110,18 @@ export function registerWorkflowRoutes(app: Hono<HonoEnv>, ctx: ServerContext, a
     audit(c, 'workflow.stop', `${run.name} (${run.id})`);
     return c.json(run);
   });
+  // fromSeq: that call and every later one run again; seqs: only those calls (Re-run this node), their dependents follow
   app.post('/api/workflows/runs/:id/rerun', async (c) => {
-    const body = await readJson<{ fromSeq?: unknown }>(c);
+    const body = await readJson<{ fromSeq?: unknown; seqs?: unknown }>(c);
+    if (body.seqs !== undefined) {
+      if (!Array.isArray(body.seqs) || !body.seqs.length || body.seqs.length > 4096 || !body.seqs.every((s) => typeof s === 'number' && Number.isInteger(s) && s >= 1)) throw badRequest('seqs must be a list of call numbers');
+      return c.json(await svc().rerun(c.req.param('id'), { seqs: body.seqs as number[] }));
+    }
     if (typeof body.fromSeq !== 'number' || !Number.isInteger(body.fromSeq) || body.fromSeq < 1) throw badRequest('fromSeq must be a call number');
     return c.json(await svc().rerun(c.req.param('id'), body.fromSeq));
   });
+
+  app.get('/api/workflows/runs/:id/graph', async (c) => c.json(await svc().runGraph(c.req.param('id'))));
 
   app.post('/api/workflows/runs/:id/calls/:seq/skip', (c) => c.json(svc().skip(c.req.param('id'), seqOf(c.req.param('seq')))));
 
@@ -153,6 +162,29 @@ export function registerWorkflowRoutes(app: Hono<HonoEnv>, ctx: ServerContext, a
       throw badRequest('the workflow id is not a valid URL-encoded name');
     }
     return c.json(await svc().detail(id, sessionQuery(c)));
+  });
+
+  // the workflow as a node graph, and literal edits written back to its script (docs/design/VISUAL-PROGRAMMING.md 7)
+  app.get('/api/workflows/:id/graph', async (c) => c.json(await svc().graph(c.req.param('id'), sessionQuery(c))));
+
+  app.post('/api/workflows/:id/graph/edit', async (c) => {
+    const body = await readJson<{ nodeId?: unknown; field?: unknown; value?: unknown; part?: unknown; baseSha?: unknown }>(c);
+    const nodeId = optString(body.nodeId, 'nodeId', 100);
+    const baseSha = optString(body.baseSha, 'baseSha', 100);
+    if (!nodeId || !baseSha) throw badRequest('nodeId and baseSha are required');
+    if (!GRAPH_FIELDS.includes(body.field as GraphEditField)) throw badRequest(`field must be one of ${GRAPH_FIELDS.join(', ')}`);
+    if (typeof body.value !== 'string' || body.value.length > 20_000) throw badRequest('value must be text of at most 20,000 characters');
+    if (body.part !== undefined && (typeof body.part !== 'number' || !Number.isInteger(body.part) || body.part < 0)) throw badRequest('part must be a part number');
+    const res = await svc().editGraph(c.req.param('id'), { nodeId, field: body.field as GraphEditField, value: body.value, baseSha, ...(body.part !== undefined ? { part: body.part as number } : {}) }, sessionQuery(c));
+    audit(c, 'workflow.graph.edit', `${c.req.param('id')} ${nodeId}.${body.field}`);
+    return c.json(res);
+  });
+
+  // a built-in or plugin workflow copied into the caller's own folder, where the canvas can edit it
+  app.post('/api/workflows/:id/copy', async (c) => {
+    const detail = await svc().copyWorkflow(c.req.param('id'), sessionQuery(c));
+    audit(c, 'workflow.copy', `${c.req.param('id')} to ${detail.path ?? detail.id}`);
+    return c.json(detail, 201);
   });
 
   // saved launch presets for one workflow; the owner's phone reruns them

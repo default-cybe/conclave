@@ -4,7 +4,7 @@
  * extension that gives workflow agents their StructuredOutput tool, their
  * step note and their limits.
  */
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { join, resolve as resolvePath } from 'node:path';
 import type { Engine } from '../engine/engine';
 import { EngineError } from '../engine/errors';
@@ -19,6 +19,7 @@ import type {
   WorkflowCall,
   WorkflowDetail,
   WorkflowFinding,
+  WorkflowMetaDto,
   WorkflowPreset,
   WorkflowRun,
   WorkflowRunDetail,
@@ -30,6 +31,8 @@ import type {
   WorktreeAction,
   WorktreeActionResult,
 } from '../client/workflows';
+import { staleNodes, type GraphEditInput, type GraphEditResult, type WorkflowGraphView } from '../client/graph';
+import { GraphEditError, applyEdit, lineDiff, parseGraph } from './graph';
 import type { Tool } from '../tools/types';
 import { toolByName } from '../tools';
 import { reminder } from '../session/transcript';
@@ -40,7 +43,7 @@ import { WorkflowStore, runDto, callDto, sha256, type CallRow, type RunRow } fro
 import { WorkflowRegistry, loadMeta, readScriptFile, summaryOf, type RegistryDeps } from './registry';
 import { LiveRun, SKIPPED_BY_OWNER } from './run';
 import { DEFAULTS, Semaphore, SemaphoreMap, budgetWord, count, type RunCaps } from './limits';
-import type { StepState } from './agents';
+import { resolveProfile, type StepState } from './agents';
 import { repoInfo, worktreeAction as runWorktreeAction, pruneWorktrees } from './worktrees';
 import { setWorkflows } from './attached';
 import { githubOf } from '../github/attached';
@@ -374,6 +377,105 @@ export class WorkflowService {
     return { ...summaryOf(e, last ? { id: last.id, status: last.status, createdAt: last.createdAt, ...(last.finishedAt ? { finishedAt: last.finishedAt } : {}) } : undefined), script: e.script, ...(e.meta ? { meta: e.meta } : {}) };
   }
 
+  // ----- graphs (docs/design/VISUAL-PROGRAMMING.md 7) -----
+
+  /** The library entry the caller may see, as detail() finds it. */
+  private async entryFor(id: string, sessionId?: string) {
+    const acct = currentAccount() ?? OWNER_ID;
+    const e = await this.registry.get(id, this.projectFor(sessionId), memberOf(acct));
+    if (!e || (isMember(acct) && !memberMay(e.source))) throw new EngineError(404, `workflow ${id} not found`);
+    return e;
+  }
+
+  private viewOf(script: string, source: WorkflowSource, path: string | undefined, meta?: WorkflowMetaDto): WorkflowGraphView {
+    const editable = (source === 'user' || source === 'account' || source === 'project') && !!path && !path.startsWith('builtin:');
+    return {
+      graph: parseGraph(script, (meta?.phases ?? []).map((p) => p.title)),
+      sha: sha256(script),
+      source,
+      editable,
+      ...(editable ? {} : { readOnly: source === 'inline' ? 'This script came from a run; save it to your workflows to edit it.' : 'This workflow ships with Conclave or a plugin. Copy it to your workflows to edit it.' }),
+    };
+  }
+
+  /** A library workflow as a node graph. */
+  async graph(id: string, sessionId?: string): Promise<WorkflowGraphView> {
+    const e = await this.entryFor(id, sessionId);
+    return this.viewOf(e.script, e.source, e.path, e.meta);
+  }
+
+  /** The graph of the script a run ran (its own copy), with the nodes the current library script changed marked stale. */
+  async runGraph(runId: string): Promise<WorkflowGraphView> {
+    const row = this.requireRun(runId);
+    const view = { ...this.viewOf(row.script, row.source, undefined, row.meta), editable: false, readOnly: 'A run keeps the script it ran. Edit the workflow, then Re-run.' };
+    const now = await this.registry.get(row.name, this.projectFor(row.sessionId), memberOf(this.runAccount(row))).catch(() => undefined);
+    if (now && (!isMember(this.runAccount(row)) || memberMay(now.source))) {
+      view.workflowId = now.id;
+      if (sha256(now.script) !== row.scriptSha) view.stale = staleNodes(view.graph, parseGraph(now.script));
+    }
+    return view;
+  }
+
+  /**
+   * Write one literal edit back to a workflow the caller owns. The edit must
+   * leave a script that loads and parses to the same nodes; the file must be
+   * the one the canvas read (baseSha), else 409.
+   */
+  async editGraph(id: string, input: GraphEditInput, sessionId?: string): Promise<GraphEditResult> {
+    const e = await this.entryFor(id, sessionId);
+    const view = this.viewOf(e.script, e.source, e.path, e.meta);
+    if (!view.editable || !e.path) throw new EngineError(403, view.readOnly ?? 'this workflow cannot be edited here');
+    const project = e.source === 'project' ? this.projectFor(sessionId) : undefined;
+    if (e.source === 'project' && !project) throw new EngineError(400, 'a project workflow is edited from its session');
+    const disk = project ? await project.machine.readText(e.path) : readScriptFile(e.path).script;
+    if (disk === undefined) throw new EngineError(404, `cannot read ${e.path}`);
+    if (sha256(disk) !== input.baseSha) throw new EngineError(409, 'script changed: the file changed since the graph was read; reload it');
+    const acct = currentAccount() ?? OWNER_ID;
+    let next: string;
+    try {
+      // the same lookup a run makes, Claude Code's names included; a name that would fall back is refused
+      next = applyEdit(disk, input, { agentType: (n) => !resolveProfile(this.engine, n, project?.cwd ?? '', acct).note });
+    } catch (err) {
+      if (err instanceof GraphEditError) throw new EngineError(400, err.message);
+      throw err;
+    }
+    try {
+      await loadMeta(next);
+    } catch (err) {
+      throw new EngineError(400, `the edit would not load: ${(err as Error).message}`);
+    }
+    const before = parseGraph(disk).nodes.map((n) => n.id).join(',');
+    const after = parseGraph(next);
+    if (after.nodes.map((n) => n.id).join(',') !== before) throw new EngineError(400, 'the edit would change the graph shape; edit it in the script');
+    if (Buffer.byteLength(next, 'utf8') > MAX_SCRIPT_BYTES) throw new EngineError(400, `the script would be larger than ${MAX_SCRIPT_BYTES / 1024} KB`);
+    // a temp file then a rename, so a reader never sees half a script
+    const tmp = `${e.path}.${newId('tmp')}.tmp`;
+    if (project) {
+      await project.machine.writeFile(tmp, next);
+      await project.machine.rename(tmp, e.path);
+    } else {
+      writeFileSync(tmp, next, { mode: 0o600 });
+      renameSync(tmp, e.path);
+    }
+    if (sessionId) this.engine.audit(sessionId, 'workflow.graph.edit', `${id} ${input.nodeId}.${input.field}`);
+    return { sha: sha256(next), diff: lineDiff(disk, next), view: this.viewOf(next, e.source, e.path, e.meta) };
+  }
+
+  /** Copy a read-only workflow into the caller's own folder under the same name, so the copy wins the name. */
+  async copyWorkflow(id: string, sessionId?: string): Promise<WorkflowDetail> {
+    const e = await this.entryFor(id, sessionId);
+    if (e.error || !e.meta) throw new EngineError(400, `workflow ${id} cannot load: ${e.error ?? 'no meta'}`);
+    if (e.source === 'user' || e.source === 'account') throw new EngineError(409, `${id} is already in your workflows`);
+    const acct = currentAccount() ?? OWNER_ID;
+    const dir = isMember(acct) ? this.registry.accountDir(acct) : this.registry.userDir;
+    const file = `${e.meta.name.replace(/[^A-Za-z0-9._-]/g, '-').replace(/^\.+/, '') || 'workflow'}.js`;
+    const path = join(dir, file);
+    if (existsSync(path)) throw new EngineError(409, `${path} already exists`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path, e.script, { mode: 0o600, flag: 'wx' });
+    return this.detail(e.meta.name, sessionId);
+  }
+
   /** A script by name, inline, or path; the meta checked. Throws EngineError 400 with the reason. */
   async resolveScript(input: Pick<StartWorkflowInput, 'name' | 'script' | 'scriptPath'>, session?: Session): Promise<ResolvedScript> {
     let script: string | undefined;
@@ -582,10 +684,11 @@ export class WorkflowService {
     return runDto(row, []);
   }
 
-  private cacheOf(calls: CallRow[], fromSeq?: number): Map<string, CallRow> {
+  private cacheOf(calls: CallRow[], fromSeq?: number, drop?: Set<number>): Map<string, CallRow> {
     const m = new Map<string, CallRow>();
     for (const c of calls) {
       if (fromSeq !== undefined && c.seq >= fromSeq) continue;
+      if (drop?.has(c.seq)) continue;
       // a call the owner skipped stays skipped (one stopped for no progress runs again)
       if (c.kind === 'agent' && c.state === 'skipped' && c.error?.startsWith(SKIPPED_BY_OWNER)) {
         m.set(`${c.key}#${c.occurrence}`, c);
@@ -889,10 +992,11 @@ export class WorkflowService {
   }
 
   /** Resume: a paused run goes on; an ended run runs again with its journal. */
-  async resume(id: string, opts: { auto?: boolean; fromSeq?: number } = {}): Promise<WorkflowRun> {
+  async resume(id: string, opts: { auto?: boolean; fromSeq?: number; seqs?: number[] } = {}): Promise<WorkflowRun> {
     const live = this.live.get(id);
+    const rerun = opts.fromSeq !== undefined || opts.seqs !== undefined;
     if (live) {
-      if (opts.fromSeq !== undefined) throw new EngineError(409, 'stop the run before you rerun it');
+      if (rerun) throw new EngineError(409, 'stop the run before you rerun it');
       live.resume();
       live.wakeParked();
       return runDto(live.row, [...live.calls.values()]);
@@ -902,7 +1006,7 @@ export class WorkflowService {
     const calls = this.store.calls(id);
     // agents paused when the hub stopped are let go: their calls run again
     for (const c of calls) if (c.childSessionId && this.engine.getSession(c.childSessionId)?.status === 'paused') this.engine.runnerFor(c.childSessionId).unpause();
-    const cache = this.cacheOf(calls, opts.fromSeq);
+    const cache = this.cacheOf(calls, opts.fromSeq, opts.seqs ? new Set(opts.seqs) : undefined);
     // what this run spent so far stays spent: a restart or a resume never starts the budget over.
     // The owner resuming a run that stopped at its budget gives it one more budget's worth.
     const pastBudget = !opts.auto && row.status === 'budget';
@@ -929,10 +1033,16 @@ export class WorkflowService {
     this.store.updateRun(next);
     const run = new LiveRun(this, next, { cache });
     const answers = `${cache.size} ${cache.size === 1 ? 'answer' : 'answers'}`;
-    run.log(opts.fromSeq !== undefined ? `Rerun from call ${opts.fromSeq}: ${answers} replay from the journal.` : `Resumed${opts.auto ? ' after a restart' : ''}: ${answers} in the journal.`);
+    run.log(
+      opts.seqs !== undefined
+        ? `Rerun of ${opts.seqs.length === 1 ? 'call' : 'calls'} ${opts.seqs.join(', ')}: ${answers} replay from the journal.`
+        : opts.fromSeq !== undefined
+          ? `Rerun from call ${opts.fromSeq}: ${answers} replay from the journal.`
+          : `Resumed${opts.auto ? ' after a restart' : ''}: ${answers} in the journal.`,
+    );
     if (pastBudget) run.log('Resumed past its budget: the budget counts again from here.');
     else if (priorTokens && row.budget?.tokens) run.log(`The budget counts the ${priorTokens} output tokens earlier attempts spent.`);
-    if (next.sessionId) this.engine.audit(next.sessionId, 'workflow.resume', `${next.name} (${id})${opts.fromSeq !== undefined ? ` from call ${opts.fromSeq}` : ''}`);
+    if (next.sessionId) this.engine.audit(next.sessionId, 'workflow.resume', `${next.name} (${id})${opts.fromSeq !== undefined ? ` from call ${opts.fromSeq}` : ''}${opts.seqs ? ` calls ${opts.seqs.join(',')}` : ''}`);
     this.launch(run);
     return runDto(next, []);
   }
@@ -954,9 +1064,19 @@ export class WorkflowService {
     return runDto(row, this.store.calls(id));
   }
 
-  rerun(id: string, fromSeq: number): Promise<WorkflowRun> {
-    if (!Number.isInteger(fromSeq) || fromSeq < 1) throw new EngineError(400, 'fromSeq must be a call number');
-    return this.resume(id, { fromSeq });
+  /**
+   * Rerun an ended run with its journal. fromSeq drops that call and every later one;
+   * { seqs } drops only those calls (Re-run this node): their new answers change the
+   * prompts downstream, so dependents run live and independent calls replay.
+   */
+  rerun(id: string, from: number | { seqs: number[] }): Promise<WorkflowRun> {
+    if (typeof from === 'object') {
+      const seqs = Array.isArray(from.seqs) ? from.seqs : [];
+      if (!seqs.length || seqs.length > 4096 || !seqs.every((s) => Number.isInteger(s) && s >= 1)) throw new EngineError(400, 'seqs must be a list of call numbers');
+      return this.resume(id, { seqs: [...new Set(seqs)] });
+    }
+    if (!Number.isInteger(from) || from < 1) throw new EngineError(400, 'fromSeq must be a call number');
+    return this.resume(id, { fromSeq: from });
   }
 
   skip(id: string, seq: number): WorkflowRun {

@@ -34,6 +34,19 @@ export function preludeSource(opts: { argsJson: string; nested: boolean }): stri
     try { const s = toJson(v); return s === undefined ? String(v) : s; } catch (e) { return String(v); }
   };
   const define = (name, value) => Object.defineProperty(g, name, { value, writable: false, configurable: false, enumerable: false });
+  // the script lines of the call site, innermost first: a display hint that maps a call to its graph node (client/graph.ts)
+  const RealError = Error;
+  const here = () => {
+    try {
+      const out = [];
+      // the <eval> frame is the wrapper itself (the script's last line), not a call site
+      const re = /^\\s*at (?!<eval>).*\\(workflow\\.js:(\\d+)/gm;
+      const s = String(new RealError().stack || '');
+      let m;
+      while ((m = re.exec(s)) && out.length < 4) out.push(Number(m[1]));
+      return out;
+    } catch (e) { return []; }
+  };
 
   // determinism: a resumed run must replay the same calls. The real Date is
   // kept only in this closure: Date.prototype.constructor and the prototype
@@ -71,7 +84,7 @@ export function preludeSource(opts: { argsJson: string; nested: boolean }): stri
     const o = opts && typeof opts === 'object' ? opts : {};
     const plain = fromJson(toJson(o));
     if (plain.phase === undefined && currentPhase !== undefined) plain.phase = currentPhase;
-    return call('agent', { prompt, opts: plain });
+    return call('agent', { prompt, opts: plain, at: here() });
   });
 
   const MAX_ITEMS = 4096;
@@ -367,16 +380,16 @@ export function preludeSource(opts: { argsJson: string; nested: boolean }): stri
     judgePanel,
     checkCitation,
     checkCitations,
-    exec: (command, o) => call('exec', { command, cwd: o && o.cwd, timeoutMs: o && o.timeoutMs, worktree: o && o.worktree }),
+    exec: (command, o) => call('exec', { command, cwd: o && o.cwd, timeoutMs: o && o.timeoutMs, worktree: o && o.worktree, at: here() }),
     capture: (url, o) => call('capture', { url, opts: o || {} }),
-    runCheck: (command, o) => call('runCheck', { command, worktree: o && o.worktree, timeoutMs: o && o.timeoutMs }),
+    runCheck: (command, o) => call('runCheck', { command, worktree: o && o.worktree, timeoutMs: o && o.timeoutMs, at: here() }),
     checkout: (seq) => call('checkout', { seq }),
     diff: (seq) => call('diff', { seq }),
     dropDismissed: (list) => call('dropDismissed', { findings: list || [] }),
     recordFindings: (list) => call('recordFindings', { findings: list || [] }),
     ledger,
-    ask: (question, options) => call('ask', { question, options: options || [] }),
-    approve: (text) => call('approve', { text }),
+    ask: (question, options) => call('ask', { question, options: options || [], at: here() }),
+    approve: (text) => call('approve', { text, at: here() }),
   };
   define('lib', Object.freeze(lib));
 })();

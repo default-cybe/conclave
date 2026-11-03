@@ -31,7 +31,7 @@ export class WorkflowLoadError extends Error {
 }
 
 type TokKind = 'ident' | 'num' | 'str' | 'tmpl' | 'punct' | 'regex';
-interface Tok {
+export interface Tok {
   kind: TokKind;
   text: string;
   start: number;
