@@ -15,7 +15,8 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/text';
 import { Button } from '@/components/ui/Button';
 import { useIsMobile } from '@/lib/hooks';
-import { fileCardOf, fileFacts, opensInTab, previewOf, shareCards, SVG_PREVIEW_MAX, type FileCardData } from './words';
+import { ImageThumb } from '@/components/ui/ImageViewer';
+import { fileCardOf, fileFacts, generatedCards, generatedNames, opensInTab, previewOf, shareCards, SVG_PREVIEW_MAX, type FileCardData } from './words';
 
 const BOX = 'rounded-[var(--r-2)] border border-rule-2 bg-raise';
 
@@ -110,12 +111,36 @@ export function FileCard({ card, sessionId, className }: { card: FileCardData; s
   );
 }
 
-/** The cards of a turn's ShareFile calls, in order: what sits under a phone's folded tool line. */
-export function FileCards({ calls, sessionId, className }: { calls: Array<{ name: string; result?: ToolResultBlock }>; sessionId: string; className?: string }) {
-  const cards = shareCards(calls);
+function GridCell({ card, sessionId, one }: { card: FileCardData; sessionId: string; one: boolean }) {
+  const { src, error } = usePreview(sessionId, card);
+  const box = cn('w-full rounded-[var(--r-2)] border border-rule bg-sunk object-cover', one ? 'max-h-[420px] object-contain' : 'aspect-square');
+  if (error) return <div className={cn(box, 'flex aspect-square items-center justify-center p-3 text-center text-[12.5px] text-fault')}>Could not load {card.name}</div>;
+  if (!src) return <div className={cn(box, 'aspect-square animate-pulse')} aria-label={`Loading ${card.name}`} />;
+  return <ImageThumb src={src} alt={card.title ?? 'Generated image'} name={card.name} className={box} />;
+}
+
+/** Pictures GenerateImage made, as a grid: one shows large, two to four in two columns. A tap opens one full screen with Download. */
+export function ImageGrid({ cards, sessionId, className }: { cards: FileCardData[]; sessionId: string; className?: string }) {
   if (!cards.length) return null;
+  const one = cards.length === 1;
+  return (
+    <div className={cn('grid gap-2', one ? 'max-w-[420px] grid-cols-1' : 'max-w-[560px] grid-cols-2', className)} data-image-grid={cards.length}>
+      {cards.map((c) => (
+        <GridCell key={c.toolUseId} card={c} sessionId={sessionId} one={one} />
+      ))}
+    </div>
+  );
+}
+
+/** The cards of a turn's ShareFile calls, in order: what sits under a phone's folded tool line. Generated pictures go in one grid instead. */
+export function FileCards({ calls, sessionId, className }: { calls: Array<{ name: string; result?: ToolResultBlock }>; sessionId: string; className?: string }) {
+  const made = generatedNames(calls);
+  const pics = generatedCards(calls, made);
+  const cards = shareCards(calls).filter((c) => !made.has(c.name));
+  if (!cards.length && !pics.length) return null;
   return (
     <div className={cn('flex flex-col gap-2', className)}>
+      <ImageGrid cards={pics} sessionId={sessionId} />
       {cards.map((c) => (
         <FileCard key={c.toolUseId} card={c} sessionId={sessionId} />
       ))}

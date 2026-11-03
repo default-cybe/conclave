@@ -325,7 +325,7 @@ export function buildPicker({ models, sessions, devices, secrets, limits, harnes
     if (HARNESSES[g.provider]) continue;
     for (const m of g.models) {
       // an image or review model is not a chat model: the chat picker has no place for it
-      if (m.sameAs || NON_CHAT.test(m.id)) continue;
+      if (m.sameAs || m.kind === 'image' || m.kind === 'embedding' || NON_CHAT.test(m.id)) continue;
       const maker = entryMaker(m) ?? g.provider;
       if (m.via || m.refs || maker !== g.provider) merged.add(maker);
       const list = byMaker.get(maker) ?? [];

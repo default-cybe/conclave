@@ -27,6 +27,33 @@ export function shareCards(calls: Array<{ name: string; result?: Parameters<type
   });
 }
 
+type CallLike = { name: string; result?: { toolUseId?: string; meta?: Record<string, unknown>; isError?: boolean } };
+
+const base = (p: string) => p.split(/[\\/]/).pop() ?? p;
+
+/** File names the turn's GenerateImage calls saved (their result's meta.images). */
+export function generatedNames(calls: CallLike[]): Set<string> {
+  const out = new Set<string>();
+  for (const c of calls) {
+    const list = c.name === 'GenerateImage' && !c.result?.isError ? c.result?.meta?.images : undefined;
+    if (Array.isArray(list)) for (const p of list) if (typeof p === 'string') out.add(base(p));
+  }
+  return out;
+}
+
+/**
+ * The cards the turn-end pass gave a set of generated pictures, in order:
+ * the ShareFile results whose file is one of `names`. Matched by file name,
+ * which GenerateImage makes unique by timestamp.
+ */
+export function generatedCards(calls: CallLike[], names: Set<string>): FileCardData[] {
+  if (!names.size) return [];
+  return calls.flatMap((c) => {
+    const card = c.name === 'ShareFile' ? fileCardOf(c.result) : undefined;
+    return card && names.has(card.name) && previewOf(card) === 'image' ? [card] : [];
+  });
+}
+
 /** "512 B", "14.2 KB", "3.1 MB". */
 export function sizeWords(n: number): string {
   if (n < 1024) return `${n} B`;

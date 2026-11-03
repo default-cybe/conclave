@@ -1,5 +1,7 @@
 # Image generation: make and edit pictures from chat
 
+Status: phase 1 built (feat/image-generation, 2026-11-03): GenerateImage on the chat and assistant agents, cliproxy/gpt-image-2.5 by default, medium quality unless the owner asks for the best, no daily cap, members on their own keys only. Web shows a grid; Android shows file cards.
+
 The owner asked: "then its time to have image generation feature on conclave. research and think of where and how it can be exist in our conclave".
 
 Today Conclave cannot make a raster image. RenderFile turns HTML, SVG or Markdown into a PNG or PDF with Chromium. It does not generate pictures. CHAT-AND-MOTION.md section 2.10 lists image generation as out for now. This doc says where it goes, how it reaches a model, and what phase 1 builds.

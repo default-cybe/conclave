@@ -1,7 +1,8 @@
 /**
  * A picture you attached, as a thumbnail that opens it whole: a click or a tap
  * shows it fitted to the screen in a Dialog (Escape, the scrim and Close shut
- * it) with Download. Used by your messages on the Chat page and in the session log.
+ * it) with Download. Used by your messages on the Chat page and in the session log,
+ * and by the grid of generated pictures in a reply (features/files/FileCard.tsx).
  */
 import { useState } from 'react';
 import { Download } from 'lucide-react';
@@ -10,7 +11,7 @@ import { useIsMobile } from '@/lib/hooks';
 import { buttonClass } from './Button';
 import { Dialog } from './Overlay';
 
-export function ImageThumb({ src, alt = 'Attached image', className }: { src: string; alt?: string; className?: string }) {
+export function ImageThumb({ src, alt = 'Attached image', className, name = 'image' }: { src: string; alt?: string; className?: string; name?: string }) {
   const [open, setOpen] = useState(false);
   const mobile = useIsMobile();
   return (
@@ -27,7 +28,7 @@ export function ImageThumb({ src, alt = 'Attached image', className }: { src: st
         className="md:max-h-[92vh]"
         footer={
           // a plain anchor: a data: or hub URL downloads where a router Link would navigate
-          <a href={src} download="image" className={buttonClass('outline', mobile ? 'touch' : 'md')}>
+          <a href={src} download={name} className={buttonClass('outline', mobile ? 'touch' : 'md')}>
             <Download className="size-4" aria-hidden />
             Download
           </a>
