@@ -6,7 +6,7 @@
  *   bun test packages/web/test/graph-history.test.ts
  */
 import { describe, expect, test } from 'bun:test';
-import { History } from '../src/features/graph/history';
+import { History, insertStep } from '../src/features/graph/history';
 
 describe('History', () => {
   test('undo, redo, and a new edit clears redo', async () => {
@@ -29,6 +29,22 @@ describe('History', () => {
     expect(h.future).toEqual([]);
     await h.undo();
     expect(x).toBe(1);
+  });
+
+  test('undoing a node added over saved positions puts the old layout keys back after the old script', async () => {
+    const log: string[] = [];
+    const restore = async (sha: string) => void log.push(`restore ${sha}`);
+    const save = async (p: Record<string, { x: number; y: number }>) => void log.push(`layout ${Object.keys(p).join(',')}`);
+    const h = new History();
+    h.push(insertStep(restore, save, { sha: 'v1', layout: { 'agent-2': { x: 80, y: 80 } } }, { sha: 'v2', layout: { 'agent-3': { x: 80, y: 80 } } }));
+    await h.undo();
+    await h.redo();
+    expect(log).toEqual(['restore v1', 'layout agent-2', 'restore v2', 'layout agent-3']);
+    // no saved positions: the script only, no side file written
+    log.length = 0;
+    h.push(insertStep(restore, save, { sha: 'v2', layout: {} }, { sha: 'v3' }));
+    await h.undo();
+    expect(log).toEqual(['restore v2']);
   });
 
   test('a step that fails stays where it was', async () => {

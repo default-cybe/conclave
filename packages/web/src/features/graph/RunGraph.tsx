@@ -21,7 +21,7 @@ import { attempt } from '@/store/store';
 import { isLive } from '../workflows/words';
 import { GraphCanvas } from './GraphCanvas';
 import { Inspector, type InspectorProps } from './Inspector';
-import { useHistory } from './history';
+import { insertStep, useHistory } from './history';
 
 type Positions = Record<string, { x: number; y: number }>;
 
@@ -126,15 +126,17 @@ export default function WorkflowGraphPage() {
   };
   const edited = (label: string, before: string, after: string) => history.push({ label, undo: () => restore(before), redo: () => restore(after) });
   // a node from the search: a new statement in the script; a refusal comes back as a toast with the reason
-  const insert = (kind: 'agent' | 'parallel' | 'check' | 'approve' | 'ask', after?: string) =>
+  const insert = (kind: 'agent' | 'parallel' | 'check' | 'approve' | 'ask', after?: string) => {
+    const prev = positions;
     void attempt(() => api().insertWorkflowNode(id, { kind, baseSha: shaNow.current, ...(after ? { after } : {}) }), 'Added to the script').then((res) => {
       if (!res || !view) return;
-      edited('new node', view.sha, res.sha);
+      history.push(insertStep(restore, saveLayout, { sha: view.sha, layout: prev }, { sha: res.sha, layout: res.view.layout }));
       setView(res.view);
       if (res.view.layout) setPositions(res.view.layout);
       setDiff(res.diff || undefined);
       setSel(res.nodeId);
     });
+  };
   const start = (resume?: string) => void attempt(() => api().startWorkflow({ name: id, ...(resume ? { resumeFromRunId: resume } : {}) })).then((r) => r && go(`/workflows/runs/${r.id}?view=graph`));
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
