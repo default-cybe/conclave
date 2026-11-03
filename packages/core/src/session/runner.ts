@@ -25,7 +25,7 @@ import { buildSystemPrompt, subagentCatalog, TOOL_NOTE_TOOLS, type PromptParts }
 import { delegateCatalog } from '../engine/delegate';
 import { flattenLastToolTurn, isTranscriptShapeError } from './pairing';
 import { streamCompletion, type Served } from './stream';
-import { transcribeImages } from './image-text';
+import { isTextOnlyImageError, transcribeImages } from './image-text';
 import { seesImages } from '../providers/common';
 import { pickedName } from '../attachments/prepare';
 import { refusalPlanFor } from './member-fallbacks';
@@ -1160,6 +1160,8 @@ export class SessionRunner {
     let emptyRetries = 0;
     /** One repair and retry per turn when the API rejects the transcript shape. */
     let shapeRetry: 'unused' | 'next' | 'used' = 'unused';
+    /** Set once a model the config says sees images answered "text only": the rest of the turn sends images as text. */
+    let textOnly = false;
     /** Models that hit a limit this turn: a limit fallback never goes back to one. */
     const limited: string[] = [];
     const maxSteps = this.stepBudget();
@@ -1228,7 +1230,7 @@ export class SessionRunner {
         }
       }
       // a model without vision reads images as text another model wrote (session/image-text.ts)
-      const imageText = !seesImages(resolved.model, resolved.info, cfg.providers[resolved.provider]);
+      const imageText = textOnly || !seesImages(resolved.model, resolved.info, cfg.providers[resolved.provider]);
       if (imageText) {
         await transcribeImages(engine, this.id, engine.sessionAccount(this.id), signal);
         stored = activeStored(engine.repos.messages, this.id);
@@ -1307,6 +1309,12 @@ export class SessionRunner {
           if (shapeRetry === 'unused' && isTranscriptShapeError(err)) {
             shapeRetry = 'next';
             log.warn(`transcript shape rejected in ${this.id}; retrying with the last calls as text: ${err.message}`);
+            continue;
+          }
+          // the route takes no images though the config says it sees: transcribe them and retry once
+          if (!imageText && isTextOnlyImageError(err)) {
+            textOnly = true;
+            log.warn(`${currentModel} in ${this.id} takes no images; retrying with them transcribed: ${oneLine(err.message, 160)}`);
             continue;
           }
           if (err.kind === 'context_length' && mayCompact) {

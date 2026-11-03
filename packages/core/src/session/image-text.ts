@@ -127,6 +127,13 @@ export async function transcribeImages(engine: Engine, sessionId: string, accoun
   }
 }
 
+/** A 400 that says the model route takes no images ("... carries an image, and the selected model route accepts text only"). */
+export function isTextOnlyImageError(err: unknown): boolean {
+  if (!(err instanceof ProviderError) || (err.kind !== 'bad_request' && err.status !== 400)) return false;
+  const text = `${err.message} ${err.body ?? ''}`;
+  return /image/i.test(text) && /text[- ]only|(does not|doesn't|cannot) (support|accept|read) (image|vision)|image (input|content)s? (is |are )?not supported/i.test(text);
+}
+
 function textsOf(m: Message): Record<string, string> {
   return (m.meta?.imageText as Record<string, string> | undefined) ?? {};
 }

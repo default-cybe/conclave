@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Images reach a custom provider's GLM build again. A model that only starts with a catalog id on a provider that is not the vendor's own API (`glm-5.3-flash-uncensored` on Experiential Labs) no longer inherits the catalog model's vision, just as it does not inherit its price. Before, GLM-5.3 Flash's vision made the hub send the raw image, and the provider answered 400 "the selected model route accepts text only". Now the image goes through the vision model first. Set `providers.<id>.modelOverrides.<model>.vision` to `true` for a build that does read images. A model that still answers a 400 like that to an image gets its images transcribed and the request retried once in the same turn.
+
 ## [0.4.60] - 2026-11-02
 
 ### Fixed
