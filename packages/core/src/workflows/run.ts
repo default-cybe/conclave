@@ -56,6 +56,13 @@ const NESTED_AT_ONCE = 2;
 /** lib.checkCitation reads at most this much of a file. */
 const CITATION_MAX_BYTES = 5_000_000;
 
+/** The call-site lines the prelude sends (here()): at most 4 positive integers, else none. A display hint only. */
+export function readAt(v: unknown): number[] | undefined {
+  if (!Array.isArray(v) || !v.length) return undefined;
+  const out = v.slice(0, 4).filter((n): n is number => Number.isInteger(n) && n > 0 && n < 1e7);
+  return out.length ? out : undefined;
+}
+
 function shortError(err: unknown): string {
   return oneLine((err as Error)?.message ?? String(err), 600);
 }
@@ -378,9 +385,9 @@ export class LiveRun {
    * A host call that is journaled (lib.exec, lib.runCheck, lib.ask,
    * lib.approve): replayed by key, else run and stored.
    */
-  private async hostCall<T>(kind: WorkflowCallKind, label: string, parts: Record<string, unknown>, parentSeq: number | undefined, fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  private async hostCall<T>(kind: WorkflowCallKind, label: string, parts: Record<string, unknown>, parentSeq: number | undefined, fn: (signal: AbortSignal) => Promise<T>, at?: number[]): Promise<T> {
     const key = callKey({ host: kind, ...parts });
-    const c = this.newCall(kind, key, { label, ...(parentSeq !== undefined ? { parentSeq } : {}), prompt: label });
+    const c = this.newCall(kind, key, { label, ...(parentSeq !== undefined ? { parentSeq } : {}), prompt: label, ...(at ? { at } : {}) });
     const hit = this.cached(c);
     if (hit) {
       this.saveCall({ ...c, state: 'cached', result: hit.result, hasResult: true, finishedAt: Date.now() });
@@ -399,7 +406,7 @@ export class LiveRun {
 
   // ----- agent() -----
 
-  async agentCall(prompt: unknown, rawOpts: unknown, parentSeq?: number): Promise<unknown> {
+  async agentCall(prompt: unknown, rawOpts: unknown, parentSeq?: number, at?: number[]): Promise<unknown> {
     if (this.controller.signal.aborted) throw new Error('the run was stopped');
     const spec = readAgentSpec(prompt, rawOpts);
     if (this.agentCount >= this.maxAgents) throw new Error(`Workflow agent() call cap reached (${this.maxAgents} agents in this run)`);
@@ -419,6 +426,7 @@ export class LiveRun {
       ...(spec.model ? { model: spec.model } : {}),
       ...(spec.effort ? { effort: spec.effort } : {}),
       ...(parentSeq !== undefined ? { parentSeq } : {}),
+      ...(at ? { at } : {}),
       prompt: spec.prompt.slice(0, 4000),
     });
 
@@ -1022,8 +1030,8 @@ export class LiveRun {
     };
     const async = {
       agent: (p: unknown) => {
-        const o = (p ?? {}) as { prompt?: unknown; opts?: unknown };
-        return this.agentCall(o.prompt, o.opts, parentSeq);
+        const o = (p ?? {}) as { prompt?: unknown; opts?: unknown; at?: unknown };
+        return this.agentCall(o.prompt, o.opts, parentSeq, readAt(o.at));
       },
       sleep: async (p: unknown) => {
         const ms = Math.min(Math.max(0, Number((p as { ms?: unknown })?.ms) || 0), DEFAULTS.sleepMaxMs);
@@ -1050,18 +1058,18 @@ export class LiveRun {
       },
       checkCitation: (p: unknown) => this.checkCitation((p ?? {}) as Record<string, unknown>),
       exec: (p: unknown) => {
-        const o = (p ?? {}) as { command?: unknown; cwd?: unknown; timeoutMs?: unknown; worktree?: unknown };
+        const o = (p ?? {}) as { command?: unknown; cwd?: unknown; timeoutMs?: unknown; worktree?: unknown; at?: unknown };
         const command = typeof o.command === 'string' ? o.command : '';
         if (!command.trim()) throw new Error('lib.exec needs a command');
         this.countCheck();
         const worktree = typeof o.worktree === 'number' ? o.worktree : undefined;
         const cwd = typeof o.cwd === 'string' ? o.cwd : undefined;
         return this.fingerprintFor(worktree, this.row.cwd).then((fp) =>
-          this.hostCall('check', `exec: ${oneLine(command, 80)}`, { command, cwd, worktree, fp }, parentSeq, (signal) => this.execOn(command, { cwd, timeoutMs: typeof o.timeoutMs === 'number' ? o.timeoutMs : undefined, worktree }, signal)),
+          this.hostCall('check', `exec: ${oneLine(command, 80)}`, { command, cwd, worktree, fp }, parentSeq, (signal) => this.execOn(command, { cwd, timeoutMs: typeof o.timeoutMs === 'number' ? o.timeoutMs : undefined, worktree }, signal), readAt(o.at)),
         );
       },
       runCheck: (p: unknown) => {
-        const o = (p ?? {}) as { command?: unknown; worktree?: unknown; timeoutMs?: unknown };
+        const o = (p ?? {}) as { command?: unknown; worktree?: unknown; timeoutMs?: unknown; at?: unknown };
         const command = typeof o.command === 'string' ? o.command : '';
         if (!command.trim()) throw new Error('lib.runCheck needs a command');
         this.countCheck();
@@ -1071,7 +1079,7 @@ export class LiveRun {
             const r = await this.execOn(command, { timeoutMs: typeof o.timeoutMs === 'number' ? o.timeoutMs : undefined, worktree }, signal);
             const tail = `${r.stdout}\n${r.stderr}`.trim().split('\n').slice(-40).join('\n');
             return { ok: r.exitCode === 0 && !r.timedOut, exitCode: r.exitCode, tail, timedOut: r.timedOut };
-          }),
+          }, readAt(o.at)),
         );
       },
       // lib.capture: the Capture tool's code (browser/capture.ts); files in the run's session outputs folder on the hub
@@ -1104,14 +1112,14 @@ export class LiveRun {
       },
       recordFindings: (p: unknown) => this.recordFindings(Array.isArray((p as { findings?: unknown })?.findings) ? ((p as { findings: unknown[] }).findings) : []),
       ask: (p: unknown) => {
-        const o = (p ?? {}) as { question?: unknown; options?: unknown };
+        const o = (p ?? {}) as { question?: unknown; options?: unknown; at?: unknown };
         const question = String(o.question ?? '');
         const options = Array.isArray(o.options) ? o.options.map(String) : [];
-        return this.hostCall('ask', `ask: ${oneLine(question, 80)}`, { question, options }, parentSeq, (signal) => this.ask(question, options, signal));
+        return this.hostCall('ask', `ask: ${oneLine(question, 80)}`, { question, options }, parentSeq, (signal) => this.ask(question, options, signal), readAt(o.at));
       },
       approve: (p: unknown) => {
         const text = String((p as { text?: unknown })?.text ?? '');
-        return this.hostCall('ask', 'approve the plan', { approve: text }, parentSeq, (signal) => this.approve(text, signal));
+        return this.hostCall('ask', 'approve the plan', { approve: text }, parentSeq, (signal) => this.approve(text, signal), readAt((p as { at?: unknown })?.at));
       },
     };
     // every async host call counts toward the run's host call cap

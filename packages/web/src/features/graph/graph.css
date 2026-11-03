@@ -1,0 +1,58 @@
+/* The workflow canvas on spec tokens: no background grid (spec 2), wires in
+   the rule color, the live wire in signal, a selected node outlined in fg. */
+.cv-graph {
+  --xy-edge-stroke: var(--rule-2);
+  --xy-edge-stroke-width: 1;
+  --xy-edge-stroke-selected: var(--fg-2);
+  --xy-handle-background-color: var(--rule-2);
+  --xy-handle-border-color: var(--bg-raise);
+  --xy-node-boxshadow-selected: none;
+  --xy-attribution-background-color: transparent;
+  background: var(--bg);
+  touch-action: none;
+}
+
+.cv-graph .react-flow__handle {
+  width: 7px;
+  height: 7px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.cv-graph .react-flow__node-wf:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: var(--r-2);
+}
+
+.cv-graph .cv-graph-selected {
+  border-color: var(--fg);
+}
+
+.cv-graph .cv-wire-live path {
+  stroke: var(--signal);
+}
+
+.cv-graph .react-flow__node-band {
+  pointer-events: none;
+}
+
+.cv-graph .react-flow__controls {
+  box-shadow: none;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-2);
+  overflow: hidden;
+}
+
+.cv-graph .react-flow__controls-button {
+  background: var(--bg-raise);
+  border-bottom: 1px solid var(--rule);
+  color: var(--fg-2);
+  fill: var(--fg-2);
+  width: 30px;
+  height: 30px;
+}
+
+.cv-graph .react-flow__controls-button:hover {
+  background: var(--bg-hover);
+}

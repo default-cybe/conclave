@@ -171,6 +171,9 @@ import type {
   WorktreeActionResult,
 } from './workflows';
 export type * from './workflows';
+import type { GraphEditInput, GraphEditResult, WorkflowGraphView } from './graph';
+export type * from './graph';
+export { nodeOf, nodeRuns, staleNodes } from './graph';
 // ----- alerts: file conflicts and stuck turns, docs/DESIGN.md 28 -----
 import type { AlertAction, AlertItem } from './alerts';
 export type * from './alerts';
@@ -2382,7 +2385,14 @@ export class ConclaveClient {
   resumeWorkflow = (id: string) => this.request<WorkflowRun>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/resume`);
   stopWorkflow = (id: string) => this.request<WorkflowRun>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/stop`);
   /** Run again from call fromSeq: earlier calls replay from the journal. */
-  rerunWorkflow = (id: string, fromSeq: number) => this.request<WorkflowRun>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/rerun`, { fromSeq });
+  rerunWorkflow = (id: string, from: number | { seqs: number[] }) => this.request<WorkflowRun>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/rerun`, typeof from === 'number' ? { fromSeq: from } : { seqs: from.seqs });
+  /** A workflow as a node graph (docs/design/VISUAL-PROGRAMMING.md 7). */
+  workflowGraph = (id: string) => this.request<WorkflowGraphView>('GET', `/api/workflows/${encodeURIComponent(id)}/graph`);
+  /** The graph of the script a run ran, with nodes the library script changed since marked stale. */
+  workflowRunGraph = (id: string) => this.request<WorkflowGraphView>('GET', `/api/workflows/runs/${encodeURIComponent(id)}/graph`);
+  editWorkflowGraph = (id: string, edit: GraphEditInput) => this.request<GraphEditResult>('POST', `/api/workflows/${encodeURIComponent(id)}/graph/edit`, edit);
+  /** Copy a built-in or plugin workflow into your own workflows, where it can be edited. */
+  copyWorkflow = (id: string) => this.request<WorkflowDetail>('POST', `/api/workflows/${encodeURIComponent(id)}/copy`);
   skipWorkflowCall = (id: string, seq: number) => this.request<WorkflowRun>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/calls/${seq}/skip`);
   workflowWorktree = (id: string, seq: number, action: WorktreeAction) => this.request<WorktreeActionResult>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/calls/${seq}/worktree`, { action });
   keepRaceWinner = (id: string, how: KeepWinnerHow) => this.request<KeepWinnerResult>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/keep`, { how });

@@ -99,6 +99,8 @@ export interface WorkflowCall {
   queuedAt?: number;
   startedAt?: number;
   finishedAt?: number;
+  /** Script lines of the call site, innermost first: maps the call to a graph node (client/graph.ts nodeOf). */
+  at?: number[];
 }
 
 export interface WorkflowCounts {

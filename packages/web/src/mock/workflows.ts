@@ -27,7 +27,33 @@ import type {
   WorktreeAction,
 } from '@conclave/core/client';
 import type { Message, Session } from '@conclave/core/types';
+import type { WorkflowGraphView } from '@conclave/core/client';
+import { parseGraph } from '@conclave/core/workflows/graph';
 import type { MockCtx } from './index';
+
+/** Scripts the graph view parses (the mock's library has no real scripts). */
+const GRAPH_SCRIPTS: Record<string, string> = {
+  'deep-research': `export const meta = {
+  name: 'deep-research',
+  description: 'Research a question across the web and check every claim',
+  phases: [{ title: 'Frame' }, { title: 'Search' }, { title: 'Check' }, { title: 'Synthesize' }],
+}
+const question = args.question
+phase('Frame')
+const plan = await agent(['Frame the question as 5 searches.', 'Say what would settle it.'].join('\\n'), { label: 'frame', agentType: 'researcher', model: 'smart' })
+phase('Search')
+const hits = await parallel(plan.queries.map((q) => () => agent('Search: ' + q, { label: 'search', agentType: 'web-searcher', model: 'fast' })))
+const sources = hits.flat().filter(Boolean)
+const ranked = await agent('Rank these sources by how directly they answer: ' + JSON.stringify(sources), { label: 'rank', model: 'fast' })
+phase('Check')
+const verified = await agent('Check each claim in ' + ranked + ' against two sources.', { label: 'verify', agentType: 'explore', model: 'smart' })
+const cites = await lib.runCheck('bun run cite-check')
+await lib.approve('Publish the report with ' + verified.length + ' claims?')
+phase('Synthesize')
+const report = await agent('Write the report on ' + question + ' from ' + verified, { label: 'report', model: 'deep' })
+return { report, cites }
+`,
+};
 import { FANOUT_SESSION, fanOutFixture } from './fanout';
 
 const MIN = 60_000;
@@ -384,6 +410,30 @@ export function registerWorkflows(ctx: MockCtx): void {
       },
     ];
     runs.set(rid, research);
+
+    // ----- a live run for the graph view: one node in each state (docs/design/VISUAL-PROGRAMMING.md 7.5) -----
+    const tg = now - 9 * MIN;
+    const gid = 'wfr_graph1';
+    const gcalls: WorkflowCall[] = [
+      call(1, { label: 'frame', phase: 'Frame', state: 'cached', agentType: 'researcher', model: 'anthropic/claude-sonnet-5-5' }, tg),
+      ...[1, 2, 3, 4, 5].map((i) => call(i + 1, { label: `search ${i}`, phase: 'Search', state: 'done', agentType: 'web-searcher', model: 'anthropic/claude-haiku-5-5', lastTool: 'WebFetch caddyserver.com' }, tg + i * 20_000)),
+      call(7, { label: 'rank', phase: 'Search', state: 'failed', model: 'anthropic/claude-haiku-5-5' }, tg + 3 * MIN),
+      call(8, { label: 'verify', phase: 'Check', state: 'running', agentType: 'explore', model: 'anthropic/claude-sonnet-5-5', lastTool: 'Read notes/claims.md' }, tg + 5 * MIN),
+      { ...call(9, { label: 'bun run cite-check', phase: 'Check', state: 'queued' }, tg + 6 * MIN), kind: 'check' as const, childSessionId: undefined },
+    ];
+    const LINES: Record<number, number> = { 1: 8, 2: 10, 3: 10, 4: 10, 5: 10, 6: 10, 7: 12, 8: 14, 9: 15 };
+    for (const c of gcalls) c.at = [LINES[c.seq]];
+    const rank = gcalls[6];
+    rank.error = 'The agent ended without calling StructuredOutput (2 tries).';
+    gcalls[7].startedAt = Date.now() - 74_000;
+    const graphRun: MockRun = {
+      run: { ...research.run, id: gid, sessionId: undefined, toolUseId: undefined, phaseIndex: 2, phaseTitle: 'Check', counts: counts(gcalls), scriptPath: `~/.conclave/workflows/runs/${gid}.js`, createdAt: tg, startedAt: tg + 600, budget: undefined },
+      calls: gcalls,
+      logs: [{ n: 1, ts: tg + 4 * MIN, text: 'rank failed; verifying the unranked sources' }],
+      findings: [],
+    };
+    totals(graphRun);
+    runs.set(gid, graphRun);
     tick(research);
 
     // the sessions that started them, with the Workflow tool calls
@@ -617,6 +667,17 @@ export function registerWorkflows(ctx: MockCtx): void {
     if (verdict === 'dismissed' && !String(body?.reason ?? '').trim()) return ctx.fail(400, 'a dismissal needs a reason');
     Object.assign(f, { verdict, ...(body?.reason ? { reason: String(body.reason) } : {}), decidedAt: Date.now() });
     return structuredClone(f);
+  });
+  // graphs: parsed from the same scripts a hub would parse
+  const graphView = (id: string, editable: boolean): WorkflowGraphView => {
+    const script = GRAPH_SCRIPTS[id] ?? GRAPH_SCRIPTS['deep-research'];
+    return { graph: parseGraph(script), sha: 'mock', source: editable ? 'user' : 'builtin', editable, ...(editable ? {} : { readOnly: 'This workflow ships with Conclave. Copy it to your workflows to edit it.' }) };
+  };
+  ctx.on('GET', '/api/workflows/runs/:id/graph', ({ params }) => ({ ...graphView(find(params[0]).run.name, false), readOnly: 'A run keeps the script it ran. Edit the workflow, then Re-run.', workflowId: find(params[0]).run.name }));
+  ctx.on('GET', '/api/workflows/:id/graph', ({ params }) => {
+    const e = LIBRARY.find((x) => x.id === decodeURIComponent(params[0]));
+    if (!e) return ctx.notFound();
+    return graphView(e.id, e.source === 'user');
   });
   ctx.on('GET', '/api/workflows/:id', ({ params }) => {
     const id = decodeURIComponent(params[0]);

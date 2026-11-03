@@ -255,6 +255,8 @@ export interface CallRow {
   queuedAt?: number;
   startedAt?: number;
   finishedAt?: number;
+  /** Script lines of the call site, innermost first (prelude here()); a display hint for the graph, not in the key. */
+  at?: number[];
 }
 
 const PREVIEW = 400;
@@ -291,6 +293,7 @@ export function callDto(c: CallRow): WorkflowCall {
     ...(c.queuedAt ? { queuedAt: c.queuedAt } : {}),
     ...(c.startedAt ? { startedAt: c.startedAt } : {}),
     ...(c.finishedAt ? { finishedAt: c.finishedAt } : {}),
+    ...(c.at?.length ? { at: c.at } : {}),
   };
 }
 
@@ -366,6 +369,7 @@ function rowToCall(r: Row): CallRow {
     queuedAt: r.queued_at ?? undefined,
     startedAt: r.started_at ?? undefined,
     finishedAt: r.finished_at ?? undefined,
+    at: r.at_text ? json<number[] | undefined>(r.at_text, undefined) : undefined,
   };
 }
 
@@ -407,6 +411,8 @@ export class WorkflowStore {
     const cols = new Set((db.query('PRAGMA table_info(workflow_runs)').all() as Row[]).map((r) => r.name));
     if (!cols.has('scoped')) db.exec('ALTER TABLE workflow_runs ADD COLUMN scoped INTEGER NOT NULL DEFAULT 0');
     if (!cols.has('tool_use_id')) db.exec('ALTER TABLE workflow_runs ADD COLUMN tool_use_id TEXT');
+    const callCols = new Set((db.query('PRAGMA table_info(workflow_calls)').all() as Row[]).map((r) => r.name));
+    if (!callCols.has('at_text')) db.exec('ALTER TABLE workflow_calls ADD COLUMN at_text TEXT');
   }
 
   // ----- runs -----
@@ -497,8 +503,8 @@ export class WorkflowStore {
   insertCall(c: CallRow): void {
     this.db
       .query(
-        `INSERT OR REPLACE INTO workflow_calls (run_id,seq,key,occurrence,kind,label,phase,agent_type,model,effort,state,attempt,parent_seq,child_session_id,prompt,result,has_result,error,last_tool,input_tokens,output_tokens,cost_usd,worktree_path,worktree_branch,worktree_base,worktree_commit,worktree_state,worktree_files,queued_at,started_at,finished_at)
-         VALUES ($run,$seq,$key,$occ,$kind,$label,$phase,$agentType,$model,$effort,$state,$attempt,$parentSeq,$child,$prompt,$result,$hasResult,$error,$lastTool,$in,$out,$cost,$wtPath,$wtBranch,$wtBase,$wtCommit,$wtState,$wtFiles,$queued,$started,$finished)`,
+        `INSERT OR REPLACE INTO workflow_calls (run_id,seq,key,occurrence,kind,label,phase,agent_type,model,effort,state,attempt,parent_seq,child_session_id,prompt,result,has_result,error,last_tool,input_tokens,output_tokens,cost_usd,worktree_path,worktree_branch,worktree_base,worktree_commit,worktree_state,worktree_files,queued_at,started_at,finished_at,at_text)
+         VALUES ($run,$seq,$key,$occ,$kind,$label,$phase,$agentType,$model,$effort,$state,$attempt,$parentSeq,$child,$prompt,$result,$hasResult,$error,$lastTool,$in,$out,$cost,$wtPath,$wtBranch,$wtBase,$wtCommit,$wtState,$wtFiles,$queued,$started,$finished,$at)`,
       )
       .run(this.callParams(c));
   }
@@ -540,6 +546,7 @@ export class WorkflowStore {
       queued: c.queuedAt ?? null,
       started: c.startedAt ?? null,
       finished: c.finishedAt ?? null,
+      at: c.at?.length ? JSON.stringify(c.at) : null,
     };
   }
 

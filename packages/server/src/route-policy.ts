@@ -396,6 +396,10 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'GET /api/workflows/:id/presets': 'self',
   'POST /api/workflows/:id/presets': 'self',
   'DELETE /api/workflows/:id/presets/:presetId': 'self',
+  // the service resolves the id in the caller's own library (a member never reaches the owner's), and writes only their own folder or project
+  'GET /api/workflows/:id/graph': 'self',
+  'POST /api/workflows/:id/graph/edit': 'self',
+  'POST /api/workflows/:id/copy': 'self',
   'GET /api/workflows/runs': 'self',
   'POST /api/workflows/runs': 'self',
   'GET /api/workflows/runs/:id': own({ id: 'workflowRun' }),
@@ -403,6 +407,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/workflows/runs/:id/resume': own({ id: 'workflowRun' }),
   'POST /api/workflows/runs/:id/stop': own({ id: 'workflowRun' }),
   'POST /api/workflows/runs/:id/rerun': own({ id: 'workflowRun' }),
+  'GET /api/workflows/runs/:id/graph': own({ id: 'workflowRun' }),
   'POST /api/workflows/runs/:id/calls/:seq/skip': own({ id: 'workflowRun' }),
   'POST /api/workflows/runs/:id/calls/:seq/worktree': own({ id: 'workflowRun' }),
   'POST /api/workflows/runs/:id/keep': own({ id: 'workflowRun' }),
