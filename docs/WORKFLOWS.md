@@ -195,6 +195,8 @@ answers that did not change and runs the rest:
   replay every finished call.
 - **Rerun from here** on a call: earlier calls replay, that one and later ones
   run again.
+- **Re-run this node** on the graph: only that node's calls run again. A later
+  call whose prompt uses the new answer runs too; every other call replays.
 - **Edit and run again**: an edited call reruns, and so do the calls that use
   its answer.
 - **Skip** a running or waiting call: the script gets `null` and goes on. A
@@ -365,7 +367,11 @@ All routes need the owner token.
 | `POST /api/workflows/runs/:id/pause` | Running calls finish; new ones wait. |
 | `POST /api/workflows/runs/:id/resume` | Go on, or resume a stopped run from the journal. |
 | `POST /api/workflows/runs/:id/stop` | Stop now. |
-| `POST /api/workflows/runs/:id/rerun` | `{ fromSeq }`: rerun from that call. |
+| `POST /api/workflows/runs/:id/rerun` | `{ fromSeq }`: rerun from that call. `{ seqs }`: rerun only those calls; the rest replay unless their prompt changed. |
+| `GET /api/workflows/runs/:id/graph` | The node graph of the script the run ran, with `stale` nodes the library script changed since. |
+| `GET /api/workflows/:id/graph` | The workflow as a node graph, its `sha`, and whether you may edit it. |
+| `POST /api/workflows/:id/graph/edit` | `{ nodeId, field: model \| agentType \| label \| prompt, value, part?, baseSha }`: write one literal back to your own workflow. 409 when the file changed since `baseSha`; 403 for a built-in. |
+| `POST /api/workflows/:id/copy` | Copy a built-in or plugin workflow into your own workflows. 201 with the copy. |
 | `POST /api/workflows/runs/:id/calls/:seq/skip` | The call returns `null`. |
 | `POST /api/workflows/runs/:id/calls/:seq/worktree` | `{ action: diff \| merge \| cherry-pick \| discard }`. |
 | `POST /api/workflows/runs/:id/findings/:findingId` | `{ verdict: fixed \| dismissed \| ignored, reason? }`. |

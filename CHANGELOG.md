@@ -9,6 +9,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Workflows as node graphs. A run has a List / Graph switch, and Workflows opens any workflow as a graph at `/workflows/graph/:id`. Each top-level statement of the script is a node in its phase band, lit live from the run: queued, running, waiting, cached, done or failed. Tap a node to see its calls, answer its approval or question, or Re-run this node: its calls run again and the rest replay from the journal. On your own workflows you can change an agent's model, agent type, label or prompt text; the hub writes that one literal back to the script and leaves every other byte alone. Built-ins stay read-only until you copy them to your workflows. On a phone the graph is one column.
+
 ### Fixed
 
 - The desktop app no longer lists you twice. The account menu showed your name and also "Switch to" your name, and Settings, Your account, Accounts on this browser listed you twice. This happened after you had signed in once on the Connect screen inside the desktop window. The token the desktop app gives its page carries no account, so that older sign in did not match it. The app now uses who the hub says is signed in to match them.
