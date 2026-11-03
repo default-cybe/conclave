@@ -29,6 +29,12 @@ describe('normalizeModelId and fuzzy lookup', () => {
     expect(normalizeModelId('z-ai/glm-5:free')).toBe('glm-5');
   });
 
+  test('a run of open brackets stays linear (CodeQL polynomial regex)', () => {
+    const t = performance.now();
+    expect(normalizeModelId('['.repeat(50_000))).toBe('['.repeat(50_000));
+    expect(performance.now() - t).toBeLessThan(100);
+  });
+
   test('lookup by snapshot, router id, alias and prefix', () => {
     expect(findCatalogEntry('claude-sonnet-4-5-20250929')?.id).toBe('claude-sonnet-4-5');
     expect(findCatalogEntry('openrouter/anthropic/claude-opus-5.5')?.id).toBe('claude-opus-5-5');

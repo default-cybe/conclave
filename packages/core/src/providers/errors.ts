@@ -431,6 +431,15 @@ function geminiRetry(info: ErrorInfo): { retryAfterMs?: number; daily: boolean }
   return { retryAfterMs, daily };
 }
 
+/** The request field a 400 names, when the body says: OpenAI's error.param, or Google's BadRequest fieldViolations. Cut short. */
+function rejectedField(info: ErrorInfo): string | undefined {
+  const err = info.json?.error;
+  const param = err && typeof err === 'object' ? str((err as Record<string, unknown>).param) : undefined;
+  const violations = info.details.flatMap((d) => (Array.isArray(d.fieldViolations) ? (d.fieldViolations as Array<Record<string, unknown>>) : []));
+  const fields = [param, ...violations.map((v) => str(v.field))].filter((f): f is string => !!f?.trim());
+  return fields.length ? [...new Set(fields)].join(', ').slice(0, 200) : undefined;
+}
+
 /**
  * Turn an HTTP error response into a ProviderError with kind, retryAfterMs
  * and, for long windows, resetAt.
@@ -515,7 +524,9 @@ export function classifyHttpError(
   }
 
   const label = info.type || info.code || info.status;
-  const text = `${provider} ${status}${label ? ` ${label}` : ''}: ${program ?? message}`;
+  const field = rejectedField(info);
+  const hint = field && !message.includes(field) ? ` (rejected field: ${field})` : '';
+  const text = `${provider} ${status}${label ? ` ${label}` : ''}: ${program ?? message}${hint}`;
   return new ProviderError(kind, text, {
     status,
     retryAfterMs,
