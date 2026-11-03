@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Android: the full-screen image viewer (generated pictures and images in messages) has Save and Share. Save writes the picture to Pictures/Conclave on Android 10+ with no storage permission and shows "Saved to Pictures/Conclave"; on Android 8 and 9 it asks where to save. Share opens the share sheet with the picture.
+
 ## [0.4.62] - 2026-11-03
 
 ### Added

@@ -1,6 +1,7 @@
 package dev.conclave.app.ui.conversation
 
 import android.content.ActivityNotFoundException
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -8,6 +9,8 @@ import android.graphics.ImageDecoder
 import android.graphics.drawable.AnimatedImageDrawable
 import android.graphics.drawable.Drawable
 import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.view.View
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -15,6 +18,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.ImageView
+import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -156,7 +160,7 @@ private fun GridCell(sessionId: String, card: FileCardData, one: Boolean, modifi
     }
     if (open && l != null) {
         val block = remember(l) { ImageBlock(mediaType = card.mediaType, data = java.util.Base64.getEncoder().encodeToString(l.first)) }
-        FullImage(block) { open = false }
+        FullImage(block, name = card.name) { open = false }
     }
 }
 
@@ -266,6 +270,94 @@ private fun FileCard(sessionId: String, card: FileCardData) {
             TextButton(enabled = !busy, onClick = { save.launch(card.name) }, modifier = Modifier.heightIn(min = 40.dp)) { Text("Save", maxLines = 1) }
         }
         error?.let { Text(it, style = ConclaveType.meta, color = c.fault, modifier = Modifier.padding(top = 6.dp)) }
+    }
+}
+
+/**
+ * Save and Share under the full-screen viewer (Reply.kt FullImage). Save
+ * writes the picture to Pictures/Conclave with MediaStore on Android 10+ (no
+ * storage permission); on 8 and 9 it asks where with the create-document
+ * picker, like a file card's Save. Share writes it to the cache's shared/
+ * folder (res/xml/file_paths.xml) and hands the FileProvider link to the
+ * share sheet. The name is FileCards.pictureName.
+ */
+@Composable
+internal fun ImageActions(block: ImageBlock, name: String?, modifier: Modifier = Modifier) {
+    val data = block.data
+    if (data.isNullOrBlank()) return
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val type = block.mediaType.ifBlank { "image/png" }
+    val fileName = FileCards.pictureName(name, type)
+    var busy by remember { mutableStateOf(false) }
+    fun run(done: String?, work: suspend (ByteArray) -> Unit) {
+        if (busy) return
+        busy = true
+        scope.launch {
+            val failed = try {
+                work(withContext(Dispatchers.Default) { java.util.Base64.getDecoder().decode(data) })
+                null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: ActivityNotFoundException) {
+                "No app on this phone can share it."
+            } catch (e: Exception) {
+                "Could not ${if (done == null) "share" else "save"} the picture. ${errorText(e)}"
+            } finally {
+                busy = false
+            }
+            (failed ?: done)?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+        }
+    }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(type)) { uri ->
+        if (uri != null) {
+            run("Saved") { bytes ->
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: throw java.io.IOException("Could not write the file.")
+                }
+            }
+        }
+    }
+    fun save() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            run("Saved to Pictures/Conclave") { bytes -> withContext(Dispatchers.IO) { saveToPictures(context, bytes, fileName, type) } }
+        } else {
+            pick.launch(fileName)
+        }
+    }
+    fun share() = run(null) { bytes ->
+        val file = withContext(Dispatchers.IO) {
+            val dir = File(File(context.cacheDir, "shared"), "viewer").apply { mkdirs() }
+            File(dir, fileName).apply { writeBytes(bytes) }
+        }
+        val uri = FileProvider.getUriForFile(context, context.packageName + ".files", file)
+        val send = Intent(Intent.ACTION_SEND).setType(type).putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        context.startActivity(Intent.createChooser(send, "Share picture"))
+    }
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(enabled = !busy, onClick = { save() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Save", color = androidx.compose.ui.graphics.Color.White, maxLines = 1) }
+        TextButton(enabled = !busy, onClick = { share() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Share", color = androidx.compose.ui.graphics.Color.White, maxLines = 1) }
+    }
+}
+
+/** The picture into Pictures/Conclave, hidden from other apps until it is whole; a clash of names gets " (1)" from MediaStore. */
+@RequiresApi(Build.VERSION_CODES.Q)
+private fun saveToPictures(context: Context, bytes: ByteArray, name: String, type: String) {
+    val resolver = context.contentResolver
+    val values = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+        put(MediaStore.MediaColumns.MIME_TYPE, type)
+        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Conclave")
+        put(MediaStore.MediaColumns.IS_PENDING, 1)
+    }
+    val uri = resolver.insert(MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values) ?: throw java.io.IOException("The phone refused a new picture.")
+    try {
+        resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: throw java.io.IOException("Could not write the file.")
+        resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
+    } catch (e: Exception) {
+        // no half-written picture left in the gallery
+        runCatching { resolver.delete(uri, null, null) }
+        throw e
     }
 }
 
