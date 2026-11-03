@@ -63,6 +63,9 @@ interface Act {
   apart?: boolean;
 }
 
+/** How many pictures a GenerateImage call asked for: n, 1 to 4. */
+const imageCount = (i: Record<string, unknown>) => Math.min(4, Math.max(1, Math.floor(Number(i.n) || 1)));
+
 const counted = (verb: string, one: string, more: string) => (n: number) => `${verb} ${n} ${n === 1 ? one : more}`;
 const same = (text: string) => () => text;
 
@@ -149,6 +152,11 @@ function actOf(c: ToolCall): Act {
       return { key: 'items', verb: 'found', obj: Array.isArray(i.items) ? `${i.items.length} ${i.items.length === 1 ? 'item' : 'items'}` : 'items', many: same('found items') };
     case 'WatchCreate':
       return { key: 'watch', verb: 'made a watch', many: counted('made', 'watch', 'watches') };
+    // images (tools/generate-image.ts): the grid under the line shows them
+    case 'GenerateImage': {
+      const n = imageCount(i);
+      return { key: 'image', verb: n === 1 ? 'made an image' : `made ${n} images`, many: (k) => `made images ${k} times` };
+    }
     case 'browser_navigate':
       return { key: 'browse', verb: 'browsed', obj: host(str(i.url)) ?? 'the web', many: same('browsed the web') };
   }
@@ -258,6 +266,8 @@ function countOf(c: ToolCall): { key: string; unit?: string; phrase: (n: number)
       return { key: 'forget', phrase: (n) => `retired ${plural(n, 'note', 'notes')}` };
     case 'Memory':
       return { key: 'memory', phrase: (n) => `used memory${n > 1 ? ` ${n} times` : ''}` };
+    case 'GenerateImage':
+      return { key: 'image', phrase: (n) => (n > 1 ? `made images ${n} times` : imageCount(i) === 1 ? 'made an image' : `made ${imageCount(i)} images`) };
   }
   if (c.name.startsWith('browser_')) return { key: 'browse', phrase: (n) => `used the browser ${times(n)}` };
   if (c.name.startsWith('mcp__')) {
@@ -405,6 +415,10 @@ export function toolRowWords(c: ToolCall): ToolRowWords {
       return { verb: 'Found', target: Array.isArray(i.items) ? `${i.items.length} items` : 'items', mono: false };
     case 'WatchCreate':
       return { verb: 'Made a watch', target: str(i.name) ?? '', mono: false };
+    case 'GenerateImage': {
+      const n = imageCount(i);
+      return { verb: n === 1 ? 'Made an image' : `Made ${n} images`, target: str(i.prompt) ?? '', mono: false };
+    }
     case 'browser_navigate':
       return { verb: 'Browsed', target: host(str(i.url)) ?? '', mono: false };
   }
@@ -473,6 +487,8 @@ export function workingWords(c: ToolCall | undefined): string {
       return 'Showing what it found';
     case 'WatchCreate':
       return 'Making the watch';
+    case 'GenerateImage':
+      return imageCount(i) === 1 ? 'Making an image' : `Making ${imageCount(i)} images`;
     case 'browser_navigate':
       return host(str(i.url)) ? `Opening ${host(str(i.url))}` : 'Browsing';
   }

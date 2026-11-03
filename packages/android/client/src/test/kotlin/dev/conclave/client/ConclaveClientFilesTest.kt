@@ -46,6 +46,34 @@ class ConclaveClientFilesTest {
         assertNull(FileCards.of(null))
     }
 
+    // a GenerateImage result as the hub stores it (packages/core/src/tools/generate-image.ts)
+    private fun made(files: String, id: String = "g", isError: Boolean = false) = ConclaveJson.decodeFromString(
+        ContentBlock.serializer(),
+        """{"type":"tool_result","toolUseId":"$id","content":"Saved 2 images","isError":$isError,"meta":{"images":["/o/a.png","/o/b.png"],"files":$files}}""",
+    ) as ToolResultBlock
+
+    private fun png(name: String) = """{"path":"/o/$name","device":"local","name":"$name","mediaType":"image/png","size":10}"""
+
+    @Test
+    fun generatedPicturesAreAGridAndTheirTurnEndCardsAreHidden() {
+        val uses = listOf(
+            ToolUseBlock("g", "GenerateImage", JsonObject(emptyMap())),
+            ToolUseBlock("s1", "ShareFile", JsonObject(emptyMap())),
+            ToolUseBlock("s2", "ShareFile", JsonObject(emptyMap())),
+        )
+        val results = mapOf(
+            "g" to made("[${png("a.png")},${png("b.png")},{\"bad\":1}]"),
+            "s1" to result(png("a.png"), id = "s1"),
+            "s2" to result(pdf, id = "s2"),
+        )
+        assertEquals(listOf("g" to 0, "g" to 1), FileCards.generated(uses, results).map { it.toolUseId to it.image })
+        assertEquals(listOf("s2"), FileCards.cards(uses, results).map { it.toolUseId })
+        // a failed call makes no grid, and its names hide nothing
+        val failed = results + ("g" to made("[${png("a.png")}]", isError = true))
+        assertEquals(emptyList<FileCardData>(), FileCards.generated(uses, failed))
+        assertEquals(listOf("s1", "s2"), FileCards.cards(uses, failed).map { it.toolUseId })
+    }
+
     @Test
     fun onlyAShareFileCallMakesACard() {
         val results = mapOf("a" to result(pdf, id = "a"), "b" to result(pdf, id = "b"))

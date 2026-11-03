@@ -370,6 +370,8 @@ export interface ConclaveConfig {
   defaultModel: string;
   /** Cheap model for titles, summaries, memory extraction, routing. */
   smallModel: string;
+  /** "provider/model" GenerateImage uses when the call names none (images/generate.ts). Unset: cliproxy/gpt-image-2.5. */
+  imageModel?: string;
   defaultAgent: string;
   /**
    * Device id for new sessions when neither the request nor the agent names

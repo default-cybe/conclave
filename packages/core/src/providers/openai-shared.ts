@@ -1,7 +1,7 @@
 import type { Usage } from '../types';
 import type { ProviderOptions } from './common';
-import { getJson, postJson, type HttpOptions } from './http';
-import type { ModelInfo } from './types';
+import { getJson, httpRequest, postJson, type HttpOptions } from './http';
+import { ProviderError, type ImageRequest, type ImageResult, type ModelInfo } from './types';
 
 export const OPENAI_DEFAULT_BASE = 'https://api.openai.com/v1';
 
@@ -99,6 +99,51 @@ export async function listOpenAIModels(args: {
     out.push(info);
   }
   return out;
+}
+
+/** Image calls take 15 to 60 s, longer at high quality; the default connect timeout is 120 s. */
+const IMAGE_TIMEOUT_MS = 300_000;
+
+/**
+ * POST {base}/images/generations (JSON), or {base}/images/edits (multipart)
+ * when the request carries reference images. Reads data[].b64_json, or
+ * data[].url (fetched once) from servers that answer with a link.
+ */
+export async function openaiGenerateImage(baseUrl: string, headers: Record<string, string>, http: HttpOptions, req: ImageRequest): Promise<ImageResult> {
+  const opts: HttpOptions = { ...http, signal: req.signal ?? http.signal, timeoutMs: Math.max(http.timeoutMs ?? 0, IMAGE_TIMEOUT_MS) };
+  const fields: Record<string, string | number> = { model: req.model, prompt: req.prompt, n: Math.min(4, Math.max(1, req.n ?? 1)) };
+  if (req.size) fields.size = req.size;
+  if (req.quality) fields.quality = req.quality;
+  if (req.format) fields.output_format = req.format;
+  type Res = { data?: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>; usage?: unknown };
+  let res: Res;
+  if (req.images?.length) {
+    const form = new FormData();
+    for (const [k, v] of Object.entries(fields)) form.append(k, String(v));
+    req.images.forEach((img, i) => form.append('image[]', new Blob([img.bytes as BlobPart], { type: img.mime }), img.name ?? `image-${i + 1}.${img.mime.split('/')[1] ?? 'png'}`));
+    res = await httpRequest(`${baseUrl}/images/edits`, { method: 'POST', headers, body: form }, opts, (r) => r.json() as Promise<Res>);
+  } else {
+    res = await postJson<Res>(`${baseUrl}/images/generations`, headers, fields, opts);
+  }
+  const images: ImageResult['images'] = [];
+  for (const d of res.data ?? []) {
+    let bytes: Uint8Array | undefined;
+    if (d.b64_json) bytes = Buffer.from(d.b64_json, 'base64');
+    else if (d.url) bytes = await httpRequest(d.url, { method: 'GET' }, opts, async (r) => new Uint8Array(await r.arrayBuffer()));
+    // the type comes from the bytes, not the request or a header: the file is saved and previewed under it
+    const type = bytes ? sniffImage(bytes) : undefined;
+    if (type) images.push({ bytes: bytes!, mime: type, ...(d.revised_prompt ? { revisedPrompt: d.revised_prompt } : {}) });
+  }
+  if (!images.length) throw new ProviderError('bad_request', `${http.provider}: the image endpoint returned no image`, { provider: http.provider, body: JSON.stringify(res).slice(0, 1000) });
+  return { images, ...(res.usage ? { usage: openaiUsage(res.usage) } : {}) };
+}
+
+/** PNG, JPEG or WebP by magic bytes; anything else (an SVG, an HTML error page) is not an image we save. */
+export function sniffImage(b: Uint8Array): 'image/png' | 'image/jpeg' | 'image/webp' | undefined {
+  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
+  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (b.length > 12 && String.fromCharCode(...b.subarray(0, 4)) === 'RIFF' && String.fromCharCode(...b.subarray(8, 12)) === 'WEBP') return 'image/webp';
+  return undefined;
 }
 
 /** POST {base}/embeddings in batches, results in input order. */

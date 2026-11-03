@@ -95,6 +95,8 @@ describe('downloads', () => {
     expect((await get(`/api/sessions/${sid}/files/..%2F..%2Fsecrets.json`)).status).toBe(404);
     const other = (await t.engine.createSession({ title: 'other', cwd: t.cwd, device: 'local' })).id;
     expect((await get(`/api/sessions/${other}/files/${id}`)).status).toBe(404);
+    // ?image=N names a GenerateImage call's picture: never a ShareFile card, and only 0 to 3
+    for (const q of ['0', '3', '9', '-1', 'x', '']) expect((await get(`/api/sessions/${sid}/files/${id}?image=${q}`)).status).toBe(404);
   });
 
   test('a refused path makes no card and nothing to download', async () => {

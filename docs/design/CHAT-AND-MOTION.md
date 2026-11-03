@@ -404,7 +404,7 @@ The chat agent also says this in its reply when you ask it to do something on a 
 
 In: the Chat page and rail, the composer with model, thinking, web and memory switches and attachments, streaming with the new motion, thinking rows with stored durations, web search rows and sources, memory rows with Undo, code blocks with copy, html and svg previews, edit, retry, branch, ask another model, continue as a session, the greeting, phones, the Android client mirroring the same API.
 
-Out for now: voice input and read aloud, projects or folders of chats, shared links, pinned chats (the rail has no Pinned group; the API's `pinned` stays for later), image generation, per-chat custom instructions (the owner's profile memory does this), message feedback (thumbs), chat import from claude.ai or ChatGPT exports.
+Out for now: voice input and read aloud, projects or folders of chats, shared links, pinned chats (the rail has no Pinned group; the API's `pinned` stays for later), image generation (designed in [IMAGE-GENERATION.md](IMAGE-GENERATION.md)), per-chat custom instructions (the owner's profile memory does this), message feedback (thumbs), chat import from claude.ai or ChatGPT exports.
 
 ### 2.11 Sent while it works (the queue)
 

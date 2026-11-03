@@ -25,6 +25,9 @@
 import type { ChatSettings, ContentBlock, EngineEvent, MemoryEntry, Message, Session } from '@conclave/core/types';
 import type { MockCtx } from './index';
 import { isEffortSetting } from '@conclave/core/providers/effort';
+import fox1 from './images/fox-snow-1.png';
+import fox2 from './images/fox-snow-2.png';
+import fox3 from './images/fox-snow-3.png';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -36,6 +39,13 @@ const GPT = 'openai/gpt-5.5';
 const GLM = 'zai/glm-5';
 
 const DEFAULTS: ChatSettings = { webSearch: true, memory: true };
+
+/** The fox chat's three generated pictures (small PNGs rendered from SVG). */
+const FOX = [
+  { url: fox1, name: 'image-20261103-101500-1.png', size: 15_267 },
+  { url: fox2, name: 'image-20261103-101500-2.png', size: 11_413 },
+  { url: fox3, name: 'image-20261103-101500-3.png', size: 16_235 },
+];
 
 type Seed = Omit<Session, 'stats' | 'mode' | 'permissionMode' | 'cwd' | 'device' | 'status' | 'tags' | 'pinned' | 'archived' | 'agent' | 'kind'> & { agent?: string };
 
@@ -226,6 +236,32 @@ function seeds(now: number): Array<{ session: Session; turns: Turn[] }> {
       ],
     },
     {
+      // GenerateImage (core tools/generate-image.ts): the result carries the saved files, the reply draws them as a grid
+      session: chatSession({ id: 'c_fox', title: 'A fox in the snow', model: SONNET, createdAt: at(20 * MIN), updatedAt: at(19 * MIN), chat: DEFAULTS }, 4),
+      turns: [
+        { role: 'user', at: at(20 * MIN), content: [t('make me a few pictures of a fox in the snow, cozy and a bit storybook')] },
+        {
+          role: 'assistant',
+          at: at(20 * MIN - 1_000),
+          model: SONNET,
+          content: [{ type: 'tool_use', id: 'tu_fox', name: 'GenerateImage', input: { prompt: 'A red fox curled up in fresh snow, soft storybook illustration, warm light, falling snowflakes', n: 3 } }],
+        },
+        {
+          role: 'user',
+          at: at(20 * MIN - 40_000),
+          content: [
+            {
+              type: 'tool_result',
+              toolUseId: 'tu_fox',
+              content: 'Saved 3 images: image-20261103-101500-1.png, image-20261103-101500-2.png, image-20261103-101500-3.png (cliproxy/gpt-image-2.5, 1024x1024, medium, 38 s).',
+              meta: { durationMs: 38_000, images: FOX.map((f) => `/outputs/c_fox/${f.name}`), files: FOX.map((f) => ({ path: `/outputs/c_fox/${f.name}`, device: 'local', name: f.name, mediaType: 'image/png', size: f.size })), model: 'cliproxy/gpt-image-2.5', size: '1024x1024', quality: 'medium' },
+            },
+          ],
+        },
+        { role: 'assistant', at: at(19 * MIN), model: SONNET, content: [t('Three takes: a snowy morning, a moonlit night, and one at sunset under the hills. Tap one to see it full screen. Want any of them darker, wider for a wallpaper, or in the best quality?')] },
+      ],
+    },
+    {
       session: chatSession({ id: 'c_immich', title: 'Immich moved to CT 115', model: SONNET, createdAt: at(26 * HOUR), updatedAt: at(26 * HOUR), chat: DEFAULTS }, 4),
       turns: [
         { role: 'user', at: at(26 * HOUR), content: [t("fyi I moved immich to CT 115 on madx, it's not on 105 anymore")] },
@@ -386,6 +422,13 @@ function titleFrom(prompt: string): string {
 
 export function registerChat(ctx: MockCtx) {
   const { db, emit, uid, sleep } = ctx;
+
+  // a generated picture of the seeded fox chat, as GET /api/sessions/:id/files/:toolUseId?image=N serves it
+  ctx.on('GET', '/api/sessions/:id/files/:toolUseId', async ({ params, query }) => {
+    const f = params[1] === 'tu_fox' ? FOX[Number(query.get('image'))] : undefined;
+    if (!f) return new Response(JSON.stringify({ error: `unknown session ${params[0]}` }), { status: 404, headers: { 'content-type': 'application/json' } });
+    return new Response(await (await fetch(f.url)).blob(), { headers: { 'content-type': 'image/png' } });
+  });
 
   if (!ctx.FRESH) {
     for (const { session, turns } of seeds(Date.now())) {

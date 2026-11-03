@@ -35,7 +35,8 @@ import { canSend, SendToFriendDialog } from '@/features/friends/SendToFriend';
 import { ReplyIcons } from './ReplyIcons';
 import { ChatCode, ChatMarkdown } from './ChatMarkdown';
 import { MapsCards, MapsLine } from '@/features/maps/MapsCard';
-import { FileCards, FileLine } from '@/features/files/FileCard';
+import { FileCards, FileLine, ImageGrid } from '@/features/files/FileCard';
+import { generatedCards, generatedNames } from '@/features/files/words';
 import { WatchCards, WatchLine } from '@/features/watches/WatchCards';
 import { mapsWorkingWords } from '@/features/maps/words';
 import { DelegateCallLine } from '@/features/chat/delegated';
@@ -303,9 +304,26 @@ function ToolLine({ tool, result, run, live, messages, results, folded }: { tool
       if (running) return null;
       // folded on a phone, the cards go under the fold's line instead
       return <MapsLine tool={tool} result={res} card={!folded} />;
-    case 'ShareFile':
+    case 'ShareFile': {
       if (running) return null;
+      // a generated picture's card is drawn in its GenerateImage grid
+      const name = str((res?.meta?.file as { name?: unknown } | undefined)?.name);
+      if (name && generatedNames(replyCalls(messages, results)).has(name)) return null;
       return <FileLine tool={tool} result={res} sessionId={messages[0]?.sessionId ?? ''} card={!folded} />;
+    }
+    case 'GenerateImage': {
+      if (running) return <Line>Making an image</Line>;
+      if (failed) return <Expand label="Could not make the image" tone="fault"><p className="max-w-[72ch] tx-13 leading-[1.5] text-fg-2">{res ? resultText(res) : ''}</p></Expand>;
+      // the result carries the saved files, so the grid draws as soon as the call ends
+      const cards = generatedCards([{ name: tool.name, result: res }]);
+      const n = cards.length;
+      return (
+        <div className="py-0.5">
+          <Line>{n ? `Made ${n === 1 ? 'an image' : `${n} images`}` : 'Made an image'}</Line>
+          {!folded && <ImageGrid cards={cards} sessionId={messages[0]?.sessionId ?? ''} className="mt-1 mb-1.5" />}
+        </div>
+      );
+    }
     // calendar and mail (docs/DESIGN.md 32): what was read, and what was proposed for the owner to approve
     case 'DayPlan':
     case 'CalendarList':
@@ -351,6 +369,11 @@ function ToolLine({ tool, result, run, live, messages, results, folded }: { tool
 // ---------------------------------------------------------------------------
 
 type Piece = { kind: 'thinking'; block: Extract<ContentBlock, { type: 'thinking' }>; msg: Message; key: string; last: boolean } | { kind: 'redacted'; key: string } | { kind: 'tool'; tool: ToolUseBlock; key: string } | { kind: 'text'; text: string; msg: Message; key: string; last: boolean } | { kind: 'image'; src: string; key: string };
+
+/** Every tool call of a reply with its result, for the pictures GenerateImage made and the cards the turn end gave them. */
+function replyCalls(messages: Message[], results: Record<string, ToolResultBlock>): Array<{ name: string; result?: ToolResultBlock }> {
+  return messages.flatMap((m) => m.content.flatMap((b) => (b.type === 'tool_use' ? [{ name: b.name, result: results[b.id] }] : [])));
+}
 
 function piecesOf(messages: Message[]): Piece[] {
   const out: Piece[] = [];

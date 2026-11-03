@@ -5,11 +5,11 @@ import { classifyStreamError, parseRateLimitHeaders } from './errors';
 import { SKIP_SIGNATURE as GEMINI_SKIP_SIGNATURE } from './gemini';
 import { hostOf, openStream, trimSlash } from './http';
 import { OpenAIResponsesProvider } from './openai-responses';
-import { OPENAI_DEFAULT_BASE, listOpenAIModels, openaiEmbed, openaiHeaders, openaiUsage } from './openai-shared';
+import { OPENAI_DEFAULT_BASE, listOpenAIModels, openaiEmbed, openaiGenerateImage, openaiHeaders, openaiUsage } from './openai-shared';
 import { ownSignature, tagSignature } from './signatures';
 import { parseSse, parseSseJson } from './sse';
 import { ToolNameMap } from './tool-names';
-import type { ChatRequest, ModelInfo, ProviderMessage, StreamEvent } from './types';
+import type { ChatRequest, ImageRequest, ImageResult, ModelInfo, ProviderMessage, StreamEvent } from './types';
 
 type Wire = Record<string, unknown>;
 
@@ -392,5 +392,9 @@ export class OpenAIProvider extends BaseProvider {
 
   embed(texts: string[], model = 'text-embedding-3-small'): Promise<number[][]> {
     return openaiEmbed(this.baseUrl, this.headers(), this.http(), texts, model);
+  }
+
+  generateImage(req: ImageRequest): Promise<ImageResult> {
+    return openaiGenerateImage(this.baseUrl, this.headers(), this.http(req.signal), req);
   }
 }
