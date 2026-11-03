@@ -198,6 +198,9 @@ export function RunSheet({ workflow, onClose }: { workflow: WorkflowSummary | un
   );
   const footer = (
     <>
+      <Button variant="quiet" onClick={() => navigate(`/workflows/graph/${encodeURIComponent(workflow.id)}`)} size={phone ? 'touch' : 'md'}>
+        Open graph
+      </Button>
       <Button variant="quiet" onClick={onClose} size={phone ? 'touch' : 'md'}>
         Cancel
       </Button>

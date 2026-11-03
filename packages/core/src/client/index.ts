@@ -173,6 +173,7 @@ import type {
 export type * from './workflows';
 import type { GraphEditInput, GraphEditResult, WorkflowGraphView } from './graph';
 export type * from './graph';
+export { nodeOf, nodeRuns, staleNodes } from './graph';
 // ----- alerts: file conflicts and stuck turns, docs/DESIGN.md 28 -----
 import type { AlertAction, AlertItem } from './alerts';
 export type * from './alerts';

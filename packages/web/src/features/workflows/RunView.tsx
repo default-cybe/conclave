@@ -5,8 +5,9 @@
  * kept branches.
  * A row opens the agent's transcript in a side panel.
  */
-import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'wouter';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { Link, useSearch, useLocation } from 'wouter';
+import { Segmented } from '@/components/ui/Field';
 import type { Message } from '@conclave/core/types';
 import type { WorkflowCall, WorkflowFinding, WorkflowRunDetail } from '@conclave/core/client';
 import { Page, PageHeader, usePageHeader } from '@/components/ui/Page';
@@ -31,7 +32,13 @@ import { Worktrees } from './Worktrees';
 import { Race, raceOf } from './Race';
 import { byPhase, isLive, petFor, statusParts } from './words';
 
+const RunGraph = lazy(() => import('../graph/RunGraph').then((m) => ({ default: m.RunGraph })));
+
 export function RunView({ id }: { id: string }) {
+  // list or graph, in ?view=graph so a link or a reload keeps it; phones open the list
+  const search = useSearch();
+  const [loc, go] = useLocation();
+  const mode = new URLSearchParams(search).get('view') === 'graph' ? 'graph' : 'list';
   const { data, error, progress, lastActivity, reload } = useRunDetail(id);
   const [detail, setDetail] = useState<WorkflowRunDetail>();
   const [openCall, setOpenCall] = useState<WorkflowCall>();
@@ -72,6 +79,7 @@ export function RunView({ id }: { id: string }) {
     skip: (c: WorkflowCall) => void attempt(() => api().skipWorkflowCall(run.id, c.seq), `Skipped ${c.label ?? `call ${c.seq}`}`),
     rerun: (c: WorkflowCall) => void attempt(() => api().rerunWorkflow(run.id, c.seq), `Running again from ${c.label ?? `call ${c.seq}`}`).then(() => reload()),
   };
+  const rerunNode = (seqs: number[]) => void attempt(() => api().rerunWorkflow(run.id, { seqs }), 'Running the node again').then(() => reload());
   const setFinding = (f: WorkflowFinding) => setDetail((d) => (d ? { ...d, findings: d.findings.map((x) => (x.id === f.id ? f : x)) } : d));
   const setWorktree = (seq: number, state: NonNullable<WorkflowCall['worktree']>['state']) =>
     setDetail((d) => (d ? { ...d, calls: d.calls.map((c) => (c.seq === seq && c.worktree ? { ...c, worktree: { ...c.worktree, state } } : c)) } : d));
@@ -166,7 +174,27 @@ export function RunView({ id }: { id: string }) {
           )}
         </section>
 
-        {phases.map((p, i) => (
+        <div className="flex items-center justify-between gap-3">
+          <Segmented
+            label="View"
+            value={mode}
+            onChange={(v) => go(v === 'graph' ? `${loc}?view=graph` : loc, { replace: true })}
+            options={[
+              { value: 'list', label: 'List' },
+              { value: 'graph', label: 'Graph' },
+            ]}
+          />
+        </div>
+
+        {mode === 'graph' && (
+          <section aria-label="Graph">
+            <Suspense fallback={<LoadingRows loading rows={4} />}>
+              <RunGraph detail={detail} onRerun={rerunNode} onWorktree={setWorktree} />
+            </Suspense>
+          </section>
+        )}
+
+        {mode === 'list' && phases.map((p, i) => (
           <section key={p.title} aria-labelledby={`ph-${i}`}>
             <SectionHeading
               id={`ph-${i}`}

@@ -38,6 +38,10 @@ function stub(): void {
     listPresets: rec('listPresets', [{ id: 'wfp_1', workflow: 'review-changes', name: 'main', args: { base: 'main' }, createdAt: 1 }]),
     savePreset: async (...args: unknown[]) => rec('savePreset', { id: 'wfp_2', workflow: 'review-changes', name: 'nightly', args: {}, createdAt: 2 })(...args),
     deletePreset: rec('deletePreset'),
+    graph: async (...args: unknown[]) => rec('graph', { graph: { nodes: [] }, sha: 'abc', editable: false })(...args),
+    runGraph: async (...args: unknown[]) => rec('runGraph', { graph: { nodes: [] }, sha: 'abc', editable: false })(...args),
+    editGraph: async (...args: unknown[]) => rec('editGraph', { sha: 'def', diff: '', view: {} })(...args),
+    copyWorkflow: async (...args: unknown[]) => rec('copyWorkflow', { id: 'fix-until-green', path: '/x/fix-until-green.js' })(...args),
   };
   setWorkflows(hub.engine, svc as unknown as WorkflowService);
 }
@@ -117,6 +121,33 @@ describe('with a workflow service', () => {
     const v = await hub.api('/api/workflows/runs/wfr_1/findings/wff_1', { method: 'POST', json: { verdict: 'dismissed', reason: 'intended' } });
     expect(v.status).toBe(200);
     expect(calls.find((c) => c.method === 'judgeFinding')?.args).toEqual(['wfr_1', 'wff_1', 'dismissed', 'intended']);
+  });
+
+  test('graph routes: library graph, run graph, edit validation, copy, and rerun by seqs', async () => {
+    calls.length = 0;
+    expect((await hub.api(`/api/workflows/${encodeURIComponent('fix-until-green')}/graph`)).status).toBe(200);
+    expect(calls.find((c) => c.method === 'graph')?.args[0]).toBe('fix-until-green');
+    // the graph route is not read as GET /api/workflows/:id
+    expect(calls.some((c) => c.method === 'detail')).toBe(false);
+    expect((await hub.api('/api/workflows/runs/wfr_1/graph')).status).toBe(200);
+    expect(calls.find((c) => c.method === 'runGraph')?.args[0]).toBe('wfr_1');
+
+    const edit = (json: unknown) => hub.api('/api/workflows/mine/graph/edit', { method: 'POST', json });
+    expect((await edit({ field: 'model', value: 'deep', baseSha: 'abc' })).status).toBe(400);
+    expect((await edit({ nodeId: 'agent-1', field: 'schema', value: 'x', baseSha: 'abc' })).status).toBe(400);
+    expect((await edit({ nodeId: 'agent-1', field: 'model', value: 5, baseSha: 'abc' })).status).toBe(400);
+    expect((await edit({ nodeId: 'agent-1', field: 'prompt', value: 'x', part: -1, baseSha: 'abc' })).status).toBe(400);
+    expect((await edit({ nodeId: 'agent-1', field: 'model', value: 'x'.repeat(20_001), baseSha: 'abc' })).status).toBe(400);
+    const ok = await edit({ nodeId: 'agent-1', field: 'prompt', value: 'hi', part: 1, baseSha: 'abc' });
+    expect(ok.status).toBe(200);
+    expect(calls.find((c) => c.method === 'editGraph')?.args.slice(0, 2)).toEqual(['mine', { nodeId: 'agent-1', field: 'prompt', value: 'hi', baseSha: 'abc', part: 1 }]);
+
+    expect((await hub.api('/api/workflows/fix-until-green/copy', { method: 'POST' })).status).toBe(201);
+
+    const rr = (json: unknown) => hub.api('/api/workflows/runs/wfr_1/rerun', { method: 'POST', json });
+    expect((await rr({ seqs: [] })).status).toBe(400);
+    expect((await rr({ seqs: [1, 'two'] })).status).toBe(400);
+    expect((await rr({ seqs: [0] })).status).toBe(400);
   });
 
   test('the routes need the owner token', async () => {
