@@ -282,9 +282,9 @@ fun ChatImage(block: ImageBlock, maxHeight: Dp, modifier: Modifier = Modifier) {
     }
 }
 
-/** An image in a message, over everything and fitted to the screen: pinch to zoom, a tap, Back or Close shuts it. */
+/** An image in a message, over everything and fitted to the screen: pinch to zoom, a tap, Back or Close shuts it. Save and Share sit at the bottom (FileCards.kt ImageActions); [name] names the saved file. */
 @Composable
-internal fun FullImage(block: ImageBlock, onDismiss: () -> Unit) {
+internal fun FullImage(block: ImageBlock, name: String? = null, onDismiss: () -> Unit) {
     val data = block.data
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black).clickable(onClickLabel = "Close", onClick = onDismiss), contentAlignment = Alignment.Center) {
@@ -314,6 +314,7 @@ internal fun FullImage(block: ImageBlock, onDismiss: () -> Unit) {
             IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(8.dp)) {
                 Icon(Icons.Outlined.Close, contentDescription = "Close", tint = Color.White)
             }
+            if (bitmap != null) ImageActions(block, name, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(8.dp))
         }
     }
 }
