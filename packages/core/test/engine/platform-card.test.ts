@@ -127,7 +127,8 @@ describe('the platform card in requests', () => {
     expect(sys).toContain('Delegate');
     expect(sys).not.toContain('Settings > Models');
     // 14,476 chars before the cut (v0.4.41), about 13.5k after
-    expect(sys.length).toBeLessThan(13_900);
+    // +350 for the identity lines at the top of BASE.md (who Conclave is and who made it)
+    expect(sys.length).toBeLessThan(14_250);
 
     const assistant = await t.engine.createSession({ title: 't', cwd: t.cwd, agent: 'assistant' });
     await t.run(assistant.id, 'my day');
