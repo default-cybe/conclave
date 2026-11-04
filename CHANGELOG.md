@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Android: while a second opinion is on its way, the model's name no longer flickers. The shimmer used to sweep across "Asking Sonnet 5.5" letter by letter. Now the row matches the web: "Second opinion from [mark] Sonnet 5.5" stays still, and only "Reading the reply" under it is live.
+
 ## [0.4.64] - 2026-11-04
 
 ### Added
