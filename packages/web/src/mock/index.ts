@@ -26,6 +26,7 @@ import { registerPim } from './pim';
 import { registerProjects } from './projects';
 import { registerImport } from './import';
 import { registerWorkflows } from './workflows';
+import { registerFlows } from './flows';
 import { registerLearnedSkills } from './learned-skills';
 import { registerDigest } from './digest';
 import { registerSubscriptions } from './subscriptions';
@@ -539,6 +540,7 @@ registerProjects(ctx);
 registerImport(ctx);
 // workflows: the library, runs, calls, findings, worktrees
 registerWorkflows(ctx);
+registerFlows(ctx);
 // skills agents wrote: list, read, edit, turn off, delete
 registerLearnedSkills(ctx);
 // the daily digest switch in Settings, Memory
