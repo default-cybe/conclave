@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Programs from blocks, phase 1: in a Code session, Blocks shows `flows/<name>.flow.ts` as a canvas of blocks (Value, Read file, Fetch URL, Parse JSON, Pick field, Map, Filter, Join text, Regex, Write file, Write CSV, Log, Call AI, Shell). Connect blocks and Conclave writes the TypeScript; statements it does not know become Code nodes. Run runs the flow with Bun on the session's device after the same approval an agent's Bash call gets, then shows each block's value on its wires and pins errors to their block. On a phone, the inspector's input lists connect blocks. Helpers go in `flows/lib/index.ts`, written once; the layout goes in `.conclave/graph/<name>.json` (docs/design/VISUAL-PROGRAMMING.md 4 to 6).
+
 ## [0.4.63] - 2026-11-03
 
 ### Added
