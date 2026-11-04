@@ -6,7 +6,22 @@
  */
 import type { WorkflowCall, WorkflowCallState } from './workflows';
 
-export type GraphNodeKind = 'agent' | 'parallel' | 'pipeline' | 'check' | 'approve' | 'ask' | 'workflow' | 'return' | 'log' | 'code';
+/** block: one statement of a program flow that calls a flows/lib helper (docs/design/VISUAL-PROGRAMMING.md 4.2). */
+export type GraphNodeKind = 'agent' | 'parallel' | 'pipeline' | 'check' | 'approve' | 'ask' | 'workflow' | 'return' | 'log' | 'code' | 'block';
+
+/** One input of a flow block: a literal setting, a wire (`ref`, `ref.field`), or a value the canvas cannot edit (`locked`). Offsets of its value in the file. */
+export interface FlowArg {
+  start: number;
+  end: number;
+  value?: string | number | boolean;
+  quote?: string;
+  ref?: string;
+  field?: string;
+  /** Written as `{ url }`: the span is the key, so a new value is written `url: value`. */
+  shorthand?: boolean;
+  /** Why it cannot be edited on the canvas, when it is neither a literal nor a reference. */
+  locked?: string;
+}
 
 /** A literal option value and where its token sits in the script (string offsets). */
 export interface GraphLiteral {
@@ -47,6 +62,12 @@ export interface GraphNode {
   fn?: boolean;
   /** Calls inside the statement (loops, helpers, parallel bodies). */
   calls: GraphInnerCall[];
+  /** Flow block: the catalog entry (flows/plugins.ts), e.g. fetchUrl. */
+  block?: string;
+  /** Flow block: its inputs by name. */
+  args?: Record<string, FlowArg>;
+  /** Flow block: the statement's offsets in the file. */
+  range?: { start: number; end: number };
   /** The statement's exact text. */
   source: string;
 }
