@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Asked who or what it is, Conclave now answers as Conclave, made by Kaivalya Ahir (default-cybe), instead of as Claude Code or the model's own product. Asked which model is answering, it still names the model of that turn.
+
 ## [0.4.63] - 2026-11-03
 
 ### Added
