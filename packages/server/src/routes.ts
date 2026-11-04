@@ -54,6 +54,7 @@ import { registerPimRoutes } from './routes-pim';
 import { registerWatchRoutes } from './routes-watches';
 import { registerBrowserRoutes } from './routes-browser';
 import { registerPreviewRoutes } from './routes-preview';
+import { registerFlowRoutes } from './routes-flows';
 import { patchSession, registerProjectRoutes } from './routes-projects';
 import { registerGithubRoutes } from './routes-github';
 import { registerImportRoutes } from './routes-import';
@@ -892,6 +893,7 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
   registerBrowserRoutes(app, ctx, audit);
   // a Code session's Preview pane (routes-preview.ts)
   registerPreviewRoutes(app, ctx, audit);
+  registerFlowRoutes(app, ctx, audit);
 
   const routineExists = (id: string) => {
     const r = engine.routines.get(id);

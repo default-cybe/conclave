@@ -174,6 +174,8 @@ export type * from './workflows';
 import type { GraphEditInput, GraphEditResult, GraphInsertInput, WorkflowGraphView } from './graph';
 export type * from './graph';
 export { nodeOf, nodeRuns, staleNodes } from './graph';
+import type { FlowBlockSpec, FlowEditResult, FlowOp, FlowRunView, FlowSummary, FlowView } from './flows';
+export type * from './flows';
 // ----- alerts: file conflicts and stuck turns, docs/DESIGN.md 28 -----
 import type { AlertAction, AlertItem } from './alerts';
 export type * from './alerts';
@@ -2397,6 +2399,17 @@ export class ConclaveClient {
   restoreWorkflowGraph = (id: string, sha: string, baseSha: string) => this.request<GraphEditResult>('POST', `/api/workflows/${encodeURIComponent(id)}/graph/restore`, { sha, baseSha });
   /** Save where the nodes were dragged, in the workflow's layout side file. */
   saveWorkflowLayout = (id: string, nodes: Record<string, { x: number; y: number }>) => this.request<{ nodes: Record<string, { x: number; y: number }> }>('PUT', `/api/workflows/${encodeURIComponent(id)}/graph/layout`, { nodes });
+  // ----- flows in a Code session (docs/design/VISUAL-PROGRAMMING.md 4 to 6) -----
+  flowBlocks = () => this.request<FlowBlockSpec[]>('GET', '/api/graph/nodes?use=program');
+  flows = (sessionId: string) => this.request<FlowSummary[]>('GET', `/api/sessions/${encodeURIComponent(sessionId)}/flows`);
+  createFlow = (sessionId: string, name: string) => this.request<FlowView>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}`);
+  flowGraph = (sessionId: string, name: string) => this.request<FlowView>('GET', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/graph`);
+  flowOp = (sessionId: string, name: string, op: FlowOp, baseSha: string) => this.request<FlowEditResult>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/graph/op`, { ...op, baseSha });
+  restoreFlow = (sessionId: string, name: string, sha: string, baseSha: string) => this.request<FlowEditResult>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/graph/restore`, { sha, baseSha });
+  saveFlowLayout = (sessionId: string, name: string, nodes: Record<string, { x: number; y: number }>) => this.request<{ nodes: Record<string, { x: number; y: number }> }>('PUT', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/graph/layout`, { nodes });
+  runFlow = (sessionId: string, name: string) => this.request<FlowRunView>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/run`);
+  flowRun = (sessionId: string, name: string) => this.request<FlowRunView | null>('GET', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/run`);
+  stopFlow = (sessionId: string, name: string) => this.request<FlowRunView | null>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/stop`);
   /** Copy a built-in or plugin workflow into your own workflows, where it can be edited. */
   copyWorkflow = (id: string) => this.request<WorkflowDetail>('POST', `/api/workflows/${encodeURIComponent(id)}/copy`);
   skipWorkflowCall = (id: string, seq: number) => this.request<WorkflowRun>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/calls/${seq}/skip`);
