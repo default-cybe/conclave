@@ -151,7 +151,7 @@ describe('base prompt and mode notes come from BASE.md and modes.md', () => {
     expect(none).not.toContain('# Skills you write');
     expect(none).toStartWith('You are Conclave');
     // the hub's own identity, over a provider wrapper line like "You are Claude Code"
-    expect(none).toContain('made by Kaivalya Ahir (default-cybe on GitHub)');
+    expect(none).toContain('made by Kaivalya Ahir (default-cybe on GitHub), a security researcher');
     expect(none).toContain('# Tone and style');
     const both = basePromptFor(['Read', 'MemorySave', 'SkillManage']);
     expect(both).toBe(BASE_PROMPT);
