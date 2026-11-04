@@ -159,14 +159,32 @@ describe('applyFlowOp', () => {
     expect(nodeId).toBe('mapped');
     parses(src);
     expect(src).toContain("import { fetchUrl, pick, filter, writeCsv, log, map } from './lib';");
-    expect(src).toContain("const bun = await filter({ items: posts, field: 'title', op: 'contains', value: 'bun' });\nconst mapped = await map({ items: bun, field: 'title' })\nconst csv");
+    expect(src).toContain("const bun = await filter({ items: posts, field: 'title', op: 'contains', value: 'bun' });\nconst mapped = await map({ items: bun, field: 'title' });\nconst csv");
     const g = parseFlow(src);
     expect(g.nodes.map((n) => n.id)).toEqual(['url', 'data', 'posts', 'bun', 'mapped', 'csv', 'log-1']);
     expect(g.edges).toContainEqual({ from: 'bun', to: 'mapped', name: 'items' });
     // names are fresh
     expect(applyFlowOp(src, { op: 'insert', block: 'map' }).nodeId).toBe('mapped2');
     // a file with no import line gets one
-    expect(applyFlowOp('const a = 1\n', { op: 'insert', block: 'log', after: 'a' }).src).toBe("import { log } from './lib';\nconst a = 1\nawait log({ value: a })\n");
+    expect(applyFlowOp('const a = 1\n', { op: 'insert', block: 'log', after: 'a' }).src).toBe("import { log } from './lib';\nconst a = 1\nawait log({ value: a });\n");
+    // the wire goes to the data input, not the first setting
+    expect(applyFlowOp(scraper, { op: 'insert', block: 'writeFile', after: 'bun' }).src).toContain("await writeFile({ path: 'out/out.txt', text: bun });");
+  });
+
+  test('insert ends with ; so a next line starting with [ ( or ` stays its own statement', () => {
+    for (const next of ['[1, 2].forEach((x) => x)', '(() => 1)()', '`t`.length']) {
+      const { src } = applyFlowOp(`const a = 'x'\n${next}\n`, { op: 'insert', block: 'log', after: 'a' });
+      expect(src).toContain(`await log({ value: a });\n${next}`);
+      parses(src);
+    }
+  });
+
+  test('a long run of code statements parses in linear time', () => {
+    const t0 = performance.now();
+    const g = parseFlow('x()\n'.repeat(65_000));
+    expect(g.nodes.length).toBe(1);
+    expect(g.nodes[0].source.length).toBe(65_000 * 4 - 1);
+    expect(performance.now() - t0).toBeLessThan(3000);
   });
 
   test('remove deletes the lines, refused while another node reads it', () => {

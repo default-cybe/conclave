@@ -26,7 +26,12 @@ const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const FLOW_ID_RE = /^[A-Za-z_$][\w$]{0,99}(-\d{1,5})?$/;
 const MAX_FLOW_BYTES = 256 * 1024;
 const MAX_OUTPUT = 64 * 1024;
+/** Longest stderr line kept whole (a trace line is far shorter), and how much of a trace field is masked before it is cut. */
+const MAX_CARRY = 256 * 1024;
+const MAX_TRACE = 8 * 1024;
 const RUN_TIMEOUT_MS = 10 * 60_000;
+/** The files Bun reads into process.env on its own (bun.sh/docs/runtime/env). */
+const ENV_FILES = ['.env', '.env.local', '.env.development', '.env.production', '.env.test', '.env.development.local', '.env.production.local', '.env.test.local'];
 
 interface LiveRun {
   view: FlowRunView;
@@ -226,9 +231,15 @@ export class FlowService {
     const onStderr = (chunk: string) => {
       const lines = (carry + chunk).split('\n');
       carry = lines.pop() ?? '';
+      // a run that writes stderr with no line break must not grow the hub's memory
+      if (carry.length > MAX_CARRY) {
+        lines.push(carry);
+        carry = '';
+      }
       for (const l of lines) {
         if (!l.startsWith(marker)) {
-          stderr += `${l}\n`;
+          // the first frames are the ones that pin an error; the rest is in view.output
+          if (stderr.length < MAX_OUTPUT) stderr += `${l}\n`;
           append(`${l}\n`);
           continue;
         }
@@ -237,9 +248,10 @@ export class FlowService {
           const node = typeof rec.line === 'number' ? lineNode(rec.line) : undefined;
           if (!node) continue;
           const live: FlowNodeLive = { ok: !!rec.ok, ...(typeof rec.ms === 'number' ? { ms: rec.ms } : {}) };
-          if (typeof rec.summary === 'string') live.summary = mask(rec.summary.slice(0, 200));
-          if (typeof rec.value === 'string') live.value = mask(rec.value.slice(0, 2000));
-          if (typeof rec.error === 'string') live.error = mask(rec.error.slice(0, 2000));
+          // mask before the cut, so a secret across the cut cannot show its first part
+          if (typeof rec.summary === 'string') live.summary = mask(rec.summary.slice(0, MAX_TRACE)).slice(0, 200);
+          if (typeof rec.value === 'string') live.value = mask(rec.value.slice(0, MAX_TRACE)).slice(0, 2000);
+          if (typeof rec.error === 'string') live.error = mask(rec.error.slice(0, MAX_TRACE)).slice(0, 2000);
           view.nodes[node.id] = live;
         } catch {
           // a broken trace line is dropped, never shown
@@ -281,9 +293,10 @@ export class FlowService {
     }
   }
 
-  /** Values of 6 or more characters in the project's .env: masked in what a run shows. */
+  /** Values of 6 or more characters in the .env files Bun loads for the project: masked in what a run shows. */
   private async secrets(machine: Machine, cwd: string): Promise<string[]> {
-    const text = await machine.readText(`${cwd}/.env`).catch(() => '');
+    const files = ENV_FILES.map((f) => machine.readText(`${cwd}/${f}`).catch(() => ''));
+    const text = (await Promise.all(files)).join('\n');
     const out: string[] = [];
     for (const line of text.split(/\r?\n/)) {
       const m = /^\s*(?:export\s+)?[A-Za-z_][\w.]*\s*=\s*(.*)$/.exec(line);

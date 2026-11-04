@@ -33,6 +33,19 @@
   stroke: var(--signal);
 }
 
+/* a flow wire's last-run value; base.css leaves the SVG label unstyled (black on black) */
+.cv-graph .cv-wire-value .react-flow__edge-textbg {
+  fill: var(--bg-raise);
+  stroke: var(--rule-2);
+  stroke-width: 1;
+}
+
+.cv-graph .cv-wire-value .react-flow__edge-text {
+  fill: var(--fg-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
 .cv-graph .react-flow__node-band {
   pointer-events: none;
 }

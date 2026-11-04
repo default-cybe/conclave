@@ -128,17 +128,20 @@ function parse(src: string): FlowGraph {
     }
     const declares = declaredNames(t);
     const prev = raw[raw.length - 1];
-    // code next to code reads as one block
+    // code next to code reads as one block; its source and label are set once below, so a long run stays linear
     if (prev && prev.kind === 'code') {
       prev.range!.end = st.end;
       prev.span.end = span.end;
-      prev.source = src.slice(prev.range!.start, st.end);
-      prev.declares.push(...declares);
+      for (const d of declares) prev.declares.push(d);
       for (const r of readNames(t)) prev.reads.add(r);
-      prev.label = prev.declares.length ? prev.declares.slice(0, 3).join(', ') + (prev.declares.length > 3 ? ` +${prev.declares.length - 3}` : '') : firstLine(prev.source);
       continue;
     }
-    raw.push({ kind: 'code', label: declares.length ? declares.slice(0, 3).join(', ') + (declares.length > 3 ? ` +${declares.length - 3}` : '') : firstLine(text), span, declares, calls: [], source: text, range, reads: readNames(t) });
+    raw.push({ kind: 'code', label: '', span, declares, calls: [], source: '', range, reads: readNames(t) });
+  }
+  for (const r of raw) {
+    if (r.kind !== 'code') continue;
+    r.source = src.slice(r.range!.start, r.range!.end);
+    r.label = r.declares.length ? r.declares.slice(0, 3).join(', ') + (r.declares.length > 3 ? ` +${r.declares.length - 3}` : '') : firstLine(r.source);
   }
   const counts = new Map<string, number>();
   const used = new Set(raw.flatMap((r) => (r.id ? [r.id] : [])));
@@ -175,7 +178,7 @@ function parse(src: string): FlowGraph {
 }
 
 function firstLine(s: string): string {
-  const one = (s.split('\n').find((l) => l.trim() && !l.trim().startsWith('//')) ?? s).trim();
+  const one = (s.slice(0, 4096).split('\n').find((l) => l.trim() && !l.trim().startsWith('//')) ?? s.slice(0, 4096)).trim();
   return one.length > 48 ? `${one.slice(0, 47)}…` : one;
 }
 
@@ -301,11 +304,14 @@ function insertBlock(src: string, g: FlowGraph, block: string, afterId?: string)
   if (afterId && !a) throw new GraphEditError(`no node ${afterId}; reload the graph`);
   const from = a?.declares[0];
   const id = spec.output ? freshName(toks, BASE_NAME[block] ?? block) : undefined;
+  // the wire goes to the first input that starts empty (the data input), else the first one
+  const wired = Math.max(0, spec.inputs.findIndex((inp) => inp.default === ''));
+  // always `;`: without it a next line that starts with ( [ or ` would continue the new statement
   let stmt: string;
-  if (block === 'value') stmt = `const ${id} = ''`;
+  if (block === 'value') stmt = `const ${id} = '';`;
   else {
-    const entries = spec.inputs.map((inp, i) => `${inp.name}: ${i === 0 && from ? from : printLiteral(inp.default)}`);
-    stmt = `${id ? `const ${id} = ` : ''}await ${spec.helper}({ ${entries.join(', ')} })`;
+    const entries = spec.inputs.map((inp, i) => `${inp.name}: ${i === wired && from ? from : printLiteral(inp.default)}`);
+    stmt = `${id ? `const ${id} = ` : ''}await ${spec.helper}({ ${entries.join(', ')} });`;
   }
   let at: number;
   let text: string;

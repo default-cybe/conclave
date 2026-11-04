@@ -33,7 +33,8 @@ function preview(v) {
   } catch {
     s = String(v);
   }
-  return cut(s, 2000);
+  // longer than the 2000 the canvas shows: the hub masks .env values first, then cuts
+  return cut(s, 8000);
 }
 
 function emit(rec) {

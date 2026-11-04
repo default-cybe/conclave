@@ -82,6 +82,27 @@ describe('flows on the local machine', () => {
     expect((await svc.view(s.id, 'scraper')).lastRun?.runId).toBe(r.runId);
   });
 
+  test('values from .env.local are masked even across the 2000-character cut, and stderr with no line break stays bounded', async () => {
+    const s = await allow.engine.createSession({ title: 'mask', cwd: allow.cwd });
+    // bun test sets NODE_ENV=test and the run inherits it, so Bun loads .env.test (and skips .env.local then)
+    writeFileSync(join(allow.cwd, '.env.local'), 'LOCAL_KEY=sekrit-local-999\n');
+    writeFileSync(join(allow.cwd, `.env.${process.env.NODE_ENV ?? 'development'}`), 'LOCAL_KEY=sekrit-local-999\n');
+    writeFileSync(
+      join(allow.cwd, 'flows/leak.flow.ts'),
+      "import { log } from './lib';\nconst v = 'x'.repeat(1995) + process.env.LOCAL_KEY;\nawait log({ value: v });\nprocess.stderr.write('e'.repeat(600_000));\n",
+    );
+    await flowsOf(allow.engine).run(s.id, 'leak');
+    const r = await finished(allow, s.id, 'leak');
+    expect(r.status).toBe('done');
+    const value = r.nodes['log-1']?.value ?? '';
+    expect(value.length).toBeLessThanOrEqual(2000);
+    // the flow saw the value, and the hub masked it
+    expect(value).toEndWith('***');
+    expect(value).not.toContain('sekr');
+    expect(r.output).not.toContain('sekrit');
+    expect(r.output.length).toBeLessThanOrEqual(64 * 1024);
+  });
+
   test('an uncaught error in a code node is pinned to it by line', async () => {
     const s = await allow.engine.createSession({ title: 'throw', cwd: allow.cwd });
     writeFileSync(
