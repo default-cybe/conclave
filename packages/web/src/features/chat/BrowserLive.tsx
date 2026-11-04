@@ -10,7 +10,7 @@
  * The rules of when it shows are in liveBrowser.ts (test/browser-live.test.ts).
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Globe, Monitor } from 'lucide-react';
+import { Globe, Monitor, Workflow } from 'lucide-react';
 import type { BrowserLiveDto } from '@conclave/core/client';
 import { api } from '@/lib/api';
 import { useIsMobile } from '@/lib/hooks';
@@ -21,6 +21,7 @@ import { Dialog } from '@/components/ui/Overlay';
 import { RemotePage } from '@/features/settings/RemotePage';
 import { browserCalls, liveWords, showLive } from './liveBrowser';
 import { usePreviewOpen, togglePreview } from '@/features/preview/PreviewPane';
+import { toggleFlow, useFlowOpen } from '@/features/graph/flowOpen';
 
 /** How often the line asks the hub whether the session's page is open, while the session has used the browser. */
 const STATUS_MS = 3_000;
@@ -41,6 +42,25 @@ export function PreviewButton({ sessionId }: { sessionId: string }) {
     >
       <Monitor aria-hidden strokeWidth={1.75} className={cn('size-3.5', open ? 'text-signal' : 'text-fg-3')} />
       Preview
+    </button>
+  );
+}
+
+/** The flow canvas's switch (features/graph/FlowView): it takes the transcript's place; the composer stays. */
+export function BlocksButton({ sessionId }: { sessionId: string }) {
+  const open = useFlowOpen((s) => s.id === sessionId);
+  return (
+    <button
+      type="button"
+      aria-pressed={open}
+      onClick={() => toggleFlow(sessionId)}
+      className={cn(
+        'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-rule-2 bg-raise px-2.5 text-[12.5px] transition-colors duration-[var(--dur-1)] hov:text-fg phone:h-9 phone:px-3.5 phone:text-[14px]',
+        open ? 'text-fg' : 'text-fg-2',
+      )}
+    >
+      <Workflow aria-hidden strokeWidth={1.75} className={cn('size-3.5', open ? 'text-signal' : 'text-fg-3')} />
+      Blocks
     </button>
   );
 }
@@ -75,6 +95,7 @@ export function BrowserLive({ sessionId, narrow = false, preview = false }: { se
   return (
     <div className={cn('mx-auto flex w-full gap-2 px-8 pb-1.5 anim-fade phone:px-4 phone:pb-1', narrow ? 'max-w-[784px]' : 'max-w-[924px]')}>
       {preview && <PreviewButton sessionId={sessionId} />}
+      {preview && <BlocksButton sessionId={sessionId} />}
       {shown && (
       <button
         type="button"

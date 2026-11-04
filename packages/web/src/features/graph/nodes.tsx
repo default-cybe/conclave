@@ -6,7 +6,7 @@
  */
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import type { GraphNode, NodeRun, NodeRunState } from '@conclave/core/client';
+import type { FlowBlockSpec, FlowNodeLive, GraphNode, NodeRun, NodeRunState } from '@conclave/core/client';
 import { Elapsed } from '@/components/motion/Elapsed';
 import { compact, usd } from '@/lib/format';
 import { cn } from '@/lib/text';
@@ -19,6 +19,10 @@ export interface FlowNodeData extends Record<string, unknown> {
   selected?: boolean;
   /** Wires enter at the top and leave at the bottom (the phone's vertical layout). */
   vertical?: boolean;
+  /** A program flow's block: its catalog entry, its last value or error, and whether wires may be drawn to its inputs. */
+  spec?: FlowBlockSpec;
+  live?: FlowNodeLive;
+  connectable?: boolean;
 }
 
 export interface BandData extends Record<string, unknown> {
@@ -39,6 +43,7 @@ const KIND_WORD: Record<GraphNode['kind'], string> = {
   return: 'Result',
   log: 'Log',
   code: 'Code',
+  block: 'Block',
 };
 
 const STATE_WORD: Record<NodeRunState, string> = {
@@ -135,4 +140,55 @@ export const PhaseBand = memo(function PhaseBand({ data }: NodeProps) {
   );
 });
 
-export const NODE_TYPES = { wf: WorkflowNode, band: PhaseBand };
+/** A block's settings in one line: literal inputs as `key value`, wires left out (the wire shows them). */
+export function blockLine(node: GraphNode, spec?: FlowBlockSpec): string {
+  if (node.kind !== 'block') return `Code, ${node.declares.length ? `sets ${node.declares.join(', ')}` : 'runs a statement'}`;
+  const lits = Object.entries(node.args ?? {})
+    .filter(([, a]) => !a.ref)
+    .map(([k, a]) => (a.locked ? `${k} computed` : node.block === 'value' ? JSON.stringify(a.value) : `${k} ${typeof a.value === 'string' ? JSON.stringify(a.value) : String(a.value)}`));
+  return [spec?.title ?? node.block, ...lits].join(', ');
+}
+
+/** The state of a flow node in its last run: failed, done or nothing. */
+export const liveState = (live?: FlowNodeLive): NodeRunState | undefined => (live ? (live.ok ? 'done' : 'failed') : undefined);
+
+/**
+ * One block of a program flow (docs/design/VISUAL-PROGRAMMING.md 4.2): the
+ * variable name, the block and its settings, and the last run's value or
+ * error. One input handle per input, so a wire lands on its input.
+ */
+export const FlowBlockNode = memo(function FlowBlockNode({ data }: NodeProps) {
+  const { node, selected, vertical, spec, live, connectable } = data as FlowNodeData;
+  const state = liveState(live);
+  const tone = stateTone(state);
+  const inputs = node.kind === 'block' && node.block !== 'value' ? (spec?.inputs.map((i) => i.name) ?? Object.keys(node.args ?? {})) : node.kind === 'code' ? [''] : [];
+  const out = live ? (live.ok ? `${live.summary ?? 'done'}${live.ms !== undefined ? `, ${live.ms} ms` : ''}` : (live.error ?? 'failed').split('\n')[0]) : '';
+  return (
+    <div
+      className={cn('cv-graph-node flex flex-col justify-between rounded-[var(--r-2)] border bg-raise px-3 py-2.5 text-left', tone.outline, selected && 'cv-graph-selected', node.kind === 'code' && 'border-dashed')}
+      style={{ width: NODE_W, height: NODE_H }}
+      data-state={state ?? 'idle'}
+    >
+      {inputs.map((name, i) => (
+        <Handle
+          key={name || 'in'}
+          type="target"
+          id={name || undefined}
+          position={vertical ? Position.Top : Position.Left}
+          isConnectable={!!connectable && !!name}
+          title={name || undefined}
+          style={vertical ? { left: `${((i + 1) * 100) / (inputs.length + 1)}%` } : { top: `${((i + 1) * 100) / (inputs.length + 1)}%` }}
+        />
+      ))}
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="mono min-w-0 truncate text-[13px] font-medium text-fg">{node.label}</span>
+        <span className="mono shrink-0 text-[11px] text-fg-4">{node.span.start === node.span.end ? `L${node.span.start}` : `L${node.span.start}-${node.span.end}`}</span>
+      </div>
+      <div className="truncate text-[12px] text-fg-3">{blockLine(node, spec)}</div>
+      <div className={cn('cv-state truncate text-[12px]', tone.text)}>{state === 'failed' ? `failed: ${out}` : out}</div>
+      {(node.declares.length > 0 || node.kind === 'code') && <Handle type="source" position={vertical ? Position.Bottom : Position.Right} isConnectable={!!connectable} />}
+    </div>
+  );
+});
+
+export const NODE_TYPES = { wf: WorkflowNode, band: PhaseBand, flow: FlowBlockNode };

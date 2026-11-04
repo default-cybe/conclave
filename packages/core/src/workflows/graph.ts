@@ -34,19 +34,19 @@ const LIB: Record<string, GraphNodeKind> = { runCheck: 'check', exec: 'check', a
 const INNER_DIRECT = new Set(['agent', 'parallel', 'pipeline', 'workflow', 'phase']);
 const INNER_LIB = new Set(['runCheck', 'exec', 'ask', 'approve', 'panel', 'judgePanel', 'loopUntilDry', 'checkCitations', 'checkCitation', 'capture', 'diff', 'checkout']);
 
-interface Stmt {
+export interface Stmt {
   toks: Tok[];
   start: number;
   end: number;
 }
 
-function lineStarts(src: string): number[] {
+export function lineStarts(src: string): number[] {
   const out = [0];
   for (let i = 0; i < src.length; i++) if (src[i] === '\n') out.push(i + 1);
   return out;
 }
 
-function lineAt(starts: number[], offset: number): number {
+export function lineAt(starts: number[], offset: number): number {
   let lo = 0;
   let hi = starts.length - 1;
   while (lo < hi) {
@@ -58,7 +58,7 @@ function lineAt(starts: number[], offset: number): number {
 }
 
 /** Split the top level into statements: a `;` or a line break at depth 0 ends one, unless the code clearly goes on. */
-function statements(src: string, toks: Tok[]): Stmt[] {
+export function statements(src: string, toks: Tok[]): Stmt[] {
   const out: Stmt[] = [];
   let cur: Tok[] = [];
   let depth = 0;
@@ -108,7 +108,7 @@ function statements(src: string, toks: Tok[]): Stmt[] {
 }
 
 /** The index of the token that closes the bracket at `open`, or -1. */
-function closing(toks: Tok[], open: number): number {
+export function closing(toks: Tok[], open: number): number {
   let d = 0;
   for (let i = open; i < toks.length; i++) {
     const t = toks[i];
@@ -123,7 +123,7 @@ function closing(toks: Tok[], open: number): number {
 }
 
 /** Split the tokens between brackets by top-level commas. */
-function splitArgs(toks: Tok[], open: number, close: number): Array<[number, number]> {
+export function splitArgs(toks: Tok[], open: number, close: number): Array<[number, number]> {
   const out: Array<[number, number]> = [];
   let d = 0;
   let from = open + 1;
@@ -199,7 +199,7 @@ export function quoteString(value: string, quote: string): string {
   return `${quote}${s}${quote}`;
 }
 
-function literalOf(t: Tok): GraphLiteral | undefined {
+export function literalOf(t: Tok): GraphLiteral | undefined {
   const s = stringValue(t);
   if (s !== undefined) return { value: s, start: t.start, end: t.end, quote: t.text[0] };
   if (t.kind === 'num' && /^[0-9.]+$/.test(t.text)) return { value: Number(t.text), start: t.start, end: t.end };
@@ -222,7 +222,7 @@ function objectLiterals(toks: Tok[], open: number, close: number): Record<string
 }
 
 /** The names a declaration binds: `const x`, `const { a, b: c }`, `const [a, b]`, `function f`. */
-function declaredNames(toks: Tok[]): string[] {
+export function declaredNames(toks: Tok[]): string[] {
   let i = 0;
   if (toks[i]?.text === 'export') i++;
   if (toks[i]?.text === 'async') i++;
@@ -259,7 +259,7 @@ function declaredNames(toks: Tok[]): string[] {
 }
 
 /** Identifiers the statement reads (not property names or object keys). */
-function readNames(toks: Tok[]): Set<string> {
+export function readNames(toks: Tok[]): Set<string> {
   const out = new Set<string>();
   for (let i = 0; i < toks.length; i++) {
     const t = toks[i];
@@ -566,7 +566,7 @@ export type InsertKind = 'agent' | 'parallel' | 'check' | 'approve' | 'ask';
 export const INSERT_KINDS: InsertKind[] = ['agent', 'parallel', 'check', 'approve', 'ask'];
 
 /** A name no statement in the script uses yet: base, base2, base3... */
-function freshName(toks: Tok[], base: string): string {
+export function freshName(toks: Tok[], base: string): string {
   const used = new Set(toks.filter((t) => t.kind === 'ident').map((t) => t.text));
   for (let i = 1; ; i++) if (!used.has(i === 1 ? base : `${base}${i}`)) return i === 1 ? base : `${base}${i}`;
 }
@@ -665,11 +665,11 @@ const NODE_ID_RE = /^[a-z]+-\d{1,5}$/;
 const snap = (v: number) => Math.round(v / 8) * 8;
 
 /** Positions a canvas sent or a file holds: node ids only, finite numbers on the 8px grid. Anything else is dropped. */
-export function cleanPositions(raw: unknown, ids?: Set<string>): GraphPositions {
+export function cleanPositions(raw: unknown, ids?: Set<string>, idRe: RegExp = NODE_ID_RE): GraphPositions {
   const out: GraphPositions = {};
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
   for (const [id, p] of Object.entries(raw as Record<string, unknown>).slice(0, 2000)) {
-    if (!NODE_ID_RE.test(id) || (ids && !ids.has(id)) || !p || typeof p !== 'object') continue;
+    if (!idRe.test(id) || (ids && !ids.has(id)) || !p || typeof p !== 'object') continue;
     const { x, y } = p as { x?: unknown; y?: unknown };
     if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) > 1e6 || Math.abs(y) > 1e6) continue;
     out[id] = { x: snap(x), y: snap(y) };
@@ -678,10 +678,10 @@ export function cleanPositions(raw: unknown, ids?: Set<string>): GraphPositions 
 }
 
 /** The positions of a layout file's text; a missing or broken file is no positions (the canvas lays out the rest). */
-export function readLayout(text: string | undefined): GraphPositions {
+export function readLayout(text: string | undefined, idRe: RegExp = NODE_ID_RE): GraphPositions {
   if (!text) return {};
   try {
-    return cleanPositions((JSON.parse(text) as { nodes?: unknown }).nodes);
+    return cleanPositions((JSON.parse(text) as { nodes?: unknown }).nodes, undefined, idRe);
   } catch {
     return {};
   }

@@ -595,6 +595,17 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'DELETE /api/browser/sessions/:session/frame': own({ session: 'session' }),
   'POST /api/browser/sessions/:session/input': own({ session: 'session' }),
   'POST /api/browser/sessions/:session/control': own({ session: 'session' }),
+  // flows in a Code session (routes-flows.ts): the session's own, on its own device; Run gets the session's Bash check
+  'GET /api/graph/nodes': 'self',
+  'GET /api/sessions/:id/flows': SESSION,
+  'POST /api/sessions/:id/flows/:name': SESSION,
+  'GET /api/sessions/:id/flows/:name/graph': SESSION,
+  'POST /api/sessions/:id/flows/:name/graph/op': SESSION,
+  'POST /api/sessions/:id/flows/:name/graph/restore': SESSION,
+  'PUT /api/sessions/:id/flows/:name/graph/layout': SESSION,
+  'POST /api/sessions/:id/flows/:name/run': SESSION,
+  'GET /api/sessions/:id/flows/:name/run': SESSION,
+  'POST /api/sessions/:id/flows/:name/stop': SESSION,
   // a Code session's Preview pane (routes-preview.ts): runs launch.json on the device and the hub's Chromium, so the owner only
   'GET /api/sessions/:id/preview': 'admin',
   'POST /api/sessions/:id/preview/start': 'admin',
