@@ -10,7 +10,7 @@ import '@xyflow/react/dist/base.css';
 import './graph.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Controls, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type Node, type NodeChange } from '@xyflow/react';
-import type { NodeRun, WorkflowGraph } from '@conclave/core/client';
+import type { FlowBlockSpec, FlowNodeLive, NodeRun, WorkflowGraph } from '@conclave/core/client';
 import { useIsMobile } from '@/lib/hooks';
 import { NODE_H, NODE_W, clearOf, placedGraph } from './layout';
 import { NODE_TYPES, type BandData, type FlowNodeData } from './nodes';
@@ -29,11 +29,19 @@ export interface GraphCanvasProps {
   /** Nodes drag when set; called once where a node is dropped. */
   onMove?: (id: string, at: { x: number; y: number }) => void;
   /** Set on a workflow you own: a double-click on empty canvas, or a wire dropped there, opens the node search. */
-  onInsert?: (kind: InsertKind, after?: string) => void;
+  onInsert?: (kind: string, after?: string) => void;
+  /** What the node search offers; the workflow nodes by default. */
+  inserts?: InsertItem[];
+  /** A program flow: block nodes, a value label on each wire from the last run, and wires drawn to an input. */
+  flow?: { blocks: Map<string, FlowBlockSpec>; live?: Record<string, FlowNodeLive>; onConnect?: (from: string, to: string, input: string) => void };
 }
 
-type InsertKind = 'agent' | 'parallel' | 'check' | 'approve' | 'ask';
-const INSERTS: Array<{ kind: InsertKind; word: string; help: string }> = [
+export interface InsertItem {
+  kind: string;
+  word: string;
+  help: string;
+}
+const INSERTS: InsertItem[] = [
   { kind: 'agent', word: 'Agent', help: 'One agent call' },
   { kind: 'parallel', word: 'Parallel', help: 'Two agents at once' },
   { kind: 'check', word: 'Check', help: 'Run a command' },
@@ -42,10 +50,10 @@ const INSERTS: Array<{ kind: InsertKind; word: string; help: string }> = [
 ];
 
 /** The node search: type to filter, arrows and Enter pick, Escape closes. */
-function NodeSearch({ at, after, onPick, onClose }: { at: { x: number; y: number }; after?: string; onPick: (k: InsertKind) => void; onClose: () => void }) {
+function NodeSearch({ at, after, items, onPick, onClose }: { at: { x: number; y: number }; after?: string; items: InsertItem[]; onPick: (k: string) => void; onClose: () => void }) {
   const [q, setQ] = useState('');
   const [i, setI] = useState(0);
-  const list = INSERTS.filter((x) => `${x.word} ${x.help}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const list = items.filter((x) => `${x.word} ${x.help}`.toLowerCase().includes(q.trim().toLowerCase()));
   return (
     <div className="absolute z-10 w-[240px] rounded-[var(--r-2)] border border-rule-2 bg-raise p-1.5" style={{ left: at.x, top: at.y }} role="dialog" aria-label="Add a node">
       <input
@@ -84,7 +92,7 @@ function NodeSearch({ at, after, onPick, onClose }: { at: { x: number; y: number
   );
 }
 
-function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className, positions, onMove, onInsert }: GraphCanvasProps) {
+function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className, positions, onMove, onInsert, inserts = INSERTS, flow: program }: GraphCanvasProps) {
   const [search, setSearch] = useState<{ x: number; y: number; after?: string }>();
   const openSearch = (clientX: number, clientY: number, after?: string) => {
     const r = box.current?.getBoundingClientRect();
@@ -123,20 +131,30 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       focusable: false,
       zIndex: -1,
     }));
-    const wf: Node[] = graph.nodes.map((n) => ({
-      id: n.id,
-      type: 'wf',
-      position: pos.get(n.id) ?? { x: 0, y: 0 },
-      data: { node: n, run: runs?.get(n.id), stale: staleSet.has(n.id), selected: n.id === selected, vertical } satisfies FlowNodeData,
-      ariaLabel: `${n.label}, ${n.kind}${runs?.get(n.id) ? `, ${runs.get(n.id)!.state}` : ''}`,
-      draggable,
-    }));
+    const connectable = !!program?.onConnect && !vertical;
+    const wf: Node[] = graph.nodes.map((n) => {
+      const live = program?.live?.[n.id];
+      return {
+        id: n.id,
+        type: program ? 'flow' : 'wf',
+        position: pos.get(n.id) ?? { x: 0, y: 0 },
+        data: { node: n, run: runs?.get(n.id), stale: staleSet.has(n.id), selected: n.id === selected, vertical, ...(program ? { spec: n.block ? program.blocks.get(n.block) : undefined, live, connectable } : {}) } satisfies FlowNodeData,
+        ariaLabel: program ? `${n.label}, ${n.kind === 'block' ? (program.blocks.get(n.block ?? '')?.title ?? n.block) : 'code'}${live ? (live.ok ? `, ${live.summary ?? 'done'}` : ', failed') : ''}` : `${n.label}, ${n.kind}${runs?.get(n.id) ? `, ${runs.get(n.id)!.state}` : ''}`,
+        draggable,
+      };
+    });
     const es: Edge[] = graph.edges.map((e) => {
+      if (program) {
+        // a block's wire lands on its input's handle; the label is the value that went through it last run
+        const to = graph.nodes.find((n) => n.id === e.to);
+        const label = program.live?.[e.from]?.summary;
+        return { id: `${e.from}>${e.to}.${e.name}`, source: e.from, target: e.to, ...(to?.kind === 'block' && e.name ? { targetHandle: e.name } : {}), type: 'smoothstep', focusable: false, ...(label ? { label, className: 'cv-wire-value' } : {}) };
+      }
       const live = runs?.get(e.to)?.state === 'running';
       return { id: `${e.from}>${e.to}`, source: e.from, target: e.to, type: 'smoothstep', className: live ? 'cv-wire-live' : undefined, focusable: false };
     });
     return { nodes: [...bandNodes, ...wf], edges: es };
-  }, [graph, runs, stale, selected, currentPhase, vertical, positions, drag, draggable]);
+  }, [graph, runs, stale, selected, currentPhase, vertical, positions, drag, draggable, program]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -177,6 +195,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         zoomOnDoubleClick={!onInsert}
         onDoubleClick={onInsert ? (e) => (e.target as HTMLElement).classList.contains('react-flow__pane') && openSearch(e.clientX, e.clientY) : undefined}
         // a wire let go on empty canvas: the new node goes after the one it came from
+        onConnect={program?.onConnect ? (c) => c.source && c.target && c.targetHandle && program.onConnect!(c.source, c.target, c.targetHandle) : undefined}
         onConnectEnd={
           onInsert
             ? (e, s) => {
@@ -194,10 +213,10 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         // open on the first band at a readable size, top left: a centred fit clipped the first band and shrank the text
         defaultViewport={{ x: 16, y: 16, zoom: vertical ? 1 : 0.9 }}
         proOptions={{ hideAttribution: true }}
-        onNodeClick={(_, n) => n.type === 'wf' && onSelect(n.id)}
+        onNodeClick={(_, n) => n.type !== 'band' && onSelect(n.id)}
         onPaneClick={() => onSelect(undefined)}
         onKeyDown={(e) => {
-          const id = (e.target as HTMLElement).closest('.react-flow__node-wf')?.getAttribute('data-id');
+          const id = (e.target as HTMLElement).closest('.react-flow__node-wf, .react-flow__node-flow')?.getAttribute('data-id');
           if (id && (e.key === 'Enter' || e.key === ' ')) {
             e.preventDefault();
             onSelect(id);
@@ -211,6 +230,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         <NodeSearch
           at={search}
           after={search.after}
+          items={inserts}
           onClose={() => setSearch(undefined)}
           onPick={(k) => {
             setSearch(undefined);

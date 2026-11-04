@@ -129,7 +129,7 @@ export async function runCommand(engine: Engine, sessionId: string, line: string
       if (!cmd) return { output: `Unknown command: /${name}` };
       if (member && SHELL_LINE.test(cmd.body)) return { output: `/${cmd.name} did not run: ${MEMBER_SHELL_REFUSED}` };
       const signal = new AbortController().signal;
-      const permit = (command: string) => shellRefusal(engine, s, cmd.name, command, signal);
+      const permit = (command: string) => bashRefusal(engine, s, command, `/${cmd.name} runs: ${oneLine(command, 160)}`, signal);
       const readDenied = await readDeniedFor(engine, s);
       const body = await expandCommand(cmd, args, { machine: engine.machineFor(s), cwd: s.cwd, permit, readDenied });
       await engine.send(sessionId, { text: body });
@@ -154,11 +154,12 @@ async function runSkill(engine: Engine, s: Session, name: string, args: string):
 }
 
 /**
- * A !`cmd` line in a command or skill gets the check a Bash call in this
- * session gets: rules, mode, the session's grants, then the owner's answer.
+ * A !`cmd` line in a command or skill, or a flow's Run (flows/service.ts),
+ * gets the check a Bash call in this session gets: rules, mode, the
+ * session's grants, then the owner's answer with `summary` on the card.
  * Returns why it may not run, or undefined.
  */
-async function shellRefusal(engine: Engine, s: Session, name: string, command: string, signal: AbortSignal): Promise<string | undefined> {
+export async function bashRefusal(engine: Engine, s: Session, command: string, summary: string, signal: AbortSignal): Promise<string | undefined> {
   const runner = engine.runnerFor(s.id);
   const input = { command };
   let v = checkPermission({
@@ -176,7 +177,7 @@ async function shellRefusal(engine: Engine, s: Session, name: string, command: s
   if (v.decision === 'deny') return v.reason;
   if (v.decision === 'allow') return undefined;
   const rule = BashTool.suggestRule?.(input);
-  const res = await engine.requestApproval(s.id, { toolUseId: newId('cmd'), tool: 'Bash', input, summary: `/${name} runs: ${oneLine(command, 160)}`, suggestedRule: rule }, signal);
+  const res = await engine.requestApproval(s.id, { toolUseId: newId('cmd'), tool: 'Bash', input, summary, suggestedRule: rule }, signal);
   if (res.decision !== 'allow') return 'the user denied it';
   if (res.scope === 'session') runner.sessionAllow.push(res.rule ?? rule ?? 'Bash');
   return undefined;

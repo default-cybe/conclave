@@ -2,7 +2,7 @@
 
 The plan for a node canvas in the style of ComfyUI and Unreal Blueprints, used for two things: building programs by connecting blocks, and showing, building and running Conclave workflows as node graphs. In both, Conclave keeps real code as the truth and the graph reads and writes it. Written before the code; the code follows it. Paths are relative to `packages/core/src` unless they start with `packages/` or `docs/`.
 
-Status: draft for the owner's review. Section 13 holds the open questions.
+Status: workflow graphs shipped (0.4.62, 0.4.63). Programs from blocks, phase 1 is built (branch feat/flows): flat top-level statements instead of `main()` (Bun runs top-level await), the workflow tokenizer instead of `ts.createSourceFile`, 14 blocks plus Code, Run with Bun under the session's Bash approval, per-block traces on stderr behind a per-run nonce. Not in phase 1: if/for-each/try groups, functions as subgraphs, port types, Serve, agent graph tools, Python. Section 13 holds the open questions.
 
 ## 0. What the owner asked for
 

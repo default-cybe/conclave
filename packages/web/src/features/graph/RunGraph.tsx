@@ -205,7 +205,7 @@ export default function WorkflowGraphPage() {
         selected={sel}
         onSelect={setSel}
         positions={positions}
-        onInsert={view.editable ? insert : undefined}
+        onInsert={view.editable ? (k, after) => insert(k as Parameters<typeof insert>[0], after) : undefined}
         onMove={view.editable ? (nid, at) => moved(positions, { ...positions, [nid]: { x: Math.round(at.x / 8) * 8, y: Math.round(at.y / 8) * 8 } }) : undefined}
         className="h-[min(74vh,780px)] rounded-[var(--r-2)] border border-rule phone:h-[66vh]" />
       <InspectorPanel
