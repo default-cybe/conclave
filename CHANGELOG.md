@@ -12,6 +12,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Fixed
 
 - Android: while a second opinion is on its way, the model's name no longer flickers. The shimmer used to sweep across "Asking Sonnet 5.5" letter by letter. Now the row matches the web: "Second opinion from [mark] Sonnet 5.5" stays still, and only "Reading the reply" under it is live.
+- Android: the "Model and effort" picker no longer shakes when you scroll its list all the way down. The list's extra push at its end used to reach the sheet, which sprang up and back. Now the list stops firmly at its end, as on the web. Pulling down at the top still closes the sheet.
 
 ## [0.4.64] - 2026-11-04
 
