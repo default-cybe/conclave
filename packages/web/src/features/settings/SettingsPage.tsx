@@ -163,7 +163,7 @@ const ALL_SECTIONS: SectionDef[] = [
   {
     id: 'reflect',
     label: 'Reflect',
-    desc: 'Your week, month or year at a glance, and what the assistant learns each night about how you like to work.',
+    desc: 'Your own report for a week up to a year, and what the assistant learns each night about how you like to work.',
     C: ReflectSection,
   },
   {

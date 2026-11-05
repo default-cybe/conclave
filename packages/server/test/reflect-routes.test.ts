@@ -17,7 +17,7 @@ beforeAll(() => {
   // the fake engine has no assistant: a real one over its database, memory and routines, as engine/create.ts attaches it
   const e = hub.engine;
   const make = (accountId?: string) =>
-    new AssistantService({ db: e.repos.db, kv: e.repos.kv, repos: e.repos, memory: e.memoryStore, routines: e.routines, createTask: (input) => e.createTask(input, accountId), complete: async (o) => (calls.push({ accountId: accountId ?? 'owner', prompt: o.prompt }), 'A calm week.'), ...(accountId ? { accountId } : {}) });
+    new AssistantService({ db: e.repos.db, kv: e.repos.kv, repos: e.repos, memory: e.memoryStore, routines: e.routines, createTask: (input) => e.createTask(input, accountId), complete: async (o) => (calls.push({ accountId: accountId ?? 'owner', prompt: o.prompt }), JSON.stringify({ headline: 'A calm week.' })), ...(accountId ? { accountId } : {}) });
   attachAssistant(e, make(), (id) => make(id));
 });
 afterAll(() => hub.stop());
@@ -63,39 +63,47 @@ describe('Settings > Reflect', () => {
   });
 });
 
-describe('Reflect recap', () => {
-  test('each account reads only its own recap, and Summarise sends only its own data', async () => {
+describe('Reflect report', () => {
+  test('each account reads only its own report, and the model pass reads only its own data on its own account', async () => {
     const e = hub.engine;
     const made = await asJson(await hub.api('/api/people', { method: 'POST', json: { name: 'mia', password: 'a long enough password' } }));
     const miaId = made.body.person.id as string;
     const login = await asJson(await hub.api('/api/login', { method: 'POST', token: null, json: { account: 'mia', password: 'a long enough password', name: 'phone' } }));
     const mia = login.body.token as string;
-    await e.createSession({ kind: 'chat', title: 'Owner secret roadmap' });
-    await e.createSession({ kind: 'chat', title: 'Mia garden planning' }, miaId);
+    // three chats with two typed messages each: enough for the model pass (a thin range makes none)
+    const chats = async (title: string, account?: string) => {
+      for (const n of [1, 2, 3]) {
+        const s = await e.createSession({ kind: 'chat', title: `${title} ${n}` }, account);
+        for (const seq of [1, 2]) e.repos.messages.insert({ id: `msg_${s.id}_${seq}`, sessionId: s.id, seq, role: 'user', kind: 'normal', content: [{ type: 'text', text: `step ${seq}` }], createdAt: Date.now() } as never);
+      }
+    };
+    await chats('Owner secret roadmap');
+    await chats('Mia garden planning', miaId);
     const mem = (id: string, content: string, account: string) =>
-      e.repos.db.query(`INSERT INTO memories (id, scope, kind, content, tags, created_at, updated_at, account_id, meta) VALUES (?, 'global', 'fact', ?, '["preference"]', ?, ?, ?, '{}')`).run(id, content, Date.now(), Date.now(), account);
-    mem('owner-pref', 'Owner likes terse replies', 'owner');
-    mem('mia-pref', 'Mia likes tomatoes', miaId);
+      e.repos.db.query(`INSERT INTO memories (id, scope, kind, content, tags, created_at, updated_at, account_id, meta) VALUES (?, 'global', 'fact', ?, '["person"]', ?, ?, ?, '{}')`).run(id, content, Date.now(), Date.now(), account);
+    mem('owner-person', 'Omar: owner colleague', 'owner');
+    mem('mia-person', 'Tara: gardening friend', miaId);
 
-    const own = await asJson(await hub.api('/api/reflect/recap?period=week'));
+    const own = await asJson(await hub.api('/api/reflect/report?range=week'));
     expect(own.status).toBe(200);
-    expect(own.body).toMatchObject({ period: 'week', totals: { chats: 1 } });
-    expect(JSON.stringify(own.body)).toContain('roadmap');
-    expect(JSON.stringify(own.body)).not.toContain('Mia');
+    expect(own.body).toMatchObject({ range: 'week', totals: { chats: 3 }, headline: 'A calm week.', insights: 'model' });
+    expect(own.body.fun.newPeople).toEqual(['Omar']);
+    expect(JSON.stringify(own.body)).not.toMatch(/Mia|garden|Tara/);
+    expect(calls.at(-1)!.accountId).toBe('owner');
 
-    const hers = await asJson(await hub.api('/api/reflect/recap?period=year', { token: mia }));
+    // the owner has no way to ask for a member's report: any extra parameter still reads the caller's own
+    const tried = await asJson(await hub.api(`/api/reflect/report?range=week&account=${miaId}`));
+    expect(JSON.stringify(tried.body)).not.toMatch(/garden|Tara/);
+
+    const hers = await asJson(await hub.api('/api/reflect/report/refresh?range=12m', { method: 'POST', token: mia }));
     expect(hers.status).toBe(200);
-    expect(hers.body).toMatchObject({ period: 'year', totals: { chats: 1 } });
-    expect(hers.body.preferences.map((p: { content: string }) => p.content)).toEqual(['Mia likes tomatoes']);
-    expect(JSON.stringify(hers.body)).not.toMatch(/roadmap|Owner likes/);
-
-    expect((await hub.api('/api/reflect/recap?period=decade')).status).toBe(400);
-
-    const sum = await asJson(await hub.api('/api/reflect/recap/summary?period=month', { method: 'POST', token: mia }));
-    expect(sum.status).toBe(200);
-    expect(sum.body).toEqual({ summary: 'A calm week.' });
+    expect(hers.body).toMatchObject({ range: '12m', totals: { chats: 3 } });
+    expect(hers.body.fun.newPeople).toEqual(['Tara']);
+    expect(JSON.stringify(hers.body)).not.toMatch(/roadmap|Omar/);
     expect(calls.at(-1)!.accountId).toBe(miaId);
-    expect(calls.at(-1)!.prompt).toContain('tomatoes');
-    expect(calls.at(-1)!.prompt).not.toMatch(/roadmap|Owner likes/);
+    expect(calls.at(-1)!.prompt).toContain('garden');
+    expect(calls.at(-1)!.prompt).not.toMatch(/roadmap|Omar/);
+
+    expect((await hub.api('/api/reflect/report?range=decade')).status).toBe(400);
   });
 });

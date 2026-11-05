@@ -2,8 +2,9 @@
  * Settings > Reflect in words (docs/ASSISTANT.md, Nightly reflection). Pure,
  * so test/reflect-words.test.ts checks it.
  */
-import type { RecapDto, RecapPeriod, ReflectDto, ReflectRunDto } from '@conclave/core/client';
+import type { ReflectDto, ReflectRange, ReflectReport, ReflectRunDto } from '@conclave/core/client';
 import { compact, hhmm, shortDate } from '@/lib/format';
+import { modelName } from '@/lib/models';
 
 /** What it does and what it costs, in one line, from docs/ASSISTANT.md. */
 export const REFLECT_LINE =
@@ -47,35 +48,80 @@ export function timeWords(r: Pick<ReflectDto, 'enabled' | 'nextRunAt' | 'timezon
 /** A valid time for the box: HH:MM, 24 hours. */
 export const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-// ----- the recap (GET /api/reflect/recap) ------------------------------------
+// ----- the report (GET /api/reflect/report) ----------------------------------
 
-const PERIOD_WORD: Record<RecapPeriod, string> = { week: 'This week', month: 'This month', year: 'This year' };
+export const RANGES: Array<{ value: ReflectRange; label: string }> = [
+  { value: 'week', label: 'Week' },
+  { value: 'month', label: 'Month' },
+  { value: '3m', label: '3 mo' },
+  { value: '6m', label: '6 mo' },
+  { value: '12m', label: '12 mo' },
+];
 
-/** The page's one status line: "This week: 12 chats, 4 sessions and 1 workflow, 3.2M tokens." or the empty line. */
-export function recapHeadline(r: Pick<RecapDto, 'period' | 'totals'>): string {
-  const t = r.totals;
-  const parts = [t.chats && n(t.chats, 'chat', 'chats'), t.sessions && n(t.sessions, 'session', 'sessions'), t.workflows && n(t.workflows, 'workflow', 'workflows')].filter(Boolean) as string[];
-  if (!parts.length) return `${PERIOD_WORD[r.period]}: nothing yet. Chats, sessions and workflows show up here as you go.`;
-  const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
-  return `${PERIOD_WORD[r.period]}: ${list}${t.tokens ? `, ${compact(t.tokens)} tokens` : ''}.`;
+/** "30 Oct to 5 Nov", "6 Nov 2025 to 5 Nov 2026": the dates the report covers, in the account's zone. */
+export function reportRange(r: Pick<ReflectReport, 'start' | 'end' | 'timezone'>): string {
+  const sameYear = new Date(r.start).getUTCFullYear() === new Date(r.end - 1).getUTCFullYear();
+  const day = (ts: number) => new Intl.DateTimeFormat('en-GB', { timeZone: r.timezone, day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) }).format(ts);
+  return `${day(r.start)} to ${day(r.end - 1)}`;
 }
 
-/** "1 to 5 Nov", "Nov 2026", "2026": the range the tab covers, in the account's zone. */
-export function recapRange(r: Pick<RecapDto, 'period' | 'start' | 'end' | 'timezone'>): string {
-  const day = (ts: number, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-GB', { timeZone: r.timezone, ...o }).format(ts);
-  if (r.period === 'year') return day(r.start, { year: 'numeric' });
-  if (r.period === 'month') return day(r.start, { month: 'long', year: 'numeric' });
-  const a = day(r.start, { day: 'numeric', month: 'short' });
-  const b = day(r.end - 1, { day: 'numeric', month: 'short' });
-  return a === b ? a : `${a} to ${b}`;
+/** "Made 2 h ago with your small model." or "Made today 09:12 from the numbers only." */
+export function madeWords(r: Pick<ReflectReport, 'generatedAt' | 'insights'>, now = Date.now()): string {
+  const mins = Math.round((now - r.generatedAt) / 60_000);
+  const at = mins < 1 ? 'just now' : mins < 60 ? `${mins} min ago` : mins < 24 * 60 ? `${Math.round(mins / 60)} h ago` : `on ${shortDate(r.generatedAt)}`;
+  return `Made ${at}${r.insights === 'model' ? ' with your small model' : ' from the numbers only'}. It is made again each week, or when you press Refresh.`;
 }
 
-/** "Tue 3 Nov" from the recap's YYYY-MM-DD. */
+/** The big numbers: chats and sessions, hours active, tokens and cost, projects. */
+export function bigNumbers(t: ReflectReport['totals']): Array<{ value: string; label: string }> {
+  return [
+    { value: String(t.chats + t.sessions), label: `${n(t.chats, 'chat', 'chats')}, ${n(t.sessions, 'session', 'sessions')}` },
+    { value: t.hoursActive >= 10 ? String(Math.round(t.hoursActive)) : String(t.hoursActive), label: 'hours active' },
+    { value: compact(t.tokens), label: t.costUsd ? `tokens, $${t.costUsd >= 100 ? Math.round(t.costUsd) : t.costUsd.toFixed(2)}` : 'tokens' },
+    { value: String(t.projects), label: t.projects === 1 ? 'project' : 'projects' },
+  ];
+}
+
+export const HABIT_WORDS: Record<string, { title: string; what: string }> = {
+  delegation: { title: 'Delegation', what: 'What you hand off, and to whom' },
+  description: { title: 'Description', what: 'How clearly you set up the work' },
+  discernment: { title: 'Discernment', what: 'How you judge what comes back' },
+  diligence: { title: 'Diligence', what: 'How you check before it counts' },
+};
+
+/** The heatmap's cells: 0 to 4, against the busiest hour. */
+export function heatLevel(v: number, max: number): number {
+  return !v || !max ? 0 : Math.min(4, Math.ceil((v / max) * 4));
+}
+
+/** A late-night share worth a gentle line: a fifth or more of your messages between 23:00 and 05:00. */
+export function lateLine(share: number, messages: number): string | undefined {
+  if (share < 0.2 || messages < 20) return undefined;
+  return `${Math.round(share * 100)}% of your messages came between 23:00 and 05:00. Quiet hours below keep the hub from pinging you then.`;
+}
+
+/** "4 active days, longest streak 2 days, busiest Tue 3 Nov with 40 messages." The late-night share only when lateLine does not say it already. */
+export function rhythmWords(r: ReflectReport['rhythm']): string {
+  const busiest = r.busiestDay ? `, busiest ${dayWords(r.busiestDay.date)} with ${r.busiestDay.count} messages` : '';
+  const late = lateLine(r.lateNightShare, r.messages) ? '' : ` ${Math.round(r.lateNightShare * 100)}% late at night.`;
+  return `${n(r.activeDays, 'active day', 'active days')}, longest streak ${n(r.longestStreak, 'day', 'days')}${busiest}.${late}`;
+}
+
+/** "3 fallbacks, most often Opus 5.5 to Sonnet 5.5." with the model picker's names, or nothing. */
+export function fallbackWords(m: Pick<ReflectReport['models'], 'fallbacks' | 'topFallback'>): string {
+  if (!m.fallbacks) return '';
+  const top = m.topFallback ? `, most often ${m.topFallback.split(' to ').map(modelName).join(' to ')}` : '';
+  return `${n(m.fallbacks, 'fallback', 'fallbacks')}${top}. `;
+}
+
+/** The footnote on what was left out, or nothing. */
+export function excludedWords(e: ReflectReport['excluded']): string | undefined {
+  const parts = [e.health && `${n(e.health, 'health-related session', 'health-related sessions')} (found by topic)`, e.incognito && n(e.incognito, 'incognito chat', 'incognito chats')].filter(Boolean) as string[];
+  if (!parts.length) return undefined;
+  return `Left out: ${parts.join(' and ')}. Only titles and short summaries are read, never mail, files or tool output.`;
+}
+
+/** "Tue 3 Nov" from the report's YYYY-MM-DD. */
 export function dayWords(date: string): string {
   return new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' }).format(Date.parse(`${date}T12:00:00Z`));
-}
-
-/** The last folder of a session's cwd, or the cwd when it has none. */
-export function projectName(cwd: string): string {
-  return cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd;
 }

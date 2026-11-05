@@ -403,6 +403,8 @@ export function openDb(file: string): Db {
   // what a call is worth at API prices, kept from the day it is recorded (usage/value.ts); older rows have none
   ensureColumn(db, 'usage', 'api_value_usd', 'REAL');
   migrateIncognito(db);
+  // Reflect's report (assistant/recap.ts) reads messages by time: without this every report scanned all of them (7 s on a 3 GB hub)
+  db.exec('CREATE INDEX IF NOT EXISTS messages_created ON messages(created_at)');
   // https://www.sqlite.org/pragma.html#pragma_optimize: long-lived connections run this once at open, then periodically
   db.exec('PRAGMA optimize = 0x10002;');
   return db;
