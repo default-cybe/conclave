@@ -1,0 +1,130 @@
+/* Canvas mode on SPEC tokens (design/canvas-mode SPEC.md 5): page background,
+   no grid, wires --fg-4, --fg-2 next to the selected node, --signal into a
+   running node; ports are neutral and carry their type as text. */
+.cv-canvas {
+  --xy-edge-stroke: var(--fg-4);
+  --xy-edge-stroke-width: 1.25;
+  --xy-edge-stroke-selected: var(--fg-2);
+  --xy-handle-background-color: var(--bg-raise);
+  --xy-handle-border-color: var(--fg-3);
+  --xy-node-boxshadow-selected: none;
+  --xy-connectionline-stroke-default: var(--fg-2);
+  --xy-selection-background-color: transparent;
+  --xy-selection-border-default: 1px dashed var(--fg-3);
+  background: var(--bg);
+  touch-action: none;
+}
+
+.cv-canvas .cv-port {
+  width: 9px;
+  height: 9px;
+  min-width: 0;
+  min-height: 0;
+  border-width: 1.5px;
+  border-radius: 50%;
+}
+
+.cv-canvas .react-flow__handle-left.cv-port {
+  left: -5px;
+}
+
+.cv-canvas .react-flow__handle-right.cv-port {
+  right: -5px;
+}
+
+.cv-canvas .react-flow__handle.connectingfrom,
+.cv-canvas .react-flow__handle.valid,
+.cv-canvas .cv-port:hover {
+  border-color: var(--fg);
+}
+
+/* a 44px hit area on touch screens (SPEC 14) */
+@media (pointer: coarse) {
+  .cv-canvas .cv-port::after {
+    content: '';
+    position: absolute;
+    inset: -18px;
+  }
+}
+
+.cv-canvas .react-flow__node-c:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+  border-radius: var(--r-2);
+}
+
+.cv-canvas .cv-node-selected {
+  border-color: var(--fg);
+}
+
+.cv-canvas .react-flow__node-group {
+  pointer-events: none;
+}
+
+.cv-canvas .cv-wire-near path {
+  stroke: var(--fg-2);
+}
+
+.cv-canvas .cv-wire-live path {
+  stroke: var(--signal);
+}
+
+/* the value that went through a wire; base.css leaves the SVG label unstyled (black on black) */
+.cv-canvas .cv-wire-value .react-flow__edge-textbg {
+  fill: var(--bg-raise);
+  stroke: var(--rule-2);
+  stroke-width: 1;
+}
+
+.cv-canvas .cv-wire-value .react-flow__edge-text {
+  fill: var(--fg-2);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.cv-canvas .react-flow__controls {
+  box-shadow: none;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-2);
+  overflow: hidden;
+}
+
+.cv-canvas .react-flow__controls-button {
+  background: var(--bg-raise);
+  border-bottom: 1px solid var(--rule);
+  color: var(--fg-2);
+  fill: var(--fg-2);
+  width: 28px;
+  height: 28px;
+}
+
+.cv-canvas .react-flow__controls-button:hover {
+  background: var(--bg-hover);
+}
+
+.cv-canvas .react-flow__minimap {
+  background: var(--bg-raise);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-2);
+  overflow: hidden;
+}
+
+/* SVG fill attributes take no var(): the minimap is styled here */
+.cv-canvas .react-flow__minimap-mask {
+  fill: var(--bg-hover);
+  stroke: var(--fg-3);
+  stroke-width: 1;
+}
+
+.cv-canvas .react-flow__minimap-node.cv-mini {
+  fill: var(--fg-4);
+}
+
+.cv-canvas .react-flow__minimap-node.cv-mini-on {
+  fill: var(--fg-2);
+}
+
+.cv-canvas .react-flow__minimap-node.cv-mini-group {
+  fill: none;
+  stroke: var(--rule-2);
+}

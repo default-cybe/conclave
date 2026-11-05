@@ -87,7 +87,8 @@ function innerOf(path: string): { title: string; back: string } | undefined {
 export function phonePlace(path: string): PhonePlace {
   const p = path.split('?')[0];
   if (p in MAIN) return 'main';
-  if (p.startsWith('/s/') || p === '/chat' || p.startsWith('/chat/') || /^\/settings\/friends\/[^/]+$/.test(p) || /^\/shares\/[^/]+$/.test(p) || /^\/projects\/[^/]+$/.test(p)) return 'conversation';
+  // the canvas draws its own bar (features/canvas/CanvasPage.tsx)
+  if (p.startsWith('/s/') || p === '/chat' || p === '/canvas' || p.startsWith('/canvas/') || p.startsWith('/chat/') || /^\/settings\/friends\/[^/]+$/.test(p) || /^\/shares\/[^/]+$/.test(p) || /^\/projects\/[^/]+$/.test(p)) return 'conversation';
   if (PAGES.some((x) => x.to === p) || p === '/workflows/runs') return 'page';
   return 'inner';
 }

@@ -38,6 +38,8 @@ const ExtensionsPage = lazy(() => import('./features/extensions/ExtensionsPage')
 const RoutinesPage = lazy(() => import('./features/routines/RoutinesPage'));
 const WorkflowsPage = lazy(() => import('./features/workflows/WorkflowsPage'));
 const WorkflowGraphPage = lazy(() => import('./features/graph/RunGraph'));
+// Canvas mode (design/canvas-mode SPEC): the full-screen node editor, React Flow loads with it
+const CanvasPage = lazy(() => import('./features/canvas/CanvasPage'));
 const MemoryPage = lazy(() => import('./features/memory/MemoryPage'));
 const UsagePage = lazy(() => import('./features/usage/UsagePage'));
 const DevicesPage = lazy(() => import('./features/devices/DevicesPage'));
@@ -256,6 +258,7 @@ export function App() {
               <Route path="/workflows/runs/:id?" component={WorkflowsPage} />
               <Route path="/workflows/graph/:id" component={WorkflowGraphPage} />
               <Route path="/workflows" component={WorkflowsPage} />
+              <Route path="/canvas/:kind?/:name?" component={CanvasPage} />
               <Route path="/memory/:tab?" component={MemoryPage} />
               <Route path="/usage" component={UsagePage} />
               <Route path="/map" component={MapPage} />

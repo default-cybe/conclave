@@ -21,7 +21,7 @@ import type { StartMode } from './start';
 /** The knot over the greeting: as heavy over its 26px heading as the phone's 64px mark over its 28px one. */
 const MARK = 60;
 
-const PLACEHOLDER: Record<StartMode, string> = { chat: 'Ask anything', assistant: 'Type / for commands', code: 'Type / for commands' };
+const PLACEHOLDER: Record<StartMode, string> = { chat: 'Ask anything', assistant: 'Type / for commands', code: 'Type / for commands', canvas: 'Describe a flow' };
 
 export function EmptyConversation({ mode }: { mode: StartMode }) {
   const touch = useCoarsePointer();
@@ -32,7 +32,7 @@ export function EmptyConversation({ mode }: { mode: StartMode }) {
     <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
       <div aria-hidden className="min-h-8 flex-[4]" />
       <Greeting as="h1" size={MARK} />
-      <div className="mt-7">{mode === 'chat' ? <ChatComposer chatId="new" minRows={3} blurOnEsc placeholder={PLACEHOLDER.chat} /> : <SessionComposer key={mode} mode={mode} />}</div>
+      <div className="mt-7">{mode === 'chat' ? <ChatComposer chatId="new" minRows={3} blurOnEsc placeholder={PLACEHOLDER.chat} /> : mode === 'canvas' ? null /* Home sends Canvas to /canvas */ : <SessionComposer key={mode} mode={mode} />}</div>
       <div className="mx-auto w-full max-w-[784px] space-y-7 px-8 pt-4">
         <WaitingSection open={1} />
         <TodaySection />

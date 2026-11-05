@@ -33,7 +33,8 @@ import { CHATS, deviceName, groupSessions, type GroupContext } from './grouping'
 import { hrefOf, liveState } from './recents';
 import { sessionRepo } from './github';
 
-export type SideMode = 'chat' | 'assistant' | 'code';
+/** canvas lists files (features/canvas/files.tsx), not sessions: sideModeOf never returns it. */
+export type SideMode = 'chat' | 'assistant' | 'code' | 'canvas';
 export type SideGroupBy = 'project' | 'device' | 'time';
 
 export const SIDE_GROUP_WORDS: Record<SideGroupBy, string> = { project: 'Project', device: 'Device', time: 'Time' };
@@ -205,11 +206,11 @@ function modeGroups(i: SideInput): SideGroupOut[] {
 
 /** What the sidebar calls the list: "Chats", "Assistant" or "Sessions". */
 export function sideListWord(mode: SideMode): string {
-  return mode === 'chat' ? 'Chats' : mode === 'assistant' ? 'Assistant' : 'Sessions';
+  return mode === 'chat' ? 'Chats' : mode === 'assistant' ? 'Assistant' : mode === 'canvas' ? 'Canvas' : 'Sessions';
 }
 
 /** The words of the New row for a mode. */
-export const NEW_WORDS: Record<SideMode, string> = { chat: 'New chat', assistant: 'Message assistant', code: 'New session' };
+export const NEW_WORDS: Record<SideMode, string> = { chat: 'New chat', assistant: 'Message assistant', code: 'New session', canvas: 'New flow' };
 
 // ---------------------------------------------------------------------------
 // Delegated work
