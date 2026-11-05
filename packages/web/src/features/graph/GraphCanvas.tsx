@@ -4,9 +4,7 @@
  * where it is read. No wiring by hand; pinch or wheel zooms, one finger or
  * drag pans, a tap or Enter opens the inspector. F fits the view. With
  * onMove (a workflow you own, wide screens) nodes drag, and the page saves
- * where they land in the layout side file. inPage: the canvas is a box in a
- * scrolling page, so the wheel scrolls the page (Ctrl+wheel and pinch zoom)
- * and a phone shows the whole column at full size and scrolls with the page.
+ * where they land in the layout side file.
  */
 import '@xyflow/react/dist/base.css';
 import './graph.css';
@@ -45,8 +43,6 @@ export interface GraphCanvasProps {
   /** A double-click on a node's title edits it in place; `renamable` says which nodes allow it. */
   onRename?: (id: string, name: string) => void;
   renamable?: (n: GraphNode) => boolean;
-  /** A box inside a scrolling page (a run's graph), not a whole pane. */
-  inPage?: boolean;
   /** What the node search offers; the workflow nodes by default. */
   inserts?: InsertItem[];
   /** A program flow: block nodes, a value label on each wire from the last run, and wires drawn to an input. */
@@ -167,7 +163,7 @@ function WireHint({ check }: { check: (from: string, to: string, input: string) 
   );
 }
 
-function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className, positions, onMove, onInsert, onRemove, selection, onSelection, onCopy, onPaste, onRename, renamable, inPage, inserts = INSERTS, flow: program, full }: GraphCanvasProps) {
+function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className, positions, onMove, onInsert, onRemove, selection, onSelection, onCopy, onPaste, onRename, renamable, inserts = INSERTS, flow: program, full }: GraphCanvasProps) {
   // a refused wire's reason after it is let go, for a few seconds
   const [note, setNote] = useState<{ text: string; x: number; y: number }>();
   useEffect(() => {
@@ -187,8 +183,6 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
   };
   const flow = useReactFlow();
   const vertical = useIsMobile();
-  // a phone in a page: the column at full size, the page scrolls it (a canvas box there trapped the finger)
-  const scroll = !!inPage && vertical;
   const box = useRef<HTMLDivElement>(null);
   // the node under the pointer while it drags; it is saved only on drop
   const [drag, setDrag] = useState<{ id: string; x: number; y: number }>();
@@ -214,9 +208,8 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       }
     }
   };
-  const { nodes, edges, tall, bounds } = useMemo(() => {
+  const { nodes, edges, bounds } = useMemo(() => {
     const { pos, bands } = placedGraph(graph, vertical, drag ? { ...positions, [drag.id]: { x: drag.x, y: drag.y } } : positions);
-    const tall = Math.max(0, ...bands.map((b) => b.y + b.h));
     // the bands and the nodes: a program can have no bands
     const boxes = [...bands, ...[...pos.values()].map((p) => ({ ...p, w: NODE_W, h: NODE_H }))];
     const left = Math.min(0, ...boxes.map((b) => b.x));
@@ -264,7 +257,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       const value = full ? runs?.get(e.from)?.value : undefined;
       return { id: `${e.from}>${e.to}`, source: e.from, target: e.to, className: live ? 'cv-wire-live' : value ? 'cv-wire-value' : undefined, focusable: false, ...(value ? { label: value, labelShowBg: true, labelBgPadding: [4, 2] as [number, number] } : {}) };
     });
-    return { nodes: [...bandNodes, ...wf], edges: es, tall, bounds };
+    return { nodes: [...bandNodes, ...wf], edges: es, bounds };
   }, [graph, runs, stale, selected, selection, currentPhase, vertical, positions, drag, draggable, program, full, onRename, renamable]);
 
   // open fitted: the whole graph when it reads at 0.55 or more, else the start of it at 0.55; a phone centres its column
@@ -324,9 +317,8 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
   const desk = !!full && !vertical;
   // the inspector opens over the canvas: once it has slid in, pan so the tapped node sits in the part it leaves free
   useEffect(() => {
-    // a phone's page-sized column does not pan: the sheet opens over the page
     // Canvas mode on a computer: the inspector is a column of its own, and a pan would push the first blocks off the left
-    if (!selected || scroll || desk) return;
+    if (!selected || desk) return;
     const t = setTimeout(() => {
       const cover = document.querySelector('.cv-inspector')?.getBoundingClientRect();
       const n = flow.getInternalNode(selected);
@@ -337,13 +329,13 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       if (vp) void flow.setViewport(vp, { duration: 200 });
     }, 240);
     return () => clearTimeout(t);
-  }, [selected, flow, scroll, desk]);
+  }, [selected, flow, desk]);
 
   return (
     <div
       className={className}
       ref={box}
-      style={{ position: 'relative', ...(scroll ? { height: tall + 28 } : {}) }}
+      style={{ position: 'relative' }}
       onPointerMove={(e) => {
         pointer.current = { x: e.clientX, y: e.clientY };
         const p = press.current;
@@ -387,7 +379,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       }
     >
       <ReactFlow
-        className={cn('cv-graph', scroll && 'cv-graph-scroll', full && 'cv-full')}
+        className={cn('cv-graph', full && 'cv-full')}
         nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
@@ -399,7 +391,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         // ComfyUI: shift-click adds to the selection, Ctrl/Cmd-drag draws a box (a Shift box would cover the nodes and eat the clicks)
         multiSelectionKeyCode={onSelection ? 'Shift' : undefined}
         selectionKeyCode={onSelection ? ['Control', 'Meta'] : undefined}
-        zoomOnDoubleClick={!onInsert && !scroll}
+        zoomOnDoubleClick={!onInsert}
         onDoubleClick={onInsert ? (e) => (e.target as HTMLElement).classList.contains('react-flow__pane') && openSearch(e.clientX, e.clientY) : undefined}
         deleteKeyCode={null}
         // a wire let go on empty canvas: the new node goes after the one it came from
@@ -423,10 +415,6 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
             : undefined
         }
         elementsSelectable
-        zoomOnPinch={!scroll}
-        zoomOnScroll={!scroll}
-        panOnDrag={!scroll}
-        preventScrolling={!inPage}
         minZoom={full ? 0.1 : 0.2}
         maxZoom={1.6}
         defaultViewport={{ x: 16, y: 16, zoom: vertical ? 1 : 0.9 }}

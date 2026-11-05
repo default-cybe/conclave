@@ -54,7 +54,7 @@ import { useIsMobile } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { attempt, retainTranscript, sendQueued, toast, upsertSession, useHub } from '@/store/store';
 import { DRAG_KIND, GraphCanvas, INSERTS } from '../graph/GraphCanvas';
-import { FlowInspector, runWords } from '../graph/FlowView';
+import { FlowInspector, runWords } from '../graph/FlowInspector';
 import { Inspector } from '../graph/Inspector';
 import { liveState, stateTone } from '../graph/nodes';
 import { useRunDetail, useRuns } from '../workflows/data';
