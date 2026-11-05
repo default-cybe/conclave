@@ -13,7 +13,7 @@ import { parseGraph } from '@conclave/core/workflows/graph';
 
 const store = new Map<string, string>();
 (globalThis as { localStorage?: unknown }).localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
-const { agentMessage, agentSessionOf, folderOf, headLeft, programStates, queueFile, rememberAgentSession, startGuard, workflowLive } = await import('../src/features/canvas/run');
+const { AGENT_POLL_MS, agentBusy, reloadIfChanged, agentMessage, agentSessionOf, folderOf, headLeft, programStates, queueFile, rememberAgentSession, startGuard, workflowLive } = await import('../src/features/canvas/run');
 
 describe('the queue (on the hub)', () => {
   test('a file is keyed as the hub keys it', () => {
@@ -93,5 +93,28 @@ describe('Ask the agent', () => {
     expect(folderOf('~/.conclave/workflows/nightly-deps.js')).toBe('~/.conclave/workflows');
     expect(folderOf('builtin:x')).toBeUndefined();
     expect(folderOf(undefined)).toBeUndefined();
+  });
+  test('the file is polled every 2 s only while the agent is mid-turn', () => {
+    expect(AGENT_POLL_MS).toBe(2000);
+    for (const s of ['running', 'waiting_approval', 'waiting_input']) expect(agentBusy(s)).toBe(true);
+    for (const s of ['idle', 'paused', 'waiting_reset', 'error', undefined]) expect(agentBusy(s)).toBe(false);
+  });
+  test('a poll takes the file only when its sha moved; a failed read keeps the canvas', async () => {
+    let sha = 'v1';
+    let hub = 'v1';
+    let fail = false;
+    const took: string[] = [];
+    const poll = reloadIfChanged(
+      async () => (fail ? Promise.reject(new Error('offline')) : { sha: hub }),
+      () => sha,
+      (v) => (took.push(v.sha), (sha = v.sha)),
+    );
+    expect(await poll()).toBe(false);
+    hub = 'v2';
+    expect(await poll()).toBe(true);
+    expect(await poll()).toBe(false);
+    fail = true;
+    expect(await poll()).toBe(false);
+    expect(took).toEqual(['v2']);
   });
 });

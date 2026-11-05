@@ -42,7 +42,7 @@ import { Textarea } from '@/components/ui/Field';
 import { isTyping } from '@/components/Shell';
 import { MessageList } from '@/features/chat/MessageList';
 import { ArgsForm, argsFromValues, type ArgValues } from '../workflows/args-form';
-import { agentMessage, agentSessionOf, folderOf, headLeft, programStates, queueFile, rememberAgentSession, startGuard, workflowLive } from './run';
+import { AGENT_POLL_MS, agentBusy, agentMessage, agentSessionOf, reloadIfChanged, folderOf, headLeft, programStates, queueFile, rememberAgentSession, startGuard, workflowLive } from './run';
 import { Tabs } from '@/components/ui/Tags';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { PhoneBar } from '@/components/PhoneFrame';
@@ -134,6 +134,8 @@ function ProgramFile({ name }: { name: string }) {
   const [positions, setPositions] = useState<Positions>({});
   const [selection, setSelection] = useState<string[]>([]);
   const take = useCallback((v: FlowView) => (setView(v), v.layout && setPositions(v.layout)), []);
+  const shaNow = useRef<string>(undefined);
+  shaNow.current = view?.sha;
   const ed = useEditor<FlowView>({
     view,
     setView: take,
@@ -274,7 +276,7 @@ function ProgramFile({ name }: { name: string }) {
       // a program has no resume: Re-run runs the whole file
       failedOf={(node) => (run?.nodes[node.id]?.ok === false ? { error: run.nodes[node.id].error ?? run.error ?? 'failed', rerun: { label: 'Re-run', go: runner.onRun } } : undefined)}
       runner={{ ...runner, onStop: flowLive(run) ? () => void attempt(() => api().stopFlow(sid!, name)).then((r) => r && setRun(r)) : undefined }}
-      agent={{ file: `flows/${title}`, device, cwd, sessionId: sid, error: run?.status === 'failed' ? run.error : undefined, onTurnEnd: () => void api().flowGraph(sid!, name).then(take).catch(() => {}) }}
+      agent={{ file: `flows/${title}`, device, cwd, sessionId: sid, error: run?.status === 'failed' ? run.error : undefined, reload: reloadIfChanged(() => api().flowGraph(sid!, name), () => shaNow.current, take) }}
       output={run?.output || run?.error || ''}
       logs={Object.entries(run?.nodes ?? {}).map(([id, n]) => [n.ms !== undefined ? `${n.ms} ms` : '', `${id}: ${n.ok ? (n.summary ?? 'done') : `failed, ${(n.error ?? '').split('\n')[0]}`}`] as const)}
     />
@@ -345,9 +347,11 @@ function WorkflowFile({ id }: { id: string }) {
     />
   );
   const rerun = (seqs: number[]) => current && runner.begin(() => attempt(() => api().rerunWorkflow(current.run.id, { seqs })).then(began));
-  const agent = view?.editable ? { file: path ?? id, cwd: folderOf(path), error: data?.run.status === 'failed' ? (data.run.error ?? data.calls.find((c) => c.state === 'failed')?.error) : undefined, onTurnEnd: () => void api().workflowGraph(id).then(take).catch(() => {}) } : undefined;
+  const agent = view?.editable ? { file: path ?? id, cwd: folderOf(path), error: data?.run.status === 'failed' ? (data.run.error ?? data.calls.find((c) => c.state === 'failed')?.error) : undefined, reload: reloadIfChanged(() => api().workflowGraph(id), () => shaNow.current, (v) => take(v)) } : undefined;
   const [positions, setPositions] = useState<Positions>({});
   const take = useCallback((v: WorkflowGraphView) => setView((old) => ({ ...v, layout: v.layout ?? old?.layout })), []);
+  const shaNow = useRef<string>(undefined);
+  shaNow.current = view?.sha;
   useEffect(() => setPositions((p) => view?.layout ?? p), [view?.layout]);
   const ed = useEditor<WorkflowGraphView>({ view, setView: take, restore: (sha, base) => api().restoreWorkflowGraph(id, sha, base).then((r) => r.view), reload: () => api().workflowGraph(id) });
   if (error) return <Missing title={id}>The workflow did not load. {error}</Missing>;
@@ -537,7 +541,8 @@ interface ShellAgent {
   cwd?: string;
   sessionId?: string;
   error?: string;
-  onTurnEnd: () => void;
+  /** Read the file again; takes it only when its sha moved (run.ts reloadIfChanged). */
+  reload: () => Promise<unknown>;
 }
 
 /**
@@ -961,7 +966,9 @@ function RunArgs({ schema, queue, onClose, onRun }: { schema: Record<string, Wor
  * Ask the agent: a Code session in the file's folder (the folder's session for
  * a program, one started for a workflow and kept per file), its transcript,
  * and a box whose message carries the file, the selection and the last error.
- * The canvas reloads the file when the agent's turn ends.
+ * While the agent works the canvas reads the file's sha every 2 s and shows
+ * each edit as it lands; it reads once more when the turn ends. Closing the
+ * tab unmounts the panel, which stops the polling.
  */
 function AgentPanel({ ctx, selection }: { ctx: ShellAgent; selection: Array<{ label: string; lines: string }> }) {
   const [sid, setSid] = useState(() => ctx.sessionId ?? agentSessionOf(ctx.file));
@@ -970,12 +977,18 @@ function AgentPanel({ ctx, selection }: { ctx: ShellAgent; selection: Array<{ la
   const [busy, setBusy] = useState(false);
   useEffect(() => (sid ? retainTranscript(sid) : undefined), [sid]);
   const was = useRef(session?.status);
-  const turnEnd = useRef(ctx.onTurnEnd);
-  turnEnd.current = ctx.onTurnEnd;
+  const reload = useRef(ctx.reload);
+  reload.current = ctx.reload;
   useEffect(() => {
-    if (was.current && was.current !== 'idle' && session?.status === 'idle') turnEnd.current();
+    if (was.current && was.current !== 'idle' && session?.status === 'idle') void reload.current();
     was.current = session?.status;
   }, [session?.status]);
+  const working = agentBusy(session?.status);
+  useEffect(() => {
+    if (!working) return;
+    const t = setInterval(() => void reload.current(), AGENT_POLL_MS);
+    return () => clearInterval(t);
+  }, [working]);
   const send = async () => {
     if (!text.trim() || busy) return;
     setBusy(true);

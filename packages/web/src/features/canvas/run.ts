@@ -100,6 +100,25 @@ export function folderOf(path: string | undefined): string | undefined {
   return i > 0 ? path.slice(0, i) : undefined;
 }
 
+/** How often the Agent tab reads the open file's sha while the agent works. */
+export const AGENT_POLL_MS = 2_000;
+
+/** The agent is mid-turn: running, or waiting on an approval or an answer. Idle, paused, a limit or an error end the polling. */
+export const agentBusy = (status: string | undefined) => status === 'running' || status === 'waiting_approval' || status === 'waiting_input';
+
+/**
+ * Read the file from the hub and take it only when its sha moved, so an
+ * agent's edit shows while it works and an unchanged poll redraws nothing.
+ * Resolves true when it took a new version; a failed read is false.
+ */
+export function reloadIfChanged<V extends { sha: string }>(read: () => Promise<V>, shaNow: () => string | undefined, take: (v: V) => void): () => Promise<boolean> {
+  return () =>
+    read().then(
+      (v) => (v.sha !== shaNow() ? (take(v), true) : false),
+      () => false,
+    );
+}
+
 /**
  * What the agent gets with the owner's words: the file, the blocks selected,
  * and the last run's error, so "add a step that summarises the results" or
