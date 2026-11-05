@@ -311,7 +311,7 @@ function renameBlock(src: string, g: FlowGraph, n: GraphNode, next: string): { s
   if (next === old) return { src, nodeId: n.id };
   if (!IDENT.test(next) || next.length > 64 || RESERVED.has(next)) throw new GraphEditError('a name is letters, digits, _ or $, not starting with a digit, and not a JavaScript word');
   const toks = tokenize(src);
-  const word = (name: string) => new RegExp(`(^|[^\\w$])${name.replace(/\$/g, '\\$')}($|[^\\w$])`);
+  const word = (name: string) => new RegExp(`(^|[^\\w$])${name.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')}($|[^\\w$])`);
   if (toks.some((t) => (t.kind === 'ident' && t.text === next) || (t.kind === 'tmpl' && word(next).test(t.text)))) throw new GraphEditError(`${next} is used in this flow already`);
   // a name inside a template's ${...} is one token to the parser: it could not be renamed safely
   if (toks.some((t) => t.kind === 'tmpl' && t.interp && word(old).test(t.text))) throw new GraphEditError(`a template reads ${old}; rename it in the code`);

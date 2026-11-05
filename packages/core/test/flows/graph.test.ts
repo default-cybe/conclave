@@ -211,6 +211,8 @@ describe('applyFlowOp', () => {
     expect(() => applyFlowOp(scraper, { op: 'rename', nodeId: 'log-1', name: 'x' })).toThrow('has no name');
     // a template reads it: refused, the file is not touched
     expect(() => applyFlowOp("const a = 'x';\nconst b = `${a}!`;\n", { op: 'rename', nodeId: 'a', name: 'z' })).toThrow('template');
+    // a $ in the name is matched as itself
+    expect(() => applyFlowOp("const a$ = 'x';\nconst b = `${a$}!`;\n", { op: 'rename', nodeId: 'a$', name: 'z' })).toThrow('template');
   });
 
   test('CRLF files keep CRLF', () => {
