@@ -146,7 +146,7 @@ object Canvas {
                 state = state,
                 startedAt = if (state == BlockState.RUNNING) run?.startedAt?.plus(doneMs) else null,
                 value = if (v?.ok == true) shortValue(v.summary ?: v.value) else null,
-                error = if (v != null && !v.ok) v.error ?: run?.error ?: "failed" else null,
+                error = if (v != null && !v.ok) v.error ?: run.error ?: "failed" else null,
             )
         }
     }

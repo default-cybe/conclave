@@ -295,7 +295,7 @@ class CanvasViewModel(hub: HubRepository, private val file: CanvasFile) : HubVie
                     blocks = Canvas.workflowBlocks(graph, detail?.calls, r?.error),
                     word = r?.let { WorkflowWords.runWord(it.status) + (it.phaseTitle?.takeIf { live }?.let { p -> ", in $p" } ?: "") } ?: "not run yet",
                     tone = r?.let { WorkflowWords.runTone(it.status) } ?: StateTone.DIM,
-                    since = if (live) r?.startedAt ?: r?.createdAt else null,
+                    since = if (live) r.startedAt ?: r.createdAt else null,
                     live = live,
                     canRun = file.runId == null && !declaresArgs,
                     runHint = if (file.runId == null && declaresArgs) "This workflow takes args: run it from Open on web." else null,

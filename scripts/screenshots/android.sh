@@ -270,9 +270,11 @@ for t in light dark; do
   open_link "conclave://session/$routes" && await_text "Keep the old API route?" 20 && shot "question-$t.png"
   open_link "conclave://chat/$chat" && shot "chat-$t.png"
   if [ -n "$run" ]; then open_link "conclave://workflow-run/$run" && shot "workflow-$t.png"; fi
-  # Canvas: the files, then the demo's live run as block cards
-  panel Canvas && await_text "Library workflows" 20 && sleep 2 && shot "canvas-list-$t.png"
-  await_text "review-login-fix" 15 tap && await_text "Open on web" 20 && sleep 3 && shot "canvas-run-$t.png"
+  # Canvas: the files, then the demo's run as block cards. A fresh start, so the top bar has Menu, not Back
+  adb shell am force-stop "$pkg"
+  adb shell am start -W -n "$activity" >/dev/null
+  await_text Menu 30 && panel Canvas && await_text "Library workflows" 20 && sleep 2 && shot "canvas-list-$t.png"
+  await_text "review-login-fix" 15 tap && await_text "Run of review-login-fix*" 20 && sleep 3 && shot "canvas-run-$t.png"
   # Memory > Map: the tree, the rings, the 3D clusters and timeline, and an item's sheet over the tree and 3D
   open_link "conclave://memory-map?view=tree" && await_text Rings 20 && sleep 2 && shot "memory-map-tree-$t.png"
   open_link "conclave://memory-map?view=rings" && await_text Rings 20 && sleep 2 && shot "memory-map-rings-$t.png"
