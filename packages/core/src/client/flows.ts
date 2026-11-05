@@ -8,6 +8,9 @@ import type { WorkflowGraph } from './graph';
 
 export type FlowWidget = 'text' | 'number' | 'toggle' | 'combo';
 
+/** What a port carries, for the canvas's wire check (flows/ports.ts): text is any one value, `any` is not checked. */
+export type FlowPortType = 'text' | 'list' | 'record' | 'any';
+
 /** One input of a block kind: its widget when it holds a setting, and the default a new block or a cut wire gets. */
 export interface FlowInputSpec {
   name: string;
@@ -15,6 +18,8 @@ export interface FlowInputSpec {
   default: string | number | boolean;
   options?: string[];
   help?: string;
+  /** What a wire into it must carry; left out, anything. */
+  type?: FlowPortType;
 }
 
 /** A block kind of the catalog (GET /api/graph/nodes?use=program). */
@@ -30,6 +35,10 @@ export interface FlowBlockSpec {
   output: boolean;
   /** Owner only (Call AI bills a gateway key). */
   ownerOnly?: boolean;
+  /** What its output carries; left out, anything. */
+  gives?: FlowPortType;
+  /** When a setting decides what it gives (Fetch URL as json or text): the setting and its values. */
+  givesBy?: { input: string; types: Record<string, FlowPortType> };
 }
 
 /** The last value or error a node had in a run. */

@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Canvas edits programs and your own workflows, so Canvas is no longer read only: drag a block from the library onto the canvas, wire an output to an input, shift-click or Ctrl/Cmd-drag to select several, Delete, copy and paste within one file, double-click a title to rename, and change settings in the inspector. Every edit saves to the file at once, with Saved, Saving or "Not saved: <reason>" and Undo and Redo (Ctrl/Cmd+Z, Shift+Z) in the top bar. Ports are typed: a wire that cannot run is refused with a short reason, and the hub checks it too. If the file changed on disk, Canvas reloads it and tells you instead of writing over it. On a phone, long-press empty canvas to add a block and drag from a port to wire. Library workflows offer Duplicate to edit (#250).
+
 ## [0.4.68] - 2026-11-05
 
 ### Added

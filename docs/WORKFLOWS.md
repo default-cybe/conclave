@@ -353,6 +353,37 @@ mode, and acceptEdits allows edits in the agent's own folder, so a script that
 picked `~/.ssh` or another device would otherwise widen what runs without
 asking. Workflows you put in place keep the full `opts.conclave`.
 
+## Editing in Canvas
+
+Canvas (the fourth mode, next to Chat, Assistant and Code) opens a program
+(`flows/<name>.flow.ts` in a Code session's folder) or one of your own
+workflows as blocks you can edit. Every edit is written to the file at once;
+there is no Save button. The top bar says **Saved**, **Saving** or
+**Not saved:** with the reason, and **Undo** and **Redo** (Ctrl/Cmd+Z and
+Ctrl/Cmd+Shift+Z) step back and forward through your edits.
+
+- **Add a block**: drag it from the node library onto the canvas, where it
+  lands where you let go. Or double-click empty canvas and search, or drop a
+  wire on empty canvas to add the block after the one it came from. On a
+  phone, long-press empty canvas, or tap a block in the Nodes sheet.
+- **Wire**: drag from a block's output (right side) to another block's input.
+  A wire that cannot run is refused with a short reason, such as "path takes
+  text; bun gives a list. Join text makes a list one text." Inputs and outputs
+  whose type is unknown take any wire.
+- **Select**: click a block; shift-click adds blocks; Ctrl/Cmd-drag draws a
+  box around several. Delete or Backspace removes them, as one undo.
+- **Copy and paste**: Ctrl/Cmd+C and Ctrl/Cmd+V, within one file. Blocks keep
+  their settings; a wire between copied blocks goes to the copies. Code
+  statements are not copied.
+- **Rename**: double-click a block's title. Every place that reads it follows.
+- **Settings**: change them in the inspector; a field saves when you leave it
+  or press Enter.
+
+If the file changed on disk since Canvas read it (you or an agent edited it),
+Canvas does not write over it: it reloads the file, says so, and starts Undo
+again from there. Library workflows open read only, with **Duplicate to edit**
+to make your own copy. A workflow node is removed in its script for now.
+
 ## API
 
 All routes need the owner token.

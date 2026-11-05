@@ -29,6 +29,12 @@ export class History {
     this.future = [];
   }
 
+  /** Forget every step: the file changed under the canvas, so the versions they put back are not what it shows. */
+  clear(): void {
+    this.past = [];
+    this.future = [];
+  }
+
   /** Undo the last step. A step that fails stays where it was, so nothing is lost. */
   async undo(): Promise<Step | undefined> {
     return this.run(this.past, this.future, 'undo');
@@ -76,9 +82,10 @@ export function insertStep(restore: (sha: string) => Promise<unknown>, saveLayou
   };
 }
 
-/** A History for one canvas, with the keys bound while it is mounted. */
-export function useHistory(enabled: boolean) {
-  const h = useRef(new History()).current;
+/** A History for one canvas (or the one given), with the keys bound while it is mounted. */
+export function useHistory(enabled: boolean, given?: History) {
+  const own = useRef(new History()).current;
+  const h = given ?? own;
   const [, tick] = useState(0);
   const bump = () => tick((n) => n + 1);
   // a failed step (the file changed, the hub restarted) says why in a toast and stays on its stack
@@ -105,6 +112,10 @@ export function useHistory(enabled: boolean) {
   return {
     push: (s: Step) => {
       h.push(s);
+      bump();
+    },
+    clear: () => {
+      h.clear();
       bump();
     },
     undo,

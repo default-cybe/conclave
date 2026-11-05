@@ -223,7 +223,7 @@ export default function FlowView({ session }: { session: Session }) {
         positions={positions}
         inserts={inserts}
         onInsert={(block, after, at) => void apply({ op: 'insert', block, ...(after ? { after } : {}) }, 'new block', at)}
-        onRemove={(nodeId) => void apply({ op: 'remove', nodeId }, 'remove')}
+        onRemove={([nodeId]) => void apply({ op: 'remove', nodeId }, 'remove')}
         onMove={(nid, at) => {
           const prev = positions;
           const next = { ...positions, [nid]: { x: Math.round(at.x / 8) * 8, y: Math.round(at.y / 8) * 8 } };

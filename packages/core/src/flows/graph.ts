@@ -22,6 +22,7 @@ import type { FlowOp } from '../client/flows';
 import { tokenize, type Tok } from '../workflows/meta';
 import { GraphEditError, closing, declaredNames, freshName, lineAt, lineStarts, literalOf, quoteString, readNames, splitArgs, statements, stringValue } from '../workflows/graph';
 import { BASE_NAME, BLOCK_BY_HELPER, BLOCK_BY_NAME } from './plugins';
+import { typeRefusal } from './ports';
 
 export type FlowGraph = WorkflowGraph & { error?: string };
 
@@ -262,7 +263,14 @@ export function applyFlowOp(src: string, op: FlowOp): { src: string; nodeId?: st
       if (op.field !== undefined && op.field !== '' && !FIELD.test(op.field)) throw new GraphEditError('a field is a name such as items or data.items');
       const at = g.nodes.indexOf(n);
       // no forward wires: the name must be declared by a statement above
-      if (!g.nodes.slice(0, at).some((x) => x.declares.includes(op.from))) throw new GraphEditError(`${op.from} is not set above ${n.label}; a wire comes from an earlier block`);
+      const fromNode = g.nodes
+        .slice(0, at)
+        .filter((x) => x.declares.includes(op.from))
+        .at(-1);
+      if (!fromNode) throw new GraphEditError(`${op.from} is not set above ${n.label}; a wire comes from an earlier block`);
+      // typed ports (flows/ports.ts): the canvas refuses these while you drag; this stops a hand-made request
+      const bad = typeRefusal(fromNode, n, op.input, op.field);
+      if (bad) throw new GraphEditError(bad);
       return checked(putArg(n, op.input, op.field ? `${op.from}.${op.field}` : op.from));
     }
     case 'disconnect': {
