@@ -109,6 +109,21 @@ return await lib.judgePanel(['one', 'two'], { judges: 2 })`);
   });
 });
 
+describe('no deep model at all', () => {
+  let t!: TestEngine;
+  beforeAll(async () => {
+    // no models.tiers.deep and only a smart model: deep falls back to the session model
+    t = await startTestEngine({ script: [[{ text: 'fallback' }]], overrides: { models: { tiers: {} } } as never });
+    noHarnesses(t.engine);
+  });
+  afterAll(() => t?.close());
+
+  test('the session model the deep tier falls back to is not listed as a deep voter', async () => {
+    const s = await t.engine.createSession({ cwd: t.cwd, title: 'no deep' } as never);
+    expect(await panelModels(t.engine, s.id, 'deep')).toEqual([]);
+  });
+});
+
 describe('one usable model of the tier', () => {
   const e = engineWith();
   beforeAll(() => e.start());

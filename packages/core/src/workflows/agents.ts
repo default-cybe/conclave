@@ -55,8 +55,9 @@ export async function panelModels(engine: Engine, parentSessionId: string | unde
   if (Array.isArray(pinned) && pinned.length) return pinned.filter((r): r is string => typeof r === 'string' && r.includes('/') && can(r) && fresh(r));
   const t = tierOf(typeof tier === 'string' ? tier : undefined) ?? 'deep';
   const out: string[] = [];
-  const first = agentModelRef(engine, t, parent.model).model;
-  if (can(first) && fresh(first)) out.push(first);
+  const pick = agentModelRef(engine, t, parent.model);
+  // a note means the tier found no model of its own and fell back to the session model, which is not of the tier
+  if (!pick.note && can(pick.model) && fresh(pick.model)) out.push(pick.model);
   const groups = await engine.listModels(acct).catch(() => []);
   const rest = groups
     .filter((g) => g.configured && g.enabled && g.type !== 'acp')
