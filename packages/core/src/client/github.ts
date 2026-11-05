@@ -62,6 +62,8 @@ export interface RepoSessionInput {
   prompt?: string;
   permissionMode?: PermissionMode;
   chat?: Partial<ChatSettings>;
+  /** Incognito (session/incognito.ts): the conversation is not kept; the worktree on the device stays. */
+  incognito?: boolean;
   /**
    * An issue of the repository to work on: its title, body and last comments
    * go into the first message (wrapped as untrusted text), with "Fixes #N"

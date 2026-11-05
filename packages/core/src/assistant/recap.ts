@@ -4,6 +4,7 @@ import { ACTIVE_SQL } from '../memory/store';
 import { OWNER_ID } from '../people/context';
 import { accountKey } from '../people/store';
 import type { Db } from '../storage/db';
+import { notIncognito } from '../storage/repos';
 import { addDays, atLocal, hubZone, localDate, localMinutes, validZone } from './time';
 
 const STOP = new Set(['new', 'chat', 'session', 'the', 'and', 'for', 'with', 'from', 'into', 'this', 'that', 'your', 'about', 'what', 'when', 'where', 'have', 'just', 'make', 'work', 'test', 'tests', 'fix', 'add', 'update', 'code', 'file', 'files', 'run', 'task']);
@@ -26,7 +27,7 @@ export function buildRecap(db: Db, accountId = OWNER_ID, period: RecapPeriod = '
   const sessions = db.query<SessionRow, [number, number, string, number, number]>(
     `SELECT s.id, s.title, s.cwd, s.kind, MAX(COALESCE(m.created_at, s.created_at)) AS ts
      FROM sessions s LEFT JOIN messages m ON m.session_id = s.id AND m.created_at >= ? AND m.created_at < ?
-     WHERE s.account_id = ? AND s.parent_id IS NULL
+     WHERE s.account_id = ? AND s.parent_id IS NULL AND ${notIncognito('s')}
        AND ((s.created_at >= ? AND s.created_at < ?) OR m.id IS NOT NULL)
      GROUP BY s.id`,
   ).all(start, end, accountId, start, end);
@@ -34,7 +35,7 @@ export function buildRecap(db: Db, accountId = OWNER_ID, period: RecapPeriod = '
   const codeSessions = sessions.length - chats;
   const workflows = hasTable(db, 'workflow_runs') ? db.query<{ c: number }, [string, string, number, number]>(
     `SELECT COUNT(*) AS c FROM workflow_runs w LEFT JOIN sessions s ON s.id = w.session_id
-     WHERE (s.account_id = ? OR (w.session_id IS NULL AND ? = 'owner'))
+     WHERE ((s.account_id = ? AND ${notIncognito('s')}) OR (w.session_id IS NULL AND ? = 'owner'))
        AND w.created_at >= ? AND w.created_at < ?`,
   ).get(accountId, accountId, start, end)?.c ?? 0 : 0;
 
@@ -109,7 +110,7 @@ function personKey(content: string): string {
 function buildRhythm(db: Db, accountId: string, sessions: SessionRow[], start: number, end: number, tz: string): RecapDto['rhythm'] {
   const msgs = db.query<{ ts: number; sid: string }, [string, number, number]>(
     `SELECT m.created_at AS ts, m.session_id AS sid FROM messages m JOIN sessions s ON s.id = m.session_id
-     WHERE s.account_id = ? AND s.parent_id IS NULL AND m.role = 'user' AND m.created_at >= ? AND m.created_at < ?`,
+     WHERE s.account_id = ? AND s.parent_id IS NULL AND ${notIncognito('s')} AND m.role = 'user' AND m.created_at >= ? AND m.created_at < ?`,
   ).all(accountId, start, end);
   // Sessions with no user message in range still count once, at their latest activity.
   const withMsg = new Set(msgs.map((m) => m.sid));

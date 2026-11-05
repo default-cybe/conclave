@@ -47,6 +47,7 @@ import type {
 import type { BundleCode, BundleShareInfo, ConclaveBundle, ToolOutputMode } from '@conclave/core/client/share.ts';
 import { formatFingerprint } from '@conclave/core/client/index.ts';
 import { RedactionLog, Redactor, addReport, collectBundle, redactOptionsFor, signBundle, verifyBundle, type BundleSigner, type CollectedBundle } from '@conclave/core/session/share.ts';
+import { refuseIncognito } from '@conclave/core/session/incognito.ts';
 import { CodeError, applyCode, collectDiff, collectGitBundle, friendBranch, planApply, type ApplyPlan } from '@conclave/core/session/share-code.ts';
 import { checkReceived, handoffBrief, hubOf, quotedMessages, sanitizeReceived, type FriendProvenance, type FriendShareMeta } from '@conclave/core/session/friend-share.ts';
 import { defuseFrameworkTags } from '@conclave/core/session/untrusted.ts';
@@ -412,6 +413,7 @@ export class ShareService {
   async send(input: SendShareInput, actor = 'owner'): Promise<SentShareDto> {
     const friends = this.recipients(input.to);
     const s = this.session(input.sessionId);
+    refuseIncognito(s, 'shared');
     // the session's own title goes through the text rules like the rest; a title the owner typed goes as typed
     const sanitized = () => new Redactor({ ...redactOptionsFor(this.engine, s, {}), log: new RedactionLog(input.keep ?? []) }).text(s.title);
     const title = line(input.title, TITLE_MAX) ?? line(sanitized(), TITLE_MAX) ?? 'Shared session';

@@ -117,6 +117,8 @@ data class RepoSessionInput(
     val permissionMode: PermissionMode? = null,
     /** Effort for the session (chat.thinking); null runs at the agent's level. */
     val chat: ChatSettingsPatch? = null,
+    /** Incognito: the conversation is not kept; the worktree stays. */
+    val incognito: Boolean? = null,
 )
 
 /**
@@ -227,4 +229,5 @@ data class WorktreeSessionInput(
     val prompt: String? = null,
     val permissionMode: PermissionMode? = null,
     val chat: ChatSettingsPatch? = null,
+    val incognito: Boolean? = null,
 )

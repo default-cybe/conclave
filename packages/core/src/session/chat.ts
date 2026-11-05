@@ -35,6 +35,12 @@ export function mergeChatSettings(base: ChatSettings | undefined, patch: unknown
     if (typeof p[key] !== 'boolean') throw new Error(`chat.${key} must be true or false`);
     next[key] = p[key] as boolean;
   }
+  // "Use only": read memory, save nothing; true (or null) goes back to saving
+  if (p.memorySave !== undefined) {
+    if (p.memorySave === null || p.memorySave === true) delete next.memorySave;
+    else if (p.memorySave === false) next.memorySave = false;
+    else throw new Error('chat.memorySave must be true or false');
+  }
   if (p.thinking !== undefined) {
     if (p.thinking === null) delete next.thinking;
     else if (isEffortSetting(p.thinking)) next.thinking = p.thinking;
@@ -54,8 +60,26 @@ export function chatAllowsTool(settings: ChatSettings | undefined, name: string)
   if (!settings) return true;
   // the browser reaches the web too (a chat with the assistant, which has it)
   if (!settings.webSearch && (WEB_TOOLS.has(name) || name.startsWith('browser_'))) return false;
-  if (!settings.memory && MEMORY_TOOLS.has(name)) return false;
+  if (!settings.memory && (MEMORY_TOOLS.has(name) || name.startsWith(BASIC_MEMORY_PREFIX))) return false;
+  if ((!settings.memory || settings.memorySave === false) && savesToMemory(name)) return false;
   return true;
+}
+
+const BASIC_MEMORY_PREFIX = 'mcp__basic-memory__';
+
+/** Hub tools that write a memory entry: ProactivePrefs saves a profile memory (assistant/prefs.ts), SaveInspiration an inspiration one. */
+const MEMORY_WRITE_TOOLS = new Set(['MemorySave', 'MemoryForget', 'ProactivePrefs', 'SaveInspiration']);
+/** Basic Memory tools that only read; every other one (write_note, canvas, sync...) can write a note, so it goes. */
+const BASIC_MEMORY_READ = /^mcp__basic-memory__(search|read|build_context|recent_activity|list|view|fetch|get_current_project|project_info|sync_status)/;
+
+/** Tools that write memory: taken away in "Use only" (chat.memorySave false) and Off. */
+function savesToMemory(name: string): boolean {
+  return MEMORY_WRITE_TOOLS.has(name) || (name.startsWith(BASIC_MEMORY_PREFIX) && !BASIC_MEMORY_READ.test(name));
+}
+
+/** False when the session reads memory but saves nothing ("Use only") or has memory off. */
+export function chatSavesMemory(s: Pick<Session, 'kind' | 'chat'>): boolean {
+  return chatUsesMemory(s) && (chatSettings(s) ?? s.chat)?.memorySave !== false;
 }
 
 /**
@@ -74,5 +98,6 @@ export function chatUsesMemory(s: Pick<Session, 'kind' | 'chat'>): boolean {
 export function sessionAllowsTool(s: Pick<Session, 'kind' | 'chat'>, name: string): boolean {
   const chat = chatSettings(s);
   if (chat) return chatAllowsTool(chat, name);
-  return s.chat?.memory !== false || !MEMORY_TOOLS.has(name);
+  // an agent session: only the memory switches (its web tools stay)
+  return chatAllowsTool({ webSearch: true, memory: s.chat?.memory !== false, ...(s.chat?.memorySave === false ? { memorySave: false } : {}) }, name);
 }

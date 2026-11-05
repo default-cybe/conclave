@@ -55,7 +55,8 @@ export function sideModeOf(s: Pick<Session, 'kind' | 'agent'>): SideMode {
 export function modeSessions(sessions: Iterable<Session>, mode: SideMode): Session[] {
   const out: Session[] = [];
   for (const s of sessions) {
-    if (s.archived || underParent(s) || s.routineId || inWorkflow(s)) continue;
+    // an incognito session is open only where you are in it (core session/incognito.ts)
+    if (s.archived || s.incognito || underParent(s) || s.routineId || inWorkflow(s)) continue;
     if (sideModeOf(s) !== mode) continue;
     out.push(s);
   }
@@ -252,7 +253,7 @@ export function delegatedRows(i: { sessions: Session[]; ctx: GroupContext; waiti
   const waiting = i.waiting ?? new Set<string>();
   const byId = new Map(i.sessions.map((s) => [s.id, s]));
   return i.sessions
-    .filter((s) => !s.archived && isDelegated(s))
+    .filter((s) => !s.archived && !s.incognito && isDelegated(s))
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, i.limit ?? DELEGATED_LIMIT)
     .map((s) => {

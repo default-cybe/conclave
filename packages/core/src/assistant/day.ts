@@ -6,6 +6,7 @@
  */
 import type { Db } from '../storage/db';
 import { json } from '../storage/db';
+import { notIncognito } from '../storage/repos';
 import type { Routine, RoutineRun, Task } from '../types';
 import type { Goal, GoalEntry, DayPlan, ProactivePrefs } from './types';
 import { GOAL_AREA_LABEL } from './types';
@@ -65,7 +66,7 @@ export function sessionsBetween(db: Db, start: number, end: number, limit = 30, 
   const rows = db
     .query(
       `SELECT id, title, agent, kind, cwd, updated_at, meta FROM sessions
-       WHERE account_id = ? AND updated_at >= ? AND created_at < ? AND archived = 0 AND parent_id IS NULL AND routine_id IS NULL
+       WHERE account_id = ? AND updated_at >= ? AND created_at < ? AND archived = 0 AND parent_id IS NULL AND routine_id IS NULL AND ${notIncognito()}
        ORDER BY updated_at DESC LIMIT ?`,
     )
     .all(accountId, start, end, limit) as Row[];

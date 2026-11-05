@@ -28,6 +28,7 @@ import { slug } from './connections/grouped';
 import { parseJsonObject } from './extract';
 import { containsSecret, redactSecrets } from './secrets';
 import { json } from '../storage/db';
+import { notIncognito } from '../storage/repos';
 import { importOf } from '../import/registry';
 import { assistantFor } from '../assistant/registry';
 import { OWNER_ID, currentAccount, isMember } from '../people/context';
@@ -339,14 +340,14 @@ export class DailyDigest {
     const memory = this.engine.memoryFor(this.acct);
     const db = this.engine.repos.db;
     const rows = db
-      .query(`SELECT id FROM sessions WHERE account_id = ? AND parent_id IS NULL AND updated_at >= ? AND instr(tags, ?) = 0 ORDER BY updated_at DESC LIMIT ?`)
+      .query(`SELECT id FROM sessions WHERE account_id = ? AND parent_id IS NULL AND updated_at >= ? AND instr(tags, ?) = 0 AND ${notIncognito()} ORDER BY updated_at DESC LIMIT ?`)
       .all(this.acct, start, JSON.stringify(IMPORTED_TAG), MAX_SESSIONS * 2) as Array<{ id: string }>;
     let done = 0;
     for (const { id } of rows) {
       if (done >= MAX_SESSIONS) break;
       const s = this.engine.getSession(id);
       // memory off and untrusted sessions leave no trace (engine.usesMemory)
-      if (!s || s.mode === 'jury' || !this.engine.usesMemory(s)) continue;
+      if (!s || s.mode === 'jury' || !this.engine.savesMemory(s)) continue;
       const agent = this.engine.agentFor(s);
       if (agent.memory === 'none') continue;
       // a shared chat or a seat: only this account's own words and replies, as extraction after a turn reads them (engine.ts afterTurn)

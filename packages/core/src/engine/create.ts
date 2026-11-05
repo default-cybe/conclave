@@ -1,4 +1,5 @@
 import { openDb, DB_OPTIMIZE_JOB, DB_OPTIMIZE_EVERY_MS } from '../storage/db';
+import { INCOGNITO_SWEEP_EVERY_MS, INCOGNITO_SWEEP_JOB } from '../session/incognito';
 import { Repos } from '../storage/repos';
 import { ConfigStore } from '../config';
 import type { ConclaveConfig } from '../config/schema';
@@ -406,6 +407,13 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
     engine.scheduler.enqueue(DB_OPTIMIZE_JOB, Date.now() + DB_OPTIMIZE_EVERY_MS, {}, DB_OPTIMIZE_JOB);
   });
   if (!repos.jobs.pending(DB_OPTIMIZE_JOB).length) engine.scheduler.enqueue(DB_OPTIMIZE_JOB, Date.now() + DB_OPTIMIZE_EVERY_MS, {}, DB_OPTIMIZE_JOB);
+  // incognito sessions (session/incognito.ts): every one a crash or restart left goes now, idle ones on a timer
+  void engine.sweepIncognito({ all: true }).catch((err) => log.warn('incognito sweep at start failed', err));
+  engine.scheduler.handle(INCOGNITO_SWEEP_JOB, async () => {
+    await engine.sweepIncognito();
+    engine.scheduler.enqueue(INCOGNITO_SWEEP_JOB, Date.now() + INCOGNITO_SWEEP_EVERY_MS, {}, INCOGNITO_SWEEP_JOB);
+  });
+  if (!repos.jobs.pending(INCOGNITO_SWEEP_JOB).length) engine.scheduler.enqueue(INCOGNITO_SWEEP_JOB, Date.now() + INCOGNITO_SWEEP_EVERY_MS, {}, INCOGNITO_SWEEP_JOB);
   // leave-by times (maps/leave-by.ts) read the calendars of the account the work runs for; a calendar error means no leave-by, not a failed day
   setCalendarPort(engine, {
     eventsBetween: async (start, end) => {

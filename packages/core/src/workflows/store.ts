@@ -11,6 +11,7 @@
 import { createHash } from 'node:crypto';
 import type { Db } from '../storage/db';
 import { json } from '../storage/db';
+import { notIncognito } from '../storage/repos';
 import type {
   FindingVerdict,
   WorkflowCall,
@@ -481,7 +482,8 @@ export class WorkflowStore {
     const where: string[] = ['parent_run_id IS NULL'];
     const params: Record<string, string | number> = {};
     // a run is its host session's account's (docs/design/ACCOUNTS.md)
-    if (q.accountId) (where.push('session_id IN (SELECT id FROM sessions WHERE account_id = $acct)'), (params.acct = q.accountId));
+    // an incognito session's runs stay in that session only (session/incognito.ts)
+    if (q.accountId) (where.push(`session_id IN (SELECT id FROM sessions WHERE account_id = $acct AND ${notIncognito()})`), (params.acct = q.accountId));
     if (q.sessionId) (where.push('session_id = $session'), (params.session = q.sessionId));
     if (q.status) (where.push('status = $status'), (params.status = q.status));
     if (q.statuses?.length) where.push(`status IN (${q.statuses.map((s) => `'${s.replace(/[^a-z_]/g, '')}'`).join(',')})`);
@@ -492,7 +494,7 @@ export class WorkflowStore {
 
   /** The newest run per workflow name, for the library's last-run column. */
   lastRuns(accountId = 'owner'): Map<string, RunRow> {
-    const mine = `session_id IN (SELECT id FROM sessions WHERE account_id = $acct)`;
+    const mine = `session_id IN (SELECT id FROM sessions WHERE account_id = $acct AND ${notIncognito()})`;
     const rows = this.db
       .query(`SELECT * FROM workflow_runs w WHERE parent_run_id IS NULL AND ${mine} AND created_at = (SELECT MAX(created_at) FROM workflow_runs v WHERE v.name = w.name AND v.parent_run_id IS NULL AND v.${mine})`)
       .all({ acct: accountId } as never) as Row[];
