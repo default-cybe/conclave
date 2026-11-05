@@ -82,7 +82,7 @@ function AddSession({ ids }: { ids: string[] }) {
   const [open, setOpen] = useState(false);
   const sessions = useHub((s) => s.sessions);
   const picks = Object.values(sessions)
-    .filter((s) => !s.archived && !isChat(s) && !ids.includes(s.id))
+    .filter((s) => !s.archived && !s.incognito && !isChat(s) && !ids.includes(s.id))
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, PICK_RECENT);
   return (

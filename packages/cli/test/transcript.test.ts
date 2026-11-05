@@ -12,11 +12,24 @@ describe('findBoundaries', () => {
   test('splits at blank lines outside fences', () => {
     const text = 'para one\n\npara two\n\n```\ncode\n\nmore code\n```\n\nafter';
     const b = findBoundaries(text, 0);
-    expect(b.map((i) => text.slice(0, i))).toEqual(['para one\n\n', 'para one\n\npara two\n\n', 'para one\n\npara two\n\n```\ncode\n\nmore code\n```\n\n']);
+    expect(b.map((x) => text.slice(0, x.at))).toEqual(['para one\n\n', 'para one\n\npara two\n\n', 'para one\n\npara two\n\n```\ncode\n\nmore code\n```\n\n']);
   });
 
   test('no boundary until text continues after the blank line', () => {
     expect(findBoundaries('para one\n\n', 0)).toEqual([]);
+  });
+
+  test('a long run with no blank line gets soft cuts; code cuts carry the fence', () => {
+    const list = Array.from({ length: 10 }, (_, i) => `- item ${i}`).join('\n') + '\n- tail';
+    expect(findBoundaries(list, 0, 4)).toEqual([
+      { at: list.indexOf('- item 4'), soft: true },
+      { at: list.indexOf('- item 8'), soft: true },
+    ]);
+    const code = '```ts\n' + Array.from({ length: 6 }, (_, i) => `x${i}();`).join('\n') + '\n';
+    expect(findBoundaries(code, 0, 4)).toEqual([{ at: code.indexOf('x3();'), soft: true, fence: '```ts' }]);
+    // a table is never cut
+    const table = '| a |\n|---|\n' + Array.from({ length: 8 }, (_, i) => `| ${i} |`).join('\n') + '\n';
+    expect(findBoundaries(table, 0, 3)).toEqual([]);
   });
 });
 
@@ -40,6 +53,21 @@ describe('TranscriptStore', () => {
     r = st.build();
     expect(r.live).toHaveLength(0);
     expect(r.committed.map((i) => (i.kind === 'text' ? i.text : i.kind))).toEqual(['user', 'First para.', 'Second para.']);
+  });
+
+  test('a long code block streams out in chunks that each render as a closed fence', () => {
+    const st = new TranscriptStore();
+    st.setActive(true);
+    const a = msg({ role: 'assistant', model: 'x/y' });
+    st.upsert(a, true);
+    const code = '```py\n' + Array.from({ length: 20 }, (_, i) => `print(${i})`).join('\n') + '\n';
+    st.delta({ messageId: a.id, sessionId: 's', index: 0, kind: 'text', text: code });
+    const r = st.build();
+    expect(r.committed.length).toBeGreaterThan(1);
+    for (const it of r.committed) expect(it).toMatchObject({ kind: 'text', text: expect.stringMatching(/^```py\n[\s\S]*\n```$/) });
+    expect(r.committed[1]).toMatchObject({ cont: true });
+    expect(r.live[0]).toMatchObject({ final: false, text: expect.stringMatching(/^```py\n/) });
+    expect(st.turnChars).toBe(code.length);
   });
 
   test('a running tool holds back later items until its result arrives', () => {

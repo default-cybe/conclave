@@ -6,6 +6,7 @@
 import type { ApprovalResponse, ContentBlock, Device, EngineEvent, EngineEventEnvelope, Message, Session, Task, Routine, RoutineRun, MemoryEntry, Todo } from '@conclave/core/types';
 import type { AppDto, ContextUsageDto, ModelGroup, SwitchEstimate } from '@conclave/core/client';
 import { DEFAULT_CONFIG } from '@conclave/core/config/schema';
+import { managedBy, type SecretInfo } from '@conclave/core/config/secret-names';
 import { isDelegated, movedSession, movedToMain } from '@conclave/core/session/delegated';
 import { askOnceUsd, isCheapTarget, summaryUsd, SUGGEST_BRIEF_USD, SWITCH_BRIEF_AT, switchMath } from '@conclave/core/modes/switch-math';
 import * as D from './data';
@@ -180,7 +181,9 @@ const db = {
   config: structuredClone(FRESH ? (saved.config ?? FRESH_CONFIG) : BASE_CONFIG) as Record<string, unknown>,
   /** provider -> key value (mock only; the real hub never returns values) */
   keys: (FRESH ? (saved.keys ?? {}) : { anthropic: 'sk-ant-api03-mock', openai: 'sk-proj-mock', google: 'AIzaSyMock', zai: '7c1e0b5f2a9d4e3c8b6a1f0e9d2c4b7a.Mock', openrouter: 'sk-or-v1-mock', deepseek: 'sk-revoked-mock' }) as Record<string, string>,
-  values: FRESH ? ([] as string[]) : ['CF_API_TOKEN'],
+  values: FRESH ? ([] as string[]) : ['CF_API_TOKEN', 'caido-token', 'homelab-token', 'search.tavily', 'cloudflare.apiToken'],
+  /** named secret -> when it was set (Settings > Secrets) */
+  valuesSetAt: (FRESH ? {} : { 'caido-token': Date.now() - 3 * 3_600_000, 'homelab-token': Date.now() - 9 * 86_400_000, 'search.tavily': Date.now() - 2 * 86_400_000 }) as Record<string, number>,
 };
 
 function secrets() {
@@ -667,6 +670,8 @@ on('POST', '/api/sessions', ({ body }) => {
     createdAt: now,
     updatedAt: now,
     stats: { messages: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, costUsd: 0 },
+    ...(body.chat ? { chat: body.chat } : {}),
+    ...(body.incognito === true ? { incognito: true } : {}),
   };
   db.sessions.set(s.id, s);
   db.messages.set(s.id, []);
@@ -1177,10 +1182,21 @@ on('PATCH', '/api/config', ({ body }) => {
   saveFresh();
   return { ok: true };
 });
+// names and metadata only, as the hub answers; the prefix is made up from the name
+on('GET', '/api/secrets', () => ({
+  values: db.values
+    .map((name): SecretInfo => {
+      const by = managedBy(name);
+      return { name, ...(by ? { managedBy: by } : { prefix: name.replace(/[^a-z]/gi, '').slice(0, 4).toLowerCase() }), ...(db.valuesSetAt[name] ? { setAt: db.valuesSetAt[name] } : {}) };
+    })
+    .sort((a, b) => Number(!!a.managedBy) - Number(!!b.managedBy) || a.name.localeCompare(b.name)),
+}));
 on('PUT', '/api/secrets', ({ body }) => {
   const key = String(body.key);
   if (body.kind === 'values') {
     db.values = body.value === null ? db.values.filter((k) => k !== key) : [...new Set([...db.values, key])];
+    if (body.value === null) delete db.valuesSetAt[key];
+    else db.valuesSetAt[key] = Date.now();
   } else if (body.value === null || body.value === '') delete db.keys[key];
   else db.keys[key] = String(body.value);
   saveFresh();

@@ -149,10 +149,15 @@ export function replaceSection(body: string, heading: string, content: string): 
 
 /** Add one line under "Pitfalls", making the section when it is missing. */
 export function addPitfall(body: string, pitfall: string): string {
-  const line = `- ${pitfall.trim().replace(/^[-*]\s+/, '')}`;
+  return addToSection(body, 'Pitfalls', pitfall);
+}
+
+/** Add one list line under a heading, making the section at the end when it is missing (Reflect's Learnings uses "Learned"). */
+export function addToSection(body: string, heading: string, text: string): string {
+  const line = `- ${text.trim().replace(/^[-*]\s+/, '')}`;
   const lines = body.replace(/\s+$/, '').split('\n');
-  const found = findSection(lines, 'Pitfalls');
-  if (!found) return `${lines.join('\n')}\n\n## Pitfalls\n\n${line}\n`;
+  const found = findSection(lines, heading);
+  if (!found) return `${lines.join('\n')}\n\n## ${heading}\n\n${line}\n`.replace(/^\n+/, '');
   let at = found.end;
   while (at > found.start + 1 && !lines[at - 1].trim()) at--;
   return `${[...lines.slice(0, at), line, ...lines.slice(at)].join('\n').trim()}\n`;

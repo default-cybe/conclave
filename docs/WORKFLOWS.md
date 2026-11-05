@@ -195,7 +195,7 @@ answers that did not change and runs the rest:
   replay every finished call.
 - **Rerun from here** on a call: earlier calls replay, that one and later ones
   run again.
-- **Re-run this node** on the graph: only that node's calls run again. A later
+- **Re-run this node** in Canvas: only that node's calls run again. A later
   call whose prompt uses the new answer runs too; every other call replays.
 - **Edit and run again**: an edited call reruns, and so do the calls that use
   its answer.
@@ -352,6 +352,91 @@ git) or one of the run's own worktrees and checkouts; anything else makes
 mode, and acceptEdits allows edits in the agent's own folder, so a script that
 picked `~/.ssh` or another device would otherwise widen what runs without
 asking. Workflows you put in place keep the full `opts.conclave`.
+
+## Editing in Canvas
+
+Canvas (the fourth mode, next to Chat, Assistant and Code) opens a program
+(`flows/<name>.flow.ts` in a Code session's folder) or one of your own
+workflows as blocks you can edit. Every edit is written to the file at once;
+there is no Save button. The top bar says **Saved**, **Saving** or
+**Not saved:** with the reason, and **Undo** and **Redo** (Ctrl/Cmd+Z and
+Ctrl/Cmd+Shift+Z) step back and forward through your edits.
+
+- **Add a block**: drag it from the node library onto the canvas, where it
+  lands where you let go. Or double-click empty canvas and search, or drop a
+  wire on empty canvas to add the block after the one it came from. On a
+  phone, long-press empty canvas, or tap a block in the Nodes sheet.
+- **Wire**: drag from a block's output (right side) to another block's input.
+  A wire that cannot run is refused with a short reason, such as "path takes
+  text; bun gives a list. Join text makes a list one text." Inputs and outputs
+  whose type is unknown take any wire.
+- **Select**: click a block; shift-click adds blocks; Ctrl/Cmd-drag draws a
+  box around several. Delete or Backspace removes them, as one undo.
+- **Copy and paste**: Ctrl/Cmd+C and Ctrl/Cmd+V, within one file. Blocks keep
+  their settings; a wire between copied blocks goes to the copies. Code
+  statements are not copied.
+- **Rename**: double-click a block's title. Every place that reads it follows.
+- **Node menu**: right-click a node, or long-press it on a phone or tablet
+  (iOS Safari included), for **Rename**, **Duplicate** (a copy of a program
+  block with its settings and wires), **Delete**, **Open in code** (the file
+  in its device's file browser; a built-in workflow has none) and **Run from
+  here** (a workflow node the last run reached: it replays from the journal,
+  as Re-run from here). The menu offers only what the file allows: a read-only
+  workflow has Open in code and Run from here.
+- **Settings**: change them in the inspector; a field saves when you leave it
+  or press Enter.
+
+If the file changed on disk since Canvas read it (you or an agent edited it),
+Canvas does not write over it: it reloads the file, says so, and starts Undo
+again from there. Library workflows open read only, with **Duplicate to edit**
+to make your own copy. Delete removes a workflow node's statement from the
+script (`POST /api/workflows/:id/graph/remove`); it is refused while a later
+node reads a name it declares, or when it shares a line with other code.
+
+### Running in Canvas
+
+- **Run** (top bar, or Ctrl/Cmd+Enter) starts the file through the same hub
+  APIs as everywhere else: a program with `POST .../flows/:name/run`, a
+  workflow with `POST /api/workflows/runs`. A workflow that declares args
+  (`meta.args`) asks for them first, in the run sheet's form.
+- The canvas switches to the live run in place: each node shows queued,
+  running (with its elapsed time), done, failed, skipped or cached, and a
+  done node's short answer sits on its wires. Output, Logs and Queue under
+  the canvas follow the same run.
+- **Stop** aborts it. While it runs, Run becomes **Queue run**: the next run
+  waits in the Queue tab (Cancel removes it) and starts when this one ends.
+  On a phone the foot button shows only Run, or Stop and **Queue** side by
+  side while a run goes on.
+- The queue lives on the hub (`GET` and `POST /api/canvas/queue`, `DELETE
+  /api/canvas/queue/:id`), per account and per file. The hub starts the next
+  queued run when the last one ends, with no app open, and keeps queued runs
+  across a hub restart. A queued run is an ordinary run once it starts: its
+  tool approvals still go to the Inbox and the phone, and a program run still
+  asks like an agent's Bash call. Nothing is approved because the app was
+  closed.
+- A failed node shows its error on the node and in the inspector, with
+  **Re-run from here** for a workflow (it replays the calls that do not
+  depend on that node from the journal) or **Re-run** for a program (no
+  resume: the whole file runs again), and **Ask the agent**.
+- **Agent** (a tab next to the inspector, a sheet on a phone) continues a
+  Code session in the file's folder: the program's folder session, or one
+  started for the workflow's folder and kept per file. Each message carries
+  the file, the selected node and the last run's error. While the agent
+  works, the canvas reads the file's `sha` every 2 seconds and shows each
+  edit as it lands; it reads once more when the turn ends. Polling stops when
+  the session is idle or the tab closes.
+- Reopening `/canvas/...` shows the file's latest run, live if it still goes.
+- On Android, Canvas (side panel) lists the same files and shows a file as
+  its blocks in run order, lit by the last run. Run asks for a workflow's
+  declared args in the library's launch form (presets included). While a
+  run goes on, the top bar shows Stop and **Queue**; the queued runs list
+  under the status with Cancel, and the canvas follows the next run when the
+  hub starts it. Editing opens the web through Open on web.
+- Canvas is the only graph. A run page shows a short summary (state, time,
+  cost, the failed step and its error) with **Open in Canvas**, and a Code
+  session has **Open in Canvas** in place of its Blocks pane. The old
+  addresses `/workflows/graph/<id>` and `/workflows/runs/<id>?view=graph`
+  open `/canvas/workflow/<id>`.
 
 ## API
 

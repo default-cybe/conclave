@@ -643,6 +643,46 @@ export function insertNode(script: string, input: { kind: InsertKind; after?: st
   return { script: next, nodeId: added.id };
 }
 
+/**
+ * Remove a node's statement (Delete in Canvas): its whole lines go. Refused
+ * with GraphEditError (the reason) while a later node reads a name it
+ * declares, when it shares a line with other code, or when the result does
+ * not parse back as the same graph less that one node.
+ */
+export function removeNode(script: string, nodeId: string): string {
+  const g = parseGraph(script);
+  if (g.error) throw new GraphEditError(`the script does not parse: ${g.error}`);
+  const n = g.nodes.find((x) => x.id === nodeId);
+  if (!n) throw new GraphEditError(`no node ${nodeId}; reload the graph`);
+  const readers = [...new Set(g.edges.filter((e) => e.from === n.id).map((e) => g.nodes.find((x) => x.id === e.to)?.label ?? e.to))];
+  if (readers.length) throw new GraphEditError(`${readers.join(', ')} ${readers.length === 1 ? 'reads' : 'read'} ${n.label}; remove ${readers.length === 1 ? 'it' : 'them'} first`);
+  const starts = lineStarts(script);
+  const line = (o: number) => lineAt(starts, o);
+  // the node's own text (one statement, or plain code statements merged) from its first statement
+  const first = statements(script, tokenize(script)).find((s) => line(s.start) === n.span.start && script.startsWith(n.source, s.start));
+  const from = starts[n.span.start - 1];
+  const to = n.span.end < starts.length ? starts[n.span.end] : script.length;
+  const after = first ? script.slice(first.start + n.source.length, to).trim() : '';
+  if (!first || script.slice(from, first.start).trim() || (after && !after.startsWith('//'))) throw new GraphEditError(`${n.label} shares a line with other code; remove it in the script`);
+  const next = script.slice(0, from) + script.slice(to);
+  const g2 = parseGraph(next);
+  const same = (x: WorkflowGraph) => x.nodes.filter((m) => m.kind === n.kind).length;
+  if (g2.error || g2.nodes.length !== g.nodes.length - 1 || same(g2) !== same(g) - 1) throw new GraphEditError('removing it would change other nodes; remove it in the script');
+  return next;
+}
+
+/** Layout ids after node `nodeId` was removed: its position goes, later nodes of its kind move down one number. */
+export function dropLayout(positions: GraphPositions, nodeId: string): GraphPositions {
+  const [kind, n] = [nodeId.replace(/-\d+$/, ''), Number(nodeId.replace(/^.*-/, ''))];
+  const out: GraphPositions = {};
+  for (const [id, p] of Object.entries(positions)) {
+    if (id === nodeId) continue;
+    const m = /^([a-z]+)-(\d+)$/.exec(id);
+    out[m && m[1] === kind && Number(m[2]) > n ? `${kind}-${Number(m[2]) - 1}` : id] = p;
+  }
+  return out;
+}
+
 /** Layout ids after a node of kind was added as `nodeId`: later nodes of that kind moved up one number. */
 export function shiftLayout(positions: GraphPositions, nodeId: string): GraphPositions {
   const [kind, n] = [nodeId.replace(/-\d+$/, ''), Number(nodeId.replace(/^.*-/, ''))];

@@ -106,6 +106,17 @@ const CUSTOM: ModelGroup[] = [
   ),
 ];
 
+describe('a model the plan refused', () => {
+  test('its row is greyed out and carries the reason', () => {
+    const models = [group('cliproxy', [model('cliproxy', 'claude-mythos-5-1', 'Claude Mythos 5.1', { unavailable: 'Your plan refused it (HTTP 404)' }), model('cliproxy', 'claude-opus-5-5', 'Claude Opus 5.5')])];
+    const rows = buildPicker(input({ models, sessions: {} })).groups.flatMap((g) => g.rows);
+    const mythos = rows.find((r) => r.ref === 'cliproxy/claude-mythos-5-1')!;
+    expect(mythos.disabled).toBe(true);
+    expect(mythos.model?.unavailable).toBe('Your plan refused it (HTTP 404)');
+    expect(rows.find((r) => r.ref === 'cliproxy/claude-opus-5-5')!.disabled).toBe(false);
+  });
+});
+
 describe('a custom provider', () => {
   test('its models are rows of their own under the maker, by their own names, saying whose they are', () => {
     registerModelNames(CUSTOM.flatMap((g) => g.models));

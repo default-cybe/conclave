@@ -14,7 +14,7 @@
  * Remove), the same transcript with its approvals, and the composer. The
  * page's keys (Esc stops, copy the last code block) stay with the session page.
  */
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import { MoreHorizontal, PanelRight, X } from 'lucide-react';
 import type { Session } from '@conclave/core/types';
@@ -58,21 +58,7 @@ import { isDelegated } from '@conclave/core/session/delegated';
 import { DelegatedLine, FromLink, moveToMainList, MOVE_TO_MAIN, useDelegatedFrom } from './delegated';
 import { useHubCopy } from './HubCopy';
 import { addToSplit, saveSplit, shownSplit } from './split';
-import { useFlowOpen } from '@/features/graph/flowOpen';
-
-// React Flow stays out of the main chunk until Blocks opens
-const FlowView = lazy(() => import('../graph/FlowView'));
-
-/** The flow canvas in the transcript's place: the composer stays docked, so the agent is a message away. */
-function FlowPane({ session }: { session: Session }) {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <Suspense fallback={null}>
-        <FlowView session={session} />
-      </Suspense>
-    </div>
-  );
-}
+import { IncognitoMark } from '@/features/conversation/incognito';
 
 export function ChatView({ session, column }: { session: Session; /** Shown as a column of Side by side. */ column?: { onRemove: () => void } }) {
   const todos = useHub((s) => s.todos[session.id]);
@@ -81,7 +67,6 @@ export function ChatView({ session, column }: { session: Session; /** Shown as a
   const wide = useIsWide();
   const contextOpen = useUi((s) => s.contextOpen);
   const panelShown = wide && contextOpen;
-  const flowOpen = useFlowOpen((s) => s.id === session.id) && modeOf(session) === 'code';
 
   useEffect(() => retainTranscript(session.id), [session.id]);
   // the transcript says its notices ("Stopped", an error), so the hub's toasts for it are dropped
@@ -131,10 +116,15 @@ export function ChatView({ session, column }: { session: Session; /** Shown as a
       <div className="flex h-full min-w-0 flex-1 flex-col">
         <PhoneTitle title={session.title} />
         <PhoneBar title={session.title} onTitle={() => setSheet(true)} titleLabel={`${session.title}, details`} />
+        {session.incognito && (
+          <div className="flex shrink-0 justify-center py-1">
+            <IncognitoMark code />
+          </div>
+        )}
         <DelegatedLine session={session} className="shrink-0 px-5 py-1.5" />
         <ImportedLine session={session} className="shrink-0 px-5 py-1.5" />
         <FriendShareLine session={session} className="shrink-0 px-5 py-1.5" />
-        {flowOpen ? <FlowPane session={session} /> : <PhoneTranscript session={session} />}
+        <PhoneTranscript session={session} />
         <Docked>
           <RepoBar session={session} />
           <LocationBanner session={session} />
@@ -152,7 +142,7 @@ export function ChatView({ session, column }: { session: Session; /** Shown as a
       <RepoBar session={session} />
       <ImportedLine session={session} className="shrink-0 border-b border-rule px-8 py-1.5 phone:px-4" />
       <FriendShareLine session={session} className="shrink-0 border-b border-rule px-8 py-1.5 phone:px-4" />
-      {flowOpen ? <FlowPane session={session} /> : <MessageList session={session} />}
+      <MessageList session={session} />
       <Docked>
         {todos && !panelShown && <TodoStrip todos={todos} />}
         <LocationBanner session={session} />
@@ -283,9 +273,12 @@ function ChatHeader({ session }: { session: Session }) {
     <header className="shrink-0 border-b border-rule bg-bg">
       <div className="mx-auto flex h-16 w-full max-w-[924px] items-center gap-4 px-8">
         <div className="min-w-0 flex-1">
-          <h1 className="t-title truncate text-fg" title={session.title}>
-            {session.title}
-          </h1>
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="t-title truncate text-fg" title={session.title}>
+              {session.title}
+            </h1>
+            {session.incognito && <IncognitoMark code />}
+          </div>
           <HeaderMeta session={session} />
         </div>
         {isDelegated(session) && (

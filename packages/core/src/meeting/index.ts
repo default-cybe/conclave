@@ -652,7 +652,7 @@ export class MeetingService {
     const groups = db
       .query(
         `SELECT COALESCE(device, 'local') AS device, cwd, COUNT(*) AS n, MAX(updated_at) AS last FROM sessions
-         WHERE account_id = ? AND (kind IS NULL OR kind NOT IN ('chat', 'meeting')) GROUP BY COALESCE(device, 'local'), cwd`,
+         WHERE account_id = ? AND (kind IS NULL OR kind NOT IN ('chat', 'meeting')) AND COALESCE(incognito, 0) = 0 GROUP BY COALESCE(device, 'local'), cwd`,
       )
       .all(accountId) as Array<{ device: string; cwd: string; n: number; last: number }>;
     const devices = new Map(this.engine.devices.list(accountId).map((d) => [d.id, d]));

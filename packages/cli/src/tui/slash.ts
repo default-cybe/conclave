@@ -3,7 +3,8 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { SessionMode } from '@conclave/core/types.ts';
 import { effortChoices, effortLabel, isEffortSetting } from '@conclave/core/providers/effort.ts';
-import { tui as p, truncate } from '../ansi';
+import { padEnd, tui as p, truncate } from '../ansi';
+import { wrapAnsi } from '../render/wrap';
 import { formatCost, formatDuration, formatTokens, relativeTime, shortenPath, worth } from '../render/format';
 import { modelColor, shortModel } from '../render/models';
 import { renderTodos } from '../render/tools';
@@ -71,34 +72,36 @@ export const BUILTINS: BuiltinCommand[] = [
   {
     name: 'help',
     description: 'Commands and keys',
-    run: ({ ctl }) => {
-      const col = (name: string, args?: string) => {
-        const plain = `/${name}${args ? ' ' + args : ''}`;
-        const w = 30;
-        const shown = plain.length > w - 2 ? truncate(plain, w - 2) : plain;
-        return '  ' + p.bold(shown.slice(0, name.length + 1)) + p.dim(shown.slice(name.length + 1)) + ' '.repeat(Math.max(1, w - shown.length));
-      };
-      const cmds = BUILTINS.filter((c) => c.name !== 'exit').map((c) => col(c.name, c.args) + p.dim(c.description ?? ''));
-      const custom = ctl.commands.map((c) => col(c.name, c.argumentHint) + p.dim(`${c.description ?? ''} (${c.source})`));
+    // Short on purpose: the names wrap into a few rows; typing "/" shows each one with its description.
+    run: (host) => {
+      const { ctl } = host;
+      const w = Math.max(30, host.width() - 4);
+      const names = (xs: string[]) => wrapAnsi(xs.map((n) => '/' + n).join('  '), w - 2).split('\n').map((l) => '  ' + l);
       const keys = [
-        ['enter', 'send'],
-        ['\\ enter, ctrl+j', 'new line'],
-        ['esc', 'interrupt the running turn'],
-        ['ctrl+c', 'clear input, twice to exit'],
-        ['shift+tab', 'cycle permission mode'],
-        ['ctrl+t', 'show or hide thinking'],
-        ['ctrl+l', 'redraw the screen'],
-        ['up/down', 'history'],
-        ['@path', 'mention a file (tab completes)'],
+        ['shift+enter, \\ enter', 'new line'],
+        ['esc', 'interrupt'],
+        ['ctrl+o', 'full transcript'],
+        ['ctrl+t', 'show thinking'],
+        ['shift+tab', 'permission mode'],
+        ['ctrl+c twice', 'quit'],
       ];
+      const half = Math.ceil(keys.length / 2);
+      // keys padded to one width per column, so every description in a column starts at the same place
+      const kwOf = (ks: string[][]) => Math.max(...ks.map(([k]) => k.length));
+      const cell = ([k, d]: string[], kw: number) => `${k.padEnd(kw)}  ${p.dim(d)}`;
+      const colW = Math.floor((w - 2) / 2);
+      const [left, right] = [keys.slice(0, half), keys.slice(half)];
+      const two = kwOf(left) + 2 + Math.max(...left.map(([, d]) => d.length)) + 2 <= colW;
+      const keyRows = two
+        ? left.map((k, i) => '  ' + padEnd(cell(k, kwOf(left)), colW) + (right[i] ? cell(right[i], kwOf(right)) : ''))
+        : keys.map((k) => '  ' + cell(k, kwOf(keys)));
       ctl.info(
         list([
-          p.bold('Commands'),
-          ...cmds,
-          ...(custom.length ? ['', p.bold('Custom commands'), ...custom] : []),
-          '',
+          p.bold('Commands') + p.dim('  type / to see what each one does'),
+          ...names(BUILTINS.filter((c) => c.name !== 'exit').map((c) => c.name)),
+          ...(ctl.commands.length ? [p.bold('Custom'), ...names(ctl.commands.map((c) => c.name))] : []),
           p.bold('Keys'),
-          ...keys.map(([k, d]) => `  ${k.padEnd(18)}${p.dim(d)}`),
+          ...keyRows,
         ]),
       );
     },

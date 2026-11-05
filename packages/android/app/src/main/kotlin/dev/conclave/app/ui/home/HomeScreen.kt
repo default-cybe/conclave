@@ -44,7 +44,9 @@ import dev.conclave.app.ui.common.TopBar
 import dev.conclave.app.ui.common.hubName
 import dev.conclave.app.ui.conversation.ChatComposer
 import dev.conclave.app.ui.conversation.ChatHomeViewModel
-import dev.conclave.app.ui.conversation.ChatSwitches
+import dev.conclave.app.ui.conversation.PrivacyRows
+import dev.conclave.app.ui.conversation.SwitchRow
+import dev.conclave.app.ui.conversation.WEB_HELP
 import dev.conclave.app.ui.conversation.CodePlus
 import dev.conclave.app.ui.conversation.CodeWhereSheet
 import dev.conclave.app.ui.conversation.ComposerModel
@@ -103,6 +105,7 @@ fun HomeScreen(
     val sending by chat.sending.collectAsStateWithLifecycle()
     val model by chat.model.collectAsStateWithLifecycle()
     val switches by chat.switches.collectAsStateWithLifecycle()
+    val privacy by chat.privacy.collectAsStateWithLifecycle()
     val code by chat.code.collectAsStateWithLifecycle()
     val failure by chat.failure.collectAsStateWithLifecycle()
     val name by hub.ownerName.collectAsStateWithLifecycle()
@@ -341,6 +344,7 @@ fun HomeScreen(
                                 whereGithub = gh
                                 where = true
                             }, dismiss = dismiss)
+                            PrivacyRows(privacy, code = true, onChange = chat::setPrivacy)
                         },
                         commands = commands,
                         note = when {
@@ -370,7 +374,10 @@ fun HomeScreen(
                         context = ContextUse.of(emptyList(), null, hub.modelInfo(chatModel)),
                         onUsage = onOpenUsage,
                         // a chat never gets a device or folder: "+" has the web and memory
-                        plus = { _ -> ChatSwitches(switches, onWeb = chat::setWeb, onMemory = chat::setMemory) },
+                        plus = { _ ->
+                            SwitchRow("Search the web", WEB_HELP, switches.webSearch, chat::setWeb)
+                            PrivacyRows(privacy, code = false, onChange = chat::setPrivacy)
+                        },
                     )
                 }
                 ChatComposer(m, groups = groups, onError = { msg -> scope.launch { snackbar.showSnackbar(msg) } })

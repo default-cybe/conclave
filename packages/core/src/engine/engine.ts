@@ -107,7 +107,8 @@ import { buildSystemPrompt, isClaudeModel, type PromptParts } from '../session/p
 import { platformBlocksFor } from '../platform/facts';
 import { detectTestCommand, detectWorkspaceFacts, type WorkspaceFacts } from '../session/project';
 import { verifyCommandFor } from '../session/verify-gate';
-import { CHAT_AGENT, chatSettings, chatUsesMemory, mergeChatSettings, sessionAllowsTool } from '../session/chat';
+import { CHAT_AGENT, chatSavesMemory, chatSettings, chatUsesMemory, mergeChatSettings, sessionAllowsTool } from '../session/chat';
+import { incognitoNotice, incognitoTree, purgeIncognitoRows, refuseIncognito, staleIncognito } from '../session/incognito';
 import { isUntrusted } from '../session/untrusted';
 import { meetingsOf } from '../meeting/index';
 import { friendShareOf, narrowsTools } from '../session/friend-share';
@@ -161,6 +162,7 @@ import { ATTACHMENT_LOST, prepareAttachments, type ZipHost } from '../attachment
 import { mediaTypeFor } from '../attachments/limits';
 import { checkMemberRefusalList, checkMemberUsageList } from '../session/member-fallbacks';
 import { quotedOf } from '../session/quoted';
+import { assistantFor } from '../assistant/registry';
 
 const log = logger('engine');
 /** A session still called New chat after its start is named again after each of its first turns, up to this one. */
@@ -573,13 +575,18 @@ export class Engine implements EngineApi {
     const cfg = this.config.get();
     if (input.kind !== undefined && input.kind !== 'chat' && input.kind !== 'agent' && !(input.kind === 'meeting' && opts.meeting)) throw new EngineError(400, 'kind must be chat or agent');
     const isChat = input.kind === 'chat';
+    if (input.incognito !== undefined && typeof input.incognito !== 'boolean') throw new EngineError(400, 'incognito must be true or false');
+    // incognito (session/incognito.ts): asked for, or under an incognito parent; a meeting never is
+    const incognito = input.kind !== 'meeting' && (input.incognito === true || (!!input.parentId && !!this.repos.sessions.get(input.parentId)?.incognito));
+    // an incognito session reads memory and saves nothing unless the request says otherwise ("Use only")
+    const chatInput = incognito && (input.chat as Record<string, unknown> | undefined)?.memorySave === undefined ? { ...(input.chat ?? {}), memorySave: false } : input.chat;
     let chat;
     try {
       // an agent session may carry chat.thinking (its effort switch) and chat.memory (off leaves no trace); web search is a chat switch
-      if (isChat) chat = mergeChatSettings(undefined, input.chat);
-      else if (input.chat !== undefined) {
-        const merged = mergeChatSettings(undefined, input.chat);
-        chat = merged.thinking || merged.cyber || !merged.memory ? merged : undefined;
+      if (isChat) chat = mergeChatSettings(undefined, chatInput);
+      else if (chatInput !== undefined) {
+        const merged = mergeChatSettings(undefined, chatInput);
+        chat = merged.thinking || merged.cyber || !merged.memory || merged.memorySave === false ? merged : undefined;
       }
     } catch (err) {
       throw new EngineError(400, (err as Error).message);
@@ -627,10 +634,17 @@ export class Engine implements EngineApi {
       ...(input.kind === 'meeting' && opts.meeting ? { kind: 'meeting' as const, meta: { untrusted: true } } : {}),
       // an agent profile with ultra: true starts its sessions with Ultra on (never chats)
       ...(def?.ultra && !isChat ? { ultra: true } : {}),
+      ...(incognito ? { incognito: true } : {}),
     };
     this.repos.sessions.insert(session);
     this.bus.emit({ type: 'session.created', session });
     this.audit(session.id, 'session.create', `${agent} / ${model} in ${cwd}`);
+    // starting a new chat or session closes the person's earlier incognito ones that are not working (session/incognito.ts)
+    if (opts.byPerson && !input.parentId) {
+      for (const old of this.repos.sessions.list({ accountId: acct, incognito: true, parentId: null, limit: 1000 })) {
+        if (old.id !== session.id && old.status !== 'running' && !this.runners.get(old.id)?.busy) await this.deleteSession(old.id).catch((err) => log.warn(`could not close incognito session ${old.id}`, err));
+      }
+    }
     if (input.prompt) await this.send(session.id, { text: input.prompt });
     return session;
   }
@@ -762,7 +776,7 @@ export class Engine implements EngineApi {
     else {
       delete next.kind;
       // a workbench session keeps its effort, Cyber access and memory switches; Continue as a session drops the chat's switches
-      const keep = (patch.chat !== undefined || s.kind !== 'chat') && (!!chat?.thinking || !!chat?.cyber || chat?.memory === false);
+      const keep = (patch.chat !== undefined || s.kind !== 'chat') && (!!chat?.thinking || !!chat?.cyber || chat?.memory === false || chat?.memorySave === false);
       if (keep) next.chat = chat;
       else delete next.chat;
     }
@@ -825,11 +839,33 @@ export class Engine implements EngineApi {
     const prefix = `${id}\n`;
     for (const k of this.testCommands.keys()) if (k.startsWith(prefix)) this.testCommands.delete(k);
     for (const k of this.workspaceFacts.keys()) if (k.startsWith(prefix)) this.workspaceFacts.delete(k);
-    this.repos.sessions.delete(id);
+    if (session?.incognito) {
+      // every row about it and its children, and their outputs folders (session/incognito.ts)
+      const tree = incognitoTree(this.repos.db, id);
+      for (const sub of tree) {
+        if (sub === id) continue;
+        this.runners.get(sub)?.abort();
+        this.runners.delete(sub);
+        void shellRegistry.disposeSession(sub).catch(() => {});
+      }
+      purgeIncognitoRows(this.repos.db, tree, this.config.paths.home);
+      this.bus.forget(tree);
+      for (const sub of tree) if (sub !== id) this.bus.emit({ type: 'session.deleted', sessionId: sub, accountId: this.accountOf(session) });
+    } else this.repos.sessions.delete(id);
     // its meeting-prep digest (meeting/store.ts) would keep its text after it is gone
     meetingsOf(this)?.store.deleteDigests(id);
     this.repos.kv.delete(designImageKey(id));
     this.bus.emit({ type: 'session.deleted', sessionId: id, accountId: this.accountOf(session) });
+  }
+
+  /**
+   * Delete incognito sessions (session/incognito.ts): every one with all (hub start, what a crash
+   * left), else those idle past INCOGNITO_IDLE_MS. The log names ids only, never a title.
+   */
+  async sweepIncognito(opts: { all?: boolean; now?: number } = {}): Promise<number> {
+    const ids = staleIncognito(this.repos.db, opts);
+    for (const id of ids) await this.deleteSession(id).catch((err) => log.warn(`incognito sweep: could not delete ${id}`, err));
+    return ids.length;
   }
 
   /** Move to main list: delegated work becomes a normal session of its kind; parentId stays (engine/delegate.ts). */
@@ -839,6 +875,8 @@ export class Engine implements EngineApi {
 
   forkSession(id: string, fromSeq?: number): Session {
     const s = this.requireSession(id);
+    // a fork would be a kept copy of a conversation that is not kept
+    refuseIncognito(s, 'forked');
     const now = Date.now();
     const fork: Session = { ...s, id: newId('ses'), title: `${s.title} (fork)`, parentId: s.parentId, createdAt: now, updatedAt: now, status: 'idle', external: undefined };
     // a fork of the assistant home thread is a normal session: the account keeps one home
@@ -1231,7 +1269,7 @@ export class Engine implements EngineApi {
 
   /** Sanitized by default (session/share.ts); raw is the stored rows, for the owner's backups. */
   exportSession(id: string, format: 'md' | 'json', opts: ShareOptions & { raw?: boolean } = {}): ExportResult {
-    this.requireSession(id);
+    refuseIncognito(this.requireSession(id), 'exported');
     return exportShared(this, id, format, opts);
   }
 
@@ -2000,6 +2038,11 @@ export class Engine implements EngineApi {
     return chatUsesMemory(session) && !this.isUntrusted(session) && friendShareOf(session)?.role !== 'reference';
   }
 
+  /** Memory is read and also written: extraction, episode summaries. False in "Use only" (chat.memorySave false) and whenever usesMemory is. */
+  savesMemory(session: Session): boolean {
+    return this.usesMemory(session) && chatSavesMemory(session);
+  }
+
   subagents(session: Session): AgentDef[] {
     return this.agentsFor(this.accountOf(session), session.cwd).filter((a) => a.subagent);
   }
@@ -2200,9 +2243,11 @@ export class Engine implements EngineApi {
     this.bus.emit({ type: 'notice', notice });
     return msg;
   }
-  notifyEvent(kind: keyof ConclaveConfig['notifications']['on'], notice: Omit<Notice, 'id' | 'createdAt'>): void {
+  notifyEvent(kind: keyof ConclaveConfig['notifications']['on'], input: Omit<Notice, 'id' | 'createdAt'>): void {
     // Notification hooks run whether or not a notification channel is on, like Claude Code's
-    const session = notice.sessionId ? this.repos.sessions.get(notice.sessionId) : undefined;
+    const session = input.sessionId ? this.repos.sessions.get(input.sessionId) : undefined;
+    // a push goes through the phone vendor's servers: an incognito session's says only that it waits (session/incognito.ts)
+    const notice = session?.incognito ? incognitoNotice(input) : input;
     if (session) {
       const type = kind === 'approvalNeeded' ? 'permission_prompt' : kind === 'sessionDone' ? 'idle_prompt' : kind;
       void this.runHook(session, 'Notification', { message: notice.body, title: notice.title, notification_type: type }, type);
@@ -2226,15 +2271,37 @@ export class Engine implements EngineApi {
     const cfg = this.config.get();
     const s = this.repos.sessions.get(id);
     if (!s) return;
-    if (cfg.memory.enabled && cfg.memory.autoExtract && this.agentFor(s).memory !== 'none' && s.mode !== 'jury' && this.usesMemory(s)) {
+    if (cfg.memory.enabled && cfg.memory.autoExtract && this.agentFor(s).memory !== 'none' && s.mode !== 'jury' && this.savesMemory(s)) {
       // a seat turn's transcript holds other people's words as quoted data: extraction learns only from the starter's own words and replies
       const transcript = this.turnMessages(id).filter((m) => !quotedOf(m));
       void this.memoryFor(this.accountOf(s))
         .extract(id, transcript, { project: s.cwd, agent: s.agent })
         .catch((err) => log.debug('memory extract failed', err));
     }
-    this.notifyEvent('sessionDone', { title: s.title, body: 'Session finished a turn', level: 'success', sessionId: id, link: `/s/${id}`, thread: this.askOrigin(id).rootSessionId });
+    this.captureLearnings(s);
+    // a push carries the title through the phone vendor's servers: an incognito session sends none
+    if (!s.incognito) this.notifyEvent('sessionDone', { title: s.title, body: 'Session finished a turn', level: 'success', sessionId: id, link: `/s/${id}`, thread: this.askOrigin(id).rootSessionId });
     this.retitle(s);
+  }
+
+  /**
+   * Reflect's Learnings (assistant/learnings.ts): the quick check over what the
+   * person typed in a chat or code session with memory on. Never in an
+   * incognito session, a subagent, a routine run, a meeting or a jury, and
+   * only the account's own words (typedBy skips another account's messages).
+   */
+  private captureLearnings(s: Session): void {
+    const cfg = this.config.get();
+    if (!cfg.memory.enabled || s.incognito || s.parentId || s.routineId || s.meta?.subagent || s.meta?.seat) return;
+    // "Use only" (chat.memorySave false) reads memory and saves nothing, so it queues nothing to save either
+    if (s.kind === 'meeting' || s.mode === 'jury' || !this.savesMemory(s) || this.agentFor(s).memory === 'none') return;
+    const svc = assistantFor(this, this.accountOf(s));
+    if (!svc) return;
+    try {
+      svc.learnings.capture(s.id, this.turnMessages(s.id).filter((m) => !quotedOf(m)), { title: s.title, agent: s.agent, cwd: s.cwd });
+    } catch (err) {
+      log.debug('learning capture failed', err);
+    }
   }
 
   /**
@@ -2276,7 +2343,8 @@ export class Engine implements EngineApi {
    */
   async generateTitle(id: string, opts: { afterTurn?: boolean; revise?: boolean } = {}): Promise<void> {
     const s = this.repos.sessions.get(id);
-    if (!s || s.meta?.subagent) return;
+    // an incognito session keeps its plain title: a generated one would be a summary of it
+    if (!s || s.meta?.subagent || s.incognito) return;
     // the title this call may replace: New chat, or for a revision the hub's own title
     let was = s.title === 'New chat' ? s.title : opts.revise && s.meta?.titleAuto === s.title ? s.title : undefined;
     if (!was) return;

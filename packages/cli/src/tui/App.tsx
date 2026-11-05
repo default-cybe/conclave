@@ -3,37 +3,53 @@ import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } fro
 import { Box, Static, Text, useAnimation, useApp, useInput, usePaste, useWindowSize } from 'ink';
 import { join } from 'node:path';
 import type { FileEntryDto } from '@conclave/core/client/index.ts';
-import { inkColor as c, tui as p, truncate, visible } from '../ansi';
+import { inkColor as c, tui as p, truncate, truncateWords, visible } from '../ansi';
 import { isActiveStatus } from '../events';
 import { effortLabel } from '@conclave/core/providers/effort.ts';
-import { formatDuration } from '../render/format';
+import { formatDuration, formatTokens } from '../render/format';
 import { renderTodos } from '../render/tools';
-import { matchCommands, matchFiles, slashToken, atToken, splitPathQuery, type Suggestion, type CommandInfo } from './complete';
+import { fuzzyFiles, matchCommands, matchFiles, slashToken, atToken, splitPathQuery, walkFiles, type Suggestion, type CommandInfo } from './complete';
 import { asksIn, type ChatController } from './controller';
 import * as ed from './editor';
+import { FullView } from './FullView';
 import type { History } from './history';
 import { Picker } from './Picker';
 import { ApprovalBox, QuestionBox } from './Prompts';
 import { itemGap, renderItem, SPINNER } from './render-item';
 import { BUILTINS, runSlash, type PickerSpec, type SlashHost } from './slash';
-import { footerLine, headerLine } from './statusline';
+import { statusLine } from './statusline';
 import type { Item } from './transcript';
 
 const MAX_INPUT_ROWS = 8;
-const PLACEHOLDER = 'Ask anything · / for commands · @ to mention files';
+const PLACEHOLDER = 'Ask anything · / for commands · @ for files';
 
-function itemSig(item: Item, frame: number, now: number): string {
+/** The spinner's word; one per turn, picked from when it started. */
+const VERBS = ['Working', 'Thinking', 'Pondering', 'Brewing', 'Tinkering', 'Mulling', 'Crafting', 'Computing'];
+
+/** "?" on an empty prompt: the keys, in two columns. */
+export const SHORTCUTS: Array<[string, string]> = [
+  ['/ for commands', 'shift+enter or \\ for newline'],
+  ['@ for file paths', 'ctrl+o full transcript'],
+  ['esc to interrupt', 'ctrl+t show thinking'],
+  ['shift+tab permission mode', 'ctrl+l redraw'],
+  ['↑ ↓ history', 'ctrl+c twice to quit'],
+];
+
+function itemSig(item: Item, now: number): string {
   switch (item.kind) {
     case 'text':
       return `${item.final}|${item.first}|${item.text.length}`;
     case 'thinking':
       return `${item.final}|${item.text.length}`;
     case 'tool':
-      return `${item.status}|${item.result ? 1 : 0}|${item.progress?.length ?? 0}|${item.status === 'running' ? `${frame}|${Math.floor(now / 1000)}` : ''}`;
+      return `${item.status}|${item.result ? 1 : 0}|${item.progress?.length ?? 0}|${item.status === 'running' ? Math.floor(now / 1000) : ''}`;
     default:
       return '';
   }
 }
+
+/** tmux without the kitty keyboard protocol: shift+enter arrives as plain enter. */
+const TMUX_NEWLINE_HINT = 'alt+enter or \\ for newline';
 
 const StaticItem = React.memo(function StaticItem(props: { item: Item; prev?: Item; width: number; showThinking: boolean; cwd: string }) {
   const text = renderItem(props.item, { width: props.width - 1, painter: p, showThinking: props.showThinking, cwd: props.cwd });
@@ -45,17 +61,17 @@ const StaticItem = React.memo(function StaticItem(props: { item: Item; prev?: It
 });
 
 /** Live items as one string, clamped to the rows we have so Ink never scrolls a frame. */
-function useLiveText(items: Item[], prevCommitted: Item | undefined, width: number, showThinking: boolean, cwd: string, frame: number, budget: number): string {
+function useLiveText(items: Item[], prevCommitted: Item | undefined, width: number, showThinking: boolean, cwd: string, budget: number): string {
   const cache = useRef(new Map<string, { sig: string; text: string }>());
   const now = Date.now();
   const lines: string[] = [];
   const seen = new Set<string>();
   items.forEach((item, i) => {
     seen.add(item.id);
-    const sig = `${itemSig(item, frame, now)}|${width}|${showThinking}`;
+    const sig = `${itemSig(item, now)}|${width}|${showThinking}`;
     let c = cache.current.get(item.id);
     if (!c || c.sig !== sig) {
-      c = { sig, text: renderItem(item, { width: width - 1, painter: p, showThinking, cwd, frame, now }) };
+      c = { sig, text: renderItem(item, { width: width - 1, painter: p, showThinking, cwd, now }) };
       cache.current.set(item.id, c);
     }
     if (itemGap(item, i === 0 ? prevCommitted : items[i - 1])) lines.push('');
@@ -64,7 +80,7 @@ function useLiveText(items: Item[], prevCommitted: Item | undefined, width: numb
   for (const k of cache.current.keys()) if (!seen.has(k)) cache.current.delete(k);
   if (lines.length > budget) {
     const hidden = lines.length - budget + 1;
-    return [p.dim(`⋮ ${hidden} more lines above, they print in full when finished`), ...lines.slice(hidden)].join('\n');
+    return [p.dim(`⋮ ${hidden} lines above`), ...lines.slice(hidden)].join('\n');
   }
   return lines.join('\n');
 }
@@ -76,11 +92,11 @@ function InputView({ edit, width, borderColor, busy }: { edit: ed.Edit; width: n
   if (lines.length > MAX_INPUT_ROWS) start = Math.max(0, Math.min(row - Math.floor(MAX_INPUT_ROWS / 2), lines.length - MAX_INPUT_ROWS));
   const end = Math.min(lines.length, start + MAX_INPUT_ROWS);
   return (
-    <Box borderStyle="round" borderColor={c(borderColor)} paddingX={1} flexDirection="column" width={width}>
+    <Box borderStyle="round" borderColor={c(borderColor)} borderDimColor={borderColor === 'gray'} paddingX={1} flexDirection="column" width={width}>
       {start > 0 && <Text dimColor>{`  ↑ ${start} more lines`}</Text>}
       {lines.slice(start, end).map((l, k) => {
         const i = start + k;
-        const prefix = i === 0 ? <Text color={c(busy ? 'gray' : 'cyan')}>{'> '}</Text> : <Text>{'  '}</Text>;
+        const prefix = i === 0 ? <Text dimColor={busy}>{'> '}</Text> : <Text>{'  '}</Text>;
         if (i !== row) return <Text key={i}>{prefix}{l}</Text>;
         const ch = [...l.slice(col)][0] ?? ' ';
         return (
@@ -99,15 +115,20 @@ function InputView({ edit, width, borderColor, busy }: { edit: ed.Edit; width: n
 }
 
 function Suggestions({ items, selected, width }: { items: Suggestion[]; selected: number; width: number }): React.JSX.Element {
-  const labelW = Math.min(34, Math.max(...items.map((s) => s.label.length)) + 2);
+  // labels keep their full length up to half the row; hints get what is left, or nothing on a narrow terminal.
+  // File paths have no hint, so they get the whole row, and a long one loses its start, never its file name.
+  const hinted = items.some((s) => s.hint);
+  const labelW = hinted ? Math.min(Math.max(...items.map((s) => s.label.length)) + 2, Math.max(16, Math.floor((width - 4) * 0.5))) : width - 4;
+  const hintW = width - 4 - labelW;
+  const fit = (s: Suggestion) => (s.kind === 'command' || s.label.length < labelW ? truncate(s.label, labelW - 1) : '…' + s.label.slice(s.label.length - labelW + 2));
   return (
     <Box flexDirection="column" paddingX={2}>
       {items.map((s, i) => (
         <Text key={s.value + i} wrap="truncate-end">
-          <Text color={c(i === selected ? 'cyan' : undefined)} bold={i === selected}>
-            {(s.kind === 'dir' ? '▸ ' : '  ') + truncate(s.label, labelW - 2).padEnd(labelW)}
+          <Text color={c(i === selected ? 'cyan' : undefined)} dimColor={i !== selected && s.kind !== 'command'}>
+            {fit(s).padEnd(labelW)}
           </Text>
-          {s.hint ? <Text dimColor>{truncate(s.hint, Math.max(10, width - labelW - 8))}</Text> : null}
+          {s.hint && hintW >= 12 ? <Text dimColor>{truncateWords(s.hint, hintW)}</Text> : null}
         </Text>
       ))}
     </Box>
@@ -138,6 +159,14 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
   const [sel, setSel] = useState(0);
   const [dismissed, setDismissed] = useState(false);
   const [files, setFiles] = useState<Record<string, FileEntryDto[]>>({});
+  const [tree, setTree] = useState<{ cwd: string; paths: string[] }>();
+  const [shortcuts, setShortcuts] = useState(false);
+  // ctrl+o: the full transcript on its own screen; <Static> holds what it printed until the view closes
+  const [fullView, setFullView] = useState(false);
+  const frozen = useRef<Item[]>([]);
+  // long pastes by number, for their "[Pasted text #n]" tokens
+  const pastes = useRef(new Map<number, string>());
+  const [newlineHint, setNewlineHint] = useState(!!process.env.TMUX);
   const lastCtrlC = useRef(0);
   const lastEsc = useRef(0);
 
@@ -145,29 +174,27 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
   const active = isActiveStatus(session?.status);
   const approval = snap.approvals.find((a) => !session || asksIn(a, session.id));
   const question = snap.questions.find((q) => !session || asksIn(q, session.id));
-  const overlay = approval ? 'approval' : question ? 'question' : picker ? 'picker' : null;
+  const overlay = fullView ? 'full' : approval ? 'approval' : question ? 'question' : picker ? 'picker' : null;
   const cwd = session?.cwd ?? snap.draft.cwd;
   const device = session?.device ?? snap.draft.device;
   const permissionMode = session?.permissionMode ?? snap.draft.permissionMode;
 
-  const { frame } = useAnimation({ interval: 100, isActive: active });
+  // the spinner stops while a prompt waits for you
+  const { frame } = useAnimation({ interval: 120, isActive: active && !approval && !question && !fullView });
   const waitingReset = session?.status === 'waiting_reset';
-  useAnimation({ interval: 1000, isActive: waitingReset });
-
-  // Reflow the transcript after the terminal is resized.
-  const firstWidth = useRef(width);
-  useEffect(() => {
-    if (width === firstWidth.current) return;
-    const t = setTimeout(() => {
-      firstWidth.current = width;
-      ctl.rerender();
-    }, 300);
-    return () => clearTimeout(t);
-  }, [width]);
+  useAnimation({ interval: 1000, isActive: waitingReset && !fullView });
+  // A resize leaves finished output to the terminal's reflow; Ink redraws only the live area (main.tsx).
 
   const doExit = () => {
+    ctl.onExit?.();
     ctl.dispose();
     exit();
+  };
+
+  const openFull = (on: boolean) => {
+    if (on) frozen.current = snap.committed;
+    ctl.onFullScreen?.(on);
+    setFullView(on);
   };
 
   const host: SlashHost = {
@@ -185,14 +212,23 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
   );
   const slash = slashToken(edit);
   const at = slash ? undefined : atToken(edit);
-  const atDir = at ? splitPathQuery(at.query).dir : undefined;
+  // "@app" with no folder searches the whole tree on this machine; "@src/ap" lists that folder (any device)
+  const fuzzy = !!at && device === 'local' && !!at.query && !at.query.includes('/') && !at.query.startsWith('~');
+  const atDir = at && !fuzzy ? splitPathQuery(at.query).dir : undefined;
   const dirKey = atDir !== undefined ? `${device}:${cwd}:${atDir}` : undefined;
   let suggestions: Suggestion[] = [];
   if (!dismissed && !overlay) {
     if (slash) suggestions = matchCommands(commands, slash.query);
-    else if (at && dirKey && files[dirKey]) suggestions = matchFiles(files[dirKey], at.query);
+    else if (at && fuzzy && tree?.cwd === cwd) suggestions = fuzzyFiles(tree.paths, at.query, 8);
+    else if (at && dirKey && files[dirKey]) suggestions = matchFiles(files[dirKey], at.query, 8);
   }
   const selected = Math.min(sel, Math.max(0, suggestions.length - 1));
+
+  useEffect(() => {
+    if (!fuzzy || tree?.cwd === cwd) return;
+    const t = setTimeout(() => setTree({ cwd, paths: walkFiles(cwd) }), 30);
+    return () => clearTimeout(t);
+  }, [fuzzy, cwd]);
 
   useEffect(() => {
     if (dirKey === undefined || atDir === undefined || files[dirKey]) return;
@@ -213,6 +249,7 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
     setEdit(next);
     setSel(0);
     setDismissed(false);
+    setShortcuts(false);
   };
 
   const accept = (s: Suggestion, range: { start: number; end: number }): ed.Edit => {
@@ -221,8 +258,9 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
   };
 
   const submit = (raw: string) => {
-    const value = raw.replace(/\s+$/, '');
+    const value = ed.expandPastes(raw, pastes.current).replace(/\s+$/, '');
     if (!value.trim()) return;
+    setNewlineHint(false);
     history.push(value);
     changeEdit(ed.empty);
     if (value.startsWith('/') && !value.startsWith('//')) {
@@ -248,13 +286,18 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
       return;
     }
     if (key.ctrl && input === 't') return ctl.toggleThinking();
-    if (key.ctrl && input === 'l') return ctl.rerender();
+    if (key.ctrl && input === 'o') return openFull(true);
+    if (key.ctrl && input === 'l') return ctl.repaint();
     if (key.tab && key.shift) return void ctl.cyclePermissionMode();
-  });
+  }, { isActive: !fullView });
 
   usePaste(
-    (text) => {
-      changeEdit(ed.insert(editRef.current, text.replace(/\r\n?/g, '\n')));
+    (raw) => {
+      const text = raw.replace(/\r\n?/g, '\n');
+      if (!ed.isLongPaste(text)) return changeEdit(ed.insert(editRef.current, text));
+      const n = pastes.current.size + 1;
+      pastes.current.set(n, text);
+      changeEdit(ed.insert(editRef.current, ed.pasteToken(n, text)));
     },
     { isActive: !overlay },
   );
@@ -265,9 +308,10 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
       const edit = editRef.current;
       const slash = slashToken(edit);
       const at = slash ? undefined : atToken(edit);
-      if (key.ctrl && (input === 'c' || input === 't' || input === 'l')) return;
+      if (key.ctrl && (input === 'c' || input === 't' || input === 'l' || input === 'o')) return;
       if (key.tab && key.shift) return;
       const range = slash ?? at;
+      if (shortcuts && key.escape) return setShortcuts(false);
       if (suggestions.length && range) {
         if (key.upArrow) return setSel((selected - 1 + suggestions.length) % suggestions.length);
         if (key.downArrow) return setSel((selected + 1) % suggestions.length);
@@ -284,11 +328,14 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
         }
       }
       if (key.return) {
-        if (key.meta) return changeEdit(ed.insert(edit, '\n'));
+        // shift+enter (kitty keyboard protocol) and alt+enter add a line
+        if (key.shift) setNewlineHint(false);
+        if (key.meta || key.shift) return changeEdit(ed.insert(edit, '\n'));
         if (edit.value.endsWith('\\') && edit.cursor === edit.value.length) return changeEdit({ value: edit.value.slice(0, -1) + '\n', cursor: edit.value.length });
         return submit(edit.value);
       }
-      if (input === '\n') return changeEdit(ed.insert(edit, '\n'));
+      if (input === '\n' || (key.ctrl && input === 'j')) return changeEdit(ed.insert(edit, '\n'));
+      if (input === '?' && !edit.value) return setShortcuts((s) => !s);
       if (key.escape) {
         if (active) {
           void ctl.abort();
@@ -361,37 +408,50 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
   const todosShown = active && snap.todos.length ? Math.min(6, snap.todos.length) : 0;
   const queueShown = Math.min(3, snap.queue.length);
   const queueRows = queueShown ? 1 + queueShown + (snap.queue.length > queueShown ? 1 : 0) : 0;
-  // rows used below the live items: gaps, working line, input or overlay, suggestions, two status lines
-  const chrome = 1 + (active ? 2 : 0) + todosShown + queueRows + 1 + (overlay ? 14 : inputRows) + suggestions.length + 2;
+  // rows used below the live items: gap, spinner, input or prompt, suggestions, the hint row
+  const chrome = 1 + (active ? 2 : 0) + todosShown + queueRows + 1 + (overlay ? 14 : inputRows) + suggestions.length + (shortcuts ? SHORTCUTS.length : 1);
   const budget = Math.max(4, (rows || 24) - chrome - 2);
   const prevCommitted = snap.committed[snap.committed.length - 1];
-  const liveText = useLiveText(snap.live, prevCommitted, width, snap.showThinking, cwd, frame, budget);
+  // the approval menu names the tool and shows the command, so its waiting tool line is not drawn twice
+  const live = approval ? snap.live.filter((i) => !(i.kind === 'tool' && i.status === 'waiting')) : snap.live;
+  const liveText = useLiveText(live, prevCommitted, width, snap.showThinking, cwd, budget);
 
   const now = Date.now();
   let working = '';
-  if (active) {
-    const el = snap.turnStartedAt ? formatDuration(now - snap.turnStartedAt) : '';
-    const label = session?.status === 'waiting_approval' ? 'Waiting for approval' : session?.status === 'waiting_input' ? 'Waiting for your answer' : 'Working…';
-    working = `${p.fg('#C792EA')(SPINNER[frame % SPINNER.length])} ${p.fg('#C792EA')(label)} ${p.dim(`(${el ? el + ' · ' : ''}esc to interrupt)`)}`;
+  if (active && !approval && !question) {
+    const el = snap.turnStartedAt ? formatDuration(now - snap.turnStartedAt) : '0s';
+    const verb = VERBS[Math.floor((snap.turnStartedAt ?? 0) / 1000) % VERBS.length];
+    const tokens = Math.round(ctl.store.turnChars / 4);
+    const stats = [el, tokens ? `↓ ${formatTokens(tokens)} tokens` : '', 'esc to interrupt'].filter(Boolean).join(' · ');
+    // the terminal's own foreground, dimmed: readable on dark and light themes alike
+    working = p.dim(`${SPINNER[frame % SPINNER.length]} ${verb}… (${stats})`);
   }
 
   const effort = ctl.currentEffort();
-  const header = headerLine(
-    {
-      model: ctl.currentModel(),
-      effort: effort ? effortLabel(effort, ctl.modelEffort()).toLowerCase() : undefined,
-      agent: session?.agent ?? snap.draft.agent,
-      mode: session?.mode ?? snap.draft.mode,
-      permissionMode,
-    },
-    p,
-    width - 2,
-  );
-  const footer = footerLine(
-    { device, cwd, hubStatus: snap.hubStatus, session, model: ctl.currentModel(), lastUsage: snap.lastUsage, contextWindow: snap.contextWindow, limits: snap.limits, subscriptions: snap.subscriptions, now },
-    p,
-    width - 2,
-  );
+  const status = snap.flash
+    ? p.yellow(snap.flash)
+    : statusLine(
+        {
+          model: ctl.currentModel(),
+          effort: effort ? effortLabel(effort, ctl.modelEffort()).toLowerCase() : undefined,
+          agent: session?.agent ?? snap.draft.agent,
+          mode: session?.mode ?? snap.draft.mode,
+          permissionMode,
+          device,
+          hubStatus: snap.hubStatus,
+          session,
+          lastUsage: snap.lastUsage,
+          contextWindow: snap.contextWindow,
+          limits: snap.limits,
+          subscriptions: snap.subscriptions,
+          now,
+          hint: newlineHint ? TMUX_NEWLINE_HINT : undefined,
+        },
+        p,
+        width - 2,
+      );
+  const colW = Math.floor((width - 2) / 2);
+  const shortcutRows = SHORTCUTS.map(([a, b]) => p.dim(truncate(a, colW - 1).padEnd(colW) + truncate(b, colW)));
   const queueLines = queueShown
     ? [
         ...snap.queue.slice(0, queueShown).map((q) => truncate(`${p.dim(q.held ? '⏸ ' : '↳ ')}${visible(q.text).replace(/\s+/g, ' ')}${q.held ? p.dim(' · held') : ''}`, width - 2)),
@@ -399,11 +459,23 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
       ]
     : [];
 
+  const staticItems = fullView ? frozen.current : snap.committed;
+  const printed = (
+    <Static key={snap.staticKey} items={staticItems}>
+      {(item, i) => <StaticItem key={item.id} item={item} prev={staticItems[i - 1]} width={width} showThinking={snap.showThinking} cwd={cwd} />}
+    </Static>
+  );
+  if (fullView)
+    return (
+      <>
+        {printed}
+        <FullView committed={snap.committed} live={snap.live} width={width} rows={rows || 24} cwd={cwd} onClose={() => openFull(false)} />
+      </>
+    );
+
   return (
     <>
-      <Static key={snap.staticKey} items={snap.committed}>
-        {(item, i) => <StaticItem key={item.id} item={item} prev={snap.committed[i - 1]} width={width} showThinking={snap.showThinking} cwd={cwd} />}
-      </Static>
+      {printed}
       <Box flexDirection="column">
         {liveText ? <Text>{liveText}</Text> : null}
         {working ? (
@@ -442,8 +514,7 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
           {suggestions.length > 0 && <Suggestions items={suggestions} selected={selected} width={width} />}
         </Box>
         <Box paddingX={1} flexDirection="column">
-          <Text wrap="truncate-end">{header}</Text>
-          <Text wrap="truncate-end">{snap.flash ? p.yellow(snap.flash) : footer}</Text>
+          {shortcuts && !overlay ? <Text>{shortcutRows.join('\n')}</Text> : overlay === 'approval' || overlay === 'question' ? null : <Text wrap="truncate-end">{status}</Text>}
         </Box>
       </Box>
     </>

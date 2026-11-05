@@ -149,6 +149,17 @@ export interface NodeRun {
   cachedCostUsd: number;
   /** Earliest start of a running call, for the elapsed counter. */
   startedAt?: number;
+  /** The first failed call's reason, shown on the node. */
+  error?: string;
+  /** The last answer in a few words, for the wires out of it (Canvas). */
+  value?: string;
+}
+
+/** A result preview as a wire's chip: one line, at most 24 characters. */
+export function shortValue(text: string | undefined): string | undefined {
+  const t = text?.replace(/\s+/g, ' ').trim();
+  if (!t) return undefined;
+  return t.length > 24 ? `${t.slice(0, 23)}…` : t;
 }
 
 /** The node a call belongs to: by its call-site lines, else by label, else none. */
@@ -237,7 +248,11 @@ export function nodeRuns(graph: WorkflowGraph, calls: WorkflowCall[]): { byNode:
       r.running++;
       if (c.startedAt && (!r.startedAt || c.startedAt < r.startedAt)) r.startedAt = c.startedAt;
     }
-    if (s === 'failed') r.failed++;
+    if (s === 'failed') {
+      r.failed++;
+      r.error ??= c.error;
+    }
+    if ((s === 'done' || s === 'cached') && c.resultPreview) r.value = shortValue(c.resultPreview);
     r.inputTokens += c.inputTokens;
     r.outputTokens += c.outputTokens;
     if (s === 'cached') r.cachedCostUsd += c.costUsd;

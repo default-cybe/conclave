@@ -70,7 +70,7 @@ export function PhoneChats({ kind }: { kind: Kind }) {
   usePageHeader(archived ? (kind === 'chats' ? 'Archived chats' : 'Archived sessions') : undefined, words.root);
 
   // a chat someone else owns lists under Shared with you (features/chat/shared.tsx)
-  const mine = (s: Session) => !isDuplicateCopy(s) && !shared[s.id] && (kind === 'chats' ? isChat(s) : !isChat(s) && !underParent(s) && !(s.meta as { workflow?: unknown } | undefined)?.workflow);
+  const mine = (s: Session) => !isDuplicateCopy(s) && !s.incognito && !shared[s.id] && (kind === 'chats' ? isChat(s) : !isChat(s) && !underParent(s) && !(s.meta as { workflow?: unknown } | undefined)?.workflow);
   const all = useMemo(() => Object.values(sessions).filter(mine), [sessions, kind, shared]); // eslint-disable-line react-hooks/exhaustive-deps
   // imported chats not continued yet have a section of their own, not the archive (core session/imported.ts)
   const archivedCount = useMemo(() => all.filter((s) => s.archived && !inImported(s)).length, [all]);

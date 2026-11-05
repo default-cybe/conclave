@@ -1,6 +1,6 @@
 /**
  * A program flow on the canvas (features/graph/nodes.tsx FlowBlockNode,
- * FlowView runWords): a block shows its settings and last value, a failed
+ * FlowInspector runWords): a block shows its settings and last value, a failed
  * block shows its error in fault, wires carry the value as a label, and the
  * status line says what the run did.
  *
@@ -13,7 +13,7 @@ import type { FlowNodeLive, GraphNode } from '@conclave/core/client';
 import { parseFlow } from '@conclave/core/flows/graph';
 import { BLOCK_BY_NAME } from '@conclave/core/flows/plugins';
 import { FlowBlockNode, blockLine } from '../src/features/graph/nodes';
-import { runWords } from '../src/features/graph/FlowView';
+import { runWords } from '../src/features/graph/FlowInspector';
 import { rankInserts } from '../src/features/graph/GraphCanvas';
 import { SCRAPER_FLOW, SCRAPER_RUN } from '../src/mock/flows';
 

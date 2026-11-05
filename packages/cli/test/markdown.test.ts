@@ -69,16 +69,23 @@ describe('blocks', () => {
     expect(out.replace(/\n/g, ' ')).toBe('one two three four five six seven eight nine ten');
   });
 
-  test('fenced code keeps lines, gets a background and highlighting', () => {
+  test('fenced code is indented and highlighted, with no background or label (reads on light and dark)', () => {
     const src = '```ts\nconst x = "hi"; // note\nreturn x;\n```';
     const out = mdc(src, 60);
-    expect(out).toContain('\x1b[48;2;'); // background
-    expect(out).toContain('const');
-    const lines = stripAnsi(out).split('\n');
-    expect(lines[0].trim()).toBe('ts');
-    expect(lines[1]).toContain('const x = "hi"; // note');
-    // every code line is padded to the same width
-    expect(new Set(lines.slice(1).map((l) => l.length)).size).toBe(1);
+    expect(out).not.toContain('\x1b[48;'); // no background
+    expect(out).toContain('\x1b[34mconst'); // named blue: the terminal theme picks the shade
+    expect(stripAnsi(out).split('\n')).toEqual(['  const x = "hi"; // note', '  return x;']);
+  });
+
+  test('a long code line wraps under its own indent', () => {
+    const out = md('```ts\nfunction f() {\n    return a + b; // a fairly long trailing comment that should overflow\n}\n```', 40);
+    expect(out.split('\n')).toEqual(['  function f() {', '      return a + b; // a fairly long', '      trailing comment that should', '      overflow', '  }']);
+  });
+
+  test('links are clickable OSC 8 links where the terminal has them, else the URL follows the label', () => {
+    const linked = renderMarkdown('see [docs](https://x.dev/a)', { painter: createPainter({ enabled: true, hyperlinks: true }) });
+    expect(linked).toBe('see \x1b]8;;https://x.dev/a\x07\x1b[4mdocs\x1b[24m\x1b]8;;\x07');
+    expect(md('see [docs](https://x.dev/a) and https://y.dev')).toBe('see docs (https://x.dev/a) and https://y.dev');
   });
 
   test('plain mode indents code instead of coloring', () => {
@@ -117,19 +124,19 @@ describe('blocks', () => {
 describe('highlight', () => {
   test('keywords, strings, comments and numbers get colors', () => {
     const out = highlightLine('const n = 42; // answer', 'ts', color);
-    expect(out).toContain('\x1b[38;2;86;156;214mconst'); // keyword blue
-    expect(out).toContain('42');
-    expect(out).toContain('\x1b[38;2;106;153;85m// answer'); // comment green
+    expect(out).toContain('\x1b[34mconst'); // keyword blue
+    expect(out).toContain('\x1b[33m42'); // number yellow
+    expect(out).toContain('\x1b[90m// answer'); // comment gray
   });
 
   test('python comments use #', () => {
-    expect(highlightLine('x = 1  # hi', 'python', color)).toContain('\x1b[38;2;106;153;85m# hi');
+    expect(highlightLine('x = 1  # hi', 'python', color)).toContain('\x1b[90m# hi');
   });
 
   test('block comments continue across lines', () => {
     const st = {};
     highlightLine('/* start', 'js', color, st);
-    expect(highlightLine('still comment */ code', 'js', color, st)).toContain('\x1b[38;2;106;153;85mstill comment */');
+    expect(highlightLine('still comment */ code', 'js', color, st)).toContain('\x1b[90mstill comment */');
   });
 });
 

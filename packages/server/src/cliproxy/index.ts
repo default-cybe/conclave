@@ -62,7 +62,7 @@ import { catchRedirect, type Catcher, type CatchOptions } from './catcher';
 import { cliproxyEnv, cliproxyFiles, ensurePrivateDirs, writeConfig, type CliproxyFiles } from './config';
 import { Management, ManagementError, SUBSCRIPTION_PLUGINS, codexModels, listModels, splitPrefixed, type CodexModel, type RawCredential } from './management';
 import { RETIRED_ALIASES, type CyberProgram } from '@conclave/core/providers/access-programs.ts';
-import { CATALOG_MS, codexSection, dropCatalogs, fetchCatalog, withExtras, writeCatalog, type Catalog, type CatalogExtra } from './catalog';
+import { CATALOG_MS, CLAUDE_SECTION, claudeExtras, codexSection, dropCatalogs, fetchCatalog, withExtras, writeCatalog, type Catalog, type CatalogExtra } from './catalog';
 import {
   CLIPROXY_REPO,
   PINS,
@@ -242,6 +242,8 @@ const QUOTA_PLUGIN: Record<string, string> = { kiro4cpa: SUBSCRIPTION_PLUGINS.ki
 const DAY_MS = 86_400_000;
 /** How long a short name the hub wrote outlasts a model list that does not show it yet. */
 const PREFIX_SETTLE_MS = 5 * 60_000;
+/** How long a model a plan refused stays greyed out, unless Refresh models asks again. */
+const REFUSED_MS = DAY_MS;
 const STATUS_WORDS: Record<string, string> = { error: 'Failing', refreshing: 'Refreshing its sign-in', pending: 'Waiting to sign in' };
 
 /** "http://host:8317/v1/" -> "http://host:8317". Undefined for anything that is not a plain http(s) base. */
@@ -353,6 +355,8 @@ export class CliproxyManager {
   private priorityRun?: Promise<void>;
   /** The model catalog the hub gave its own CLIProxyAPI (catalog.ts): the official one it read, the file, what it added. */
   private catalog: { base?: Catalog; baseAt?: number; path?: string; added: Set<string>; failedAt?: number } = { added: new Set() };
+  /** Models a plan refused (id as called, prefixed for one plan): why, and until when the pickers grey them out. */
+  private refused = new Map<string, { reason: string; until: number }>();
   private catalogRun?: Promise<void>;
   private offAccounts: Array<() => void> = [];
   readonly files: CliproxyFiles;
@@ -445,6 +449,15 @@ export class CliproxyManager {
     (this.credTimer as { unref?: () => void }).unref?.();
     // a 429 on the gateway: read again now, so the next call goes to an account that has room
     this.offAccounts.push(this.accountService.onLimitHit(() => this.soon()));
+    // a plan refused one model: grey it out in the pickers with the reason, until Refresh models or a day passes
+    this.offAccounts.push(
+      this.accountService.onModelRefused((provider, model, reason) => {
+        if (provider !== PROVIDER_ID) return;
+        this.refused.set(model, { reason, until: Date.now() + REFUSED_MS });
+        log.warn(`${PROVIDER_ID}/${model}: ${reason}; the pickers show it as unavailable`);
+        this.applyProvider();
+      }),
+    );
     // the owner changed the order: write the priorities
     this.offAccounts.push(this.accountService.onChange(() => void this.syncPriorities()));
     // the window starter reads an account around a reset (core/src/accounts/starter.ts)
@@ -898,12 +911,17 @@ export class CliproxyManager {
   /** What the ChatGPT plans say of their models (ProviderConfig.modelMeta): name, Effort levels, default. The first plan that lists one speaks for it. */
   private planMeta(): NonNullable<ProviderConfig['modelMeta']> {
     const out: NonNullable<ProviderConfig['modelMeta']> = {};
+    const now = Date.now();
+    for (const [id, r] of this.refused) {
+      if (r.until > now) out[id] = { unavailable: r.reason };
+      else this.refused.delete(id);
+    }
     for (const c of this.raw) {
       if (c.disabled) continue;
       for (const m of this.creds.get(c.name)?.own ?? []) {
-        if (m.hidden || out[m.id]) continue;
+        if (m.hidden || (out[m.id] && !out[m.id].unavailable)) continue;
         const meta = { ...(m.name ? { name: m.name } : {}), ...(m.efforts ? { efforts: m.efforts } : {}), ...(m.defaultEffort ? { defaultEffort: m.defaultEffort } : {}) };
-        if (Object.keys(meta).length) out[m.id] = meta;
+        if (Object.keys(meta).length) out[m.id] = { ...meta, ...out[m.id] };
       }
     }
     return out;
@@ -1165,6 +1183,8 @@ export class CliproxyManager {
 
   /** Each account's models, on sign-in and every 10 minutes. */
   private async refreshModels(force = false, catalog = true): Promise<void> {
+    // Refresh models asks the plans again: a model one refused gets another try
+    if (force && this.refused.size) (this.refused.clear(), this.applyProvider());
     const mgmt = this.mgmt;
     if (!mgmt || mgmt.apiVersion !== 'v8') return;
     const every = this.opts.modelsMs ?? 10 * 60_000;
@@ -1220,7 +1240,8 @@ export class CliproxyManager {
 
   /**
    * The models ChatGPT plans offer that CLIProxyAPI's catalog lacks (catalog.ts):
-   * in the plan's section, by the plan's own list. Models only the hub's
+   * in the plan's section, by the plan's own list. With a Claude account signed
+   * in, the Claude models of Conclave's catalog it lacks, in the claude section. Models only the hub's
    * catalog gives CLIProxyAPI still count as missing, so the list stays put.
    */
   private catalogExtras(): CatalogExtra[] {
@@ -1235,6 +1256,12 @@ export class CliproxyManager {
         if (m.hidden || RETIRED_ALIASES[m.id]) continue;
         if (!listed.has(m.id) && !out.some((e) => e.section === section && e.id === m.id)) out.push({ section, id: m.id, ...(m.name ? { name: m.name } : {}) });
       }
+    }
+    // a Claude plan has no list of its own: Conclave's catalog fills the claude section, once a signed in Claude account's list was read
+    const claude = this.raw.filter((c) => USAGE_KIND[c.provider] === 'claude-usage' && !c.disabled && this.creds.get(c.name)?.models);
+    if (claude.length) {
+      const listed = new Set(claude.flatMap((c) => this.creds.get(c.name)!.models!.map((m) => m.id)).filter((id) => !this.catalog.added.has(`${CLAUDE_SECTION} ${id}`)));
+      out.push(...claudeExtras(listed));
     }
     return out.sort((a, b) => a.section.localeCompare(b.section) || a.id.localeCompare(b.id));
   }

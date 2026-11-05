@@ -305,9 +305,18 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'PUT /api/assistant/reflect': 'self',
   // one reflection now, with a model call on the hub's keys: the owner's
   'POST /api/assistant/reflect/run': 'admin',
-  // the recap reads only the caller's account; Summarise runs on the caller's own small model and keys
-  'GET /api/reflect/recap': 'self',
-  'POST /api/reflect/recap/summary': 'self',
+  // the report reads only the caller's account; its model pass runs on the caller's own small model and keys
+  'GET /api/reflect/report': 'self',
+  'POST /api/reflect/report/refresh': 'self',
+  // Learnings: the caller's own queue, written only on their press, to their own memory, agents, skills, or a trusted folder of their own session
+  'GET /api/reflect/learnings': 'self',
+  'GET /api/reflect/learnings/count': 'self',
+  'POST /api/reflect/learnings/:id/preview': 'self',
+  'POST /api/reflect/learnings/:id/save': 'self',
+  'POST /api/reflect/learnings/:id/skip': 'self',
+  'POST /api/reflect/ideas/find': 'self',
+  'POST /api/reflect/ideas/:id/save': 'self',
+  'POST /api/reflect/ideas/:id/skip': 'self',
   'GET /api/assistant/today': 'self',
   'POST /api/assistant/today/answer': 'self',
 
@@ -404,6 +413,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'PUT /api/workflows/:id/graph/layout': 'self',
   'POST /api/workflows/:id/graph/restore': 'self',
   'POST /api/workflows/:id/graph/insert': 'self',
+  'POST /api/workflows/:id/graph/remove': 'self',
   'POST /api/workflows/:id/copy': 'self',
   'GET /api/workflows/runs': 'self',
   'POST /api/workflows/runs': 'self',
@@ -426,6 +436,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   // ----- config, secrets, notifications, audit -----
   'GET /api/config': 'self',
   'PATCH /api/config': 'admin',
+  'GET /api/secrets': 'admin',
   'PUT /api/secrets': 'self',
   'GET /api/notify/channels': 'hub',
   'POST /api/notify/test': 'self',
@@ -608,6 +619,10 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/sessions/:id/flows/:name/run': SESSION,
   'GET /api/sessions/:id/flows/:name/run': SESSION,
   'POST /api/sessions/:id/flows/:name/stop': SESSION,
+  // Canvas's run queue (routes-flows.ts): the caller's own rows only; a program's session is checked as its own, someone else's queued run is 404
+  'GET /api/canvas/queue': 'self',
+  'POST /api/canvas/queue': 'self',
+  'DELETE /api/canvas/queue/:id': 'self',
   // a Code session's Preview pane (routes-preview.ts): runs launch.json on the device and the hub's Chromium, so the owner only
   'GET /api/sessions/:id/preview': 'admin',
   'POST /api/sessions/:id/preview/start': 'admin',

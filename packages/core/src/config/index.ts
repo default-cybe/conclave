@@ -3,15 +3,19 @@ import { randomBytes } from 'node:crypto';
 import { DEFAULT_CONFIG, type ConclaveConfig, type ProviderConfig } from './schema';
 import { paths, ensureDirs, type Paths } from './paths';
 import { dropRetiredKeys, markZaiWire, migrateZaiWire } from './retired';
+import { managedBy, secretPrefix, type SecretInfo } from './secret-names';
 
 export * from './schema';
 export * from './paths';
+export * from './secret-names';
 
 export interface Secrets {
   /** Provider id -> API key. */
   providers: Record<string, string>;
   /** Arbitrary named secrets referenced as ${secret:name} in config strings. */
   values: Record<string, string>;
+  /** When each named value was last set (ms), for Settings > Secrets. Older values have none. */
+  setAt?: Record<string, number>;
 }
 
 /** Strip // and /* *\/ comments and trailing commas so config files can be JSONC. */
@@ -197,6 +201,11 @@ export class ConfigStore {
   setSecret(kind: 'providers' | 'values', key: string, value: string | undefined): void {
     if (value === undefined || value === '') delete this.secrets[kind][key];
     else this.secrets[kind][key] = value;
+    if (kind === 'values') {
+      const at = (this.secrets.setAt ??= {});
+      if (Object.hasOwn(this.secrets.values, key)) at[key] = Date.now();
+      else delete at[key];
+    }
     writePrivate(this.paths.secrets, this.secrets);
     for (const fn of this.listeners) fn();
   }
@@ -235,6 +244,19 @@ export class ConfigStore {
   /** One named secret (secrets.json values), for hub code that uses it itself. */
   secretValue(name: string): string | undefined {
     return this.secrets.values[name] || undefined;
+  }
+
+  /** The named values with their metadata, never a value. Browser login passwords stay out (Settings > Browser lists them per site). */
+  secretList(): SecretInfo[] {
+    return Object.entries(this.secrets.values)
+      .filter(([name]) => !name.startsWith('browser.login.'))
+      .map(([name, v]) => {
+        const by = managedBy(name);
+        const setAt = this.secrets.setAt?.[name];
+        const prefix = by ? undefined : secretPrefix(v);
+        return { name, ...(prefix ? { prefix } : {}), ...(setAt ? { setAt } : {}), ...(by ? { managedBy: by } : {}) };
+      })
+      .sort((a, b) => Number(!!a.managedBy) - Number(!!b.managedBy) || a.name.localeCompare(b.name));
   }
 
   secretNames(): { providers: string[]; values: string[] } {

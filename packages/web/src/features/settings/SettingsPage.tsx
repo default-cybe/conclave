@@ -44,6 +44,7 @@ import { CalMailSection } from './calmail';
 import { MeetingsSection } from './meetings';
 import { BrowserSection } from './browser';
 import { GatewaySection } from './gateway';
+import { SecretsSection } from './secrets';
 import { AppsSection } from './apps';
 import { GithubSection } from './github';
 import { AboutSection, AppearanceSection, AuditSection } from './app';
@@ -163,7 +164,7 @@ const ALL_SECTIONS: SectionDef[] = [
   {
     id: 'reflect',
     label: 'Reflect',
-    desc: 'Your week, month or year at a glance, and what the assistant learns each night about how you like to work.',
+    desc: 'Your own report for a week up to a year, and what the assistant learns each night about how you like to work.',
     C: ReflectSection,
   },
   {
@@ -209,6 +210,14 @@ const ALL_SECTIONS: SectionDef[] = [
     label: 'Gateway keys',
     desc: 'Point Claude Code, Codex or OpenCode at the hub so their usage is tracked and routed.',
     C: GatewaySection,
+    owner: true,
+  },
+  {
+    id: 'secrets',
+    label: 'Secrets',
+    desc: 'Named values that ${secret:name} reads in MCP servers and other settings. Saved on the hub, never shown again.',
+    C: SecretsSection,
+    // the hub's secrets are the owner's (route-policy GET /api/secrets is admin)
     owner: true,
   },
   {

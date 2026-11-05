@@ -1,5 +1,5 @@
 /** Colored, collapsible unified diffs for Edit/Write results and approval previews. */
-import type { Painter } from '../ansi';
+import { truncate, type Painter } from '../ansi';
 
 export interface DiffOptions {
   painter: Painter;
@@ -7,6 +7,8 @@ export interface DiffOptions {
   maxLines?: number;
   /** Keep file header lines (---/+++/diff --git). Default false. */
   headers?: boolean;
+  /** Cut each line to this many columns so it never wraps under the gutter. */
+  width?: number;
 }
 
 export interface DiffStats {
@@ -66,7 +68,8 @@ export function colorDiff(diff: string, opts: DiffOptions): string {
   const header = headerFlags(lines);
   const body = lines.map((l, i) => ({ l, header: header[i] })).filter((x) => opts.headers || !x.header);
   const shown = max > 0 ? body.slice(0, max) : body;
-  const out = shown.map((x) => (x.header ? p.bold(p.dim(x.l)) : colorDiffLine(x.l, p)));
+  const cut = (l: string) => (opts.width ? truncate(l, opts.width) : l);
+  const out = shown.map((x) => (x.header ? p.bold(p.dim(cut(x.l))) : colorDiffLine(cut(x.l), p)));
   const hidden = body.length - shown.length;
   if (hidden > 0) out.push(p.dim(`… +${hidden} ${hidden === 1 ? 'line' : 'lines'}`));
   return out.join('\n');

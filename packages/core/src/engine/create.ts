@@ -1,4 +1,5 @@
 import { openDb, DB_OPTIMIZE_JOB, DB_OPTIMIZE_EVERY_MS } from '../storage/db';
+import { INCOGNITO_SWEEP_EVERY_MS, INCOGNITO_SWEEP_JOB } from '../session/incognito';
 import { Repos } from '../storage/repos';
 import { ConfigStore } from '../config';
 import type { ConclaveConfig } from '../config/schema';
@@ -46,6 +47,7 @@ import { markHubPrivate } from '../machine/private';
 import { ImportOffers, ImportService, attachImport, attachImportOffers } from '../import';
 import { DailyDigest, attachDigest } from '../memory/digest';
 import { WorkflowService } from '../workflows/service';
+import { attachCanvasQueue } from '../canvas/queue';
 import { AccountsService } from '../accounts/service';
 import { PimService, attachPim, PROPOSALS_PRUNE_JOB, type PimHost } from '../pim';
 import { reminder } from '../session/transcript';
@@ -335,6 +337,36 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
       untrustedAgent: (name, cwd) => !!engine.extensions.agent(name, cwd)?.untrusted,
       // no model named: completeText picks this account's small model on its own keys
       complete: (o) => completeText(engine, { ...o, accountId: acct }),
+      learnedSkills: () => engine.learnedSkillsFor(acct).list().map((s) => ({ name: s.name, created: s.created })),
+      // Reflect's Learnings: written only when the person presses Save (assistant/learnings.ts)
+      learn: {
+        skills: () => engine.learnedSkillsFor(acct),
+        agentPrompt: (name, cwd) => engine.agentsFor(acct, cwd).find((a) => a.name === name)?.prompt,
+        saveAgentPrompt: async (name, prompt, cwd) => {
+          const def = engine.agentsFor(acct, cwd).find((a) => a.name === name);
+          if (!def) throw new Error(`No agent named ${name}.`);
+          // as PUT /api/agents/:name saves it: a member's own file, the owner's user file (a built-in gets an override)
+          if (isMember(acct)) {
+            if (!engine.extensions.saveAccountAgent) throw new Error('This hub cannot keep agents per person.');
+            await engine.extensions.saveAccountAgent(acct, { ...def, prompt, source: 'account' } as typeof def);
+          } else await engine.extensions.saveAgent({ ...def, prompt, source: 'user' }, 'user');
+        },
+        projectRefusal: (cwd, sessionId) => {
+          const s = engine.getSession(sessionId);
+          if (!s || engine.accountOf(s) !== acct || s.cwd !== cwd) return 'The chat this came from is gone.';
+          if (!engine.trust.isTrusted(cwd)) return 'Trust this folder first (Extensions, Hooks). Only trusted folders take rules.';
+          return undefined;
+        },
+        projectFile: (cwd, sessionId) => {
+          const machine = engine.machineFor(engine.getSession(sessionId)!);
+          const path = join(cwd, 'CONCLAVE.md');
+          return {
+            path,
+            read: () => machine.readFile(path).then((b) => new TextDecoder().decode(b), () => undefined),
+            write: (text) => machine.writeFile(path, text),
+          };
+        },
+      },
     });
   assistant = assistantFor(OWNER_ID, memory);
   attachAssistant(engine, assistant, (acct) => {
@@ -406,6 +438,13 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
     engine.scheduler.enqueue(DB_OPTIMIZE_JOB, Date.now() + DB_OPTIMIZE_EVERY_MS, {}, DB_OPTIMIZE_JOB);
   });
   if (!repos.jobs.pending(DB_OPTIMIZE_JOB).length) engine.scheduler.enqueue(DB_OPTIMIZE_JOB, Date.now() + DB_OPTIMIZE_EVERY_MS, {}, DB_OPTIMIZE_JOB);
+  // incognito sessions (session/incognito.ts): every one a crash or restart left goes now, idle ones on a timer
+  void engine.sweepIncognito({ all: true }).catch((err) => log.warn('incognito sweep at start failed', err));
+  engine.scheduler.handle(INCOGNITO_SWEEP_JOB, async () => {
+    await engine.sweepIncognito();
+    engine.scheduler.enqueue(INCOGNITO_SWEEP_JOB, Date.now() + INCOGNITO_SWEEP_EVERY_MS, {}, INCOGNITO_SWEEP_JOB);
+  });
+  if (!repos.jobs.pending(INCOGNITO_SWEEP_JOB).length) engine.scheduler.enqueue(INCOGNITO_SWEEP_JOB, Date.now() + INCOGNITO_SWEEP_EVERY_MS, {}, INCOGNITO_SWEEP_JOB);
   // leave-by times (maps/leave-by.ts) read the calendars of the account the work runs for; a calendar error means no leave-by, not a failed day
   setCalendarPort(engine, {
     eventsBetween: async (start, end) => {
@@ -451,6 +490,8 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
   attachDigest(engine, digest);
   // workflows (workflows/service.ts): the library, runs and their journal, Ultra; runs a restart left resume here
   new WorkflowService(engine, { plugins: () => plugins.plugins().map((p) => ({ name: p.name, dir: p.dir, enabled: p.enabled })) }).start();
+  // Canvas's run queue (canvas/queue.ts): after workflows, so a run a restart left has resumed before the next queued one is weighed
+  attachCanvasQueue(engine);
   // in-process built-in hooks (file recall), listed in Extensions > Hooks > Built in
   registerBuiltinHooks(engine, hooks);
   // the verify gate: the project's check on the session's device before a coding agent's turn ends (session/verify-gate.ts)

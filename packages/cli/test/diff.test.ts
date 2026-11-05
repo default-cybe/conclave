@@ -67,14 +67,25 @@ describe('tool lines', () => {
 
   test('Edit preview is a colored diff summary', () => {
     const lines = toolPreview('Edit', { type: 'tool_result', toolUseId: 't', content: 'ok', meta: { diff: DIFF } }, { painter: color, width: 80 });
-    expect(stripAnsi(lines[0])).toBe('+1 -1');
+    expect(stripAnsi(lines[0])).toBe('Updated with 1 addition and 1 removal');
     expect(lines).toContain('\x1b[32m+new line\x1b[39m');
+  });
+
+  test('a long Edit diff collapses to 6 lines, ctrl+o shows it all, and lines are cut to the width', () => {
+    const diff = '@@ -1,10 +1,10 @@\n' + Array.from({ length: 10 }, (_, i) => `+line ${i} ${'x'.repeat(60)}`).join('\n');
+    const short = toolPreview('Edit', { type: 'tool_result', toolUseId: 't', content: 'ok', meta: { diff } }, { painter: plain, width: 40 });
+    expect(short).toHaveLength(1 + 6 + 1);
+    expect(short.at(-1)).toBe('… +5 lines (ctrl+o to expand)');
+    expect(short.slice(1).every((l) => l.length <= 40)).toBe(true);
+    const full = toolPreview('Edit', { type: 'tool_result', toolUseId: 't', content: 'ok', meta: { diff } }, { painter: plain, width: 40, expand: true });
+    expect(full).toHaveLength(1 + 11);
   });
 
   test('Bash preview shows first lines and counts the rest', () => {
     const content = Array.from({ length: 10 }, (_, i) => `out ${i}`).join('\n');
     const lines = toolPreview('Bash', { type: 'tool_result', toolUseId: 't', content }, { painter: plain, width: 80 });
-    expect(lines).toEqual(['out 0', 'out 1', 'out 2', '… +7 lines']);
+    expect(lines).toEqual(['out 0', 'out 1', 'out 2', '… +7 lines (ctrl+o to expand)']);
+    expect(toolPreview('Bash', { type: 'tool_result', toolUseId: 't', content }, { painter: plain, width: 80, expand: true })).toHaveLength(10);
   });
 
   test('Grep preview counts', () => {

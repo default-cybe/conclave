@@ -10,7 +10,9 @@ import * as ed from '../src/tui/editor';
 import { History } from '../src/tui/history';
 import { renderItem } from '../src/tui/render-item';
 import { approvalPreview, toolTitle } from '../src/render/tools';
-import { contextPercent, footerLine, headerLine, spread, tightestLimit, usageLine } from '../src/tui/statusline';
+import { contextPercent, spread, statusLine, tightestLimit, usageLine } from '../src/tui/statusline';
+import { approvalChoices, approvalResponse } from '../src/tui/Prompts';
+import { fuzzyFiles, fuzzyScore } from '../src/tui/complete';
 import { getPath, parseValue, patchFor } from '../src/commands/config';
 
 const plain = createPainter({ enabled: false });
@@ -107,7 +109,7 @@ describe('render items', () => {
   test('thinking collapses to one line', () => {
     const out = renderItem({ kind: 'thinking', id: 't', final: true, text: 'a b c' }, { width: 40, painter: plain, showThinking: false });
     expect(out.split('\n')).toHaveLength(1);
-    expect(out).toContain('3 words');
+    expect(out).toBe('✻ Thought');
   });
 
   test('tool line with status and preview', () => {
@@ -115,11 +117,69 @@ describe('render items', () => {
       { kind: 'tool', id: 'x', final: true, name: 'Bash', input: { command: 'ls' }, status: 'done', result: { type: 'tool_result', toolUseId: 'x', content: 'a\nb' }, aside: false },
       { width: 60, painter: plain, showThinking: false },
     );
-    expect(out).toBe('● Bash ls\n  ⎿  a\n     b');
+    expect(out).toBe('● Bash(ls)\n  ⎿  a\n     b');
+  });
+
+  const ctx = (w: number, extra = {}) => ({ width: w, painter: plain, showThinking: false, ...extra });
+  const longBash = { kind: 'tool' as const, id: 'b', final: true, name: 'Bash', input: { command: 'bun test packages/cli/test/very/long/path/that/goes/on.test.ts' }, status: 'done' as const, result: { type: 'tool_result' as const, toolUseId: 'b', content: Array.from({ length: 6 }, (_, i) => `ok ${i} ${'.'.repeat(70)}`).join('\n') }, aside: false };
+
+  test('tool call snapshot at 120 cols: one line, collapsed result', () => {
+    expect(renderItem(longBash, ctx(119))).toBe(
+      ['● Bash(bun test packages/cli/test/very/long/path/that/goes/on.test.ts)', `  ⎿  ok 0 ${'.'.repeat(70)}`, `     ok 1 ${'.'.repeat(70)}`, `     ok 2 ${'.'.repeat(70)}`, '     … +3 lines (ctrl+o to expand)'].join('\n'),
+    );
+  });
+
+  test('tool call snapshot at 60 cols: title and output cut to the width, never wrapped', () => {
+    const out = renderItem(longBash, ctx(59));
+    expect(out.split('\n')).toEqual([
+      '● Bash(bun test packages/cli/test/very/long/path/that/goe…)',
+      `  ⎿  ok 0 ${'.'.repeat(47)}…`,
+      `     ok 1 ${'.'.repeat(47)}…`,
+      `     ok 2 ${'.'.repeat(47)}…`,
+      '     … +3 lines (ctrl+o to expand)',
+    ]);
+    expect(out.split('\n').every((l) => width(l) <= 59)).toBe(true);
+    expect(renderItem(longBash, ctx(59, { expand: true })).split('\n')).toHaveLength(7);
+  });
+
+  test('assistant text snapshot at 60 and 120 cols: dot, wrapped markdown, no box', () => {
+    const item = { kind: 'text' as const, id: 't', final: true, text: '**Plan**: read `config.ts`, then fix the loader so it stops reading the whole tree on every call.\n\n- one\n- two', first: true, aside: false };
+    expect(renderItem(item, ctx(119))).toBe('● Plan: read config.ts, then fix the loader so it stops reading the whole tree on every call.\n\n  • one\n  • two');
+    expect(renderItem(item, ctx(59))).toBe('● Plan: read config.ts, then fix the loader so it stops\n  reading the whole tree on every call.\n\n  • one\n  • two');
+  });
+
+  test('an error hangs under the turn as one ⎿ line, not a card', () => {
+    const out = renderItem({ kind: 'stop', id: 's', final: true, title: 'Provider error', evidence: '529 overloaded', next: 'Try again or pick another model with /model.', tone: 'error' }, ctx(59));
+    expect(out).toBe('  ⎿  Provider error: 529 overloaded\n     Try again or pick another model with /model.');
+    expect(renderItem({ kind: 'notice', id: 'n', final: true, text: 'Interrupted by user', level: 'error' }, ctx(119))).toBe('  ⎿  Interrupted by user');
+  });
+
+  test('the banner is a single line', () => {
+    expect(renderItem({ kind: 'banner', id: 'b', final: true, lines: ['✻ Conclave ~/src/app'] }, ctx(59))).toBe('✻ Conclave ~/src/app');
   });
 
   test('aside label uses the model', () => {
     expect(renderItem({ kind: 'label', id: 'l', final: true, text: 'Second opinion', model: 'openai/gpt-5.5' }, { width: 60, painter: plain, showThinking: false })).toBe('◆ Second opinion · gpt-5.5');
+  });
+});
+
+describe('approval menu', () => {
+  test('numbered choices map to hub responses; no "always" in an untrusted session', () => {
+    const a = { suggestedRule: 'Bash(git:*)' };
+    expect(approvalChoices(a).map((c) => c.label)).toEqual(['Yes', 'Yes, for the rest of this session', 'Yes, always', 'No', 'No, and tell it what to do instead']);
+    expect(approvalResponse('always', a)).toEqual({ decision: 'allow', scope: 'always', rule: 'Bash(git:*)' });
+    expect(approvalResponse('message', a)).toBeUndefined();
+    expect(approvalChoices({ noAlways: true }).map((c) => c.key)).toEqual(['once', 'session', 'deny', 'message']);
+    expect(approvalResponse('always', { noAlways: true })).toBeUndefined();
+  });
+});
+
+describe('fuzzy @file', () => {
+  test('finds files across folders, name hits first', () => {
+    const paths = ['packages/', 'packages/cli/src/tui/App.tsx', 'packages/web/src/app.ts', 'docs/apple.md', 'README.md'];
+    expect(fuzzyFiles(paths, 'app', 3).map((s) => s.label)).toEqual(['packages/web/src/app.ts', 'packages/cli/src/tui/App.tsx', 'docs/apple.md']);
+    expect(fuzzyFiles(paths, 'tuiapp').map((s) => s.value)).toEqual(['@packages/cli/src/tui/App.tsx']);
+    expect(fuzzyScore('README.md', 'zz')).toBe(-1);
   });
 });
 
@@ -156,12 +216,13 @@ describe('status line', () => {
     expect(t.window.name).toBe('5h');
   });
 
-  test('footer shows context, tokens, cost, cache and the limit', () => {
-    const out = usageLine(
-      { session, model: 'claude-code/opus', lastUsage: { inputTokens: 1000, outputTokens: 1000, cacheReadTokens: 48_000 }, contextWindow: 200_000, limits, subscriptions: { 'claude-code': 'claude-max' }, now },
-      plain,
-    );
-    expect(out).toBe('ctx 25% · 4k in / 500 out · $0.42 · cache 75% · claude 5h 62% · resets 1h12m');
+  test('usage shows context left and cost; a limit only once it passes 70%', () => {
+    const base = { session, model: 'claude-code/opus', lastUsage: { inputTokens: 1000, outputTokens: 1000, cacheReadTokens: 48_000 }, contextWindow: 200_000, subscriptions: { 'claude-code': 'claude-max' }, now };
+    expect(usageLine({ ...base, limits }, plain)).toBe('75% context left · $0.42');
+    const hot: LimitState[] = [{ ...limits[0], windows: [{ name: '5h', usedPercent: 88, resetsAt: now + 72 * 60_000 }] }];
+    expect(usageLine({ ...base, limits: hot }, plain)).toBe('75% context left · $0.42 · claude 5h 88% · resets 1h12m');
+    // nothing before any usage: no "0 in / 0 out · $0"
+    expect(usageLine({ limits: [], subscriptions: {}, now }, plain)).toBe('');
   });
 
   test('waiting_reset shows a countdown', () => {
@@ -169,21 +230,21 @@ describe('status line', () => {
     expect(out.startsWith('⏸ limit reached · resumes in 1m05s')).toBe(true);
   });
 
-  test('header shows model, effort, agent and mode left, permissions right', () => {
-    const out = headerLine({ model: 'zai/glm-5', effort: 'high', agent: 'coder', mode: 'plan', permissionMode: 'acceptEdits' }, plain, 60);
-    expect(out).toStartWith('● glm-5 · high · @coder · plan  ');
-    expect(out).toEndWith('  ⏵⏵ accept edits');
-    expect(width(out)).toBe(60);
-    // the plain agent mode is not repeated on every frame
-    expect(headerLine({ model: 'zai/glm-5', mode: 'agent' }, plain, 40)).not.toContain('agent');
+  test('one status row: a hint left in the default mode, model and usage right (120 and 60 cols)', () => {
+    const s = { model: 'zai/glm-5', effort: 'high', mode: 'agent', permissionMode: 'default' as const, hubStatus: 'open' as const, device: 'local', session, limits: [], subscriptions: {}, now };
+    const wide = statusLine(s, plain, 118);
+    expect(wide).toBe('? for shortcuts' + ' '.repeat(118 - 15 - 'glm-5 · high · $0.42'.length) + 'glm-5 · high · $0.42');
+    const narrow = statusLine(s, plain, 58);
+    expect(width(narrow)).toBe(58);
+    expect(narrow).toEndWith('glm-5 · high · $0.42');
   });
 
-  test('footer puts the folder left and usage right; the hub only shows when it is not connected', () => {
-    const out = footerLine({ device: 'pc', cwd: '/srv/app', hubStatus: 'open', session, limits: [], subscriptions: {}, now }, plain, 80);
-    expect(out.startsWith('pc:/srv/app ')).toBe(true);
-    expect(out.endsWith('$0.42 · cache 75%')).toBe(true);
-    expect(width(out)).toBe(80);
-    expect(footerLine({ device: 'pc', cwd: '/srv/app', hubStatus: 'closed', limits: [], subscriptions: {}, now }, plain, 80)).toStartWith('● hub offline · pc:/srv/app');
+  test('a non-default permission mode, a closed hub and a remote device show on the left', () => {
+    const s = { model: 'zai/glm-5', permissionMode: 'acceptEdits' as const, hubStatus: 'closed' as const, device: 'pc', limits: [], subscriptions: {}, now };
+    expect(statusLine(s, plain, 118)).toStartWith('● hub offline · ⏵⏵ accept edits on (shift+tab to cycle) · on pc');
+    const narrow = statusLine(s, plain, 58);
+    expect(narrow).toStartWith('● hub offline · ⏵⏵ accept edits on · on pc');
+    expect(width(narrow)).toBeLessThanOrEqual(58);
   });
 
   test('narrow rows keep the right side and cut the left', () => {
@@ -281,7 +342,20 @@ describe('terminal chat polish', () => {
     emit({ type: 'session.updated', session: { id: 's1', status: 'error', error: 'provider exploded', model: 'x/y', stats: {} } });
     const out = shown(ctl);
     expect(out.filter((t) => t.includes('provider exploded'))).toHaveLength(1);
-    expect(out).toContain('■ Why this turn stopped: Provider error\n  Send a message to try again, or switch model.');
+    expect(out).toContain('  ⎿  Provider error\n     Send a message to try again, or switch model.');
+    ctl.dispose();
+  });
+
+  test('every stop shows once as "Interrupted by user", however close together', () => {
+    const { ctl, emit } = fakeCtl();
+    for (const id of ['n1', 'n2']) {
+      // the hub writes the notice message and also sends it as a notice event (engine.notice)
+      emit({ type: 'message.created', message: { id, sessionId: 's1', seq: 1, role: 'assistant', kind: 'notice', createdAt: 1, meta: { level: 'info' }, content: [{ type: 'text', text: 'Stopped' }] } });
+      emit({ type: 'notice', notice: { id: `e${id}`, title: 'Conclave', body: 'Stopped', level: 'info', sessionId: 's1', createdAt: 1 } });
+    }
+    const out = shown(ctl);
+    expect(out.filter((t) => t === '  ⎿  Interrupted by user')).toHaveLength(2);
+    expect(out.some((t) => t.includes('Stopped'))).toBe(false);
     ctl.dispose();
   });
 
@@ -296,7 +370,7 @@ describe('terminal chat polish', () => {
     resync();
     await tick();
     // the owner pressed Stop (from the phone): no "hub restarted" card
-    expect(shown(ctl).some((t) => t.includes('Why this turn stopped'))).toBe(false);
+    expect(shown(ctl).some((t) => t.includes('hub restarted'))).toBe(false);
     expect(ctl.getSnapshot().queue).toEqual([]);
     ctl.dispose();
   });
@@ -382,7 +456,7 @@ describe('terminal chat polish', () => {
     const stops = items.filter((i) => i.kind === 'stop');
     expect(stops).toHaveLength(1);
     expect(items.some((i) => i.kind === 'notice' && i.text === 'provider exploded')).toBe(false);
-    expect(stripAnsi(renderItem(stops[0], { width: 60, painter: plain, showThinking: false }))).toBe('■ Why this turn stopped: Provider error\n  provider exploded\n  Send a message to try again, or switch model.');
+    expect(stripAnsi(renderItem(stops[0], { width: 60, painter: plain, showThinking: false }))).toBe('  ⎿  Provider error: provider exploded\n     Send a message to try again, or switch model.');
     ctl.dispose();
   });
 

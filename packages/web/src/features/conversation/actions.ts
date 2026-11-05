@@ -88,11 +88,11 @@ export function attachmentsOf(m: Message): Attachment[] {
  * so the reply never starts on an empty page; /chat then becomes /chat/:id in place, and Back goes home.
  * Left before the hub answered, the chat still starts and waits in the list.
  */
-export async function startChat(out: Outgoing, opts: { model?: string; chat: Partial<ChatSettings> }, navigate: Navigate): Promise<boolean> {
+export async function startChat(out: Outgoing, opts: { model?: string; chat: Partial<ChatSettings>; incognito?: boolean }, navigate: Navigate): Promise<boolean> {
   setPending('new', pendingFor(out, []));
   if (window.location.pathname !== '/chat') navigate('/chat');
   const withFiles = out.attachments.length > 0;
-  const s = await attempt(() => api().createSession({ kind: 'chat', model: opts.model, chat: opts.chat, prompt: withFiles ? undefined : out.text }));
+  const s = await attempt(() => api().createSession({ kind: 'chat', model: opts.model, chat: opts.chat, ...(opts.incognito ? { incognito: true } : {}), prompt: withFiles ? undefined : out.text }));
   if (!s) {
     setPending('new', undefined);
     return false;
