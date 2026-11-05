@@ -354,7 +354,8 @@ async function runBrowser(
     // a member's capture connects only through a relay that dials checked public addresses: routes never see redirect hops
     if (isMember(deps.account)) relay = await SocksRelay.publicOnly(deps.publicAddress ?? ((host) => resolvePublic(host)));
     const args = ['--autoplay-policy=no-user-gesture-required', '--disable-background-networking', '--no-first-run', ...(relay ? [WEBRTC_PROXY_FLAG] : [])];
-    const launch = { executablePath: b.exe, headless: true, timeout: 30_000, ...(b.name === 'chromium' ? { args } : {}), ...(relay ? { proxy: { server: relay.url, bypass: '<-loopback>' } } : {}) };
+    // a cold first Chrome start on a busy host (CI runners) passed 30s; the hub's own profiles allow 60s (manager.ts LAUNCH_MS)
+    const launch = { executablePath: b.exe, headless: true, timeout: 60_000, ...(b.name === 'chromium' ? { args } : {}), ...(relay ? { proxy: { server: relay.url, bypass: '<-loopback>' } } : {}) };
     if (relay) {
       // full Chromium ignores WEBRTC_PROXY_FLAG and reads the profile pref, so a member's capture runs on a throwaway profile that has it; its new contexts keep the pref
       profile = mkdtempSync(join(tmpdir(), 'conclave-capture-'));
