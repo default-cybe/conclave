@@ -88,6 +88,57 @@ describe('the canvas queue', () => {
     }
   });
 
+  test("one account's busy file does not hold another account's queued run of the same workflow id", async () => {
+    gate = new Promise<void>((r) => (release = r));
+    const svc = svcOf(t.engine);
+    const q = canvasQueueOf(t.engine);
+    const first = await svc.startRun({ name: 'q-flow' }, { accountId: OWNER_ID });
+    const mine = await q.add(OWNER_ID, { workflow: 'q-flow' });
+    // a member's row for the same id, newer than the owner's waiting one
+    t.engine.repos.db.query("INSERT INTO canvas_queue (id, account_id, file, kind, target, session_id, args, state, started_at, created_at) VALUES ('cvq_member', 'acct_m', ?, 'workflow', 'q-flow', NULL, NULL, 'queued', NULL, ?)").run(workflowFile('q-flow'), Date.now() + 1);
+    await q.pump('acct_m', workflowFile('q-flow'));
+    // the member's was weighed on its own (it cannot see the owner's workflow, so it is dropped with a notice); the owner's still waits
+    expect(t.engine.repos.db.query("SELECT id FROM canvas_queue WHERE id = 'cvq_member'").get()).toBeNull();
+    expect(q.list(OWNER_ID).map((x) => x.id)).toEqual([mine.id]);
+    release();
+    await svc.wait(first.id);
+    await until(() => q.list(OWNER_ID).length === 0, 10_000);
+    await until(() => svc.store.listRuns({ name: 'q-flow' }).every((r) => r.status === 'done'), 20_000);
+  });
+
+  test('runs that end while the next is being started do not stall the queue', async () => {
+    gate = new Promise<void>((r) => (release = r));
+    const svc = svcOf(t.engine);
+    writeFileSync(join(svc.registry.userDir, 'q-fast.js'), `export const meta = { name: 'q-fast', description: 'q' }\nif (args?.slow) await agent('say slow')\nreturn 1\n`);
+    const q = canvasQueueOf(t.engine);
+    const first = await svc.startRun({ name: 'q-fast', args: { slow: true } }, { accountId: OWNER_ID });
+    for (let i = 0; i < 4; i++) await q.add(OWNER_ID, { workflow: 'q-fast', args: { n: i } });
+    release();
+    await svc.wait(first.id);
+    await until(() => q.list(OWNER_ID).length === 0 && svc.store.listRuns({ name: 'q-fast' }).length === 5, 10_000);
+  });
+
+  test('a hub shutdown that interrupts the running workflow keeps the run queued behind it', async () => {
+    gate = new Promise<void>((r) => (release = r));
+    const svc = svcOf(t.engine);
+    const first = await svc.startRun({ name: 'q-flow' }, { accountId: OWNER_ID });
+    await until(() => svc.store.getRun(first.id)?.status === 'running', 10_000);
+    const queued = await canvasQueueOf(t.engine).add(OWNER_ID, { workflow: 'q-flow', args: { word: 'later' } });
+    await t.engine.shutdown();
+    release();
+    // the shutdown marks the first interrupted; that is not the end the queued one waits for
+    expect(t.engine.repos.db.query('SELECT id FROM canvas_queue WHERE id = ?').get(queued.id)).toEqual({ id: queued.id });
+    t.engine = await reopen(t);
+    await until(() => canvasQueueOf(t.engine).list(OWNER_ID).length === 0, 20_000);
+    await until(() => svcOf(t.engine).store.listRuns({ name: 'q-flow' }).every((r) => r.status === 'done' || r.status === 'interrupted'), 20_000);
+    const later = svcOf(t.engine).store.listRuns({ name: 'q-flow' }).find((r) => (r.args as { word?: string } | undefined)?.word === 'later');
+    expect(later).toBeDefined();
+    // it waited for the resumed first run to end
+    const resumed = svcOf(t.engine).store.getRun(first.id)!;
+    expect(resumed.status).toBe('done');
+    expect(later!.createdAt).toBeGreaterThanOrEqual(resumed.finishedAt!);
+  });
+
   test('a program run cut with nothing queued reads failed with the reason in its view', async () => {
     const s = await t.engine.createSession({ title: 'flows 2', cwd: t.cwd });
     t.engine.repos.db.query("INSERT INTO canvas_queue (id, account_id, file, kind, target, session_id, args, state, started_at, created_at) VALUES ('flr_cut2', 'owner', ?, 'program', 'tick', ?, NULL, 'running', 5, 5)").run(programFile(s.id, 'tick'), s.id);

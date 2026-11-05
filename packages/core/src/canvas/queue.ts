@@ -76,6 +76,8 @@ export class CanvasQueue {
   private readonly db: Db;
   /** Files whose next run is being started now: a second end event must not start two. */
   private readonly starting = new Set<string>();
+  /** Files an end event reached while their next run was starting: weighed again after. */
+  private readonly again = new Set<string>();
   private offBus?: () => void;
   private offFlows?: () => void;
 
@@ -101,8 +103,10 @@ export class CanvasQueue {
           .run(e.view.runId, acct, file, e.name, e.sessionId, e.view.startedAt, e.view.startedAt);
         return;
       }
+      // a run the shutdown ends keeps its row: the next boot reads it as cut by the restart
+      if (this.engine.stopSignal.aborted) return;
       this.db.query('DELETE FROM canvas_queue WHERE id = ?').run(e.view.runId);
-      void this.pump(file);
+      void this.pump(this.engine.getSession(e.sessionId)?.accountId ?? OWNER_ID, file);
     };
     flows.watchers.add(onFlow);
     this.offFlows = () => flows.watchers.delete(onFlow);
@@ -110,7 +114,7 @@ export class CanvasQueue {
       if (e.type !== 'workflow.run' || e.run.parentRunId || !ENDED.has(e.run.status)) return;
       this.onWorkflowEnd(e.run);
     });
-    for (const r of this.db.query("SELECT DISTINCT file FROM canvas_queue WHERE state = 'queued'").all() as Array<{ file: string }>) void this.pump(r.file);
+    for (const r of this.db.query("SELECT DISTINCT account_id, file FROM canvas_queue WHERE state = 'queued'").all() as Array<{ account_id: string; file: string }>) void this.pump(r.account_id, r.file);
   }
 
   stop(): void {
@@ -160,7 +164,7 @@ export class CanvasQueue {
       .query("INSERT INTO canvas_queue (id, account_id, file, kind, target, session_id, args, state, started_at, created_at) VALUES (?,?,?,?,?,?,?,'queued',NULL,?)")
       .run(id, row.account_id, row.file, row.kind, row.target, row.session_id, row.args, now);
     const item = dto({ ...row, id, state: 'queued', started_at: null, created_at: now });
-    await this.pump(file);
+    await this.pump(accountId, file);
     return item;
   }
 
@@ -174,7 +178,7 @@ export class CanvasQueue {
     const acct = (run.sessionId ? this.engine.getSession(run.sessionId)?.accountId : undefined) ?? OWNER_ID;
     // the run's name is the workflow's meta name; a queued item names the workflow by id, so pump each of the account's workflow files
     const files = this.db.query("SELECT DISTINCT file FROM canvas_queue WHERE account_id = ? AND kind = 'workflow' AND state = 'queued'").all(acct) as Array<{ file: string }>;
-    for (const f of files) void this.pump(f.file);
+    for (const f of files) void this.pump(acct, f.file);
   }
 
   /** Whether a file has a run going now. */
@@ -191,14 +195,17 @@ export class CanvasQueue {
   }
 
   /** Start the file's next queued run when nothing of it runs. A start that fails is dropped with a notice, and the next one is tried. */
-  async pump(file: string): Promise<void> {
-    if (this.starting.has(file)) return;
-    this.starting.add(file);
+  async pump(accountId: string, file: string): Promise<void> {
+    // the shutdown interrupts runs; what waits behind them stays queued for the next boot
+    if (this.engine.stopSignal.aborted) return;
+    // per account: two accounts' same workflow id (a built-in) are two files, neither waits on the other
+    const key = `${accountId}\0${file}`;
+    if (this.starting.has(key)) return void this.again.add(key);
+    this.starting.add(key);
     try {
       for (;;) {
-        const next = this.db.query("SELECT * FROM canvas_queue WHERE file = ? AND state = 'queued' ORDER BY created_at, rowid LIMIT 1").get(file) as Row | null;
-        if (!next || (await this.busy(next))) return;
-        this.db.query('DELETE FROM canvas_queue WHERE id = ?').run(next.id);
+        const next = this.db.query("SELECT * FROM canvas_queue WHERE account_id = ? AND file = ? AND state = 'queued' ORDER BY created_at, rowid LIMIT 1").get(accountId, file) as Row | null;
+        if (!next || (await this.busy(next)) || this.engine.stopSignal.aborted) return;
         try {
           await runAs(next.account_id, async () => {
             if (next.kind === 'program') {
@@ -214,10 +221,14 @@ export class CanvasQueue {
         } catch (err) {
           log.warn(`queued run ${next.id} of ${file} did not start`, err);
           runAs(next.account_id, () => this.engine.notice(next.kind === 'program' ? (next.session_id ?? undefined) : undefined, `A queued run of ${next.target} did not start: ${(err as Error).message}`, 'warning', 'Canvas'));
+        } finally {
+          // off the queue once its run exists, so a reader never sees it gone before the run it became
+          this.db.query('DELETE FROM canvas_queue WHERE id = ?').run(next.id);
         }
       }
     } finally {
-      this.starting.delete(file);
+      this.starting.delete(key);
+      if (this.again.delete(key)) void this.pump(accountId, file);
     }
   }
 }

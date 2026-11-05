@@ -2428,7 +2428,7 @@ export class ConclaveClient {
   flowRun = (sessionId: string, name: string) => this.request<FlowRunView | null>('GET', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/run`);
   stopFlow = (sessionId: string, name: string) => this.request<FlowRunView | null>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/stop`);
   // ----- Canvas's run queue on the hub (one run per file; the next starts when the last ends) -----
-  canvasQueue = (file?: string) => this.request<CanvasQueuedRun[]>('GET', `/api/canvas/queue${file ? `?file=${encodeURIComponent(file)}` : ''}`);
+  canvasQueue = (file?: string) => this.request<CanvasQueuedRun[]>('GET', '/api/canvas/queue', undefined, { file });
   queueCanvasRun = (input: CanvasQueueInput) => this.request<CanvasQueuedRun>('POST', '/api/canvas/queue', input);
   cancelCanvasRun = (id: string) => this.request<void>('DELETE', `/api/canvas/queue/${encodeURIComponent(id)}`);
   /** Copy a built-in or plugin workflow into your own workflows, where it can be edited. */
