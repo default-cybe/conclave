@@ -147,10 +147,16 @@ export const OptionsButton = forwardRef<HTMLButtonElement, { onClick: () => void
   );
 });
 
+/** The marker on the model picker while Same model for all work is on. */
+export function SameModelDot() {
+  return <span aria-hidden data-same-model="" className="size-1.5 shrink-0 rounded-full bg-signal" />;
+}
+
 /** The model's short name in fg-3; a tap opens the model list. */
-export const ModelWord = forwardRef<HTMLButtonElement, { name: string; onClick: () => void; expanded?: boolean }>(function ModelWord({ name, onClick, expanded }, ref) {
+export const ModelWord = forwardRef<HTMLButtonElement, { name: string; onClick: () => void; expanded?: boolean; marked?: boolean }>(function ModelWord({ name, onClick, expanded, marked }, ref) {
   return (
-    <button ref={ref} type="button" aria-label={`Model, ${name}`} aria-haspopup="dialog" aria-expanded={expanded} onClick={onClick} className="flex h-11 min-w-0 items-center rounded-full px-2 text-[14px] text-fg-3 active:bg-hover">
+    <button ref={ref} type="button" aria-label={`Model, ${name}${marked ? ', same model for all work' : ''}`} aria-haspopup="dialog" aria-expanded={expanded} onClick={onClick} className="flex h-11 min-w-0 items-center gap-1.5 rounded-full px-2 text-[14px] text-fg-3 active:bg-hover">
+      {marked && <SameModelDot />}
       <span className="truncate">{name}</span>
     </button>
   );

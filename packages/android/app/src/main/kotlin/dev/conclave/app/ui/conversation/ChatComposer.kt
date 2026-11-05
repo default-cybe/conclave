@@ -114,6 +114,9 @@ class ComposerModel(
     val cyberChoices: List<String?> = emptyList(),
     val cyberValue: String? = null,
     val onCyber: (String?) -> Unit = {},
+    /** Same model for all work (chat.sameModel): hand-offs run on this model. The switch shows only with [onSameModel] (a session that exists). */
+    val sameModel: Boolean = false,
+    val onSameModel: ((Boolean) -> Unit)? = null,
     /** A chat's switches, for the note under the box when memory is off. Null for an agent session. */
     val switches: ChatSettings? = null,
     /** The light on the composer's edge: live while a reply runs, amber while it waits on you (CHAT-AND-MOTION 1.3). */
@@ -321,11 +324,12 @@ fun ChatComposer(
             right = {
                 QuietChip(
                     Effort.words(m.model, m.effortValue, m.effort, m.follow),
-                    onClickLabel = "Choose the model and effort",
+                    onClickLabel = if (m.sameModel) "Choose the model and effort. Same model for all work is on" else "Choose the model and effort",
                     onClick = { picking = true },
                     enabled = enabled,
                     strong = true,
                     maxWidth = 200.dp,
+                    marked = m.sameModel,
                 )
                 val use = m.context
                 if (use != null) ContextRing(use, onClick = { contextOpen = true }, enabled = enabled)
@@ -373,10 +377,12 @@ fun ChatComposer(
     if (picking) {
         // the Effort row on top: the levels this model has; a model without Effort shows none
         val e = m.effort?.takeIf { Effort.choices(it).isNotEmpty() }
-        val header: (@Composable () -> Unit)? = if (e != null || m.cyberChoices.isNotEmpty()) {
+        val same = m.onSameModel
+        val header: (@Composable () -> Unit)? = if (e != null || m.cyberChoices.isNotEmpty() || same != null) {
             {
                 if (e != null) EffortPicker(e, m.effortValue, m.follow, m.onEffort)
                 CyberPicker(m.cyberChoices, m.cyberValue, m.onCyber)
+                if (same != null) SwitchRow("Same model for all work", SAME_MODEL_HELP, m.sameModel, same)
             }
         } else {
             null

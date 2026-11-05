@@ -216,6 +216,8 @@ data class ChatSettings(
     val thinking: ThinkingLevel? = null,
     /** Cyber access program for a ChatGPT plan model (standard, daybreak_blue, daybreak_red); null sends nothing. */
     val cyber: String? = null,
+    /** Same model for all work: Delegate, Task and workflow agents run on the session's model (core session/model-pin.ts). */
+    val sameModel: Boolean = false,
 )
 
 // ---------------------------------------------------------------------------

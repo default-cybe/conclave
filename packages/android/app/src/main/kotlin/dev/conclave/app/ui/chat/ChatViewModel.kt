@@ -387,6 +387,9 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
     fun setCyber(program: String?) =
         patch(SessionPatch(chat = if (program == null) ChatSettingsPatch(defaultCyber = true) else ChatSettingsPatch(cyber = program)))
 
+    /** Same model for all work (chat.sameModel): hand-offs from this session run on its model. */
+    fun setSameModel(on: Boolean) = patch(SessionPatch(chat = ChatSettingsPatch(sameModel = on)))
+
     /** Ultra: the agent plans and runs workflows for real tasks (docs/WORKFLOWS.md). The hub refuses it on chats. */
     fun setUltra(on: Boolean) = patch(SessionPatch(ultra = on))
     fun togglePin() = patch(SessionPatch(pinned = !(_session.value?.pinned ?: false)))

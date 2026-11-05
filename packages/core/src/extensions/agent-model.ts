@@ -123,13 +123,24 @@ export function agentModelRef(host: ModelHost, ref: string | undefined, sessionM
 }
 
 /**
+ * What a hand-off asks for under Same model for all work (session/model-pin.ts):
+ * a provider/model ref the call named, else the pin. Tier words, aliases and
+ * nothing become the pin. Without a pin, `ask` as is.
+ */
+export function pinnedAsk(pin: string | undefined, ask: string | undefined): string | undefined {
+  return pin && !ask?.includes('/') ? pin : ask;
+}
+
+/**
  * A subagent's model: the caller's override when it resolves to a usable
  * model, else the agent profile's model or tier, else the parent's model.
+ * With a pin, the pin stands in for everything but a provider/model override.
  */
-export function subagentModel(host: ModelHost, override: string | undefined, agentModel: string | undefined, parentModel: string): string {
-  if (override) {
-    const r = agentModelRef(host, override, parentModel);
+export function subagentModel(host: ModelHost, override: string | undefined, agentModel: string | undefined, parentModel: string, pin?: string): string {
+  const ask = pinnedAsk(pin, override);
+  if (ask) {
+    const r = agentModelRef(host, ask, parentModel);
     if (!r.note) return r.model;
   }
-  return agentModelRef(host, agentModel, parentModel).model;
+  return agentModelRef(host, pin ?? agentModel, parentModel).model;
 }

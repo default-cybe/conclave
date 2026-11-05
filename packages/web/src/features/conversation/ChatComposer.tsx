@@ -202,6 +202,8 @@ export function ChatComposer({
   const mobile = useIsMobile();
   const [, navigate] = useLocation();
   const [sw, change] = useSwitches(session);
+  // Same model for all work: a switch of this chat only, never a default for the next one
+  const same = session ? { sameModel: !!session.chat?.sameModel, onSameModel: (on: boolean) => void patchChat(session.id, { chat: { sameModel: on } }) } : {};
   const restore = useChatUi((s) => s.restore[chatId]);
   // a chat with other people in it (features/chat/shared.tsx): in someone else's chat (`mine`) your turns run on your
   // seat, so its status is your Send and Stop; the owner's settings, files and usage are not yours to change
@@ -509,7 +511,7 @@ export function ChatComposer({
                 </>
               )
             }
-            model={mine ? undefined : target ? <PhoneModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} cyber={target.cyber} onCyber={target.onCyber} harnesses={target.harnesses} /> : <PhoneModelEffort model={sw.model} value={sw.thinking} onModel={(m) => change({ model: m })} onEffort={(v) => change({ thinking: v })} cyber={sw.cyber} onCyber={(v) => change({ cyber: v })} />}
+            model={mine ? undefined : target ? <PhoneModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} cyber={target.cyber} onCyber={target.onCyber} harnesses={target.harnesses} /> : <PhoneModelEffort model={sw.model} value={sw.thinking} onModel={(m) => change({ model: m })} onEffort={(v) => change({ thinking: v })} cyber={sw.cyber} onCyber={(v) => change({ cyber: v })} {...same} />}
             mic={canDictate() && <DictateButton onText={(t) => setText((x) => (x.trim() ? `${x.trimEnd()} ${t}` : t))} />}
             send={<PhoneSend running={running} ready={hasText} label={sendLabel} onSend={send} onStop={stop} keepFocus={() => document.activeElement === box.current} />}
           />
@@ -541,7 +543,7 @@ export function ChatComposer({
   const modelEffort = target ? (
     <ModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} cyber={target.cyber} onCyber={target.onCyber} harnesses={target.harnesses} />
   ) : (
-    <ModelEffort model={sw.model} value={sw.thinking} onModel={(m) => change({ model: m })} onEffort={(v) => change({ thinking: v })} cyber={sw.cyber} onCyber={(v) => change({ cyber: v })} />
+    <ModelEffort model={sw.model} value={sw.thinking} onModel={(m) => change({ model: m })} onEffort={(v) => change({ thinking: v })} cyber={sw.cyber} onCyber={(v) => change({ cyber: v })} {...same} />
   );
 
   return (

@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Same model for all work: a switch in the model picker, on the web and on Android. When it is on, Delegate, Task subagents, workflow agents and their own subagents, at any depth, run on the conversation's current model instead of each agent's default or tier. A model you name still wins, and the usage and refusal fallback work as before. The switch is per conversation, off by default, and a small dot on the picker shows it is on. Routines do not inherit it, and a member can pin only to a model their account may use.
+
 ## [0.4.67] - 2026-11-05
 
 ### Fixed

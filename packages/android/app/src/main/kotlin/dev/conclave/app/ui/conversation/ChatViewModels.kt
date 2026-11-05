@@ -694,6 +694,9 @@ class ChatThreadViewModel(
         patchNow(SessionPatch(chat = if (program == null) ChatSettingsPatch(defaultCyber = true) else ChatSettingsPatch(cyber = program)))
     }
 
+    /** Same model for all work (chat.sameModel): a switch of this chat only, never a default for the next one. */
+    fun setSameModel(on: Boolean) = patch(SessionPatch(chat = ChatSettingsPatch(sameModel = on)))
+
     fun setWeb(on: Boolean) = action { rememberDefaults(patchNow(SessionPatch(chat = ChatSettingsPatch(webSearch = on)))) }
     fun setMemory(on: Boolean) = action { rememberDefaults(patchNow(SessionPatch(chat = ChatSettingsPatch(memory = on)))) }
 
