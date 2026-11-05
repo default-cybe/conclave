@@ -1,8 +1,9 @@
 /* The workflow canvas on spec tokens: no background grid (spec 2), wires in
-   the rule color, the live wire in signal, a selected node outlined in fg. */
+   fg-4 (rule-2 vanished on the dark background), the live wire in signal, a
+   selected node outlined in fg. */
 .cv-graph {
-  --xy-edge-stroke: var(--rule-2);
-  --xy-edge-stroke-width: 1;
+  --xy-edge-stroke: var(--fg-4);
+  --xy-edge-stroke-width: 1.5;
   --xy-edge-stroke-selected: var(--fg-2);
   --xy-handle-background-color: var(--rule-2);
   --xy-handle-border-color: var(--bg-raise);
@@ -12,11 +13,36 @@
   touch-action: none;
 }
 
+/* a phone in a page: one finger scrolls the page, the canvas does not pan */
+.cv-graph-scroll,
+.cv-graph-scroll .react-flow__pane {
+  touch-action: pan-y;
+}
+
 .cv-graph .react-flow__handle {
   width: 7px;
   height: 7px;
   min-width: 0;
   min-height: 0;
+}
+
+/* a run's nodes do not connect: their wire ends are not ports */
+.cv-graph .react-flow__node-wf .react-flow__handle {
+  opacity: 0;
+}
+
+/* a flow's ports are a size a mouse hits; a wider invisible ring takes the press */
+.cv-graph .react-flow__node-flow .react-flow__handle {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+}
+
+.cv-graph .react-flow__node-flow .react-flow__handle.connectionindicator::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
 }
 
 .cv-graph .react-flow__node-wf:focus-visible {

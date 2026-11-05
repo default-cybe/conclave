@@ -22,7 +22,7 @@ import { cn } from '@/lib/text';
 import { attempt, useHub } from '@/store/store';
 import { callWord } from '../workflows/words';
 import { Worktrees } from '../workflows/Worktrees';
-import { metaLine, stateTone, stateWord } from './nodes';
+import { metaLine, nodeTitle, stateTone, stateWord } from './nodes';
 
 export interface InspectorProps {
   node: GraphNode;
@@ -53,7 +53,7 @@ export function Inspector({ node, run, calls, runCtx, view, workflowId, onRerun,
     <div className="flex h-full flex-col">
       <div className="border-b border-rule px-5 pt-4 pb-3">
         <div className="flex items-baseline justify-between gap-3">
-          <div className="t-title min-w-0 truncate text-fg">{node.label}</div>
+          <div className="t-title min-w-0 truncate text-fg">{nodeTitle(node)}</div>
           {run && <span className={cn('cv-state shrink-0 text-[13px]', tone.text)}>{stateWord(run)}</span>}
         </div>
         <div className="mt-0.5 text-[12px] text-fg-3">

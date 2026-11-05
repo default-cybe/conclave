@@ -139,6 +139,8 @@ describe('applyFlowOp', () => {
     parses(c);
     const back = applyFlowOp(c, { op: 'disconnect', nodeId: 'csv', input: 'path' }).src;
     expect(back).toBe(scraper.replace("'out/posts.csv'", "'out/rows.csv'"));
+    // a choice or a switch takes no wire
+    expect(() => applyFlowOp(scraper, { op: 'connect', nodeId: 'bun', input: 'op', from: 'url' })).toThrow('is a setting');
     // a shorthand wire cut gets its key back
     const cut = applyFlowOp(scraper, { op: 'disconnect', nodeId: 'data', input: 'url' }).src;
     expect(cut).toContain("fetchUrl({ url: 'https://example.com', as:");
@@ -192,6 +194,25 @@ describe('applyFlowOp', () => {
     const { src } = applyFlowOp(scraper, { op: 'remove', nodeId: 'log-1' });
     expect(src).toBe(scraper.replace('await log({ value: csv });\n', ''));
     parses(src);
+  });
+
+  test('rename changes the name where it is set and read, not properties or keys', () => {
+    const src = "import { pick, log } from './lib';\nconst posts = await pick({ from: 'x', field: 'posts' });\nconst n = posts.length + posts.posts;\nconst o = { posts: 1 };\nconst p = { posts };\nawait log({ value: posts });\n";
+    const { src: next, nodeId } = applyFlowOp(src, { op: 'rename', nodeId: 'posts', name: 'items' });
+    expect(nodeId).toBe('items');
+    expect(next).toBe("import { pick, log } from './lib';\nconst items = await pick({ from: 'x', field: 'posts' });\nconst n = items.length + items.posts;\nconst o = { posts: 1 };\nconst p = { posts: items };\nawait log({ value: items });\n");
+    parses(next);
+    // the scraper's shorthand `{ url }` keeps its key
+    expect(applyFlowOp(scraper, { op: 'rename', nodeId: 'url', name: 'page' }).src).toContain("const page = '");
+    expect(applyFlowOp(scraper, { op: 'rename', nodeId: 'url', name: 'page' }).src).toContain('fetchUrl({ url: page');
+    expect(() => applyFlowOp(scraper, { op: 'rename', nodeId: 'url', name: 'data' })).toThrow('used in this flow already');
+    expect(() => applyFlowOp(scraper, { op: 'rename', nodeId: 'url', name: 'class' })).toThrow('JavaScript word');
+    expect(() => applyFlowOp(scraper, { op: 'rename', nodeId: 'url', name: '1x' })).toThrow('a name is');
+    expect(() => applyFlowOp(scraper, { op: 'rename', nodeId: 'log-1', name: 'x' })).toThrow('has no name');
+    // a template reads it: refused, the file is not touched
+    expect(() => applyFlowOp("const a = 'x';\nconst b = `${a}!`;\n", { op: 'rename', nodeId: 'a', name: 'z' })).toThrow('template');
+    // a $ in the name is matched as itself
+    expect(() => applyFlowOp("const a$ = 'x';\nconst b = `${a$}!`;\n", { op: 'rename', nodeId: 'a$', name: 'z' })).toThrow('template');
   });
 
   test('CRLF files keep CRLF', () => {

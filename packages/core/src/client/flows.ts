@@ -81,12 +81,14 @@ export type FlowOp =
   | { op: 'connect'; nodeId: string; input: string; from: string; field?: string }
   | { op: 'disconnect'; nodeId: string; input: string }
   | { op: 'insert'; block: string; after?: string }
-  | { op: 'remove'; nodeId: string };
+  | { op: 'remove'; nodeId: string }
+  /** A block's variable name, at its declaration and everywhere it is read. */
+  | { op: 'rename'; nodeId: string; name: string };
 
 export interface FlowEditResult {
   sha: string;
   diff: string;
   view: FlowView;
-  /** insert: the new node's id. */
+  /** insert: the new node's id; rename: the block's new id (its name). */
   nodeId?: string;
 }

@@ -75,10 +75,29 @@ export function stateTone(s: NodeRunState | undefined): { text: string; outline:
   }
 }
 
+/**
+ * A node's title in words: the parser's label is code (`const OPUS`,
+ * `function rules`, `parallel`), so a code node says what it sets and a
+ * call with no label of its own says its kind.
+ */
+export function nodeTitle(node: GraphNode): string {
+  if (node.kind === 'code') {
+    if (node.fn) return `Helper ${node.declares[0] ?? ''}`.trim();
+    if (node.declares.length) return `Sets ${node.declares.slice(0, 3).join(', ')}${node.declares.length > 3 ? ` +${node.declares.length - 3}` : ''}`;
+    return node.label;
+  }
+  if (node.label === node.kind || node.kind === 'return' || node.kind === 'log') return KIND_WORD[node.kind];
+  return node.label;
+}
+
+/** Where it is in the file, for a tooltip: the face of a node is words. */
+export const linesOf = (node: GraphNode) => (node.span.start === node.span.end ? `line ${node.span.start}` : `lines ${node.span.start} to ${node.span.end}`);
+
 /** The meta line: what the node is set to, then what it spent. */
 export function metaLine(node: GraphNode, run?: NodeRun): string {
   const o = node.opts ?? {};
-  const inner = node.calls.filter((c) => c.name === 'agent').length;
+  // the calls that ran, once there is a run: a parallel over a list has one agent() in its text and many lanes
+  const inner = run?.total ?? node.calls.filter((c) => c.name === 'agent').length;
   const parts = [
     KIND_WORD[node.kind],
     typeof o.agentType?.value === 'string' ? o.agentType.value : '',
@@ -107,11 +126,11 @@ export const WorkflowNode = memo(function WorkflowNode({ data }: NodeProps) {
       className={cn('cv-graph-node flex flex-col justify-between rounded-[var(--r-2)] border bg-raise px-3 py-2.5 text-left', tone.outline, selected && 'cv-graph-selected')}
       style={{ width: NODE_W, height: NODE_H }}
       data-state={run?.state ?? 'idle'}
+      title={linesOf(node)}
     >
       <Handle type="target" position={vertical ? Position.Top : Position.Left} isConnectable={false} />
       <div className="flex items-baseline justify-between gap-2">
-        <span className="min-w-0 truncate text-[13px] font-medium text-fg">{node.label}</span>
-        <span className="mono shrink-0 text-[11px] text-fg-4">{node.span.start === node.span.end ? `L${node.span.start}` : `L${node.span.start}-${node.span.end}`}</span>
+        <span className="min-w-0 truncate text-[13px] font-medium text-fg">{nodeTitle(node)}</span>
       </div>
       <div className="truncate text-[12px] text-fg-3">{metaLine(node, run)}</div>
       <div className="flex items-baseline justify-between gap-2 text-[12px]">
@@ -168,6 +187,7 @@ export const FlowBlockNode = memo(function FlowBlockNode({ data }: NodeProps) {
       className={cn('cv-graph-node flex flex-col justify-between rounded-[var(--r-2)] border bg-raise px-3 py-2.5 text-left', tone.outline, selected && 'cv-graph-selected', node.kind === 'code' && 'border-dashed')}
       style={{ width: NODE_W, height: NODE_H }}
       data-state={state ?? 'idle'}
+      title={linesOf(node)}
     >
       {inputs.map((name, i) => (
         <Handle
@@ -181,8 +201,7 @@ export const FlowBlockNode = memo(function FlowBlockNode({ data }: NodeProps) {
         />
       ))}
       <div className="flex items-baseline justify-between gap-2">
-        <span className="mono min-w-0 truncate text-[13px] font-medium text-fg">{node.label}</span>
-        <span className="mono shrink-0 text-[11px] text-fg-4">{node.span.start === node.span.end ? `L${node.span.start}` : `L${node.span.start}-${node.span.end}`}</span>
+        <span className="mono min-w-0 truncate text-[13px] font-medium text-fg">{node.kind === 'code' ? nodeTitle(node) : node.label}</span>
       </div>
       <div className="truncate text-[12px] text-fg-3">{blockLine(node, spec)}</div>
       <div className={cn('cv-state truncate text-[12px]', tone.text)}>{state === 'failed' ? `failed: ${out}` : out}</div>

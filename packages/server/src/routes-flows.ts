@@ -15,7 +15,7 @@ import { badRequest, optString, readJson } from './http';
 import type { AuditFn } from './routes-extensions';
 import { accountOf } from './scope';
 
-const OPS = ['set', 'connect', 'disconnect', 'insert', 'remove'];
+const OPS = ['set', 'connect', 'disconnect', 'insert', 'remove', 'rename'];
 const short = (v: unknown, name: string) => {
   const s = optString(v, name, 100);
   if (!s) throw badRequest(`${name} is required`);
@@ -43,6 +43,8 @@ function opOf(b: Record<string, unknown>): FlowOp {
     }
     case 'remove':
       return { op: 'remove', nodeId: short(b.nodeId, 'nodeId') };
+    case 'rename':
+      return { op: 'rename', nodeId: short(b.nodeId, 'nodeId'), name: short(b.name, 'name') };
     default:
       throw badRequest(`op must be one of ${OPS.join(', ')}`);
   }

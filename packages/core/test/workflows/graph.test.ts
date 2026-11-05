@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_WORKFLOWS } from '../../src/workflows/defaults';
-import { applyEdit, GraphEditError, insertNode, layoutPathOf, parseGraph, printLayout, readLayout, shiftLayout } from '../../src/workflows/graph';
+import { applyEdit, GraphEditError, insertNode, layoutPathOf, lineDiff, parseGraph, printLayout, readLayout, shiftLayout } from '../../src/workflows/graph';
 import { loadMeta } from '../../src/workflows/registry';
 import { sha256 } from '../../src/workflows/store';
 import { runAs } from '../../src/people/context';
@@ -132,6 +132,16 @@ describe('layout file', () => {
   });
 });
 
+describe('lineDiff', () => {
+  test('an insert that also changes the import line is two small hunks', () => {
+    const a = "// x\nimport { a } from './lib';\n\nconst u = 1;\nconst v = 2;\nawait a({});\n";
+    const b = "// x\nimport { a, b } from './lib';\n\nconst u = 1;\nconst v = 2;\nawait a({});\nconst w = await b({});\n";
+    expect(lineDiff(a, b)).toBe("@@ line 2\n- import { a } from './lib';\n+ import { a, b } from './lib';\n@@ line 7\n+ const w = await b({});");
+    expect(lineDiff('x\ny', 'x\ny')).toBe('@@ line 3');
+    expect(lineDiff('a\nb\nc', 'a\nc')).toBe('@@ line 2\n- b');
+  });
+});
+
 describe('nodeOf', () => {
   const g = parseGraph(`export const meta = { name: 'x', description: 'x' }
 const draft = await agent('draft', { label: 'draft' })
@@ -167,6 +177,26 @@ return verdict`);
     expect(byNode.get('code-2')).toMatchObject({ state: 'running', running: 1, startedAt: 10 });
     expect(byNode.get('code-3')).toMatchObject({ state: 'failed', total: 2, done: 1, failed: 1, seqs: [3, 4] });
     expect(unplaced.map((c) => c.seq)).toEqual([5]);
+  });
+
+  test('old calls with computed labels and no lines land on their node in run order', () => {
+    // the shape of a real run journaled before call-site lines: labels built from l.label
+    const p = parseGraph(`export const meta = { name: 'x', description: 'x', phases: [{ title: 'Research' }] }
+phase('Research')
+const lanes = [{ label: 'a' }, { label: 'b' }]
+const results = await parallel(lanes.map(l => () => agent('go', { label: l.label })))
+await parallel(lanes.map((l, i) => () => agent('save ' + results[i], { label: \`save-\${l.label}\` })))
+return 'saved'`);
+    expect(p.nodes.map((n) => `${n.id}:${n.label}`)).toEqual(['code-1:const lanes', 'parallel-1:parallel', 'parallel-2:save', 'return-1:return']);
+    const old = ['a', 'b', 'save-a', 'save-b'].map((label, i) => call({ seq: i + 1, label, phase: 'Research', state: i < 2 ? 'cached' : 'done' }));
+    const { byNode, unplaced } = nodeRuns(p, old);
+    expect(unplaced).toEqual([]);
+    expect(byNode.get('parallel-1')).toMatchObject({ total: 2, state: 'cached' });
+    expect(byNode.get('parallel-2')).toMatchObject({ total: 2, state: 'done' });
+    // one agent node takes one call; the next goes on to the next agent node
+    const two = parseGraph(`const a = await agent('x', { label: 'x' + 1 })\nconst b = await agent('y', { label: 'y' + 2 })\nreturn b`);
+    const r = nodeRuns(two, [call({ seq: 1, label: 'q1' }), call({ seq: 2, label: 'q2' })]);
+    expect([r.byNode.get('agent-1')?.seqs, r.byNode.get('agent-2')?.seqs]).toEqual([[1], [2]]);
   });
 
   test('staleNodes: a changed node and every node wired after it', () => {

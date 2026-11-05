@@ -9,7 +9,7 @@ import { describe, expect, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ReactFlowProvider } from '@xyflow/react';
 import type { GraphNode, NodeRun, NodeRunState, WorkflowGraph } from '@conclave/core/client';
-import { WorkflowNode, metaLine, stateWord } from '../src/features/graph/nodes';
+import { WorkflowNode, metaLine, nodeTitle, stateWord } from '../src/features/graph/nodes';
 import { clearOf, layoutGraph, placedGraph } from '../src/features/graph/layout';
 
 const node: GraphNode = { id: 'agent-1', kind: 'agent', label: 'review', span: { start: 4, end: 6 }, declares: ['r'], calls: [], source: "await agent('x')", opts: { model: { value: 'deep', start: 0, end: 1, quote: "'" } } };
@@ -39,12 +39,23 @@ describe('graph node states', () => {
     expect(html).toMatch(new RegExp(`${text}[^>]*>${word}`));
   });
 
-  test('idle: no state word; the label, line range and model show', () => {
+  test('idle: no state word; the label and model show, the line range is a tooltip', () => {
     const html = render();
     expect(html).toContain('data-state="idle"');
     expect(html).toContain('review');
-    expect(html).toContain('L4-6');
+    expect(html).toContain('title="lines 4 to 6"');
+    expect(html).not.toContain('L4-6');
     expect(html).toContain('Agent, deep');
+  });
+
+  test('titles are words: code says what it sets, a bare call says its kind', () => {
+    const code = { ...node, kind: 'code' as const, label: 'const OPUS', declares: ['OPUS', 'WT'], opts: undefined };
+    expect(nodeTitle(code)).toBe('Sets OPUS, WT');
+    expect(nodeTitle({ ...code, fn: true, declares: ['rules'], label: 'function rules' })).toBe('Helper rules');
+    expect(nodeTitle({ ...node, kind: 'parallel', label: 'parallel' })).toBe('Parallel');
+    expect(nodeTitle(node)).toBe('review');
+    // a parallel over a list counts the agents that ran, not the one agent() in its text
+    expect(metaLine({ ...node, kind: 'parallel', opts: undefined, calls: [{ name: 'agent', line: 5 }] }, run('done', { total: 8 }))).toStartWith('Parallel, 8 agents');
   });
 
   test('several calls count, tokens and cost on the meta line', () => {
@@ -90,12 +101,33 @@ describe('layout', () => {
   test('a dragged node keeps its place, its band wraps it, the others stay laid out; a phone keeps its column', () => {
     const g: WorkflowGraph = { name: 'x', phases: ['A', 'B'], edges: [], nodes: ['A', 'A', 'B'].map((p, i) => ({ ...node, id: `n${i}`, phase: p })) };
     const auto = layoutGraph(g);
-    const { pos, bands } = placedGraph(g, false, { n1: { x: 40, y: 600 } });
-    expect(pos.get('n1')).toEqual({ x: 40, y: 600 });
+    const { pos, bands } = placedGraph(g, false, { n1: { x: 24, y: 600 } });
+    expect(pos.get('n1')).toEqual({ x: 24, y: 600 });
     expect(pos.get('n0')).toEqual(auto.pos.get('n0')!);
     expect(pos.get('n2')).toEqual(auto.pos.get('n2')!);
     expect(bands[0].y + bands[0].h).toBeGreaterThanOrEqual(600 + 92);
     expect(bands[1]).toEqual(auto.bands[1]);
     expect(placedGraph(g, true, { n1: { x: 40, y: 600 } })).toEqual(layoutGraph(g, true));
+  });
+
+  test('inside a band a wired node sits one column right of its source, so wires run forward', () => {
+    const g: WorkflowGraph = { name: 'x', phases: [], edges: [{ from: 'n0', to: 'n1', name: 'a' }, { from: 'n1', to: 'n2', name: 'b' }, { from: 'n0', to: 'n3', name: 'a' }], nodes: [0, 1, 2, 3].map((i) => ({ ...node, id: `n${i}`, phase: undefined })) };
+    const { pos } = layoutGraph(g);
+    for (const e of g.edges) expect(pos.get(e.to)!.x).toBeGreaterThan(pos.get(e.from)!.x + 248);
+    // n1 and n3 both read n0 only: one column, stacked
+    expect(pos.get('n3')!.x).toBe(pos.get('n1')!.x);
+    expect(pos.get('n3')!.y).toBeGreaterThan(pos.get('n1')!.y);
+  });
+
+  test('a node dragged out of its band stays in it, and one dropped on another moves clear', () => {
+    const g: WorkflowGraph = { name: 'x', phases: ['A', 'B'], edges: [], nodes: ['A', 'A', 'B'].map((p, i) => ({ ...node, id: `n${i}`, phase: p })) };
+    const auto = layoutGraph(g);
+    // dragged right into band B: held at the right edge of band A, which does not grow over B
+    const out = placedGraph(g, false, { n1: { x: 2000, y: 40 } });
+    expect(out.pos.get('n1')!.x + 248).toBeLessThanOrEqual(out.bands[0].x + out.bands[0].w);
+    expect(out.bands[0].x + out.bands[0].w).toBeLessThan(out.bands[1].x);
+    // dropped on n0: moved below it
+    const on = placedGraph(g, false, { n1: { ...auto.pos.get('n0')! } });
+    expect(on.pos.get('n1')!.y).toBeGreaterThanOrEqual(auto.pos.get('n0')!.y + 92);
   });
 });
