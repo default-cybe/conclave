@@ -3,12 +3,15 @@
  * draft comes back through `restore` when the chat opens, the text is saved
  * 400ms after typing stops (and at once on a chat switch, unmount, hidden
  * page), the files only when they change. Nothing is written before the load
- * has finished. A write that fails shows a toast.
+ * has finished. A write that fails shows a toast. The hook returns `clear`,
+ * which a send calls: the box often empties in the same commit that unmounts
+ * the composer (the first send of a new chat from Home), so the empty text
+ * would never be seen and the sent text would come back in the next new chat.
  */
 import { useEffect, useRef, useState } from 'react';
 import type { Attachment } from '@conclave/core/client';
 import { toast } from '@/store/store';
-import { loadDraft, saveFiles, saveText, type Draft, type DraftKv } from './draft';
+import { dropDraft, loadDraft, saveFiles, saveText, type Draft, type DraftKv } from './draft';
 
 const kept = (p: Promise<unknown>) =>
   void p.catch(() => toast({ id: 'draft-not-kept', level: 'error', title: 'Draft not kept', body: 'This browser could not store it (too big, or storage is full). Send it before you close the app.' }));
@@ -65,4 +68,10 @@ export function useDraft<F extends Attachment>(id: string, text: string, files: 
     stored.current = files;
     kept(saveFiles(id, files, kv));
   }, [files, id, loads]);
+
+  return () => {
+    pending.current = null;
+    stored.current = null;
+    void dropDraft(id, kv);
+  };
 }

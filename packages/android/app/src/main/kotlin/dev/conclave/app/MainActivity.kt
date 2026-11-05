@@ -17,6 +17,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
@@ -81,6 +82,8 @@ class MainActivity : FragmentActivity() {
         setContent {
             val settings by container.settings.state.collectAsStateWithLifecycle()
             val unlocked by AppLock.unlocked.collectAsStateWithLifecycle()
+            // the app's screens and back stack outlive the lock screen: unlocking returns where it was, not to Home
+            val kept = rememberSaveableStateHolder()
             val s = settings
             ConclaveTheme(mode = s?.theme ?: ThemeMode.SYSTEM, textSize = s?.textSize ?: TextSize.DEFAULT) {
                 // System bar icons follow the app theme, not only the system one.
@@ -96,7 +99,7 @@ class MainActivity : FragmentActivity() {
                         when {
                             s == null -> Unit
                             s.biometricLock && !unlocked -> LockScreen(onUnlock = { authenticate() })
-                            else -> AppRoot()
+                            else -> kept.SaveableStateProvider("app") { AppRoot() }
                         }
                     }
                 }
