@@ -49,6 +49,9 @@ export interface TurnLog {
   usage?: Pick<UsageRecord, 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheWriteTokens' | 'costUsd'> & { calls?: number };
   /** True for a turn a routine, a loop or a subagent ran. */
   unattended?: boolean;
+  /** Each model call's time to first token and whole stream time, in call order (session/stream.ts). */
+  ttftMs?: number[];
+  streamMs?: number[];
 }
 
 /** One line per user turn: who, which model, how long, what it cost, how it ended. */
@@ -83,6 +86,7 @@ export function logTurn(t: TurnLog): void {
           }
         : {}),
       ...(t.unattended ? { unattended: true } : {}),
+      ...(t.ttftMs?.length ? { ttftMs: t.ttftMs, streamMs: t.streamMs } : {}),
       ...(err !== undefined ? { error: err instanceof Error ? err.message : String(err) } : {}),
     },
     true,

@@ -428,6 +428,8 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     const id = sid(c);
     const limit = qNum(c.req.query('limit'));
     if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) throw badRequest('limit must be a positive integer');
+    // no limit and no cursor reads the whole transcript: installed Android and CLI builds have no way to page back.
+    // The web asks for the newest page (store.ts PAGE) and pages back with beforeSeq (a 73 MB transcript stalled the hub)
     const msgs = engine.getMessages(id, { afterSeq: qNum(c.req.query('afterSeq')), beforeSeq: qNum(c.req.query('beforeSeq')), limit });
     // a shared chat: history starts at the participant's join, and other people's tool output stays theirs, the owner's view included (shared-chats.ts)
     const s = engine.getSession(id);

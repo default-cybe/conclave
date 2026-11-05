@@ -378,18 +378,32 @@ const MIGRATIONS: string[] = [
 
 export type Db = Database;
 
+// Bun keeps only the 20 newest db.query() strings compiled; repos.ts alone has about 100 hot ones
+Database.MAX_QUERY_CACHE_SIZE = 200;
+
+/** Job kind for the hourly PRAGMA optimize (engine/create.ts plans it on the hub's scheduler). */
+export const DB_OPTIMIZE_JOB = 'db.optimize';
+export const DB_OPTIMIZE_EVERY_MS = 60 * 60_000;
+
 export function openDb(file: string): Db {
   const db = new Database(file, { create: true, strict: true });
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA synchronous = NORMAL;');
   db.exec('PRAGMA foreign_keys = ON;');
   db.exec('PRAGMA busy_timeout = 5000;');
+  // the default page cache is about 2 MB against a multi-GB file; temp B-trees for ORDER BY stay in memory
+  db.exec('PRAGMA cache_size = -65536;');
+  db.exec('PRAGMA temp_store = MEMORY;');
+  // modest mmap: an I/O error on a mapped page is SIGBUS, so not the whole file
+  db.exec('PRAGMA mmap_size = 268435456;');
   migrate(db);
   // accounts (docs/design/ACCOUNTS.md 9): every owned table gets account_id, every old row is the owner's
   migratePeople(db);
   migrateSharedChats(db);
   // what a call is worth at API prices, kept from the day it is recorded (usage/value.ts); older rows have none
   ensureColumn(db, 'usage', 'api_value_usd', 'REAL');
+  // https://www.sqlite.org/pragma.html#pragma_optimize: long-lived connections run this once at open, then periodically
+  db.exec('PRAGMA optimize = 0x10002;');
   return db;
 }
 

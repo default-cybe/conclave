@@ -1,4 +1,4 @@
-import { openDb } from '../storage/db';
+import { openDb, DB_OPTIMIZE_JOB, DB_OPTIMIZE_EVERY_MS } from '../storage/db';
 import { Repos } from '../storage/repos';
 import { ConfigStore } from '../config';
 import type { ConclaveConfig } from '../config/schema';
@@ -400,6 +400,12 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
     engine.scheduler.enqueue(PROPOSALS_PRUNE_JOB, Date.now() + 24 * 60 * 60_000, {}, PROPOSALS_PRUNE_JOB);
   });
   if (!repos.jobs.pending(PROPOSALS_PRUNE_JOB).length) engine.scheduler.enqueue(PROPOSALS_PRUNE_JOB, Date.now() + 24 * 60 * 60_000, {}, PROPOSALS_PRUNE_JOB);
+  // query planner stats stay fresh on a connection that lives for weeks (storage/db.ts openDb)
+  engine.scheduler.handle(DB_OPTIMIZE_JOB, async () => {
+    db.exec('PRAGMA optimize;');
+    engine.scheduler.enqueue(DB_OPTIMIZE_JOB, Date.now() + DB_OPTIMIZE_EVERY_MS, {}, DB_OPTIMIZE_JOB);
+  });
+  if (!repos.jobs.pending(DB_OPTIMIZE_JOB).length) engine.scheduler.enqueue(DB_OPTIMIZE_JOB, Date.now() + DB_OPTIMIZE_EVERY_MS, {}, DB_OPTIMIZE_JOB);
   // leave-by times (maps/leave-by.ts) read the calendars of the account the work runs for; a calendar error means no leave-by, not a failed day
   setCalendarPort(engine, {
     eventsBetween: async (start, end) => {

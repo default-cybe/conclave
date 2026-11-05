@@ -13,6 +13,7 @@ import { pendingIdsOf } from '@/store/queue';
 import { useIsMobile, useReducedMotion } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { LoadingRows } from '@/components/ui/EmptyState';
+import { EarlierMessages } from '@/features/chat/EarlierMessages';
 import { Button } from '@/components/ui/Button';
 import { DUR, GapList, Knot, LiveStatus, arrived, useArrivals, usePresence } from '@/components/motion';
 import { ApprovalCard } from '@/components/inbox/ApprovalCard';
@@ -393,6 +394,7 @@ export function ChatMessages({ chatId, session }: { chatId: string; session?: Se
           <div ref={content} data-skip-offscreen={!!mine?.core || undefined} className="relative">
             <KeepPlace session={chatId} start={from} scroller={scroller} />
             <LoadingRows loading={!loaded && !pending && !!session} rows={3} />
+            {loaded && <EarlierMessages sessionId={chatId} />}
             {/* each chunk mounts into a part of its own, there before it (window.ts partsOf) */}
             {parts.map(({ key: pk, from: a, to: b }) => (
               <div key={pk} className="log-part contents" style={pk !== 'mid' && mine?.guess ? ({ '--log-unit-h': `${mine.guess}px` } as CSSProperties) : undefined}>

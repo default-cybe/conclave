@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { setLogTap } from '@conclave/core/util/log.ts';
-import { lagWorthWarn, startLoopLagWatch } from '../src/lag';
+import { Hono } from 'hono';
+import { lagWorthWarn, majorFaults, stallContext, startLoopLagWatch, trackRequest, trackToolDone, trackToolStarted } from '../src/lag';
 
 describe('the loop-lag watch', () => {
   test('warns only above the threshold, and at most once per rate-limit window', () => {
@@ -28,7 +29,7 @@ describe('the loop-lag watch', () => {
       t = 10_000;
       await Bun.sleep(15);
       expect(warns).toHaveLength(1);
-      expect(warns[0]).toEqual({ msg: 'hub event loop lagged', extra: { lagMs: 9995, at: new Date(t).toISOString() } });
+      expect(warns[0]).toMatchObject({ msg: 'hub event loop lagged', extra: { lagMs: 9995, at: new Date(t).toISOString() } });
       t = 12_000;
       await Bun.sleep(15);
       expect(warns).toHaveLength(1);
@@ -44,5 +45,64 @@ describe('the loop-lag watch', () => {
       watch.stop();
       setLogTap(prev);
     }
+  });
+
+  test('the stall line names memory, page faults, the requests and the tool calls in flight', async () => {
+    const warns: Record<string, unknown>[] = [];
+    const prev = setLogTap((level, scope, _msg, extra) => {
+      if (level === 'warn' && scope === 'lag') warns.push(extra as Record<string, unknown>);
+    });
+    const endReq = trackRequest('GET', () => '/api/sessions/:id/messages');
+    const endDone = trackRequest('GET', () => '/api/health');
+    endDone();
+    trackToolStarted('tu_1', 'Bash');
+    trackToolStarted('tu_2', 'Read');
+    trackToolDone('tu_2');
+    let t = 0;
+    const watch = startLoopLagWatch({ intervalMs: 5, now: () => t });
+    try {
+      t = 5_000;
+      await Bun.sleep(15);
+      expect(warns).toHaveLength(1);
+      const w = warns[0];
+      expect(w.heapUsedMb).toBeNumber();
+      expect(w.heapSizeMb).toBeNumber();
+      expect(w.rssMb).toBeGreaterThan(0);
+      if (process.platform === 'linux') expect(w.majorFaults).toBeGreaterThanOrEqual(0);
+      expect((w.requests as string[]).map((r) => r.replace(/ \d+ms$/, ''))).toEqual(['GET /api/sessions/:id/messages']);
+      expect((w.tools as string[]).map((r) => r.replace(/ \d+ms$/, ''))).toEqual(['Bash']);
+    } finally {
+      watch.stop();
+      endReq();
+      trackToolDone('tu_1');
+      setLogTap(prev);
+    }
+  });
+
+  test('a request in flight is named by its route pattern, never its path (an invite secret)', async () => {
+    const app = new Hono();
+    app.use('*', async (c, next) => {
+      const done = trackRequest(c.req.method, () => c.req.routePath);
+      try {
+        await next();
+      } finally {
+        done();
+      }
+    });
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    app.get('/api/invite/:secret', async (c) => (await held, c.text('ok')));
+    const res = app.request('/api/invite/inv_s3cr3t?token=t0k3n');
+    await Bun.sleep(5);
+    const requests = stallContext().requests as string[];
+    release();
+    await res;
+    expect(requests.map((r) => r.replace(/ \d+ms$/, ''))).toEqual(['GET /api/invite/:secret']);
+    expect(JSON.stringify(stallContext())).not.toContain('s3cr3t');
+  });
+
+  test('major page faults read from /proc/self/stat on Linux', () => {
+    if (process.platform === 'linux') expect(majorFaults()).toBeGreaterThanOrEqual(0);
+    else expect(majorFaults()).toBeUndefined();
   });
 });

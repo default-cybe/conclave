@@ -1,7 +1,7 @@
 import type { ProviderMessage, SystemBlock, ToolSpec } from '../providers/types';
 import type { Message, Session, TextBlock, ToolResultBlock } from '../types';
 import type { Engine } from '../engine/engine';
-import { activeMessages, isReminder, lastAssistantText } from './transcript';
+import { activeMessages, activeStored, isReminder, lastAssistantText } from './transcript';
 import { COMPACT_PROMPT, COMPACT_UPDATE_RULES, SUMMARY_HEADINGS } from './prompt';
 import { estimateTokens, oneLine, truncateMiddle } from '../util/text';
 import { streamCompletion } from './stream';
@@ -445,7 +445,8 @@ export interface CompactOptions {
 }
 
 async function compact(engine: Engine, sessionId: string, modelRef: string, signal: AbortSignal, trigger: 'auto' | 'manual', instructions?: string, opts: CompactOptions = {}): Promise<boolean> {
-  const all = engine.turnMessages(sessionId);
+  // from the last summary on, as a runner step reads (transcript.ts activeStored); a shared chat reads through its seat
+  const all = engine.sharedTurns.shared(sessionId) ? engine.turnMessages(sessionId) : activeStored(engine.repos.messages, sessionId);
   const active = activeMessages(all);
   if (active.length < 4) return false;
 

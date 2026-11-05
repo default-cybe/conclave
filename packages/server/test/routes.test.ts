@@ -47,7 +47,7 @@ describe('session routes via the typed client', () => {
     ];
     hub.engine.repos.messages.insert({ id: 'msg_big', sessionId: s.id, seq: 1, role: 'user', kind: 'normal', content, createdAt: Date.now() });
 
-    // untouched without trim: the apps that do not ask see what they always did
+    // untouched without trim: the apps that do not ask (installed Android and CLI builds) see what they always did
     expect((await client.messages(s.id))[0].content).toEqual(content);
 
     const [m] = await client.messages(s.id, { trim: true, limit: 50 });
@@ -61,6 +61,22 @@ describe('session routes via the typed client', () => {
     expect(await status(client.messageBlock(s.id, 'msg_nope', 0))).toBe(404);
     const other = await client.createSession({ title: 'other', cwd: '/srv' });
     expect(await status(client.messageBlock(other.id, m.id, 0))).toBe(404);
+  });
+
+  test('limit alone answers the newest page, beforeSeq pages back; no cursor or afterSeq reads in full', async () => {
+    const s = await client.createSession({ title: 'long', cwd: '/srv' });
+    const now = Date.now();
+    for (let seq = 1; seq <= 450; seq++) hub.engine.repos.messages.insert({ id: `msg_l${seq}`, sessionId: s.id, seq, role: 'user', kind: 'normal', content: [{ type: 'text', text: `m${seq}` }], createdAt: now });
+    // what the web store asks first (store.ts PAGE)
+    const page = await client.messages(s.id, { limit: 200 });
+    expect(page.map((m) => m.seq)).toEqual(Array.from({ length: 200 }, (_, i) => 251 + i));
+    // a full page: the one before it starts at its first seq
+    const older = await client.messages(s.id, { beforeSeq: page[0].seq, limit: 200 });
+    expect(older.map((m) => m.seq)).toEqual(Array.from({ length: 200 }, (_, i) => 51 + i));
+    expect((await client.messages(s.id, { beforeSeq: older[0].seq, limit: 200 })).map((m) => m.seq)).toEqual(Array.from({ length: 50 }, (_, i) => 1 + i));
+    // a client that does not page (Android, CLI) still gets the whole chat, and a resync is not cut short
+    expect(await client.messages(s.id)).toHaveLength(450);
+    expect(await client.messages(s.id, { afterSeq: 10 })).toHaveLength(440);
   });
 
   test('unknown session is 404 on every session route', async () => {

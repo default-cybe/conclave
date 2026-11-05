@@ -13,6 +13,7 @@
  * scroll up and in idle time (window.ts), so it paints at once however long
  * it is.
  */
+import { EarlierMessages } from './EarlierMessages';
 import { Component, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import type { Message, Session } from '@conclave/core/types';
 import { toolResultsFor, useHub, useQueue, type HubState } from '@/store/store';
@@ -270,6 +271,7 @@ export function MessageList({ session }: { session: Session }) {
         <div ref={column} data-skip-offscreen={!!mine?.core || undefined} className="mx-auto flex w-full max-w-[924px] flex-col gap-[18px] px-8 pt-5 pb-8 phone:gap-5 phone:px-4 phone:pt-4">
           <KeepPlace session={session.id} start={from} scroller={scroller} />
           <LoadingRows loading={!loaded} rows={3} />
+          {loaded && <EarlierMessages sessionId={session.id} />}
           {loaded && units.length === 0 && !running && <EmptyChat session={session} />}
           {/* each chunk mounts into a part of its own, there before it (display: contents, so the layout is one
               column): putting an element into a parent restyles all of that parent (window.ts partsOf) */}

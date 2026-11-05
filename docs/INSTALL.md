@@ -392,6 +392,20 @@ Without the desktop app) installs Conclave for your own user. Run
 `conclave serve`, or use `scripts/systemd/conclave-hub.service` as a systemd
 user unit.
 
+### Test runs and builds on the hub
+
+When agents run a whole test suite or a build on the hub's own machine
+(`bun test` or `bun run test` with no paths, `cargo build`, `cargo test`,
+`./gradlew`), they take turns: one runs, the others wait in line, and their
+output starts with "Waiting for another test run or build on the hub to
+finish." A background shell running one counts while it runs but never waits.
+Paired computers are never limited. To let two run at once, or to turn the
+line off with `0`:
+
+```sh
+conclave config set server.heavyCommands 2
+```
+
 ## 2. Remote access
 
 Pick one way in. You can change it any time in the web app under

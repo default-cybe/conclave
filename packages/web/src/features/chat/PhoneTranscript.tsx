@@ -20,6 +20,7 @@
  * long press selects text, as anywhere else on the phone; it opens nothing.
  * No tokens, costs or times: those are in the sheet.
  */
+import { EarlierMessages } from './EarlierMessages';
 import { memo, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import { ChevronRight } from 'lucide-react';
@@ -194,6 +195,7 @@ export function PhoneTranscript({ session }: { session: Session }) {
         <div ref={column} data-skip-offscreen={!!mine?.core || undefined} className="flex flex-col gap-5 px-5 pt-2 pb-6">
           <KeepPlace session={session.id} start={from} scroller={scroller} />
           <LoadingRows loading={!loaded} rows={3} />
+          {loaded && <EarlierMessages sessionId={session.id} />}
           {loaded && units.length === 0 && !live && <Empty session={session} />}
           {/* one part per chunk, as on desktop: mounting a chunk restyles that part only (window.ts partsOf) */}
           {pieceParts.map(({ key, from: a, to: b }) => (

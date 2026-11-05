@@ -398,6 +398,12 @@ export interface ConclaveConfig {
     trustedProxies?: string[];
     /** How phones and paired computers reach the hub. See docs/INSTALL.md. */
     remote?: RemoteConfig;
+    /**
+     * Whole test suites and builds that agents run on the hub's own machine at
+     * once (tools/heavy-gate.ts); more wait in line. Default 1, 0 turns the
+     * line off. Paired devices are never limited.
+     */
+    heavyCommands?: number;
   };
 
   permissions: {

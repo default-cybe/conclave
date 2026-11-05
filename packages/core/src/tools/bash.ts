@@ -6,6 +6,7 @@ import { defuseFrameworkTags } from '../session/untrusted';
 import { isHeadless } from '../session/runner';
 import { clampInt, fail, outputBudget, truncateMiddleOut } from './util';
 import { KEEPS, KIND_NAMES, reduceOutput } from './compress';
+import { HEAVY_COMMANDS_DEFAULT, HEAVY_WAIT_NOTE, heavyGate, isHeavyCommand } from './heavy-gate';
 
 export interface BashInput {
   command: string;
@@ -155,6 +156,34 @@ async function runForeground(input: BashInput, ctx: ToolContext): Promise<ToolOu
   return { content, isError: res.timedOut || res.aborted || res.exitCode !== 0, meta };
 }
 
+/** Test suites and builds on the hub's own machine take turns (tools/heavy-gate.ts); paired devices never wait. */
+function gatedHere(input: BashInput, ctx: ToolContext): boolean {
+  return ctx.machine.id === 'local' && isHeavyCommand(input.command);
+}
+
+async function runGated(input: BashInput, ctx: ToolContext): Promise<ToolOutput> {
+  let waited = false;
+  let release: () => void;
+  try {
+    release = await heavyGate.acquire(ctx.host.config().server.heavyCommands ?? HEAVY_COMMANDS_DEFAULT, ctx.signal, () => {
+      waited = true;
+      try {
+        ctx.progress(`${HEAVY_WAIT_NOTE}\n`);
+      } catch {
+        /* UI listener errors are not the command's problem */
+      }
+    });
+  } catch {
+    return { content: `${HEAVY_WAIT_NOTE}\n\nCommand was interrupted before it started.`, isError: true };
+  }
+  try {
+    const out = await runForeground(input, ctx);
+    return waited ? { ...out, content: `${HEAVY_WAIT_NOTE}\n${out.content as string}` } : out;
+  } finally {
+    release();
+  }
+}
+
 const BLOCKING_WAIT_SLEEP_S = 30;
 // the whole command is one wait: no operator, quote-free redirect, substitution or second line, so nothing else rides along
 const BLOCKING_WAIT_RE = /^(gh run watch|gh pr checks|watch|sleep)(?:[ \t]([^;&|<>`$()\n]*))?$/;
@@ -202,6 +231,8 @@ function runBackground(input: BashInput, ctx: ToolContext, moved = false): ToolO
           }
         : {}),
     });
+    // counted while it runs so a foreground suite waits for it, but never made to wait itself
+    if (gatedHere(input, ctx)) void shell.done.finally(heavyGate.hold());
     return {
       content: `Command running in background with id ${shell.info.id}. Use BashOutput with bash_id "${shell.info.id}" to read its output and KillShell to stop it.`,
       meta: { shellId: shell.info.id, background: true },
@@ -238,6 +269,6 @@ export const BashTool: Tool<BashInput> = {
       if (started.isError) return started;
       return { ...started, content: `Note: this command only waits, so it was moved to the background to keep the chat free for queued messages.\n${started.content}` };
     }
-    return runForeground(input, ctx);
+    return gatedHere(input, ctx) ? runGated(input, ctx) : runForeground(input, ctx);
   },
 };

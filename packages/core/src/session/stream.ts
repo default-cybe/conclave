@@ -46,6 +46,30 @@ function fallbackNotice(engine: Engine, sessionId: string | undefined, dest: str
 }
 
 const log = logger('stream');
+
+/** Each model call's time to first token and whole stream time, per session, until its turn line takes them (runner logTurnLine). */
+const callTimings = new Map<string, { ttftMs: number[]; streamMs: number[] }>();
+
+function noteCallTiming(sessionId: string, ttftMs: number, streamMs: number): void {
+  let t = callTimings.get(sessionId);
+  if (!t) {
+    // a session whose turn line never comes (a chore, a crash) cannot grow this
+    if (callTimings.size >= 500) callTimings.delete(callTimings.keys().next().value as string);
+    t = { ttftMs: [], streamMs: [] };
+    callTimings.set(sessionId, t);
+  }
+  if (t.ttftMs.length >= 50) return;
+  t.ttftMs.push(ttftMs);
+  t.streamMs.push(streamMs);
+}
+
+/** The call timings noted for a session since the last take, and forget them. */
+export function takeCallTimings(sessionId: string): { ttftMs: number[]; streamMs: number[] } | undefined {
+  const t = callTimings.get(sessionId);
+  callTimings.delete(sessionId);
+  return t;
+}
+
 /** Longest retry-after the retry loop sleeps on; a longer one is a usage limit. */
 const MAX_RETRY_WAIT_MS = 60_000;
 
@@ -301,6 +325,7 @@ async function streamCall(
     // what this attempt got before it ended: the model began (its input is billed) and wrote this much
     let begun = false;
     let written = 0;
+    let firstAt = 0;
     try {
       let final: StreamResult | undefined;
       // when each block began, so a thinking block can say how long it took ("Thought for 12s")
@@ -312,6 +337,7 @@ async function streamCall(
         if (ev.type === 'text_delta' || ev.type === 'thinking_delta') written += ev.text.length;
         else if (ev.type === 'tool_use_delta') written += ev.partialJson.length;
         if ((ev.type === 'text_delta' || ev.type === 'thinking_delta' || ev.type === 'tool_use_start') && !blockStart.has(ev.index)) blockStart.set(ev.index, Date.now());
+        if (!firstAt && (ev.type === 'text_delta' || ev.type === 'thinking_delta' || ev.type === 'tool_use_start')) firstAt = Date.now();
         if (target.messageId && target.sessionId) {
           if (ev.type === 'text_delta') engine.bus.emit({ type: 'message.delta', sessionId: target.sessionId, messageId: target.messageId, index: ev.index, kind: 'text', text: ev.text });
           else if (ev.type === 'thinking_delta') engine.bus.emit({ type: 'message.delta', sessionId: target.sessionId, messageId: target.messageId, index: ev.index, kind: 'thinking', text: ev.text });
@@ -328,6 +354,7 @@ async function streamCall(
         }
         if (ev.type === 'done') {
           final = { content: ev.content, stopReason: ev.stopReason, usage: ev.usage, latencyMs: Date.now() - started };
+          if (target.sessionId) noteCallTiming(target.sessionId, (firstAt || Date.now()) - started, final.latencyMs);
           // asked for a Cyber access program and served another (no approval on this plan): one notice per session and pair
           const asked = req.accessPrograms?.cyber;
           const served = ev.accessPrograms?.cyber;

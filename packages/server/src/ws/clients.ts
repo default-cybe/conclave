@@ -170,9 +170,18 @@ export class ClientHub {
     }
   }
 
-  /** The event as this socket's account may get it: its own, or a shared chat's shaped by sharedChatEventView. */
-  private frameFor(ws: ServerWebSocket<ClientSocketData>, e: EngineEventEnvelope): string | undefined {
+  /**
+   * The event as this socket's account may get it: its own, or a shared chat's shaped by sharedChatEventView.
+   * The view depends on the account only, so one dispatch builds it once per account (views), never across accounts.
+   */
+  private frameFor(ws: ServerWebSocket<ClientSocketData>, e: EngineEventEnvelope, views?: Map<string, string | undefined>): string | undefined {
     const account = ws.data.accountId ?? 'owner';
+    if (!views) return this.viewFor(e, account);
+    if (!views.has(account)) views.set(account, this.viewFor(e, account));
+    return views.get(account);
+  }
+
+  private viewFor(e: EngineEventEnvelope, account: string): string | undefined {
     if (eventVisibleTo(e.account, account)) {
       // a seat turn writes into the chat, so its messages carry the chat owner's stamp: the owner reads them shaped too
       const m = (e as { message?: { sender?: string } }).message;
@@ -200,11 +209,13 @@ export class ClientHub {
     const map = e.type === 'map.delta';
     if (map && !this.mapCount) return;
     const live = isLive(e) || map;
+    const views = new Map<string, string | undefined>();
     for (const ws of this.sockets) {
-      // another account's event never reaches this socket, apart from a shared chat's allowed events
-      const frame = this.frameFor(ws, e);
-      if (!frame) continue;
+      // the cheap filter first: a socket that skips the event costs no view and no stringify
       if (map ? !ws.data.map : live && ws.data.filter && !ws.data.filter.has((e as { sessionId: string }).sessionId)) continue;
+      // another account's event never reaches this socket, apart from a shared chat's allowed events
+      const frame = this.frameFor(ws, e, views);
+      if (!frame) continue;
       const buffered = ws.getBufferedAmount();
       if (buffered > HARD_BUFFER) {
         // too far behind; it will reconnect and replay with since
