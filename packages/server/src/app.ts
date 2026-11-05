@@ -36,7 +36,7 @@ import { registerSubscriptionRoutes } from './routes-subscriptions';
 import { registerAccountRoutes } from './routes-accounts';
 import { registerAlertRoutes } from './routes-alerts';
 import { registerLogRoutes } from './routes-logs';
-import { startLoopLagWatch, trackRequest, trackToolDone, trackToolStarted, type LoopLagWatch } from './lag';
+import { logSlowRequest, startLoopLagWatch, trackRequest, trackToolDone, trackToolStarted, type LoopLagWatch } from './lag';
 import { CliproxyManager, type CliproxyOptions } from './cliproxy';
 import { MemberPlansManager } from './cliproxy/member';
 import { RemoteAccess, type RemoteOptions } from './remote';
@@ -197,13 +197,16 @@ export function createServer(opts: ServerOptions): ConclaveServer {
 
   const app = new Hono<HonoEnv>();
 
-  // the requests in flight, named in the stall warn line (lag.ts); path only, never the query string
+  // the requests in flight, named in the stall warn line (lag.ts); path only, never the query string.
+  // a slow one gets a line with its route, time to the response and bytes (over 250 ms, a warning over 2 s)
   app.use('*', async (c, next) => {
+    const started = Date.now();
     const done = trackRequest(c.req.method, c.req.path);
     try {
       await next();
     } finally {
       done();
+      logSlowRequest(c.req.method, c.req.routePath, c.res, Date.now() - started);
     }
   });
 

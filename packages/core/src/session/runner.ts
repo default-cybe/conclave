@@ -24,7 +24,7 @@ import { activeMessages, activeStored, buildProviderMessages, lastAssistantText,
 import { buildSystemPrompt, subagentCatalog, TOOL_NOTE_TOOLS, type PromptParts } from './prompt';
 import { delegateCatalog } from '../engine/delegate';
 import { flattenLastToolTurn, isTranscriptShapeError } from './pairing';
-import { streamCompletion, type Served } from './stream';
+import { streamCompletion, takeCallTimings, type Served } from './stream';
 import { isTextOnlyImageError, transcribeImages } from './image-text';
 import { seesImages } from '../providers/common';
 import { pickedName } from '../attachments/prepare';
@@ -167,7 +167,7 @@ function endTurn(engine: Engine, turnId: string, sessionId: string, userSeq: num
 function logTurnLine(engine: Engine, t: Omit<TurnLog, 'usage'>): void {
   try {
     const u = engine.repos.usage.totals({ sessionId: t.sessionId, from: t.startedAt });
-    logTurn({ ...t, usage: { calls: u.calls, inputTokens: u.inputTokens, outputTokens: u.outputTokens, cacheReadTokens: u.cacheReadTokens, cacheWriteTokens: u.cacheWriteTokens, costUsd: u.costUsd } });
+    logTurn({ ...t, ...takeCallTimings(t.sessionId), usage: { calls: u.calls, inputTokens: u.inputTokens, outputTokens: u.outputTokens, cacheReadTokens: u.cacheReadTokens, cacheWriteTokens: u.cacheWriteTokens, costUsd: u.costUsd } });
   } catch {
     /* logging must never break a turn */
   }

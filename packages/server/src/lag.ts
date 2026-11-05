@@ -8,7 +8,7 @@
  * and there is no cheap hook.
  */
 import { readFileSync } from 'node:fs';
-import { logger } from '@conclave/core/util/log.ts';
+import { logEvent, logger } from '@conclave/core/util/log.ts';
 
 const log = logger('lag');
 
@@ -36,6 +36,28 @@ export function trackToolStarted(toolUseId: string, name: string): void {
 
 export function trackToolDone(toolUseId: string): void {
   tools.delete(toolUseId);
+}
+
+/**
+ * One line for a request slower than `slowMs` (a warning over `warnMs`): method, route pattern, status,
+ * time to the response and its bytes. A streamed answer (SSE) counts its time to the headers and no bytes.
+ */
+export function logSlowRequest(method: string, route: string, res: Response | undefined, durationMs: number, slowMs = 250, warnMs = 2000): void {
+  if (durationMs <= slowMs) return;
+  const level = durationMs > warnMs ? 'warn' : 'info';
+  const line = (bytes?: number) => logEvent(level, 'http', 'slow request', { method, route, status: res?.status ?? 0, durationMs, ...(bytes !== undefined ? { bytes } : {}) });
+  const length = res?.headers.get('content-length');
+  const type = res?.headers.get('content-type') ?? '';
+  if (length) return line(Number(length));
+  if (!res?.body || type.includes('event-stream') || !/json|text/.test(type)) return line();
+  // a json or text body is in memory already; its size is counted off the request's path
+  res
+    .clone()
+    .arrayBuffer()
+    .then(
+      (b) => line(b.byteLength),
+      () => line(),
+    );
 }
 
 /** Major page faults of this process so far (field 12 of /proc/self/stat), or undefined off Linux. */
