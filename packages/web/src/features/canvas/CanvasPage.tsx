@@ -720,6 +720,8 @@ function Shell(p: ShellProps) {
     </div>
   );
 
+  // five buttons fit 390 only a little tighter
+  const split = !!p.runner && phoneRunButtons(p.runner).length > 1;
   if (phone)
     return (
       <div className="flex min-h-0 flex-1 flex-col">
@@ -730,9 +732,9 @@ function Shell(p: ShellProps) {
         </div>
         <div className="relative flex min-h-0 flex-1 flex-col">
           {p.canvas(sel, setSel)}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end gap-2 px-3 pb-[calc(12px+var(--safe-b,0px))]">
+          <div className={cn('pointer-events-none absolute inset-x-0 bottom-0 flex items-end px-3 pb-[calc(12px+var(--safe-b,0px))]', split ? 'gap-1.5' : 'gap-2')}>
             {(p.agent ? (['library', 'output', 'agent'] as const) : (['library', 'output'] as const)).map((s) => (
-              <button key={s} type="button" onClick={() => setSheet(s)} className="pointer-events-auto h-11 rounded-[var(--r-2)] border border-rule-2 bg-raise px-4 text-[15px] text-fg shadow-[var(--shadow-pop)]">
+              <button key={s} type="button" onClick={() => setSheet(s)} className={cn('pointer-events-auto h-11 rounded-[var(--r-2)] border border-rule-2 bg-raise text-fg shadow-[var(--shadow-pop)]', split ? 'px-3 text-[14px]' : 'px-4 text-[15px]')}>
                 {s === 'library' ? 'Nodes' : s === 'output' ? 'Output' : 'Agent'}
               </button>
             ))}
@@ -746,7 +748,7 @@ function Shell(p: ShellProps) {
                     // onRun queues while a run goes on (a workflow with args asks for them first)
                     onClick={b === 'stop' ? p.runner!.onStop : p.runner!.onRun}
                     aria-label={b === 'queue' ? 'Queue run: it starts when this one ends' : undefined}
-                    className={cn('px-5 text-[15px] font-medium', b === 'stop' ? 'text-fault' : 'text-fg')}
+                    className={cn('font-medium', split ? 'px-3 text-[14px]' : 'px-5 text-[15px]', b === 'stop' ? 'text-fault' : 'text-fg')}
                   >
                     {b === 'stop' ? 'Stop' : b === 'queue' ? 'Queue' : 'Run'}
                   </button>
