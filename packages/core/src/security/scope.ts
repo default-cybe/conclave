@@ -13,6 +13,7 @@
  * - decide() applies the design's table to one tool call. It is pure, so the
  *   tests cover every row without a hub.
  */
+import { domainToASCII } from 'node:url';
 import YAML from 'yaml';
 
 export const VENUES = ['hackerone', 'bugcrowd', 'apple', 'ghsa', 'vendor', 'own', 'ctf'] as const;
@@ -46,7 +47,8 @@ export class ScopeError extends Error {}
 
 const CIDR = /^[0-9a-f.:]+\/\d{1,3}$/i;
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
-const NET_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+// the workflow names its networks sec-lab-<t>; no dots, so a lab entry can never be a public name or suffix ("com")
+const NET_NAME = /^sec-lab-[a-z0-9][a-z0-9_-]*$/i;
 
 function list(doc: Record<string, unknown>, key: string, required = false): string[] {
   const v = doc[key];
@@ -88,7 +90,7 @@ export function parseScope(text: string): Scope {
   }
   for (const n of lab) {
     if (CIDR.test(n) || IPV4.test(n) || n.includes(':')) throw new ScopeError(`lab has ${n}: lab is docker network names (sec-lab-<target>), never IPs or ranges`);
-    if (!NET_NAME.test(n)) throw new ScopeError(`lab has ${n}, which is not a docker network name`);
+    if (!NET_NAME.test(n)) throw new ScopeError(`lab has ${n}: lab entries are the workflow's docker networks, named sec-lab-<target> with no dots`);
   }
   let expires: string | undefined;
   if (d.expires !== undefined && d.expires !== null) {
@@ -154,7 +156,12 @@ export function grantLive(g: ScopeGrant, now = Date.now()): boolean {
 // Hosts
 // ---------------------------------------------------------------------------
 
-/** "user@Host.Example.com:8443" -> "host.example.com"; "[::1]:80" -> "::1". */
+/**
+ * "user@Host.Example.com:8443" -> "host.example.com"; "[::1]:80" -> "::1".
+ * Names go to their ASCII (punycode) form and IPv4 spellings to dotted quads
+ * (0x7f000001, 2130706433 and 127.1 are 127.0.0.1), as the resolver reads
+ * them, so a scope entry and a call that spell one host differently match.
+ */
 export function normHost(h: string): string {
   let s = h.trim().toLowerCase();
   s = s.replace(/^[a-z][a-z0-9+.-]*:\/\//, '');
@@ -162,7 +169,10 @@ export function normHost(h: string): string {
   s = s.replace(/^.*@/, '');
   if (s.startsWith('[')) return s.slice(1, s.indexOf(']') > 0 ? s.indexOf(']') : undefined);
   if ((s.match(/:/g) ?? []).length === 1) s = s.replace(/:\d*$/, '');
-  return s.replace(/\.$/, '');
+  s = s.replace(/\.+$/, '');
+  if (s.includes(':')) return s;
+  if (s.includes('*')) return s.split('.').map((l) => (l.includes('*') ? l : domainToASCII(l) || l)).join('.');
+  return domainToASCII(s) || s;
 }
 
 const LOOPBACK = /^(localhost|127(\.\d{1,3}){3}|::1|0:0:0:0:0:0:0:1)$/;
@@ -235,7 +245,7 @@ export interface Target {
   path?: string;
 }
 
-const URL_RE = /\b[a-z][a-z0-9+.-]{1,15}:\/\/([^\s'"<>`/?#\\)]+)([^\s'"<>`\\)]*)/gi;
+const URL_RE = /\b[a-z][a-z0-9+.-]{1,15}:\/\/([^\s'"<>`/?#)]+)([^\s'"<>`\\)]*)/gi;
 const HOST_HDR = /^[ \t]*host:[ \t]*([^\s]+)/gim;
 const REQ_LINE = /^[ \t]*[A-Z]{3,10}[ \t]+(\/[^\s]*)[ \t]+HTTP\/[\d.]+/m;
 const IPV4_ANY = /(?<![\w.])(\d{1,3}(?:\.\d{1,3}){3})(?![\w.])/g;
@@ -247,7 +257,9 @@ const NET_CMDS = /^(curl|wget|httpx|nmap|ffuf|nc|ncat|netcat|ssh|scp|sftp|telnet
 const VALUE_FLAG = /^-(o|O|w|i|iL|oN|oX|oA|oG|d|e|F|T|u|A|b|c|x|l|p|U|P|t|H|-output|-data[\w-]*|-wordlist|-user-agent|-cookie|-header)$/;
 
 function addUrl(out: Target[], authority: string, path: string): void {
-  const host = normHost(authority);
+  // "http://lab\@live/": a browser reads lab (\ is /), curl reads live (lab\ is the user); both count
+  if (authority.includes('\\')) addUrl(out, authority.slice(0, authority.indexOf('\\')), '');
+  const host = normHost(authority.replace(/\\/g, ''));
   if (host) out.push({ host, ...(path ? { path: path.replace(/[?#].*$/, '') || '/' } : {}) });
 }
 
@@ -268,6 +280,8 @@ export function targetsInText(text: string): Target[] {
 export function targetsInCommand(cmd: string): Target[] {
   const out = targetsInText(cmd);
   for (const m of cmd.matchAll(IPV4_ANY)) out.push({ host: m[1] });
+  // bash's /dev/tcp/host/port and socat's TCP:host:port
+  for (const m of cmd.matchAll(SOCKET_RE)) out.push({ host: normHost(m[1] ?? m[2]) });
   for (const seg of cmd.split(/[;&|\n]+|\$\(|`/)) {
     const words = seg.trim().split(/\s+/).map((w) => w.replace(/^['"]|['"]$/g, ''));
     const at = words.findIndex((w) => NET_CMDS.test(w.replace(/^.*\//, '')));
@@ -290,31 +304,43 @@ export function targetsInCommand(cmd: string): Target[] {
   return out;
 }
 
-const HOST_KEYS = new Set(['url', 'uri', 'href', 'host', 'hostname', 'domain', 'target', 'address', 'endpoint', 'baseurl', 'base_url', 'origin']);
+const SOCKET_RE = /\/dev\/(?:tcp|udp)\/([^/\s'"]+)|\b(?:tcp|udp|ssl|openssl|tcp-connect)[46]?:(\[[0-9a-f:]+\]|[a-z0-9][a-z0-9.-]*)/gi;
 
-/** Targets in a structured tool input (WebFetch, browser, MCP): URL and host fields, and URLs or raw requests in any string. */
-export function targetsInInput(input: unknown, depth = 0): Target[] {
+const HOST_KEYS = new Set(['url', 'urls', 'uri', 'href', 'host', 'hosts', 'hostname', 'domain', 'domains', 'target', 'targets', 'address', 'addr', 'ip', 'ips', 'server', 'rhost', 'rhosts', 'endpoint', 'baseurl', 'base_url', 'origin']);
+
+/** Targets in a structured tool input (WebFetch, browser, MCP): URL and host fields (strings or lists), and URLs or raw requests in any string. */
+export function targetsInInput(input: unknown, depth = 0, key = ''): Target[] {
   const out: Target[] = [];
-  if (depth > 5 || input === null || typeof input !== 'object') return out;
+  if (depth > 16 || input === null || typeof input !== 'object') return out;
+  const list = Array.isArray(input);
   for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    // a list's items are read under the list's own key: hosts: ["a.com", "b.com"]
+    const name = list ? key : k.toLowerCase();
     if (typeof v === 'string') {
       const found = targetsInText(v);
       out.push(...found);
       const s = v.trim();
-      if (!found.length && HOST_KEYS.has(k.toLowerCase())) {
+      if (!found.length && HOST_KEYS.has(name)) {
         const hm = HOSTISH.exec(s);
         if (hm) out.push({ host: normHost(hm[1]), ...(hm[2] ? { path: hm[2] } : {}) });
         else if (IPV4.test(s)) out.push({ host: s });
       }
-    } else if (v && typeof v === 'object') out.push(...targetsInInput(v, depth + 1));
+    } else if (v && typeof v === 'object') out.push(...targetsInInput(v, depth + 1, name));
   }
   return out;
+}
+
+function stringsIn(input: unknown, depth = 0): string[] {
+  if (typeof input === 'string') return [input];
+  if (depth > 16 || !input || typeof input !== 'object') return [];
+  return Object.values(input as Record<string, unknown>).flatMap((v) => stringsIn(v, depth + 1));
 }
 
 /** Words in free text that a scope file names (a Delegate brief, a python -c line): only listed hosts count, so prose does not prompt. */
 export function listedHostsInText(text: string, scopes: Scope[]): Target[] {
   const out: Target[] = [];
-  for (const w of text.split(/[\s'"`()[\]{},;<>]+/)) {
+  // split at URL, shell and socket punctuation too: H=host, /dev/tcp/host/443, TCP:host:80, user@host, //host/
+  for (const w of text.split(/[\s'"`()[\]{},;<>/:=@|&$\\+]+/)) {
     const hm = HOSTISH.exec(w.replace(/[.:]+$/, ''));
     if (!hm || FILE_EXT.test(hm[1])) continue;
     const host = normHost(hm[1]);
@@ -345,12 +371,32 @@ export interface GuardVerdict {
 }
 
 /** Caido MCP tools that send traffic (send, replay, batch, race, automate, fuzz). Reads (list, get, search) are left alone. */
-export const CAIDO_SEND = /^mcp__caido__caido_(?!(?:list|get|delete|rename|search|export|update)_).*(send|replay|batch|race|fuzz|automate|resend|forward)/;
-const RACE = /^mcp__caido__caido_race_window_send$/;
+// any server name the owner gave Caido (caido, caido-proxy, ...)
+export const CAIDO_SEND = /^mcp__[^_]*caido[^_]*__(?!(?:caido_)?(?:list|get|delete|rename|search|export|update)_).*(send|replay|batch|race|fuzz|automate|resend|forward)/i;
+const RACE = /^mcp__.*race_?window/i;
 
-/** Tools that can reach the network: the shell, WebFetch, the browser, Delegate, and every MCP tool. */
+/** Hub-side fetchers: they run on the hub, outside the hunt container and its gateway, like WebFetch. */
+const HUB_FETCH = new Set(['WebFetch', 'Capture', 'ReadPost', 'SaveInspiration', 'lib.capture']);
+/** Tools whose text runs later in a new session outside this chain, so outside the guard: a routine or a watch. */
+const LATER = new Set(['ScheduleRoutine', 'WatchCreate']);
+/** Browser tools that run page code: a host in the code counts even without a scheme ("//live/", 'live' + path). */
+const BROWSER_CODE = /^browser_(evaluate|run_code)/;
+
+/** File tools: an agent that rewrites its own scope.yaml could move a denied host under a wide grant. */
+const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+const SCOPE_FILE = /(^|[/\\\s'"])scope\.ya?ml\b/i;
+// shortcut: command words that can change a file; a script that writes scope.yaml by a built name is missed. PR 1b pins the scope a grant was issued on.
+const SHELL_WRITE = />|\b(tee|sed|perl|mv|cp|rm|ln|dd|truncate|install|rsync|python3?|node|ruby|bun|yq)\b/;
+
+/** Tools that can reach the network (the shell, hub fetchers, the browser, Delegate, routines and watches, every MCP tool), plus file tools for scope-file edits. */
 export function guardedTool(name: string): boolean {
-  return name === 'Bash' || name === 'WebFetch' || name === 'Delegate' || name.startsWith('browser_') || name.startsWith('mcp__');
+  return name === 'Bash' || name === 'Delegate' || HUB_FETCH.has(name) || LATER.has(name) || EDIT_TOOLS.has(name) || name.startsWith('browser_') || name.startsWith('mcp__');
+}
+
+function editsScopeFile(tool: string, input: Record<string, unknown>): boolean {
+  if (EDIT_TOOLS.has(tool)) return SCOPE_FILE.test(String(input.file_path ?? input.notebook_path ?? ''));
+  const cmd = tool === 'Bash' && typeof input.command === 'string' ? input.command : '';
+  return SCOPE_FILE.test(cmd) && SHELL_WRITE.test(cmd);
 }
 
 function targetsOf(call: GuardCall, scopes: Scope[]): Target[] {
@@ -359,11 +405,12 @@ function targetsOf(call: GuardCall, scopes: Scope[]): Target[] {
     const cmd = typeof input.command === 'string' ? input.command : '';
     return [...targetsInCommand(cmd), ...listedHostsInText(cmd, scopes)];
   }
-  if (tool === 'Delegate') {
-    const text = [input.prompt, input.description].filter((x) => typeof x === 'string').join('\n');
+  if (tool === 'Delegate' || LATER.has(tool)) {
+    const text = [input.prompt, input.description, input.title, input.url].filter((x) => typeof x === 'string').join('\n');
     // the brief carries the network task to another device: URLs, IPs and listed hosts count, other prose does not
     return [...targetsInText(text), ...[...text.matchAll(IPV4_ANY)].map((m) => ({ host: m[1] })), ...listedHostsInText(text, scopes)];
   }
+  if (BROWSER_CODE.test(tool)) return [...targetsInInput(input), ...stringsIn(input).flatMap((s) => listedHostsInText(s, scopes))];
   return targetsInInput(input);
 }
 
@@ -385,6 +432,8 @@ function targetsOf(call: GuardCall, scopes: Scope[]): Target[] {
 export function decide(call: GuardCall): GuardVerdict | undefined {
   const { tool } = call;
   if (!guardedTool(tool)) return undefined;
+  if (editsScopeFile(tool, call.input)) return { decision: 'ask', reason: 'Scope guard: this call changes a scope.yaml. The owner sets the scope; approve only if you asked for this change.' };
+  if (EDIT_TOOLS.has(tool)) return undefined;
   const now = call.now ?? Date.now();
   const scopes = call.scope.kind === 'ok' ? call.scope.scopes : [];
   const seen = new Map<string, Target>();
@@ -414,10 +463,11 @@ export function decide(call: GuardCall): GuardVerdict | undefined {
     else if (c === 'out') deny ??= `${where} is out of scope in scope.yaml.`;
     else if (c === 'in-bad-path') deny ??= `${where} is outside the in-scope paths in scope.yaml.`;
     else if (c === 'in') {
-      if (tool === 'WebFetch') deny ??= `${t.host} is a live in-scope target. WebFetch runs on the hub, outside the egress gateway; send it through the validator in the hunt container.`;
+      if (HUB_FETCH.has(tool)) deny ??= `${t.host} is a live in-scope target. ${tool} runs on the hub, outside the egress gateway; send it through the validator in the hunt container.`;
+      else if (LATER.has(tool)) deny ??= `${t.host} is a live in-scope target. ${tool} runs later in a new session outside this hunt's scope guard and grants; unattended runs stay lab-only.`;
       else if (call.member) deny ??= `${t.host} is a live target. Security mode is lab-only for members in v1.`;
       else if (!live.some((g) => g.hosts.some((h) => hostMatches(h, t.host)))) ask ??= `${t.host} is in scope but no live approval grant covers it. Approve this call, or issue a grant (hosts, accounts, budget, rate, at most 24 h).`;
-    } else if (tool !== 'WebFetch') ask ??= `${t.host} is not listed in scope.yaml. Approve only if it is not a target (docs, a package registry).`;
+    } else if (!HUB_FETCH.has(tool)) ask ??= `${t.host} is not listed in scope.yaml. Approve only if it is not a target (docs, a package registry).`;
   }
   if (deny) return { decision: 'deny', reason: `Scope guard: ${deny}` };
   if (ask) return { decision: 'ask', reason: `Scope guard: ${ask}` };

