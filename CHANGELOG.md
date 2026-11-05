@@ -9,6 +9,12 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Changed
+
+- A long session opens fast on a phone. The phone transcript now mounts its latest turns first and loads older ones as you scroll up, like desktop. A 2,000-message session took 18 to 20 s to open in the mock at 4x CPU throttling, with 71,671 elements. It now takes 0.5 to 2.2 s with about 1,100 elements.
+- The hub compresses the web app. Scripts, styles, HTML and other text files over 1 KB now go out as brotli or gzip, and API JSON as gzip. The first screen's scripts drop from 1.67 MB to about 0.5 MB on the wire. In the mock, the chat list showed up 21% sooner on a 20 Mbit/s link (2.9 s to 2.3 s) and 30% sooner on fast 4G (4.7 s to 3.1 s).
+- The Hooks, Skills and MCP servers tabs now load when their sheet opens, not with the chat. The entry bundle is 7% smaller: 1,667 KB to 1,553 KB raw, 536 KB to 503 KB gzipped.
+
 ### Fixed
 
 - Desktop app: files dropped on a chat attach again on macOS and Linux. On macOS the drop zones now accept the drag on dragenter too, which WebKit needs before it lets a drop through. On Linux, where WebKitGTK gives the page no files from a file manager, the app takes the drop itself and the page reads only those files (45 MB at most) through a new `read_dropped` command.

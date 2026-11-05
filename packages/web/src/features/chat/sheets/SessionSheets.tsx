@@ -4,7 +4,7 @@
  * pages' parts: the MCP servers, Hooks and Skills tabs of Extensions, the
  * permission rules of Settings, the model list.
  */
-import { useMemo, type ReactNode } from 'react';
+import { lazy, Suspense, useMemo, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import type { PermissionMode, Session } from '@conclave/core/types';
 import { underParent } from '@conclave/core/session/delegated';
@@ -25,8 +25,7 @@ import { EffortSegments } from '@/features/conversation/ChatComposer';
 import { CyberAccess } from '@/features/conversation/ComposerParts';
 import { cyberLabel } from '@conclave/core/providers/access-programs';
 import { effortLabel, shownEffort, useModelEffort } from '@/lib/effort';
-import { HooksTab } from '@/features/extensions/Hooks';
-import { SkillsTab } from '@/features/extensions/Skills';
+import { LoadingRows } from '@/components/ui/EmptyState';
 import { ExtCwdProvider } from '@/features/extensions/project';
 import { TrustBanner } from '@/features/extensions/shared/TrustBanner';
 import { PermissionsSection } from '@/features/settings/permissions';
@@ -37,6 +36,11 @@ import { SessionSheet, SheetRouter } from './SessionSheet';
 import { ConnectorsSheet } from './Connectors';
 import { ContextSheet } from './ContextSheet';
 import { DesignSheet } from './DesignSheet';
+
+// the Extensions tabs load when /hooks or /skills opens, not with the chat
+const HooksTab = lazy(() => import('@/features/extensions/Hooks').then((m) => ({ default: m.HooksTab })));
+const SkillsTab = lazy(() => import('@/features/extensions/Skills').then((m) => ({ default: m.SkillsTab })));
+const loading = <LoadingRows loading rows={3} />;
 
 /** What the session's folder is: its project's name, else the folder. */
 function useWhere(session: Session): string {
@@ -84,7 +88,9 @@ export function SessionSheets({
     body = (
       <ExtCwdProvider cwd={hubCwd(session)}>
         <SheetRouter base="/extensions/hooks" onLeave={onClose}>
-          <HooksTab />
+          <Suspense fallback={loading}>
+            <HooksTab />
+          </Suspense>
         </SheetRouter>
       </ExtCwdProvider>
     );
@@ -96,7 +102,9 @@ export function SessionSheets({
         </p>
         <ExtCwdProvider cwd={hubCwd(session)}>
           <SheetRouter base="/extensions/skills" onLeave={onClose}>
-            <SkillsTab />
+            <Suspense fallback={loading}>
+              <SkillsTab />
+            </Suspense>
           </SheetRouter>
         </ExtCwdProvider>
       </>

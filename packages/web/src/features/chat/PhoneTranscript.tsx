@@ -20,7 +20,7 @@
  * long press selects text, as anywhere else on the phone; it opens nothing.
  * No tokens, costs or times: those are in the sheet.
  */
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import { ChevronRight } from 'lucide-react';
 import type { Message, Session, ToolUseBlock } from '@conclave/core/types';
@@ -38,7 +38,7 @@ import { QuestionCard } from '@/components/inbox/QuestionCard';
 import { Checkbox } from '@/components/ui/Field';
 import { CodeBlock, Diff } from '@/components/ui/Code';
 import { commentTo } from './CommentTray';
-import { sticks } from './window';
+import { fillDirection, grow, idleDirection, mountedRange, partsOf, sticks, unitIndexOf, WINDOW, type Span } from './window';
 import { ConfirmDialog, MenuList, Popover, Sheet } from '@/components/ui/Overlay';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { ModelList } from '@/components/pickers/ModelPicker';
@@ -49,7 +49,7 @@ import { BlockView, SecondOpinion, turnPieces } from './Turn';
 import { Markdown } from './Markdown';
 import { DebateGroup, JuryGroup } from './Group';
 import { ErrorBody, NoticeLine, SummaryLine } from './Notices';
-import { buildUnits } from './MessageList';
+import { buildUnits, KeepPlace, keepHeights, useAnchoring, whenIdle, type Unit } from './MessageList';
 import { PhonePending, storedWord } from './Pending';
 import { callMs, callStatus, editFiles, groupNow, Terminal, took, useSubagent, useSubagentNow, useToolState, useWaitingKey, webResults, workSteps, type ThoughtItem, type ToolItem, type WorkItem } from './ToolRows';
 import { groupState, pinned, segment, troubleWords, workName } from './toolGroups';
@@ -96,6 +96,47 @@ export function PhoneTranscript({ session }: { session: Session }) {
   const stick = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
   const jump = usePresence(!atBottom);
+  const column = useRef<HTMLDivElement>(null);
+
+  // which pieces are mounted (window.ts), as on desktop (MessageList): a long session opens with its latest pieces
+  // (or from a linked message down), older ones mount as you scroll up and in idle time, and pieces off screen are
+  // skipped (.log-unit in index.css). All at once, 2,000 messages took about a minute on a phone.
+  const [win, setWin] = useState<{ session: string; span: Span; core: Span | null; guess?: number | null } | null>(null);
+  let w = win;
+  if (loaded && w?.session !== session.id) {
+    const hash = typeof location === 'undefined' ? '' : location.hash.slice(1);
+    const t = hash && !hash.startsWith('ask-') ? unitIndexOf(units, list, hash) : -1;
+    w = { session: session.id, span: { start: Math.max(0, t >= 0 ? Math.min(t - WINDOW.before, units.length - WINDOW.first) : units.length - WINDOW.first), end: null }, core: null };
+    setWin(w);
+  }
+  const mine = w?.session === session.id ? w : null;
+  const [from, to] = mine ? mountedRange(mine.span, units.length) : [0, units.length];
+  const pieceParts = useMemo(() => partsOf(mine?.core ?? null, from, to, units.length), [mine?.core, from, to, units.length]);
+  // opening, before the first paint: mount more until the latest pieces fill two screens, then each keeps its height
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!mine || mine.core || !el || !column.current) return;
+    const dir = fillDirection(mine.span, units.length, { height: el.scrollHeight, viewport: el.clientHeight });
+    if (dir) return setWin({ ...mine, span: grow(mine.span, dir, units.length) });
+    const guess = keepHeights([...column.current.querySelectorAll<HTMLElement>(':scope > .log-part > .log-unit')]);
+    if (stick.current) el.scrollTop = el.scrollHeight;
+    setWin({ ...mine, core: mine.span, guess });
+  });
+  useAnchoring(scroller, column, !!mine?.core, stick);
+  const growing = useRef(false);
+  useLayoutEffect(() => {
+    growing.current = false;
+  }, [mine]);
+  const growUp = () => {
+    if (growing.current || !mine?.core || mine.span.start <= 0) return;
+    growing.current = true;
+    startTransition(() => setWin((x) => (x?.session === mine.session ? { ...x, span: grow(x.span, 'up', units.length) } : x)));
+  };
+  useEffect(() => {
+    if (!mine?.core || !idleDirection(mine.span, units.length)) return;
+    return whenIdle(growUp);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mine, units.length]);
 
   // stick to the bottom while new content streams in
   useLayoutEffect(() => {
@@ -126,31 +167,44 @@ export function PhoneTranscript({ session }: { session: Session }) {
     lastTop.current = el.scrollTop;
     stick.current = near;
     if (near !== atBottom) setAtBottom(near);
+    if (el.scrollTop < el.clientHeight * WINDOW.edge) growUp();
+  };
+
+  const unitView = (u: Unit): ReactNode => {
+    switch (u.kind) {
+      case 'user':
+        return <Bubble message={u.message} />;
+      case 'turn':
+        return <Turn messages={u.messages} session={session} streaming={streaming} tools={tools} results={results} last={u.key === lastTurn} done={!(u.key === lastTurn && live)} working={u.key === lastTurn && live && session.status !== 'waiting_reset'} />;
+      case 'aside':
+        return <SecondOpinion message={u.message} session={session} streaming={!!streaming[u.message.id]} pending={u.pending} />;
+      case 'group':
+        return u.mode === 'debate' ? <DebateGroup unit={u} session={session} streaming={streaming} /> : <JuryGroup unit={u} session={session} streaming={streaming} />;
+      case 'notice':
+        return <NoticeLine message={u.message} session={session} latest={u === units[units.length - 1]} />;
+      case 'summary':
+        return <SummaryLine message={u.message} />;
+    }
   };
 
   return (
     <div className="relative min-h-0 flex-1">
       {/* log-text: the conversation at the Text size of Settings, Appearance (index.css) */}
       <div ref={scroller} onScroll={onScroll} className="log-text h-full overflow-y-auto overscroll-contain" role="log" aria-label="Transcript">
-        <div className="flex flex-col gap-5 px-5 pt-2 pb-6">
+        <div ref={column} data-skip-offscreen={!!mine?.core || undefined} className="flex flex-col gap-5 px-5 pt-2 pb-6">
+          <KeepPlace session={session.id} start={from} scroller={scroller} />
           <LoadingRows loading={!loaded} rows={3} />
           {loaded && units.length === 0 && !live && <Empty session={session} />}
-          {units.map((u) => {
-            switch (u.kind) {
-              case 'user':
-                return <Bubble key={u.key} message={u.message} />;
-              case 'turn':
-                return <Turn key={u.key} messages={u.messages} session={session} streaming={streaming} tools={tools} results={results} last={u.key === lastTurn} done={!(u.key === lastTurn && live)} working={u.key === lastTurn && live && session.status !== 'waiting_reset'} />;
-              case 'aside':
-                return <SecondOpinion key={u.key} message={u.message} session={session} streaming={!!streaming[u.message.id]} pending={u.pending} />;
-              case 'group':
-                return u.mode === 'debate' ? <DebateGroup key={u.key} unit={u} session={session} streaming={streaming} /> : <JuryGroup key={u.key} unit={u} session={session} streaming={streaming} />;
-              case 'notice':
-                return <NoticeLine key={u.key} message={u.message} session={session} latest={u === units[units.length - 1]} />;
-              case 'summary':
-                return <SummaryLine key={u.key} message={u.message} />;
-            }
-          })}
+          {/* one part per chunk, as on desktop: mounting a chunk restyles that part only (window.ts partsOf) */}
+          {pieceParts.map(({ key, from: a, to: b }) => (
+            <div key={key} className="log-part contents" style={key !== 'mid' && mine?.guess ? ({ '--log-unit-h': `${mine.guess}px` } as CSSProperties) : undefined}>
+              {units.slice(a, b).map((u, j) => (
+                <div key={u.key} data-unit={u.key} className={cn('log-unit', a + j === units.length - 1 && 'log-unit-last')}>
+                  {unitView(u)}
+                </div>
+              ))}
+            </div>
+          ))}
           <PhonePending session={session} items={queued} />
           {/* waiting on you, the card below says so */}
           {!asks.length && <Working session={session} failure={session.status === 'error' ? <ErrorBody session={session} lastPrompt={lastPrompt} /> : undefined} />}

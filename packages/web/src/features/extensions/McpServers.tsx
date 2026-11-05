@@ -28,16 +28,11 @@ import { scrollBehavior } from './hooks/model';
 import { SourceBadge } from './shared/SourceBadge';
 import { advice, openAuthorize, target, transportOf } from './mcp/parts';
 import { errText } from '@/features/settings/parts';
+import { StatusWord } from './mcp/StatusWord';
+
+export { StatusWord };
 
 type TestState = { busy: true } | ({ busy: false } & McpTestResult) | { busy: false; ok: false; error: string; ms?: undefined; tools?: undefined };
-
-export function StatusWord({ st }: { st: McpStatus }) {
-  if (st.status === 'connecting') return <LiveStatus state="tool" label="Connecting" still />;
-  if (st.status !== 'disabled' && st.auth === 'needs-auth') return <StateWord tone="dim">not connected</StateWord>;
-  if (st.status === 'failed') return <StateWord tone="fault">failed</StateWord>;
-  if (st.status === 'disabled') return <StateWord tone="dim">off</StateWord>;
-  return <StateWord tone="ok">connected</StateWord>;
-}
 
 export function McpServersTab() {
   const mobile = useIsMobile();
