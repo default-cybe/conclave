@@ -462,7 +462,7 @@ object ChatList {
     /** Chats only, newest activity first, in their time groups. */
     fun groups(sessions: List<Session>, now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): List<ChatGroup> {
         val out = LinkedHashMap<String, Pair<String, MutableList<Session>>>()
-        for (s in sessions.filter { it.isChat && !it.archived }.sortedByDescending { it.updatedAt }) {
+        for (s in sessions.filter { it.isChat && !it.archived && !it.isIncognito }.sortedByDescending { it.updatedAt }) {
             val (key, title) = group(s.updatedAt, now, zone)
             out.getOrPut(key) { title to ArrayList() }.second.add(s)
         }

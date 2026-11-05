@@ -325,6 +325,7 @@ fun ChatThreadScreen(
     Column(Modifier.fillMaxSize().imePadding()) {
         // the top bar: the menu, the title (a tap opens the chat's sheet) and New chat
         TopBar(title = s?.title?.ifBlank { null } ?: "New chat", onTitle = if (s != null) ({ sheet = true }) else null)
+        if (s?.isIncognito == true) IncognitoMark(code = false)
         // made from a friend's share: whose turns are quoted here
         s?.let { FriendShareLine(it, onOpenShare) }
         OfflineBanner(connection)

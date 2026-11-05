@@ -39,7 +39,7 @@ object Panel {
         .map { s -> Recent(s.id, title(s), s.isChat, dot(s, s.id in waiting)) }
 
     /** What the panel and the lists show: not archived, not a subagent (delegated work has a group of its own; moved to the main list, it shows), not one of a workflow's agents. */
-    fun shown(s: Session): Boolean = !s.archived && !Delegated.underParent(s) && Home.workflowRunOf(s) == null
+    fun shown(s: Session): Boolean = !s.archived && !s.isIncognito && !Delegated.underParent(s) && Home.workflowRunOf(s) == null
 
     /** A session's dot: waiting on you wins over running. */
     fun dot(s: Session, asked: Boolean = false): RecentDot = when {
@@ -93,7 +93,7 @@ object Lists {
         val needle = query.trim().lowercase()
         val list = sessions
             // imported chats not continued yet are not the archive: a group of their own, last (Imported.kt)
-            .filter { it.isChat == chats && (if (archived) it.archived && !Imported.inImported(it) else !it.archived || Imported.inImported(it)) && it.parentId == null && Home.workflowRunOf(it) == null }
+            .filter { it.isChat == chats && !it.isIncognito && (if (archived) it.archived && !Imported.inImported(it) else !it.archived || Imported.inImported(it)) && it.parentId == null && Home.workflowRunOf(it) == null }
             .filter { s -> needle.isEmpty() || s.title.lowercase().contains(needle) || (!chats && s.agent.lowercase().contains(needle)) }
             .sortedByDescending { it.updatedAt }
         val out = ArrayList<ListGroup>()
