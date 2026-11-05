@@ -138,7 +138,9 @@ export async function runSubagent(
     updatedAt: now,
     stats: { messages: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
     meta: { subagent: true, ...(untrusted ? { untrusted: true } : {}), ...(wf?.meta ?? {}) },
-    ...(dlg?.chat ? { chat: dlg.chat } : {}),
+    // a parent that saves nothing to memory ("Use only", Off) passes that on, as an incognito parent passes incognito
+    ...(dlg?.chat ? { chat: dlg.chat } : parent.chat?.memory === false || parent.chat?.memorySave === false ? { chat: { webSearch: true, memory: parent.chat.memory !== false, memorySave: false } } : {}),
+    ...(parent.incognito ? { incognito: true } : {}),
   };
   engine.repos.sessions.insert(sub);
   engine.bus.emit({ type: 'session.created', session: sub });

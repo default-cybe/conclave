@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Incognito chats and Code sessions (hub side). Start one with `incognito: true` on `POST /api/sessions`. It is kept out of the sidebar, search, SessionSearch, Home and day plan, Reflect, recaps, the map, exports, forks and shares. It is hard-deleted, with its outputs folder, when it is closed, when a new chat or session starts, after 12 hours idle, and at hub start. The delete runs with SQLite `secure_delete` on, then checkpoints the WAL. Usage keeps tokens and cost only. A new memory setting, `chat.memorySave: false` ("Use only"), reads memory but saves nothing. Incognito sessions use it by default.
+
 ## [0.4.67] - 2026-11-05
 
 ### Fixed

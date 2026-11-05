@@ -114,6 +114,8 @@ export class ChatParticipantStore {
 
   invite(chatId: string, caller: string, accountId: string, input: { access?: ChatAccess; history?: ChatHistory } = {}): ChatParticipant {
     this.owner(chatId, caller);
+    // an incognito chat is its starter's alone (session/incognito.ts)
+    if (this.db.query('SELECT 1 FROM sessions WHERE id = ? AND incognito = 1').get(chatId)) throw new PeopleError(409, 'An incognito chat cannot be shared. Its conversation is not kept.');
     if (!this.db.query('SELECT 1 FROM hub_accounts WHERE id = ?').get(accountId)) throw new PeopleError(404, 'Person not found.');
     if (accountId === caller) throw new PeopleError(400, 'The chat owner is already in the chat.');
     const access = input.access ?? 'participant';
