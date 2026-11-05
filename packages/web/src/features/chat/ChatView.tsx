@@ -59,6 +59,7 @@ import { DelegatedLine, FromLink, moveToMainList, MOVE_TO_MAIN, useDelegatedFrom
 import { useHubCopy } from './HubCopy';
 import { addToSplit, saveSplit, shownSplit } from './split';
 import { useFlowOpen } from '@/features/graph/flowOpen';
+import { IncognitoMark } from '@/features/conversation/incognito';
 
 // React Flow stays out of the main chunk until Blocks opens
 const FlowView = lazy(() => import('../graph/FlowView'));
@@ -131,6 +132,11 @@ export function ChatView({ session, column }: { session: Session; /** Shown as a
       <div className="flex h-full min-w-0 flex-1 flex-col">
         <PhoneTitle title={session.title} />
         <PhoneBar title={session.title} onTitle={() => setSheet(true)} titleLabel={`${session.title}, details`} />
+        {session.incognito && (
+          <div className="flex shrink-0 justify-center py-1">
+            <IncognitoMark code />
+          </div>
+        )}
         <DelegatedLine session={session} className="shrink-0 px-5 py-1.5" />
         <ImportedLine session={session} className="shrink-0 px-5 py-1.5" />
         <FriendShareLine session={session} className="shrink-0 px-5 py-1.5" />
@@ -283,9 +289,12 @@ function ChatHeader({ session }: { session: Session }) {
     <header className="shrink-0 border-b border-rule bg-bg">
       <div className="mx-auto flex h-16 w-full max-w-[924px] items-center gap-4 px-8">
         <div className="min-w-0 flex-1">
-          <h1 className="t-title truncate text-fg" title={session.title}>
-            {session.title}
-          </h1>
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="t-title truncate text-fg" title={session.title}>
+              {session.title}
+            </h1>
+            {session.incognito && <IncognitoMark code />}
+          </div>
           <HeaderMeta session={session} />
         </div>
         {isDelegated(session) && (

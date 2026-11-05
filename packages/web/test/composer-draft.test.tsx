@@ -271,7 +271,7 @@ describe('the composer draft', () => {
   test("the chat composer's send drops the stored draft before it awaits the hub", () => {
     const src = readFileSync(join(import.meta.dir, '../src/features/conversation/ChatComposer.tsx'), 'utf8');
     const send = src.slice(src.indexOf('const send = async'), src.indexOf('const stop = '));
-    expect(src.includes('const clearDraft = useDraft(chatId,')).toBe(true);
+    expect(/const clearDraft = useDraft\(\s*chatId,/.test(src)).toBe(true);
     expect(send.indexOf('clearDraft();')).toBeGreaterThan(-1);
     expect(send.indexOf('clearDraft();')).toBeLessThan(send.indexOf('await '));
   });

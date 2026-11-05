@@ -44,7 +44,7 @@ import { setStartMode } from '@/features/home/start';
 import { closePreview, openContinue, useChatUi } from './state';
 import { acceptFileDrag, droppedFiles } from '@/lib/fileDrop';
 import { AddPeopleDialog, PeopleControl, PeopleSheet, useGuest, useHasPeople, useParticipants } from '@/features/chat/shared';
-
+import { IncognitoMark } from './incognito';
 
 export default function ChatPage() {
   const params = useParams<{ id?: string }>();
@@ -178,6 +178,11 @@ export default function ChatPage() {
         onDrop={onDrop}
       >
         {phone && <PhoneBar title={session?.title ?? (id ? 'Chat' : 'New chat')} onTitle={session ? () => (guest ? setPeople(true) : setSheet(true)) : undefined} titleLabel={session ? (guest ? `${session.title}, people` : `${session.title}, details`) : undefined} />}
+        {phone && session?.incognito && (
+          <div className="flex shrink-0 justify-center py-1">
+            <IncognitoMark />
+          </div>
+        )}
         {column}
       </div>
       {dockPreview ? <PreviewPanel width={previewW} /> : <PreviewSheet />}
@@ -223,7 +228,7 @@ function ChatHeader({ id, renaming, setRenaming }: { id?: string; renaming: bool
   return (
     <header className={cn('grid h-[52px] shrink-0 grid-cols-[minmax(84px,1fr)_minmax(0,720px)_minmax(84px,1fr)] items-center border-b bg-bg transition-[border-color] duration-[var(--dur-1)]', scrolled ? 'border-rule' : 'border-transparent')}>
       <div />
-      <div className="flex min-w-0 justify-center">
+      <div className="flex min-w-0 items-center justify-center gap-2">
         {session &&
           (renaming ? (
             <Input
@@ -252,6 +257,7 @@ function ChatHeader({ id, renaming, setRenaming }: { id?: string; renaming: bool
               {session.title}
             </button>
           ))}
+        {session?.incognito && !renaming && <IncognitoMark />}
       </div>
       <div className="flex items-center justify-end gap-0.5 pr-3">
         {session && <PeopleControl session={session} />}

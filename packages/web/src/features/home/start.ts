@@ -133,7 +133,7 @@ export function savePicks(p: Picks) {
  */
 export function lastOwnSession(sessions: Record<string, Session>, settled = false, mode?: 'assistant' | 'code'): Session | undefined {
   return Object.values(sessions)
-    .filter((s) => !s.archived && !s.routineId && !underParent(s) && s.mode !== 'jury' && s.mode !== 'debate' && s.kind !== 'chat')
+    .filter((s) => !s.archived && !s.incognito && !s.routineId && !underParent(s) && s.mode !== 'jury' && s.mode !== 'debate' && s.kind !== 'chat')
     .filter((s) => !mode || modeOf(s) === mode)
     .filter((s) => !settled || s.status === 'idle' || s.status === 'error')
     .sort((a, b) => b.updatedAt - a.updatedAt)[0];

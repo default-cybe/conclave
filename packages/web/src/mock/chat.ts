@@ -629,6 +629,7 @@ export function registerChat(ctx: MockCtx) {
       stats: { messages: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, costUsd: 0 },
       kind: 'chat',
       chat,
+      ...(body.incognito === true ? { incognito: true } : {}),
     };
     db.sessions.set(s.id, s);
     db.messages.set(s.id, []);
