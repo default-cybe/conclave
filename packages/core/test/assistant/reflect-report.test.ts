@@ -6,7 +6,7 @@ import { makeAssistant } from './helpers';
 let env: ReturnType<typeof makeAssistant>;
 afterEach(() => env?.cleanup());
 
-function setup(answer: (prompt: string) => string | Promise<string>) {
+function setup(answer: (prompt: string) => string | Promise<string>, o: { thin?: boolean } = {}) {
   let clock = Date.parse('2026-11-05T18:00:00Z');
   env = makeAssistant({ now: () => clock });
   const calls: string[] = [];
@@ -24,6 +24,12 @@ function setup(answer: (prompt: string) => string | Promise<string>) {
   const ts = clock - 86_400_000;
   env.db.query(`INSERT INTO sessions (id, title, agent, model, mode, permission_mode, cwd, status, created_at, updated_at, account_id, kind) VALUES ('s1', 'Canvas grading rubric', 'chat', 'm', 'single', 'ask', '/w/cmu', 'idle', ?, ?, 'owner', 'chat')`).run(ts, ts);
   env.db.query(`INSERT INTO messages (id, session_id, seq, role, kind, content, created_at) VALUES ('m1', 's1', 1, 'user', 'normal', ?, ?)`).run(JSON.stringify([{ type: 'text', text: 'actually, use the 2026 rubric' }]), ts);
+  // enough to reflect on: three sessions you started, six messages you typed
+  if (!o.thin)
+    for (const [id, title] of [['s2', 'Grade lab 4'], ['s3', 'Rubric for lab 5']]) {
+      env.db.query(`INSERT INTO sessions (id, title, agent, model, mode, permission_mode, cwd, status, created_at, updated_at, account_id, kind) VALUES (?, ?, 'chat', 'm', 'single', 'ask', '/w/cmu', 'idle', ?, ?, 'owner', 'chat')`).run(id, title, ts, ts);
+      for (const n of [1, 2, 3]) env.db.query(`INSERT INTO messages (id, session_id, seq, role, kind, content, created_at) VALUES (?, ?, ?, 'user', 'normal', ?, ?)`).run(`${id}m${n}`, id, n, JSON.stringify([{ type: 'text', text: `grading step ${n}` }]), ts);
+    }
   return { svc, calls, tick: (ms: number) => (clock += ms) };
 }
 
@@ -47,14 +53,18 @@ describe('Reflect report', () => {
     const r = await svc.report('week');
     expect(calls).toHaveLength(1);
     expect(calls[0]).toContain('Canvas grading rubric');
-    expect(calls[0]).not.toContain('actually, use the 2026 rubric'); // raw messages never go to the model
+    // raw messages never go to the model
+    expect(calls[0]).not.toContain('actually, use the 2026 rubric');
+    expect(calls[0]).not.toContain('grading step');
     expect(r.insights).toBe('model');
     expect(r.headline).toBe('A short week on Canvas grading, one chat.');
     expect(r.work.topics).toEqual([{ name: 'Grading', example: 'Canvas grading rubric' }]);
-    expect(r.habits.map((h) => h.key)).toEqual(['discernment']);
+    // delegation stays out: nothing was handed to another agent
+    expect(r.habits.map((h) => h.key)).toEqual(['description', 'discernment']);
+    expect(r.habits.find((h) => h.key === 'discernment')?.observation).toBe('You corrected the rubric year once.');
     expect(r.suggestions).toHaveLength(2);
     expect(r.question).toContain('grading');
-    expect(r.totals.chats).toBe(1);
+    expect(r.totals.chats).toBe(3);
   });
 
   test('the report is cached per range until Refresh or a week passes', async () => {
@@ -85,12 +95,27 @@ describe('Reflect report', () => {
     expect(calls).toHaveLength(1);
   });
 
+  test('a thin range makes no model call, so no padded headline, suggestions or question', async () => {
+    const { svc, calls } = setup(() => ANSWER, { thin: true });
+    const r = await svc.report('week');
+    expect(calls).toHaveLength(0);
+    expect(r.insights).toBe('basic');
+    expect(r.insightsNote).toBeUndefined();
+    expect(r.question).toBe('');
+    expect(r.suggestions).toEqual([]);
+  });
+
+  test('one grounded suggestion from the model is kept; it is not asked to pad to two', async () => {
+    const { svc } = setup(() => JSON.stringify({ headline: 'Three grading chats.', suggestions: [{ text: 'Start a Canvas project.', why: 'Three chats on grading.' }] }));
+    expect((await svc.report('week')).suggestions).toEqual([{ text: 'Start a Canvas project.', why: 'Three chats on grading.' }]);
+  });
+
   test('a failed or unreadable model pass keeps the numbers-only report and says so', async () => {
     const bad = setup(() => 'not json at all {');
     const r = await bad.svc.report('week');
     expect(r.insights).toBe('basic');
     expect(r.insightsNote).toContain('could not read');
-    expect(r.habits.map((h) => h.key)).toEqual(['discernment']);
+    expect(r.habits.map((h) => h.key)).toEqual(['description', 'discernment']);
     env.cleanup();
     const down = setup(() => Promise.reject(new Error('429')));
     expect((await down.svc.report('week')).insightsNote).toContain('failed');

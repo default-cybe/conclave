@@ -243,13 +243,15 @@ function Report({ r }: { r: ReflectReport }) {
         </div>
       )}
 
-      <div>
-        <SectionHeading>A question for you</SectionHeading>
-        <p className="mt-2 mb-3 max-w-[56ch] text-[17px] leading-[1.4] text-fg phone:text-[17px]">{r.question}</p>
-        <Button variant="solid" size="sm" onClick={talk}>
-          Talk it through
-        </Button>
-      </div>
+      {r.question && (
+        <div>
+          <SectionHeading>A question for you</SectionHeading>
+          <p className="mt-2 mb-3 max-w-[56ch] text-[17px] leading-[1.4] text-fg phone:text-[17px]">{r.question}</p>
+          <Button variant="solid" size="sm" onClick={talk}>
+            Talk it through
+          </Button>
+        </div>
+      )}
 
       {footnote && <p className="m-0 max-w-[70ch] text-[12px] leading-[1.5] text-fg-3 phone:text-[13px]">{footnote}</p>}
     </div>

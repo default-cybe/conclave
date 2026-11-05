@@ -25,8 +25,8 @@ function session(id: string, o: { account?: string; ts?: number; kind?: string |
      VALUES (?, ?, ?, 'test/model', 'single', 'ask', ?, 'idle', ?, ?, ?, ?, ?)`,
   ).run(id, o.title ?? 'Conclave account isolation', o.agent ?? 'coder', o.cwd ?? '/work/conclave', ts, ts, o.account ?? 'owner', o.kind ?? null, o.parent ?? null);
 }
-function say(sessionId: string, text: string, ts = at('2026-11-03'), role = 'user') {
-  db.query(`INSERT INTO messages (id, session_id, seq, role, kind, content, created_at) VALUES (?, ?, ?, ?, 'normal', ?, ?)`).run(`m${++seq}`, sessionId, seq, role, JSON.stringify([{ type: 'text', text }]), ts);
+function say(sessionId: string, text: string, ts = at('2026-11-03'), role = 'user', sender: string | null = null) {
+  db.query(`INSERT INTO messages (id, session_id, seq, role, kind, content, created_at, sender) VALUES (?, ?, ?, ?, 'normal', ?, ?, ?)`).run(`m${++seq}`, sessionId, seq, role, JSON.stringify([{ type: 'text', text }]), ts, sender);
 }
 function toolResult(sessionId: string, ts = at('2026-11-03')) {
   db.query(`INSERT INTO messages (id, session_id, seq, role, kind, content, created_at) VALUES (?, ?, ?, 'user', 'normal', ?, ?)`).run(`m${++seq}`, sessionId, seq, JSON.stringify([{ type: 'tool_result', tool_use_id: 't', content: 'mail body' }]), ts);
@@ -93,8 +93,7 @@ describe('Reflect report numbers', () => {
     expect(material).toContain('Proxmox health check');
   });
 
-  test('incognito sessions are left out when the column exists', () => {
-    db.exec('ALTER TABLE sessions ADD COLUMN incognito INTEGER');
+  test('incognito sessions are left out', () => {
     session('secret', { title: 'Private thing', kind: 'chat' });
     db.exec(`UPDATE sessions SET incognito = 1 WHERE id = 'secret'`);
     say('secret', 'hush');
@@ -115,6 +114,51 @@ describe('Reflect report numbers', () => {
     expect(report('owner', '12m').report.rhythm.heatmap.flat().reduce((a, b) => a + b, 0)).toBe(1);
   });
 
+  test("another person's words in a shared chat are not counted as yours", () => {
+    session('shared', { kind: 'chat', title: 'Trip planning' });
+    say('shared', 'book the train');
+    for (let i = 0; i < 6; i++) say('shared', `no, Mia prefers the coast ${i}`, at('2026-11-03', '23:40'), 'user', 'account:mia');
+    const r = report().report;
+    expect(r.rhythm.messages).toBe(1);
+    expect(r.rhythm.lateNightShare).toBe(0);
+    expect(r.habits.find((h) => h.key === 'discernment')).toBeUndefined();
+    // her messages in her own session count for her
+    session('hers', { account: 'mia', kind: 'chat' });
+    say('hers', 'plan it', at('2026-11-03'), 'user', 'account:mia');
+    expect(report('mia').report.rhythm.messages).toBe(1);
+  });
+
+  test('a pasted page is not the most detailed opener; new people are names, not sentences', () => {
+    session('paste', { title: 'Skip To Content Dashboard' });
+    say('paste', 'Skip To Content Dashboard '.repeat(400));
+    session('real', { title: 'Plan the Canvas rubric' });
+    say('real', 'Write a rubric for lab 4 with three levels and points per level, matching the syllabus weights.');
+    session('short', { title: 'Hi' });
+    say('short', 'hi there friend');
+    memory('p1', 'Soumy Oza ("Oza") is the user\'s friend, a .NET developer. They met at work.', ['person'], at('2026-11-03'));
+    memory('p2', 'Monil is the business owner and sole approver', ['person'], at('2026-11-03'));
+    memory('p3', 'The user met someone at the conference who works on compilers and likes tea', ['person'], at('2026-11-03'));
+    const r = report().report;
+    expect(r.habits.find((h) => h.key === 'description')?.example).toContain('Plan the Canvas rubric');
+    expect(r.fun.newPeople).toEqual(['Soumy Oza', 'Monil']);
+  });
+
+  test('messages have a time index, so a report does not scan every message', () => {
+    const plan = db.query(`EXPLAIN QUERY PLAN SELECT 1 FROM messages m WHERE m.created_at >= 1 AND m.created_at < 2`).all() as Array<{ detail: string }>;
+    expect(plan.map((p) => p.detail).join(' ')).toContain('messages_created');
+  });
+
+  test('a thin range asks no generic question and suggests nothing', () => {
+    session('one', { kind: 'chat', title: 'Quick unit conversion' });
+    say('one', 'how many cups in a litre');
+    say('one', 'thanks');
+    const r = report().report;
+    expect(r.totals.chats).toBe(1);
+    expect(r.question).toBe('');
+    expect(r.suggestions).toEqual([]);
+    expect(r.habits).toEqual([]);
+  });
+
   test('an empty range has no invented habits, suggestions or fun', () => {
     session('future', { ts: now + 10 });
     const r = report().report;
@@ -122,6 +166,7 @@ describe('Reflect report numbers', () => {
     expect(r.habits).toEqual([]);
     expect(r.suggestions).toEqual([]);
     expect(r.headline).toContain('nothing yet');
+    expect(r.question).toBe('');
   });
 
   test('summaries of a mail-reading agent never reach the model', () => {

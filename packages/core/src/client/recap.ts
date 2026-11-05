@@ -66,9 +66,9 @@ export interface ReflectReport {
     goalsMoved: number;
     goalsDone: number;
   };
-  /** 7. Two to four practical suggestions grounded in the numbers. */
+  /** 7. Up to four practical suggestions grounded in the numbers; none when nothing stands out. */
   suggestions: Array<{ text: string; why: string }>;
-  /** 8. A question to talk through in a new chat. */
+  /** 8. A question to talk through in a new chat. Empty when the range is too thin to ask one (under 3 sessions or 5 messages). */
   question: string;
   /** What was left out: health-related sessions (by topic) and incognito ones. */
   excluded: { health: number; incognito: number };

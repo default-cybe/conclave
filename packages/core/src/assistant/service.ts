@@ -22,7 +22,7 @@ import { ASSISTANT_AGENT, PrefsService } from './prefs';
 import { buildDay, renderDay, type DayReport } from './day';
 import { addDays, atLocal, cronHours, dayRange, daysBetween, insideHours, localDate, localHhmm, localLong } from './time';
 import { QUIET_JOB } from './quiet';
-import { buildReport } from './recap';
+import { buildReport, thinReport } from './recap';
 import type { ReflectHabit, ReflectRange, ReflectReport } from '../client/recap';
 import { OWNER_ID } from '../people/context';
 import type { AssistantRoutineDto, AssistantSettingsDto, DayPlan, DayPlanItem, PrefsPatch, ProactivePrefs, ReflectDto, ReflectNowDto, ReflectPatch, ReflectRunDto, TodayDto, TodayGoal } from './types';
@@ -295,7 +295,8 @@ export class AssistantService {
       learnedSkills: this.host.learnedSkills?.() ?? [],
       ...(this.host.untrustedAgent ? { untrustedAgent: this.host.untrustedAgent } : {}),
     });
-    if (!report.totals.chats && !report.totals.sessions) return report;
+    // an empty or thin range: the numbers only, so the model has nothing to pad out
+    if (thinReport(report)) return report;
     if (!this.host.complete) return { ...report, insightsNote: 'No model for insights on this hub, so these come from the numbers only.' };
     try {
       const text = await this.host.complete({ system: REPORT_SYSTEM, prompt: redactSecrets(material), maxTokens: 1500, purpose: 'reflect-report' });
@@ -609,7 +610,7 @@ Return only JSON:
 {"headline": one sentence about the period,
  "topics": up to 5 [{"name": 1 to 3 words, "example": one session title or short line from the data}],
  "habits": [{"key": "delegation"|"description"|"discernment"|"diligence", "observation": one sentence from the signals, "example": one concrete example from their sessions}] only for habits the signals support,
- "suggestions": 2 to 4 [{"text": one practical step in Conclave (a project, a routine, a skill, a note, quiet hours, a second account), "why": the data behind it}],
+ "suggestions": 0 to 4 (none is fine when the data shows no clear step) [{"text": one practical step in Conclave (a project, a routine, a skill, a note, quiet hours, a second account), "why": the data behind it}],
  "question": one open reflective question for them to talk through, tied to this period}`;
 
 /** The model pass's JSON over the numbers-only report: text only, the numbers stay. Bad JSON keeps the basic report. */
@@ -643,7 +644,7 @@ export function mergeInsights(r: ReflectReport, text: string): ReflectReport {
     ...(headline ? { headline } : {}),
     work: { ...r.work, ...(topics.length ? { topics } : {}) },
     habits,
-    ...(suggestions.length >= 2 ? { suggestions } : {}),
+    ...(suggestions.length ? { suggestions } : {}),
     ...(question ? { question } : {}),
   };
 }

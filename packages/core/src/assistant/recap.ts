@@ -23,11 +23,18 @@ export const HEALTH = /\b(?:health(?!\s*-?(?:checks?|z|endpoints?|status|monitor
 /** A message that corrects the agent: "no, ...", "actually ...", "don't ...", "that's wrong". */
 const CORRECTION = /^\s*(?:no\b[,.!\s]|nope\b|actually\b|wrong\b|that'?s (?:not|wrong)|not what i|don'?t\b|do not\b|stop\b|instead\b|undo\b|revert\b|why did you\b|i said\b)/i;
 const LATE = (h: number) => h >= 23 || h < 5;
+/** Below these (sessions you started, messages you typed) a range is thin: no question and no model pass, only the numbers. */
+const THIN_SESSIONS = 3;
+const THIN_MESSAGES = 5;
+/** Longer than this (about 400 words) an opener is a paste, not a description. */
+const PASTE_CHARS = 2400;
+/** A report with too little in it for the model to say anything specific. */
+export const thinReport = (r: ReflectReport): boolean => !r.question;
 /**
  * A message the person typed: user role, a text block first (tool results are user rows too), no reminder, not sent by the hub,
  * and not another person's words in a shared chat (sender is missing for the session owner). Needs sessions as `s`.
  */
-export const TYPED = `m.role = 'user' AND m.kind = 'normal' AND json_valid(m.content) AND json_extract(m.content, '$[0].type') = 'text'
+export const TYPED = `m.role = 'user' AND m.kind = 'normal' AND substr(m.content, 1, 22) != '[{"type":"tool_result"' AND json_valid(m.content) AND json_extract(m.content, '$[0].type') = 'text'
   AND substr(json_extract(m.content, '$[0].text'), 1, 17) != '<system-reminder>' AND (m.meta IS NULL OR json_extract(m.meta, '$.auto') IS NULL)
   AND (m.sender IS NULL OR m.sender = 'account:' || s.account_id)`;
 
@@ -264,7 +271,8 @@ export function buildReport(db: Db, accountId = OWNER_ID, range: ReflectRange = 
       goalsDone,
     },
     suggestions: basicSuggestions({ repeat, unprojected, lateNightShare: rhythm.lateNightShare, messages: msgs.length, fallbacks, corrections: correctionCount }),
-    question: basicQuestion(children.length + workflows.length, roots.length, rhythm.lateNightShare),
+    // too little to reflect on: no question rather than a generic one
+    question: human.length < THIN_SESSIONS || msgs.length < THIN_MESSAGES ? '' : basicQuestion(children.length + workflows.length, roots.length, rhythm.lateNightShare),
     excluded: { health: health.size, incognito: all.filter((s) => s.incognito && !s.parent).length },
   };
 
@@ -378,11 +386,12 @@ function buildHabits(d: {
     const lens = openers.map((m) => m.len ?? 0).sort((a, b) => a - b);
     const avgWords = Math.round((lens[Math.floor(lens.length / 2)] ?? 0) / 6);
     const inProject = Math.round((d.human.filter((s) => s.project).length / d.human.length) * 100);
-    const longest = [...openers].sort((a, b) => (b.len ?? 0) - (a.len ?? 0))[0]!;
+    // a pasted page or log is not a detailed request: the longest opener under about 400 words
+    const longest = [...openers].filter((m) => (m.len ?? 0) <= PASTE_CHARS).sort((a, b) => (b.len ?? 0) - (a.len ?? 0))[0];
     out.push({
       key: 'description',
       observation: `A typical opening message from you runs about ${n(avgWords, 'word', 'words')}, and ${inProject}% of your sessions ran inside a project.`,
-      example: `Your most detailed opener started "${d.byId.get(longest.sid)?.title ?? ''}" (about ${Math.round((longest.len ?? 0) / 6)} words).`,
+      ...(longest ? { example: `Your most detailed opener started "${d.byId.get(longest.sid)?.title ?? ''}" (about ${Math.round((longest.len ?? 0) / 6)} words).` } : {}),
     });
   }
   if (d.correctionCount || d.denied || d.declined || d.aborted) {
@@ -392,7 +401,8 @@ function buildHabits(d: {
   }
   if (d.reviewSessions.length || d.reviewRuns || d.checkFails) {
     const parts = [d.reviewSessions.length && `ran ${n(d.reviewSessions.length, 'review session', 'review sessions')}`, d.reviewRuns && `ran ${n(d.reviewRuns, 'review workflow', 'review workflows')}`, d.checkFails && `ended ${n(d.checkFails, 'turn', 'turns')} with the code check still failing`].filter(Boolean) as string[];
-    const ex = d.reviewSessions[0];
+    // a session you started reads better than a subagent's "Judge 2"
+    const ex = d.reviewSessions.find((s) => !s.parent) ?? d.reviewSessions[0];
     out.push({ key: 'diligence', observation: `You ${list(parts)}.`, ...(ex ? { example: `For example "${ex.title}".` } : {}) });
   }
   return out;
@@ -436,11 +446,18 @@ function readPeople(db: Db, accountId: string, rows: Array<{ id: string; content
     const meta = parseMeta(r.meta ?? '');
     const path = typeof meta.path === 'string' ? meta.path : typeof meta.permalink === 'string' ? meta.permalink : '';
     if (!(imported.has(r.id) || tags.some((t) => PERSON_TAGS.has(t)) || meta.entity === 'person' || /(?:^|\/)(?:people|person)(?:\/|$)/i.test(path))) continue;
-    const name = (r.content.split(/[:\n—–]/)[0] ?? r.content).trim().replace(/^#+\s*/, '').slice(0, 60);
+    const name = personName(r.content);
+    if (!name) continue;
     const key = name.toLowerCase();
     if (key && !first.has(key)) first.set(key, { name, at: r.created_at });
   }
   return [...first.values()].filter((p) => p.at >= start).map((p) => p.name).slice(0, 12);
+}
+
+/** The name a person note starts with: "Ada: ...", "Soumy Oza (\"Oza\") is the user's friend", "# Monil". Undefined when it is not a short name. */
+export function personName(content: string): string | undefined {
+  const head = content.trim().replace(/^#+\s*/, '').split(/[:\n—–(,;]|\s-\s|\s+(?:is|was|are|works|from|who)\b/)[0]?.trim() ?? '';
+  return head && head.length <= 40 && head.split(/\s+/).length <= 4 && !/^the\b/i.test(head) ? head : undefined;
 }
 
 function importedPersonIds(db: Db, accountId: string): Set<string> {

@@ -70,8 +70,15 @@ describe('Reflect report', () => {
     const miaId = made.body.person.id as string;
     const login = await asJson(await hub.api('/api/login', { method: 'POST', token: null, json: { account: 'mia', password: 'a long enough password', name: 'phone' } }));
     const mia = login.body.token as string;
-    await e.createSession({ kind: 'chat', title: 'Owner secret roadmap' });
-    await e.createSession({ kind: 'chat', title: 'Mia garden planning' }, miaId);
+    // three chats with two typed messages each: enough for the model pass (a thin range makes none)
+    const chats = async (title: string, account?: string) => {
+      for (const n of [1, 2, 3]) {
+        const s = await e.createSession({ kind: 'chat', title: `${title} ${n}` }, account);
+        for (const seq of [1, 2]) e.repos.messages.insert({ id: `msg_${s.id}_${seq}`, sessionId: s.id, seq, role: 'user', kind: 'normal', content: [{ type: 'text', text: `step ${seq}` }], createdAt: Date.now() } as never);
+      }
+    };
+    await chats('Owner secret roadmap');
+    await chats('Mia garden planning', miaId);
     const mem = (id: string, content: string, account: string) =>
       e.repos.db.query(`INSERT INTO memories (id, scope, kind, content, tags, created_at, updated_at, account_id, meta) VALUES (?, 'global', 'fact', ?, '["person"]', ?, ?, ?, '{}')`).run(id, content, Date.now(), Date.now(), account);
     mem('owner-person', 'Omar: owner colleague', 'owner');
@@ -79,7 +86,7 @@ describe('Reflect report', () => {
 
     const own = await asJson(await hub.api('/api/reflect/report?range=week'));
     expect(own.status).toBe(200);
-    expect(own.body).toMatchObject({ range: 'week', totals: { chats: 1 }, headline: 'A calm week.', insights: 'model' });
+    expect(own.body).toMatchObject({ range: 'week', totals: { chats: 3 }, headline: 'A calm week.', insights: 'model' });
     expect(own.body.fun.newPeople).toEqual(['Omar']);
     expect(JSON.stringify(own.body)).not.toMatch(/Mia|garden|Tara/);
     expect(calls.at(-1)!.accountId).toBe('owner');
@@ -90,7 +97,7 @@ describe('Reflect report', () => {
 
     const hers = await asJson(await hub.api('/api/reflect/report/refresh?range=12m', { method: 'POST', token: mia }));
     expect(hers.status).toBe(200);
-    expect(hers.body).toMatchObject({ range: '12m', totals: { chats: 1 } });
+    expect(hers.body).toMatchObject({ range: '12m', totals: { chats: 3 } });
     expect(hers.body.fun.newPeople).toEqual(['Tara']);
     expect(JSON.stringify(hers.body)).not.toMatch(/roadmap|Omar/);
     expect(calls.at(-1)!.accountId).toBe(miaId);
