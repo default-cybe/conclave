@@ -101,6 +101,21 @@ const COMPRESSIBLE = new Set(['.html', '.js', '.mjs', '.css', '.json', '.map', '
 
 /** Compressed bodies by file, encoding, size and mtime: each file is compressed once (the main bundle is 520 KB, 150 KB gzipped). */
 const packed = new Map<string, Buffer>();
+/** Byte cap on packed: on a case-insensitive disk (macOS, Windows) each case variant of a request path is a new key for the same file. */
+const PACKED_CAP = 32 * 1024 * 1024;
+let packedBytes = 0;
+
+/** Keep body under key, dropping the oldest bodies once the total passes cap. Returns the bytes kept. */
+export function keepPacked(key: string, body: Buffer, cap = PACKED_CAP): number {
+  packed.set(key, body);
+  packedBytes += body.byteLength;
+  for (const [k, b] of packed) {
+    if (packedBytes <= cap || k === key) break;
+    packed.delete(k);
+    packedBytes -= b.byteLength;
+  }
+  return packedBytes;
+}
 
 /** br, then gzip, when the client takes it and the file is worth it; undefined to send it as it is. */
 export function pickEncoding(accept: string | null | undefined, path: string, size: number): 'br' | 'gzip' | undefined {
@@ -119,8 +134,7 @@ async function compressed(target: string, enc: 'br' | 'gzip', file: ReturnType<t
   if (!body) {
     const raw = new Uint8Array(await file.arrayBuffer());
     body = enc === 'br' ? brotliCompressSync(raw, { params: { [zlib.BROTLI_PARAM_QUALITY]: 9, [zlib.BROTLI_PARAM_SIZE_HINT]: raw.length } }) : gzipSync(raw, { level: 9 });
-    // shortcut: unbounded, but holds one copy per file of one web build (about 3 MB); bound it if builds get swapped live often
-    packed.set(key, body);
+    keepPacked(key, body);
   }
   return body;
 }

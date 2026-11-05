@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync, brotliDecompressSync } from 'node:zlib';
 import { OtlpIngest } from '../src/otlp';
-import { pickEncoding } from '../src/static';
+import { keepPacked, pickEncoding } from '../src/static';
 import { OWNER, startHub, type TestHub } from './helpers';
 
 const kv = (key: string, value: string) => ({ key, value: { stringValue: value } });
@@ -147,6 +147,14 @@ describe('static web app', () => {
     expect(pickEncoding('gzip;q=0', '/a.js', 5000)).toBeUndefined();
     expect(pickEncoding('br', '/a.png', 5000)).toBeUndefined();
     expect(pickEncoding(undefined, '/a.js', 5000)).toBeUndefined();
+  });
+
+  test('the compressed cache stays under its byte cap', () => {
+    // request-path case variants (/A.js, /a.JS) on macOS or Windows each add a key
+    expect(keepPacked('t:a', Buffer.alloc(10), 0)).toBe(10); // cap 0 drops all but the newest
+    expect(keepPacked('t:b', Buffer.alloc(10), 25)).toBe(20);
+    expect(keepPacked('t:c', Buffer.alloc(10), 25)).toBe(20);
+    expect(keepPacked('t:big', Buffer.alloc(30), 25)).toBe(30);
   });
 
   test('API JSON goes out gzipped when the client takes it', async () => {
