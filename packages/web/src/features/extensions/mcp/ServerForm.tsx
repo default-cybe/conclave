@@ -5,10 +5,11 @@
  * through importMcp before anything is added.
  */
 import { useEffect, useState } from 'react';
+import { Link } from 'wouter';
 import type { McpImportFormat } from '@conclave/core/client';
 import type { McpServerConfig } from '@conclave/core/config/schema';
 import { api } from '@/lib/api';
-import { toast } from '@/store/store';
+import { toast, useHub } from '@/store/store';
 import { useIsMobile } from '@/lib/hooks';
 import { plural } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
@@ -18,7 +19,7 @@ import { TextAction } from '@/components/ui/Section';
 import { Tabs } from '@/components/ui/Tags';
 import { HarnessMark } from '@/components/logo';
 import { Drawer } from '../hooks/Drawer';
-import { SERVER_NAME, joinCommand, splitCommand, target } from './parts';
+import { SERVER_NAME, joinCommand, missingSecrets, splitCommand, target } from './parts';
 import { errText } from '@/features/settings/parts';
 
 type Kind = 'stdio' | 'http' | 'sse';
@@ -89,6 +90,7 @@ export function ServerForm({
   const [text, setText] = useState('');
   const [preview, setPreview] = useState<Record<string, McpServerConfig> | null>(null);
   const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const savedSecrets = useHub((s) => s.secrets?.values);
 
   useEffect(() => {
     if (!open) return;
@@ -108,6 +110,7 @@ export function ServerForm({
   const nameErr = !name && slug ? (!SERVER_NAME.test(slug) ? 'Use 1 to 64 letters, digits, dashes and underscores.' : taken.includes(slug) ? `${slug} already exists. Edit that one, or pick another name.` : undefined) : undefined;
   const urlErr = kind !== 'stdio' && url.trim() && !/^https?:\/\//.test(url.trim()) ? 'The URL must start with http:// or https://.' : undefined;
   const ready = !!slug && !nameErr && !urlErr && (kind === 'stdio' ? !!cmd.trim() : !!url.trim());
+  const missing = missingSecrets(kind === 'stdio' ? [cmd, ...env.map(([, v]) => v)] : [url, ...headers.map(([, v]) => v)], savedSecrets);
 
   const build = (): McpServerConfig => {
     const vars = (rows: Array<[string, string]>) => Object.fromEntries(rows.filter(([k]) => k.trim()).map(([k, v]) => [k.trim(), v]));
@@ -275,8 +278,21 @@ export function ServerForm({
             </>
           )}
           <p className="m-0 text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">
-            Keep secrets out of the config: <span className="mono">{'${env:NAME}'}</span> reads a variable on the hub, <span className="mono">{'${secret:name}'}</span> reads a secret saved in Settings.
+            Keep secrets out of the config: <span className="mono">{'${env:NAME}'}</span> reads a variable on the hub, <span className="mono">{'${secret:name}'}</span> reads a secret saved in{' '}
+            <Link href="/settings/secrets" className="underline decoration-rule-2 underline-offset-[3px] hover:text-fg">
+              Settings, Secrets
+            </Link>
+            .
           </p>
+          {missing.length > 0 && (
+            <p role="status" className="m-0 text-[12px] leading-[1.45] text-fg-2 phone:text-[13px]">
+              <span className="text-warn">Missing.</span> No secret called <span className="mono">{missing.join(', ')}</span> is saved yet, so the server gets an empty value. Add it in{' '}
+              <Link href="/settings/secrets" className="underline decoration-rule-2 underline-offset-[3px] hover:text-fg">
+                Settings, Secrets
+              </Link>
+              .
+            </p>
+          )}
         </form>
       ) : (
         <div className="flex flex-col gap-4">

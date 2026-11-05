@@ -252,9 +252,9 @@ export const HELP: Record<string, CommandHelp> = {
     examples: ['conclave people add sam --providers anthropic:10', 'conclave people access sam --providers anthropic:20,openai:5', 'conclave people remove sam --yes'],
   },
   secret: {
-    usage: 'conclave secret <provider> [--value KEY | --delete]',
-    summary: 'Store a provider API key on the hub (typed without echo). google-maps is the Google Maps key',
-    examples: ['conclave secret anthropic', 'conclave secret zai --delete', 'conclave secret google-maps --value AIza...'],
+    usage: 'conclave secret <provider> [--value KEY | --delete]  |  conclave secret set <name> [--value V | --delete]',
+    summary: 'Store a provider API key on the hub (typed without echo). google-maps is the Google Maps key. `set <name>` stores a named secret that ${secret:name} reads (Settings > Secrets)',
+    examples: ['conclave secret anthropic', 'conclave secret zai --delete', 'conclave secret google-maps --value AIza...', 'conclave secret set caido-token', 'conclave secret set caido-token --delete'],
   },
   doctor: { usage: 'conclave doctor', summary: 'Check the install: tools, harnesses, hub, keys, web assets' },
   logs: {
