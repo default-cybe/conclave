@@ -176,7 +176,7 @@ export type * from './workflows';
 import type { GraphEditInput, GraphEditResult, GraphInsertInput, WorkflowGraphView } from './graph';
 export type * from './graph';
 export { nodeOf, nodeRuns, staleNodes } from './graph';
-import type { FlowBlockSpec, FlowEditResult, FlowOp, FlowRunView, FlowSummary, FlowView } from './flows';
+import type { CanvasQueueInput, CanvasQueuedRun, FlowBlockSpec, FlowEditResult, FlowOp, FlowRunView, FlowSummary, FlowView } from './flows';
 export type * from './flows';
 // ----- alerts: file conflicts and stuck turns, docs/DESIGN.md 28 -----
 import type { AlertAction, AlertItem } from './alerts';
@@ -2427,6 +2427,10 @@ export class ConclaveClient {
   runFlow = (sessionId: string, name: string) => this.request<FlowRunView>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/run`);
   flowRun = (sessionId: string, name: string) => this.request<FlowRunView | null>('GET', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/run`);
   stopFlow = (sessionId: string, name: string) => this.request<FlowRunView | null>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/stop`);
+  // ----- Canvas's run queue on the hub (one run per file; the next starts when the last ends) -----
+  canvasQueue = (file?: string) => this.request<CanvasQueuedRun[]>('GET', '/api/canvas/queue', undefined, { file });
+  queueCanvasRun = (input: CanvasQueueInput) => this.request<CanvasQueuedRun>('POST', '/api/canvas/queue', input);
+  cancelCanvasRun = (id: string) => this.request<void>('DELETE', `/api/canvas/queue/${encodeURIComponent(id)}`);
   /** Copy a built-in or plugin workflow into your own workflows, where it can be edited. */
   copyWorkflow = (id: string) => this.request<WorkflowDetail>('POST', `/api/workflows/${encodeURIComponent(id)}/copy`);
   skipWorkflowCall = (id: string, seq: number) => this.request<WorkflowRun>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/calls/${seq}/skip`);

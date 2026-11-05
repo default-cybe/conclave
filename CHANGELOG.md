@@ -11,7 +11,15 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- Canvas's run queue lives on the hub: Queue run while a program or workflow runs waits per account and per file, and the hub starts the next one when the last ends, with no app open. Queued runs survive a hub restart; a program run a restart cut reads failed with the reason. New routes GET and POST /api/canvas/queue and DELETE /api/canvas/queue/:id; the Queue tab reads them (#250).
+
+- Canvas on the Android app, read only: a Canvas row in the side panel lists programs by folder, your workflows, library workflows and recent runs. A file opens as its blocks in run order under their phases, lit by the last run (queued, running with its time, done with its short value, failed with its error, skipped or cached), with Run, Stop and Open on web; a live run is read again every 2 s (#250).
+
 - Canvas runs programs and workflows: Run (Ctrl/Cmd+Enter) asks for a workflow's declared args, then the canvas shows the live run in place, with each node queued, running with its time, done, failed, skipped or cached, and short values on the wires. Stop aborts it; while it runs, Run becomes Queue run, and the Queue tab lists queued runs with Cancel. A failed node shows its error, Re-run from here (workflows) or Re-run (programs), and Ask the agent. The new Agent tab next to the inspector continues a Code session in the file's folder with the file, the selection and the last error attached, and the canvas reloads when the agent is done. Delete now removes workflow nodes too, with Undo. Reopening a file shows its latest run (#250).
+
+### Changed
+
+- Canvas is the one graph. A workflow run page shows a short summary (state, time, cost, the failed step and its error) with Open in Canvas instead of the List / Graph switch, a Code session's Blocks button is now Open in Canvas, and old links to `/workflows/graph/<id>` or `?view=graph` open the file in Canvas. While Ask the agent works, the canvas shows each edit as it lands instead of waiting for the turn to end. On a phone, the Run button becomes Stop and Queue while a run goes on (#250).
 
 ## [0.4.69] - 2026-11-05
 
