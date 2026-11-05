@@ -149,7 +149,7 @@ describe('registry with compat flags', () => {
     process.env.CLAUDE_CONFIG_DIR = claude;
     const H = { agents: join(home, 'agents-home'), codex: join(home, 'codex'), opencode: join(home, 'opencode'), gemini: join(home, 'gemini') };
     const config = new ConfigStore(join(home, 'conclave'));
-    config.update({ compat: { ...config.get().compat, ...flags } });
+    config.update({ compat: { ...config.get().compat, claudeCode: true, ...flags } });
     const ext = new Extensions({ config, plugins: new PluginManager({ dir: join(home, 'plugins'), defaultMarketplaces: [] }), compatHomes: H });
     return { ext, H, claude, config };
   }

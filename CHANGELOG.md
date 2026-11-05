@@ -27,12 +27,16 @@ like `## [0.4.16] - 2026-10-24`.
 ### Changed
 
 - Canvas is the one graph. A workflow run page shows a short summary (state, time, cost, the failed step and its error) with Open in Canvas instead of the List / Graph switch, a Code session's Blocks button is now Open in Canvas, and old links to `/workflows/graph/<id>` or `?view=graph` open the file in Canvas. While Ask the agent works, the canvas shows each edit as it lands instead of waiting for the turn to end. On a phone, the Run button becomes Stop and Queue while a run goes on (#250).
+- Extensions > Hooks lists every event Conclave fires, grouped Before, After and Other. Each event says in one line when it fires, and opens to what its stdin holds, what exit 0, exit 2 and other exits do, and the stdout JSON fields Conclave acts on there. Under it come its problems, then each matcher with its handlers: source (Conclave config, project `.conclave`, Claude Code `~/.claude`, plugin), on or off, timeout and command. Handlers Conclave owns have Edit and Delete; the rest say which file to edit or link to turn their source off. An event with no handlers is one compact row that opens (#268).
+- A new hub turns Claude Code compatibility (`compat.claudeCode`) on only when `~/.claude` has skills, agents, commands, plugins or hooks to load, and saves that choice once. Existing hubs keep what they had (#268).
 
 ### Fixed
 
 - The MCP server form's "reads a secret saved in Settings" hint pointed at no page; it now links to Settings > Secrets. `PUT /api/secrets` refuses a new named secret whose name is not 1 to 64 lowercase letters, digits, dots, dashes and underscores (#266).
 - Claude Mythos 5.1 shows and answers on Claude plans. CLIProxyAPI's catalog does not list it yet (no release up to 8.0.57 does), so with a Claude account signed in, the CLIProxyAPI the hub runs gets the Claude models of Conclave's catalog it lacks. A model your plan refuses (403, 404, "not available") is greyed out in the model picker with the reason instead of failing every turn; Refresh models asks again. An external CLIProxyAPI's catalog is left alone.
 - `lib.fence(text)` with one argument in a workflow script now fences that text. Before, the text became the label and the next agent read "undefined" in place of the earlier agent's report.
+- Discover and the catalog no longer fail as a whole when a settings file has a malformed hook entry (an event mapped to `{}` or a string, a group with no `hooks` list). The entry loads as nothing, and an item whose installed check throws shows as not installed (#268).
+- Hook problems read in plain words, sit at the top of their event with the file and Open file, and a Fix applies the hub's own repair to that one entry after asking (`POST /api/hooks/fix`). Two plugins that both add text to every subagent get a warning on SubagentStart (#268).
 
 ## [0.4.69] - 2026-11-05
 

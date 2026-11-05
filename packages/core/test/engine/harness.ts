@@ -225,6 +225,8 @@ export async function startTestEngine(opts: TestEngineOptions): Promise<TestEngi
       hooks: opts.hooks?.({ hook }) ?? {},
       // tier words in agent profiles (verifier: deep) stay on the scripted model: never a real API key or harness found on this machine
       models: { tiers: { fast: 'mock/claude-sonnet-5-5', deep: 'mock/claude-sonnet-5-5' } },
+      // the temp ~/.claude starts empty, which would leave Claude Code loading off on a new hub
+      compat: { claudeCode: true },
       ...(opts.overrides ?? {}),
     } as never,
   });

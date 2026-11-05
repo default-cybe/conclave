@@ -90,6 +90,8 @@ const USER_HOOKS: HooksConfig = {
     {
       hooks: [{ type: 'prompt', prompt: STOP_PROMPT, timeout: 30 }],
     },
+    // a malformed empty group, as a hand edit leaves it: the lint offers to remove it
+    {},
   ] as HookMatcher[],
 } as HooksConfig;
 
@@ -135,6 +137,7 @@ const TEMPLATES: Record<string, PluginTemplate> = {
       ['PostToolUse', undefined, `python3 ${ROOT}/hooks/posttooluse.py`, 10],
       ['Stop', undefined, `python3 ${ROOT}/hooks/stop.py`, 10],
       ['UserPromptSubmit', undefined, `python3 ${ROOT}/hooks/userpromptsubmit.py`, 10],
+      ['SubagentStart', undefined, `python3 ${ROOT}/hooks/subagentstart.py`, 10],
     ],
   },
   superpowers: {
@@ -162,7 +165,10 @@ const TEMPLATES: Record<string, PluginTemplate> = {
       ['write-plan', 'Write an implementation plan'],
       ['execute-plan', 'Execute a plan in batches'],
     ],
-    hooks: [['SessionStart', 'startup|resume|clear|compact', `${ROOT}/hooks/session-start.sh`, undefined]],
+    hooks: [
+      ['SessionStart', 'startup|resume|clear|compact', `${ROOT}/hooks/session-start.sh`, undefined],
+      ['SubagentStart', undefined, `${ROOT}/hooks/subagent-start.sh`, 5],
+    ],
   },
   context7: {
     version: '1.0.0',
@@ -574,7 +580,8 @@ export function registerExtensionRuntime(ctx: MockCtx) {
     const out: Group[] = [];
     const push = (source: HookOriginDto, hooks: HooksConfig | undefined, extra: { path?: string; plugin?: string; active?: boolean; pluginRoot?: string }) => {
       for (const [event, list] of Object.entries(hooks ?? {}) as Array<[HookEvent, HookMatcher[]]>) {
-        (list ?? []).forEach((g, index) => {
+        // a malformed group loads as nothing on the hub too (hook-shape.ts); the lint lists it
+        (list ?? []).filter((g) => Array.isArray(g?.hooks)).forEach((g, index) => {
           out.push({
             event,
             ...(g.matcher ? { matcher: g.matcher } : {}),
@@ -833,6 +840,16 @@ export function registerExtensionRuntime(ctx: MockCtx) {
                 c[ev][gi] = { ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', ...h }] };
               }),
             });
+          else
+            out.push({
+              ...at,
+              level: 'error',
+              text: `Group ${gi + 1} of ${event} has no "hooks" list, so it loads as nothing. It is empty; remove it.`,
+              fix: fixWith((c) => {
+                c[ev] = c[ev].filter((_, i) => i !== gi);
+                if (!c[ev].length) delete c[ev];
+              }),
+            });
           return;
         }
         const m = typeof g.matcher === 'string' ? g.matcher : '';
@@ -928,6 +945,15 @@ export function registerExtensionRuntime(ctx: MockCtx) {
     return b;
   });
 
+  // the hub re-lints the file and writes its own fix; the mock only owns config.json
+  on('POST', '/api/hooks/fix', ({ body }) => {
+    if (body?.path !== CONFIG_PATH) fail(400, 'path must be a hooks file that loads here');
+    const issue = mockLint(cfg.hooks, CONFIG_PATH).find((i) => i.event === body.event && i.group === body.group && i.text === body.text);
+    if (!issue?.fix) fail(409, 'That problem is gone or has no automatic fix. Reload the page.');
+    cfg.hooks = issue!.fix;
+    return { ok: true, path: CONFIG_PATH };
+  });
+
   on('POST', '/api/hooks/lint', ({ body }) => {
     if (body?.hooks === undefined) fail(400, 'hooks is required');
     return mockLint(body.hooks);
@@ -947,6 +973,16 @@ export function registerExtensionRuntime(ctx: MockCtx) {
       last: runs.filter((r) => r.event === event).slice(-10),
     }));
     const lint = [...mockLint(cfg.hooks, CONFIG_PATH), ...(FRESH ? [] : mockLint(CLAUDE_USER_HOOKS, CLAUDE_USER))];
+    // two plugins that inject into every subagent (extensions-api.ts lintLoaded)
+    const injecting = [...new Set(groups.filter((g) => g.event === 'SubagentStart' && g.source === 'plugin' && (!g.matcher || g.matcher === '*')).map((g) => g.plugin!))];
+    if (injecting.length > 1)
+      lint.push({
+        level: 'warn',
+        event: 'SubagentStart',
+        group: 0,
+        plugins: injecting,
+        text: `${injecting.join(' and ')} both add text to every subagent. Each subagent starts with both; turn one plugin's hooks off if they do the same job.`,
+      });
     const out: HooksOverview = { events, ...(cwd ? { trust: trustInfoEdited(cwd) } : {}), ...(lint.length ? { lint } : {}) };
     return out;
   });

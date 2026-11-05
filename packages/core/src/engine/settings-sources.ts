@@ -19,6 +19,7 @@ import { claudeHome, parseJsonc } from '../config';
 import type { ConclaveConfig, HookEvent, HooksConfig } from '../config/schema';
 import type { RuntimeHookCommand } from '../extensions/types';
 import type { KvRepo } from '../storage/repos';
+import { cleanHooks, hookGroupsOf } from '../extensions/hook-shape';
 
 export type HookOrigin = 'claude-user' | 'config' | 'plugin' | 'claude-project' | 'project';
 
@@ -100,7 +101,7 @@ export function projectNeedsTrust(cwd: string, claudeCompat: boolean): { hooks: 
   let hooks = 0;
   let allow = 0;
   for (const f of files) {
-    for (const list of Object.values(f.hooks ?? {})) hooks += (list ?? []).reduce((n, g) => n + (g?.hooks?.length ?? 0), 0);
+    for (const list of Object.values(f.hooks ?? {})) hooks += hookGroupsOf(list).reduce((n, g) => n + g.hooks.length, 0);
     allow += f.permissions?.allow?.length ?? 0;
   }
   let mcpServers = 0;
@@ -113,7 +114,7 @@ export function projectNeedsTrust(cwd: string, claudeCompat: boolean): { hooks: 
       /* ignore */
     }
   }
-  const used = files.filter((f) => Object.keys(f.hooks ?? {}).length || f.permissions?.allow?.length).map((f) => f.path);
+  const used = files.filter((f) => Object.keys(cleanHooks(f.hooks)).length || f.permissions?.allow?.length).map((f) => f.path);
   if (mcpServers) used.push(mcpPath);
   return { hooks, allow, mcpServers, files: used };
 }
@@ -156,10 +157,8 @@ export class ProjectTrust {
 function groupsFrom(hooks: HooksConfig | undefined, source: HookOrigin, extra: { path?: string; active: boolean }): HookGroupInfo[] {
   const out: HookGroupInfo[] = [];
   for (const [event, list] of Object.entries(hooks ?? {})) {
-    if (!Array.isArray(list)) continue;
     const counters = new Map<string, number>();
-    for (const g of list) {
-      if (!g || !Array.isArray(g.hooks)) continue;
+    for (const g of hookGroupsOf(list)) {
       const hooksList = g.hooks as RuntimeHookCommand[];
       const plugin = source === 'plugin' ? hooksList.find((h) => h.plugin)?.plugin : undefined;
       const key = plugin ?? '';

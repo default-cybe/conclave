@@ -1,9 +1,11 @@
 /**
  * Extensions > Hooks (docs/extensions/IA.md, docs/design/ECOSYSTEM.md 4).
  * Three views:
- *   Events (default): all 12 events in lifecycle order with their handler
- *     groups, where each comes from, whether it is on, its last runs, lint
- *     problems with a fix, and "from recipe" on handlers a recipe added.
+ *   Events (default): every event the engine fires, grouped Before, After
+ *     and Other, each with when it fires and what a hook there can do
+ *     (core extensions/hook-events.ts), its lint problems with a fix, then
+ *     its handler groups: where each comes from, whether it is on, its last
+ *     runs, and "from recipe" on handlers a recipe added.
  *   Recipes (?view=recipes): tested hooks to add in one step, by goal.
  *   Built in (?view=builtin): memory recall, extraction, compaction, file recall.
  * Add or edit handlers at user or project scope, test them against the real
@@ -14,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useSearch } from 'wouter';
 import type { BuiltinHookDto, HookGroupDto, HookHandlerDto, HookImportResult, HookLintIssue, HooksOverview } from '@conclave/core/client';
 import type { HookEvent, HooksConfig } from '@conclave/core/config/schema';
+import { HOOK_EVENT_DOCS, HOOK_PHASE_WORDS, type HookEventPhase } from '@conclave/core/extensions/hook-events';
 import { api } from '@/lib/api';
 import { toast, useHub } from '@/store/store';
 import { useIsMobile, useLoad } from '@/lib/hooks';
@@ -22,10 +25,10 @@ import { Button } from '@/components/ui/Button';
 import { ConfirmDialog, Menu } from '@/components/ui/Overlay';
 import { FilterLinks, Tabs } from '@/components/ui/Tags';
 import { LoadingRows } from '@/components/ui/EmptyState';
-import { Notice } from '@/components/ui/Section';
+import { Notice, SectionHeading } from '@/components/ui/Section';
 import { useExtCwd } from './project';
 import { TrustBanner } from './shared/TrustBanner';
-import { EventSection, type HandlerActions } from './hooks/EventSection';
+import { EventSection, fileWords, type HandlerActions } from './hooks/EventSection';
 import { HandlerForm, type HandlerDraft } from './hooks/HandlerForm';
 import { ImportDrawer } from './hooks/ImportDrawer';
 import { RunsDrawer } from './hooks/RunsDrawer';
@@ -147,20 +150,21 @@ export function HooksTab() {
     onAdd: (event) => setForm({ draft: { ...NEW_HANDLER, event, scope: 'user' } }),
     onRecipe: (id) => setParam({ recipe: id }),
     onRemoveRecipe: (g, id) => setRemovingRecipe({ id, scope: inScope(g, 'user') ? 'user' : 'project' }),
-    onFix: (issue) => void fix(issue),
+    onFix: (issue) => issue.fix && issue.path && setFixing(issue),
   };
 
   const [removingRecipe, setRemovingRecipe] = useState<{ id: string; scope: Scope } | null>(null);
 
-  /** Save a lint fix to the file it is for: config.json (user) or the project's .conclave/settings.json. */
+  /** Every fix asks first; the hub re-lints the file and writes its own fix. */
+  const [fixing, setFixing] = useState<HookLintIssue | null>(null);
   const fix = async (issue: HookLintIssue) => {
     if (!issue.fix || !issue.path) return;
-    const scope: Scope = /\/\.conclave\/settings\.json$/.test(issue.path) ? 'project' : 'user';
-    const err = await saveScope(scope, issue.fix);
-    if (err) toast({ title: `Could not save the fix. ${err}`, level: 'error' });
-    else {
+    try {
+      await api().fixHook({ path: issue.path, ...(cwd ? { cwd } : {}), event: issue.event, group: issue.group, ...(issue.handler !== undefined ? { handler: issue.handler } : {}), text: issue.text });
       ov.reload();
-      toast({ title: `Fixed. Saved to ${scope === 'user' ? 'config.json' : '.conclave/settings.json'}.` });
+      toast({ title: `Fixed. Saved to ${fileWords(issue.path)}.` });
+    } catch (e) {
+      toast({ title: `Could not save the fix. ${errText(e)}`, level: 'error' });
     }
   };
 
@@ -276,12 +280,25 @@ export function HooksTab() {
               {`${plural(data.lint!.length, 'problem')} in the hooks that load. Each one is listed under its event${data.lint!.some((i) => i.fix) ? ', with a fix where one is known' : ''}.`}
             </p>
           )}
-          {shown.map((info) => (
-            <EventSection key={info.event} info={info} highlight={focus === info.event} actions={actions} lint={lintFor(info.event)} titles={titles} />
-          ))}
+          {(Object.keys(HOOK_PHASE_WORDS) as HookEventPhase[]).map((phase) => {
+            const list = shown.filter((e) => (HOOK_EVENT_DOCS[e.event]?.phase ?? 'other') === phase);
+            if (!list.length) return null;
+            return (
+              <section key={phase} aria-labelledby={`hook-phase-${phase}`}>
+                <SectionHeading id={`hook-phase-${phase}`} count={list.length} rule={false}>
+                  {HOOK_PHASE_WORDS[phase]}
+                </SectionHeading>
+                <div>
+                  {list.map((info) => (
+                    <EventSection key={info.event} info={info} highlight={focus === info.event} actions={actions} lint={lintFor(info.event)} titles={titles} />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
           {filter === 'used' && shown.length === 0 && <p className="text-[14px] text-fg-2">No event has a handler yet.</p>}
           <p className="text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">
-            Command hooks get the event as JSON on stdin and run on the hub. Exit 0 lets the action go on, exit 2 blocks it and stderr becomes the reason. Hooks from <span className="mono">~/.claude/settings.json</span> load while Claude Code compatibility is on.
+            Command hooks run on the hub and get the event as JSON on stdin. Open an event to see what its exit codes and stdout fields do. Hooks from <span className="mono">~/.claude/settings.json</span> load while Claude Code compatibility is on.
           </p>
         </>
       )}
@@ -390,6 +407,24 @@ export function HooksTab() {
             <p className="m-0 [overflow-wrap:anywhere] font-mono text-[12.5px] text-fg">{removing.text}</p>
             <p className="mt-2 mb-0">
               It stops running at <span className="mono">{removing.ref.event}</span>. The script file stays where it is.
+            </p>
+          </>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={!!fixing}
+        onClose={() => setFixing(null)}
+        title={`Fix this in ${fixing?.path ? fileWords(fixing.path) : ''}?`}
+        confirm="Fix"
+        busy="Fixing"
+        onConfirm={() => (fixing ? fix(fixing) : undefined)}
+      >
+        {fixing && (
+          <>
+            <p className="m-0 [overflow-wrap:anywhere]">{fixing.text}</p>
+            <p className="mt-2 mb-0 [overflow-wrap:anywhere] text-fg-3">
+              Only this entry changes, in <span className="mono">{fixing.path}</span>.{/\/\.claude\//.test(fixing.path ?? '') ? ' Claude Code reads this file too.' : ''}
             </p>
           </>
         )}

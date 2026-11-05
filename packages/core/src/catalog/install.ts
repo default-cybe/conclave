@@ -18,6 +18,7 @@ import type { HooksConfig, McpServerConfig } from '../config/schema';
 import type { InstalledPlugin, PluginManifest } from '../extensions/types';
 import { entryManifest, sensitiveHash, isSensitivePath, type PluginInstallOptions } from '../extensions/plugins';
 import { HOOK_RECIPES } from '../extensions/hook-recipes';
+import { hookGroupsOf } from '../extensions/hook-shape';
 import type { McpTestResult } from '../client';
 import type { CatalogHttp } from './http';
 import type { GithubClient } from './github';
@@ -1258,9 +1259,10 @@ export class CatalogInstaller {
       }
       case 'hook': {
         const hooks = this.host.hooks();
-        for (const groups of Object.values(hooks ?? {})) {
-          for (const g of (groups ?? []) as unknown as Array<{ hooks?: Array<Record<string, unknown>> }>) {
-            if ((g.hooks ?? []).some((h) => h.recipe === spec.recipe || (typeof h.command === 'string' && h.command.includes(`/recipes/${spec.recipe}.sh`)))) return ref('hook', spec.recipe);
+        // hand-edited configs can map an event to {} or a string; hookGroupsOf skips those
+        for (const groups of Object.values(hooks && typeof hooks === 'object' ? hooks : {})) {
+          for (const g of hookGroupsOf(groups)) {
+            if ((g.hooks as unknown as Array<Record<string, unknown>>).some((h) => h.recipe === spec.recipe || (typeof h.command === 'string' && h.command.includes(`/recipes/${spec.recipe}.sh`)))) return ref('hook', spec.recipe);
           }
         }
         return undefined;
