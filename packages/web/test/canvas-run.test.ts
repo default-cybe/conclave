@@ -1,6 +1,6 @@
 /**
- * Canvas mode, PR 3 (features/canvas/run.ts, core client/graph.ts): the queue
- * of runs per file survives a reload and cancels one at a time, a running
+ * Canvas mode, PR 3 (features/canvas/run.ts, core client/graph.ts): the hub's
+ * queue key per file and when the hub started the next queued run, a running
  * program's blocks read running then queued, a workflow node carries its
  * error and short value, and the agent's message carries the file context.
  *
@@ -13,27 +13,17 @@ import { parseGraph } from '@conclave/core/workflows/graph';
 
 const store = new Map<string, string>();
 (globalThis as { localStorage?: unknown }).localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
-const { agentMessage, agentSessionOf, dropQueued, folderOf, programStates, queueRun, queuedRuns, rememberAgentSession, startGuard, takeQueued, workflowLive } = await import('../src/features/canvas/run');
+const { agentMessage, agentSessionOf, folderOf, headLeft, programStates, queueFile, rememberAgentSession, startGuard, workflowLive } = await import('../src/features/canvas/run');
 
-describe('the queue', () => {
-  test('Queue run adds after the rest, kept in storage; cancel drops one; take starts the oldest', () => {
-    const a = queueRun('workflow:x', { q: 1 });
-    queueRun('workflow:x');
-    expect(queuedRuns('workflow:x').length).toBe(2);
-    // a reload reads it back
-    expect(queuedRuns('workflow:x')[0]).toEqual(a[0]);
-    expect(queuedRuns('workflow:y')).toEqual([]);
-    const left = dropQueued('workflow:x', queuedRuns('workflow:x')[1].id);
-    expect(left.map((q) => q.args)).toEqual([{ q: 1 }]);
-    expect(takeQueued('workflow:x')?.args).toEqual({ q: 1 });
-    expect(takeQueued('workflow:x')).toBeUndefined();
-    for (let i = 0; i < 12; i++) queueRun('workflow:z');
-    expect(queuedRuns('workflow:z').length).toBe(10);
+describe('the queue (on the hub)', () => {
+  test('a file is keyed as the hub keys it', () => {
+    expect(queueFile({ workflow: 'x' })).toBe('workflow:x');
+    expect(queueFile({ sessionId: 'ses_1', flow: 'tick' })).toBe('program:ses_1:tick');
   });
-  test('broken storage reads as empty', () => {
-    store.clear();
-    store.set([...store.keys()][0] ?? 'x', 'nope');
-    expect(queuedRuns('anything')).toEqual([]);
+  test('the head leaving the queue means the hub started it; a later cancel does not', () => {
+    expect(headLeft([{ id: 'a' }, { id: 'b' }], [{ id: 'b' }])).toBe(true);
+    expect(headLeft([{ id: 'a' }, { id: 'b' }], [{ id: 'a' }])).toBe(false);
+    expect(headLeft([], [])).toBe(false);
   });
 });
 

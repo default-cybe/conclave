@@ -27,7 +27,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useParams, useSearch } from 'wouter';
 import { ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import { nodeRuns, type WorkflowArgFieldDto, type FlowBlockSpec, type FlowOp, type FlowRunView, type FlowView, type GraphEditField, type GraphNode, type WorkflowGraphView, type WorkflowRunDetail } from '@conclave/core/client';
+import { nodeRuns, type CanvasQueuedRun, type CanvasQueueInput, type WorkflowArgFieldDto, type FlowBlockSpec, type FlowOp, type FlowRunView, type FlowView, type GraphEditField, type GraphNode, type WorkflowGraphView, type WorkflowRunDetail } from '@conclave/core/client';
 import { wireRefusal } from '@conclave/core/flows/ports';
 import { Button } from '@/components/ui/Button';
 import { Elapsed } from '@/components/motion/Elapsed';
@@ -42,7 +42,7 @@ import { Textarea } from '@/components/ui/Field';
 import { isTyping } from '@/components/Shell';
 import { MessageList } from '@/features/chat/MessageList';
 import { ArgsForm, argsFromValues, type ArgValues } from '../workflows/args-form';
-import { agentMessage, agentSessionOf, dropQueued, folderOf, programStates, queueRun, queuedRuns, rememberAgentSession, startGuard, takeQueued, workflowLive, type QueuedRun } from './run';
+import { agentMessage, agentSessionOf, folderOf, headLeft, programStates, queueFile, rememberAgentSession, startGuard, workflowLive } from './run';
 import { Tabs } from '@/components/ui/Tags';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { PhoneBar } from '@/components/PhoneFrame';
@@ -71,6 +71,8 @@ let clipboard: Clip | undefined;
 
 type Tab = 'output' | 'logs' | 'queue';
 const POLL_MS = 700;
+/** How often the Queue reads the hub's queue while the file runs or has runs waiting. */
+const QUEUE_POLL_MS = 2000;
 const flowLive = (r?: FlowRunView) => r?.status === 'running' || r?.status === 'approval';
 
 export default function CanvasPage() {
@@ -161,7 +163,8 @@ function ProgramFile({ name }: { name: string }) {
   const title = `${name}.flow.ts`;
   const fileKey = `${device}:${cwd}:${name}`;
   const start = () => attempt(() => api().runFlow(sid!, name)).then((r) => r && setRun(r));
-  const runner = useRunner(`program:${fileKey}`, flowLive(run), start);
+  // the hub started the next queued run: read it, so the canvas follows it
+  const runner = useRunner(sid ? { sessionId: sid, flow: name } : undefined, flowLive(run), start, () => void api().flowRun(sid!, name).then((r) => r && setRun(r)).catch(() => {}));
   const saveLayout = async (next: Positions) => {
     setPositions(next);
     await api().saveFlowLayout(sid!, name, next);
@@ -322,8 +325,7 @@ function WorkflowFile({ id }: { id: string }) {
   const began = (r: { id: string } | undefined) => r && (setStarted(r.id), setLastRun(r.id));
   const go = (args?: Record<string, unknown>) => attempt(() => api().startWorkflow({ name: id, ...(args ? { args } : {}) })).then(began);
   const declares = !!schema && Object.keys(schema).length > 0;
-  const queueKey = `workflow:${id}`;
-  const runner = useRunner(queueKey, live, (q) => go(q?.args));
+  const runner = useRunner({ workflow: id }, live, () => go(), () => void api().workflow(id).then((d) => setLastRun(d.lastRun?.id)).catch(() => {}));
   const runFlow: ShellRun = {
     ...runner,
     // the args form first when the workflow declares args; Queue run keeps them with the queued run
@@ -337,7 +339,7 @@ function WorkflowFile({ id }: { id: string }) {
       onClose={() => setAsking(undefined)}
       onRun={(args) => {
         setAsking(undefined);
-        if (asking === 'queue') runner.setQueue(queueRun(queueKey, args));
+        if (asking === 'queue') runner.enqueue(args);
         else runner.begin(() => go(args));
       }}
     />
@@ -520,8 +522,9 @@ interface ShellRun {
   live: boolean;
   onRun: () => void;
   onStop?: () => void;
-  queue: QueuedRun[];
-  setQueue: (q: QueuedRun[]) => void;
+  /** This file's runs waiting on the hub, oldest first. */
+  queue: CanvasQueuedRun[];
+  enqueue: (args?: Record<string, unknown>) => void;
   onCancel: (id: string) => void;
   /** Start something that makes a run (Run, Re-run); a second call while one is on its way does nothing. */
   begin: (fn: () => Promise<unknown>) => void;
@@ -538,31 +541,35 @@ interface ShellAgent {
 }
 
 /**
- * One run per file: Run starts one, or queues one while a run goes on; the
- * next queued run starts when the live one ends.
- * shortcut: the queue lives in this browser and moves only while the file is open in Canvas; a hub-side queue would run it with the tab closed.
+ * One run per file: Run starts one, or queues one on the hub while a run goes
+ * on. The hub starts the next queued run when the live one ends, with or
+ * without this page open; the page reads the queue while something runs or
+ * waits, and onHubStart reads the file's run again when the hub took one.
  */
-function useRunner(key: string, live: boolean, start: (q?: QueuedRun) => Promise<unknown>): ShellRun {
-  const [queue, setQueue] = useState(() => queuedRuns(key));
+function useRunner(input: CanvasQueueInput | undefined, live: boolean, start: () => Promise<unknown>, onHubStart: () => void): ShellRun {
+  const file = input ? queueFile(input) : undefined;
+  const [queue, setQueueState] = useState<CanvasQueuedRun[]>([]);
   const [guard] = useState(startGuard);
   const [starting, setStarting] = useState(false);
   const begin = (fn: () => Promise<unknown>) => void (guard.run(fn, () => setStarting(false)) && setStarting(true));
-  const beginNow = useRef(begin);
-  beginNow.current = begin;
-  const was = useRef(live);
-  const startNow = useRef(start);
-  startNow.current = start;
+  const last = useRef<CanvasQueuedRun[]>([]);
+  const hubStart = useRef(onHubStart);
+  hubStart.current = onHubStart;
+  const setQueue = useCallback((next: CanvasQueuedRun[]) => {
+    if (headLeft(last.current, next)) hubStart.current();
+    last.current = next;
+    setQueueState(next);
+  }, []);
+  const read = useCallback(() => (file ? api().canvasQueue(file).then(setQueue).catch(() => {}) : Promise.resolve()), [file, setQueue]);
+  useEffect(() => void read(), [read]);
   useEffect(() => {
-    if (was.current && !live) {
-      const next = takeQueued(key);
-      if (next) {
-        setQueue(queuedRuns(key));
-        beginNow.current(() => startNow.current(next));
-      }
-    }
-    was.current = live;
-  }, [live, key]);
-  return { live: live || starting, queue, setQueue, begin, onRun: () => (guard.busy() ? undefined : live ? setQueue(queueRun(key)) : begin(() => start())), onCancel: (id) => setQueue(dropQueued(key, id)) };
+    if (!live && !queue.length) return;
+    const t = setInterval(() => void read(), QUEUE_POLL_MS);
+    return () => clearInterval(t);
+  }, [live, queue.length, read]);
+  const enqueue = (args?: Record<string, unknown>) => input && void attempt(() => api().queueCanvasRun('workflow' in input ? { ...input, ...(args ? { args } : {}) } : input), 'Queued: it starts when this run ends').then(read);
+  const onCancel = (id: string) => void attempt(() => api().cancelCanvasRun(id)).then(() => (last.current = last.current.filter((q) => q.id !== id), read()));
+  return { live: live || starting, queue, enqueue, begin, onRun: () => (guard.busy() ? undefined : live ? enqueue() : begin(start)), onCancel };
 }
 
 interface ShellProps {
@@ -906,7 +913,7 @@ function Queue({ runner, title, phone }: { runner?: ShellRun; title: string; pho
         <div key={q.id} className="flex items-center gap-3 border-b border-rule py-1 text-[13px]">
           <span className="mono min-w-0 flex-1 truncate text-fg">{title}</span>
           <span className="shrink-0 text-[12px] text-fg-3">
-            queued{mine.length > 1 ? `, ${i + 1} of ${mine.length}` : ''}, {hhmm(q.at)}
+            queued{mine.length > 1 ? `, ${i + 1} of ${mine.length}` : ''}, {hhmm(q.createdAt)}
           </span>
           <Button variant="ghost" size={phone ? 'touch' : 'sm'} onClick={() => runner!.onCancel(q.id)}>
             Cancel
