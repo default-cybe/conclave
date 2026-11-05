@@ -13,6 +13,16 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Canvas runs programs and workflows: Run (Ctrl/Cmd+Enter) asks for a workflow's declared args, then the canvas shows the live run in place, with each node queued, running with its time, done, failed, skipped or cached, and short values on the wires. Stop aborts it; while it runs, Run becomes Queue run, and the Queue tab lists queued runs with Cancel. A failed node shows its error, Re-run from here (workflows) or Re-run (programs), and Ask the agent. The new Agent tab next to the inspector continues a Code session in the file's folder with the file, the selection and the last error attached, and the canvas reloads when the agent is done. Delete now removes workflow nodes too, with Undo. Reopening a file shows its latest run (#250).
 
+### Changed
+
+- Extensions > Hooks lists every event Conclave fires, grouped Before, After and Other. Each event says in one line when it fires, and opens to what its stdin holds, what exit 0, exit 2 and other exits do, and the stdout JSON fields Conclave acts on there. Under it come its problems, then each matcher with its handlers: source (Conclave config, project `.conclave`, Claude Code `~/.claude`, plugin), on or off, timeout and command. Handlers Conclave owns have Edit and Delete; the rest say which file to edit or link to turn their source off. An event with no handlers is one compact row that opens (#268).
+- A new hub turns Claude Code compatibility (`compat.claudeCode`) on only when `~/.claude` has skills, agents, commands, plugins or hooks to load, and saves that choice once. Existing hubs keep what they had (#268).
+
+### Fixed
+
+- Discover and the catalog no longer fail as a whole when a settings file has a malformed hook entry (an event mapped to `{}` or a string, a group with no `hooks` list). The entry loads as nothing, and an item whose installed check throws shows as not installed (#268).
+- Hook problems read in plain words, sit at the top of their event with the file and Open file, and a Fix applies the hub's own repair to that one entry after asking (`POST /api/hooks/fix`). Two plugins that both add text to every subagent get a warning on SubagentStart (#268).
+
 ## [0.4.69] - 2026-11-05
 
 ### Added
