@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- The desktop app no longer seems to restart by itself. Its automatic update now waits until no window of the app is on screen; before, a window that was open but not focused (next to another app) restarted when a release came out. A window hidden in the tray for 10 minutes still goes to Home to save memory, but it now moves there inside the page, and comes back to where it was the same way, instead of loading the page again. On Android with the fingerprint lock on, unlocking after a minute away returns to the screen you were on instead of Home. Each page load now logs why it loaded (`load`: reload, navigate or back_forward, and `discarded` when Chrome had dropped the tab to save memory), so the hub's logs tell a reload by the browser or by you from one by the app. The hub update dialog no longer says the page reloads by itself; it reconnects and offers Reload.
+
 ## [0.4.64] - 2026-11-04
 
 ### Added
