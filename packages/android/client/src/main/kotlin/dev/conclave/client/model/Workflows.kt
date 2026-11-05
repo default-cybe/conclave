@@ -153,6 +153,8 @@ data class WorkflowCall(
     val queuedAt: Long? = null,
     val startedAt: Long? = null,
     val finishedAt: Long? = null,
+    /** Script lines of the call site, innermost first: maps the call to a graph node (logic/Canvas.kt nodeOf). */
+    val at: List<Int>? = null,
 ) {
     val tokens: Long get() = inputTokens + outputTokens
     val waitingOnOwner: Boolean get() = state == WorkflowCallState.RUNNING && waiting == "approval"
