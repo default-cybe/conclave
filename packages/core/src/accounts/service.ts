@@ -113,6 +113,7 @@ export class AccountsService {
   private spent = new Map<string, number>();
   private sticky = new Map<string, { account: string; at: number }>();
   private hitListeners = new Set<(vendor: string) => void>();
+  private refusalListeners = new Set<(provider: string, model: string, reason: string) => void>();
   private changeListeners = new Set<() => void>();
   private lastEvent = '';
   private lastLimits = new Map<string, string>();
@@ -756,6 +757,17 @@ export class AccountsService {
   onLimitHit(fn: (vendor: string) => void): () => void {
     this.hitListeners.add(fn);
     return () => this.hitListeners.delete(fn);
+  }
+
+  /** A plan refused one model (providers/errors.ts modelRefusal): the cliproxy manager marks it unavailable. Returns the unsubscribe. */
+  onModelRefused(fn: (provider: string, model: string, reason: string) => void): () => void {
+    this.refusalListeners.add(fn);
+    return () => this.refusalListeners.delete(fn);
+  }
+
+  /** Tell the listeners a plan refused this model (the id as called, prefixed for one plan). */
+  noteRefusal(provider: string, model: string, reason: string): void {
+    for (const fn of this.refusalListeners) fn(provider, model, reason);
   }
 
   /** The list or the order changed (the cliproxy manager writes priorities). */

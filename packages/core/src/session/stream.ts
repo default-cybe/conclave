@@ -1,6 +1,7 @@
 import type { ContentBlock, StopReason, Usage } from '../types';
 import type { ChatRequest, ProviderMessage } from '../providers/types';
 import { ProviderError, parseModelRef } from '../providers/types';
+import { modelRefusal } from '../providers/errors';
 import type { Engine } from '../engine/engine';
 import { accountsOf } from '../accounts/attached';
 import { sleep } from '../util/text';
@@ -458,6 +459,9 @@ async function streamCall(
         }
         continue;
       }
+      // a plan that refuses this one model: its picker row greys out with the reason, so the next turn is not sent to it again
+      const refused = paidBy === 'hub' && accounts ? modelRefusal(e) : undefined;
+      if (refused) accounts!.noteRefusal(resolved.provider, resolved.model, refused);
       // a plan signed out, or a key refused: the next route in the owner's order takes the call (providers/merge.ts)
       if (e.kind === 'auth' && paidBy === 'hub' && accounts && !begun && fallback(resolved.provider, `${engine.providerLabel(resolved.provider)} refused the sign in.`)) {
         fullRef = `${resolved.provider}/${resolved.model}`;

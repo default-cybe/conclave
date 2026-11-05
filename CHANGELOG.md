@@ -21,6 +21,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Canvas is the one graph. A workflow run page shows a short summary (state, time, cost, the failed step and its error) with Open in Canvas instead of the List / Graph switch, a Code session's Blocks button is now Open in Canvas, and old links to `/workflows/graph/<id>` or `?view=graph` open the file in Canvas. While Ask the agent works, the canvas shows each edit as it lands instead of waiting for the turn to end. On a phone, the Run button becomes Stop and Queue while a run goes on (#250).
 
+### Fixed
+
+- Claude Mythos 5.1 shows and answers on Claude plans. CLIProxyAPI's catalog does not list it yet (no release up to 8.0.57 does), so with a Claude account signed in, the CLIProxyAPI the hub runs gets the Claude models of Conclave's catalog it lacks. A model your plan refuses (403, 404, "not available") is greyed out in the model picker with the reason instead of failing every turn; Refresh models asks again. An external CLIProxyAPI's catalog is left alone.
+
 ## [0.4.69] - 2026-11-05
 
 ### Added
