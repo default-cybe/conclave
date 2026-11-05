@@ -79,6 +79,24 @@ describe('session routes via the typed client', () => {
     expect(await client.messages(s.id, { afterSeq: 10 })).toHaveLength(440);
   });
 
+  test('parentId=none pages top-level sessions with limit and offset; children stay out', async () => {
+    const top = await client.createSession({ title: 'old top-level chat', cwd: '/srv' });
+    hub.engine.repos.sessions.update({ ...hub.engine.getSession(top.id)!, updatedAt: 1 });
+    const parent = await client.createSession({ title: 'busy parent', cwd: '/srv' });
+    // subagents, newer than the old chat (the fake engine's createSession keeps no parentId)
+    for (let i = 0; i < 12; i++) hub.engine.repos.sessions.insert({ ...parent, id: `ses_kid${i}`, title: `kid ${i}`, parentId: parent.id, tags: ['subagent'], updatedAt: Date.now() + i });
+    const all = await client.listSessions({ parentId: 'none', limit: 1000 });
+    expect(all.every((s) => !s.parentId)).toBe(true);
+    expect(all.at(-1)?.id).toBe(top.id);
+    // two pages of half each give the same list, in order
+    const half = Math.ceil(all.length / 2);
+    const paged = [...(await client.listSessions({ parentId: 'none', limit: half, offset: 0 })), ...(await client.listSessions({ parentId: 'none', limit: half, offset: half }))];
+    expect(paged.map((s) => s.id)).toEqual(all.map((s) => s.id));
+    // the newest few of every session are all children; the old chat is still on a page of its own
+    expect((await client.listSessions({ limit: 5 })).some((s) => s.id === top.id)).toBe(false);
+    expect((await client.listSessions({ parentId: parent.id, limit: 100 })).length).toBe(12);
+  });
+
   test('unknown session is 404 on every session route', async () => {
     expect(await status(client.getSession('ses_nope'))).toBe(404);
     expect(await status(client.send('ses_nope', { text: 'x' }))).toBe(404);

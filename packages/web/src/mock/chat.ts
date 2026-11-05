@@ -25,6 +25,7 @@
 import type { ChatSettings, ContentBlock, EngineEvent, MemoryEntry, Message, Session } from '@conclave/core/types';
 import type { MockCtx } from './index';
 import { isEffortSetting } from '@conclave/core/providers/effort';
+import { underParent } from '@conclave/core/session/delegated';
 import fox1 from './images/fox-snow-1.png';
 import fox2 from './images/fox-snow-2.png';
 import fox3 from './images/fox-snow-3.png';
@@ -598,10 +599,17 @@ export function registerChat(ctx: MockCtx) {
     const archived = query.get('archived') === 'true';
     const kind = query.get('kind');
     if (kind && kind !== 'chat' && kind !== 'agent') ctx.fail(400, 'kind must be one of agent, chat');
+    // parentId none: top-level only (core storage/repos.ts); tag, limit and offset as the hub reads them
+    const parent = query.get('parentId');
+    const tag = query.get('tag');
+    const offset = Number(query.get('offset') ?? 0);
     return [...db.sessions.values()]
       .filter((s) => s.archived === archived)
       .filter((s) => (kind === 'chat' ? s.kind === 'chat' : kind === 'agent' ? s.kind !== 'chat' : true))
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+      .filter((s) => (parent === 'none' ? !underParent(s) : parent ? s.parentId === parent : true))
+      .filter((s) => !tag || s.tags.includes(tag))
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(offset, offset + Number(query.get('limit') ?? 200));
   });
 
   ctx.on('POST', '/api/sessions', ({ body }) => {

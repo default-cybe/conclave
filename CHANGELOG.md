@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- The session list, the sidebar, the command palette and phone Home no longer lose older chats on a busy day. The apps loaded the newest 500 sessions of any kind, so hundreds of subagent and workflow sessions pushed top-level chats out, and the title filter said "No session title matches" for a chat that exists. The web and Android apps now load every top-level session page by page (`parentId=none` with `offset`), plus open delegated work for its group; a session's subagents load when it opens, and a link to one not loaded yet is fetched by id. A filter also says how many archived sessions match, one tap from the archive.
+
 ## [0.4.70] - 2026-11-05
 
 ### Added
