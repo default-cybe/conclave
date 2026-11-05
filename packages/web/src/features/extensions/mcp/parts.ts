@@ -1,6 +1,13 @@
 /** MCP server words: what the server runs, where it is defined, and what to do when it fails. */
 import type { McpStatus } from '@conclave/core/client';
 import type { McpServerConfig } from '@conclave/core/config/schema';
+import { secretRefs } from '@conclave/core/config/secret-names';
+
+/** The ${secret:name} names these form fields use that the hub has no value for. */
+export function missingSecrets(texts: string[], saved: string[] | undefined): string[] {
+  const have = new Set(saved ?? []);
+  return secretRefs(texts).filter((n) => !have.has(n));
+}
 
 /**
  * Send the sign-in tab (opened blank before the request, so a popup blocker

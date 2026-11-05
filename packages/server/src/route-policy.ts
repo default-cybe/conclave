@@ -436,6 +436,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   // ----- config, secrets, notifications, audit -----
   'GET /api/config': 'self',
   'PATCH /api/config': 'admin',
+  'GET /api/secrets': 'admin',
   'PUT /api/secrets': 'self',
   'GET /api/notify/channels': 'hub',
   'POST /api/notify/test': 'self',

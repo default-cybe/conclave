@@ -19,6 +19,9 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Canvas runs programs and workflows: Run (Ctrl/Cmd+Enter) asks for a workflow's declared args, then the canvas shows the live run in place, with each node queued, running with its time, done, failed, skipped or cached, and short values on the wires. Stop aborts it; while it runs, Run becomes Queue run, and the Queue tab lists queued runs with Cancel. A failed node shows its error, Re-run from here (workflows) or Re-run (programs), and Ask the agent. The new Agent tab next to the inspector continues a Code session in the file's folder with the file, the selection and the last error attached, and the canvas reloads when the agent is done. Delete now removes workflow nodes too, with Undo. Reopening a file shows its latest run (#250).
 
+- Settings > Secrets, for the owner only: add, replace and delete the named secrets that `${secret:name}` reads in MCP servers and other settings. The list shows each name, its first 4 characters and when it was set, never the value; names other pages save (web search keys, plugin settings, the GitHub token and the rest) are listed read-only with where they are set. `GET /api/secrets` returns names and metadata only, to the owner only. The MCP server form says "Missing." when a `${secret:name}` it uses has no saved value (#266).
+- `conclave secret set <name>` saves a named secret for `${secret:name}` (input hidden, or `--value`; `--delete` removes it). `conclave secret <provider>` still saves a provider key, as before (#266).
+
 - Same model for all work: a switch in the model picker, on the web and on Android. When it is on, Delegate, Task subagents, workflow agents and their own subagents, at any depth, run on the conversation's current model instead of each agent's default or tier. A model you name still wins, and the usage and refusal fallback work as before. The switch is per conversation, off by default, and a small dot on the picker shows it is on. Routines do not inherit it, and a member can pin only to a model their account may use.
 
 ### Changed
@@ -27,7 +30,9 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Fixed
 
+- The MCP server form's "reads a secret saved in Settings" hint pointed at no page; it now links to Settings > Secrets. `PUT /api/secrets` refuses a new named secret whose name is not 1 to 64 lowercase letters, digits, dots, dashes and underscores (#266).
 - Claude Mythos 5.1 shows and answers on Claude plans. CLIProxyAPI's catalog does not list it yet (no release up to 8.0.57 does), so with a Claude account signed in, the CLIProxyAPI the hub runs gets the Claude models of Conclave's catalog it lacks. A model your plan refuses (403, 404, "not available") is greyed out in the model picker with the reason instead of failing every turn; Refresh models asks again. An external CLIProxyAPI's catalog is left alone.
+- `lib.fence(text)` with one argument in a workflow script now fences that text. Before, the text became the label and the next agent read "undefined" in place of the earlier agent's report.
 
 ## [0.4.69] - 2026-11-05
 

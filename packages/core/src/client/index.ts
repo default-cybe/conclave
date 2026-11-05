@@ -45,6 +45,7 @@ import type { RoutineInput } from '../scheduler/types';
 import type { AssistantSettingsDto, DayPlan, GoalArea, GoalDetail, GoalEntry, GoalInput, GoalPatch, GoalStatus, GoalSummary, Goal, PrefsPatch, ReflectDto, ReflectNowDto, ReflectPatch, TodayDto } from './assistant';
 import type { AddSuggestionRequest, AddSuggestionResult, RoutineSuggestionsDto } from '../scheduler/suggest';
 import type { ConclaveConfig, HookEvent, HooksConfig, McpServerConfig } from '../config/schema';
+import type { SecretInfo } from '../config/secret-names';
 // ----- catalog (Discover) DTOs: block "catalog", docs/design/ECOSYSTEM.md 2.1 -----
 import type {
   CatalogDetail,
@@ -2584,6 +2585,8 @@ export class ConclaveClient {
   config = () => this.request<{ config: Record<string, unknown>; user: Record<string, unknown>; secrets: { providers: string[]; values: string[]; keyed?: string[] } }>('GET', '/api/config');
   updateConfig = (patch: Record<string, unknown>) => this.request<{ ok: true }>('PATCH', '/api/config', patch);
   setSecret = (kind: 'providers' | 'values', key: string, value: string | null) => this.request<{ ok: true }>('PUT', '/api/secrets', { kind, key, value });
+  /** The hub's named secrets, names and metadata only. Owner only. */
+  secrets = () => this.request<{ values: SecretInfo[] }>('GET', '/api/secrets');
   notifyChannels = () => this.request<Array<{ id: string; enabled: boolean }>>('GET', '/api/notify/channels');
   /** Send a test notification. With an endpoint, only that browser gets it. */
   testNotify = (channel = 'webpush', opts: { endpoint?: string } = {}) => this.request<{ ok: true }>('POST', '/api/notify/test', { channel, ...opts });
