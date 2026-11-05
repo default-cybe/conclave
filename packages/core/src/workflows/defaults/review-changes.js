@@ -125,7 +125,8 @@ const panels = await pipeline(toVerify, (f) =>
     phase: 'Verify',
     agentType: 'verifier',
     effort: 'xhigh',
-    model: 'deep',
+    // a tier, not a model: the voters spread over the tier's models
+    tier: 'deep',
     context: 'The change under review:\n' + diffForPrompt.slice(0, 20000),
   }).then((p) => ({ f, p })),
 )

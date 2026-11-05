@@ -18,12 +18,56 @@
  */
 import type { Engine } from '../engine/engine';
 import { continueSubagent, runSubagent, type SubagentResult } from '../engine/subagent';
-import { agentModelRef, pinnedAsk } from '../extensions/agent-model';
+import { agentModelRef, isModelDead, pinnedAsk } from '../extensions/agent-model';
+import { tierOf } from '../extensions/model-ref';
+import { bareModel } from '../accounts/policy';
+import { findCatalogEntry } from '../providers/catalog';
+import { variantBase } from '../providers/model-id';
+import { isMember } from '../people/context';
+import { memberCanUse } from '../session/member-fallbacks';
 import { modelPin } from '../session/model-pin';
 import { assertOutputSchema, formatProblems, validateSchema, type Schema } from '../tools/schema';
 import { extractJsonObject, STRUCTURED_OUTPUT_ATTEMPTS, structuredOutputNudge, structuredOutputTool, type StructuredOutputState } from '../tools/structured-output';
 import type { Tool } from '../tools/types';
 import { OWNER_ID } from '../people/context';
+
+/**
+ * The models a lib.panel or lib.judgePanel spreads its voters over, round
+ * robin (same-model voters share blind spots). `pinned` (o.models) keeps
+ * the script's list, less what the account cannot call. Otherwise: the
+ * tier's own pick first, then every other distinct usable model of that
+ * tier the account lists, a maker not seen yet first. A member's list is
+ * their own keys and plans (memberCanUse), never the owner's. Empty means
+ * no mix: Same model for all work is on, or nothing fits; the voters then
+ * run as before, on the tier word.
+ */
+export async function panelModels(engine: Engine, parentSessionId: string | undefined, tier: unknown, pinned?: unknown): Promise<string[]> {
+  const parent = parentSessionId ? engine.getSession(parentSessionId) : undefined;
+  if (!parent || modelPin(engine, parent)) return [];
+  const acct = engine.accountOf(parent);
+  const can = (ref: string) => (isMember(acct) ? memberCanUse(engine, acct, ref) : engine.isUsable(ref) && !isModelDead(engine, ref));
+  const base = (id: string) => {
+    const v = variantBase(bareModel(id));
+    return (findCatalogEntry(v)?.id ?? v).toLowerCase();
+  };
+  const seen = new Set<string>();
+  const fresh = (ref: string) => !seen.has(base(ref)) && !!seen.add(base(ref));
+  if (Array.isArray(pinned) && pinned.length) return pinned.filter((r): r is string => typeof r === 'string' && r.includes('/') && can(r) && fresh(r));
+  const t = tierOf(typeof tier === 'string' ? tier : undefined) ?? 'deep';
+  const out: string[] = [];
+  const first = agentModelRef(engine, t, parent.model).model;
+  if (can(first) && fresh(first)) out.push(first);
+  const groups = await engine.listModels(acct).catch(() => []);
+  const rest = groups
+    .filter((g) => g.configured && g.enabled && g.type !== 'acp')
+    .flatMap((g) => g.models)
+    .filter((m) => !m.sameAs && (m.tier ?? findCatalogEntry(variantBase(bareModel(m.id)))?.tier) === t && can(m.ref) && fresh(m.ref));
+  const maker = (ref: string) => findCatalogEntry(variantBase(bareModel(ref)))?.family ?? ref.split('/')[0];
+  // a maker not in the list yet first: different makers miss different things
+  const makers = new Set(out.map(maker));
+  const newMaker = rest.filter((m) => !makers.has(maker(m.ref)) && !!makers.add(maker(m.ref)));
+  return [...out, ...newMaker.map((m) => m.ref), ...rest.filter((m) => !newMaker.includes(m)).map((m) => m.ref)];
+}
 
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 export type Effort = (typeof EFFORTS)[number];
