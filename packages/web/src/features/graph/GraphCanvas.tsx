@@ -388,7 +388,19 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         const nodeId = menu && e.pointerType === 'touch' ? (e.target as HTMLElement).closest('.react-flow__node-wf, .react-flow__node-flow')?.getAttribute('data-id') : undefined;
         if (nodeId) {
           const { clientX: x, clientY: y } = e;
-          press.current = { x, y, t: setTimeout(() => ((press.current = undefined), (pressedAt.current = Date.now()), setCtx({ id: nodeId, x, y })), 500) };
+          press.current = {
+            x,
+            y,
+            t: setTimeout(() => {
+              press.current = undefined;
+              pressedAt.current = Date.now();
+              // the click the browser makes when the finger lifts would land on the sheet's backdrop and close it
+              const eat = (ev: MouseEvent) => (ev.stopPropagation(), ev.preventDefault());
+              document.addEventListener('click', eat, { capture: true, once: true });
+              setTimeout(() => document.removeEventListener('click', eat, { capture: true }), 1000);
+              setCtx({ id: nodeId, x, y });
+            }, 500),
+          };
           return;
         }
         if (!onInsert || !full || e.pointerType !== 'touch' || !(e.target as HTMLElement).classList.contains('react-flow__pane')) return;
