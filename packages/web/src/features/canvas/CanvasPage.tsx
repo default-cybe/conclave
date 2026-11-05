@@ -56,7 +56,7 @@ import { attempt, retainTranscript, sendQueued, toast, upsertSession, useHub } f
 import { DRAG_KIND, GraphCanvas, INSERTS } from '../graph/GraphCanvas';
 import { FlowInspector, runWords } from '../graph/FlowInspector';
 import { Inspector } from '../graph/Inspector';
-import { liveState, stateTone } from '../graph/nodes';
+import { liveState } from '../graph/nodes';
 import { useRunDetail, useRuns } from '../workflows/data';
 import { isLive, RUN_WORD } from '../workflows/words';
 import { useCanvasFiles } from './files';

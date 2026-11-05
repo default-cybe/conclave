@@ -14,7 +14,7 @@
  * Remove), the same transcript with its approvals, and the composer. The
  * page's keys (Esc stops, copy the last code block) stay with the session page.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import { MoreHorizontal, PanelRight, X } from 'lucide-react';
 import type { Session } from '@conclave/core/types';

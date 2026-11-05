@@ -1,5 +1,5 @@
 /**
- * Flows in the mock app (features/graph/FlowView): one scraper flow parsed by
+ * Flows in the mock app (features/canvas/CanvasPage): one scraper flow parsed by
  * the hub's own parser, and a finished run with values on its wires and one
  * block that failed, for the screenshots and the graph test.
  */
