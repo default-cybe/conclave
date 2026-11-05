@@ -23,7 +23,7 @@ import type { Session, SessionMode } from '@conclave/core/types';
 import { ACCEPT_FILES, MAX_ATTACHMENTS } from '@conclave/core/attachments/limits';
 import type { EffortSetting } from '@/lib/effort';
 import type { Attachment } from '@conclave/core/client';
-import { api } from '@/lib/api';
+import { api, MOCK } from '@/lib/api';
 import { acceptFileDrag, droppedFiles } from '@/lib/fileDrop';
 import { onPasteFiles } from '@/lib/pasteFiles';
 import { askBtw, attempt, sendQueued, toast, upsertSeat, upsertSession, useHub } from '@/store/store';
@@ -56,6 +56,7 @@ import { findSlash, INIT_PROMPT, menuList, PHONE_TOP_COMMANDS, pickAction, SECTI
 import { SessionSheets } from './sheets/SessionSheets';
 import { useMeId, useParticipants } from './shared';
 import { useDraft } from './useDraft';
+import { SecurityControls } from './Security';
 import { NO_KV } from './draft';
 
 type FileEntry = { name: string; path: string; type: 'dir' | 'file'; size?: number };
@@ -581,6 +582,8 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
           }
         />
         {sharedRow}
+        {/* Security mode is a design mock for now (docs/design/SECURITY-MODE.md) */}
+        {MOCK && session.kind !== 'chat' && <QuietRow right={null} left={<SecurityControls session={session} />} />}
         <StatusLine session={session} phone />
         <Sheet open={sheet} onClose={() => setSheet(false)} title="Options">
           <div className="space-y-4 px-4 pb-4">
@@ -603,6 +606,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   const cfg = session.modeConfig ?? {};
   const left = (
     <>
+      {MOCK && session.kind !== 'chat' && <SecurityControls session={session} />}
       {session.mode !== 'chat' && <PermissionPicker look="text" value={session.permissionMode} onChange={(permissionMode) => void patch({ permissionMode })} className="h-[24px] text-[12px]" />}
       {session.mode === 'jury' && <JurorsPicker look="text" value={cfg.jury} onChange={(jury) => void patch({ modeConfig: { ...cfg, jury } })} className="h-[24px] text-[12px]" />}
       {session.mode === 'debate' && <DebatersPicker look="text" value={cfg.debate} onChange={(debate) => void patch({ modeConfig: { ...cfg, debate } })} className="h-[24px] text-[12px]" />}

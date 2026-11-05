@@ -198,6 +198,17 @@ export const agents: AgentDef[] = [
   { name: 'researcher', description: 'Deep web research with sources. Writes briefs.', prompt: 'Research thoroughly. Cite every claim...', model: 'google/gemini-3-pro', icon: 'telescope', color: 'cyan', source: 'user', primary: true, tools: ['WebSearch', 'WebFetch', 'Read', 'Write'], mode: 'agent' },
   { name: 'reviewer', description: 'Reviews diffs for bugs and security issues. Read only.', prompt: 'Review the diff. Report bugs first...', model: 'openai/gpt-5.5', icon: 'scan-eye', color: 'green', source: 'project', tools: ['Read', 'Grep', 'Glob', 'Bash'], subagent: true, primary: true, mode: 'agent' },
   { name: 'ctf', description: 'CTF and exploit dev partner. Pwn, rev, web. Sandbox only.', prompt: 'You help with CTF challenges in a sandbox VM...', model: 'zai/glm-5', icon: 'flag', color: 'red', source: 'user', primary: true, device: 'kali-vm', skills: ['ctf-recon'], mode: 'agent' },
+  // Security mode (docs/design/SECURITY-MODE.md 2): the primary agent and its roster, offered to Task only in Security mode
+  { name: 'security', description: 'Security hunts with a roster per role. Scope file required per target.', prompt: 'You run security hunts...', model: 'cliproxy/claude-opus-5-5', icon: 'shield', color: 'red', source: 'builtin', primary: true, device: 'local', mcpServers: ['caido', 'semgrep', 'rea'], mode: 'agent' },
+  ...(
+    [
+      ['sec-recon', 'Maps routes, the guard idiom, roles and carriers. Writes the evidence brief.', 'zai/glm-5.3'],
+      ['sec-hunter', 'One hunt route: leads with file:line, the invariant and a proof plan.', 'cliproxy/claude-opus-5-5'],
+      ['sec-refuter', 'One call, three lenses. Lists assumptions, each tested or untested.', 'cliproxy/personal-gpt/gpt-daybreak-blue-latest'],
+      ['sec-validator', 'Runs the lane oracle and its negative control. Default verdict: not reproduced.', 'zai/glm-5.3'],
+      ['sec-reporter', 'Drafts REPORT.md for confirmed findings only. Never submits.', 'cliproxy/claude-opus-5-5'],
+    ] as const
+  ).map(([name, description, model]): AgentDef => ({ name, description, prompt: '', model, icon: 'shield', color: 'gray', source: 'builtin', subagent: true, primary: false })),
   { name: 'explore', description: 'Fast read-only codebase search. Used as a subagent.', prompt: 'Find things fast...', model: 'anthropic/claude-haiku-5-5', icon: 'search', color: 'gray', source: 'builtin', subagent: true, primary: false, tools: ['Read', 'Grep', 'Glob'] },
   { name: 'librarian', description: 'Curates memory: merges duplicates, expires stale facts.', prompt: 'You maintain the memory store...', model: 'anthropic/claude-haiku-5-5', icon: 'library', color: 'pink', source: 'plugin', plugin: 'memory-tools', primary: false },
   { name: 'tutor', description: 'Uni coursework helper. Explains and quizzes, never hands in work.', prompt: 'Teach, do not solve...', model: 'openai/gpt-5.5', icon: 'graduation-cap', color: 'orange', source: 'claude', path: '~/.claude/agents/tutor.md', primary: true, untrusted: false },
@@ -314,6 +325,22 @@ export const sessions: Session[] = [
   session({ id: 's_ret2', title: 'Explain ret2libc with ASLR on', agent: 'tutor', model: 'openai/gpt-5.5', createdAt: ago(6 * DAY), updatedAt: ago(6 * DAY), tags: ['security'] }),
   // Refusal fallback (Settings > Models): Opus on neu declined, Opus on personal answered; the next reply was refused
   session({ id: 's_fw', title: 'Router firmware overflow write-up', agent: 'ctf', model: 'cliproxy/neu/claude-opus-5-5', device: 'kali-vm', cwd: '~/ctf/router-fw', tags: ['security'], meta: { doneAt: ago(9 * MIN) }, createdAt: ago(70 * MIN), updatedAt: ago(9 * MIN), stats: stats(6, 88_000, 2_900, 61_000, 0) }),
+  // Security mode (docs/design/SECURITY-MODE.md): a hunt with its roster at work, a confirmed finding and a grant waiting; a second hunt stopped at preflight for its scope file
+  session({ id: 's_sec', title: 'Hunt: tenant isolation in Acme Billing', agent: 'security', model: 'cliproxy/claude-opus-5-5', status: 'waiting_approval', device: 'local', cwd: '~/hunts/acme', pinned: true, tags: ['security'], meta: { security: { lane: 'source', lanes: ['source', 'web'] } }, createdAt: ago(26 * MIN), updatedAt: ago(MIN), stats: stats(18, 212_000, 14_800, 160_000, 1.84) }),
+  ...(
+    [
+      ['s_sec_recon', 'Map the billing API surface', 'sec-recon', 'zai/glm-5.3', 24],
+      ['s_sec_h1', 'Route 1: continue the invoice lead', 'sec-hunter', 'cliproxy/claude-opus-5-5', 21],
+      ['s_sec_h2', 'Route 2: isolate the tenant guard', 'sec-hunter', 'cliproxy/claude-opus-5-5', 21],
+      ['s_sec_h3', 'Route 3: exports and webhooks', 'sec-hunter', 'cliproxy/claude-opus-5-5', 21],
+      ['s_sec_ref', 'Refute leads 1 and 2', 'sec-refuter', 'cliproxy/personal-gpt/gpt-daybreak-blue-latest', 13],
+      ['s_sec_val', 'Run and confirm lead 1 on the lab stack', 'sec-validator', 'zai/glm-5.3', 10],
+      ['s_sec_h4', 'Round 2: webhook replay across tenants', 'sec-hunter', 'cliproxy/claude-opus-5-5', 2],
+    ] as const
+  ).map(([id, title, agent, model, min]) =>
+    session({ id, title, agent, model, parentId: 's_sec', device: 'local', cwd: '~/hunts/acme', tags: ['subagent'], status: id === 's_sec_h4' ? 'running' : 'idle', meta: { subagent: true, ...(id === 's_sec_h4' ? {} : { doneAt: ago((min - 2) * MIN) }) }, createdAt: ago(min * MIN), updatedAt: ago(id === 's_sec_h4' ? 5_000 : (min - 2) * MIN), stats: stats(6, 40_000, 2_400, 22_000, 0.21) }),
+  ),
+  session({ id: 's_sec_tj', title: 'Hunt: ToolJet /join workspace guard', agent: 'security', model: 'cliproxy/claude-opus-5-5', status: 'waiting_input', device: 'local', cwd: '~/hunts/tooljet', tags: ['security'], meta: { security: { lane: 'variant', lanes: ['variant', 'source', 'web'] } }, createdAt: ago(4 * MIN), updatedAt: ago(3 * MIN), stats: stats(3, 14_000, 900, 6_000, 0.06) }),
   session({ id: 's_old', title: 'Hyprland config cleanup', agent: 'assistant', model: 'zai/glm-4.7', archived: true, createdAt: ago(20 * DAY), updatedAt: ago(19 * DAY) }),
 ];
 
@@ -623,6 +650,118 @@ function fwTranscript(): Message[] {
   ];
 }
 
+const SEC_EVIDENCE = `# run 1 of 3, lab stack sec-lab-acme at v4.12.0 (shipped)
+GET /api/v2/invoices/inv_b_7731 HTTP/1.1
+Host: billing.sec-lab-acme
+Authorization: [redacted, tenantA viewer]
+
+HTTP/1.1 200 OK
+{"id":"inv_b_7731","tenant":"tenantB","memo":"CANARY-b9f2e1","total":4210}
+
+# negative control: tenantA viewer on GET /api/v2/tenants/tenantB/members
+HTTP/1.1 403 Forbidden`;
+
+/** A Security mode hunt (docs/design/SECURITY-MODE.md 3.1): recon, three hunter routes, one refuter, the validator, a finding, round 2, then the grant before the live host. */
+function secTranscript(): Message[] {
+  const S = 's_sec';
+  const t0 = ago(26 * MIN);
+  const by = { model: 'cliproxy/claude-opus-5-5', agent: 'security' };
+  const task = (id: string, description: string, subagent_type: string, prompt: string): ContentBlock => ({ type: 'tool_use', id, name: 'Task', input: { description, subagent_type, prompt } });
+  const done = (id: string, sessionId: string, content: string, ms: number): ContentBlock => ({ type: 'tool_result', toolUseId: id, content, meta: { durationMs: ms, sessionId } });
+  return [
+    msg(S, 'user', [text('Hunt tenant isolation in Acme Billing. Source is in `~/hunts/acme/src` (v4.12.0), the live app is https://app.acme-billing.example. Program is on HackerOne, test accounts tenantA and tenantB.')], {}, t0),
+    msg(S, 'assistant', [text('Lane: white-box source, also web black-box (Caido). Scope loaded from targets/acme/scope.yaml, expires 2026-12-31.')], { kind: 'notice', meta: { type: 'lane', level: 'info' } }, t0 + 3_000),
+    msg(S, 'assistant', [text('Recon first, reading code and Caido history only. No requests to the live host.'), task('tu_sec_recon', 'Map the billing API surface', 'sec-recon', 'Routes, guard idiom, role table, carriers. Write targets/acme/brief.md.')], by, t0 + 6_000),
+    msg(S, 'user', [done('tu_sec_recon', 's_sec_recon', 'Brief written. 84 routes under /api/v2. Guard idiom: `requireTenant(req)` in 61 of them. 23 routes take a tenant-scoped id without it. Carriers: invoice memo, webhook payload.', 118_000)], {}, t0 + 2 * MIN),
+    msg(
+      S,
+      'assistant',
+      [
+        text('Three hunter routes in parallel on the 23 unguarded routes: continue the leader, isolate its blocker, try an alternative.'),
+        task('tu_sec_h1', 'Route 1: continue the invoice lead', 'sec-hunter', 'Invoices by id without requireTenant.'),
+        task('tu_sec_h2', 'Route 2: isolate the tenant guard', 'sec-hunter', 'Where requireTenant is skipped and why.'),
+        task('tu_sec_h3', 'Route 3: exports and webhooks', 'sec-hunter', 'Exports and webhook replays across tenants.'),
+      ],
+      by,
+      t0 + 2 * MIN + 4_000,
+    ),
+    msg(
+      S,
+      'user',
+      [
+        done('tu_sec_h1', 's_sec_h1', 'Lead 1: `GET /api/v2/invoices/:id` loads by id with no tenant check (src/api/invoices.ts:88). Proof plan: tenantA viewer reads a seeded tenantB invoice.', 7 * MIN),
+        done('tu_sec_h2', 's_sec_h2', 'Lead 2: `PATCH /api/v2/invoices/:id/memo` has the same gap (src/api/invoices.ts:131). Write authz.', 7 * MIN + 30_000),
+        done('tu_sec_h3', 's_sec_h3', 'No lead. Exports and webhooks call requireTenant first.', 6 * MIN),
+      ],
+      {},
+      t0 + 10 * MIN,
+    ),
+    msg(S, 'assistant', [text('Two leads. One refuter call, then the validator runs lead 1 on the lab stack at the shipped version.'), task('tu_sec_ref', 'Refute leads 1 and 2', 'sec-refuter', 'Three lenses. List assumptions, tested or untested.'), task('tu_sec_val', 'Run and confirm lead 1 on the lab stack', 'sec-validator', 'Read authz oracle, 3 runs, negative control.')], by, t0 + 11 * MIN),
+    msg(S, 'user', [done('tu_sec_ref', 's_sec_ref', 'Both hold on all three lenses. 3 assumptions, 2 untested.', 2 * MIN), done('tu_sec_val', 's_sec_val', 'Lead 1 confirmed 3 of 3 on sec-lab-acme. Negative control holds. RESULT.txt written.', 4 * MIN)], {}, t0 + 16 * MIN),
+    msg(
+      S,
+      'assistant',
+      [text('Finding 1 confirmed.')],
+      {
+        kind: 'notice',
+        meta: {
+          type: 'finding',
+          n: 1,
+          title: 'Any viewer reads another tenant\u2019s invoices',
+          state: 'confirmed',
+          where: 'src/api/invoices.ts:88',
+          summary: 'GET /api/v2/invoices/:id loads the invoice by id and never calls requireTenant, so a tenantA viewer gets tenantB\u2019s invoice with its memo.',
+          oracle: {
+            model: 'zai/glm-5.3',
+            on: 'sec-lab-acme',
+            runs: [
+              { label: 'Run 1 of 3', detail: 'tenantA viewer got tenantB canary CANARY-b9f2e1, 200', pass: true },
+              { label: 'Run 2 of 3', detail: 'same request, fresh session, 200 with the canary', pass: true },
+              { label: 'Run 3 of 3', detail: 'after a stack restart, 200 with the canary', pass: true },
+              { label: 'Own object', detail: 'tenantA reads its own invoice, 200', pass: true },
+              { label: 'Forbidden sibling', detail: 'tenantA on /tenants/tenantB/members, 403', pass: true },
+            ],
+            evidence: SEC_EVIDENCE,
+            result: 'findings/acme-hunt/RESULT.txt',
+          },
+          refuter: {
+            model: 'cliproxy/personal-gpt/gpt-daybreak-blue-latest',
+            votes: [
+              { lens: 'Reachability', vote: 'holds', reason: 'A viewer, the lowest role, can call the route.' },
+              { lens: 'Boundary rule', vote: 'holds', reason: 'Docs say invoices belong to one tenant.' },
+              { lens: 'Downstream check', vote: 'holds', reason: 'No later layer filters by tenant.' },
+            ],
+            assumptions: [
+              { text: 'Invoice ids are guessable.', tested: true, how: 'Ran: ids are sequential per region (inv_b_7730, 7731).' },
+              { text: 'The live app runs v4.12.0 like the lab.', tested: false, how: 'Not checked against the live host yet.' },
+              { text: 'No WAF rule blocks cross-tenant ids live.', tested: false, how: 'Needs one live request inside a grant.' },
+            ],
+          },
+        },
+      },
+      t0 + 16 * MIN + 2_000,
+    ),
+    msg(S, 'assistant', [text('Round 2 while you look at the grant. The two untested assumptions need the live host, so I asked for a grant.'), task('tu_sec_h4', 'Round 2: webhook replay across tenants', 'sec-hunter', 'Replay a tenantA webhook with a tenantB id.')], by, ago(2 * MIN)),
+  ];
+}
+
+/** A hunt stopped at preflight: no scope file for the target, so it asks for one (docs/design/SECURITY-MODE.md 3.1 step 0, 4.1). */
+function secScopeTranscript(): Message[] {
+  const S = 's_sec_tj';
+  const by = { model: 'cliproxy/claude-opus-5-5', agent: 'security' };
+  return [
+    msg(S, 'user', [text('Variant hunt for GHSA-4x2q-8jv9-qm7p (missing ActiveWorkspaceGuard on /join) in github.com/ToolJet/ToolJet, then check https://tooljet.example.')], {}, ago(4 * MIN)),
+    msg(S, 'assistant', [text('Lane: variant, also source and web black-box (Caido).')], { kind: 'notice', meta: { type: 'lane', level: 'info' } }, ago(4 * MIN - 2_000)),
+    msg(
+      S,
+      'assistant',
+      [text("Preflight stopped: `targets/tooljet/scope.yaml` does not exist, so nothing runs yet, not even recon. This is what I would write from the program page. Check the hosts and the expiry:\n\n```yaml\nprogram: tooljet\nvenue: ghsa\nin_scope: [\"tooljet.example\", \"*.tooljet.example\"]\nout_of_scope: [\"billing.tooljet.example\"]\nlab: [\"sec-lab-tooljet\"]\nrate_limit_rps: 1\nrequest_budget: 500\naccounts: [\"tenantA (test)\", \"tenantB (test)\"]\nno: [dos, other_user_data, anti_bot_evasion]\nexpires: 2026-12-31\n```")],
+      { ...by, stopReason: 'end_turn' },
+      ago(3 * MIN),
+    ),
+  ];
+}
+
 function debateTranscript(): Message[] {
   const S = 's_debate';
   const t0 = ago(DAY + 2 * HOUR);
@@ -694,6 +833,8 @@ export const transcripts: Record<string, Message[]> = {
   s_ctf: ctfTranscript(),
   s_debate: debateTranscript(),
   s_fw: fwTranscript(),
+  s_sec: secTranscript(),
+  s_sec_tj: secScopeTranscript(),
 };
 for (const s of sessions) {
   if (transcripts[s.id]) continue;
@@ -751,9 +892,40 @@ export const approvals: ApprovalRequest[] = [
     createdAt: ago(MIN),
     noAlways: true,
   },
+  // Security mode: the grant before a live target (docs/design/SECURITY-MODE.md 4.3); never an always rule
+  {
+    id: 'ap_sec_grant',
+    sessionId: 's_sec',
+    toolUseId: 'tu_sec_grant',
+    tool: 'SecurityGrant',
+    input: {
+      host: 'app.acme-billing.example',
+      content: 'hosts     app.acme-billing.example\naccounts  tenantA (test), tenantB (test)\nbudget    40 requests, 1 per second\nexpires   in 24 hours (06 Nov, 14:10)\nscope     in_scope "*.acme-billing.example", targets/acme/scope.yaml:3',
+      reason: 'Two assumptions behind finding 1 are untested: the live version and a WAF rule. 6 requests answer both; the rest is for lead 2.',
+    },
+    summary: 'Grant live requests to app.acme-billing.example',
+    createdAt: ago(MIN),
+    noAlways: true,
+  },
 ];
 
 export const questions: QuestionRequest[] = [
+  {
+    id: 'q_sec_scope',
+    sessionId: 's_sec_tj',
+    createdAt: ago(3 * MIN),
+    questions: [
+      {
+        header: 'Scope file',
+        question: 'There is no scope file for tooljet. Save the one above to targets/tooljet/scope.yaml?',
+        options: [
+          { label: 'Save it', description: 'Hunts start in the lab. Live requests still need a grant.' },
+          { label: 'Edit it first', description: 'Opens the file in the hunt folder.' },
+          { label: 'Lab only', description: 'Save with an empty in_scope: nothing live, ever.' },
+        ],
+      },
+    ],
+  },
   {
     id: 'q_ctf',
     sessionId: 's_ctf',
