@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { WorkflowRun, WorkflowSummary } from '@conclave/core/client';
 import type { Session } from '@conclave/core/types';
-import { canvasHome, deskViewport, libraryOpen, READ_ZOOM, saveLibraryOpen, fileGroups, fileHref, focusNode, focusViewport, folderSessions, isRunId, programHref, rememberFile, sessionFor, workflowFiles, workflowHref } from '../src/features/canvas/model';
+import { canvasHome, deskViewport, libraryOpen, READ_ZOOM, saveLibraryOpen, fileGroups, fileHref, focusNode, focusViewport, folderSessions, goLabel, goTarget, onScreen, isRunId, programHref, rememberFile, sessionFor, workflowFiles, workflowHref } from '../src/features/canvas/model';
 import { readMode } from '../src/features/home/start';
 import { phonePlace } from '../src/components/PhoneFrame';
 import { NEW_WORDS, sideListWord } from '../src/lib/sidebar';
@@ -143,6 +143,32 @@ describe('where the canvas opens', () => {
     expect(focusViewport(node(0), graph, canvas).y).toBe(12);
     // near the bottom the graph's end sits on the screen's bottom
     expect(focusViewport(node(1920), graph, canvas).y).toBe(600 - 12 - 2000);
+  });
+});
+
+describe('Go to failed or running block', () => {
+  test('the target: a failed block first, else a running one, else none', () => {
+    expect(goTarget([{ id: 'a', state: 'running' }, { id: 'b', state: 'failed' }])).toEqual({ id: 'b', word: 'failed' });
+    expect(goTarget([{ id: 'a', state: 'done' }, { id: 'b', state: 'running' }])).toEqual({ id: 'b', word: 'running' });
+    expect(goTarget([{ id: 'a', state: 'done' }, { id: 'b', state: 'waiting' }, { id: 'c' }])).toBeUndefined();
+  });
+  const pane = { w: 848, h: 644 };
+  const at = (x: number, y = 40) => ({ x, y, w: 248, h: 92 });
+  const vp = { x: 24, y: 0, zoom: 0.55 };
+  test('on screen while any part shows, off past each edge', () => {
+    expect(onScreen(at(0), vp, pane)).toBe(true);
+    // its left edge past the pane's right: 24 + 1500 * 0.55 = 849
+    expect(onScreen(at(1500), vp, pane)).toBe(false);
+    expect(onScreen(at(1400), vp, pane)).toBe(true);
+    expect(onScreen(at(-400), vp, pane)).toBe(false);
+    expect(onScreen(at(0, 1200), vp, pane)).toBe(false);
+    expect(onScreen(at(0, -200), vp, pane)).toBe(false);
+  });
+  test('the button shows only for a target off screen, with its word', () => {
+    expect(goLabel({ word: 'failed' }, true)).toBe('Go to failed block');
+    expect(goLabel({ word: 'running' }, true)).toBe('Go to running block');
+    expect(goLabel({ word: 'failed' }, false)).toBeUndefined();
+    expect(goLabel(undefined, true)).toBeUndefined();
   });
 });
 

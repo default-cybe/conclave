@@ -166,3 +166,18 @@
 .cv-full .react-flow__minimap-node.cv-mini-done {
   fill: var(--ok);
 }
+
+/* Go to failed or running block: the block it reached pulses once in the minimap */
+.cv-full .react-flow__minimap-node.cv-mini-pulse {
+  animation: cv-mini-pulse 1200ms var(--ease-sine) 1;
+}
+@keyframes cv-mini-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  30%,
+  70% {
+    opacity: 0.25;
+  }
+}
