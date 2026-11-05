@@ -313,6 +313,8 @@ fun ChatScreen(
                         cyberChoices = CyberAccess.choices(info),
                         cyberValue = s?.chat?.cyber,
                         onCyber = vm::setCyber,
+                        sameModel = s?.chat?.sameModel == true,
+                        onSameModel = if (s != null) vm::setSameModel else null,
                         context = ContextUse.of(live.messages, s, info),
                         onUsage = onOpenUsage,
                         left = {

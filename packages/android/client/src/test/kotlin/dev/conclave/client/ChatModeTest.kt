@@ -132,6 +132,9 @@ class ChatModelsTest {
             """{"chat":{"thinking":null}}""",
             c.sessionPatchJson(SessionPatch(chat = ChatSettingsPatch(agentThinking = true))).toString(),
         )
+        // Same model for all work: off is sent as false, not left out
+        assertEquals("""{"chat":{"sameModel":false}}""", c.sessionPatchJson(SessionPatch(chat = ChatSettingsPatch(sameModel = false))).toString())
+        assertEquals(true, json.decodeFromString(ChatSettings.serializer(), """{"webSearch":true,"memory":true,"sameModel":true}""").sameModel)
         assertEquals(
             """{"agent":"coder","cwd":"~/src","device":"madx","kind":"agent"}""",
             c.sessionPatchJson(SessionPatch(agent = "coder", cwd = "~/src", device = "madx", kind = SessionKind.AGENT)).toString(),

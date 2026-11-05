@@ -527,6 +527,8 @@ data class ChatSettingsPatch(
     /** A Cyber access program; [defaultCyber] sends `"cyber": null` (back to Default: nothing sent). */
     val cyber: String? = null,
     @Transient val defaultCyber: Boolean = false,
+    /** Same model for all work on or off. */
+    val sameModel: Boolean? = null,
 )
 
 @Serializable

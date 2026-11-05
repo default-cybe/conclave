@@ -18,7 +18,8 @@
  */
 import type { Engine } from '../engine/engine';
 import { continueSubagent, runSubagent, type SubagentResult } from '../engine/subagent';
-import { agentModelRef } from '../extensions/agent-model';
+import { agentModelRef, pinnedAsk } from '../extensions/agent-model';
+import { modelPin } from '../session/model-pin';
 import { assertOutputSchema, formatProblems, validateSchema, type Schema } from '../tools/schema';
 import { extractJsonObject, STRUCTURED_OUTPUT_ATTEMPTS, structuredOutputNudge, structuredOutputTool, type StructuredOutputState } from '../tools/structured-output';
 import type { Tool } from '../tools/types';
@@ -197,7 +198,8 @@ export async function runStep(o: StepRunOptions): Promise<StepOutcome> {
   // a tier word the owner did not pin in models.tiers (deep may land on claude-code/opus)
   let tierGuess = false;
   // the call's model, else the phase's, else the profile's own (verifier: deep), resolved here so a failed harness can fall back
-  const ask = spec.model ?? o.phaseModel ?? profileModel(engine, profile.name, o.cwd, acct);
+  // Same model for all work (session/model-pin.ts): only a provider/model the call names beats the pin
+  const ask = pinnedAsk(modelPin(engine, parent), spec.model) ?? o.phaseModel ?? profileModel(engine, profile.name, o.cwd, acct);
   if (ask) {
     // agentModelRef checks that an ACP harness is installed before a tier lands on it
     const r = agentModelRef(engine, ask, parent.model);
