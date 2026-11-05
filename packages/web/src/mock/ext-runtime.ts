@@ -973,16 +973,7 @@ export function registerExtensionRuntime(ctx: MockCtx) {
       last: runs.filter((r) => r.event === event).slice(-10),
     }));
     const lint = [...mockLint(cfg.hooks, CONFIG_PATH), ...(FRESH ? [] : mockLint(CLAUDE_USER_HOOKS, CLAUDE_USER))];
-    // two plugins that inject into every subagent (extensions-api.ts lintLoaded)
-    const injecting = [...new Set(groups.filter((g) => g.event === 'SubagentStart' && g.source === 'plugin' && (!g.matcher || g.matcher === '*')).map((g) => g.plugin!))];
-    if (injecting.length > 1)
-      lint.push({
-        level: 'warn',
-        event: 'SubagentStart',
-        group: 0,
-        plugins: injecting,
-        text: `${injecting.join(' and ')} both add text to every subagent. Each subagent starts with both; turn one plugin's hooks off if they do the same job.`,
-      });
+    // two plugins on one event is normal and both run: no warning (extensions-api.ts pluginHookRepeats warns only for one plugin's repeats)
     const out: HooksOverview = { events, ...(cwd ? { trust: trustInfoEdited(cwd) } : {}), ...(lint.length ? { lint } : {}) };
     return out;
   });

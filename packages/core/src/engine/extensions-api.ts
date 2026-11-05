@@ -435,17 +435,34 @@ function lintLoaded(engine: Engine, cwd?: string): HookLintIssue[] {
     if (!raw) continue;
     for (const i of lintHooks(raw, { mcpServers: servers }).issues) out.push({ ...i, path });
   }
-  // two plugins that inject into every subagent stack their text on each one
-  const sub = engine.extensions.pluginHooks().SubagentStart ?? [];
-  const injecting = [...new Set(sub.filter((g) => !g.matcher || g.matcher === '*').flatMap((g) => (g.hooks as RuntimeHookCommand[]).map((h) => h.plugin)).filter(Boolean))];
-  if (injecting.length > 1)
-    out.push({
-      level: 'warn',
-      event: 'SubagentStart',
-      group: 0,
-      plugins: injecting as string[],
-      text: `${injecting.join(' and ')} both add text to every subagent. Each subagent starts with both; turn one plugin's hooks off if they do the same job.`,
-    });
+  out.push(...pluginHookRepeats(engine.extensions.pluginHooks()));
+  return out;
+}
+
+/**
+ * One plugin that registers the same command twice on one event and
+ * matcher: it runs twice. Two plugins on one event is normal (both run),
+ * so that is no problem (owner, 2026-11-05: caveman and ponytail on SubagentStart).
+ */
+export function pluginHookRepeats(hooks: Partial<Record<HookEvent, Array<{ matcher?: string; hooks: unknown[] }>>>): HookLintIssue[] {
+  const out: HookLintIssue[] = [];
+  for (const [event, groups] of Object.entries(hooks) as Array<[HookEvent, Array<{ matcher?: string; hooks: unknown[] }>]>) {
+    const seen = new Set<string>();
+    const told = new Set<string>();
+    for (const g of groups ?? [])
+      for (const h of g.hooks as RuntimeHookCommand[]) {
+        const what = h.command ?? h.prompt;
+        if (!h.plugin || !what) continue;
+        const key = JSON.stringify([h.plugin, g.matcher || '*', what]);
+        if (!seen.has(key)) {
+          seen.add(key);
+          continue;
+        }
+        if (told.has(key)) continue;
+        told.add(key);
+        out.push({ level: 'warn', event, group: 0, plugins: [h.plugin], text: `${h.plugin} registers the same ${h.command ? 'command' : 'prompt'} twice on ${event}${g.matcher && g.matcher !== '*' ? ` for "${g.matcher}"` : ''}, so it runs twice: ${oneLine(what, 80)}` });
+      }
+  }
   return out;
 }
 
