@@ -114,6 +114,11 @@ export function fallbackWords(m: Pick<ReflectReport['models'], 'fallbacks' | 'to
   return `${n(m.fallbacks, 'fallback', 'fallbacks')}${top}. `;
 }
 
+/** Home's line after the count: "learnings wait for review in Reflect". */
+export function learningsWaitWords(n: number): string {
+  return `${n === 1 ? 'learning waits' : 'learnings wait'} for review in Reflect`;
+}
+
 /** The footnote on what was left out, or nothing. */
 export function excludedWords(e: ReflectReport['excluded']): string | undefined {
   const parts = [e.health && `${n(e.health, 'health-related session', 'health-related sessions')} (found by topic)`, e.incognito && n(e.incognito, 'incognito chat', 'incognito chats')].filter(Boolean) as string[];

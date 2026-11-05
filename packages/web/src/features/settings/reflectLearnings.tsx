@@ -15,6 +15,7 @@ import { LoadingRows } from '@/components/ui/EmptyState';
 import { TextAction } from '@/components/ui/Section';
 import { toast } from '@/store/store';
 import { agoWords, errText, Group } from './parts';
+import { learningsWaitWords } from './reflectWords';
 
 const KIND_WORDS = { correction: 'Correction', preference: 'Preference', remember: 'Remember', positive: 'Worked well' } as const;
 
@@ -156,8 +157,8 @@ function Item({ it, busy, onSave, onSkip }: { it: LearningView; busy?: string; o
   );
 }
 
-/** Home's small line when learnings wait: a link to Reflect. */
-export function LearningsBadge() {
+/** How many learnings wait for review, for Home's line; 0 while loading or on error. */
+export function useLearningsWaiting(): number {
   const [n, setN] = useState(0);
   useEffect(() => {
     api()
@@ -165,11 +166,17 @@ export function LearningsBadge() {
       .then((r) => setN(r.pending))
       .catch(() => undefined);
   }, []);
+  return n;
+}
+
+/** Home's small line when learnings wait: a link to Reflect. */
+export function LearningsBadge() {
+  const n = useLearningsWaiting();
   if (!n) return null;
   return (
     <Link href="/settings/reflect" className="inline-flex items-center gap-2 text-[13px] text-fg-2 hover:text-fg">
       <span className="num text-[13px] font-[550] text-warn">{n}</span>
-      {n === 1 ? 'learning waits' : 'learnings wait'} for review in Reflect
+      {learningsWaitWords(n)}
     </Link>
   );
 }

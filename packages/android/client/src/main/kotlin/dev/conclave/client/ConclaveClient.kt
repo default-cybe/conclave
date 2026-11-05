@@ -47,6 +47,8 @@ import dev.conclave.client.model.ReflectInfo
 import dev.conclave.client.model.ReflectNow
 import dev.conclave.client.model.ReflectPatch
 import dev.conclave.client.model.ReflectReport
+import dev.conclave.client.model.LearningSave
+import dev.conclave.client.model.LearningsInfo
 import dev.conclave.client.model.SwitchEstimate
 import dev.conclave.client.model.TailscaleInfo
 import dev.conclave.client.model.CloudflareZones
@@ -702,6 +704,14 @@ class ConclaveClient(
     /** Refresh: makes the report again, with one call on your small model. */
     suspend fun reflectRefresh(range: String): ReflectReport =
         call("POST", p("api", "reflect", "report", "refresh"), mapOf("range" to range), null, ReflectReport.serializer())!!
+
+    /** Reflect's Learnings: your own queue. Only Save writes. */
+    suspend fun learnings(): LearningsInfo = get(p("api", "reflect", "learnings"), LearningsInfo.serializer())
+
+    suspend fun saveLearning(id: String, save: LearningSave): LearningsInfo =
+        send("POST", p("api", "reflect", "learnings", id, "save"), LearningSave.serializer(), save, LearningsInfo.serializer())
+
+    suspend fun skipLearning(id: String): LearningsInfo = sendJson("POST", p("api", "reflect", "learnings", id, "skip"), null, LearningsInfo.serializer())
 
     // ---------------------------------------------------------------- usage
 

@@ -146,6 +146,21 @@ object ReflectWords {
         )
     }
 
+    // ----- Learnings, as the web's reflectLearnings.tsx
+
+    private val KINDS = mapOf("correction" to "Correction", "preference" to "Preference", "remember" to "Remember", "positive" to "Worked well")
+
+    /** "Correction · said 2 times · 90% sure · Canvas grading" */
+    fun learningMeta(l: dev.conclave.client.model.Learning): String = listOfNotNull(
+        KINDS[l.kind] ?: l.kind,
+        if (l.count > 1) "said ${l.count} times" else null,
+        "${Math.round(l.confidence * 100)}% sure",
+        l.sessionTitle ?: "the chat",
+    ).joinToString(" \u00b7 ")
+
+    fun learningsEmpty(queued: Int): String =
+        "Nothing waits." + if (queued > 0) " ${n(queued, "message waits", "messages wait")} for the next check." else " When you correct the assistant or say what you prefer, it shows up here."
+
     /** The footnote on what was left out, or null. */
     fun excluded(e: ReflectExcluded): String? {
         val parts = listOfNotNull(

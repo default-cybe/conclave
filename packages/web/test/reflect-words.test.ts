@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { groupSections, searchSections, SETTINGS_GROUPS } from '../src/features/settings/nav';
-import { bigNumbers, dayWords, excludedWords, fallbackWords, heatLevel, lastRunWords, lateLine, madeWords, modelChoice, reportRange, REFLECT_LINE, rhythmWords, TIME, timeWords } from '../src/features/settings/reflectWords';
+import { bigNumbers, dayWords, excludedWords, fallbackWords, heatLevel, lastRunWords, lateLine, learningsWaitWords, madeWords, modelChoice, reportRange, REFLECT_LINE, rhythmWords, TIME, timeWords } from '../src/features/settings/reflectWords';
 
 const at = (h: number, m: number) => {
   const d = new Date();
@@ -77,6 +77,11 @@ describe('Settings > Reflect', () => {
     expect(stats).toBe('4 active days, longest streak 1 day, busiest Tue 3 Nov with 40 messages.');
     expect(`${stats} ${lateLine(rhythm.lateNightShare, rhythm.messages)}`.match(/27%/g)).toHaveLength(1);
     expect(rhythmWords({ ...rhythm, lateNightShare: 0.1 })).toContain('10% late at night.');
+  });
+
+  test('Home says when learnings wait, on the phone as on desktop', () => {
+    expect(`1 ${learningsWaitWords(1)}`).toBe('1 learning waits for review in Reflect');
+    expect(`3 ${learningsWaitWords(3)}`).toBe('3 learnings wait for review in Reflect');
   });
 
   test('fallbacks and models read with the model picker names, not raw ids', () => {

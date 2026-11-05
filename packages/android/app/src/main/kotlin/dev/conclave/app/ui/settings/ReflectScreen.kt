@@ -21,7 +21,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -56,6 +58,9 @@ import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
 import dev.conclave.client.logic.Format
 import dev.conclave.client.logic.ReflectWords
+import dev.conclave.client.model.Learning
+import dev.conclave.client.model.LearningSave
+import dev.conclave.client.model.LearningsInfo
 import dev.conclave.client.model.MemoryEntry
 import dev.conclave.client.model.ReflectInfo
 import dev.conclave.client.model.ReflectPatch
@@ -80,6 +85,9 @@ class ReflectViewModel(hub: HubRepository) : HubViewModel(hub) {
     val reports = MutableStateFlow<Map<String, ReflectReport>>(emptyMap())
     val reportError = MutableStateFlow<String?>(null)
     val remaking = MutableStateFlow(false)
+    val learnings = MutableStateFlow<LearningsInfo?>(null)
+    /** The learning a Save or Skip is going for. */
+    val learningBusy = MutableStateFlow<String?>(null)
 
     init {
         refresh()
@@ -97,6 +105,27 @@ class ReflectViewModel(hub: HubRepository) : HubViewModel(hub) {
             }
         }
         loadReport()
+        viewModelScope.launch {
+            try {
+                learnings.value = hub.api { it.learnings() }
+            } catch (e: Exception) {
+                say(errorText(e))
+            }
+        }
+    }
+
+    /** Save to memory, with the edited text when there is one. */
+    fun saveLearning(l: Learning, text: String?) = learningCall(l, "Saved.") { hub.api { it.saveLearning(l.id, LearningSave(text = text)) } }
+
+    fun skipLearning(l: Learning) = learningCall(l, null) { hub.api { it.skipLearning(l.id) } }
+
+    private fun learningCall(l: Learning, done: String?, block: suspend () -> LearningsInfo) = action(done) {
+        learningBusy.value = l.id
+        try {
+            learnings.value = block()
+        } finally {
+            learningBusy.value = null
+        }
     }
 
     fun setRange(r: String) {
@@ -176,6 +205,7 @@ fun ReflectScreen(onBack: () -> Unit) {
         PullToRefreshBox(isRefreshing = refreshing, onRefresh = { vm.refresh() }, modifier = Modifier.padding(padding).fillMaxSize()) {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
                 ReportSection(vm)
+                LearningsSection(vm)
                 SectionHeader("Nightly reflection", Modifier.padding(top = 12.dp))
                 Text(ReflectWords.LINE, style = ConclaveType.meta, color = c.fg3, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
                 val r = info ?: return@Column
@@ -377,4 +407,42 @@ private fun ReportSection(vm: ReflectViewModel) {
     }
 
     ReflectWords.excluded(r.excluded)?.let { Text(it, style = ConclaveType.meta, color = c.fg3, modifier = pad.padding(top = 16.dp)) }
+}
+
+/** Learnings, as on the web: each with Save (to memory), Edit and Skip. Agent, project and skill files are saved on the web. */
+@Composable
+private fun LearningsSection(vm: ReflectViewModel) {
+    val d by vm.learnings.collectAsStateWithLifecycle()
+    val busy by vm.learningBusy.collectAsStateWithLifecycle()
+    val c = Conclave.colors
+    val l = d ?: return
+    SectionHeader(if (l.pending > 0) "Learnings ${l.pending}" else "Learnings")
+    if (l.items.isEmpty()) {
+        Text(ReflectWords.learningsEmpty(l.queued), style = ConclaveType.body, color = c.fg3, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+        return
+    }
+    l.items.forEach { item -> LearningRow(item, busy == item.id, onSave = { text -> vm.saveLearning(item, text) }, onSkip = { vm.skipLearning(item) }) }
+}
+
+@Composable
+private fun LearningRow(l: Learning, busy: Boolean, onSave: (String?) -> Unit, onSkip: () -> Unit) {
+    val c = Conclave.colors
+    var edit by remember(l.id) { mutableStateOf<String?>(null) }
+    val refused = l.targets.firstOrNull { it.target == "memory" }?.refused
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+        Text(ReflectWords.learningMeta(l), style = ConclaveType.meta, color = c.fg3)
+        Text("\u201c${l.quote}\u201d", style = ConclaveType.meta, color = c.fg2, modifier = Modifier.padding(top = 4.dp))
+        val e = edit
+        if (e != null) {
+            OutlinedTextField(value = e, onValueChange = { edit = it }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+        } else {
+            Text(l.fact, style = ConclaveType.body, color = c.fg, modifier = Modifier.padding(top = 6.dp))
+        }
+        refused?.let { Text(it, style = ConclaveType.meta, color = c.fg3, modifier = Modifier.padding(top = 4.dp)) }
+        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(onClick = { onSave(e?.trim()) }, enabled = !busy && refused == null && (e == null || e.isNotBlank())) { Text(if (busy) "Saving" else "Save") }
+            TextButton(onClick = { edit = if (e == null) l.fact else null }) { Text(if (e == null) "Edit" else "Cancel edit", color = c.fg2) }
+            TextButton(onClick = onSkip, enabled = !busy) { Text("Skip", color = c.fg2) }
+        }
+    }
 }
