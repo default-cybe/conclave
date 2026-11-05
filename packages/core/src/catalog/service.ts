@@ -18,6 +18,7 @@ import { HOOK_RECIPES, type HookRecipe, type RecipeCategory } from '../extension
 import { ROUTINE_SUGGESTIONS, type RoutineSuggestion } from '../scheduler/suggestions';
 import { CATALOG_FEEDS, KNOWN_MARKETPLACES, RECOMMENDED, type CatalogCategory, type CatalogItem, type CatalogKind } from './recommended';
 import { CatalogStore } from './store';
+import { logger } from '../util/log';
 import { CatalogHttp, OfflineError, type FetchFn } from './http';
 import { GithubClient, ghRepoToItem, kindFromRepo, type GithubRateState } from './github';
 import { McpRegistry, registryToItem } from './registry';
@@ -40,6 +41,7 @@ import type {
   InstallPreview,
 } from './types';
 
+const log = logger('catalog');
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 /** "Install on the hub": the whole run, every command in it. */
@@ -315,9 +317,24 @@ export class CatalogService {
     };
   }
 
+  /** Installed by name; a check that throws (a malformed config) shows the item as not installed instead of failing the whole list. */
+  private matchSafe(item: CatalogItem): ReturnType<CatalogInstaller['matchByName']> {
+    try {
+      return this.installer.matchByName(item);
+    } catch (err) {
+      const why = (err as Error).message;
+      if (!this.matchWarned.has(why)) {
+        this.matchWarned.add(why);
+        log.warn(`installed check failed for ${item.id}, shown as not installed: ${why}`);
+      }
+      return undefined;
+    }
+  }
+  private matchWarned = new Set<string>();
+
   dto(item: CatalogItem): CatalogItemDto {
     const row = this.store.getInstall(item.id);
-    const installed = row ? this.installer.refFromRow(row) : this.installer.matchByName(item);
+    const installed = row ? this.installer.refFromRow(row) : this.matchSafe(item);
     const missing = (item.needs ?? []).filter((n) => n.where === 'hub' && this.binCache.get(n.bin)?.ok === false);
     const live = item as CatalogItem & { starsLive?: boolean };
     const hubSetup = missing.length ? this.offerFor(item, { missing: true }) : undefined;

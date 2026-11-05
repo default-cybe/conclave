@@ -128,6 +128,35 @@ describe('catalog list', () => {
     const installedOnly = await svc.list({ installed: true });
     expect(installedOnly.items.map((i) => i.id)).toEqual(['mcp:basic-memory']);
   });
+
+  test('a hook event mapped to {} or a string does not take the catalog down; real recipes still show installed', async () => {
+    const { svc, host } = service(liveFetch({ down: true }));
+    const cmd = (id: string) => ({ type: 'command' as const, command: `/x/hooks/recipes/${id}.sh` });
+    host.state.hooks = {
+      // a path-style write leaves an object keyed by position; a string is plain junk
+      PreToolUse: { 6: { hooks: { 0: { command: '/x/hooks/recipes/secrets-firewall.sh' } } } },
+      Notification: 'oops',
+      SessionEnd: {},
+      Stop: [null, { hooks: 'nope' }, { hooks: [null, 'x', cmd('git-checkpoint')] }],
+    } as never;
+    const page = await svc.list({ kind: 'hook', limit: 200 });
+    expect(page.items.find((i) => i.id === 'hook:git-checkpoint')?.installed).toMatchObject({ matchedBy: 'name' });
+    expect(page.items.find((i) => i.id === 'hook:secrets-firewall')?.installed).toBeUndefined();
+  });
+
+  test('an installed check that throws shows that item as not installed, and the rest of the page loads', async () => {
+    const { svc, host } = service(liveFetch({ down: true }));
+    host.state.mcp.set('basic-memory', { command: 'uvx', args: ['basic-memory', 'mcp'] });
+    const hooks = host.hooks;
+    host.hooks = () => {
+      throw new TypeError('{} is not iterable');
+    };
+    const page = await svc.list({ limit: 200 });
+    expect(page.items.length).toBeGreaterThan(10);
+    expect(page.items.filter((i) => i.kind === 'hook').every((i) => !i.installed)).toBe(true);
+    expect(page.items.find((i) => i.id === 'mcp:basic-memory')?.installed).toMatchObject({ ref: 'basic-memory' });
+    host.hooks = hooks;
+  });
 });
 
 describe('catalog search', () => {

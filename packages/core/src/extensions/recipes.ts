@@ -23,6 +23,7 @@ import { GEMINI_TOOLS } from './compat';
 import { Hooks } from './hooks';
 import { HOOK_RECIPES, RECIPE_FIXTURE, RECIPE_FIXTURE_TRANSCRIPT, RECIPE_STUB_SEARCH, type HookRecipe, type RecipeHandler, type RecipeTest } from './hook-recipes';
 import type { HookInput, HookOutcome, RuntimeHookCommand } from './types';
+import { isEmptyEvent } from './hook-shape';
 
 export class RecipeError extends Error {
   constructor(
@@ -153,7 +154,12 @@ export function recipeHooks(r: HookRecipe, scriptPath: string, env: Record<strin
 
 function mergeInto(base: HooksConfig, add: HooksConfig): HooksConfig {
   const next = structuredClone(base);
-  for (const [ev, list] of Object.entries(add) as Array<[HookEvent, HookMatcher[]]>) next[ev] = [...(next[ev] ?? []), ...(list ?? [])];
+  for (const [ev, list] of Object.entries(add) as Array<[HookEvent, HookMatcher[]]>) {
+    const have: unknown = next[ev];
+    // a malformed entry is the owner's to repair (Hooks page); writing over it would lose it
+    if (!Array.isArray(have) && !isEmptyEvent(have)) throw new RecipeError(409, `${ev} in the hooks file is not a list. Repair it on the Hooks page first.`);
+    next[ev] = [...(Array.isArray(have) ? (have as HookMatcher[]) : []), ...(list ?? [])];
+  }
   return next;
 }
 
@@ -539,7 +545,10 @@ export class HookRecipes {
     if (cli === 'gemini') {
       const base = geminiWithout(prev, r.id).hooks;
       const g = toGemini(add);
-      for (const [ev, list] of Object.entries(g)) base[ev] = [...((base[ev] as unknown[]) ?? []), ...list];
+      for (const [ev, list] of Object.entries(g)) {
+        if (!Array.isArray(base[ev]) && !isEmptyEvent(base[ev])) throw new RecipeError(409, `${ev} in ${CLI_FILES[cli]} on ${m.name} is not a list. Fix it first; Conclave will not overwrite it.`);
+        base[ev] = [...(Array.isArray(base[ev]) ? (base[ev] as unknown[]) : []), ...list];
+      }
       data.hooks = base;
     } else {
       data.hooks = mergeInto(withoutRecipe(prev as HooksConfig, r.id).hooks, add);
