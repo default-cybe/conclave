@@ -557,3 +557,13 @@ export async function readPicked(current: Array<{ size: number }>, picked: File[
   }
   return out;
 }
+
+/**
+ * readPicked for the box of chat `id`. A read can outlast a chat switch (a
+ * big file, a paste the desktop app reads): when `shown` moved on meanwhile,
+ * nothing comes back, so the file never lands in another chat's draft.
+ */
+export async function readPickedFor(id: string, shown: { current: string }, current: Array<{ size: number }>, picked: File[], maxBytes: number): ReturnType<typeof readPicked> {
+  const out = await readPicked(current, picked, maxBytes);
+  return shown.current === id ? out : [];
+}

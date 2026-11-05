@@ -46,7 +46,7 @@ import { AgentPicker, DEFAULT_DEBATE, DEFAULT_JURY, DEFAULT_LOOP, DebatersPicker
 import { moveSessionTo } from './FolderChooser';
 import { MODES } from './modes';
 import { ULTRA_LINE, UltraSwitch } from '../workflows/UltraSwitch';
-import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPicked, StatusLine, useAgentFollow, type StripFile } from '@/features/conversation/ComposerParts';
+import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPickedFor, StatusLine, useAgentFollow, type StripFile } from '@/features/conversation/ComposerParts';
 import { DeviceChip, FolderChip, deviceItems, useComputers } from '@/features/home/Where';
 import { useThisComputer } from '@/features/home/here';
 import { CODE_AGENT, customAgent, modeOf } from '@/features/home/start';
@@ -79,6 +79,9 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   // what is attached now, for a pick that lands while another is still being read
   const filesNow = useRef(files);
   filesNow.current = files;
+  // the session the box shows now, so a slow read never attaches to the next one
+  const shownId = useRef(session.id);
+  shownId.current = session.id;
   const [sel, setSel] = useState(0);
   const [drag, setDrag] = useState(false);
   const [sending, setSending] = useState<false | 'send' | 'queue' | 'steer'>(false);
@@ -390,7 +393,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
 
   // 15 at most: the rest is refused with "Up to 15 files per message. Zip the rest."
   const addFiles = async (list: FileList | File[]) => {
-    const out = await readPicked(filesNow.current, Array.from(list), MAX_BYTES);
+    const out = await readPickedFor(session.id, shownId, filesNow.current, Array.from(list), MAX_BYTES);
     if (out.length) setFiles((x) => [...x, ...out].slice(0, MAX_ATTACHMENTS));
   };
 
