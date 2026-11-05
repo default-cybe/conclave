@@ -42,7 +42,7 @@ import { Textarea } from '@/components/ui/Field';
 import { isTyping } from '@/components/Shell';
 import { MessageList } from '@/features/chat/MessageList';
 import { ArgsForm, argsFromValues, type ArgValues } from '../workflows/args-form';
-import { agentMessage, agentSessionOf, dropQueued, folderOf, programStates, queueRun, queuedRuns, rememberAgentSession, takeQueued, type QueuedRun } from './run';
+import { agentMessage, agentSessionOf, dropQueued, folderOf, programStates, queueRun, queuedRuns, rememberAgentSession, startGuard, takeQueued, workflowLive, type QueuedRun } from './run';
 import { Tabs } from '@/components/ui/Tags';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { PhoneBar } from '@/components/PhoneFrame';
@@ -160,7 +160,7 @@ function ProgramFile({ name }: { name: string }) {
   const graph = view?.graph;
   const title = `${name}.flow.ts`;
   const fileKey = `${device}:${cwd}:${name}`;
-  const start = () => void attempt(() => api().runFlow(sid!, name)).then((r) => r && setRun(r));
+  const start = () => attempt(() => api().runFlow(sid!, name)).then((r) => r && setRun(r));
   const runner = useRunner(`program:${fileKey}`, flowLive(run), start);
   const saveLayout = async (next: Positions) => {
     setPositions(next);
@@ -269,7 +269,7 @@ function ProgramFile({ name }: { name: string }) {
       library={blocks.map((b) => ({ kind: b.block, word: b.title, help: b.help, group: b.family }))}
       inspector={(node) => <FlowInspector node={node} nodes={view.graph.nodes} spec={node.block ? bySpec.get(node.block) : undefined} live={run?.nodes[node.id]} onOp={(op, label) => ops(label, [op])} />}
       // a program has no resume: Re-run runs the whole file
-      failedOf={(node) => (run?.nodes[node.id]?.ok === false ? { error: run.nodes[node.id].error ?? run.error ?? 'failed', rerun: { label: 'Re-run', go: start } } : undefined)}
+      failedOf={(node) => (run?.nodes[node.id]?.ok === false ? { error: run.nodes[node.id].error ?? run.error ?? 'failed', rerun: { label: 'Re-run', go: runner.onRun } } : undefined)}
       runner={{ ...runner, onStop: flowLive(run) ? () => void attempt(() => api().stopFlow(sid!, name)).then((r) => r && setRun(r)) : undefined }}
       agent={{ file: `flows/${title}`, device, cwd, sessionId: sid, error: run?.status === 'failed' ? run.error : undefined, onTurnEnd: () => void api().flowGraph(sid!, name).then(take).catch(() => {}) }}
       output={run?.output || run?.error || ''}
@@ -315,9 +315,12 @@ function WorkflowFile({ id }: { id: string }) {
       alive = false;
     };
   }, [id]);
-  const { data } = useRunDetail(lastRun);
-  const live = !!data && isLive(data.run.status);
-  const go = (args?: Record<string, unknown>) => void attempt(() => api().startWorkflow({ name: id, ...(args ? { args } : {}) })).then((r) => r && setLastRun(r.id));
+  const { data, error: runError } = useRunDetail(lastRun);
+  const [started, setStarted] = useState<string>();
+  const current = data?.run.id === lastRun ? data : undefined;
+  const live = workflowLive(started, lastRun, data, !!runError);
+  const began = (r: { id: string } | undefined) => r && (setStarted(r.id), setLastRun(r.id));
+  const go = (args?: Record<string, unknown>) => attempt(() => api().startWorkflow({ name: id, ...(args ? { args } : {}) })).then(began);
   const declares = !!schema && Object.keys(schema).length > 0;
   const queueKey = `workflow:${id}`;
   const runner = useRunner(queueKey, live, (q) => go(q?.args));
@@ -325,7 +328,7 @@ function WorkflowFile({ id }: { id: string }) {
     ...runner,
     // the args form first when the workflow declares args; Queue run keeps them with the queued run
     onRun: () => (declares ? setAsking(live ? 'queue' : 'now') : runner.onRun()),
-    onStop: live ? () => void attempt(() => api().stopWorkflow(data!.run.id)) : undefined,
+    onStop: current && isLive(current.run.status) ? () => void attempt(() => api().stopWorkflow(current.run.id)) : undefined,
   };
   const argsDialog = schema && asking && (
     <RunArgs
@@ -335,11 +338,11 @@ function WorkflowFile({ id }: { id: string }) {
       onRun={(args) => {
         setAsking(undefined);
         if (asking === 'queue') runner.setQueue(queueRun(queueKey, args));
-        else go(args);
+        else runner.begin(() => go(args));
       }}
     />
   );
-  const rerun = (seqs: number[]) => data && void attempt(() => api().rerunWorkflow(data.run.id, { seqs })).then((r) => r && setLastRun(r.id));
+  const rerun = (seqs: number[]) => current && runner.begin(() => attempt(() => api().rerunWorkflow(current.run.id, { seqs })).then(began));
   const agent = view?.editable ? { file: path ?? id, cwd: folderOf(path), error: data?.run.status === 'failed' ? (data.run.error ?? data.calls.find((c) => c.state === 'failed')?.error) : undefined, onTurnEnd: () => void api().workflowGraph(id).then(take).catch(() => {}) } : undefined;
   const [positions, setPositions] = useState<Positions>({});
   const take = useCallback((v: WorkflowGraphView) => setView((old) => ({ ...v, layout: v.layout ?? old?.layout })), []);
@@ -520,6 +523,8 @@ interface ShellRun {
   queue: QueuedRun[];
   setQueue: (q: QueuedRun[]) => void;
   onCancel: (id: string) => void;
+  /** Start something that makes a run (Run, Re-run); a second call while one is on its way does nothing. */
+  begin: (fn: () => Promise<unknown>) => void;
 }
 
 /** Where Ask the agent works: the file, its folder, the session it continues, the last error. */
@@ -537,8 +542,13 @@ interface ShellAgent {
  * next queued run starts when the live one ends.
  * shortcut: the queue lives in this browser and moves only while the file is open in Canvas; a hub-side queue would run it with the tab closed.
  */
-function useRunner(key: string, live: boolean, start: (q?: QueuedRun) => void): ShellRun {
+function useRunner(key: string, live: boolean, start: (q?: QueuedRun) => Promise<unknown>): ShellRun {
   const [queue, setQueue] = useState(() => queuedRuns(key));
+  const [guard] = useState(startGuard);
+  const [starting, setStarting] = useState(false);
+  const begin = (fn: () => Promise<unknown>) => void (guard.run(fn, () => setStarting(false)) && setStarting(true));
+  const beginNow = useRef(begin);
+  beginNow.current = begin;
   const was = useRef(live);
   const startNow = useRef(start);
   startNow.current = start;
@@ -547,12 +557,12 @@ function useRunner(key: string, live: boolean, start: (q?: QueuedRun) => void): 
       const next = takeQueued(key);
       if (next) {
         setQueue(queuedRuns(key));
-        startNow.current(next);
+        beginNow.current(() => startNow.current(next));
       }
     }
     was.current = live;
   }, [live, key]);
-  return { live, queue, setQueue, onRun: () => (live ? setQueue(queueRun(key)) : start()), onCancel: (id) => setQueue(dropQueued(key, id)) };
+  return { live: live || starting, queue, setQueue, begin, onRun: () => (guard.busy() ? undefined : live ? setQueue(queueRun(key)) : begin(() => start())), onCancel: (id) => setQueue(dropQueued(key, id)) };
 }
 
 interface ShellProps {
@@ -777,7 +787,7 @@ function Shell(p: ShellProps) {
           </div>
         </div>
         {/* its own column: the inspector never covers the canvas */}
-        <aside aria-label={side === 'agent' ? 'Agent' : 'Inspector'} className="cv-inspector flex w-[320px] shrink-0 flex-col border-l border-rule">
+        <aside aria-label={side === 'agent' ? 'Agent' : 'Inspector'} className={cn('cv-inspector flex shrink-0 flex-col border-l border-rule', side === 'agent' && agentPanel ? 'w-[420px]' : 'w-[320px]')}>
           {p.agent && (
             <div className="flex h-10 shrink-0 items-center border-b border-rule px-3">
               <Tabs<'inspector' | 'agent'> value={side} onChange={setSide} label="Right column" options={[{ value: 'inspector', label: 'Inspector' }, { value: 'agent', label: 'Agent' }]} />

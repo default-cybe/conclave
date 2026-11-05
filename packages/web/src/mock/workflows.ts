@@ -669,9 +669,18 @@ export function registerWorkflows(ctx: MockCtx): void {
     return structuredClone(f);
   });
   // graphs: parsed from the same scripts a hub would parse
+  // each script version by a sha of its text, so undo and redo (graph/restore) put one back as the hub does
+  const versions = new Map<string, string>();
+  const shaOf = (script: string) => {
+    let h = 0;
+    for (let i = 0; i < script.length; i++) h = (Math.imul(h, 31) + script.charCodeAt(i)) | 0;
+    const sha = `mock${(h >>> 0).toString(16)}`;
+    versions.set(sha, script);
+    return sha;
+  };
   const graphView = (id: string, editable: boolean): WorkflowGraphView => {
     const script = GRAPH_SCRIPTS[id] ?? GRAPH_SCRIPTS['deep-research'];
-    return { graph: parseGraph(script), sha: 'mock', source: editable ? 'user' : 'builtin', editable, ...(editable ? {} : { readOnly: 'This workflow ships with Conclave. Copy it to your workflows to edit it.' }) };
+    return { graph: parseGraph(script), sha: shaOf(script), source: editable ? 'user' : 'builtin', editable, ...(editable ? {} : { readOnly: 'This workflow ships with Conclave. Copy it to your workflows to edit it.' }) };
   };
   ctx.on('GET', '/api/workflows/runs/:id/graph', ({ params }) => ({ ...graphView(find(params[0]).run.name, false), readOnly: 'A run keeps the script it ran. Edit the workflow, then Re-run.', workflowId: find(params[0]).run.name }));
   // the layout side file, kept in memory for the session
@@ -691,7 +700,8 @@ export function registerWorkflows(ctx: MockCtx): void {
     try {
       const r = insertNode(before, { kind: body?.kind as InsertKind, ...(body?.after ? { after: String(body.after) } : {}) });
       GRAPH_SCRIPTS[e.id] = r.script;
-      return { sha: 'mock', diff: lineDiff(before, r.script), view: graphView(e.id, true), nodeId: r.nodeId };
+      const view = graphView(e.id, true);
+      return { sha: view.sha, diff: lineDiff(before, r.script), view, nodeId: r.nodeId };
     } catch (err) {
       return ctx.fail(400, (err as Error).message);
     }
@@ -702,11 +712,25 @@ export function registerWorkflows(ctx: MockCtx): void {
     if (e.source !== 'user') return ctx.fail(403, 'This workflow ships with Conclave. Copy it to your workflows to edit it.');
     const before = GRAPH_SCRIPTS[e.id] ?? GRAPH_SCRIPTS['deep-research'];
     try {
+      if (body?.baseSha !== shaOf(before)) return ctx.fail(409, 'script changed: the file changed since the graph was read; reload it');
       GRAPH_SCRIPTS[e.id] = removeNode(before, String(body?.nodeId));
-      return { sha: 'mock', diff: lineDiff(before, GRAPH_SCRIPTS[e.id]), view: graphView(e.id, true) };
+      const view = graphView(e.id, true);
+      return { sha: view.sha, diff: lineDiff(before, GRAPH_SCRIPTS[e.id]), view };
     } catch (err) {
       return ctx.fail(400, (err as Error).message);
     }
+  });
+  ctx.on('POST', '/api/workflows/:id/graph/restore', ({ params, body }) => {
+    const e = LIBRARY.find((x) => x.id === decodeURIComponent(params[0]));
+    if (!e) return ctx.notFound();
+    if (e.source !== 'user') return ctx.fail(403, 'This workflow ships with Conclave. Copy it to your workflows to edit it.');
+    const before = GRAPH_SCRIPTS[e.id] ?? GRAPH_SCRIPTS['deep-research'];
+    if (body?.baseSha !== shaOf(before)) return ctx.fail(409, 'script changed: the file changed since the graph was read; reload it');
+    const next = versions.get(String(body?.sha));
+    if (next === undefined) return ctx.fail(400, 'that version is not one the canvas wrote');
+    GRAPH_SCRIPTS[e.id] = next;
+    const view = graphView(e.id, true);
+    return { sha: view.sha, diff: lineDiff(before, next), view };
   });
   ctx.on('PUT', '/api/workflows/:id/graph/layout', ({ params, body }) => {
     const e = LIBRARY.find((x) => x.id === decodeURIComponent(params[0]));

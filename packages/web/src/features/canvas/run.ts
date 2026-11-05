@@ -6,7 +6,9 @@
  * "Ask the agent" continues for a file, and the context its message carries.
  * No React here, so tests import it.
  */
+import type { WorkflowRunStatus } from '@conclave/core/client';
 import { accountKey } from '@/lib/api';
+import { isLive } from '../workflows/words';
 
 export interface QueuedRun {
   id: string;
@@ -71,6 +73,36 @@ export function takeQueued(file: string): QueuedRun | undefined {
   const [next, ...rest] = queuedRuns(file);
   if (next) setQueue(file, rest);
   return next;
+}
+
+/**
+ * Run's guard: while one start is on its way a second is dropped, so a
+ * double-click (both clicks arrive before React renders again) starts one run.
+ */
+export function startGuard() {
+  let busy = false;
+  return {
+    busy: () => busy,
+    run(fn: () => Promise<unknown>, done?: () => void): boolean {
+      if (busy) return false;
+      busy = true;
+      void fn().finally(() => {
+        busy = false;
+        done?.();
+      });
+      return true;
+    },
+  };
+}
+
+/**
+ * Whether a workflow's run goes on: the one this page started counts as live
+ * until its detail loads (the detail keeps the old run until then), so Run
+ * offers Queue run, not a second start.
+ */
+export function workflowLive(started: string | undefined, lastRun: string | undefined, data: { run: { id: string; status: WorkflowRunStatus } } | undefined, failed?: boolean): boolean {
+  if (started && started !== data?.run.id && !failed) return true;
+  return !!data && data.run.id === lastRun && isLive(data.run.status);
 }
 
 /**

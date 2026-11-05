@@ -13,7 +13,7 @@ import { parseGraph } from '@conclave/core/workflows/graph';
 
 const store = new Map<string, string>();
 (globalThis as { localStorage?: unknown }).localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
-const { agentMessage, agentSessionOf, dropQueued, folderOf, programStates, queueRun, queuedRuns, rememberAgentSession, takeQueued } = await import('../src/features/canvas/run');
+const { agentMessage, agentSessionOf, dropQueued, folderOf, programStates, queueRun, queuedRuns, rememberAgentSession, startGuard, takeQueued, workflowLive } = await import('../src/features/canvas/run');
 
 describe('the queue', () => {
   test('Queue run adds after the rest, kept in storage; cancel drops one; take starts the oldest', () => {
@@ -34,6 +34,34 @@ describe('the queue', () => {
     store.clear();
     store.set([...store.keys()][0] ?? 'x', 'nope');
     expect(queuedRuns('anything')).toEqual([]);
+  });
+});
+
+describe('Run starts one run', () => {
+  test('a double-click starts once; the next click after the start lands starts again', async () => {
+    const g = startGuard();
+    let starts = 0;
+    let finish = () => {};
+    const start = () => (starts++, new Promise<void>((r) => (finish = r)));
+    expect(g.run(start)).toBe(true);
+    expect(g.run(start)).toBe(false);
+    expect(starts).toBe(1);
+    finish();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(g.busy()).toBe(false);
+    expect(g.run(start)).toBe(true);
+    expect(starts).toBe(2);
+  });
+  test('a run just started is live while the detail still shows the old run, or none yet', () => {
+    const old = { run: { id: 'wfr_old', status: 'done' as const } };
+    expect(workflowLive(undefined, 'wfr_old', old)).toBe(false);
+    expect(workflowLive('wfr_new', 'wfr_new', old)).toBe(true);
+    expect(workflowLive('wfr_new', 'wfr_new', undefined)).toBe(true);
+    expect(workflowLive('wfr_new', 'wfr_new', { run: { id: 'wfr_new', status: 'running' } })).toBe(true);
+    expect(workflowLive('wfr_new', 'wfr_new', { run: { id: 'wfr_new', status: 'done' } })).toBe(false);
+    // its detail failed to load: Run again, not a queue that never moves
+    expect(workflowLive('wfr_new', 'wfr_new', old, true)).toBe(false);
   });
 });
 
