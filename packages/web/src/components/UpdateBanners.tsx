@@ -245,7 +245,7 @@ export function UpdatePopupBody({
     return (
       <div className="space-y-4">
         {live ? <LiveStatus state="tool" label={jobWords(job)} /> : <p className="m-0 text-[14px] leading-[1.5] text-fg">{jobWords(job)}</p>}
-        <p className="m-0 text-[13px] leading-[1.5] text-fg-3">{live ? 'The hub restarts on the new version. This page reloads when it is back.' : 'Settings, About has the details.'}</p>
+        <p className="m-0 text-[13px] leading-[1.5] text-fg-3">{live ? 'The hub restarts on the new version. This page reconnects by itself and offers Reload.' : 'Settings, About has the details.'}</p>
         <div className="flex justify-end">
           <Button variant={live ? 'quiet' : 'solid'} size={size} onClick={onClose}>
             {live ? 'Hide' : 'Close'}

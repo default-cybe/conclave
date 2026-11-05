@@ -421,10 +421,10 @@ fn focus(win: &WebviewWindow) {
 fn show_main(app: &AppHandle) {
     match main_window(app, true) {
         Ok(win) => {
-            // a page parked while hidden comes back where it was (its draft is in IndexedDB)
+            // a page parked while hidden comes back where it was, inside the page: no load
             let parked = state(app).parked.lock().unwrap().take();
             if let Some(url) = parked.filter(|u| hub_base(app).is_some_and(|b| b.origin() == u.origin())) {
-                let _ = win.navigate(url);
+                let _ = win.eval(&in_page_navigate(&url));
             }
             focus(&win)
         }
@@ -442,6 +442,24 @@ fn should_park(base: &Url, current: &Url, hidden_for: Duration) -> bool {
     hidden_for >= PARK_AFTER && current.origin() == base.origin() && (current.path() != base.path() || current.query().is_some())
 }
 
+/// A window the owner can see counts as in use, focused or not: an update that
+/// restarted a window open beside another app looked like a random restart.
+fn on_screen(visible: bool, minimized: bool) -> bool {
+    visible && !minimized
+}
+
+/// Script that moves the hub page to `url` inside the page, as a click on a link
+/// would: the web app listens for `conclave:navigate` (App.tsx). A full load
+/// here showed as the app restarting by itself. A page from before the event
+/// ignores it and stays where it is.
+fn in_page_navigate(url: &Url) -> String {
+    let to = match url.query() {
+        Some(q) => format!("{}?{q}", url.path()),
+        None => url.path().to_string(),
+    };
+    format!("window.dispatchEvent(new CustomEvent('conclave:navigate',{{detail:{}}}))", serde_json::Value::String(to))
+}
+
 /// Once a minute: park the main window when it has been hidden PARK_AFTER.
 fn park_hidden_main(app: AppHandle) {
     std::thread::spawn(move || loop {
@@ -457,9 +475,8 @@ fn park_hidden_main(app: AppHandle) {
         if !should_park(&base, &current, since.elapsed()) {
             continue;
         }
-        let Ok(home) = hub_page(&app, "") else { continue };
         *st.parked.lock().unwrap() = Some(current);
-        let _ = win.navigate(home);
+        let _ = win.eval(&in_page_navigate(&base));
     });
 }
 
@@ -1442,12 +1459,12 @@ impl update::Host for UpdateHost {
         state(&self.0).settings.lock().unwrap().auto_update != Some(false)
     }
 
-    /// Idle: the owner is not in a window of the app, and the hub on this
+    /// Idle: no window of the app is on screen, and the hub on this
     /// computer, when the app runs one, has no session running or waiting for
     /// an approval. A hub elsewhere is not stopped by an update.
     fn idle(&self) -> bool {
         let app = &self.0;
-        let in_use = |label: &str| app.get_webview_window(label).is_some_and(|w| w.is_visible().unwrap_or(false) && w.is_focused().unwrap_or(false));
+        let in_use = |label: &str| app.get_webview_window(label).is_some_and(|w| on_screen(w.is_visible().unwrap_or(true), w.is_minimized().unwrap_or(false)));
         if in_use(MAIN) || in_use(QUICK) {
             return false;
         }
@@ -1958,6 +1975,25 @@ mod tests {
         assert!(read_capped(&dir, 1 << 20).unwrap_err().contains("is a folder"));
         assert!(dropped.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_open_window_holds_the_automatic_update_even_without_focus() {
+        assert!(on_screen(true, false));
+        assert!(!on_screen(true, true));
+        assert!(!on_screen(false, false));
+    }
+
+    #[test]
+    fn parking_moves_the_page_inside_it_and_never_loads_it_again() {
+        let home = Url::parse("https://hub.example/#token=abc").unwrap();
+        assert_eq!(in_page_navigate(&home), "window.dispatchEvent(new CustomEvent('conclave:navigate',{detail:\"/\"}))");
+        // the page keeps its path and query; the token in the fragment stays out of the script
+        let page = Url::parse("https://hub.example/s/ses_1?new=1#token=abc").unwrap();
+        assert_eq!(in_page_navigate(&page), "window.dispatchEvent(new CustomEvent('conclave:navigate',{detail:\"/s/ses_1?new=1\"}))");
+        // a quote in the query cannot end the string
+        let odd = Url::parse("https://hub.example/s/x?q=a\"b").unwrap();
+        assert!(in_page_navigate(&odd).contains(r#"detail:"/s/x?q=a%22b""#));
     }
 
     #[test]
