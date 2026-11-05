@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { activeMessages, activeStored } from '../../src/session/transcript';
 import { applyClearing } from '../../src/session/context-edit';
+import { maybeCompact } from '../../src/session/compaction';
+import { SUMMARY_HEADINGS } from '../../src/session/prompt';
 import { startTestEngine } from '../engine/harness';
 import type { ContentBlock, Message } from '../../src/types';
 
@@ -76,6 +78,51 @@ describe('activeStored', () => {
       expect(body).toContain('SUMMARY-TEXT');
       expect(body).toContain('NEW-AFTER-SUMMARY');
       expect(body).not.toContain('OLD-HIDDEN');
+    } finally {
+      await t.close();
+    }
+  }, 60_000);
+
+  test('a compaction after an earlier summary reads from that summary on, not the whole history', async () => {
+    const SUMMARIZE = 'Conversation to summarize';
+    const requests: string[] = [];
+    const shaped = `summary\n\n${SUMMARY_HEADINGS.map((h) => `## ${h}\nnone`).join('\n')}`;
+    const t = await startTestEngine({
+      models: ['claude-sonnet-5-5'],
+      modelOverrides: { 'claude-sonnet-5-5': { contextWindow: 200_000 } },
+      script: [[{ text: 'done' }]],
+      overrides: { limits: { maxRetries: 0 } } as never,
+      chore: (_body, text) => {
+        if (!text.includes(SUMMARIZE)) return undefined;
+        requests.push(text);
+        return [{ text: shaped }];
+      },
+    });
+    try {
+      const s = await t.engine.createSession({ title: 'c', cwd: t.cwd });
+      const seed = (tag: string) => {
+        for (const [role, text] of [['user', `${tag} ask`], ['assistant', tag.repeat(30_000)], ['user', `${tag} again`], ['assistant', tag.repeat(30_000)]] as const) t.engine.addMessage(s.id, { role, kind: 'normal', content: [{ type: 'text', text }] });
+      };
+      seed('a');
+      expect(await maybeCompact(t.engine, s.id, s.model, AbortSignal.timeout(3_000), 'manual')).toBe(true);
+      const covered = t.engine.repos.messages.lastSummary(s.id)!.meta!.coversThroughSeq as number;
+      seed('b');
+      const reads: number[] = [];
+      const repo = t.engine.repos.messages;
+      const orig = repo.list.bind(repo);
+      (repo as { list: typeof repo.list }).list = (id, opts = {}) => {
+        if (id === s.id) reads.push(opts.afterSeq ?? 0);
+        return orig(id, opts);
+      };
+      try {
+        expect(await maybeCompact(t.engine, s.id, s.model, AbortSignal.timeout(3_000), 'manual')).toBe(true);
+      } finally {
+        (repo as { list: typeof repo.list }).list = orig;
+      }
+      expect(reads.length).toBeGreaterThan(0);
+      expect(reads.every((r) => r >= covered)).toBe(true);
+      // update mode still merges the earlier summary
+      expect(requests[1]).toContain('<previous-summary>');
     } finally {
       await t.close();
     }
