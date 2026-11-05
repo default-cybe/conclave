@@ -382,7 +382,33 @@ Ctrl/Cmd+Shift+Z) step back and forward through your edits.
 If the file changed on disk since Canvas read it (you or an agent edited it),
 Canvas does not write over it: it reloads the file, says so, and starts Undo
 again from there. Library workflows open read only, with **Duplicate to edit**
-to make your own copy. A workflow node is removed in its script for now.
+to make your own copy. Delete removes a workflow node's statement from the
+script (`POST /api/workflows/:id/graph/remove`); it is refused while a later
+node reads a name it declares, or when it shares a line with other code.
+
+### Running in Canvas
+
+- **Run** (top bar, or Ctrl/Cmd+Enter) starts the file through the same hub
+  APIs as everywhere else: a program with `POST .../flows/:name/run`, a
+  workflow with `POST /api/workflows/runs`. A workflow that declares args
+  (`meta.args`) asks for them first, in the run sheet's form.
+- The canvas switches to the live run in place: each node shows queued,
+  running (with its elapsed time), done, failed, skipped or cached, and a
+  done node's short answer sits on its wires. Output, Logs and Queue under
+  the canvas follow the same run.
+- **Stop** aborts it. While it runs, Run becomes **Queue run**: the next run
+  waits in the Queue tab (Cancel removes it) and starts when this one ends.
+  The queue is kept in this browser and moves only while the file is open.
+- A failed node shows its error on the node and in the inspector, with
+  **Re-run from here** for a workflow (it replays the calls that do not
+  depend on that node from the journal) or **Re-run** for a program (no
+  resume: the whole file runs again), and **Ask the agent**.
+- **Agent** (a tab next to the inspector, a sheet on a phone) continues a
+  Code session in the file's folder: the program's folder session, or one
+  started for the workflow's folder and kept per file. Each message carries
+  the file, the selected node and the last run's error. When the agent's
+  turn ends, the canvas reads the file again.
+- Reopening `/canvas/...` shows the file's latest run, live if it still goes.
 
 ## API
 

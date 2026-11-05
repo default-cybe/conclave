@@ -67,8 +67,28 @@ export function registerFlows(ctx: MockCtx): void {
   ctx.on('GET', '/api/graph/nodes', () => FLOW_BLOCKS);
   ctx.on('GET', '/api/sessions/:id/flows', () => [{ name: 'scraper', path: 'flows/scraper.flow.ts' }]);
   ctx.on('GET', '/api/sessions/:id/flows/:name/graph', () => view());
-  ctx.on('GET', '/api/sessions/:id/flows/:name/run', () => SCRAPER_RUN);
-  ctx.on('POST', '/api/sessions/:id/flows/:name/run', () => SCRAPER_RUN);
+  // Run: the blocks end one a second, then the same failure as SCRAPER_RUN; Stop ends it where it is
+  let run: FlowRunView = SCRAPER_RUN;
+  const now = (): FlowRunView => {
+    if (run === SCRAPER_RUN || run.status !== 'running') return run;
+    const ids = Object.keys(SCRAPER_RUN.nodes);
+    const n = Math.floor((Date.now() - run.startedAt) / 1000);
+    if (n >= ids.length) run = { ...SCRAPER_RUN, runId: run.runId, startedAt: run.startedAt, finishedAt: Date.now() };
+    else run = { ...run, nodes: Object.fromEntries(ids.slice(0, n).map((id) => [id, SCRAPER_RUN.nodes[id]])) };
+    return run;
+  };
+  ctx.on('GET', '/api/sessions/:id/flows/:name/run', () => now());
+  ctx.on('POST', '/api/sessions/:id/flows/:name/run', async () => {
+    await ctx.sleep(250);
+    run = { runId: ctx.uid('flr'), flow: 'scraper', status: 'running', startedAt: Date.now(), output: '', nodes: {} } as FlowRunView;
+    return run;
+  });
+  ctx.on('POST', '/api/sessions/:id/flows/:name/stop', () => {
+    const r = now();
+    if (r.status !== 'running') return r;
+    run = { ...r, status: 'stopped', finishedAt: Date.now(), error: 'stopped by the owner' } as FlowRunView;
+    return run;
+  });
   ctx.on('PUT', '/api/sessions/:id/flows/:name/graph/layout', ({ body }) => body);
   ctx.on('POST', '/api/sessions/:id/flows/:name/graph/op', ({ body }) => {
     stale(body?.baseSha);

@@ -22,6 +22,8 @@ export interface FlowNodeData extends Record<string, unknown> {
   /** A program flow's block: its catalog entry, its last value or error, and whether wires may be drawn to its inputs. */
   spec?: FlowBlockSpec;
   live?: FlowNodeLive;
+  /** Canvas mode, while a program runs: queued or running for a block with no value yet. */
+  state?: NodeRunState;
   connectable?: boolean;
   /** Canvas mode: a double-click on the title edits it in place; Enter or leaving the field saves, Escape keeps the old one. */
   onRename?: (id: string, name: string) => void;
@@ -161,16 +163,17 @@ export const WorkflowNode = memo(function WorkflowNode({ data }: NodeProps) {
   const tone = stateTone(run?.state);
   return (
     <div
-      className={cn('cv-graph-node flex flex-col justify-between rounded-[var(--r-2)] border bg-raise px-3 py-2.5 text-left', tone.outline, selected && 'cv-graph-selected')}
+      className={cn('cv-graph-node flex flex-col justify-between rounded-[var(--r-2)] border bg-raise px-3 py-2.5 text-left', tone.outline, selected && 'cv-graph-selected', run?.state === 'skipped' && 'opacity-60')}
       style={{ width: NODE_W, height: NODE_H }}
       data-state={run?.state ?? 'idle'}
-      title={linesOf(node)}
+      title={run?.state === 'failed' && run.error ? run.error : linesOf(node)}
     >
       <Handle type="target" position={vertical ? Position.Top : Position.Left} isConnectable={false} />
       <div className="flex items-baseline justify-between gap-2">
         <Title id={node.id} text={nodeTitle(node)} onRename={onRename} />
       </div>
-      <div className="truncate text-[12px] text-fg-3">{metaLine(node, run)}</div>
+      {/* a failed node says why where the settings were; the inspector has all of it */}
+      {run?.state === 'failed' && run.error ? <div className="truncate text-[12px] text-fault">{run.error.split('\n')[0]}</div> : <div className="truncate text-[12px] text-fg-3">{metaLine(node, run)}</div>}
       <div className="flex items-baseline justify-between gap-2 text-[12px]">
         <span className={cn('cv-state truncate', tone.text)}>
           {stateWord(run)}
@@ -215,8 +218,8 @@ export const liveState = (live?: FlowNodeLive): NodeRunState | undefined => (liv
  * error. One input handle per input, so a wire lands on its input.
  */
 export const FlowBlockNode = memo(function FlowBlockNode({ data }: NodeProps) {
-  const { node, selected, vertical, spec, live, connectable, onRename } = data as FlowNodeData;
-  const state = liveState(live);
+  const { node, selected, vertical, spec, live, connectable, onRename, state: now } = data as FlowNodeData;
+  const state = liveState(live) ?? now;
   const tone = stateTone(state);
   const inputs = node.kind === 'block' && node.block !== 'value' ? (spec?.inputs.map((i) => i.name) ?? Object.keys(node.args ?? {})) : node.kind === 'code' ? [''] : [];
   const out = live ? (live.ok ? `${live.summary ?? 'done'}${live.ms !== undefined ? `, ${live.ms} ms` : ''}` : (live.error ?? 'failed').split('\n')[0]) : '';
@@ -242,7 +245,7 @@ export const FlowBlockNode = memo(function FlowBlockNode({ data }: NodeProps) {
         <Title id={node.id} text={node.kind === 'code' ? nodeTitle(node) : node.label} mono onRename={onRename} />
       </div>
       <div className="truncate text-[12px] text-fg-3">{blockLine(node, spec)}</div>
-      <div className={cn('cv-state truncate text-[12px]', tone.text)}>{state === 'failed' ? `failed: ${out}` : out}</div>
+      <div className={cn('cv-state truncate text-[12px]', tone.text)}>{state === 'failed' ? `failed: ${out}` : out || (state === 'running' || state === 'queued' ? state : '')}</div>
       {(node.declares.length > 0 || node.kind === 'code') && <Handle type="source" position={vertical ? Position.Bottom : Position.Right} isConnectable={!!connectable} />}
     </div>
   );

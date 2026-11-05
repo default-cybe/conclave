@@ -12,7 +12,7 @@ import '@xyflow/react/dist/base.css';
 import './graph.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Background, BackgroundVariant, Controls, MiniMap, ReactFlow, ReactFlowProvider, useConnection, useReactFlow, type Edge, type Node, type NodeChange } from '@xyflow/react';
-import type { FlowBlockSpec, FlowNodeLive, GraphNode, NodeRun, WorkflowGraph } from '@conclave/core/client';
+import type { FlowBlockSpec, FlowNodeLive, GraphNode, NodeRun, NodeRunState, WorkflowGraph } from '@conclave/core/client';
 import { useIsMobile, useMedia } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { deskViewport, focusViewport } from '../canvas/model';
@@ -50,7 +50,7 @@ export interface GraphCanvasProps {
   /** What the node search offers; the workflow nodes by default. */
   inserts?: InsertItem[];
   /** A program flow: block nodes, a value label on each wire from the last run, and wires drawn to an input. */
-  flow?: { blocks: Map<string, FlowBlockSpec>; live?: Record<string, FlowNodeLive>; onConnect?: (from: string, to: string, input: string) => void; check?: (from: string, to: string, input: string) => string | undefined };
+  flow?: { blocks: Map<string, FlowBlockSpec>; live?: Record<string, FlowNodeLive>; states?: Record<string, NodeRunState>; onConnect?: (from: string, to: string, input: string) => void; check?: (from: string, to: string, input: string) => string | undefined };
   /** Canvas mode (docs/design/CANVAS-MODE.md): the whole pane, a faint dot grid, a minimap; it opens readable on `focus` (the running or failed node) with the start of the graph (canvas/model deskViewport, focusViewport on a phone). */
   full?: { focus?: string };
 }
@@ -146,7 +146,7 @@ function NodeSearch({ at, after, items, onPick, onClose }: { at: { x: number; y:
 function miniClass(n: Node): string {
   if (n.type === 'band') return 'cv-mini-band';
   const d = n.data as FlowNodeData;
-  return `cv-mini cv-mini-${d.run?.state ?? (d.live ? (d.live.ok ? 'done' : 'failed') : 'idle')}`;
+  return `cv-mini cv-mini-${d.run?.state ?? (d.live ? (d.live.ok ? 'done' : 'failed') : (d.state ?? 'idle'))}`;
 }
 
 /** The library's drag payload (canvas/CanvasPage Library): a node kind dropped on the canvas lands where it is let go. */
@@ -246,7 +246,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         initialWidth: NODE_W,
         initialHeight: NODE_H,
         selected: picked.has(n.id),
-        data: { node: n, run: runs?.get(n.id), stale: staleSet.has(n.id), selected: n.id === selected || picked.has(n.id), vertical, ...(onRename && (renamable?.(n) ?? true) ? { onRename } : {}), ...(program ? { spec: n.block ? program.blocks.get(n.block) : undefined, live, connectable } : {}) } satisfies FlowNodeData,
+        data: { node: n, run: runs?.get(n.id), stale: staleSet.has(n.id), selected: n.id === selected || picked.has(n.id), vertical, ...(onRename && (renamable?.(n) ?? true) ? { onRename } : {}), ...(program ? { spec: n.block ? program.blocks.get(n.block) : undefined, live, connectable, ...(program.states?.[n.id] ? { state: program.states[n.id] } : {}) } : {}) } satisfies FlowNodeData,
         ariaLabel: program ? `${n.label}, ${n.kind === 'block' ? (program.blocks.get(n.block ?? '')?.title ?? n.block) : 'code'}${live ? (live.ok ? `, ${live.summary ?? 'done'}` : ', failed') : ''}` : `${n.label}, ${n.kind}${runs?.get(n.id) ? `, ${runs.get(n.id)!.state}` : ''}`,
         draggable,
       };
@@ -260,7 +260,9 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         return { id: `${e.from}>${e.to}.${e.name}`, source: e.from, target: e.to, ...(to?.kind === 'block' && e.name ? { targetHandle: e.name } : {}), focusable: false, ...(label ? { label, className: 'cv-wire-value', labelShowBg: true, labelBgPadding: [4, 2] as [number, number] } : {}) };
       }
       const live = runs?.get(e.to)?.state === 'running';
-      return { id: `${e.from}>${e.to}`, source: e.from, target: e.to, className: live ? 'cv-wire-live' : undefined, focusable: false };
+      // Canvas: a done node's short answer on its wires, as a program's wire shows its value
+      const value = full ? runs?.get(e.from)?.value : undefined;
+      return { id: `${e.from}>${e.to}`, source: e.from, target: e.to, className: live ? 'cv-wire-live' : value ? 'cv-wire-value' : undefined, focusable: false, ...(value ? { label: value, labelShowBg: true, labelBgPadding: [4, 2] as [number, number] } : {}) };
     });
     return { nodes: [...bandNodes, ...wf], edges: es, tall, bounds };
   }, [graph, runs, stale, selected, selection, currentPhase, vertical, positions, drag, draggable, program, full, onRename, renamable]);

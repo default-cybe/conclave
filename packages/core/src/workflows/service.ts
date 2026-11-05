@@ -32,7 +32,7 @@ import type {
   WorktreeActionResult,
 } from '../client/workflows';
 import { staleNodes, type GraphEditInput, type GraphEditResult, type WorkflowGraphView } from '../client/graph';
-import { GraphEditError, applyEdit, cleanPositions, insertNode, layoutPathOf, lineDiff, parseGraph, printLayout, readLayout, shiftLayout, type GraphPositions, type InsertKind } from './graph';
+import { GraphEditError, applyEdit, cleanPositions, dropLayout, insertNode, layoutPathOf, removeNode, lineDiff, parseGraph, printLayout, readLayout, shiftLayout, type GraphPositions, type InsertKind } from './graph';
 import type { Tool } from '../tools/types';
 import { toolByName } from '../tools';
 import { reminder } from '../session/transcript';
@@ -531,6 +531,40 @@ export class WorkflowService {
     }
     if (sessionId) this.engine.audit(sessionId, 'workflow.graph.insert', `${id} ${res.nodeId}`);
     return { sha: next.sha, diff: lineDiff(disk, res.script), view: next, nodeId: res.nodeId };
+  }
+
+  /**
+   * Remove a node from the canvas (Delete): its statement's lines go
+   * (removeNode), over the version the canvas shows. Later nodes of the same
+   * kind move down one number, so their saved positions move with them.
+   * Undo is restoreGraph, like every other canvas write.
+   */
+  async removeGraph(id: string, input: { nodeId: string; baseSha: string }, sessionId?: string): Promise<GraphEditResult> {
+    const e = await this.entryFor(id, sessionId);
+    const view = this.viewOf(e.script, e.source, e.path, e.meta);
+    if (!view.editable || !e.path) throw new EngineError(403, view.readOnly ?? 'this workflow cannot be edited here');
+    const files = this.filesOf(e, sessionId);
+    const disk = await files.readScript(e.path);
+    if (disk === undefined) throw new EngineError(404, `cannot read ${e.path}`);
+    if (sha256(disk) !== input.baseSha) throw new EngineError(409, 'script changed: the file changed since the graph was read; reload it');
+    let script: string;
+    try {
+      script = removeNode(disk, input.nodeId);
+      await loadMeta(script);
+    } catch (err) {
+      throw new EngineError(400, err instanceof GraphEditError ? err.message : `the script would not load without it: ${(err as Error).message}`);
+    }
+    await files.write(e.path, script);
+    this.remember(e.path, disk, script);
+    const lp = layoutPathOf(e.path);
+    const layout = readLayout(await files.read(lp));
+    const next = this.viewOf(script, e.source, e.path, e.meta);
+    if (Object.keys(layout).length) {
+      next.layout = dropLayout(layout, input.nodeId);
+      await files.write(lp, printLayout(next.layout, next.sha));
+    }
+    if (sessionId) this.engine.audit(sessionId, 'workflow.graph.remove', `${id} ${input.nodeId}`);
+    return { sha: next.sha, diff: lineDiff(disk, script), view: next };
   }
 
   /**

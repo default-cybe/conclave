@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Canvas runs programs and workflows: Run (Ctrl/Cmd+Enter) asks for a workflow's declared args, then the canvas shows the live run in place, with each node queued, running with its time, done, failed, skipped or cached, and short values on the wires. Stop aborts it; while it runs, Run becomes Queue run, and the Queue tab lists queued runs with Cancel. A failed node shows its error, Re-run from here (workflows) or Re-run (programs), and Ask the agent. The new Agent tab next to the inspector continues a Code session in the file's folder with the file, the selection and the last error attached, and the canvas reloads when the agent is done. Delete now removes workflow nodes too, with Undo. Reopening a file shows its latest run (#250).
+
 ## [0.4.69] - 2026-11-05
 
 ### Added
