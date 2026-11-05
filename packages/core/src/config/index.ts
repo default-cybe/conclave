@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { DEFAULT_CONFIG, type ConclaveConfig, type ProviderConfig } from './schema';
 import { paths, ensureDirs, type Paths } from './paths';
 import { dropRetiredKeys, markZaiWire, migrateZaiWire } from './retired';
-import { managedBy, type SecretInfo } from './secret-names';
+import { managedBy, secretPrefix, type SecretInfo } from './secret-names';
 
 export * from './schema';
 export * from './paths';
@@ -203,7 +203,7 @@ export class ConfigStore {
     else this.secrets[kind][key] = value;
     if (kind === 'values') {
       const at = (this.secrets.setAt ??= {});
-      if (key in this.secrets.values) at[key] = Date.now();
+      if (Object.hasOwn(this.secrets.values, key)) at[key] = Date.now();
       else delete at[key];
     }
     writePrivate(this.paths.secrets, this.secrets);
@@ -253,7 +253,8 @@ export class ConfigStore {
       .map(([name, v]) => {
         const by = managedBy(name);
         const setAt = this.secrets.setAt?.[name];
-        return { name, ...(!by && v.length >= 12 ? { prefix: v.slice(0, 4) } : {}), ...(setAt ? { setAt } : {}), ...(by ? { managedBy: by } : {}) };
+        const prefix = by ? undefined : secretPrefix(v);
+        return { name, ...(prefix ? { prefix } : {}), ...(setAt ? { setAt } : {}), ...(by ? { managedBy: by } : {}) };
       })
       .sort((a, b) => Number(!!a.managedBy) - Number(!!b.managedBy) || a.name.localeCompare(b.name));
   }

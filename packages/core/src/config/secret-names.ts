@@ -5,7 +5,11 @@
  */
 
 /** A name the owner saves from Settings > Secrets, the CLI or PUT /api/secrets. */
-export const SECRET_NAME = /^[a-z0-9._-]{1,64}$/;
+// __proto__ and constructor are Object.prototype keys: a value saved under them is lost or reads back a function
+export const SECRET_NAME = /^(?!(?:__proto__|constructor)$)[a-z0-9._-]{1,64}$/;
+
+/** The first 4 characters as the hub shows them: none for a short value, which 4 characters would nearly give away. */
+export const secretPrefix = (v: string): string | undefined => (v.length >= 12 ? v.slice(0, 4) : undefined);
 
 /** Every ${secret:name} in a string, as config.expand reads them. */
 export const SECRET_REF = /\$\{secret:([A-Za-z0-9_.-]+)\}/g;
@@ -26,6 +30,7 @@ const MANAGED: Array<[RegExp, string]> = [
   [/^plugin\./, 'Extensions > Plugins'],
   [/^github$/, 'Settings > GitHub'],
   [/^github-pat$/, 'Extensions > Discover'],
+  [/^catalog\.github-token$/, 'Extensions > Discover'],
   [/^stt\./, 'Settings > Meetings'],
   [/^pim\./, 'Settings > Calendar and mail'],
   [/^mcp\..+\.oauth$/, 'Extensions > MCP servers, Connect'],

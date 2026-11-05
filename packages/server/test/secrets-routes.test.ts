@@ -69,6 +69,14 @@ describe('GET /api/secrets', () => {
     const managed = r.body.values.find((s: any) => s.name === 'search.tavily');
     expect(managed.managedBy).toBe('Settings > Web search');
     expect(managed.prefix).toBeUndefined();
+    // the Discover GitHub token box saves catalog.github-token: read-only too
+    engine.config.setSecret('values', 'catalog.github-token', 'ghp_discoverTokenValue123456');
+    const gh = (await call(OWNER, 'GET', '/api/secrets')).body.values.find((s: any) => s.name === 'catalog.github-token');
+    expect(gh).toEqual({ name: 'catalog.github-token', setAt: expect.any(Number), managedBy: 'Extensions > Discover' });
+    // a short value gets no prefix: 4 characters would nearly give it away
+    expect((await call(OWNER, 'PUT', '/api/secrets', { kind: 'values', key: 'pin', value: 'abcd1' })).status).toBe(200);
+    const pin = (await call(OWNER, 'GET', '/api/secrets')).body.values.find((s: any) => s.name === 'pin');
+    expect(pin.prefix).toBeUndefined();
     // ${secret:name} reads it
     expect(engine.config.expand('${secret:caido-token}')).toBe(VALUE);
   });
@@ -94,7 +102,7 @@ describe('a member', () => {
 
 describe('names', () => {
   test('a new name must be lowercase letters, digits, dots, dashes and underscores', async () => {
-    for (const bad of ['Caido', 'has space', 'a/b', 'x'.repeat(65), '${x}']) {
+    for (const bad of ['Caido', 'has space', 'a/b', '../../etc/passwd', 'x'.repeat(65), '${x}', '__proto__', 'constructor']) {
       const r = await call(OWNER, 'PUT', '/api/secrets', { kind: 'values', key: bad, value: 'v' });
       expect(r.status).toBe(400);
       expect(engine.config.secretNames().values).not.toContain(bad);

@@ -1,7 +1,7 @@
 /** `conclave config`, `conclave secret`, `conclave pair-phone`, `conclave web`. */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { parseJsonc, DEFAULT_CONFIG, deepMerge, SECRET_NAME } from '@conclave/core/config/index.ts';
+import { parseJsonc, DEFAULT_CONFIG, deepMerge, SECRET_NAME, secretPrefix } from '@conclave/core/config/index.ts';
 import { formatFingerprint } from '@conclave/core/client/index.ts';
 import { out as p } from '../ansi';
 import { bool, str, type ParsedArgs } from '../args';
@@ -143,7 +143,8 @@ async function namedSecret(args: ParsedArgs): Promise<number> {
   const value = str(args, 'value') ?? (await prompt(`Value for ${name} (input hidden): `, { hidden: true }));
   if (!value.trim()) throw new CliError('Empty value, nothing saved.');
   await client.setSecret('values', name, value.trim());
-  print(`${p.green('✓')} Saved the secret ${name} on the hub ${p.dim('(' + value.trim().slice(0, 4) + '…)')}. Use it as \${secret:${name}}.`);
+  const prefix = secretPrefix(value.trim());
+  print(`${p.green('✓')} Saved the secret ${name} on the hub${prefix ? ' ' + p.dim('(' + prefix + '…)') : ''}. Use it as \${secret:${name}}.`);
   return 0;
 }
 

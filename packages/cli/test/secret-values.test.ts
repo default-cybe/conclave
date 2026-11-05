@@ -41,6 +41,13 @@ describe('conclave secret', () => {
     expect(r.stdout).not.toContain(value);
   });
 
+  test('set <name> with a short value prints no prefix', async () => {
+    const r = await run('set', 'pin', '--value', 'q7z9');
+    expect(r.code).toBe(0);
+    expect(hub.engine.config.secretValue('pin')).toBe('q7z9');
+    expect(r.stdout + r.stderr).not.toContain('q7z9');
+  });
+
   test('set <name> --delete removes it', async () => {
     expect((await run('set', 'caido-token', '--delete')).code).toBe(0);
     expect(hub.engine.config.secretValue('caido-token')).toBeUndefined();
