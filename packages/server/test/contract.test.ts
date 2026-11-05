@@ -9,10 +9,22 @@ import { startHub, type TestHub } from './helpers';
  * a specific message, so they count as present.
  */
 let hub: TestHub;
+const realFetch = globalThis.fetch;
 beforeAll(() => {
   hub = startHub();
+  // routes like POST /api/update/check call GitHub: off the box they fail at once, so the test does not wait on the network
+  globalThis.fetch = Object.assign(
+    (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) ? realFetch(input, init) : Promise.reject(new TypeError('offline in the contract test'));
+    },
+    { preconnect: realFetch.preconnect },
+  );
 });
-afterAll(() => hub.stop());
+afterAll(() => {
+  globalThis.fetch = realFetch;
+  hub.stop();
+});
 
 test('server implements every route in client/index.ts', async () => {
   const src = readFileSync(fileURLToPath(new URL('../../core/src/client/index.ts', import.meta.url)), 'utf8');
