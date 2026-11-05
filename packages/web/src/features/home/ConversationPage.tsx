@@ -27,6 +27,7 @@ import { PreviewDock, usePreviewOpen } from '@/features/preview/PreviewPane';
 import { EmptyConversation } from './EmptyConversation';
 import { PhoneHome } from './PhoneHome';
 import { modeOf, setStartMode, useStartMode } from './start';
+import { acceptFileDrag, droppedFiles } from '@/lib/fileDrop';
 
 export default function ConversationPage() {
   const { id } = useParams<{ id?: string }>();
@@ -73,21 +74,22 @@ export default function ConversationPage() {
   const sideMode = mode === 'chat' ? 'assistant' : mode;
 
   const onDragOver = (e: DragEvent) => {
-    if (session || !e.dataTransfer.types.includes('Files')) return;
-    e.preventDefault();
+    if (session || !acceptFileDrag(e)) return;
     if (!drag) setDrag(true);
   };
   const onDrop = (e: DragEvent) => {
     setDrag(false);
-    if (session || !e.dataTransfer.files.length) return;
+    const dropped = session ? [] : droppedFiles(e.dataTransfer);
+    if (!dropped.length) return;
     e.preventDefault();
-    window.dispatchEvent(new CustomEvent(FILES_EVENT, { detail: Array.from(e.dataTransfer.files) }));
+    window.dispatchEvent(new CustomEvent(FILES_EVENT, { detail: dropped }));
   };
 
   return (
     <div className="flex min-h-0 flex-1">
       <div
         className={cn('relative flex min-w-0 flex-1 flex-col outline-offset-[-8px]', drag && 'outline-1 outline-rule-2 outline-dashed')}
+        onDragEnter={onDragOver}
         onDragOver={onDragOver}
         onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setDrag(false)}
         onDrop={onDrop}

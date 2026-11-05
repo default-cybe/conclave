@@ -2,7 +2,9 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gunzipSync, brotliDecompressSync } from 'node:zlib';
 import { OtlpIngest } from '../src/otlp';
+import { keepPacked, pickEncoding } from '../src/static';
 import { OWNER, startHub, type TestHub } from './helpers';
 
 const kv = (key: string, value: string) => ({ key, value: { stringValue: value } });
@@ -42,6 +44,8 @@ beforeAll(() => {
   writeFileSync(join(webDir, 'assets', 'index-B2x9_aQz.js'), 'console.log(1)');
   writeFileSync(join(webDir, 'manifest.webmanifest'), '{}');
   writeFileSync(join(webDir, 'logo.svg'), '<svg/>');
+  writeFileSync(join(webDir, 'assets', 'main-C8JE50pm.js'), 'export const rows = [];\n'.repeat(400));
+  writeFileSync(join(webDir, 'assets', 'font-Bw9x6K1M.woff2'), 'x'.repeat(4000));
   hub = startHub({ webDir });
 });
 afterAll(async () => {
@@ -113,6 +117,55 @@ describe('static web app', () => {
     expect(sw.headers.get('cache-control')).toBe('no-cache');
     expect((await fetch(`${hub.url}/manifest.webmanifest`)).headers.get('content-type')).toBe('application/manifest+json');
     expect((await fetch(`${hub.url}/logo.svg`)).headers.get('content-type')).toBe('image/svg+xml');
+  });
+
+  test('text assets go out brotli or gzip, with the same bytes and caching', async () => {
+    const raw = 'export const rows = [];\n'.repeat(400);
+    const get = (enc: string) => fetch(`${hub.url}/assets/main-C8JE50pm.js`, { headers: { 'accept-encoding': enc }, decompress: false } as RequestInit);
+    const br = await get('gzip, deflate, br');
+    expect(br.headers.get('content-encoding')).toBe('br');
+    expect(br.headers.get('vary')).toBe('accept-encoding');
+    expect(br.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    const brBytes = Buffer.from(await br.arrayBuffer());
+    expect(Number(br.headers.get('content-length'))).toBe(brBytes.length);
+    expect(brBytes.length).toBeLessThan(raw.length / 10);
+    expect(brotliDecompressSync(brBytes).toString()).toBe(raw);
+    const gz = await get('gzip');
+    expect(gz.headers.get('content-encoding')).toBe('gzip');
+    expect(gunzipSync(Buffer.from(await gz.arrayBuffer())).toString()).toBe(raw);
+    const plain = await get('identity');
+    expect(plain.headers.get('content-encoding')).toBeNull();
+    expect(await plain.text()).toBe(raw);
+    // fonts are compressed already; tiny files are not worth it
+    expect((await fetch(`${hub.url}/assets/font-Bw9x6K1M.woff2`, { headers: { 'accept-encoding': 'br' }, decompress: false } as RequestInit)).headers.get('content-encoding')).toBeNull();
+    expect((await fetch(`${hub.url}/assets/index-B2x9_aQz.js`, { headers: { 'accept-encoding': 'br' }, decompress: false } as RequestInit)).headers.get('content-encoding')).toBeNull();
+  });
+
+  test('pickEncoding honours q=0 and prefers br', () => {
+    expect(pickEncoding('gzip, br', '/a.js', 5000)).toBe('br');
+    expect(pickEncoding('br;q=0, gzip', '/a.js', 5000)).toBe('gzip');
+    expect(pickEncoding('gzip;q=0', '/a.js', 5000)).toBeUndefined();
+    expect(pickEncoding('br', '/a.png', 5000)).toBeUndefined();
+    expect(pickEncoding(undefined, '/a.js', 5000)).toBeUndefined();
+  });
+
+  test('the compressed cache stays under its byte cap', () => {
+    // request-path case variants (/A.js, /a.JS) on macOS or Windows each add a key
+    expect(keepPacked('t:a', Buffer.alloc(10), 0)).toBe(10); // cap 0 drops all but the newest
+    expect(keepPacked('t:b', Buffer.alloc(10), 25)).toBe(20);
+    expect(keepPacked('t:c', Buffer.alloc(10), 25)).toBe(20);
+    expect(keepPacked('t:big', Buffer.alloc(30), 25)).toBe(30);
+  });
+
+  test('API JSON goes out gzipped when the client takes it', async () => {
+    const get = (enc: string) => fetch(`${hub.url}/api/agents`, { headers: { authorization: `Bearer ${OWNER}`, 'accept-encoding': enc }, decompress: false } as RequestInit);
+    const gz = await get('gzip, br');
+    expect(gz.status).toBe(200);
+    expect(gz.headers.get('content-encoding')).toBe('gzip');
+    const body = JSON.parse(gunzipSync(Buffer.from(await gz.arrayBuffer())).toString());
+    const plain = await get('identity');
+    expect(plain.headers.get('content-encoding')).toBeNull();
+    expect(body).toEqual(await plain.json());
   });
 
   test('SPA fallback for routes, 404 for missing files and traversal', async () => {

@@ -1,4 +1,5 @@
 import type { Machine, MachineProcess } from '../machine/types';
+import type { ShellInfo } from '../types';
 
 /**
  * Background shells started by Bash with run_in_background, keyed by session.
@@ -9,20 +10,8 @@ import type { Machine, MachineProcess } from '../machine/types';
 const MAX_BUFFER_CHARS = 2 * 1024 * 1024;
 const KILL_GRACE_MS = 3_000;
 
-export type ShellStatus = 'running' | 'completed' | 'failed' | 'killed';
-
-export interface ShellInfo {
-  id: string;
-  sessionId: string;
-  command: string;
-  description?: string;
-  cwd: string;
-  pid?: number;
-  status: ShellStatus;
-  exitCode: number | null;
-  startedAt: number;
-  endedAt?: number;
-}
+// in types.ts so the apps can use them without this file's Bun calls
+export type { ShellInfo, ShellStatus } from '../types';
 
 /** Rolling text buffer with a read cursor that survives trimming. */
 class OutputLog {
@@ -114,6 +103,17 @@ export class BackgroundShell {
 export class ShellRegistry {
   private sessions = new Map<string, Map<string, BackgroundShell>>();
   private counter = 0;
+  /** Told when a session's shell starts or ends (the engine turns it into a shells.updated event). */
+  private listeners = new Set<(sessionId: string) => void>();
+
+  onChange(fn: (sessionId: string) => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  private changed(sessionId: string): void {
+    for (const fn of this.listeners) fn(sessionId);
+  }
 
   start(opts: {
     sessionId: string;
@@ -121,6 +121,7 @@ export class ShellRegistry {
     command: string;
     cwd: string;
     description?: string;
+    toolUseId?: string;
     env?: Record<string, string>;
     shell?: string;
     /** Kill the shell after this long. */
@@ -137,13 +138,14 @@ export class ShellRegistry {
       proc = opts.machine.spawn('sh', ['-c', opts.command], { cwd: opts.cwd, env: opts.env });
     }
     proc.closeStdin();
-    const shell = new BackgroundShell({ id, sessionId: opts.sessionId, command: opts.command, description: opts.description, cwd: opts.cwd }, proc);
+    const shell = new BackgroundShell({ id, sessionId: opts.sessionId, command: opts.command, description: opts.description, ...(opts.toolUseId ? { toolUseId: opts.toolUseId } : {}), cwd: opts.cwd }, proc);
     let map = this.sessions.get(opts.sessionId);
     if (!map) {
       map = new Map();
       this.sessions.set(opts.sessionId, map);
     }
     map.set(id, shell);
+    this.changed(opts.sessionId);
     let timedOut = false;
     const timer = opts.timeoutMs
       ? setTimeout(() => {
@@ -153,6 +155,7 @@ export class ShellRegistry {
       : undefined;
     void shell.done.then(() => {
       if (timer) clearTimeout(timer);
+      this.changed(opts.sessionId);
       if (opts.onEnd && (timedOut || shell.info.status !== 'killed')) opts.onEnd(shell);
     });
     return shell;

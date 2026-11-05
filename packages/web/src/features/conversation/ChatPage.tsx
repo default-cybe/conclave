@@ -42,6 +42,7 @@ import { PreviewPanel, PreviewSheet } from './Preview';
 import { EmptyConversation } from '@/features/home/EmptyConversation';
 import { setStartMode } from '@/features/home/start';
 import { closePreview, openContinue, useChatUi } from './state';
+import { acceptFileDrag, droppedFiles } from '@/lib/fileDrop';
 import { AddPeopleDialog, PeopleControl, PeopleSheet, useGuest, useHasPeople, useParticipants } from '@/features/chat/shared';
 
 
@@ -122,18 +123,18 @@ export default function ChatPage() {
   const missing = !!id && !session && booted;
 
   const onDragOver = (e: DragEvent) => {
-    if (!e.dataTransfer.types.includes('Files') || missing) return;
-    e.preventDefault();
+    if (missing || !acceptFileDrag(e)) return;
     if (!drag) setDrag(true);
   };
   const onDragLeave = (e: DragEvent) => {
     if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDrag(false);
   };
   const onDrop = (e: DragEvent) => {
-    if (!e.dataTransfer.files.length) return;
+    const dropped = droppedFiles(e.dataTransfer);
+    if (!dropped.length) return;
     e.preventDefault();
     setDrag(false);
-    window.dispatchEvent(new CustomEvent(FILES_EVENT, { detail: Array.from(e.dataTransfer.files) }));
+    window.dispatchEvent(new CustomEvent(FILES_EVENT, { detail: dropped }));
   };
 
   let column;
@@ -171,6 +172,7 @@ export default function ChatPage() {
       {!phone && <h1 className="sr-only">{session?.title ?? 'New chat'}</h1>}
       <div
         className={cn('relative flex min-w-0 flex-1 flex-col outline-offset-[-8px]', drag && 'outline-1 outline-rule-2 outline-dashed')}
+        onDragEnter={onDragOver}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}

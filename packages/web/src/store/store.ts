@@ -20,6 +20,7 @@ import type {
   Routine,
   RoutineRun,
   Session,
+  ShellInfo,
   Task,
   Todo,
   ToolResultBlock,
@@ -97,6 +98,8 @@ export interface HubState {
   /** Paired apps (GET /api/clients, app.updated). Phones and browsers are here, not in devices: they pair as apps and run no work (lib/apps.ts). */
   apps: Record<string, AppDto>;
   checkpoints: Record<string, Checkpoint[]>;
+  /** The background shells the hub holds per session (GET /api/sessions/:id/shells, shells.updated); unset until asked or on a hub without the route. */
+  shells: Record<string, ShellInfo[]>;
   agents: AgentDef[];
   models: ModelGroup[];
   commands: CommandDef[];
@@ -164,6 +167,7 @@ const initial: HubState = {
   devices: {},
   apps: {},
   checkpoints: {},
+  shells: {},
   agents: [],
   models: [],
   commands: [],
@@ -613,6 +617,12 @@ export async function loadCheckpoints(sessionId: string) {
   set((s) => ({ checkpoints: { ...s.checkpoints, [sessionId]: list } }));
 }
 
+/** The hub's shells of the session; a hub without the route leaves them unset, so the transcript decides. */
+export async function loadShells(sessionId: string) {
+  const list = await settle<ShellInfo[] | undefined>(api().shells(sessionId), undefined);
+  if (list) set((s) => ({ shells: { ...s.shells, [sessionId]: list } }));
+}
+
 export async function loadRuns(routineId: string) {
   const list = await settle(api().routineRuns(routineId), []);
   set((s) => ({ runs: { ...s.runs, [routineId]: list } }));
@@ -643,6 +653,8 @@ export function startLive() {
       set(was === 'open' && conn !== 'open' ? { conn, syncedAt: Date.now() } : { conn });
       if (conn === 'open' && was === 'closed') void loadAll({ transcripts: true });
       if (conn === 'open') void loadRemote();
+      // a hub restart ends every shell and sends no event for it: ask again
+      if (conn === 'open') for (const id of Object.keys(get().shells)) void loadShells(id);
       // the hub's address stopped answering: try its other addresses, or say to pair again
       if (conn === 'closed') void recoverAddress({ reconnect: moveTo, lost: addressLost });
     },
@@ -1192,6 +1204,9 @@ export function applyEvent(e: EngineEventEnvelope) {
       break;
     case 'checkpoint.created':
       set({ checkpoints: { ...s.checkpoints, [e.sessionId]: [...(s.checkpoints[e.sessionId] ?? []), e.checkpoint] } });
+      break;
+    case 'shells.updated':
+      set({ shells: { ...s.shells, [e.sessionId]: e.shells } });
       break;
     case 'remote.updated':
       set({ remote: e.remote });

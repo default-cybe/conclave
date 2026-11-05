@@ -603,6 +603,7 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
 
   app.get('/api/sessions/:id/todos', (c) => c.json(engine.todos(sid(c))));
   app.get('/api/sessions/:id/checkpoints', (c) => c.json(engine.checkpoints(sid(c))));
+  app.get('/api/sessions/:id/shells', (c) => c.json(engine.shells(sid(c))));
 
   app.post('/api/sessions/:id/checkpoints/:checkpointId/restore', async (c) => {
     const id = sid(c);

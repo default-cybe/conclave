@@ -15,6 +15,7 @@
  */
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { compress } from 'hono/compress';
 import type { Server, ServerWebSocket, WebSocketHandler } from 'bun';
 import type { EngineApi } from '@conclave/core/engine/api.ts';
 import type { LimitState, UsageRecord } from '@conclave/core/types.ts';
@@ -246,6 +247,9 @@ export function createServer(opts: ServerOptions): ConclaveServer {
       /* immutable headers (fetch passthrough); fine */
     }
   });
+  // API JSON gzipped when the client takes it (a session list or a transcript page is mostly repeated keys); JSON only, so
+  // streams (SSE, NDJSON, downloads) pass as they are
+  app.use('/api/*', compress({ encoding: 'gzip', contentTypeFilter: /^application\/json/ }));
 
   // ----- who may connect: the same network, and addresses that keep failing ---
   app.use('*', async (c, next) => {
@@ -434,7 +438,7 @@ export function createServer(opts: ServerOptions): ConclaveServer {
     // a build put in place after the hub started is used without a restart
     if (!webDir && (path === '/' || path === '/index.html')) webDir = resolveWebDir(webPlaces);
     if (webDir) {
-      const res = await serveStatic(webDir, path, c.req.method);
+      const res = await serveStatic(webDir, path, c.req.method, c.req.header('accept-encoding'));
       if (res) return res;
     } else if ((c.req.method === 'GET' || c.req.method === 'HEAD') && (path === '/' || path === '/index.html')) {
       return placeholderPage(engine.version, [engine.config.paths.web, ...webPlaces.filter((p) => p !== engine.config.paths.web)]);

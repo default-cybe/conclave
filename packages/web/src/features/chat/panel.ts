@@ -134,7 +134,8 @@ export function outputsWord(list: readonly Output[]): string {
 // Background shells
 // ---------------------------------------------------------------------------
 
-export type ShellState = 'running' | 'completed' | 'failed' | 'killed';
+/** gone: the hub has no such shell (a hub restart or update ended it). */
+export type ShellState = 'running' | 'completed' | 'failed' | 'killed' | 'gone';
 
 export interface BackgroundShell {
   /** "bash_2". */
@@ -148,6 +149,16 @@ export interface BackgroundShell {
 
 const SHELL_STATES: readonly ShellState[] = ['running', 'completed', 'failed', 'killed'];
 
+/** What the hub holds of a shell (core tools/shells.ts ShellInfo). */
+export interface HubShell {
+  id: string;
+  command: string;
+  description?: string;
+  toolUseId?: string;
+  status: 'running' | 'completed' | 'failed' | 'killed';
+  startedAt: number;
+}
+
 function textOf(content: unknown): string {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) return content.map((c) => (c && typeof c === 'object' && 'text' in c ? String((c as { text: unknown }).text) : '')).join('\n');
@@ -157,9 +168,12 @@ function textOf(content: unknown): string {
 /**
  * The shells the session started with Bash run_in_background, with the
  * last state BashOutput or KillShell reported: running until one says it
- * ended. The one started first first.
+ * ended, or says there is no such shell. With `hub` (what the hub holds now,
+ * GET /api/sessions/:id/shells) the hub decides: a shell it has not got is
+ * gone (a restart ended it), and one the transcript lost to compaction is
+ * listed from it. The one started first first.
  */
-export function backgroundShells(messages: readonly Message[]): BackgroundShell[] {
+export function backgroundShells(messages: readonly Message[], hub?: readonly HubShell[]): BackgroundShell[] {
   const byId = new Map<string, BackgroundShell>();
   const calls = new Map<string, { name: string; input: Record<string, unknown>; at: number }>();
   for (const m of messages) {
@@ -180,9 +194,21 @@ export function backgroundShells(messages: readonly Message[]): BackgroundShell[
           const status = SHELL_STATES.find((s) => s === meta.status);
           if (call.name === 'KillShell' && !b.isError && /^Killed\b/.test(said)) sh.state = 'killed';
           else if (status) sh.state = status;
+          else if (b.isError && /\bNo background shell\b/.test(said)) sh.state = 'gone';
         }
       }
     }
+  }
+  if (hub) {
+    // ids start again at bash_1 after a restart: match by the call that started it
+    const byCall = new Map(hub.filter((h) => h.toolUseId).map((h) => [h.toolUseId!, h]));
+    for (const sh of byId.values()) {
+      const h = byCall.get(sh.toolUseId);
+      if (h) sh.state = h.status;
+      else if (sh.state === 'running') sh.state = 'gone';
+    }
+    const known = new Set([...byId.values()].map((s) => s.toolUseId));
+    for (const h of hub) if (h.toolUseId && !known.has(h.toolUseId)) byId.set(`hub:${h.toolUseId}`, { id: h.id, command: h.command, ...(h.description ? { description: h.description } : {}), startedAt: h.startedAt, state: h.status, toolUseId: h.toolUseId });
   }
   return [...byId.values()].sort((a, b) => a.startedAt - b.startedAt);
 }
