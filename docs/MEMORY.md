@@ -142,7 +142,8 @@ Other tools get the same search on the hub's MCP endpoint as `chat_search`
 A chat or Code session can start as incognito. Its history is not kept. It
 never shows in the sidebar, search, `SessionSearch`, Home, the day plan,
 Reflect or recaps. It cannot be exported, forked or shared, and a member's
-incognito session is only theirs. When you close it, when you start a new
+incognito session is only theirs. Its push notifications say only
+"Incognito session", never a title, command or question. When you close it, when you start a new
 chat or session, after 12 hours idle, or when the hub restarts, the hub
 deletes every row about it, its tool outputs and its outputs folder. The
 delete overwrites the freed database pages (SQLite `secure_delete`). Usage
@@ -157,8 +158,9 @@ Each session has a memory setting with three values:
 - **Use and save** (normal sessions): memories are recalled, and new ones are
   saved and extracted.
 - **Use only** (incognito default, `chat.memorySave: false`): memories are
-  recalled. Nothing is saved: no `MemorySave` or `MemoryForget`, no
-  extraction, no episode summary, no Basic Memory writes.
+  recalled. Nothing is saved: no `MemorySave`, `MemoryForget`,
+  `ProactivePrefs` or `SaveInspiration`, no extraction, no episode summary,
+  and only the read tools of Basic Memory.
 - **Off** (`chat.memory: false`): no recall, no memory tools, nothing saved.
 
 ## Connections

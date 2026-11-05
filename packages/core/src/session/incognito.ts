@@ -11,10 +11,11 @@
  * only. Files and commands on a device stay: only the conversation goes.
  */
 import { rmSync } from 'node:fs';
+import { basename } from 'node:path';
 import type { Db } from '../storage/db';
 import { outputsDir } from '../files/share';
 import { EngineError } from '../engine/errors';
-import type { Session } from '../types';
+import type { Notice, Session } from '../types';
 
 /** An incognito session idle this long is deleted. */
 export const INCOGNITO_IDLE_MS = 12 * 60 * 60_000;
@@ -25,6 +26,11 @@ export const INCOGNITO_SWEEP_EVERY_MS = 30 * 60_000;
 /** An incognito session is never copied out of itself: no fork, export, share or participants. */
 export function refuseIncognito(s: Pick<Session, 'incognito'> | undefined, what: string): void {
   if (s?.incognito) throw new EngineError(409, `An incognito session cannot be ${what}. Its conversation is not kept.`);
+}
+
+/** What a push from an incognito session says: that it waits, never its title, command, question or error. */
+export function incognitoNotice<T extends Pick<Notice, 'title' | 'body'>>(n: T): T {
+  return { ...n, title: 'Incognito session', body: 'Open it to see more.' };
 }
 
 /** Tables whose rows about a session are deleted, by their session column. messages and the rest with ON DELETE CASCADE go with the row. */
@@ -78,6 +84,7 @@ export function incognitoTree(db: Db, id: string): string[] {
 export function purgeIncognitoRows(db: Db, ids: string[], home?: string): number {
   if (!ids.length) return 0;
   let n = 0;
+  const scripts: string[] = [];
   // zeroed free pages: a deleted transcript is not left readable in the file; on for this transaction only (cost measured in the PR)
   db.exec('PRAGMA secure_delete = ON');
   try {
@@ -90,9 +97,11 @@ export function purgeIncognitoRows(db: Db, ids: string[], home?: string): number
       for (const id of ids) {
         // a workflow run hosted here: its calls, logs and findings are its prompts and results
         if (has('workflow_runs', 'session_id')) {
-          const runs = (db.query('SELECT id FROM workflow_runs WHERE session_id = ?').all(id) as Array<{ id: string }>).map((r) => r.id);
+          const runs = db.query('SELECT id, script_path FROM workflow_runs WHERE session_id = ?').all(id) as Array<{ id: string; script_path: string | null }>;
           for (const run of runs) {
-            for (const t of ['workflow_calls', 'workflow_logs', 'workflow_findings']) if (has(t, 'run_id')) n += db.query(`DELETE FROM ${t} WHERE run_id = ?`).run(run).changes;
+            for (const t of ['workflow_calls', 'workflow_logs', 'workflow_findings']) if (has(t, 'run_id')) n += db.query(`DELETE FROM ${t} WHERE run_id = ?`).run(run.id).changes;
+            // the run's script (workflows/service.ts saveScript) holds its prompts; only the hub's own <runId>.js file
+            if (run.script_path && basename(run.script_path) === `${run.id}.js`) scripts.push(run.script_path);
           }
           n += db.query('DELETE FROM workflow_runs WHERE session_id = ?').run(id).changes;
         }
@@ -114,6 +123,7 @@ export function purgeIncognitoRows(db: Db, ids: string[], home?: string): number
     /* not in WAL mode, or busy: the next checkpoint writes over them */
   }
   if (home) for (const id of ids) rmSync(outputsDir(home, id), { recursive: true, force: true });
+  for (const p of scripts) rmSync(p, { force: true });
   return n;
 }
 

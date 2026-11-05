@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createEngine } from '../../src/engine';
 import type { Engine } from '../../src/engine/engine';
 import { outputsDir } from '../../src/files/share';
@@ -143,4 +144,85 @@ test('member isolation: a member incognito session is theirs alone', async () =>
   expect(searchPastSessions(e.repos.db, { query: 'pumaword', accountId: m.id })).toHaveLength(0);
   // sharing it with someone is refused
   expect(() => new ChatParticipantStore(e.repos.db).invite(s.id, m.id, 'owner')).toThrow(/incognito/);
+});
+
+// ----- leaks found in review: each fails on feat/incognito -----
+
+/** Every notice the hub hands to its push channels. */
+function spyNotices(e: Engine): Array<{ title: string; body: string; sessionId?: string }> {
+  const sent: Array<{ title: string; body: string; sessionId?: string }> = [];
+  (e.notifier as unknown as { send: (n: never) => Promise<unknown> }).send = async (n: never) => {
+    sent.push(n);
+    return n;
+  };
+  return sent;
+}
+
+test('leak: an approval request in an incognito session pushes its command text', async () => {
+  const e = await hub();
+  const sent = spyNotices(e);
+  const s = await e.createSession({ incognito: true });
+  const ac = new AbortController();
+  void e.requestApproval(s.id, { tool: 'Bash', summary: 'cat ~/lynxsecret-diary.txt', input: {} } as never, ac.signal);
+  ac.abort();
+  expect(sent.filter((n) => n.sessionId === s.id && /lynxsecret/.test(`${n.title} ${n.body}`))).toHaveLength(0);
+});
+
+test('leak: a question in an incognito session pushes the question text', async () => {
+  const e = await hub();
+  const sent = spyNotices(e);
+  const s = await e.createSession({ kind: 'chat', incognito: true });
+  const ac = new AbortController();
+  void e.askUser(s.id, [{ question: 'Should I email the lynxsecret lawyer?', header: 'q', options: [] }] as never, ac.signal);
+  ac.abort();
+  expect(sent.filter((n) => n.sessionId === s.id && /lynxsecret/.test(`${n.title} ${n.body}`))).toHaveLength(0);
+});
+
+test('leak: an incognito Code session in "Use only" or "Off" keeps ProactivePrefs, which saves a profile memory', async () => {
+  const e = await hub();
+  // the coder agent has no tools list, so every builtin reaches it unless the session switches take it away
+  const useOnly = await e.createSession({ incognito: true });
+  const off = await e.createSession({ incognito: true, chat: { memory: false } });
+  const names = (s: typeof useOnly) => e.toolsFor(e.getSession(s.id)!, e.agentFor(s), 'default', 0).map((t) => t.name);
+  // ProactivePrefs -> PrefsStore.set -> memory.save kind profile (assistant/prefs.ts:203)
+  expect(names(useOnly)).not.toContain('ProactivePrefs');
+  expect(names(off)).not.toContain('ProactivePrefs');
+});
+
+test('leak: "Use only" keeps the Basic Memory canvas tool, which writes a note file', async () => {
+  const e = await hub();
+  const code = await e.createSession({ incognito: true });
+  // chat.ts savesToMemory matches write|edit|move|delete only
+  expect(sessionAllowsTool(code, 'mcp__basic-memory__canvas')).toBe(false);
+});
+
+test('leak: a workflow run script saved for an incognito session outlives the purge', async () => {
+  const e = await hub();
+  const s = await e.createSession({ incognito: true });
+  const runId = 'wfr_incog1';
+  // what WorkflowService.saveScript writes for every run (workflows/service.ts:707)
+  const dir = join(e.config.paths.home, 'workflows', 'runs');
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, `${runId}.js`);
+  writeFileSync(path, "agent('find the heronsecret in my tax files')");
+  e.repos.db
+    .query("INSERT INTO workflow_runs (id, name, source, script, script_sha, script_path, session_id, device, cwd, status, created_at) VALUES (?, 'w', 'inline', 'x', 'x', ?, ?, 'local', '/tmp', 'done', 1)")
+    .run(runId, path, s.id);
+  await e.deleteSession(s.id);
+  expect(count(e, 'SELECT COUNT(*) n FROM workflow_runs WHERE id = ?', runId)).toBe(0);
+  expect(existsSync(path)).toBe(false);
+});
+
+// Not a leak, no test: the workflow ledger (workflows/store.ts upsertLedger) is per-folder project state that
+// normal sessions in the same folder read and merge into, like a file on the device. Code incognito keeps
+// device-side work; deleting ledger rows would also drop findings other sessions wrote or confirmed.
+
+test('leak: the event replay buffer still holds a deleted incognito session', async () => {
+  const e = await hub();
+  const s = await e.createSession({ kind: 'chat', incognito: true, title: 'mothsecret' });
+  // what the runner emits for each message (replayed to any reconnecting client of the account)
+  e.bus.emit({ type: 'message.created', message: { id: 'msg_m1', sessionId: s.id, seq: 1, role: 'user', kind: 'normal', content: [{ type: 'text', text: 'mothsecret text' }], createdAt: Date.now() } } as never);
+  await e.deleteSession(s.id);
+  const left = (e.bus.since(0) ?? []).filter((ev) => JSON.stringify(ev).includes('mothsecret'));
+  expect(left).toHaveLength(0);
 });

@@ -108,7 +108,7 @@ import { platformBlocksFor } from '../platform/facts';
 import { detectTestCommand, detectWorkspaceFacts, type WorkspaceFacts } from '../session/project';
 import { verifyCommandFor } from '../session/verify-gate';
 import { CHAT_AGENT, chatSavesMemory, chatSettings, chatUsesMemory, mergeChatSettings, sessionAllowsTool } from '../session/chat';
-import { incognitoTree, purgeIncognitoRows, refuseIncognito, staleIncognito } from '../session/incognito';
+import { incognitoNotice, incognitoTree, purgeIncognitoRows, refuseIncognito, staleIncognito } from '../session/incognito';
 import { isUntrusted } from '../session/untrusted';
 import { meetingsOf } from '../meeting/index';
 import { friendShareOf, narrowsTools } from '../session/friend-share';
@@ -848,6 +848,7 @@ export class Engine implements EngineApi {
         void shellRegistry.disposeSession(sub).catch(() => {});
       }
       purgeIncognitoRows(this.repos.db, tree, this.config.paths.home);
+      this.bus.forget(tree);
       for (const sub of tree) if (sub !== id) this.bus.emit({ type: 'session.deleted', sessionId: sub, accountId: this.accountOf(session) });
     } else this.repos.sessions.delete(id);
     // its meeting-prep digest (meeting/store.ts) would keep its text after it is gone
@@ -2241,9 +2242,11 @@ export class Engine implements EngineApi {
     this.bus.emit({ type: 'notice', notice });
     return msg;
   }
-  notifyEvent(kind: keyof ConclaveConfig['notifications']['on'], notice: Omit<Notice, 'id' | 'createdAt'>): void {
+  notifyEvent(kind: keyof ConclaveConfig['notifications']['on'], input: Omit<Notice, 'id' | 'createdAt'>): void {
     // Notification hooks run whether or not a notification channel is on, like Claude Code's
-    const session = notice.sessionId ? this.repos.sessions.get(notice.sessionId) : undefined;
+    const session = input.sessionId ? this.repos.sessions.get(input.sessionId) : undefined;
+    // a push goes through the phone vendor's servers: an incognito session's says only that it waits (session/incognito.ts)
+    const notice = session?.incognito ? incognitoNotice(input) : input;
     if (session) {
       const type = kind === 'approvalNeeded' ? 'permission_prompt' : kind === 'sessionDone' ? 'idle_prompt' : kind;
       void this.runHook(session, 'Notification', { message: notice.body, title: notice.title, notification_type: type }, type);
