@@ -195,7 +195,7 @@ answers that did not change and runs the rest:
   replay every finished call.
 - **Rerun from here** on a call: earlier calls replay, that one and later ones
   run again.
-- **Re-run this node** on the graph: only that node's calls run again. A later
+- **Re-run this node** in Canvas: only that node's calls run again. A later
   call whose prompt uses the new answer runs too; every other call replays.
 - **Edit and run again**: an edited call reruns, and so do the calls that use
   its answer.
@@ -398,7 +398,15 @@ node reads a name it declares, or when it shares a line with other code.
   the canvas follow the same run.
 - **Stop** aborts it. While it runs, Run becomes **Queue run**: the next run
   waits in the Queue tab (Cancel removes it) and starts when this one ends.
-  The queue is kept in this browser and moves only while the file is open.
+  On a phone the foot button shows only Run, or Stop and **Queue** side by
+  side while a run goes on.
+- The queue lives on the hub (`GET` and `POST /api/canvas/queue`, `DELETE
+  /api/canvas/queue/:id`), per account and per file. The hub starts the next
+  queued run when the last one ends, with no app open, and keeps queued runs
+  across a hub restart. A queued run is an ordinary run once it starts: its
+  tool approvals still go to the Inbox and the phone, and a program run still
+  asks like an agent's Bash call. Nothing is approved because the app was
+  closed.
 - A failed node shows its error on the node and in the inspector, with
   **Re-run from here** for a workflow (it replays the calls that do not
   depend on that node from the journal) or **Re-run** for a program (no
@@ -406,9 +414,16 @@ node reads a name it declares, or when it shares a line with other code.
 - **Agent** (a tab next to the inspector, a sheet on a phone) continues a
   Code session in the file's folder: the program's folder session, or one
   started for the workflow's folder and kept per file. Each message carries
-  the file, the selected node and the last run's error. When the agent's
-  turn ends, the canvas reads the file again.
+  the file, the selected node and the last run's error. While the agent
+  works, the canvas reads the file's `sha` every 2 seconds and shows each
+  edit as it lands; it reads once more when the turn ends. Polling stops when
+  the session is idle or the tab closes.
 - Reopening `/canvas/...` shows the file's latest run, live if it still goes.
+- Canvas is the only graph. A run page shows a short summary (state, time,
+  cost, the failed step and its error) with **Open in Canvas**, and a Code
+  session has **Open in Canvas** in place of its Blocks pane. The old
+  addresses `/workflows/graph/<id>` and `/workflows/runs/<id>?view=graph`
+  open `/canvas/workflow/<id>`.
 
 ## API
 

@@ -101,3 +101,24 @@ export interface FlowEditResult {
   /** insert: the new node's id; rename: the block's new id (its name). */
   nodeId?: string;
 }
+
+/**
+ * A run waiting in Canvas's queue on the hub (canvas/queue.ts): one file runs
+ * at a time, and the hub starts the next one when the last ends, with no app
+ * open. file is `workflow:<id>` or `program:<sessionId>:<name>`.
+ */
+export interface CanvasQueuedRun {
+  id: string;
+  file: string;
+  kind: 'workflow' | 'program';
+  /** A workflow's id. */
+  workflow?: string;
+  /** A program: the session whose folder holds flows/<flow>.flow.ts. */
+  sessionId?: string;
+  flow?: string;
+  args?: Record<string, unknown>;
+  createdAt: number;
+}
+
+/** POST /api/canvas/queue */
+export type CanvasQueueInput = { workflow: string; args?: Record<string, unknown> } | { sessionId: string; flow: string };

@@ -42,6 +42,8 @@ export class FlowService {
   private readonly runs = new Map<string, LiveRun>();
   /** Versions of each flow the hub wrote, for undo: in memory, the last 40 per file. */
   private readonly versions = new Map<string, Map<string, string>>();
+  /** Told when a run starts and when it ends (canvas/queue.ts keeps live runs across a restart and starts the next queued one). */
+  readonly watchers = new Set<(e: { sessionId: string; name: string; view: FlowRunView; ended: boolean }) => void>();
 
   constructor(private readonly engine: Engine) {}
 
@@ -168,6 +170,22 @@ export class FlowService {
     return this.runs.get(`${sessionId}\0${name}`)?.view;
   }
 
+  /** A run the hub lost (it restarted while the run went on): its last run reads failed, with why. */
+  interrupted(sessionId: string, name: string, runId: string, startedAt: number, error: string): void {
+    if (this.runs.has(`${sessionId}\0${name}`)) return;
+    this.runs.set(`${sessionId}\0${name}`, { view: { runId, flow: name, status: 'failed', startedAt, finishedAt: Date.now(), output: '', nodes: {}, error }, controller: new AbortController() });
+  }
+
+  private tell(sessionId: string, name: string, view: FlowRunView, ended: boolean): void {
+    for (const w of this.watchers) {
+      try {
+        w({ sessionId, name, view, ended });
+      } catch {
+        // a watcher's error is its own
+      }
+    }
+  }
+
   stop(sessionId: string, name: string): FlowRunView | undefined {
     const r = this.runs.get(`${sessionId}\0${name}`);
     if (r && (r.view.status === 'running' || r.view.status === 'approval')) r.controller.abort();
@@ -192,11 +210,14 @@ export class FlowService {
     const controller = new AbortController();
     const view: FlowRunView = { runId: newId('flr'), flow: name, status: 'approval', startedAt: Date.now(), output: '', nodes: {} };
     this.runs.set(key, { view, controller });
-    void this.go(s, machine, cwd, command, graph, view, controller).catch((err) => {
-      view.status = 'failed';
-      view.error = (err as Error).message;
-      view.finishedAt = Date.now();
-    });
+    this.tell(sessionId, name, view, false);
+    void this.go(s, machine, cwd, command, graph, view, controller)
+      .catch((err) => {
+        view.status = 'failed';
+        view.error = (err as Error).message;
+        view.finishedAt = Date.now();
+      })
+      .finally(() => this.tell(sessionId, name, view, true));
     return view;
   }
 

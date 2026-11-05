@@ -13,12 +13,6 @@
   touch-action: none;
 }
 
-/* a phone in a page: one finger scrolls the page, the canvas does not pan */
-.cv-graph-scroll,
-.cv-graph-scroll .react-flow__pane {
-  touch-action: pan-y;
-}
-
 .cv-graph .react-flow__handle {
   width: 7px;
   height: 7px;

@@ -77,6 +77,28 @@ describe('another account', () => {
     expect(readFileSync(path, 'utf8')).toBe(script.replace("await agent('say b')\n", ''));
   });
 
+  test("the run queue is each account's: a member cannot queue into the owner's session or workflow, list or cancel the owner's", async () => {
+    const s = await t.engine.createSession({ title: 'owner flows', cwd: t.cwd });
+    mkdirSync(join(t.cwd, 'flows'), { recursive: true });
+    writeFileSync(join(t.cwd, 'flows/tick.flow.ts'), 'await Bun.sleep(20_000)\n');
+    // the first starts at once and keeps going, so the second waits
+    const queued = await call(OWNER, 'POST', '/api/canvas/queue', { sessionId: s.id, flow: 'tick' });
+    expect(queued.status).toBe(201);
+    expect(queued.body).toMatchObject({ kind: 'program', sessionId: s.id, flow: 'tick', file: `program:${s.id}:tick` });
+    const again = await call(OWNER, 'POST', '/api/canvas/queue', { sessionId: s.id, flow: 'tick' });
+    const mine = (await call(OWNER, 'GET', `/api/canvas/queue?file=${encodeURIComponent(`program:${s.id}:tick`)}`)).body as Array<{ id: string }>;
+    expect(mine.map((q) => q.id)).toEqual([again.body.id]);
+    expect((await call(alice, 'POST', '/api/canvas/queue', { sessionId: s.id, flow: 'tick' })).status).toBe(404);
+    expect((await call(alice, 'POST', '/api/canvas/queue', { workflow: 'owner-flow' })).status).toBe(404);
+    expect((await call(alice, 'GET', '/api/canvas/queue')).body).toEqual([]);
+    for (const q of mine) expect((await call(alice, 'DELETE', `/api/canvas/queue/${q.id}`)).status).toBe(404);
+    expect((await call(alice, 'DELETE', `/api/canvas/queue/${again.body.id}`)).status).toBe(404);
+    // the owner cancels hers
+    for (const q of mine) expect((await call(OWNER, 'DELETE', `/api/canvas/queue/${q.id}`)).status).toBe(204);
+    expect((await call(OWNER, 'GET', '/api/canvas/queue')).body).toEqual([]);
+    await call(OWNER, 'POST', `/api/sessions/${s.id}/flows/tick/stop`, {});
+  });
+
   test("the member's own Ask the agent session is hers: the owner's session list does not change, hers has it", async () => {
     const before = (await call(OWNER, 'GET', '/api/sessions')).body.length;
     const made = await call(alice, 'POST', '/api/sessions', { title: 'Canvas: mine.js' });
