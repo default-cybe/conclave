@@ -1,7 +1,7 @@
 /** Searchable list: type to filter, arrows to move, enter to pick, esc to cancel. */
 import React, { useMemo, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
-import { inkColor as c, truncate } from '../ansi';
+import { inkColor as c, truncateWords } from '../ansi';
 import type { PickerItem, PickerSpec } from './slash';
 
 const VISIBLE = 10;
@@ -50,6 +50,12 @@ export function Picker({ spec, width, onClose }: { spec: PickerSpec; width: numb
       void spec.onSelect(it, !key.return);
       return;
     }
+    // a number picks its row, as in the approval menu; once a search is typed, digits search
+    if (!queryRef.current && /^[1-9]$/.test(input) && list[Number(input) - 1]) {
+      onClose();
+      void spec.onSelect(list[Number(input) - 1], false);
+      return;
+    }
     if (key.backspace || key.delete) {
       setQuery((q) => q.slice(0, -1));
       setIndex(0);
@@ -63,31 +69,33 @@ export function Picker({ spec, width, onClose }: { spec: PickerSpec; width: numb
 
   const start = Math.max(0, Math.min(sel - Math.floor(VISIBLE / 2), filtered.length - VISIBLE));
   const shown = filtered.slice(start, start + VISIBLE);
-  const inner = Math.max(20, width - 4);
+  const numW = String(Math.min(filtered.length, start + VISIBLE)).length;
+  const hint = [spec.hint ?? 'enter select · esc cancel', ...(filtered.length > VISIBLE ? [`${sel + 1}/${filtered.length}`] : [])].join(' · ');
+  // a plain list under a dim header, like the approval menu: "❯ 1. label  hint"
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={c('cyan')} paddingX={1} width={Math.min(width, 100)}>
-      <Text>
-        <Text bold>{spec.title}</Text>
-        <Text dimColor> {query ? `· ${query}` : '· type to search'}</Text>
+    <Box flexDirection="column">
+      <Text dimColor wrap="truncate-end">
+        {spec.title} · {query ? `search: ${query}` : 'type to search'}
       </Text>
-      {shown.length === 0 && <Text dimColor>No matches</Text>}
+      {shown.length === 0 && <Text dimColor>{'  No matches'}</Text>}
       {shown.map((it, i) => {
         const active = start + i === sel;
-        const hintRoom = Math.max(0, inner - it.label.length - 6);
+        const num = `${String(start + i + 1).padStart(numW)}. `;
+        const hintRoom = Math.max(0, width - it.label.length - num.length - 8);
         return (
           <Text key={it.value + ':' + i} wrap="truncate-end">
             <Text color={c(active ? 'cyan' : undefined)}>{active ? '❯ ' : '  '}</Text>
+            <Text dimColor={!active}>{num}</Text>
             {it.color ? <Text color={c(it.color)}>● </Text> : null}
-            <Text bold={active} color={c(active ? 'cyan' : undefined)}>
-              {it.label}
-            </Text>
+            <Text color={c(active ? 'cyan' : undefined)}>{it.label}</Text>
             {it.current ? <Text color={c('green')}> ✓</Text> : null}
-            {it.hint && hintRoom > 8 ? <Text dimColor> {truncate(it.hint, hintRoom)}</Text> : null}
+            {it.hint && hintRoom > 8 ? <Text dimColor> {truncateWords(it.hint, hintRoom)}</Text> : null}
           </Text>
         );
       })}
-      {filtered.length > VISIBLE && <Text dimColor>{`${sel + 1}/${filtered.length}`}</Text>}
-      <Text dimColor>{spec.hint ?? 'enter select · esc cancel'}</Text>
+      <Text dimColor wrap="truncate-end">
+        {hint}
+      </Text>
     </Box>
   );
 }

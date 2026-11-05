@@ -21,13 +21,15 @@ import { ModelPicker } from '@/components/pickers/ModelPicker';
 import { toast } from '@/store/store';
 import { agoWords, errText, Group, SettingRow } from './parts';
 import { lastRunWords, modelChoice, REFLECT_LINE, TIME, timeWords } from './reflectWords';
-import { RecapSection } from './reflectRecap';
+import { ReportSection } from './reflectReport';
+import { LearningsSection } from './reflectLearnings';
 
 /** The recap of your week, month or year first, then the nightly reflection's settings and notes. */
 export function ReflectSection() {
   return (
     <div className="space-y-12">
-      <RecapSection />
+      <ReportSection />
+      <LearningsSection />
       <NightlySection />
     </div>
   );

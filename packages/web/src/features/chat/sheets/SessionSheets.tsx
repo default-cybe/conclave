@@ -479,7 +479,7 @@ function ResumeSheet({ session, onClose }: { session: Session; onClose: () => vo
     const ctx = { projects, devices };
     const mine = projectGroupOf(session, ctx).key;
     const list = Object.values(sessions)
-      .filter((s) => s.id !== session.id && !underParent(s) && !isChat(s) && !(s.meta as { workflow?: unknown } | undefined)?.workflow)
+      .filter((s) => s.id !== session.id && !s.incognito && !underParent(s) && !isChat(s) && !(s.meta as { workflow?: unknown } | undefined)?.workflow)
       .sort((a, b) => b.updatedAt - a.updatedAt);
     const same = mine === 'chats' ? [] : list.filter((s) => projectGroupOf(s, ctx).key === mine).slice(0, 12);
     const rest = list.filter((s) => !same.includes(s)).slice(0, 15);

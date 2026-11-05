@@ -486,6 +486,8 @@ data class CreateSessionInput(
     /** CHAT makes a plain chat: the chat agent, the hub as device, and the switches in [chat] (a missing one is on). */
     val kind: SessionKind? = null,
     val chat: ChatSettingsPatch? = null,
+    /** Incognito: not listed or searched, deleted when closed. Memory starts at "Use only". */
+    val incognito: Boolean? = null,
 )
 
 @Serializable
@@ -518,6 +520,8 @@ data class SessionPatch(
 data class ChatSettingsPatch(
     val webSearch: Boolean? = null,
     val memory: Boolean? = null,
+    /** False: "Use only", memory is read and nothing is saved. */
+    val memorySave: Boolean? = null,
     val thinking: ThinkingLevel? = null,
     @Transient val agentThinking: Boolean = false,
     /** A Cyber access program; [defaultCyber] sends `"cyber": null` (back to Default: nothing sent). */

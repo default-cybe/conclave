@@ -35,10 +35,12 @@ export interface InspectorProps {
   workflowId?: string;
   onRerun?: (seqs: number[]) => void;
   onEdited?: (view: WorkflowGraphView, diff: string) => void;
+  /** Canvas mode: a setting saves when you leave the field or press Enter, with no confirm (Undo is the safety net). */
+  saveNow?: (edit: { field: GraphEditField; value: string; part?: number }) => Promise<unknown>;
   onWorktree?: (seq: number, state: NonNullable<WorkflowCall['worktree']>['state']) => void;
 }
 
-export function Inspector({ node, run, calls, runCtx, view, workflowId, onRerun, onEdited, onWorktree }: InspectorProps) {
+export function Inspector({ node, run, calls, runCtx, view, workflowId, onRerun, onEdited, saveNow, onWorktree }: InspectorProps) {
   const phone = useIsMobile();
   const questions = useHub((s) => s.questions);
   const approvals = useHub((s) => s.approvals);
@@ -107,7 +109,7 @@ export function Inspector({ node, run, calls, runCtx, view, workflowId, onRerun,
           </div>
         )}
 
-        {view && <Edit node={node} view={view} workflowId={workflowId} onEdited={onEdited} />}
+        {view && <Edit node={node} view={view} workflowId={workflowId} onEdited={onEdited} saveNow={saveNow} />}
 
         <div>
           <div className="t-section pb-1.5 text-fg">Script</div>
@@ -149,9 +151,15 @@ const FIELDS: Array<{ field: GraphEditField; label: string; help: string }> = [
 ];
 
 /** Edit fields for an agent node of a workflow the caller owns, or the read-only note with Copy. */
-function Edit({ node, view, workflowId, onEdited }: { node: GraphNode; view: WorkflowGraphView; workflowId?: string; onEdited?: InspectorProps['onEdited'] }) {
+function Edit({ node, view, workflowId, onEdited, saveNow }: { node: GraphNode; view: WorkflowGraphView; workflowId?: string; onEdited?: InspectorProps['onEdited']; saveNow?: InspectorProps['saveNow'] }) {
   const [values, setValues] = useState<Record<string, string>>({});
-  const [confirm, setConfirm] = useState<{ field: GraphEditField; part?: number; value: string; label: string }>();
+  const [confirm, setConfirmRaw] = useState<{ field: GraphEditField; part?: number; value: string; label: string }>();
+  const setConfirm = (c: typeof confirm) => {
+    if (!saveNow || !c) return setConfirmRaw(c);
+    void saveNow(c).then(() => setValues({}));
+  };
+  // at once: leaving a changed field or Enter saves it
+  const commit = (field: GraphEditField, v: string, was: string, label: string, part?: number) => saveNow && v.trim() && v !== was && setConfirm({ field, value: v, label, ...(part !== undefined ? { part } : {}) });
   if (!view.editable)
     return (
       <Notice
@@ -182,10 +190,12 @@ function Edit({ node, view, workflowId, onEdited }: { node: GraphNode; view: Wor
         return (
           <Field key={field} label={label} help={computed ? `${label} is computed in the script; edit it there.` : help}>
             <div className="flex gap-2">
-              <Input value={v} disabled={computed} onChange={(e) => setValues((s) => ({ ...s, [field]: e.target.value }))} className="min-w-0 flex-1" />
-              <Button variant="outline" disabled={computed || v.trim() === current(field) || !v.trim()} onClick={() => setConfirm({ field, value: v, label })}>
-                Save
-              </Button>
+              <Input value={v} disabled={computed} onChange={(e) => setValues((s) => ({ ...s, [field]: e.target.value }))} onBlur={() => commit(field, v, current(field), label)} onKeyDown={(e) => e.key === 'Enter' && commit(field, v, current(field), label)} className="min-w-0 flex-1" />
+              {!saveNow && (
+                <Button variant="outline" disabled={computed || v.trim() === current(field) || !v.trim()} onClick={() => setConfirm({ field, value: v, label })}>
+                  Save
+                </Button>
+              )}
             </div>
           </Field>
         );
@@ -198,8 +208,8 @@ function Edit({ node, view, workflowId, onEdited }: { node: GraphNode; view: Wor
           const v = values[k] ?? String(p.value);
           return (
             <Field key={k} label={(node.promptParts?.length ?? 0) > 1 ? `Prompt, part ${i + 1}` : 'Prompt'}>
-              <Textarea value={v} rows={4} onChange={(e) => setValues((s) => ({ ...s, [k]: e.target.value }))} />
-              <div className="pt-2">
+              <Textarea value={v} rows={4} onChange={(e) => setValues((s) => ({ ...s, [k]: e.target.value }))} onBlur={() => commit('prompt', v, String(p.value), 'Prompt', i)} />
+              <div className={cn('pt-2', saveNow && 'hidden')}>
                 <Button variant="outline" disabled={v === p.value || !v.trim()} onClick={() => setConfirm({ field: 'prompt', part: i, value: v, label: 'Prompt' })}>
                   Save
                 </Button>

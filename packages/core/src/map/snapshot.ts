@@ -12,6 +12,7 @@
  */
 import type { Db } from '../storage/db';
 import type { Repos } from '../storage/repos';
+import { notIncognito } from '../storage/repos';
 import type { ApprovalRequest, Device, QuestionRequest, Session } from '../types';
 import type { MapDevice, MapGroup, MapNode, MapNodeKind, MapSnapshot, MapState, MapTool, MapUsage } from '../client/map';
 import { baseName, toolsFromRows, type ToolRow } from './tools';
@@ -140,7 +141,7 @@ export function buildMapSnapshot(src: MapSource, opts: MapBuildOptions = {}): Ma
     ? (db
         .query(
           `SELECT id, name, session_id, host_session, device, cwd, status, error, input_tokens, output_tokens, cost_usd, created_at, started_at, finished_at, resume_at
-           FROM workflow_runs WHERE created_at <= $at AND (finished_at IS NULL OR finished_at >= $since) AND session_id IN (SELECT id FROM sessions WHERE account_id = $acct) ORDER BY created_at DESC LIMIT 30`,
+           FROM workflow_runs WHERE created_at <= $at AND (finished_at IS NULL OR finished_at >= $since) AND session_id IN (SELECT id FROM sessions WHERE account_id = $acct AND ${notIncognito()}) ORDER BY created_at DESC LIMIT 30`,
         )
         .all({ at, since, acct } as any) as RunRow[])
     : [];
@@ -158,7 +159,7 @@ export function buildMapSnapshot(src: MapSource, opts: MapBuildOptions = {}): Ma
 
   // ----- sessions in the window ----------------------------------------------
   const idRows = db
-    .query(`SELECT id FROM sessions WHERE account_id = $acct AND archived = 0 AND created_at <= $at AND updated_at >= $since ORDER BY updated_at DESC LIMIT 400`)
+    .query(`SELECT id FROM sessions WHERE account_id = $acct AND archived = 0 AND ${notIncognito()} AND created_at <= $at AND updated_at >= $since ORDER BY updated_at DESC LIMIT 400`)
     .all({ at, since, acct } as any) as Row[];
   const all = new Map<string, Session>();
   for (const r of idRows) {

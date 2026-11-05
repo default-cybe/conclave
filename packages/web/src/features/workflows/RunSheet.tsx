@@ -15,6 +15,7 @@ import { attempt } from '@/store/store';
 import { useIsMobile } from '@/lib/hooks';
 import { ArgsForm, argsFromValues, valuesFromArgs, type ArgValues } from './args-form';
 import { SOURCE_WORD } from './words';
+import { workflowHref } from '../canvas/model';
 
 export function RunSheet({ workflow, onClose }: { workflow: WorkflowSummary | undefined; onClose: () => void }) {
   const phone = useIsMobile();
@@ -198,8 +199,8 @@ export function RunSheet({ workflow, onClose }: { workflow: WorkflowSummary | un
   );
   const footer = (
     <>
-      <Button variant="quiet" onClick={() => navigate(`/workflows/graph/${encodeURIComponent(workflow.id)}`)} size={phone ? 'touch' : 'md'}>
-        Open graph
+      <Button variant="quiet" onClick={() => navigate(workflowHref(workflow.id))} size={phone ? 'touch' : 'md'}>
+        Open in Canvas
       </Button>
       <Button variant="quiet" onClick={onClose} size={phone ? 'touch' : 'md'}>
         Cancel

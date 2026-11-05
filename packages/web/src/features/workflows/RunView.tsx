@@ -3,15 +3,15 @@
  * it works and the current step under it, the phases in meta order with one
  * row per call, the narrator log, a race's winner, the result, findings and
  * kept branches.
- * A row opens the agent's transcript in a side panel.
+ * A row opens the agent's transcript in a side panel. The graph is in Canvas
+ * (Open in Canvas); a computer gets a one-line summary next to that link.
  */
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { Link, useSearch, useLocation } from 'wouter';
-import { Segmented } from '@/components/ui/Field';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'wouter';
 import type { Message } from '@conclave/core/types';
 import type { WorkflowCall, WorkflowFinding, WorkflowRunDetail } from '@conclave/core/client';
 import { Page, PageHeader, usePageHeader } from '@/components/ui/Page';
-import { Button } from '@/components/ui/Button';
+import { Button, buttonClass } from '@/components/ui/Button';
 import { ConfirmDialog, SideSheet } from '@/components/ui/Overlay';
 import { Notice, SectionHeading } from '@/components/ui/Section';
 import { Meter } from '@/components/ui/Meter';
@@ -28,19 +28,13 @@ import { Markdown } from '../chat/Markdown';
 import { useRunDetail } from './data';
 import { CallHeader, CallRows, hasToolCell } from './CallRows';
 import { Findings } from './Findings';
+import { workflowHref } from '../canvas/model';
 import { Worktrees } from './Worktrees';
 import { Race, raceOf } from './Race';
-import { byPhase, isLive, petFor, statusParts } from './words';
-
-const RunGraph = lazy(() => import('../graph/RunGraph').then((m) => ({ default: m.RunGraph })));
+import { byPhase, isLive, petFor, runSummary, statusParts } from './words';
 
 export function RunView({ id }: { id: string }) {
-  // list or graph, in ?view= so a link or a reload keeps it; wide screens open the graph (it hid behind the switch), phones the list
-  const search = useSearch();
-  const [loc, go] = useLocation();
   const phone = useIsMobile();
-  const asked = new URLSearchParams(search).get('view');
-  const mode = asked === 'graph' || asked === 'list' ? asked : phone ? 'list' : 'graph';
   const { data, error, progress, lastActivity, reload } = useRunDetail(id);
   const [detail, setDetail] = useState<WorkflowRunDetail>();
   const [openCall, setOpenCall] = useState<WorkflowCall>();
@@ -80,7 +74,7 @@ export function RunView({ id }: { id: string }) {
     skip: (c: WorkflowCall) => void attempt(() => api().skipWorkflowCall(run.id, c.seq), `Skipped ${c.label ?? `call ${c.seq}`}`),
     rerun: (c: WorkflowCall) => void attempt(() => api().rerunWorkflow(run.id, c.seq), `Running again from ${c.label ?? `call ${c.seq}`}`).then(() => reload()),
   };
-  const rerunNode = (seqs: number[]) => void attempt(() => api().rerunWorkflow(run.id, { seqs }), 'Running the node again').then(() => reload());
+  const sum = runSummary(run, detail.calls);
   const setFinding = (f: WorkflowFinding) => setDetail((d) => (d ? { ...d, findings: d.findings.map((x) => (x.id === f.id ? f : x)) } : d));
   const setWorktree = (seq: number, state: NonNullable<WorkflowCall['worktree']>['state']) =>
     setDetail((d) => (d ? { ...d, calls: d.calls.map((c) => (c.seq === seq && c.worktree ? { ...c, worktree: { ...c.worktree, state } } : c)) } : d));
@@ -175,27 +169,30 @@ export function RunView({ id }: { id: string }) {
           )}
         </section>
 
-        <div className="flex items-center justify-between gap-3">
-          <Segmented
-            label="View"
-            value={mode}
-            onChange={(v) => go(`${loc}?view=${v}`, { replace: true })}
-            options={[
-              { value: 'list', label: 'List' },
-              { value: 'graph', label: 'Graph' },
-            ]}
-          />
-        </div>
+        {/* phones: the phase list below is the summary */}
+        <section aria-label="Summary" className="flex items-start justify-between gap-4 rounded-[var(--r-2)] border border-rule px-4 py-3 phone:border-0 phone:p-0">
+          <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-[13px] phone:hidden">
+            <dt className="text-fg-3">State</dt>
+            <dd className={cn('cv-state', run.status === 'failed' ? 'text-fault' : live ? 'text-signal' : 'text-fg')}>{sum.state}</dd>
+            <dt className="text-fg-3">Took</dt>
+            <dd className="num text-fg">{sum.took}</dd>
+            <dt className="text-fg-3">Cost</dt>
+            <dd className="num text-fg">{sum.cost}</dd>
+            {sum.failed && (
+              <>
+                <dt className="text-fg-3">Failed at</dt>
+                <dd className="min-w-0 break-words text-fault">
+                  {sum.failed.step}: {sum.failed.error}
+                </dd>
+              </>
+            )}
+          </dl>
+          <Link href={workflowHref(run.id)} className={cn(buttonClass('outline', phone ? 'touch' : 'md'), 'shrink-0')}>
+            Open in Canvas
+          </Link>
+        </section>
 
-        {mode === 'graph' && (
-          <section aria-label="Graph">
-            <Suspense fallback={<LoadingRows loading rows={4} />}>
-              <RunGraph detail={detail} onRerun={rerunNode} onWorktree={setWorktree} />
-            </Suspense>
-          </section>
-        )}
-
-        {mode === 'list' && phases.map((p, i) => (
+        {phases.map((p, i) => (
           <section key={p.title} aria-labelledby={`ph-${i}`}>
             <SectionHeading
               id={`ph-${i}`}

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   classifyHttpError,
   classifyStreamError,
+  modelRefusal,
   nextMidnightIn,
   parseRateLimitHeaders,
   parseResetValue,
@@ -12,6 +13,20 @@ import { httpRequest, postJson } from '../../src/providers/http';
 
 const NOW = Date.parse('2026-10-16T08:00:00Z');
 const body = (o: unknown) => JSON.stringify(o);
+
+describe('modelRefusal', () => {
+  const err = (status: number, o: unknown) => classifyHttpError('cliproxy', status, {}, body(o), NOW);
+  test('a plan refusing one model', () => {
+    expect(modelRefusal(err(404, { type: 'error', error: { type: 'not_found_error', message: 'model: claude-mythos-5-1' } }))).toBe('Your plan refused it (HTTP 404)');
+    expect(modelRefusal(err(403, { type: 'error', error: { type: 'permission_error', message: 'Your organization does not have access to this model' } }))).toBe('Your plan refused it (HTTP 403)');
+    expect(modelRefusal(err(400, { error: { message: 'claude-mythos-5-1 is not available on your plan' } }))).toBe('Your plan refused it (HTTP 400)');
+  });
+  test('not a refusal: a missing catalog entry, a sign-in, a limit', () => {
+    expect(modelRefusal(err(400, { error: { message: 'unknown provider for model claude-mythos-5-1', type: 'invalid_request_error', code: 'model_not_found' } }))).toBeUndefined();
+    expect(modelRefusal(err(403, { error: { type: 'permission_error', message: 'OAuth token has been revoked' } }))).toBeUndefined();
+    expect(modelRefusal(err(429, { error: { type: 'rate_limit_error', message: 'model not available right now' } }))).toBeUndefined();
+  });
+});
 
 describe('retry hints', () => {
   test('retry-after seconds, HTTP date and retry-after-ms', () => {

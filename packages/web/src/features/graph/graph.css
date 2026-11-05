@@ -13,12 +13,6 @@
   touch-action: none;
 }
 
-/* a phone in a page: one finger scrolls the page, the canvas does not pan */
-.cv-graph-scroll,
-.cv-graph-scroll .react-flow__pane {
-  touch-action: pan-y;
-}
-
 .cv-graph .react-flow__handle {
   width: 7px;
   height: 7px;
@@ -43,6 +37,28 @@
   position: absolute;
   inset: -8px;
   border-radius: 50%;
+}
+
+/* a finger gets a 44px port (SPEC 14); the ring is invisible */
+@media (pointer: coarse) {
+  .cv-full .react-flow__node-flow .react-flow__handle.connectionindicator::after {
+    inset: -16px;
+  }
+}
+
+/* while a wire is dragged: a port it fits lights up, one it does not is in fault (CANVAS-MODE.md 6.2) */
+.cv-graph .react-flow__handle.connectingto.valid {
+  background: var(--signal);
+}
+
+.cv-graph .react-flow__handle.connectingto:not(.valid) {
+  background: var(--fault);
+}
+
+/* shift-drag box */
+.cv-graph .react-flow__selection {
+  background: color-mix(in srgb, var(--signal) 8%, transparent);
+  border: 1px dashed var(--signal);
 }
 
 .cv-graph .react-flow__node-wf:focus-visible {
@@ -94,4 +110,59 @@
 
 .cv-graph .react-flow__controls-button:hover {
   background: var(--bg-hover);
+}
+
+/* Canvas mode (docs/design/CANVAS-MODE.md): a faint dot grid, the only grid in
+   the app (owner decision on PR #250), and a minimap in the state tokens. */
+.cv-full {
+  --xy-background-pattern-color: var(--rule-2);
+  --xy-minimap-background-color: var(--bg-raise);
+  --xy-minimap-mask-background-color: color-mix(in srgb, var(--bg) 62%, transparent);
+  --xy-minimap-mask-stroke-color: var(--rule-2);
+  --xy-minimap-mask-stroke-width: 1;
+}
+
+/* a long-press on a node opens its menu: no iOS callout or text selection over it */
+.cv-full .react-flow__node {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Safari will not type into a field under user-select: none */
+.cv-full .react-flow__node input {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.cv-full .react-flow__minimap {
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-2);
+  overflow: hidden;
+}
+
+.cv-full .react-flow__minimap-node.cv-mini {
+  fill: var(--fg-4);
+}
+
+.cv-full .react-flow__minimap-node.cv-mini-band {
+  fill: none;
+  stroke: var(--rule-2);
+}
+
+.cv-full .react-flow__minimap-node.cv-mini-running {
+  fill: var(--signal);
+}
+
+.cv-full .react-flow__minimap-node.cv-mini-waiting,
+.cv-full .react-flow__minimap-node.cv-mini-parked {
+  fill: var(--warn);
+}
+
+.cv-full .react-flow__minimap-node.cv-mini-failed {
+  fill: var(--fault);
+}
+
+.cv-full .react-flow__minimap-node.cv-mini-done {
+  fill: var(--ok);
 }

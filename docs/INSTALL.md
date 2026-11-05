@@ -762,8 +762,15 @@ For a ChatGPT plan the hub also reads the plan's own model list, the way
 the Codex app does. CLIProxyAPI serves only the models in its catalog, so
 when the plan lists one the catalog lacks, the CLIProxyAPI the hub runs for
 you gets it added to that plan's part of its catalog, and the model shows
-and answers. Your own CLIProxyAPI's catalog is left alone: there such a
-model shows once CLIProxyAPI's catalog has it.
+and answers. A Claude plan has no model list of its own to read, so once a
+Claude account is signed in, the CLIProxyAPI the hub runs gets the Claude
+models Conclave knows and its catalog lacks (Claude Mythos 5.1, for
+example) added to its Claude part. Your own CLIProxyAPI's catalog is left
+alone: there such a model shows once CLIProxyAPI's catalog has it.
+When your plan refuses a model (it answers 403 or 404, or says the model
+is not available), the model picker greys that model out with the reason
+instead of sending every turn to it. **Refresh models** asks the plan
+again; otherwise the mark goes after a day.
 The lists are read again every 10 minutes and on every coding agent turn. To
 read them now, press **Refresh models** in **Settings > Models >
 Subscriptions** (Models). It also starts each coding agent that is on, once,
@@ -1084,6 +1091,28 @@ about 40 MB), fetched once in the background.
   on your user PATH.
 
 Then open a new terminal window and type `conclave`.
+
+**Chat keys.** `conclave` opens the terminal chat: the conversation above, one
+input box at the bottom and a status row under it (model, context left, cost).
+Press `?` on an empty prompt to see the keys.
+
+| Key | Does |
+| --- | --- |
+| enter | send |
+| shift+enter, `\` then enter, alt+enter, ctrl+j | new line (shift+enter needs a terminal with the kitty keyboard protocol: kitty, Ghostty, WezTerm, foot, iTerm2 with it on) |
+| `/` | commands, filtered as you type; `/help` lists them |
+| `@` | file paths; `@app` searches the whole folder, `@src/` lists one folder |
+| up, down | earlier messages |
+| esc | interrupt the turn |
+| ctrl+o | show every tool output and thought in full, again to collapse |
+| ctrl+t | show thinking from the next reply on |
+| shift+tab | permission mode (ask, accept edits, plan, bypass) |
+| ctrl+l | redraw the screen |
+| ctrl+c | clear the input; twice to quit |
+
+A permission prompt is a numbered menu: press 1 to 5, or the arrows and
+enter; esc denies and stops the turn. Resizing or ctrl+l never erases the
+terminal's scrollback.
 
 **Signed in.** It talks to the hub the app uses, with no `conclave login`.
 The app pairs it as an app of its own (the hub lists it by this computer's

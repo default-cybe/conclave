@@ -33,7 +33,8 @@ import { CHATS, deviceName, groupSessions, type GroupContext } from './grouping'
 import { hrefOf, liveState } from './recents';
 import { sessionRepo } from './github';
 
-export type SideMode = 'chat' | 'assistant' | 'code';
+/** canvas lists files (features/canvas/files.tsx), not sessions: sideModeOf never returns it. */
+export type SideMode = 'chat' | 'assistant' | 'code' | 'canvas';
 export type SideGroupBy = 'project' | 'device' | 'time';
 
 export const SIDE_GROUP_WORDS: Record<SideGroupBy, string> = { project: 'Project', device: 'Device', time: 'Time' };
@@ -54,7 +55,8 @@ export function sideModeOf(s: Pick<Session, 'kind' | 'agent'>): SideMode {
 export function modeSessions(sessions: Iterable<Session>, mode: SideMode): Session[] {
   const out: Session[] = [];
   for (const s of sessions) {
-    if (s.archived || underParent(s) || s.routineId || inWorkflow(s)) continue;
+    // an incognito session is open only where you are in it (core session/incognito.ts)
+    if (s.archived || s.incognito || underParent(s) || s.routineId || inWorkflow(s)) continue;
     if (sideModeOf(s) !== mode) continue;
     out.push(s);
   }
@@ -205,11 +207,11 @@ function modeGroups(i: SideInput): SideGroupOut[] {
 
 /** What the sidebar calls the list: "Chats", "Assistant" or "Sessions". */
 export function sideListWord(mode: SideMode): string {
-  return mode === 'chat' ? 'Chats' : mode === 'assistant' ? 'Assistant' : 'Sessions';
+  return mode === 'chat' ? 'Chats' : mode === 'assistant' ? 'Assistant' : mode === 'canvas' ? 'Programs and workflows' : 'Sessions';
 }
 
 /** The words of the New row for a mode. */
-export const NEW_WORDS: Record<SideMode, string> = { chat: 'New chat', assistant: 'Message assistant', code: 'New session' };
+export const NEW_WORDS: Record<SideMode, string> = { chat: 'New chat', assistant: 'Message assistant', code: 'New session', canvas: 'All of Canvas' };
 
 // ---------------------------------------------------------------------------
 // Delegated work
@@ -251,7 +253,7 @@ export function delegatedRows(i: { sessions: Session[]; ctx: GroupContext; waiti
   const waiting = i.waiting ?? new Set<string>();
   const byId = new Map(i.sessions.map((s) => [s.id, s]));
   return i.sessions
-    .filter((s) => !s.archived && isDelegated(s))
+    .filter((s) => !s.archived && !s.incognito && isDelegated(s))
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, i.limit ?? DELEGATED_LIMIT)
     .map((s) => {

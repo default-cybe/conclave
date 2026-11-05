@@ -2,7 +2,13 @@
 
 package dev.conclave.app.ui.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,7 +21,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -28,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
@@ -37,16 +49,22 @@ import dev.conclave.app.ui.common.ConfirmDialog
 import dev.conclave.app.ui.common.HubViewModel
 import dev.conclave.app.ui.common.LocalAppContainer
 import dev.conclave.app.ui.common.MessagesEffect
+import dev.conclave.app.ui.common.SectionHeader
 import dev.conclave.app.ui.common.TopBar
 import dev.conclave.app.ui.common.errorText
 import dev.conclave.app.ui.motion.ToastHost
 import dev.conclave.app.ui.motion.rememberToasts
 import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
+import dev.conclave.client.logic.Format
 import dev.conclave.client.logic.ReflectWords
+import dev.conclave.client.model.Learning
+import dev.conclave.client.model.LearningSave
+import dev.conclave.client.model.LearningsInfo
 import dev.conclave.client.model.MemoryEntry
 import dev.conclave.client.model.ReflectInfo
 import dev.conclave.client.model.ReflectPatch
+import dev.conclave.client.model.ReflectReport
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -55,12 +73,21 @@ import kotlinx.coroutines.launch
  * Settings > Reflect (docs/ASSISTANT.md, Nightly reflection), as on the web:
  * the switch (the same setting as the hub's Settings > Assistant), Reflect
  * now, what the last run did, and the notes it keeps, each with Delete. The
- * time and the model are set on the web.
+ * time and the model are set on the web. Above it, the report of your week,
+ * month or last 3, 6 or 12 months (GET /api/reflect/report), with Refresh.
  */
 class ReflectViewModel(hub: HubRepository) : HubViewModel(hub) {
     val info = MutableStateFlow<ReflectInfo?>(null)
     val refreshing = MutableStateFlow(false)
     val busy = MutableStateFlow(false)
+    val range = MutableStateFlow("week")
+    /** Reports kept per range, as the hub keeps them. */
+    val reports = MutableStateFlow<Map<String, ReflectReport>>(emptyMap())
+    val reportError = MutableStateFlow<String?>(null)
+    val remaking = MutableStateFlow(false)
+    val learnings = MutableStateFlow<LearningsInfo?>(null)
+    /** The learning a Save or Skip is going for. */
+    val learningBusy = MutableStateFlow<String?>(null)
 
     init {
         refresh()
@@ -76,6 +103,58 @@ class ReflectViewModel(hub: HubRepository) : HubViewModel(hub) {
             } finally {
                 refreshing.value = false
             }
+        }
+        loadReport()
+        viewModelScope.launch {
+            try {
+                learnings.value = hub.api { it.learnings() }
+            } catch (e: Exception) {
+                say(errorText(e))
+            }
+        }
+    }
+
+    /** Save to memory, with the edited text when there is one. */
+    fun saveLearning(l: Learning, text: String?) = learningCall(l, "Saved.") { hub.api { it.saveLearning(l.id, LearningSave(text = text)) } }
+
+    fun skipLearning(l: Learning) = learningCall(l, null) { hub.api { it.skipLearning(l.id) } }
+
+    private fun learningCall(l: Learning, done: String?, block: suspend () -> LearningsInfo) = action(done) {
+        learningBusy.value = l.id
+        try {
+            learnings.value = block()
+        } finally {
+            learningBusy.value = null
+        }
+    }
+
+    fun setRange(r: String) {
+        range.value = r
+        if (reports.value[r] == null) loadReport()
+    }
+
+    private fun loadReport() {
+        val r = range.value
+        reportError.value = null
+        viewModelScope.launch {
+            try {
+                val d = hub.api { it.reflectReport(r) }
+                reports.value = reports.value + (r to d)
+            } catch (e: Exception) {
+                reportError.value = errorText(e)
+            }
+        }
+    }
+
+    /** Refresh: the hub makes the report again with one call on your small model. */
+    fun remake() = action {
+        val r = range.value
+        remaking.value = true
+        try {
+            val d = hub.api { it.reflectRefresh(r) }
+            reports.value = reports.value + (r to d)
+        } finally {
+            remaking.value = false
         }
     }
 
@@ -125,6 +204,9 @@ fun ReflectScreen(onBack: () -> Unit) {
     Scaffold(topBar = { TopBar("Reflect", onBack = onBack) }, snackbarHost = { ToastHost(snackbar) }, containerColor = c.bg) { padding ->
         PullToRefreshBox(isRefreshing = refreshing, onRefresh = { vm.refresh() }, modifier = Modifier.padding(padding).fillMaxSize()) {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
+                ReportSection(vm)
+                LearningsSection(vm)
+                SectionHeader("Nightly reflection", Modifier.padding(top = 12.dp))
                 Text(ReflectWords.LINE, style = ConclaveType.meta, color = c.fg3, modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
                 val r = info ?: return@Column
                 // the switch: the same setting as Settings, Assistant on the hub
@@ -176,5 +258,191 @@ fun ReflectScreen(onBack: () -> Unit) {
             },
             onDismiss = { deleting = null },
         )
+    }
+}
+
+private val DAYS = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+/** The report, as on the web's Settings > Reflect: each section hidden when there is too little to say. */
+@Composable
+private fun ReportSection(vm: ReflectViewModel) {
+    val range by vm.range.collectAsStateWithLifecycle()
+    val reports by vm.reports.collectAsStateWithLifecycle()
+    val error by vm.reportError.collectAsStateWithLifecycle()
+    val remaking by vm.remaking.collectAsStateWithLifecycle()
+    val c = Conclave.colors
+    val r = reports[range]
+    val pad = Modifier.padding(horizontal = 20.dp)
+
+    SectionHeader(if (r != null) "Your report, ${ReflectWords.range(r)}" else "Your report")
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+        ReflectWords.RANGES.forEachIndexed { i, (value, label) ->
+            SegmentedButton(
+                selected = range == value,
+                onClick = { vm.setRange(value) },
+                shape = SegmentedButtonDefaults.itemShape(index = i, count = ReflectWords.RANGES.size),
+                label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            )
+        }
+    }
+    if (error != null && r == null) {
+        Text("Could not load the report. $error", style = ConclaveType.meta, color = c.fault, modifier = pad)
+        return
+    }
+    if (r == null) {
+        Text("Making your report.", style = ConclaveType.meta, color = c.fg3, modifier = pad)
+        return
+    }
+    val empty = r.totals.chats == 0 && r.totals.sessions == 0
+    Text(r.headline, style = ConclaveType.title, color = c.fg, modifier = pad.padding(top = 4.dp))
+    Row(pad.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(ReflectWords.made(r), style = ConclaveType.meta, color = c.fg3, modifier = Modifier.weight(1f))
+        if (!empty) {
+            Spacer(Modifier.width(12.dp))
+            OutlinedButton(onClick = { vm.remake() }, enabled = !remaking) { Text(if (remaking) "Making it" else "Refresh") }
+        }
+    }
+    r.insightsNote?.let { Text(it, style = ConclaveType.meta, color = c.warn, modifier = pad.padding(top = 4.dp)) }
+    if (empty) return
+
+    // big numbers
+    Row(pad.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ReflectWords.bigNumbers(r.totals).forEach { (value, label) ->
+            Column(Modifier.weight(1f)) {
+                Text(value, style = ConclaveType.stat, color = c.fg)
+                Text(label, style = ConclaveType.micro, color = c.fg3)
+            }
+        }
+    }
+
+    val w = r.work
+    if (w.topics.isNotEmpty() || w.projects.isNotEmpty()) {
+        SectionHeader("What you worked on")
+        val rows = if (w.topics.isNotEmpty()) w.topics.map { Triple(it.name, it.example, "") } else w.projects.map { Triple(it.name, it.example, if (it.sessions == 1) "1 session" else "${it.sessions} sessions") }
+        rows.forEach { (name, line, meta) ->
+            Column(pad.fillMaxWidth().padding(vertical = 8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(name, style = ConclaveType.rowTitle, color = c.fg, modifier = Modifier.weight(1f))
+                    if (meta.isNotEmpty()) Text(meta, style = ConclaveType.metaNum, color = c.fg3)
+                }
+                if (line.isNotEmpty()) Text(line, style = ConclaveType.meta, color = c.fg3, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (w.topics.isNotEmpty() && w.projects.isNotEmpty()) {
+            Text("Projects: ${w.projects.joinToString(", ") { "${it.name} ${it.sessions}" }}.", style = ConclaveType.body, color = c.fg2, modifier = pad.padding(top = 4.dp))
+        }
+        if (w.newThisPeriod.isNotEmpty()) Text("New this period: ${w.newThisPeriod.joinToString(", ")}.", style = ConclaveType.body, color = c.fg2, modifier = pad.padding(top = 4.dp))
+    }
+
+    val rh = r.rhythm
+    if (rh.messages >= 5) {
+        SectionHeader("When you work")
+        val max = rh.heatmap.flatten().maxOrNull() ?: 0
+        Column(pad.fillMaxWidth().padding(top = 10.dp).horizontalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            rh.heatmap.forEachIndexed { d, row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(DAYS.getOrElse(d) { "" }, style = ConclaveType.micro, color = c.fg3, modifier = Modifier.width(30.dp))
+                    row.forEach { v ->
+                        val level = ReflectWords.heatLevel(v, max)
+                        Box(Modifier.width(10.dp).height(12.dp).background(if (level == 0) c.bgSunk else c.fg.copy(alpha = 0.15f + 0.2f * (level - 1)), RoundedCornerShape(2.dp)))
+                    }
+                }
+            }
+        }
+        Text(ReflectWords.rhythm(rh), style = ConclaveType.body, color = c.fg2, modifier = pad.padding(top = 10.dp))
+        ReflectWords.lateLine(rh.lateNightShare, rh.messages)?.let { Text(it, style = ConclaveType.body, color = c.fg, modifier = pad.padding(top = 4.dp)) }
+    }
+
+    if (r.habits.isNotEmpty()) {
+        SectionHeader("How you work with AI")
+        r.habits.forEach { h ->
+            val (title, what) = ReflectWords.HABITS[h.key] ?: (h.key to "")
+            Column(pad.fillMaxWidth().padding(vertical = 8.dp)) {
+                Text(title, style = ConclaveType.rowTitle, color = c.fg)
+                if (what.isNotEmpty()) Text(what, style = ConclaveType.micro, color = c.fg3)
+                Text(h.observation, style = ConclaveType.body, color = c.fg2, modifier = Modifier.padding(top = 2.dp))
+                h.example?.let { Text(it, style = ConclaveType.meta, color = c.fg3, modifier = Modifier.padding(top = 2.dp)) }
+            }
+        }
+    }
+
+    val m = r.models
+    if (m.models.isNotEmpty()) {
+        SectionHeader("Your models and agents")
+        m.models.take(5).forEach { u ->
+            Row(pad.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(ReflectWords.modelLine(u.name), style = ConclaveType.rowTitle, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(12.dp))
+                Text(Format.tokens(u.tokens), style = ConclaveType.metaNum, color = c.fg2)
+                Text(if (u.costUsd > 0) Format.usd(u.costUsd) else "plan", style = ConclaveType.metaNum, color = c.fg3, modifier = Modifier.width(64.dp).padding(start = 12.dp))
+            }
+        }
+        ReflectWords.modelsLine(m).takeIf { it.isNotEmpty() }?.let { Text(it, style = ConclaveType.body, color = c.fg2, modifier = pad.padding(top = 4.dp)) }
+    }
+
+    val fun_ = ReflectWords.funRows(r)
+    if (fun_.size >= 2) {
+        SectionHeader("Fun stats")
+        fun_.forEach { (k, v) ->
+            Column(pad.fillMaxWidth().padding(vertical = 6.dp)) {
+                Text(k, style = ConclaveType.meta, color = c.fg3)
+                Text(v, style = ConclaveType.body, color = c.fg)
+            }
+        }
+    }
+
+    if (r.suggestions.isNotEmpty()) {
+        SectionHeader("Suggestions")
+        r.suggestions.forEachIndexed { i, s ->
+            Column(pad.fillMaxWidth().padding(vertical = 6.dp)) {
+                Text("${i + 1}. ${s.text}", style = ConclaveType.rowTitle, color = c.fg)
+                if (s.why.isNotEmpty()) Text(s.why, style = ConclaveType.meta, color = c.fg3)
+            }
+        }
+    }
+
+    if (r.question.isNotEmpty()) {
+        SectionHeader("A question for you")
+        Text(r.question, style = ConclaveType.prose, color = c.fg, modifier = pad.padding(top = 8.dp))
+    }
+
+    ReflectWords.excluded(r.excluded)?.let { Text(it, style = ConclaveType.meta, color = c.fg3, modifier = pad.padding(top = 16.dp)) }
+}
+
+/** Learnings, as on the web: each with Save (to memory), Edit and Skip. Agent, project and skill files are saved on the web. */
+@Composable
+private fun LearningsSection(vm: ReflectViewModel) {
+    val d by vm.learnings.collectAsStateWithLifecycle()
+    val busy by vm.learningBusy.collectAsStateWithLifecycle()
+    val c = Conclave.colors
+    val l = d ?: return
+    SectionHeader(if (l.pending > 0) "Learnings ${l.pending}" else "Learnings")
+    if (l.items.isEmpty()) {
+        Text(ReflectWords.learningsEmpty(l.queued), style = ConclaveType.body, color = c.fg3, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+        return
+    }
+    l.items.forEach { item -> LearningRow(item, busy == item.id, onSave = { text -> vm.saveLearning(item, text) }, onSkip = { vm.skipLearning(item) }) }
+}
+
+@Composable
+private fun LearningRow(l: Learning, busy: Boolean, onSave: (String?) -> Unit, onSkip: () -> Unit) {
+    val c = Conclave.colors
+    var edit by remember(l.id) { mutableStateOf<String?>(null) }
+    val refused = l.targets.firstOrNull { it.target == "memory" }?.refused
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
+        Text(ReflectWords.learningMeta(l), style = ConclaveType.meta, color = c.fg3)
+        Text("\u201c${l.quote}\u201d", style = ConclaveType.meta, color = c.fg2, modifier = Modifier.padding(top = 4.dp))
+        val e = edit
+        if (e != null) {
+            OutlinedTextField(value = e, onValueChange = { edit = it }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+        } else {
+            Text(l.fact, style = ConclaveType.body, color = c.fg, modifier = Modifier.padding(top = 6.dp))
+        }
+        refused?.let { Text(it, style = ConclaveType.meta, color = c.fg3, modifier = Modifier.padding(top = 4.dp)) }
+        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(onClick = { onSave(e?.trim()) }, enabled = !busy && refused == null && (e == null || e.isNotBlank())) { Text(if (busy) "Saving" else "Save") }
+            TextButton(onClick = { edit = if (e == null) l.fact else null }) { Text(if (e == null) "Edit" else "Cancel edit", color = c.fg2) }
+            TextButton(onClick = onSkip, enabled = !busy) { Text("Skip", color = c.fg2) }
+        }
     }
 }

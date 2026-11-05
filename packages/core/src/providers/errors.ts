@@ -574,6 +574,21 @@ export function classifyStreamError(provider: string, error: unknown, headers?: 
   return classifyHttpError(provider, statusForType(info.type ?? info.status, info.code), headers, body);
 }
 
+/**
+ * Why a plan refused one model, or undefined when the error says something
+ * else: a 404, a 403 that names a model, or "not available"/model_not_found.
+ * CLIProxyAPI's own "unknown provider for model" is not one: its catalog lacks
+ * the model (catalog.ts), the plan was never asked.
+ */
+export function modelRefusal(e: ProviderError): string | undefined {
+  if (e.kind === 'rate_limit' || e.kind === 'quota' || e.kind === 'aborted') return undefined;
+  const text = `${e.message} ${e.body ?? ''}`.slice(0, 4000);
+  if (/unknown provider for model/i.test(text)) return undefined;
+  const words = /not available|not_available|model_not_found|not_found_error|does not have access to (the )?model/i.test(text);
+  if (e.status === 404 || words || (e.status === 403 && /model/i.test(text))) return `Your plan refused it${e.status ? ` (HTTP ${e.status})` : ''}`;
+  return undefined;
+}
+
 /** Wrap a fetch failure. */
 export function classifyFetchError(provider: string, err: unknown, signal?: AbortSignal): ProviderError {
   if (err instanceof ProviderError) return err;

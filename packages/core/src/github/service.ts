@@ -722,6 +722,7 @@ export class GithubService {
         ...(input.title ? { title: input.title } : {}),
         ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
         ...(input.chat ? { chat: input.chat } : {}),
+        ...(input.incognito === true ? { incognito: true } : {}),
       });
     } catch (err) {
       await git(machine, root, `worktree remove --force ${shq(wt)}`).catch(() => undefined);

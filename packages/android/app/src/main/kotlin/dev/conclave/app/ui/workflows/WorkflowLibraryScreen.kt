@@ -190,9 +190,9 @@ fun WorkflowLibraryScreen(onBack: () -> Unit, onOpenRun: (String) -> Unit) {
     }
 }
 
-/** The launch form: typed fields from meta.args, or a JSON box when the script declares none, plus presets. */
+/** The launch form: typed fields from meta.args, or a JSON box when the script declares none, plus presets. Canvas uses it too, with [confirm] Queue for Queue run. */
 @Composable
-private fun LaunchDialog(
+internal fun LaunchDialog(
     workflow: WorkflowSummary,
     presets: List<WorkflowPreset>,
     starting: Boolean,
@@ -200,6 +200,7 @@ private fun LaunchDialog(
     onSavePreset: (String, JsonElement?) -> Unit,
     onRemovePreset: (WorkflowPreset) -> Unit,
     onStart: (JsonElement?) -> Unit,
+    confirm: String = "Start",
 ) {
     val schema = workflow.argsSchema
     val texts = remember { mutableStateMapOf<String, String>() }
@@ -285,7 +286,7 @@ private fun LaunchDialog(
                     val r = currentArgs()
                     if (r.error == null) onStart(r.args)
                 },
-            ) { Text(if (starting) "Starting…" else "Start") }
+            ) { Text(if (starting) "Starting…" else confirm) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

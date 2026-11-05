@@ -68,7 +68,16 @@ function rowToSession(r: Row): Session {
     ...projectIdOf(r.meta),
     // workflows: the Ultra switch (migration 5)
     ...(r.ultra ? { ultra: true } : {}),
+    ...(r.incognito ? { incognito: true } : {}),
   };
+}
+
+/**
+ * SQL that keeps incognito sessions out (session/incognito.ts), on the sessions row or its alias.
+ * Every list, search, summary and stats query adds it; only the session's own routes read one.
+ */
+export function notIncognito(alias = ''): string {
+  return `COALESCE(${alias ? `${alias}.` : ''}incognito, 0) = 0`;
 }
 
 export interface SessionFilter {
@@ -89,6 +98,8 @@ export interface SessionFilter {
   kind?: SessionKind;
   /** Only the assistant home thread (meta.home, engine.assistantHome). */
   home?: boolean;
+  /** true: only incognito sessions (the purge). Left out, incognito ones are skipped, except in a list of one parent's children. */
+  incognito?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -99,10 +110,11 @@ export class SessionRepo {
   insert(s: Session): void {
     this.db
       .query(
-        `INSERT INTO sessions (id,title,agent,model,mode,permission_mode,cwd,device,status,parent_id,task_id,routine_id,tags,pinned,archived,created_at,updated_at,external,mode_config,stats,resume_at,error,meta,kind,chat,ultra,account_id)
-         VALUES ($id,$title,$agent,$model,$mode,$pm,$cwd,$device,$status,$parent,$task,$routine,$tags,$pinned,$archived,$created,$updated,$external,$modeConfig,$stats,$resumeAt,$error,$meta,$kind,$chat,$ultra,$account)`,
+        `INSERT INTO sessions (id,title,agent,model,mode,permission_mode,cwd,device,status,parent_id,task_id,routine_id,tags,pinned,archived,created_at,updated_at,external,mode_config,stats,resume_at,error,meta,kind,chat,ultra,account_id,incognito)
+         VALUES ($id,$title,$agent,$model,$mode,$pm,$cwd,$device,$status,$parent,$task,$routine,$tags,$pinned,$archived,$created,$updated,$external,$modeConfig,$stats,$resumeAt,$error,$meta,$kind,$chat,$ultra,$account,$incognito)`,
       )
-      .run({ ...this.params(s), account: s.accountId ?? OWNER_ID });
+      // incognito is set here only: update() never writes it, so a session cannot leave or enter it
+      .run({ ...this.params(s), account: s.accountId ?? OWNER_ID, incognito: s.incognito ? 1 : null });
   }
 
   update(s: Session): void {
@@ -139,7 +151,7 @@ export class SessionRepo {
       error: s.error ?? null,
       meta: s.meta || s.projectId ? JSON.stringify({ ...s.meta, ...(s.projectId ? { projectId: s.projectId } : {}) }) : null,
       kind: s.kind === 'chat' || s.kind === 'meeting' ? s.kind : null,
-      chat: s.kind === 'chat' && s.chat ? JSON.stringify(s.chat) : s.chat?.thinking || s.chat?.cyber || s.chat?.sameModel || s.chat?.memory === false ? JSON.stringify(s.chat) : null,
+      chat: s.kind === 'chat' && s.chat ? JSON.stringify(s.chat) : s.chat?.thinking || s.chat?.cyber || s.chat?.sameModel || s.chat?.memory === false || s.chat?.memorySave === false ? JSON.stringify(s.chat) : null,
       ultra: s.ultra ? 1 : null,
     };
   }
@@ -159,6 +171,9 @@ export class SessionRepo {
     // top-level sessions: no parent, or moved to the main list (session/delegated.ts)
     if (f.parentId === null) where.push(`(parent_id IS NULL OR json_extract(meta, '$.movedFrom') IS NOT NULL)`);
     else if (f.parentId) (where.push('parent_id = $parent'), (params.parent = f.parentId));
+    // a parent's children stay listed (stopping and purging them needs them); nothing else lists an incognito session
+    if (f.incognito) where.push('incognito = 1');
+    else if (!f.parentId) where.push(notIncognito());
     if (f.status) (where.push('status = $status'), (params.status = f.status));
     if (f.archived !== undefined) (where.push('archived = $archived'), (params.archived = f.archived ? 1 : 0));
     if (f.pinned !== undefined) (where.push('pinned = $pinned'), (params.pinned = f.pinned ? 1 : 0));
@@ -198,6 +213,7 @@ export class SessionRepo {
     const sql = `SELECT * FROM sessions WHERE account_id = $account
       AND (kind IS NULL OR kind <> 'meeting')
       AND COALESCE(json_extract(meta, '$.untrusted'), 0) <> 1
+      AND ${notIncognito()}
       AND NOT (parent_id IS NOT NULL AND EXISTS (SELECT 1 FROM json_each(sessions.tags) WHERE value = 'workflow'))
       AND (${q.projectId ? `json_extract(meta, '$.projectId') = $project OR ` : ''}(COALESCE(device, 'local') = $device AND (cwd = $root OR cwd LIKE $slash ESCAPE '\\' OR cwd LIKE $back ESCAPE '\\')))
       ORDER BY updated_at DESC`;
@@ -301,8 +317,14 @@ export class MessageRepo {
   }
 
   private index(m: Message) {
+    // an incognito transcript is never indexed: FTS5 keeps deleted terms in its segments until a merge
+    if (this.isIncognito(m.sessionId)) return;
     const text = indexedText(m.kind, m.content);
     if (text) this.db.query('INSERT INTO messages_fts (text, session_id, message_id) VALUES (?, ?, ?)').run(text, m.sessionId, m.id);
+  }
+
+  private isIncognito(sessionId: string): boolean {
+    return !!(this.db.query('SELECT incognito FROM sessions WHERE id = ?').get(sessionId) as Row | null)?.incognito;
   }
 
   private params(m: Message) {
@@ -387,7 +409,7 @@ export class MessageRepo {
     return this.db
       .query(
         `SELECT session_id as sessionId, message_id as messageId, snippet(messages_fts, 0, '[', ']', '…', 16) as snippet
-         FROM messages_fts WHERE messages_fts MATCH ? AND session_id IN (SELECT id FROM sessions WHERE account_id = ?) ORDER BY rank LIMIT ?`,
+         FROM messages_fts WHERE messages_fts MATCH ? AND session_id IN (SELECT id FROM sessions WHERE account_id = ? AND ${notIncognito()}) ORDER BY rank LIMIT ?`,
       )
       .all(ftsQuery(query), accountId, limit) as Array<{ sessionId: string; messageId: string; snippet: string }>;
   }

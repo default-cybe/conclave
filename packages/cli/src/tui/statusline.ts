@@ -1,21 +1,31 @@
 /**
- * The two status rows under the input, each with a left and a right side.
- * Row one: model, effort, agent and mode; the permission mode on the right.
- * Row two: where tools run (and the hub, when it is not connected); context,
- * tokens, cost and the nearest limit on the right. Pure so they can be tested.
+ * The one hint row under the input. Left: the permission mode when it is not
+ * the default, the hub when it is not connected, a remote device, else a short
+ * hint. Right: model, effort, agent, mode, context left, cost and a limit that
+ * is running out. Pure so it can be tested.
  */
 import type { LimitState, LimitWindow, PermissionMode, Session, Usage } from '@conclave/core/types.ts';
 import { truncate, width as strWidth, type Painter } from '../ansi';
-import { formatCost, formatDuration, formatTokens, shortenPath } from '../render/format';
-import { modelColor, providerOf, shortModel } from '../render/models';
+import { formatCost, formatDuration } from '../render/format';
+import { providerOf, shortModel } from '../render/models';
 
-export interface HeaderInput {
+export interface StatusInput {
   model?: string;
   /** Effort label ("high"); empty runs at the agent's. */
   effort?: string;
   agent?: string;
   mode?: string;
   permissionMode?: PermissionMode;
+  device?: string;
+  hubStatus?: 'connecting' | 'open' | 'closed';
+  session?: Session;
+  lastUsage?: Usage;
+  contextWindow?: number;
+  limits: LimitState[];
+  subscriptions: Record<string, string>;
+  now: number;
+  /** Left-side hint instead of "? for shortcuts". */
+  hint?: string;
 }
 
 /** Left and right on one row; on a narrow terminal the right side keeps its room and the left is cut. */
@@ -30,42 +40,38 @@ export function spread(left: string, right: string, width: number): string {
   return truncate(left, width);
 }
 
+/** The permission mode when it is not the default; the default needs no words. */
 export function permissionLabel(m: PermissionMode | undefined, p: Painter): string {
   switch (m) {
     case 'acceptEdits':
-      return p.magenta('⏵⏵ accept edits');
+      return p.magenta('⏵⏵ accept edits on');
     case 'plan':
-      return p.cyan('⏸ plan mode');
+      return p.cyan('⏸ plan mode on');
     case 'bypass':
-      return p.red('⚠ bypass permissions');
+      return p.red('⚠ bypass permissions on');
     default:
-      return p.dim('ask before edits');
+      return '';
   }
 }
 
-export function headerLine(h: HeaderInput, p: Painter, width: number): string {
+export function statusLine(s: StatusInput, p: Painter, width: number): string {
   const sep = p.dim(' · ');
-  const left = [
-    p.fg(modelColor(h.model))('●') + ' ' + p.bold(shortModel(h.model)),
-    h.effort ? p.dim(h.effort) : '',
-    h.agent ? p.dim('@') + h.agent : '',
-    h.mode && h.mode !== 'agent' ? p.yellow(h.mode) : '',
+  const mode = permissionLabel(s.permissionMode, p);
+  const hub = s.hubStatus === 'connecting' ? p.yellow('◌ connecting') : s.hubStatus === 'closed' ? p.red('● hub offline') : '';
+  const device = s.device && s.device !== 'local' ? p.dim(`on ${s.device}`) : '';
+  const state = [hub, mode ? mode + (width >= 80 ? p.dim(' (shift+tab to cycle)') : '') : '', device].filter(Boolean).join(sep);
+  const left = state || p.dim(s.hint ?? '? for shortcuts');
+  const who = [
+    s.model ? shortModel(s.model) : '',
+    s.effort ?? '',
+    s.agent && s.agent !== 'assistant' ? '@' + s.agent : '',
+    s.mode && s.mode !== 'agent' ? s.mode : '',
   ].filter(Boolean);
-  const right = permissionLabel(h.permissionMode, p) + (width >= 70 ? p.dim(' (shift+tab)') : '');
-  return spread(left.join(sep), right, width);
-}
-
-export interface FooterInput {
-  device?: string;
-  cwd?: string;
-  hubStatus?: 'connecting' | 'open' | 'closed';
-  session?: Session;
-  model?: string;
-  lastUsage?: Usage;
-  contextWindow?: number;
-  limits: LimitState[];
-  subscriptions: Record<string, string>;
-  now: number;
+  const right = [p.dim(who.join(' · ')), usageLine(s, p)].filter(Boolean).join(sep);
+  if (strWidth(left) + strWidth(right) + 2 <= width) return spread(left, right, width);
+  // too narrow: the hint goes first; a real state (mode, hub, device) stays and the right side is cut
+  if (!state && !s.hint) return spread('', truncate(right, width), width);
+  return spread(truncate(left, width), truncate(right, width - Math.min(strWidth(left), width) - 2), width);
 }
 
 export function contextPercent(u: Usage | undefined, window: number | undefined): number | undefined {
@@ -97,16 +103,8 @@ export function tightestLimit(limits: LimitState[], model: string | undefined, s
   return best;
 }
 
-export function footerLine(f: FooterInput, p: Painter, width: number): string {
-  const sep = p.dim(' · ');
-  const hub = f.hubStatus === 'connecting' ? p.yellow('◌ connecting') : f.hubStatus === 'closed' ? p.red('● hub offline') : '';
-  const where = f.cwd ? p.dim(`${f.device ?? 'local'}:`) + shortenPath(f.cwd, 40) : '';
-  const left = [hub, where].filter(Boolean).join(sep);
-  return spread(left, usageLine(f, p), width);
-}
-
-/** The right side of row two: limit countdown, context, tokens, cost, cache and the nearest limit. */
-export function usageLine(f: FooterInput, p: Painter): string {
+/** Limit countdown, context left, cost and a limit window past 70%. Empty before any usage. */
+export function usageLine(f: Pick<StatusInput, 'session' | 'lastUsage' | 'contextWindow' | 'limits' | 'subscriptions' | 'now' | 'model'>, p: Painter): string {
   const sep = p.dim(' · ');
   const parts: string[] = [];
   const s = f.session;
@@ -117,22 +115,15 @@ export function usageLine(f: FooterInput, p: Painter): string {
   const ctx = contextPercent(f.lastUsage, f.contextWindow);
   if (ctx !== undefined) {
     const c = ctx >= 80 ? p.red : ctx >= 60 ? p.yellow : p.dim;
-    parts.push(c(`ctx ${Math.round(ctx)}%`));
+    parts.push(c(`${Math.max(0, Math.round(100 - ctx))}% context left`));
   }
-  if (s) {
-    const st = s.stats;
-    parts.push(p.dim(`${formatTokens(st.inputTokens + st.cacheReadTokens)} in / ${formatTokens(st.outputTokens)} out`));
-    parts.push(st.costUsd ? formatCost(st.costUsd) : p.dim('$0'));
-    const totalIn = st.inputTokens + st.cacheReadTokens;
-    if (totalIn > 0 && st.cacheReadTokens > 0) parts.push(p.dim(`cache ${Math.round((st.cacheReadTokens / totalIn) * 100)}%`));
-  }
+  if (s?.stats.costUsd) parts.push(p.dim(formatCost(s.stats.costUsd)));
   const t = tightestLimit(f.limits, f.model, f.subscriptions);
-  if (t) {
+  if (t && t.pct >= 70) {
     const label = (t.limit.label && t.limit.label.length <= 14 ? t.limit.label : t.limit.provider).toLowerCase();
     const c = t.pct >= 90 ? p.red : t.pct >= 70 ? p.yellow : p.dim;
     const reset = t.window.resetsAt ? ` · resets ${formatDuration(t.window.resetsAt - f.now)}` : '';
     parts.push(c(`${label} ${t.window.name} ${Math.round(t.pct)}%${reset}`));
   }
-  if (!parts.length) return p.dim('/help for commands');
   return parts.join(sep);
 }

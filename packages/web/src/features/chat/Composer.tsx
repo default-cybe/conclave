@@ -56,6 +56,7 @@ import { findSlash, INIT_PROMPT, menuList, PHONE_TOP_COMMANDS, pickAction, SECTI
 import { SessionSheets } from './sheets/SessionSheets';
 import { useMeId, useParticipants } from './shared';
 import { useDraft } from './useDraft';
+import { NO_KV } from './draft';
 
 type FileEntry = { name: string; path: string; type: 'dir' | 'file'; size?: number };
 
@@ -124,10 +125,16 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
     drafts.set(session.id, text);
   }, [text, session.id]);
   // the stored draft (text and files) comes back after a reload
-  useDraft(session.id, text, files, (d) => {
-    setText((t) => t || d.text);
-    setFiles((f) => (f.length ? f : d.files));
-  });
+  useDraft(
+    session.id,
+    text,
+    files,
+    (d) => {
+      setText((t) => t || d.text);
+      setFiles((f) => (f.length ? f : d.files));
+    },
+    session.incognito ? NO_KV : undefined,
+  );
 
   useEffect(() => {
     const open = () => setSheet(true);

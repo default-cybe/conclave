@@ -87,6 +87,14 @@ export class EventBus {
     return this.seq;
   }
 
+  /** Drop buffered events that name one of these ids, so a reconnecting client is not replayed a deleted incognito session (session/incognito.ts). */
+  forget(ids: string[]): void {
+    this.ring = this.ring.filter((e) => {
+      const s = JSON.stringify(e);
+      return !ids.some((id) => s.includes(id));
+    });
+  }
+
   /** Events after `seq`. Returns null when the buffer no longer reaches back that far. */
   since(seq: number): EngineEventEnvelope[] | null {
     if (seq >= this.seq) return [];

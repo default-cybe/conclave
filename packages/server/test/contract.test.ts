@@ -10,8 +10,13 @@ import { startHub, type TestHub } from './helpers';
  */
 let hub: TestHub;
 beforeAll(() => {
-  hub = startHub();
+  // two routes reach the internet with an empty body (a GitHub release manifest, a DuckDuckGo search):
+  // on a busy hub they took seconds and the test passed its 5 s timeout about 1 in 6 runs
+  hub = startHub({ update: { fetch: (async () => { throw new Error('offline in tests'); }) as unknown as typeof fetch } });
 });
+
+/** Bodies that keep a route off the network: it still answers from its own handler, so it counts as present. */
+const OFFLINE_BODY: Record<string, unknown> = { 'POST /api/websearch/test': { provider: 'offline-in-tests' } };
 afterAll(() => hub.stop());
 
 test('server implements every route in client/index.ts', async () => {
@@ -24,7 +29,7 @@ test('server implements every route in client/index.ts', async () => {
   const missing: string[] = [];
   for (const r of routes) {
     const [method, path] = r.split(' ');
-    const res = await hub.api(path, { method, json: method === 'GET' || method === 'DELETE' ? undefined : {} });
+    const res = await hub.api(path, { method, json: method === 'GET' || method === 'DELETE' ? undefined : (OFFLINE_BODY[r] ?? {}) });
     const body = await res.text();
     if (res.status === 404 && body === JSON.stringify({ error: 'not found' })) missing.push(r);
     expect(res.status).not.toBe(401);

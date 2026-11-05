@@ -15,10 +15,15 @@
  * it through the management API; with nothing to add it points CLIProxyAPI
  * back at its own sources. An external CLIProxyAPI is the owner's and serves
  * other tools: the hub leaves its catalog alone.
+ *
+ * A Claude plan has no model list of its own to read, so its section
+ * ("claude") gets the Claude models of Conclave's own catalog that
+ * CLIProxyAPI's lacks (claudeExtras), once a Claude account is signed in.
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { CATALOG as CONCLAVE_CATALOG } from '@conclave/core/providers/catalog.ts';
 
 /** Where CLIProxyAPI reads its catalog (internal/registry/model_updater.go), first that answers. */
 export const CATALOG_URLS = ['https://raw.githubusercontent.com/router-for-me/models/refs/heads/main/models.json', 'https://models.router-for.me/models.json'];
@@ -67,10 +72,35 @@ export async function fetchCatalog(f: typeof fetch = fetch, urls: string[] = CAT
 }
 
 export interface CatalogExtra {
-  /** codex-plus, codex-pro... */
+  /** codex-plus, codex-pro, claude... */
   section: string;
   id: string;
   name?: string;
+  /** The section's model to copy capabilities from; unset: its first. */
+  like?: string;
+  /** Fields that win over the copied ones (context_length...). */
+  fields?: Record<string, unknown>;
+}
+
+/** CLIProxyAPI's catalog section of a Claude plan. */
+export const CLAUDE_SECTION = 'claude';
+
+/**
+ * The Claude models of Conclave's catalog that CLIProxyAPI does not list
+ * (`listed`: what the Claude accounts' own lists hold). A dated id there
+ * (claude-opus-4-5-20251101) counts as the model. Each copies the nearest
+ * newer model of Conclave's catalog CLIProxyAPI has (Mythos 5.1 copies Fable 5).
+ */
+export function claudeExtras(listed: Set<string>, catalog = CONCLAVE_CATALOG): CatalogExtra[] {
+  const has = (id: string) => listed.has(id) || [...listed].some((l) => l.startsWith(`${id}-`) && /^\d{8}$/.test(l.slice(id.length + 1)));
+  const claude = catalog.filter((e) => e.family === 'anthropic');
+  const out: CatalogExtra[] = [];
+  for (const [i, e] of claude.entries()) {
+    if (has(e.id)) continue;
+    const like = claude.slice(0, i).reverse().find((x) => listed.has(x.id))?.id;
+    out.push({ section: CLAUDE_SECTION, id: e.id, name: e.name, ...(like ? { like } : {}), fields: { context_length: e.contextWindow, max_completion_tokens: e.maxOutput } });
+  }
+  return out;
 }
 
 /**
@@ -85,9 +115,10 @@ export function withExtras(base: Catalog, extras: CatalogExtra[]): { catalog: Ca
   for (const e of extras) {
     const list = catalog[e.section];
     if (!Array.isArray(list) || list.some((m) => m.id === e.id)) continue;
-    const like = list[0] ?? { object: 'model', owned_by: 'openai', type: 'openai' };
+    const like = (e.like && list.find((m) => m.id === e.like)) || list[0] || { object: 'model', owned_by: 'openai', type: 'openai' };
     // nothing time based in it: the same models give the same file, so CLIProxyAPI is pointed at it once
-    list.push({ ...like, id: e.id, display_name: e.name ?? e.id, description: `${e.name ?? e.id}, from the plan's own model list.` });
+    const from = e.section === CLAUDE_SECTION ? "Conclave's catalog" : "the plan's own model list";
+    list.push({ ...like, ...e.fields, id: e.id, display_name: e.name ?? e.id, description: `${e.name ?? e.id}, from ${from}.` });
     added.push(e);
   }
   return { catalog, added };

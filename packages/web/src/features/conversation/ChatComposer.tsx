@@ -43,6 +43,8 @@ import { patchChat, sendTo, startChat, stopChat, type Outgoing } from './actions
 import { DEFAULTS_EVENT, readDefaults, saveDefaults, setEditing, setRestore, useChatUi, type Thinking } from './state';
 import { useSharedChat } from '@/features/chat/shared';
 import { ModelName } from '@/components/logo';
+import { NO_KV } from '@/features/chat/draft';
+import { INCOGNITO_LINE, memoryChat, privacyItems, PrivacyFields, type Privacy } from './incognito';
 
 /** One file; 15 in a message at most, and together what the hub reads in one request (core attachments/limits.ts). */
 const MAX_BYTES = 20 * 1024 * 1024;
@@ -109,6 +111,8 @@ export interface ComposerTarget {
   note?: ReactNode;
   /** Offered in a menu while the message is "/" and part of a name. */
   commands?: SlashCommand[];
+  /** The session will be incognito: the draft is not stored in the browser. */
+  incognito?: boolean;
 }
 
 const drafts = new Map<string, string>();
@@ -204,6 +208,13 @@ export function ChatComposer({
   const [sw, change] = useSwitches(session);
   // Same model for all work: a switch of this chat only, never a default for the next one
   const same = session ? { sameModel: !!session.chat?.sameModel, onSameModel: (on: boolean) => void patchChat(session.id, { chat: { sameModel: on } }) } : {};
+  // a new chat's Incognito and memory setting; incognito is not kept for the next one
+  const [priv, setPriv] = useState<Privacy>(() => ({ incognito: false, memory: sw.memory ? 'save' : 'off' }));
+  const setPrivacy = (p: Privacy) => {
+    setPriv(p);
+    if (!p.incognito) change({ memory: p.memory !== 'off' });
+  };
+  const incognito = session ? !!session.incognito : target ? !!target.incognito : priv.incognito;
   const restore = useChatUi((s) => s.restore[chatId]);
   // a chat with other people in it (features/chat/shared.tsx): in someone else's chat (`mine`) your turns run on your
   // seat, so its status is your Send and Stop; the owner's settings, files and usage are not yours to change
@@ -229,10 +240,16 @@ export function ChatComposer({
     drafts.set(chatId, text);
   }, [text, chatId]);
   // the stored draft (text and files) comes back after a reload
-  const clearDraft = useDraft(chatId, text, files, (d) => {
-    setText((t) => t || d.text);
-    setFiles((f) => (f.length ? f : d.files));
-  });
+  const clearDraft = useDraft(
+    chatId,
+    text,
+    files,
+    (d) => {
+      setText((t) => t || d.text);
+      setFiles((f) => (f.length ? f : d.files));
+    },
+    incognito ? NO_KV : undefined,
+  );
   // a Stop dropped messages that were queued behind the reply: they come back here to send again
   useEffect(() => {
     if (restore === undefined) return;
@@ -321,7 +338,7 @@ export function ChatComposer({
       ? await target.send(out)
       : session
         ? await sendTo(mine ? { ...session, status: 'idle' } : session, shared && justTalk ? { ...out, justTalk: true } : out)
-        : await startChat(out, { model: sw.model, chat: { webSearch: sw.webSearch, memory: sw.memory, ...(sw.thinking ? { thinking: sw.thinking } : {}), ...(sw.cyber ? { cyber: sw.cyber } : {}) } }, navigate);
+        : await startChat(out, { model: sw.model, incognito: priv.incognito, chat: { webSearch: sw.webSearch, ...memoryChat(priv.memory), ...(sw.thinking ? { thinking: sw.thinking } : {}), ...(sw.cyber ? { cyber: sw.cyber } : {}) } }, navigate);
     if (!ok) {
       if (alive.current) {
         setText(out.text);
@@ -435,10 +452,12 @@ export function ChatComposer({
     return <p className="mx-auto w-full max-w-[784px] px-8 pb-4 text-center text-[13px] text-fg-3 phone:px-4">Read only: the owner gave you read access.</p>;
   const sendLabel = target?.sendLabel ?? 'Send';
 
-  const memoryNote = !target && !sw.memory;
+  const memoryNote = !target && (session ? !sw.memory : priv.memory === 'off');
+  const incognitoNote = !target && !session && priv.incognito;
   const notes =
-    memoryNote || target?.note ? (
+    memoryNote || incognitoNote || target?.note ? (
       <div className="mt-2 space-y-0.5 px-0.5 text-[12px] text-fg-3 phone:px-2 phone:text-[13px]">
+        {incognitoNote && <p>Incognito. {INCOGNITO_LINE}</p>}
         {memoryNote && <p>Memory is off for this chat. It will not read or save notes.</p>}
         {target?.note}
       </div>
@@ -524,9 +543,10 @@ export function ChatComposer({
               <OptionRow label="Tools">
                 <div className="space-y-2">
                   <Checkbox checked={sw.webSearch} onChange={(v) => change({ webSearch: v })} label="Search the web" description={WEB_HELP} />
-                  <Checkbox checked={sw.memory} onChange={(v) => change({ memory: v })} label="Use memory" description={MEMORY_HELP} />
+                  {session && <Checkbox checked={sw.memory} onChange={(v) => change({ memory: v })} label="Use memory" description={MEMORY_HELP} />}
                 </div>
               </OptionRow>
+              {!session && <PrivacyFields value={priv} onChange={setPrivacy} code={false} />}
             </div>
           </Sheet>
         )}
@@ -538,7 +558,7 @@ export function ChatComposer({
     ? (target.plus ?? [])
     : [
         { label: 'Search the web', detail: WEB_HELP, checked: sw.webSearch, keep: true, onSelect: () => change({ webSearch: !sw.webSearch }) },
-        { label: 'Use memory', detail: MEMORY_HELP, checked: sw.memory, keep: true, onSelect: () => change({ memory: !sw.memory }) },
+        ...(session ? [{ label: 'Use memory', detail: MEMORY_HELP, checked: sw.memory, keep: true, onSelect: () => change({ memory: !sw.memory }) }] : privacyItems(priv, setPrivacy, false)),
       ];
   const modelEffort = target ? (
     <ModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} cyber={target.cyber} onCyber={target.onCyber} harnesses={target.harnesses} />

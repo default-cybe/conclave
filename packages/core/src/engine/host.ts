@@ -20,6 +20,7 @@ import { pimFor } from '../pim/registry';
 import { watchesOf } from '../watches';
 import { readFileSync } from 'node:fs';
 import { runDelegate } from './delegate';
+import { incognitoNotice } from '../session/incognito';
 import type { DelegateRequest } from '../tools/delegate';
 import { memberSearchChoice, memberSearchKeys, savedSearchKey } from '../tools/search-settings';
 import { isMember } from '../people/context';
@@ -100,7 +101,9 @@ export class EngineToolHost implements ToolHost {
 
   async notify(notice: Omit<Notice, 'id' | 'createdAt'>) {
     // the session's own account gets it, whatever the tool said
-    await this.engine.notifier.send({ ...notice, accountId: this.engine.accountOf(this.session) });
+    // an incognito session's push carries no text (session/incognito.ts)
+    const safe = this.session.incognito ? incognitoNotice(notice) : notice;
+    await this.engine.notifier.send({ ...safe, accountId: this.engine.accountOf(this.session) });
   }
 
   saveOutput(sessionId: string, tool: string, content: string) {

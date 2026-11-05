@@ -67,8 +67,10 @@ import type {
 export type * from '../catalog/types';
 export type { AddSuggestionRequest, AddSuggestionResult, RoutineSuggestionDto, RoutineSuggestionsDto } from '../scheduler/suggest';
 export type * from './assistant';
-import type { RecapDto, RecapPeriod, RecapSummaryDto } from './recap';
+import type { ReflectRange, ReflectReport } from './recap';
 export type * from './recap';
+import type { LearningPreview, LearningSaveInput, LearningsDto, SkillIdea } from './learnings';
+export type * from './learnings';
 import type { LeaveByDto, MapsSettingsDto, MapsSettingsPatch, MapsTestResult } from './maps';
 export type * from './maps';
 import type { MemberProxyDto, MemberProxyUpdate, WebSearchSettingsDto, WebSearchSettingsPatch, WebSearchTestResult } from './websearch';
@@ -174,7 +176,7 @@ export type * from './workflows';
 import type { GraphEditInput, GraphEditResult, GraphInsertInput, WorkflowGraphView } from './graph';
 export type * from './graph';
 export { nodeOf, nodeRuns, staleNodes } from './graph';
-import type { FlowBlockSpec, FlowEditResult, FlowOp, FlowRunView, FlowSummary, FlowView } from './flows';
+import type { CanvasQueueInput, CanvasQueuedRun, FlowBlockSpec, FlowEditResult, FlowOp, FlowRunView, FlowSummary, FlowView } from './flows';
 export type * from './flows';
 // ----- alerts: file conflicts and stuck turns, docs/DESIGN.md 28 -----
 import type { AlertAction, AlertItem } from './alerts';
@@ -274,6 +276,8 @@ export interface CreateSessionInput {
    */
   kind?: SessionKind;
   chat?: Partial<ChatSettings>;
+  /** Incognito (session/incognito.ts): kept out of lists and search, hard-deleted when closed. Memory defaults to "Use only" (chat.memorySave false). */
+  incognito?: boolean;
 }
 
 export interface SessionPatch {
@@ -2124,10 +2128,19 @@ export class ConclaveClient {
   setReflect = (patch: ReflectPatch) => this.request<ReflectDto>('PUT', '/api/assistant/reflect', patch);
   /** The hub's owner only. Starts one reflection with the night's rules; returns as soon as it started. */
   reflectNow = () => this.request<ReflectNowDto>('POST', '/api/assistant/reflect/run');
-  /** Reflect: the caller's own week, month or year in numbers. No model call. */
-  reflectRecap = (period: RecapPeriod) => this.request<RecapDto>('GET', `/api/reflect/recap?period=${period}`);
-  /** Reflect's Summarise: one call on the caller's small model. */
-  reflectSummary = (period: RecapPeriod) => this.request<RecapSummaryDto>('POST', `/api/reflect/recap/summary?period=${period}`);
+  /** Reflect: the caller's own report for a range, cached until Refresh or a week old. */
+  reflectReport = (range: ReflectRange) => this.request<ReflectReport>('GET', `/api/reflect/report?range=${range}`);
+  /** Reflect's Refresh: makes the report again, with one call on the caller's small model. */
+  reflectRefresh = (range: ReflectRange) => this.request<ReflectReport>('POST', `/api/reflect/report/refresh?range=${range}`);
+  /** Reflect's Learnings: the caller's own queue and skill ideas. Only Save writes, and only where it was told. */
+  learnings = () => this.request<LearningsDto>('GET', '/api/reflect/learnings');
+  learningsCount = () => this.request<{ pending: number }>('GET', '/api/reflect/learnings/count');
+  previewLearning = (id: string, input: LearningSaveInput) => this.request<LearningPreview>('POST', `/api/reflect/learnings/${encodeURIComponent(id)}/preview`, input);
+  saveLearning = (id: string, input: LearningSaveInput) => this.request<LearningsDto>('POST', `/api/reflect/learnings/${encodeURIComponent(id)}/save`, input);
+  skipLearning = (id: string) => this.request<LearningsDto>('POST', `/api/reflect/learnings/${encodeURIComponent(id)}/skip`);
+  findIdeas = () => this.request<LearningsDto>('POST', '/api/reflect/ideas/find');
+  saveIdea = (id: string, edit: Partial<Pick<SkillIdea, 'name' | 'description' | 'body' | 'schedule'>> = {}) => this.request<LearningsDto>('POST', `/api/reflect/ideas/${encodeURIComponent(id)}/save`, edit);
+  skipIdea = (id: string) => this.request<LearningsDto>('POST', `/api/reflect/ideas/${encodeURIComponent(id)}/skip`);
   today = () => this.request<TodayDto>('GET', '/api/assistant/today');
   answerToday = (option: string) => this.request<{ plan: DayPlan; sessionId?: string }>('POST', '/api/assistant/today/answer', { option });
 
@@ -2395,6 +2408,8 @@ export class ConclaveClient {
   /** The graph of the script a run ran, with nodes the library script changed since marked stale. */
   workflowRunGraph = (id: string) => this.request<WorkflowGraphView>('GET', `/api/workflows/runs/${encodeURIComponent(id)}/graph`);
   editWorkflowGraph = (id: string, edit: GraphEditInput) => this.request<GraphEditResult>('POST', `/api/workflows/${encodeURIComponent(id)}/graph/edit`, edit);
+  /** Delete a node: its statement's lines go, if nothing later reads it. */
+  removeWorkflowNode = (id: string, input: { nodeId: string; baseSha: string }) => this.request<GraphEditResult>('POST', `/api/workflows/${encodeURIComponent(id)}/graph/remove`, input);
   /** Add a node as a new statement: after node `after`, or before the script's last return. */
   insertWorkflowNode = (id: string, input: GraphInsertInput) => this.request<GraphEditResult & { nodeId: string }>('POST', `/api/workflows/${encodeURIComponent(id)}/graph/insert`, input);
   /** Undo or redo: put back version sha of the script, if the file is still baseSha. */
@@ -2412,6 +2427,10 @@ export class ConclaveClient {
   runFlow = (sessionId: string, name: string) => this.request<FlowRunView>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/run`);
   flowRun = (sessionId: string, name: string) => this.request<FlowRunView | null>('GET', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/run`);
   stopFlow = (sessionId: string, name: string) => this.request<FlowRunView | null>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/stop`);
+  // ----- Canvas's run queue on the hub (one run per file; the next starts when the last ends) -----
+  canvasQueue = (file?: string) => this.request<CanvasQueuedRun[]>('GET', '/api/canvas/queue', undefined, { file });
+  queueCanvasRun = (input: CanvasQueueInput) => this.request<CanvasQueuedRun>('POST', '/api/canvas/queue', input);
+  cancelCanvasRun = (id: string) => this.request<void>('DELETE', `/api/canvas/queue/${encodeURIComponent(id)}`);
   /** Copy a built-in or plugin workflow into your own workflows, where it can be edited. */
   copyWorkflow = (id: string) => this.request<WorkflowDetail>('POST', `/api/workflows/${encodeURIComponent(id)}/copy`);
   skipWorkflowCall = (id: string, seq: number) => this.request<WorkflowRun>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/calls/${seq}/skip`);

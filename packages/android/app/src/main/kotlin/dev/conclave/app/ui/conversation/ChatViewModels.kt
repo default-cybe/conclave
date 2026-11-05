@@ -772,6 +772,13 @@ class ChatHomeViewModel(hub: HubRepository, private val settings: SettingsStore)
     val model = MutableStateFlow<String?>(null)
     val switches = MutableStateFlow(ChatSettings())
 
+    /** Incognito and the memory setting for the next new chat or Code session; never kept for the one after. */
+    val privacy = MutableStateFlow(Privacy())
+
+    fun setPrivacy(p: Privacy) {
+        privacy.value = p
+    }
+
     /** The defaults this page asked to save, in order (one writer, so a quick second change never lands first). */
     private val wanted = MutableStateFlow<ChatDefaults?>(null)
 
@@ -811,7 +818,10 @@ class ChatHomeViewModel(hub: HubRepository, private val settings: SettingsStore)
         if ((text.isEmpty() && files.isEmpty()) || sending.value) return
         val d = code.value
         val command = if (files.isEmpty()) Start.commandOf(text, commands) else null
-        val chat = Effort.clamp(d.thinking, hub.modelInfo(setup.model)?.effort)?.let { ChatSettingsPatch(thinking = it) }
+        val priv = privacy.value
+        val effort = Effort.clamp(d.thinking, hub.modelInfo(setup.model)?.effort)
+        val chat = if (effort == null && priv.memory == MemoryMode.SAVE) null else priv.chat(ChatSettingsPatch(thinking = effort))
+        val incognito = if (priv.incognito) true else null
         sending.value = true
         viewModelScope.launch {
             try {
@@ -841,6 +851,7 @@ class ChatHomeViewModel(hub: HubRepository, private val settings: SettingsStore)
                                 prompt = prompt,
                                 permissionMode = d.permissionMode,
                                 chat = chat,
+                                incognito = incognito,
                             ),
                         )
                     }
@@ -855,6 +866,7 @@ class ChatHomeViewModel(hub: HubRepository, private val settings: SettingsStore)
                                 prompt = prompt,
                                 permissionMode = d.permissionMode,
                                 chat = chat,
+                                incognito = incognito,
                             ),
                         )
                     }
@@ -867,9 +879,11 @@ class ChatHomeViewModel(hub: HubRepository, private val settings: SettingsStore)
                         cwd = setup.cwd,
                         prompt = prompt,
                         chat = chat,
+                        incognito = incognito,
                     )
                     hub.api { it.createSession(input) }
                 }
+                privacy.value = Privacy()
                 if (d.ultra) s = hub.api { it.updateSession(s.id, SessionPatch(ultra = true)) }
                 hub.putSession(s)
                 if (command != null) {
@@ -997,9 +1011,11 @@ class ChatHomeViewModel(hub: HubRepository, private val settings: SettingsStore)
                 val input = CreateSessionInput(
                     kind = SessionKind.CHAT,
                     model = model.value,
-                    chat = ChatSettingsPatch(webSearch = sw.webSearch, memory = sw.memory, thinking = sw.thinking),
+                    chat = privacy.value.chat(ChatSettingsPatch(webSearch = sw.webSearch, thinking = sw.thinking)),
                     prompt = if (files.isEmpty()) text else null,
+                    incognito = if (privacy.value.incognito) true else null,
                 )
+                privacy.value = Privacy()
                 val s = hub.api { it.createSession(input) }
                 hub.putSession(s)
                 if (files.isNotEmpty()) {

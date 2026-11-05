@@ -116,6 +116,9 @@ import dev.conclave.app.ui.workflows.WorkflowLibraryScreen
 import dev.conclave.app.ui.workflows.WorkflowRunScreen
 import dev.conclave.app.ui.workflows.WorkflowRunsScreen
 import dev.conclave.app.update.StartupUpdate
+import dev.conclave.app.ui.canvas.CanvasListScreen
+import dev.conclave.app.ui.canvas.CanvasScreen
+import dev.conclave.client.logic.CanvasFile
 import dev.conclave.client.logic.DeepLink
 import dev.conclave.client.logic.Drawer
 import dev.conclave.client.logic.HubAddress
@@ -196,6 +199,11 @@ object Routes {
     const val MEETING = "meeting/{id}"
     const val MEETING_FORM = "meeting-form?edit={edit}&now={now}"
 
+    /** Canvas (docs/design/CANVAS-MODE.md), read only: the files, then one program or workflow (or one run of it) as block cards. */
+    const val CANVAS = "canvas"
+    const val CANVAS_PROGRAM = "canvas/program/{name}?device={device}&cwd={cwd}&session={session}"
+    const val CANVAS_WORKFLOW = "canvas/workflow/{id}?run={run}&library={library}"
+
     fun chat(id: String) = "chat/${android.net.Uri.encode(id)}"
     fun session(id: String) = "session/${android.net.Uri.encode(id)}"
     fun chats(archived: Boolean = false) = if (archived) "chats?archived=true" else "chats"
@@ -208,6 +216,10 @@ object Routes {
     fun share(id: String) = "share/${android.net.Uri.encode(id)}"
     fun meeting(id: String) = "meeting/${android.net.Uri.encode(id)}"
     fun meetingForm(edit: String? = null, now: Boolean = false) = "meeting-form?edit=${android.net.Uri.encode(edit.orEmpty())}&now=$now"
+    fun canvasFile(f: CanvasFile): String = when (f) {
+        is CanvasFile.Program -> "canvas/program/${android.net.Uri.encode(f.name)}?device=${android.net.Uri.encode(f.device)}&cwd=${android.net.Uri.encode(f.cwd)}&session=${android.net.Uri.encode(f.sessionId)}"
+        is CanvasFile.Workflow -> "canvas/workflow/${android.net.Uri.encode(f.id)}?run=${android.net.Uri.encode(f.runId.orEmpty())}&library=${f.group == CanvasFile.Group.LIBRARY}"
+    }
     fun memoryMap(view: String? = null, item: String? = null) =
         "memory/map?view=${android.net.Uri.encode(view.orEmpty())}&item=${android.net.Uri.encode(item.orEmpty())}"
 }
@@ -425,6 +437,8 @@ private fun MainScaffold() {
                     onSettings = { close { navigateTop(nav, Routes.SETTINGS) } },
                     inMeetings = route == Routes.MEETINGS,
                     onMeetings = { close { navigateTop(nav, Routes.MEETINGS) } },
+                    inCanvas = route?.startsWith(Routes.CANVAS) == true,
+                    onCanvas = { close { navigateTop(nav, Routes.CANVAS) } },
                     modifier = m,
                     open = wide || drawer.isOpen,
                 )
@@ -693,6 +707,33 @@ private fun AppNavHost(nav: NavHostController, modifier: Modifier) {
                 WorkflowRunScreen(runId = entry.arguments?.getString("id").orEmpty(), onBack = back, onOpenSession = openChat)
             }
             composable(Routes.WORKFLOW_LIBRARY) { WorkflowLibraryScreen(onBack = back, onOpenRun = openRun) }
+            composable(Routes.CANVAS) { CanvasListScreen(onOpen = { f -> nav.navigate(Routes.canvasFile(f)) }) }
+            composable(
+                Routes.CANVAS_PROGRAM,
+                arguments = listOf("name", "device", "cwd", "session").map { k -> navArgument(k) { type = NavType.StringType; defaultValue = "" } },
+            ) { entry ->
+                val a = entry.arguments
+                val f = CanvasFile.Program(a?.getString("name").orEmpty(), a?.getString("device").orEmpty(), a?.getString("cwd").orEmpty(), a?.getString("session").orEmpty())
+                CanvasScreen(f, onBack = back)
+            }
+            composable(
+                Routes.CANVAS_WORKFLOW,
+                arguments = listOf(
+                    navArgument("id") { type = NavType.StringType },
+                    navArgument("run") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("library") { type = NavType.BoolType; defaultValue = false },
+                ),
+            ) { entry ->
+                val a = entry.arguments
+                val id = a?.getString("id").orEmpty()
+                val run = a?.getString("run").orEmpty().ifBlank { null }
+                val group = when {
+                    run != null -> CanvasFile.Group.RUNS
+                    a?.getBoolean("library") == true -> CanvasFile.Group.LIBRARY
+                    else -> CanvasFile.Group.YOURS
+                }
+                CanvasScreen(CanvasFile.Workflow(id, id, group, runId = run), onBack = back)
+            }
             composable(Routes.DEVICES) { DevicesScreen(onBack = back) }
             composable(Routes.SETTINGS) {
                 SettingsScreen(

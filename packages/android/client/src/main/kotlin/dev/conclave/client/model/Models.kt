@@ -172,8 +172,11 @@ data class Session(
     val projectId: String? = null,
     /** Ultra: the agent plans and runs workflows for real tasks. Never on for chats. */
     val ultra: Boolean? = null,
+    /** Incognito: set when it starts, never changed. Not listed or searched, deleted when closed. */
+    val incognito: Boolean? = null,
 ) {
     val isChat: Boolean get() = kind == SessionKind.CHAT
+    val isIncognito: Boolean get() = incognito == true
 
     /** The switches in force: a switch the owner never touched is on. Null when this is not a chat. */
     val chatSettings: ChatSettings? get() = if (isChat) chat ?: ChatSettings() else null
@@ -213,6 +216,8 @@ data class ChatSettings(
     val webSearch: Boolean = true,
     /** Read memory and let the model save and forget notes. Off leaves no trace in memory. */
     val memory: Boolean = true,
+    /** False is "Use only": memory is read, nothing is saved. */
+    val memorySave: Boolean? = null,
     val thinking: ThinkingLevel? = null,
     /** Cyber access program for a ChatGPT plan model (standard, daybreak_blue, daybreak_red); null sends nothing. */
     val cyber: String? = null,

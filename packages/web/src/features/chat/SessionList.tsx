@@ -80,7 +80,7 @@ export function SessionList({ activeId }: { activeId?: string }) {
     const needle = q.trim();
     // every conversation: chats too, which group under Chats by project; a search finds delegated work as well
     // imported chats not continued yet are not the archive: they have a group of their own, last (core session/imported.ts)
-    let list = Object.values(sessions).filter((s) => (!underParent(s) || (!!needle && isDelegated(s))) && (showArchived ? s.archived && !inImported(s) : !s.archived || inImported(s)) && (!pinnedOnly || s.pinned) && !isDuplicateCopy(s));
+    let list = Object.values(sessions).filter((s) => !s.incognito && (!underParent(s) || (!!needle && isDelegated(s))) && (showArchived ? s.archived && !inImported(s) : !s.archived || inImported(s)) && (!pinnedOnly || s.pinned) && !isDuplicateCopy(s));
     if (needle) list = list.filter((s) => fuzzy(needle, `${s.title} ${s.agent} ${modelName(s.model)} ${s.tags.join(' ')} ${devices[s.device]?.name ?? ''}`) >= 0);
     list.sort((a, b) => b.updatedAt - a.updatedAt);
     const imported = list.filter(inImported).sort(byImportedDate);

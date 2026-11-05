@@ -402,9 +402,35 @@ export function openDb(file: string): Db {
   migrateSharedChats(db);
   // what a call is worth at API prices, kept from the day it is recorded (usage/value.ts); older rows have none
   ensureColumn(db, 'usage', 'api_value_usd', 'REAL');
+  migrateIncognito(db);
+  // Reflect's report (assistant/recap.ts) reads messages by time: without this every report scanned all of them (7 s on a 3 GB hub)
+  db.exec('CREATE INDEX IF NOT EXISTS messages_created ON messages(created_at)');
   // https://www.sqlite.org/pragma.html#pragma_optimize: long-lived connections run this once at open, then periodically
   db.exec('PRAGMA optimize = 0x10002;');
   return db;
+}
+
+/**
+ * Incognito sessions (session/incognito.ts): a column on the row, and the title index
+ * triggers of migration 6 remade so an incognito title is never indexed.
+ */
+function migrateIncognito(db: Db): void {
+  ensureColumn(db, 'sessions', 'incognito', 'INTEGER');
+  const sql = (db.query("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'sessions_fts_insert'").get() as { sql: string } | null)?.sql ?? '';
+  if (sql.includes('incognito')) return;
+  db.transaction(() => {
+    db.exec(`
+      DROP TRIGGER IF EXISTS sessions_fts_insert;
+      DROP TRIGGER IF EXISTS sessions_fts_title;
+      CREATE TRIGGER sessions_fts_insert AFTER INSERT ON sessions WHEN COALESCE(new.incognito, 0) = 0 BEGIN
+        INSERT INTO sessions_fts (title, session_id) VALUES (new.title, new.id);
+      END;
+      CREATE TRIGGER sessions_fts_title AFTER UPDATE OF title ON sessions WHEN old.title IS NOT new.title AND COALESCE(new.incognito, 0) = 0 BEGIN
+        DELETE FROM sessions_fts WHERE session_id = old.id;
+        INSERT INTO sessions_fts (title, session_id) VALUES (new.title, new.id);
+      END;
+    `);
+  })();
 }
 
 function migrate(db: Db): void {

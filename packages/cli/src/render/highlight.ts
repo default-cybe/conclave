@@ -5,18 +5,18 @@
  */
 import type { Painter } from '../ansi';
 
+/** Named ANSI colors: the terminal theme maps them, so code reads on light and dark backgrounds alike. */
 export const CODE_COLORS = {
-  keyword: '#569CD6',
-  control: '#C586C0',
-  string: '#CE9178',
-  comment: '#6A9955',
-  number: '#B5CEA8',
-  func: '#DCDCAA',
-  type: '#4EC9B0',
-  text: '#D4D4D4',
-  add: '#4EC9B0',
-  del: '#F48771',
-  meta: '#808080',
+  keyword: 'blue',
+  control: 'magenta',
+  string: 'green',
+  comment: 'gray',
+  number: 'yellow',
+  func: 'cyan',
+  type: 'cyan',
+  add: 'green',
+  del: 'red',
+  meta: 'gray',
 };
 
 const JS = 'const let var function class extends implements interface type enum import export from as default new this super typeof instanceof in of void delete async await yield static public private protected readonly abstract declare namespace module keyof infer satisfies get set null undefined true false';

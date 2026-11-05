@@ -193,6 +193,17 @@ export function registerWorkflowRoutes(app: Hono<HonoEnv>, ctx: ServerContext, a
     return c.json(res);
   });
 
+  // Delete in Canvas: a node's statement taken out of the script; undo is the restore route below
+  app.post('/api/workflows/:id/graph/remove', async (c) => {
+    const body = await readJson<{ nodeId?: unknown; baseSha?: unknown }>(c);
+    const nodeId = optString(body.nodeId, 'nodeId', 100);
+    const baseSha = optString(body.baseSha, 'baseSha', 100);
+    if (!nodeId || !baseSha) throw badRequest('nodeId and baseSha are required');
+    const res = await svc().removeGraph(c.req.param('id'), { nodeId, baseSha }, sessionQuery(c));
+    audit(c, 'workflow.graph.remove', `${c.req.param('id')} ${nodeId}`);
+    return c.json(res);
+  });
+
   // undo and redo: put back a version of the script the hub wrote itself, if the file is still baseSha
   app.post('/api/workflows/:id/graph/restore', async (c) => {
     const body = await readJson<{ sha?: unknown; baseSha?: unknown }>(c);

@@ -8,6 +8,7 @@ import type { Notice } from '../types';
 import type { Notifier, NotifyChannel, NotifyDevice } from './types';
 import { OWNER_ID } from '../people/context';
 import { EngineError } from '../engine/errors';
+import { incognitoNotice } from '../session/incognito';
 import { newId } from '../util/ids';
 import { logger } from '../util/log';
 import { defaultWebPush, WebPushChannel, type PushSubscriptionRow, type SignAction, type WebPushLib } from './channels';
@@ -148,7 +149,9 @@ export class NotifierService implements Notifier {
   }
 
   async send(input: Omit<Notice, 'id' | 'createdAt' | 'alert'>, opts: { force?: boolean } = {}): Promise<Notice> {
-    const { alert: _ignored, ...rest } = input as Notice;
+    const { alert: _ignored, ...raw } = input as Notice;
+    // the last stop before the phone vendor's servers: an incognito session's notice carries no text (session/incognito.ts)
+    const rest = raw.sessionId && this.incognito(raw.sessionId) ? incognitoNotice(raw) : raw;
     const urgent = !!opts.force || rest.level === 'error' || !!rest.approvalId;
     // a notice is someone's: their apps get it, their browsers get the push, their presence holds it
     const accountId = rest.accountId ?? OWNER_ID;
@@ -169,6 +172,14 @@ export class NotifierService implements Notifier {
       log.error('notify failed', err);
     }
     return notice;
+  }
+
+  private incognito(sessionId: string): boolean {
+    try {
+      return !!this.db.query('SELECT 1 FROM sessions WHERE id = ? AND incognito = 1').get(sessionId);
+    } catch {
+      return false;
+    }
   }
 
   async test(channel: string, opts: { endpoint?: string; accountId?: string } = {}): Promise<void> {

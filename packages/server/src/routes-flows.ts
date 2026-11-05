@@ -10,10 +10,11 @@ import { isMember } from '@conclave/core/people/context.ts';
 import type { FlowOp } from '@conclave/core/client/flows.ts';
 import { FLOW_BLOCKS } from '@conclave/core/flows/plugins.ts';
 import { flowsOf } from '@conclave/core/flows/service.ts';
+import { canvasQueueOf } from '@conclave/core/canvas/queue.ts';
 import type { HonoEnv, ServerContext } from './context';
 import { badRequest, optString, readJson } from './http';
 import type { AuditFn } from './routes-extensions';
-import { accountOf } from './scope';
+import { accountOf, ownSession } from './scope';
 
 const OPS = ['set', 'connect', 'disconnect', 'insert', 'remove', 'rename'];
 const short = (v: unknown, name: string) => {
@@ -93,4 +94,29 @@ export function registerFlowRoutes(app: Hono<HonoEnv>, ctx: ServerContext, audit
   app.post('/api/sessions/:id/flows/:name/run', async (c) => c.json(await svc().run(c.req.param('id'), c.req.param('name'))));
   app.get('/api/sessions/:id/flows/:name/run', (c) => c.json(svc().runState(c.req.param('id'), c.req.param('name')) ?? null, 200, { 'cache-control': 'no-store' }));
   app.post('/api/sessions/:id/flows/:name/stop', (c) => c.json(svc().stop(c.req.param('id'), c.req.param('name')) ?? null));
+
+  // Canvas's run queue (core/canvas/queue.ts): the caller's own queued runs; the hub starts each when its file's last run ends
+  const queue = () => canvasQueueOf(ctx.engine as unknown as Engine);
+  app.get('/api/canvas/queue', (c) => c.json(queue().list(accountOf(c), optString(c.req.query('file'), 'file', 400)), 200, { 'cache-control': 'no-store' }));
+  app.post('/api/canvas/queue', async (c) => {
+    const b = await readJson<Record<string, unknown>>(c);
+    const workflow = optString(b.workflow, 'workflow', 512);
+    let item;
+    if (workflow) {
+      if (b.args !== undefined && (typeof b.args !== 'object' || b.args === null || Array.isArray(b.args))) throw badRequest('args must be a JSON object');
+      item = await queue().add(accountOf(c), { workflow, ...(b.args ? { args: b.args as Record<string, unknown> } : {}) });
+    } else {
+      const sessionId = short(b.sessionId, 'sessionId');
+      // someone else's session answers 404, as a missing one
+      ownSession(ctx.engine, c, sessionId);
+      item = await queue().add(accountOf(c), { sessionId, flow: short(b.flow, 'flow') });
+    }
+    audit(c, 'canvas.queue', `${item.file} ${item.id}`);
+    return c.json(item, 201);
+  });
+  app.delete('/api/canvas/queue/:id', (c) => {
+    queue().cancel(accountOf(c), c.req.param('id'));
+    audit(c, 'canvas.queue.cancel', c.req.param('id'));
+    return c.body(null, 204);
+  });
 }

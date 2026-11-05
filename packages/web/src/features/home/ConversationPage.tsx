@@ -71,7 +71,8 @@ export default function ConversationPage() {
 
   // the Preview column takes the panel's place
   const panel = !!session && wide && contextOpen && !previewing;
-  const sideMode = mode === 'chat' ? 'assistant' : mode;
+  // canvas never gets here (HomePage sends it to /canvas); the type still needs a box
+  const sideMode = mode === 'chat' || mode === 'canvas' ? 'assistant' : mode;
 
   const onDragOver = (e: DragEvent) => {
     if (session || !acceptFileDrag(e)) return;

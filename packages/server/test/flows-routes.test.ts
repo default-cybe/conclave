@@ -69,6 +69,7 @@ describe('flow routes', () => {
       ['POST', `/api/sessions/${s.id}/flows/x`],
       ['GET', `/api/sessions/${s.id}/flows/hn/graph`],
       ['POST', `/api/sessions/${s.id}/flows/hn/graph/op`],
+      ['POST', `/api/sessions/${s.id}/flows/hn/graph/restore`],
       ['PUT', `/api/sessions/${s.id}/flows/hn/graph/layout`],
       ['POST', `/api/sessions/${s.id}/flows/hn/run`],
       ['GET', `/api/sessions/${s.id}/flows/hn/run`],
