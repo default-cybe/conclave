@@ -20,6 +20,14 @@ export const RUN_WORD: Record<WorkflowRunStatus, string> = {
   budget: 'stopped at budget',
 };
 
+/** A run in one line for the run page: state, how long, cost, and the step that failed with its error. */
+export function runSummary(run: WorkflowRun, calls: WorkflowCall[], now = Date.now()): { state: string; took: string; cost: string; failed?: { step: string; error: string } } {
+  const start = run.startedAt ?? run.createdAt;
+  const f = calls.find((c) => c.state === 'failed');
+  const failed = f ? { step: f.label ?? `Call ${f.seq}`, error: f.error ?? run.error ?? 'No error was given.' } : run.status === 'failed' ? { step: run.phaseTitle ?? 'The script', error: run.error ?? 'No error was given.' } : undefined;
+  return { state: RUN_WORD[run.status], took: durationShort((run.finishedAt ?? now) - start), cost: usd(run.costUsd), ...(failed ? { failed } : {}) };
+}
+
 export const RUN_TONE: Record<WorkflowRunStatus, StateTone> = {
   queued: 'dim',
   running: 'signal',

@@ -1,5 +1,6 @@
 import { Children, isValidElement, lazy, Suspense, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { matchRoute, Redirect, Route, Router, Switch, useLocation, useRouter, type Parser } from 'wouter';
+import { OldGraph } from './features/canvas/OldGraph';
 import { MOCK, connectClient, consumeHashToken, loadConnection, withoutConnectParam, type Connection } from './lib/api';
 import { loadAll, startLive, stopLive, useHub } from './store/store';
 import { isSetupPath, setupRedirect, useOnboarded } from './lib/onboarding';
@@ -37,7 +38,6 @@ const AgentsPage = lazy(() => import('./features/agents/AgentsPage'));
 const ExtensionsPage = lazy(() => import('./features/extensions/ExtensionsPage'));
 const RoutinesPage = lazy(() => import('./features/routines/RoutinesPage'));
 const WorkflowsPage = lazy(() => import('./features/workflows/WorkflowsPage'));
-const WorkflowGraphPage = lazy(() => import('./features/graph/RunGraph'));
 const CanvasPage = lazy(() => import('./features/canvas/CanvasPage'));
 const MemoryPage = lazy(() => import('./features/memory/MemoryPage'));
 const UsagePage = lazy(() => import('./features/usage/UsagePage'));
@@ -254,8 +254,12 @@ export function App() {
                 </OwnerOnly>
               </Route>
               <Route path="/routines/:id?" component={RoutinesPage} />
-              <Route path="/workflows/runs/:id?" component={WorkflowsPage} />
-              <Route path="/workflows/graph/:id" component={WorkflowGraphPage} />
+              <Route path="/workflows/runs/:id?">
+                <OldGraph fallback={<WorkflowsPage />} />
+              </Route>
+              <Route path="/workflows/graph/:id">
+                <OldGraph />
+              </Route>
               <Route path="/workflows" component={WorkflowsPage} />
               <Route path="/canvas/:kind/:name" component={CanvasPage} />
               <Route path="/canvas" component={CanvasPage} />

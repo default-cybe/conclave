@@ -48,6 +48,8 @@ export const ACCOUNT_TABLES = [
   'meeting_digests',
   // profile pictures (people/store.ts setAvatar): one row per account
   'account_avatars',
+  // Canvas's run queue (canvas/queue.ts): each account's queued runs per file
+  'canvas_queue',
 ] as const;
 
 /** Child table to the parent table whose account_id scopes it. */

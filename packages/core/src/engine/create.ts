@@ -47,6 +47,7 @@ import { markHubPrivate } from '../machine/private';
 import { ImportOffers, ImportService, attachImport, attachImportOffers } from '../import';
 import { DailyDigest, attachDigest } from '../memory/digest';
 import { WorkflowService } from '../workflows/service';
+import { attachCanvasQueue } from '../canvas/queue';
 import { AccountsService } from '../accounts/service';
 import { PimService, attachPim, PROPOSALS_PRUNE_JOB, type PimHost } from '../pim';
 import { reminder } from '../session/transcript';
@@ -489,6 +490,8 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
   attachDigest(engine, digest);
   // workflows (workflows/service.ts): the library, runs and their journal, Ultra; runs a restart left resume here
   new WorkflowService(engine, { plugins: () => plugins.plugins().map((p) => ({ name: p.name, dir: p.dir, enabled: p.enabled })) }).start();
+  // Canvas's run queue (canvas/queue.ts): after workflows, so a run a restart left has resumed before the next queued one is weighed
+  attachCanvasQueue(engine);
   // in-process built-in hooks (file recall), listed in Extensions > Hooks > Built in
   registerBuiltinHooks(engine, hooks);
   // the verify gate: the project's check on the session's device before a coding agent's turn ends (session/verify-gate.ts)

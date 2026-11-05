@@ -619,6 +619,10 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/sessions/:id/flows/:name/run': SESSION,
   'GET /api/sessions/:id/flows/:name/run': SESSION,
   'POST /api/sessions/:id/flows/:name/stop': SESSION,
+  // Canvas's run queue (routes-flows.ts): the caller's own rows only; a program's session is checked as its own, someone else's queued run is 404
+  'GET /api/canvas/queue': 'self',
+  'POST /api/canvas/queue': 'self',
+  'DELETE /api/canvas/queue/:id': 'self',
   // a Code session's Preview pane (routes-preview.ts): runs launch.json on the device and the hub's Chromium, so the owner only
   'GET /api/sessions/:id/preview': 'admin',
   'POST /api/sessions/:id/preview/start': 'admin',

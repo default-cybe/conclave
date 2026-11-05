@@ -20,6 +20,7 @@ import { useLibrary, useRuns } from './data';
 import { RunSheet } from './RunSheet';
 import { RunView } from './RunView';
 import { RUN_TONE, RUN_WORD, SOURCE_WORD, isLive } from './words';
+import { workflowHref } from '../canvas/model';
 
 export default function WorkflowsPage() {
   const params = useParams<{ id?: string }>();
@@ -106,8 +107,8 @@ function Library() {
                     state={w.lastRun ? <StateWord tone={RUN_TONE[w.lastRun.status]}>{RUN_WORD[w.lastRun.status]}</StateWord> : <span className="text-fg-3">never run</span>}
                   />
                   {!phone && w.runnable && (
-                    <Link href={`/workflows/graph/${encodeURIComponent(w.id)}`} className="link flex shrink-0 items-center px-2 text-[12.5px]" aria-label={`${w.name} as a graph`}>
-                      Graph
+                    <Link href={workflowHref(w.id)} className="link flex shrink-0 items-center px-2 text-[12.5px]" aria-label={`Open ${w.name} in Canvas`}>
+                      Canvas
                     </Link>
                   )}
                 </div>

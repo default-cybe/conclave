@@ -4,7 +4,7 @@
  * word at the right with a 1px outline in the state's token. No ticks,
  * triangles, badges or pulsing: words in fixed places.
  */
-import { memo, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { FlowBlockSpec, FlowNodeLive, GraphNode, NodeRun, NodeRunState } from '@conclave/core/client';
 import { Elapsed } from '@/components/motion/Elapsed';
@@ -27,12 +27,19 @@ export interface FlowNodeData extends Record<string, unknown> {
   connectable?: boolean;
   /** Canvas mode: a double-click on the title edits it in place; Enter or leaving the field saves, Escape keeps the old one. */
   onRename?: (id: string, name: string) => void;
+  /** The node menu's Rename: each new number opens the field, as a double-click does. */
+  renameAsk?: number;
 }
 
 /** A node's title, or the field that renames it. nodrag: typing and selecting text must not move the node. */
-function Title({ id, text, mono, onRename }: { id: string; text: string; mono?: boolean; onRename?: (id: string, name: string) => void }) {
+function Title({ id, text, mono, onRename, ask }: { id: string; text: string; mono?: boolean; onRename?: (id: string, name: string) => void; ask?: number }) {
   const [draft, setDraft] = useState<string>();
   const closed = useRef(false);
+  useEffect(() => {
+    if (!ask || !onRename) return;
+    closed.current = false;
+    setDraft(text);
+  }, [ask]); // eslint-disable-line react-hooks/exhaustive-deps
   const cls = cn('min-w-0 truncate text-[13px] font-medium text-fg', mono && 'mono');
   if (draft === undefined)
     return (
@@ -159,7 +166,7 @@ export function stateWord(run?: NodeRun): string {
 }
 
 export const WorkflowNode = memo(function WorkflowNode({ data }: NodeProps) {
-  const { node, run, stale, selected, vertical, onRename } = data as FlowNodeData;
+  const { node, run, stale, selected, vertical, onRename, renameAsk } = data as FlowNodeData;
   const tone = stateTone(run?.state);
   return (
     <div
@@ -170,7 +177,7 @@ export const WorkflowNode = memo(function WorkflowNode({ data }: NodeProps) {
     >
       <Handle type="target" position={vertical ? Position.Top : Position.Left} isConnectable={false} />
       <div className="flex items-baseline justify-between gap-2">
-        <Title id={node.id} text={nodeTitle(node)} onRename={onRename} />
+        <Title id={node.id} text={nodeTitle(node)} onRename={onRename} ask={renameAsk} />
       </div>
       {/* a failed node says why where the settings were; the inspector has all of it */}
       {run?.state === 'failed' && run.error ? <div className="truncate text-[12px] text-fault">{run.error.split('\n')[0]}</div> : <div className="truncate text-[12px] text-fg-3">{metaLine(node, run)}</div>}
@@ -218,7 +225,7 @@ export const liveState = (live?: FlowNodeLive): NodeRunState | undefined => (liv
  * error. One input handle per input, so a wire lands on its input.
  */
 export const FlowBlockNode = memo(function FlowBlockNode({ data }: NodeProps) {
-  const { node, selected, vertical, spec, live, connectable, onRename, state: now } = data as FlowNodeData;
+  const { node, selected, vertical, spec, live, connectable, onRename, renameAsk, state: now } = data as FlowNodeData;
   const state = liveState(live) ?? now;
   const tone = stateTone(state);
   const inputs = node.kind === 'block' && node.block !== 'value' ? (spec?.inputs.map((i) => i.name) ?? Object.keys(node.args ?? {})) : node.kind === 'code' ? [''] : [];
@@ -242,7 +249,7 @@ export const FlowBlockNode = memo(function FlowBlockNode({ data }: NodeProps) {
         />
       ))}
       <div className="flex items-baseline justify-between gap-2">
-        <Title id={node.id} text={node.kind === 'code' ? nodeTitle(node) : node.label} mono onRename={onRename} />
+        <Title id={node.id} text={node.kind === 'code' ? nodeTitle(node) : node.label} mono onRename={onRename} ask={renameAsk} />
       </div>
       <div className="truncate text-[12px] text-fg-3">{blockLine(node, spec)}</div>
       <div className={cn('cv-state truncate text-[12px]', tone.text)}>{state === 'failed' ? `failed: ${out}` : out || (state === 'running' || state === 'queued' ? state : '')}</div>

@@ -335,7 +335,7 @@ export function buildPicker({ models, sessions, devices, secrets, limits, harnes
       const own = g.provider === maker || VENDOR_MAKER[g.provider] === maker;
       // a row with routes or its own "via" already says how it is reached
       const source = own || routes || m.via ? undefined : g.name && g.name !== g.provider ? g.name : providerName(g.provider);
-      const row: Row = { ref: m.ref, model: m, group: providerName(maker), groupKey: maker, disabled: !g.enabled, family: familyOf(m.id).family || undefined, ...(routes ? { routes } : {}), ...(source ? { source } : {}) };
+      const row: Row = { ref: m.ref, model: m, group: providerName(maker), groupKey: maker, disabled: !g.enabled || !!m.unavailable, family: familyOf(m.id).family || undefined, ...(routes ? { routes } : {}), ...(source ? { source } : {}) };
       list.push(row);
       rowOf.set(m.ref, row);
       byMaker.set(maker, list);
@@ -356,7 +356,7 @@ export function buildPicker({ models, sessions, devices, secrets, limits, harnes
       group: 'Recent',
       groupKey: 'recent',
       harness: !!HARNESSES[ref.split('/')[0]],
-      disabled: off.has(ref.split('/')[0]),
+      disabled: off.has(ref.split('/')[0]) || !!byRef.get(ref)?.unavailable,
       ...(row?.routes ? { routes: row.routes } : {}),
     };
   });
@@ -770,7 +770,9 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
                       via
                     </button>
                   )}
-                  {r.disabled && !r.harness ? (
+                  {r.model?.unavailable ? (
+                    <span className="shrink-0 text-[12px] text-fg-3">{r.model.unavailable}</span>
+                  ) : r.disabled && !r.harness ? (
                     <Button
                       variant="quiet"
                       size="sm"

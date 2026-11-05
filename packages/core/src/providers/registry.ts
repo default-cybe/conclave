@@ -467,7 +467,12 @@ export class ProviderRegistry {
     const ttl = this.opts.modelsTtlMs ?? 600_000;
     if (hit && Date.now() - hit.at < ttl) return hit.models;
     const listed = await withTimeout(p.listModels(), this.opts.listTimeoutMs ?? 15_000, `${providerId} model listing`);
-    const models = listed.map((m) => this.withEffort(providerId, m));
+    const meta = this.providerConfigs()[providerId]?.modelMeta;
+    const models = listed.map((m) => {
+      const info = this.withEffort(providerId, m);
+      const why = meta?.[m.id]?.unavailable;
+      return why ? { ...info, unavailable: why } : info;
+    });
     this.listings.set(providerId, { at: Date.now(), models });
     return models;
   }

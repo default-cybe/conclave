@@ -35,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.AccountTree
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
@@ -125,6 +126,8 @@ fun SidePanel(
     open: Boolean = true,
     inMeetings: Boolean = false,
     onMeetings: () -> Unit = {},
+    inCanvas: Boolean = false,
+    onCanvas: () -> Unit = {},
 ) {
     val container = LocalAppContainer.current
     val hub = container.hub
@@ -185,6 +188,13 @@ fun SidePanel(
             MeetingsRow(open, selected = inMeetings, onClick = {
                 endSearch()
                 onMeetings()
+            })
+            // Canvas is a page here, not a StartMode: sharing into the app offers only the modes that start a conversation
+            PanelRow("Canvas", selected = inCanvas, strong = true, onClick = {
+                endSearch()
+                onCanvas()
+            }, leading = {
+                Icon(Icons.Outlined.AccountTree, contentDescription = null, tint = c.fg2, modifier = Modifier.size(20.dp))
             })
             ModeSwitch(mode, onChange = onMode, modifier = Modifier.padding(start = 4.dp, top = 12.dp))
         }

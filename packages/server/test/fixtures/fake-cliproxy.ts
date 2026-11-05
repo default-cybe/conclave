@@ -140,6 +140,8 @@ interface Account {
   codex_models_etag?: string;
   /** More models CLIProxyAPI registers for it (as the real one lists codex-auto-review and GPT Image for a ChatGPT plan). */
   extra_models?: string[];
+  /** Models the plan itself refuses: a call answers Anthropic's 404 not_found_error, as a Claude plan without the model does. */
+  refuse_models?: string[];
 }
 
 const USAGE_URLS = {
@@ -185,6 +187,11 @@ function modelsOf(acct: Account): Array<[string, string]> {
   if (acct.type === 'codex' && catalogPath && existsSync(catalogPath)) {
     const section = (JSON.parse(readFileSync(catalogPath, 'utf8')) as Record<string, Array<{ id: string }>>)[codexSection(acct.plan_type)] ?? [];
     for (const m of section) if (!out.some(([id]) => id === m.id)) out.push([m.id, 'openai']);
+  }
+  // a Claude account registers the catalog's claude section (the hub's catalog adds Mythos 5.1 there)
+  if (acct.type === 'claude' && catalogPath && existsSync(catalogPath)) {
+    const section = (JSON.parse(readFileSync(catalogPath, 'utf8')) as Record<string, Array<{ id: string }>>).claude ?? [];
+    for (const m of section) if (!out.some(([id]) => id === m.id)) out.push([m.id, 'anthropic']);
   }
   return out;
 }
@@ -531,6 +538,10 @@ const server = Bun.serve({
       // the router knows only what the accounts list: anything else ends here, before a provider is asked
       if ((path === '/v1/messages' || path === '/v1/chat/completions' || path === '/v1/responses') && !servedIds().some(([id]) => id === model)) {
         return json({ error: { message: `unknown provider for model ${model}`, type: 'invalid_request_error', code: 'model_not_found', param: 'model' } }, 400);
+      }
+      if (path === '/v1/messages' && accounts().some(({ acct }) => !acct.disabled && acct.refuse_models?.includes(model))) {
+        logCall(path, model, req.headers.get('x-session-id'));
+        return json({ type: 'error', error: { type: 'not_found_error', message: `model: ${model}` } }, 404);
       }
       if (path === '/v1/messages') {
         logCall(path, model, req.headers.get('x-session-id'));
