@@ -32,6 +32,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -59,6 +62,10 @@ import dev.conclave.app.ui.motion.rememberToasts
 import dev.conclave.app.ui.theme.CodeStyle
 import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
+import dev.conclave.app.ui.workflows.LaunchDialog
+import dev.conclave.client.cancelCanvasRun
+import dev.conclave.client.canvasQueue
+import dev.conclave.client.deleteWorkflowPreset
 import dev.conclave.client.flowGraph
 import dev.conclave.client.flowRun
 import dev.conclave.client.flows
@@ -71,17 +78,24 @@ import dev.conclave.client.logic.Format
 import dev.conclave.client.logic.Paths
 import dev.conclave.client.logic.StateTone
 import dev.conclave.client.logic.WorkflowWords
+import dev.conclave.client.model.CanvasQueuedRun
 import dev.conclave.client.model.FlowRunStatus
 import dev.conclave.client.model.FlowRunView
 import dev.conclave.client.model.StartWorkflowInput
 import dev.conclave.client.model.WorkflowGraph
+import dev.conclave.client.model.WorkflowPreset
 import dev.conclave.client.model.WorkflowRunDetail
+import dev.conclave.client.model.WorkflowSummary
+import dev.conclave.client.queueFlowRun
+import dev.conclave.client.queueWorkflowRun
 import dev.conclave.client.runFlow
+import dev.conclave.client.saveWorkflowPreset
 import dev.conclave.client.startWorkflow
 import dev.conclave.client.stopFlow
 import dev.conclave.client.stopWorkflow
 import dev.conclave.client.workflow
 import dev.conclave.client.workflowGraph
+import dev.conclave.client.workflowPresets
 import dev.conclave.client.workflowRun
 import dev.conclave.client.workflowRunGraph
 import dev.conclave.client.workflowRuns
@@ -92,6 +106,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonElement
 
 /** How often a live run is read again (the web polls a program at 700 ms; the phone at 2 s). */
 private const val POLL_MS = 2_000L
@@ -191,7 +206,7 @@ fun CanvasListScreen(onOpen: (CanvasFile) -> Unit) {
 // One file, read only: its blocks in run order, lit by the last run
 // ---------------------------------------------------------------------------
 
-/** What the canvas shows. [canRun] false with [runHint] says why Run is off. */
+/** What the canvas shows. [canRun] false: a run's own canvas (read only), no Run. */
 data class CanvasView(
     val title: String,
     val meta: String,
@@ -201,7 +216,6 @@ data class CanvasView(
     val since: Long? = null,
     val live: Boolean = false,
     val canRun: Boolean = false,
-    val runHint: String? = null,
     val graphError: String? = null,
 )
 
@@ -215,11 +229,17 @@ class CanvasViewModel(hub: HubRepository, private val file: CanvasFile) : HubVie
     val error = MutableStateFlow<String?>(null)
     val busy = MutableStateFlow(false)
 
+    /** This file's runs waiting on the hub (GET /api/canvas/queue), oldest first. */
+    val queue = MutableStateFlow<List<CanvasQueuedRun>>(emptyList())
+
+    /** A workflow that declares args: Run and Queue run ask for them first (the library's launch form). */
+    val askArgs = MutableStateFlow<WorkflowSummary?>(null)
+    val presets = MutableStateFlow<List<WorkflowPreset>>(emptyList())
+
     private var graph = WorkflowGraph()
     private var flowRun: FlowRunView? = null
     private var detail: WorkflowRunDetail? = null
     private var runId: String? = (file as? CanvasFile.Workflow)?.runId
-    private var declaresArgs = false
     private var sessionId: String? = null
     private var poll: Job? = null
 
@@ -247,7 +267,10 @@ class CanvasViewModel(hub: HubRepository, private val file: CanvasFile) : HubVie
                     } else {
                         graph = hub.api { it.workflowGraph(file.id) }.graph
                         val w = hub.api { it.workflow(file.id) }
-                        declaresArgs = !w.argsSchema.isNullOrEmpty()
+                        if (!w.argsSchema.isNullOrEmpty()) {
+                            askArgs.value = w
+                            presets.value = runCatching { hub.api { it.workflowPresets(file.id) } }.getOrDefault(emptyList())
+                        }
                         if (runId == null) runId = w.lastRun?.id
                     }
                 }
@@ -262,11 +285,34 @@ class CanvasViewModel(hub: HubRepository, private val file: CanvasFile) : HubVie
     }
 
     private suspend fun readRun() {
+        readQueue()
         when (file) {
             is CanvasFile.Program -> sessionId?.let { sid -> hub.api { it.flowRun(sid, file.name) }?.let { flowRun = it } }
             is CanvasFile.Workflow -> runId?.let { id -> detail = hub.api { it.workflowRun(id) } }
         }
         publish()
+    }
+
+    /**
+     * The queue on the hub. When its oldest run left, the hub started it: a
+     * workflow's newest run is that one (a program's run is read by name).
+     */
+    private suspend fun readQueue() {
+        if (runOnly != null) return
+        val before = queue.value
+        // a hub without the queue route keeps the list as it was; the next read tries again
+        queue.value = try {
+            hub.api { it.canvasQueue(Canvas.queueFile(file, sessionId)) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            before
+        }
+        if (before.isNotEmpty() && queue.value.none { it.id == before[0].id }) latest()
+    }
+
+    private suspend fun latest() {
+        if (file is CanvasFile.Workflow && runOnly == null) hub.api { it.workflow(file.id) }.lastRun?.id?.let { runId = it }
     }
 
     private fun publish() {
@@ -296,19 +342,19 @@ class CanvasViewModel(hub: HubRepository, private val file: CanvasFile) : HubVie
                     tone = r?.let { WorkflowWords.runTone(it.status) } ?: StateTone.DIM,
                     since = if (live) r.startedAt ?: r.createdAt else null,
                     live = live,
-                    canRun = file.runId == null && !declaresArgs,
-                    runHint = if (file.runId == null && declaresArgs) "This workflow takes args: run it from Open on web." else null,
+                    canRun = file.runId == null,
                 )
             }
         }
         view.value = v
-        if (v.live && poll?.isActive != true) {
+        if ((v.live || queue.value.isNotEmpty()) && poll?.isActive != true) {
             // collectAsStateWithLifecycle drops its subscription when the screen stops or is covered, so the poll waits then
-            poll = viewModelScope.launch { Canvas.pollLive(POLL_MS, { view.value?.live == true }, view.subscriptionCount) { readRun() } }
+            poll = viewModelScope.launch { Canvas.pollLive(POLL_MS, { view.value?.live == true || queue.value.isNotEmpty() }, view.subscriptionCount) { readRun() } }
         }
     }
 
-    fun run() {
+    /** Start now; [args] from the launch form when the workflow declares any. */
+    fun run(args: JsonElement? = null) {
         if (busy.value) return
         busy.value = true
         action {
@@ -320,7 +366,7 @@ class CanvasViewModel(hub: HubRepository, private val file: CanvasFile) : HubVie
                         publish()
                     }
                     is CanvasFile.Workflow -> {
-                        runId = hub.api { it.startWorkflow(StartWorkflowInput(name = file.id)) }.id
+                        runId = hub.api { it.startWorkflow(StartWorkflowInput(name = file.id, args = args)) }.id
                         readRun()
                     }
                 }
@@ -328,6 +374,38 @@ class CanvasViewModel(hub: HubRepository, private val file: CanvasFile) : HubVie
                 busy.value = false
             }
         }
+    }
+
+    /** Queue run while one goes on: the hub starts it when this file's run ends, with no app open. */
+    fun queueRun(args: JsonElement? = null) = action("Queued") {
+        val q = when (file) {
+            is CanvasFile.Program -> {
+                val sid = sessionId ?: return@action
+                hub.api { it.queueFlowRun(sid, file.name) }
+            }
+            is CanvasFile.Workflow -> hub.api { it.queueWorkflowRun(file.id, args) }
+        }
+        readQueue()
+        // the run ended meanwhile and the hub started this one at once
+        if (queue.value.none { it.id == q.id }) latest()
+        readRun()
+    }
+
+    fun cancelQueued(id: String) = action("Cancelled") {
+        hub.api { it.cancelCanvasRun(id) }
+        readRun()
+    }
+
+    fun savePreset(name: String, args: JsonElement?) = action("Preset saved") {
+        val w = askArgs.value ?: return@action
+        hub.api { it.saveWorkflowPreset(w.id, name, args) }
+        presets.value = hub.api { it.workflowPresets(w.id) }
+    }
+
+    fun removePreset(p: WorkflowPreset) = action {
+        val w = askArgs.value ?: return@action
+        hub.api { it.deleteWorkflowPreset(w.id, p.id) }
+        presets.value = hub.api { it.workflowPresets(w.id) }
     }
 
     fun stop() = action("Stopped") {
@@ -349,7 +427,7 @@ class CanvasViewModel(hub: HubRepository, private val file: CanvasFile) : HubVie
     }
 }
 
-/** The read-only canvas: Run, Stop and Open on web on top; the status, then the blocks under their phases. */
+/** The read-only canvas: Run (Stop and Queue while live) and Open on web on top; the status, the queued runs, then the blocks under their phases. */
 @Composable
 fun CanvasScreen(file: CanvasFile, onBack: () -> Unit) {
     val hub = LocalAppContainer.current.hub
@@ -357,6 +435,18 @@ fun CanvasScreen(file: CanvasFile, onBack: () -> Unit) {
     val view by vm.view.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
+    val queue by vm.queue.collectAsStateWithLifecycle()
+    val askArgs by vm.askArgs.collectAsStateWithLifecycle()
+    val presets by vm.presets.collectAsStateWithLifecycle()
+    // the launch form is open: for Queue run (true) or Run (false)
+    var argsFor by remember { mutableStateOf<Boolean?>(null) }
+    fun go(queued: Boolean) {
+        when {
+            askArgs != null -> argsFor = queued
+            queued -> vm.queueRun()
+            else -> vm.run()
+        }
+    }
     val connection by hub.connection.collectAsStateWithLifecycle()
     val toasts = rememberToasts()
     MessagesEffect(vm.messages, toasts)
@@ -370,8 +460,12 @@ fun CanvasScreen(file: CanvasFile, onBack: () -> Unit) {
                 onBack = onBack,
                 newChat = false,
                 actions = {
-                    if (v != null && v.live) TextButton(onClick = { vm.stop() }) { Text("Stop", color = c.fault) }
-                    else if (v != null && v.canRun) TextButton(onClick = { vm.run() }, enabled = !busy) { Text("Run") }
+                    if (v != null && v.live) {
+                        TextButton(onClick = { vm.stop() }) { Text("Stop", color = c.fault) }
+                        if (v.canRun) TextButton(onClick = { go(true) }) { Text("Queue") }
+                    } else if (v != null && v.canRun) {
+                        TextButton(onClick = { go(false) }, enabled = !busy) { Text("Run") }
+                    }
                     val base = hub.currentUrl
                     if (base != null) {
                         IconButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(base.trimEnd('/') + Canvas.webPath(file)))) } }) {
@@ -401,9 +495,12 @@ fun CanvasScreen(file: CanvasFile, onBack: () -> Unit) {
                                         Text(Format.elapsed(now - it), style = ConclaveType.metaNum, color = c.fg3)
                                     }
                                 }
-                                v.runHint?.let { Text(it, style = ConclaveType.meta, color = c.fg3) }
                                 v.graphError?.let { Text(it, style = CodeStyle, color = c.fault) }
                             }
+                        }
+                        if (queue.isNotEmpty()) {
+                            item(key = "q:head") { SectionHeader("Queued") }
+                            items(queue, key = { "q:${it.id}" }) { q -> QueuedRow(q, now) { vm.cancelQueued(q.id) } }
                         }
                         if (v.blocks.isEmpty()) {
                             item(key = "empty") { EmptyState(Icons.Outlined.AccountTree, "No blocks", "This file has no statements the canvas can show yet.") }
@@ -417,6 +514,36 @@ fun CanvasScreen(file: CanvasFile, onBack: () -> Unit) {
                 }
             }
         }
+    }
+    val w = askArgs
+    val queued = argsFor
+    if (w != null && queued != null) {
+        LaunchDialog(
+            workflow = w,
+            presets = presets,
+            starting = busy,
+            onDismiss = { argsFor = null },
+            onSavePreset = { name, args -> vm.savePreset(name, args) },
+            onRemovePreset = { p -> vm.removePreset(p) },
+            onStart = { args ->
+                argsFor = null
+                if (queued) vm.queueRun(args) else vm.run(args)
+            },
+            confirm = if (queued) "Queue" else "Start",
+        )
+    }
+}
+
+/** A queued run: how long it waits, its args when it has any, and Cancel. */
+@Composable
+private fun QueuedRow(q: CanvasQueuedRun, now: Long, onCancel: () -> Unit) {
+    val c = Conclave.colors
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Waiting ${Format.elapsed(now - q.createdAt)}", style = ConclaveType.rowTitle, color = c.fg)
+            Canvas.shortValue(q.args?.toString())?.let { Text(it, style = CodeStyle, color = c.fg3, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        }
+        TextButton(onClick = onCancel) { Text("Cancel") }
     }
 }
 

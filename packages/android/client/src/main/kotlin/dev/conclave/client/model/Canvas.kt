@@ -100,6 +100,24 @@ data class FlowView(
     val lastRun: FlowRunView? = null,
 )
 
+/**
+ * A run waiting in Canvas's queue on the hub (GET /api/canvas/queue): one file
+ * runs at a time and the hub starts the next when the last ends. [file] is
+ * workflow:<id> or program:<sessionId>:<name>.
+ */
+@Serializable
+data class CanvasQueuedRun(
+    val id: String,
+    val file: String = "",
+    /** workflow or program. */
+    val kind: String = "workflow",
+    val workflow: String? = null,
+    val sessionId: String? = null,
+    val flow: String? = null,
+    val args: JsonElement? = null,
+    val createdAt: Long = 0,
+)
+
 /** GET /api/sessions/:id/flows: one program in the session's folder. */
 @Serializable
 data class FlowSummary(val name: String, val path: String = "")

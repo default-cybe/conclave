@@ -122,6 +122,19 @@
   --xy-minimap-mask-stroke-width: 1;
 }
 
+/* a long-press on a node opens its menu: no iOS callout or text selection over it */
+.cv-full .react-flow__node {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Safari will not type into a field under user-select: none */
+.cv-full .react-flow__node input {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 .cv-full .react-flow__minimap {
   border: 1px solid var(--rule-2);
   border-radius: var(--r-2);

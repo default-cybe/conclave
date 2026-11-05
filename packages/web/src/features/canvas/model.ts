@@ -42,6 +42,14 @@ export const isRunId = (s: string) => s.startsWith('wfr_');
 
 export const fileHref = (f: CanvasFile) => (f.kind === 'program' ? programHref(f.name, f.device, f.cwd) : workflowHref(f.runId ?? f.id));
 
+/** A node menu's Open in code: the file in its device's file browser. A built-in workflow (builtin:...) has no file to open. */
+export function codeHref(device: string, path: string | undefined): string | undefined {
+  if (!device || !path || path.startsWith('builtin:')) return undefined;
+  const i = path.lastIndexOf('/');
+  const q = new URLSearchParams({ ...(i > 0 ? { path: path.slice(0, i) } : {}), file: path });
+  return `/devices/${encodeURIComponent(device)}/files?${q}`;
+}
+
 export const fileTitle = (f: CanvasFile) => (f.kind === 'program' ? `${f.name}.flow.ts` : f.name);
 
 // ---------------------------------------------------------------------------

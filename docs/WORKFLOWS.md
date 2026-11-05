@@ -376,6 +376,13 @@ Ctrl/Cmd+Shift+Z) step back and forward through your edits.
   their settings; a wire between copied blocks goes to the copies. Code
   statements are not copied.
 - **Rename**: double-click a block's title. Every place that reads it follows.
+- **Node menu**: right-click a node, or long-press it on a phone or tablet
+  (iOS Safari included), for **Rename**, **Duplicate** (a copy of a program
+  block with its settings and wires), **Delete**, **Open in code** (the file
+  in its device's file browser; a built-in workflow has none) and **Run from
+  here** (a workflow node the last run reached: it replays from the journal,
+  as Re-run from here). The menu offers only what the file allows: a read-only
+  workflow has Open in code and Run from here.
 - **Settings**: change them in the inspector; a field saves when you leave it
   or press Enter.
 
@@ -419,6 +426,12 @@ node reads a name it declares, or when it shares a line with other code.
   edit as it lands; it reads once more when the turn ends. Polling stops when
   the session is idle or the tab closes.
 - Reopening `/canvas/...` shows the file's latest run, live if it still goes.
+- On Android, Canvas (side panel) lists the same files and shows a file as
+  its blocks in run order, lit by the last run. Run asks for a workflow's
+  declared args in the library's launch form (presets included). While a
+  run goes on, the top bar shows Stop and **Queue**; the queued runs list
+  under the status with Cancel, and the canvas follows the next run when the
+  hub starts it. Editing opens the web through Open on web.
 - Canvas is the only graph. A run page shows a short summary (state, time,
   cost, the failed step and its error) with **Open in Canvas**, and a Code
   session has **Open in Canvas** in place of its Blocks pane. The old

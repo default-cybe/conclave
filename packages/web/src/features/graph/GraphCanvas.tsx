@@ -11,6 +11,7 @@ import './graph.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Background, BackgroundVariant, Controls, MiniMap, ReactFlow, ReactFlowProvider, useConnection, useReactFlow, type Edge, type Node, type NodeChange } from '@xyflow/react';
 import type { FlowBlockSpec, FlowNodeLive, GraphNode, NodeRun, NodeRunState, WorkflowGraph } from '@conclave/core/client';
+import { MenuList, Popover, type MenuItem } from '@/components/ui/Overlay';
 import { useIsMobile, useMedia } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { deskViewport, focusViewport } from '../canvas/model';
@@ -49,6 +50,27 @@ export interface GraphCanvasProps {
   flow?: { blocks: Map<string, FlowBlockSpec>; live?: Record<string, FlowNodeLive>; states?: Record<string, NodeRunState>; onConnect?: (from: string, to: string, input: string) => void; check?: (from: string, to: string, input: string) => string | undefined };
   /** Canvas mode (docs/design/CANVAS-MODE.md): the whole pane, a faint dot grid, a minimap; it opens readable on `focus` (the running or failed node) with the start of the graph (canvas/model deskViewport, focusViewport on a phone). */
   full?: { focus?: string };
+  /** Canvas mode: right-click (long-press on touch) on a node opens its menu; Rename and Delete come from onRename and onRemove, the rest from here. */
+  menu?: (n: GraphNode) => NodeActions;
+}
+
+/** A node menu's actions besides Rename and Delete; one left out is not offered. */
+export interface NodeActions {
+  duplicate?: () => void;
+  openCode?: () => void;
+  runFrom?: () => void;
+}
+
+/** The node menu in a fixed order: Rename, Duplicate, Delete, Open in code, Run from here. */
+export function nodeMenuItems(a: NodeActions & { rename?: () => void; remove?: () => void }): MenuItem[] {
+  const rows: Array<[string, (() => void) | undefined, boolean?]> = [
+    ['Rename', a.rename],
+    ['Duplicate', a.duplicate],
+    ['Delete', a.remove, true],
+    ['Open in code', a.openCode],
+    ['Run from here', a.runFrom],
+  ];
+  return rows.filter(([, go]) => go).map(([label, go, danger]) => ({ label, onSelect: go, ...(danger ? { danger } : {}) }));
 }
 
 export interface InsertItem {
@@ -163,7 +185,13 @@ function WireHint({ check }: { check: (from: string, to: string, input: string) 
   );
 }
 
-function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className, positions, onMove, onInsert, onRemove, selection, onSelection, onCopy, onPaste, onRename, renamable, inserts = INSERTS, flow: program, full }: GraphCanvasProps) {
+function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className, positions, onMove, onInsert, onRemove, selection, onSelection, onCopy, onPaste, onRename, renamable, inserts = INSERTS, flow: program, full, menu }: GraphCanvasProps) {
+  // the node menu, at the point it was asked for; renaming: the node whose title the menu's Rename opened (n counts asks)
+  const [ctx, setCtx] = useState<{ id: string; x: number; y: number }>();
+  const [renaming, setRenaming] = useState<{ id: string; n: number }>();
+  const ctxAnchor = useRef<HTMLSpanElement>(null);
+  // when a long-press opened the menu: the click (and Android's contextmenu) that follow it are not a tap
+  const pressedAt = useRef(0);
   // a refused wire's reason after it is let go, for a few seconds
   const [note, setNote] = useState<{ text: string; x: number; y: number }>();
   useEffect(() => {
@@ -239,7 +267,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         initialWidth: NODE_W,
         initialHeight: NODE_H,
         selected: picked.has(n.id),
-        data: { node: n, run: runs?.get(n.id), stale: staleSet.has(n.id), selected: n.id === selected || picked.has(n.id), vertical, ...(onRename && (renamable?.(n) ?? true) ? { onRename } : {}), ...(program ? { spec: n.block ? program.blocks.get(n.block) : undefined, live, connectable, ...(program.states?.[n.id] ? { state: program.states[n.id] } : {}) } : {}) } satisfies FlowNodeData,
+        data: { node: n, run: runs?.get(n.id), stale: staleSet.has(n.id), selected: n.id === selected || picked.has(n.id), vertical, ...(onRename && (renamable?.(n) ?? true) ? { onRename, ...(renaming?.id === n.id ? { renameAsk: renaming.n } : {}) } : {}), ...(program ? { spec: n.block ? program.blocks.get(n.block) : undefined, live, connectable, ...(program.states?.[n.id] ? { state: program.states[n.id] } : {}) } : {}) } satisfies FlowNodeData,
         ariaLabel: program ? `${n.label}, ${n.kind === 'block' ? (program.blocks.get(n.block ?? '')?.title ?? n.block) : 'code'}${live ? (live.ok ? `, ${live.summary ?? 'done'}` : ', failed') : ''}` : `${n.label}, ${n.kind}${runs?.get(n.id) ? `, ${runs.get(n.id)!.state}` : ''}`,
         draggable,
       };
@@ -258,7 +286,15 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       return { id: `${e.from}>${e.to}`, source: e.from, target: e.to, className: live ? 'cv-wire-live' : value ? 'cv-wire-value' : undefined, focusable: false, ...(value ? { label: value, labelShowBg: true, labelBgPadding: [4, 2] as [number, number] } : {}) };
     });
     return { nodes: [...bandNodes, ...wf], edges: es, bounds };
-  }, [graph, runs, stale, selected, selection, currentPhase, vertical, positions, drag, draggable, program, full, onRename, renamable]);
+  }, [graph, runs, stale, selected, selection, currentPhase, vertical, positions, drag, draggable, program, full, onRename, renamable, renaming]);
+  const ctxNode = ctx && graph.nodes.find((n) => n.id === ctx.id);
+  const ctxItems = ctxNode
+    ? nodeMenuItems({
+        ...menu?.(ctxNode),
+        ...(onRename && (renamable?.(ctxNode) ?? true) ? { rename: () => setRenaming((r) => ({ id: ctxNode.id, n: (r?.n ?? 0) + 1 })) } : {}),
+        ...(onRemove ? { remove: () => onRemove([ctxNode.id]) } : {}),
+      })
+    : [];
 
   // open fitted: the whole graph when it reads at 0.55 or more, else the start of it at 0.55; a phone centres its column
   const fitted = useRef(false);
@@ -348,6 +384,25 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       onPointerDown={(e) => {
         // shift-click picks nodes; without this the browser also extends a text selection across the inspector
         if (e.shiftKey && onSelection) window.getSelection()?.removeAllRanges();
+        // touch: a long-press on a node opens its menu (iOS Safari fires no contextmenu)
+        const nodeId = menu && e.pointerType === 'touch' ? (e.target as HTMLElement).closest('.react-flow__node-wf, .react-flow__node-flow')?.getAttribute('data-id') : undefined;
+        if (nodeId) {
+          const { clientX: x, clientY: y } = e;
+          press.current = {
+            x,
+            y,
+            t: setTimeout(() => {
+              press.current = undefined;
+              pressedAt.current = Date.now();
+              // the click the browser makes when the finger lifts would land on the sheet's backdrop and close it
+              const eat = (ev: MouseEvent) => (ev.stopPropagation(), ev.preventDefault());
+              document.addEventListener('click', eat, { capture: true, once: true });
+              setTimeout(() => document.removeEventListener('click', eat, { capture: true }), 1000);
+              setCtx({ id: nodeId, x, y });
+            }, 500),
+          };
+          return;
+        }
         if (!onInsert || !full || e.pointerType !== 'touch' || !(e.target as HTMLElement).classList.contains('react-flow__pane')) return;
         const { clientX: x, clientY: y } = e;
         press.current = { x, y, t: setTimeout(() => ((press.current = undefined), openSearch(x, y)), 500) };
@@ -420,7 +475,19 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         defaultViewport={{ x: 16, y: 16, zoom: vertical ? 1 : 0.9 }}
         onInit={fitOnce}
         proOptions={{ hideAttribution: true }}
-        onNodeClick={(_, n) => n.type !== 'band' && onSelect(n.id)}
+        onNodeClick={(_, n) => n.type !== 'band' && Date.now() - pressedAt.current > 800 && onSelect(n.id)}
+        onNodeContextMenu={
+          menu
+            ? (e, n) => {
+                if (n.type === 'band') return;
+                e.preventDefault();
+                // Android also fires contextmenu on a long-press: the timer's menu (or this one) opens once
+                if (press.current) (clearTimeout(press.current.t), (press.current = undefined));
+                if (Date.now() - pressedAt.current < 1000) return;
+                setCtx({ id: n.id, x: e.clientX, y: e.clientY });
+              }
+            : undefined
+        }
         onPaneClick={() => onSelect(undefined)}
         onKeyDown={(e) => {
           const id = (e.target as HTMLElement).closest('.react-flow__node-wf, .react-flow__node-flow')?.getAttribute('data-id');
@@ -455,6 +522,10 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
           {program ? 'Add block' : 'Add node'}
         </button>
       )}
+      {ctx && <span ref={ctxAnchor} aria-hidden style={{ position: 'fixed', left: ctx.x, top: ctx.y, width: 1, height: 1 }} />}
+      <Popover anchor={ctxAnchor} open={!!ctxItems.length} onClose={() => setCtx(undefined)} width={200} label="Node actions" sheetTitle={ctxNode?.label}>
+        <MenuList items={ctxItems} onDone={() => setCtx(undefined)} label="Node actions" />
+      </Popover>
       {search && onInsert && (
         <NodeSearch
           at={search}
