@@ -1,6 +1,6 @@
 /** One-line tool titles ("Read src/app.ts") and short result previews. */
 import type { Todo, ToolResultBlock } from '@conclave/core/types.ts';
-import { truncate, visible, type Painter } from '../ansi';
+import { stripAnsi, truncate, visible, type Painter } from '../ansi';
 import { colorDiff, diffStats, simpleDiff } from './diff';
 import { displayPath, formatDuration, plural } from './format';
 
@@ -89,17 +89,21 @@ export function resultText(result: ToolResultBlock | undefined): string {
   return result.content.map((b) => (b.type === 'text' ? b.text : `[${b.type}]`)).join('\n');
 }
 
-function moreLines(lines: string[], max: number, p: Painter, width: number): string[] {
-  const shown = lines.slice(0, max).map((l) => truncate(l, width));
-  if (lines.length > max) shown.push(p.dim(`… +${lines.length - max} lines`));
+/** Lines shown when a result is expanded (ctrl+o); a bound so a huge output cannot flood the terminal. */
+const EXPANDED_LINES = 400;
+
+function moreLines(lines: string[], max: number, p: Painter, width: number, expand = false): string[] {
+  const cap = expand ? EXPANDED_LINES : max;
+  const shown = lines.slice(0, cap).map((l) => truncate(l, width));
+  if (lines.length > cap) shown.push(p.dim(`… +${lines.length - cap} lines${expand ? '' : ' (ctrl+o to expand)'}`));
   return shown;
 }
 
 export interface PreviewOptions {
   painter: Painter;
   width: number;
-  /** Diff lines before collapsing. */
-  diffLines?: number;
+  /** Full output instead of the collapsed few lines (the ctrl+o transcript). */
+  expand?: boolean;
   input?: Record<string, unknown>;
 }
 
@@ -109,15 +113,16 @@ export function toolPreview(name: string, result: ToolResultBlock, opts: Preview
   const text = resultText(result).replace(/\s+$/, '');
   const meta = result.meta ?? {};
   const w = Math.max(20, opts.width);
+  const x = !!opts.expand;
   if (result.isError) {
     const lines = text.split('\n').filter((l) => l.trim());
-    return moreLines(lines.length ? lines : ['Error'], 3, p, w).map((l) => p.red(l));
+    return moreLines(lines.length ? lines : ['Error'], 3, p, w, x).map((l) => p.red(l));
   }
   switch (name) {
     case 'Bash': {
       const lines = text.split('\n');
       if (!text || text === '(no output)') return [p.dim('(no output)')];
-      const out = moreLines(lines, 3, p, w);
+      const out = moreLines(lines, 3, p, w, x);
       if (typeof meta.durationMs === 'number' && meta.durationMs > 5000) out.push(p.dim(`took ${formatDuration(meta.durationMs)}`));
       return out;
     }
@@ -152,8 +157,11 @@ export function toolPreview(name: string, result: ToolResultBlock, opts: Preview
         const st = diffStats(diff);
         const summary = meta.created
           ? `Created with ${plural(st.added, 'line')}`
-          : `${p.green('+' + st.added)} ${p.red('-' + st.removed)}`;
-        return [summary, ...colorDiff(diff, { painter: p, maxLines: opts.diffLines ?? 20 }).split('\n')];
+          : `Updated with ${plural(st.added, 'addition')} and ${plural(st.removed, 'removal')}`;
+        const body = colorDiff(diff, { painter: p, maxLines: x ? EXPANDED_LINES : 6, width: w }).split('\n');
+        // collapsed: the note under the diff says how to see the rest
+        if (!x && /^… \+\d+ lines?$/.test(stripAnsi(body.at(-1) ?? ''))) body[body.length - 1] += p.dim(' (ctrl+o to expand)');
+        return [summary, ...body];
       }
       if (name === 'Write' && typeof opts.input?.content === 'string') return [`Wrote ${plural(opts.input.content.split('\n').length, 'line')}`];
       return [p.dim(truncate(firstLine(text), w))];
@@ -170,12 +178,9 @@ export function toolPreview(name: string, result: ToolResultBlock, opts: Preview
       const todos = Array.isArray(opts.input?.todos) ? (opts.input!.todos as Todo[]) : [];
       return todos.length ? renderTodos(todos, p) : [p.dim('Updated')];
     }
-    case 'Task':
-    case 'Agent':
-      return moreLines(text.split('\n').filter((l) => l.trim()), 2, p, w).map((l) => p.dim(l));
     default:
       if (!text) return [p.dim('(no output)')];
-      return moreLines(text.split('\n').filter((l) => l.trim()), 2, p, w).map((l) => p.dim(l));
+      return moreLines(text.split('\n').filter((l) => l.trim()), x ? 0 : 2, p, w, x).map((l) => p.dim(l));
   }
 }
 
@@ -198,12 +203,12 @@ export function approvalPreview(tool: string, input: Record<string, unknown>, p:
     }
     case 'Edit': {
       const d = simpleDiff(v(input.old_string), v(input.new_string));
-      return colorDiff(d, { painter: p, maxLines: 16 }).split('\n');
+      return colorDiff(d, { painter: p, maxLines: 16, width }).split('\n');
     }
     case 'MultiEdit': {
       const edits = Array.isArray(input.edits) ? (input.edits as Array<{ old_string?: string; new_string?: string }>) : [];
       const d = edits.map((e) => simpleDiff(v(e.old_string), v(e.new_string))).join('\n');
-      return colorDiff(d, { painter: p, maxLines: 16 }).split('\n');
+      return colorDiff(d, { painter: p, maxLines: 16, width }).split('\n');
     }
     case 'Write': {
       const lines = v(input.content).split('\n');

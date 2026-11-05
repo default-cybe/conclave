@@ -7,6 +7,15 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- The terminal chat (`conclave`) is quieter and closer to Claude Code: a one-line start line instead of a box, one status row under the input (model, context left, cost; the permission mode only when it is not the default), tool calls as `● Read(path)` with a short `⎿` result that ctrl+o expands, a single spinner with a verb, time, tokens and "esc to interrupt", errors and interrupts as one `⎿` line, and permission prompts as a small numbered menu (the old y/s/a/n/d keys still work).
+- Shift+enter adds a new line in terminals with the kitty keyboard protocol. `@` completion searches the whole folder fuzzily, and `?` on an empty prompt shows the keys. `/help` is a short list.
+- Code blocks have no background and use the terminal's own colors, so they read on light and dark themes; long code lines wrap under their indent. Links are clickable where the terminal supports it. Diff lines are cut to the terminal width.
+- Long streamed answers print as they come instead of waiting behind "more lines above". Resizing or ctrl+l no longer erases the terminal's scrollback, and only changed lines are redrawn (less traffic over SSH and in tmux).
+
 ## [0.4.67] - 2026-11-05
 
 ### Fixed

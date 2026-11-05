@@ -22,6 +22,8 @@ export interface Painter {
   magenta(s: string): string;
   cyan(s: string): string;
   gray(s: string): string;
+  /** Clickable OSC 8 link where the terminal supports it, else the text with the URL after it. */
+  link(url: string, text?: string): string;
 }
 
 const NAMED: Record<string, number> = {
@@ -81,6 +83,16 @@ export function supportsTruecolor(env: Record<string, string | undefined> = proc
   return /kitty|ghostty|alacritty|direct|truecolor/.test(term);
 }
 
+/** OSC 8 hyperlinks: terminals known to support them (tmux passes them on since 3.4). FORCE_HYPERLINK=1/0 overrides. */
+export function supportsHyperlinks(env: Record<string, string | undefined> = process.env): boolean {
+  if (env.FORCE_HYPERLINK !== undefined) return env.FORCE_HYPERLINK !== '0' && env.FORCE_HYPERLINK !== 'false';
+  const tp = env.TERM_PROGRAM ?? '';
+  if (['iTerm.app', 'vscode', 'WezTerm', 'ghostty', 'Hyper', 'Tabby', 'tmux'].includes(tp)) return true;
+  if (env.WT_SESSION || env.KITTY_WINDOW_ID || env.KONSOLE_VERSION || env.DOMTERM) return true;
+  if (Number(env.VTE_VERSION ?? 0) >= 5000) return true;
+  return /kitty|ghostty|alacritty|foot|wezterm/.test(env.TERM ?? '');
+}
+
 /** Color on for a TTY unless NO_COLOR. FORCE_COLOR forces it on (or off with 0). */
 export function colorEnabledFor(stream: { isTTY?: boolean } | undefined, env: Record<string, string | undefined> = process.env): boolean {
   if (env.NO_COLOR !== undefined && env.NO_COLOR !== '') return false;
@@ -89,9 +101,10 @@ export function colorEnabledFor(stream: { isTTY?: boolean } | undefined, env: Re
   return !!stream?.isTTY;
 }
 
-export function createPainter(opts: { enabled: boolean; truecolor?: boolean }): Painter {
+export function createPainter(opts: { enabled: boolean; truecolor?: boolean; hyperlinks?: boolean }): Painter {
   const on = opts.enabled;
   const tc = opts.truecolor ?? supportsTruecolor();
+  const links = on && (opts.hyperlinks ?? supportsHyperlinks());
   const wrap = (open: string, close: string) => (s: string) => {
     if (!on || s === '') return s;
     return open + s.split(close).join(close + open) + close;
@@ -133,6 +146,13 @@ export function createPainter(opts: { enabled: boolean; truecolor?: boolean }): 
     magenta: fg('magenta'),
     cyan: fg('cyan'),
     gray: fg('gray'),
+    link: (url, text = url) => {
+      const label = on ? `\x1b[4m${text}\x1b[24m` : text;
+      // a control character in the URL would end the OSC early and leak into the screen
+      if (links) return `\x1b]8;;${url.replace(/[\x00-\x1f\x7f-\x9f]/g, '')}\x07${label}\x1b]8;;\x07`;
+      const same = text === url || text === url.replace(/^https?:\/\//, '');
+      return same ? label : `${label} ${on ? `\x1b[2m(${url})\x1b[22m` : `(${url})`}`;
+    },
   };
 }
 

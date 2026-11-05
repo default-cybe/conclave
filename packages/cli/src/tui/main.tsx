@@ -42,10 +42,19 @@ export async function startTui(o: TuiOptions): Promise<number> {
     version: VERSION,
   });
   const history = new History(cliPaths().history);
-  const instance = render(<App ctl={ctl} history={history} />, { exitOnCtrlC: false, patchConsole: true, maxFps: 30 });
+  const instance = render(<App ctl={ctl} history={history} />, {
+    exitOnCtrlC: false,
+    patchConsole: true,
+    maxFps: 30,
+    // only changed lines are written: less to send over SSH and through tmux
+    incrementalRendering: true,
+    // terminals that speak the kitty keyboard protocol tell shift+enter from enter
+    kittyKeyboard: { mode: 'auto', flags: ['disambiguateEscapeCodes'] },
+  });
   ctl.onClearScreen = () => {
     instance.clear();
-    process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+    // Scroll the screen up into scrollback instead of erasing it (no \x1b[3J), so nothing earlier is lost.
+    process.stdout.write('\n'.repeat(Math.max(0, (process.stdout.rows || 24) - 1)) + '\x1b[H\x1b[2J');
   };
   void ctl.start({ resume: o.resume, continueLast: o.continueLast, prompt: o.prompt }).catch((e) => ctl.error(e));
   await instance.waitUntilExit();

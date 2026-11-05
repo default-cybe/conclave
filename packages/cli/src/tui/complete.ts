@@ -1,4 +1,6 @@
 /** Autocomplete for slash commands and @ paths. */
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Edit } from './editor';
 
 export interface Suggestion {
@@ -75,6 +77,71 @@ export function splitPathQuery(query: string): { dir: string; base: string } {
   const i = query.lastIndexOf('/');
   if (i < 0) return { dir: '', base: query };
   return { dir: query.slice(0, i + 1), base: query.slice(i + 1) };
+}
+
+const SKIP = new Set(['.git', 'node_modules', 'dist', 'build', 'target', '.next', '.cache', '__pycache__', '.venv', 'venv']);
+
+/**
+ * Paths under `root` (relative, dirs end in "/"), breadth first so shallow
+ * files come first. Bounded, so a huge tree costs at most `max` entries.
+ */
+export function walkFiles(root: string, max = 4000, depth = 6): string[] {
+  const out: string[] = [];
+  let level = [''];
+  for (let d = 0; d < depth && level.length && out.length < max; d++) {
+    const next: string[] = [];
+    for (const rel of level) {
+      let entries;
+      try {
+        entries = readdirSync(join(root, rel), { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const e of entries) {
+        if (e.name.startsWith('.') || SKIP.has(e.name)) continue;
+        const path = rel + e.name;
+        if (e.isDirectory()) {
+          out.push(path + '/');
+          next.push(path + '/');
+        } else out.push(path);
+        if (out.length >= max) return out;
+      }
+    }
+    level = next;
+  }
+  return out;
+}
+
+/** Subsequence score of `q` in `path`: lower is better, -1 when it does not match. Name hits and runs beat scattered ones. */
+export function fuzzyScore(path: string, q: string): number {
+  const p = path.toLowerCase();
+  const name = p.replace(/\/$/, '').split('/').pop() ?? p;
+  // "app" names app.ts exactly: that beats a longer name that only starts with it
+  if (name.replace(/\.[^.]*$/, '') === q) return p.length - name.length - 1000;
+  if (name.startsWith(q)) return p.length - name.length;
+  if (name.includes(q)) return 100 + p.length;
+  if (p.includes(q)) return 200 + p.length;
+  let i = 0;
+  let gaps = 0;
+  let last = -1;
+  for (let k = 0; k < p.length && i < q.length; k++) {
+    if (p[k] !== q[i]) continue;
+    if (last >= 0 && k > last + 1) gaps++;
+    last = k;
+    i++;
+  }
+  return i === q.length ? 400 + gaps * 20 + p.length : -1;
+}
+
+/** Fuzzy @-completion across folders: "@apptsx" finds src/tui/App.tsx. */
+export function fuzzyFiles(paths: string[], query: string, limit = 10): Suggestion[] {
+  const q = query.toLowerCase();
+  return paths
+    .map((path) => [fuzzyScore(path, q), path] as const)
+    .filter(([s]) => s !== -1)
+    .sort((a, b) => a[0] - b[0] || a[1].localeCompare(b[1]))
+    .slice(0, limit)
+    .map(([, path]): Suggestion => ({ value: '@' + path, label: path, kind: path.endsWith('/') ? 'dir' : 'file' }));
 }
 
 export function matchFiles(entries: Array<{ name: string; type: string }>, query: string, limit = 10): Suggestion[] {

@@ -5,7 +5,9 @@
  * Items are committed strictly in order: the first item that can still change
  * (a streaming paragraph, a running tool) holds back everything after it.
  * Streaming text is cut at blank lines outside code fences so finished
- * paragraphs commit while the model keeps writing.
+ * paragraphs commit while the model keeps writing. A long run with no blank
+ * line (a list, a big code block) is also cut at a safe line end every
+ * SOFT_LINES lines, so the start of a long answer never waits for its end.
  */
 import type { ContentBlock, Message, ToolResultBlock } from '@conclave/core/types.ts';
 import { isReminder } from '@conclave/core/session/transcript.ts';
@@ -15,7 +17,8 @@ export type ToolStatus = 'pending' | 'running' | 'waiting' | 'done' | 'error' | 
 export type Item =
   | { kind: 'banner'; id: string; final: true; lines: string[] }
   | { kind: 'user'; id: string; final: true; text: string; attachments: number }
-  | { kind: 'text'; id: string; final: boolean; text: string; model?: string; first: boolean; aside: boolean }
+  /** cont: continues the chunk above it (a soft cut), so no blank line goes between them. */
+  | { kind: 'text'; id: string; final: boolean; text: string; model?: string; first: boolean; aside: boolean; cont?: boolean }
   | { kind: 'thinking'; id: string; final: boolean; text: string; model?: string }
   | { kind: 'label'; id: string; final: true; text: string; model?: string }
   | {
@@ -42,32 +45,68 @@ type Entry = { type: 'msg'; id: string; seq: number } | { type: 'local'; item: I
 
 const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
 
-/** New paragraph boundaries (char offsets) in streaming text after `from`. */
-export function findBoundaries(text: string, from: number): number[] {
-  const out: number[] = [];
-  // fence state at `from`
+/** Lines of streamed text with no blank line before a soft cut. */
+export const SOFT_LINES = 8;
+
+/**
+ * A place to cut streaming text: `at` is a char offset. A soft cut is a
+ * plain line end (no blank line); `fence` is the open code fence it cuts
+ * through, closed at the end of one chunk and opened again on the next.
+ */
+export interface Boundary {
+  at: number;
+  soft?: boolean;
+  fence?: string;
+}
+
+/** New boundaries in streaming text after `from`. */
+export function findBoundaries(text: string, from: number, softLines = SOFT_LINES): Boundary[] {
+  const out: Boundary[] = [];
   let inFence = false;
   let fenceChar = '';
+  let opener = '';
+  let since = 0;
   let pos = 0;
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const start = pos;
     pos += line.length + 1;
     const f = FENCE.exec(line);
+    let fenceLine = false;
     if (f) {
       if (!inFence) {
         inFence = true;
         fenceChar = f[1][0];
-      } else if (f[1][0] === fenceChar && /^\s{0,3}(`{3,}|~{3,})\s*$/.test(line)) inFence = false;
+        opener = line.trim();
+        fenceLine = true;
+      } else if (f[1][0] === fenceChar && /^\s{0,3}(`{3,}|~{3,})\s*$/.test(line)) {
+        inFence = false;
+        fenceLine = true;
+      }
     }
-    // boundary: an empty line outside a fence, followed by more text (so the line is complete)
-    if (!inFence && line.trim() === '' && i > 0 && lines[i - 1].trim() !== '' && pos < text.length) {
-      const b = start + line.length + 1;
-      if (b > from) out.push(b);
+    since++;
+    // the line is complete only when more text follows it
+    if (pos >= text.length) break;
+    const next = lines[i + 1];
+    // boundary: an empty line outside a fence
+    if (!inFence && line.trim() === '' && i > 0 && lines[i - 1].trim() !== '') {
+      if (pos > from) out.push({ at: pos });
+      since = 0;
+      continue;
     }
+    if (since < softLines || fenceLine || !line.trim() || !next.trim() || FENCE.test(next)) continue;
+    // in a fence any code line will do; outside, only where the next line starts a fresh block at column 0, and never through a table
+    const soft = inFence || (/^\S/.test(next) && !/^(\||=+\s*$|-+\s*$)/.test(next) && !line.includes('|'));
+    if (!soft) continue;
+    if (pos > from) out.push(inFence ? { at: pos, soft: true, fence: opener } : { at: pos, soft: true });
+    since = 0;
   }
   return out;
+}
+
+/** The line that closes a fence opened by `opener` ("```ts" -> "```"). */
+function closeFence(opener: string): string {
+  return FENCE.exec(opener)?.[1] ?? '```';
 }
 
 export class TranscriptStore {
@@ -79,12 +118,14 @@ export class TranscriptStore {
   private started = new Map<string, number>();
   private standalone = new Map<string, { name: string; input: Record<string, unknown> }>();
   private toolsInMessages = new Set<string>();
-  private boundaries = new Map<string, number[]>();
+  private boundaries = new Map<string, Boundary[]>();
   private groups = new Set<string>();
   private labels = new Map<string, string>();
   private waiting = new Set<string>();
   private active = false;
   private localSeq = 0;
+  /** Characters streamed since the turn started, for the spinner's token estimate. */
+  turnChars = 0;
 
   committed: Item[] = [];
   private cursor = 0;
@@ -132,6 +173,7 @@ export class TranscriptStore {
   }
 
   setActive(active: boolean): void {
+    if (active && !this.active) this.turnChars = 0;
     this.active = active;
     if (!active) {
       this.streaming.clear();
@@ -199,6 +241,7 @@ export class TranscriptStore {
       this.messages.set(m.id, m);
       this.insertEntry({ type: 'msg', id: m.id, seq: m.seq });
     }
+    this.turnChars += ev.text.length;
     if (ev.kind === 'tool_input') {
       this.streaming.add(m.id);
       return;
@@ -253,7 +296,9 @@ export class TranscriptStore {
     const key = `${m.id}:${bi}`;
     let bounds = this.boundaries.get(key) ?? [];
     if (!blockFinal) {
-      const fresh = findBoundaries(text, bounds[bounds.length - 1] ?? 0);
+      // scan again from the last cut so fence state is right; keep only cuts past it
+      const last = bounds[bounds.length - 1]?.at ?? 0;
+      const fresh = findBoundaries(text, last).filter((b) => b.at > last);
       if (fresh.length) {
         bounds = [...bounds, ...fresh];
         this.boundaries.set(key, bounds);
@@ -261,15 +306,19 @@ export class TranscriptStore {
     }
     const items: Item[] = [];
     let prev = 0;
+    let carry: Boundary | undefined;
+    const push = (id: string, final: boolean, body: string) => {
+      const textOut = (carry?.fence ? carry.fence + '\n' : '') + body;
+      items.push({ kind: 'text', id, final, text: textOut, model: m.model, first: first && items.length === 0, aside, ...(carry?.soft && items.length ? { cont: true } : {}) });
+    };
     bounds.forEach((b, k) => {
-      const chunk = text.slice(prev, b).replace(/\n+$/, '');
-      if (chunk.trim()) items.push({ kind: 'text', id: `${key}:${k}`, final: true, text: chunk, model: m.model, first: first && items.length === 0, aside });
-      prev = b;
+      const chunk = text.slice(prev, b.at).replace(/\n+$/, '');
+      if (chunk.trim()) push(`${key}:${k}`, true, chunk + (b.fence ? '\n' + closeFence(b.fence) : ''));
+      prev = b.at;
+      carry = b;
     });
     const tail = text.slice(prev);
-    if (tail.trim() || (!blockFinal && items.length === 0)) {
-      items.push({ kind: 'text', id: `${key}:${bounds.length}`, final: blockFinal, text: tail.replace(/\s+$/, ''), model: m.model, first: first && items.length === 0, aside });
-    }
+    if (tail.trim() || (!blockFinal && items.length === 0)) push(`${key}:${bounds.length}`, blockFinal, tail.replace(/\s+$/, ''));
     return items;
   }
 

@@ -60,6 +60,8 @@ export interface Snapshot {
   turnStartedAt?: number;
   staticKey: number;
   showThinking: boolean;
+  /** ctrl+o: tool output and thinking printed in full. */
+  expand: boolean;
   /** Provider id -> subscription id, for picking the relevant limit. */
   subscriptions: Record<string, string>;
   /** Transient line under the input (e.g. "permission mode: plan"). */
@@ -139,6 +141,7 @@ export class ChatController {
       limits: [],
       staticKey: 0,
       showThinking: false,
+      expand: false,
       subscriptions: {},
     };
   }
@@ -242,17 +245,24 @@ export class ChatController {
     this.flashTimer = setTimeout(() => this.set({ flash: undefined }, true), ms);
   }
 
-  /** Clear the terminal and print the transcript again (thinking toggle, resume, /clear). */
-  rerender(): void {
-    this.store.recommit();
+  /** Clear the screen and print the transcript again (resume, /clear, ctrl+l). Scrollback stays. */
+  rerender(maxEntries?: number): void {
+    this.store.recommit(maxEntries);
     this.committedCopy = [];
     this.onClearScreen?.();
     this.set({ staticKey: this.snap.staticKey + 1 }, true);
   }
 
+  /** ctrl+o: print the transcript again with every tool output and thought in full, or collapsed again. */
+  toggleExpand(): void {
+    this.snap = { ...this.snap, expand: !this.snap.expand };
+    this.rerender();
+  }
+
+  /** Thinking shows in full from the next reply on; what is printed stays (ctrl+o shows all of it). */
   toggleThinking(): void {
     this.snap = { ...this.snap, showThinking: !this.snap.showThinking };
-    this.rerender();
+    this.flash(this.snap.showThinking ? 'Thinking shown from here on · ctrl+o for the whole transcript' : 'Thinking hidden');
   }
 
   // ----- lifecycle ------------------------------------------------------------
@@ -315,18 +325,10 @@ export class ChatController {
     if (this.flashTimer) clearTimeout(this.flashTimer);
   }
 
+  /** One line: the name, the folder, and the hub only when it is not this machine's. */
   private banner(): void {
-    const mark = p.bold(p.fg('#C792EA')('◆ Conclave'));
-    this.store.addLocal({
-      kind: 'banner',
-      lines: [
-        `${mark} ${p.dim('v' + this.opts.version)}`,
-        '',
-        p.dim('/help for commands · @ to mention files · esc to interrupt'),
-        p.dim(`cwd  ${shortenPath(this.snap.draft.cwd, 50)}`),
-        p.dim(`hub  ${this.opts.hubUrl}${this.opts.hubSource === 'local' ? ' (local)' : ''}`),
-      ],
-    });
+    const hub = this.opts.hubSource === 'local' ? '' : p.dim(` · ${this.opts.hubUrl}`);
+    this.store.addLocal({ kind: 'banner', lines: [`${p.magenta('✻')} ${p.bold('Conclave')} ${p.dim(shortenPath(this.snap.draft.cwd, 50))}${hub}`] });
   }
 
   // ----- events -----------------------------------------------------------------
@@ -515,7 +517,7 @@ export class ChatController {
     if (!s) return;
     try {
       await this.client.abort(s.id);
-      this.notice('Interrupted', 'warning');
+      this.notice('Interrupted by user', 'error');
     } catch (e) {
       this.error(e);
     }
