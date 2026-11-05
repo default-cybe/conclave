@@ -20,7 +20,7 @@ import type { SessionFilter } from '@conclave/core/storage/repos.ts';
 import type { RoutineInput } from '@conclave/core/scheduler/types.ts';
 import type { AgentDef } from '@conclave/core/extensions/types.ts';
 import type { MemoryInput } from '@conclave/core/memory/types.ts';
-import { deepMerge } from '@conclave/core/config/index.ts';
+import { deepMerge, SECRET_NAME } from '@conclave/core/config/index.ts';
 import { browserConfigProblems } from '@conclave/core/browser/engine.ts';
 import { buildBundle } from '@conclave/core/session/share.ts';
 import { trimMessage } from '@conclave/core/session/trim.ts';
@@ -1196,6 +1196,9 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     return c.json(ok);
   });
 
+  // names and metadata only, never a value (route-policy: the owner's)
+  app.get('/api/secrets', (c) => c.json({ values: engine.config.secretList() }));
+
   app.put('/api/secrets', async (c) => {
     const body = await readJson<{ kind?: unknown; key?: unknown; value?: unknown }>(c);
     const kind = oneOf(body.kind, ['providers', 'values'] as const, 'kind');
@@ -1215,6 +1218,10 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
       engine.accountSecrets.set(acct, 'providers', key, (body.value as string | null) ?? undefined);
       audit(c, 'secret.set', `${kind}.${key}${body.value ? '' : ' (removed)'} (own key)`);
       return c.json(ok);
+    }
+    // a new name follows the rule Settings > Secrets shows; the hub's own names (cliproxy.managementKey) are set in code
+    if (kind === 'values' && body.value && !SECRET_NAME.test(key) && !engine.config.secretNames().values.includes(key)) {
+      throw badRequest('A secret name is 1 to 64 lowercase letters, digits, dots, dashes and underscores.');
     }
     engine.config.setSecret(kind, key, (body.value as string | null) ?? undefined);
     engine.bus.emit({ type: 'config.updated' });

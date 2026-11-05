@@ -1,7 +1,7 @@
 /** `conclave config`, `conclave secret`, `conclave pair-phone`, `conclave web`. */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { parseJsonc, DEFAULT_CONFIG, deepMerge } from '@conclave/core/config/index.ts';
+import { parseJsonc, DEFAULT_CONFIG, deepMerge, SECRET_NAME } from '@conclave/core/config/index.ts';
 import { formatFingerprint } from '@conclave/core/client/index.ts';
 import { out as p } from '../ansi';
 import { bool, str, type ParsedArgs } from '../args';
@@ -130,8 +130,26 @@ export async function configCommand(args: ParsedArgs): Promise<number> {
   throw new CliError('Usage: conclave config [get <path> | set <path> <json> | edit | path]');
 }
 
+/** `conclave secret set <name>`: a named secret (secrets.json values) that ${secret:name} reads, as Settings > Secrets saves it. */
+async function namedSecret(args: ParsedArgs): Promise<number> {
+  const name = requireArg(args._[2], 'conclave secret set <name> [--value <value> | --delete]');
+  if (!SECRET_NAME.test(name)) throw new CliError('A secret name is 1 to 64 lowercase letters, digits, dots, dashes and underscores.');
+  const { client } = await getClient(args);
+  if (bool(args, 'delete')) {
+    await client.setSecret('values', name, null);
+    print(`${p.green('✓')} Removed the secret ${name}`);
+    return 0;
+  }
+  const value = str(args, 'value') ?? (await prompt(`Value for ${name} (input hidden): `, { hidden: true }));
+  if (!value.trim()) throw new CliError('Empty value, nothing saved.');
+  await client.setSecret('values', name, value.trim());
+  print(`${p.green('✓')} Saved the secret ${name} on the hub ${p.dim('(' + value.trim().slice(0, 4) + '…)')}. Use it as \${secret:${name}}.`);
+  return 0;
+}
+
 export async function secretCommand(args: ParsedArgs): Promise<number> {
-  const provider = requireArg(args._[1], 'conclave secret <provider>');
+  if (args._[1] === 'set') return namedSecret(args);
+  const provider = requireArg(args._[1], 'conclave secret <provider> | conclave secret set <name>');
   const { client } = await getClient(args);
   if (bool(args, 'delete')) {
     await client.setSecret('providers', provider, null);

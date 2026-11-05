@@ -12,6 +12,12 @@ like `## [0.4.16] - 2026-10-24`.
 ### Added
 
 - Canvas runs programs and workflows: Run (Ctrl/Cmd+Enter) asks for a workflow's declared args, then the canvas shows the live run in place, with each node queued, running with its time, done, failed, skipped or cached, and short values on the wires. Stop aborts it; while it runs, Run becomes Queue run, and the Queue tab lists queued runs with Cancel. A failed node shows its error, Re-run from here (workflows) or Re-run (programs), and Ask the agent. The new Agent tab next to the inspector continues a Code session in the file's folder with the file, the selection and the last error attached, and the canvas reloads when the agent is done. Delete now removes workflow nodes too, with Undo. Reopening a file shows its latest run (#250).
+- Settings > Secrets, for the owner only: add, replace and delete the named secrets that `${secret:name}` reads in MCP servers and other settings. The list shows each name, its first 4 characters and when it was set, never the value; names other pages save (web search keys, plugin settings, the GitHub token and the rest) are listed read-only with where they are set. `GET /api/secrets` returns names and metadata only, to the owner only. The MCP server form says "Missing." when a `${secret:name}` it uses has no saved value (#266).
+- `conclave secret set <name>` saves a named secret for `${secret:name}` (input hidden, or `--value`; `--delete` removes it). `conclave secret <provider>` still saves a provider key, as before (#266).
+
+### Fixed
+
+- The MCP server form's "reads a secret saved in Settings" hint pointed at no page; it now links to Settings > Secrets. `PUT /api/secrets` refuses a new named secret whose name is not 1 to 64 lowercase letters, digits, dots, dashes and underscores (#266).
 
 ## [0.4.69] - 2026-11-05
 
