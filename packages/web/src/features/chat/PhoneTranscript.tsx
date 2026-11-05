@@ -20,6 +20,7 @@
  * long press selects text, as anywhere else on the phone; it opens nothing.
  * No tokens, costs or times: those are in the sheet.
  */
+import { EarlierMessages } from './EarlierMessages';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import { ChevronRight } from 'lucide-react';
@@ -134,6 +135,7 @@ export function PhoneTranscript({ session }: { session: Session }) {
       <div ref={scroller} onScroll={onScroll} className="log-text h-full overflow-y-auto overscroll-contain" role="log" aria-label="Transcript">
         <div className="flex flex-col gap-5 px-5 pt-2 pb-6">
           <LoadingRows loading={!loaded} rows={3} />
+          {loaded && <EarlierMessages sessionId={session.id} />}
           {loaded && units.length === 0 && !live && <Empty session={session} />}
           {units.map((u) => {
             switch (u.kind) {

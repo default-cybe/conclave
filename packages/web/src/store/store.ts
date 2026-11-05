@@ -73,6 +73,8 @@ export interface HubState {
   sessions: Record<string, Session>;
   messages: Record<string, Message[]>;
   messagesLoaded: Record<string, boolean>;
+  /** The hub holds messages older than the first one loaded (a full page came back): loadOlder reads them. */
+  messagesOlder: Record<string, boolean>;
   streaming: Record<string, true>;
   tools: Record<string, ToolRun>;
   approvals: Record<string, ApprovalRequest>;
@@ -144,6 +146,7 @@ const initial: HubState = {
   sessions: {},
   messages: {},
   messagesLoaded: {},
+  messagesOlder: {},
   streaming: {},
   tools: {},
   approvals: {},
@@ -348,7 +351,8 @@ export function loadMessages(sessionId: string, force = false, from?: Message): 
     const askedAt = Date.now();
     const queueMark = queueEvents.get(sessionId) ?? 0;
     // a hub from before the queue answers 404: nothing waits
-    const [fetched, todos, queue] = await Promise.all([settle(c.messages(sessionId, from ? { afterSeq: from.seq - 1 } : {}), undefined as Message[] | undefined), settle(c.todos(sessionId), [] as Todo[]), settle(c.queue(sessionId), undefined as QueuedMessage[] | undefined)]);
+    // a first load reads the newest page; a resync reads forward from what is held
+    const [fetched, todos, queue] = await Promise.all([settle(c.messages(sessionId, from ? { afterSeq: from.seq - 1 } : { limit: PAGE }), undefined as Message[] | undefined), settle(c.todos(sessionId), [] as Todo[]), settle(c.queue(sessionId), undefined as QueuedMessage[] | undefined)]);
     if (loads.get(sessionId) !== load) return;
     // the message the resync starts at is not where it was: the transcript changed under it
     if (from && fetched && fetched[0]?.id !== from.id) {
@@ -373,15 +377,69 @@ export function loadMessages(sessionId: string, force = false, from?: Message): 
       return {
         messages: { ...s.messages, [sessionId]: list },
         messagesLoaded: { ...s.messagesLoaded, [sessionId]: true },
+        ...(from ? {} : { messagesOlder: { ...s.messagesOlder, [sessionId]: msgs.length >= PAGE } }),
         todos: { ...s.todos, [sessionId]: todos },
         ...queued,
       };
     });
+    void fillTrimmed(sessionId);
   })().finally(() => {
     if (loads.get(sessionId) === load) loads.delete(sessionId);
     if (startedDuringLoad.get(sessionId) === started) startedDuringLoad.delete(sessionId);
   });
   return load.done;
+}
+
+/** Messages a transcript load or an older page reads at once. */
+export const PAGE = 200;
+
+/** The page before the first message held, laid in front of it. */
+export async function loadOlder(sessionId: string): Promise<void> {
+  const first = get().messages[sessionId]?.[0];
+  if (!first || !get().messagesOlder[sessionId]) return;
+  const older = await api().messages(sessionId, { beforeSeq: first.seq, limit: PAGE });
+  set((s) => {
+    const held = s.messages[sessionId] ?? [];
+    if (held[0]?.id !== first.id) return {};
+    const ids = new Set(held.map((m) => m.id));
+    return { messages: { ...s.messages, [sessionId]: [...older.filter((m) => !ids.has(m.id)), ...held] }, messagesOlder: { ...s.messagesOlder, [sessionId]: older.length >= PAGE } };
+  });
+  void fillTrimmed(sessionId);
+}
+
+const filling = new Set<string>();
+const trimmedOf = (m: Message) => m.meta?.trimmed as Array<{ index: number; bytes: number }> | undefined;
+
+/**
+ * Blocks over 100 KB come light in a transcript page (core session/trim.ts, meta.trimmed): fetch each in full, one at a
+ * time, and lay it in, so screenshots and files show as before while no single answer carries them all.
+ */
+export async function fillTrimmed(sessionId: string): Promise<void> {
+  if (filling.has(sessionId)) return;
+  filling.add(sessionId);
+  try {
+    for (;;) {
+      const m = (get().messages[sessionId] ?? []).find((x) => trimmedOf(x)?.length);
+      if (!m) return;
+      const index = trimmedOf(m)![0].index;
+      const block = await api()
+        .messageBlock(sessionId, m.id, index)
+        .catch(() => undefined);
+      set((s) => {
+        const list = s.messages[sessionId];
+        const i = list?.findIndex((x) => x.id === m.id) ?? -1;
+        if (!list || i < 0) return {};
+        const cur = list[i];
+        const trimmed = (trimmedOf(cur) ?? []).filter((t) => t.index !== index);
+        const content = block ? cur.content.map((b, j) => (j === index ? block : b)) : cur.content;
+        const next = [...list];
+        next[i] = { ...cur, content, meta: { ...cur.meta, trimmed: trimmed.length ? trimmed : undefined } };
+        return { messages: { ...s.messages, [sessionId]: next } };
+      });
+    }
+  } finally {
+    filling.delete(sessionId);
+  }
 }
 
 /** Transcripts no view shows that stay loaded, the most recently left ones: going back to them is instant. */

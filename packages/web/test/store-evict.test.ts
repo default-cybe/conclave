@@ -67,12 +67,12 @@ test('a resync fetches only what came after the newest held message', async () =
   await tick();
   expect(asked.filter((x) => x.startsWith('a'))).toEqual(['a?afterSeq=29']);
   expect(useHub.getState().messages.a.map((m) => m.seq)).toEqual(Array.from({ length: 32 }, (_, i) => i + 1));
-  // the hub's transcript changed under it (a rewind): the whole one comes again
+  // the hub's transcript changed under it (a rewind): the newest page comes again
   hub.a = hub.a.slice(0, 10);
   asked.length = 0;
   await loadAll({ transcripts: true });
   await tick();
-  expect(asked.filter((x) => x.startsWith('a'))).toEqual(['a?afterSeq=31', 'a']);
+  expect(asked.filter((x) => x.startsWith('a'))).toEqual(['a?afterSeq=31', 'a?limit=200']);
   expect(useHub.getState().messages.a).toHaveLength(10);
   release();
 });

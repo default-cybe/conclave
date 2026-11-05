@@ -498,8 +498,9 @@ class ConclaveClient(
         Session.serializer(),
     )
 
+    // no cursor: the hub answers the newest 200 messages. trim=0 keeps screenshots and files inline, as the app shows them
     suspend fun messages(id: String, afterSeq: Long? = null): List<Message> =
-        get(p("api", "sessions", id, "messages"), ListSerializer(Message.serializer()), mapOf("afterSeq" to afterSeq))
+        get(p("api", "sessions", id, "messages"), ListSerializer(Message.serializer()), mapOf("afterSeq" to afterSeq, "trim" to 0))
 
     suspend fun send(id: String, input: SendInput): SendResult =
         send("POST", p("api", "sessions", id, "messages"), SendInput.serializer(), input, SendResult.serializer())

@@ -74,7 +74,7 @@ export function meetingApi(req: Req) {
     saveMemory: (id: string) => req<Meeting>('POST', `${m(id)}/memory`),
     toChat: (id: string, input: MeetingChatInput) => req<{ id: string; kind?: string }>('POST', `${m(id)}/chat`, input),
     /** The session's messages: the brief and the answers' text. */
-    messages: (sessionId: string) => req<{ id: string; content: { type: string; text?: string }[] }[]>('GET', `/api/sessions/${encodeURIComponent(sessionId)}/messages`),
+    messages: (sessionId: string) => req<{ id: string; content: { type: string; text?: string }[] }[]>('GET', `/api/sessions/${encodeURIComponent(sessionId)}/messages?limit=100000`),
   };
 }
 
