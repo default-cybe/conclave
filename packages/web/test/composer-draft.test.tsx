@@ -9,6 +9,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { useState } from 'react';
 import type { Attachment } from '@conclave/core/client';
@@ -265,6 +266,14 @@ describe('the composer draft', () => {
     await Bun.sleep(450);
     expect(kv.data.get('draft:new')).toBe('hello');
     await v.unmount();
+  });
+
+  test("the chat composer's send drops the stored draft before it awaits the hub", () => {
+    const src = readFileSync(join(import.meta.dir, '../src/features/conversation/ChatComposer.tsx'), 'utf8');
+    const send = src.slice(src.indexOf('const send = async'), src.indexOf('const stop = '));
+    expect(src.includes('const clearDraft = useDraft(chatId,')).toBe(true);
+    expect(send.indexOf('clearDraft();')).toBeGreaterThan(-1);
+    expect(send.indexOf('clearDraft();')).toBeLessThan(send.indexOf('await '));
   });
 
   test('a write that fails shows a toast', async () => {
