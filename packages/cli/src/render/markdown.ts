@@ -4,25 +4,20 @@
  * (nested, ordered, tasks), quotes, tables, rules and links. Unclosed fences
  * render as code so partial streams look right.
  */
-import { createPainter, padEnd, width as strWidth, type Painter } from '../ansi';
-import { CODE_COLORS, highlightLine, normalizeLang } from './highlight';
+import { createPainter, width as strWidth, type Painter } from '../ansi';
+import { highlightLine, normalizeLang } from './highlight';
 import { wrapAnsi, indentLines } from './wrap';
 
 export interface MarkdownOptions {
   /** Columns available. Paragraphs wrap to this. */
   width?: number;
   painter?: Painter;
-  /** Background for code blocks. */
-  codeBg?: string;
 }
 
+/** Named ANSI colors only, so the terminal's own theme (light or dark) picks the shade. */
 export const MD_COLORS = {
-  inlineCode: '#B4A7F5',
-  link: '#5FA8E8',
-  heading: '#E5C07B',
-  quote: '#808080',
-  bullet: '#9CA3AF',
-  codeBg: '#1E1E22',
+  inlineCode: 'magenta',
+  bullet: 'gray',
 };
 
 const FENCE_OPEN = /^(\s{0,3})(`{3,}|~{3,})\s*([^\s`]*)[^`]*$/;
@@ -77,7 +72,7 @@ function renderBlocks(lines: string[], width: number, p: Painter, depth: number,
         code.push(indent ? l.replace(new RegExp(`^ {0,${indent}}`), '') : l);
         i++;
       }
-      out.push(...renderCode(code, lang, width, p, opts));
+      out.push(...renderCode(code, lang, width, p));
       continue;
     }
 
@@ -86,9 +81,8 @@ function renderBlocks(lines: string[], width: number, p: Painter, depth: number,
       const level = h[1].length;
       const text = renderInline(h[2], p);
       let styled: string;
-      if (level === 1) styled = p.bold(p.underline(p.fg(MD_COLORS.heading)(text)));
-      else if (level === 2) styled = p.bold(p.fg(MD_COLORS.heading)(text));
-      else if (level === 3) styled = p.bold(text);
+      if (level === 1) styled = p.bold(p.underline(text));
+      else if (level <= 3) styled = p.bold(text);
       else styled = p.bold(p.italic(text));
       if (!p.enabled) styled = text;
       if (out.length && out[out.length - 1] !== '') out.push('');
@@ -111,7 +105,7 @@ function renderBlocks(lines: string[], width: number, p: Painter, depth: number,
         i++;
       }
       const body = renderBlocks(inner, width - 2, p, depth, opts).join('\n');
-      const bar = p.fg(MD_COLORS.quote)('│ ');
+      const bar = p.dim('│ ');
       out.push(indentLines(p.italic(body), bar, bar));
       continue;
     }
@@ -152,6 +146,20 @@ const BULLETS = ['•', '◦', '▪', '‣'];
 function renderList(lines: string[], start: number, width: number, p: Painter, depth: number, opts: MarkdownOptions, out: string[]): number {
   let i = start;
   const baseIndent = leadingSpaces(lines[start]);
+  // widest number in this list, so "9." and "10." end in the same column
+  let numW = 0;
+  let blank = false;
+  for (let j = start; j < lines.length; j++) {
+    if (!lines[j].trim()) {
+      blank = true;
+      continue;
+    }
+    const lm = LIST_ITEM.exec(lines[j]);
+    if (lm && lm[1].length === baseIndent) {
+      if (/\d/.test(lm[2])) numW = Math.max(numW, lm[2].length);
+    } else if (leadingSpaces(lines[j]) <= baseIndent && (blank || lm || isBlockStart(lines[j]))) break;
+    blank = false;
+  }
   while (i < lines.length) {
     const m = LIST_ITEM.exec(lines[i]);
     if (!m) break;
@@ -164,7 +172,7 @@ function renderList(lines: string[], start: number, width: number, p: Painter, d
     // task list
     let marker: string;
     const task = /^\[([ xX])\]\s+(.*)$/.exec(body);
-    if (/\d/.test(markerRaw)) marker = p.fg(MD_COLORS.bullet)(markerRaw.replace(')', '.'));
+    if (/\d/.test(markerRaw)) marker = p.fg(MD_COLORS.bullet)(markerRaw.replace(')', '.').padStart(numW));
     else marker = p.fg(MD_COLORS.bullet)(BULLETS[depth % BULLETS.length]);
     if (task) {
       marker = task[1] === ' ' ? p.fg(MD_COLORS.bullet)('☐') : p.green('☑');
@@ -281,26 +289,27 @@ function renderTable(rows: string[], sep: string, width: number, p: Painter): st
   return out;
 }
 
-function renderCode(code: string[], lang: string, width: number, p: Painter, opts: MarkdownOptions): string[] {
+/**
+ * Code: indented two columns, syntax coloured, no background and no label, so
+ * it reads the same on light and dark terminals. A long line wraps with its
+ * own indent kept.
+ */
+function renderCode(code: string[], lang: string, width: number, p: Painter): string[] {
   while (code.length && code[code.length - 1].trim() === '') code.pop();
-  if (!p.enabled) return code.flatMap((l) => wrapAnsi(l, Math.max(10, width - 2)).split('\n').map((w) => '  ' + w));
   const l = normalizeLang(lang);
   const state: { inBlock?: boolean } = {};
-  const bg = p.bg(opts.codeBg ?? MD_COLORS.codeBg);
-  const fg = p.fg(CODE_COLORS.text);
   const inner = Math.max(10, width - 2);
-  const widest = Math.max(0, ...code.map((c) => strWidth(c)));
-  const boxW = Math.min(inner, Math.max(widest, Math.min(inner, 20)));
   const out: string[] = [];
-  const label = l && l !== 'text' ? p.fg(CODE_COLORS.meta)(lang) : '';
-  if (label) out.push(bg(' ' + padEnd('', Math.max(0, boxW - strWidth(lang))) + label + ' '));
   for (const raw of code) {
     const hl = highlightLine(raw, l, p, state);
-    // Long lines are wrapped by character so the background stays a block.
-    const wrapped = strWidth(raw) > boxW ? wrapAnsi(hl, boxW).split('\n') : [hl];
-    for (const w of wrapped) out.push(bg(fg(' ' + padEnd(w, boxW) + ' ')));
+    if (strWidth(raw) <= inner) {
+      out.push('  ' + hl);
+      continue;
+    }
+    const lead = /^ */.exec(raw)![0].slice(0, Math.floor(inner / 2));
+    const [first, ...rest] = wrapAnsi(hl, inner - lead.length).split('\n');
+    out.push('  ' + first, ...rest.map((w) => '  ' + lead + w.replace(/^ +/, '')));
   }
-  if (code.length === 0) out.push(bg(' '.repeat(boxW + 2)));
   return out;
 }
 
@@ -330,16 +339,13 @@ function inline(text: string, p: Painter, slots: string[]): string {
     return hold(p.enabled ? p.fg(MD_COLORS.inlineCode)(c) : c);
   });
   s = s.replace(/\\([\\`*_{}[\]()#+\-.!~|<>])/g, (_, ch: string) => hold(ch));
-  s = s.replace(/<((?:https?|mailto):[^>\s]+)>/g, (_, url: string) => hold(p.underline(p.fg(MD_COLORS.link)(url))));
-  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_, alt: string, url: string) =>
-    hold(p.dim(`[image${alt ? ': ' + alt : ''}] `) + p.fg(MD_COLORS.link)(url)),
-  );
+  s = s.replace(/<((?:https?|mailto):[^>\s]+)>/g, (_, url: string) => hold(p.link(url)));
+  s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_, alt: string, url: string) => hold(p.link(url, `[image${alt ? ': ' + alt : ''}]`)));
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_, label: string, url: string) => {
-    const l = inline(label, p, slots);
-    const same = label === url || label === url.replace(/^https?:\/\//, '');
-    return hold(p.underline(p.fg(MD_COLORS.link)(l)) + (same ? '' : p.dim(` (${url})`)));
+    const l = renderInline(label, p);
+    return hold(p.link(url, l));
   });
-  s = s.replace(/(^|[\s(])(https?:\/\/[^\s<>()\u0000]*[^\s<>().,;:!?'"\u0000])/g, (_, pre: string, url: string) => pre + hold(p.underline(p.fg(MD_COLORS.link)(url))));
+  s = s.replace(/(^|[\s(])(https?:\/\/[^\s<>()\u0000]*[^\s<>().,;:!?'"\u0000])/g, (_, pre: string, url: string) => pre + hold(p.link(url)));
   return emphasis(s, p, hold);
 }
 

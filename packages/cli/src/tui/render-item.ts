@@ -12,18 +12,23 @@ export interface RenderCtx {
   painter: Painter;
   showThinking: boolean;
   cwd?: string;
-  /** Spinner frame for running tools. */
-  frame?: number;
   now?: number;
+  /** Full tool output (the ctrl+o transcript) instead of the collapsed summary. */
+  expand?: boolean;
 }
 
-export const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+export const SPINNER = ['·', '✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳', '✢'];
 
-/** Blank line above this item? Aside bodies sit flush under their label. */
+/** The "⎿" gutter for a line that belongs to the item above it. */
+const ELBOW = '  ⎿  ';
+
+/** Blank line above this item? Aside bodies sit flush under their label; notes hang under the turn they belong to. */
 export function itemGap(item: Item, prev?: Item): boolean {
   if (item.kind === 'text' && item.aside && prev?.kind === 'label') return false;
+  if (item.kind === 'text' && item.cont) return false;
   if (item.kind === 'tool' && item.aside && prev?.kind === 'label') return false;
   if (item.kind === 'info' && item.gap === false) return false;
+  if ((item.kind === 'notice' || item.kind === 'stop') && prev && prev.kind !== 'banner' && prev.kind !== 'info') return false;
   return true;
 }
 
@@ -31,15 +36,8 @@ export function renderItem(item: Item, ctx: RenderCtx): string {
   const p = ctx.painter;
   const w = Math.max(20, ctx.width);
   switch (item.kind) {
-    case 'banner': {
-      const bw = Math.min(w, 64);
-      const inner = bw - 4;
-      const row = (l: string) => {
-        const t = truncate(l, inner);
-        return p.dim('│ ') + t + ' '.repeat(Math.max(0, inner - strWidth(t))) + p.dim(' │');
-      };
-      return [p.dim('╭' + '─'.repeat(bw - 2) + '╮'), ...item.lines.map(row), p.dim('╰' + '─'.repeat(bw - 2) + '╯')].join('\n');
-    }
+    case 'banner':
+      return item.lines.map((l) => truncate(l, w)).join('\n');
     case 'info':
       return item.text;
     case 'user': {
@@ -58,14 +56,11 @@ export function renderItem(item: Item, ctx: RenderCtx): string {
         return indentLines(md, bar, bar);
       }
       const dot = item.first ? p.fg(modelColor(item.model))('● ') : '  ';
-      return indentLines(md, dot, '  ');
+      // a blank line stays blank (no indent spaces left at its end)
+      return indentLines(md, dot, '  ').replace(/^ +$/gm, '');
     }
     case 'thinking': {
-      const words = item.text.trim() ? item.text.trim().split(/\s+/).length : 0;
-      if (!ctx.showThinking) {
-        const label = item.final ? `✻ Thought · ${words} words` : `✻ Thinking… ${words ? `${words} words` : ''}`;
-        return p.dim(p.italic(label)) + p.dim('  ctrl+t to show');
-      }
+      if (!ctx.showThinking) return p.dim(p.italic(item.final ? '✻ Thought' : '✻ Thinking…'));
       const body = wrapAnsi(item.text.trim(), w - 2);
       return p.dim(p.italic('✻ Thinking')) + '\n' + indentLines(p.dim(p.italic(body)), '  ', '  ');
     }
@@ -73,12 +68,13 @@ export function renderItem(item: Item, ctx: RenderCtx): string {
       return renderTool(item, ctx);
     case 'notice': {
       const color = item.level === 'error' ? p.red : item.level === 'warning' ? p.yellow : item.level === 'success' ? p.green : p.dim;
-      return color(wrapAnsi(`· ${item.text}`, w));
+      return indentLines(color(wrapAnsi(item.text, w - 5)), p.dim(ELBOW), '     ');
     }
     case 'stop': {
-      const color = item.tone === 'error' ? p.red : item.tone === 'warning' ? p.yellow : p.cyan;
-      const body = [...(item.evidence ? [p.dim(wrapAnsi(item.evidence, w - 4))] : []), wrapAnsi(item.next, w - 4)].join('\n');
-      return color(p.bold(wrapAnsi(`■ Why this turn stopped: ${item.title}`, w))) + '\n' + indentLines(body, '  ', '  ');
+      const color = item.tone === 'error' ? p.red : item.tone === 'warning' ? p.yellow : p.dim;
+      const head = color(wrapAnsi(item.title + (item.evidence ? `: ${item.evidence}` : ''), w - 5));
+      const body = item.next ? '\n' + p.dim(wrapAnsi(item.next, w - 5)) : '';
+      return indentLines(head + body, p.dim(ELBOW), '     ');
     }
     case 'summary': {
       const first = item.text.split('\n').find((l) => l.trim()) ?? '';
@@ -94,7 +90,7 @@ function renderTool(item: Extract<Item, { kind: 'tool' }>, ctx: RenderCtx): stri
   let dot: string;
   switch (item.status) {
     case 'running':
-      dot = p.cyan(SPINNER[(ctx.frame ?? 0) % SPINNER.length]);
+      dot = p.dim('●');
       break;
     case 'pending':
       dot = p.dim('○');
@@ -112,23 +108,23 @@ function renderTool(item: Extract<Item, { kind: 'tool' }>, ctx: RenderCtx): stri
       dot = p.gray('●');
   }
   const gutter = item.aside ? p.fg(modelColor(undefined))('│ ') : '';
-  const name = p.bold(t.name);
   let suffix = '';
   if (item.status === 'running' && item.startedAt) {
     const el = (ctx.now ?? Date.now()) - item.startedAt;
     if (el > 2000) suffix = p.dim(` (${formatDuration(el)})`);
   }
-  if (item.status === 'waiting') suffix = p.yellow(' waiting for approval');
-  if (item.status === 'interrupted') suffix = p.dim(' (interrupted)');
-  const room = w - strWidth(gutter) - 2 - strWidth(t.name) - 1 - strWidth(suffix);
-  const head = `${gutter}${dot} ${name}${t.detail ? ' ' + truncate(t.detail, Math.max(8, room)) : ''}${suffix}`;
+  // "Read(src/app.ts)"; a name that already carries parentheses ("Task(explorer)") takes the detail after a space
+  const paren = !t.name.endsWith(')');
+  const room = w - strWidth(gutter) - 2 - strWidth(t.name) - 2 - strWidth(suffix);
+  const detail = t.detail ? truncate(t.detail, Math.max(8, room)) : '';
+  const head = `${gutter}${dot} ${p.bold(t.name)}${detail ? (paren ? `(${detail})` : ` ${detail}`) : ''}${suffix}`;
   const lines: string[] = [];
-  if (item.result) lines.push(...toolPreview(item.name, item.result, { painter: p, width: w - 6, input: item.input }));
+  if (item.result) lines.push(...toolPreview(item.name, item.result, { painter: p, width: w - 6, input: item.input, expand: ctx.expand }));
   else if (item.status === 'running' && item.progress) {
     const prog = item.progress.replace(/\s+$/, '').split('\n').slice(-3);
     lines.push(...prog.map((l) => p.dim(truncate(l, w - 6))));
   }
   if (!lines.length) return head;
-  const body = lines.map((l, i) => (i === 0 ? p.dim('  ⎿  ') : '     ') + l).join('\n');
+  const body = lines.map((l, i) => (i === 0 ? p.dim(ELBOW) : '     ') + l).join('\n');
   return head + '\n' + (gutter ? indentLines(body, gutter, gutter) : body);
 }

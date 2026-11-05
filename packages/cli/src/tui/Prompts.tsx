@@ -1,4 +1,4 @@
-/** Inline approval and question boxes. */
+/** Inline approval and question menus: numbered choices, arrows and enter, no box. */
 import React from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { ApprovalRequest, ApprovalResponse, QuestionRequest } from '@conclave/core/types.ts';
@@ -23,6 +23,14 @@ export function ApprovalBox({
 }): React.JSX.Element {
   const [denying, setDenying, denyingRef] = useRefState(false);
   const [message, setMessage, messageRef] = useRefState('');
+  const [cursor, setCursor, cursorRef] = useRefState(0);
+  const choices = approvalChoices(approval);
+
+  const pick = (key: ApprovalKey) => {
+    const r = approvalResponse(key, approval);
+    if (r) onResolve(r);
+    else setDenying(true);
+  };
 
   useInput((input, key) => {
     if (denyingRef.current) {
@@ -32,36 +40,35 @@ export function ApprovalBox({
       if (input && !key.ctrl && !key.meta) setMessage((m) => m + input.replace(/[\r\n]/g, ' '));
       return;
     }
-    const k = input.toLowerCase();
-    if (k === 'y') return onResolve({ decision: 'allow', scope: 'once' });
-    if (k === 's') return onResolve({ decision: 'allow', scope: 'session' });
-    // an untrusted session has no "always allow" (the hub would count it as once)
-    if (k === 'a' && !approval.noAlways) return onResolve({ decision: 'allow', scope: 'always', rule: approval.suggestedRule });
-    if (k === 'n') return onResolve({ decision: 'deny' });
-    if (k === 'd') return setDenying(true);
     if (key.escape) {
       onResolve({ decision: 'deny', message: 'The user interrupted.' });
       onAbort();
+      return;
     }
+    if (key.upArrow) return setCursor((c) => (c - 1 + choices.length) % choices.length);
+    if (key.downArrow || key.tab) return setCursor((c) => (c + 1) % choices.length);
+    if (key.return) return pick(choices[cursorRef.current].key);
+    const n = Number(input);
+    if (n >= 1 && n <= choices.length) return pick(choices[n - 1].key);
+    // the letter keys of earlier versions still work: y s a n d
+    const letter = choices.find((ch) => ch.letter === input.toLowerCase());
+    if (letter) pick(letter.key);
   });
 
   const t = toolTitle(approval.tool, approval.input, cwd);
-  const preview = approvalPreview(approval.tool, approval.input, p, width - 8);
+  const preview = approvalPreview(approval.tool, approval.input, p, width - 4);
   const from = askFrom(approval);
+  // a Bash preview is the command itself, so it is not repeated on the title line
+  const summary = preview.length ? (approval.tool === 'Bash' ? '' : t.detail) : approval.summary || t.detail;
+  const meta = [from, approval.harness ? `from ${approval.harness}` : '', queued > 0 ? `${queued} more waiting` : ''].filter(Boolean).join(' · ');
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={c('yellow')} paddingX={1}>
-      <Text>
+    <Box flexDirection="column">
+      <Text wrap="truncate-end">
         <Text color={c('yellow')} bold>
-          Permission needed
+          {visible(t.name)}
         </Text>
-        <Text dimColor>
-          {from ? ` · ${from}` : ''}
-          {approval.harness ? ` · from ${approval.harness}` : ''}
-          {queued > 0 ? ` · ${queued} more waiting` : ''}
-        </Text>
-      </Text>
-      <Text wrap="wrap">
-        <Text bold>{visible(t.name)}</Text> {visible(approval.summary || t.detail)}
+        {summary ? <Text> {visible(summary)}</Text> : null}
+        {meta ? <Text dimColor>{` · ${meta}`}</Text> : null}
       </Text>
       {preview.length > 0 && (
         <Box marginLeft={2} flexDirection="column">
@@ -71,48 +78,57 @@ export function ApprovalBox({
       <Box marginTop={1} flexDirection="column">
         {denying ? (
           <Text>
-            <Text color={c('red')}>Deny with message: </Text>
+            <Text color={c('red')}>Tell it what to do instead: </Text>
             {message}
             <Text inverse> </Text>
             <Text dimColor> (enter send · esc back)</Text>
           </Text>
         ) : (
           <>
-            <Text>
-              <Text color={c('green')} bold>
-                y
-              </Text>{' '}
-              allow once{'   '}
-              <Text color={c('green')} bold>
-                s
-              </Text>{' '}
-              allow for this {approval.from ? 'subagent' : 'session'}
-              {approval.noAlways ? null : '   '}
-              {approval.noAlways ? null : (
-                <>
-                  <Text color={c('green')} bold>
-                    a
-                  </Text>{' '}
-                  always allow{approval.suggestedRule ? <Text dimColor> ({visible(approval.suggestedRule)})</Text> : null}
-                </>
-              )}
-            </Text>
-            <Text>
-              <Text color={c('red')} bold>
-                n
-              </Text>{' '}
-              deny{'   '}
-              <Text color={c('red')} bold>
-                d
-              </Text>{' '}
-              deny with message{'   '}
-              <Text dimColor>esc deny and stop</Text>
-            </Text>
+            <Text>Do you want to proceed?</Text>
+            {choices.map((ch, i) => (
+              <Text key={ch.key} wrap="truncate-end">
+                <Text color={c(i === cursor ? 'cyan' : undefined)}>{i === cursor ? '❯ ' : '  '}</Text>
+                <Text dimColor={i !== cursor}>{`${i + 1}. `}</Text>
+                <Text color={c(i === cursor ? 'cyan' : undefined)}>{ch.label}</Text>
+                {ch.note ? <Text dimColor>{` ${visible(ch.note)}`}</Text> : null}
+              </Text>
+            ))}
+            <Text dimColor>esc to deny and stop</Text>
           </>
         )}
       </Box>
     </Box>
   );
+}
+
+export type ApprovalKey = 'once' | 'session' | 'always' | 'deny' | 'message';
+
+/** The numbered choices of an approval, in order. An untrusted session has no "always" (the hub would count it as once). */
+export function approvalChoices(a: Pick<ApprovalRequest, 'noAlways' | 'suggestedRule' | 'from'>): Array<{ key: ApprovalKey; letter: string; label: string; note?: string }> {
+  return [
+    { key: 'once', letter: 'y', label: 'Yes' },
+    { key: 'session', letter: 's', label: `Yes, for the rest of this ${a.from ? 'subagent' : 'session'}` },
+    ...(a.noAlways ? [] : [{ key: 'always' as const, letter: 'a', label: 'Yes, always', note: a.suggestedRule ? `(${a.suggestedRule})` : undefined }]),
+    { key: 'deny', letter: 'n', label: 'No' },
+    { key: 'message', letter: 'd', label: 'No, and tell it what to do instead' },
+  ];
+}
+
+/** What a choice sends to the hub; undefined for "tell it", which asks for a message first. */
+export function approvalResponse(key: ApprovalKey, a: Pick<ApprovalRequest, 'noAlways' | 'suggestedRule'>): ApprovalResponse | undefined {
+  switch (key) {
+    case 'once':
+      return { decision: 'allow', scope: 'once' };
+    case 'session':
+      return { decision: 'allow', scope: 'session' };
+    case 'always':
+      return a.noAlways ? undefined : { decision: 'allow', scope: 'always', rule: a.suggestedRule };
+    case 'deny':
+      return { decision: 'deny' };
+    case 'message':
+      return undefined;
+  }
 }
 
 /** "Subagent email asks", "Workflow research, agent search 3, asks": who asks when it is not this session (web lib/asks.ts askFromLine). */
@@ -186,7 +202,7 @@ export function QuestionBox({ question, onAnswer, onAbort }: { question: Questio
 
   if (!q) return <Text dimColor>No question</Text>;
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={c('magenta')} paddingX={1}>
+    <Box flexDirection="column">
       <Text>
         <Text color={c('magenta')} bold>
           {q.header ?? 'Question'}
@@ -202,10 +218,10 @@ export function QuestionBox({ question, onAnswer, onAbort }: { question: Questio
           const box = q.multiSelect && label !== OTHER ? (picked.has(i) ? '[x] ' : '[ ] ') : '';
           return (
             <Text key={i} wrap="truncate-end">
-              <Text color={c(active ? 'magenta' : undefined)}>{active ? '❯ ' : '  '}</Text>
-              <Text dimColor>{`${i + 1}. `}</Text>
+              <Text color={c(active ? 'cyan' : undefined)}>{active ? '❯ ' : '  '}</Text>
+              <Text dimColor={!active}>{`${i + 1}. `}</Text>
               {box}
-              <Text bold={active}>{label === OTHER ? 'Other (type an answer)' : label}</Text>
+              <Text color={c(active ? 'cyan' : undefined)}>{label === OTHER ? 'Other (type an answer)' : label}</Text>
               {desc ? <Text dimColor> {desc}</Text> : null}
             </Text>
           );

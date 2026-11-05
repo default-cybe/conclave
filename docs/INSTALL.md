@@ -1085,6 +1085,28 @@ about 40 MB), fetched once in the background.
 
 Then open a new terminal window and type `conclave`.
 
+**Chat keys.** `conclave` opens the terminal chat: the conversation above, one
+input box at the bottom and a status row under it (model, context left, cost).
+Press `?` on an empty prompt to see the keys.
+
+| Key | Does |
+| --- | --- |
+| enter | send |
+| shift+enter, `\` then enter, alt+enter, ctrl+j | new line (shift+enter needs a terminal with the kitty keyboard protocol: kitty, Ghostty, WezTerm, foot, iTerm2 with it on) |
+| `/` | commands, filtered as you type; `/help` lists them |
+| `@` | file paths; `@app` searches the whole folder, `@src/` lists one folder |
+| up, down | earlier messages |
+| esc | interrupt the turn |
+| ctrl+o | show every tool output and thought in full, again to collapse |
+| ctrl+t | show thinking from the next reply on |
+| shift+tab | permission mode (ask, accept edits, plan, bypass) |
+| ctrl+l | redraw the screen |
+| ctrl+c | clear the input; twice to quit |
+
+A permission prompt is a numbered menu: press 1 to 5, or the arrows and
+enter; esc denies and stops the turn. Resizing or ctrl+l never erases the
+terminal's scrollback.
+
 **Signed in.** It talks to the hub the app uses, with no `conclave login`.
 The app pairs it as an app of its own (the hub lists it by this computer's
 name with "(terminal)", and **Sign out** there revokes it) and saves

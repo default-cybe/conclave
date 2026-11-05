@@ -120,6 +120,11 @@ export class ChatController {
   agents: AgentDef[] = [];
   /** Called when the screen must be cleared before Static re-renders. */
   onClearScreen?: () => void;
+  /** ctrl+l: erase the live area so the next frame draws it from scratch. */
+  onRepaint?: () => void;
+  /** ctrl+o: enter (true) or leave the full-screen transcript view. */
+  onFullScreen?: (on: boolean) => void;
+  /** Before the app unmounts: erase the live area. */
   onExit?: () => void;
 
   constructor(private opts: ControllerOptions) {
@@ -242,17 +247,24 @@ export class ChatController {
     this.flashTimer = setTimeout(() => this.set({ flash: undefined }, true), ms);
   }
 
-  /** Clear the terminal and print the transcript again (thinking toggle, resume, /clear). */
-  rerender(): void {
-    this.store.recommit();
+  /** Clear the screen and print the transcript again (resume, /clear, ctrl+l). Scrollback stays. */
+  rerender(maxEntries?: number): void {
+    this.store.recommit(maxEntries);
     this.committedCopy = [];
     this.onClearScreen?.();
     this.set({ staticKey: this.snap.staticKey + 1 }, true);
   }
 
+  /** ctrl+l: draw the live area again; the transcript above stays as printed. */
+  repaint(): void {
+    this.onRepaint?.();
+    this.emit(true);
+  }
+
+  /** Thinking shows in full from the next reply on; what is printed stays (ctrl+o shows all of it). */
   toggleThinking(): void {
     this.snap = { ...this.snap, showThinking: !this.snap.showThinking };
-    this.rerender();
+    this.flash(this.snap.showThinking ? 'Thinking shown from here on · ctrl+o for the whole transcript' : 'Thinking hidden');
   }
 
   // ----- lifecycle ------------------------------------------------------------
@@ -315,18 +327,10 @@ export class ChatController {
     if (this.flashTimer) clearTimeout(this.flashTimer);
   }
 
+  /** One line: the name, the folder, and the hub only when it is not this machine's. */
   private banner(): void {
-    const mark = p.bold(p.fg('#C792EA')('◆ Conclave'));
-    this.store.addLocal({
-      kind: 'banner',
-      lines: [
-        `${mark} ${p.dim('v' + this.opts.version)}`,
-        '',
-        p.dim('/help for commands · @ to mention files · esc to interrupt'),
-        p.dim(`cwd  ${shortenPath(this.snap.draft.cwd, 50)}`),
-        p.dim(`hub  ${this.opts.hubUrl}${this.opts.hubSource === 'local' ? ' (local)' : ''}`),
-      ],
-    });
+    const hub = this.opts.hubSource === 'local' ? '' : p.dim(` · ${this.opts.hubUrl}`);
+    this.store.addLocal({ kind: 'banner', lines: [`${p.magenta('✻')} ${p.bold('Conclave')} ${p.dim(shortenPath(this.snap.draft.cwd, 50))}${hub}`] });
   }
 
   // ----- events -----------------------------------------------------------------
@@ -390,6 +394,8 @@ export class ChatController {
       case 'notice': {
         const n = ev.notice;
         const text = n.body || n.title;
+        // this chat's notices also arrive as notice messages (engine.notice), which the transcript shows
+        if (n.sessionId && n.sessionId === this.snap.session?.id) break;
         if ((n.level === 'error' || n.level === 'warning') && !this.seenErrors.fresh(text)) break;
         this.store.addLocal({ kind: 'notice', text, level: n.level });
         break;
@@ -514,8 +520,8 @@ export class ChatController {
     const s = this.snap.session;
     if (!s) return;
     try {
+      // the hub writes a "Stopped" notice for every stop, shown as "Interrupted by user" (transcript.ts)
       await this.client.abort(s.id);
-      this.notice('Interrupted', 'warning');
     } catch (e) {
       this.error(e);
     }
