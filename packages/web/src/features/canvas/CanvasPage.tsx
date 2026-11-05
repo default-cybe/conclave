@@ -53,14 +53,14 @@ import { hhmm } from '@/lib/format';
 import { useIsMobile } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { attempt, retainTranscript, sendQueued, toast, upsertSession, useHub } from '@/store/store';
-import { DRAG_KIND, GraphCanvas, INSERTS } from '../graph/GraphCanvas';
+import { DRAG_KIND, GraphCanvas, INSERTS, type NodeActions } from '../graph/GraphCanvas';
 import { FlowInspector, runWords } from '../graph/FlowInspector';
 import { Inspector } from '../graph/Inspector';
 import { liveState } from '../graph/nodes';
 import { useRunDetail, useRuns } from '../workflows/data';
 import { isLive, RUN_WORD } from '../workflows/words';
 import { useCanvasFiles } from './files';
-import { fileGroups, fileHref, fileTitle, focusNode, isRunId, libraryOpen, rememberFile, saveLibraryOpen, sessionFor } from './model';
+import { codeHref, fileGroups, fileHref, fileTitle, focusNode, isRunId, libraryOpen, rememberFile, saveLibraryOpen, sessionFor } from './model';
 import { copyClip, pasteClip, programRenamable, removeOps, saveWords, useEditor, workflowRenamable, type Clip } from './editor';
 
 type Positions = Record<string, { x: number; y: number }>;
@@ -127,6 +127,7 @@ function ProgramFile({ name }: { name: string }) {
   const booted = useHub((s) => s.booted);
   const session = useHub((s) => sessionFor(Object.values(s.sessions), device, cwd));
   const sid = session?.id;
+  const [, navigate] = useLocation();
   const [view, setView] = useState<FlowView>();
   const [run, setRun] = useState<FlowRunView>();
   const [blocks, setBlocks] = useState<FlowBlockSpec[]>([]);
@@ -211,6 +212,19 @@ function ProgramFile({ name }: { name: string }) {
   if (error) return <Missing title={title}>The program did not load. {error}</Missing>;
   if (!view) return <Loading title={title} />;
   const failed = Object.entries(run?.nodes ?? {}).filter(([, n]) => !n.ok);
+  // the node menu's Duplicate: a paste of that one block, a little below and right of it
+  const duplicate = (nid: string) => {
+    const p = positions[nid];
+    void ops(
+      'duplicate',
+      (send) => pasteClip(copyClip(fileKey, view.graph, [nid]), send, (b, i) => bySpec.get(b)?.inputs.find((x) => x.name === i)?.default),
+      (ids) => {
+        setSelection(ids);
+        if (p && ids[0]) void attempt(() => saveLayout({ ...positions, [ids[0]]: { x: p.x + 24, y: p.y + 24 } }));
+      },
+    );
+  };
+  const code = codeHref(device, `${cwd.replace(/\/+$/, '')}/flows/${title}`);
   const focus = focusNode(view.graph.nodes.map((n) => ({ id: n.id, state: liveState(run?.nodes[n.id]) })));
   const status = run ? { word: run.status === 'running' ? 'Running' : run.status === 'done' ? 'Done' : run.status === 'failed' ? 'Failed' : runWords(run), tone: run.status === 'running' ? 'text-signal' : run.status === 'failed' ? 'text-fault' : run.status === 'done' ? 'text-ok' : 'text-fg-2', rest: run.status === 'failed' ? (failed.length ? `at ${failed.map(([id]) => view.graph.nodes.find((n) => n.id === id)?.label ?? id).join(', ')}` : (run.error ?? '')) : run.status === 'running' ? `${Object.keys(run.nodes).length} blocks done` : '', since: run.status === 'running' ? run.startedAt : undefined } : { word: 'Not run yet', tone: 'text-fg-3', rest: '' };
   return (
@@ -268,6 +282,8 @@ function ProgramFile({ name }: { name: string }) {
             void ops('rename', [{ op: 'rename', nodeId: id, name: next }], ([nid]) => nid && positions[id] && void attempt(() => saveLayout({ ...positions, [nid]: positions[id] })))
           }
           renamable={programRenamable}
+          // a program has no resume, so no Run from here
+          menu={(n) => ({ ...(copyClip(fileKey, view.graph, [n.id]).blocks.length ? { duplicate: () => duplicate(n.id) } : {}), ...(code ? { openCode: () => navigate(code) } : {}) })}
           className="min-h-0 flex-1"
         />
       )}
@@ -366,6 +382,7 @@ function WorkflowFile({ id }: { id: string }) {
         onRerun={rerun}
         dialog={argsDialog}
         title={view.graph.name || id}
+        code={codeHref('local', path)}
         meta={['Workflow', library ? 'library' : 'yours', 'read only'].join(', ')}
         duplicate={library ? () => void attempt(() => api().copyWorkflow(id), 'Duplicated. The copy is yours to edit.').then((d) => d && api().workflowGraph(id).then(take)) : undefined}
       />
@@ -416,6 +433,7 @@ function WorkflowFile({ id }: { id: string }) {
       view={view}
       detail={data}
       title={view.graph.name || id}
+      code={codeHref('local', path)}
       meta="Workflow, yours"
       positions={positions}
       runner={runFlow}
@@ -446,14 +464,20 @@ type WorkflowEdit = ShellEdit & {
   move: (id: string, at: { x: number; y: number }) => void;
 };
 
-function WorkflowShell({ view, detail, title, meta, run, duplicate, edit, positions, runner, onRerun, agent, dialog }: { view: WorkflowGraphView; detail?: WorkflowRunDetail; title: string; meta: string; run?: boolean; duplicate?: () => void; edit?: WorkflowEdit; positions?: Positions; runner?: ShellRun; onRerun?: (seqs: number[]) => void; agent?: ShellAgent; dialog?: ReactNode }) {
+function WorkflowShell({ view, detail, title, meta, run, duplicate, edit, positions, runner, onRerun, agent, dialog, code }: { view: WorkflowGraphView; detail?: WorkflowRunDetail; title: string; meta: string; run?: boolean; duplicate?: () => void; edit?: WorkflowEdit; positions?: Positions; runner?: ShellRun; onRerun?: (seqs: number[]) => void; agent?: ShellAgent; dialog?: ReactNode; code?: string }) {
   const [selection, setSelection] = useState<string[]>([]);
+  const [, navigate] = useLocation();
   const runs = useMemo(() => (detail ? nodeRuns(view.graph, detail.calls) : undefined), [view.graph, detail]);
   const r = detail?.run;
   const live = !!r && isLive(r.status);
   const states = view.graph.nodes.map((n) => ({ id: n.id, state: runs?.byNode.get(n.id)?.state }));
   const focus = focusNode(states);
   const failed = states.filter((s) => s.state === 'failed');
+  // the node menu: Open in code, and Run from here when the last run reached the node (it replays from the journal)
+  const menu = (n: GraphNode): NodeActions => {
+    const seqs = runs?.byNode.get(n.id)?.seqs ?? [];
+    return { ...(code ? { openCode: () => navigate(code) } : {}), ...(onRerun && seqs.length && !live && !runner?.live ? { runFrom: () => onRerun(seqs) } : {}) };
+  };
   const status = r ? { word: RUN_WORD[r.status].replace(/^./, (c) => c.toUpperCase()), tone: live ? 'text-signal' : r.status === 'failed' ? 'text-fault' : r.status === 'done' ? 'text-ok' : 'text-fg-2', rest: [r.phaseTitle && live ? `in ${r.phaseTitle}` : '', failed.length ? `${failed.length} failed` : ''].filter(Boolean).join(', '), since: live ? (r.startedAt ?? r.createdAt) : undefined } : { word: 'Not run yet', tone: 'text-fg-3', rest: '' };
   return (
     <Shell
@@ -485,6 +509,7 @@ function WorkflowShell({ view, detail, title, meta, run, duplicate, edit, positi
           onSelect={onSelect}
           full={{ focus }}
           className="min-h-0 flex-1"
+          menu={code || onRerun || edit ? menu : undefined}
           {...(edit
             ? {
                 onInsert: edit.insert,
