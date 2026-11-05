@@ -2292,9 +2292,9 @@ export class Engine implements EngineApi {
    */
   private captureLearnings(s: Session): void {
     const cfg = this.config.get();
-    // TODO(sessions.incognito, PR #254): the field is typed on Session once that PR is on main
-    if (!cfg.memory.enabled || (s as { incognito?: boolean }).incognito || s.parentId || s.routineId || s.meta?.subagent || s.meta?.seat) return;
-    if (s.kind === 'meeting' || s.mode === 'jury' || !this.usesMemory(s) || this.agentFor(s).memory === 'none') return;
+    if (!cfg.memory.enabled || s.incognito || s.parentId || s.routineId || s.meta?.subagent || s.meta?.seat) return;
+    // "Use only" (chat.memorySave false) reads memory and saves nothing, so it queues nothing to save either
+    if (s.kind === 'meeting' || s.mode === 'jury' || !this.savesMemory(s) || this.agentFor(s).memory === 'none') return;
     const svc = assistantFor(this, this.accountOf(s));
     if (!svc) return;
     try {

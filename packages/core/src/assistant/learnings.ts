@@ -23,7 +23,7 @@
  *    requests that repeat.
  */
 import type { Db } from '../storage/db';
-import type { KvRepo } from '../storage/repos';
+import { notIncognito, type KvRepo } from '../storage/repos';
 import type { Message } from '../types';
 import type { MemoryService } from '../memory/types';
 import type { RoutineService } from '../scheduler/types';
@@ -81,10 +81,28 @@ const POSITIVE = /^\s*(?:perfect|great|exactly|nice|love (?:it|this|that)|that'?
 /** A letter outside Latin-1: a script the regex above does not read. The model check reads it. */
 const OTHER_SCRIPT = /[^\x00-\u024f\s\p{P}\p{S}\p{N}]/u;
 
+const ONE_OFF = /\b(?:for (?:this|that|the) (?:one|test|tests|run|file|task|pr|branch|commit|time|session|chat|step|case)|this time|for now|just (?:this )?once|right now|in this (?:file|test|function|pr|branch))\b/i;
+/** A log line, a stack frame or a shell prompt: pasted output. */
+const LOG_LINE = /^\s*(?:\d{4}-\d\d-\d\d[T ]\d|\[?(?:INFO|WARN|WARNING|ERROR|DEBUG|TRACE|FATAL)\b|at \S+ \(|[$#>] |\s{4}|\t|[|+]-{2,})/;
+
+/** The text without fenced code, quoted lines and pasted log lines. */
+export function proseOf(text: string): string {
+  return text
+    .replace(/```[\s\S]*?(?:```|$)/g, '\n')
+    .split('\n')
+    .filter((l) => !LOG_LINE.test(l) && !/^\s*>/.test(l))
+    .join('\n')
+    .trim();
+}
+
 /** The kind a typed message hints at, or undefined when it is not worth a model check. */
 export function cueOf(text: string): LearningKind | 'other' | undefined {
-  const t = text.trim();
-  if (t.length < 4 || t.length > 1500 || t.startsWith('/') || t.startsWith('<')) return undefined;
+  if (text.trim().length > 1500) return undefined;
+  // what the person wrote, not what they pasted: "no, use X" inside a log or a code block is not a correction
+  const t = proseOf(text);
+  if (t.length < 4 || t.startsWith('/') || t.startsWith('<')) return undefined;
+  // a one-off for this task ("use port 3000 for this test") is not a lasting rule, unless they say to remember it
+  if (ONE_OFF.test(t) && !REMEMBER.test(t)) return undefined;
   if (REMEMBER.test(t)) return 'remember';
   if (CORRECTION.test(t)) return 'correction';
   if (POSITIVE.test(t)) return 'positive';
@@ -235,7 +253,8 @@ export function parseCheck(reply: string, cands: Candidate[]): Checked[] | undef
     const confidence = typeof r.confidence === 'number' ? Math.max(0, Math.min(1, r.confidence)) : 0.6;
     if (confidence < MIN_CONFIDENCE) continue;
     if (containsSecret(fact) || containsSecret(rule) || containsSecret(cand.text)) continue;
-    if (HEALTH.test(`${fact}\n${cand.text}`)) continue;
+    // the chat's title too: "I prefer the La Roche-Posay one" in a skincare chat is still about health
+    if (HEALTH.test(`${fact}\n${cand.text}\n${cand.title ?? ''}`)) continue;
     if (out.some((o) => likeness(o.fact, fact) >= SAME)) continue;
     out.push({ cand, kind, fact, rule, confidence });
   }
@@ -279,7 +298,6 @@ interface IdeaCache {
   items: SkillIdea[];
 }
 
-const hasColumn = (db: Db, table: string, col: string) => (db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).some((c) => c.name === col);
 
 export class LearningsService {
   private running?: Promise<number>;
@@ -536,8 +554,7 @@ export class LearningsService {
   async findIdeas(): Promise<LearningsDto> {
     if (!this.d.complete) throw new LearningError(503, 'No model to look with.');
     const since = this.d.now() - IDEA_DAYS * 86_400_000;
-    // TODO(sessions.incognito, PR #254): read the column unconditionally once that PR is on main
-    const incog = hasColumn(this.d.db, 'sessions', 'incognito') ? 'AND COALESCE(s.incognito, 0) = 0' : '';
+    const incog = `AND ${notIncognito('s')}`;
     const rows = this.d.db
       .query(
         `SELECT s.id, s.title, (SELECT substr(json_extract(m.content, '$[0].text'), 1, 240) FROM messages m WHERE m.session_id = s.id AND ${TYPED} ORDER BY m.seq LIMIT 1) AS first
@@ -566,7 +583,9 @@ export class LearningsService {
   /** The owner's press: save an idea, as edited, as a learned skill or a routine. */
   async saveIdea(id: string, edit: Partial<Pick<SkillIdea, 'name' | 'description' | 'body' | 'schedule'>> = {}): Promise<LearningsDto> {
     const { cache, idea } = this.idea(id);
-    const v = { ...idea, ...Object.fromEntries(Object.entries(edit).filter(([, x]) => typeof x === 'string')) } as SkillIdea;
+    // only the text can be edited: kind, id and examples stay the model's
+    const EDITABLE = new Set(['name', 'description', 'body', 'schedule']);
+    const v = { ...idea, ...Object.fromEntries(Object.entries(edit).filter(([k, x]) => EDITABLE.has(k) && typeof x === 'string')) } as SkillIdea;
     if (v.kind === 'skill') {
       if (!this.d.learn) throw new LearningError(400, 'This hub cannot save skills here.');
       const problem = learnedTextProblem({ name: v.name, description: v.description, body: v.body });
