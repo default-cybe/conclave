@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { groupSections, searchSections, SETTINGS_GROUPS } from '../src/features/settings/nav';
-import { dayWords, lastRunWords, modelChoice, projectName, recapHeadline, recapRange, REFLECT_LINE, TIME, timeWords } from '../src/features/settings/reflectWords';
+import { bigNumbers, dayWords, excludedWords, heatLevel, lastRunWords, lateLine, madeWords, modelChoice, reportRange, REFLECT_LINE, TIME, timeWords } from '../src/features/settings/reflectWords';
 
 const at = (h: number, m: number) => {
   const d = new Date();
@@ -53,14 +53,21 @@ describe('Settings > Reflect', () => {
     expect(REFLECT_LINE).not.toMatch(/[\u2013\u2014]/);
   });
 
-  test('recap words: headline, range, day and folder', () => {
-    const totals = { chats: 12, sessions: 1, workflows: 0, tokens: 3_200_000, costUsd: 4, models: 2 };
-    expect(recapHeadline({ period: 'week', totals })).toBe('This week: 12 chats and 1 session, 3.2M tokens.');
-    expect(recapHeadline({ period: 'year', totals: { ...totals, chats: 0, sessions: 0 } })).toContain('nothing yet');
-    const start = Date.parse('2026-11-02T08:00:00Z');
-    expect(recapRange({ period: 'week', start, end: Date.parse('2026-11-05T18:00:00Z'), timezone: 'America/Los_Angeles' })).toBe('2 Nov to 5 Nov');
-    expect(recapRange({ period: 'month', start, end: start + 1, timezone: 'America/Los_Angeles' })).toBe('November 2026');
+  test('report words: range, made, numbers, heat, late night, footnote', () => {
+    const start = Date.parse('2026-10-30T07:00:00Z');
+    expect(reportRange({ start, end: Date.parse('2026-11-05T18:00:00Z'), timezone: 'America/Los_Angeles' })).toBe('30 Oct to 5 Nov');
+    expect(reportRange({ start: Date.parse('2025-11-06T08:00:00Z'), end: Date.parse('2026-11-05T18:00:00Z'), timezone: 'America/Los_Angeles' })).toBe('6 Nov 2025 to 5 Nov 2026');
+    const now = Date.parse('2026-11-05T18:00:00Z');
+    expect(madeWords({ generatedAt: now - 2 * 3600_000, insights: 'model' }, now)).toContain('Made 2 h ago with your small model');
+    expect(madeWords({ generatedAt: now, insights: 'basic' }, now)).toContain('from the numbers only');
+    const b = bigNumbers({ chats: 12, sessions: 1, workflows: 0, hoursActive: 3.5, tokens: 3_200_000, costUsd: 4, projects: 2 });
+    expect(b.map((x) => x.value)).toEqual(['13', '3.5', '3.2M', '2']);
+    expect(b[0]!.label).toBe('12 chats, 1 session');
+    expect([heatLevel(0, 10), heatLevel(1, 10), heatLevel(10, 10)]).toEqual([0, 1, 4]);
+    expect(lateLine(0.1, 100)).toBeUndefined();
+    expect(lateLine(0.3, 100)).toContain('30%');
+    expect(excludedWords({ health: 0, incognito: 0 })).toBeUndefined();
+    expect(excludedWords({ health: 2, incognito: 0 })).toContain('2 health-related sessions');
     expect(dayWords('2026-11-03')).toBe('Tue 3 Nov');
-    expect(projectName('/home/kai/work/conclave/')).toBe('conclave');
   });
 });

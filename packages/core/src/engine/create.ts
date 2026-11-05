@@ -335,6 +335,7 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
       untrustedAgent: (name, cwd) => !!engine.extensions.agent(name, cwd)?.untrusted,
       // no model named: completeText picks this account's small model on its own keys
       complete: (o) => completeText(engine, { ...o, accountId: acct }),
+      learnedSkills: () => engine.learnedSkillsFor(acct).list().map((s) => ({ name: s.name, created: s.created })),
     });
   assistant = assistantFor(OWNER_ID, memory);
   attachAssistant(engine, assistant, (acct) => {

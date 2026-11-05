@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Reflect is rebuilt as a report per account for the last 7 days, 30 days, or 3, 6 or 12 months: headline numbers, what you worked on, a when-you-work heatmap, the four AI Fluency habits with examples from your own sessions, models and agents, fun stats, suggestions, and a question that opens a new chat. Numbers come from SQL; one pass on your own small model over session titles and summaries writes the words. Cached per range, made again weekly or on Refresh. Incognito and health-related sessions are left out. The old recap and Summarise endpoints are replaced by `GET /api/reflect/report` and `POST /api/reflect/report/refresh`.
+
 ## [0.4.67] - 2026-11-05
 
 ### Fixed
