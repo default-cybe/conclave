@@ -6,6 +6,8 @@
  * model their account may use.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { firstUserText, startTestEngine, type RequestBody, type TestEngine } from './harness';
 import { afterToolResult, noHarnesses, runScript, systemText } from '../workflows/helpers';
 import { runDelegate } from '../../src/engine/delegate';
@@ -71,6 +73,28 @@ describe('Same model for all work', () => {
     await t.run(plain.id, 'go');
     expect(kid('D-JOB', plain.id).model).toBe(DEEP);
     expect(kid('D-JOB', plain.id).chat?.sameModel).toBeUndefined();
+  });
+
+  test('Task with a schema: a profile on a harness model takes the StructuredOutput path when the pin is an API model', async () => {
+    t = await startTestEngine({
+      script: [[task('S-JOB', { subagent_type: 'harnessy', schema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] } })], [{ text: 'done' }]],
+      route: (body) => {
+        if (!has(body, 'S-JOB')) return undefined;
+        if (afterToolResult(body)) return [{ text: 'ok' }];
+        return body.tools?.some((x) => x.name === 'StructuredOutput') ? [{ tool: 'StructuredOutput', input: { ok: true } }] : [{ text: '{"ok":true}' }];
+      },
+      ...setup,
+    });
+    mkdirSync(join(t.home, 'agents'), { recursive: true });
+    writeFileSync(join(t.home, 'agents', 'harnessy.md'), '---\nname: harnessy\ndescription: runs on a harness\nmodel: claude-code/opus\n---\nCheck.\n');
+    // the harness counts as installed, so the profile's own model would be an ACP one
+    const usable = t.engine.isUsable.bind(t.engine);
+    t.engine.isUsable = (ref: string) => ref.startsWith('claude-code/') || usable(ref);
+    const s = await pinned(t);
+    await t.run(s.id, 'go');
+    const child = t.requests.map((r) => JSON.parse(r) as RequestBody).find((b) => has(b, 'S-JOB'))!;
+    expect(child.tools?.some((x) => x.name === 'StructuredOutput')).toBe(true);
+    expect(t.engine.listSessions({ parentId: s.id })[0].model).toBe(PIN);
   });
 
   test('a nested subagent runs on the chat model, also under a child that was named another model', async () => {

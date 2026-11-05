@@ -14,6 +14,7 @@ import type { Engine } from './engine';
 import type { RunnerExtension } from '../session/runner-ext';
 import { continueSubagent, runSubagent } from './subagent';
 import { subagentModel } from '../extensions/agent-model';
+import { modelPin } from '../session/model-pin';
 import { assertOutputSchema, formatProblems, validateSchema, type Schema } from '../tools/schema';
 import { extractJsonObject, STRUCTURED_OUTPUT_ATTEMPTS, STRUCTURED_OUTPUT_TOOL, structuredOutputNudge, structuredOutputTool, type StructuredOutputState } from '../tools/structured-output';
 import type { Tool } from '../tools/types';
@@ -72,7 +73,8 @@ export async function runStructuredTask(engine: Engine, o: StructuredTaskOptions
   // as the parent's account sees agents: a member never gets the owner's own (docs/design/ACCOUNTS.md 2)
   const acct = engine.accountOf(parent);
   const def = engine.agentNamed(o.agent, parent.cwd, acct) ?? engine.agentNamed('general-purpose', undefined, acct);
-  const acp = isAcp(engine, subagentModel(engine, o.model, def?.model, parent.model));
+  // the model runSubagent will pick, Same model for all work included, so the JSON path matches the child
+  const acp = isAcp(engine, subagentModel(engine, o.model, def?.model, parent.model, modelPin(engine, parent)));
   const map = registry(engine);
 
   if (acp) {
