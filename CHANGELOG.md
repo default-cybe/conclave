@@ -7,6 +7,23 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Editing a flow's blocks no longer pushes the canvas over the message box. The "Last edit" lines are short, scroll, and have a Hide button, and the canvas stays inside its pane.
+- A finished workflow run's graph shows each node's state again for runs whose calls have no line numbers and labels built while running. The calls go to their nodes in run order, and a parallel step counts the agents that ran (8 agents, not 1).
+- On a phone, a run's graph is a column at full size that scrolls with the page. A finger on it scrolls; it no longer traps the page with only two nodes in view.
+- Adding a block shows only the lines that changed: the new line and the changed import, not the whole file removed and added again.
+- Wires run left to right: a node sits one column right of the nodes that feed it. Value labels sit in the gap between nodes instead of on their edges, and wires are thicker and visible in dark mode.
+- A node dragged out of its phase stays in its own band, and one dropped on another moves clear of it.
+- The node details panel is narrower (380 px for runs, 360 px for flows). The graph opens fitted to the window, or at a readable size from the start when it is too wide. The zoom buttons sit at the top so they never fall below the window.
+- Flows and owned workflows have an Add button on the canvas, also on phones. A block added by double-click goes where you clicked. Block search puts names that start with what you typed first, so "fil" picks Filter.
+- Delete or Backspace removes the selected block. A block can be renamed in its details panel; the name changes everywhere the flow reads it.
+- Nodes read as words: "Sets OPUS, WT" and "Helper rules" instead of code, and the line numbers moved to a tooltip. A choice or a yes/no setting can no longer be wired to another block.
+- A run opens on its graph on wide screens, and each library row has a Graph link.
+- A run's graph no longer shows port dots that cannot connect, and a flow's ports are bigger.
+
 ## [0.4.66] - 2026-11-05
 
 ### Fixed

@@ -187,17 +187,46 @@ function stateOf(c: WorkflowCall): NodeRunState {
   return c.state as WorkflowCallState;
 }
 
-/** Each node's calls rolled up: the worst state on the outline, counts, tokens and cost. */
+/** Whether a top-level node can make a call of this kind (itself, or a call inside it). */
+function holds(n: GraphNode, kind: WorkflowCall['kind']): boolean {
+  if (n.fn) return false;
+  const inner = (...names: string[]) => n.calls.some((c) => names.includes(c.name));
+  switch (kind) {
+    case 'agent':
+      return n.kind === 'agent' || n.kind === 'parallel' || n.kind === 'pipeline' || inner('agent', 'parallel', 'pipeline', 'lib.panel', 'lib.judgePanel', 'lib.loopUntilDry');
+    case 'check':
+      return n.kind === 'check' || inner('lib.runCheck', 'lib.exec');
+    case 'ask':
+      return n.kind === 'ask' || n.kind === 'approve' || inner('lib.ask', 'lib.approve');
+    case 'workflow':
+      return n.kind === 'workflow' || inner('workflow');
+    default:
+      return false;
+  }
+}
+
+/**
+ * Each node's calls rolled up: the worst state on the outline, counts, tokens and cost.
+ * A call with no call-site lines and no static label (runs journaled before
+ * lines were, labels built at run time) goes to the first node from the last
+ * placed one on that can make it, in its phase: calls run in statement order.
+ */
 export function nodeRuns(graph: WorkflowGraph, calls: WorkflowCall[]): { byNode: Map<string, NodeRun>; unplaced: WorkflowCall[] } {
   const bySeq = new Map(calls.map((c) => [c.seq, c]));
   const byNode = new Map<string, NodeRun>();
   const unplaced: WorkflowCall[] = [];
+  let cursor = 0;
   for (const c of calls) {
-    const n = nodeOf(c, graph, bySeq);
+    let n = nodeOf(c, graph, bySeq);
+    if (!n && !c.at?.length && c.parentSeq === undefined) {
+      const fits = (x: GraphNode) => holds(x, c.kind) && (!c.phase || !x.phase || x.phase === c.phase) && !(x.kind === 'agent' && byNode.has(x.id));
+      n = graph.nodes.slice(cursor).find(fits) ?? graph.nodes.find(fits);
+    }
     if (!n) {
       unplaced.push(c);
       continue;
     }
+    if (!n.fn) cursor = Math.max(cursor, graph.nodes.indexOf(n));
     const r = byNode.get(n.id) ?? { state: 'idle', seqs: [], total: 0, done: 0, cached: 0, running: 0, failed: 0, inputTokens: 0, outputTokens: 0, costUsd: 0, cachedCostUsd: 0 };
     const s = stateOf(c);
     r.seqs.push(c.seq);

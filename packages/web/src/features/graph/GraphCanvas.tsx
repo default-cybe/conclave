@@ -4,7 +4,9 @@
  * where it is read. No wiring by hand; pinch or wheel zooms, one finger or
  * drag pans, a tap or Enter opens the inspector. F fits the view. With
  * onMove (a workflow you own, wide screens) nodes drag, and the page saves
- * where they land in the layout side file.
+ * where they land in the layout side file. inPage: the canvas is a box in a
+ * scrolling page, so the wheel scrolls the page (Ctrl+wheel and pinch zoom)
+ * and a phone shows the whole column at full size and scrolls with the page.
  */
 import '@xyflow/react/dist/base.css';
 import './graph.css';
@@ -28,8 +30,12 @@ export interface GraphCanvasProps {
   positions?: Record<string, { x: number; y: number }>;
   /** Nodes drag when set; called once where a node is dropped. */
   onMove?: (id: string, at: { x: number; y: number }) => void;
-  /** Set on a workflow you own: a double-click on empty canvas, or a wire dropped there, opens the node search. */
-  onInsert?: (kind: string, after?: string) => void;
+  /** Set on a workflow you own: the Add button, a double-click on empty canvas, or a wire dropped there, opens the node search. at: where the new node goes, in flow coordinates. */
+  onInsert?: (kind: string, after?: string, at?: { x: number; y: number }) => void;
+  /** Delete or Backspace on the selected node. */
+  onRemove?: (id: string) => void;
+  /** A box inside a scrolling page (a run's graph), not a whole pane. */
+  inPage?: boolean;
   /** What the node search offers; the workflow nodes by default. */
   inserts?: InsertItem[];
   /** A program flow: block nodes, a value label on each wire from the last run, and wires drawn to an input. */
@@ -49,11 +55,33 @@ const INSERTS: InsertItem[] = [
   { kind: 'ask', word: 'Ask', help: 'A question for you' },
 ];
 
+/**
+ * The search's matches, best first: a name that starts with the text, then a
+ * word of the name that does, then the name containing it, then the help.
+ * Ties keep catalog order.
+ */
+export function rankInserts(items: InsertItem[], query: string): InsertItem[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return items;
+  const score = (x: InsertItem) => {
+    const w = x.word.toLowerCase();
+    if (w.startsWith(q)) return 0;
+    if (w.split(/[\s-]+/).some((p) => p.startsWith(q))) return 1;
+    if (w.includes(q)) return 2;
+    return x.help.toLowerCase().includes(q) ? 3 : -1;
+  };
+  return items
+    .map((x, i) => ({ x, i, s: score(x) }))
+    .filter((e) => e.s >= 0)
+    .sort((a, b) => a.s - b.s || a.i - b.i)
+    .map((e) => e.x);
+}
+
 /** The node search: type to filter, arrows and Enter pick, Escape closes. */
 function NodeSearch({ at, after, items, onPick, onClose }: { at: { x: number; y: number }; after?: string; items: InsertItem[]; onPick: (k: string) => void; onClose: () => void }) {
   const [q, setQ] = useState('');
   const [i, setI] = useState(0);
-  const list = items.filter((x) => `${x.word} ${x.help}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const list = rankInserts(items, q);
   return (
     <div className="absolute z-10 w-[240px] rounded-[var(--r-2)] border border-rule-2 bg-raise p-1.5" style={{ left: at.x, top: at.y }} role="dialog" aria-label="Add a node">
       <input
@@ -92,14 +120,18 @@ function NodeSearch({ at, after, items, onPick, onClose }: { at: { x: number; y:
   );
 }
 
-function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className, positions, onMove, onInsert, inserts = INSERTS, flow: program }: GraphCanvasProps) {
-  const [search, setSearch] = useState<{ x: number; y: number; after?: string }>();
-  const openSearch = (clientX: number, clientY: number, after?: string) => {
+function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className, positions, onMove, onInsert, onRemove, inPage, inserts = INSERTS, flow: program }: GraphCanvasProps) {
+  const [search, setSearch] = useState<{ x: number; y: number; after?: string; at?: { x: number; y: number } }>();
+  // at: the flow point the new node goes to (a double-click); the Add button leaves it to the layout
+  const openSearch = (clientX: number, clientY: number, after?: string, place = true) => {
     const r = box.current?.getBoundingClientRect();
-    if (r) setSearch({ x: Math.max(8, Math.min(clientX - r.left, r.width - 248)), y: Math.max(8, Math.min(clientY - r.top, r.height - 240)), after });
+    const at = place ? flow.screenToFlowPosition({ x: clientX, y: clientY }) : undefined;
+    if (r) setSearch({ x: Math.max(8, Math.min(clientX - r.left, r.width - 248)), y: Math.max(8, Math.min(clientY - r.top, r.height - 240)), after, ...(at ? { at: { x: at.x - NODE_W / 2, y: at.y - NODE_H / 2 } } : {}) });
   };
   const flow = useReactFlow();
   const vertical = useIsMobile();
+  // a phone in a page: the column at full size, the page scrolls it (a canvas box there trapped the finger)
+  const scroll = !!inPage && vertical;
   const box = useRef<HTMLDivElement>(null);
   // the node under the pointer while it drags; it is saved only on drop
   const [drag, setDrag] = useState<{ id: string; x: number; y: number }>();
@@ -119,8 +151,9 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       }
     }
   };
-  const { nodes, edges } = useMemo(() => {
+  const { nodes, edges, tall } = useMemo(() => {
     const { pos, bands } = placedGraph(graph, vertical, drag ? { ...positions, [drag.id]: { x: drag.x, y: drag.y } } : positions);
+    const tall = Math.max(0, ...bands.map((b) => b.y + b.h));
     const staleSet = new Set(stale);
     const bandNodes: Node[] = bands.map((b, i) => ({
       id: `band-${i}`,
@@ -148,28 +181,52 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         // a block's wire lands on its input's handle; the label is the value that went through it last run
         const to = graph.nodes.find((n) => n.id === e.to);
         const label = program.live?.[e.from]?.summary;
-        return { id: `${e.from}>${e.to}.${e.name}`, source: e.from, target: e.to, ...(to?.kind === 'block' && e.name ? { targetHandle: e.name } : {}), type: 'smoothstep', focusable: false, ...(label ? { label, className: 'cv-wire-value' } : {}) };
+        // the value label sits near the input it feeds, in the gap before it, not on a node's edge
+        return { id: `${e.from}>${e.to}.${e.name}`, source: e.from, target: e.to, ...(to?.kind === 'block' && e.name ? { targetHandle: e.name } : {}), focusable: false, ...(label ? { label, className: 'cv-wire-value', labelShowBg: true, labelBgPadding: [4, 2] as [number, number] } : {}) };
       }
       const live = runs?.get(e.to)?.state === 'running';
-      return { id: `${e.from}>${e.to}`, source: e.from, target: e.to, type: 'smoothstep', className: live ? 'cv-wire-live' : undefined, focusable: false };
+      return { id: `${e.from}>${e.to}`, source: e.from, target: e.to, className: live ? 'cv-wire-live' : undefined, focusable: false };
     });
-    return { nodes: [...bandNodes, ...wf], edges: es };
+    return { nodes: [...bandNodes, ...wf], edges: es, tall };
   }, [graph, runs, stale, selected, currentPhase, vertical, positions, drag, draggable, program]);
+
+  // open fitted: the whole graph when it reads at 0.55 or more, else the start of it at 0.55; a phone centres its column
+  const fitted = useRef(false);
+  const fit = (duration = 0) => {
+    const r = box.current?.getBoundingClientRect();
+    if (!r) return;
+    if (vertical) return void flow.setViewport({ x: Math.max(8, (r.width - (NODE_W + 32)) / 2), y: 12, zoom: 1 }, { duration });
+    void flow.fitView({ padding: 0.08, maxZoom: 1, duration }).then(() => {
+      if (flow.getViewport().zoom < 0.55) void flow.setViewport({ x: 16, y: 16, zoom: 0.55 }, { duration });
+    });
+  };
+  // once, after React Flow measured the nodes (useNodesInitialized stays false: the bands have no handles)
+  const fitOnce = () => {
+    if (fitted.current) return;
+    fitted.current = true;
+    setTimeout(() => fit(), 120);
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      if (e.key === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey) void flow.fitView({ padding: 0.12, duration: 200 });
+      if (t?.closest('[role=dialog]:not(.cv-inspector)')) return;
+      if (e.key === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey) fit(200);
       if (e.key === 'Escape') onSelect(undefined);
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selected && onRemove) {
+        e.preventDefault();
+        onRemove(selected);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [flow, onSelect]);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the inspector opens over the canvas: once it has slid in, pan so the tapped node sits in the part it leaves free
   useEffect(() => {
-    if (!selected) return;
+    // a phone's page-sized column does not pan: the sheet opens over the page
+    if (!selected || scroll) return;
     const t = setTimeout(() => {
       const cover = document.querySelector('.cv-inspector')?.getBoundingClientRect();
       const n = flow.getInternalNode(selected);
@@ -180,20 +237,21 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       if (vp) void flow.setViewport(vp, { duration: 200 });
     }, 240);
     return () => clearTimeout(t);
-  }, [selected, flow]);
+  }, [selected, flow, scroll]);
 
   return (
-    <div className={className} ref={box} style={{ position: 'relative' }}>
+    <div className={className} ref={box} style={{ position: 'relative', ...(scroll ? { height: tall + 28 } : {}) }}>
       <ReactFlow
-        className="cv-graph"
+        className={scroll ? 'cv-graph cv-graph-scroll' : 'cv-graph'}
         nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
         nodesDraggable={draggable}
         onNodesChange={draggable ? onNodesChange : undefined}
         nodesConnectable={!!onInsert && !vertical}
-        zoomOnDoubleClick={!onInsert}
+        zoomOnDoubleClick={!onInsert && !scroll}
         onDoubleClick={onInsert ? (e) => (e.target as HTMLElement).classList.contains('react-flow__pane') && openSearch(e.clientX, e.clientY) : undefined}
+        deleteKeyCode={null}
         // a wire let go on empty canvas: the new node goes after the one it came from
         onConnect={program?.onConnect ? (c) => c.source && c.target && c.targetHandle && program.onConnect!(c.source, c.target, c.targetHandle) : undefined}
         onConnectEnd={
@@ -206,12 +264,14 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
             : undefined
         }
         elementsSelectable
-        zoomOnPinch
-        panOnDrag
+        zoomOnPinch={!scroll}
+        zoomOnScroll={!scroll}
+        panOnDrag={!scroll}
+        preventScrolling={!inPage}
         minZoom={0.2}
         maxZoom={1.6}
-        // open on the first band at a readable size, top left: a centred fit clipped the first band and shrank the text
         defaultViewport={{ x: 16, y: 16, zoom: vertical ? 1 : 0.9 }}
+        onInit={fitOnce}
         proOptions={{ hideAttribution: true }}
         onNodeClick={(_, n) => n.type !== 'band' && onSelect(n.id)}
         onPaneClick={() => onSelect(undefined)}
@@ -223,9 +283,21 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
           }
         }}
       >
-        {/* a phone pinches; the buttons covered the column's nodes */}
-        {!vertical && <Controls showInteractive={false} position="bottom-right" />}
+        {/* a phone pinches; the buttons covered the column's nodes. Top right: in a page the bottom edge can be below the window */}
+        {!vertical && <Controls showInteractive={false} position="top-right" fitViewOptions={{ padding: 0.08, maxZoom: 1 }} onFitView={() => fit(200)} />}
       </ReactFlow>
+      {onInsert && !search && (
+        <button
+          type="button"
+          className="absolute bottom-2 left-2 z-[5] flex h-[30px] items-center rounded-[var(--r-2)] border border-rule-2 bg-raise px-3 text-[13px] text-fg-2 hover:bg-hover hover:text-fg coarse:h-11 coarse:px-4 coarse:text-[15px]"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            openSearch(r.left, r.bottom + 4, undefined, false);
+          }}
+        >
+          {program ? 'Add block' : 'Add node'}
+        </button>
+      )}
       {search && onInsert && (
         <NodeSearch
           at={search}
@@ -234,7 +306,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
           onClose={() => setSearch(undefined)}
           onPick={(k) => {
             setSearch(undefined);
-            onInsert(k, search.after);
+            onInsert(k, search.after, search.at);
           }}
         />
       )}

@@ -35,7 +35,7 @@ function InspectorPanel({ open, onClose, props }: { open: boolean; onClose: () =
     );
   // cv-inspector: the canvas pans the tapped node out from under it
   return (
-    <SideSheet open={open} onClose={onClose} width={480} modal={false} label={props?.node.label ?? 'Node'} className="cv-inspector">
+    <SideSheet open={open} onClose={onClose} width={380} modal={false} label={props?.node.label ?? 'Node'} className="cv-inspector">
       {props && <Inspector {...props} />}
     </SideSheet>
   );
@@ -66,7 +66,7 @@ export function RunGraph({ detail, onRerun, onWorktree }: { detail: WorkflowRunD
   return (
     <>
       {view.stale?.length ? <p className="pb-2 text-[12px] text-fg-3">The workflow changed since this run: {view.stale.length} {view.stale.length === 1 ? 'node reads' : 'nodes read'} "changed since". An estimate; Re-run decides what runs again.</p> : null}
-      <GraphCanvas graph={view.graph} runs={runs.byNode} stale={view.stale} selected={sel} currentPhase={isLive(run.status) ? run.phaseTitle : undefined} onSelect={setSel} className="h-[min(70vh,720px)] rounded-[var(--r-2)] border border-rule phone:h-[62vh]" />
+      <GraphCanvas graph={view.graph} runs={runs.byNode} stale={view.stale} selected={sel} currentPhase={isLive(run.status) ? run.phaseTitle : undefined} onSelect={setSel} inPage className="h-[min(70vh,720px)] rounded-[var(--r-2)] border border-rule phone:h-auto" />
       {runs.unplaced.length > 0 && <p className="pt-2 text-[12px] text-fg-3">{runs.unplaced.length} calls ran from code the graph does not show; the list has them.</p>}
       <InspectorPanel
         open={!!node}
@@ -126,7 +126,7 @@ export default function WorkflowGraphPage() {
   };
   const edited = (label: string, before: string, after: string) => history.push({ label, undo: () => restore(before), redo: () => restore(after) });
   // a node from the search: a new statement in the script; a refusal comes back as a toast with the reason
-  const insert = (kind: 'agent' | 'parallel' | 'check' | 'approve' | 'ask', after?: string) => {
+  const insert = (kind: 'agent' | 'parallel' | 'check' | 'approve' | 'ask', after?: string, at?: { x: number; y: number }) => {
     const prev = positions;
     void attempt(() => api().insertWorkflowNode(id, { kind, baseSha: shaNow.current, ...(after ? { after } : {}) }), 'Added to the script').then((res) => {
       if (!res || !view) return;
@@ -135,6 +135,8 @@ export default function WorkflowGraphPage() {
       if (res.view.layout) setPositions(res.view.layout);
       setDiff(res.diff || undefined);
       setSel(res.nodeId);
+      // where you double-clicked, not wherever the layout puts the new statement
+      if (at && res.nodeId) void attempt(() => saveLayout({ ...(res.view.layout ?? {}), [res.nodeId]: { x: Math.round(at.x / 8) * 8, y: Math.round(at.y / 8) * 8 } }));
     });
   };
   const start = (resume?: string) => void attempt(() => api().startWorkflow({ name: id, ...(resume ? { resumeFromRunId: resume } : {}) })).then((r) => r && go(`/workflows/runs/${r.id}?view=graph`));
@@ -198,14 +200,14 @@ export default function WorkflowGraphPage() {
         {view.graph.nodes.length} nodes in {view.graph.phases.length || 1} {view.graph.phases.length === 1 ? 'phase' : 'phases'}. {view.editable ? 'Yours: settings save to the script.' : view.readOnly}
         {lastRun ? ' Re-run replays unchanged nodes from the last run.' : ''}
       </p>
-      {diff && <CodeBlock code={diff} lang="diff" className="mb-3" />}
+      {diff && <CodeBlock code={diff} lang="diff" title="Last edit" maxLines={6} className="mb-3 max-h-[160px] overflow-auto" />}
       <GraphCanvas
         graph={view.graph}
         runs={runs}
         selected={sel}
         onSelect={setSel}
         positions={positions}
-        onInsert={view.editable ? (k, after) => insert(k as Parameters<typeof insert>[0], after) : undefined}
+        onInsert={view.editable ? (k, after, at) => insert(k as Parameters<typeof insert>[0], after, at) : undefined}
         onMove={view.editable ? (nid, at) => moved(positions, { ...positions, [nid]: { x: Math.round(at.x / 8) * 8, y: Math.round(at.y / 8) * 8 } }) : undefined}
         className="h-[min(74vh,780px)] rounded-[var(--r-2)] border border-rule phone:h-[66vh]" />
       <InspectorPanel

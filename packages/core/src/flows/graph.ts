@@ -254,7 +254,10 @@ export function applyFlowOp(src: string, op: FlowOp): { src: string; nodeId?: st
     case 'connect': {
       const n = blockOf(op.nodeId);
       if (n.block === 'value') throw new GraphEditError('a Value has no inputs');
-      if (!BLOCK_BY_NAME.get(n.block!)!.inputs.some((i) => i.name === op.input)) throw new GraphEditError(`${n.block} has no input ${op.input}`);
+      const inp = BLOCK_BY_NAME.get(n.block!)!.inputs.find((i) => i.name === op.input);
+      if (!inp) throw new GraphEditError(`${n.block} has no input ${op.input}`);
+      // a choice or a switch is a setting picked on the block: a wire of any value into it would not run
+      if (inp.widget !== 'text') throw new GraphEditError(`${op.input} is a setting (${inp.widget === 'combo' ? inp.options!.join(', ') : 'true or false'}); pick it on the block`);
       if (!IDENT.test(op.from)) throw new GraphEditError('from is a node name');
       if (op.field !== undefined && op.field !== '' && !FIELD.test(op.field)) throw new GraphEditError('a field is a name such as items or data.items');
       const at = g.nodes.indexOf(n);
@@ -287,9 +290,56 @@ export function applyFlowOp(src: string, op: FlowOp): { src: string; nodeId?: st
       if (g2.error || g2.nodes.length !== g.nodes.length - 1 || g2.nodes.some((x) => x.id === n.id && n.kind === 'block')) throw new GraphEditError('removing it would change other blocks; remove it in the file');
       return { src: next };
     }
+    case 'rename':
+      return renameBlock(src, g, blockOf(op.nodeId), op.name);
     default:
-      throw new GraphEditError('op is set, connect, disconnect, insert or remove');
+      throw new GraphEditError('op is set, connect, disconnect, insert, remove or rename');
   }
+}
+
+const RESERVED = new Set('await break case catch class const continue debugger default delete do else enum export extends false finally for function if import in instanceof let new null return super switch this throw true try typeof undefined var void while with yield async of'.split(' '));
+
+/**
+ * A block's variable renamed where it is declared and everywhere it is read:
+ * every identifier with that name except a property (`x.name`) or an object
+ * key; a shorthand `{ name }` becomes `{ name: next }`. Checked by parsing
+ * again: the same blocks and the same wires, or it is refused.
+ */
+function renameBlock(src: string, g: FlowGraph, n: GraphNode, next: string): { src: string; nodeId: string } {
+  const old = n.declares[0];
+  if (!old) throw new GraphEditError(`${n.label} has no name; it gives no value`);
+  if (next === old) return { src, nodeId: n.id };
+  if (!IDENT.test(next) || next.length > 64 || RESERVED.has(next)) throw new GraphEditError('a name is letters, digits, _ or $, not starting with a digit, and not a JavaScript word');
+  const toks = tokenize(src);
+  const word = (name: string) => new RegExp(`(^|[^\\w$])${name.replace(/\$/g, '\\$')}($|[^\\w$])`);
+  if (toks.some((t) => (t.kind === 'ident' && t.text === next) || (t.kind === 'tmpl' && word(next).test(t.text)))) throw new GraphEditError(`${next} is used in this flow already`);
+  // a name inside a template's ${...} is one token to the parser: it could not be renamed safely
+  if (toks.some((t) => t.kind === 'tmpl' && t.interp && word(old).test(t.text))) throw new GraphEditError(`a template reads ${old}; rename it in the code`);
+  const stack: string[] = [];
+  const edits: Array<{ start: number; end: number; text: string }> = [];
+  toks.forEach((t, i) => {
+    if (t.text === '{' || t.text === '[' || t.text === '(') stack.push(t.text);
+    else if (t.text === '}' || t.text === ']' || t.text === ')') stack.pop();
+    if (t.kind !== 'ident' || t.text !== old) return;
+    const prev = toks[i - 1]?.text;
+    const nxt = toks[i + 1]?.text;
+    if (prev === '.' || prev === '?.') return;
+    const inObject = stack[stack.length - 1] === '{' && (prev === '{' || prev === ',');
+    if (inObject && (nxt === ':' || nxt === '(')) return;
+    edits.push({ start: t.start, end: t.end, text: inObject && (nxt === '}' || nxt === ',') ? `${old}: ${next}` : next });
+  });
+  let out = src;
+  for (const e of edits.reverse()) out = out.slice(0, e.start) + e.text + out.slice(e.end);
+  const g2 = parseFlow(out);
+  const ids = (x: FlowGraph, from: string, to: string) => x.nodes.map((m) => `${m.kind}:${m.block ?? ''}:${m.id === from ? to : m.id}`).join(',');
+  const wires = (x: FlowGraph, from: string, to: string) =>
+    x.edges
+      // a wire into code is named after the variable; into a block, after the input
+      .map((e) => `${e.from === from ? to : e.from}>${e.to === from ? to : e.to}.${e.name === from && !x.nodes.find((m) => m.id === e.to && m.kind === 'block') ? to : e.name}`)
+      .sort()
+      .join(',');
+  if (g2.error || ids(g, n.id, next) !== ids(g2, '', '') || wires(g, old, next) !== wires(g2, '', '')) throw new GraphEditError(`some code reads ${old} in a way the canvas cannot rename; rename it in the code`);
+  return { src: out, nodeId: next };
 }
 
 /** A new block's statement after node `after` (its first input wired to after's output), else at the end of the file. */

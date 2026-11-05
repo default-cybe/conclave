@@ -14,6 +14,7 @@ import { parseFlow } from '@conclave/core/flows/graph';
 import { BLOCK_BY_NAME } from '@conclave/core/flows/plugins';
 import { FlowBlockNode, blockLine } from '../src/features/graph/nodes';
 import { runWords } from '../src/features/graph/FlowView';
+import { rankInserts } from '../src/features/graph/GraphCanvas';
 import { SCRAPER_FLOW, SCRAPER_RUN } from '../src/mock/flows';
 
 const graph = parseFlow(SCRAPER_FLOW);
@@ -53,6 +54,18 @@ describe('flow blocks', () => {
     expect(failed).toContain('border-fault');
     expect(failed).toContain('border-dashed');
     expect(failed).toMatch(/text-fault[^>]*>failed: TypeError/);
+  });
+
+  test('block search ranks a name that starts with the text first', () => {
+    const items = [
+      { kind: 'readFile', word: 'Read file', help: 'Read a file in the project' },
+      { kind: 'filter', word: 'Filter', help: 'Keep the items whose field matches' },
+      { kind: 'writeFile', word: 'Write file', help: 'Save text to a file' },
+      { kind: 'log', word: 'Log', help: 'Print a value' },
+    ];
+    expect(rankInserts(items, 'fil').map((x) => x.kind)).toEqual(['filter', 'readFile', 'writeFile']);
+    expect(rankInserts(items, 'print').map((x) => x.kind)).toEqual(['log']);
+    expect(rankInserts(items, ' ')).toEqual(items);
   });
 
   test('the status line says what the run did', () => {

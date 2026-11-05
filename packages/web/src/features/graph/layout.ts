@@ -1,17 +1,20 @@
 /**
  * Where each node of a workflow graph sits (docs/design/VISUAL-PROGRAMMING.md 7.5).
  * Statement order runs left to right in phase bands: each run of nodes in the
- * same phase is one band, its nodes stacked top to bottom, wrapping into a new
- * column after ROWS. Workflow graphs are nearly linear, so this reads like the
- * script without a layout library.
- * shortcut: no edge-crossing minimization; add @dagrejs/dagre if real graphs come out tangled.
+ * same phase is one band, and inside it a node sits one column right of the
+ * nodes that feed it, so wires run forward. Workflow graphs are nearly
+ * linear, so this reads like the script without a layout library.
+ * shortcut: no edge-crossing minimization inside a column; add @dagrejs/dagre if real graphs come out tangled.
  */
 import type { WorkflowGraph } from '@conclave/core/client';
 
 export const NODE_W = 248;
 export const NODE_H = 92;
 const ROW_GAP = 20;
-const COL_GAP = 64;
+// room for a wire and its value label between columns
+const COL_GAP = 112;
+// the phone's column: room for a value label between rows
+const V_GAP = 36;
 const BAND_GAP = 56;
 const BAND_HEAD = 40;
 const BAND_PAD = 16;
@@ -62,10 +65,8 @@ export function clearOf(node: { x: number; y: number; w: number; h: number }, vp
   return { x: vp.x + dx, y: vp.y + dy, zoom: vp.zoom };
 }
 
-/** vertical: bands top to bottom with one node per row, for a phone's narrow screen. */
-export function layoutGraph(g: WorkflowGraph, vertical = false): Layout {
-  const pos = new Map<string, { x: number; y: number }>();
-  const bands: Band[] = [];
+/** The runs of nodes in one phase, in statement order: one band each. */
+function phaseRuns(g: WorkflowGraph): Array<{ title: string; ids: string[] }> {
   const runs: Array<{ title: string; ids: string[] }> = [];
   for (const n of g.nodes) {
     const title = n.phase ?? 'Start';
@@ -73,54 +74,81 @@ export function layoutGraph(g: WorkflowGraph, vertical = false): Layout {
     if (last && last.title === title) last.ids.push(n.id);
     else runs.push({ title, ids: [n.id] });
   }
+  return runs;
+}
+
+/**
+ * Wide: each band's nodes go in columns by how many wires inside the band
+ * lead to them, so every wire runs left to right into the next column (as in
+ * ComfyUI and Blueprint); nodes nothing in the band feeds stack in the first
+ * column. vertical: one node per row top to bottom, for a phone's narrow screen.
+ */
+export function layoutGraph(g: WorkflowGraph, vertical = false): Layout {
+  const pos = new Map<string, { x: number; y: number }>();
+  const bands: Band[] = [];
+  const runs = phaseRuns(g);
   if (vertical) {
     let y = 0;
     for (const r of runs) {
-      r.ids.forEach((id, i) => pos.set(id, { x: BAND_PAD, y: y + BAND_HEAD + i * (NODE_H + ROW_GAP) }));
-      const h = BAND_HEAD + r.ids.length * NODE_H + (r.ids.length - 1) * ROW_GAP + BAND_PAD;
+      r.ids.forEach((id, i) => pos.set(id, { x: BAND_PAD, y: y + BAND_HEAD + i * (NODE_H + V_GAP) }));
+      const h = BAND_HEAD + r.ids.length * NODE_H + (r.ids.length - 1) * V_GAP + BAND_PAD;
       bands.push({ title: r.title, x: 0, y, w: NODE_W + BAND_PAD * 2, h });
       y += h + ROW_GAP;
     }
     return { pos, bands };
   }
+  const into = new Map<string, string[]>();
+  for (const e of g.edges) into.set(e.to, [...(into.get(e.to) ?? []), e.from]);
   let x = 0;
   for (const r of runs) {
-    const cols = Math.ceil(r.ids.length / ROWS);
-    const rows = Math.min(ROWS, r.ids.length);
-    r.ids.forEach((id, i) => {
-      const col = Math.floor(i / ROWS);
-      pos.set(id, { x: x + BAND_PAD + col * (NODE_W + COL_GAP), y: BAND_HEAD + (i % ROWS) * (NODE_H + ROW_GAP) });
-    });
-    const w = BAND_PAD * 2 + cols * NODE_W + (cols - 1) * COL_GAP;
+    const here = new Set(r.ids);
+    const depth = new Map<string, number>();
+    // statement order: a node's sources inside the band come before it
+    for (const id of r.ids) depth.set(id, Math.max(-1, ...(into.get(id) ?? []).filter((f) => here.has(f)).map((f) => depth.get(f) ?? -1)) + 1);
+    const cols: string[][] = [];
+    for (const id of r.ids) (cols[depth.get(id)!] ??= []).push(id);
+    // a column of many independent nodes wraps after ROWS, into columns of its own
+    const placed = cols.flatMap((c) => Array.from({ length: Math.ceil(c.length / ROWS) }, (_, k) => c.slice(k * ROWS, (k + 1) * ROWS)));
+    placed.forEach((c, ci) => c.forEach((id, ri) => pos.set(id, { x: x + BAND_PAD + ci * (NODE_W + COL_GAP), y: BAND_HEAD + ri * (NODE_H + ROW_GAP) })));
+    const rows = Math.max(...placed.map((c) => c.length));
+    const w = BAND_PAD * 2 + placed.length * NODE_W + (placed.length - 1) * COL_GAP;
     bands.push({ title: r.title, x, y: 0, w, h: BAND_HEAD + rows * NODE_H + (rows - 1) * ROW_GAP + BAND_PAD });
     x += w + BAND_GAP;
   }
   return { pos, bands };
 }
 
+const overlaps = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.abs(a.x - b.x) < NODE_W + 8 && Math.abs(a.y - b.y) < NODE_H + 8;
+
 /**
  * The auto layout with the positions the owner dragged put over it (the
- * layout side file). Each band then wraps its own nodes, wherever they are.
- * Only the wide layout: the phone keeps its one column.
+ * layout side file). A dragged node stays inside its own phase's band, left
+ * to right (the band grows down, never over the next band), and a node
+ * dropped on another one moves down until it is clear. Only the wide layout:
+ * the phone keeps its one column.
  */
 export function placedGraph(g: WorkflowGraph, vertical: boolean, saved?: Record<string, { x: number; y: number }>): Layout {
   const auto = layoutGraph(g, vertical);
   if (vertical || !saved || !g.nodes.some((n) => saved[n.id])) return auto;
   const pos = new Map(auto.pos);
-  for (const n of g.nodes) if (saved[n.id]) pos.set(n.id, saved[n.id]);
-  // the same runs of nodes in one phase that layoutGraph made its bands from
-  const runs: string[][] = [];
-  g.nodes.forEach((n, i) => {
-    if (i && (g.nodes[i - 1].phase ?? 'Start') === (n.phase ?? 'Start')) runs[runs.length - 1].push(n.id);
-    else runs.push([n.id]);
-  });
+  const runs = phaseRuns(g);
   const bands = auto.bands.map((b, i) => {
-    const ps = runs[i].map((id) => pos.get(id)!);
-    const left = Math.min(...ps.map((p) => p.x)) - BAND_PAD;
-    const top = Math.min(...ps.map((p) => p.y)) - BAND_HEAD;
-    const right = Math.max(...ps.map((p) => p.x)) + NODE_W + BAND_PAD;
-    const bottom = Math.max(...ps.map((p) => p.y)) + NODE_H + BAND_PAD;
-    return { title: b.title, x: left, y: top, w: right - left, h: bottom - top };
+    const ids = runs[i].ids;
+    const fixed = ids.filter((id) => !saved[id]).map((id) => pos.get(id)!);
+    for (const id of ids) {
+      const s = saved[id];
+      if (!s) continue;
+      // up to the gap before the next band; the last band has room to its right
+      const next = auto.bands[i + 1];
+      const maxX = Math.max(b.x + b.w - BAND_PAD - NODE_W, next ? next.x - BAND_GAP / 2 - BAND_PAD - NODE_W : Infinity);
+      const p = { x: Math.min(Math.max(s.x, b.x + BAND_PAD), maxX), y: Math.max(s.y, BAND_HEAD) };
+      while (fixed.some((q) => overlaps(p, q))) p.y = Math.max(...fixed.filter((q) => overlaps(p, q)).map((q) => q.y)) + NODE_H + ROW_GAP;
+      fixed.push(p);
+      pos.set(id, p);
+    }
+    const bottom = Math.max(...ids.map((id) => pos.get(id)!.y)) + NODE_H + BAND_PAD;
+    const right = Math.max(...ids.map((id) => pos.get(id)!.x)) + NODE_W + BAND_PAD;
+    return { ...b, w: Math.max(b.w, right - b.x), h: Math.max(b.h, bottom) };
   });
   return { pos, bands };
 }

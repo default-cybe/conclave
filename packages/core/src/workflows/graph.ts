@@ -300,7 +300,8 @@ function innerCalls(toks: Tok[], line: (o: number) => number): GraphInnerCall[] 
           // 'diagnose ' + round: the literal head of a computed label
           const k = toks.slice(o[0], closing(toks, o[0])).findIndex((x, n, a) => x.text === 'label' && a[n + 1]?.text === ':');
           const head = k >= 0 ? toks[o[0] + k + 2] : undefined;
-          const s = head ? stringValue(head) : undefined;
+          // `save-${l.label}`: the template's text before its first ${
+          const s = head ? (head.kind === 'tmpl' && head.interp ? head.text.slice(1).split('${')[0] : stringValue(head)) : undefined;
           if (s?.trim()) label = s.trim();
         }
       }
@@ -438,7 +439,8 @@ function parse(script: string, metaPhases: string[]): WorkflowGraph & { error?: 
       } else {
         const first = args[0] && args[0][1] - args[0][0] === 1 ? stringValue(t[args[0][0]]) : undefined;
         const inner = innerCalls(t.slice(m.open + 1, m.close), line).find((c) => c.label);
-        label = first !== undefined ? shorten(first) : inner?.label ? inner.label : kind;
+        // a computed label's head ("save-") reads as its word
+        label = first !== undefined ? shorten(first) : inner?.label ? inner.label.replace(/[\s\-_:#]+$/, '') || kind : kind;
       }
     } else if (t[0]?.text === 'return') {
       kind = 'return';
@@ -694,7 +696,11 @@ export function printLayout(positions: GraphPositions, scriptSha: string): strin
   return `{\n  "v": 1,\n  "hash": ${JSON.stringify(`sha256:${scriptSha}`)},\n  "nodes": {${lines.length ? `\n${lines.join(',\n')}\n  ` : ''}}\n}\n`;
 }
 
-/** The lines that differ between two texts, as - and + lines (one edit changes a small span). */
+/**
+ * The lines that differ between two texts, as - and + lines, one `@@ line N`
+ * hunk per changed run: an insert that also adds a name to the import line is
+ * two small hunks, not the whole file removed and added again.
+ */
 export function lineDiff(before: string, after: string): string {
   const a = before.split('\n');
   const b = after.split('\n');
@@ -706,5 +712,31 @@ export function lineDiff(before: string, after: string): string {
     ea--;
     eb--;
   }
-  return [`@@ line ${s + 1}`, ...a.slice(s, ea + 1).map((l) => `- ${l}`), ...b.slice(s, eb + 1).map((l) => `+ ${l}`)].join('\n');
+  const x = a.slice(s, ea + 1);
+  const y = b.slice(s, eb + 1);
+  // shortcut: one span when the changed middle is huge (a whole-file rewrite); a real diff library if that gets common
+  if (x.length * y.length > 4_000_000) return [`@@ line ${s + 1}`, ...x.map((l) => `- ${l}`), ...y.map((l) => `+ ${l}`)].join('\n');
+  // longest common subsequence of the middle, then walk it into hunks
+  const w = y.length + 1;
+  const L = new Uint32Array((x.length + 1) * w);
+  for (let i = x.length - 1; i >= 0; i--) for (let j = y.length - 1; j >= 0; j--) L[i * w + j] = x[i] === y[j] ? L[(i + 1) * w + j + 1] + 1 : Math.max(L[(i + 1) * w + j], L[i * w + j + 1]);
+  const out: string[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < x.length || j < y.length) {
+    if (i < x.length && j < y.length && x[i] === y[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    const del: string[] = [];
+    const add: string[] = [];
+    const at = s + j + 1;
+    while ((i < x.length || j < y.length) && !(i < x.length && j < y.length && x[i] === y[j])) {
+      if (j >= y.length || (i < x.length && L[(i + 1) * w + j] >= L[i * w + j + 1])) del.push(x[i++]);
+      else add.push(y[j++]);
+    }
+    out.push(`@@ line ${at}`, ...del.map((l) => `- ${l}`), ...add.map((l) => `+ ${l}`));
+  }
+  return out.length ? out.join('\n') : `@@ line ${s + 1}`;
 }

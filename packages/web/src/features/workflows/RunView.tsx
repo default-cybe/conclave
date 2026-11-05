@@ -35,15 +35,16 @@ import { byPhase, isLive, petFor, statusParts } from './words';
 const RunGraph = lazy(() => import('../graph/RunGraph').then((m) => ({ default: m.RunGraph })));
 
 export function RunView({ id }: { id: string }) {
-  // list or graph, in ?view=graph so a link or a reload keeps it; phones open the list
+  // list or graph, in ?view= so a link or a reload keeps it; wide screens open the graph (it hid behind the switch), phones the list
   const search = useSearch();
   const [loc, go] = useLocation();
-  const mode = new URLSearchParams(search).get('view') === 'graph' ? 'graph' : 'list';
+  const phone = useIsMobile();
+  const asked = new URLSearchParams(search).get('view');
+  const mode = asked === 'graph' || asked === 'list' ? asked : phone ? 'list' : 'graph';
   const { data, error, progress, lastActivity, reload } = useRunDetail(id);
   const [detail, setDetail] = useState<WorkflowRunDetail>();
   const [openCall, setOpenCall] = useState<WorkflowCall>();
   const [stopping, setStopping] = useState(false);
-  const phone = useIsMobile();
   const devices = useHub((s) => s.devices);
   usePageHeader(data?.run.name ?? 'Run', '/workflows/runs');
   useEffect(() => setDetail(data), [data]);
@@ -178,7 +179,7 @@ export function RunView({ id }: { id: string }) {
           <Segmented
             label="View"
             value={mode}
-            onChange={(v) => go(v === 'graph' ? `${loc}?view=graph` : loc, { replace: true })}
+            onChange={(v) => go(`${loc}?view=${v}`, { replace: true })}
             options={[
               { value: 'list', label: 'List' },
               { value: 'graph', label: 'Graph' },

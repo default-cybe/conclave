@@ -65,6 +65,7 @@ function Library() {
   const running = (runs.data ?? []).filter((r) => isLive(r.status)).length;
   const groups = useMemo(() => SOURCE_ORDER.map((s) => ({ source: s, items: (data ?? []).filter((w) => w.source === s) })).filter((g) => g.items.length), [data]);
   const now = useNow(60_000);
+  const phone = useIsMobile();
 
   return (
     <Page>
@@ -93,15 +94,23 @@ function Library() {
             </SectionHeading>
             <div className="rows">
               {g.items.map((w) => (
-                <ListRow
-                  key={w.id}
-                  inset={false}
-                  title={w.name}
-                  onClick={() => setPicked(w)}
-                  meta={<MetaLine parts={[w.description, SOURCE_WORD[w.source], !w.portable && w.source !== 'builtin' ? 'Conclave only' : null, !w.runnable ? <span className="text-fault">cannot load</span> : null]} />}
-                  time={w.lastRun ? relTime(w.lastRun.finishedAt ?? w.lastRun.createdAt, now) : undefined}
-                  state={w.lastRun ? <StateWord tone={RUN_TONE[w.lastRun.status]}>{RUN_WORD[w.lastRun.status]}</StateWord> : <span className="text-fg-3">never run</span>}
-                />
+                // the graph is one click from the row, next to it: a link inside the row's button would not be valid
+                <div key={w.id} className="flex items-stretch gap-2">
+                  <ListRow
+                    inset={false}
+                    className="min-w-0 flex-1"
+                    title={w.name}
+                    onClick={() => setPicked(w)}
+                    meta={<MetaLine parts={[w.description, SOURCE_WORD[w.source], !w.portable && w.source !== 'builtin' ? 'Conclave only' : null, !w.runnable ? <span className="text-fault">cannot load</span> : null]} />}
+                    time={w.lastRun ? relTime(w.lastRun.finishedAt ?? w.lastRun.createdAt, now) : undefined}
+                    state={w.lastRun ? <StateWord tone={RUN_TONE[w.lastRun.status]}>{RUN_WORD[w.lastRun.status]}</StateWord> : <span className="text-fg-3">never run</span>}
+                  />
+                  {!phone && w.runnable && (
+                    <Link href={`/workflows/graph/${encodeURIComponent(w.id)}`} className="link flex shrink-0 items-center px-2 text-[12.5px]" aria-label={`${w.name} as a graph`}>
+                      Graph
+                    </Link>
+                  )}
+                </div>
               ))}
             </div>
           </section>

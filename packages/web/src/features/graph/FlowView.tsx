@@ -20,7 +20,7 @@ import { Field, Input, OnOff, Select } from '@/components/ui/Field';
 import { Sheet, SideSheet } from '@/components/ui/Overlay';
 import { Notice } from '@/components/ui/Section';
 import { GraphCanvas, type InsertItem } from './GraphCanvas';
-import { blockLine, liveState, stateTone } from './nodes';
+import { blockLine, liveState, nodeTitle, stateTone } from './nodes';
 import { useHistory } from './history';
 
 type Positions = Record<string, { x: number; y: number }>;
@@ -114,14 +114,21 @@ export default function FlowView({ session }: { session: Session }) {
     setDiff(res.diff || undefined);
   };
   /** One op; undo puts back the version before it. A refusal comes back as a toast with the reason. */
-  const apply = (op: FlowOp, label: string) =>
+  const apply = (op: FlowOp, label: string, at?: { x: number; y: number }) =>
     attempt(() => api().flowOp(sid, name!, op, shaNow.current)).then((res) => {
       if (!res || !view) return res;
       const before = view.sha;
       history.push({ label, undo: () => restore(before), redo: () => restore(res.sha) });
       setView(res.view);
       setDiff(res.diff || undefined);
-      if (res.nodeId) setSel(res.nodeId);
+      if (op.op === 'remove' && sel === op.nodeId) setSel(undefined);
+      if (res.nodeId) {
+        setSel(res.nodeId);
+        // a block added where you double-clicked sits there; a renamed one keeps its place under its new id
+        const keep = op.op === 'rename' ? positions[op.nodeId] : undefined;
+        const p = at ?? keep;
+        if (p) void attempt(() => saveLayout({ ...positions, [res.nodeId!]: { x: Math.round(p.x / 8) * 8, y: Math.round(p.y / 8) * 8 } }));
+      }
       return res;
     });
   const saveLayout = async (next: Positions) => {
@@ -167,10 +174,11 @@ export default function FlowView({ session }: { session: Session }) {
   const node = view.graph.nodes.find((n) => n.id === sel);
   const nodes = run?.nodes ?? {};
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2 px-6 pt-3 pb-2 phone:px-3">
-      <div className="flex flex-wrap items-center gap-2">
+    // overflow-hidden: the canvas takes what is left of the pane and never draws over the composer
+    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden px-6 pt-3 pb-2 phone:px-3">
+      <div className="flex items-center gap-2">
         {flows && flows.length > 1 ? (
-          <Select value={name} onChange={(e) => setName(e.target.value)} aria-label="Flow" mono className="w-[180px]">
+          <Select value={name} onChange={(e) => setName(e.target.value)} aria-label="Flow" mono className="w-[180px] min-w-0 shrink">
             {flows.map((f) => (
               <option key={f.name} value={f.name}>
                 {f.name}
@@ -178,7 +186,7 @@ export default function FlowView({ session }: { session: Session }) {
             ))}
           </Select>
         ) : (
-          <span className="mono text-[13px] text-fg">{view.path}</span>
+          <span className="mono min-w-0 truncate text-[13px] text-fg">{view.path}</span>
         )}
         <span className="flex-1" />
         <Button variant="ghost" size={phone ? 'touch' : 'md'} disabled={!history.canUndo} title={history.nextUndo ? `Undo ${history.nextUndo}` : 'Nothing to undo'} onClick={history.undo}>
@@ -197,17 +205,18 @@ export default function FlowView({ session }: { session: Session }) {
           </Button>
         )}
       </div>
-      <p className={cn('text-[12px] phone:text-[13px]', run?.status === 'failed' || run?.status === 'refused' ? 'text-fault' : 'text-fg-3')} aria-live="polite">
+      <p className={cn('truncate text-[12px] phone:text-[13px]', run?.status === 'failed' || run?.status === 'refused' ? 'text-fault' : 'text-fg-3')} aria-live="polite" title={runWords(run)}>
         {view.graph.error ? `The file does not parse: ${view.graph.error}. Fix it in the code; the canvas reads it again.` : `${view.graph.nodes.length} blocks. ${runWords(run)}`}
       </p>
-      {diff && <CodeBlock code={diff} lang="diff" />}
+      {diff && <DiffStrip diff={diff} onClose={() => setDiff(undefined)} />}
       <GraphCanvas
         graph={view.graph}
         selected={sel}
         onSelect={setSel}
         positions={positions}
         inserts={inserts}
-        onInsert={(block, after) => void apply({ op: 'insert', block, ...(after ? { after } : {}) }, 'new block')}
+        onInsert={(block, after, at) => void apply({ op: 'insert', block, ...(after ? { after } : {}) }, 'new block', at)}
+        onRemove={(nodeId) => void apply({ op: 'remove', nodeId }, 'remove')}
         onMove={(nid, at) => {
           const prev = positions;
           const next = { ...positions, [nid]: { x: Math.round(at.x / 8) * 8, y: Math.round(at.y / 8) * 8 } };
@@ -215,18 +224,31 @@ export default function FlowView({ session }: { session: Session }) {
           history.push({ label: 'move', undo: () => saveLayout(prev), redo: () => saveLayout(next) });
         }}
         flow={{ blocks: bySpec, live: nodes, onConnect: (from, to, input) => void apply({ op: 'connect', nodeId: to, input, from }, 'wire') }}
-        className="min-h-[320px] flex-1 rounded-[var(--r-2)] border border-rule"
+        className="min-h-[200px] flex-1 overflow-hidden rounded-[var(--r-2)] border border-rule"
       />
       {run?.output && (
-        <details className="text-[12px]">
+        <details className="shrink-0 text-[12px]">
           <summary className="cursor-pointer text-fg-3">Output</summary>
-          <CodeBlock code={run.output} />
+          <CodeBlock code={run.output} maxLines={8} className="max-h-[30vh] overflow-auto" />
         </details>
       )}
       <div className="flex justify-end phone:hidden">{newFlow}</div>
-      <InspectorShell open={!!node} label={node?.label ?? 'Block'} onClose={() => setSel(undefined)}>
+      <InspectorShell open={!!node} label={node ? nodeTitle(node) : 'Block'} onClose={() => setSel(undefined)}>
         {node && <FlowInspector node={node} nodes={view.graph.nodes} spec={node.block ? bySpec.get(node.block) : undefined} live={nodes[node.id]} onOp={apply} />}
       </InspectorShell>
+    </div>
+  );
+}
+
+/** The last edit's lines, small and closable: it sits above the canvas and must not push it off the pane. */
+function DiffStrip({ diff, onClose }: { diff: string; onClose: () => void }) {
+  const phone = useIsMobile();
+  return (
+    <div className="relative shrink-0">
+      <CodeBlock code={diff} lang="diff" title="Last edit" maxLines={6} className="max-h-[160px] overflow-auto" />
+      <Button variant="ghost" size={phone ? 'touch' : 'sm'} className="absolute top-0 right-14 coarse:right-12" onClick={onClose} aria-label="Hide the last edit">
+        Hide
+      </Button>
     </div>
   );
 }
@@ -240,7 +262,7 @@ function InspectorShell({ open, label, onClose, children }: { open: boolean; lab
       </Sheet>
     );
   return (
-    <SideSheet open={open} onClose={onClose} width={420} modal={false} label={label} className="cv-inspector">
+    <SideSheet open={open} onClose={onClose} width={360} modal={false} label={label} className="cv-inspector">
       {children}
     </SideSheet>
   );
@@ -258,13 +280,21 @@ export function FlowInspector({ node, nodes, spec, live: lv, onOp }: { node: Gra
   const earlier = nodes.slice(0, nodes.indexOf(node)).flatMap((n) => n.declares.map((d) => ({ name: d, node: n })));
   const tone = stateTone(liveState(lv));
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  useEffect(() => setDrafts({}), [node.id, node.source]);
+  const [rename, setRename] = useState(node.declares[0] ?? '');
+  useEffect(() => {
+    setDrafts({});
+    setRename(node.declares[0] ?? '');
+  }, [node.id, node.source]); // eslint-disable-line react-hooks/exhaustive-deps
+  const renameNow = () => {
+    const next = rename.trim();
+    if (next && next !== node.declares[0]) void onOp({ op: 'rename', nodeId: node.id, name: next }, 'rename');
+  };
   const inputs = node.kind === 'block' ? (spec?.inputs ?? []) : [];
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-rule px-5 pt-4 pb-3">
         <div className="flex items-baseline justify-between gap-3">
-          <div className="t-title mono min-w-0 truncate text-fg">{node.label}</div>
+          <div className="t-title mono min-w-0 truncate text-fg">{node.kind === 'code' ? nodeTitle(node) : node.label}</div>
           {lv && <span className={cn('cv-state shrink-0 text-[13px]', tone.text)}>{lv.ok ? 'done' : 'failed'}</span>}
         </div>
         <div className="mt-0.5 text-[12px] text-fg-3">
@@ -273,6 +303,11 @@ export function FlowInspector({ node, nodes, spec, live: lv, onOp }: { node: Gra
       </div>
       <div className="scroll-y min-h-0 flex-1 space-y-5 px-5 py-4">
         {lv && !lv.ok && <Notice tone="fault">{lv.error ?? 'This block failed.'}</Notice>}
+        {node.kind === 'block' && node.declares[0] && (
+          <Field label="Name" help="What other blocks call its value. Renaming changes it everywhere it is read.">
+            <Input value={rename} aria-label="Name" mono onChange={(e) => setRename(e.target.value)} onBlur={renameNow} onKeyDown={(e) => e.key === 'Enter' && renameNow()} />
+          </Field>
+        )}
         {inputs.map((inp) => {
           const a = node.args?.[inp.name];
           const wired = a?.ref ? `${a.ref}${a.field ? `.${a.field}` : ''}` : undefined;
@@ -291,7 +326,8 @@ export function FlowInspector({ node, nodes, spec, live: lv, onOp }: { node: Gra
           return (
             <Field key={inp.name} label={inp.name} help={inp.help}>
               <div className="flex flex-col gap-2">
-                {node.block !== 'value' && (
+                {/* a choice or a switch is a setting: a wire of any value into it would not run */}
+                {node.block !== 'value' && (inp.widget === 'text' || a?.ref) && (
                   <Select
                     aria-label={`${inp.name} comes from`}
                     value={a?.ref ?? WIRE}
@@ -345,7 +381,7 @@ export function FlowInspector({ node, nodes, spec, live: lv, onOp }: { node: Gra
           <div className="pb-1.5 text-[12px] font-medium text-fg-2">Code</div>
           <CodeBlock code={node.source ?? ''} lang="ts" />
         </div>
-        <Button variant="ghost" size={phone ? 'touch' : 'md'} onClick={() => void onOp({ op: 'remove', nodeId: node.id }, 'remove')}>
+        <Button variant="ghost" size={phone ? 'touch' : 'md'} onClick={() => void onOp({ op: 'remove', nodeId: node.id }, 'remove')} title="Delete or Backspace on the canvas">
           Remove block
         </Button>
       </div>
