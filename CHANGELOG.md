@@ -30,6 +30,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 - The MCP server form's "reads a secret saved in Settings" hint pointed at no page; it now links to Settings > Secrets. `PUT /api/secrets` refuses a new named secret whose name is not 1 to 64 lowercase letters, digits, dots, dashes and underscores (#266).
 - Claude Mythos 5.1 shows and answers on Claude plans. CLIProxyAPI's catalog does not list it yet (no release up to 8.0.57 does), so with a Claude account signed in, the CLIProxyAPI the hub runs gets the Claude models of Conclave's catalog it lacks. A model your plan refuses (403, 404, "not available") is greyed out in the model picker with the reason instead of failing every turn; Refresh models asks again. An external CLIProxyAPI's catalog is left alone.
+- `lib.fence(text)` with one argument in a workflow script now fences that text. Before, the text became the label and the next agent read "undefined" in place of the earlier agent's report.
 
 ## [0.4.69] - 2026-11-05
 
