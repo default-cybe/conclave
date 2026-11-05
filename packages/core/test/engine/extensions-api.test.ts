@@ -137,6 +137,33 @@ describe('hooks', () => {
     expect(engine.config.getUser().hooks).toEqual({ SessionStart: [{ matcher: 'startup', hooks: [{ type: 'command', command: 'echo hi', timeout: 5 }] }] });
     engine.saveHooks({ scope: 'user', hooks: before ?? {} });
   });
+
+  test('a malformed event in ~/.claude/settings.json is listed with its file, loads as nothing, and is fixed only through fixHooks', () => {
+    const file = join(claude, 'settings.json');
+    const good = [{ hooks: [{ type: 'command', command: 'echo ok' }] }];
+    writeFileSync(file, JSON.stringify({ model: 'opus', hooks: { PreToolUse: { 6: { hooks: { 0: { command: 'echo lost' } } } }, SessionEnd: {}, Stop: good } }));
+    const ov = engine.hooksOverview();
+    const issue = ov.lint!.find((i) => i.path === file)!;
+    expect(issue).toMatchObject({ event: 'PreToolUse', level: 'error' });
+    expect(ov.lint!.filter((i) => i.path === file).length).toBe(1);
+    // the broken entry loads nothing; the good one still loads
+    expect(ov.events.find((e) => e.event === 'PreToolUse')!.groups.every((g) => g.source !== 'claude-user')).toBe(true);
+    expect(ov.events.find((e) => e.event === 'Stop')!.groups.some((g) => g.source === 'claude-user')).toBe(true);
+    // a stale or made-up problem, or a file that does not load, is refused
+    expect(() => engine.fixHooks({ path: file, event: 'PreToolUse', group: 0, text: 'nope' })).toThrow('gone');
+    expect(() => engine.fixHooks({ path: join(cwd, 'x.json'), event: 'PreToolUse', group: 0, text: issue.text })).toThrow('loads here');
+    engine.fixHooks({ path: file, event: issue.event, group: issue.group, handler: issue.handler, text: issue.text });
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ model: 'opus', hooks: { Stop: good } });
+    expect(engine.hooksOverview().lint?.some((i) => i.path === file)).toBeFalsy();
+    rmSync(file);
+  });
+
+  test('saving with an event mapped to {} drops it instead of failing', () => {
+    const before = engine.config.getUser().hooks;
+    engine.saveHooks({ scope: 'user', hooks: { SessionEnd: {} as never, Stop: [{ hooks: [{ type: 'command', command: 'echo hi' }] }] } });
+    expect(Object.keys(engine.config.getUser().hooks ?? {})).toEqual(['Stop']);
+    engine.saveHooks({ scope: 'user', hooks: before ?? {} });
+  });
 });
 
 describe('trust', () => {

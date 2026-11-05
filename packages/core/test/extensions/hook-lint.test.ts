@@ -4,6 +4,36 @@ import { bareMcpMatcher, lintHooks, wrapFlatEntries } from '../../src/extensions
 
 /** Hook lint (ECOSYSTEM.md 4.3 item 5): what loads as nothing, and how to fix it. */
 
+describe('lintHooks: malformed shapes', () => {
+  test('an event mapped to {} or null is no hooks, not a problem', () => {
+    expect(lintHooks({ SessionEnd: {}, Stop: null, PreCompact: [] }).issues).toEqual([]);
+  });
+
+  test('an object keyed by position says what it held and how to get it back; the fix removes the event', () => {
+    const raw = { PreToolUse: { 6: { hooks: { 0: { command: '/h/hooks/recipes/secrets-firewall.sh' } } } }, Stop: [{ hooks: [{ type: 'command', command: 'true' }] }] };
+    const { issues } = lintHooks(raw);
+    expect(issues.length).toBe(1);
+    expect(issues[0]).toMatchObject({ level: 'error', event: 'PreToolUse' });
+    expect(issues[0].text).toContain('keyed by position ("6")');
+    expect(issues[0].text).toContain('/h/hooks/recipes/secrets-firewall.sh');
+    expect(issues[0].text).toContain('add the recipe secrets-firewall again');
+    expect(issues[0].fix).toEqual({ Stop: raw.Stop } as HooksConfig);
+  });
+
+  test('an event mapped to a string is an error with a fix that removes it', () => {
+    const { issues } = lintHooks({ Notification: 'say hi' });
+    expect(issues[0].text).toMatch(/^Notification is a string instead of a list/);
+    expect(issues[0].fix).toEqual({});
+  });
+
+  test('a null group and an empty group without a hooks list can be removed; one that holds a command cannot', () => {
+    const { issues } = lintHooks({ Stop: [null, { matcher: 'x' }, { hooks: { 0: { command: 'say' } } }] });
+    expect(issues.map((i) => [i.group, !!i.fix])).toEqual([[0, true], [1, true], [2, false]]);
+    expect(issues[1].fix).toEqual({ Stop: [null, { hooks: { 0: { command: 'say' } } }] } as unknown as HooksConfig);
+    expect(issues[2].text).toContain('It mentions say.');
+  });
+});
+
 describe('lintHooks', () => {
   test('a flat entry is an error with a fix that wraps it', () => {
     const raw = { PreToolUse: [{ matcher: 'Bash', type: 'command', command: 'parry-guard hook', timeout: 5 }] };

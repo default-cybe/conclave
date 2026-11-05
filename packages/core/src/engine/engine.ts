@@ -1564,6 +1564,12 @@ export class Engine implements EngineApi {
     this.audit(undefined, 'hooks.save', `${input.scope}${input.cwd ? ` ${input.cwd}` : ''}`);
     return lint;
   }
+  /** Apply one lint fix from the Hooks page to the file it is in. */
+  fixHooks(input: Parameters<typeof ext.fixHooks>[1]): { path: string } {
+    const res = ext.fixHooks(this, input);
+    this.audit(undefined, 'hooks.fix', `${input.event} in ${res.path}`);
+    return res;
+  }
   importHooks(from: 'gemini' | 'codex', cwd?: string): HookImportResult {
     return ext.importHooks(from, cwd);
   }

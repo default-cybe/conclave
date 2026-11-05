@@ -151,6 +151,21 @@ export function registerExtensionRoutes(app: Hono<HonoEnv>, ctx: ServerContext, 
     return c.json({ ok: true as const, ...(lint.length ? { lint } : {}) });
   });
 
+  app.post('/api/hooks/fix', async (c) => {
+    const body = await readJson<{ path?: unknown; cwd?: unknown; event?: unknown; group?: unknown; handler?: unknown; text?: unknown }>(c);
+    if (typeof body.group !== 'number' || (body.handler !== undefined && typeof body.handler !== 'number')) throw badRequest('group and handler must be numbers');
+    const res = engine.fixHooks({
+      path: requireString(body.path, 'path'),
+      cwd: optString(body.cwd, 'cwd'),
+      event: requireString(body.event, 'event'),
+      group: body.group,
+      handler: body.handler as number | undefined,
+      text: requireString(body.text, 'text'),
+    });
+    changed();
+    return c.json({ ok: true as const, ...res });
+  });
+
   app.post('/api/hooks/lint', async (c) => {
     const body = await readJson<{ hooks?: unknown }>(c);
     if (body.hooks === undefined) throw badRequest('hooks is required');

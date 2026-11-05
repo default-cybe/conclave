@@ -10,6 +10,7 @@
 import type { HookEvent, HooksConfig } from '../config/schema';
 import { parseRule } from '../session/permissions';
 import { ruleToolMatches } from './hooks';
+import { isEmptyEvent, listFromIndexed } from './hook-shape';
 
 export const HOOK_EVENT_NAMES: HookEvent[] = [
   'SessionStart',
@@ -131,13 +132,21 @@ export function lintHooks(raw: unknown, opts: LintOptions = {}): LintResult {
       });
       continue;
     }
+    // an empty object or null is how some editors write "no hooks": nothing loads and nothing is wrong
+    if (isEmptyEvent(list)) continue;
     if (!Array.isArray(list)) {
-      issues.push({ level: 'error', event, group: 0, text: `${event} must be a list of groups, like [{"matcher": "Bash", "hooks": [...]}].` });
+      issues.push({ level: 'error', event, group: 0, text: notListText(event, list), fix: fixOne((c) => delete c[event]) });
       continue;
     }
+    const dropGroup = (gi: number) =>
+      fixOne((c) => {
+        const l = (c[event] as unknown[]).filter((_, i) => i !== gi);
+        if (l.length) c[event] = l;
+        else delete c[event];
+      });
     list.forEach((g, gi) => {
       if (!isObj(g)) {
-        issues.push({ level: 'error', event, group: gi, text: `Group ${gi + 1} of ${event} is not an object.` });
+        issues.push({ level: 'error', event, group: gi, text: `Group ${gi + 1} of ${event} is ${JSON.stringify(g)}, not a group, so it loads as nothing. Remove it.`, fix: dropGroup(gi) });
         return;
       }
       if (isFlat(g)) {
@@ -151,7 +160,14 @@ export function lintHooks(raw: unknown, opts: LintOptions = {}): LintResult {
           }),
         });
       } else if (!Array.isArray(g.hooks)) {
-        issues.push({ level: 'error', event, group: gi, text: `Group ${gi + 1} of ${event} needs a "hooks" list.` });
+        const cmds = commandsIn(g);
+        issues.push({
+          level: 'error',
+          event,
+          group: gi,
+          text: `Group ${gi + 1} of ${event} has no "hooks" list, so it loads as nothing.${cmds.length ? ` It mentions ${cmds.join(', ')}.` : ' It is empty; remove it.'}`,
+          ...(cmds.length ? {} : { fix: dropGroup(gi) }),
+        });
         return;
       }
       const matcher = typeof g.matcher === 'string' ? g.matcher : undefined;
@@ -241,6 +257,30 @@ export function lintHooks(raw: unknown, opts: LintOptions = {}): LintResult {
     });
   }
   return { issues, fixed: fixed as HooksConfig };
+}
+
+/** Every command string inside a value, wherever it sits (to say what a broken entry held). */
+function commandsIn(v: unknown, out: string[] = []): string[] {
+  if (Array.isArray(v)) for (const x of v) commandsIn(x, out);
+  else if (isObj(v)) for (const [k, x] of Object.entries(v)) k === 'command' && typeof x === 'string' ? out.push(x) : commandsIn(x, out);
+  return out;
+}
+
+/** Plain words for an event whose value is not a list, with what it held and how to get it back. */
+function notListText(event: string, v: unknown): string {
+  const indexed = listFromIndexed(v);
+  const what = indexed
+    ? `an object keyed by position (${Object.keys(v as Raw).map((k) => `"${k}"`).join(', ')}) instead of a list. A path-style write such as hooks.${event}[${Object.keys(v as Raw)[0]}] leaves it like that`
+    : `${typeof v === 'string' ? 'a string' : isObj(v) ? 'an object' : JSON.stringify(v)} instead of a list`;
+  const cmds = commandsIn(v);
+  const recipes = [...new Set(cmds.map((c) => /\/hooks\/recipes\/([a-z0-9-]+)\.sh\b/.exec(c)?.[1]).filter((x): x is string => !!x))];
+  return [
+    `${event} is ${what}, so none of its hooks load.`,
+    cmds.length ? `It holds ${cmds.join(', ')}, which does not run.` : '',
+    recipes.length ? `Remove the entry, then add the recipe${recipes.length > 1 ? 's' : ''} ${recipes.join(', ')} again.` : 'Remove the entry.',
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
 /** Only the wrapping of flat entries, so a save or import of a README config loads instead of failing. */

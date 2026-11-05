@@ -253,6 +253,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/hooks/test': 'admin',
   'PUT /api/hooks': 'admin',
   'POST /api/hooks/lint': 'admin',
+  'POST /api/hooks/fix': 'admin',
   'GET /api/hooks/recipes': 'admin',
   'GET /api/hooks/recipes/:id': 'admin',
   'POST /api/hooks/recipes/:id/test': 'admin',
