@@ -4,7 +4,7 @@
  * the others). Add a server opens the Extensions form; All servers shows
  * the MCP servers tab in the sheet.
  */
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import type { McpServerConfig } from '@conclave/core/config/schema';
 import type { Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
@@ -16,10 +16,13 @@ import { Button } from '@/components/ui/Button';
 import { OnOff } from '@/components/ui/Field';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { Notice, TextAction } from '@/components/ui/Section';
-import { McpServersTab, StatusWord } from '@/features/extensions/McpServers';
+import { StatusWord } from '@/features/extensions/mcp/StatusWord';
 import { ServerForm } from '@/features/extensions/mcp/ServerForm';
 import { ExtCwdProvider } from '@/features/extensions/project';
 import { SheetRouter } from './SessionSheet';
+
+// the Extensions tab loads when All servers opens, not with the chat
+const McpServersTab = lazy(() => import('@/features/extensions/McpServers').then((m) => ({ default: m.McpServersTab })));
 
 /** Servers turned off for this session (core session/connectors.ts). */
 export function sessionMcpOff(s: Pick<Session, 'meta'>): string[] {
@@ -105,7 +108,9 @@ export function ConnectorsSheet({ session, onClose }: { session: Session; onClos
         <div className="border-t border-rule pt-5">
           <ExtCwdProvider cwd={session.device === 'local' ? session.cwd : undefined}>
             <SheetRouter base="/extensions/mcp" onLeave={onClose}>
-              <McpServersTab />
+              <Suspense fallback={<LoadingRows loading rows={3} />}>
+                <McpServersTab />
+              </Suspense>
             </SheetRouter>
           </ExtCwdProvider>
         </div>

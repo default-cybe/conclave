@@ -42,7 +42,7 @@ import { StateWord } from '@/components/ui/List';
 import { Diff } from '@/components/ui/Code';
 import { commentTo } from './CommentTray';
 import { Elapsed } from '@/components/motion';
-import { StatusWord } from '@/features/extensions/McpServers';
+import { StatusWord } from '@/features/extensions/mcp/StatusWord';
 import { useRepoActions, useRepoSession } from '@/features/github/RepoBar';
 import { useSessionRuns } from '@/features/workflows/data';
 import { isLive, RUN_TONE, RUN_WORD } from '@/features/workflows/words';
