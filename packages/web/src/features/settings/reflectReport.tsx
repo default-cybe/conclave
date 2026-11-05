@@ -20,7 +20,8 @@ import { Stat, StatGroup } from '@/components/ui/Stat';
 import { toast } from '@/store/store';
 import { startChat } from '@/features/conversation/actions';
 import { errText, Group, SettingRow } from './parts';
-import { bigNumbers, dayWords, excludedWords, HABIT_WORDS, heatLevel, lateLine, madeWords, RANGES, reportRange, TIME } from './reflectWords';
+import { modelName, providerName, splitRef } from '@/lib/models';
+import { bigNumbers, excludedWords, fallbackWords, HABIT_WORDS, heatLevel, lateLine, madeWords, RANGES, reportRange, rhythmWords, TIME } from './reflectWords';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const HEAT = ['bg-sunk', 'bg-fg/15', 'bg-fg/30', 'bg-fg/55', 'bg-fg/80'];
@@ -166,10 +167,7 @@ function Report({ r }: { r: ReflectReport }) {
               ))}
             </div>
           </div>
-          <p className={`mt-3 mb-0 ${TEXT}`}>
-            {r.rhythm.activeDays} active {r.rhythm.activeDays === 1 ? 'day' : 'days'}, longest streak {r.rhythm.longestStreak} {r.rhythm.longestStreak === 1 ? 'day' : 'days'}
-            {r.rhythm.busiestDay && `, busiest ${dayWords(r.rhythm.busiestDay.date)} with ${r.rhythm.busiestDay.count} messages`}. {Math.round(r.rhythm.lateNightShare * 100)}% late at night.
-          </p>
+          <p className={`mt-3 mb-0 ${TEXT}`}>{rhythmWords(r.rhythm)}</p>
           {late && <p className="mt-1 mb-0 text-[14px] leading-[1.5] text-fg phone:text-[15px]">{late}</p>}
         </div>
       )}
@@ -198,7 +196,9 @@ function Report({ r }: { r: ReflectReport }) {
             {r.models.models.slice(0, 5).map((m) => (
               <li key={m.name} className="flex items-baseline gap-3 border-b border-rule py-2.5 last:border-b-0">
                 <span title={m.name} className="min-w-0 flex-1 truncate text-[13.5px] font-[500] text-fg phone:text-[15px]">
-                  {m.name}
+                  {modelName(m.name)}
+                  {/* the same model through two providers would read as two identical rows */}
+                  {splitRef(m.name).provider && <span className="ml-2 font-[400] text-fg-3">{providerName(splitRef(m.name).provider)}</span>}
                 </span>
                 <span className="num shrink-0 text-[13px] text-fg-2 phone:text-[14px]">{compact(m.tokens)}</span>
                 <span className="num w-16 shrink-0 text-right text-[13px] text-fg-3 phone:text-[14px]">{m.costUsd ? usd(m.costUsd) : 'plan'}</span>
@@ -207,7 +207,7 @@ function Report({ r }: { r: ReflectReport }) {
           </ul>
           <p className={`mt-3 mb-0 ${TEXT}`}>
             {r.models.agents.length > 0 && <>Agents: {r.models.agents.map((a) => `${a.name} ${a.count}`).join(', ')}. </>}
-            {r.models.fallbacks > 0 && <>{r.models.fallbacks} fallbacks{r.models.topFallback ? `, most often ${r.models.topFallback}` : ''}. </>}
+            {fallbackWords(r.models)}
             {r.models.costPerResult !== undefined && <>About {usd(r.models.costPerResult, { precise: true })} per finished turn over {int(r.models.finishedTurns)} turns.</>}
           </p>
         </div>

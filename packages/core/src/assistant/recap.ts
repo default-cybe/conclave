@@ -401,8 +401,8 @@ function buildHabits(d: {
   }
   if (d.reviewSessions.length || d.reviewRuns || d.checkFails) {
     const parts = [d.reviewSessions.length && `ran ${n(d.reviewSessions.length, 'review session', 'review sessions')}`, d.reviewRuns && `ran ${n(d.reviewRuns, 'review workflow', 'review workflows')}`, d.checkFails && `ended ${n(d.checkFails, 'turn', 'turns')} with the code check still failing`].filter(Boolean) as string[];
-    // a session you started reads better than a subagent's "Judge 2"
-    const ex = d.reviewSessions.find((s) => !s.parent) ?? d.reviewSessions[0];
+    // only a session you started: never a subagent's or workflow's "Judge 2", nor a routine's run
+    const ex = d.reviewSessions.find((s) => !s.parent && !s.routine);
     out.push({ key: 'diligence', observation: `You ${list(parts)}.`, ...(ex ? { example: `For example "${ex.title}".` } : {}) });
   }
   return out;

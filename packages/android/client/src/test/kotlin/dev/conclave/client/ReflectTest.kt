@@ -92,6 +92,38 @@ class ReflectTest {
     }
 
     @Test
+    fun theReportReadsEachRangeAndRefreshPosts() = runBlocking {
+        val body = """{"range":"month","start":1761804000000,"end":1762365600001,"timezone":"UTC","generatedAt":1,"insights":"basic","headline":"Busy month.",
+            "totals":{"chats":12,"sessions":1,"workflows":0,"hoursActive":3.5,"tokens":3200000,"costUsd":4,"projects":2},
+            "work":{"topics":[],"projects":[{"name":"conclave","sessions":4,"example":"Reflect"}],"newThisPeriod":[]},
+            "rhythm":{"heatmap":[[0,1]],"messages":100,"activeDays":4,"longestStreak":1,"busiestDay":{"date":"2026-11-03","count":40},"lateNightShare":0.27},
+            "habits":[{"key":"diligence","observation":"You ran 2 review sessions."}],
+            "models":{"models":[{"name":"cliproxy/claude-opus-5-5","calls":3,"tokens":100,"costUsd":0}],"agents":[],"fallbacks":3,"topFallback":"cliproxy/claude-opus-5-5 to anthropic/claude-sonnet-5-5","switches":0,"finishedTurns":0},
+            "fun":{"newPeople":[],"memoriesAdded":2,"skillsLearned":[],"goalsMoved":1,"goalsDone":0},"suggestions":[],"question":"","excluded":{"health":0,"incognito":1}}"""
+        server.enqueue(MockResponse(body = body))
+        val r = client().reflectReport("month")
+        val get = server.takeRequest()
+        assertEquals("/api/reflect/report", get.url.encodedPath)
+        assertEquals("month", get.url.queryParameter("range"))
+        assertEquals("Busy month.", r.headline)
+        assertEquals("diligence", r.habits[0].key)
+        server.enqueue(MockResponse(body = body))
+        client().reflectRefresh("month")
+        val post = server.takeRequest()
+        assertEquals("POST", post.method)
+        assertEquals("/api/reflect/report/refresh", post.url.encodedPath)
+
+        // the late-night share is said once, and models read as in the model picker
+        val stats = ReflectWords.rhythm(r.rhythm)
+        assertEquals("4 active days, longest streak 1 day, busiest Tue 3 Nov with 40 messages.", stats)
+        assertEquals(1, Regex("27%").findAll(stats + ReflectWords.lateLine(r.rhythm.lateNightShare, r.rhythm.messages)).count())
+        assertEquals("3 fallbacks, most often Opus 5.5 to Sonnet 5.5.", ReflectWords.modelsLine(r.models))
+        assertTrue(ReflectWords.modelLine(r.models.models[0].name).startsWith("Opus 5.5"))
+        assertEquals(listOf("13", "3.5", "3.2M", "2"), ReflectWords.bigNumbers(r.totals).map { it.first })
+        assertEquals("Left out: 1 incognito chat. Only titles and short summaries are read, never mail, files or tool output.", ReflectWords.excluded(r.excluded))
+    }
+
+    @Test
     fun planUseIsWorthItsApiPrice() {
         val s = ConclaveJson.decodeFromString(
             UsageSummary.serializer(),

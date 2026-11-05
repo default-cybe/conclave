@@ -80,6 +80,19 @@ describe('Reflect report numbers', () => {
     expect(JSON.stringify(hers) + material).not.toMatch(/roadmap|other branch/);
   });
 
+  test('the diligence example is only a session you started, never a subagent, workflow or routine child', () => {
+    session('root', { title: 'Port the hub to Bun' });
+    session('judge', { title: 'Judge 2', agent: 'reviewer', parent: 'root' });
+    session('nightly', { title: 'Nightly audit run', agent: 'auditor' });
+    db.query(`UPDATE sessions SET routine_id = 'r1' WHERE id = 'nightly'`).run();
+    const only = report().report.habits.find((h) => h.key === 'diligence')!;
+    expect(only.observation).toContain('2 review sessions');
+    expect(only.example).toBeUndefined();
+
+    session('mine', { title: 'Review the Reflect PR', agent: 'reviewer', kind: 'chat' });
+    expect(report().report.habits.find((h) => h.key === 'diligence')?.example).toBe('For example "Review the Reflect PR".');
+  });
+
   test('health sessions and their subagents are left out and counted for the footnote', () => {
     session('h', { title: 'Night skincare and hair', kind: 'chat' });
     session('hc', { parent: 'h' });
