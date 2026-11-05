@@ -36,7 +36,7 @@ import { registerSubscriptionRoutes } from './routes-subscriptions';
 import { registerAccountRoutes } from './routes-accounts';
 import { registerAlertRoutes } from './routes-alerts';
 import { registerLogRoutes } from './routes-logs';
-import { startLoopLagWatch, type LoopLagWatch } from './lag';
+import { startLoopLagWatch, trackRequest, trackToolDone, trackToolStarted, type LoopLagWatch } from './lag';
 import { CliproxyManager, type CliproxyOptions } from './cliproxy';
 import { MemberPlansManager } from './cliproxy/member';
 import { RemoteAccess, type RemoteOptions } from './remote';
@@ -186,11 +186,26 @@ export function createServer(opts: ServerOptions): ConclaveServer {
   ctx.updates.start();
   // one warn line whenever the event loop stalls, so the cause shows in the log (optimisation review 2026-11-01, fix 3)
   const lagWatch: LoopLagWatch = startLoopLagWatch();
+  // the tool calls running now, named in that warn line
+  const offToolTrack = engine.bus.on((e) => {
+    if (e.type === 'tool.started') trackToolStarted(e.toolUseId, e.name);
+    else if (e.type === 'tool.completed') trackToolDone(e.toolUseId);
+  });
   // the hub's home (CONCLAVE_HOME) first among the places a build can be put, then next to the binary
   const webPlaces = [opts.webDir, ...webDirCandidates(), engine.config.paths.web].filter((p): p is string => !!p);
   let webDir = resolveWebDir(webPlaces);
 
   const app = new Hono<HonoEnv>();
+
+  // the requests in flight, named in the stall warn line (lag.ts); path only, never the query string
+  app.use('*', async (c, next) => {
+    const done = trackRequest(c.req.method, c.req.path);
+    try {
+      await next();
+    } finally {
+      done();
+    }
+  });
 
   // ----- errors ------------------------------------------------------------
   app.onError((err, c) => {
@@ -480,6 +495,7 @@ export function createServer(opts: ServerOptions): ConclaveServer {
       ctx.clients.dispose();
       ctx.daemons.dispose();
       lagWatch.stop();
+      offToolTrack();
     },
   };
 }
