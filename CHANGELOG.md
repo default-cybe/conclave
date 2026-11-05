@@ -7,6 +7,17 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Canvas: when the open run has a failed block (or, with none failed, a running one) off screen, the top bar and the phone bar show Go to failed block or Go to running block. It pans to the block, selects it and pulses it once in the minimap. The first view still opens on the start of the graph at a readable zoom.
+- Workflows: lib.panel and lib.judgePanel spread their voters round robin over the distinct usable models of `tier` (default deep) when the script sets no `model`, so voters do not share one model's blind spots; one model when only one is usable, and `models` pins the list. A member's voters use only their own keys and plans. Each verdict has `untested` (assumptions the voter did not check); panel() returns `models` and `sharedUntested`, and a finding whose confirmers all share an untested assumption comes back with confidence low and flag `agreed-without-evidence`. The run log names the model of each vote. bug-hunt, review-changes and security-audit now pass `tier: 'deep'` instead of `model: 'deep'`.
+
+### Changed
+
+- Extensions > Hooks no longer warns when two plugins both add a SubagentStart hook: both run, which is normal. It warns instead when one plugin registers the same command twice on one event and matcher.
+
 ## [0.4.70] - 2026-11-05
 
 ### Added
