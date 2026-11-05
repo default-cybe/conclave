@@ -11,6 +11,10 @@ import dev.conclave.client.model.WorkflowGraph
 import dev.conclave.client.model.WorkflowRun
 import dev.conclave.client.model.WorkflowSource
 import dev.conclave.client.model.WorkflowSummary
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
@@ -259,6 +263,25 @@ object Canvas {
             else out.add(CanvasSection(b.phase, listOf(b)))
         }
         return out
+    }
+
+    /**
+     * Read a live run again every [intervalMs] while [live]. It waits while
+     * nobody [watched] it (a StateFlow's subscriptionCount: the screen is in
+     * the background or covered), so a run that never ends does not poll
+     * from a hidden screen. A failed read is skipped, the next one tries again.
+     */
+    suspend fun pollLive(intervalMs: Long, live: () -> Boolean, watched: StateFlow<Int>, read: suspend () -> Unit) {
+        while (live()) {
+            delay(intervalMs)
+            watched.first { it > 0 }
+            try {
+                read()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+            }
+        }
     }
 
     /** A value as a card's line: one line, at most 60 characters. */

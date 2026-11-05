@@ -90,7 +90,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
@@ -304,12 +303,8 @@ class CanvasViewModel(hub: HubRepository, private val file: CanvasFile) : HubVie
         }
         view.value = v
         if (v.live && poll?.isActive != true) {
-            poll = viewModelScope.launch {
-                while (view.value?.live == true) {
-                    delay(POLL_MS)
-                    runCatching { readRun() }.onFailure { if (it is CancellationException) throw it }
-                }
-            }
+            // collectAsStateWithLifecycle drops its subscription when the screen stops or is covered, so the poll waits then
+            poll = viewModelScope.launch { Canvas.pollLive(POLL_MS, { view.value?.live == true }, view.subscriptionCount) { readRun() } }
         }
     }
 
