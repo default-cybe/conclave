@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { DEFAULT_CONFIG, type ConclaveConfig, type ProviderConfig } from './schema';
-import { paths, ensureDirs, type Paths } from './paths';
+import { paths, ensureDirs, claudeHomeHasContent, type Paths } from './paths';
 import { dropRetiredKeys, markZaiWire, migrateZaiWire } from './retired';
 
 export * from './schema';
@@ -127,6 +127,8 @@ export class ConfigStore {
   private compute(): ConclaveConfig {
     let cfg = deepMerge(structuredClone(DEFAULT_CONFIG), this.userConfig);
     if (this.overrides) cfg = deepMerge(cfg, this.overrides);
+    // like the other CLIs: Claude Code loading is on by default only when ~/.claude holds something to load; a saved choice wins
+    if (this.userConfig.compat?.claudeCode === undefined && this.overrides?.compat?.claudeCode === undefined) cfg.compat.claudeCode = claudeHomeHasContent();
     for (const layer of this.runtime.values()) cfg = deepMerge(cfg, layer);
     if (process.env.CONCLAVE_PORT) cfg.server.port = Number(process.env.CONCLAVE_PORT);
     if (process.env.CONCLAVE_HOST) cfg.server.host = process.env.CONCLAVE_HOST;
