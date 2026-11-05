@@ -152,6 +152,8 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
                 val approvals = Asks.of(hub.approvals.value, sessionId)
                 val questions = runCatching { hub.api { it.questions() } }.getOrNull()?.let { Asks.of(it, sessionId) }
                 runCatching { hub.api { it.workflowRuns(sessionId = sessionId, limit = 50) } }.getOrNull()?.let { runs.value = it }
+                // the sessions under it, for its subagent rows: the list holds top-level sessions only (its newest 500)
+                runCatching { hub.api { it.listSessions(parentId = sessionId, limit = 500) } }.getOrNull()?.forEach { hub.putSession(it) }
                 transcript.update { t ->
                     t.copy(
                         todos = todos ?: t.todos,

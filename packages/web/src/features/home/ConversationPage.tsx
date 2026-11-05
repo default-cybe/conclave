@@ -12,7 +12,7 @@
  */
 import { useEffect, useState, type DragEvent } from 'react';
 import { useParams } from 'wouter';
-import { useHub } from '@/store/store';
+import { useHub, useMissingSession } from '@/store/store';
 import { useUi } from '@/store/ui';
 import { cn } from '@/lib/text';
 import { useBreakpoint } from '@/lib/hooks';
@@ -32,7 +32,6 @@ import { acceptFileDrag, droppedFiles } from '@/lib/fileDrop';
 export default function ConversationPage() {
   const { id } = useParams<{ id?: string }>();
   const session = useHub((s) => (id ? s.sessions[id] : undefined));
-  const booted = useHub((s) => s.booted);
   const remembered = useStartMode((s) => s.mode);
   const fresh = useStartMode((s) => s.fresh);
   const bp = useBreakpoint();
@@ -54,7 +53,7 @@ export default function ConversationPage() {
 
   usePageHeader(session ? session.title : undefined);
 
-  const missing = !!id && !session && booted;
+  const missing = useMissingSession(id);
 
   if (phone) {
     if (!id) return <PhoneHome />;
