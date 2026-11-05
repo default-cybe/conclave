@@ -410,7 +410,8 @@ fun CanvasScreen(file: CanvasFile, onBack: () -> Unit) {
                         }
                         for (section in Canvas.sections(v.blocks)) {
                             section.phase?.let { p -> item(key = "p:$p:${section.blocks.first().id}") { SectionHeader(p) } }
-                            items(section.blocks, key = { it.id }) { b -> BlockCard(b, now) }
+                            // a program's block ids are its variable names: a block called status or empty must not reuse those keys
+                            items(section.blocks, key = { "b:${it.id}" }) { b -> BlockCard(b, now) }
                         }
                     }
                 }
