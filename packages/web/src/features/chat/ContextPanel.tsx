@@ -23,7 +23,7 @@ import { ChevronDown, ChevronRight, X } from 'lucide-react';
 import type { McpServerConfig } from '@conclave/core/config/schema';
 import type { Checkpoint, Message, Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
-import { attempt, loadCheckpoints, upsertSession, useHub } from '@/store/store';
+import { attempt, loadCheckpoints, loadShells, upsertSession, useHub } from '@/store/store';
 import { setCardOpen, useUi } from '@/store/ui';
 import { useLoad } from '@/lib/hooks';
 import { cn, parseDiff, type DiffFile } from '@/lib/text';
@@ -630,7 +630,11 @@ function TasksCard({ session }: { session: Session }) {
   const messages = useHub((s) => s.messages[session.id]);
   const sessions = useHub((s) => s.sessions);
   const runs = useSessionRuns(session.id);
-  const shells = useMemo(() => backgroundShells(messages ?? []), [messages]);
+  const hubShells = useHub((s) => s.shells[session.id]);
+  useEffect(() => {
+    void loadShells(session.id);
+  }, [session.id]);
+  const shells = useMemo(() => backgroundShells(messages ?? [], hubShells), [messages, hubShells]);
   const [folded, setFolded] = useState(true);
   const liveShells = shells.filter((s) => s.state === 'running');
 
@@ -643,7 +647,7 @@ function TasksCard({ session }: { session: Session }) {
       if (s.state !== 'done' && s.state !== 'failed') continue;
       out.push({ key: `t:${c.tool.id}`, kind: 'subagent', title: <>Subagent {s.agent && <span className="font-medium">{s.agent}: </span>}{s.description}</>, word: <StateWord tone={s.state === 'failed' ? 'fault' : 'dim'}>{s.state === 'failed' ? 'failed' : 'done'}</StateWord>, href: s.childId ? `/s/${s.childId}` : undefined, at: c.at });
     }
-    for (const sh of shells) if (sh.state !== 'running') out.push({ key: `b:${sh.id}`, kind: 'shell', title: <>Shell <span className="font-mono text-[12.5px]">{sh.description ?? sh.command}</span></>, word: <StateWord tone={sh.state === 'failed' ? 'fault' : 'dim'}>{sh.state === 'killed' ? 'stopped' : sh.state === 'failed' ? 'failed' : 'done'}</StateWord>, at: sh.startedAt });
+    for (const sh of shells) if (sh.state !== 'running') out.push({ key: `b:${sh.id}`, kind: 'shell', title: <>Shell <span className="font-mono text-[12.5px]">{sh.description ?? sh.command}</span></>, word: <StateWord tone={sh.state === 'failed' ? 'fault' : 'dim'}>{sh.state === 'killed' ? 'stopped' : sh.state === 'failed' ? 'failed' : sh.state === 'gone' ? 'ended' : 'done'}</StateWord>, at: sh.startedAt });
     return out.sort((a, b) => b.at - a.at);
   }, [runs, messages, shells, sessions, session.id, session.status]);
 

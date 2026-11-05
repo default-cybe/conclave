@@ -151,10 +151,14 @@ export function subagentOf(call: { tool: ToolUseBlock; result?: ToolResultBlock;
   }
   const model = str(child?.model) ?? str(tool.input?.model);
   const startedAt = call.run?.startedAt ?? child?.createdAt ?? call.at;
+  // once its session is known it decides, as on Android (Tasks.running): a call a restart cut has no result, and the parent's later turns must not keep it running
+  const bgState = (child?.meta?.background as { state?: unknown } | undefined)?.state;
+  const childLive = !!child && sessionLive(child.status) && (bgState === undefined || bgState === 'running');
   let state: SubagentState;
   if (res && !(background && !res.isError)) state = res.isError ? 'failed' : 'done';
-  else if (res) state = child && sessionLive(child.status) ? 'running' : 'done';
-  else if (call.run?.status === 'running' || (child && sessionLive(child.status)) || sessionLive(ctx.status)) state = 'running';
+  else if (res) state = childLive ? 'running' : 'done';
+  // a child not started yet (made idle, no messages) still counts on the parent's turn
+  else if (call.run?.status === 'running' || childLive || (sessionLive(ctx.status) && (!child || (child.status === 'idle' && !child.stats?.messages)))) state = 'running';
   else state = 'pending';
   return { state, childId, startedAt, background, agent, description, ...(handedTo ? { handedTo } : {}), ...(model ? { model } : {}) };
 }

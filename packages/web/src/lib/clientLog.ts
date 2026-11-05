@@ -128,6 +128,16 @@ export async function flush(): Promise<void> {
 }
 
 /**
+ * Why this page loaded: a reload, a new visit, back or forward, and whether the
+ * browser had thrown the tab away to save memory (Chrome's Memory Saver), so
+ * the logs tell a reload by the app from one by the browser or the owner.
+ */
+export function loadKind(perf: Pick<Performance, 'getEntriesByType'> | undefined, doc: { wasDiscarded?: boolean }): { load?: string; discarded?: true } {
+  const nav = perf?.getEntriesByType?.('navigation')[0] as { type?: string } | undefined;
+  return { ...(nav?.type ? { load: nav.type } : {}), ...(doc.wasDiscarded ? { discarded: true as const } : {}) };
+}
+
+/**
  * Start sending through `sender` (the paired client's sendClientLogs). Called
  * again when the client changes; the timers and listeners start once.
  */
@@ -136,7 +146,7 @@ export function startClientLog(sender: Sender): void {
   // no window: a test or a worker, which only sends
   if (started || typeof window === 'undefined' || typeof document === 'undefined') return;
   started = true;
-  clientLog('info', 'app.start', { standalone: !!window.matchMedia?.('(display-mode: standalone)').matches, width: window.innerWidth, height: window.innerHeight });
+  clientLog('info', 'app.start', { standalone: !!window.matchMedia?.('(display-mode: standalone)').matches, width: window.innerWidth, height: window.innerHeight, ...loadKind(globalThis.performance, document as { wasDiscarded?: boolean }) });
   setInterval(() => void flush(), FLUSH_MS);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') void flush();

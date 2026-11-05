@@ -32,6 +32,10 @@ fn main() {
             "login",
             "login_confirm",
             "login_cancel",
+            // the hub page reads only the files just dropped on its window (main.rs page_drops)
+            "read_dropped",
+            // the clipboard on a paste the webview handed over empty (main.rs paste_files)
+            "paste_files",
             // meeting mode: open and status for the hub page, the rest only for the overlay window
             "meeting_open",
             "meeting_status",

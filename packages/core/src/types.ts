@@ -822,6 +822,28 @@ export interface AuditEntry {
 }
 
 // ---------------------------------------------------------------------------
+// Background shells (tools/shells.ts)
+// ---------------------------------------------------------------------------
+
+export type ShellStatus = 'running' | 'completed' | 'failed' | 'killed';
+
+/** A shell Bash started with run_in_background; held in the hub's memory, so a restart ends them all. */
+export interface ShellInfo {
+  id: string;
+  sessionId: string;
+  command: string;
+  description?: string;
+  /** The Bash call that started it: the app finds the transcript's shell by it (ids start again at bash_1 after a restart). */
+  toolUseId?: string;
+  cwd: string;
+  pid?: number;
+  status: ShellStatus;
+  exitCode: number | null;
+  startedAt: number;
+  endedAt?: number;
+}
+
+// ---------------------------------------------------------------------------
 // Engine events (streamed to every client over WebSocket)
 // ---------------------------------------------------------------------------
 
@@ -864,6 +886,8 @@ export type EngineEvent =
   | { type: 'device.updated'; device: Device }
   | { type: 'device.deleted'; deviceId: string; accountId?: string }
   | { type: 'checkpoint.created'; sessionId: string; checkpoint: Checkpoint }
+  /** A background shell of the session started or ended: the whole list the hub holds (GET /api/sessions/:id/shells). */
+  | { type: 'shells.updated'; sessionId: string; shells: ShellInfo[] }
   /** The regression gate ran a turn's changed tests on the code from before the turn (session/regression-gate.ts). */
   | {
       type: 'regression.checked';
