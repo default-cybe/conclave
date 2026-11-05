@@ -228,6 +228,8 @@ not synced to other CLIs.
 | Skill | Use it for |
 | --- | --- |
 | `web-studio` | A new site, landing page or portfolio: design read, references, spec, prototypes, then screenshots and a 10-point rubric scored by a fresh judge (pass at an average of 8 or more, nothing under 7, at most 3 rounds). |
+| `bughunt-catalogue`, `cve-violation-hunt`, `bug-chaining` | The owner's in-scope hunt catalogue, fix-invariant search and primitive chains. |
+| `tool-*` security recipes | Read-only advisory search, semgrep rules, proxy replay, Playwright two-tenant checks, REA/Ghidra diff, LLDB Apple check and post-patch validation, all for authorised testing in scope only. |
 
 ### Skills agents write
 
@@ -400,6 +402,8 @@ Hooks and recipes from a project folder's agent (`<project>/.conclave/agents`, `
 | deep | `models.tiers.deep`, else the cheapest deep-tier model of a configured provider (the session model's provider first; `anthropic/claude-opus-5-5` with an Anthropic key), else `claude-code/opus` when that harness is installed, else the session's model |
 
 Set the tiers once with `conclave config set models.tiers '{"deep": "anthropic/claude-opus-5-5", "fast": "zai/glm-4.5-air"}'`. Task's `model` takes the same words. `effort:` (low, medium, high, xhigh, max) sets the thinking effort; xhigh and max pass through to providers that take them.
+
+`group: security` marks a subagent as a Security-mode role. Task offers it only when the session has `chat.security: true`, off by default. `fallback:` in the role profile lists model refs tried after its default when the default is unusable or has answered 404; the parent model comes last. A named Task model or Same model pin wins over the role's list. See `docs/agents/sec-*.md`. This is not an authorization boundary: the scope guard and the egress gateway are separate.
 
 `refusalFallback:` gives sessions with this agent their own Refusal fallback list (what the owner calls "safety priority", docs/DESIGN.md 47): each entry is a model, or `model@account` with an account id from Settings > Models > Accounts. A list replaces the owner's and turns it on for this agent; `refusalFallback: off` turns it off. Without the field the owner's setting applies.
 

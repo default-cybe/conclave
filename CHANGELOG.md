@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Security mode roster: nine `sec-*` subagent profiles, offered by Task and Delegate only when `chat.security` is on; each role's MCP tools narrowed to the ones it needs (read-only roles get no network tools); a member's role runs on the member's own chat model; Delegate walks a role's fallback list like Task; per-role default and fallback models, a group label in the Agents list, the main security agent's scope-guard and refusal-fallback frontmatter, and eleven in-scope hunt skills. The scope-guard recipe is provided by Security mode PR 1; this roster alone does not authorize live traffic (#271).
+
 ## [0.4.70] - 2026-11-05
 
 ### Added
