@@ -1085,7 +1085,7 @@ export interface HookLintIssue {
   path?: string;
 }
 
-export type BuiltinHookId = 'memory-recall' | 'memory-extract' | 'compaction' | 'file-recall';
+export type BuiltinHookId = 'memory-recall' | 'memory-extract' | 'compaction' | 'file-recall' | 'scope-guard';
 
 export interface BuiltinHookDto {
   id: BuiltinHookId;
@@ -1102,6 +1102,8 @@ export interface BuiltinHookDto {
   tokensPerSession?: number;
   /** Config key behind the switch, for the "Equivalent" line. */
   setting?: string;
+  /** Who it runs for, when not every session (the scope guard: agents that list it in recipes:). */
+  onFor?: string;
 }
 
 export interface HookTestInput {
