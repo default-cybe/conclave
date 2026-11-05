@@ -118,6 +118,12 @@ object Canvas {
         is CanvasFile.Workflow -> "/canvas/workflow/${enc(f.runId ?: f.id)}"
     }
 
+    /** The hub's queue key for a file (core canvas/queue.ts, web queueFile): a workflow by id, a program by its session and name. */
+    fun queueFile(f: CanvasFile, sessionId: String?): String = when (f) {
+        is CanvasFile.Program -> "program:${sessionId ?: f.sessionId}:${f.name}"
+        is CanvasFile.Workflow -> "workflow:${f.id}"
+    }
+
     // URLSearchParams and encodeURIComponent agree on everything a name or path holds except the space
     private fun enc(s: String): String = java.net.URLEncoder.encode(s, "UTF-8").replace("+", "%20")
 
