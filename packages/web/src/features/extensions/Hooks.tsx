@@ -1,9 +1,11 @@
 /**
  * Extensions > Hooks (docs/extensions/IA.md, docs/design/ECOSYSTEM.md 4).
  * Three views:
- *   Events (default): all 12 events in lifecycle order with their handler
- *     groups, where each comes from, whether it is on, its last runs, lint
- *     problems with a fix, and "from recipe" on handlers a recipe added.
+ *   Events (default): every event the engine fires, grouped Before, After
+ *     and Other, each with when it fires and what a hook there can do
+ *     (core extensions/hook-events.ts), its lint problems with a fix, then
+ *     its handler groups: where each comes from, whether it is on, its last
+ *     runs, and "from recipe" on handlers a recipe added.
  *   Recipes (?view=recipes): tested hooks to add in one step, by goal.
  *   Built in (?view=builtin): memory recall, extraction, compaction, file recall.
  * Add or edit handlers at user or project scope, test them against the real
@@ -14,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useSearch } from 'wouter';
 import type { BuiltinHookDto, HookGroupDto, HookHandlerDto, HookImportResult, HookLintIssue, HooksOverview } from '@conclave/core/client';
 import type { HookEvent, HooksConfig } from '@conclave/core/config/schema';
+import { HOOK_EVENT_DOCS, HOOK_PHASE_WORDS, type HookEventPhase } from '@conclave/core/extensions/hook-events';
 import { api } from '@/lib/api';
 import { toast, useHub } from '@/store/store';
 import { useIsMobile, useLoad } from '@/lib/hooks';
@@ -22,7 +25,7 @@ import { Button } from '@/components/ui/Button';
 import { ConfirmDialog, Menu } from '@/components/ui/Overlay';
 import { FilterLinks, Tabs } from '@/components/ui/Tags';
 import { LoadingRows } from '@/components/ui/EmptyState';
-import { Notice } from '@/components/ui/Section';
+import { Notice, SectionHeading } from '@/components/ui/Section';
 import { useExtCwd } from './project';
 import { TrustBanner } from './shared/TrustBanner';
 import { EventSection, fileWords, type HandlerActions } from './hooks/EventSection';
@@ -277,12 +280,25 @@ export function HooksTab() {
               {`${plural(data.lint!.length, 'problem')} in the hooks that load. Each one is listed under its event${data.lint!.some((i) => i.fix) ? ', with a fix where one is known' : ''}.`}
             </p>
           )}
-          {shown.map((info) => (
-            <EventSection key={info.event} info={info} highlight={focus === info.event} actions={actions} lint={lintFor(info.event)} titles={titles} />
-          ))}
+          {(Object.keys(HOOK_PHASE_WORDS) as HookEventPhase[]).map((phase) => {
+            const list = shown.filter((e) => (HOOK_EVENT_DOCS[e.event]?.phase ?? 'other') === phase);
+            if (!list.length) return null;
+            return (
+              <section key={phase} aria-labelledby={`hook-phase-${phase}`}>
+                <SectionHeading id={`hook-phase-${phase}`} count={list.length} rule={false}>
+                  {HOOK_PHASE_WORDS[phase]}
+                </SectionHeading>
+                <div>
+                  {list.map((info) => (
+                    <EventSection key={info.event} info={info} highlight={focus === info.event} actions={actions} lint={lintFor(info.event)} titles={titles} />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
           {filter === 'used' && shown.length === 0 && <p className="text-[14px] text-fg-2">No event has a handler yet.</p>}
           <p className="text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">
-            Command hooks get the event as JSON on stdin and run on the hub. Exit 0 lets the action go on, exit 2 blocks it and stderr becomes the reason. Hooks from <span className="mono">~/.claude/settings.json</span> load while Claude Code compatibility is on.
+            Command hooks run on the hub and get the event as JSON on stdin. Open an event to see what its exit codes and stdout fields do. Hooks from <span className="mono">~/.claude/settings.json</span> load while Claude Code compatibility is on.
           </p>
         </>
       )}

@@ -22,22 +22,6 @@ export const EVENT_ORDER: HookEvent[] = [
   'SessionEnd',
 ];
 
-/** What a hook at this event can do (IA.md table, "Can"). */
-export const EVENT_CAN: Record<HookEvent, string> = {
-  SessionStart: 'Can add context.',
-  UserPromptSubmit: 'Can block the message or add context.',
-  PreToolUse: 'Can block, allow, ask, or change the input.',
-  PermissionRequest: 'Can allow or deny for you.',
-  PostToolUse: 'Can add feedback or stop the turn.',
-  PostToolUseFailure: 'Can add feedback.',
-  Notification: 'Side effects only.',
-  SubagentStart: 'Can add context.',
-  SubagentStop: 'Can make it continue.',
-  PreCompact: 'Can block or add instructions.',
-  Stop: 'Can make the agent continue.',
-  SessionEnd: 'Side effects only, 1.5 seconds by default.',
-};
-
 /** Sample hook input per event, prefilled in the test runner. */
 export const SAMPLES: Record<HookEvent, Record<string, unknown>> = {
   SessionStart: { source: 'startup' },
