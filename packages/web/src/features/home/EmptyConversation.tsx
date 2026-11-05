@@ -21,9 +21,10 @@ import type { StartMode } from './start';
 /** The knot over the greeting: as heavy over its 26px heading as the phone's 64px mark over its 28px one. */
 const MARK = 60;
 
-const PLACEHOLDER: Record<StartMode, string> = { chat: 'Ask anything', assistant: 'Type / for commands', code: 'Type / for commands' };
+const PLACEHOLDER = { chat: 'Ask anything' };
 
-export function EmptyConversation({ mode }: { mode: StartMode }) {
+/** Canvas starts no conversation: Home sends it to /canvas (HomePage), so it never gets here. */
+export function EmptyConversation({ mode }: { mode: Exclude<StartMode, 'canvas'> }) {
   const touch = useCoarsePointer();
   useTypeToStart(!touch);
   // what waits on you is listed here, answerable in place: no toast over it

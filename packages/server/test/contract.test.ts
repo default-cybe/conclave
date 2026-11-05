@@ -9,22 +9,15 @@ import { startHub, type TestHub } from './helpers';
  * a specific message, so they count as present.
  */
 let hub: TestHub;
-const realFetch = globalThis.fetch;
 beforeAll(() => {
-  hub = startHub();
-  // routes like POST /api/update/check call GitHub: off the box they fail at once, so the test does not wait on the network
-  globalThis.fetch = Object.assign(
-    (input: string | URL | Request, init?: RequestInit) => {
-      const url = new URL(input instanceof Request ? input.url : input);
-      return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) ? realFetch(input, init) : Promise.reject(new TypeError('offline in the contract test'));
-    },
-    { preconnect: realFetch.preconnect },
-  );
+  // two routes reach the internet with an empty body (a GitHub release manifest, a DuckDuckGo search):
+  // on a busy hub they took seconds and the test passed its 5 s timeout about 1 in 6 runs
+  hub = startHub({ update: { fetch: (async () => { throw new Error('offline in tests'); }) as unknown as typeof fetch } });
 });
-afterAll(() => {
-  globalThis.fetch = realFetch;
-  hub.stop();
-});
+
+/** Bodies that keep a route off the network: it still answers from its own handler, so it counts as present. */
+const OFFLINE_BODY: Record<string, unknown> = { 'POST /api/websearch/test': { provider: 'offline-in-tests' } };
+afterAll(() => hub.stop());
 
 test('server implements every route in client/index.ts', async () => {
   const src = readFileSync(fileURLToPath(new URL('../../core/src/client/index.ts', import.meta.url)), 'utf8');
@@ -36,7 +29,7 @@ test('server implements every route in client/index.ts', async () => {
   const missing: string[] = [];
   for (const r of routes) {
     const [method, path] = r.split(' ');
-    const res = await hub.api(path, { method, json: method === 'GET' || method === 'DELETE' ? undefined : {} });
+    const res = await hub.api(path, { method, json: method === 'GET' || method === 'DELETE' ? undefined : (OFFLINE_BODY[r] ?? {}) });
     const body = await res.text();
     if (res.status === 404 && body === JSON.stringify({ error: 'not found' })) missing.push(r);
     expect(res.status).not.toBe(401);

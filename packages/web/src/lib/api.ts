@@ -43,6 +43,22 @@ export function loadConnection(): Connection | null {
   }
 }
 
+/** A short tag for a token, so something kept with it only applies to that sign in. */
+export function tokenTag(token: string): string {
+  let h = 5381;
+  for (let i = 0; i < token.length; i++) h = ((h << 5) + h + token.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
+/**
+ * A localStorage key of this sign in's own: `base` and the account's id, else
+ * a tag of the token (an owner sign in with no account). Several people can
+ * sign in on one browser; what one leaves must not show to the next.
+ */
+export function accountKey(base: string, c = loadConnection()): string {
+  return `${base}:${c?.account?.id ?? (c ? tokenTag(c.token) : 'none')}`;
+}
+
 export function saveConnection(c: Connection) {
   try {
     localStorage.setItem(KEY, JSON.stringify(c));

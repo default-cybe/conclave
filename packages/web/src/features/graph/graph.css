@@ -95,3 +95,45 @@
 .cv-graph .react-flow__controls-button:hover {
   background: var(--bg-hover);
 }
+
+/* Canvas mode (docs/design/CANVAS-MODE.md): a faint dot grid, the only grid in
+   the app (owner decision on PR #250), and a minimap in the state tokens. */
+.cv-full {
+  --xy-background-pattern-color: var(--rule-2);
+  --xy-minimap-background-color: var(--bg-raise);
+  --xy-minimap-mask-background-color: color-mix(in srgb, var(--bg) 62%, transparent);
+  --xy-minimap-mask-stroke-color: var(--rule-2);
+  --xy-minimap-mask-stroke-width: 1;
+}
+
+.cv-full .react-flow__minimap {
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-2);
+  overflow: hidden;
+}
+
+.cv-full .react-flow__minimap-node.cv-mini {
+  fill: var(--fg-4);
+}
+
+.cv-full .react-flow__minimap-node.cv-mini-band {
+  fill: none;
+  stroke: var(--rule-2);
+}
+
+.cv-full .react-flow__minimap-node.cv-mini-running {
+  fill: var(--signal);
+}
+
+.cv-full .react-flow__minimap-node.cv-mini-waiting,
+.cv-full .react-flow__minimap-node.cv-mini-parked {
+  fill: var(--warn);
+}
+
+.cv-full .react-flow__minimap-node.cv-mini-failed {
+  fill: var(--fault);
+}
+
+.cv-full .react-flow__minimap-node.cv-mini-done {
+  fill: var(--ok);
+}

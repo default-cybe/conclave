@@ -6,14 +6,15 @@
  * remembered; a press opens a new conversation in that mode.
  */
 import { useLocation } from 'wouter';
-import { CalendarDays, Code, MessageCircle, type LucideIcon } from 'lucide-react';
+import { CalendarDays, Code, MessageCircle, Spline, type LucideIcon } from 'lucide-react';
 import { useHub } from '@/store/store';
 import { cn } from '@/lib/text';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { canvasHome } from '@/features/canvas/model';
 import { modeOf, readPicks, savePicks, setStartMode, START_MODES, useStartMode, type Picks, type StartMode } from './start';
 
 /** The compact switch's glyphs. */
-export const MODE_ICONS: Record<StartMode, LucideIcon> = { chat: MessageCircle, assistant: CalendarDays, code: Code };
+export const MODE_ICONS: Record<StartMode, LucideIcon> = { chat: MessageCircle, assistant: CalendarDays, code: Code, canvas: Spline };
 
 /** The mode of what is on screen: the open chat or session's, else the switch's. */
 export function useCurrentMode(): StartMode {
@@ -25,6 +26,7 @@ export function useCurrentMode(): StartMode {
     return session ? modeOf(session) : undefined;
   });
   if (loc === '/chat' || loc.startsWith('/chat/')) return 'chat';
+  if (loc === '/canvas' || loc.startsWith('/canvas/')) return 'canvas';
   return fromSession ?? remembered;
 }
 
@@ -35,6 +37,8 @@ export function useCurrentMode(): StartMode {
  */
 export function openNew(mode: StartMode, navigate: (to: string) => void, at?: Pick<Picks, 'device' | 'cwd' | 'repo'>) {
   setStartMode(mode);
+  // Canvas starts no conversation: it opens on the last file open (owner decision, PR #250)
+  if (mode === 'canvas') return navigate(canvasHome());
   if (at) {
     const picks = readPicks();
     savePicks(at.repo ? { ...picks, repo: at.repo, base: undefined } : { ...picks, repo: undefined, base: undefined, device: at.device, cwd: at.cwd, cwdDevice: at.device });
@@ -44,17 +48,17 @@ export function openNew(mode: StartMode, navigate: (to: string) => void, at?: Pi
   requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-composer]')?.focus({ preventScroll: true }));
 }
 
-/** The sidebar's switch: three icon buttons, the open mode raised. */
-function CompactSwitch({ className }: { className?: string }) {
+/** The sidebar's switch: icon buttons, the open mode raised. `vertical`: a column, for the folded sidebar's strip. */
+function CompactSwitch({ className, vertical }: { className?: string; vertical?: boolean }) {
   const [, navigate] = useLocation();
   const mode = useCurrentMode();
   return (
-    <div role="radiogroup" aria-label="What to start" className={cn('flex items-center gap-0.5 rounded-[9px] bg-hover/60 p-0.5', className)}>
+    <div role="radiogroup" aria-label="What to start" className={cn('flex items-center gap-0.5 rounded-[9px] bg-hover/60 p-0.5', vertical && 'flex-col', className)}>
       {START_MODES.map((m) => {
         const on = m.value === mode;
         const Icon = MODE_ICONS[m.value];
         return (
-          <Tooltip key={m.value} content={`${m.label}. ${m.detail}`} side="bottom">
+          <Tooltip key={m.value} content={`${m.label}. ${m.detail}`} side={vertical ? 'right' : 'bottom'}>
             <button
               type="button"
               role="radio"
@@ -75,8 +79,8 @@ function CompactSwitch({ className }: { className?: string }) {
   );
 }
 
-export function ModeSwitch({ phone, compact, className }: { phone?: boolean; compact?: boolean; className?: string }) {
-  if (compact) return <CompactSwitch className={className} />;
+export function ModeSwitch({ phone, compact, vertical, className }: { phone?: boolean; compact?: boolean; vertical?: boolean; className?: string }) {
+  if (compact) return <CompactSwitch className={className} vertical={vertical} />;
   return <WordSwitch phone={phone} className={className} />;
 }
 
