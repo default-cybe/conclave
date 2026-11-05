@@ -11,8 +11,28 @@ export function insert(e: Edit, text: string): Edit {
   return { value: e.value.slice(0, e.cursor) + text + e.value.slice(e.cursor), cursor: e.cursor + text.length };
 }
 
+/** A long paste stands in the input as one token, "[Pasted text #2 +40 lines]", and goes out in full on send. */
+export const PASTE_TOKEN = /\[Pasted text #(\d+) \+\d+ lines?\]/g;
+
+export function isLongPaste(text: string): boolean {
+  return text.split('\n').length > 10 || text.length > 800;
+}
+
+export function pasteToken(n: number, text: string): string {
+  const lines = text.split('\n').length;
+  return `[Pasted text #${n} +${lines} ${lines === 1 ? 'line' : 'lines'}]`;
+}
+
+/** The input with every paste token put back as the text it stands for. */
+export function expandPastes(value: string, pastes: Map<number, string>): string {
+  return value.replace(PASTE_TOKEN, (t, n: string) => pastes.get(Number(n)) ?? t);
+}
+
 export function backspace(e: Edit): Edit {
   if (e.cursor === 0) return e;
+  // a paste token goes in one key
+  const token = /\[Pasted text #\d+ \+\d+ lines?\]$/.exec(e.value.slice(0, e.cursor));
+  if (token) return { value: e.value.slice(0, token.index) + e.value.slice(e.cursor), cursor: token.index };
   // remove a whole surrogate pair
   const n = e.cursor >= 2 && /[\uDC00-\uDFFF]/.test(e.value[e.cursor - 1]) && /[\uD800-\uDBFF]/.test(e.value[e.cursor - 2]) ? 2 : 1;
   return { value: e.value.slice(0, e.cursor - n) + e.value.slice(e.cursor), cursor: e.cursor - n };

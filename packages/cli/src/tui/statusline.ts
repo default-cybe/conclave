@@ -24,6 +24,8 @@ export interface StatusInput {
   limits: LimitState[];
   subscriptions: Record<string, string>;
   now: number;
+  /** Left-side hint instead of "? for shortcuts". */
+  hint?: string;
 }
 
 /** Left and right on one row; on a narrow terminal the right side keeps its room and the left is cut. */
@@ -58,7 +60,7 @@ export function statusLine(s: StatusInput, p: Painter, width: number): string {
   const hub = s.hubStatus === 'connecting' ? p.yellow('◌ connecting') : s.hubStatus === 'closed' ? p.red('● hub offline') : '';
   const device = s.device && s.device !== 'local' ? p.dim(`on ${s.device}`) : '';
   const state = [hub, mode ? mode + (width >= 80 ? p.dim(' (shift+tab to cycle)') : '') : '', device].filter(Boolean).join(sep);
-  const left = state || p.dim('? for shortcuts');
+  const left = state || p.dim(s.hint ?? '? for shortcuts');
   const who = [
     s.model ? shortModel(s.model) : '',
     s.effort ?? '',
@@ -68,7 +70,7 @@ export function statusLine(s: StatusInput, p: Painter, width: number): string {
   const right = [p.dim(who.join(' · ')), usageLine(s, p)].filter(Boolean).join(sep);
   if (strWidth(left) + strWidth(right) + 2 <= width) return spread(left, right, width);
   // too narrow: the hint goes first; a real state (mode, hub, device) stays and the right side is cut
-  if (!state) return spread('', truncate(right, width), width);
+  if (!state && !s.hint) return spread('', truncate(right, width), width);
   return spread(truncate(left, width), truncate(right, width - Math.min(strWidth(left), width) - 2), width);
 }
 

@@ -146,6 +146,20 @@ const BULLETS = ['•', '◦', '▪', '‣'];
 function renderList(lines: string[], start: number, width: number, p: Painter, depth: number, opts: MarkdownOptions, out: string[]): number {
   let i = start;
   const baseIndent = leadingSpaces(lines[start]);
+  // widest number in this list, so "9." and "10." end in the same column
+  let numW = 0;
+  let blank = false;
+  for (let j = start; j < lines.length; j++) {
+    if (!lines[j].trim()) {
+      blank = true;
+      continue;
+    }
+    const lm = LIST_ITEM.exec(lines[j]);
+    if (lm && lm[1].length === baseIndent) {
+      if (/\d/.test(lm[2])) numW = Math.max(numW, lm[2].length);
+    } else if (leadingSpaces(lines[j]) <= baseIndent && (blank || lm || isBlockStart(lines[j]))) break;
+    blank = false;
+  }
   while (i < lines.length) {
     const m = LIST_ITEM.exec(lines[i]);
     if (!m) break;
@@ -158,7 +172,7 @@ function renderList(lines: string[], start: number, width: number, p: Painter, d
     // task list
     let marker: string;
     const task = /^\[([ xX])\]\s+(.*)$/.exec(body);
-    if (/\d/.test(markerRaw)) marker = p.fg(MD_COLORS.bullet)(markerRaw.replace(')', '.'));
+    if (/\d/.test(markerRaw)) marker = p.fg(MD_COLORS.bullet)(markerRaw.replace(')', '.').padStart(numW));
     else marker = p.fg(MD_COLORS.bullet)(BULLETS[depth % BULLETS.length]);
     if (task) {
       marker = task[1] === ' ' ? p.fg(MD_COLORS.bullet)('☐') : p.green('☑');

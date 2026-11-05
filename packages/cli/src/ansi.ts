@@ -229,3 +229,11 @@ export function truncate(s: string, w: number): string {
   }
   return outStr + '…' + (styled ? '\x1b[0m' : '');
 }
+
+/** Plain text cut at a word end with an ellipsis; a single long word is cut where it must. */
+export function truncateWords(s: string, w: number): string {
+  if (width(s) <= w) return s;
+  const cut = truncate(s, w).slice(0, -1);
+  const space = cut.lastIndexOf(' ');
+  return (space >= cut.length / 2 ? cut.slice(0, space) : cut).replace(/[\s,.;:·-]+$/, '') + '…';
+}

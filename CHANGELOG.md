@@ -16,10 +16,12 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Changed
 
-- The terminal chat (`conclave`) is quieter and closer to Claude Code: a one-line start line instead of a box, one status row under the input (model, context left, cost; the permission mode only when it is not the default), tool calls as `● Read(path)` with a short `⎿` result that ctrl+o expands, a single spinner with a verb, time, tokens and "esc to interrupt", errors and interrupts as one `⎿` line, and permission prompts as a small numbered menu (the old y/s/a/n/d keys still work).
-- Shift+enter adds a new line in terminals with the kitty keyboard protocol. `@` completion searches the whole folder fuzzily, and `?` on an empty prompt shows the keys. `/help` is a short list.
+- The terminal chat (`conclave`) is quieter and closer to Claude Code: a one-line start line instead of a box, one status row under the input (model, context left, cost; the permission mode only when it is not the default), tool calls as `● Read(path)` with a short `⎿` result, a single spinner in the terminal's own dimmed color with a verb, time, tokens and "esc to interrupt", errors and interrupts as one `⎿` line, and permission prompts as a small numbered menu (the old y/s/a/n/d keys still work).
+- ctrl+o opens the whole transcript on its own screen, every tool output and thought in full and only the rows in view drawn: arrows, PgUp/PgDn, g/G to scroll, q, esc or ctrl+o to go back to the chat with the scrollback as it was.
+- Shift+enter adds a new line in terminals with the kitty keyboard protocol, and in tmux with extended-keys on; elsewhere in tmux the hint row says "alt+enter or \ for newline" until it is seen. A long paste (over 10 lines or 800 characters) shows as "[Pasted text #1 +N lines]" and is sent in full; backspace removes it whole. `@` completion searches the whole folder fuzzily, and `?` on an empty prompt shows the keys. `/help` is a short list with its keys in aligned columns.
+- The /model, /sessions, /mode and other pickers are a plain numbered list with a `❯` marker, like the permission prompt; a number picks a row. Long hints in the pickers and the slash list end at a word with an ellipsis. Numbered lists line up past item 9. Quitting leaves only the transcript and one line with the session id and how to resume it.
 - Code blocks have no background and use the terminal's own colors, so they read on light and dark themes; long code lines wrap under their indent. Links are clickable where the terminal supports it. Diff lines are cut to the terminal width.
-- Long streamed answers print as they come instead of waiting behind "more lines above". Resizing or ctrl+l no longer erases the terminal's scrollback, and only changed lines are redrawn (less traffic over SSH and in tmux).
+- Long streamed answers print as they come instead of waiting behind "more lines above". Resizing or ctrl+l redraws only the input area and never prints the transcript again, and only changed lines are redrawn (less traffic over SSH and in tmux).
 
 ## [0.4.67] - 2026-11-05
 

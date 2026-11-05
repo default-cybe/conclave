@@ -89,11 +89,9 @@ export function resultText(result: ToolResultBlock | undefined): string {
   return result.content.map((b) => (b.type === 'text' ? b.text : `[${b.type}]`)).join('\n');
 }
 
-/** Lines shown when a result is expanded (ctrl+o); a bound so a huge output cannot flood the terminal. */
-const EXPANDED_LINES = 400;
-
+/** Expanded (the ctrl+o view): every line. That view draws only the rows on screen, so a huge output costs nothing to show. */
 function moreLines(lines: string[], max: number, p: Painter, width: number, expand = false): string[] {
-  const cap = expand ? EXPANDED_LINES : max;
+  const cap = expand ? Infinity : max;
   const shown = lines.slice(0, cap).map((l) => truncate(l, width));
   if (lines.length > cap) shown.push(p.dim(`… +${lines.length - cap} lines${expand ? '' : ' (ctrl+o to expand)'}`));
   return shown;
@@ -158,7 +156,7 @@ export function toolPreview(name: string, result: ToolResultBlock, opts: Preview
         const summary = meta.created
           ? `Created with ${plural(st.added, 'line')}`
           : `Updated with ${plural(st.added, 'addition')} and ${plural(st.removed, 'removal')}`;
-        const body = colorDiff(diff, { painter: p, maxLines: x ? EXPANDED_LINES : 6, width: w }).split('\n');
+        const body = colorDiff(diff, { painter: p, maxLines: x ? Infinity : 6, width: w }).split('\n');
         // collapsed: the note under the diff says how to see the rest
         if (!x && /^… \+\d+ lines?$/.test(stripAnsi(body.at(-1) ?? ''))) body[body.length - 1] += p.dim(' (ctrl+o to expand)');
         return [summary, ...body];

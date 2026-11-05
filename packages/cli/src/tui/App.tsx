@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } fro
 import { Box, Static, Text, useAnimation, useApp, useInput, usePaste, useWindowSize } from 'ink';
 import { join } from 'node:path';
 import type { FileEntryDto } from '@conclave/core/client/index.ts';
-import { inkColor as c, tui as p, truncate, visible } from '../ansi';
+import { inkColor as c, tui as p, truncate, truncateWords, visible } from '../ansi';
 import { isActiveStatus } from '../events';
 import { effortLabel } from '@conclave/core/providers/effort.ts';
 import { formatDuration, formatTokens } from '../render/format';
@@ -11,6 +11,7 @@ import { renderTodos } from '../render/tools';
 import { fuzzyFiles, matchCommands, matchFiles, slashToken, atToken, splitPathQuery, walkFiles, type Suggestion, type CommandInfo } from './complete';
 import { asksIn, type ChatController } from './controller';
 import * as ed from './editor';
+import { FullView } from './FullView';
 import type { History } from './history';
 import { Picker } from './Picker';
 import { ApprovalBox, QuestionBox } from './Prompts';
@@ -20,8 +21,6 @@ import { statusLine } from './statusline';
 import type { Item } from './transcript';
 
 const MAX_INPUT_ROWS = 8;
-/** Entries printed again after a resize or ctrl+l; the rest stays in scrollback as it was. */
-const REFLOW_ENTRIES = 12;
 const PLACEHOLDER = 'Ask anything · / for commands · @ for files';
 
 /** The spinner's word; one per turn, picked from when it started. */
@@ -30,7 +29,7 @@ const VERBS = ['Working', 'Thinking', 'Pondering', 'Brewing', 'Tinkering', 'Mull
 /** "?" on an empty prompt: the keys, in two columns. */
 export const SHORTCUTS: Array<[string, string]> = [
   ['/ for commands', 'shift+enter or \\ for newline'],
-  ['@ for file paths', 'ctrl+o expand tool output'],
+  ['@ for file paths', 'ctrl+o full transcript'],
   ['esc to interrupt', 'ctrl+t show thinking'],
   ['shift+tab permission mode', 'ctrl+l redraw'],
   ['↑ ↓ history', 'ctrl+c twice to quit'],
@@ -49,8 +48,11 @@ function itemSig(item: Item, now: number): string {
   }
 }
 
-const StaticItem = React.memo(function StaticItem(props: { item: Item; prev?: Item; width: number; showThinking: boolean; expand: boolean; cwd: string }) {
-  const text = renderItem(props.item, { width: props.width - 1, painter: p, showThinking: props.showThinking || props.expand, expand: props.expand, cwd: props.cwd });
+/** tmux without the kitty keyboard protocol: shift+enter arrives as plain enter. */
+const TMUX_NEWLINE_HINT = 'alt+enter or \\ for newline';
+
+const StaticItem = React.memo(function StaticItem(props: { item: Item; prev?: Item; width: number; showThinking: boolean; cwd: string }) {
+  const text = renderItem(props.item, { width: props.width - 1, painter: p, showThinking: props.showThinking, cwd: props.cwd });
   return (
     <Box marginTop={itemGap(props.item, props.prev) ? 1 : 0}>
       <Text>{text}</Text>
@@ -126,7 +128,7 @@ function Suggestions({ items, selected, width }: { items: Suggestion[]; selected
           <Text color={c(i === selected ? 'cyan' : undefined)} dimColor={i !== selected && s.kind !== 'command'}>
             {fit(s).padEnd(labelW)}
           </Text>
-          {s.hint && hintW >= 12 ? <Text dimColor>{truncate(s.hint, hintW)}</Text> : null}
+          {s.hint && hintW >= 12 ? <Text dimColor>{truncateWords(s.hint, hintW)}</Text> : null}
         </Text>
       ))}
     </Box>
@@ -159,6 +161,12 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
   const [files, setFiles] = useState<Record<string, FileEntryDto[]>>({});
   const [tree, setTree] = useState<{ cwd: string; paths: string[] }>();
   const [shortcuts, setShortcuts] = useState(false);
+  // ctrl+o: the full transcript on its own screen; <Static> holds what it printed until the view closes
+  const [fullView, setFullView] = useState(false);
+  const frozen = useRef<Item[]>([]);
+  // long pastes by number, for their "[Pasted text #n]" tokens
+  const pastes = useRef(new Map<number, string>());
+  const [newlineHint, setNewlineHint] = useState(!!process.env.TMUX);
   const lastCtrlC = useRef(0);
   const lastEsc = useRef(0);
 
@@ -166,30 +174,27 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
   const active = isActiveStatus(session?.status);
   const approval = snap.approvals.find((a) => !session || asksIn(a, session.id));
   const question = snap.questions.find((q) => !session || asksIn(q, session.id));
-  const overlay = approval ? 'approval' : question ? 'question' : picker ? 'picker' : null;
+  const overlay = fullView ? 'full' : approval ? 'approval' : question ? 'question' : picker ? 'picker' : null;
   const cwd = session?.cwd ?? snap.draft.cwd;
   const device = session?.device ?? snap.draft.device;
   const permissionMode = session?.permissionMode ?? snap.draft.permissionMode;
 
   // the spinner stops while a prompt waits for you
-  const { frame } = useAnimation({ interval: 120, isActive: active && !approval && !question });
+  const { frame } = useAnimation({ interval: 120, isActive: active && !approval && !question && !fullView });
   const waitingReset = session?.status === 'waiting_reset';
-  useAnimation({ interval: 1000, isActive: waitingReset });
-  // After a resize the terminal reflows the old live frame into rows Ink cannot erase. Scroll the
-  // screen up into scrollback (nothing is erased) and print the last few entries at the new width.
-  const firstWidth = useRef(width);
-  useEffect(() => {
-    if (width === firstWidth.current) return;
-    const t = setTimeout(() => {
-      firstWidth.current = width;
-      ctl.rerender(REFLOW_ENTRIES);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [width]);
+  useAnimation({ interval: 1000, isActive: waitingReset && !fullView });
+  // A resize leaves finished output to the terminal's reflow; Ink redraws only the live area (main.tsx).
 
   const doExit = () => {
+    ctl.onExit?.();
     ctl.dispose();
     exit();
+  };
+
+  const openFull = (on: boolean) => {
+    if (on) frozen.current = snap.committed;
+    ctl.onFullScreen?.(on);
+    setFullView(on);
   };
 
   const host: SlashHost = {
@@ -253,8 +258,9 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
   };
 
   const submit = (raw: string) => {
-    const value = raw.replace(/\s+$/, '');
+    const value = ed.expandPastes(raw, pastes.current).replace(/\s+$/, '');
     if (!value.trim()) return;
+    setNewlineHint(false);
     history.push(value);
     changeEdit(ed.empty);
     if (value.startsWith('/') && !value.startsWith('//')) {
@@ -280,14 +286,18 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
       return;
     }
     if (key.ctrl && input === 't') return ctl.toggleThinking();
-    if (key.ctrl && input === 'o') return ctl.toggleExpand();
-    if (key.ctrl && input === 'l') return ctl.rerender(REFLOW_ENTRIES);
+    if (key.ctrl && input === 'o') return openFull(true);
+    if (key.ctrl && input === 'l') return ctl.repaint();
     if (key.tab && key.shift) return void ctl.cyclePermissionMode();
-  });
+  }, { isActive: !fullView });
 
   usePaste(
-    (text) => {
-      changeEdit(ed.insert(editRef.current, text.replace(/\r\n?/g, '\n')));
+    (raw) => {
+      const text = raw.replace(/\r\n?/g, '\n');
+      if (!ed.isLongPaste(text)) return changeEdit(ed.insert(editRef.current, text));
+      const n = pastes.current.size + 1;
+      pastes.current.set(n, text);
+      changeEdit(ed.insert(editRef.current, ed.pasteToken(n, text)));
     },
     { isActive: !overlay },
   );
@@ -319,6 +329,7 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
       }
       if (key.return) {
         // shift+enter (kitty keyboard protocol) and alt+enter add a line
+        if (key.shift) setNewlineHint(false);
         if (key.meta || key.shift) return changeEdit(ed.insert(edit, '\n'));
         if (edit.value.endsWith('\\') && edit.cursor === edit.value.length) return changeEdit({ value: edit.value.slice(0, -1) + '\n', cursor: edit.value.length });
         return submit(edit.value);
@@ -412,7 +423,8 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
     const verb = VERBS[Math.floor((snap.turnStartedAt ?? 0) / 1000) % VERBS.length];
     const tokens = Math.round(ctl.store.turnChars / 4);
     const stats = [el, tokens ? `↓ ${formatTokens(tokens)} tokens` : '', 'esc to interrupt'].filter(Boolean).join(' · ');
-    working = `${p.magenta(SPINNER[frame % SPINNER.length])} ${p.magenta(verb + '…')} ${p.dim(`(${stats})`)}`;
+    // the terminal's own foreground, dimmed: readable on dark and light themes alike
+    working = p.dim(`${SPINNER[frame % SPINNER.length]} ${verb}… (${stats})`);
   }
 
   const effort = ctl.currentEffort();
@@ -433,6 +445,7 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
           limits: snap.limits,
           subscriptions: snap.subscriptions,
           now,
+          hint: newlineHint ? TMUX_NEWLINE_HINT : undefined,
         },
         p,
         width - 2,
@@ -446,11 +459,23 @@ export function App({ ctl, history }: { ctl: ChatController; history: History })
       ]
     : [];
 
+  const staticItems = fullView ? frozen.current : snap.committed;
+  const printed = (
+    <Static key={snap.staticKey} items={staticItems}>
+      {(item, i) => <StaticItem key={item.id} item={item} prev={staticItems[i - 1]} width={width} showThinking={snap.showThinking} cwd={cwd} />}
+    </Static>
+  );
+  if (fullView)
+    return (
+      <>
+        {printed}
+        <FullView committed={snap.committed} live={snap.live} width={width} rows={rows || 24} cwd={cwd} onClose={() => openFull(false)} />
+      </>
+    );
+
   return (
     <>
-      <Static key={snap.staticKey} items={snap.committed}>
-        {(item, i) => <StaticItem key={item.id} item={item} prev={snap.committed[i - 1]} width={width} showThinking={snap.showThinking} expand={snap.expand} cwd={cwd} />}
-      </Static>
+      {printed}
       <Box flexDirection="column">
         {liveText ? <Text>{liveText}</Text> : null}
         {working ? (

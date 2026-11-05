@@ -80,15 +80,21 @@ export const BUILTINS: BuiltinCommand[] = [
       const keys = [
         ['shift+enter, \\ enter', 'new line'],
         ['esc', 'interrupt'],
-        ['ctrl+o', 'expand tool output'],
+        ['ctrl+o', 'full transcript'],
         ['ctrl+t', 'show thinking'],
         ['shift+tab', 'permission mode'],
         ['ctrl+c twice', 'quit'],
       ];
       const half = Math.ceil(keys.length / 2);
-      const cell = ([k, d]: string[]) => `${k} ${p.dim(d)}`;
+      // keys padded to one width per column, so every description in a column starts at the same place
+      const kwOf = (ks: string[][]) => Math.max(...ks.map(([k]) => k.length));
+      const cell = ([k, d]: string[], kw: number) => `${k.padEnd(kw)}  ${p.dim(d)}`;
       const colW = Math.floor((w - 2) / 2);
-      const keyRows = w >= 64 ? keys.slice(0, half).map((k, i) => '  ' + padEnd(cell(k), colW) + (keys[half + i] ? cell(keys[half + i]) : '')) : keys.map((k) => '  ' + cell(k));
+      const [left, right] = [keys.slice(0, half), keys.slice(half)];
+      const two = kwOf(left) + 2 + Math.max(...left.map(([, d]) => d.length)) + 2 <= colW;
+      const keyRows = two
+        ? left.map((k, i) => '  ' + padEnd(cell(k, kwOf(left)), colW) + (right[i] ? cell(right[i], kwOf(right)) : ''))
+        : keys.map((k) => '  ' + cell(k, kwOf(keys)));
       ctl.info(
         list([
           p.bold('Commands') + p.dim('  type / to see what each one does'),

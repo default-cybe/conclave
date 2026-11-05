@@ -60,8 +60,6 @@ export interface Snapshot {
   turnStartedAt?: number;
   staticKey: number;
   showThinking: boolean;
-  /** ctrl+o: tool output and thinking printed in full. */
-  expand: boolean;
   /** Provider id -> subscription id, for picking the relevant limit. */
   subscriptions: Record<string, string>;
   /** Transient line under the input (e.g. "permission mode: plan"). */
@@ -122,6 +120,11 @@ export class ChatController {
   agents: AgentDef[] = [];
   /** Called when the screen must be cleared before Static re-renders. */
   onClearScreen?: () => void;
+  /** ctrl+l: erase the live area so the next frame draws it from scratch. */
+  onRepaint?: () => void;
+  /** ctrl+o: enter (true) or leave the full-screen transcript view. */
+  onFullScreen?: (on: boolean) => void;
+  /** Before the app unmounts: erase the live area. */
   onExit?: () => void;
 
   constructor(private opts: ControllerOptions) {
@@ -141,7 +144,6 @@ export class ChatController {
       limits: [],
       staticKey: 0,
       showThinking: false,
-      expand: false,
       subscriptions: {},
     };
   }
@@ -253,10 +255,10 @@ export class ChatController {
     this.set({ staticKey: this.snap.staticKey + 1 }, true);
   }
 
-  /** ctrl+o: print the transcript again with every tool output and thought in full, or collapsed again. */
-  toggleExpand(): void {
-    this.snap = { ...this.snap, expand: !this.snap.expand };
-    this.rerender();
+  /** ctrl+l: draw the live area again; the transcript above stays as printed. */
+  repaint(): void {
+    this.onRepaint?.();
+    this.emit(true);
   }
 
   /** Thinking shows in full from the next reply on; what is printed stays (ctrl+o shows all of it). */

@@ -95,6 +95,9 @@ export function findBoundaries(text: string, from: number, softLines = SOFT_LINE
       continue;
     }
     if (since < softLines || fenceLine || !line.trim() || !next.trim() || FENCE.test(next)) continue;
+    // a numbered list stays whole up to item 10, so its numbers are right-aligned at their final width
+    const num = !inFence && /^(\d{1,9})[.)]\s/.exec(next);
+    if (num && Number(num[1]) <= 10) continue;
     // in a fence any code line will do; outside, only where the next line starts a fresh block at column 0, and never through a table
     const soft = inFence || (/^\S/.test(next) && !/^(\||=+\s*$|-+\s*$)/.test(next) && !line.includes('|'));
     if (!soft) continue;
