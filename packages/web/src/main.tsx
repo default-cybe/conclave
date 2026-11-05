@@ -8,9 +8,12 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { applyTheme } from './store/ui';
 import { MOCK } from './lib/api';
 import { installHoverGroups } from './lib/hover';
+import { installDesktopDrop } from './lib/fileDrop';
 
 applyTheme();
 installHoverGroups();
+// files dropped on the Linux desktop app come through the app (lib/fileDrop.ts)
+void installDesktopDrop().catch(() => undefined);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

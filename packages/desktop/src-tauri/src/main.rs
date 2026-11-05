@@ -18,6 +18,7 @@ mod computer;
 mod hub;
 mod local;
 mod panic_log;
+mod paste;
 #[cfg(target_os = "linux")]
 mod perf;
 mod terminal;
@@ -27,7 +28,8 @@ mod winpath;
 
 use std::{
     collections::HashSet,
-    path::PathBuf,
+    io::Read,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -88,6 +90,8 @@ struct AppState {
     hidden_since: Mutex<Option<Instant>>,
     /// The hub page the hidden main window left for the home page; it comes back on show.
     parked: Mutex<Option<Url>>,
+    /// The files of the last drop on the main or quick ask window, the only ones read_dropped reads.
+    dropped: Mutex<Vec<PathBuf>>,
 }
 
 struct PendingLogin {
@@ -239,6 +243,10 @@ fn grant_hub_ipc(app: &AppHandle, base: &Url) -> Result<(), String> {
             .permission("allow-open-settings")
             .permission("allow-update-status")
             .permission("allow-update-install")
+            // the files the owner just dropped on the window, nothing else (read_dropped)
+            .permission("allow-read-dropped")
+            // the clipboard on a paste the webview handed over empty (macOS), only while the window has focus
+            .permission("allow-paste-files")
             // the hub page may open the meeting overlay, never start capture (MEETING-MODE.md 2.1.1)
             .permission("allow-meeting-open")
             .permission("allow-meeting-status")
@@ -290,10 +298,8 @@ fn main_window(app: &AppHandle, visible: bool) -> tauri::Result<WebviewWindow> {
     }
     let handle = app.clone();
     let popups = app.clone();
-    WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
-        .title("Conclave")
-        // Tauri's own drop handler swallows dropped files; the hub page takes them with HTML5 drag and drop
-        .disable_drag_drop_handler()
+    let builder = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into())).title("Conclave");
+    page_drops(builder)
         .inner_size(1180.0, 800.0)
         .min_inner_size(400.0, 500.0)
         .visible(visible)
@@ -306,6 +312,101 @@ fn main_window(app: &AppHandle, visible: bool) -> tauri::Result<WebviewWindow> {
             }
         })
         .build()
+}
+
+/// Who takes a file dropped on a hub window. macOS and Windows: the page, with
+/// HTML5 drag and drop, so Tauri's handler is off (on, it swallows every drop,
+/// also a task card dragged inside the page). Linux: Tauri's handler, because
+/// WebKitGTK hands the page a file manager's drop without the files, only a
+/// text/uri-list; the handler sends the paths as tauri://drag-drop and the page
+/// reads them with read_dropped (web lib/fileDrop.ts).
+fn page_drops<'a>(builder: WebviewWindowBuilder<'a, Wry, AppHandle>) -> WebviewWindowBuilder<'a, Wry, AppHandle> {
+    if cfg!(target_os = "linux") {
+        builder
+    } else {
+        builder.disable_drag_drop_handler()
+    }
+}
+
+/// What one message carries at most, all files together (core attachments/limits.ts ATTACHMENTS_MAX_TOTAL_BYTES).
+const DROP_MAX_BYTES: u64 = 45 * 1024 * 1024;
+
+/// Takes `path` off the last drop's list. False when it was not dropped (or was read already).
+fn take_dropped(dropped: &mut Vec<PathBuf>, path: &Path) -> bool {
+    match dropped.iter().position(|p| p == path) {
+        Some(i) => {
+            dropped.swap_remove(i);
+            true
+        }
+        None => false,
+    }
+}
+
+/// A dropped file's bytes, `max` at most. A folder is refused.
+fn read_capped(path: &Path, max: u64) -> Result<Vec<u8>, String> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
+    let meta = std::fs::metadata(path).map_err(|e| format!("Could not read {name}: {e}"))?;
+    if !meta.is_file() {
+        return Err(format!("{name} is a folder. Zip it, then drop the zip."));
+    }
+    let too_big = || format!("{name} is over {} MB. Attach a smaller file.", max / 1024 / 1024);
+    if meta.len() > max {
+        return Err(too_big());
+    }
+    let file = std::fs::File::open(path).map_err(|e| format!("Could not read {name}: {e}"))?;
+    let mut bytes = Vec::new();
+    // one byte past the cap, for a file that grew since the check
+    file.take(max + 1).read_to_end(&mut bytes).map_err(|e| format!("Could not read {name}: {e}"))?;
+    if bytes.len() as u64 > max {
+        return Err(too_big());
+    }
+    Ok(bytes)
+}
+
+/// A file of the last drop, for the hub page to attach (Linux, page_drops).
+/// Each path once, files only, DROP_MAX_BYTES at most: the page reads nothing
+/// the owner did not just drop. Async, so a big file never stalls the window.
+#[tauri::command]
+async fn read_dropped(app: AppHandle, path: String) -> Result<tauri::ipc::Response, String> {
+    let path = PathBuf::from(path);
+    if !take_dropped(&mut state(&app).dropped.lock().unwrap(), &path) {
+        return Err("That file was not dropped on this window.".into());
+    }
+    read_capped(&path, DROP_MAX_BYTES).map(tauri::ipc::Response::new)
+}
+
+#[derive(serde::Serialize)]
+struct PasteFiles {
+    /// Files copied in Finder, now readable once each with read_dropped.
+    paths: Vec<PathBuf>,
+    /// A copied picture, base64.
+    image: Option<String>,
+    mime: Option<&'static str>,
+}
+
+/// What the clipboard holds, for a paste whose event came without files (paste.rs).
+/// Only for a focused window: the owner just pressed paste there, so a page in the
+/// background cannot read the clipboard. A copied file joins the drop list, so
+/// read_dropped reads it and nothing else.
+#[tauri::command]
+fn paste_files(window: WebviewWindow) -> Result<PasteFiles, String> {
+    if !window.is_focused().unwrap_or(false) {
+        return Err("Paste in the window first.".into());
+    }
+    let pasted = paste::read();
+    let too_big = pasted.image.as_ref().is_some_and(|(b, _)| b.len() as u64 > DROP_MAX_BYTES);
+    if too_big {
+        return Err(format!("The picture is over {} MB. Attach a smaller one.", DROP_MAX_BYTES / 1024 / 1024));
+    }
+    if !pasted.paths.is_empty() {
+        *state(window.app_handle()).dropped.lock().unwrap() = pasted.paths.clone();
+    }
+    use base64::Engine as _;
+    let (image, mime) = match pasted.image {
+        Some((bytes, mime)) => (Some(base64::engine::general_purpose::STANDARD.encode(bytes)), Some(mime)),
+        None => (None, None),
+    };
+    Ok(PasteFiles { paths: pasted.paths, image, mime })
 }
 
 fn focus(win: &WebviewWindow) {
@@ -436,9 +537,8 @@ fn toggle_quick(app: &AppHandle) {
     };
     let handle = app.clone();
     let popups = app.clone();
-    let built = WebviewWindowBuilder::new(app, QUICK, WebviewUrl::External(url))
-        .title("Conclave quick ask")
-        .disable_drag_drop_handler()
+    let builder = WebviewWindowBuilder::new(app, QUICK, WebviewUrl::External(url)).title("Conclave quick ask");
+    let built = page_drops(builder)
         .inner_size(640.0, 460.0)
         .min_inner_size(360.0, 240.0)
         .always_on_top(true)
@@ -1685,13 +1785,21 @@ fn main() {
             hub_people,
             login,
             login_confirm,
-            login_cancel
+            login_cancel,
+            read_dropped,
+            paste_files
         ])
         .on_window_event(|window, event| {
             // Closing a window hides it. Quit lives in the tray menu.
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
+            }
+            // a file drop on Linux (page_drops): these paths, and only these, the page may read
+            if let WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                if matches!(window.label(), MAIN | QUICK) {
+                    *state(window.app_handle()).dropped.lock().unwrap() = paths.clone();
+                }
             }
         })
         .setup(|app| {
@@ -1721,6 +1829,7 @@ fn main() {
                 pending_login: Mutex::default(),
                 hidden_since: Mutex::default(),
                 parked: Mutex::default(),
+                dropped: Mutex::default(),
             });
 
             let hidden = std::env::args().any(|a| a == HIDDEN_ARG);
@@ -1826,6 +1935,29 @@ mod tests {
         let sub = Url::parse("https://box.example/conclave/").unwrap();
         assert!(!should_park(&sub, &sub, long));
         assert!(should_park(&sub, &Url::parse("https://box.example/conclave/s/ses_1").unwrap(), long));
+    }
+
+    #[test]
+    fn the_page_reads_only_files_just_dropped_once_and_under_the_cap() {
+        let dir = std::env::temp_dir().join(format!("conclave-drop-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let note = dir.join("note.txt");
+        std::fs::write(&note, b"hello").unwrap();
+        let other = dir.join("other.txt");
+        std::fs::write(&other, b"secret").unwrap();
+        let mut dropped = vec![note.clone(), dir.clone()];
+        // a path the owner did not drop is refused, also next to a dropped one
+        assert!(!take_dropped(&mut dropped, &other));
+        assert!(take_dropped(&mut dropped, &note));
+        assert_eq!(read_capped(&note, 5).unwrap(), b"hello");
+        // each path once
+        assert!(!take_dropped(&mut dropped, &note));
+        // over the cap, and a folder
+        assert!(read_capped(&note, 4).unwrap_err().contains("note.txt is over"));
+        assert!(take_dropped(&mut dropped, &dir));
+        assert!(read_capped(&dir, 1 << 20).unwrap_err().contains("is a folder"));
+        assert!(dropped.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

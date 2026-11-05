@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Desktop app: files dropped on a chat attach again on macOS and Linux. On macOS the drop zones now accept the drag on dragenter too, which WebKit needs before it lets a drop through. On Linux, where WebKitGTK gives the page no files from a file manager, the app takes the drop itself and the page reads only those files (45 MB at most) through a new `read_dropped` command.
+
 ## [0.4.64] - 2026-11-04
 
 ### Added

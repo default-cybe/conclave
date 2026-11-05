@@ -19,6 +19,7 @@ import { toast, useHub } from '@/store/store';
 import { AttachmentStrip } from '@/features/conversation/ComposerParts';
 import type { AnswerLength, AnswerModelChoice, Meeting, MeetingCalendarEvent, MeetingFile, MeetingFolder, ReminderMin, SteeringPreset } from '@/overlay/wire';
 import { meetings, openOverlay, uploadMeetingFiles } from './api';
+import { acceptFileDrag, droppedFiles } from '@/lib/fileDrop';
 import { dayBounds, fromInputs, hm, toInputs, when, zoneLabel } from './time';
 
 const MIN = 60_000;
@@ -107,16 +108,16 @@ function FilesField({ saved, pending, onAdd, onRemove, invalid }: { saved: Meeti
   return (
     <div className="flex flex-col gap-2">
       <div
+        onDragEnter={acceptFileDrag}
         onDragOver={(e) => {
-          if (!e.dataTransfer.types.includes('Files')) return;
-          e.preventDefault();
-          setOver(true);
+          if (acceptFileDrag(e)) setOver(true);
         }}
         onDragLeave={() => setOver(false)}
         onDrop={(e) => {
           e.preventDefault();
           setOver(false);
-          if (e.dataTransfer.files.length) onAdd([...e.dataTransfer.files]);
+          const dropped = droppedFiles(e.dataTransfer);
+          if (dropped.length) onAdd(dropped);
         }}
         className={cn('flex items-center justify-between gap-3 rounded-[var(--r-2)] border border-dashed px-3 py-3 text-[13px] text-fg-3 phone:text-[14px]', over ? 'border-signal bg-hover' : invalid ? 'border-fault' : 'border-rule')}
       >

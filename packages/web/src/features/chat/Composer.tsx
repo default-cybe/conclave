@@ -24,6 +24,8 @@ import { ACCEPT_FILES, MAX_ATTACHMENTS } from '@conclave/core/attachments/limits
 import type { EffortSetting } from '@/lib/effort';
 import type { Attachment } from '@conclave/core/client';
 import { api } from '@/lib/api';
+import { acceptFileDrag, droppedFiles } from '@/lib/fileDrop';
+import { onPasteFiles } from '@/lib/pasteFiles';
 import { askBtw, attempt, sendQueued, toast, upsertSeat, upsertSession, useHub } from '@/store/store';
 import { BtwCards } from './Pending';
 import { CommentTray } from './CommentTray';
@@ -60,6 +62,7 @@ type FileEntry = { name: string; path: string; type: 'dir' | 'file'; size?: numb
 const drafts = new Map<string, string>();
 /** Pictures, PDFs, text and code, and zips: in a session the hub saves a zip in its folder (core attachments/zip.ts). */
 const ACCEPT = ACCEPT_FILES;
+const isImage = (f: File) => f.type.startsWith('image/');
 /** One file; 15 in a message at most (core attachments/limits.ts). */
 const MAX_BYTES = 12 * 1024 * 1024;
 
@@ -516,12 +519,12 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
     return (
       <div
         className="relative px-3 pt-1 pb-2"
-        onDragOver={(e) => {
-          if (e.dataTransfer.types.includes('Files')) e.preventDefault();
-        }}
+        onDragEnter={acceptFileDrag}
+        onDragOver={acceptFileDrag}
         onDrop={(e) => {
           e.preventDefault();
-          if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
+          const dropped = droppedFiles(e.dataTransfer);
+          if (dropped.length) void addFiles(dropped);
         }}
       >
         {menuBox}
@@ -545,13 +548,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
               onKeyDown={onKey}
               onBlur={() => setTimeout(() => setCaret(-1), 150)}
               onFocus={(e) => setCaret(e.target.selectionStart)}
-              onPaste={(e) => {
-                const imgs = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith('image/'));
-                if (imgs.length) {
-                  e.preventDefault();
-                  void addFiles(imgs);
-                }
-              }}
+              onPaste={(e) => onPasteFiles(e, (imgs) => void addFiles(imgs), isImage)}
               placeholder={phonePlaceholder}
               className={PHONE_FIELD}
             />
@@ -609,17 +606,16 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   return (
     <div
       className="relative mx-auto w-full max-w-[924px] px-8 pb-3 phone:px-3 phone:pb-3"
+      onDragEnter={acceptFileDrag}
       onDragOver={(e) => {
-        if (e.dataTransfer.types.includes('Files')) {
-          e.preventDefault();
-          setDrag(true);
-        }
+        if (acceptFileDrag(e)) setDrag(true);
       }}
       onDragLeave={() => setDrag(false)}
       onDrop={(e) => {
         e.preventDefault();
         setDrag(false);
-        if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
+        const dropped = droppedFiles(e.dataTransfer);
+        if (dropped.length) void addFiles(dropped);
       }}
     >
       {menuBox}
@@ -644,13 +640,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
             onKeyDown={onKey}
             onBlur={() => setTimeout(() => setCaret(-1), 150)}
             onFocus={(e) => setCaret(e.target.selectionStart)}
-            onPaste={(e) => {
-              const imgs = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith('image/'));
-              if (imgs.length) {
-                e.preventDefault();
-                void addFiles(imgs);
-              }
-            }}
+            onPaste={(e) => onPasteFiles(e, (imgs) => void addFiles(imgs), isImage)}
             placeholder={placeholder}
             className="block w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[14px] leading-[1.5] text-fg outline-none placeholder:text-fg-3 focus-visible:outline-none phone:text-[16px]"
           />
