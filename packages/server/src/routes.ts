@@ -492,7 +492,7 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
         throw err;
       }
       // queued, not awaited: the turn may wait behind others, and a request held that long times out and gets resent as a second turn
-      void job.catch((err) => engine.notifier.send({ accountId: caller, title: 'Your turn failed', body: (err as Error).message, level: 'error', link: `/s/${id}` }));
+      void job.catch((err) => engine.notifier.send({ accountId: caller, title: 'Your turn failed', body: (err as Error).message, level: 'error', sessionId: id, link: `/s/${id}` }));
       return c.json({ queued: true });
     }
     return c.json(await engine.send(id, input));

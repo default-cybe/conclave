@@ -8,7 +8,9 @@
  * The status page Home used to have (running, limits, routines today,
  * devices) went to the pages behind More.
  */
+import { Redirect } from 'wouter';
 import { useIsMobile } from '@/lib/hooks';
+import { canvasHome } from '@/features/canvas/model';
 import { ChatPageRoute } from '@/features/conversation/lazy';
 import ConversationPage from './ConversationPage';
 import { useStartMode } from './start';
@@ -16,6 +18,8 @@ import { useStartMode } from './start';
 export default function HomePage() {
   const mode = useStartMode((s) => s.mode);
   const phone = useIsMobile();
+  // Canvas starts no conversation: Home in Canvas mode is the last file open
+  if (mode === 'canvas') return <Redirect to={canvasHome()} replace />;
   if (!phone && mode === 'chat') return <ChatPageRoute />;
   return <ConversationPage />;
 }

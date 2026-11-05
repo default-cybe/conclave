@@ -67,6 +67,7 @@ import dev.conclave.app.ui.conversation.ChatComposer
 import dev.conclave.app.ui.conversation.ChatHandoff
 import dev.conclave.app.ui.conversation.ChoiceRow
 import dev.conclave.app.ui.conversation.ComposerModel
+import dev.conclave.app.ui.conversation.IncognitoMark
 import dev.conclave.app.ui.conversation.ConversationSheet
 import dev.conclave.app.ui.conversation.NextModelAct
 import dev.conclave.app.ui.conversation.OptionLabel
@@ -271,6 +272,7 @@ fun ChatScreen(
         topBar = {
             Column {
                 TopBar(title = session?.title?.ifBlank { null } ?: "New session", onTitle = if (session != null) ({ sheet = true }) else null)
+                if (session?.isIncognito == true) IncognitoMark(code = true)
                 // made from a friend's share: whose turns are quoted here
                 session?.let { FriendShareLine(it, onOpenShare) }
             }

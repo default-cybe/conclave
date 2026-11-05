@@ -28,6 +28,7 @@ import { Markdown } from '../chat/Markdown';
 import { useRunDetail } from './data';
 import { CallHeader, CallRows, hasToolCell } from './CallRows';
 import { Findings } from './Findings';
+import { workflowHref } from '../canvas/model';
 import { Worktrees } from './Worktrees';
 import { Race, raceOf } from './Race';
 import { byPhase, isLive, petFor, statusParts } from './words';
@@ -185,6 +186,9 @@ export function RunView({ id }: { id: string }) {
               { value: 'graph', label: 'Graph' },
             ]}
           />
+          <Link href={workflowHref(run.id)} className="text-[13px] text-fg-2 underline underline-offset-2 hov:text-fg">
+            Open in Canvas
+          </Link>
         </div>
 
         {mode === 'graph' && (

@@ -18,7 +18,7 @@
  */
 import type { Db } from '../storage/db';
 import { json } from '../storage/db';
-import { ftsQuery } from '../storage/repos';
+import { ftsQuery, notIncognito } from '../storage/repos';
 import type { ContentBlock } from '../types';
 import { coverage, queryText, termSet, words } from '../memory/text';
 import { redactSecrets } from '../memory/secrets';
@@ -102,6 +102,8 @@ function sessionFilter(q: PastSessionQuery, params: Record<string, string | numb
   const parts = [
     's.account_id = $acct',
     's.parent_id IS NULL',
+    // an incognito session is never searched or read back (session/incognito.ts)
+    notIncognito('s'),
     // a chat or a session with memory off leaves no trace, in search either (a missing key is NULL: COALESCE keeps the row)
     `NOT (s.chat IS NOT NULL AND json_valid(s.chat) AND COALESCE(json_extract(s.chat, '$.memory'), 1) = 0)`,
     // nor does a session marked untrusted (a webhook run): its text relays what came from outside

@@ -4,7 +4,7 @@
  * tunnel that restarted) or stops answering.
  */
 import type { HubAddress, RemoteMode, RemoteStatus } from '@conclave/core/types';
-import { loadConnection, MOCK, saveConnection, type Connection } from './api';
+import { loadConnection, MOCK, saveConnection, tokenTag as tag, type Connection } from './api';
 import { isDesktopApp } from './notify';
 
 export const MODE_LABEL: Record<RemoteMode, string> = {
@@ -119,13 +119,6 @@ export function followMove(s: RemoteStatus, how: { notify: (newUrl: string, open
 // ---------------------------------------------------------------------------
 
 const ADDR_KEY = 'conclave.addresses';
-
-/** A short tag for a token, so a saved list only applies to the hub it came from. */
-function tag(token: string): string {
-  let h = 5381;
-  for (let i = 0; i < token.length; i++) h = ((h << 5) + h + token.charCodeAt(i)) >>> 0;
-  return h.toString(36);
-}
 
 const trim = (u: string) => u.trim().replace(/\/+$/, '');
 

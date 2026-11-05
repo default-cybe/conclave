@@ -11,12 +11,14 @@ import { underParent } from '@conclave/core/session/delegated';
 import { clampEffort, isEffortSetting, type EffortSetting, type ModelEffort } from '@conclave/core/providers/effort';
 import { isCyberProgram, type CyberProgram } from '@conclave/core/providers/access-programs';
 
-export type StartMode = 'chat' | 'assistant' | 'code';
+/** Canvas (docs/design/CANVAS-MODE.md): the node editor for programs and workflows; it starts no session, it opens /canvas. */
+export type StartMode = 'chat' | 'assistant' | 'code' | 'canvas';
 
 export const START_MODES: Array<{ value: StartMode; label: string; detail: string }> = [
   { value: 'chat', label: 'Chat', detail: 'A model answers, with the web and your memory.' },
   { value: 'assistant', label: 'Assistant', detail: 'Your day, goals and setup, on the hub.' },
   { value: 'code', label: 'Code', detail: 'An agent works in a folder on your computer.' },
+  { value: 'canvas', label: 'Canvas', detail: 'Programs and workflows as blocks, with their runs.' },
 ];
 
 /** The agents the switch starts. Code starts a custom agent only when one was picked under "+". */
@@ -36,7 +38,7 @@ const PICKS_KEY = 'conclave.quickstart';
 export function readMode(): StartMode {
   try {
     const v = localStorage.getItem(MODE_KEY);
-    return v === 'assistant' || v === 'code' ? v : 'chat';
+    return v === 'assistant' || v === 'code' || v === 'canvas' ? v : 'chat';
   } catch {
     return 'chat';
   }
@@ -133,7 +135,7 @@ export function savePicks(p: Picks) {
  */
 export function lastOwnSession(sessions: Record<string, Session>, settled = false, mode?: 'assistant' | 'code'): Session | undefined {
   return Object.values(sessions)
-    .filter((s) => !s.archived && !s.routineId && !underParent(s) && s.mode !== 'jury' && s.mode !== 'debate' && s.kind !== 'chat')
+    .filter((s) => !s.archived && !s.incognito && !s.routineId && !underParent(s) && s.mode !== 'jury' && s.mode !== 'debate' && s.kind !== 'chat')
     .filter((s) => !mode || modeOf(s) === mode)
     .filter((s) => !settled || s.status === 'idle' || s.status === 'error')
     .sort((a, b) => b.updatedAt - a.updatedAt)[0];

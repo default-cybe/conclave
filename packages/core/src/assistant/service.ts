@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import type { Db } from '../storage/db';
 import { json } from '../storage/db';
 import type { KvRepo, Repos } from '../storage/repos';
+import { notIncognito } from '../storage/repos';
 import type { MemoryEntry, Message, Routine, RoutineRun, Task } from '../types';
 import type { MemoryService } from '../memory/types';
 import type { ExternalMemory } from '../memory/external';
@@ -523,7 +524,7 @@ export class AssistantService {
     const lastOk = runs.find((r) => r.status === 'ok');
     const since = Math.max(lastOk?.startedAt ?? 0, now - 36 * 3_600_000);
     const rows = this.host.db
-      .query(`SELECT id, title, agent, kind, cwd, meta FROM sessions WHERE account_id = ? AND updated_at >= ? AND archived = 0 AND parent_id IS NULL AND routine_id IS NULL ORDER BY updated_at DESC LIMIT 40`)
+      .query(`SELECT id, title, agent, kind, cwd, meta FROM sessions WHERE account_id = ? AND updated_at >= ? AND archived = 0 AND parent_id IS NULL AND routine_id IS NULL AND ${notIncognito()} ORDER BY updated_at DESC LIMIT 40`)
       .all(this.host.accountId ?? OWNER_ID, since) as Array<{ id: string; title: string; agent: string; kind: string | null; cwd: string | null; meta: string | null }>;
     const picked: Array<{ id: string; title: string; kind: string; lines: string[]; lastSeq: number }> = [];
     for (const s of rows) {

@@ -274,6 +274,8 @@ export interface CreateSessionInput {
    */
   kind?: SessionKind;
   chat?: Partial<ChatSettings>;
+  /** Incognito (session/incognito.ts): kept out of lists and search, hard-deleted when closed. Memory defaults to "Use only" (chat.memorySave false). */
+  incognito?: boolean;
 }
 
 export interface SessionPatch {

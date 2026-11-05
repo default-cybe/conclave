@@ -21,6 +21,8 @@ export interface DraftKv {
 
 export const DRAFT_PREFIX = 'draft:';
 const hub: DraftKv = { get: idbGet, set: idbSet };
+/** An incognito conversation's draft: kept in the tab only, never in the browser's storage (core session/incognito.ts). */
+export const NO_KV: DraftKv = { get: async () => null, set: async () => undefined };
 const textKey = (id: string) => `${DRAFT_PREFIX}${id}`;
 const filesKey = (id: string) => `${DRAFT_PREFIX}${id}:files`;
 

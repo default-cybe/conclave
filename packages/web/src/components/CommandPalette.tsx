@@ -277,7 +277,7 @@ function Palette() {
 
     // chats (the Chat page) in their own group, then sessions
     const recent = Object.values(sessions)
-      .filter((s) => !s.archived)
+      .filter((s) => !s.archived && !s.incognito)
       .sort((a, b) => b.updatedAt - a.updatedAt);
     for (const [i, s] of recent.filter((x) => x.kind === 'chat').entries()) {
       list.push({

@@ -263,6 +263,11 @@ export interface Session {
   projectId?: string;
   /** Ultra: the agent plans and runs workflows for real tasks (docs/WORKFLOWS.md). Not offered on chats. */
   ultra?: boolean;
+  /**
+   * Incognito (session/incognito.ts): set on create, never changed. The session is left out of
+   * every list, search and summary, and is hard-deleted when closed, after INCOGNITO_IDLE_MS idle, and at hub start.
+   */
+  incognito?: boolean;
 }
 
 /** meeting: the container of a meeting (meeting/index.ts); it never runs a turn. */
@@ -274,6 +279,11 @@ export interface ChatSettings {
   webSearch: boolean;
   /** Read memory (profile and recall) and let the model save and forget notes. Off is a chat that leaves no trace in memory. */
   memory: boolean;
+  /**
+   * false: memory is read (profile, recall, MemorySearch) but nothing is saved: no MemorySave or
+   * MemoryForget, no extraction, no episode summary, no Basic Memory writes ("Use only"). Unset saves.
+   */
+  memorySave?: boolean;
   /**
    * Effort for this chat or session (providers/effort.ts): off or a level. Unset
    * uses the agent's setting, then the model's default. A level the model lacks

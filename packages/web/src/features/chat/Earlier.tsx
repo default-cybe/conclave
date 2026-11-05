@@ -54,7 +54,7 @@ export function useEarlierToday(): { results: Result[]; clear: () => void } {
       const s = sessions[sessionId];
       return s ? [s.agent, device(s.device)].join(', ') : '';
     };
-    const done: Result[] = finishedSince(Object.values(sessions), since).map((s) => ({
+    const done: Result[] = finishedSince(Object.values(sessions).filter((s) => !s.incognito), since).map((s) => ({
       id: s.id,
       at: s.updatedAt,
       word: s.status === 'error' ? 'Failed' : 'Finished',

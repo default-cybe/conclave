@@ -667,6 +667,8 @@ on('POST', '/api/sessions', ({ body }) => {
     createdAt: now,
     updatedAt: now,
     stats: { messages: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, costUsd: 0 },
+    ...(body.chat ? { chat: body.chat } : {}),
+    ...(body.incognito === true ? { incognito: true } : {}),
   };
   db.sessions.set(s.id, s);
   db.messages.set(s.id, []);

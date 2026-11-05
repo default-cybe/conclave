@@ -50,6 +50,7 @@ function sessionOptions(body: Record<string, unknown>): Omit<WorktreeSessionInpu
     ...(str('prompt', 200_000) ? { prompt: str('prompt', 200_000) } : {}),
     ...(mode ? { permissionMode: mode as PermissionMode } : {}),
     ...(body.chat ? { chat: body.chat as RepoSessionInput['chat'] } : {}),
+    ...(body.incognito === true ? { incognito: true } : {}),
   };
 }
 
