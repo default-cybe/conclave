@@ -59,29 +59,6 @@ export class History {
   }
 }
 
-type Positions = Record<string, { x: number; y: number }>;
-
-/**
- * The step for a node added from the search. The hub renumbered the saved
- * positions for the insert (shiftLayout), so with a layout, undo puts the
- * old keys back after the old script and redo the shifted ones after the new.
- */
-export function insertStep(restore: (sha: string) => Promise<unknown>, saveLayout: (p: Positions) => Promise<unknown>, before: { sha: string; layout: Positions }, after: { sha: string; layout?: Positions }): Step {
-  const shifted = after.layout;
-  if (!shifted) return { label: 'new node', undo: () => restore(before.sha), redo: () => restore(after.sha) };
-  return {
-    label: 'new node',
-    undo: async () => {
-      await restore(before.sha);
-      await saveLayout(before.layout);
-    },
-    redo: async () => {
-      await restore(after.sha);
-      await saveLayout(shifted);
-    },
-  };
-}
-
 /** A History for one canvas (or the one given), with the keys bound while it is mounted. */
 export function useHistory(enabled: boolean, given?: History) {
   const own = useRef(new History()).current;

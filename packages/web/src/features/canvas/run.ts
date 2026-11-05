@@ -1,23 +1,15 @@
 /**
- * Canvas mode, PR 3 (docs/design/CANVAS-MODE.md 3 and 7): the pure parts of
+ * Canvas mode (docs/design/CANVAS-MODE.md 3 and 7): the pure parts of
  * running a file. One run per file at a time: Run becomes Queue run while one
- * goes on, and the queued runs wait here (per account, per file, kept across
- * reloads) until the canvas starts the next one. Also the Code session that
- * "Ask the agent" continues for a file, and the context its message carries.
- * No React here, so tests import it.
+ * goes on, and the queued runs wait on the hub (core canvas/queue.ts), which
+ * starts the next one when the last ends, with or without the app open. Also
+ * the Code session that "Ask the agent" continues for a file, and the context
+ * its message carries. No React here, so tests import it.
  */
 import type { WorkflowRunStatus } from '@conclave/core/client';
 import { accountKey } from '@/lib/api';
 import { isLive } from '../workflows/words';
 
-export interface QueuedRun {
-  id: string;
-  at: number;
-  /** The args it was queued with (a workflow that declares them). */
-  args?: Record<string, unknown>;
-}
-
-const QUEUE_KEY = 'conclave.canvas.queue';
 const AGENT_KEY = 'conclave.canvas.agent';
 
 function readMap<T>(key: string): Record<string, T> {
@@ -37,42 +29,12 @@ function writeMap<T>(key: string, map: Record<string, T>): void {
   }
 }
 
-/** The runs queued for a file, oldest first. */
-export function queuedRuns(file: string): QueuedRun[] {
-  const list = readMap<QueuedRun[]>(QUEUE_KEY)[file];
-  return Array.isArray(list) ? list.filter((q) => q && typeof q.id === 'string') : [];
-}
+/** The hub's queue key for a file (core canvas/queue.ts): a workflow by id, a program by its session and name. */
+export const queueFile = (f: { workflow: string } | { sessionId: string; flow: string }) => ('workflow' in f ? `workflow:${f.workflow}` : `program:${f.sessionId}:${f.flow}`);
 
-function setQueue(file: string, list: QueuedRun[]): QueuedRun[] {
-  const all = readMap<QueuedRun[]>(QUEUE_KEY);
-  if (list.length) all[file] = list;
-  else delete all[file];
-  writeMap(QUEUE_KEY, all);
-  return list;
-}
-
-let seq = 0;
-
-/** Queue run: one more after the rest. At most 10 wait per file. */
-export function queueRun(file: string, args?: Record<string, unknown>): QueuedRun[] {
-  const list = queuedRuns(file);
-  if (list.length >= 10) return list;
-  return setQueue(file, [...list, { id: `q${Date.now().toString(36)}${++seq}`, at: Date.now(), ...(args ? { args } : {}) }]);
-}
-
-/** Cancel one queued run. */
-export function dropQueued(file: string, id: string): QueuedRun[] {
-  return setQueue(
-    file,
-    queuedRuns(file).filter((q) => q.id !== id),
-  );
-}
-
-/** The next run to start, taken off the queue. */
-export function takeQueued(file: string): QueuedRun | undefined {
-  const [next, ...rest] = queuedRuns(file);
-  if (next) setQueue(file, rest);
-  return next;
+/** The hub started the oldest queued run (it left the queue): read the file's run again to show it. */
+export function headLeft(prev: Array<{ id: string }>, next: Array<{ id: string }>): boolean {
+  return !!prev[0] && !next.some((q) => q.id === prev[0].id);
 }
 
 /**
@@ -136,6 +98,35 @@ export function folderOf(path: string | undefined): string | undefined {
   if (!path || path.startsWith('builtin:')) return undefined;
   const i = path.lastIndexOf('/');
   return i > 0 ? path.slice(0, i) : undefined;
+}
+
+/**
+ * A phone's foot button (CANVAS-MODE.md 7): Run while nothing runs; while a
+ * run goes on, a split of Stop (when the run can stop) and Queue, which
+ * queues the next run on the hub.
+ */
+export function phoneRunButtons(r: { live: boolean; onStop?: unknown }): Array<'run' | 'stop' | 'queue'> {
+  if (!r.live) return ['run'];
+  return r.onStop ? ['stop', 'queue'] : ['queue'];
+}
+
+/** How often the Agent tab reads the open file's sha while the agent works. */
+export const AGENT_POLL_MS = 2_000;
+
+/** The agent is mid-turn: running, or waiting on an approval or an answer. Idle, paused, a limit or an error end the polling. */
+export const agentBusy = (status: string | undefined) => status === 'running' || status === 'waiting_approval' || status === 'waiting_input';
+
+/**
+ * Read the file from the hub and take it only when its sha moved, so an
+ * agent's edit shows while it works and an unchanged poll redraws nothing.
+ * Resolves true when it took a new version; a failed read is false.
+ */
+export function reloadIfChanged<V extends { sha: string }>(read: () => Promise<V>, shaNow: () => string | undefined, take: (v: V) => void): () => Promise<boolean> {
+  return () =>
+    read().then(
+      (v) => (v.sha !== shaNow() ? (take(v), true) : false),
+      () => false,
+    );
 }
 
 /**

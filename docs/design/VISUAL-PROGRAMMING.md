@@ -604,6 +604,8 @@ Two limits stay as they are. Worktree calls: repository state is not in the key,
 - **Run view** (`RunView.tsx`, `RunSheet.tsx`): a **List / Graph** switch. List is today's view, phases with call rows (`CallRows.tsx`); Graph is the same run on the canvas. Both read the same events.
 - **A session's Workflow tool call** links to the run's Graph.
 
+Since Canvas mode (CANVAS-MODE.md, PR 4) Canvas is the one place a graph is drawn: the List / Graph switch, the Graph link and a Code session's Blocks pane gave way to **Open in Canvas**, and `/workflows/graph/<id>` and `?view=graph` redirect to `/canvas/workflow/<id>`.
+
 ## 8. AI
 
 The agent edits both kinds of graph through files first, then through typed tools.

@@ -11,15 +11,28 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- Canvas's run queue lives on the hub: Queue run while a program or workflow runs waits per account and per file, and the hub starts the next one when the last ends, with no app open. Queued runs survive a hub restart; a program run a restart cut reads failed with the reason. New routes GET and POST /api/canvas/queue and DELETE /api/canvas/queue/:id; the Queue tab reads them (#250).
+
+- Canvas on the Android app, read only: a Canvas row in the side panel lists programs by folder, your workflows, library workflows and recent runs. A file opens as its blocks in run order under their phases, lit by the last run (queued, running with its time, done with its short value, failed with its error, skipped or cached), with Run, Stop and Open on web; a live run is read again every 2 s (#250).
+
+- Canvas node menu: right-click a node, or long-press it on touch (iOS Safari too), for Rename, Duplicate, Delete, Open in code and Run from here (a workflow node the last run reached). On Android, Canvas gets Queue next to Stop while a run goes on, a queued list with Cancel, and the launch form for a workflow's declared args before Run or Queue (#250).
+
 - Canvas runs programs and workflows: Run (Ctrl/Cmd+Enter) asks for a workflow's declared args, then the canvas shows the live run in place, with each node queued, running with its time, done, failed, skipped or cached, and short values on the wires. Stop aborts it; while it runs, Run becomes Queue run, and the Queue tab lists queued runs with Cancel. A failed node shows its error, Re-run from here (workflows) or Re-run (programs), and Ask the agent. The new Agent tab next to the inspector continues a Code session in the file's folder with the file, the selection and the last error attached, and the canvas reloads when the agent is done. Delete now removes workflow nodes too, with Undo. Reopening a file shows its latest run (#250).
+
+- Settings > Secrets, for the owner only: add, replace and delete the named secrets that `${secret:name}` reads in MCP servers and other settings. The list shows each name, its first 4 characters and when it was set, never the value; names other pages save (web search keys, plugin settings, the GitHub token and the rest) are listed read-only with where they are set. `GET /api/secrets` returns names and metadata only, to the owner only. The MCP server form says "Missing." when a `${secret:name}` it uses has no saved value (#266).
+- `conclave secret set <name>` saves a named secret for `${secret:name}` (input hidden, or `--value`; `--delete` removes it). `conclave secret <provider>` still saves a provider key, as before (#266).
 
 ### Changed
 
+- Canvas is the one graph. A workflow run page shows a short summary (state, time, cost, the failed step and its error) with Open in Canvas instead of the List / Graph switch, a Code session's Blocks button is now Open in Canvas, and old links to `/workflows/graph/<id>` or `?view=graph` open the file in Canvas. While Ask the agent works, the canvas shows each edit as it lands instead of waiting for the turn to end. On a phone, the Run button becomes Stop and Queue while a run goes on (#250).
 - Extensions > Hooks lists every event Conclave fires, grouped Before, After and Other. Each event says in one line when it fires, and opens to what its stdin holds, what exit 0, exit 2 and other exits do, and the stdout JSON fields Conclave acts on there. Under it come its problems, then each matcher with its handlers: source (Conclave config, project `.conclave`, Claude Code `~/.claude`, plugin), on or off, timeout and command. Handlers Conclave owns have Edit and Delete; the rest say which file to edit or link to turn their source off. An event with no handlers is one compact row that opens (#268).
 - A new hub turns Claude Code compatibility (`compat.claudeCode`) on only when `~/.claude` has skills, agents, commands, plugins or hooks to load, and saves that choice once. Existing hubs keep what they had (#268).
 
 ### Fixed
 
+- The MCP server form's "reads a secret saved in Settings" hint pointed at no page; it now links to Settings > Secrets. `PUT /api/secrets` refuses a new named secret whose name is not 1 to 64 lowercase letters, digits, dots, dashes and underscores (#266).
+- Claude Mythos 5.1 shows and answers on Claude plans. CLIProxyAPI's catalog does not list it yet (no release up to 8.0.57 does), so with a Claude account signed in, the CLIProxyAPI the hub runs gets the Claude models of Conclave's catalog it lacks. A model your plan refuses (403, 404, "not available") is greyed out in the model picker with the reason instead of failing every turn; Refresh models asks again. An external CLIProxyAPI's catalog is left alone.
+- `lib.fence(text)` with one argument in a workflow script now fences that text. Before, the text became the label and the next agent read "undefined" in place of the earlier agent's report.
 - Discover and the catalog no longer fail as a whole when a settings file has a malformed hook entry (an event mapped to `{}` or a string, a group with no `hooks` list). The entry loads as nothing, and an item whose installed check throws shows as not installed (#268).
 - Hook problems read in plain words, sit at the top of their event with the file and Open file, and a Fix applies the hub's own repair to that one entry after asking (`POST /api/hooks/fix`). Two plugins that both add text to every subagent get a warning on SubagentStart (#268).
 

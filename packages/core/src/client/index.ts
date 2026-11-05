@@ -45,6 +45,7 @@ import type { RoutineInput } from '../scheduler/types';
 import type { AssistantSettingsDto, DayPlan, GoalArea, GoalDetail, GoalEntry, GoalInput, GoalPatch, GoalStatus, GoalSummary, Goal, PrefsPatch, ReflectDto, ReflectNowDto, ReflectPatch, TodayDto } from './assistant';
 import type { AddSuggestionRequest, AddSuggestionResult, RoutineSuggestionsDto } from '../scheduler/suggest';
 import type { ConclaveConfig, HookEvent, HooksConfig, McpServerConfig } from '../config/schema';
+import type { SecretInfo } from '../config/secret-names';
 // ----- catalog (Discover) DTOs: block "catalog", docs/design/ECOSYSTEM.md 2.1 -----
 import type {
   CatalogDetail,
@@ -176,7 +177,7 @@ export type * from './workflows';
 import type { GraphEditInput, GraphEditResult, GraphInsertInput, WorkflowGraphView } from './graph';
 export type * from './graph';
 export { nodeOf, nodeRuns, staleNodes } from './graph';
-import type { FlowBlockSpec, FlowEditResult, FlowOp, FlowRunView, FlowSummary, FlowView } from './flows';
+import type { CanvasQueueInput, CanvasQueuedRun, FlowBlockSpec, FlowEditResult, FlowOp, FlowRunView, FlowSummary, FlowView } from './flows';
 export type * from './flows';
 // ----- alerts: file conflicts and stuck turns, docs/DESIGN.md 28 -----
 import type { AlertAction, AlertItem } from './alerts';
@@ -2441,6 +2442,10 @@ export class ConclaveClient {
   runFlow = (sessionId: string, name: string) => this.request<FlowRunView>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/run`);
   flowRun = (sessionId: string, name: string) => this.request<FlowRunView | null>('GET', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/run`);
   stopFlow = (sessionId: string, name: string) => this.request<FlowRunView | null>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/stop`);
+  // ----- Canvas's run queue on the hub (one run per file; the next starts when the last ends) -----
+  canvasQueue = (file?: string) => this.request<CanvasQueuedRun[]>('GET', '/api/canvas/queue', undefined, { file });
+  queueCanvasRun = (input: CanvasQueueInput) => this.request<CanvasQueuedRun>('POST', '/api/canvas/queue', input);
+  cancelCanvasRun = (id: string) => this.request<void>('DELETE', `/api/canvas/queue/${encodeURIComponent(id)}`);
   /** Copy a built-in or plugin workflow into your own workflows, where it can be edited. */
   copyWorkflow = (id: string) => this.request<WorkflowDetail>('POST', `/api/workflows/${encodeURIComponent(id)}/copy`);
   skipWorkflowCall = (id: string, seq: number) => this.request<WorkflowRun>('POST', `/api/workflows/runs/${encodeURIComponent(id)}/calls/${seq}/skip`);
@@ -2594,6 +2599,8 @@ export class ConclaveClient {
   config = () => this.request<{ config: Record<string, unknown>; user: Record<string, unknown>; secrets: { providers: string[]; values: string[]; keyed?: string[] } }>('GET', '/api/config');
   updateConfig = (patch: Record<string, unknown>) => this.request<{ ok: true }>('PATCH', '/api/config', patch);
   setSecret = (kind: 'providers' | 'values', key: string, value: string | null) => this.request<{ ok: true }>('PUT', '/api/secrets', { kind, key, value });
+  /** The hub's named secrets, names and metadata only. Owner only. */
+  secrets = () => this.request<{ values: SecretInfo[] }>('GET', '/api/secrets');
   notifyChannels = () => this.request<Array<{ id: string; enabled: boolean }>>('GET', '/api/notify/channels');
   /** Send a test notification. With an endpoint, only that browser gets it. */
   testNotify = (channel = 'webpush', opts: { endpoint?: string } = {}) => this.request<{ ok: true }>('POST', '/api/notify/test', { channel, ...opts });

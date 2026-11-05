@@ -27,7 +27,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useParams, useSearch } from 'wouter';
 import { ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import { nodeRuns, type WorkflowArgFieldDto, type FlowBlockSpec, type FlowOp, type FlowRunView, type FlowView, type GraphEditField, type GraphNode, type WorkflowGraphView, type WorkflowRunDetail } from '@conclave/core/client';
+import { nodeRuns, type CanvasQueuedRun, type CanvasQueueInput, type WorkflowArgFieldDto, type FlowBlockSpec, type FlowOp, type FlowRunView, type FlowView, type GraphEditField, type GraphNode, type WorkflowGraphView, type WorkflowRunDetail } from '@conclave/core/client';
 import { wireRefusal } from '@conclave/core/flows/ports';
 import { Button } from '@/components/ui/Button';
 import { Elapsed } from '@/components/motion/Elapsed';
@@ -42,7 +42,7 @@ import { Textarea } from '@/components/ui/Field';
 import { isTyping } from '@/components/Shell';
 import { MessageList } from '@/features/chat/MessageList';
 import { ArgsForm, argsFromValues, type ArgValues } from '../workflows/args-form';
-import { agentMessage, agentSessionOf, dropQueued, folderOf, programStates, queueRun, queuedRuns, rememberAgentSession, startGuard, takeQueued, workflowLive, type QueuedRun } from './run';
+import { AGENT_POLL_MS, agentBusy, agentMessage, agentSessionOf, phoneRunButtons, reloadIfChanged, folderOf, headLeft, programStates, queueFile, rememberAgentSession, startGuard, workflowLive } from './run';
 import { Tabs } from '@/components/ui/Tags';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { PhoneBar } from '@/components/PhoneFrame';
@@ -53,14 +53,14 @@ import { hhmm } from '@/lib/format';
 import { useIsMobile } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { attempt, retainTranscript, sendQueued, toast, upsertSession, useHub } from '@/store/store';
-import { DRAG_KIND, GraphCanvas, INSERTS } from '../graph/GraphCanvas';
-import { FlowInspector, runWords } from '../graph/FlowView';
+import { DRAG_KIND, GraphCanvas, INSERTS, type NodeActions } from '../graph/GraphCanvas';
+import { FlowInspector, runWords } from '../graph/FlowInspector';
 import { Inspector } from '../graph/Inspector';
-import { liveState, stateTone } from '../graph/nodes';
+import { liveState } from '../graph/nodes';
 import { useRunDetail, useRuns } from '../workflows/data';
 import { isLive, RUN_WORD } from '../workflows/words';
 import { useCanvasFiles } from './files';
-import { fileGroups, fileHref, fileTitle, focusNode, isRunId, libraryOpen, rememberFile, saveLibraryOpen, sessionFor } from './model';
+import { codeHref, fileGroups, fileHref, fileTitle, focusNode, isRunId, libraryOpen, rememberFile, saveLibraryOpen, sessionFor } from './model';
 import { copyClip, pasteClip, programRenamable, removeOps, saveWords, useEditor, workflowRenamable, type Clip } from './editor';
 
 type Positions = Record<string, { x: number; y: number }>;
@@ -71,6 +71,8 @@ let clipboard: Clip | undefined;
 
 type Tab = 'output' | 'logs' | 'queue';
 const POLL_MS = 700;
+/** How often the Queue reads the hub's queue while the file runs or has runs waiting. */
+const QUEUE_POLL_MS = 2000;
 const flowLive = (r?: FlowRunView) => r?.status === 'running' || r?.status === 'approval';
 
 export default function CanvasPage() {
@@ -125,6 +127,7 @@ function ProgramFile({ name }: { name: string }) {
   const booted = useHub((s) => s.booted);
   const session = useHub((s) => sessionFor(Object.values(s.sessions), device, cwd));
   const sid = session?.id;
+  const [, navigate] = useLocation();
   const [view, setView] = useState<FlowView>();
   const [run, setRun] = useState<FlowRunView>();
   const [blocks, setBlocks] = useState<FlowBlockSpec[]>([]);
@@ -132,6 +135,8 @@ function ProgramFile({ name }: { name: string }) {
   const [positions, setPositions] = useState<Positions>({});
   const [selection, setSelection] = useState<string[]>([]);
   const take = useCallback((v: FlowView) => (setView(v), v.layout && setPositions(v.layout)), []);
+  const shaNow = useRef<string>(undefined);
+  shaNow.current = view?.sha;
   const ed = useEditor<FlowView>({
     view,
     setView: take,
@@ -161,7 +166,8 @@ function ProgramFile({ name }: { name: string }) {
   const title = `${name}.flow.ts`;
   const fileKey = `${device}:${cwd}:${name}`;
   const start = () => attempt(() => api().runFlow(sid!, name)).then((r) => r && setRun(r));
-  const runner = useRunner(`program:${fileKey}`, flowLive(run), start);
+  // the hub started the next queued run: read it, so the canvas follows it
+  const runner = useRunner(sid ? { sessionId: sid, flow: name } : undefined, flowLive(run), start, () => void api().flowRun(sid!, name).then((r) => r && setRun(r)).catch(() => {}));
   const saveLayout = async (next: Positions) => {
     setPositions(next);
     await api().saveFlowLayout(sid!, name, next);
@@ -206,6 +212,19 @@ function ProgramFile({ name }: { name: string }) {
   if (error) return <Missing title={title}>The program did not load. {error}</Missing>;
   if (!view) return <Loading title={title} />;
   const failed = Object.entries(run?.nodes ?? {}).filter(([, n]) => !n.ok);
+  // the node menu's Duplicate: a paste of that one block, a little below and right of it
+  const duplicate = (nid: string) => {
+    const p = positions[nid];
+    void ops(
+      'duplicate',
+      (send) => pasteClip(copyClip(fileKey, view.graph, [nid]), send, (b, i) => bySpec.get(b)?.inputs.find((x) => x.name === i)?.default),
+      (ids) => {
+        setSelection(ids);
+        if (p && ids[0]) void attempt(() => saveLayout({ ...positions, [ids[0]]: { x: p.x + 24, y: p.y + 24 } }));
+      },
+    );
+  };
+  const code = codeHref(device, `${cwd.replace(/\/+$/, '')}/flows/${title}`);
   const focus = focusNode(view.graph.nodes.map((n) => ({ id: n.id, state: liveState(run?.nodes[n.id]) })));
   const status = run ? { word: run.status === 'running' ? 'Running' : run.status === 'done' ? 'Done' : run.status === 'failed' ? 'Failed' : runWords(run), tone: run.status === 'running' ? 'text-signal' : run.status === 'failed' ? 'text-fault' : run.status === 'done' ? 'text-ok' : 'text-fg-2', rest: run.status === 'failed' ? (failed.length ? `at ${failed.map(([id]) => view.graph.nodes.find((n) => n.id === id)?.label ?? id).join(', ')}` : (run.error ?? '')) : run.status === 'running' ? `${Object.keys(run.nodes).length} blocks done` : '', since: run.status === 'running' ? run.startedAt : undefined } : { word: 'Not run yet', tone: 'text-fg-3', rest: '' };
   return (
@@ -263,6 +282,8 @@ function ProgramFile({ name }: { name: string }) {
             void ops('rename', [{ op: 'rename', nodeId: id, name: next }], ([nid]) => nid && positions[id] && void attempt(() => saveLayout({ ...positions, [nid]: positions[id] })))
           }
           renamable={programRenamable}
+          // a program has no resume, so no Run from here
+          menu={(n) => ({ ...(copyClip(fileKey, view.graph, [n.id]).blocks.length ? { duplicate: () => duplicate(n.id) } : {}), ...(code ? { openCode: () => navigate(code) } : {}) })}
           className="min-h-0 flex-1"
         />
       )}
@@ -271,7 +292,7 @@ function ProgramFile({ name }: { name: string }) {
       // a program has no resume: Re-run runs the whole file
       failedOf={(node) => (run?.nodes[node.id]?.ok === false ? { error: run.nodes[node.id].error ?? run.error ?? 'failed', rerun: { label: 'Re-run', go: runner.onRun } } : undefined)}
       runner={{ ...runner, onStop: flowLive(run) ? () => void attempt(() => api().stopFlow(sid!, name)).then((r) => r && setRun(r)) : undefined }}
-      agent={{ file: `flows/${title}`, device, cwd, sessionId: sid, error: run?.status === 'failed' ? run.error : undefined, onTurnEnd: () => void api().flowGraph(sid!, name).then(take).catch(() => {}) }}
+      agent={{ file: `flows/${title}`, device, cwd, sessionId: sid, error: run?.status === 'failed' ? run.error : undefined, reload: reloadIfChanged(() => api().flowGraph(sid!, name), () => shaNow.current, take) }}
       output={run?.output || run?.error || ''}
       logs={Object.entries(run?.nodes ?? {}).map(([id, n]) => [n.ms !== undefined ? `${n.ms} ms` : '', `${id}: ${n.ok ? (n.summary ?? 'done') : `failed, ${(n.error ?? '').split('\n')[0]}`}`] as const)}
     />
@@ -322,8 +343,7 @@ function WorkflowFile({ id }: { id: string }) {
   const began = (r: { id: string } | undefined) => r && (setStarted(r.id), setLastRun(r.id));
   const go = (args?: Record<string, unknown>) => attempt(() => api().startWorkflow({ name: id, ...(args ? { args } : {}) })).then(began);
   const declares = !!schema && Object.keys(schema).length > 0;
-  const queueKey = `workflow:${id}`;
-  const runner = useRunner(queueKey, live, (q) => go(q?.args));
+  const runner = useRunner({ workflow: id }, live, () => go(), () => void api().workflow(id).then((d) => setLastRun(d.lastRun?.id)).catch(() => {}));
   const runFlow: ShellRun = {
     ...runner,
     // the args form first when the workflow declares args; Queue run keeps them with the queued run
@@ -337,15 +357,17 @@ function WorkflowFile({ id }: { id: string }) {
       onClose={() => setAsking(undefined)}
       onRun={(args) => {
         setAsking(undefined);
-        if (asking === 'queue') runner.setQueue(queueRun(queueKey, args));
+        if (asking === 'queue') runner.enqueue(args);
         else runner.begin(() => go(args));
       }}
     />
   );
   const rerun = (seqs: number[]) => current && runner.begin(() => attempt(() => api().rerunWorkflow(current.run.id, { seqs })).then(began));
-  const agent = view?.editable ? { file: path ?? id, cwd: folderOf(path), error: data?.run.status === 'failed' ? (data.run.error ?? data.calls.find((c) => c.state === 'failed')?.error) : undefined, onTurnEnd: () => void api().workflowGraph(id).then(take).catch(() => {}) } : undefined;
+  const agent = view?.editable ? { file: path ?? id, cwd: folderOf(path), error: data?.run.status === 'failed' ? (data.run.error ?? data.calls.find((c) => c.state === 'failed')?.error) : undefined, reload: reloadIfChanged(() => api().workflowGraph(id), () => shaNow.current, (v) => take(v)) } : undefined;
   const [positions, setPositions] = useState<Positions>({});
   const take = useCallback((v: WorkflowGraphView) => setView((old) => ({ ...v, layout: v.layout ?? old?.layout })), []);
+  const shaNow = useRef<string>(undefined);
+  shaNow.current = view?.sha;
   useEffect(() => setPositions((p) => view?.layout ?? p), [view?.layout]);
   const ed = useEditor<WorkflowGraphView>({ view, setView: take, restore: (sha, base) => api().restoreWorkflowGraph(id, sha, base).then((r) => r.view), reload: () => api().workflowGraph(id) });
   if (error) return <Missing title={id}>The workflow did not load. {error}</Missing>;
@@ -360,6 +382,7 @@ function WorkflowFile({ id }: { id: string }) {
         onRerun={rerun}
         dialog={argsDialog}
         title={view.graph.name || id}
+        code={codeHref('local', path)}
         meta={['Workflow', library ? 'library' : 'yours', 'read only'].join(', ')}
         duplicate={library ? () => void attempt(() => api().copyWorkflow(id), 'Duplicated. The copy is yours to edit.').then((d) => d && api().workflowGraph(id).then(take)) : undefined}
       />
@@ -410,6 +433,7 @@ function WorkflowFile({ id }: { id: string }) {
       view={view}
       detail={data}
       title={view.graph.name || id}
+      code={codeHref('local', path)}
       meta="Workflow, yours"
       positions={positions}
       runner={runFlow}
@@ -440,14 +464,20 @@ type WorkflowEdit = ShellEdit & {
   move: (id: string, at: { x: number; y: number }) => void;
 };
 
-function WorkflowShell({ view, detail, title, meta, run, duplicate, edit, positions, runner, onRerun, agent, dialog }: { view: WorkflowGraphView; detail?: WorkflowRunDetail; title: string; meta: string; run?: boolean; duplicate?: () => void; edit?: WorkflowEdit; positions?: Positions; runner?: ShellRun; onRerun?: (seqs: number[]) => void; agent?: ShellAgent; dialog?: ReactNode }) {
+function WorkflowShell({ view, detail, title, meta, run, duplicate, edit, positions, runner, onRerun, agent, dialog, code }: { view: WorkflowGraphView; detail?: WorkflowRunDetail; title: string; meta: string; run?: boolean; duplicate?: () => void; edit?: WorkflowEdit; positions?: Positions; runner?: ShellRun; onRerun?: (seqs: number[]) => void; agent?: ShellAgent; dialog?: ReactNode; code?: string }) {
   const [selection, setSelection] = useState<string[]>([]);
+  const [, navigate] = useLocation();
   const runs = useMemo(() => (detail ? nodeRuns(view.graph, detail.calls) : undefined), [view.graph, detail]);
   const r = detail?.run;
   const live = !!r && isLive(r.status);
   const states = view.graph.nodes.map((n) => ({ id: n.id, state: runs?.byNode.get(n.id)?.state }));
   const focus = focusNode(states);
   const failed = states.filter((s) => s.state === 'failed');
+  // the node menu: Open in code, and Run from here when the last run reached the node (it replays from the journal)
+  const menu = (n: GraphNode): NodeActions => {
+    const seqs = runs?.byNode.get(n.id)?.seqs ?? [];
+    return { ...(code ? { openCode: () => navigate(code) } : {}), ...(onRerun && seqs.length && !live && !runner?.live ? { runFrom: () => onRerun(seqs) } : {}) };
+  };
   const status = r ? { word: RUN_WORD[r.status].replace(/^./, (c) => c.toUpperCase()), tone: live ? 'text-signal' : r.status === 'failed' ? 'text-fault' : r.status === 'done' ? 'text-ok' : 'text-fg-2', rest: [r.phaseTitle && live ? `in ${r.phaseTitle}` : '', failed.length ? `${failed.length} failed` : ''].filter(Boolean).join(', '), since: live ? (r.startedAt ?? r.createdAt) : undefined } : { word: 'Not run yet', tone: 'text-fg-3', rest: '' };
   return (
     <Shell
@@ -479,6 +509,7 @@ function WorkflowShell({ view, detail, title, meta, run, duplicate, edit, positi
           onSelect={onSelect}
           full={{ focus }}
           className="min-h-0 flex-1"
+          menu={code || onRerun || edit ? menu : undefined}
           {...(edit
             ? {
                 onInsert: edit.insert,
@@ -520,8 +551,9 @@ interface ShellRun {
   live: boolean;
   onRun: () => void;
   onStop?: () => void;
-  queue: QueuedRun[];
-  setQueue: (q: QueuedRun[]) => void;
+  /** This file's runs waiting on the hub, oldest first. */
+  queue: CanvasQueuedRun[];
+  enqueue: (args?: Record<string, unknown>) => void;
   onCancel: (id: string) => void;
   /** Start something that makes a run (Run, Re-run); a second call while one is on its way does nothing. */
   begin: (fn: () => Promise<unknown>) => void;
@@ -534,35 +566,40 @@ interface ShellAgent {
   cwd?: string;
   sessionId?: string;
   error?: string;
-  onTurnEnd: () => void;
+  /** Read the file again; takes it only when its sha moved (run.ts reloadIfChanged). */
+  reload: () => Promise<unknown>;
 }
 
 /**
- * One run per file: Run starts one, or queues one while a run goes on; the
- * next queued run starts when the live one ends.
- * shortcut: the queue lives in this browser and moves only while the file is open in Canvas; a hub-side queue would run it with the tab closed.
+ * One run per file: Run starts one, or queues one on the hub while a run goes
+ * on. The hub starts the next queued run when the live one ends, with or
+ * without this page open; the page reads the queue while something runs or
+ * waits, and onHubStart reads the file's run again when the hub took one.
  */
-function useRunner(key: string, live: boolean, start: (q?: QueuedRun) => Promise<unknown>): ShellRun {
-  const [queue, setQueue] = useState(() => queuedRuns(key));
+function useRunner(input: CanvasQueueInput | undefined, live: boolean, start: () => Promise<unknown>, onHubStart: () => void): ShellRun {
+  const file = input ? queueFile(input) : undefined;
+  const [queue, setQueueState] = useState<CanvasQueuedRun[]>([]);
   const [guard] = useState(startGuard);
   const [starting, setStarting] = useState(false);
   const begin = (fn: () => Promise<unknown>) => void (guard.run(fn, () => setStarting(false)) && setStarting(true));
-  const beginNow = useRef(begin);
-  beginNow.current = begin;
-  const was = useRef(live);
-  const startNow = useRef(start);
-  startNow.current = start;
+  const last = useRef<CanvasQueuedRun[]>([]);
+  const hubStart = useRef(onHubStart);
+  hubStart.current = onHubStart;
+  const setQueue = useCallback((next: CanvasQueuedRun[]) => {
+    if (headLeft(last.current, next)) hubStart.current();
+    last.current = next;
+    setQueueState(next);
+  }, []);
+  const read = useCallback(() => (file ? api().canvasQueue(file).then(setQueue).catch(() => {}) : Promise.resolve()), [file, setQueue]);
+  useEffect(() => void read(), [read]);
   useEffect(() => {
-    if (was.current && !live) {
-      const next = takeQueued(key);
-      if (next) {
-        setQueue(queuedRuns(key));
-        beginNow.current(() => startNow.current(next));
-      }
-    }
-    was.current = live;
-  }, [live, key]);
-  return { live: live || starting, queue, setQueue, begin, onRun: () => (guard.busy() ? undefined : live ? setQueue(queueRun(key)) : begin(() => start())), onCancel: (id) => setQueue(dropQueued(key, id)) };
+    if (!live && !queue.length) return;
+    const t = setInterval(() => void read(), QUEUE_POLL_MS);
+    return () => clearInterval(t);
+  }, [live, queue.length, read]);
+  const enqueue = (args?: Record<string, unknown>) => input && void attempt(() => api().queueCanvasRun('workflow' in input ? { ...input, ...(args ? { args } : {}) } : input), 'Queued: it starts when this run ends').then(read);
+  const onCancel = (id: string) => void attempt(() => api().cancelCanvasRun(id)).then(() => (last.current = last.current.filter((q) => q.id !== id), read()));
+  return { live: live || starting, queue, enqueue, begin, onRun: () => (guard.busy() ? undefined : live ? enqueue() : begin(start)), onCancel };
 }
 
 interface ShellProps {
@@ -708,6 +745,8 @@ function Shell(p: ShellProps) {
     </div>
   );
 
+  // five buttons fit 390 only a little tighter
+  const split = !!p.runner && phoneRunButtons(p.runner).length > 1;
   if (phone)
     return (
       <div className="flex min-h-0 flex-1 flex-col">
@@ -718,16 +757,28 @@ function Shell(p: ShellProps) {
         </div>
         <div className="relative flex min-h-0 flex-1 flex-col">
           {p.canvas(sel, setSel)}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end gap-2 px-3 pb-[calc(12px+var(--safe-b,0px))]">
+          <div className={cn('pointer-events-none absolute inset-x-0 bottom-0 flex items-end px-3 pb-[calc(12px+var(--safe-b,0px))]', split ? 'gap-1.5' : 'gap-2')}>
             {(p.agent ? (['library', 'output', 'agent'] as const) : (['library', 'output'] as const)).map((s) => (
-              <button key={s} type="button" onClick={() => setSheet(s)} className="pointer-events-auto h-11 rounded-[var(--r-2)] border border-rule-2 bg-raise px-4 text-[15px] text-fg shadow-[var(--shadow-pop)]">
+              <button key={s} type="button" onClick={() => setSheet(s)} className={cn('pointer-events-auto h-11 rounded-[var(--r-2)] border border-rule-2 bg-raise text-fg shadow-[var(--shadow-pop)]', split ? 'px-3 text-[14px]' : 'px-4 text-[15px]')}>
                 {s === 'library' ? 'Nodes' : s === 'output' ? 'Output' : 'Agent'}
               </button>
             ))}
             {p.runner && (
-              <button type="button" onClick={p.runner.onStop ?? p.runner.onRun} className="pointer-events-auto ml-auto h-11 rounded-[var(--r-2)] border border-rule-2 bg-raise px-5 text-[15px] font-medium text-fg shadow-[var(--shadow-pop)]">
-                {p.runner.onStop ? 'Stop' : 'Run'}
-              </button>
+              // while a run goes on: Stop and Queue as one split button
+              <div role="group" aria-label="Run" className="pointer-events-auto ml-auto flex h-11 divide-x divide-rule-2 overflow-hidden rounded-[var(--r-2)] border border-rule-2 bg-raise shadow-[var(--shadow-pop)]">
+                {phoneRunButtons(p.runner).map((b) => (
+                  <button
+                    key={b}
+                    type="button"
+                    // onRun queues while a run goes on (a workflow with args asks for them first)
+                    onClick={b === 'stop' ? p.runner!.onStop : p.runner!.onRun}
+                    aria-label={b === 'queue' ? 'Queue run: it starts when this one ends' : undefined}
+                    className={cn('font-medium', split ? 'px-3 text-[14px]' : 'px-5 text-[15px]', b === 'stop' ? 'text-fault' : 'text-fg')}
+                  >
+                    {b === 'stop' ? 'Stop' : b === 'queue' ? 'Queue' : 'Run'}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -906,7 +957,7 @@ function Queue({ runner, title, phone }: { runner?: ShellRun; title: string; pho
         <div key={q.id} className="flex items-center gap-3 border-b border-rule py-1 text-[13px]">
           <span className="mono min-w-0 flex-1 truncate text-fg">{title}</span>
           <span className="shrink-0 text-[12px] text-fg-3">
-            queued{mine.length > 1 ? `, ${i + 1} of ${mine.length}` : ''}, {hhmm(q.at)}
+            queued{mine.length > 1 ? `, ${i + 1} of ${mine.length}` : ''}, {hhmm(q.createdAt)}
           </span>
           <Button variant="ghost" size={phone ? 'touch' : 'sm'} onClick={() => runner!.onCancel(q.id)}>
             Cancel
@@ -954,7 +1005,9 @@ function RunArgs({ schema, queue, onClose, onRun }: { schema: Record<string, Wor
  * Ask the agent: a Code session in the file's folder (the folder's session for
  * a program, one started for a workflow and kept per file), its transcript,
  * and a box whose message carries the file, the selection and the last error.
- * The canvas reloads the file when the agent's turn ends.
+ * While the agent works the canvas reads the file's sha every 2 s and shows
+ * each edit as it lands; it reads once more when the turn ends. Closing the
+ * tab unmounts the panel, which stops the polling.
  */
 function AgentPanel({ ctx, selection }: { ctx: ShellAgent; selection: Array<{ label: string; lines: string }> }) {
   const [sid, setSid] = useState(() => ctx.sessionId ?? agentSessionOf(ctx.file));
@@ -963,12 +1016,18 @@ function AgentPanel({ ctx, selection }: { ctx: ShellAgent; selection: Array<{ la
   const [busy, setBusy] = useState(false);
   useEffect(() => (sid ? retainTranscript(sid) : undefined), [sid]);
   const was = useRef(session?.status);
-  const turnEnd = useRef(ctx.onTurnEnd);
-  turnEnd.current = ctx.onTurnEnd;
+  const reload = useRef(ctx.reload);
+  reload.current = ctx.reload;
   useEffect(() => {
-    if (was.current && was.current !== 'idle' && session?.status === 'idle') turnEnd.current();
+    if (was.current && was.current !== 'idle' && session?.status === 'idle') void reload.current();
     was.current = session?.status;
   }, [session?.status]);
+  const working = agentBusy(session?.status);
+  useEffect(() => {
+    if (!working) return;
+    const t = setInterval(() => void reload.current(), AGENT_POLL_MS);
+    return () => clearInterval(t);
+  }, [working]);
   const send = async () => {
     if (!text.trim() || busy) return;
     setBusy(true);

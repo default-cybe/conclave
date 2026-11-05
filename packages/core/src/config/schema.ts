@@ -30,8 +30,10 @@ export interface ProviderConfig {
    * What a plan says about its own models (the hub's CLIProxyAPI manager fills
    * it from a ChatGPT plan's Codex model list; runtime only): the name it
    * shows, the Effort levels it takes and its default, keyed by bare model id.
+   * unavailable: why a plan refused the model (keyed by the id as called, a
+   * prefixed one for one plan); pickers grey it out with the reason.
    */
-  modelMeta?: Record<string, { name?: string; efforts?: string[]; defaultEffort?: string }>;
+  modelMeta?: Record<string, { name?: string; efforts?: string[]; defaultEffort?: string; unavailable?: string }>;
   enabled?: boolean;
   /** Subscription id this provider bills against, used to group limits (e.g. "zai-coding"). */
   subscription?: string;

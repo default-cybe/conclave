@@ -24,9 +24,31 @@ export function workflowHref(idOrRun: string): string {
   return `/canvas/workflow/${encodeURIComponent(idOrRun)}`;
 }
 
+/** A Code session's Open in Canvas: its first program in that folder, else Canvas's start page (no program yet). */
+export function sessionCanvasHref(session: Pick<Session, 'device' | 'cwd'>, flows: Array<{ name: string }>): string {
+  return flows[0] && session.cwd ? programHref(flows[0].name, session.device, session.cwd) : '/canvas';
+}
+
+/** Old graph addresses (/workflows/graph/:id, a run's ?view=graph) and where they live now. */
+export function oldGraphRedirect(path: string, search: string): string | undefined {
+  const g = /^\/workflows\/graph\/([^/]+)\/?$/.exec(path);
+  if (g) return workflowHref(decodeURIComponent(g[1]));
+  const r = /^\/workflows\/runs\/([^/]+)\/?$/.exec(path);
+  if (r && new URLSearchParams(search).get('view') === 'graph') return workflowHref(decodeURIComponent(r[1]));
+  return undefined;
+}
+
 export const isRunId = (s: string) => s.startsWith('wfr_');
 
 export const fileHref = (f: CanvasFile) => (f.kind === 'program' ? programHref(f.name, f.device, f.cwd) : workflowHref(f.runId ?? f.id));
+
+/** A node menu's Open in code: the file in its device's file browser. A built-in workflow (builtin:...) has no file to open. */
+export function codeHref(device: string, path: string | undefined): string | undefined {
+  if (!device || !path || path.startsWith('builtin:')) return undefined;
+  const i = path.lastIndexOf('/');
+  const q = new URLSearchParams({ ...(i > 0 ? { path: path.slice(0, i) } : {}), file: path });
+  return `/devices/${encodeURIComponent(device)}/files?${q}`;
+}
 
 export const fileTitle = (f: CanvasFile) => (f.kind === 'program' ? `${f.name}.flow.ts` : f.name);
 

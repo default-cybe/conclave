@@ -18,7 +18,8 @@ export interface TestHub {
 
 export function startHub(opts: StartOptions = {}, config: Partial<ConclaveConfig> = {}): TestHub {
   const engine = createFakeEngine(config);
-  const running = startServer(engine, { host: '127.0.0.1', port: 0, ...opts });
+  // tests stay offline: no read of CLIProxyAPI's official catalog unless a test serves one (a Claude sign-in now asks for it)
+  const running = startServer(engine, { host: '127.0.0.1', port: 0, ...opts, cliproxy: { catalogUrls: [], ...(opts as { cliproxy?: object }).cliproxy } as StartOptions['cliproxy'] });
   const url = running.url;
   return {
     engine,

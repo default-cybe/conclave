@@ -1,6 +1,6 @@
 /**
- * Canvas mode, PR 3 (features/canvas/run.ts, core client/graph.ts): the queue
- * of runs per file survives a reload and cancels one at a time, a running
+ * Canvas mode, PR 3 (features/canvas/run.ts, core client/graph.ts): the hub's
+ * queue key per file and when the hub started the next queued run, a running
  * program's blocks read running then queued, a workflow node carries its
  * error and short value, and the agent's message carries the file context.
  *
@@ -13,27 +13,17 @@ import { parseGraph } from '@conclave/core/workflows/graph';
 
 const store = new Map<string, string>();
 (globalThis as { localStorage?: unknown }).localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
-const { agentMessage, agentSessionOf, dropQueued, folderOf, programStates, queueRun, queuedRuns, rememberAgentSession, startGuard, takeQueued, workflowLive } = await import('../src/features/canvas/run');
+const { AGENT_POLL_MS, agentBusy, phoneRunButtons, reloadIfChanged, agentMessage, agentSessionOf, folderOf, headLeft, programStates, queueFile, rememberAgentSession, startGuard, workflowLive } = await import('../src/features/canvas/run');
 
-describe('the queue', () => {
-  test('Queue run adds after the rest, kept in storage; cancel drops one; take starts the oldest', () => {
-    const a = queueRun('workflow:x', { q: 1 });
-    queueRun('workflow:x');
-    expect(queuedRuns('workflow:x').length).toBe(2);
-    // a reload reads it back
-    expect(queuedRuns('workflow:x')[0]).toEqual(a[0]);
-    expect(queuedRuns('workflow:y')).toEqual([]);
-    const left = dropQueued('workflow:x', queuedRuns('workflow:x')[1].id);
-    expect(left.map((q) => q.args)).toEqual([{ q: 1 }]);
-    expect(takeQueued('workflow:x')?.args).toEqual({ q: 1 });
-    expect(takeQueued('workflow:x')).toBeUndefined();
-    for (let i = 0; i < 12; i++) queueRun('workflow:z');
-    expect(queuedRuns('workflow:z').length).toBe(10);
+describe('the queue (on the hub)', () => {
+  test('a file is keyed as the hub keys it', () => {
+    expect(queueFile({ workflow: 'x' })).toBe('workflow:x');
+    expect(queueFile({ sessionId: 'ses_1', flow: 'tick' })).toBe('program:ses_1:tick');
   });
-  test('broken storage reads as empty', () => {
-    store.clear();
-    store.set([...store.keys()][0] ?? 'x', 'nope');
-    expect(queuedRuns('anything')).toEqual([]);
+  test('the head leaving the queue means the hub started it; a later cancel does not', () => {
+    expect(headLeft([{ id: 'a' }, { id: 'b' }], [{ id: 'b' }])).toBe(true);
+    expect(headLeft([{ id: 'a' }, { id: 'b' }], [{ id: 'a' }])).toBe(false);
+    expect(headLeft([], [])).toBe(false);
   });
 });
 
@@ -86,6 +76,15 @@ describe('a workflow run on its nodes', () => {
   });
 });
 
+describe('a phone foot button', () => {
+  test('Run while idle; Stop and Queue while a run goes on; Queue alone while it starts', () => {
+    expect(phoneRunButtons({ live: false })).toEqual(['run']);
+    expect(phoneRunButtons({ live: false, onStop: () => {} })).toEqual(['run']);
+    expect(phoneRunButtons({ live: true, onStop: () => {} })).toEqual(['stop', 'queue']);
+    expect(phoneRunButtons({ live: true })).toEqual(['queue']);
+  });
+});
+
 describe('Ask the agent', () => {
   test('the message names the file, the selection and the last error', () => {
     const m = agentMessage('  add a summary step ', { file: 'flows/scraper.flow.ts', selection: [{ label: 'bun', lines: 'line 7' }], error: 'TypeError: x\n at y' });
@@ -103,5 +102,28 @@ describe('Ask the agent', () => {
     expect(folderOf('~/.conclave/workflows/nightly-deps.js')).toBe('~/.conclave/workflows');
     expect(folderOf('builtin:x')).toBeUndefined();
     expect(folderOf(undefined)).toBeUndefined();
+  });
+  test('the file is polled every 2 s only while the agent is mid-turn', () => {
+    expect(AGENT_POLL_MS).toBe(2000);
+    for (const s of ['running', 'waiting_approval', 'waiting_input']) expect(agentBusy(s)).toBe(true);
+    for (const s of ['idle', 'paused', 'waiting_reset', 'error', undefined]) expect(agentBusy(s)).toBe(false);
+  });
+  test('a poll takes the file only when its sha moved; a failed read keeps the canvas', async () => {
+    let sha = 'v1';
+    let hub = 'v1';
+    let fail = false;
+    const took: string[] = [];
+    const poll = reloadIfChanged(
+      async () => (fail ? Promise.reject(new Error('offline')) : { sha: hub }),
+      () => sha,
+      (v) => (took.push(v.sha), (sha = v.sha)),
+    );
+    expect(await poll()).toBe(false);
+    hub = 'v2';
+    expect(await poll()).toBe(true);
+    expect(await poll()).toBe(false);
+    fail = true;
+    expect(await poll()).toBe(false);
+    expect(took).toEqual(['v2']);
   });
 });

@@ -762,8 +762,15 @@ For a ChatGPT plan the hub also reads the plan's own model list, the way
 the Codex app does. CLIProxyAPI serves only the models in its catalog, so
 when the plan lists one the catalog lacks, the CLIProxyAPI the hub runs for
 you gets it added to that plan's part of its catalog, and the model shows
-and answers. Your own CLIProxyAPI's catalog is left alone: there such a
-model shows once CLIProxyAPI's catalog has it.
+and answers. A Claude plan has no model list of its own to read, so once a
+Claude account is signed in, the CLIProxyAPI the hub runs gets the Claude
+models Conclave knows and its catalog lacks (Claude Mythos 5.1, for
+example) added to its Claude part. Your own CLIProxyAPI's catalog is left
+alone: there such a model shows once CLIProxyAPI's catalog has it.
+When your plan refuses a model (it answers 403 or 404, or says the model
+is not available), the model picker greys that model out with the reason
+instead of sending every turn to it. **Refresh models** asks the plan
+again; otherwise the mark goes after a day.
 The lists are read again every 10 minutes and on every coding agent turn. To
 read them now, press **Refresh models** in **Settings > Models >
 Subscriptions** (Models). It also starts each coding agent that is on, once,
