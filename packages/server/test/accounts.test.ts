@@ -13,6 +13,8 @@ import type { AccountsStatus, SubscriptionsStatus } from '@conclave/core/client/
 import { CODEX_CLIENT_VERSION, Management, ManagementError, USAGE_CALLS, assertAllowedCall, codexModels, splitPrefixed } from '../src/cliproxy/management';
 import { renderConfig } from '../src/cliproxy/config';
 import { ProviderRegistry } from '@conclave/core/providers/registry.ts';
+import { ProviderError } from '@conclave/core/providers/types.ts';
+import { modelRefusal } from '@conclave/core/providers/errors.ts';
 import { accountsOf } from '@conclave/core/accounts/attached.ts';
 import { WindowStarter, sendStarter } from '@conclave/core/accounts/starter.ts';
 import type { UsageInput } from '@conclave/core/usage/readers/common.ts';
@@ -829,6 +831,61 @@ describe('builtin: a ChatGPT plan\'s own models reach CLIProxyAPI through its ca
     await until(() => mgmtCalls().filter((c) => c.path === 'catalog').at(-1)?.catalog === null, 8000, 'the catalog cleared');
     expect(readdirSync(join(hub.engine.home, 'cliproxy')).filter((n) => n.startsWith('catalog-'))).toEqual([]);
     await until(() => !(hub.engine.config.get().providers.cliproxy.models ?? []).includes('gpt-6.2-nova'), 8000, 'gpt-6.2-nova gone');
+  }, 20_000);
+
+  test("a signed in Claude plan gets the Claude models of Conclave's catalog CLIProxyAPI lacks (Mythos 5.1), routed; none without one", async () => {
+    // only ChatGPT plans so far: nothing for the claude section, CLIProxyAPI keeps its own catalog
+    await hub.api('/api/models/refresh', { method: 'POST' });
+    expect(mgmtCalls().filter((c) => c.path === 'catalog').at(-1)?.catalog).toBeNull();
+    expect(hub.engine.config.get().providers.cliproxy.models ?? []).not.toContain('claude-mythos-5-1');
+    write('claude-me@example.test.json', { type: 'claude', email: 'claude@example.test' });
+    await until(async () => ((await (await hub.api('/api/accounts')).json()) as AccountsStatus).accounts.length === 3, 8000, 'the Claude plan');
+    await hub.api('/api/models/refresh', { method: 'POST' });
+    const set = await until(() => mgmtCalls().filter((c) => c.path === 'catalog').at(-1)?.catalog, 8000, 'the catalog with the claude section');
+    const written = JSON.parse(readFileSync(set, 'utf8'));
+    const ids = written.claude.map((m: { id: string }) => m.id);
+    // the official entries first, untouched; Mythos added with Conclave's name, window and output, the section's capabilities
+    expect(written.claude[0]).toEqual(official.claude[0]);
+    expect(ids).toContain('claude-mythos-5-1');
+    expect(written.claude.find((m: { id: string }) => m.id === 'claude-mythos-5-1')).toMatchObject({ display_name: 'Claude Mythos 5.1', type: 'claude', owned_by: 'anthropic', context_length: 1_000_000, max_completion_tokens: 128_000 });
+    // a model CLIProxyAPI's list already has is not added again
+    expect(ids.filter((id: string) => id === 'claude-opus-5-5')).toHaveLength(1);
+    expect(written['codex-plus']).toEqual(official['codex-plus']);
+    await until(() => (hub.engine.config.get().providers.cliproxy.models ?? []).includes('claude-mythos-5-1'), 8000, 'Mythos in the model list');
+    const reg = new ProviderRegistry(hub.engine.config);
+    let text = '';
+    for await (const ev of reg.get('cliproxy')!.stream({ model: 'claude-mythos-5-1', system: [], messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }], maxTokens: 8 })) if (ev.type === 'text_delta') text += ev.text;
+    reg.dispose();
+    expect(text).toBe('Hello from claude-mythos-5-1 over messages');
+  }, 20_000);
+
+  test('a plan that refuses the model (404 not_found_error) greys it out with the reason; Refresh models asks again', async () => {
+    write('claude-me@example.test.json', { type: 'claude', email: 'claude@example.test', refuse_models: ['claude-mythos-5-1'] });
+    const reg = new ProviderRegistry(hub.engine.config);
+    let err: unknown;
+    try {
+      for await (const _ of reg.get('cliproxy')!.stream({ model: 'claude-mythos-5-1', system: [], messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }], maxTokens: 8 })) void _;
+    } catch (e) {
+      err = e;
+    }
+    reg.dispose();
+    expect(err).toBeInstanceOf(ProviderError);
+    // what session/stream.ts does with a turn's error
+    const why = modelRefusal(err as ProviderError);
+    expect(why).toBe('Your plan refused it (HTTP 404)');
+    accountsOf(hub.engine)!.noteRefusal('cliproxy', 'claude-mythos-5-1', why!);
+    expect(hub.engine.config.get().providers.cliproxy.modelMeta?.['claude-mythos-5-1']).toEqual({ unavailable: why });
+    // the picker's list carries it; other models do not
+    const rows = new ProviderRegistry(hub.engine.config);
+    const group = (await rows.groups()).find((g) => g.provider === 'cliproxy')!;
+    rows.dispose();
+    expect(group.models.find((m) => m.id === 'claude-mythos-5-1')?.unavailable).toBe(why);
+    expect(group.models.find((m) => m.id === 'claude-opus-5-5')?.unavailable).toBeUndefined();
+    // another provider's refusal is not this one's
+    accountsOf(hub.engine)!.noteRefusal('anthropic', 'claude-opus-5-5', why!);
+    expect(hub.engine.config.get().providers.cliproxy.modelMeta?.['claude-opus-5-5']).toBeUndefined();
+    await hub.api('/api/models/refresh', { method: 'POST' });
+    expect(hub.engine.config.get().providers.cliproxy.modelMeta?.['claude-mythos-5-1']).toBeUndefined();
   }, 20_000);
 });
 

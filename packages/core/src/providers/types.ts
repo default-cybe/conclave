@@ -39,6 +39,8 @@ export interface ModelInfo {
   cyber?: CyberProgram[];
   /** What the model makes. Unset: chat. Image models stay out of chat pickers and show in the Image model picker. */
   kind?: 'chat' | 'image' | 'embedding';
+  /** Why the plan refused this model (403/404, "not available"); pickers grey it out with this. */
+  unavailable?: string;
 }
 
 /** Ids of image generators (the web's and Android's NON_CHAT image part). */
