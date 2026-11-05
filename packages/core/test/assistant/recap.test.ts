@@ -1,94 +1,197 @@
+/** Reflect's report numbers (assistant/recap.ts): ranges, per-account scoping, what is left out. */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { openDb, type Db } from '../../src/storage/db';
 import { Repos } from '../../src/storage/repos';
 import { WorkflowStore } from '../../src/workflows/store';
-import { buildRecap, recapRange } from '../../src/assistant/recap';
+import { buildReport, reflectRange } from '../../src/assistant/recap';
 import { atLocal } from '../../src/assistant/time';
 
 let db: Db;
+const TZ = 'America/Los_Angeles';
 const now = Date.parse('2026-11-05T18:00:00Z');
-const at = (day: string, hour = '12:00') => atLocal(day, hour, 'America/Los_Angeles');
-beforeEach(() => { db = openDb(':memory:'); new Repos(db); new WorkflowStore(db); });
+const at = (day: string, hour = '12:00') => atLocal(day, hour, TZ);
+let seq = 0;
+beforeEach(() => {
+  db = openDb(':memory:');
+  new Repos(db);
+  new WorkflowStore(db);
+});
 afterEach(() => db.close());
-function session(id: string, account = 'owner', ts = at('2026-11-03'), kind: string | null = null, parent: string | null = null) {
-  db.query(`INSERT INTO sessions (id, title, agent, model, mode, permission_mode, cwd, status, created_at, updated_at, account_id, kind, parent_id)
-    VALUES (?, ?, 'coder', 'test/model', 'single', 'ask', '/work/conclave', 'idle', ?, ?, ?, ?, ?)`).run(id, 'Conclave account isolation', ts, ts, account, kind, parent);
+
+function session(id: string, o: { account?: string; ts?: number; kind?: string | null; parent?: string | null; title?: string; agent?: string; cwd?: string } = {}) {
+  const ts = o.ts ?? at('2026-11-03');
+  db.query(
+    `INSERT INTO sessions (id, title, agent, model, mode, permission_mode, cwd, status, created_at, updated_at, account_id, kind, parent_id)
+     VALUES (?, ?, ?, 'test/model', 'single', 'ask', ?, 'idle', ?, ?, ?, ?, ?)`,
+  ).run(id, o.title ?? 'Conclave account isolation', o.agent ?? 'coder', o.cwd ?? '/work/conclave', ts, ts, o.account ?? 'owner', o.kind ?? null, o.parent ?? null);
 }
-function memory(id: string, content: string, tags: string[], ts: number, account = 'owner', meta = {}) {
-  db.query(`INSERT INTO memories (id, scope, kind, content, tags, created_at, updated_at, account_id, meta) VALUES (?, 'global', 'fact', ?, ?, ?, ?, ?, ?)`)
-    .run(id, content, JSON.stringify(tags), ts, ts, account, JSON.stringify(meta));
+function say(sessionId: string, text: string, ts = at('2026-11-03'), role = 'user', sender: string | null = null) {
+  db.query(`INSERT INTO messages (id, session_id, seq, role, kind, content, created_at, sender) VALUES (?, ?, ?, ?, 'normal', ?, ?, ?)`).run(`m${++seq}`, sessionId, seq, role, JSON.stringify([{ type: 'text', text }]), ts, sender);
 }
-function usage(id: string, account = 'owner', ts = at('2026-11-03')) {
-  db.query(`INSERT INTO usage (id, ts, source, provider, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost_usd, account_id)
-    VALUES (?, ?, 'api', 'test', 'model', 100, 20, 30, 5, 10, 0.25, ?)`).run(id, ts, account);
+function toolResult(sessionId: string, ts = at('2026-11-03')) {
+  db.query(`INSERT INTO messages (id, session_id, seq, role, kind, content, created_at) VALUES (?, ?, ?, 'user', 'normal', ?, ?)`).run(`m${++seq}`, sessionId, seq, JSON.stringify([{ type: 'tool_result', tool_use_id: 't', content: 'mail body' }]), ts);
 }
+function usage(id: string, account = 'owner', ts = at('2026-11-03'), sessionId: string | null = null) {
+  db.query(
+    `INSERT INTO usage (id, ts, session_id, source, provider, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, cost_usd, account_id)
+     VALUES (?, ?, ?, 'api', 'test', 'model', 100, 20, 30, 5, 10, 0.25, ?)`,
+  ).run(id, ts, sessionId, account);
+}
+function memory(id: string, content: string, tags: string[], ts: number, account = 'owner', kind = 'fact', src: string | null = null) {
+  db.query(`INSERT INTO memories (id, scope, kind, content, tags, created_at, updated_at, account_id, meta, source_session_id) VALUES (?, 'global', ?, ?, ?, ?, ?, ?, '{}', ?)`).run(id, kind, content, JSON.stringify(tags), ts, ts, account, src);
+}
+const report = (account = 'owner', range: Parameters<typeof buildReport>[2] = 'week') => buildReport(db, account, range, TZ, now);
 
-describe('Reflect recap', () => {
-  test('calendar boundaries use Monday and account timezone across DST and year rollover', () => {
-    expect(recapRange('week', now, 'America/Los_Angeles').start).toBe(at('2026-11-02', '00:00'));
-    expect(recapRange('month', now, 'America/Los_Angeles').start).toBe(at('2026-11-01', '00:00'));
-    expect(recapRange('year', now, 'America/Los_Angeles').start).toBe(at('2026-01-01', '00:00'));
-    expect(recapRange('week', Date.parse('2027-01-01T20:00Z'), 'UTC').start).toBe(Date.parse('2026-12-28T00:00Z'));
-    expect(recapRange('week', now, 'UTC').end).toBe(now + 1);
+describe('Reflect report numbers', () => {
+  test('ranges are rolling and end now, from local midnight', () => {
+    expect(reflectRange('week', now, TZ).start).toBe(at('2026-10-30', '00:00'));
+    expect(reflectRange('month', now, TZ).start).toBe(at('2026-10-07', '00:00'));
+    expect(reflectRange('3m', now, TZ).start).toBe(at('2026-08-06', '00:00'));
+    expect(reflectRange('12m', now, TZ).start).toBe(at('2025-11-06', '00:00'));
+    // 31 May back 3 months: no 31 Feb, so from 1 Mar
+    expect(reflectRange('3m', Date.parse('2026-05-31T12:00Z'), 'UTC').start).toBe(Date.parse('2026-03-01T00:00Z'));
+    expect(reflectRange('week', now, TZ).end).toBe(now + 1);
   });
 
-  test('counts active conversations, not subagents, and scopes every table to its account', () => {
-    session('owner-code'); session('owner-chat', 'owner', at('2026-11-02'), 'chat');
-    session('owner-child', 'owner', at('2026-11-03'), null, 'owner-code');
-    session('old-chat', 'owner', at('2026-10-01'), 'chat');
-    db.query(`INSERT INTO messages (id, session_id, seq, role, kind, content, created_at) VALUES ('msg', 'old-chat', 1, 'user', 'text', 'hello', ?)`).run(at('2026-11-04'));
-    session('member-code', 'member'); usage('u'); usage('member-u', 'member'); usage('old', 'owner', at('2026-10-01'));
-    db.query(`INSERT INTO workflow_runs (id, name, source, script, script_sha, device, cwd, status, session_id, created_at)
-      VALUES ('w', 'review', 'inline', '', '', 'local', '', 'done', 'owner-code', ?), ('mw', 'private', 'inline', '', '', 'local', '', 'done', 'member-code', ?)`).run(at('2026-11-03'), at('2026-11-03'));
-    const r = buildRecap(db, 'owner', 'week', 'America/Los_Angeles', now);
-    expect(r.totals).toEqual({ chats: 2, sessions: 1, workflows: 1, tokens: 155, costUsd: 0.25, models: 1 });
-    expect(r.models).toEqual([{ name: 'test/model', count: 1, tokens: 155, costUsd: 0.25 }]);
-    expect(r.projects).toEqual([{ name: '/work/conclave', count: 3 }]);
-    expect(r.topics).toContainEqual({ name: 'conclave', count: 3 });
-    expect(r.rhythm).toMatchObject({ activeDays: 3, longestStreak: 3, busiestHour: { name: '12:00', count: 3 } });
-    expect(buildRecap(db, 'member', 'week', 'America/Los_Angeles', now).totals).toMatchObject({ chats: 0, sessions: 1, workflows: 1, tokens: 155 });
+  test('every number is the account\'s own; a member sees none of the owner\'s', () => {
+    session('o1', { title: 'Owner secret roadmap' });
+    session('o2', { kind: 'chat', ts: at('2026-11-02') });
+    session('child', { parent: 'o1', agent: 'reviewer' });
+    say('o1', 'start the roadmap');
+    say('o1', 'no, use the other branch', at('2026-11-03', '23:30'));
+    toolResult('o1');
+    usage('u1', 'owner', at('2026-11-03'), 'o1');
+    session('m1', { account: 'mia', title: 'Mia garden planning', cwd: '/home/mia/garden' });
+    say('m1', 'plan the tomatoes');
+    usage('u2', 'mia', at('2026-11-03'), 'm1');
+    memory('mp', 'Ada: Mia\'s neighbour', ['person'], at('2026-11-03'), 'mia');
+
+    const own = report().report;
+    expect(own.totals).toMatchObject({ chats: 1, sessions: 1, tokens: 155, costUsd: 0.25, projects: 1 });
+    expect(own.rhythm.messages).toBe(2); // the tool result is not a message you typed
+    expect(own.rhythm.lateNightShare).toBe(0.5);
+    expect(own.habits.map((h) => h.key)).toContain('discernment');
+    expect(own.habits.find((h) => h.key === 'delegation')?.example).toContain('reviewer');
+    expect(JSON.stringify(own)).not.toMatch(/Mia|garden|tomatoes|Ada/);
+
+    const { report: hers, material } = report('mia');
+    expect(hers.totals).toMatchObject({ chats: 0, sessions: 1, tokens: 155 });
+    expect(hers.fun.newPeople).toEqual(['Ada']);
+    expect(JSON.stringify(hers) + material).not.toMatch(/roadmap|other branch/);
   });
 
-  test('people use earliest local memory, dedupe, and recognize imported people paths; preferences remain verbatim', () => {
-    memory('old-ada', 'Ada: Research collaborator', ['person'], at('2026-10-01'));
-    memory('ada', 'Ada: New note, not a new person', ['person'], at('2026-11-03'));
-    memory('rosa', 'Rosa: Works on security', ['entity:person'], at('2026-11-03'));
-    memory('imported', 'Lin: Project collaborator', ['imported', 'source:bm'], at('2026-11-04'));
-    db.query(`INSERT INTO kv (key, value, updated_at) VALUES ('memory.import.bm', ?, ?)`).run(JSON.stringify({ 'main/entities/people/lin': { id: 'imported', hash: 'x' } }), now);
-    memory('pref', 'Prefers short replies; dislikes filler.', ['kind:preference'], at('2026-11-03'));
-    memory('meta-pref', 'No gradients.', [], at('2026-11-03'), 'owner', { learnedKind: 'preference' });
-    memory('pending', 'Unconfirmed preference', ['preference'], at('2026-11-03'), 'owner', { review: 'pending' });
-    memory('superseded', 'Old preference', ['preference'], at('2026-11-03'), 'owner', { supersededBy: 'pref' });
-    memory('secret', 'Private member person', ['person'], at('2026-11-03'), 'member');
-    memory('secret-pref', 'Private member preference', ['preference'], at('2026-11-03'), 'member');
-    const r = buildRecap(db, 'owner', 'week', 'America/Los_Angeles', now);
-    expect(r.people.map((p) => p.content)).toEqual(['Rosa: Works on security', 'Lin: Project collaborator']);
-    expect(r.preferences.map((p) => p.content).sort()).toEqual(['No gradients.', 'Prefers short replies; dislikes filler.']);
-    expect(JSON.stringify(r)).not.toContain('Private member');
+  test('the diligence example is only a session you started, never a subagent, workflow or routine child', () => {
+    session('root', { title: 'Port the hub to Bun' });
+    session('judge', { title: 'Judge 2', agent: 'reviewer', parent: 'root' });
+    session('nightly', { title: 'Nightly audit run', agent: 'auditor' });
+    db.query(`UPDATE sessions SET routine_id = 'r1' WHERE id = 'nightly'`).run();
+    const only = report().report.habits.find((h) => h.key === 'diligence')!;
+    expect(only.observation).toContain('2 review sessions');
+    expect(only.example).toBeUndefined();
+
+    session('mine', { title: 'Review the Reflect PR', agent: 'reviewer', kind: 'chat' });
+    expect(report().report.habits.find((h) => h.key === 'diligence')?.example).toBe('For example "Review the Reflect PR".');
   });
 
-  test("a member's imported people come from the member's own import key", () => {
-    memory('m-lin', 'Lin: Member collaborator', ['imported'], at('2026-11-04'), 'member');
-    memory('o-kim', 'Kim: Owner collaborator', ['imported'], at('2026-11-04'));
-    db.query(`INSERT INTO kv (key, value, updated_at) VALUES ('acct:member:memory.import.bm', ?, ?), ('memory.import.bm', ?, ?)`)
-      .run(JSON.stringify({ 'people/lin': { id: 'm-lin' } }), now, JSON.stringify({ 'people/kim': { id: 'o-kim' } }), now);
-    expect(buildRecap(db, 'member', 'week', 'America/Los_Angeles', now).people.map((p) => p.content)).toEqual(['Lin: Member collaborator']);
-    expect(buildRecap(db, 'owner', 'week', 'America/Los_Angeles', now).people.map((p) => p.content)).toEqual(['Kim: Owner collaborator']);
+  test('health sessions and their subagents are left out and counted for the footnote', () => {
+    session('h', { title: 'Night skincare and hair', kind: 'chat' });
+    session('hc', { parent: 'h' });
+    session('ok', { title: 'Proxmox health check script' });
+    say('h', 'which serum');
+    usage('hu', 'owner', at('2026-11-03'), 'h');
+    const { report: r, material } = report();
+    expect(r.excluded.health).toBe(1);
+    expect(r.totals).toMatchObject({ chats: 0, sessions: 1, tokens: 0 });
+    expect(material).not.toMatch(/skincare|serum/);
+    expect(material).toContain('Proxmox health check');
   });
 
-  test('empty periods have no invented rhythm or fun facts; bounds exclude future data', () => {
-    session('future', 'owner', now + 1); usage('future-u', 'owner', now + 1);
-    const r = buildRecap(db, 'owner', 'week', 'UTC', now);
-    expect(Object.values(r.totals).every((n) => n === 0)).toBe(true);
-    expect(r.rhythm).toEqual({ activeDays: 0, longestStreak: 0 });
-    expect(r.facts).toEqual([]);
+  test('incognito sessions are left out', () => {
+    session('secret', { title: 'Private thing', kind: 'chat' });
+    db.exec(`UPDATE sessions SET incognito = 1 WHERE id = 'secret'`);
+    say('secret', 'hush');
+    session('open', { title: 'Open thing' });
+    const { report: r, material } = report();
+    expect(r.excluded.incognito).toBe(1);
+    expect(r.totals.chats).toBe(0);
+    expect(material).not.toContain('Private thing');
   });
 
-  test('month and year include older data, week does not', () => {
-    session('sunday', 'owner', at('2026-11-01'));
-    session('january', 'owner', at('2026-01-15'));
-    expect(buildRecap(db, 'owner', 'week', 'America/Los_Angeles', now).totals.sessions).toBe(0);
-    expect(buildRecap(db, 'owner', 'month', 'America/Los_Angeles', now).totals.sessions).toBe(1);
-    expect(buildRecap(db, 'owner', 'year', 'America/Los_Angeles', now).totals.sessions).toBe(2);
+  test('ranges: a week leaves out older work, 12 months keeps it', () => {
+    session('recent');
+    session('old', { ts: at('2026-03-10'), title: 'Old canvas work' });
+    say('old', 'hi', at('2026-03-10'));
+    expect(report('owner', 'week').report.totals.sessions).toBe(1);
+    expect(report('owner', 'month').report.totals.sessions).toBe(1);
+    expect(report('owner', '12m').report.totals.sessions).toBe(2);
+    expect(report('owner', '12m').report.rhythm.heatmap.flat().reduce((a, b) => a + b, 0)).toBe(1);
+  });
+
+  test("another person's words in a shared chat are not counted as yours", () => {
+    session('shared', { kind: 'chat', title: 'Trip planning' });
+    say('shared', 'book the train');
+    for (let i = 0; i < 6; i++) say('shared', `no, Mia prefers the coast ${i}`, at('2026-11-03', '23:40'), 'user', 'account:mia');
+    const r = report().report;
+    expect(r.rhythm.messages).toBe(1);
+    expect(r.rhythm.lateNightShare).toBe(0);
+    expect(r.habits.find((h) => h.key === 'discernment')).toBeUndefined();
+    // her messages in her own session count for her
+    session('hers', { account: 'mia', kind: 'chat' });
+    say('hers', 'plan it', at('2026-11-03'), 'user', 'account:mia');
+    expect(report('mia').report.rhythm.messages).toBe(1);
+  });
+
+  test('a pasted page is not the most detailed opener; new people are names, not sentences', () => {
+    session('paste', { title: 'Skip To Content Dashboard' });
+    say('paste', 'Skip To Content Dashboard '.repeat(400));
+    session('real', { title: 'Plan the Canvas rubric' });
+    say('real', 'Write a rubric for lab 4 with three levels and points per level, matching the syllabus weights.');
+    session('short', { title: 'Hi' });
+    say('short', 'hi there friend');
+    memory('p1', 'Soumy Oza ("Oza") is the user\'s friend, a .NET developer. They met at work.', ['person'], at('2026-11-03'));
+    memory('p2', 'Monil is the business owner and sole approver', ['person'], at('2026-11-03'));
+    memory('p3', 'The user met someone at the conference who works on compilers and likes tea', ['person'], at('2026-11-03'));
+    const r = report().report;
+    expect(r.habits.find((h) => h.key === 'description')?.example).toContain('Plan the Canvas rubric');
+    expect(r.fun.newPeople).toEqual(['Soumy Oza', 'Monil']);
+  });
+
+  test('messages have a time index, so a report does not scan every message', () => {
+    const plan = db.query(`EXPLAIN QUERY PLAN SELECT 1 FROM messages m WHERE m.created_at >= 1 AND m.created_at < 2`).all() as Array<{ detail: string }>;
+    expect(plan.map((p) => p.detail).join(' ')).toContain('messages_created');
+  });
+
+  test('a thin range asks no generic question and suggests nothing', () => {
+    session('one', { kind: 'chat', title: 'Quick unit conversion' });
+    say('one', 'how many cups in a litre');
+    say('one', 'thanks');
+    const r = report().report;
+    expect(r.totals.chats).toBe(1);
+    expect(r.question).toBe('');
+    expect(r.suggestions).toEqual([]);
+    expect(r.habits).toEqual([]);
+  });
+
+  test('an empty range has no invented habits, suggestions or fun', () => {
+    session('future', { ts: now + 10 });
+    const r = report().report;
+    expect(r.totals).toMatchObject({ chats: 0, sessions: 0, tokens: 0 });
+    expect(r.habits).toEqual([]);
+    expect(r.suggestions).toEqual([]);
+    expect(r.headline).toContain('nothing yet');
+    expect(r.question).toBe('');
+  });
+
+  test('summaries of a mail-reading agent never reach the model', () => {
+    session('mail', { agent: 'email', title: 'Inbox triage' });
+    session('code', { title: 'Fix tests' });
+    say('mail', 'triage');
+    say('code', 'go');
+    memory('e1', 'Read mail from bob about the merger', [], at('2026-11-03'), 'owner', 'episode', 'mail');
+    memory('e2', 'Fixed the flaky test', [], at('2026-11-03'), 'owner', 'episode', 'code');
+    const { material } = buildReport(db, 'owner', 'week', TZ, now, { untrustedAgent: (n) => n === 'email' });
+    expect(material).toContain('Inbox triage');
+    expect(material).not.toContain('merger');
+    expect(material).toContain('Fixed the flaky test');
   });
 });

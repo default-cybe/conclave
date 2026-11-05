@@ -6,7 +6,7 @@
  * none. Also answers GET /api/routines/templates with the hub's own list.
  */
 import type { Task } from '@conclave/core/types';
-import type { AssistantRoutineDto, AssistantSettingsDto, DayPlan, Goal, GoalArea, GoalDetail, GoalEntry, GoalSummary, ProactivePrefs, RecapDto, RecapPeriod, ReflectDto, ReflectNowDto, ReflectRunDto, TodayDto } from '@conclave/core/client';
+import type { AssistantRoutineDto, AssistantSettingsDto, DayPlan, Goal, GoalArea, GoalDetail, GoalEntry, GoalSummary, ProactivePrefs, ReflectDto, ReflectRange, ReflectReport, ReflectNowDto, ReflectRunDto, TodayDto, LearningsDto, LearningView, SkillIdea } from '@conclave/core/client';
 import type { MemoryEntry } from '@conclave/core/types';
 import { DEFAULT_PREFS, GOAL_AREAS } from '@conclave/core/assistant/types';
 import { ROUTINE_TEMPLATES } from '@conclave/core/scheduler/templates';
@@ -408,53 +408,104 @@ export function registerAssistant(ctx: MockCtx) {
     return { run, reflect: reflectDto() };
   });
 
-  // Reflect's recap: a made-up busy week, month and year; a fresh hub, or a new member (?member=1, index.ts), has nothing yet
-  const emptyRecap = ctx.FRESH || new URLSearchParams(location.search).get('member') === '1';
-  const recapDto = (period: RecapPeriod): RecapDto => {
-    const x = period === 'week' ? 1 : period === 'month' ? 4 : 38;
-    const first = period === 'week' ? addDays(today, -((new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7)) : period === 'month' ? `${today.slice(0, 7)}-01` : `${today.slice(0, 4)}-01-01`;
-    const start = Date.parse(`${first}T08:00:00Z`);
-    const base = { period, start, end: now + 1, timezone: ZONE };
-    if (emptyRecap) return { ...base, totals: { chats: 0, sessions: 0, workflows: 0, tokens: 0, costUsd: 0, models: 0 }, models: [], projects: [], topics: [], people: [], preferences: [], rhythm: { activeDays: 0, longestStreak: 0 }, facts: [] };
-    const mem = (id: string, content: string, ago: number) => ({ id, content, firstSeen: now - ago * DAY });
+  // Reflect's report: a made-up busy week to year; a fresh hub, or a new member (?member=1, index.ts), has nothing yet
+  const emptyReport = ctx.FRESH || new URLSearchParams(location.search).get('member') === '1';
+  const reportMade = new Map<ReflectRange, number>();
+  const reportDto = (range: ReflectRange): ReflectReport => {
+    const x = { week: 1, month: 4, '3m': 12, '6m': 24, '12m': 46 }[range];
+    const days = { week: 7, month: 30, '3m': 92, '6m': 183, '12m': 365 }[range];
+    const start = Date.parse(`${addDays(today, -(days - 1))}T08:00:00Z`);
+    const generatedAt = reportMade.get(range) ?? now - 2 * 3600_000;
+    const heatmap = Array.from({ length: 7 }, (_, d) => Array.from({ length: 24 }, (_, h) => Math.round(x * Math.max(0, (h >= 9 && h <= 12 ? 4 : h >= 20 && h <= 23 ? 6 : h <= 1 ? 3 : h >= 14 && h <= 17 ? 2 : 0) - (d >= 5 ? 1 : 0) + ((d * 7 + h) % 3 === 0 ? 1 : 0)))));
+    const base = { range, start, end: now + 1, timezone: ZONE, generatedAt, excluded: { health: emptyReport ? 0 : 2, incognito: emptyReport ? 0 : 1 } };
+    if (emptyReport)
+      return { ...base, insights: 'basic', headline: 'The last 7 days: nothing yet. Chats and sessions show up here as you go.', totals: { chats: 0, sessions: 0, workflows: 0, hoursActive: 0, tokens: 0, costUsd: 0, projects: 0 }, work: { topics: [], projects: [], newThisPeriod: [] }, rhythm: { heatmap: Array.from({ length: 7 }, () => Array(24).fill(0)), messages: 0, activeDays: 0, longestStreak: 0, lateNightShare: 0 }, habits: [], models: { models: [], agents: [], fallbacks: 0, switches: 0, finishedTurns: 0 }, fun: { newPeople: [], memoriesAdded: 0, skillsLearned: [], goalsMoved: 0, goalsDone: 0 }, suggestions: [], question: '', excluded: { health: 0, incognito: 0 } };
     const models = [
-      { name: 'anthropic/claude-opus-5-5', count: 212 * x, tokens: 4_810_000 * x, costUsd: 31.4 * x },
-      { name: 'anthropic/claude-sonnet-5-5', count: 340 * x, tokens: 2_260_000 * x, costUsd: 9.1 * x },
-      { name: 'openai/gpt-5.5', count: 48 * x, tokens: 610_000 * x, costUsd: 3.8 * x },
-      { name: 'zai/glm-5', count: 31 * x, tokens: 240_000 * x, costUsd: 0.4 * x },
+      { name: 'anthropic/claude-opus-5-5', calls: 212 * x, tokens: 4_810_000 * x, costUsd: 31.4 * x },
+      { name: 'anthropic/claude-sonnet-5-5', calls: 340 * x, tokens: 2_260_000 * x, costUsd: 9.1 * x },
+      { name: 'openai/gpt-5.5', calls: 48 * x, tokens: 610_000 * x, costUsd: 3.8 * x },
+      { name: 'zai/glm-5', calls: 31 * x, tokens: 240_000 * x, costUsd: 0.4 * x },
     ];
+    const costUsd = Math.round(models.reduce((a, m) => a + m.costUsd, 0) * 100) / 100;
+    const year = range === '12m' || range === '6m';
     return {
       ...base,
-      totals: { chats: 23 * x, sessions: 14 * x, workflows: 3 * x, tokens: models.reduce((a, m) => a + m.tokens, 0), costUsd: models.reduce((a, m) => a + m.costUsd, 0), models: models.length },
-      models,
-      projects: [
-        { name: '/home/conclave/work/conclave', count: 9 * x },
-        { name: '/home/kai/uni/14-735', count: 3 * x },
-        { name: '/home/kai/homelab', count: 2 * x },
+      insights: 'model',
+      headline: year ? 'A year that moved from homelab tinkering to shipping Conclave, with Secure Coding work every week in term.' : 'Mostly Conclave this week: the Reflect rebuild and meeting notes, plus two Secure Coding activities late at night.',
+      totals: { chats: 23 * x, sessions: 14 * x, workflows: 3 * x, hoursActive: 19 * x, tokens: models.reduce((a, m) => a + m.tokens, 0), costUsd, projects: year ? 11 : 4 },
+      work: {
+        topics: [
+          { name: 'Reflect rebuild', example: 'Reflect page: heatmap and 4D section' },
+          { name: 'Meeting notes', example: 'AFFiNE meeting notes with live transcript' },
+          { name: 'Secure Coding', example: '05-01 Integers activity, one page' },
+          { name: 'Homelab', example: 'Plex buffering: turn on BBR' },
+        ],
+        projects: [
+          { name: 'conclave', sessions: 9 * x, example: 'Reflect v2 on feat/reflect-v2' },
+          { name: '14-735', sessions: 3 * x, example: 'Integers activity, human voice' },
+          { name: 'homelab', sessions: 2 * x, example: 'Update all LXCs on Madx' },
+        ],
+        newThisPeriod: year ? ['conclave', 'kaivalyaahir.com', 'Practicum'] : ['Practicum'],
+      },
+      rhythm: { heatmap, messages: 180 * x, activeDays: Math.min(6 * x, days), longestStreak: range === 'week' ? 6 : range === 'month' ? 11 : 26, busiestDay: { date: addDays(today, -1), count: 41 }, lateNightShare: 0.27 },
+      habits: [
+        { key: 'delegation', observation: `You handed ${46 * x} tasks to subagents and ran ${3 * x} workflows; coder took most of them.`, example: 'The defense-research workflow split one question across 18 agents.' },
+        { key: 'description', observation: 'Your openers run about 60 words and name the branch, the files and what done looks like.', example: '"Rebuild Reflect on feat/reflect-v2, 8 sections, per account" set the whole job in one message.' },
+        { key: 'discernment', observation: `You corrected course ${7 * x} times and declined 2 drafts after reading them.`, example: 'You sent the Integers PDF back twice until it read in your own words.' },
+        { key: 'diligence', observation: `You ran ${4 * x} review sessions and ended 2 turns with the type check still failing.`, example: 'You had a reviewer read the reflect diff before you opened the PR.' },
       ],
-      topics: [
-        { name: 'reflect', count: 6 * x },
-        { name: 'meeting', count: 4 * x },
-        { name: 'authentik', count: 3 * x },
-        { name: 'backup', count: 2 * x },
-        { name: 'integers', count: 2 * x },
-        { name: 'plex', count: 1 * x },
+      models: { models, agents: [{ name: 'coder', count: 31 * x }, { name: 'general-purpose', count: 22 * x }, { name: 'reviewer', count: 9 * x }, { name: 'web-searcher', count: 6 * x }], fallbacks: 14 * x, topFallback: 'cliproxy/claude-opus-5-5 to anthropic/claude-sonnet-5-5', switches: 3 * x, finishedTurns: 410 * x, costPerResult: Math.round((costUsd / (410 * x)) * 1000) / 1000 },
+      fun: {
+        topTool: { name: 'Bash', count: 1320 * x },
+        longestChat: { title: 'Research Chat', messages: 108, sessionId: 's_brief' },
+        biggestWorkflow: { name: 'defense-research', agents: 18, costUsd: 4.2 },
+        newPeople: year ? ['Priya', 'Marco', 'Jaimin', 'Rosa'] : ['Priya', 'Marco'],
+        memoriesAdded: 31 * x,
+        skillsLearned: year ? ['conclave-mock-ui-screenshots', 'madx-update-all', 'plex-fix-anime-labels-seeding-safe'] : ['conclave-mock-ui-screenshots'],
+        goalsMoved: 3 * x,
+        goalsDone: year ? 4 : 0,
+      },
+      suggestions: [
+        { text: 'Start a Canvas project.', why: 'You re-explained the Canvas setup in 6 chats this period.' },
+        { text: 'Turn the morning LXC update into a routine.', why: 'You asked for it the same way 5 times.' },
+        { text: 'Set quiet hours from 23:30.', why: '27% of your messages came between 23:00 and 05:00.' },
       ],
-      people: [mem('p1', 'Priya: TA for 14-735 Secure Coding, holds office hours on Thursdays', 2), mem('p2', 'Marco: runs the homelab Discord, knows Proxmox networking', 4)],
-      preferences: [mem('f1', 'Likes short, bullet-only answers that cite line numbers.', 1), mem('f2', 'Dislikes em dashes and AI-sounding phrasing in anything he sends.', 3), mem('f3', 'Prefers work split across parallel subagents.', 5)],
-      rhythm: { activeDays: Math.min(6 * x, 300), longestStreak: period === 'week' ? 5 : period === 'month' ? 11 : 26, busiestDay: { name: addDays(today, -1), count: 41 }, busiestHour: { name: '22:00', count: 18 * x }, timeOfDay: { name: 'Evening (18–23)', count: 70 * x } },
-      facts: [`${period === 'week' ? 5 : period === 'month' ? 11 : 26}-day active streak.`, 'Most-used model: anthropic/claude-opus-5-5.', 'Top workspace: conclave.', 'Peak hours: Evening (18–23).'],
+      question: "What's one thing you want to keep doing yourself, even if an agent could do it faster?",
     };
   };
-  const periodOf = (q: URLSearchParams): RecapPeriod => (q.get('period') === 'month' || q.get('period') === 'year' ? (q.get('period') as RecapPeriod) : 'week');
-  on('GET', '/api/reflect/recap', async ({ query }) => {
+  const rangeOf = (q: URLSearchParams): ReflectRange => (['week', 'month', '3m', '6m', '12m'].includes(q.get('range') ?? '') ? (q.get('range') as ReflectRange) : 'week');
+  on('GET', '/api/reflect/report', async ({ query }) => {
     await ctx.sleep(150);
-    return recapDto(periodOf(query));
+    return reportDto(rangeOf(query));
   });
-  on('POST', '/api/reflect/recap/summary', async ({ query }) => {
-    await ctx.sleep(900);
-    const p = periodOf(query);
-    return { summary: `A steady ${p} with most of your time in Conclave, mostly in the evenings around 22:00. Opus did the heavy lifting, Sonnet handled the quick chats, and two new people joined your memory. You kept asking for short answers with no em dashes, and the assistant noted it.` };
+  // Learnings (assistant/learnings.ts): a few waiting, one with every target, and one skill idea
+  const ago = (h: number) => Date.now() - h * 3_600_000;
+  const learnings: LearningView[] = ctx.FRESH
+    ? []
+    : [
+        { id: 'lrn_1', kind: 'correction', fact: 'The user uses pnpm, not npm, in the conclave repo.', rule: 'Use pnpm, not npm.', quote: 'no, use pnpm not npm, we never use npm here', confidence: 0.92, count: 3, sessionId: 's_brief', sessionTitle: 'Fix the web build', agent: 'coder', cwd: '/home/conclave/work/conclave', skill: 'conclave-mock-ui-screenshots', status: 'pending', createdAt: ago(30), updatedAt: ago(2), targets: [{ target: 'memory', label: 'Memory' }, { target: 'agent', label: 'Instructions for coder', ref: 'coder' }, { target: 'project', label: 'This project (CONCLAVE.md)', ref: '/home/conclave/work/conclave' }, { target: 'skill', label: 'Pitfalls of conclave-mock-ui-screenshots', ref: 'conclave-mock-ui-screenshots' }], similar: [{ kind: 'memory', ref: 'mem_pnpm', text: 'The user prefers pnpm.' }] },
+        { id: 'lrn_2', kind: 'preference', fact: 'The user wants expense lists as one line sum with date and vendor.', rule: 'Give expense lists as a one line sum, with date and vendor beside each amount.', quote: 'just give me 12+8+30 with the date and shop next to each', confidence: 0.81, count: 1, sessionId: 's_brief', sessionTitle: 'October expenses', agent: 'chat', status: 'pending', createdAt: ago(50), updatedAt: ago(50), targets: [{ target: 'memory', label: 'Memory' }, { target: 'agent', label: 'Instructions for chat', ref: 'chat' }], similar: [] },
+        { id: 'lrn_3', kind: 'positive', fact: 'The user liked the bullet-only interview answers with line numbers.', rule: 'For code review practice, answer in short bullets that cite line numbers.', quote: 'perfect, exactly like that, bullets with the line numbers', confidence: 0.7, count: 1, sessionId: 's_brief', sessionTitle: 'Mock interview review', agent: 'chat', cwd: '/home/kai/notes', status: 'pending', createdAt: ago(70), updatedAt: ago(70), targets: [{ target: 'memory', label: 'Memory' }, { target: 'project', label: 'This project (CONCLAVE.md)', ref: '/home/kai/notes', refused: 'Trust this folder first (Extensions, Hooks). Only trusted folders take rules.' }], similar: [] },
+      ];
+  let ideas: SkillIdea[] = ctx.FRESH ? [] : [{ id: 'idea_1', kind: 'skill', name: 'weekly-expense-sum', description: "Sum the week's receipts from mail into one line with dates and vendors.", body: '## Steps\n\n1. Search mail for receipts.\n2. Sum them.', examples: ['October expenses', 'Receipts this week', 'Uber and food spend'] }];
+  const learningsDto = (): LearningsDto => ({ items: learnings, pending: learnings.length, queued: 0, ideas, ...(ctx.FRESH ? {} : { ideasAt: ago(5) }) });
+  const dropLearning = (id: string) => learnings.splice(learnings.findIndex((l) => l.id === id), 1);
+  on('GET', '/api/reflect/learnings', async () => (await ctx.sleep(120), learningsDto()));
+  on('GET', '/api/reflect/learnings/count', () => ({ pending: learnings.length }));
+  on('POST', '/api/reflect/learnings/:id/preview', ({ params, body }) => {
+    const b = body as { target: string; text?: string };
+    const text = b.text ?? 'Use pnpm, not npm.';
+    return { target: b.target, path: b.target === 'project' ? '/home/conclave/work/conclave/CONCLAVE.md' : b.target === 'skill' ? '~/.conclave/learned-skills/conclave-mock-ui-screenshots/SKILL.md' : 'agent coder', text, diff: ['  Run bun run test once at a time.', '+ ', '+ ## Learned', '+ ', `+ - ${text}`], id: params[0] };
+  });
+  on('POST', '/api/reflect/learnings/:id/save', async ({ params }) => (await ctx.sleep(300), dropLearning(params[0]), learningsDto()));
+  on('POST', '/api/reflect/learnings/:id/skip', ({ params }) => (dropLearning(params[0]), learningsDto()));
+  on('POST', '/api/reflect/ideas/find', async () => (await ctx.sleep(900), learningsDto()));
+  on('POST', '/api/reflect/ideas/:id/save', ({ params }) => ((ideas = ideas.filter((i) => i.id !== params[0])), learningsDto()));
+  on('POST', '/api/reflect/ideas/:id/skip', ({ params }) => ((ideas = ideas.filter((i) => i.id !== params[0])), learningsDto()));
+  on('POST', '/api/reflect/report/refresh', async ({ query }) => {
+    await ctx.sleep(1200);
+    reportMade.set(rangeOf(query), Date.now());
+    return reportDto(rangeOf(query));
   });
 
   // ----- Today -----------------------------------------------------------------
