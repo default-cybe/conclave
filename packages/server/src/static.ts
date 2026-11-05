@@ -1,4 +1,5 @@
 import { existsSync, realpathSync, statSync } from 'node:fs';
+import { brotliCompressSync, constants as zlib, gzipSync } from 'node:zlib';
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -95,6 +96,35 @@ export function webDirCandidates(): string[] {
   return out;
 }
 
+/** Text types worth compressing; fonts and images are compressed already. */
+const COMPRESSIBLE = new Set(['.html', '.js', '.mjs', '.css', '.json', '.map', '.webmanifest', '.svg', '.txt', '.xml', '.wasm']);
+
+/** Compressed bodies by file, encoding, size and mtime: each file is compressed once (the main bundle is 520 KB, 150 KB gzipped). */
+const packed = new Map<string, Buffer>();
+
+/** br, then gzip, when the client takes it and the file is worth it; undefined to send it as it is. */
+export function pickEncoding(accept: string | null | undefined, path: string, size: number): 'br' | 'gzip' | undefined {
+  if (!accept || size < 1024 || !COMPRESSIBLE.has(extname(path).toLowerCase())) return undefined;
+  const takes = (enc: string) =>
+    accept.split(',').some((p) => {
+      const [name, ...params] = p.trim().toLowerCase().split(';');
+      return name.trim() === enc && !params.some((x) => /^\s*q=0(\.0*)?\s*$/.test(x));
+    });
+  return takes('br') ? 'br' : takes('gzip') ? 'gzip' : undefined;
+}
+
+async function compressed(target: string, enc: 'br' | 'gzip', file: ReturnType<typeof Bun.file>): Promise<Buffer> {
+  const key = `${enc}:${file.size}:${file.lastModified}:${target}`;
+  let body = packed.get(key);
+  if (!body) {
+    const raw = new Uint8Array(await file.arrayBuffer());
+    body = enc === 'br' ? brotliCompressSync(raw, { params: { [zlib.BROTLI_PARAM_QUALITY]: 9, [zlib.BROTLI_PARAM_SIZE_HINT]: raw.length } }) : gzipSync(raw, { level: 9 });
+    // shortcut: unbounded, but holds one copy per file of one web build (about 3 MB); bound it if builds get swapped live often
+    packed.set(key, body);
+  }
+  return body;
+}
+
 function headersFor(path: string, size?: number): Headers {
   const h = new Headers(SECURITY_HEADERS);
   h.set('content-type', MIME[extname(path).toLowerCase()] ?? 'application/octet-stream');
@@ -111,7 +141,7 @@ function headersFor(path: string, size?: number): Headers {
  * Serve a file from dir. Unknown paths without an extension (client routes
  * like /s/abc) fall back to index.html. Returns undefined when nothing fits.
  */
-export async function serveStatic(dir: string, pathname: string, method: string): Promise<Response | undefined> {
+export async function serveStatic(dir: string, pathname: string, method: string, acceptEncoding?: string | null): Promise<Response | undefined> {
   if (method !== 'GET' && method !== 'HEAD') return undefined;
   let rel: string;
   try {
@@ -135,8 +165,17 @@ export async function serveStatic(dir: string, pathname: string, method: string)
     file = Bun.file(target);
     if (!(await file.exists())) return undefined;
   }
-  const headers = headersFor(urlPath, file.size);
-  return new Response(method === 'HEAD' ? null : file, { status: 200, headers });
+  const enc = pickEncoding(acceptEncoding, urlPath, file.size);
+  if (!enc) {
+    const headers = headersFor(urlPath, file.size);
+    if (COMPRESSIBLE.has(extname(urlPath).toLowerCase())) headers.set('vary', 'accept-encoding');
+    return new Response(method === 'HEAD' ? null : file, { status: 200, headers });
+  }
+  const body = await compressed(target, enc, file);
+  const headers = headersFor(urlPath, body.byteLength);
+  headers.set('content-encoding', enc);
+  headers.set('vary', 'accept-encoding');
+  return new Response(method === 'HEAD' ? null : (body as unknown as BodyInit), { status: 200, headers });
 }
 
 function isDir(p: string): boolean {
