@@ -1905,6 +1905,8 @@ export class ConclaveClient {
   contextUsage = (id: string) => this.request<ContextUsageDto>('GET', `/api/sessions/${id}/context`);
   todos = (id: string) => this.request<Todo[]>('GET', `/api/sessions/${id}/todos`);
   checkpoints = (id: string) => this.request<Checkpoint[]>('GET', `/api/sessions/${id}/checkpoints`);
+  /** The session's background shells the hub holds now; a hub restart ends them all. */
+  shells = (id: string) => this.request<import('../types').ShellInfo[]>('GET', `/api/sessions/${id}/shells`);
   restoreCheckpoint = (id: string, checkpointId: string) => this.request<{ ok: true }>('POST', `/api/sessions/${id}/checkpoints/${checkpointId}/restore`);
   diff = (id: string) => this.request<{ diff: string; files: string[]; offline?: boolean }>('GET', `/api/sessions/${id}/diff`);
 

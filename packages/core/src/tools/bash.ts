@@ -192,6 +192,7 @@ function runBackground(input: BashInput, ctx: ToolContext, moved = false): ToolO
       command: input.command,
       cwd: ctx.cwd,
       description: input.description,
+      toolUseId: ctx.toolUseId,
       env: bashEnv(ctx),
       // a moved wait keeps the foreground cap as its kill deadline and tells the session when it ends
       ...(moved

@@ -226,6 +226,8 @@ export interface EngineApi {
   command(id: string, line: string): Promise<{ output?: string }>;
   todos(id: string): Todo[];
   checkpoints(id: string): Checkpoint[];
+  /** The session's background shells this hub process holds; none after a restart. */
+  shells(id: string): import('../types').ShellInfo[];
   restoreCheckpoint(id: string, checkpointId: string): Promise<void>;
   diff(id: string): Promise<{ diff: string; files: string[]; offline?: boolean }>;
   /** Sanitized by default (session/share.ts); raw is the stored rows, for owner backups. */

@@ -139,6 +139,8 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'POST /api/sessions/:id/command': SESSION,
   'GET /api/sessions/:id/todos': SESSION,
   'GET /api/sessions/:id/checkpoints': SESSION,
+  // the background shells this hub process holds (ContextPanel.tsx TasksCard)
+  'GET /api/sessions/:id/shells': SESSION,
   'POST /api/sessions/:id/checkpoints/:checkpointId/restore': SESSION,
   'GET /api/sessions/:id/diff': SESSION,
   'GET /api/sessions/:id/export': SESSION,
