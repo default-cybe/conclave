@@ -23,6 +23,7 @@ import type { CyberProgram } from '@conclave/core/providers/access-programs';
 import type { Session } from '@conclave/core/types';
 import { ACCEPT_FILES, MAX_ATTACHMENTS } from '@conclave/core/attachments/limits';
 import { askBtw, useHub } from '@/store/store';
+import { onPasteFiles } from '@/lib/pasteFiles';
 import { BtwCards } from '@/features/chat/Pending';
 import { btwQuestion } from '@/features/chat/slash';
 import { cn, fuzzyFilter } from '@/lib/text';
@@ -476,13 +477,7 @@ export function ChatComposer({
       aria-activedescendant={menuOpen ? `${listId}-${sel}` : undefined}
       onChange={(e) => setText(e.target.value)}
       onKeyDown={onKey}
-      onPaste={(e) => {
-        const list = Array.from(e.clipboardData.files);
-        if (list.length) {
-          e.preventDefault();
-          void addFiles(list);
-        }
-      }}
+      onPaste={(e) => onPasteFiles(e, (list) => void addFiles(list))}
       placeholder={placeholder}
       enterKeyHint={mobile ? 'enter' : 'send'}
       className={className}

@@ -12,6 +12,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Fixed
 
 - Desktop app: files dropped on a chat attach again on macOS and Linux. On macOS the drop zones now accept the drag on dragenter too, which WebKit needs before it lets a drop through. On Linux, where WebKitGTK gives the page no files from a file manager, the app takes the drop itself and the page reads only those files (45 MB at most) through a new `read_dropped` command.
+- Desktop app on macOS: pasting a picture into the message box attaches it again: a screenshot, a picture copied in Preview or Photos (TIFF becomes PNG), or a file copied in Finder. When WKWebView hands the page an empty paste, the app reads the clipboard itself through a new `paste_files` command, only for the focused window; a copied file is read like a dropped one (45 MB at most). Pasted text still pastes as text, and a session's box now takes any pasted file, not only pictures.
 
 ## [0.4.64] - 2026-11-04
 

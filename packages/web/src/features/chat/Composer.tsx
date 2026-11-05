@@ -62,7 +62,6 @@ type FileEntry = { name: string; path: string; type: 'dir' | 'file'; size?: numb
 const drafts = new Map<string, string>();
 /** Pictures, PDFs, text and code, and zips: in a session the hub saves a zip in its folder (core attachments/zip.ts). */
 const ACCEPT = ACCEPT_FILES;
-const isImage = (f: File) => f.type.startsWith('image/');
 /** One file; 15 in a message at most (core attachments/limits.ts). */
 const MAX_BYTES = 12 * 1024 * 1024;
 
@@ -548,7 +547,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
               onKeyDown={onKey}
               onBlur={() => setTimeout(() => setCaret(-1), 150)}
               onFocus={(e) => setCaret(e.target.selectionStart)}
-              onPaste={(e) => onPasteFiles(e, (imgs) => void addFiles(imgs), isImage)}
+              onPaste={(e) => onPasteFiles(e, (list) => void addFiles(list))}
               placeholder={phonePlaceholder}
               className={PHONE_FIELD}
             />
@@ -640,7 +639,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
             onKeyDown={onKey}
             onBlur={() => setTimeout(() => setCaret(-1), 150)}
             onFocus={(e) => setCaret(e.target.selectionStart)}
-            onPaste={(e) => onPasteFiles(e, (imgs) => void addFiles(imgs), isImage)}
+            onPaste={(e) => onPasteFiles(e, (list) => void addFiles(list))}
             placeholder={placeholder}
             className="block w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[14px] leading-[1.5] text-fg outline-none placeholder:text-fg-3 focus-visible:outline-none phone:text-[16px]"
           />
