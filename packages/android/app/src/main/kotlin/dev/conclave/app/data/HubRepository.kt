@@ -627,7 +627,9 @@ class HubRepository(
             load {
                 // imported chats not continued yet sit archived in a group of their own (client logic/Imported.kt)
                 val imported = runCatching { c.listSessions(archived = true, tag = "imported", limit = 1000) }.getOrDefault(emptyList()).filter { Imported.inImported(it) }
-                sessions.value = c.listSessions(archived = false, limit = 500) + imported
+                // delegated work has a group of its own; other children load with their parent (ChatViewModel)
+                val delegated = runCatching { c.listSessions(archived = false, tag = "delegated", limit = 200) }.getOrDefault(emptyList())
+                sessions.value = (c.topLevelSessions(archived = false) + delegated + imported).distinctBy { it.id }
                 syncedAt.value = System.currentTimeMillis()
             }
         }

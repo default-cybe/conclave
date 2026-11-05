@@ -13,7 +13,7 @@ import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { Link, Redirect, useLocation, useParams, useSearch } from 'wouter';
 import { MoreHorizontal, PanelRight } from 'lucide-react';
 import { api } from '@/lib/api';
-import { attempt, removeKey, retainTranscript, useHub, useQuietToasts } from '@/store/store';
+import { attempt, removeKey, retainTranscript, useHub, useMissingSession, useQuietToasts } from '@/store/store';
 import { cn } from '@/lib/text';
 import { compact, usd } from '@/lib/format';
 import { worthLine } from '@/features/usage/value';
@@ -50,7 +50,6 @@ export default function ChatPage() {
   const params = useParams<{ id?: string }>();
   const id = params.id;
   const session = useHub((s) => (id ? s.sessions[id] : undefined));
-  const booted = useHub((s) => s.booted);
   const bp = useBreakpoint();
   const phone = bp === 'phone';
   const dockPreview = bp === 'desktop' || bp === 'wide';
@@ -120,7 +119,7 @@ export default function ChatPage() {
   // the chat's cards at the right on wide screens, unless a preview has that place
   const wide = bp === 'wide';
   const panel = !!session && !guest && wide && contextOpen && !previewW;
-  const missing = !!id && !session && booted;
+  const missing = useMissingSession(id);
 
   const onDragOver = (e: DragEvent) => {
     if (missing || !acceptFileDrag(e)) return;

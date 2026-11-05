@@ -68,6 +68,21 @@ class ClientTest {
     }
 
     @Test
+    fun topLevelSessionsReadsEveryPage() = runBlocking {
+        // a full page, then a short one: an old chat past the first page still arrives
+        server.enqueue(MockResponse(body = """[{"id":"a"},{"id":"b"}]"""))
+        server.enqueue(MockResponse(body = """[{"id":"old","title":"Portfolio Beast"}]"""))
+        val list = client().topLevelSessions(archived = false, page = 2)
+        assertEquals(listOf("a", "b", "old"), list.map { it.id })
+        val first = server.takeRequest().url
+        assertEquals("none", first.queryParameter("parentId"))
+        assertEquals("false", first.queryParameter("archived"))
+        assertEquals("2", first.queryParameter("limit"))
+        assertEquals("0", first.queryParameter("offset"))
+        assertEquals("2", server.takeRequest().url.queryParameter("offset"))
+    }
+
+    @Test
     fun postsJsonBodies() = runBlocking {
         server.enqueue(MockResponse(body = """{"queued":true,"messageId":"m9"}"""))
         val r = client().send("s 1", SendInput(text = "hi"))
