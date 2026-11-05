@@ -274,6 +274,8 @@ for t in light dark; do
   adb shell am force-stop "$pkg"
   adb shell am start -W -n "$activity" >/dev/null
   await_text Menu 30 && panel Canvas && await_text "Library workflows" 20 && sleep 2 && shot "canvas-list-$t.png"
+  # Recent runs sit under the library, below the fold
+  adb shell input swipe 600 2400 600 400 300 && sleep 2
   await_text "review-login-fix" 15 tap && await_text "Run of review-login-fix*" 20 && sleep 3 && shot "canvas-run-$t.png"
   # Memory > Map: the tree, the rings, the 3D clusters and timeline, and an item's sheet over the tree and 3D
   open_link "conclave://memory-map?view=tree" && await_text Rings 20 && sleep 2 && shot "memory-map-tree-$t.png"
