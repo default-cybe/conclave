@@ -92,7 +92,7 @@ describe('incognito sessions across accounts', () => {
 
   test('search, the Map, Today and the recap never name the other side, nor its own', async () => {
     for (const token of [OWNER, alice.token]) {
-      for (const path of [`/api/search?q=${secret.owner.word}`, `/api/search?q=${secret.alice.word}`, '/api/sessions', '/api/map', '/api/assistant/today', '/api/reflect/recap?period=week']) {
+      for (const path of [`/api/search?q=${secret.owner.word}`, `/api/search?q=${secret.alice.word}`, '/api/sessions', '/api/map', '/api/assistant/today', '/api/reflect/report?range=week']) {
         const r = await call(token, 'GET', path);
         expect(r.status).toBe(200);
         const text = JSON.stringify(r.body);
