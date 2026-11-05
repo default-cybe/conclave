@@ -12,6 +12,9 @@ like `## [0.4.16] - 2026-10-24`.
 ### Fixed
 
 - A new chat no longer opens with the prompt you sent from an earlier one. The first send of a chat from Home cleared the box in the same moment the page moved to the chat, so the saved draft of the new-chat box kept the sent text and every later new chat showed it again. A send now drops the stored draft at once; a refused send still puts the text back.
+- Android: while a second opinion is on its way, the model's name no longer flickers. The shimmer used to sweep across "Asking Sonnet 5.5" letter by letter. Now the row matches the web: "Second opinion from [mark] Sonnet 5.5" stays still, and only "Reading the reply" under it is live.
+- Android: the "Model and effort" picker no longer shakes when you scroll its list all the way down. The list's extra push at its end used to reach the sheet, which sprang up and back. Now the list stops firmly at its end, as on the web. Pulling down at the top still closes the sheet.
+- The desktop app no longer seems to restart by itself. Its automatic update now waits until no window of the app is on screen; before, a window that was open but not focused (next to another app) restarted when a release came out. A window hidden in the tray for 10 minutes still goes to Home to save memory, but it now moves there inside the page, and comes back to where it was the same way, instead of loading the page again. On Android with the fingerprint lock on, unlocking after a minute away returns to the screen you were on instead of Home. Each page load now logs why it loaded (`load`: reload, navigate or back_forward, and `discarded` when Chrome had dropped the tab to save memory), so the hub's logs tell a reload by the browser or by you from one by the app. The hub update dialog no longer says the page reloads by itself; it reconnects and offers Reload.
 
 ## [0.4.64] - 2026-11-04
 

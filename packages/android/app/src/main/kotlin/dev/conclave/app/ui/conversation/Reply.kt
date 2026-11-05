@@ -697,6 +697,25 @@ fun AsideView(message: Message, pending: Boolean, onContinue: () -> Unit, onDism
     }
 }
 
+/**
+ * A second opinion on its way, as the web's AskingRow: the model's name stays
+ * still in the head, and only "Reading the reply" under the rule is live (the
+ * shimmer is for a live verb, never a name). [mark] false while a reply runs.
+ */
+@Composable
+fun AskingRow(model: String, startedAt: Long, mark: Boolean) {
+    val c = Conclave.colors
+    val head = ConclaveType.meta.copy(fontWeight = FontWeight.SemiBold)
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Second opinion from ", style = head, color = c.fg2, maxLines = 1)
+            ModelName(model, Modifier.weight(1f, fill = false), size = 13.dp, style = head, color = c.fg2, asModel = true)
+        }
+        Spacer(Modifier.height(4.dp))
+        Ruled { LiveStatus(LiveState.THINKING, label = "Reading the reply", startedAt = startedAt, mark = mark) }
+    }
+}
+
 /** A notice line ("Stopped by you.", errors, limits) or "Switched to GPT-5.5.". */
 @Composable
 fun NoticeText(text: String) {

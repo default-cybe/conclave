@@ -4,6 +4,7 @@ import { MOCK, connectClient, consumeHashToken, loadConnection, withoutConnectPa
 import { loadAll, startLive, stopLive, useHub } from './store/store';
 import { isSetupPath, setupRedirect, useOnboarded } from './lib/onboarding';
 import { onHubIdentityError } from './lib/identity';
+import { listenDesktopNavigate } from './lib/desktopNav';
 import { keepTrying, reachHub, useReach, type Reached } from './lib/reach';
 import { Shell } from './components/Shell';
 import { OwnerOnly } from './components/OwnerOnly';
@@ -147,6 +148,9 @@ export function App() {
     navigator.serviceWorker?.addEventListener('message', onMsg);
     return () => navigator.serviceWorker?.removeEventListener('message', onMsg);
   }, [navigate]);
+
+  // the desktop app parks its hidden window on Home and brings it back without a load
+  useEffect(() => listenDesktopNavigate(window, (to) => navigate(to)), [navigate]);
 
   // first run: a hub that has not been set up opens onboarding (the owner can skip); a member has nothing to set up
   const onboarded = useOnboarded();
