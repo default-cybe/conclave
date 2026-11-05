@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { AssistantService, attachAssistant } from '@conclave/core/assistant/index.ts';
 import { RateLimiter } from '../src/auth';
+import { accountKv } from '@conclave/core/people/scoped.ts';
 import { startHub, type TestHub } from './helpers';
 
 let hub: TestHub;
@@ -17,7 +18,7 @@ beforeAll(() => {
   // the fake engine has no assistant: a real one over its database, memory and routines, as engine/create.ts attaches it
   const e = hub.engine;
   const make = (accountId?: string) =>
-    new AssistantService({ db: e.repos.db, kv: e.repos.kv, repos: e.repos, memory: e.memoryStore, routines: e.routines, createTask: (input) => e.createTask(input, accountId), complete: async (o) => (calls.push({ accountId: accountId ?? 'owner', prompt: o.prompt }), JSON.stringify({ headline: 'A calm week.' })), ...(accountId ? { accountId } : {}) });
+    new AssistantService({ db: e.repos.db, kv: accountKv(e.repos.kv, accountId ?? 'owner'), repos: e.repos, memory: accountId ? e.memoryFor(accountId) : e.memoryStore, routines: e.routines, createTask: (input) => e.createTask(input, accountId), complete: async (o) => (calls.push({ accountId: accountId ?? 'owner', prompt: o.prompt }), JSON.stringify({ headline: 'A calm week.' })), ...(accountId ? { accountId } : {}) });
   attachAssistant(e, make(), (id) => make(id));
 });
 afterAll(() => hub.stop());
@@ -98,5 +99,40 @@ describe('Reflect report', () => {
     expect(calls.at(-1)!.prompt).not.toMatch(/roadmap|Omar/);
 
     expect((await hub.api('/api/reflect/report?range=decade')).status).toBe(400);
+  });
+});
+
+describe('Reflect learnings', () => {
+  test('each account sees and saves only its own queue; nothing is written before Save', async () => {
+    const e = hub.engine;
+    const made = await asJson(await hub.api('/api/people', { method: 'POST', json: { name: 'lea', password: 'a long enough password' } }));
+    const leaId = made.body.person.id as string;
+    const lea = (await asJson(await hub.api('/api/login', { method: 'POST', token: null, json: { account: 'lea', password: 'a long enough password', name: 'phone' } }))).body.token as string;
+    const item = (id: string, fact: string) => ({ id, kind: 'preference', fact, rule: fact, quote: fact, confidence: 0.9, count: 1, sessionId: 's', status: 'pending', createdAt: 1, updatedAt: 1 });
+    accountKv(e.repos.kv, 'owner').set('learn.queue', [item('lrn_owner', 'The user prefers dark roast coffee.')]);
+    accountKv(e.repos.kv, leaId).set('learn.queue', [item('lrn_lea', 'The user prefers green tea.')]);
+
+    const own = await asJson(await hub.api('/api/reflect/learnings'));
+    expect(own.status).toBe(200);
+    expect(own.body.items.map((i: { id: string }) => i.id)).toEqual(['lrn_owner']);
+    expect((await asJson(await hub.api('/api/reflect/learnings/count', { token: lea }))).body).toEqual({ pending: 1 });
+    const hers = await asJson(await hub.api('/api/reflect/learnings', { token: lea }));
+    expect(JSON.stringify(hers.body)).not.toContain('coffee');
+
+    // another account's id is unknown here; a bad target is refused
+    expect((await hub.api('/api/reflect/learnings/lrn_owner/save', { method: 'POST', token: lea, json: { target: 'memory' } })).status).toBe(404);
+    expect((await hub.api('/api/reflect/learnings/lrn_owner/save', { method: 'POST', json: { target: 'disk' } })).status).toBe(400);
+
+    const before = e.memoryStore.stats().total;
+    const preview = await asJson(await hub.api('/api/reflect/learnings/lrn_owner/preview', { method: 'POST', json: { target: 'memory' } }));
+    expect(preview.body).toMatchObject({ target: 'memory', text: 'The user prefers dark roast coffee.' });
+    expect(e.memoryStore.stats().total).toBe(before);
+    const saved = await asJson(await hub.api('/api/reflect/learnings/lrn_owner/save', { method: 'POST', json: { target: 'memory' } }));
+    expect(saved.status).toBe(200);
+    expect(saved.body.pending).toBe(0);
+    expect(e.memoryStore.stats().total).toBe(before + 1);
+    expect(e.memoryFor(leaId).list().some((m) => m.content.includes('coffee'))).toBe(false);
+    expect((await hub.api('/api/reflect/learnings/lrn_lea/skip', { method: 'POST', token: lea })).status).toBe(200);
+    expect(e.memoryFor(leaId).list().some((m) => m.content.includes('tea'))).toBe(false);
   });
 });

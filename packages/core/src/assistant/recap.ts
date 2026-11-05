@@ -24,7 +24,7 @@ export const HEALTH = /\b(?:health(?!\s*-?(?:checks?|z|endpoints?|status|monitor
 const CORRECTION = /^\s*(?:no\b[,.!\s]|nope\b|actually\b|wrong\b|that'?s (?:not|wrong)|not what i|don'?t\b|do not\b|stop\b|instead\b|undo\b|revert\b|why did you\b|i said\b)/i;
 const LATE = (h: number) => h >= 23 || h < 5;
 /** A message the person typed: user role, a text block first (tool results are user rows too), no reminder, not sent by the hub. */
-const TYPED = `m.role = 'user' AND m.kind = 'normal' AND json_valid(m.content) AND json_extract(m.content, '$[0].type') = 'text'
+export const TYPED = `m.role = 'user' AND m.kind = 'normal' AND json_valid(m.content) AND json_extract(m.content, '$[0].type') = 'text'
   AND substr(json_extract(m.content, '$[0].text'), 1, 17) != '<system-reminder>' AND (m.meta IS NULL OR json_extract(m.meta, '$.auto') IS NULL)`;
 
 type SessionRow = { id: string; title: string; agent: string; cwd: string; kind: string | null; parent: string | null; project: string | null; routine: string | null; created: number; userMsgs: number; incognito: number };

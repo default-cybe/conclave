@@ -6,7 +6,7 @@
  * none. Also answers GET /api/routines/templates with the hub's own list.
  */
 import type { Task } from '@conclave/core/types';
-import type { AssistantRoutineDto, AssistantSettingsDto, DayPlan, Goal, GoalArea, GoalDetail, GoalEntry, GoalSummary, ProactivePrefs, ReflectDto, ReflectRange, ReflectReport, ReflectNowDto, ReflectRunDto, TodayDto } from '@conclave/core/client';
+import type { AssistantRoutineDto, AssistantSettingsDto, DayPlan, Goal, GoalArea, GoalDetail, GoalEntry, GoalSummary, ProactivePrefs, ReflectDto, ReflectRange, ReflectReport, ReflectNowDto, ReflectRunDto, TodayDto, LearningsDto, LearningView, SkillIdea } from '@conclave/core/client';
 import type { MemoryEntry } from '@conclave/core/types';
 import { DEFAULT_PREFS, GOAL_AREAS } from '@conclave/core/assistant/types';
 import { ROUTINE_TEMPLATES } from '@conclave/core/scheduler/templates';
@@ -478,6 +478,30 @@ export function registerAssistant(ctx: MockCtx) {
     await ctx.sleep(150);
     return reportDto(rangeOf(query));
   });
+  // Learnings (assistant/learnings.ts): a few waiting, one with every target, and one skill idea
+  const ago = (h: number) => Date.now() - h * 3_600_000;
+  const learnings: LearningView[] = ctx.FRESH
+    ? []
+    : [
+        { id: 'lrn_1', kind: 'correction', fact: 'The user uses pnpm, not npm, in the conclave repo.', rule: 'Use pnpm, not npm.', quote: 'no, use pnpm not npm, we never use npm here', confidence: 0.92, count: 3, sessionId: 's_brief', sessionTitle: 'Fix the web build', agent: 'coder', cwd: '/home/conclave/work/conclave', skill: 'conclave-mock-ui-screenshots', status: 'pending', createdAt: ago(30), updatedAt: ago(2), targets: [{ target: 'memory', label: 'Memory' }, { target: 'agent', label: 'Instructions for coder', ref: 'coder' }, { target: 'project', label: 'This project (CONCLAVE.md)', ref: '/home/conclave/work/conclave' }, { target: 'skill', label: 'Pitfalls of conclave-mock-ui-screenshots', ref: 'conclave-mock-ui-screenshots' }], similar: [{ kind: 'memory', ref: 'mem_pnpm', text: 'The user prefers pnpm.' }] },
+        { id: 'lrn_2', kind: 'preference', fact: 'The user wants expense lists as one line sum with date and vendor.', rule: 'Give expense lists as a one line sum, with date and vendor beside each amount.', quote: 'just give me 12+8+30 with the date and shop next to each', confidence: 0.81, count: 1, sessionId: 's_brief', sessionTitle: 'October expenses', agent: 'chat', status: 'pending', createdAt: ago(50), updatedAt: ago(50), targets: [{ target: 'memory', label: 'Memory' }, { target: 'agent', label: 'Instructions for chat', ref: 'chat' }], similar: [] },
+        { id: 'lrn_3', kind: 'positive', fact: 'The user liked the bullet-only interview answers with line numbers.', rule: 'For code review practice, answer in short bullets that cite line numbers.', quote: 'perfect, exactly like that, bullets with the line numbers', confidence: 0.7, count: 1, sessionId: 's_brief', sessionTitle: 'Mock interview review', agent: 'chat', cwd: '/home/kai/notes', status: 'pending', createdAt: ago(70), updatedAt: ago(70), targets: [{ target: 'memory', label: 'Memory' }, { target: 'project', label: 'This project (CONCLAVE.md)', ref: '/home/kai/notes', refused: 'Trust this folder first (Extensions, Hooks). Only trusted folders take rules.' }], similar: [] },
+      ];
+  let ideas: SkillIdea[] = ctx.FRESH ? [] : [{ id: 'idea_1', kind: 'skill', name: 'weekly-expense-sum', description: "Sum the week's receipts from mail into one line with dates and vendors.", body: '## Steps\n\n1. Search mail for receipts.\n2. Sum them.', examples: ['October expenses', 'Receipts this week', 'Uber and food spend'] }];
+  const learningsDto = (): LearningsDto => ({ items: learnings, pending: learnings.length, queued: 0, ideas, ...(ctx.FRESH ? {} : { ideasAt: ago(5) }) });
+  const dropLearning = (id: string) => learnings.splice(learnings.findIndex((l) => l.id === id), 1);
+  on('GET', '/api/reflect/learnings', async () => (await ctx.sleep(120), learningsDto()));
+  on('GET', '/api/reflect/learnings/count', () => ({ pending: learnings.length }));
+  on('POST', '/api/reflect/learnings/:id/preview', ({ params, body }) => {
+    const b = body as { target: string; text?: string };
+    const text = b.text ?? 'Use pnpm, not npm.';
+    return { target: b.target, path: b.target === 'project' ? '/home/conclave/work/conclave/CONCLAVE.md' : b.target === 'skill' ? '~/.conclave/learned-skills/conclave-mock-ui-screenshots/SKILL.md' : 'agent coder', text, diff: ['  Run bun run test once at a time.', '+ ', '+ ## Learned', '+ ', `+ - ${text}`], id: params[0] };
+  });
+  on('POST', '/api/reflect/learnings/:id/save', async ({ params }) => (await ctx.sleep(300), dropLearning(params[0]), learningsDto()));
+  on('POST', '/api/reflect/learnings/:id/skip', ({ params }) => (dropLearning(params[0]), learningsDto()));
+  on('POST', '/api/reflect/ideas/find', async () => (await ctx.sleep(900), learningsDto()));
+  on('POST', '/api/reflect/ideas/:id/save', ({ params }) => ((ideas = ideas.filter((i) => i.id !== params[0])), learningsDto()));
+  on('POST', '/api/reflect/ideas/:id/skip', ({ params }) => ((ideas = ideas.filter((i) => i.id !== params[0])), learningsDto()));
   on('POST', '/api/reflect/report/refresh', async ({ query }) => {
     await ctx.sleep(1200);
     reportMade.set(rangeOf(query), Date.now());

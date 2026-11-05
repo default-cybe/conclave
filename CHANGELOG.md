@@ -9,6 +9,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Reflect has a Learnings section. Corrections, preferences, "remember: ..." and praise you type in chats and code sessions are caught by a quick check, then one batched call on your own small model keeps lasting lessons and drops one-off instructions, questions and vague feedback, in any language. Each waits with the exact quote, its chat and a count of repeats; Save writes it as a memory fact, into the agent's instructions, into a trusted project's `CONCLAVE.md` (diff shown first), or into the Pitfalls of the learned skill that was running. Edit and Skip are per item; near memories can be merged. Nothing is written without a press. Skill ideas looks at your last 14 days for repeated requests and drafts a skill or routine to save. Incognito chats, subagents, routine runs and other people's messages are never read; what memory extraction already saved is not queued again. Home shows a line when learnings wait.
+
 ### Changed
 
 - Reflect is rebuilt as a report per account for the last 7 days, 30 days, or 3, 6 or 12 months: headline numbers, what you worked on, a when-you-work heatmap, the four AI Fluency habits with examples from your own sessions, models and agents, fun stats, suggestions, and a question that opens a new chat. Numbers come from SQL; one pass on your own small model over session titles and summaries writes the words. Cached per range, made again weekly or on Refresh. Incognito and health-related sessions are left out. The old recap and Summarise endpoints are replaced by `GET /api/reflect/report` and `POST /api/reflect/report/refresh`.

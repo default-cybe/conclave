@@ -22,6 +22,7 @@ import { buildDay, renderDay, type DayReport } from './day';
 import { addDays, atLocal, cronHours, dayRange, daysBetween, insideHours, localDate, localHhmm, localLong } from './time';
 import { QUIET_JOB } from './quiet';
 import { buildReport } from './recap';
+import { LearningsService, type LearnHost } from './learnings';
 import type { ReflectHabit, ReflectRange, ReflectReport } from '../client/recap';
 import { OWNER_ID } from '../people/context';
 import type { AssistantRoutineDto, AssistantSettingsDto, DayPlan, DayPlanItem, PrefsPatch, ProactivePrefs, ReflectDto, ReflectNowDto, ReflectPatch, ReflectRunDto, TodayDto, TodayGoal } from './types';
@@ -63,6 +64,8 @@ export interface AssistantHost {
   complete?(o: { system: string; prompt: string; maxTokens: number; purpose: string }): Promise<string>;
   /** This account's learned skills (name, created day): Reflect's fun stats. */
   learnedSkills?(): Array<{ name: string; created: string }>;
+  /** Reflect's Learnings: where a saved learning can go (agent instructions, a project's CONCLAVE.md, a learned skill). */
+  learn?: LearnHost;
   /** Whose assistant (docs/design/ACCOUNTS.md). Sessions it reads are this account's. Default: the owner's. */
   accountId?: string;
 }
@@ -70,6 +73,7 @@ export interface AssistantHost {
 export class AssistantService {
   readonly goals: GoalService;
   readonly prefs: PrefsService;
+  readonly learnings: LearningsService;
   private host: AssistantHost;
   private now: () => number;
 
@@ -77,6 +81,7 @@ export class AssistantService {
     this.host = host;
     this.now = host.now ?? Date.now;
     this.prefs = new PrefsService({ kv: host.kv, memory: host.memory, now: this.now, hubZone: host.hubZone });
+    this.learnings = new LearningsService({ db: host.db, kv: host.kv, accountId: host.accountId ?? OWNER_ID, memory: host.memory, routines: host.routines, complete: host.complete, learn: host.learn, now: this.now });
     const memory = host.memory;
     this.goals = new GoalService({
       db: host.db,

@@ -16,6 +16,7 @@ import { Greeting } from '@/features/conversation/Greeting';
 import { useSessionTarget } from './SessionStart';
 import { TodaySection } from './today';
 import { WaitingSection } from './sections';
+import { LearningsBadge } from '@/features/settings/reflectLearnings';
 import type { StartMode } from './start';
 
 /** The knot over the greeting: as heavy over its 26px heading as the phone's 64px mark over its 28px one. */
@@ -35,6 +36,7 @@ export function EmptyConversation({ mode }: { mode: StartMode }) {
       <div className="mt-7">{mode === 'chat' ? <ChatComposer chatId="new" minRows={3} blurOnEsc placeholder={PLACEHOLDER.chat} /> : <SessionComposer key={mode} mode={mode} />}</div>
       <div className="mx-auto w-full max-w-[784px] space-y-7 px-8 pt-4">
         <WaitingSection open={1} />
+        <LearningsBadge />
         <TodaySection />
       </div>
       <div aria-hidden className="min-h-8 flex-[6]" />
