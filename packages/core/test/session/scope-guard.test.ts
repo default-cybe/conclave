@@ -104,7 +104,7 @@ describe('the PR 1 test list', () => {
 
   test('expired, revoked, spent or oversize grants do not count', () => {
     for (const g of [grant({ expiresAt: NOW - 1 }), grant({ revokedAt: NOW - 1 }), grant({ used: 500 }), grant({ requestBudget: 501 }), grant({ issuedAt: NOW - GRANT_MAX_MS - 2, expiresAt: NOW + 1 }), grant({ hosts: ['other.acme.com'] })]) {
-      expect(grantLive(g, NOW) && g.hosts.includes('app.acme.com')).toBe(false);
+      expect(grantLive(g, NOW) && g.hosts.some((h) => h === 'app.acme.com')).toBe(false);
       expect(run('Bash', curl('https://app.acme.com/api/me'), { grants: [g] })).toMatchObject({ decision: 'ask' });
     }
   });
