@@ -65,8 +65,6 @@ import { probeModel, probeModels, providerPatchProblem, removedProviders } from 
 
 const PAIRING_TTL_MS = 10 * 60_000;
 const ok = { ok: true as const };
-/** Messages a transcript read with no cursor answers: the newest page. */
-export const DEFAULT_PAGE = 200;
 
 const MEMORY_KINDS: MemoryKind[] = ['profile', 'fact', 'episode', 'procedure', 'inspiration'];
 const MEMORY_SCOPES: MemoryScope[] = ['global', 'project', 'agent'];
@@ -430,17 +428,14 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     const id = sid(c);
     const limit = qNum(c.req.query('limit'));
     if (limit !== undefined && (!Number.isInteger(limit) || limit < 1)) throw badRequest('limit must be a positive integer');
-    const afterSeq = qNum(c.req.query('afterSeq'));
-    const beforeSeq = qNum(c.req.query('beforeSeq'));
-    // no cursor at all: the newest DEFAULT_PAGE messages, not the whole history (a 73 MB transcript stalled the hub).
-    // A full page means older ones may exist: ask again with beforeSeq set to the first one's seq. afterSeq reads forward as before.
-    const page = limit ?? (afterSeq === undefined && beforeSeq === undefined ? DEFAULT_PAGE : undefined);
-    const msgs = engine.getMessages(id, { afterSeq, beforeSeq, limit: page });
+    // no limit and no cursor reads the whole transcript: installed Android and CLI builds have no way to page back.
+    // The web asks for the newest page (store.ts PAGE) and pages back with beforeSeq (a 73 MB transcript stalled the hub)
+    const msgs = engine.getMessages(id, { afterSeq: qNum(c.req.query('afterSeq')), beforeSeq: qNum(c.req.query('beforeSeq')), limit });
     // a shared chat: history starts at the participant's join, and other people's tool output stays theirs, the owner's view included (shared-chats.ts)
     const s = engine.getSession(id);
     const visible = s && (s.accountId !== accountOf(c) || msgs.some((m) => m.sender)) ? chatParticipants(ctx).visible(id, accountOf(c), msgs) : msgs;
-    // blocks over 100 KB come light unless trim=0, listed in meta.trimmed; the route below serves each in full
-    return c.json(qBool(c.req.query('trim')) === false ? visible : visible.map(trimMessage));
+    // trim=1: blocks over 100 KB come light, listed in meta.trimmed; the route below serves each in full
+    return c.json(qBool(c.req.query('trim')) ? visible.map(trimMessage) : visible);
   });
 
   app.get('/api/sessions/:id/messages/:msgId/blocks/:index', (c) => {

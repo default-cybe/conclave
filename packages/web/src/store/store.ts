@@ -352,7 +352,7 @@ export function loadMessages(sessionId: string, force = false, from?: Message): 
     const queueMark = queueEvents.get(sessionId) ?? 0;
     // a hub from before the queue answers 404: nothing waits
     // a first load reads the newest page; a resync reads forward from what is held
-    const [fetched, todos, queue] = await Promise.all([settle(c.messages(sessionId, from ? { afterSeq: from.seq - 1 } : { limit: PAGE }), undefined as Message[] | undefined), settle(c.todos(sessionId), [] as Todo[]), settle(c.queue(sessionId), undefined as QueuedMessage[] | undefined)]);
+    const [fetched, todos, queue] = await Promise.all([settle(c.messages(sessionId, from ? { afterSeq: from.seq - 1 } : { limit: PAGE, trim: true }), undefined as Message[] | undefined), settle(c.todos(sessionId), [] as Todo[]), settle(c.queue(sessionId), undefined as QueuedMessage[] | undefined)]);
     if (loads.get(sessionId) !== load) return;
     // the message the resync starts at is not where it was: the transcript changed under it
     if (from && fetched && fetched[0]?.id !== from.id) {
@@ -397,7 +397,7 @@ export const PAGE = 200;
 export async function loadOlder(sessionId: string): Promise<void> {
   const first = get().messages[sessionId]?.[0];
   if (!first || !get().messagesOlder[sessionId]) return;
-  const older = await api().messages(sessionId, { beforeSeq: first.seq, limit: PAGE });
+  const older = await api().messages(sessionId, { beforeSeq: first.seq, limit: PAGE, trim: true });
   set((s) => {
     const held = s.messages[sessionId] ?? [];
     if (held[0]?.id !== first.id) return {};
@@ -425,13 +425,15 @@ export async function fillTrimmed(sessionId: string): Promise<void> {
       const block = await api()
         .messageBlock(sessionId, m.id, index)
         .catch(() => undefined);
+      // the hub did not answer: keep the mark, so the next load fetches it again and a cut block never passes as whole
+      if (!block) return;
       set((s) => {
         const list = s.messages[sessionId];
         const i = list?.findIndex((x) => x.id === m.id) ?? -1;
         if (!list || i < 0) return {};
         const cur = list[i];
         const trimmed = (trimmedOf(cur) ?? []).filter((t) => t.index !== index);
-        const content = block ? cur.content.map((b, j) => (j === index ? block : b)) : cur.content;
+        const content = cur.content.map((b, j) => (j === index ? block : b));
         const next = [...list];
         next[i] = { ...cur, content, meta: { ...cur.meta, trimmed: trimmed.length ? trimmed : undefined } };
         return { messages: { ...s.messages, [sessionId]: next } };

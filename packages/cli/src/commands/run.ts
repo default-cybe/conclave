@@ -138,7 +138,7 @@ export async function runCommand(args: ParsedArgs, promptFrom = 1): Promise<numb
     let lastStop: Message['stopReason'];
     if (sessionId) {
       try {
-        const msgs = await client.messages(sessionId, { limit: 100_000 });
+        const msgs = await client.messages(sessionId);
         if (!asJson) for (const m of msgs) printMessage(m);
         lastStop = [...msgs].reverse().find((m) => m.role === 'assistant' && m.kind === 'normal')?.stopReason;
         session = await client.getSession(sessionId);

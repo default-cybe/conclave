@@ -36,7 +36,7 @@ describe('session routes via the typed client', () => {
     expect(await status(client.getSession(s.id))).toBe(404);
   });
 
-  test('trim cuts blocks over 100 KB by default; the block route gives each back in full', async () => {
+  test('trim=1 cuts blocks over 100 KB; the block route gives each back in full', async () => {
     const s = await client.createSession({ title: 'big', cwd: '/srv' });
     const big = 'x'.repeat(300_000);
     const image = { type: 'image' as const, mediaType: 'image/png', data: 'A'.repeat(200_000) };
@@ -47,10 +47,8 @@ describe('session routes via the typed client', () => {
     ];
     hub.engine.repos.messages.insert({ id: 'msg_big', sessionId: s.id, seq: 1, role: 'user', kind: 'normal', content, createdAt: Date.now() });
 
-    // untouched with trim=0: an app that shows every block inline asks for it
-    expect((await client.messages(s.id, { trim: false }))[0].content).toEqual(content);
-    // with no trim parameter the page comes light, as with trim=1
-    expect(await client.messages(s.id)).toEqual(await client.messages(s.id, { trim: true }));
+    // untouched without trim: the apps that do not ask (installed Android and CLI builds) see what they always did
+    expect((await client.messages(s.id))[0].content).toEqual(content);
 
     const [m] = await client.messages(s.id, { trim: true, limit: 50 });
     for (const b of m.content) expect(JSON.stringify(b).length).toBeLessThanOrEqual(100_100);
@@ -65,19 +63,20 @@ describe('session routes via the typed client', () => {
     expect(await status(client.messageBlock(other.id, m.id, 0))).toBe(404);
   });
 
-  test('no cursor answers the newest 200 messages; beforeSeq pages back and afterSeq reads forward in full', async () => {
+  test('limit alone answers the newest page, beforeSeq pages back; no cursor or afterSeq reads in full', async () => {
     const s = await client.createSession({ title: 'long', cwd: '/srv' });
     const now = Date.now();
     for (let seq = 1; seq <= 450; seq++) hub.engine.repos.messages.insert({ id: `msg_l${seq}`, sessionId: s.id, seq, role: 'user', kind: 'normal', content: [{ type: 'text', text: `m${seq}` }], createdAt: now });
-    const page = await client.messages(s.id);
+    // what the web store asks first (store.ts PAGE)
+    const page = await client.messages(s.id, { limit: 200 });
     expect(page.map((m) => m.seq)).toEqual(Array.from({ length: 200 }, (_, i) => 251 + i));
     // a full page: the one before it starts at its first seq
     const older = await client.messages(s.id, { beforeSeq: page[0].seq, limit: 200 });
     expect(older.map((m) => m.seq)).toEqual(Array.from({ length: 200 }, (_, i) => 51 + i));
     expect((await client.messages(s.id, { beforeSeq: older[0].seq, limit: 200 })).map((m) => m.seq)).toEqual(Array.from({ length: 50 }, (_, i) => 1 + i));
-    // a resync after a seq is not cut at 200, and an explicit limit still reads that many
+    // a client that does not page (Android, CLI) still gets the whole chat, and a resync is not cut short
+    expect(await client.messages(s.id)).toHaveLength(450);
     expect(await client.messages(s.id, { afterSeq: 10 })).toHaveLength(440);
-    expect(await client.messages(s.id, { limit: 1000 })).toHaveLength(450);
   });
 
   test('unknown session is 404 on every session route', async () => {

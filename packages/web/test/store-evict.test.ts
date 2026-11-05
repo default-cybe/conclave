@@ -8,20 +8,34 @@
 import { afterAll, expect, test } from 'bun:test';
 import type { Message } from '@conclave/core/types';
 import { connectClient } from '../src/lib/api';
-import { applyEvent, KEEP_RECENT, LIVE_TAIL, loadAll, retainTranscript, useHub } from '../src/store/store';
+import { applyEvent, KEEP_RECENT, LIVE_TAIL, loadAll, loadOlder, retainTranscript, useHub } from '../src/store/store';
 
 const msg = (sessionId: string, seq: number, extra: Partial<Message> = {}): Message => ({ id: `${sessionId}_m${seq}`, sessionId, seq, role: 'assistant', kind: 'normal', content: [{ type: 'text', text: `m${seq}` }], createdAt: seq, stopReason: 'end_turn', ...extra }) as Message;
 /** Each session's transcript at the hub. */
 const hub: Record<string, Message[]> = {};
 const asked: string[] = [];
+/** The block route fails while set. */
+let blocksDown = false;
 const realFetch = globalThis.fetch;
+// the hub's paging as in core storage/repos.ts page(), and trim=1 cutting text over 1000 chars (stands in for 100 KB)
 globalThis.fetch = (async (url: string | URL | Request) => {
   const u = new URL(String(url));
+  const b = /\/api\/sessions\/([^/]+)\/messages\/([^/]+)\/blocks\/(\d+)$/.exec(u.pathname);
+  if (b) return blocksDown ? Response.json({ error: 'down' }, { status: 503 }) : Response.json(hub[b[1]]?.find((x) => x.id === b[2])?.content[Number(b[3])]);
   const m = /\/api\/sessions\/([^/]+)\/messages$/.exec(u.pathname);
   if (!m) return Response.json([]);
   asked.push(`${m[1]}${u.search}`);
-  const after = Number(u.searchParams.get('afterSeq') ?? 0);
-  return Response.json((hub[m[1]] ?? []).filter((x) => x.seq > after));
+  const q = u.searchParams;
+  const after = Number(q.get('afterSeq') ?? 0);
+  const before = Number(q.get('beforeSeq') ?? Infinity);
+  let list = (hub[m[1]] ?? []).filter((x) => x.seq > after && x.seq < before);
+  if (q.has('limit') && !q.has('afterSeq')) list = list.slice(-Number(q.get('limit')));
+  if (q.get('trim') === 'true' || q.get('trim') === '1')
+    list = list.map((x) => {
+      const trimmed = x.content.flatMap((c, index) => (c.type === 'text' && c.text.length > 1000 ? [{ index, bytes: c.text.length }] : []));
+      return trimmed.length ? { ...x, content: x.content.map((c) => (c.type === 'text' ? { ...c, text: c.text.slice(0, 1000) } : c)), meta: { trimmed } } : x;
+    });
+  return Response.json(list);
 }) as typeof fetch;
 afterAll(() => {
   globalThis.fetch = realFetch;
@@ -72,7 +86,34 @@ test('a resync fetches only what came after the newest held message', async () =
   asked.length = 0;
   await loadAll({ transcripts: true });
   await tick();
-  expect(asked.filter((x) => x.startsWith('a'))).toEqual(['a?afterSeq=31', 'a?limit=200']);
+  expect(asked.filter((x) => x.startsWith('a'))).toHaveLength(2);
+  expect(asked.filter((x) => x.startsWith('a'))[1]).toStartWith('a?limit=200&trim=');
   expect(useHub.getState().messages.a).toHaveLength(10);
+  release();
+});
+
+test('a long chat loads its newest 200, pages back to the first, and fills trimmed blocks in full', async () => {
+  hub.p = Array.from({ length: 450 }, (_, i) => msg('p', i + 1));
+  hub.p[449] = msg('p', 450, { content: [{ type: 'text', text: 'x'.repeat(5000) }] });
+  blocksDown = true;
+  const release = retainTranscript('p');
+  await tick();
+  const seqs = () => useHub.getState().messages.p.map((m) => m.seq);
+  expect(seqs()).toEqual(Array.from({ length: 200 }, (_, i) => 251 + i));
+  expect(useHub.getState().messagesOlder.p).toBe(true);
+  // the block route failed: the cut block keeps its mark, never passing as whole
+  const last = () => useHub.getState().messages.p.at(-1)!;
+  expect(last().meta?.trimmed).toEqual([{ index: 0, bytes: 5000 }]);
+  blocksDown = false;
+  await loadOlder('p');
+  await tick();
+  expect(seqs()).toEqual(Array.from({ length: 400 }, (_, i) => 51 + i));
+  expect(useHub.getState().messagesOlder.p).toBe(true);
+  // the next fill laid the whole block in
+  expect(last().content).toEqual(hub.p[449].content);
+  expect(last().meta?.trimmed).toBeUndefined();
+  await loadOlder('p');
+  expect(seqs()).toEqual(Array.from({ length: 450 }, (_, i) => i + 1));
+  expect(useHub.getState().messagesOlder.p).toBe(false);
   release();
 });

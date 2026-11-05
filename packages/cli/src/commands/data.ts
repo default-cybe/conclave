@@ -59,7 +59,7 @@ export async function sessionsCommand(args: ParsedArgs): Promise<number> {
   }
   if (sub === 'show') {
     const id = requireArg(args._[2], 'conclave sessions show <id>');
-    const [s, msgs] = await Promise.all([client.getSession(id), client.messages(id, { limit: 100_000, trim: false })]);
+    const [s, msgs] = await Promise.all([client.getSession(id), client.messages(id)]);
     if (bool(args, 'json')) return json({ session: s, messages: msgs }), 0;
     print(p.bold(s.title || '(untitled)') + ' ' + p.dim(s.id));
     print(

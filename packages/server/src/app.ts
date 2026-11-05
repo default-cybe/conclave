@@ -197,11 +197,11 @@ export function createServer(opts: ServerOptions): ConclaveServer {
 
   const app = new Hono<HonoEnv>();
 
-  // the requests in flight, named in the stall warn line (lag.ts); path only, never the query string.
+  // the requests in flight, named in the stall warn line (lag.ts) by route pattern, never path or query string.
   // a slow one gets a line with its route, time to the response and bytes (over 250 ms, a warning over 2 s)
   app.use('*', async (c, next) => {
     const started = Date.now();
-    const done = trackRequest(c.req.method, c.req.path);
+    const done = trackRequest(c.req.method, () => c.req.routePath);
     try {
       await next();
     } finally {

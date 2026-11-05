@@ -294,8 +294,7 @@ function Transcript({ call }: { call: WorkflowCall }) {
     if (!call.childSessionId) return;
     let alive = true;
     api()
-      // the prompt is the first message: the whole transcript, as before the default page
-      .messages(call.childSessionId, { limit: 100_000 })
+      .messages(call.childSessionId)
       .then((m) => alive && setMsgs(m))
       .catch(() => alive && setMsgs([]));
     return () => {

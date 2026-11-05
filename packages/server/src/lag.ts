@@ -14,7 +14,7 @@ const log = logger('lag');
 
 const MB = 1024 * 1024;
 /** Requests and tool calls in flight, label to start time. Capped so a missed end cannot grow them. */
-const routes = new Map<object, { label: string; at: number }>();
+const routes = new Map<object, { label: () => string; at: number }>();
 const tools = new Map<string, { name: string; at: number }>();
 const CAP = 200;
 
@@ -23,10 +23,13 @@ function capped<K, V>(m: Map<K, V>, k: K, v: V): void {
   m.set(k, v);
 }
 
-/** Marks one HTTP request in flight ("GET /api/sessions/x/messages", no query string); call the result when it ends. */
-export function trackRequest(method: string, path: string): () => void {
+/**
+ * Marks one HTTP request in flight; call the result when it ends. `route` gives its pattern ("/api/sessions/:id/messages")
+ * when the line is written: never the path, which can hold a secret (/api/invite/:secret).
+ */
+export function trackRequest(method: string, route: () => string): () => void {
   const key = {};
-  capped(routes, key, { label: `${method} ${path}`, at: Date.now() });
+  capped(routes, key, { label: () => `${method} ${route()}`, at: Date.now() });
   return () => routes.delete(key);
 }
 
@@ -86,7 +89,7 @@ export function stallContext(t = Date.now(), lastFaults?: number): Record<string
     heapSizeMb: Math.round(mem.heapTotal / MB),
     rssMb: Math.round(mem.rss / MB),
     ...(faults !== undefined && lastFaults !== undefined ? { majorFaults: faults - lastFaults } : {}),
-    requests: inFlight(routes, (v) => v.label, t),
+    requests: inFlight(routes, (v) => v.label(), t),
     tools: inFlight(tools, (v) => v.name, t),
   };
 }
