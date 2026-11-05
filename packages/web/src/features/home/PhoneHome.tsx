@@ -22,6 +22,8 @@ import { useSessionTarget } from './SessionStart';
 import { setStartMode, useStartMode } from './start';
 import { useToday } from './today';
 import { nextEventLine } from './proposalWords';
+import { useLearningsWaiting } from '@/features/settings/reflectLearnings';
+import { learningsWaitWords } from '@/features/settings/reflectWords';
 
 export function PhoneHome() {
   const now = useNow(60_000);
@@ -31,6 +33,7 @@ export function PhoneHome() {
   const { data: today } = useToday();
   const proposals = today?.proposals?.length ?? 0;
   const next = today?.events?.length ? nextEventLine(today.events, now, today.timezone) : undefined;
+  const learnings = useLearningsWaiting();
   const mode = useStartMode((s) => s.mode);
   const search = useSearch();
   const [, navigate] = useLocation();
@@ -70,6 +73,12 @@ export function PhoneHome() {
         {next && (
           <Link href="/today" className={cn('flex min-h-11 items-center px-3 text-[15px] text-fg-3', waiting + proposals > 0 ? 'mt-0' : 'mt-3')}>
             {next}
+          </Link>
+        )}
+        {/* as desktop Home's LearningsBadge: quiet, not amber, since nothing is blocked on it */}
+        {learnings > 0 && (
+          <Link href="/settings/reflect" className={cn('flex min-h-11 items-center px-3 text-[15px] text-fg-3', waiting + proposals > 0 || next ? 'mt-0' : 'mt-3')}>
+            {learnings} {learningsWaitWords(learnings)}
           </Link>
         )}
       </div>

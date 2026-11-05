@@ -7,6 +7,7 @@ import type { Context, Hono } from 'hono';
 import { assistantFor, GOAL_AREAS, type AssistantService, type GoalArea, type GoalPatch, type GoalStatus } from '@conclave/core/assistant/index.ts';
 import { pimFor } from '@conclave/core/pim/index.ts';
 import { REFLECT_RANGES, type ReflectRange } from '@conclave/core/client/recap.ts';
+import type { LearningSaveInput } from '@conclave/core/client/learnings.ts';
 import type { HonoEnv, ServerContext } from './context';
 import { HttpError, badRequest, notFound, readJson } from './http';
 import type { AuditFn } from './routes-extensions';
@@ -129,6 +130,35 @@ export function registerAssistantRoutes(app: Hono<HonoEnv>, ctx: ServerContext, 
   };
   app.get('/api/reflect/report', async (c) => c.json(await svc(c).report(rangeOf(c))));
   app.post('/api/reflect/report/refresh', async (c) => c.json(await svc(c).report(rangeOf(c), { refresh: true })));
+
+  // Reflect's Learnings (assistant/learnings.ts): the caller's own queue; Save is the only write, and only on the press
+  const TARGETS = ['memory', 'agent', 'project', 'skill'] as const;
+  const saveInput = async (c: Context<HonoEnv>): Promise<LearningSaveInput> => {
+    const b = await readJson<Record<string, unknown>>(c);
+    if (!TARGETS.includes(b.target as (typeof TARGETS)[number])) throw badRequest(`target must be ${TARGETS.join(', ')}`);
+    if (b.text !== undefined && typeof b.text !== 'string') throw badRequest('text must be a string');
+    if (b.memoryKind !== undefined && b.memoryKind !== 'profile' && b.memoryKind !== 'fact') throw badRequest('memoryKind must be profile or fact');
+    if (b.mergeInto !== undefined && typeof b.mergeInto !== 'string') throw badRequest('mergeInto must be a memory id');
+    return { target: b.target as LearningSaveInput['target'], ...(b.text !== undefined ? { text: b.text as string } : {}), ...(b.memoryKind ? { memoryKind: b.memoryKind as 'profile' | 'fact' } : {}), ...(b.mergeInto ? { mergeInto: b.mergeInto as string } : {}) };
+  };
+  app.get('/api/reflect/learnings', async (c) => c.json(await svc(c).learnings.list()));
+  app.get('/api/reflect/learnings/count', (c) => c.json({ pending: svc(c).learnings.count() }));
+  app.post('/api/reflect/learnings/:id/preview', async (c) => c.json(await svc(c).learnings.preview(c.req.param('id'), await saveInput(c))));
+  app.post('/api/reflect/learnings/:id/save', async (c) => {
+    const input = await saveInput(c);
+    const out = await svc(c).learnings.save(c.req.param('id'), input);
+    audit(c, 'learning.save', `${c.req.param('id')} ${input.target}`);
+    return c.json(out);
+  });
+  app.post('/api/reflect/learnings/:id/skip', async (c) => c.json(await svc(c).learnings.skip(c.req.param('id'))));
+  app.post('/api/reflect/ideas/find', async (c) => c.json(await svc(c).learnings.findIdeas()));
+  app.post('/api/reflect/ideas/:id/save', async (c) => {
+    const b = await readJson<Record<string, unknown>>(c);
+    const out = await svc(c).learnings.saveIdea(c.req.param('id'), b);
+    audit(c, 'learning.idea', c.req.param('id'));
+    return c.json(out);
+  });
+  app.post('/api/reflect/ideas/:id/skip', async (c) => c.json(await svc(c).learnings.skipIdea(c.req.param('id'))));
 
   app.get('/api/assistant/today', async (c) => {
     const today = svc(c).todayDto();

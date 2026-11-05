@@ -7,16 +7,22 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Reflect has a Learnings section. Corrections, preferences, "remember: ..." and praise you type in chats and code sessions are caught by a quick check, then one batched call on your own small model keeps lasting lessons and drops one-off instructions, questions and vague feedback, in any language. Each waits with the exact quote, its chat and a count of repeats; Save writes it as a memory fact, into the agent's instructions, into a trusted project's `CONCLAVE.md` (diff shown first), or into the Pitfalls of the learned skill that was running. Edit and Skip are per item; near memories can be merged. Nothing is written without a press. Skill ideas looks at your last 14 days for repeated requests and drafts a skill or routine to save. Incognito chats, subagents, routine runs and other people's messages are never read; what memory extraction already saved is not queued again. Home shows a line when learnings wait, on the phone too, and the Android app lists them with Save, Edit and Skip.
+
+### Changed
+
+- Reflect is rebuilt as a report per account for the last 7 days, 30 days, or 3, 6 or 12 months: headline numbers, what you worked on, a when-you-work heatmap, the four AI Fluency habits with examples from your own sessions, models and agents, fun stats, suggestions, and a question that opens a new chat. Numbers come from SQL; one pass on your own small model over session titles and summaries writes the words. Cached per range, made again weekly or on Refresh. Incognito and health-related sessions are left out. The old recap and Summarise endpoints are replaced by `GET /api/reflect/report` and `POST /api/reflect/report/refresh`. Models show the model picker's names, and the Android app shows the report too.
+
 ## [0.4.68] - 2026-11-05
 
 ### Added
 
 - Incognito chats and Code sessions, on the web and Android: turn it on in the "+" menu of a new chat or Code session (`incognito: true` on `POST /api/sessions`). The conversation shows an Incognito mark, and its pushes say only "Incognito session". It is kept out of the sidebar, search, SessionSearch, Home and day plan, Reflect, recaps, the map, exports, forks and shares. It is hard-deleted, with its outputs folder, when it is closed, when a new chat or session starts, after 12 hours idle, and at hub start. The delete runs with SQLite `secure_delete` on, then checkpoints the WAL. Usage keeps tokens and cost only. A new memory setting, `chat.memorySave: false` ("Use only"), reads memory but saves nothing. Incognito sessions use it by default.
 - Canvas, a fourth mode next to Chat, Assistant and Code: programs (`flows/*.flow.ts`) and workflows open full screen as blocks, with the node library (fold it from the top bar; it starts folded on a run), a faint dot grid, a minimap, an inspector column that never covers the canvas, and Output, Logs and Queue under it. A live or finished run shows each block's state; a phone opens on the running or failed block. A computer opens a file readable, the pane's height used and the first blocks at the left. It opens on the last file you had open, kept per account so another person signing in on the same browser does not see it. The folded sidebar keeps the mode switch, so Chat, Assistant and Code are one click away from a file. "Open in Canvas" is on a run and on a session's Blocks view. Read only for now; editing comes next (docs/design/CANVAS-MODE.md, #250).
-
-### Changed
-
-- Reflect is rebuilt as a report per account for the last 7 days, 30 days, or 3, 6 or 12 months: headline numbers, what you worked on, a when-you-work heatmap, the four AI Fluency habits with examples from your own sessions, models and agents, fun stats, suggestions, and a question that opens a new chat. Numbers come from SQL; one pass on your own small model over session titles and summaries writes the words. Cached per range, made again weekly or on Refresh. Incognito and health-related sessions are left out. The old recap and Summarise endpoints are replaced by `GET /api/reflect/report` and `POST /api/reflect/report/refresh`.
 
 ## [0.4.67] - 2026-11-05
 

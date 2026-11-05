@@ -3,6 +3,7 @@ package dev.conclave.client
 import dev.conclave.client.logic.ApiValue
 import dev.conclave.client.logic.ContextUse
 import dev.conclave.client.logic.ReflectWords
+import dev.conclave.client.model.LearningSave
 import dev.conclave.client.model.ReflectPatch
 import dev.conclave.client.model.ReflectRun
 import dev.conclave.client.model.UsageBucket
@@ -121,6 +122,25 @@ class ReflectTest {
         assertTrue(ReflectWords.modelLine(r.models.models[0].name).startsWith("Opus 5.5"))
         assertEquals(listOf("13", "3.5", "3.2M", "2"), ReflectWords.bigNumbers(r.totals).map { it.first })
         assertEquals("Left out: 1 incognito chat. Only titles and short summaries are read, never mail, files or tool output.", ReflectWords.excluded(r.excluded))
+    }
+
+    @Test
+    fun learningsSaveToMemoryWithTheEditAndSkip() = runBlocking {
+        val body = """{"items":[{"id":"l1","kind":"correction","fact":"The user wants pnpm.","rule":"Use pnpm.","quote":"no, use pnpm","confidence":0.9,"count":2,
+            "sessionId":"s1","sessionTitle":"Build","status":"pending","targets":[{"target":"memory","label":"Memory"}],"similar":[]}],"pending":1,"queued":0,"ideas":[]}"""
+        server.enqueue(MockResponse(body = body))
+        val d = client().learnings()
+        assertEquals("/api/reflect/learnings", server.takeRequest().url.encodedPath)
+        assertEquals("Correction \u00b7 said 2 times \u00b7 90% sure \u00b7 Build", ReflectWords.learningMeta(d.items[0]))
+        server.enqueue(MockResponse(body = body))
+        client().saveLearning("l1", LearningSave(text = "The user uses pnpm."))
+        val save = server.takeRequest()
+        assertEquals("/api/reflect/learnings/l1/save", save.url.encodedPath)
+        assertEquals("""{"target":"memory","text":"The user uses pnpm."}""", save.body?.utf8())
+        server.enqueue(MockResponse(body = """{"items":[],"pending":0,"queued":3}"""))
+        val after = client().skipLearning("l1")
+        assertEquals("/api/reflect/learnings/l1/skip", server.takeRequest().url.encodedPath)
+        assertEquals("Nothing waits. 3 messages wait for the next check.", ReflectWords.learningsEmpty(after.queued))
     }
 
     @Test
