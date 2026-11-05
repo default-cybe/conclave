@@ -48,17 +48,17 @@ export function openNew(mode: StartMode, navigate: (to: string) => void, at?: Pi
   requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-composer]')?.focus({ preventScroll: true }));
 }
 
-/** The sidebar's switch: three icon buttons, the open mode raised. */
-function CompactSwitch({ className }: { className?: string }) {
+/** The sidebar's switch: icon buttons, the open mode raised. `vertical`: a column, for the folded sidebar's strip. */
+function CompactSwitch({ className, vertical }: { className?: string; vertical?: boolean }) {
   const [, navigate] = useLocation();
   const mode = useCurrentMode();
   return (
-    <div role="radiogroup" aria-label="What to start" className={cn('flex items-center gap-0.5 rounded-[9px] bg-hover/60 p-0.5', className)}>
+    <div role="radiogroup" aria-label="What to start" className={cn('flex items-center gap-0.5 rounded-[9px] bg-hover/60 p-0.5', vertical && 'flex-col', className)}>
       {START_MODES.map((m) => {
         const on = m.value === mode;
         const Icon = MODE_ICONS[m.value];
         return (
-          <Tooltip key={m.value} content={`${m.label}. ${m.detail}`} side="bottom">
+          <Tooltip key={m.value} content={`${m.label}. ${m.detail}`} side={vertical ? 'right' : 'bottom'}>
             <button
               type="button"
               role="radio"
@@ -79,8 +79,8 @@ function CompactSwitch({ className }: { className?: string }) {
   );
 }
 
-export function ModeSwitch({ phone, compact, className }: { phone?: boolean; compact?: boolean; className?: string }) {
-  if (compact) return <CompactSwitch className={className} />;
+export function ModeSwitch({ phone, compact, vertical, className }: { phone?: boolean; compact?: boolean; vertical?: boolean; className?: string }) {
+  if (compact) return <CompactSwitch className={className} vertical={vertical} />;
   return <WordSwitch phone={phone} className={className} />;
 }
 

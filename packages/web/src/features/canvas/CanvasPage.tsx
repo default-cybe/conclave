@@ -7,7 +7,7 @@
  *   /canvas/workflow/<id or run> a workflow (lit by its last run) or one run (wfr_...)
  *
  * A computer gets the spec's layout: a top bar, the node library (read
- * only) at the left, the canvas with a faint dot grid and a minimap, the
+ * only, foldable from the top bar) at the left, the canvas with a faint dot grid and a minimap, the
  * inspector in its own column at the right (it never covers the canvas)
  * and Output, Logs and Queue under it. The app sidebar folds to its strip
  * while a file is open. A phone gets the canvas full screen under its bar,
@@ -16,7 +16,7 @@
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useLocation, useParams, useSearch } from 'wouter';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { nodeRuns, type FlowBlockSpec, type FlowRunView, type FlowView, type GraphNode, type WorkflowGraphView, type WorkflowRunDetail } from '@conclave/core/client';
 import { Elapsed } from '@/components/motion/Elapsed';
 import { CodeBlock } from '@/components/ui/Code';
@@ -26,6 +26,7 @@ import { Menu, Sheet } from '@/components/ui/Overlay';
 import { Page, PageHeader } from '@/components/ui/Page';
 import { Notice, Section } from '@/components/ui/Section';
 import { Tabs } from '@/components/ui/Tags';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { PhoneBar } from '@/components/PhoneFrame';
 import { useChatUi } from '@/features/conversation/state';
 import { setStartMode } from '@/features/home/start';
@@ -41,7 +42,7 @@ import { blockLine, liveState, stateTone } from '../graph/nodes';
 import { useRunDetail, useRuns } from '../workflows/data';
 import { isLive, RUN_WORD } from '../workflows/words';
 import { useCanvasFiles } from './files';
-import { fileGroups, fileHref, fileTitle, focusNode, isRunId, rememberFile, sessionFor } from './model';
+import { fileGroups, fileHref, fileTitle, focusNode, isRunId, libraryOpen, rememberFile, saveLibraryOpen, sessionFor } from './model';
 
 type Tab = 'output' | 'logs' | 'queue';
 const POLL_MS = 700;
@@ -164,7 +165,7 @@ function RunFile({ runId }: { runId: string }) {
   const title = data?.run.name ?? runId;
   if (error || gErr) return <Missing title={title}>The run did not load. {error ?? gErr}</Missing>;
   if (!data || !view) return <Loading title={title} />;
-  return <WorkflowShell view={view} detail={data} title={title} meta={`Run of ${data.run.name}, ${hhmm(data.run.createdAt)}, read only`} />;
+  return <WorkflowShell view={view} detail={data} title={title} meta={`Run of ${data.run.name}, ${hhmm(data.run.createdAt)}, read only`} run />;
 }
 
 function WorkflowFile({ id }: { id: string }) {
@@ -186,7 +187,7 @@ function WorkflowFile({ id }: { id: string }) {
   return <WorkflowShell view={view} detail={data} title={view.graph.name || id} meta={['Workflow', view.source === 'builtin' || view.source === 'plugin' ? 'library' : 'yours', 'read only'].join(', ')} />;
 }
 
-function WorkflowShell({ view, detail, title, meta }: { view: WorkflowGraphView; detail?: WorkflowRunDetail; title: string; meta: string }) {
+function WorkflowShell({ view, detail, title, meta, run }: { view: WorkflowGraphView; detail?: WorkflowRunDetail; title: string; meta: string; run?: boolean }) {
   const runs = useMemo(() => (detail ? nodeRuns(view.graph, detail.calls) : undefined), [view.graph, detail]);
   const r = detail?.run;
   const live = !!r && isLive(r.status);
@@ -198,6 +199,7 @@ function WorkflowShell({ view, detail, title, meta }: { view: WorkflowGraphView;
     <Shell
       title={title}
       meta={meta}
+      run={run}
       status={status}
       graph={view.graph}
       focus={focus}
@@ -222,6 +224,8 @@ function WorkflowShell({ view, detail, title, meta }: { view: WorkflowGraphView;
 interface ShellProps {
   title: string;
   meta: string;
+  /** One run, read only: the node library starts folded unless this account opened it. */
+  run?: boolean;
   status: { word: string; tone: string; rest: string; since?: number };
   graph: { nodes: GraphNode[] };
   focus?: string;
@@ -250,6 +254,7 @@ function Shell(p: ShellProps) {
   const [sel, setSel] = useState<string | undefined>(phone ? undefined : p.focus);
   const [tab, setTab] = useState<Tab>(p.logs.length ? 'logs' : 'output');
   const [panel, setPanel] = useState(true);
+  const [lib, setLib] = useState(() => libraryOpen(!!p.run));
   const [sheet, setSheet] = useState<'library' | 'output'>();
   useFullScreen(phone);
   const node = p.graph.nodes.find((n) => n.id === sel);
@@ -305,6 +310,11 @@ function Shell(p: ShellProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-rule px-4">
+        <Tooltip content={lib ? 'Hide the nodes' : 'Show the nodes'} side="bottom">
+          <button type="button" aria-expanded={lib} aria-label={lib ? 'Hide the node library' : 'Show the node library'} onClick={() => (setLib(!lib), saveLibraryOpen(!lib))} className="-ml-1.5 grid size-7 shrink-0 place-items-center rounded-[var(--r-1)] text-fg-3 hov:bg-hover hov:text-fg">
+            {lib ? <PanelLeftClose className="size-4" strokeWidth={1.75} aria-hidden /> : <PanelLeftOpen className="size-4" strokeWidth={1.75} aria-hidden />}
+          </button>
+        </Tooltip>
         <FileMenu title={p.title} />
         <span className="shrink-0 truncate text-[12px] text-fg-3">{p.meta}</span>
         <span className="mx-2 h-4 w-px shrink-0 bg-rule" aria-hidden />
@@ -316,11 +326,13 @@ function Shell(p: ShellProps) {
         ))}
       </header>
       <div className="flex min-h-0 flex-1">
-        <aside aria-label="Node library" className="flex w-[216px] shrink-0 flex-col border-r border-rule">
-          <div className="flex h-10 shrink-0 items-center px-3 text-[12px] font-medium text-fg-3">Nodes</div>
-          <div className="scroll-y min-h-0 flex-1 px-2 pb-2">{library}</div>
-          <p className="m-0 border-t border-rule px-3 py-2 text-[12px] leading-[1.45] text-fg-3">Read only for now: adding and wiring blocks comes next.</p>
-        </aside>
+        {lib && (
+          <aside aria-label="Node library" className="flex w-[216px] shrink-0 flex-col border-r border-rule">
+            <div className="flex h-10 shrink-0 items-center px-3 text-[12px] font-medium text-fg-3">Nodes</div>
+            <div className="scroll-y min-h-0 flex-1 px-2 pb-2">{library}</div>
+            <p className="m-0 border-t border-rule px-3 py-2 text-[12px] leading-[1.45] text-fg-3">Read only for now: adding and wiring blocks comes next.</p>
+          </aside>
+        )}
         <div className="flex min-w-0 flex-1 flex-col">
           {p.canvas(sel, setSel)}
           <div className={cn('shrink-0 border-t border-rule', panel ? 'h-[208px]' : 'h-9')}>

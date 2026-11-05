@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { WorkflowRun, WorkflowSummary } from '@conclave/core/client';
 import type { Session } from '@conclave/core/types';
-import { canvasHome, deskViewport, READ_ZOOM, fileGroups, fileHref, focusNode, focusViewport, folderSessions, isRunId, programHref, rememberFile, sessionFor, workflowFiles, workflowHref } from '../src/features/canvas/model';
+import { canvasHome, deskViewport, libraryOpen, READ_ZOOM, saveLibraryOpen, fileGroups, fileHref, focusNode, focusViewport, folderSessions, isRunId, programHref, rememberFile, sessionFor, workflowFiles, workflowHref } from '../src/features/canvas/model';
 import { readMode } from '../src/features/home/start';
 import { phonePlace } from '../src/components/PhoneFrame';
 import { NEW_WORDS, sideListWord } from '../src/lib/sidebar';
@@ -48,8 +48,31 @@ describe('the last file open', () => {
   test('only Canvas addresses are kept', () => {
     rememberFile('/s/s_1');
     expect(canvasHome()).toBe('/canvas');
-    store.set('conclave.canvas.last', 'https://evil.example');
+    store.set('conclave.canvas.last:none', 'https://evil.example');
     expect(canvasHome()).toBe('/canvas');
+  });
+  test('per account: a member signing in after the owner on this browser does not see the owner file', () => {
+    const signIn = (c: object) => store.set('conclave.connection', JSON.stringify({ baseUrl: 'https://hub', ...c }));
+    signIn({ token: 'owner-token' });
+    rememberFile('/canvas/workflow/payroll');
+    expect(canvasHome()).toBe('/canvas/workflow/payroll');
+    signIn({ token: 'member-token', account: { id: 'acc_m', name: 'm', role: 'member' } });
+    expect(canvasHome()).toBe('/canvas');
+    rememberFile('/canvas/workflow/notes');
+    signIn({ token: 'owner-token' });
+    expect(canvasHome()).toBe('/canvas/workflow/payroll');
+    // the old key, one per browser, is ignored
+    store.set('conclave.canvas.last', '/canvas/workflow/leak');
+    signIn({ token: 'another' });
+    expect(canvasHome()).toBe('/canvas');
+  });
+  test('the node library: folded on a run until opened, kept per account', () => {
+    expect(libraryOpen(true)).toBe(false);
+    expect(libraryOpen(false)).toBe(true);
+    saveLibraryOpen(true);
+    expect(libraryOpen(true)).toBe(true);
+    store.set('conclave.connection', JSON.stringify({ baseUrl: 'https://hub', token: 't', account: { id: 'acc_x', name: 'x', role: 'member' } }));
+    expect(libraryOpen(true)).toBe(false);
   });
   test('the switch remembers Canvas', () => {
     store.set('conclave.mode', 'canvas');
@@ -128,26 +151,29 @@ describe('a computer opens readable (owner on #250)', () => {
   const box = (x: number) => ({ x, y: 40, w: 248, h: 92 });
   // screen x of a flow x at a viewport
   const at = (v: { x: number; zoom: number }, x: number) => v.x + x * v.zoom;
-  test('a graph that reads whole is fitted whole', () => {
+  test('a graph that fits is centred whole', () => {
+    const v = deskViewport({ x: 0, y: 0, w: 600, h: 200 }, undefined, pane);
+    expect(v.zoom).toBe(1);
+    expect(at(v, 0)).toBe((pane.w - 600) / 2);
+  });
+  test('a short wide graph uses the pane height: above the width fit, its start at the left', () => {
     const v = deskViewport({ x: 0, y: 0, w: 1000, h: 200 }, undefined, pane);
-    expect(v.zoom).toBeGreaterThanOrEqual(READ_ZOOM);
-    expect(at(v, 0)).toBeGreaterThanOrEqual(0);
-    expect(at(v, 1000)).toBeLessThanOrEqual(pane.w);
+    expect(v.zoom).toBe(1);
+    expect(v.zoom).toBeGreaterThan((pane.w - 48) / 1000);
+    expect(at(v, 0)).toBe(24);
   });
-  test('a wide graph never goes below the readable zoom', () => {
-    const wide = { x: 0, y: 0, w: 3250, h: 200 };
-    expect(deskViewport(wide, undefined, pane).zoom).toBe(READ_ZOOM);
-    expect(deskViewport(wide, box(2800), pane).zoom).toBeGreaterThanOrEqual(READ_ZOOM);
+  test('a tall graph fits its height down to the readable zoom, never below', () => {
+    expect(deskViewport({ x: 0, y: 0, w: 400, h: 1000 }, undefined, pane).zoom).toBeCloseTo((644 - 48) / 1000);
+    expect(deskViewport({ x: 0, y: 0, w: 400, h: 3000 }, undefined, pane).zoom).toBe(READ_ZOOM);
   });
-  test('the start through the failed node when that reads', () => {
-    const v = deskViewport({ x: 0, y: 0, w: 3250, h: 200 }, box(1000), pane);
-    expect(at(v, 0)).toBeGreaterThanOrEqual(0);
-    expect(at(v, 1248)).toBeLessThanOrEqual(pane.w);
+  test('a far failed node never pulls the first blocks off the left or the zoom down', () => {
+    const wide = { x: -40, y: 0, w: 3250, h: 200 };
+    const v = deskViewport(wide, box(2800), pane);
+    expect(v.zoom).toBe(1);
+    expect(at(v, -40)).toBe(24);
   });
-  test('else the failed node on screen, at the right', () => {
-    const v = deskViewport({ x: 0, y: 0, w: 3250, h: 200 }, box(2000), pane);
-    expect(at(v, 2000)).toBeGreaterThanOrEqual(0);
-    expect(at(v, 2248)).toBeLessThanOrEqual(pane.w);
-    expect(at(v, 2248)).toBeGreaterThan(pane.w / 2);
+  test('a graph taller than the pane: the failed node in the middle', () => {
+    const v = deskViewport({ x: 0, y: 0, w: 400, h: 3000 }, { x: 0, y: 2000, w: 248, h: 92 }, pane);
+    expect(v.y + 2046 * v.zoom).toBeCloseTo(pane.h / 2);
   });
 });

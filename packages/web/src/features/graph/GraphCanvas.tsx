@@ -248,10 +248,12 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
     return () => window.removeEventListener('keydown', onKey);
   }); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const desk = !!full && !vertical;
   // the inspector opens over the canvas: once it has slid in, pan so the tapped node sits in the part it leaves free
   useEffect(() => {
     // a phone's page-sized column does not pan: the sheet opens over the page
-    if (!selected || scroll) return;
+    // Canvas mode on a computer: the inspector is a column of its own, and a pan would push the first blocks off the left
+    if (!selected || scroll || desk) return;
     const t = setTimeout(() => {
       const cover = document.querySelector('.cv-inspector')?.getBoundingClientRect();
       const n = flow.getInternalNode(selected);
@@ -262,7 +264,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       if (vp) void flow.setViewport(vp, { duration: 200 });
     }, 240);
     return () => clearTimeout(t);
-  }, [selected, flow, scroll]);
+  }, [selected, flow, scroll, desk]);
 
   return (
     <div className={className} ref={box} style={{ position: 'relative', ...(scroll ? { height: tall + 28 } : {}) }}>

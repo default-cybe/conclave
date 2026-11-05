@@ -7,6 +7,7 @@ import type { WorkflowRun, WorkflowSummary } from '@conclave/core/client';
 import type { Session } from '@conclave/core/types';
 import { underParent } from '@conclave/core/session/delegated';
 import { sideModeOf } from '@/lib/sidebar';
+import { accountKey } from '@/lib/api';
 import { isLive } from '../workflows/words';
 
 /** A program is flows/<name>.flow.ts in a folder on a device; a workflow is yours or the library's, or one run of it. */
@@ -33,11 +34,33 @@ export const fileTitle = (f: CanvasFile) => (f.kind === 'program' ? `${f.name}.f
 // The last file open: Canvas opens on it (owner decision on PR #250)
 // ---------------------------------------------------------------------------
 
+// Per account: a file's name is in its address, and several people can sign in on one browser.
+// The old key, one per browser, is never read.
 const LAST_KEY = 'conclave.canvas.last';
 
 export function rememberFile(href: string) {
   try {
-    if (href.startsWith('/canvas/')) localStorage.setItem(LAST_KEY, href);
+    if (href.startsWith('/canvas/')) localStorage.setItem(accountKey(LAST_KEY), href);
+  } catch {
+    /* private mode: this page only */
+  }
+}
+
+// The node library at the left: open or folded, kept per account. Unset: folded while a run is read, open otherwise.
+const LIBRARY_KEY = 'conclave.canvas.library';
+
+export function libraryOpen(run: boolean): boolean {
+  try {
+    const v = localStorage.getItem(accountKey(LIBRARY_KEY));
+    return v === null ? !run : v === '1';
+  } catch {
+    return !run;
+  }
+}
+
+export function saveLibraryOpen(open: boolean) {
+  try {
+    localStorage.setItem(accountKey(LIBRARY_KEY), open ? '1' : '0');
   } catch {
     /* private mode: this page only */
   }
@@ -46,7 +69,7 @@ export function rememberFile(href: string) {
 /** Where the mode switch goes: the last file open, else the start page. */
 export function canvasHome(): string {
   try {
-    const v = localStorage.getItem(LAST_KEY);
+    const v = localStorage.getItem(accountKey(LAST_KEY));
     return v && v.startsWith('/canvas/') ? v : '/canvas';
   } catch {
     return '/canvas';
@@ -124,24 +147,20 @@ type Box = { x: number; y: number; w: number; h: number };
 export const READ_ZOOM = 0.55;
 
 /**
- * A computer's first view (owner decision on #250: the first blocks and the
- * failed one on screen, readable): the whole graph when it reads at
- * READ_ZOOM or more; else the start of it through the running or failed
- * node when that reads; else that node at the right with what feeds it at
- * the left; with no such node, the start. The minimap shows the rest.
+ * A computer's first view (owner on #253): readable, the first blocks on
+ * screen, and the pane's height used. The zoom is the height's fit, at
+ * most 1:1 and never below READ_ZOOM, so a short wide graph opens larger
+ * than its width fit and runs off the right. The start stays at the left;
+ * a graph narrower than the pane is centred. The running or failed node is
+ * in the inspector and the minimap; across, it only picks where a graph
+ * taller than the pane sits.
  */
 export function deskViewport(graph: Box, focus: Box | undefined, canvas: { w: number; h: number }, pad = 24): { x: number; y: number; zoom: number } {
-  const fitW = (w: number) => (canvas.w - pad * 2) / Math.max(w, 1);
-  const fitH = (canvas.h - pad * 2) / Math.max(graph.h, 1);
-  // down: the graph centred when it fits, else the focus (or the top) in the middle
-  const down = (zoom: number) => (graph.h * zoom <= canvas.h - pad * 2 ? (canvas.h - graph.h * zoom) / 2 - graph.y * zoom : focus ? canvas.h / 2 - (focus.y + focus.h / 2) * zoom : pad - graph.y * zoom);
-  const all = Math.min(1, fitW(graph.w), fitH);
-  if (all >= READ_ZOOM) return { x: (canvas.w - graph.w * all) / 2 - graph.x * all, y: down(all), zoom: all };
-  const upTo = focus ? Math.min(1, fitW(focus.x + focus.w - graph.x), Math.max(fitH, READ_ZOOM)) : 0;
-  if (focus && upTo >= READ_ZOOM) return { x: pad - graph.x * upTo, y: down(upTo), zoom: upTo };
-  const zoom = READ_ZOOM;
-  if (focus) return { x: canvas.w - pad - (focus.x + focus.w) * zoom, y: down(zoom), zoom };
-  return { x: pad - graph.x * zoom, y: down(zoom), zoom };
+  const zoom = Math.max(READ_ZOOM, Math.min(1, (canvas.h - pad * 2) / Math.max(graph.h, 1)));
+  const x = graph.w * zoom <= canvas.w - pad * 2 ? (canvas.w - graph.w * zoom) / 2 - graph.x * zoom : pad - graph.x * zoom;
+  // the graph centred when it fits, else the focus (or the top) in the middle
+  const y = graph.h * zoom <= canvas.h - pad * 2 ? (canvas.h - graph.h * zoom) / 2 - graph.y * zoom : focus ? canvas.h / 2 - (focus.y + focus.h / 2) * zoom : pad - graph.y * zoom;
+  return { x, y, zoom };
 }
 
 /**

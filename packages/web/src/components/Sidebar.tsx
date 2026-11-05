@@ -168,6 +168,8 @@ function Folded() {
           <Mark size={20} />
         </Link>
       </div>
+      {/* the modes one click away while the strip is all there is (a file open in Canvas folds the sidebar) */}
+      <ModeSwitch compact vertical className="mb-1" />
       <Tooltip content={`Open the sidebar (${MOD} \\)`} side="right">
         <button type="button" aria-label="Open the sidebar" onClick={() => setRailOpen(true)} className={icon}>
           <PanelLeft className="size-4" strokeWidth={1.75} aria-hidden />
