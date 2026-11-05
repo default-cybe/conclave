@@ -162,6 +162,7 @@ import { ATTACHMENT_LOST, prepareAttachments, type ZipHost } from '../attachment
 import { mediaTypeFor } from '../attachments/limits';
 import { checkMemberRefusalList, checkMemberUsageList } from '../session/member-fallbacks';
 import { quotedOf } from '../session/quoted';
+import { assistantFor } from '../assistant/registry';
 
 const log = logger('engine');
 /** A session still called New chat after its start is named again after each of its first turns, up to this one. */
@@ -2277,9 +2278,30 @@ export class Engine implements EngineApi {
         .extract(id, transcript, { project: s.cwd, agent: s.agent })
         .catch((err) => log.debug('memory extract failed', err));
     }
+    this.captureLearnings(s);
     // a push carries the title through the phone vendor's servers: an incognito session sends none
     if (!s.incognito) this.notifyEvent('sessionDone', { title: s.title, body: 'Session finished a turn', level: 'success', sessionId: id, link: `/s/${id}`, thread: this.askOrigin(id).rootSessionId });
     this.retitle(s);
+  }
+
+  /**
+   * Reflect's Learnings (assistant/learnings.ts): the quick check over what the
+   * person typed in a chat or code session with memory on. Never in an
+   * incognito session, a subagent, a routine run, a meeting or a jury, and
+   * only the account's own words (typedBy skips another account's messages).
+   */
+  private captureLearnings(s: Session): void {
+    const cfg = this.config.get();
+    // TODO(sessions.incognito, PR #254): the field is typed on Session once that PR is on main
+    if (!cfg.memory.enabled || (s as { incognito?: boolean }).incognito || s.parentId || s.routineId || s.meta?.subagent || s.meta?.seat) return;
+    if (s.kind === 'meeting' || s.mode === 'jury' || !this.usesMemory(s) || this.agentFor(s).memory === 'none') return;
+    const svc = assistantFor(this, this.accountOf(s));
+    if (!svc) return;
+    try {
+      svc.learnings.capture(s.id, this.turnMessages(s.id).filter((m) => !quotedOf(m)), { title: s.title, agent: s.agent, cwd: s.cwd });
+    } catch (err) {
+      log.debug('learning capture failed', err);
+    }
   }
 
   /**

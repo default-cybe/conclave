@@ -337,6 +337,35 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
       // no model named: completeText picks this account's small model on its own keys
       complete: (o) => completeText(engine, { ...o, accountId: acct }),
       learnedSkills: () => engine.learnedSkillsFor(acct).list().map((s) => ({ name: s.name, created: s.created })),
+      // Reflect's Learnings: written only when the person presses Save (assistant/learnings.ts)
+      learn: {
+        skills: () => engine.learnedSkillsFor(acct),
+        agentPrompt: (name, cwd) => engine.agentsFor(acct, cwd).find((a) => a.name === name)?.prompt,
+        saveAgentPrompt: async (name, prompt, cwd) => {
+          const def = engine.agentsFor(acct, cwd).find((a) => a.name === name);
+          if (!def) throw new Error(`No agent named ${name}.`);
+          // as PUT /api/agents/:name saves it: a member's own file, the owner's user file (a built-in gets an override)
+          if (isMember(acct)) {
+            if (!engine.extensions.saveAccountAgent) throw new Error('This hub cannot keep agents per person.');
+            await engine.extensions.saveAccountAgent(acct, { ...def, prompt, source: 'account' } as typeof def);
+          } else await engine.extensions.saveAgent({ ...def, prompt, source: 'user' }, 'user');
+        },
+        projectRefusal: (cwd, sessionId) => {
+          const s = engine.getSession(sessionId);
+          if (!s || engine.accountOf(s) !== acct || s.cwd !== cwd) return 'The chat this came from is gone.';
+          if (!engine.trust.isTrusted(cwd)) return 'Trust this folder first (Extensions, Hooks). Only trusted folders take rules.';
+          return undefined;
+        },
+        projectFile: (cwd, sessionId) => {
+          const machine = engine.machineFor(engine.getSession(sessionId)!);
+          const path = join(cwd, 'CONCLAVE.md');
+          return {
+            path,
+            read: () => machine.readFile(path).then((b) => new TextDecoder().decode(b), () => undefined),
+            write: (text) => machine.writeFile(path, text),
+          };
+        },
+      },
     });
   assistant = assistantFor(OWNER_ID, memory);
   attachAssistant(engine, assistant, (acct) => {

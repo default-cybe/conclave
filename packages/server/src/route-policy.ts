@@ -308,6 +308,15 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   // the report reads only the caller's account; its model pass runs on the caller's own small model and keys
   'GET /api/reflect/report': 'self',
   'POST /api/reflect/report/refresh': 'self',
+  // Learnings: the caller's own queue, written only on their press, to their own memory, agents, skills, or a trusted folder of their own session
+  'GET /api/reflect/learnings': 'self',
+  'GET /api/reflect/learnings/count': 'self',
+  'POST /api/reflect/learnings/:id/preview': 'self',
+  'POST /api/reflect/learnings/:id/save': 'self',
+  'POST /api/reflect/learnings/:id/skip': 'self',
+  'POST /api/reflect/ideas/find': 'self',
+  'POST /api/reflect/ideas/:id/save': 'self',
+  'POST /api/reflect/ideas/:id/skip': 'self',
   'GET /api/assistant/today': 'self',
   'POST /api/assistant/today/answer': 'self',
 
