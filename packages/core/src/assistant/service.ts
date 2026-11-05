@@ -22,8 +22,9 @@ import { ASSISTANT_AGENT, PrefsService } from './prefs';
 import { buildDay, renderDay, type DayReport } from './day';
 import { addDays, atLocal, cronHours, dayRange, daysBetween, insideHours, localDate, localHhmm, localLong } from './time';
 import { QUIET_JOB } from './quiet';
-import { buildRecap } from './recap';
-import type { RecapDto, RecapPeriod, RecapSummaryDto } from '../client/recap';
+import { buildReport, thinReport } from './recap';
+import { LearningsService, type LearnHost } from './learnings';
+import type { ReflectHabit, ReflectRange, ReflectReport } from '../client/recap';
 import { OWNER_ID } from '../people/context';
 import type { AssistantRoutineDto, AssistantSettingsDto, DayPlan, DayPlanItem, PrefsPatch, ProactivePrefs, ReflectDto, ReflectNowDto, ReflectPatch, ReflectRunDto, TodayDto, TodayGoal } from './types';
 
@@ -60,8 +61,12 @@ export interface AssistantHost {
   untrustedAgent?(name: string, cwd?: string): boolean;
   now?: () => number;
   hubZone?: () => string;
-  /** One text call on this account's small (fast-tier) model and keys: Reflect's Summarise. */
+  /** One text call on this account's small (fast-tier) model and keys: Reflect's model pass. */
   complete?(o: { system: string; prompt: string; maxTokens: number; purpose: string }): Promise<string>;
+  /** This account's learned skills (name, created day): Reflect's fun stats. */
+  learnedSkills?(): Array<{ name: string; created: string }>;
+  /** Reflect's Learnings: where a saved learning can go (agent instructions, a project's CONCLAVE.md, a learned skill). */
+  learn?: LearnHost;
   /** Whose assistant (docs/design/ACCOUNTS.md). Sessions it reads are this account's. Default: the owner's. */
   accountId?: string;
 }
@@ -69,6 +74,7 @@ export interface AssistantHost {
 export class AssistantService {
   readonly goals: GoalService;
   readonly prefs: PrefsService;
+  readonly learnings: LearningsService;
   private host: AssistantHost;
   private now: () => number;
 
@@ -76,6 +82,7 @@ export class AssistantService {
     this.host = host;
     this.now = host.now ?? Date.now;
     this.prefs = new PrefsService({ kv: host.kv, memory: host.memory, now: this.now, hubZone: host.hubZone });
+    this.learnings = new LearningsService({ db: host.db, kv: host.kv, accountId: host.accountId ?? OWNER_ID, memory: host.memory, routines: host.routines, complete: host.complete, learn: host.learn, now: this.now });
     const memory = host.memory;
     this.goals = new GoalService({
       db: host.db,
@@ -264,25 +271,45 @@ export class AssistantService {
     return this.host.routines.create({ ...input, template: 'nightly-reflection', enabled: false, timezone: this.zone() });
   }
 
-  /** Reflect's recap: this account's week, month or year from the hub's tables, in its own zone. No model call. */
-  recap(period: RecapPeriod): RecapDto {
-    return buildRecap(this.host.db, this.host.accountId ?? OWNER_ID, period, this.zone(), this.now());
+  private reportRuns = new Map<ReflectRange, Promise<ReflectReport>>();
+
+  /**
+   * Reflect's report for this account and range: the cached one while it is
+   * under a week old, else (or with refresh) a new one. The numbers are SQL
+   * over this account's rows (recap.ts); one call on its own small model
+   * turns titles and summaries into topics, 4D notes, suggestions and the
+   * question. Without a model, or when the call fails, the report keeps the
+   * versions the numbers alone give, and says so.
+   */
+  async report(range: ReflectRange, opts: { refresh?: boolean } = {}): Promise<ReflectReport> {
+    const key = `reflect.report.${range}`;
+    const cached = this.host.kv.get<ReflectReport | null>(key, null);
+    if (cached && !opts.refresh && this.now() - cached.generatedAt < REPORT_TTL_MS) return cached;
+    // one run per range at a time: a second Refresh waits for the first
+    const running = this.reportRuns.get(range);
+    if (running) return running;
+    const run = this.makeReport(range).finally(() => this.reportRuns.delete(range));
+    this.reportRuns.set(range, run);
+    const r = await run;
+    this.host.kv.set(key, r);
+    return r;
   }
 
-  /** Summarise: the recap in a short paragraph, one call on the account's small model. */
-  async recapSummary(period: RecapPeriod): Promise<RecapSummaryDto> {
-    if (!this.host.complete) throw new AssistantError(501, 'This hub has no model for summaries.');
-    const r = this.recap(period);
-    if (!r.totals.chats && !r.totals.sessions && !r.totals.workflows) return { summary: `Nothing to summarise this ${period} yet.` };
-    const { people, preferences, ...rest } = r;
-    const data = { ...rest, people: people.map((p) => p.content), preferences: preferences.map((p) => p.content) };
-    const text = await this.host.complete({
-      system: 'You write a warm, plain recap of what one person did with their AI assistant hub in a period. Three or four short sentences, second person, no lists, no headings, no emojis, no em dashes. Use only the numbers and names in the data; never invent anything.',
-      prompt: `Recap data for this ${period} (JSON):\n${JSON.stringify(data)}`,
-      maxTokens: 400,
-      purpose: 'reflect-recap',
+  private async makeReport(range: ReflectRange): Promise<ReflectReport> {
+    const { report, material } = buildReport(this.host.db, this.host.accountId ?? OWNER_ID, range, this.zone(), this.now(), {
+      learnedSkills: this.host.learnedSkills?.() ?? [],
+      ...(this.host.untrustedAgent ? { untrustedAgent: this.host.untrustedAgent } : {}),
     });
-    return { summary: text.trim() };
+    // an empty or thin range: the numbers only, so the model has nothing to pad out
+    if (thinReport(report)) return report;
+    if (!this.host.complete) return { ...report, insightsNote: 'No model for insights on this hub, so these come from the numbers only.' };
+    try {
+      const text = await this.host.complete({ system: REPORT_SYSTEM, prompt: redactSecrets(material), maxTokens: 1500, purpose: 'reflect-report' });
+      return mergeInsights(report, text);
+    } catch (err) {
+      log.warn(`reflect report model pass failed: ${(err as Error).message}`);
+      return { ...report, insightsNote: 'The model pass failed, so these come from the numbers only. Refresh to try again.' };
+    }
   }
 
   /** Settings > Reflect: the switch, the time, the model, the last run in words and the notes. */
@@ -574,6 +601,57 @@ export class AssistantService {
   reflectionNotes(): MemoryEntry[] {
     return this.host.memory.list({ scope: 'agent', scopeKey: ASSISTANT_AGENT, kind: 'procedure', limit: 200 }).filter((m) => m.tags.includes(REFLECTION_TAG));
   }
+}
+
+/** A report is made again on the first open after a week, or on Refresh. */
+const REPORT_TTL_MS = 7 * 86_400_000;
+const HABITS: ReflectHabit['key'][] = ['delegation', 'description', 'discernment', 'diligence'];
+
+const REPORT_SYSTEM = `You write the insight parts of a private usage report for one person about how they worked with their AI assistant hub in a period.
+You get numbers, behaviour signals and one line per session (title, agent, folder, day, short summary). Use only that. Never invent a number, name, project or event.
+Write plainly, second person, short sentences, no em dashes, no emojis, no praise or filler. Every line must point at something specific in the data.
+Never mention health, medical or body topics; those sessions were left out on purpose. Keep sensitive personal topics at a high level. Never quote mail, files or tool output.
+Return only JSON:
+{"headline": one sentence about the period,
+ "topics": up to 5 [{"name": 1 to 3 words, "example": one session title or short line from the data}],
+ "habits": [{"key": "delegation"|"description"|"discernment"|"diligence", "observation": one sentence from the signals, "example": one concrete example from their sessions}] only for habits the signals support,
+ "suggestions": 0 to 4 (none is fine when the data shows no clear step) [{"text": one practical step in Conclave (a project, a routine, a skill, a note, quiet hours, a second account), "why": the data behind it}],
+ "question": one open reflective question for them to talk through, tied to this period}`;
+
+/** The model pass's JSON over the numbers-only report: text only, the numbers stay. Bad JSON keeps the basic report. */
+export function mergeInsights(r: ReflectReport, text: string): ReflectReport {
+  const raw = /\{[\s\S]*\}/.exec(text)?.[0];
+  let o: Record<string, unknown> | undefined;
+  try {
+    o = raw ? (JSON.parse(raw) as Record<string, unknown>) : undefined;
+  } catch {
+    o = undefined;
+  }
+  if (!o || typeof o !== 'object') return { ...r, insightsNote: 'The model answered in a shape Reflect could not read, so these come from the numbers only. Refresh to try again.' };
+  const s = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/\s*[\u2014\u2013]\s*/g, ', ').replace(/\s+/g, ' ').trim().slice(0, max) : '');
+  const arr = (v: unknown) => (Array.isArray(v) ? (v as Array<Record<string, unknown>>).filter((x) => x && typeof x === 'object') : []);
+  const topics = arr(o.topics).map((t) => ({ name: s(t.name, 40), example: s(t.example, 140) })).filter((t) => t.name).slice(0, 5);
+  // a habit the numbers do not support stays out, whatever the model says
+  const habits = HABITS.flatMap((key) => {
+    const m = arr(o.habits).find((h) => h.key === key);
+    const base = r.habits.find((h) => h.key === key);
+    if (!base) return [];
+    const observation = s(m?.observation, 240) || base.observation;
+    const example = s(m?.example, 200) || base.example;
+    return [{ key, observation, ...(example ? { example } : {}) }];
+  });
+  const suggestions = arr(o.suggestions).map((x) => ({ text: s(x.text, 200), why: s(x.why, 200) })).filter((x) => x.text).slice(0, 4);
+  const headline = s(o.headline, 240);
+  const question = s(o.question, 240);
+  return {
+    ...r,
+    insights: 'model',
+    ...(headline ? { headline } : {}),
+    work: { ...r.work, ...(topics.length ? { topics } : {}) },
+    habits,
+    ...(suggestions.length ? { suggestions } : {}),
+    ...(question ? { question } : {}),
+  };
 }
 
 function isOwnerMessage(m: Message): boolean {

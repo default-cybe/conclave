@@ -50,6 +50,33 @@ Off until you turn it on in Settings > Assistant. It is a poll, not a watch: eve
 
 The checklist is a memory note for the assistant (tag `heartbeat-checklist`); edit it in Settings or ask the assistant. With an empty checklist every tick is skipped without a model call. The hub only sees tasks, goals and the checklist: a line that needs your calendar or mail is checked when the heartbeat runs for another reason, and every morning by the day plan. "Did it run" is answered from the run history (DayPlan shows it), never from the schedule.
 
+## Reflect report
+
+Settings > Reflect opens with your own report for the last 7 days, 30 days, or 3, 6 or 12 months. Each account sees only its own; the owner cannot open a member's. Sections, each hidden when there is too little data: a headline with chats and sessions, hours active, tokens and cost, and projects; what you worked on (topics and projects with an example each, and what was new); when you work (weekday by hour heatmap, active days, longest streak, busiest day, late-night share); how you work with AI in the four AI Fluency habits (Delegation, Description, Discernment, Diligence) from signals the hub keeps (subagents and workflows, opening messages, corrections, stopped turns, declined drafts, denied tool requests, review sessions, check results); your models and agents (fallbacks, cost per finished turn); fun stats (top tool, longest chat, biggest workflow, new people, memories, skills learned, goals); up to 4 suggestions, none when nothing stands out; and a question with Talk it through, which starts a new chat seeded with it. Your messages are the ones you typed: tool results, hub messages and other people's words in a shared chat do not count. An opener longer than about 400 words counts as a paste, not as your most detailed request.
+
+How it is made: the numbers are SQL over your own rows. One call on your own small model reads session titles and short summaries (never transcripts, mail, files or tool output; summaries of mail and web agents are left out) and writes the headline, topics, the habit notes, suggestions and the question. Without a model, or if that call fails, the report keeps the versions the numbers alone give and says so. A thin range (under 3 sessions you started or 5 messages you typed) gets no model call and no question: only the numbers. The report is kept per range and made again on the first open after a week, or when you press Refresh.
+
+Left out: incognito chats, sessions whose title or summary is about health (counted in a footnote), and their subagents. Quiet hours (your message hours) can be set on the page; Conclave has no break reminders yet.
+
+## Learnings
+
+Under the report, Settings > Reflect lists Learnings: lessons from what you typed, waiting for you. Nothing is written until you press Save.
+
+Capture: after each turn of a chat or code session with memory on, a quick regex check picks messages you typed that look like a correction ("no, use X", "actually", "don't"), a preference ("I prefer", "always", "never"), a request to remember ("remember: ...", "from now on") or praise ("perfect, exactly"), plus short messages in scripts the regex does not read. Tool results, hub reminders, quoted messages and messages from another account in a shared chat are skipped. Incognito chats, subagents, routine runs, meetings and juries are never read. Candidates wait until 5 have gathered or the oldest is 30 minutes old (checked after each turn and when Reflect opens); then one call on your own small model keeps lasting lessons and drops one-off task instructions, questions and vague feedback, in any language. It is told what memory extraction already saved from those chats, and anything a memory already says is dropped, so nothing is captured twice. Secrets and health topics are dropped.
+
+Each item shows the exact quote, the chat, how sure the check is and how many times it came up (a repeat adds to the count instead of a new item; a repeat of one you saved or skipped is dropped). Pick where Save writes:
+
+- Memory, as a fact or profile entry. It is written as a fact, never an order: "Always use pnpm" becomes "The user uses pnpm."; an order it cannot rewrite is refused. A near memory can be replaced instead of adding one.
+- The agent's instructions, under a "Learned" heading (the owner's user file; a member's own copy).
+- The project's `CONCLAVE.md` in the session's folder, under "Learned". Only trusted folders; the diff shows before Save.
+- The Pitfalls of the learned skill that was loaded when you said it.
+
+Edit changes the text first; Skip drops the item. Each account has its own queue; the owner cannot see a member's. Home shows a line when items wait.
+
+Skill ideas: Look for ideas sends the titles and first messages of your last 14 days of sessions (no subagents, routines, incognito or health) to your small model once, and proposes up to 3 skills or routines for requests that came up 3 times or more. Save writes the skill or routine; Skip drops it.
+
+Routes: `GET /api/reflect/learnings`, `GET /api/reflect/learnings/count`, `POST /api/reflect/learnings/:id/preview|save|skip` (body `{ target: memory|agent|project|skill, text?, memoryKind?, mergeInto? }`), `POST /api/reflect/ideas/find`, `POST /api/reflect/ideas/:id/save|skip`.
+
 ## Nightly reflection
 
 Off until you turn it on. At 02:40 the hub gathers the chats and assistant sessions you wrote in since the last reflection (only your words and the assistant's text: no tool results, so no email or web page can speak). The assistant saves at most 3 notes on how to work with you (agent-scoped procedures tagged `reflection`) and retires the ones they replace. Days without chats are skipped without a model call.

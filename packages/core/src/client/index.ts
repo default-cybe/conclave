@@ -67,8 +67,10 @@ import type {
 export type * from '../catalog/types';
 export type { AddSuggestionRequest, AddSuggestionResult, RoutineSuggestionDto, RoutineSuggestionsDto } from '../scheduler/suggest';
 export type * from './assistant';
-import type { RecapDto, RecapPeriod, RecapSummaryDto } from './recap';
+import type { ReflectRange, ReflectReport } from './recap';
 export type * from './recap';
+import type { LearningPreview, LearningSaveInput, LearningsDto, SkillIdea } from './learnings';
+export type * from './learnings';
 import type { LeaveByDto, MapsSettingsDto, MapsSettingsPatch, MapsTestResult } from './maps';
 export type * from './maps';
 import type { MemberProxyDto, MemberProxyUpdate, WebSearchSettingsDto, WebSearchSettingsPatch, WebSearchTestResult } from './websearch';
@@ -2126,10 +2128,19 @@ export class ConclaveClient {
   setReflect = (patch: ReflectPatch) => this.request<ReflectDto>('PUT', '/api/assistant/reflect', patch);
   /** The hub's owner only. Starts one reflection with the night's rules; returns as soon as it started. */
   reflectNow = () => this.request<ReflectNowDto>('POST', '/api/assistant/reflect/run');
-  /** Reflect: the caller's own week, month or year in numbers. No model call. */
-  reflectRecap = (period: RecapPeriod) => this.request<RecapDto>('GET', `/api/reflect/recap?period=${period}`);
-  /** Reflect's Summarise: one call on the caller's small model. */
-  reflectSummary = (period: RecapPeriod) => this.request<RecapSummaryDto>('POST', `/api/reflect/recap/summary?period=${period}`);
+  /** Reflect: the caller's own report for a range, cached until Refresh or a week old. */
+  reflectReport = (range: ReflectRange) => this.request<ReflectReport>('GET', `/api/reflect/report?range=${range}`);
+  /** Reflect's Refresh: makes the report again, with one call on the caller's small model. */
+  reflectRefresh = (range: ReflectRange) => this.request<ReflectReport>('POST', `/api/reflect/report/refresh?range=${range}`);
+  /** Reflect's Learnings: the caller's own queue and skill ideas. Only Save writes, and only where it was told. */
+  learnings = () => this.request<LearningsDto>('GET', '/api/reflect/learnings');
+  learningsCount = () => this.request<{ pending: number }>('GET', '/api/reflect/learnings/count');
+  previewLearning = (id: string, input: LearningSaveInput) => this.request<LearningPreview>('POST', `/api/reflect/learnings/${encodeURIComponent(id)}/preview`, input);
+  saveLearning = (id: string, input: LearningSaveInput) => this.request<LearningsDto>('POST', `/api/reflect/learnings/${encodeURIComponent(id)}/save`, input);
+  skipLearning = (id: string) => this.request<LearningsDto>('POST', `/api/reflect/learnings/${encodeURIComponent(id)}/skip`);
+  findIdeas = () => this.request<LearningsDto>('POST', '/api/reflect/ideas/find');
+  saveIdea = (id: string, edit: Partial<Pick<SkillIdea, 'name' | 'description' | 'body' | 'schedule'>> = {}) => this.request<LearningsDto>('POST', `/api/reflect/ideas/${encodeURIComponent(id)}/save`, edit);
+  skipIdea = (id: string) => this.request<LearningsDto>('POST', `/api/reflect/ideas/${encodeURIComponent(id)}/skip`);
   today = () => this.request<TodayDto>('GET', '/api/assistant/today');
   answerToday = (option: string) => this.request<{ plan: DayPlan; sessionId?: string }>('POST', '/api/assistant/today/answer', { option });
 
