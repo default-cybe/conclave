@@ -1,0 +1,143 @@
+/**
+ * Canvas mode's pure parts (docs/design/CANVAS-MODE.md): what a file is and
+ * its address, the last file open, which session reads a program's folder,
+ * and where the canvas opens on a phone. No React here, so tests import it.
+ */
+import type { WorkflowRun, WorkflowSummary } from '@conclave/core/client';
+import type { Session } from '@conclave/core/types';
+import { underParent } from '@conclave/core/session/delegated';
+import { sideModeOf } from '@/lib/sidebar';
+import { isLive } from '../workflows/words';
+
+/** A program is flows/<name>.flow.ts in a folder on a device; a workflow is yours or the library's, or one run of it. */
+export type CanvasFile =
+  | { kind: 'program'; name: string; device: string; cwd: string; sessionId: string }
+  | { kind: 'workflow'; id: string; name: string; group: 'yours' | 'library' | 'runs'; runId?: string; live?: boolean; failed?: boolean };
+
+export function programHref(name: string, device: string, cwd: string): string {
+  return `/canvas/program/${encodeURIComponent(name)}?${new URLSearchParams({ device, cwd })}`;
+}
+
+/** /canvas/workflow/<id or run>: a workflow's id, or a run's (wfr_...), which shows that run's own script lit by its state. */
+export function workflowHref(idOrRun: string): string {
+  return `/canvas/workflow/${encodeURIComponent(idOrRun)}`;
+}
+
+export const isRunId = (s: string) => s.startsWith('wfr_');
+
+export const fileHref = (f: CanvasFile) => (f.kind === 'program' ? programHref(f.name, f.device, f.cwd) : workflowHref(f.runId ?? f.id));
+
+export const fileTitle = (f: CanvasFile) => (f.kind === 'program' ? `${f.name}.flow.ts` : f.name);
+
+// ---------------------------------------------------------------------------
+// The last file open: Canvas opens on it (owner decision on PR #250)
+// ---------------------------------------------------------------------------
+
+const LAST_KEY = 'conclave.canvas.last';
+
+export function rememberFile(href: string) {
+  try {
+    if (href.startsWith('/canvas/')) localStorage.setItem(LAST_KEY, href);
+  } catch {
+    /* private mode: this page only */
+  }
+}
+
+/** Where the mode switch goes: the last file open, else the start page. */
+export function canvasHome(): string {
+  try {
+    const v = localStorage.getItem(LAST_KEY);
+    return v && v.startsWith('/canvas/') ? v : '/canvas';
+  } catch {
+    return '/canvas';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Programs: the flow routes are a session's, so a folder is read through its newest Code session
+// ---------------------------------------------------------------------------
+
+const codeSession = (s: Session) => !s.archived && !underParent(s) && sideModeOf(s) === 'code' && !!s.cwd;
+
+/** The newest Code session of each folder (device and cwd), newest folder first, at most `max`. */
+export function folderSessions(sessions: Iterable<Session>, max = 12): Session[] {
+  const best = new Map<string, Session>();
+  for (const s of sessions) {
+    if (!codeSession(s)) continue;
+    const k = `${s.device}\u0000${s.cwd}`;
+    const was = best.get(k);
+    if (!was || s.updatedAt > was.updatedAt) best.set(k, s);
+  }
+  return [...best.values()].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, max);
+}
+
+/** The session the canvas reads a program through: the newest Code session in that folder on that device. */
+export function sessionFor(sessions: Iterable<Session>, device: string, cwd: string): Session | undefined {
+  let out: Session | undefined;
+  for (const s of sessions) if (codeSession(s) && s.device === device && s.cwd === cwd && (!out || s.updatedAt > out.updatedAt)) out = s;
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Workflows: yours, the library's, and recent runs
+// ---------------------------------------------------------------------------
+
+const LIBRARY = new Set(['builtin', 'plugin', 'claude-code']);
+
+export function workflowFiles(library: WorkflowSummary[] = [], runs: WorkflowRun[] = [], maxRuns = 8): CanvasFile[] {
+  const out: CanvasFile[] = [];
+  for (const w of library) out.push({ kind: 'workflow', id: w.id, name: w.name, group: LIBRARY.has(w.source) ? 'library' : 'yours' });
+  // yours first, then the library; each by name
+  out.sort((a, b) => (a.kind === 'workflow' && b.kind === 'workflow' ? Number(a.group === 'library') - Number(b.group === 'library') || a.name.localeCompare(b.name) : 0));
+  for (const r of [...runs].sort((a, b) => b.createdAt - a.createdAt).slice(0, maxRuns))
+    out.push({ kind: 'workflow', id: r.name, name: r.name, group: 'runs', runId: r.id, live: isLive(r.status), failed: r.status === 'failed' });
+  return out;
+}
+
+/** The sidebar's groups: each program folder, then Your workflows, Library workflows, Recent runs. */
+export function fileGroups(files: CanvasFile[], folderLabel: (f: Extract<CanvasFile, { kind: 'program' }>) => string): Array<{ label: string; files: CanvasFile[] }> {
+  const WORDS = { yours: 'Your workflows', library: 'Library workflows', runs: 'Recent runs' } as const;
+  const out: Array<{ label: string; files: CanvasFile[] }> = [];
+  for (const f of files) {
+    const label = f.kind === 'program' ? folderLabel(f) : WORDS[f.group];
+    const g = out.find((x) => x.label === label) ?? out[out.push({ label, files: [] }) - 1];
+    g.files.push(f);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Where the canvas opens
+// ---------------------------------------------------------------------------
+
+/** The node the phone opens on: the running one, else one waiting on you, else the first failed one. */
+export function focusNode(states: Array<{ id: string; state?: string }>): string | undefined {
+  for (const want of ['running', 'waiting', 'failed']) {
+    const hit = states.find((s) => s.state === want);
+    if (hit) return hit.id;
+  }
+  return undefined;
+}
+
+type Box = { x: number; y: number; w: number; h: number };
+
+/**
+ * The viewport that puts `node` on screen at `zoom` with the nodes before it
+ * above (a phone's column runs top to bottom): the node sits at about 60% of
+ * the height, then the view is pulled back so no empty band shows above the
+ * graph's top or below its bottom while the graph is taller than the screen.
+ * Across, the graph is centred when it fits, else the node is.
+ */
+export function focusViewport(node: Box, graph: Box, canvas: { w: number; h: number }, zoom = 1, pad = 12): { x: number; y: number; zoom: number } {
+  const gw = graph.w * zoom;
+  const gh = graph.h * zoom;
+  const x = gw + pad * 2 <= canvas.w ? (canvas.w - gw) / 2 - graph.x * zoom : canvas.w / 2 - (node.x + node.w / 2) * zoom;
+  let y = canvas.h * 0.6 - (node.y + node.h / 2) * zoom;
+  if (gh + pad * 2 <= canvas.h) y = pad - graph.y * zoom;
+  else {
+    const top = pad - graph.y * zoom; // the graph's top at the screen's top
+    const bottom = canvas.h - pad - (graph.y + graph.h) * zoom; // its bottom at the screen's bottom
+    y = Math.min(top, Math.max(bottom, y));
+  }
+  return { x, y, zoom };
+}

@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Canvas, a fourth mode next to Chat, Assistant and Code: programs (`flows/*.flow.ts`) and workflows open full screen as blocks, with the node library, a faint dot grid, a minimap, an inspector column that never covers the canvas, and Output, Logs and Queue under it. A live or finished run shows each block's state; a phone opens on the running or failed block. It opens on the last file you had open. "Open in Canvas" is on a run and on a session's Blocks view. Read only for now; editing comes next (docs/design/CANVAS-MODE.md, #250).
+
 ## [0.4.67] - 2026-11-05
 
 ### Fixed

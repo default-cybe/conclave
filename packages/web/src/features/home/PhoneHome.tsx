@@ -73,7 +73,7 @@ export function PhoneHome() {
           </Link>
         )}
       </div>
-      <Docked>{mode === 'chat' ? <ChatComposer chatId="new" /> : <SessionBox key={mode} mode={mode} />}</Docked>
+      <Docked>{mode === 'chat' || mode === 'canvas' ? <ChatComposer chatId="new" /> : <SessionBox key={mode} mode={mode} />}</Docked>
     </div>
   );
 }

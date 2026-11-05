@@ -42,6 +42,7 @@ import { isDelegated } from '@conclave/core/session/delegated';
 import { moveToMainList, MOVE_TO_MAIN } from '@/features/chat/delegated';
 import { setRailOpen, useChatUi } from '@/features/conversation/state';
 import { openNew, ModeSwitch, useCurrentMode } from '@/features/home/ModeSwitch';
+import { SideFiles } from '@/features/canvas/files';
 import { LazyShareProjectDialog } from '@/features/friends/ShareProject';
 import { useMeetingHint } from '@/features/meeting/useMeetingHint';
 import { Brand, Mark } from './brand/Mark';
@@ -250,8 +251,13 @@ function MoreRow({ path }: { path: string }) {
 // The sessions
 // ---------------------------------------------------------------------------
 
+/** The mode's list: Canvas lists files, the others their sessions. */
+export function SideSessions(p: { mode: SideMode; phone?: boolean; onPick?: () => void }) {
+  return p.mode === 'canvas' ? <SideFiles phone={p.phone} onPick={p.onPick} /> : <ModeSessions {...p} />;
+}
+
 /** The mode's sessions in groups, with Group by (Code) and All conversations. `phone`: the drawer's sizes. */
-export function SideSessions({ mode, phone, onPick }: { mode: SideMode; phone?: boolean; onPick?: () => void }) {
+function ModeSessions({ mode, phone, onPick }: { mode: SideMode; phone?: boolean; onPick?: () => void }) {
   const all = useHub((s) => s.sessions);
   // a chat someone else owns lists under Shared with you, not with your own
   const shared = useHub((s) => s.sharedChats);
