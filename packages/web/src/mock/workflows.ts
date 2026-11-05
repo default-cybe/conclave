@@ -28,7 +28,7 @@ import type {
 } from '@conclave/core/client';
 import type { Message, Session } from '@conclave/core/types';
 import type { WorkflowGraphView } from '@conclave/core/client';
-import { insertNode, lineDiff, parseGraph, type InsertKind } from '@conclave/core/workflows/graph';
+import { insertNode, lineDiff, parseGraph, removeNode, type InsertKind } from '@conclave/core/workflows/graph';
 import type { MockCtx } from './index';
 
 /** Scripts the graph view parses (the mock's library has no real scripts). */
@@ -692,6 +692,18 @@ export function registerWorkflows(ctx: MockCtx): void {
       const r = insertNode(before, { kind: body?.kind as InsertKind, ...(body?.after ? { after: String(body.after) } : {}) });
       GRAPH_SCRIPTS[e.id] = r.script;
       return { sha: 'mock', diff: lineDiff(before, r.script), view: graphView(e.id, true), nodeId: r.nodeId };
+    } catch (err) {
+      return ctx.fail(400, (err as Error).message);
+    }
+  });
+  ctx.on('POST', '/api/workflows/:id/graph/remove', ({ params, body }) => {
+    const e = LIBRARY.find((x) => x.id === decodeURIComponent(params[0]));
+    if (!e) return ctx.notFound();
+    if (e.source !== 'user') return ctx.fail(403, 'This workflow ships with Conclave. Copy it to your workflows to edit it.');
+    const before = GRAPH_SCRIPTS[e.id] ?? GRAPH_SCRIPTS['deep-research'];
+    try {
+      GRAPH_SCRIPTS[e.id] = removeNode(before, String(body?.nodeId));
+      return { sha: 'mock', diff: lineDiff(before, GRAPH_SCRIPTS[e.id]), view: graphView(e.id, true) };
     } catch (err) {
       return ctx.fail(400, (err as Error).message);
     }

@@ -413,6 +413,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'PUT /api/workflows/:id/graph/layout': 'self',
   'POST /api/workflows/:id/graph/restore': 'self',
   'POST /api/workflows/:id/graph/insert': 'self',
+  'POST /api/workflows/:id/graph/remove': 'self',
   'POST /api/workflows/:id/copy': 'self',
   'GET /api/workflows/runs': 'self',
   'POST /api/workflows/runs': 'self',

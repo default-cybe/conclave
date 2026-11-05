@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_WORKFLOWS } from '../../src/workflows/defaults';
-import { applyEdit, GraphEditError, insertNode, layoutPathOf, lineDiff, parseGraph, printLayout, readLayout, shiftLayout } from '../../src/workflows/graph';
+import { applyEdit, dropLayout, GraphEditError, insertNode, layoutPathOf, removeNode, lineDiff, parseGraph, printLayout, readLayout, shiftLayout } from '../../src/workflows/graph';
 import { loadMeta } from '../../src/workflows/registry';
 import { sha256 } from '../../src/workflows/store';
 import { runAs } from '../../src/people/context';
@@ -118,6 +118,23 @@ return step
   });
   test('saved positions follow the nodes whose numbers moved', () => {
     expect(shiftLayout({ 'agent-1': { x: 0, y: 0 }, 'agent-2': { x: 8, y: 8 }, 'check-2': { x: 16, y: 16 } }, 'agent-2')).toEqual({ 'agent-1': { x: 0, y: 0 }, 'agent-3': { x: 8, y: 8 }, 'check-2': { x: 16, y: 16 } });
+  });
+});
+
+describe('removeNode', () => {
+  const s = `export const meta = { name: 'r', description: 'r' }\nconst a = await agent('one')\nawait agent(\n  'two',\n  { label: 'two' },\n)\nreturn a\n`;
+  test('a node of several lines goes whole, with its lines', () => {
+    expect(removeNode(s, 'agent-2')).toBe(`export const meta = { name: 'r', description: 'r' }\nconst a = await agent('one')\nreturn a\n`);
+    // the last statement, with no newline at the end
+    expect(removeNode(s.trimEnd(), 'return-1')).toBe(s.replace('return a\n', ''));
+  });
+  test('refused: a node others read, a shared line, an unknown id', () => {
+    expect(() => removeNode(s, 'agent-1')).toThrow(/reads one/);
+    expect(() => removeNode(s.replace('return a', 'log(1); return a'), 'return-1')).toThrow(/shares a line/);
+    expect(() => removeNode(s, 'agent-7')).toThrow(GraphEditError);
+  });
+  test('saved positions follow the nodes whose numbers moved down', () => {
+    expect(dropLayout({ 'agent-1': { x: 0, y: 0 }, 'agent-2': { x: 8, y: 8 }, 'agent-3': { x: 24, y: 24 }, 'check-2': { x: 16, y: 16 } }, 'agent-2')).toEqual({ 'agent-1': { x: 0, y: 0 }, 'agent-2': { x: 24, y: 24 }, 'check-2': { x: 16, y: 16 } });
   });
 });
 
@@ -393,6 +410,34 @@ return [a, b, c]`;
     await expect(svc.insertGraph('grow-me', { kind: 'agent', after: 'return-1', baseSha: res.sha })).rejects.toMatchObject({ status: 400 });
     await expect(svc.insertGraph('review-changes', { kind: 'agent', baseSha: 'x' })).rejects.toMatchObject({ status: 403 });
     await svc.restoreGraph('grow-me', { sha: view.sha, baseSha: res.sha });
+    expect(readFileSync(path, 'utf8')).toBe(script);
+  });
+
+  test('Delete takes a node out of the script, moves later positions down, refuses a node others read, and undo puts it back', async () => {
+    const svc = svcOf(t.engine);
+    const path = join(svc.registry.userDir, 'trim-me.js');
+    const script = `export const meta = { name: 'trim-me', description: 't' }\nconst a = await agent('say a')\nconst b = await agent('say b')\nawait agent('say c')\nreturn b\n`;
+    writeFileSync(path, script);
+    const view = await svc.graph('trim-me');
+    await svc.saveLayout('trim-me', { 'agent-1': { x: 8, y: 8 }, 'agent-3': { x: 80, y: 80 } });
+    // b is read by the return: refused, nothing written
+    await expect(svc.removeGraph('trim-me', { nodeId: 'agent-2', baseSha: view.sha })).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/reads/) });
+    expect(readFileSync(path, 'utf8')).toBe(script);
+    const res = await svc.removeGraph('trim-me', { nodeId: 'agent-1', baseSha: view.sha });
+    expect(readFileSync(path, 'utf8')).toBe(script.replace("const a = await agent('say a')\n", ''));
+    expect(res.view.graph.nodes.map((n) => n.id)).toEqual(['agent-1', 'agent-2', 'return-1']);
+    expect(res.view.layout).toEqual({ 'agent-2': { x: 80, y: 80 } });
+    expect(res.diff).toContain("- const a = await agent('say a')");
+    // stale canvas, unknown node, a built-in
+    await expect(svc.removeGraph('trim-me', { nodeId: 'agent-1', baseSha: view.sha })).rejects.toMatchObject({ status: 409 });
+    await expect(svc.removeGraph('trim-me', { nodeId: 'agent-9', baseSha: res.sha })).rejects.toMatchObject({ status: 400 });
+    await expect(svc.removeGraph('review-changes', { nodeId: 'agent-1', baseSha: 'x' })).rejects.toMatchObject({ status: 403 });
+    // a member gets the same 404 as for a missing workflow, and nothing is written
+    await runAs('acct_graph_rm', async () => {
+      await expect(svc.removeGraph('trim-me', { nodeId: 'agent-1', baseSha: res.sha })).rejects.toMatchObject({ status: 404 });
+    });
+    expect(readFileSync(path, 'utf8')).toBe(script.replace("const a = await agent('say a')\n", ''));
+    await svc.restoreGraph('trim-me', { sha: view.sha, baseSha: res.sha });
     expect(readFileSync(path, 'utf8')).toBe(script);
   });
 

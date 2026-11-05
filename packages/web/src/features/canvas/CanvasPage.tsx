@@ -17,13 +17,17 @@
  * PR 2 edits (editor.ts): a program in a session's folder and a workflow of
  * your own save every change to the file at once, with Undo and Redo in the
  * top bar and a Saved, Saving or Not saved status. Library workflows and
- * runs stay read only; a library workflow offers Duplicate to edit. Run and
- * the agent come in later PRs.
+ * runs stay read only; a library workflow offers Duplicate to edit.
+ *
+ * PR 3 runs (run.ts): Run, Queue run while one goes on, Stop, the live run
+ * in place on the nodes, Output, Logs and Queue under the canvas, a failed
+ * node's Re-run and Ask the agent, and the Agent tab next to the inspector:
+ * a Code session in the file's folder whose finished turn reloads the canvas.
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useParams, useSearch } from 'wouter';
 import { ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import { nodeRuns, type FlowBlockSpec, type FlowOp, type FlowRunView, type FlowView, type GraphEditField, type GraphNode, type WorkflowGraphView, type WorkflowRunDetail } from '@conclave/core/client';
+import { nodeRuns, type WorkflowArgFieldDto, type FlowBlockSpec, type FlowOp, type FlowRunView, type FlowView, type GraphEditField, type GraphNode, type WorkflowGraphView, type WorkflowRunDetail } from '@conclave/core/client';
 import { wireRefusal } from '@conclave/core/flows/ports';
 import { Button } from '@/components/ui/Button';
 import { Elapsed } from '@/components/motion/Elapsed';
@@ -33,6 +37,12 @@ import { ListRow } from '@/components/ui/List';
 import { Menu, Sheet } from '@/components/ui/Overlay';
 import { Page, PageHeader } from '@/components/ui/Page';
 import { Notice, Section } from '@/components/ui/Section';
+import { Dialog } from '@/components/ui/Overlay';
+import { Textarea } from '@/components/ui/Field';
+import { isTyping } from '@/components/Shell';
+import { MessageList } from '@/features/chat/MessageList';
+import { ArgsForm, argsFromValues, type ArgValues } from '../workflows/args-form';
+import { agentMessage, agentSessionOf, dropQueued, folderOf, programStates, queueRun, queuedRuns, rememberAgentSession, takeQueued, type QueuedRun } from './run';
 import { Tabs } from '@/components/ui/Tags';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { PhoneBar } from '@/components/PhoneFrame';
@@ -42,7 +52,7 @@ import { api } from '@/lib/api';
 import { hhmm } from '@/lib/format';
 import { useIsMobile } from '@/lib/hooks';
 import { cn } from '@/lib/text';
-import { attempt, toast, useHub } from '@/store/store';
+import { attempt, retainTranscript, sendQueued, toast, upsertSession, useHub } from '@/store/store';
 import { DRAG_KIND, GraphCanvas, INSERTS } from '../graph/GraphCanvas';
 import { FlowInspector, runWords } from '../graph/FlowView';
 import { Inspector } from '../graph/Inspector';
@@ -150,6 +160,8 @@ function ProgramFile({ name }: { name: string }) {
   const graph = view?.graph;
   const title = `${name}.flow.ts`;
   const fileKey = `${device}:${cwd}:${name}`;
+  const start = () => void attempt(() => api().runFlow(sid!, name)).then((r) => r && setRun(r));
+  const runner = useRunner(`program:${fileKey}`, flowLive(run), start);
   const saveLayout = async (next: Positions) => {
     setPositions(next);
     await api().saveFlowLayout(sid!, name, next);
@@ -180,13 +192,14 @@ function ProgramFile({ name }: { name: string }) {
     () => ({
       blocks: bySpec,
       live: run?.nodes,
+      states: graph ? programStates(graph.nodes, run) : undefined,
       check: (from: string, to: string, input: string) => (graph ? wireRefusal(graph, from, to, input) : undefined),
       onConnect: (from: string, to: string, input: string) => {
         const src = graph?.nodes.find((n) => n.id === from)?.declares[0];
         if (src) void ops('wire', [{ op: 'connect', nodeId: to, input, from: src }]);
       },
     }),
-    [bySpec, run?.nodes, graph], // eslint-disable-line react-hooks/exhaustive-deps
+    [bySpec, run?.nodes, run?.status, graph], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const where = [cwd, device && `on ${device}`].filter(Boolean).join(' ');
   if (booted && !session) return <Missing title={title}>No Code session works in {where || 'that folder'}, so the hub cannot read its flows. Start one there, then open the file again.</Missing>;
@@ -255,8 +268,12 @@ function ProgramFile({ name }: { name: string }) {
       )}
       library={blocks.map((b) => ({ kind: b.block, word: b.title, help: b.help, group: b.family }))}
       inspector={(node) => <FlowInspector node={node} nodes={view.graph.nodes} spec={node.block ? bySpec.get(node.block) : undefined} live={run?.nodes[node.id]} onOp={(op, label) => ops(label, [op])} />}
+      // a program has no resume: Re-run runs the whole file
+      failedOf={(node) => (run?.nodes[node.id]?.ok === false ? { error: run.nodes[node.id].error ?? run.error ?? 'failed', rerun: { label: 'Re-run', go: start } } : undefined)}
+      runner={{ ...runner, onStop: flowLive(run) ? () => void attempt(() => api().stopFlow(sid!, name)).then((r) => r && setRun(r)) : undefined }}
+      agent={{ file: `flows/${title}`, device, cwd, sessionId: sid, error: run?.status === 'failed' ? run.error : undefined, onTurnEnd: () => void api().flowGraph(sid!, name).then(take).catch(() => {}) }}
       output={run?.output || run?.error || ''}
-      logs={[]}
+      logs={Object.entries(run?.nodes ?? {}).map(([id, n]) => [n.ms !== undefined ? `${n.ms} ms` : '', `${id}: ${n.ok ? (n.summary ?? 'done') : `failed, ${(n.error ?? '').split('\n')[0]}`}`] as const)}
     />
   );
 }
@@ -285,16 +302,45 @@ function WorkflowFile({ id }: { id: string }) {
   const [view, setView] = useState<WorkflowGraphView>();
   const [lastRun, setLastRun] = useState<string>();
   const [error, setError] = useState<string>();
+  const [schema, setSchema] = useState<Record<string, WorkflowArgFieldDto>>();
+  const [path, setPath] = useState<string>();
+  const [asking, setAsking] = useState<'now' | 'queue'>();
   useEffect(() => {
     let alive = true;
+    // the latest run of this workflow (the hub's, per account): a reload shows it live again
     Promise.all([api().workflowGraph(id), api().workflow(id)])
-      .then(([v, d]) => alive && (setView(v), setLastRun(d.lastRun?.id)))
+      .then(([v, d]) => alive && (setView(v), setLastRun(d.lastRun?.id), setSchema(d.argsSchema), setPath(d.path)))
       .catch((e) => alive && setError(e instanceof Error ? e.message : String(e)));
     return () => {
       alive = false;
     };
   }, [id]);
   const { data } = useRunDetail(lastRun);
+  const live = !!data && isLive(data.run.status);
+  const go = (args?: Record<string, unknown>) => void attempt(() => api().startWorkflow({ name: id, ...(args ? { args } : {}) })).then((r) => r && setLastRun(r.id));
+  const declares = !!schema && Object.keys(schema).length > 0;
+  const queueKey = `workflow:${id}`;
+  const runner = useRunner(queueKey, live, (q) => go(q?.args));
+  const runFlow: ShellRun = {
+    ...runner,
+    // the args form first when the workflow declares args; Queue run keeps them with the queued run
+    onRun: () => (declares ? setAsking(live ? 'queue' : 'now') : runner.onRun()),
+    onStop: live ? () => void attempt(() => api().stopWorkflow(data!.run.id)) : undefined,
+  };
+  const argsDialog = schema && asking && (
+    <RunArgs
+      schema={schema}
+      queue={asking === 'queue'}
+      onClose={() => setAsking(undefined)}
+      onRun={(args) => {
+        setAsking(undefined);
+        if (asking === 'queue') runner.setQueue(queueRun(queueKey, args));
+        else go(args);
+      }}
+    />
+  );
+  const rerun = (seqs: number[]) => data && void attempt(() => api().rerunWorkflow(data.run.id, { seqs })).then((r) => r && setLastRun(r.id));
+  const agent = view?.editable ? { file: path ?? id, cwd: folderOf(path), error: data?.run.status === 'failed' ? (data.run.error ?? data.calls.find((c) => c.state === 'failed')?.error) : undefined, onTurnEnd: () => void api().workflowGraph(id).then(take).catch(() => {}) } : undefined;
   const [positions, setPositions] = useState<Positions>({});
   const take = useCallback((v: WorkflowGraphView) => setView((old) => ({ ...v, layout: v.layout ?? old?.layout })), []);
   useEffect(() => setPositions((p) => view?.layout ?? p), [view?.layout]);
@@ -307,6 +353,9 @@ function WorkflowFile({ id }: { id: string }) {
       <WorkflowShell
         view={view}
         detail={data}
+        runner={runFlow}
+        onRerun={rerun}
+        dialog={argsDialog}
         title={view.graph.name || id}
         meta={['Workflow', library ? 'library' : 'yours', 'read only'].join(', ')}
         duplicate={library ? () => void attempt(() => api().copyWorkflow(id), 'Duplicated. The copy is yours to edit.').then((d) => d && api().workflowGraph(id).then(take)) : undefined}
@@ -333,6 +382,24 @@ function WorkflowFile({ id }: { id: string }) {
       )
       .then((nid) => nid && at && void attempt(() => saveLayout({ ...(shifted ?? positions), [nid]: snap(at) })));
   };
+  const remove = (ids: string[]) => {
+    // later nodes of a kind renumber (dropLayout): undo puts the old positions back
+    const prev = positions;
+    let after: Positions | undefined;
+    const at = (nid: string) => view.graph.nodes.findIndex((n) => n.id === nid);
+    void ed.edit(
+      ids.length > 1 ? `remove ${ids.length} nodes` : 'remove',
+      async (base, took) => {
+        // last first, so the ids still to go do not move
+        for (const nid of [...ids].sort((a, b) => at(b) - at(a))) {
+          const r = await api().removeWorkflowNode(id, { nodeId: nid, baseSha: base() });
+          after = r.view.layout;
+          took(r.view);
+        }
+      },
+      { undo: () => saveLayout(prev), redo: async () => after && saveLayout(after) },
+    );
+  };
   const setting = (nodeId: string, e: { field: GraphEditField; value: string; part?: number }) =>
     ed.edit(e.field === 'label' ? 'rename' : e.field, async (base, took) => took((await api().editWorkflowGraph(id, { nodeId, ...e, baseSha: base() })).view));
   return (
@@ -342,10 +409,15 @@ function WorkflowFile({ id }: { id: string }) {
       title={view.graph.name || id}
       meta="Workflow, yours"
       positions={positions}
+      runner={runFlow}
+      onRerun={rerun}
+      agent={agent}
+      dialog={argsDialog}
       edit={{
         ...ed,
         onAdd: (k) => insert(k),
         insert,
+        remove,
         setting,
         move: (nid, at) => {
           const prev = positions;
@@ -360,11 +432,12 @@ function WorkflowFile({ id }: { id: string }) {
 
 type WorkflowEdit = ShellEdit & {
   insert: (kind: string, after?: string, at?: { x: number; y: number }) => void;
+  remove: (ids: string[]) => void;
   setting: (nodeId: string, e: { field: GraphEditField; value: string; part?: number }) => Promise<unknown>;
   move: (id: string, at: { x: number; y: number }) => void;
 };
 
-function WorkflowShell({ view, detail, title, meta, run, duplicate, edit, positions }: { view: WorkflowGraphView; detail?: WorkflowRunDetail; title: string; meta: string; run?: boolean; duplicate?: () => void; edit?: WorkflowEdit; positions?: Positions }) {
+function WorkflowShell({ view, detail, title, meta, run, duplicate, edit, positions, runner, onRerun, agent, dialog }: { view: WorkflowGraphView; detail?: WorkflowRunDetail; title: string; meta: string; run?: boolean; duplicate?: () => void; edit?: WorkflowEdit; positions?: Positions; runner?: ShellRun; onRerun?: (seqs: number[]) => void; agent?: ShellAgent; dialog?: ReactNode }) {
   const [selection, setSelection] = useState<string[]>([]);
   const runs = useMemo(() => (detail ? nodeRuns(view.graph, detail.calls) : undefined), [view.graph, detail]);
   const r = detail?.run;
@@ -384,6 +457,14 @@ function WorkflowShell({ view, detail, title, meta, run, duplicate, edit, positi
       links={r ? [{ label: 'Open the run', href: `/workflows/runs/${r.id}` }] : []}
       duplicate={duplicate}
       edit={edit}
+      runner={runner}
+      agent={agent}
+      dialog={dialog}
+      // a workflow replays from its journal: Re-run from here runs this node and what depends on it
+      failedOf={(node) => {
+        const nr = runs?.byNode.get(node.id);
+        return nr?.state === 'failed' ? { error: nr.error ?? r?.error ?? 'failed', ...(onRerun && nr.seqs.length ? { rerun: { label: 'Re-run from here', go: () => onRerun(nr.seqs) } } : {}) } : undefined;
+      }}
       canvas={(sel, onSelect) => (
         <GraphCanvas
           graph={view.graph}
@@ -401,8 +482,7 @@ function WorkflowShell({ view, detail, title, meta, run, duplicate, edit, positi
                 onMove: edit.move,
                 selection,
                 onSelection: (ids: string[]) => (setSelection(ids), ids.length <= 1 && onSelect(ids[0])),
-                // the workflow API has no remove op yet: say where to do it instead of doing nothing
-                onRemove: () => toast({ title: 'Remove a workflow node in its script', body: 'The canvas adds nodes and edits their settings; removing comes with the agent in a later version.', level: 'info' }),
+                onRemove: (ids: string[]) => (onSelect(undefined), setSelection([]), edit.remove(ids)),
                 onRename: (nid: string, name: string) => void edit.setting(nid, { field: 'label', value: name }),
                 renamable: workflowRenamable,
               }
@@ -413,7 +493,7 @@ function WorkflowShell({ view, detail, title, meta, run, duplicate, edit, positi
       inspector={(node) => {
         const nr = runs?.byNode.get(node.id);
         const calls = nr && detail ? detail.calls.filter((c) => nr.seqs.includes(c.seq)) : [];
-        return <Inspector node={node} run={nr} calls={calls} runCtx={r ? { id: r.id, name: r.name, sessionId: r.sessionId, live } : undefined} {...(edit ? { view, saveNow: (e: { field: GraphEditField; value: string; part?: number }) => edit.setting(node.id, e) } : {})} />;
+        return <Inspector node={node} run={nr} calls={calls} runCtx={r ? { id: r.id, name: r.name, sessionId: r.sessionId, live } : undefined} onRerun={onRerun} {...(edit ? { view, saveNow: (e: { field: GraphEditField; value: string; part?: number }) => edit.setting(node.id, e) } : {})} />;
       }}
       output={r?.error ?? (detail?.result !== undefined ? JSON.stringify(detail.result, null, 2) : '')}
       logs={(detail?.logs ?? []).map((l) => [hhmm(l.ts), l.text] as const)}
@@ -432,10 +512,59 @@ interface ShellEdit {
   onAdd: (kind: string) => void;
 }
 
+/** Run, Queue run and Stop for one file (useRunner), and its queued runs. */
+interface ShellRun {
+  live: boolean;
+  onRun: () => void;
+  onStop?: () => void;
+  queue: QueuedRun[];
+  setQueue: (q: QueuedRun[]) => void;
+  onCancel: (id: string) => void;
+}
+
+/** Where Ask the agent works: the file, its folder, the session it continues, the last error. */
+interface ShellAgent {
+  file: string;
+  device?: string;
+  cwd?: string;
+  sessionId?: string;
+  error?: string;
+  onTurnEnd: () => void;
+}
+
+/**
+ * One run per file: Run starts one, or queues one while a run goes on; the
+ * next queued run starts when the live one ends.
+ * shortcut: the queue lives in this browser and moves only while the file is open in Canvas; a hub-side queue would run it with the tab closed.
+ */
+function useRunner(key: string, live: boolean, start: (q?: QueuedRun) => void): ShellRun {
+  const [queue, setQueue] = useState(() => queuedRuns(key));
+  const was = useRef(live);
+  const startNow = useRef(start);
+  startNow.current = start;
+  useEffect(() => {
+    if (was.current && !live) {
+      const next = takeQueued(key);
+      if (next) {
+        setQueue(queuedRuns(key));
+        startNow.current(next);
+      }
+    }
+    was.current = live;
+  }, [live, key]);
+  return { live, queue, setQueue, onRun: () => (live ? setQueue(queueRun(key)) : start()), onCancel: (id) => setQueue(dropQueued(key, id)) };
+}
+
 interface ShellProps {
   title: string;
   meta: string;
   edit?: ShellEdit;
+  runner?: ShellRun;
+  agent?: ShellAgent;
+  /** A failed node's error, and how it runs again (Re-run from here when the hub can replay, else Re-run). */
+  failedOf?: (node: GraphNode) => { error: string; rerun?: { label: string; go: () => void } } | undefined;
+  /** The args form a Run opens. */
+  dialog?: ReactNode;
   /** A library workflow: copy it to your own workflows, where it is editable. */
   duplicate?: () => void;
   /** One run, read only: the node library starts folded unless this account opened it. */
@@ -469,9 +598,47 @@ function Shell(p: ShellProps) {
   const [tab, setTab] = useState<Tab>(p.logs.length ? 'logs' : 'output');
   const [panel, setPanel] = useState(true);
   const [lib, setLib] = useState(() => libraryOpen(!!p.run));
-  const [sheet, setSheet] = useState<'library' | 'output'>();
+  const [sheet, setSheet] = useState<'library' | 'output' | 'agent'>();
+  const [side, setSide] = useState<'inspector' | 'agent'>('inspector');
   useFullScreen(phone);
   const node = p.graph.nodes.find((n) => n.id === sel);
+  const ask = () => (phone ? setSheet('agent') : setSide('agent'));
+  const failed = node && p.failedOf?.(node);
+  const inspector = (n: GraphNode) => (
+    <>
+      {failed && (
+        <div className="space-y-3 border-b border-rule px-5 py-4">
+          <Notice tone="fault">{failed.error}</Notice>
+          <div className="flex flex-wrap gap-2">
+            {failed.rerun && p.runner && (
+              <Button variant="outline" size={phone ? 'touch' : 'sm'} disabled={p.runner.live} onClick={failed.rerun.go}>
+                {failed.rerun.label}
+              </Button>
+            )}
+            {p.agent && (
+              <Button variant="outline" size={phone ? 'touch' : 'sm'} onClick={ask}>
+                Ask the agent
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+      {p.inspector(n)}
+    </>
+  );
+  const runRef = useRef(p.runner);
+  runRef.current = p.runner;
+  // Ctrl/Cmd+Enter: Run, or Queue run while one goes on
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || isTyping(e) || !runRef.current) return;
+      e.preventDefault();
+      runRef.current.onRun();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const agentPanel = p.agent && <AgentPanel ctx={p.agent} selection={node ? [{ label: node.label, lines: `lines ${node.span.start} to ${node.span.end}` }] : []} />;
   const statusLine = (
     <span className="min-w-0 truncate" aria-live="polite">
       <span className={cn('cv-state font-medium', p.status.tone)}>{p.status.word}</span>
@@ -484,7 +651,7 @@ function Shell(p: ShellProps) {
       {p.status.rest && <span className="text-fg-3">, {p.status.rest}</span>}
     </span>
   );
-  const bottom = <BottomPanel tab={tab} setTab={setTab} output={p.output} logs={p.logs} phone={phone} />;
+  const bottom = <BottomPanel tab={tab} setTab={setTab} output={p.output} logs={p.logs} phone={phone} runner={p.runner} title={p.title} />;
   // a phone taps a node in the sheet to add it; a computer drags it onto the canvas (or clicks it)
   const library = <Library items={p.library} onAdd={p.edit ? (k) => (setSheet(undefined), p.edit!.onAdd(k)) : undefined} />;
   const save = p.edit && saveWords(p.edit.state);
@@ -511,6 +678,16 @@ function Shell(p: ShellProps) {
           Duplicate to edit
         </Button>
       )}
+      {!phone && p.runner?.onStop && (
+        <Button variant="outline" size="sm" onClick={p.runner.onStop}>
+          Stop
+        </Button>
+      )}
+      {!phone && p.runner && (
+        <Button variant="primary" size="sm" onClick={p.runner.onRun} title={p.runner.live ? 'Queue run: it starts when this one ends (Ctrl+Enter)' : 'Run (Ctrl+Enter)'}>
+          {p.runner.live ? 'Queue run' : 'Run'}
+        </Button>
+      )}
     </>
   );
   const facts = (
@@ -532,11 +709,16 @@ function Shell(p: ShellProps) {
         <div className="relative flex min-h-0 flex-1 flex-col">
           {p.canvas(sel, setSel)}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end gap-2 px-3 pb-[calc(12px+var(--safe-b,0px))]">
-            {(['library', 'output'] as const).map((s) => (
+            {(p.agent ? (['library', 'output', 'agent'] as const) : (['library', 'output'] as const)).map((s) => (
               <button key={s} type="button" onClick={() => setSheet(s)} className="pointer-events-auto h-11 rounded-[var(--r-2)] border border-rule-2 bg-raise px-4 text-[15px] text-fg shadow-[var(--shadow-pop)]">
-                {s === 'library' ? 'Nodes' : 'Output'}
+                {s === 'library' ? 'Nodes' : s === 'output' ? 'Output' : 'Agent'}
               </button>
             ))}
+            {p.runner && (
+              <button type="button" onClick={p.runner.onStop ?? p.runner.onRun} className="pointer-events-auto ml-auto h-11 rounded-[var(--r-2)] border border-rule-2 bg-raise px-5 text-[15px] font-medium text-fg shadow-[var(--shadow-pop)]">
+                {p.runner.onStop ? 'Stop' : 'Run'}
+              </button>
+            )}
           </div>
         </div>
         <Sheet open={sheet === 'library'} onClose={() => setSheet(undefined)} title="Nodes">
@@ -545,9 +727,13 @@ function Shell(p: ShellProps) {
         <Sheet open={sheet === 'output'} onClose={() => setSheet(undefined)} title="Run">
           <div className="px-4 pb-4">{bottom}</div>
         </Sheet>
-        <Sheet open={!!node} onClose={() => setSel(undefined)} label={node?.label ?? 'Node'} className="cv-inspector">
-          {node && p.inspector(node)}
+        <Sheet open={sheet === 'agent'} onClose={() => setSheet(undefined)} title="Ask the agent">
+          <div className="flex h-[70dvh] flex-col">{agentPanel}</div>
         </Sheet>
+        <Sheet open={!!node && sheet !== 'agent'} onClose={() => setSel(undefined)} label={node?.label ?? 'Node'} className="cv-inspector">
+          {node && inspector(node)}
+        </Sheet>
+        {p.dialog}
       </div>
     );
 
@@ -591,10 +777,16 @@ function Shell(p: ShellProps) {
           </div>
         </div>
         {/* its own column: the inspector never covers the canvas */}
-        <aside aria-label="Inspector" className="cv-inspector scroll-y w-[320px] shrink-0 border-l border-rule">
-          {node ? p.inspector(node) : facts}
+        <aside aria-label={side === 'agent' ? 'Agent' : 'Inspector'} className="cv-inspector flex w-[320px] shrink-0 flex-col border-l border-rule">
+          {p.agent && (
+            <div className="flex h-10 shrink-0 items-center border-b border-rule px-3">
+              <Tabs<'inspector' | 'agent'> value={side} onChange={setSide} label="Right column" options={[{ value: 'inspector', label: 'Inspector' }, { value: 'agent', label: 'Agent' }]} />
+            </div>
+          )}
+          {side === 'agent' && agentPanel ? <div className="flex min-h-0 flex-1 flex-col">{agentPanel}</div> : <div className="scroll-y min-h-0 flex-1">{node ? inspector(node) : facts}</div>}
         </aside>
       </div>
+      {p.dialog}
     </div>
   );
 }
@@ -667,7 +859,7 @@ function PanelTabs({ tab, setTab, logs }: { tab: Tab; setTab: (t: Tab) => void; 
   return <Tabs<Tab> value={tab} onChange={setTab} label="Run panel" options={[{ value: 'output', label: 'Output' }, { value: 'logs', label: 'Logs', count: logs || undefined }, { value: 'queue', label: 'Queue' }]} />;
 }
 
-function BottomPanel({ tab, setTab, output, logs, phone }: { tab: Tab; setTab: (t: Tab) => void; output: string; logs: ShellProps['logs']; phone: boolean }) {
+function BottomPanel({ tab, setTab, output, logs, phone, runner, title }: { tab: Tab; setTab: (t: Tab) => void; output: string; logs: ShellProps['logs']; phone: boolean; runner?: ShellRun; title: string }) {
   return (
     <>
       {phone && (
@@ -687,24 +879,131 @@ function BottomPanel({ tab, setTab, output, logs, phone }: { tab: Tab; setTab: (
           ))}
         </div>
       )}
-      {tab === 'queue' && <Queue />}
+      {tab === 'queue' && <Queue runner={runner} title={title} phone={phone} />}
     </>
   );
 }
 
-/** Workflow runs going now, newest first. */
-function Queue() {
+/** This file's queued runs (Cancel each), then the workflow runs going now on this hub, newest first. */
+function Queue({ runner, title, phone }: { runner?: ShellRun; title: string; phone: boolean }) {
   const { data } = useRuns({ limit: 20 });
   const live = (data ?? []).filter((r) => isLive(r.status));
-  if (!live.length) return <p className="m-0 py-1 text-[13px] text-fg-3">Nothing running or queued.</p>;
+  const mine = runner?.queue ?? [];
+  if (!live.length && !mine.length) return <p className="m-0 py-1 text-[13px] text-fg-3">Nothing running or queued.</p>;
   return (
     <>
+      {mine.map((q, i) => (
+        <div key={q.id} className="flex items-center gap-3 border-b border-rule py-1 text-[13px]">
+          <span className="mono min-w-0 flex-1 truncate text-fg">{title}</span>
+          <span className="shrink-0 text-[12px] text-fg-3">
+            queued{mine.length > 1 ? `, ${i + 1} of ${mine.length}` : ''}, {hhmm(q.at)}
+          </span>
+          <Button variant="ghost" size={phone ? 'touch' : 'sm'} onClick={() => runner!.onCancel(q.id)}>
+            Cancel
+          </Button>
+        </div>
+      ))}
       {live.map((r) => (
         <Link key={r.id} href={fileHref({ kind: 'workflow', id: r.name, name: r.name, group: 'runs', runId: r.id })} className="flex items-baseline gap-3 border-b border-rule py-1.5 text-[13px] last:border-0 hov:text-fg">
           <span className="mono min-w-0 flex-1 truncate text-fg">{r.name}</span>
           <span className={cn('shrink-0 text-[12px]', r.status === 'running' ? 'text-signal' : 'text-fg-3')}>{r.status === 'running' ? <Elapsed since={r.startedAt ?? r.createdAt} /> : RUN_WORD[r.status]}</span>
         </Link>
       ))}
+    </>
+  );
+}
+
+/** The args form for a workflow that declares them (the run sheet's ArgsForm). */
+function RunArgs({ schema, queue, onClose, onRun }: { schema: Record<string, WorkflowArgFieldDto>; queue: boolean; onClose: () => void; onRun: (args: Record<string, unknown>) => void }) {
+  const [values, setValues] = useState<ArgValues>({});
+  const [err, setErr] = useState<string>();
+  const submit = () => {
+    const { args, error } = argsFromValues(schema, values);
+    if (error) return setErr(error);
+    onRun(args ?? {});
+  };
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={queue ? 'Queue a run' : 'Run'}
+      description="The workflow's declared args. Empty fields are left out."
+      footer={
+        <Button variant="primary" onClick={submit}>
+          {queue ? 'Queue run' : 'Run'}
+        </Button>
+      }
+    >
+      <ArgsForm schema={schema} values={values} set={(k, v) => (setValues((s) => ({ ...s, [k]: v })), setErr(undefined))} />
+      {err && <p className="mt-3 text-[13px] text-fault">{err}</p>}
+    </Dialog>
+  );
+}
+
+/**
+ * Ask the agent: a Code session in the file's folder (the folder's session for
+ * a program, one started for a workflow and kept per file), its transcript,
+ * and a box whose message carries the file, the selection and the last error.
+ * The canvas reloads the file when the agent's turn ends.
+ */
+function AgentPanel({ ctx, selection }: { ctx: ShellAgent; selection: Array<{ label: string; lines: string }> }) {
+  const [sid, setSid] = useState(() => ctx.sessionId ?? agentSessionOf(ctx.file));
+  const session = useHub((s) => (sid ? s.sessions[sid] : undefined));
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => (sid ? retainTranscript(sid) : undefined), [sid]);
+  const was = useRef(session?.status);
+  const turnEnd = useRef(ctx.onTurnEnd);
+  turnEnd.current = ctx.onTurnEnd;
+  useEffect(() => {
+    if (was.current && was.current !== 'idle' && session?.status === 'idle') turnEnd.current();
+    was.current = session?.status;
+  }, [session?.status]);
+  const send = async () => {
+    if (!text.trim() || busy) return;
+    setBusy(true);
+    try {
+      let id = sid;
+      if (!id || !useHub.getState().sessions[id]) {
+        const s = await attempt(() => api().createSession({ ...(ctx.device ? { device: ctx.device } : {}), ...(ctx.cwd ? { cwd: ctx.cwd } : {}), title: `Canvas: ${ctx.file.split('/').pop()}` }));
+        if (!s) return;
+        upsertSession(s);
+        id = s.id;
+        rememberAgentSession(ctx.file, id);
+        setSid(id);
+      }
+      const msg = agentMessage(text, { file: ctx.file, selection, ...(ctx.error ? { error: ctx.error } : {}) });
+      setText('');
+      await sendQueued(id, { text: msg, whenBusy: 'queue' });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      {session ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <MessageList session={session} />
+        </div>
+      ) : (
+        <p className="m-0 flex-1 px-4 py-3 text-[13px] text-fg-3">Say what to change, such as &ldquo;add a step that summarises the results&rdquo;. The agent edits {ctx.file} in a Code session there, and the canvas shows the new file when it is done.</p>
+      )}
+      <div className="shrink-0 space-y-2 border-t border-rule p-3">
+        <p className="m-0 truncate text-[12px] text-fg-3">With {[ctx.file, selection[0]?.label, ctx.error ? 'the last error' : ''].filter(Boolean).join(', ')}</p>
+        <Textarea value={text} rows={3} aria-label="Ask the agent" placeholder="Ask the agent to change this file" onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && (e.preventDefault(), void send())} />
+        <div className="flex items-center justify-between gap-2">
+          {session ? (
+            <Link href={`/s/${session.id}`} className="text-[12px] text-fg-3 underline underline-offset-2">
+              Open the session
+            </Link>
+          ) : (
+            <span />
+          )}
+          <Button variant="primary" size="sm" disabled={!text.trim() || busy} onClick={() => void send()}>
+            Send
+          </Button>
+        </div>
+      </div>
     </>
   );
 }

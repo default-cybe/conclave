@@ -2409,6 +2409,7 @@ export class ConclaveClient {
   workflowRunGraph = (id: string) => this.request<WorkflowGraphView>('GET', `/api/workflows/runs/${encodeURIComponent(id)}/graph`);
   editWorkflowGraph = (id: string, edit: GraphEditInput) => this.request<GraphEditResult>('POST', `/api/workflows/${encodeURIComponent(id)}/graph/edit`, edit);
   /** Add a node as a new statement: after node `after`, or before the script's last return. */
+  removeWorkflowNode = (id: string, input: { nodeId: string; baseSha: string }) => this.request<GraphEditResult>('POST', `/api/workflows/${encodeURIComponent(id)}/graph/remove`, input);
   insertWorkflowNode = (id: string, input: GraphInsertInput) => this.request<GraphEditResult & { nodeId: string }>('POST', `/api/workflows/${encodeURIComponent(id)}/graph/insert`, input);
   /** Undo or redo: put back version sha of the script, if the file is still baseSha. */
   restoreWorkflowGraph = (id: string, sha: string, baseSha: string) => this.request<GraphEditResult>('POST', `/api/workflows/${encodeURIComponent(id)}/graph/restore`, { sha, baseSha });

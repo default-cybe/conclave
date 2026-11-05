@@ -45,6 +45,7 @@ function stub(): void {
     saveLayout: async (...args: unknown[]) => rec('saveLayout', { 'agent-1': { x: 8, y: 16 } })(...args),
     insertGraph: async (...args: unknown[]) => rec('insertGraph', { sha: 'n', diff: '', view: {}, nodeId: 'check-1' })(...args),
     restoreGraph: async (...args: unknown[]) => rec('restoreGraph', { sha: 'old', diff: '', view: {} })(...args),
+    removeGraph: async (...args: unknown[]) => rec('removeGraph', { sha: 'r', diff: '', view: {} })(...args),
   };
   setWorkflows(hub.engine, svc as unknown as WorkflowService);
 }
@@ -152,6 +153,12 @@ describe('with a workflow service', () => {
     expect((await ins({ kind: 'agent' })).status).toBe(400);
     expect((await ins({ kind: 'check', after: 'agent-1', baseSha: 'abc' })).status).toBe(200);
     expect(calls.find((c) => c.method === 'insertGraph')?.args.slice(0, 2)).toEqual(['mine', { kind: 'check', after: 'agent-1', baseSha: 'abc' }]);
+
+    const rm = (json: unknown) => hub.api('/api/workflows/mine/graph/remove', { method: 'POST', json });
+    expect((await rm({ baseSha: 'abc' })).status).toBe(400);
+    expect((await rm({ nodeId: 'agent-1' })).status).toBe(400);
+    expect((await rm({ nodeId: 'agent-1', baseSha: 'abc' })).status).toBe(200);
+    expect(calls.find((c) => c.method === 'removeGraph')?.args.slice(0, 2)).toEqual(['mine', { nodeId: 'agent-1', baseSha: 'abc' }]);
 
     const restore = (json: unknown) => hub.api('/api/workflows/mine/graph/restore', { method: 'POST', json });
     expect((await restore({ sha: 'old' })).status).toBe(400);
