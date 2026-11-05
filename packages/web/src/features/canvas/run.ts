@@ -100,6 +100,16 @@ export function folderOf(path: string | undefined): string | undefined {
   return i > 0 ? path.slice(0, i) : undefined;
 }
 
+/**
+ * A phone's foot button (CANVAS-MODE.md 7): Run while nothing runs; while a
+ * run goes on, a split of Stop (when the run can stop) and Queue, which
+ * queues the next run on the hub.
+ */
+export function phoneRunButtons(r: { live: boolean; onStop?: unknown }): Array<'run' | 'stop' | 'queue'> {
+  if (!r.live) return ['run'];
+  return r.onStop ? ['stop', 'queue'] : ['queue'];
+}
+
 /** How often the Agent tab reads the open file's sha while the agent works. */
 export const AGENT_POLL_MS = 2_000;
 

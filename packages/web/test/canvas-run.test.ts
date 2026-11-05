@@ -13,7 +13,7 @@ import { parseGraph } from '@conclave/core/workflows/graph';
 
 const store = new Map<string, string>();
 (globalThis as { localStorage?: unknown }).localStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
-const { AGENT_POLL_MS, agentBusy, reloadIfChanged, agentMessage, agentSessionOf, folderOf, headLeft, programStates, queueFile, rememberAgentSession, startGuard, workflowLive } = await import('../src/features/canvas/run');
+const { AGENT_POLL_MS, agentBusy, phoneRunButtons, reloadIfChanged, agentMessage, agentSessionOf, folderOf, headLeft, programStates, queueFile, rememberAgentSession, startGuard, workflowLive } = await import('../src/features/canvas/run');
 
 describe('the queue (on the hub)', () => {
   test('a file is keyed as the hub keys it', () => {
@@ -73,6 +73,15 @@ describe('a workflow run on its nodes', () => {
     expect(r.byNode.get('agent-1')?.value).toBe('five steps, all checked…');
     expect(r.byNode.get('agent-2')).toMatchObject({ state: 'failed', error: 'rate limited' });
     expect(shortValue('  \n ')).toBeUndefined();
+  });
+});
+
+describe('a phone foot button', () => {
+  test('Run while idle; Stop and Queue while a run goes on; Queue alone while it starts', () => {
+    expect(phoneRunButtons({ live: false })).toEqual(['run']);
+    expect(phoneRunButtons({ live: false, onStop: () => {} })).toEqual(['run']);
+    expect(phoneRunButtons({ live: true, onStop: () => {} })).toEqual(['stop', 'queue']);
+    expect(phoneRunButtons({ live: true })).toEqual(['queue']);
   });
 });
 

@@ -42,7 +42,7 @@ import { Textarea } from '@/components/ui/Field';
 import { isTyping } from '@/components/Shell';
 import { MessageList } from '@/features/chat/MessageList';
 import { ArgsForm, argsFromValues, type ArgValues } from '../workflows/args-form';
-import { AGENT_POLL_MS, agentBusy, agentMessage, agentSessionOf, reloadIfChanged, folderOf, headLeft, programStates, queueFile, rememberAgentSession, startGuard, workflowLive } from './run';
+import { AGENT_POLL_MS, agentBusy, agentMessage, agentSessionOf, phoneRunButtons, reloadIfChanged, folderOf, headLeft, programStates, queueFile, rememberAgentSession, startGuard, workflowLive } from './run';
 import { Tabs } from '@/components/ui/Tags';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { PhoneBar } from '@/components/PhoneFrame';
@@ -737,9 +737,21 @@ function Shell(p: ShellProps) {
               </button>
             ))}
             {p.runner && (
-              <button type="button" onClick={p.runner.onStop ?? p.runner.onRun} className="pointer-events-auto ml-auto h-11 rounded-[var(--r-2)] border border-rule-2 bg-raise px-5 text-[15px] font-medium text-fg shadow-[var(--shadow-pop)]">
-                {p.runner.onStop ? 'Stop' : 'Run'}
-              </button>
+              // while a run goes on: Stop and Queue as one split button
+              <div role="group" aria-label="Run" className="pointer-events-auto ml-auto flex h-11 divide-x divide-rule-2 overflow-hidden rounded-[var(--r-2)] border border-rule-2 bg-raise shadow-[var(--shadow-pop)]">
+                {phoneRunButtons(p.runner).map((b) => (
+                  <button
+                    key={b}
+                    type="button"
+                    // onRun queues while a run goes on (a workflow with args asks for them first)
+                    onClick={b === 'stop' ? p.runner!.onStop : p.runner!.onRun}
+                    aria-label={b === 'queue' ? 'Queue run: it starts when this one ends' : undefined}
+                    className={cn('px-5 text-[15px] font-medium', b === 'stop' ? 'text-fault' : 'text-fg')}
+                  >
+                    {b === 'stop' ? 'Stop' : b === 'queue' ? 'Queue' : 'Run'}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         </div>
