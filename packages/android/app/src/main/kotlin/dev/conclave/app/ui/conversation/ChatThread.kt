@@ -372,7 +372,7 @@ fun ChatThreadScreen(
                                 }
                                 // one mark moves per chat: while a reply is written, the reply has it
                                 is Row2.Asking -> Box(itemMod.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                                    LiveStatus(LiveState.THINKING, label = "Asking " + ModelRefs.displayName(row.model).ifBlank { row.model }, startedAt = vm.askedAt, mark = liveIndex < 0 && !awaiting)
+                                    AskingRow(row.model, startedAt = vm.askedAt, mark = liveIndex < 0 && !awaiting)
                                 }
                                 is Row2.PendingReply -> Box(itemMod.padding(horizontal = 20.dp, vertical = 6.dp)) {
                                     PendingReplyLine(row.startedAt)
