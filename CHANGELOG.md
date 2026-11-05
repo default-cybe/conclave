@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- A new chat no longer opens with the prompt you sent from an earlier one. The first send of a chat from Home cleared the box in the same moment the page moved to the chat, so the saved draft of the new-chat box kept the sent text and every later new chat showed it again. A send now drops the stored draft at once; a refused send still puts the text back.
+
 ## [0.4.64] - 2026-11-04
 
 ### Added

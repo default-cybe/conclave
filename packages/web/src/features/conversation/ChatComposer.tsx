@@ -223,7 +223,7 @@ export function ChatComposer({
     drafts.set(chatId, text);
   }, [text, chatId]);
   // the stored draft (text and files) comes back after a reload
-  useDraft(chatId, text, files, (d) => {
+  const clearDraft = useDraft(chatId, text, files, (d) => {
     setText((t) => t || d.text);
     setFiles((f) => (f.length ? f : d.files));
   });
@@ -309,6 +309,7 @@ export function ChatComposer({
     setText('');
     setFiles([]);
     drafts.delete(chatId);
+    clearDraft();
     setBusy(true);
     const ok = target
       ? await target.send(out)

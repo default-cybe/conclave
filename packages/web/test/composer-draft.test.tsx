@@ -105,6 +105,8 @@ interface Handle {
   files: Attachment[];
   setText: (t: string) => void;
   setFiles: (f: Attachment[]) => void;
+  /** What a composer's send does: drop the stored draft, empty the box. */
+  send: () => void;
 }
 
 async function mount(kv: DraftKv, firstId = 's1') {
@@ -114,11 +116,16 @@ async function mount(kv: DraftKv, firstId = 's1') {
   const Probe = ({ id }: { id: string }) => {
     const [text, setText] = useState('');
     const [files, setFiles] = useState<Attachment[]>([]);
-    useDraft(id, text, files, (d) => {
+    const clear = useDraft(id, text, files, (d) => {
       setText((t) => t || d.text);
       setFiles((f) => (f.length ? f : d.files));
     }, kv);
-    Object.assign(h, { text, files, setText, setFiles });
+    const send = () => {
+      clear();
+      setText('');
+      setFiles([]);
+    };
+    Object.assign(h, { text, files, setText, setFiles, send });
     return null;
   };
   const host = document.createElement('div');
@@ -130,6 +137,12 @@ async function mount(kv: DraftKv, firstId = 's1') {
     show,
     act,
     unmount: () => act(async () => root.unmount()),
+    /** The first send of a new chat from Home: the box clears and the page swaps it out in the same commit. */
+    sendAndLeave: () =>
+      act(async () => {
+        h.send();
+        root.render(null);
+      }),
   };
 }
 
@@ -213,6 +226,44 @@ describe('the composer draft', () => {
     });
     await Bun.sleep(450);
     expect(kv.data.size).toBe(2);
+    await v.unmount();
+  });
+
+  test('a send that unmounts the composer in the same commit leaves no draft: the next new chat opens empty', async () => {
+    const kv = memory();
+    const v = await mount(kv, 'new');
+    await Bun.sleep(10);
+    await v.act(async () => {
+      v.h.setText('first prompt');
+      v.h.setFiles([file]);
+    });
+    await Bun.sleep(450);
+    expect(kv.data.get('draft:new')).toBe('first prompt');
+    // typed again within the delay, so a save is still waiting when the send goes
+    await v.act(async () => v.h.setText('first prompt, edited'));
+    await v.sendAndLeave();
+    await Bun.sleep(450);
+    expect(kv.data.has('draft:new')).toBe(false);
+    expect(kv.data.has('draft:new:files')).toBe(false);
+    expect(await loadDraft('new', kv)).toBeNull();
+    await v.show('new');
+    await Bun.sleep(10);
+    expect(v.h.text).toBe('');
+    expect(v.h.files).toEqual([]);
+    await v.unmount();
+  });
+
+  test('a send that keeps the composer clears the draft, and a refused send that puts the text back keeps it again', async () => {
+    const kv = memory();
+    const v = await mount(kv, 'new');
+    await Bun.sleep(10);
+    await v.act(async () => v.h.setText('hello'));
+    await v.act(async () => v.h.send());
+    await Bun.sleep(450);
+    expect(kv.data.has('draft:new')).toBe(false);
+    await v.act(async () => v.h.setText('hello'));
+    await Bun.sleep(450);
+    expect(kv.data.get('draft:new')).toBe('hello');
     await v.unmount();
   });
 
