@@ -463,7 +463,8 @@ export function fixHooks(engine: Engine, input: HookFixRequest): { path: string 
     (i) => i.event === input.event && i.group === input.group && i.handler === input.handler && i.text === input.text,
   );
   if (!issue?.fix) throw new EngineError(409, 'That problem is gone or has no automatic fix. Reload the page.');
-  const hooks = Object.fromEntries(Object.entries(issue.fix).filter(([, v]) => !isEmptyEvent(v))) as HooksConfig;
+  // written as linted: only the entry the problem names changes
+  const hooks = issue.fix;
   if (input.path === engine.config.paths.config) {
     const { hooks: _old, ...rest } = engine.config.getUser();
     engine.config.replace(Object.keys(hooks).length ? { ...rest, hooks } : rest);

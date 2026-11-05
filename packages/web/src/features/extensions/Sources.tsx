@@ -37,7 +37,7 @@ const CLI_ROWS: Array<{ cli: CliName; harness: string; label: string }> = [
 /** What turning a source on loads, and from where, in one line. */
 export const SOURCE_LOADS: Record<string, string> = {
   claude:
-    'Loads skills, agents, commands, plugins and hooks from ~/.claude (and settings.json), plus CLAUDE.md and .claude/ in your projects. On by default only when ~/.claude has some of these.',
+    'Loads skills, agents, commands, plugins and hooks from ~/.claude (and settings.json), plus CLAUDE.md and .claude/ in your projects. A new hub turns it on only when ~/.claude has some of these.',
 };
 
 const COMPAT_WORD: Record<string, string> = { codex: 'Codex', opencode: 'OpenCode', gemini: 'Gemini CLI', claudeCode: 'Claude Code' };

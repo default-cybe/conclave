@@ -40,18 +40,26 @@ describe('Claude Code compat default', () => {
     expect(claudeHomeHasContent(c)).toBe(true);
   });
 
-  test('unset config follows ~/.claude; a saved choice wins either way', () => {
+  test('a new hub follows ~/.claude once and saves it; later changes to ~/.claude do not flip it', () => {
     const claude = dir();
     process.env.CLAUDE_CONFIG_DIR = claude;
     const home = dir();
     const store = new ConfigStore(home);
     expect(store.get().compat.claudeCode).toBe(false);
+    // a sync that writes skills into ~/.claude does not turn it on afterwards
     mkdirSync(join(claude, 'agents', 'a'), { recursive: true });
-    expect(new ConfigStore(home).get().compat.claudeCode).toBe(true);
-    store.update({ compat: { claudeCode: false } } as never);
     expect(new ConfigStore(home).get().compat.claudeCode).toBe(false);
-    rmSync(join(claude, 'agents'), { recursive: true });
     store.update({ compat: { claudeCode: true } } as never);
+    rmSync(join(claude, 'agents'), { recursive: true });
+    expect(new ConfigStore(home).get().compat.claudeCode).toBe(true);
+    mkdirSync(join(claude, 'skills', 's'), { recursive: true });
+    expect(new ConfigStore(dir()).get().compat.claudeCode).toBe(true);
+  });
+
+  test('a hub that already has config.json without the key keeps the old default (on)', () => {
+    process.env.CLAUDE_CONFIG_DIR = dir();
+    const home = dir();
+    writeFileSync(join(home, 'config.json'), JSON.stringify({ server: { token: 't' } }));
     expect(new ConfigStore(home).get().compat.claudeCode).toBe(true);
   });
 });

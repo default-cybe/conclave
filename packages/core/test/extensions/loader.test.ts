@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 function makeExtensions(h: string, claude: string) {
-  const config = new ConfigStore(h);
+  const config = new ConfigStore(h, { compat: { claudeCode: true } } as never);
   const plugins = new PluginManager({ dir: join(h, 'plugins'), defaultMarketplaces: [] });
   // Point Claude compat at a temp dir so the real ~/.claude is never read.
   process.env.CLAUDE_CONFIG_DIR = claude;

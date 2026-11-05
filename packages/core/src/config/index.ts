@@ -111,11 +111,18 @@ export class ConfigStore {
     this.paths = paths(home);
     ensureDirs(this.paths);
     this.overrides = overrides;
+    const fresh = !existsSync(this.paths.config);
     this.userConfig = readJsonFile<Partial<ConclaveConfig>>(this.paths.config) ?? {};
     this.secrets = deepMerge({ providers: {}, values: {} }, readJsonFile<Secrets>(this.paths.secrets) ?? {});
     // the zai move runs on load only, so a later explicit `config set` back to the Anthropic shim stays
     const migrated = migrateZaiWire(this.userConfig as Record<string, unknown>);
     if (this.dropRetired() || migrated) writePrivate(this.paths.config, this.userConfig);
+    // a new hub loads Claude Code's files only when ~/.claude has something to load; saved once, so a hub
+    // that ran with the old default keeps it and a later sync into ~/.claude does not turn it on
+    if (fresh && overrides?.compat?.claudeCode === undefined) {
+      this.userConfig = deepMerge(this.userConfig, { compat: { claudeCode: claudeHomeHasContent() } });
+      writePrivate(this.paths.config, this.userConfig);
+    }
     this.merged = this.compute();
     if (!this.merged.server.token) {
       const token = randomBytes(24).toString('base64url');
@@ -127,8 +134,6 @@ export class ConfigStore {
   private compute(): ConclaveConfig {
     let cfg = deepMerge(structuredClone(DEFAULT_CONFIG), this.userConfig);
     if (this.overrides) cfg = deepMerge(cfg, this.overrides);
-    // like the other CLIs: Claude Code loading is on by default only when ~/.claude holds something to load; a saved choice wins
-    if (this.userConfig.compat?.claudeCode === undefined && this.overrides?.compat?.claudeCode === undefined) cfg.compat.claudeCode = claudeHomeHasContent();
     for (const layer of this.runtime.values()) cfg = deepMerge(cfg, layer);
     if (process.env.CONCLAVE_PORT) cfg.server.port = Number(process.env.CONCLAVE_PORT);
     if (process.env.CONCLAVE_HOST) cfg.server.host = process.env.CONCLAVE_HOST;

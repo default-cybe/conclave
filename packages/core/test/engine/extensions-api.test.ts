@@ -153,7 +153,8 @@ describe('hooks', () => {
     expect(() => engine.fixHooks({ path: file, event: 'PreToolUse', group: 0, text: 'nope' })).toThrow('gone');
     expect(() => engine.fixHooks({ path: join(cwd, 'x.json'), event: 'PreToolUse', group: 0, text: issue.text })).toThrow('loads here');
     engine.fixHooks({ path: file, event: issue.event, group: issue.group, handler: issue.handler, text: issue.text });
-    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ model: 'opus', hooks: { Stop: good } });
+    // only the named entry goes; the empty SessionEnd and the rest of the file stay as they were
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ model: 'opus', hooks: { SessionEnd: {}, Stop: good } });
     expect(engine.hooksOverview().lint?.some((i) => i.path === file)).toBeFalsy();
     rmSync(file);
   });

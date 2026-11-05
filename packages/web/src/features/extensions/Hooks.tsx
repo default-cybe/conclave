@@ -147,15 +147,15 @@ export function HooksTab() {
     onAdd: (event) => setForm({ draft: { ...NEW_HANDLER, event, scope: 'user' } }),
     onRecipe: (id) => setParam({ recipe: id }),
     onRemoveRecipe: (g, id) => setRemovingRecipe({ id, scope: inScope(g, 'user') ? 'user' : 'project' }),
-    onFix: (issue) => void fix(issue),
+    onFix: (issue) => issue.fix && issue.path && setFixing(issue),
   };
 
   const [removingRecipe, setRemovingRecipe] = useState<{ id: string; scope: Scope } | null>(null);
 
-  /** The hub re-lints the file and writes its own fix. A Claude Code file is changed only after the owner confirms. */
+  /** Every fix asks first; the hub re-lints the file and writes its own fix. */
+  const [fixing, setFixing] = useState<HookLintIssue | null>(null);
   const fix = async (issue: HookLintIssue) => {
     if (!issue.fix || !issue.path) return;
-    if (/\/\.claude\//.test(issue.path) && !window.confirm(`This changes ${fileWords(issue.path)}, which Claude Code also reads. Fix it there?`)) return;
     try {
       await api().fixHook({ path: issue.path, ...(cwd ? { cwd } : {}), event: issue.event, group: issue.group, ...(issue.handler !== undefined ? { handler: issue.handler } : {}), text: issue.text });
       ov.reload();
@@ -391,6 +391,24 @@ export function HooksTab() {
             <p className="m-0 [overflow-wrap:anywhere] font-mono text-[12.5px] text-fg">{removing.text}</p>
             <p className="mt-2 mb-0">
               It stops running at <span className="mono">{removing.ref.event}</span>. The script file stays where it is.
+            </p>
+          </>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={!!fixing}
+        onClose={() => setFixing(null)}
+        title={`Fix this in ${fixing?.path ? fileWords(fixing.path) : ''}?`}
+        confirm="Fix"
+        busy="Fixing"
+        onConfirm={() => (fixing ? fix(fixing) : undefined)}
+      >
+        {fixing && (
+          <>
+            <p className="m-0 [overflow-wrap:anywhere]">{fixing.text}</p>
+            <p className="mt-2 mb-0 [overflow-wrap:anywhere] text-fg-3">
+              Only this entry changes, in <span className="mono">{fixing.path}</span>.{/\/\.claude\//.test(fixing.path ?? '') ? ' Claude Code reads this file too.' : ''}
             </p>
           </>
         )}
