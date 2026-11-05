@@ -24,6 +24,10 @@ like `## [0.4.16] - 2026-10-24`.
 - Workflow graphs, phase 2. The node inspector no longer covers the node you tapped: the canvas pans it into view beside the panel. On your own workflows you can drag nodes, and their places save in `<name>.layout.json` next to the script. Ctrl+Z and Ctrl+Shift+Z (or the Undo and Redo buttons) undo and redo moves and script edits. Double-click empty canvas, or drop a wire there, to add an Agent, Parallel, Check, Approve or Ask step; it is written as a new statement in the script, and refused with the reason where it cannot be placed safely.
 - Android: the full-screen image viewer (generated pictures and images in messages) has Save and Share. Save writes the picture to Pictures/Conclave on Android 10+ with no storage permission and shows "Saved to Pictures/Conclave"; on Android 8 and 9 it asks where to save. Share opens the share sheet with the picture.
 
+### Added
+
+- Design (`docs/design/MEMBERS-SANDBOX.md`) for members phase 2: per-account private hub sandboxes (`<hub-data>/accounts/<account-id>/sandbox/home`), a bubblewrap profile with an empty root, private `/proc` and seccomp, network egress through an isolated pasta namespace and the existing public-only SOCKS fence, aggregate cgroup and filesystem quota gates, sandboxed stdio MCP servers and command hooks, `SandboxMachine` selection for member hub Code sessions, and the escape-path threat model, rollout phases and native escape test plan.
+
 ### Fixed
 
 - Subagents that fell back to Gemini 4 Argon on an Antigravity plan no longer die mid tool loop with "400: Request contains an invalid argument." A user turn that holds only tool results now carries a short text naming the answered tools, the shape CLIProxyAPI's own pending fix sends. A 400 that names the rejected field (Google's field violations, OpenAI's `param`) now says it in the error, so a failed subagent shows which part of the request was refused.
