@@ -15,6 +15,8 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Canvas on the Android app, read only: a Canvas row in the side panel lists programs by folder, your workflows, library workflows and recent runs. A file opens as its blocks in run order under their phases, lit by the last run (queued, running with its time, done with its short value, failed with its error, skipped or cached), with Run, Stop and Open on web; a live run is read again every 2 s (#250).
 
+- Canvas node menu: right-click a node, or long-press it on touch (iOS Safari too), for Rename, Duplicate, Delete, Open in code and Run from here (a workflow node the last run reached). On Android, Canvas gets Queue next to Stop while a run goes on, a queued list with Cancel, and the launch form for a workflow's declared args before Run or Queue (#250).
+
 - Canvas runs programs and workflows: Run (Ctrl/Cmd+Enter) asks for a workflow's declared args, then the canvas shows the live run in place, with each node queued, running with its time, done, failed, skipped or cached, and short values on the wires. Stop aborts it; while it runs, Run becomes Queue run, and the Queue tab lists queued runs with Cancel. A failed node shows its error, Re-run from here (workflows) or Re-run (programs), and Ask the agent. The new Agent tab next to the inspector continues a Code session in the file's folder with the file, the selection and the last error attached, and the canvas reloads when the agent is done. Delete now removes workflow nodes too, with Undo. Reopening a file shows its latest run (#250).
 
 ### Changed
