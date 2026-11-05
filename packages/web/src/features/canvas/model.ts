@@ -121,6 +121,29 @@ export function focusNode(states: Array<{ id: string; state?: string }>): string
 
 type Box = { x: number; y: number; w: number; h: number };
 
+export const READ_ZOOM = 0.55;
+
+/**
+ * A computer's first view (owner decision on #250: the first blocks and the
+ * failed one on screen, readable): the whole graph when it reads at
+ * READ_ZOOM or more; else the start of it through the running or failed
+ * node when that reads; else that node at the right with what feeds it at
+ * the left; with no such node, the start. The minimap shows the rest.
+ */
+export function deskViewport(graph: Box, focus: Box | undefined, canvas: { w: number; h: number }, pad = 24): { x: number; y: number; zoom: number } {
+  const fitW = (w: number) => (canvas.w - pad * 2) / Math.max(w, 1);
+  const fitH = (canvas.h - pad * 2) / Math.max(graph.h, 1);
+  // down: the graph centred when it fits, else the focus (or the top) in the middle
+  const down = (zoom: number) => (graph.h * zoom <= canvas.h - pad * 2 ? (canvas.h - graph.h * zoom) / 2 - graph.y * zoom : focus ? canvas.h / 2 - (focus.y + focus.h / 2) * zoom : pad - graph.y * zoom);
+  const all = Math.min(1, fitW(graph.w), fitH);
+  if (all >= READ_ZOOM) return { x: (canvas.w - graph.w * all) / 2 - graph.x * all, y: down(all), zoom: all };
+  const upTo = focus ? Math.min(1, fitW(focus.x + focus.w - graph.x), Math.max(fitH, READ_ZOOM)) : 0;
+  if (focus && upTo >= READ_ZOOM) return { x: pad - graph.x * upTo, y: down(upTo), zoom: upTo };
+  const zoom = READ_ZOOM;
+  if (focus) return { x: canvas.w - pad - (focus.x + focus.w) * zoom, y: down(zoom), zoom };
+  return { x: pad - graph.x * zoom, y: down(zoom), zoom };
+}
+
 /**
  * The viewport that puts `node` on screen at `zoom` with the nodes before it
  * above (a phone's column runs top to bottom): the node sits at about 60% of

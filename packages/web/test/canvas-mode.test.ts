@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { WorkflowRun, WorkflowSummary } from '@conclave/core/client';
 import type { Session } from '@conclave/core/types';
-import { canvasHome, fileGroups, fileHref, focusNode, focusViewport, folderSessions, isRunId, programHref, rememberFile, sessionFor, workflowFiles, workflowHref } from '../src/features/canvas/model';
+import { canvasHome, deskViewport, READ_ZOOM, fileGroups, fileHref, focusNode, focusViewport, folderSessions, isRunId, programHref, rememberFile, sessionFor, workflowFiles, workflowHref } from '../src/features/canvas/model';
 import { readMode } from '../src/features/home/start';
 import { phonePlace } from '../src/components/PhoneFrame';
 import { NEW_WORDS, sideListWord } from '../src/lib/sidebar';
@@ -120,5 +120,34 @@ describe('where the canvas opens', () => {
     expect(focusViewport(node(0), graph, canvas).y).toBe(12);
     // near the bottom the graph's end sits on the screen's bottom
     expect(focusViewport(node(1920), graph, canvas).y).toBe(600 - 12 - 2000);
+  });
+});
+
+describe('a computer opens readable (owner on #250)', () => {
+  const pane = { w: 848, h: 644 };
+  const box = (x: number) => ({ x, y: 40, w: 248, h: 92 });
+  // screen x of a flow x at a viewport
+  const at = (v: { x: number; zoom: number }, x: number) => v.x + x * v.zoom;
+  test('a graph that reads whole is fitted whole', () => {
+    const v = deskViewport({ x: 0, y: 0, w: 1000, h: 200 }, undefined, pane);
+    expect(v.zoom).toBeGreaterThanOrEqual(READ_ZOOM);
+    expect(at(v, 0)).toBeGreaterThanOrEqual(0);
+    expect(at(v, 1000)).toBeLessThanOrEqual(pane.w);
+  });
+  test('a wide graph never goes below the readable zoom', () => {
+    const wide = { x: 0, y: 0, w: 3250, h: 200 };
+    expect(deskViewport(wide, undefined, pane).zoom).toBe(READ_ZOOM);
+    expect(deskViewport(wide, box(2800), pane).zoom).toBeGreaterThanOrEqual(READ_ZOOM);
+  });
+  test('the start through the failed node when that reads', () => {
+    const v = deskViewport({ x: 0, y: 0, w: 3250, h: 200 }, box(1000), pane);
+    expect(at(v, 0)).toBeGreaterThanOrEqual(0);
+    expect(at(v, 1248)).toBeLessThanOrEqual(pane.w);
+  });
+  test('else the failed node on screen, at the right', () => {
+    const v = deskViewport({ x: 0, y: 0, w: 3250, h: 200 }, box(2000), pane);
+    expect(at(v, 2000)).toBeGreaterThanOrEqual(0);
+    expect(at(v, 2248)).toBeLessThanOrEqual(pane.w);
+    expect(at(v, 2248)).toBeGreaterThan(pane.w / 2);
   });
 });

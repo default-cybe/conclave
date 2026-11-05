@@ -15,7 +15,7 @@ import { Background, BackgroundVariant, Controls, MiniMap, ReactFlow, ReactFlowP
 import type { FlowBlockSpec, FlowNodeLive, NodeRun, WorkflowGraph } from '@conclave/core/client';
 import { useIsMobile } from '@/lib/hooks';
 import { cn } from '@/lib/text';
-import { focusViewport } from '../canvas/model';
+import { deskViewport, focusViewport } from '../canvas/model';
 import { NODE_H, NODE_W, clearOf, placedGraph } from './layout';
 import { NODE_TYPES, type BandData, type FlowNodeData } from './nodes';
 
@@ -42,7 +42,7 @@ export interface GraphCanvasProps {
   inserts?: InsertItem[];
   /** A program flow: block nodes, a value label on each wire from the last run, and wires drawn to an input. */
   flow?: { blocks: Map<string, FlowBlockSpec>; live?: Record<string, FlowNodeLive>; onConnect?: (from: string, to: string, input: string) => void };
-  /** Canvas mode (docs/design/CANVAS-MODE.md): the whole pane, a faint dot grid, a minimap; it opens on every node, or on a phone on `focus` (the running or failed node). */
+  /** Canvas mode (docs/design/CANVAS-MODE.md): the whole pane, a faint dot grid, a minimap; it opens readable on `focus` (the running or failed node) with the start of the graph (canvas/model deskViewport, focusViewport on a phone). */
   full?: { focus?: string };
 }
 
@@ -165,8 +165,10 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
   const { nodes, edges, tall, bounds } = useMemo(() => {
     const { pos, bands } = placedGraph(graph, vertical, drag ? { ...positions, [drag.id]: { x: drag.x, y: drag.y } } : positions);
     const tall = Math.max(0, ...bands.map((b) => b.y + b.h));
-    const left = Math.min(0, ...bands.map((b) => b.x));
-    const bounds = { x: left, y: 0, w: Math.max(0, ...bands.map((b) => b.x + b.w)) - left, h: tall };
+    // the bands and the nodes: a program can have no bands
+    const boxes = [...bands, ...[...pos.values()].map((p) => ({ ...p, w: NODE_W, h: NODE_H }))];
+    const left = Math.min(0, ...boxes.map((b) => b.x));
+    const bounds = { x: left, y: 0, w: Math.max(0, ...boxes.map((b) => b.x + b.w)) - left, h: Math.max(0, ...boxes.map((b) => b.y + b.h)) };
     const staleSet = new Set(stale);
     const bandNodes: Node[] = bands.map((b, i) => ({
       id: `band-${i}`,
@@ -176,6 +178,9 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       selectable: false,
       focusable: false,
       zIndex: -1,
+      // the minimap draws a node only with a size on the node itself (these nodes are not fed back measured)
+      initialWidth: b.w,
+      initialHeight: b.h,
     }));
     const connectable = !!program?.onConnect && !vertical;
     const wf: Node[] = graph.nodes.map((n) => {
@@ -184,6 +189,8 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         id: n.id,
         type: program ? 'flow' : 'wf',
         position: pos.get(n.id) ?? { x: 0, y: 0 },
+        initialWidth: NODE_W,
+        initialHeight: NODE_H,
         data: { node: n, run: runs?.get(n.id), stale: staleSet.has(n.id), selected: n.id === selected, vertical, ...(program ? { spec: n.block ? program.blocks.get(n.block) : undefined, live, connectable } : {}) } satisfies FlowNodeData,
         ariaLabel: program ? `${n.label}, ${n.kind === 'block' ? (program.blocks.get(n.block ?? '')?.title ?? n.block) : 'code'}${live ? (live.ok ? `, ${live.summary ?? 'done'}` : ', failed') : ''}` : `${n.label}, ${n.kind}${runs?.get(n.id) ? `, ${runs.get(n.id)!.state}` : ''}`,
         draggable,
@@ -211,8 +218,8 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
     // Canvas mode on a phone: the running or failed node with what feeds it above, never an empty half
     const at = full?.focus ? nodes.find((n) => n.id === full.focus) : undefined;
     if (full && vertical) return void flow.setViewport(focusViewport(at ? { ...at.position, w: NODE_W, h: NODE_H } : { x: 0, y: 0, w: NODE_W, h: NODE_H }, bounds, { w: r.width, h: r.height }), { duration });
-    // Canvas mode on a computer: every node on screen, the failed one too, however small
-    if (full) return void flow.fitView({ padding: 0.06, minZoom: 0.1, maxZoom: 1, duration });
+    // Canvas mode on a computer: readable, with the start and the running or failed node on screen
+    if (full) return void flow.setViewport(deskViewport(bounds, at ? { ...at.position, w: NODE_W, h: NODE_H } : undefined, { w: r.width, h: r.height }), { duration });
     if (vertical) return void flow.setViewport({ x: Math.max(8, (r.width - (NODE_W + 32)) / 2), y: 12, zoom: 1 }, { duration });
     void flow.fitView({ padding: 0.08, maxZoom: 1, duration }).then(() => {
       if (flow.getViewport().zoom < 0.55) void flow.setViewport({ x: 16, y: 16, zoom: 0.55 }, { duration });

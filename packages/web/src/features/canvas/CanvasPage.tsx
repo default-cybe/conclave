@@ -27,7 +27,7 @@ import { Page, PageHeader } from '@/components/ui/Page';
 import { Notice, Section } from '@/components/ui/Section';
 import { Tabs } from '@/components/ui/Tags';
 import { PhoneBar } from '@/components/PhoneFrame';
-import { setRailOpen, useChatUi } from '@/features/conversation/state';
+import { useChatUi } from '@/features/conversation/state';
 import { setStartMode } from '@/features/home/start';
 import { api } from '@/lib/api';
 import { hhmm } from '@/lib/format';
@@ -129,6 +129,7 @@ function ProgramFile({ name }: { name: string }) {
   if (error) return <Missing title={title}>The program did not load. {error}</Missing>;
   if (!view) return <Loading title={title} />;
   const failed = Object.entries(run?.nodes ?? {}).filter(([, n]) => !n.ok);
+  const focus = focusNode(view.graph.nodes.map((n) => ({ id: n.id, state: liveState(run?.nodes[n.id]) })));
   const status = run ? { word: run.status === 'running' ? 'Running' : run.status === 'done' ? 'Done' : run.status === 'failed' ? 'Failed' : runWords(run), tone: run.status === 'running' ? 'text-signal' : run.status === 'failed' ? 'text-fault' : run.status === 'done' ? 'text-ok' : 'text-fg-2', rest: run.status === 'failed' ? (failed.length ? `at ${failed.map(([id]) => view.graph.nodes.find((n) => n.id === id)?.label ?? id).join(', ')}` : (run.error ?? '')) : run.status === 'running' ? `${Object.keys(run.nodes).length} blocks done` : '', since: run.status === 'running' ? run.startedAt : undefined } : { word: 'Not run yet', tone: 'text-fg-3', rest: '' };
   return (
     <Shell
@@ -136,8 +137,8 @@ function ProgramFile({ name }: { name: string }) {
       meta={['Program', where].filter(Boolean).join(', ')}
       status={status}
       graph={view.graph}
-      focus={focusNode(view.graph.nodes.map((n) => ({ id: n.id, state: liveState(run?.nodes[n.id]) })))}
-      canvas={(sel, onSelect, phone) => <GraphCanvas graph={view.graph} positions={view.layout} selected={sel} onSelect={onSelect} flow={flow} full={{ focus: phone ? focusNode(view.graph.nodes.map((n) => ({ id: n.id, state: liveState(run?.nodes[n.id]) }))) : undefined }} className="min-h-0 flex-1" />}
+      focus={focus}
+      canvas={(sel, onSelect) => <GraphCanvas graph={view.graph} positions={view.layout} selected={sel} onSelect={onSelect} flow={flow} full={{ focus }} className="min-h-0 flex-1" />}
       library={blocks.map((b) => ({ word: b.title, help: b.help, group: b.family }))}
       inspector={(node) => <BlockFacts node={node} spec={node.block ? bySpec.get(node.block) : undefined} run={run} />}
       output={run?.output || run?.error || ''}
@@ -201,7 +202,7 @@ function WorkflowShell({ view, detail, title, meta }: { view: WorkflowGraphView;
       graph={view.graph}
       focus={focus}
       links={r ? [{ label: 'Open the run', href: `/workflows/runs/${r.id}` }] : []}
-      canvas={(sel, onSelect, phone) => <GraphCanvas graph={view.graph} runs={runs?.byNode} stale={view.stale} positions={view.layout} selected={sel} currentPhase={live ? r?.phaseTitle : undefined} onSelect={onSelect} full={{ focus: phone ? focus : undefined }} className="min-h-0 flex-1" />}
+      canvas={(sel, onSelect) => <GraphCanvas graph={view.graph} runs={runs?.byNode} stale={view.stale} positions={view.layout} selected={sel} currentPhase={live ? r?.phaseTitle : undefined} onSelect={onSelect} full={{ focus }} className="min-h-0 flex-1" />}
       library={INSERTS.map((i) => ({ word: i.word, help: i.help, group: 'Workflow' }))}
       inspector={(node) => {
         const nr = runs?.byNode.get(node.id);
@@ -225,7 +226,7 @@ interface ShellProps {
   graph: { nodes: GraphNode[] };
   focus?: string;
   links?: Array<{ label: string; href: string }>;
-  canvas: (sel: string | undefined, onSelect: (id: string | undefined) => void, phone: boolean) => ReactNode;
+  canvas: (sel: string | undefined, onSelect: (id: string | undefined) => void) => ReactNode;
   library: Array<{ word: string; help: string; group: string }>;
   inspector: (node: GraphNode) => ReactNode;
   output: string;
@@ -237,8 +238,9 @@ function useFullScreen(phone: boolean) {
   useEffect(() => {
     if (phone) return;
     const was = useChatUi.getState().railOpen;
-    setRailOpen(false);
-    return () => setRailOpen(was);
+    // not saved (setRailOpen saves): a reload here must not fold the sidebar for good
+    useChatUi.setState({ railOpen: false });
+    return () => useChatUi.setState({ railOpen: was });
   }, [phone]);
 }
 
@@ -279,7 +281,7 @@ function Shell(p: ShellProps) {
         <PhoneBar title={p.title} />
         <div className="flex h-9 shrink-0 items-center border-b border-rule px-4 text-[13px]">{statusLine}</div>
         <div className="relative flex min-h-0 flex-1 flex-col">
-          {p.canvas(sel, setSel, true)}
+          {p.canvas(sel, setSel)}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end gap-2 px-3 pb-[calc(12px+var(--safe-b,0px))]">
             {(['library', 'output'] as const).map((s) => (
               <button key={s} type="button" onClick={() => setSheet(s)} className="pointer-events-auto h-11 rounded-[var(--r-2)] border border-rule-2 bg-raise px-4 text-[15px] text-fg shadow-[var(--shadow-pop)]">
@@ -320,7 +322,7 @@ function Shell(p: ShellProps) {
           <p className="m-0 border-t border-rule px-3 py-2 text-[12px] leading-[1.45] text-fg-3">Read only for now: adding and wiring blocks comes next.</p>
         </aside>
         <div className="flex min-w-0 flex-1 flex-col">
-          {p.canvas(sel, setSel, false)}
+          {p.canvas(sel, setSel)}
           <div className={cn('shrink-0 border-t border-rule', panel ? 'h-[208px]' : 'h-9')}>
             <div className="flex h-9 items-center gap-3 px-3">
               <button type="button" aria-expanded={panel} aria-label={panel ? 'Fold the run panel' : 'Show the run panel'} onClick={() => setPanel(!panel)} className="grid size-6 place-items-center rounded-[var(--r-1)] text-fg-3 hov:bg-hover hov:text-fg">
