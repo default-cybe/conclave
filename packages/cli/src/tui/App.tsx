@@ -113,15 +113,18 @@ function InputView({ edit, width, borderColor, busy }: { edit: ed.Edit; width: n
 }
 
 function Suggestions({ items, selected, width }: { items: Suggestion[]; selected: number; width: number }): React.JSX.Element {
-  // labels keep their full length up to half the row; hints get what is left, or nothing on a narrow terminal
-  const labelW = Math.min(Math.max(...items.map((s) => s.label.length)) + 2, Math.max(16, Math.floor((width - 4) * 0.5)));
+  // labels keep their full length up to half the row; hints get what is left, or nothing on a narrow terminal.
+  // File paths have no hint, so they get the whole row, and a long one loses its start, never its file name.
+  const hinted = items.some((s) => s.hint);
+  const labelW = hinted ? Math.min(Math.max(...items.map((s) => s.label.length)) + 2, Math.max(16, Math.floor((width - 4) * 0.5))) : width - 4;
   const hintW = width - 4 - labelW;
+  const fit = (s: Suggestion) => (s.kind === 'command' || s.label.length < labelW ? truncate(s.label, labelW - 1) : '…' + s.label.slice(s.label.length - labelW + 2));
   return (
     <Box flexDirection="column" paddingX={2}>
       {items.map((s, i) => (
         <Text key={s.value + i} wrap="truncate-end">
           <Text color={c(i === selected ? 'cyan' : undefined)} dimColor={i !== selected && s.kind !== 'command'}>
-            {truncate(s.label, labelW - 1).padEnd(labelW)}
+            {fit(s).padEnd(labelW)}
           </Text>
           {s.hint && hintW >= 12 ? <Text dimColor>{truncate(s.hint, hintW)}</Text> : null}
         </Text>

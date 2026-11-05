@@ -346,6 +346,19 @@ describe('terminal chat polish', () => {
     ctl.dispose();
   });
 
+  test('every stop shows once as "Interrupted by user", however close together', () => {
+    const { ctl, emit } = fakeCtl();
+    for (const id of ['n1', 'n2']) {
+      // the hub writes the notice message and also sends it as a notice event (engine.notice)
+      emit({ type: 'message.created', message: { id, sessionId: 's1', seq: 1, role: 'assistant', kind: 'notice', createdAt: 1, meta: { level: 'info' }, content: [{ type: 'text', text: 'Stopped' }] } });
+      emit({ type: 'notice', notice: { id: `e${id}`, title: 'Conclave', body: 'Stopped', level: 'info', sessionId: 's1', createdAt: 1 } });
+    }
+    const out = shown(ctl);
+    expect(out.filter((t) => t === '  ⎿  Interrupted by user')).toHaveLength(2);
+    expect(out.some((t) => t.includes('Stopped'))).toBe(false);
+    ctl.dispose();
+  });
+
   test('a resync reads the fetched messages before it judges the stop, and refetches the queue', async () => {
     const stopped = { id: 's1', status: 'idle', model: 'x/y', stats: {}, meta: { stoppedTurn: true } };
     const msgs = [

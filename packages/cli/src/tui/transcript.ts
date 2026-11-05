@@ -332,6 +332,8 @@ export class TranscriptStore {
         .join('\n');
     if (m.kind === 'notice') {
       const text = texts(m.content);
+      // the hub's note for the owner's Stop (runner.ts), once per stop, from this terminal or another app
+      if (text.trim() === 'Stopped') return [{ kind: 'notice', id: `${m.id}:n`, final: true, text: 'Interrupted by user', level: 'error' }];
       const level = (m.meta?.level as 'info' | 'warning' | 'error' | 'success') ?? (/^error\b/i.test(text) ? 'error' : 'info');
       return [{ kind: 'notice', id: `${m.id}:n`, final: true, text, level }];
     }

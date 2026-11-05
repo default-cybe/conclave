@@ -392,6 +392,8 @@ export class ChatController {
       case 'notice': {
         const n = ev.notice;
         const text = n.body || n.title;
+        // this chat's notices also arrive as notice messages (engine.notice), which the transcript shows
+        if (n.sessionId && n.sessionId === this.snap.session?.id) break;
         if ((n.level === 'error' || n.level === 'warning') && !this.seenErrors.fresh(text)) break;
         this.store.addLocal({ kind: 'notice', text, level: n.level });
         break;
@@ -516,8 +518,8 @@ export class ChatController {
     const s = this.snap.session;
     if (!s) return;
     try {
+      // the hub writes a "Stopped" notice for every stop, shown as "Interrupted by user" (transcript.ts)
       await this.client.abort(s.id);
-      this.notice('Interrupted by user', 'error');
     } catch (e) {
       this.error(e);
     }

@@ -1,6 +1,9 @@
 /** The chat screen's keys, driven through Ink with fake terminal streams. */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import React from 'react';
 import { render, type Instance } from 'ink';
 import { stripAnsi } from '../src/ansi';
@@ -53,8 +56,8 @@ afterEach(() => {
   mounted = undefined;
 });
 
-async function mount(columns = 120) {
-  const ctl = new ChatController({ client: {} as never, hubUrl: 'http://x', hubSource: 'local', draft: { device: 'local', cwd: '/tmp' }, version: 't' });
+async function mount(columns = 120, cwd = '/tmp') {
+  const ctl = new ChatController({ client: {} as never, hubUrl: 'http://x', hubSource: 'local', draft: { device: 'local', cwd }, version: 't' });
   const sent: string[] = [];
   ctl.send = async (t: string) => void sent.push(t);
   const toggles: string[] = [];
@@ -99,6 +102,19 @@ describe('input keys', () => {
       mounted?.unmount();
       mounted = undefined;
     }
+  });
+
+  test('@ completion at 60 cols keeps the file name of a long path', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cv-at-'));
+    mkdirSync(join(root, 'packages/cli/test/fixtures/deep'), { recursive: true });
+    writeFileSync(join(root, 'packages/cli/test/fixtures/deep/transcript-render.test.ts'), '');
+    const { stdout, type } = await mount(60, root);
+    await type('@', 't', 'r', 'a', 'n', 's');
+    await tick(150);
+    const rows = stripAnsi(stdout.frames.at(-1)!).split('\n');
+    expect(rows.some((l) => l.includes('/deep/transcript-render.test.ts'))).toBe(true);
+    expect(rows.every((l) => l.length <= 60)).toBe(true);
+    rmSync(root, { recursive: true, force: true });
   });
 
   test('? on an empty prompt shows the shortcuts', async () => {
