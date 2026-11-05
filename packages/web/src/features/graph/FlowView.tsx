@@ -8,13 +8,14 @@
  * how a phone (and a keyboard) connects blocks.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'wouter';
 import type { FlowBlockSpec, FlowNodeLive, FlowOp, FlowRunView, FlowSummary, FlowView as FlowViewDto, GraphNode } from '@conclave/core/client';
 import type { Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { useIsMobile } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { attempt, useHub } from '@/store/store';
-import { Button } from '@/components/ui/Button';
+import { Button, buttonClass } from '@/components/ui/Button';
 import { CodeBlock } from '@/components/ui/Code';
 import { Field, Input, OnOff, Select } from '@/components/ui/Field';
 import { Sheet, SideSheet } from '@/components/ui/Overlay';
@@ -22,6 +23,7 @@ import { Notice } from '@/components/ui/Section';
 import { GraphCanvas, type InsertItem } from './GraphCanvas';
 import { blockLine, liveState, nodeTitle, stateTone } from './nodes';
 import { useHistory } from './history';
+import { flowCanvasHref } from './flowOpen';
 
 type Positions = Record<string, { x: number; y: number }>;
 const POLL_MS = 700;
@@ -189,6 +191,11 @@ export default function FlowView({ session }: { session: Session }) {
           <span className="mono min-w-0 truncate text-[13px] text-fg">{view.path}</span>
         )}
         <span className="flex-1" />
+        {name && (
+          <Link href={flowCanvasHref(session, name)} className={buttonClass('ghost', phone ? 'touch' : 'md')}>
+            Open in Canvas
+          </Link>
+        )}
         <Button variant="ghost" size={phone ? 'touch' : 'md'} disabled={!history.canUndo} title={history.nextUndo ? `Undo ${history.nextUndo}` : 'Nothing to undo'} onClick={history.undo}>
           Undo
         </Button>

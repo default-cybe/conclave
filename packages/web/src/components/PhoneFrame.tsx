@@ -87,7 +87,8 @@ function innerOf(path: string): { title: string; back: string } | undefined {
 export function phonePlace(path: string): PhonePlace {
   const p = path.split('?')[0];
   if (p in MAIN) return 'main';
-  if (p.startsWith('/s/') || p === '/chat' || p.startsWith('/chat/') || /^\/settings\/friends\/[^/]+$/.test(p) || /^\/shares\/[^/]+$/.test(p) || /^\/projects\/[^/]+$/.test(p)) return 'conversation';
+  // Canvas draws its own bar: the file's name and the menu (features/canvas/CanvasPage)
+  if (p.startsWith('/s/') || p === '/chat' || p === '/canvas' || p.startsWith('/canvas/') || p.startsWith('/chat/') || /^\/settings\/friends\/[^/]+$/.test(p) || /^\/shares\/[^/]+$/.test(p) || /^\/projects\/[^/]+$/.test(p)) return 'conversation';
   if (PAGES.some((x) => x.to === p) || p === '/workflows/runs') return 'page';
   return 'inner';
 }
@@ -131,7 +132,8 @@ export function goBack(navigate: (to: string, opts?: { replace?: boolean }) => v
 /** Open Home as a new conversation in a mode: the switch's own unless one is named. */
 export function newChat(navigate: (to: string) => void, mode?: StartMode) {
   useUi.setState({ panelOpen: false });
-  navigate(`/?${mode ?? useStartMode.getState().mode}`);
+  const m = mode ?? useStartMode.getState().mode;
+  navigate(m === 'canvas' ? '/canvas' : `/?${m}`);
 }
 
 // ---------------------------------------------------------------------------

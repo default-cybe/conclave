@@ -11,9 +11,11 @@
 import '@xyflow/react/dist/base.css';
 import './graph.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Controls, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type Node, type NodeChange } from '@xyflow/react';
+import { Background, BackgroundVariant, Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type Node, type NodeChange } from '@xyflow/react';
 import type { FlowBlockSpec, FlowNodeLive, NodeRun, WorkflowGraph } from '@conclave/core/client';
 import { useIsMobile } from '@/lib/hooks';
+import { cn } from '@/lib/text';
+import { deskViewport, focusViewport } from '../canvas/model';
 import { NODE_H, NODE_W, clearOf, placedGraph } from './layout';
 import { NODE_TYPES, type BandData, type FlowNodeData } from './nodes';
 
@@ -40,6 +42,8 @@ export interface GraphCanvasProps {
   inserts?: InsertItem[];
   /** A program flow: block nodes, a value label on each wire from the last run, and wires drawn to an input. */
   flow?: { blocks: Map<string, FlowBlockSpec>; live?: Record<string, FlowNodeLive>; onConnect?: (from: string, to: string, input: string) => void };
+  /** Canvas mode (docs/design/CANVAS-MODE.md): the whole pane, a faint dot grid, a minimap; it opens readable on `focus` (the running or failed node) with the start of the graph (canvas/model deskViewport, focusViewport on a phone). */
+  full?: { focus?: string };
 }
 
 export interface InsertItem {
@@ -47,7 +51,7 @@ export interface InsertItem {
   word: string;
   help: string;
 }
-const INSERTS: InsertItem[] = [
+export const INSERTS: InsertItem[] = [
   { kind: 'agent', word: 'Agent', help: 'One agent call' },
   { kind: 'parallel', word: 'Parallel', help: 'Two agents at once' },
   { kind: 'check', word: 'Check', help: 'Run a command' },
@@ -120,7 +124,14 @@ function NodeSearch({ at, after, items, onPick, onClose }: { at: { x: number; y:
   );
 }
 
-function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className, positions, onMove, onInsert, onRemove, inPage, inserts = INSERTS, flow: program }: GraphCanvasProps) {
+/** A minimap node in its state's token (graph.css), a band as a frame. */
+function miniClass(n: Node): string {
+  if (n.type === 'band') return 'cv-mini-band';
+  const d = n.data as FlowNodeData;
+  return `cv-mini cv-mini-${d.run?.state ?? (d.live ? (d.live.ok ? 'done' : 'failed') : 'idle')}`;
+}
+
+function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className, positions, onMove, onInsert, onRemove, inPage, inserts = INSERTS, flow: program, full }: GraphCanvasProps) {
   const [search, setSearch] = useState<{ x: number; y: number; after?: string; at?: { x: number; y: number } }>();
   // at: the flow point the new node goes to (a double-click); the Add button leaves it to the layout
   const openSearch = (clientX: number, clientY: number, after?: string, place = true) => {
@@ -151,9 +162,13 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       }
     }
   };
-  const { nodes, edges, tall } = useMemo(() => {
+  const { nodes, edges, tall, bounds } = useMemo(() => {
     const { pos, bands } = placedGraph(graph, vertical, drag ? { ...positions, [drag.id]: { x: drag.x, y: drag.y } } : positions);
     const tall = Math.max(0, ...bands.map((b) => b.y + b.h));
+    // the bands and the nodes: a program can have no bands
+    const boxes = [...bands, ...[...pos.values()].map((p) => ({ ...p, w: NODE_W, h: NODE_H }))];
+    const left = Math.min(0, ...boxes.map((b) => b.x));
+    const bounds = { x: left, y: 0, w: Math.max(0, ...boxes.map((b) => b.x + b.w)) - left, h: Math.max(0, ...boxes.map((b) => b.y + b.h)) };
     const staleSet = new Set(stale);
     const bandNodes: Node[] = bands.map((b, i) => ({
       id: `band-${i}`,
@@ -163,6 +178,9 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       selectable: false,
       focusable: false,
       zIndex: -1,
+      // the minimap draws a node only with a size on the node itself (these nodes are not fed back measured)
+      initialWidth: b.w,
+      initialHeight: b.h,
     }));
     const connectable = !!program?.onConnect && !vertical;
     const wf: Node[] = graph.nodes.map((n) => {
@@ -171,6 +189,8 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         id: n.id,
         type: program ? 'flow' : 'wf',
         position: pos.get(n.id) ?? { x: 0, y: 0 },
+        initialWidth: NODE_W,
+        initialHeight: NODE_H,
         data: { node: n, run: runs?.get(n.id), stale: staleSet.has(n.id), selected: n.id === selected, vertical, ...(program ? { spec: n.block ? program.blocks.get(n.block) : undefined, live, connectable } : {}) } satisfies FlowNodeData,
         ariaLabel: program ? `${n.label}, ${n.kind === 'block' ? (program.blocks.get(n.block ?? '')?.title ?? n.block) : 'code'}${live ? (live.ok ? `, ${live.summary ?? 'done'}` : ', failed') : ''}` : `${n.label}, ${n.kind}${runs?.get(n.id) ? `, ${runs.get(n.id)!.state}` : ''}`,
         draggable,
@@ -187,7 +207,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       const live = runs?.get(e.to)?.state === 'running';
       return { id: `${e.from}>${e.to}`, source: e.from, target: e.to, className: live ? 'cv-wire-live' : undefined, focusable: false };
     });
-    return { nodes: [...bandNodes, ...wf], edges: es, tall };
+    return { nodes: [...bandNodes, ...wf], edges: es, tall, bounds };
   }, [graph, runs, stale, selected, currentPhase, vertical, positions, drag, draggable, program]);
 
   // open fitted: the whole graph when it reads at 0.55 or more, else the start of it at 0.55; a phone centres its column
@@ -195,6 +215,11 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
   const fit = (duration = 0) => {
     const r = box.current?.getBoundingClientRect();
     if (!r) return;
+    // Canvas mode on a phone: the running or failed node with what feeds it above, never an empty half
+    const at = full?.focus ? nodes.find((n) => n.id === full.focus) : undefined;
+    if (full && vertical) return void flow.setViewport(focusViewport(at ? { ...at.position, w: NODE_W, h: NODE_H } : { x: 0, y: 0, w: NODE_W, h: NODE_H }, bounds, { w: r.width, h: r.height }), { duration });
+    // Canvas mode on a computer: readable, with the start and the running or failed node on screen
+    if (full) return void flow.setViewport(deskViewport(bounds, at ? { ...at.position, w: NODE_W, h: NODE_H } : undefined, { w: r.width, h: r.height }), { duration });
     if (vertical) return void flow.setViewport({ x: Math.max(8, (r.width - (NODE_W + 32)) / 2), y: 12, zoom: 1 }, { duration });
     void flow.fitView({ padding: 0.08, maxZoom: 1, duration }).then(() => {
       if (flow.getViewport().zoom < 0.55) void flow.setViewport({ x: 16, y: 16, zoom: 0.55 }, { duration });
@@ -223,10 +248,12 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
     return () => window.removeEventListener('keydown', onKey);
   }); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const desk = !!full && !vertical;
   // the inspector opens over the canvas: once it has slid in, pan so the tapped node sits in the part it leaves free
   useEffect(() => {
     // a phone's page-sized column does not pan: the sheet opens over the page
-    if (!selected || scroll) return;
+    // Canvas mode on a computer: the inspector is a column of its own, and a pan would push the first blocks off the left
+    if (!selected || scroll || desk) return;
     const t = setTimeout(() => {
       const cover = document.querySelector('.cv-inspector')?.getBoundingClientRect();
       const n = flow.getInternalNode(selected);
@@ -237,12 +264,12 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       if (vp) void flow.setViewport(vp, { duration: 200 });
     }, 240);
     return () => clearTimeout(t);
-  }, [selected, flow, scroll]);
+  }, [selected, flow, scroll, desk]);
 
   return (
     <div className={className} ref={box} style={{ position: 'relative', ...(scroll ? { height: tall + 28 } : {}) }}>
       <ReactFlow
-        className={scroll ? 'cv-graph cv-graph-scroll' : 'cv-graph'}
+        className={cn('cv-graph', scroll && 'cv-graph-scroll', full && 'cv-full')}
         nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
@@ -268,7 +295,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         zoomOnScroll={!scroll}
         panOnDrag={!scroll}
         preventScrolling={!inPage}
-        minZoom={0.2}
+        minZoom={full ? 0.1 : 0.2}
         maxZoom={1.6}
         defaultViewport={{ x: 16, y: 16, zoom: vertical ? 1 : 0.9 }}
         onInit={fitOnce}
@@ -284,7 +311,10 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         }}
       >
         {/* a phone pinches; the buttons covered the column's nodes. Top right: in a page the bottom edge can be below the window */}
-        {!vertical && <Controls showInteractive={false} position="top-right" fitViewOptions={{ padding: 0.08, maxZoom: 1 }} onFitView={() => fit(200)} />}
+        {!vertical && <Controls showInteractive={false} position={full ? 'bottom-left' : 'top-right'} fitViewOptions={{ padding: 0.08, maxZoom: 1 }} onFitView={() => fit(200)} />}
+        {/* the faint dot grid is Canvas's alone: an exception to SPEC 2's no-grid rule (owner decision on PR #250) */}
+        {full && <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />}
+        {full && !vertical && <MiniMap position="bottom-right" pannable zoomable ariaLabel="Minimap" nodeClassName={miniClass} />}
       </ReactFlow>
       {onInsert && !search && (
         <button
