@@ -47,6 +47,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -128,7 +133,7 @@ fun ModelPickerSheet(
                 },
                 label = "model levels",
             ) { shownLevel ->
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp).nestedScroll(KeepEnd)) {
                     when (shownLevel) {
                         SEARCH -> {
                             val extras = extra.filter { (ref, label) -> ref.lowercase().contains(q) || label.lowercase().contains(q) }.distinctBy { it.first }
@@ -175,6 +180,19 @@ fun ModelPickerSheet(
 
 private const val TOP = ""
 private const val SEARCH = "?"
+
+/**
+ * Keeps the list's leftover push past its end (scroll or fling up) out of
+ * the sheet: the expanded sheet took it, sprang up and back and the picker
+ * shook at the bottom. A pull down at the top still reaches the sheet, to close it.
+ */
+private val KeepEnd = object : NestedScrollConnection {
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+        if (available.y < 0f) Offset(0f, available.y) else Offset.Zero
+
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+        if (available.y < 0f) Velocity(0f, available.y) else Velocity.Zero
+}
 
 /** A maker's row: its mark and name, the current model's name or how many models it has, and a chevron. */
 @Composable

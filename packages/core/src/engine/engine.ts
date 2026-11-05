@@ -119,7 +119,7 @@ import { exportSession as exportShared, type ExportResult } from '../session/sha
 import { readPastSession, searchPastSessions, type PastRead, type PastSessionHit, type PastSessionQuery } from '../session/search';
 import { toolSearchFor } from '../tools/tool-search';
 import { TASK_TOOLS } from '../tools/background-tasks';
-import { shellRegistry } from '../tools/shells';
+import { shellRegistry, type ShellInfo } from '../tools/shells';
 import { BackgroundTasks } from './background';
 import { delegateRefusal, moveToMainList } from './delegate';
 import { delegateMark, isDelegated, movedToMain } from '../session/delegated';
@@ -388,7 +388,13 @@ export class Engine implements EngineApi {
       this.repos.messages.update({ ...notice, meta: { ...notice.meta, canRetry: false, retryExpired: true }, content: [...notice.content, { type: 'text', text: 'Alternate-model retry expired when the hub restarted. Nothing was rerun. Send a new instruction without repeating completed operations.' }] });
     }
     this.backgroundTasks.markLost(active);
+    // the Background tasks card follows the hub's shells, not the transcript (a restart ends them all)
+    this.stopShellEvents = shellRegistry.onChange((sessionId) => {
+      if (this.sessionAccount(sessionId)) this.bus.emit({ type: 'shells.updated', sessionId, shells: shellRegistry.list(sessionId) });
+    });
   }
+
+  private stopShellEvents?: () => void;
 
   /**
    * Delete stored tool outputs older than OUTPUT_RETENTION_MS (pinned
@@ -1194,6 +1200,10 @@ export class Engine implements EngineApi {
     return this.repos.checkpoints.list(id);
   }
 
+  shells(id: string): ShellInfo[] {
+    return shellRegistry.list(id);
+  }
+
   async restoreCheckpoint(id: string, checkpointId: string): Promise<void> {
     const s = this.requireSession(id);
     const { restoreCheckpoint } = await import('../session/checkpoints');
@@ -1882,6 +1892,9 @@ export class Engine implements EngineApi {
     // SessionEnd hooks have a short default timeout (1.5 s) so they cannot hold up a stop
     await Promise.allSettled(ending.map((s) => this.runHook(s, 'SessionEnd', { reason: 'other' }, 'other')));
     this.scheduler.stop();
+    // background shells are children of the hub: they end with it, not orphaned
+    this.stopShellEvents?.();
+    await shellRegistry.disposeAll().catch(() => {});
     // Preview dev servers (browser/preview.ts) do not outlive the hub
     await (this as unknown as { preview?: { closeAll(): Promise<void> } }).preview?.closeAll().catch(() => {});
     await this.acp?.shutdown().catch(() => {});

@@ -928,6 +928,7 @@ function mockContext(id: string): ContextUsageDto {
 on('POST', '/api/sessions/:id/command', ({ body }) => ({ ok: true, output: `Ran ${body.line}` }));
 on('GET', '/api/sessions/:id/todos', ({ params }) => db.todos.get(params[0]) ?? []);
 on('GET', '/api/sessions/:id/checkpoints', ({ params }) => D.checkpoints[params[0]] ?? []);
+on('GET', '/api/sessions/:id/shells', () => []);
 on('GET', '/api/sessions/:id/diff', ({ params }) => (params[0] === 's_auth' ? D.sessionDiff : { diff: '', files: [] }));
 on('GET', '/api/sessions/:id/export', ({ params, query }) => {
   const s = getSession(params[0]);
