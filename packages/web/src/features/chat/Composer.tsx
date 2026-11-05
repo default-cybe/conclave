@@ -24,6 +24,8 @@ import { ACCEPT_FILES, MAX_ATTACHMENTS } from '@conclave/core/attachments/limits
 import type { EffortSetting } from '@/lib/effort';
 import type { Attachment } from '@conclave/core/client';
 import { api } from '@/lib/api';
+import { acceptFileDrag, droppedFiles } from '@/lib/fileDrop';
+import { onPasteFiles } from '@/lib/pasteFiles';
 import { askBtw, attempt, sendQueued, toast, upsertSeat, upsertSession, useHub } from '@/store/store';
 import { BtwCards } from './Pending';
 import { CommentTray } from './CommentTray';
@@ -44,7 +46,7 @@ import { AgentPicker, DEFAULT_DEBATE, DEFAULT_JURY, DEFAULT_LOOP, DebatersPicker
 import { moveSessionTo } from './FolderChooser';
 import { MODES } from './modes';
 import { ULTRA_LINE, UltraSwitch } from '../workflows/UltraSwitch';
-import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPicked, StatusLine, useAgentFollow, type StripFile } from '@/features/conversation/ComposerParts';
+import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPickedFor, StatusLine, useAgentFollow, type StripFile } from '@/features/conversation/ComposerParts';
 import { DeviceChip, FolderChip, deviceItems, useComputers } from '@/features/home/Where';
 import { useThisComputer } from '@/features/home/here';
 import { CODE_AGENT, customAgent, modeOf } from '@/features/home/start';
@@ -77,6 +79,9 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   // what is attached now, for a pick that lands while another is still being read
   const filesNow = useRef(files);
   filesNow.current = files;
+  // the session the box shows now, so a slow read never attaches to the next one
+  const shownId = useRef(session.id);
+  shownId.current = session.id;
   const [sel, setSel] = useState(0);
   const [drag, setDrag] = useState(false);
   const [sending, setSending] = useState<false | 'send' | 'queue' | 'steer'>(false);
@@ -388,7 +393,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
 
   // 15 at most: the rest is refused with "Up to 15 files per message. Zip the rest."
   const addFiles = async (list: FileList | File[]) => {
-    const out = await readPicked(filesNow.current, Array.from(list), MAX_BYTES);
+    const out = await readPickedFor(session.id, shownId, filesNow.current, Array.from(list), MAX_BYTES);
     if (out.length) setFiles((x) => [...x, ...out].slice(0, MAX_ATTACHMENTS));
   };
 
@@ -516,12 +521,12 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
     return (
       <div
         className="relative px-3 pt-1 pb-2"
-        onDragOver={(e) => {
-          if (e.dataTransfer.types.includes('Files')) e.preventDefault();
-        }}
+        onDragEnter={acceptFileDrag}
+        onDragOver={acceptFileDrag}
         onDrop={(e) => {
           e.preventDefault();
-          if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
+          const dropped = droppedFiles(e.dataTransfer);
+          if (dropped.length) void addFiles(dropped);
         }}
       >
         {menuBox}
@@ -545,13 +550,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
               onKeyDown={onKey}
               onBlur={() => setTimeout(() => setCaret(-1), 150)}
               onFocus={(e) => setCaret(e.target.selectionStart)}
-              onPaste={(e) => {
-                const imgs = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith('image/'));
-                if (imgs.length) {
-                  e.preventDefault();
-                  void addFiles(imgs);
-                }
-              }}
+              onPaste={(e) => onPasteFiles(e, (list) => void addFiles(list))}
               placeholder={phonePlaceholder}
               className={PHONE_FIELD}
             />
@@ -609,17 +608,16 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   return (
     <div
       className="relative mx-auto w-full max-w-[924px] px-8 pb-3 phone:px-3 phone:pb-3"
+      onDragEnter={acceptFileDrag}
       onDragOver={(e) => {
-        if (e.dataTransfer.types.includes('Files')) {
-          e.preventDefault();
-          setDrag(true);
-        }
+        if (acceptFileDrag(e)) setDrag(true);
       }}
       onDragLeave={() => setDrag(false)}
       onDrop={(e) => {
         e.preventDefault();
         setDrag(false);
-        if (e.dataTransfer.files.length) void addFiles(e.dataTransfer.files);
+        const dropped = droppedFiles(e.dataTransfer);
+        if (dropped.length) void addFiles(dropped);
       }}
     >
       {menuBox}
@@ -644,13 +642,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
             onKeyDown={onKey}
             onBlur={() => setTimeout(() => setCaret(-1), 150)}
             onFocus={(e) => setCaret(e.target.selectionStart)}
-            onPaste={(e) => {
-              const imgs = Array.from(e.clipboardData.files).filter((f) => f.type.startsWith('image/'));
-              if (imgs.length) {
-                e.preventDefault();
-                void addFiles(imgs);
-              }
-            }}
+            onPaste={(e) => onPasteFiles(e, (list) => void addFiles(list))}
             placeholder={placeholder}
             className="block w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[14px] leading-[1.5] text-fg outline-none placeholder:text-fg-3 focus-visible:outline-none phone:text-[16px]"
           />

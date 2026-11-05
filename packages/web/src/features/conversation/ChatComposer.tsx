@@ -23,6 +23,7 @@ import type { CyberProgram } from '@conclave/core/providers/access-programs';
 import type { Session } from '@conclave/core/types';
 import { ACCEPT_FILES, MAX_ATTACHMENTS } from '@conclave/core/attachments/limits';
 import { askBtw, useHub } from '@/store/store';
+import { onPasteFiles } from '@/lib/pasteFiles';
 import { BtwCards } from '@/features/chat/Pending';
 import { btwQuestion } from '@/features/chat/slash';
 import { cn, fuzzyFilter } from '@/lib/text';
@@ -36,7 +37,7 @@ import { Rim, SendStopButton, type RimState } from '@/components/motion';
 import { isReminder } from '@/features/chat/util';
 import { useDraft } from '@/features/chat/useDraft';
 import { canDictate, DictateButton } from './Dictate';
-import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPicked, StatusLine, type EffortFollow } from './ComposerParts';
+import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPickedFor, StatusLine, type EffortFollow } from './ComposerParts';
 import { AddButton, fitField, OptionsButton, PHONE_FIELD, PhoneBox, PhoneSend, sizeField } from './PhoneBox';
 import { patchChat, sendTo, startChat, stopChat, type Outgoing } from './actions';
 import { DEFAULTS_EVENT, readDefaults, saveDefaults, setEditing, setRestore, useChatUi, type Thinking } from './state';
@@ -192,6 +193,9 @@ export function ChatComposer({
   // what is attached now, for a pick that lands while another is still being read
   const filesNow = useRef(files);
   filesNow.current = files;
+  // the chat the box shows now, so a slow read never attaches to the next one
+  const shownId = useRef(chatId);
+  shownId.current = chatId;
   const [sheet, setSheet] = useState(false);
   const [busy, setBusy] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);
@@ -277,7 +281,7 @@ export function ChatComposer({
 
   // 15 at most: the rest is refused with "Up to 15 files per message. Zip the rest."
   const addFiles = async (list: FileList | File[]) => {
-    const out = await readPicked(filesNow.current, Array.from(list), MAX_BYTES);
+    const out = await readPickedFor(chatId, shownId, filesNow.current, Array.from(list), MAX_BYTES);
     if (out.length) setFiles((x) => [...x, ...out].slice(0, MAX_ATTACHMENTS));
     box.current?.focus();
   };
@@ -477,13 +481,7 @@ export function ChatComposer({
       aria-activedescendant={menuOpen ? `${listId}-${sel}` : undefined}
       onChange={(e) => setText(e.target.value)}
       onKeyDown={onKey}
-      onPaste={(e) => {
-        const list = Array.from(e.clipboardData.files);
-        if (list.length) {
-          e.preventDefault();
-          void addFiles(list);
-        }
-      }}
+      onPaste={(e) => onPasteFiles(e, (list) => void addFiles(list))}
       placeholder={placeholder}
       enterKeyHint={mobile ? 'enter' : 'send'}
       className={className}
