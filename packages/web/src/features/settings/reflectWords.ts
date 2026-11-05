@@ -4,6 +4,7 @@
  */
 import type { ReflectDto, ReflectRange, ReflectReport, ReflectRunDto } from '@conclave/core/client';
 import { compact, hhmm, shortDate } from '@/lib/format';
+import { modelName } from '@/lib/models';
 
 /** What it does and what it costs, in one line, from docs/ASSISTANT.md. */
 export const REFLECT_LINE =
@@ -97,6 +98,20 @@ export function heatLevel(v: number, max: number): number {
 export function lateLine(share: number, messages: number): string | undefined {
   if (share < 0.2 || messages < 20) return undefined;
   return `${Math.round(share * 100)}% of your messages came between 23:00 and 05:00. Quiet hours below keep the hub from pinging you then.`;
+}
+
+/** "4 active days, longest streak 2 days, busiest Tue 3 Nov with 40 messages." The late-night share only when lateLine does not say it already. */
+export function rhythmWords(r: ReflectReport['rhythm']): string {
+  const busiest = r.busiestDay ? `, busiest ${dayWords(r.busiestDay.date)} with ${r.busiestDay.count} messages` : '';
+  const late = lateLine(r.lateNightShare, r.messages) ? '' : ` ${Math.round(r.lateNightShare * 100)}% late at night.`;
+  return `${n(r.activeDays, 'active day', 'active days')}, longest streak ${n(r.longestStreak, 'day', 'days')}${busiest}.${late}`;
+}
+
+/** "3 fallbacks, most often Opus 5.5 to Sonnet 5.5." with the model picker's names, or nothing. */
+export function fallbackWords(m: Pick<ReflectReport['models'], 'fallbacks' | 'topFallback'>): string {
+  if (!m.fallbacks) return '';
+  const top = m.topFallback ? `, most often ${m.topFallback.split(' to ').map(modelName).join(' to ')}` : '';
+  return `${n(m.fallbacks, 'fallback', 'fallbacks')}${top}. `;
 }
 
 /** The footnote on what was left out, or nothing. */

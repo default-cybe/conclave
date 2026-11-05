@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { groupSections, searchSections, SETTINGS_GROUPS } from '../src/features/settings/nav';
-import { bigNumbers, dayWords, excludedWords, heatLevel, lastRunWords, lateLine, madeWords, modelChoice, reportRange, REFLECT_LINE, TIME, timeWords } from '../src/features/settings/reflectWords';
+import { bigNumbers, dayWords, excludedWords, fallbackWords, heatLevel, lastRunWords, lateLine, madeWords, modelChoice, reportRange, REFLECT_LINE, rhythmWords, TIME, timeWords } from '../src/features/settings/reflectWords';
 
 const at = (h: number, m: number) => {
   const d = new Date();
@@ -69,5 +69,19 @@ describe('Settings > Reflect', () => {
     expect(excludedWords({ health: 0, incognito: 0 })).toBeUndefined();
     expect(excludedWords({ health: 2, incognito: 0 })).toContain('2 health-related sessions');
     expect(dayWords('2026-11-03')).toBe('Tue 3 Nov');
+  });
+
+  test('the late-night share is said once: in the stats line only when the gentle line is not shown', () => {
+    const rhythm = { heatmap: [], messages: 100, activeDays: 4, longestStreak: 1, busiestDay: { date: '2026-11-03', count: 40 }, lateNightShare: 0.27 };
+    const stats = rhythmWords(rhythm);
+    expect(stats).toBe('4 active days, longest streak 1 day, busiest Tue 3 Nov with 40 messages.');
+    expect(`${stats} ${lateLine(rhythm.lateNightShare, rhythm.messages)}`.match(/27%/g)).toHaveLength(1);
+    expect(rhythmWords({ ...rhythm, lateNightShare: 0.1 })).toContain('10% late at night.');
+  });
+
+  test('fallbacks and models read with the model picker names, not raw ids', () => {
+    expect(fallbackWords({ fallbacks: 3, topFallback: 'cliproxy/claude-opus-5-5 to anthropic/claude-sonnet-5-5' })).toBe('3 fallbacks, most often Opus 5.5 to Sonnet 5.5. ');
+    expect(fallbackWords({ fallbacks: 1 })).toBe('1 fallback. ');
+    expect(fallbackWords({ fallbacks: 0 })).toBe('');
   });
 });
