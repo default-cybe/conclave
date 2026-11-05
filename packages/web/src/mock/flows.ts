@@ -42,7 +42,28 @@ export const SCRAPER_RUN: FlowRunView = {
 export function registerFlows(ctx: MockCtx): void {
   let src = SCRAPER_FLOW;
   let sha = 1;
+  // every version the mock wrote, for restore (undo and redo), as the hub keeps them
+  const versions = new Map<string, string>([['mock1', src]]);
   const view = (): FlowView => ({ name: 'scraper', path: 'flows/scraper.flow.ts', graph: parseFlow(src), sha: `mock${sha}`, lastRun: SCRAPER_RUN });
+  const stale = (base: unknown) => base !== `mock${sha}` && ctx.fail(409, 'script changed: the file changed since the graph was read; reload it');
+  // screenshots read the file text, and write it as an editor outside the canvas would
+  (globalThis as { __MOCK_FLOW__?: unknown }).__MOCK_FLOW__ = {
+    src: () => src,
+    write: (next: string) => {
+      src = next;
+      sha++;
+    },
+  };
+  ctx.on('POST', '/api/sessions/:id/flows/:name/graph/restore', ({ body }) => {
+    stale(body?.baseSha);
+    const next = versions.get(String(body?.sha));
+    if (next === undefined) return ctx.fail(400, 'that version is not one the canvas wrote');
+    const before = src;
+    src = next;
+    sha++;
+    versions.set(`mock${sha}`, src);
+    return { sha: `mock${sha}`, diff: lineDiff(before, src), view: view() } satisfies FlowEditResult;
+  });
   ctx.on('GET', '/api/graph/nodes', () => FLOW_BLOCKS);
   ctx.on('GET', '/api/sessions/:id/flows', () => [{ name: 'scraper', path: 'flows/scraper.flow.ts' }]);
   ctx.on('GET', '/api/sessions/:id/flows/:name/graph', () => view());
@@ -50,10 +71,17 @@ export function registerFlows(ctx: MockCtx): void {
   ctx.on('POST', '/api/sessions/:id/flows/:name/run', () => SCRAPER_RUN);
   ctx.on('PUT', '/api/sessions/:id/flows/:name/graph/layout', ({ body }) => body);
   ctx.on('POST', '/api/sessions/:id/flows/:name/graph/op', ({ body }) => {
+    stale(body?.baseSha);
     const before = src;
-    const r = applyFlowOp(src, body as FlowOp);
+    let r: ReturnType<typeof applyFlowOp>;
+    try {
+      r = applyFlowOp(src, body as FlowOp);
+    } catch (err) {
+      return ctx.fail(400, (err as Error).message);
+    }
     src = r.src;
     sha++;
+    versions.set(`mock${sha}`, src);
     return { sha: `mock${sha}`, diff: lineDiff(before, src), view: view(), ...(r.nodeId ? { nodeId: r.nodeId } : {}) } satisfies FlowEditResult;
   });
 }

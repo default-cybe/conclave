@@ -11,9 +11,9 @@
 import '@xyflow/react/dist/base.css';
 import './graph.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Background, BackgroundVariant, Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, type Edge, type Node, type NodeChange } from '@xyflow/react';
-import type { FlowBlockSpec, FlowNodeLive, NodeRun, WorkflowGraph } from '@conclave/core/client';
-import { useIsMobile } from '@/lib/hooks';
+import { Background, BackgroundVariant, Controls, MiniMap, ReactFlow, ReactFlowProvider, useConnection, useReactFlow, type Edge, type Node, type NodeChange } from '@xyflow/react';
+import type { FlowBlockSpec, FlowNodeLive, GraphNode, NodeRun, WorkflowGraph } from '@conclave/core/client';
+import { useIsMobile, useMedia } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { deskViewport, focusViewport } from '../canvas/model';
 import { NODE_H, NODE_W, clearOf, placedGraph } from './layout';
@@ -34,14 +34,23 @@ export interface GraphCanvasProps {
   onMove?: (id: string, at: { x: number; y: number }) => void;
   /** Set on a workflow you own: the Add button, a double-click on empty canvas, or a wire dropped there, opens the node search. at: where the new node goes, in flow coordinates. */
   onInsert?: (kind: string, after?: string, at?: { x: number; y: number }) => void;
-  /** Delete or Backspace on the selected node. */
-  onRemove?: (id: string) => void;
+  /** Delete or Backspace on the selected nodes (all of a multi-selection). */
+  onRemove?: (ids: string[]) => void;
+  /** Canvas mode: shift-click and shift-drag select several nodes; the parent keeps the set. */
+  selection?: string[];
+  onSelection?: (ids: string[]) => void;
+  /** Ctrl/Cmd+C on the selection, Ctrl/Cmd+V at the pointer (flow coordinates). */
+  onCopy?: (ids: string[]) => void;
+  onPaste?: (at: { x: number; y: number }) => void;
+  /** A double-click on a node's title edits it in place; `renamable` says which nodes allow it. */
+  onRename?: (id: string, name: string) => void;
+  renamable?: (n: GraphNode) => boolean;
   /** A box inside a scrolling page (a run's graph), not a whole pane. */
   inPage?: boolean;
   /** What the node search offers; the workflow nodes by default. */
   inserts?: InsertItem[];
   /** A program flow: block nodes, a value label on each wire from the last run, and wires drawn to an input. */
-  flow?: { blocks: Map<string, FlowBlockSpec>; live?: Record<string, FlowNodeLive>; onConnect?: (from: string, to: string, input: string) => void };
+  flow?: { blocks: Map<string, FlowBlockSpec>; live?: Record<string, FlowNodeLive>; onConnect?: (from: string, to: string, input: string) => void; check?: (from: string, to: string, input: string) => string | undefined };
   /** Canvas mode (docs/design/CANVAS-MODE.md): the whole pane, a faint dot grid, a minimap; it opens readable on `focus` (the running or failed node) with the start of the graph (canvas/model deskViewport, focusViewport on a phone). */
   full?: { focus?: string };
 }
@@ -86,8 +95,16 @@ function NodeSearch({ at, after, items, onPick, onClose }: { at: { x: number; y:
   const [q, setQ] = useState('');
   const [i, setI] = useState(0);
   const list = rankInserts(items, q);
+  const opened = useRef(Date.now());
   return (
-    <div className="absolute z-10 w-[240px] rounded-[var(--r-2)] border border-rule-2 bg-raise p-1.5" style={{ left: at.x, top: at.y }} role="dialog" aria-label="Add a node">
+    <div
+      className="absolute z-10 w-[240px] rounded-[var(--r-2)] border border-rule-2 bg-raise p-1.5"
+      style={{ left: at.x, top: at.y }}
+      role="dialog"
+      aria-label="Add a node"
+      // a long-press opens this under the finger: the lift's mouse events land on the box and must not blur the field
+      onMouseDown={(e) => (e.target as HTMLElement).tagName !== 'INPUT' && e.preventDefault()}
+    >
       <input
         autoFocus
         value={q}
@@ -109,10 +126,11 @@ function NodeSearch({ at, after, items, onPick, onClose }: { at: { x: number; y:
           e.stopPropagation();
         }}
       />
+      {/* the lift that opened it (a long-press near an edge) can land on an option: a click in the first 400 ms does not pick */}
       <ul role="listbox" className="pt-1">
         {list.map((x, n) => (
           <li key={x.kind} role="option" aria-selected={n === i}>
-            <button type="button" className={`flex w-full items-baseline justify-between gap-2 rounded-[var(--r-1)] px-2 py-1.5 text-left text-[13px] ${n === i ? 'bg-hover text-fg' : 'text-fg-2'}`} onMouseDown={(e) => e.preventDefault()} onClick={() => onPick(x.kind)}>
+            <button type="button" className={`flex w-full items-baseline justify-between gap-2 rounded-[var(--r-1)] px-2 py-1.5 text-left text-[13px] ${n === i ? 'bg-hover text-fg' : 'text-fg-2'}`} onMouseDown={(e) => e.preventDefault()} onClick={() => Date.now() - opened.current > 400 && onPick(x.kind)}>
               <span>{x.word}</span>
               <span className="text-[12px] text-fg-3">{x.help}</span>
             </button>
@@ -131,7 +149,35 @@ function miniClass(n: Node): string {
   return `cv-mini cv-mini-${d.run?.state ?? (d.live ? (d.live.ok ? 'done' : 'failed') : 'idle')}`;
 }
 
-function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className, positions, onMove, onInsert, onRemove, inPage, inserts = INSERTS, flow: program, full }: GraphCanvasProps) {
+/** The library's drag payload (canvas/CanvasPage Library): a node kind dropped on the canvas lands where it is let go. */
+export const DRAG_KIND = 'application/x-conclave-node';
+
+/** While a wire is dragged over a port it cannot go into: the reason, at the pointer. */
+function WireHint({ check }: { check: (from: string, to: string, input: string) => string | undefined }) {
+  const c = useConnection();
+  if (!c.inProgress || !c.toHandle || c.isValid !== false || !c.fromNode || !c.toNode) return null;
+  // a wire can start at either end: the output is the source
+  const [from, to, input] = c.fromHandle?.type === 'source' ? [c.fromNode.id, c.toNode.id, c.toHandle.id] : [c.toNode.id, c.fromNode.id, c.fromHandle?.id];
+  const why = input ? check(from, to, input) : undefined;
+  if (!why) return null;
+  return (
+    <div role="status" className="cv-wire-hint pointer-events-none absolute z-10 max-w-[280px] rounded-[var(--r-1)] border border-fault bg-raise px-2 py-1 text-[12px] text-fg" style={{ left: c.pointer.x + 14, top: c.pointer.y + 14 }}>
+      {why}
+    </div>
+  );
+}
+
+function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, className, positions, onMove, onInsert, onRemove, selection, onSelection, onCopy, onPaste, onRename, renamable, inPage, inserts = INSERTS, flow: program, full }: GraphCanvasProps) {
+  // a refused wire's reason after it is let go, for a few seconds
+  const [note, setNote] = useState<{ text: string; x: number; y: number }>();
+  useEffect(() => {
+    if (!note) return;
+    const t = setTimeout(() => setNote(undefined), 5000);
+    return () => clearTimeout(t);
+  }, [note]);
+  const pointer = useRef<{ x: number; y: number }>(undefined);
+  const press = useRef<{ t: ReturnType<typeof setTimeout>; x: number; y: number }>(undefined);
+  const coarse = useMedia('(pointer: coarse)');
   const [search, setSearch] = useState<{ x: number; y: number; after?: string; at?: { x: number; y: number } }>();
   // at: the flow point the new node goes to (a double-click); the Add button leaves it to the layout
   const openSearch = (clientX: number, clientY: number, after?: string, place = true) => {
@@ -149,6 +195,12 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
   const last = useRef<{ id: string; x: number; y: number }>(undefined);
   const draggable = !!onMove && !vertical;
   const onNodesChange = (changes: NodeChange[]) => {
+    // clicks, shift-clicks and a shift-drag box arrive as select changes
+    if (onSelection && changes.some((c) => c.type === 'select')) {
+      const next = new Set(selection);
+      for (const c of changes) if (c.type === 'select') c.selected ? next.add(c.id) : next.delete(c.id);
+      onSelection([...next].filter((id) => graph.nodes.some((n) => n.id === id)));
+    }
     for (const c of changes) {
       if (c.type !== 'position') continue;
       if (c.dragging && c.position) {
@@ -182,7 +234,9 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       initialWidth: b.w,
       initialHeight: b.h,
     }));
-    const connectable = !!program?.onConnect && !vertical;
+    // Canvas mode wires on touch too (CANVAS-MODE.md 4); the box in a session stays mouse only
+    const connectable = !!program?.onConnect && (!vertical || !!full);
+    const picked = new Set(selection);
     const wf: Node[] = graph.nodes.map((n) => {
       const live = program?.live?.[n.id];
       return {
@@ -191,7 +245,8 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         position: pos.get(n.id) ?? { x: 0, y: 0 },
         initialWidth: NODE_W,
         initialHeight: NODE_H,
-        data: { node: n, run: runs?.get(n.id), stale: staleSet.has(n.id), selected: n.id === selected, vertical, ...(program ? { spec: n.block ? program.blocks.get(n.block) : undefined, live, connectable } : {}) } satisfies FlowNodeData,
+        selected: picked.has(n.id),
+        data: { node: n, run: runs?.get(n.id), stale: staleSet.has(n.id), selected: n.id === selected || picked.has(n.id), vertical, ...(onRename && (renamable?.(n) ?? true) ? { onRename } : {}), ...(program ? { spec: n.block ? program.blocks.get(n.block) : undefined, live, connectable } : {}) } satisfies FlowNodeData,
         ariaLabel: program ? `${n.label}, ${n.kind === 'block' ? (program.blocks.get(n.block ?? '')?.title ?? n.block) : 'code'}${live ? (live.ok ? `, ${live.summary ?? 'done'}` : ', failed') : ''}` : `${n.label}, ${n.kind}${runs?.get(n.id) ? `, ${runs.get(n.id)!.state}` : ''}`,
         draggable,
       };
@@ -208,7 +263,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       return { id: `${e.from}>${e.to}`, source: e.from, target: e.to, className: live ? 'cv-wire-live' : undefined, focusable: false };
     });
     return { nodes: [...bandNodes, ...wf], edges: es, tall, bounds };
-  }, [graph, runs, stale, selected, currentPhase, vertical, positions, drag, draggable, program]);
+  }, [graph, runs, stale, selected, selection, currentPhase, vertical, positions, drag, draggable, program, full, onRename, renamable]);
 
   // open fitted: the whole graph when it reads at 0.55 or more, else the start of it at 0.55; a phone centres its column
   const fitted = useRef(false);
@@ -238,10 +293,26 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       if (t?.closest('[role=dialog]:not(.cv-inspector)')) return;
       if (e.key === 'f' && !e.metaKey && !e.ctrlKey && !e.altKey) fit(200);
-      if (e.key === 'Escape') onSelect(undefined);
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selected && onRemove) {
+      if (e.key === 'Escape') {
+        onSelect(undefined);
+        onSelection?.([]);
+      }
+      const ids = selection?.length ? selection : selected ? [selected] : [];
+      if ((e.key === 'Delete' || e.key === 'Backspace') && ids.length && onRemove) {
         e.preventDefault();
-        onRemove(selected);
+        onRemove(ids);
+      }
+      // copy and paste: not while text is selected on the page (the inspector's code)
+      const mod = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
+      if (mod && e.key.toLowerCase() === 'c' && ids.length && onCopy && !window.getSelection()?.toString()) {
+        e.preventDefault();
+        onCopy(ids);
+      }
+      if (mod && e.key.toLowerCase() === 'v' && onPaste) {
+        e.preventDefault();
+        const r = box.current?.getBoundingClientRect();
+        const p = pointer.current ?? (r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : { x: 0, y: 0 });
+        onPaste(flow.screenToFlowPosition(p));
       }
     };
     window.addEventListener('keydown', onKey);
@@ -267,15 +338,65 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
   }, [selected, flow, scroll, desk]);
 
   return (
-    <div className={className} ref={box} style={{ position: 'relative', ...(scroll ? { height: tall + 28 } : {}) }}>
+    <div
+      className={className}
+      ref={box}
+      style={{ position: 'relative', ...(scroll ? { height: tall + 28 } : {}) }}
+      onPointerMove={(e) => {
+        pointer.current = { x: e.clientX, y: e.clientY };
+        const p = press.current;
+        if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 10) {
+          clearTimeout(p.t);
+          press.current = undefined;
+        }
+      }}
+      // a phone: long-press on empty canvas opens the node search there (CANVAS-MODE.md 4)
+      onPointerDown={(e) => {
+        // shift-click picks nodes; without this the browser also extends a text selection across the inspector
+        if (e.shiftKey && onSelection) window.getSelection()?.removeAllRanges();
+        if (!onInsert || !full || e.pointerType !== 'touch' || !(e.target as HTMLElement).classList.contains('react-flow__pane')) return;
+        const { clientX: x, clientY: y } = e;
+        press.current = { x, y, t: setTimeout(() => ((press.current = undefined), openSearch(x, y)), 500) };
+      }}
+      onPointerUp={(e) => {
+        if (e.shiftKey && onSelection) window.getSelection()?.removeAllRanges();
+        if (press.current) (clearTimeout(press.current.t), (press.current = undefined));
+      }}
+      onPointerCancel={() => press.current && (clearTimeout(press.current.t), (press.current = undefined))}
+      onDragOver={
+        onInsert
+          ? (e) => {
+              if (!e.dataTransfer.types.includes(DRAG_KIND)) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'copy';
+            }
+          : undefined
+      }
+      onDrop={
+        onInsert
+          ? (e) => {
+              const kind = e.dataTransfer.getData(DRAG_KIND);
+              if (!kind) return;
+              e.preventDefault();
+              const at = flow.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+              onInsert(kind, undefined, { x: at.x - NODE_W / 2, y: at.y - NODE_H / 2 });
+            }
+          : undefined
+      }
+    >
       <ReactFlow
         className={cn('cv-graph', scroll && 'cv-graph-scroll', full && 'cv-full')}
         nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
         nodesDraggable={draggable}
-        onNodesChange={draggable ? onNodesChange : undefined}
-        nodesConnectable={!!onInsert && !vertical}
+        onNodesChange={draggable || onSelection ? onNodesChange : undefined}
+        nodesConnectable={!!onInsert && (!vertical || !!full)}
+        connectionRadius={coarse ? 36 : 20}
+        isValidConnection={program?.check ? (c) => !c.targetHandle || !program.check!(c.source, c.target, c.targetHandle) : undefined}
+        // ComfyUI: shift-click adds to the selection, Ctrl/Cmd-drag draws a box (a Shift box would cover the nodes and eat the clicks)
+        multiSelectionKeyCode={onSelection ? 'Shift' : undefined}
+        selectionKeyCode={onSelection ? ['Control', 'Meta'] : undefined}
         zoomOnDoubleClick={!onInsert && !scroll}
         onDoubleClick={onInsert ? (e) => (e.target as HTMLElement).classList.contains('react-flow__pane') && openSearch(e.clientX, e.clientY) : undefined}
         deleteKeyCode={null}
@@ -286,6 +407,15 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
             ? (e, s) => {
                 if (s.isValid || !s.fromNode) return;
                 const p = 'changedTouches' in e ? e.changedTouches[0] : e;
+                // let go on a port that does not fit: say why, and draw nothing
+                if (s.toHandle && s.toNode) {
+                  const out = s.fromHandle?.type === 'source';
+                  const input = out ? s.toHandle.id : s.fromHandle?.id;
+                  const why = input && program?.check ? program.check(out ? s.fromNode.id : s.toNode.id, out ? s.toNode.id : s.fromNode.id, input) : undefined;
+                  const r = box.current?.getBoundingClientRect();
+                  if (why && r) setNote({ text: why, x: p.clientX - r.left, y: p.clientY - r.top });
+                  return;
+                }
                 openSearch(p.clientX, p.clientY, s.fromNode.id);
               }
             : undefined
@@ -315,8 +445,15 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         {/* the faint dot grid is Canvas's alone: an exception to SPEC 2's no-grid rule (owner decision on PR #250) */}
         {full && <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />}
         {full && !vertical && <MiniMap position="bottom-right" pannable zoomable ariaLabel="Minimap" nodeClassName={miniClass} />}
+        {program?.check && <WireHint check={program.check} />}
       </ReactFlow>
-      {onInsert && !search && (
+      {note && (
+        <div role="status" className="cv-wire-hint absolute z-10 max-w-[280px] rounded-[var(--r-1)] border border-fault bg-raise px-2 py-1 text-[12px] text-fg" style={{ left: Math.min(note.x + 14, (box.current?.clientWidth ?? 300) - 290), top: note.y + 14 }}>
+          Not wired: {note.text}
+        </div>
+      )}
+      {/* Canvas mode adds from the library, a double-click or a long-press: a button over the canvas covered ports (#251) */}
+      {onInsert && !search && !full && (
         <button
           type="button"
           className="absolute bottom-2 left-2 z-[5] flex h-[30px] items-center rounded-[var(--r-2)] border border-rule-2 bg-raise px-3 text-[13px] text-fg-2 hover:bg-hover hover:text-fg coarse:h-11 coarse:px-4 coarse:text-[15px]"

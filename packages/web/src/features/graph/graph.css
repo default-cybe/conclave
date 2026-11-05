@@ -45,6 +45,28 @@
   border-radius: 50%;
 }
 
+/* a finger gets a 44px port (SPEC 14); the ring is invisible */
+@media (pointer: coarse) {
+  .cv-full .react-flow__node-flow .react-flow__handle.connectionindicator::after {
+    inset: -16px;
+  }
+}
+
+/* while a wire is dragged: a port it fits lights up, one it does not is in fault (CANVAS-MODE.md 6.2) */
+.cv-graph .react-flow__handle.connectingto.valid {
+  background: var(--signal);
+}
+
+.cv-graph .react-flow__handle.connectingto:not(.valid) {
+  background: var(--fault);
+}
+
+/* shift-drag box */
+.cv-graph .react-flow__selection {
+  background: color-mix(in srgb, var(--signal) 8%, transparent);
+  border: 1px dashed var(--signal);
+}
+
 .cv-graph .react-flow__node-wf:focus-visible {
   outline: 2px solid var(--signal);
   outline-offset: 2px;

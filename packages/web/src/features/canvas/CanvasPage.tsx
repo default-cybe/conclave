@@ -12,12 +12,20 @@
  * and Output, Logs and Queue under it. The app sidebar folds to its strip
  * while a file is open. A phone gets the canvas full screen under its bar,
  * with Nodes and Output as floating buttons that open sheets, and opens on
- * the running or failed block. Edits, Run and the agent come in later PRs.
+ * the running or failed block.
+ *
+ * PR 2 edits (editor.ts): a program in a session's folder and a workflow of
+ * your own save every change to the file at once, with Undo and Redo in the
+ * top bar and a Saved, Saving or Not saved status. Library workflows and
+ * runs stay read only; a library workflow offers Duplicate to edit. Run and
+ * the agent come in later PRs.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useLocation, useParams, useSearch } from 'wouter';
 import { ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import { nodeRuns, type FlowBlockSpec, type FlowRunView, type FlowView, type GraphNode, type WorkflowGraphView, type WorkflowRunDetail } from '@conclave/core/client';
+import { nodeRuns, type FlowBlockSpec, type FlowOp, type FlowRunView, type FlowView, type GraphEditField, type GraphNode, type WorkflowGraphView, type WorkflowRunDetail } from '@conclave/core/client';
+import { wireRefusal } from '@conclave/core/flows/ports';
+import { Button } from '@/components/ui/Button';
 import { Elapsed } from '@/components/motion/Elapsed';
 import { CodeBlock } from '@/components/ui/Code';
 import { LoadingRows } from '@/components/ui/EmptyState';
@@ -34,15 +42,22 @@ import { api } from '@/lib/api';
 import { hhmm } from '@/lib/format';
 import { useIsMobile } from '@/lib/hooks';
 import { cn } from '@/lib/text';
-import { useHub } from '@/store/store';
-import { GraphCanvas, INSERTS } from '../graph/GraphCanvas';
-import { runWords } from '../graph/FlowView';
+import { attempt, toast, useHub } from '@/store/store';
+import { DRAG_KIND, GraphCanvas, INSERTS } from '../graph/GraphCanvas';
+import { FlowInspector, runWords } from '../graph/FlowView';
 import { Inspector } from '../graph/Inspector';
-import { blockLine, liveState, stateTone } from '../graph/nodes';
+import { liveState, stateTone } from '../graph/nodes';
 import { useRunDetail, useRuns } from '../workflows/data';
 import { isLive, RUN_WORD } from '../workflows/words';
 import { useCanvasFiles } from './files';
 import { fileGroups, fileHref, fileTitle, focusNode, isRunId, libraryOpen, rememberFile, saveLibraryOpen, sessionFor } from './model';
+import { copyClip, pasteClip, programRenamable, removeOps, saveWords, useEditor, workflowRenamable, type Clip } from './editor';
+
+type Positions = Record<string, { x: number; y: number }>;
+const snap = (p: { x: number; y: number }) => ({ x: Math.round(p.x / 8) * 8, y: Math.round(p.y / 8) * 8 });
+
+/** Ctrl/Cmd+C holds blocks of one file; a paste into another file is refused. Kept for the tab, not across reloads. */
+let clipboard: Clip | undefined;
 
 type Tab = 'output' | 'logs' | 'queue';
 const POLL_MS = 700;
@@ -104,18 +119,27 @@ function ProgramFile({ name }: { name: string }) {
   const [run, setRun] = useState<FlowRunView>();
   const [blocks, setBlocks] = useState<FlowBlockSpec[]>([]);
   const [error, setError] = useState<string>();
+  const [positions, setPositions] = useState<Positions>({});
+  const [selection, setSelection] = useState<string[]>([]);
+  const take = useCallback((v: FlowView) => (setView(v), v.layout && setPositions(v.layout)), []);
+  const ed = useEditor<FlowView>({
+    view,
+    setView: take,
+    restore: (sha, base) => api().restoreFlow(sid!, name, sha, base).then((r) => r.view),
+    reload: () => api().flowGraph(sid!, name),
+  });
   useEffect(() => void api().flowBlocks().then(setBlocks).catch(() => {}), []);
   useEffect(() => {
     if (!sid) return;
     let alive = true;
     api()
       .flowGraph(sid, name)
-      .then((v) => alive && (setView(v), setRun((r) => (flowLive(r) ? r : v.lastRun))))
+      .then((v) => alive && (take(v), setRun((r) => (flowLive(r) ? r : v.lastRun))))
       .catch((e) => alive && setError(e instanceof Error ? e.message : String(e)));
     return () => {
       alive = false;
     };
-  }, [sid, name]);
+  }, [sid, name, take]);
   // a run goes on in the background: ask for it until it ends
   useEffect(() => {
     if (!sid || !flowLive(run)) return;
@@ -123,8 +147,47 @@ function ProgramFile({ name }: { name: string }) {
     return () => clearInterval(t);
   }, [sid, name, run?.status]); // eslint-disable-line react-hooks/exhaustive-deps
   const bySpec = useMemo(() => new Map(blocks.map((b) => [b.block, b])), [blocks]);
-  const flow = useMemo(() => ({ blocks: bySpec, live: run?.nodes }), [bySpec, run?.nodes]);
+  const graph = view?.graph;
   const title = `${name}.flow.ts`;
+  const fileKey = `${device}:${cwd}:${name}`;
+  const saveLayout = async (next: Positions) => {
+    setPositions(next);
+    await api().saveFlowLayout(sid!, name, next);
+  };
+  /** One step of ops; each is sent on the version the last one wrote. */
+  const ops = (label: string, list: FlowOp[] | ((send: (op: FlowOp) => Promise<{ nodeId?: string }>) => Promise<unknown>), after?: (ids: string[]) => void) =>
+    ed.edit(label, async (base, took) => {
+      const made: string[] = [];
+      const send = async (op: FlowOp) => {
+        const r = await api().flowOp(sid!, name, op, base());
+        took(r.view);
+        if (r.nodeId) made.push(r.nodeId);
+        return r;
+      };
+      if (typeof list === 'function') await list(send);
+      else for (const op of list) await send(op);
+      after?.(made);
+      return made;
+    });
+  const insert = (block: string, afterId?: string, at?: { x: number; y: number }) =>
+    void ops('new block', [{ op: 'insert', block, ...(afterId ? { after: afterId } : {}) }], ([id]) => {
+      if (!id) return;
+      setSelection([id]);
+      // where it was dropped, not at the end of the layout
+      if (at) void attempt(() => saveLayout({ ...positions, [id]: snap(at) }));
+    });
+  const flow = useMemo(
+    () => ({
+      blocks: bySpec,
+      live: run?.nodes,
+      check: (from: string, to: string, input: string) => (graph ? wireRefusal(graph, from, to, input) : undefined),
+      onConnect: (from: string, to: string, input: string) => {
+        const src = graph?.nodes.find((n) => n.id === from)?.declares[0];
+        if (src) void ops('wire', [{ op: 'connect', nodeId: to, input, from: src }]);
+      },
+    }),
+    [bySpec, run?.nodes, graph], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const where = [cwd, device && `on ${device}`].filter(Boolean).join(' ');
   if (booted && !session) return <Missing title={title}>No Code session works in {where || 'that folder'}, so the hub cannot read its flows. Start one there, then open the file again.</Missing>;
   if (error) return <Missing title={title}>The program did not load. {error}</Missing>;
@@ -139,9 +202,59 @@ function ProgramFile({ name }: { name: string }) {
       status={status}
       graph={view.graph}
       focus={focus}
-      canvas={(sel, onSelect) => <GraphCanvas graph={view.graph} positions={view.layout} selected={sel} onSelect={onSelect} flow={flow} full={{ focus }} className="min-h-0 flex-1" />}
-      library={blocks.map((b) => ({ word: b.title, help: b.help, group: b.family }))}
-      inspector={(node) => <BlockFacts node={node} spec={node.block ? bySpec.get(node.block) : undefined} run={run} />}
+      edit={{ ...ed, onAdd: (kind) => insert(kind) }}
+      canvas={(sel, onSelect) => (
+        <GraphCanvas
+          graph={view.graph}
+          positions={positions}
+          selected={sel}
+          // the selection follows React Flow's select changes (onSelection), so a shift-click adds instead of replacing
+          onSelect={onSelect}
+          selection={selection}
+          onSelection={(ids) => (setSelection(ids), ids.length <= 1 && onSelect(ids[0]))}
+          flow={flow}
+          full={{ focus }}
+          inserts={blocks.map((b) => ({ kind: b.block, word: b.title, help: b.help }))}
+          onInsert={insert}
+          onMove={(id, at) => {
+            const prev = positions;
+            const next = { ...positions, [id]: snap(at) };
+            void attempt(() => saveLayout(next));
+            ed.push('move', () => saveLayout(prev), () => saveLayout(next));
+          }}
+          onRemove={(ids) => {
+            onSelect(undefined);
+            setSelection([]);
+            void ops(ids.length > 1 ? `remove ${ids.length} blocks` : 'remove', removeOps(view.graph, ids));
+          }}
+          onCopy={(ids) => {
+            clipboard = copyClip(fileKey, view.graph, ids);
+            const n = clipboard.blocks.length;
+            toast({ title: n ? `Copied ${n} ${n === 1 ? 'block' : 'blocks'}` : 'Nothing to copy', ...(clipboard.skipped ? { body: `${clipboard.skipped} code ${clipboard.skipped === 1 ? 'node stays' : 'nodes stay'} behind: copy code in the file.` } : {}), level: n ? 'success' : 'info' });
+          }}
+          onPaste={(at) => {
+            const clip = clipboard;
+            if (!clip?.blocks.length) return;
+            if (clip.file !== fileKey) return void toast({ title: 'Paste works within one file', body: 'Copy blocks in this file, then paste them here.', level: 'info' });
+            void ops(
+              'paste',
+              (send) => pasteClip(clip, send, (b, i) => bySpec.get(b)?.inputs.find((x) => x.name === i)?.default),
+              (ids) => {
+                setSelection(ids);
+                const p = snap(at);
+                void attempt(() => saveLayout({ ...positions, ...Object.fromEntries(ids.map((id, i) => [id, { x: p.x + i * 24, y: p.y + i * 24 }])) }));
+              },
+            );
+          }}
+          onRename={(id, next) =>
+            void ops('rename', [{ op: 'rename', nodeId: id, name: next }], ([nid]) => nid && positions[id] && void attempt(() => saveLayout({ ...positions, [nid]: positions[id] })))
+          }
+          renamable={programRenamable}
+          className="min-h-0 flex-1"
+        />
+      )}
+      library={blocks.map((b) => ({ kind: b.block, word: b.title, help: b.help, group: b.family }))}
+      inspector={(node) => <FlowInspector node={node} nodes={view.graph.nodes} spec={node.block ? bySpec.get(node.block) : undefined} live={run?.nodes[node.id]} onOp={(op, label) => ops(label, [op])} />}
       output={run?.output || run?.error || ''}
       logs={[]}
     />
@@ -182,12 +295,77 @@ function WorkflowFile({ id }: { id: string }) {
     };
   }, [id]);
   const { data } = useRunDetail(lastRun);
+  const [positions, setPositions] = useState<Positions>({});
+  const take = useCallback((v: WorkflowGraphView) => setView((old) => ({ ...v, layout: v.layout ?? old?.layout })), []);
+  useEffect(() => setPositions((p) => view?.layout ?? p), [view?.layout]);
+  const ed = useEditor<WorkflowGraphView>({ view, setView: take, restore: (sha, base) => api().restoreWorkflowGraph(id, sha, base).then((r) => r.view), reload: () => api().workflowGraph(id) });
   if (error) return <Missing title={id}>The workflow did not load. {error}</Missing>;
   if (!view) return <Loading title={id} />;
-  return <WorkflowShell view={view} detail={data} title={view.graph.name || id} meta={['Workflow', view.source === 'builtin' || view.source === 'plugin' ? 'library' : 'yours', 'read only'].join(', ')} />;
+  const library = view.source === 'builtin' || view.source === 'plugin';
+  if (!view.editable)
+    return (
+      <WorkflowShell
+        view={view}
+        detail={data}
+        title={view.graph.name || id}
+        meta={['Workflow', library ? 'library' : 'yours', 'read only'].join(', ')}
+        duplicate={library ? () => void attempt(() => api().copyWorkflow(id), 'Duplicated. The copy is yours to edit.').then((d) => d && api().workflowGraph(id).then(take)) : undefined}
+      />
+    );
+  const saveLayout = async (next: Positions) => {
+    setPositions(next);
+    await api().saveWorkflowLayout(id, next);
+  };
+  const insert = (kind: string, after?: string, at?: { x: number; y: number }) => {
+    // the hub renumbers saved positions for an insert (shiftLayout): undo puts the old ones back, redo the shifted
+    const prev = positions;
+    let shifted: Positions | undefined;
+    void ed
+      .edit(
+        'new node',
+        async (base, took) => {
+          const r = await api().insertWorkflowNode(id, { kind: kind as 'agent', baseSha: base(), ...(after ? { after } : {}) });
+          shifted = r.view.layout;
+          took(r.view);
+          return r.nodeId;
+        },
+        { undo: () => saveLayout(prev), redo: async () => shifted && saveLayout(shifted) },
+      )
+      .then((nid) => nid && at && void attempt(() => saveLayout({ ...(shifted ?? positions), [nid]: snap(at) })));
+  };
+  const setting = (nodeId: string, e: { field: GraphEditField; value: string; part?: number }) =>
+    ed.edit(e.field === 'label' ? 'rename' : e.field, async (base, took) => took((await api().editWorkflowGraph(id, { nodeId, ...e, baseSha: base() })).view));
+  return (
+    <WorkflowShell
+      view={view}
+      detail={data}
+      title={view.graph.name || id}
+      meta="Workflow, yours"
+      positions={positions}
+      edit={{
+        ...ed,
+        onAdd: (k) => insert(k),
+        insert,
+        setting,
+        move: (nid, at) => {
+          const prev = positions;
+          const next = { ...positions, [nid]: snap(at) };
+          void attempt(() => saveLayout(next));
+          ed.push('move', () => saveLayout(prev), () => saveLayout(next));
+        },
+      }}
+    />
+  );
 }
 
-function WorkflowShell({ view, detail, title, meta, run }: { view: WorkflowGraphView; detail?: WorkflowRunDetail; title: string; meta: string; run?: boolean }) {
+type WorkflowEdit = ShellEdit & {
+  insert: (kind: string, after?: string, at?: { x: number; y: number }) => void;
+  setting: (nodeId: string, e: { field: GraphEditField; value: string; part?: number }) => Promise<unknown>;
+  move: (id: string, at: { x: number; y: number }) => void;
+};
+
+function WorkflowShell({ view, detail, title, meta, run, duplicate, edit, positions }: { view: WorkflowGraphView; detail?: WorkflowRunDetail; title: string; meta: string; run?: boolean; duplicate?: () => void; edit?: WorkflowEdit; positions?: Positions }) {
+  const [selection, setSelection] = useState<string[]>([]);
   const runs = useMemo(() => (detail ? nodeRuns(view.graph, detail.calls) : undefined), [view.graph, detail]);
   const r = detail?.run;
   const live = !!r && isLive(r.status);
@@ -204,12 +382,38 @@ function WorkflowShell({ view, detail, title, meta, run }: { view: WorkflowGraph
       graph={view.graph}
       focus={focus}
       links={r ? [{ label: 'Open the run', href: `/workflows/runs/${r.id}` }] : []}
-      canvas={(sel, onSelect) => <GraphCanvas graph={view.graph} runs={runs?.byNode} stale={view.stale} positions={view.layout} selected={sel} currentPhase={live ? r?.phaseTitle : undefined} onSelect={onSelect} full={{ focus }} className="min-h-0 flex-1" />}
-      library={INSERTS.map((i) => ({ word: i.word, help: i.help, group: 'Workflow' }))}
+      duplicate={duplicate}
+      edit={edit}
+      canvas={(sel, onSelect) => (
+        <GraphCanvas
+          graph={view.graph}
+          runs={runs?.byNode}
+          stale={view.stale}
+          positions={positions ?? view.layout}
+          selected={sel}
+          currentPhase={live ? r?.phaseTitle : undefined}
+          onSelect={onSelect}
+          full={{ focus }}
+          className="min-h-0 flex-1"
+          {...(edit
+            ? {
+                onInsert: edit.insert,
+                onMove: edit.move,
+                selection,
+                onSelection: (ids: string[]) => (setSelection(ids), ids.length <= 1 && onSelect(ids[0])),
+                // the workflow API has no remove op yet: say where to do it instead of doing nothing
+                onRemove: () => toast({ title: 'Remove a workflow node in its script', body: 'The canvas adds nodes and edits their settings; removing comes with the agent in a later version.', level: 'info' }),
+                onRename: (nid: string, name: string) => void edit.setting(nid, { field: 'label', value: name }),
+                renamable: workflowRenamable,
+              }
+            : {})}
+        />
+      )}
+      library={INSERTS.map((i) => ({ kind: i.kind, word: i.word, help: i.help, group: 'Workflow' }))}
       inspector={(node) => {
         const nr = runs?.byNode.get(node.id);
         const calls = nr && detail ? detail.calls.filter((c) => nr.seqs.includes(c.seq)) : [];
-        return <Inspector node={node} run={nr} calls={calls} runCtx={r ? { id: r.id, name: r.name, sessionId: r.sessionId, live } : undefined} />;
+        return <Inspector node={node} run={nr} calls={calls} runCtx={r ? { id: r.id, name: r.name, sessionId: r.sessionId, live } : undefined} {...(edit ? { view, saveNow: (e: { field: GraphEditField; value: string; part?: number }) => edit.setting(node.id, e) } : {})} />;
       }}
       output={r?.error ?? (detail?.result !== undefined ? JSON.stringify(detail.result, null, 2) : '')}
       logs={(detail?.logs ?? []).map((l) => [hhmm(l.ts), l.text] as const)}
@@ -221,9 +425,19 @@ function WorkflowShell({ view, detail, title, meta, run }: { view: WorkflowGraph
 // The shell
 // ---------------------------------------------------------------------------
 
+/** What an editable file hands the shell: the save status, undo and redo, and a library item tapped or dropped. */
+interface ShellEdit {
+  state: ReturnType<typeof useEditor>['state'];
+  history: ReturnType<typeof useEditor>['history'];
+  onAdd: (kind: string) => void;
+}
+
 interface ShellProps {
   title: string;
   meta: string;
+  edit?: ShellEdit;
+  /** A library workflow: copy it to your own workflows, where it is editable. */
+  duplicate?: () => void;
   /** One run, read only: the node library starts folded unless this account opened it. */
   run?: boolean;
   status: { word: string; tone: string; rest: string; since?: number };
@@ -231,7 +445,7 @@ interface ShellProps {
   focus?: string;
   links?: Array<{ label: string; href: string }>;
   canvas: (sel: string | undefined, onSelect: (id: string | undefined) => void) => ReactNode;
-  library: Array<{ word: string; help: string; group: string }>;
+  library: Array<{ kind: string; word: string; help: string; group: string }>;
   inspector: (node: GraphNode) => ReactNode;
   output: string;
   logs: ReadonlyArray<readonly [string, string]>;
@@ -271,7 +485,34 @@ function Shell(p: ShellProps) {
     </span>
   );
   const bottom = <BottomPanel tab={tab} setTab={setTab} output={p.output} logs={p.logs} phone={phone} />;
-  const library = <Library items={p.library} />;
+  // a phone taps a node in the sheet to add it; a computer drags it onto the canvas (or clicks it)
+  const library = <Library items={p.library} onAdd={p.edit ? (k) => (setSheet(undefined), p.edit!.onAdd(k)) : undefined} />;
+  const save = p.edit && saveWords(p.edit.state);
+  const h = p.edit?.history;
+  const tools = (
+    <>
+      {save && (
+        <span role="status" aria-live="polite" className={cn('min-w-0 shrink truncate text-[12px] phone:text-[13px]', save.tone)} title={save.word}>
+          {save.word}
+        </span>
+      )}
+      {h && (
+        <>
+          <Button variant="ghost" size={phone ? 'touch' : 'sm'} disabled={!h.canUndo} title={h.nextUndo ? `Undo ${h.nextUndo} (Ctrl+Z)` : 'Nothing to undo'} onClick={h.undo}>
+            Undo
+          </Button>
+          <Button variant="ghost" size={phone ? 'touch' : 'sm'} disabled={!h.canRedo} title={h.nextRedo ? `Redo ${h.nextRedo} (Ctrl+Shift+Z)` : 'Nothing to redo'} onClick={h.redo}>
+            Redo
+          </Button>
+        </>
+      )}
+      {p.duplicate && (
+        <Button variant="outline" size={phone ? 'touch' : 'sm'} onClick={p.duplicate}>
+          Duplicate to edit
+        </Button>
+      )}
+    </>
+  );
   const facts = (
     <div className="space-y-3 px-5 py-4">
       <div className="t-title mono text-fg">{p.title}</div>
@@ -284,7 +525,10 @@ function Shell(p: ShellProps) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <PhoneBar title={p.title} />
-        <div className="flex h-9 shrink-0 items-center border-b border-rule px-4 text-[13px]">{statusLine}</div>
+        <div className="flex min-h-9 shrink-0 items-center gap-1 border-b border-rule px-4 text-[13px]">
+          <span className="min-w-0 flex-1 truncate">{statusLine}</span>
+          {tools}
+        </div>
         <div className="relative flex min-h-0 flex-1 flex-col">
           {p.canvas(sel, setSel)}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end gap-2 px-3 pb-[calc(12px+var(--safe-b,0px))]">
@@ -319,6 +563,7 @@ function Shell(p: ShellProps) {
         <span className="shrink-0 truncate text-[12px] text-fg-3">{p.meta}</span>
         <span className="mx-2 h-4 w-px shrink-0 bg-rule" aria-hidden />
         <span className="min-w-0 flex-1 truncate text-[13px]">{statusLine}</span>
+        {tools}
         {p.links?.map((l) => (
           <Link key={l.href} href={l.href} className="shrink-0 text-[13px] text-fg-2 underline underline-offset-2 hov:text-fg">
             {l.label}
@@ -330,7 +575,7 @@ function Shell(p: ShellProps) {
           <aside aria-label="Node library" className="flex w-[216px] shrink-0 flex-col border-r border-rule">
             <div className="flex h-10 shrink-0 items-center px-3 text-[12px] font-medium text-fg-3">Nodes</div>
             <div className="scroll-y min-h-0 flex-1 px-2 pb-2">{library}</div>
-            <p className="m-0 border-t border-rule px-3 py-2 text-[12px] leading-[1.45] text-fg-3">Read only for now: adding and wiring blocks comes next.</p>
+            <p className="m-0 border-t border-rule px-3 py-2 text-[12px] leading-[1.45] text-fg-3">{p.edit ? 'Drag a node onto the canvas, or double-click the canvas to search.' : 'Read only.'}</p>
           </aside>
         )}
         <div className="flex min-w-0 flex-1 flex-col">
@@ -378,8 +623,8 @@ function FileMenu({ title }: { title: string }) {
   );
 }
 
-/** The blocks this kind of file can hold, by family. Read only in PR 1. */
-function Library({ items }: { items: ShellProps['library'] }) {
+/** The blocks this kind of file can hold, by family. With onAdd, an item drags onto the canvas (DRAG_KIND) or adds on a click. */
+function Library({ items, onAdd }: { items: ShellProps['library']; onAdd?: (kind: string) => void }) {
   const groups = [...new Set(items.map((i) => i.group))];
   return (
     <div className="space-y-3">
@@ -388,12 +633,30 @@ function Library({ items }: { items: ShellProps['library'] }) {
           <div className="px-1 pb-1 text-[12px] font-medium text-fg-3">{g}</div>
           {items
             .filter((i) => i.group === g)
-            .map((i) => (
-              <div key={i.word} className="rounded-[var(--r-1)] px-2 py-1.5 phone:py-2">
-                <div className="text-[13px] text-fg phone:text-[15px]">{i.word}</div>
-                <div className="truncate text-[12px] text-fg-3 phone:text-[13px]">{i.help}</div>
-              </div>
-            ))}
+            .map((i) =>
+              onAdd ? (
+                <button
+                  key={i.word}
+                  type="button"
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData(DRAG_KIND, i.kind);
+                    e.dataTransfer.effectAllowed = 'copy';
+                  }}
+                  onClick={() => onAdd(i.kind)}
+                  title="Drag onto the canvas, or click to add at the end"
+                  className="block w-full cursor-grab rounded-[var(--r-1)] px-2 py-1.5 text-left hov:bg-hover phone:py-2"
+                >
+                  <div className="text-[13px] text-fg phone:text-[15px]">{i.word}</div>
+                  <div className="truncate text-[12px] text-fg-3 phone:text-[13px]">{i.help}</div>
+                </button>
+              ) : (
+                <div key={i.word} className="rounded-[var(--r-1)] px-2 py-1.5 phone:py-2">
+                  <div className="text-[13px] text-fg phone:text-[15px]">{i.word}</div>
+                  <div className="truncate text-[12px] text-fg-3 phone:text-[13px]">{i.help}</div>
+                </div>
+              ),
+            )}
         </div>
       ))}
     </div>
@@ -443,38 +706,6 @@ function Queue() {
         </Link>
       ))}
     </>
-  );
-}
-
-/** A program block: what it is, its last value or error, its code. Read only. */
-function BlockFacts({ node, spec, run }: { node: GraphNode; spec?: FlowBlockSpec; run?: FlowRunView }) {
-  const lv = run?.nodes[node.id];
-  const tone = stateTone(liveState(lv));
-  return (
-    <div className="flex flex-col">
-      <div className="border-b border-rule px-5 pt-4 pb-3">
-        <div className="flex items-baseline justify-between gap-3">
-          <div className="t-title mono min-w-0 truncate text-fg">{node.label}</div>
-          {lv && <span className={cn('cv-state shrink-0 text-[13px]', tone.text)}>{lv.ok ? 'done' : 'failed'}</span>}
-        </div>
-        <div className="mt-0.5 text-[12px] text-fg-3">
-          {blockLine(node, spec)}. Lines {node.span.start} to {node.span.end}.
-        </div>
-      </div>
-      <div className="space-y-5 px-5 py-4">
-        {lv && !lv.ok && <Notice tone="fault">{lv.error ?? 'Failed.'}</Notice>}
-        {lv?.ok && lv.value !== undefined && (
-          <div>
-            <div className="pb-1.5 text-[12px] font-medium text-fg-2">Value, last run{lv.ms !== undefined ? `, ${lv.ms} ms` : ''}</div>
-            <CodeBlock code={lv.value} wrap maxLines={14} />
-          </div>
-        )}
-        <div>
-          <div className="pb-1.5 text-[12px] font-medium text-fg-2">Code</div>
-          <CodeBlock code={node.source} lang="ts" wrap maxLines={16} />
-        </div>
-      </div>
-    </div>
   );
 }
 

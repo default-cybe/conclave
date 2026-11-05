@@ -4,7 +4,7 @@
  * word at the right with a 1px outline in the state's token. No ticks,
  * triangles, badges or pulsing: words in fixed places.
  */
-import { memo } from 'react';
+import { memo, useRef, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { FlowBlockSpec, FlowNodeLive, GraphNode, NodeRun, NodeRunState } from '@conclave/core/client';
 import { Elapsed } from '@/components/motion/Elapsed';
@@ -23,6 +23,44 @@ export interface FlowNodeData extends Record<string, unknown> {
   spec?: FlowBlockSpec;
   live?: FlowNodeLive;
   connectable?: boolean;
+  /** Canvas mode: a double-click on the title edits it in place; Enter or leaving the field saves, Escape keeps the old one. */
+  onRename?: (id: string, name: string) => void;
+}
+
+/** A node's title, or the field that renames it. nodrag: typing and selecting text must not move the node. */
+function Title({ id, text, mono, onRename }: { id: string; text: string; mono?: boolean; onRename?: (id: string, name: string) => void }) {
+  const [draft, setDraft] = useState<string>();
+  const closed = useRef(false);
+  const cls = cn('min-w-0 truncate text-[13px] font-medium text-fg', mono && 'mono');
+  if (draft === undefined)
+    return (
+      <span className={cls} onDoubleClick={onRename ? (e) => (e.stopPropagation(), (closed.current = false), setDraft(text)) : undefined} title={onRename ? 'Double-click to rename' : undefined}>
+        {text}
+      </span>
+    );
+  const done = (save: boolean) => {
+    // Enter closes the field, and the field going away blurs it: save once
+    if (closed.current) return;
+    closed.current = true;
+    const next = draft.trim();
+    setDraft(undefined);
+    if (save && next && next !== text) onRename?.(id, next);
+  };
+  return (
+    <input
+      autoFocus
+      value={draft}
+      aria-label="New name"
+      className={cn(cls, 'nodrag nopan w-full rounded-[var(--r-1)] bg-sunk px-1 outline-none')}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => done(true)}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') done(true);
+        if (e.key === 'Escape') done(false);
+      }}
+    />
+  );
 }
 
 export interface BandData extends Record<string, unknown> {
@@ -119,7 +157,7 @@ export function stateWord(run?: NodeRun): string {
 }
 
 export const WorkflowNode = memo(function WorkflowNode({ data }: NodeProps) {
-  const { node, run, stale, selected, vertical } = data as FlowNodeData;
+  const { node, run, stale, selected, vertical, onRename } = data as FlowNodeData;
   const tone = stateTone(run?.state);
   return (
     <div
@@ -130,7 +168,7 @@ export const WorkflowNode = memo(function WorkflowNode({ data }: NodeProps) {
     >
       <Handle type="target" position={vertical ? Position.Top : Position.Left} isConnectable={false} />
       <div className="flex items-baseline justify-between gap-2">
-        <span className="min-w-0 truncate text-[13px] font-medium text-fg">{nodeTitle(node)}</span>
+        <Title id={node.id} text={nodeTitle(node)} onRename={onRename} />
       </div>
       <div className="truncate text-[12px] text-fg-3">{metaLine(node, run)}</div>
       <div className="flex items-baseline justify-between gap-2 text-[12px]">
@@ -177,7 +215,7 @@ export const liveState = (live?: FlowNodeLive): NodeRunState | undefined => (liv
  * error. One input handle per input, so a wire lands on its input.
  */
 export const FlowBlockNode = memo(function FlowBlockNode({ data }: NodeProps) {
-  const { node, selected, vertical, spec, live, connectable } = data as FlowNodeData;
+  const { node, selected, vertical, spec, live, connectable, onRename } = data as FlowNodeData;
   const state = liveState(live);
   const tone = stateTone(state);
   const inputs = node.kind === 'block' && node.block !== 'value' ? (spec?.inputs.map((i) => i.name) ?? Object.keys(node.args ?? {})) : node.kind === 'code' ? [''] : [];
@@ -201,7 +239,7 @@ export const FlowBlockNode = memo(function FlowBlockNode({ data }: NodeProps) {
         />
       ))}
       <div className="flex items-baseline justify-between gap-2">
-        <span className="mono min-w-0 truncate text-[13px] font-medium text-fg">{node.kind === 'code' ? nodeTitle(node) : node.label}</span>
+        <Title id={node.id} text={node.kind === 'code' ? nodeTitle(node) : node.label} mono onRename={onRename} />
       </div>
       <div className="truncate text-[12px] text-fg-3">{blockLine(node, spec)}</div>
       <div className={cn('cv-state truncate text-[12px]', tone.text)}>{state === 'failed' ? `failed: ${out}` : out}</div>
