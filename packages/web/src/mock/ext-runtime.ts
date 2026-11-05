@@ -928,6 +928,15 @@ export function registerExtensionRuntime(ctx: MockCtx) {
     return b;
   });
 
+  // the hub re-lints the file and writes its own fix; the mock only owns config.json
+  on('POST', '/api/hooks/fix', ({ body }) => {
+    if (body?.path !== CONFIG_PATH) fail(400, 'path must be a hooks file that loads here');
+    const issue = mockLint(cfg.hooks, CONFIG_PATH).find((i) => i.event === body.event && i.group === body.group && i.text === body.text);
+    if (!issue?.fix) fail(409, 'That problem is gone or has no automatic fix. Reload the page.');
+    cfg.hooks = issue!.fix;
+    return { ok: true, path: CONFIG_PATH };
+  });
+
   on('POST', '/api/hooks/lint', ({ body }) => {
     if (body?.hooks === undefined) fail(400, 'hooks is required');
     return mockLint(body.hooks);

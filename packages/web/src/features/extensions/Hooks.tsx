@@ -25,7 +25,7 @@ import { LoadingRows } from '@/components/ui/EmptyState';
 import { Notice } from '@/components/ui/Section';
 import { useExtCwd } from './project';
 import { TrustBanner } from './shared/TrustBanner';
-import { EventSection, type HandlerActions } from './hooks/EventSection';
+import { EventSection, fileWords, type HandlerActions } from './hooks/EventSection';
 import { HandlerForm, type HandlerDraft } from './hooks/HandlerForm';
 import { ImportDrawer } from './hooks/ImportDrawer';
 import { RunsDrawer } from './hooks/RunsDrawer';
@@ -152,15 +152,16 @@ export function HooksTab() {
 
   const [removingRecipe, setRemovingRecipe] = useState<{ id: string; scope: Scope } | null>(null);
 
-  /** Save a lint fix to the file it is for: config.json (user) or the project's .conclave/settings.json. */
+  /** The hub re-lints the file and writes its own fix. A Claude Code file is changed only after the owner confirms. */
   const fix = async (issue: HookLintIssue) => {
     if (!issue.fix || !issue.path) return;
-    const scope: Scope = /\/\.conclave\/settings\.json$/.test(issue.path) ? 'project' : 'user';
-    const err = await saveScope(scope, issue.fix);
-    if (err) toast({ title: `Could not save the fix. ${err}`, level: 'error' });
-    else {
+    if (/\/\.claude\//.test(issue.path) && !window.confirm(`This changes ${fileWords(issue.path)}, which Claude Code also reads. Fix it there?`)) return;
+    try {
+      await api().fixHook({ path: issue.path, ...(cwd ? { cwd } : {}), event: issue.event, group: issue.group, ...(issue.handler !== undefined ? { handler: issue.handler } : {}), text: issue.text });
       ov.reload();
-      toast({ title: `Fixed. Saved to ${scope === 'user' ? 'config.json' : '.conclave/settings.json'}.` });
+      toast({ title: `Fixed. Saved to ${fileWords(issue.path)}.` });
+    } catch (e) {
+      toast({ title: `Could not save the fix. ${errText(e)}`, level: 'error' });
     }
   };
 

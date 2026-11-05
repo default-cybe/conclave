@@ -78,13 +78,37 @@ export function EventSection({ info, highlight, actions, lint = [], titles = {} 
       {lint.length > 0 && (
         <ul className="m-0 mb-2.5 flex list-none flex-col gap-1 p-0" aria-label={`Problems in ${info.event}`}>
           {lint.map((i, n) => (
-            <li key={n} className={cn('text-[12.5px] leading-[1.45] phone:text-[13.5px]', i.level === 'error' ? 'text-fault' : 'text-warn')}>
+            <li key={n} className={cn('text-[12.5px] leading-[1.45] [overflow-wrap:anywhere] phone:text-[13.5px]', i.level === 'error' ? 'text-fault' : 'text-warn')}>
               {i.text}
-              {i.path && <span className="text-fg-3">{` In ${fileWords(i.path)}.`}</span>}
-              {i.fix && actions.onFix && fixable(i.path) && (
+              {i.path && (
+                <span className="text-fg-3">
+                  {' In '}
+                  <span className="mono" title={i.path}>
+                    {fileWords(i.path)}
+                  </span>
+                  .
+                </span>
+              )}
+              {i.plugins?.map((p) => (
+                <span key={p}>
+                  {' '}
+                  <Link href={`/extensions/plugins?plugin=${encodeURIComponent(p)}`} className="tap text-fg-2 underline decoration-rule-2 underline-offset-[3px] hover:text-fg">
+                    {`Plugin ${p}`}
+                  </Link>
+                </span>
+              ))}
+              {i.fix && i.path && actions.onFix && (
                 <>
                   {' '}
-                  <TextAction label="Fix it" onClick={() => actions.onFix!(i)} />
+                  <TextAction label={/\.claude\//.test(i.path) ? 'Fix it in this file' : 'Fix it'} onClick={() => actions.onFix!(i)} />
+                </>
+              )}
+              {i.path && (
+                <>
+                  {' '}
+                  <Link href={openFileHref(i.path)} className="tap whitespace-nowrap text-fg-2 underline decoration-rule-2 underline-offset-[3px] hover:text-fg">
+                    Open file
+                  </Link>
                 </>
               )}
             </li>
@@ -106,17 +130,19 @@ export function EventSection({ info, highlight, actions, lint = [], titles = {} 
   );
 }
 
-/** "config.json", ".conclave/settings.json", ".claude/settings.json". */
-function fileWords(path: string): string {
+/** "config.json", "~/.claude/settings.json", ".conclave/settings.json". */
+export function fileWords(path: string): string {
   if (/\/config\.json$/.test(path)) return 'config.json';
   const m = /(\.(?:claude|conclave)\/settings(?:\.local)?\.json)$/.exec(path);
-  return m?.[1] ?? path;
+  if (!m) return path;
+  // the user file sits right under the home folder; a project file under the project
+  return /^\/(?:home|Users)\/[^/]+\/\.claude\/settings\.json$|^\/root\/\.claude\/settings\.json$/.test(path) ? `~/${m[1]}` : m[1];
 }
 
-/** Lint fixes are saved only to files the hub writes: config.json and a project's .conclave/settings.json. */
-function fixable(path?: string): boolean {
-  if (!path) return false;
-  return /\/config\.json$/.test(path) || /\/\.conclave\/settings\.json$/.test(path);
+/** The hub's file viewer at that file. */
+export function openFileHref(path: string): string {
+  const dir = path.slice(0, path.lastIndexOf('/')) || '/';
+  return `/devices/local/files?path=${encodeURIComponent(dir)}&file=${encodeURIComponent(path)}`;
 }
 
 function GroupBlock({ info, g, actions, titles }: { info: HookEventInfo; g: HookGroupDto; actions: HandlerActions; titles: RecipeTitles }) {
