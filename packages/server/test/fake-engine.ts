@@ -14,6 +14,7 @@ import { movedSession } from '@conclave/core/session/delegated.ts';
 import { EventBus } from '@conclave/core/util/bus.ts';
 import { newId } from '@conclave/core/util/ids.ts';
 import { DeviceRegistry } from '@conclave/core/machine/registry.ts';
+import { shellRegistry } from '@conclave/core/tools/shells.ts';
 import { HookRecipes } from '@conclave/core/extensions/recipes.ts';
 import { LearnedSkills } from '@conclave/core/extensions/learned.ts';
 import type {
@@ -522,6 +523,7 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
     },
     todos: () => [{ content: 'x', status: 'pending' }],
     checkpoints: (id) => repos.checkpoints.list(id),
+    shells: (id) => shellRegistry.list(id),
     async restoreCheckpoint(id, cp) {
       rec('restoreCheckpoint', id, cp);
     },

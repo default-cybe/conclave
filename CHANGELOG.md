@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- The Background tasks card no longer counts shells and subagents that ended days ago as running. Background shells live in the hub's memory, so a hub restart or update ends them; the card now asks the hub which shells it holds (`GET /api/sessions/:id/shells`, kept live by a `shells.updated` event) and lists any other shell from the transcript as ended. A BashOutput that answers "No background shell" ends it too. A subagent counts as running only while its own session works and the hub has not marked it lost or finished, so a call a restart cut no longer runs on with the parent's later turns. Background shells now also stop when the hub stops, instead of being left behind.
+
 ## [0.4.64] - 2026-11-04
 
 ### Added
