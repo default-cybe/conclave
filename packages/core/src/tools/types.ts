@@ -115,6 +115,8 @@ export interface ToolHost {
   delegate?(req: import('./delegate').DelegateRequest): Promise<import('./delegate').DelegateOutcome>;
   /** Check that an absolute path may be shared with the owner (files/share.ts checkShareable over engine.shareRoots), for ShareFile. */
   shareCheck?(path: string): Promise<import('../files/share').ShareCheck>;
+  /** HTTP(S)_PROXY for a Security mode session's shell: its hunt's egress gateway (session/egress.ts), or undefined. Throws when the gateway cannot start. */
+  egressEnv?(): Promise<Record<string, string> | undefined>;
   /** The session's outputs folder on the hub (<home>/outputs/<sessionId>), made on first use. */
   outputsDir?(): string;
   /** Why `more` bytes would not fit under a member's disk cap (people/disk.ts), or undefined (always for the owner). */

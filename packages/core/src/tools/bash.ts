@@ -70,6 +70,9 @@ export function extractCwd(text: string, marker: string): { text: string; cwd?: 
   return { text: before + after, cwd: cwd || undefined };
 }
 
+/** The egress gateway's proxy variables of a Security mode call (session/egress.ts), set by run() for the helpers below. */
+const egressOf = new WeakMap<ToolContext, Record<string, string>>();
+
 function bashEnv(ctx: ToolContext, extra?: Record<string, string>): Record<string, string> {
   return {
     PAGER: 'cat',
@@ -79,6 +82,7 @@ function bashEnv(ctx: ToolContext, extra?: Record<string, string>): Record<strin
     CONCLAVE: '1',
     CONCLAVE_SESSION_ID: ctx.sessionId,
     ...(extra ?? {}),
+    ...(egressOf.get(ctx) ?? {}),
   };
 }
 
@@ -262,6 +266,13 @@ export const BashTool: Tool<BashInput> = {
   suggestRule: (input) => suggestBashRule(input.command),
   async run(input, ctx) {
     if (typeof input.command !== 'string' || !input.command.trim()) return fail('command is required.');
+    try {
+      const egress = await ctx.host.egressEnv?.();
+      if (egress) egressOf.set(ctx, egress);
+    } catch (err) {
+      // fail closed: a security session's command never runs without its gateway
+      return fail(`The egress gateway of this Security mode session did not start, so the command was not run: ${(err as Error).message}`);
+    }
     if (input.run_in_background) return runBackground(input, ctx);
     // only where the owner's queued messages wait behind the turn; a subagent, workflow step or routine needs the wait's result before it reports
     if (isBlockingWait(input.command) && !isHeadless(ctx.session, ctx.session.mode, ctx.depth)) {

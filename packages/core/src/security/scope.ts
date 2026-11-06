@@ -7,9 +7,10 @@
  *   homelab range such as 10.0.0.0/8 holds live services. CIDR ranges are
  *   refused everywhere.
  * - ScopeGrant is the approval grant record the guard reads. The issuing side
- *   (lib.approve, the grant card, the gateway) is PR 1b; grants live in the
- *   hub's kv under GRANTS_KV, which no route and no tool writes, so only hub
- *   code acting for the owner can add one.
+ *   (lib.approve, the grant card) is security/grants.ts and the egress gateway
+ *   security/gateway.ts; grants live in the hub's kv under GRANTS_KV, which no
+ *   tool writes and only the owner's revoke route changes, so only hub code
+ *   acting for the owner can add one.
  * - decide() applies the design's table to one tool call. It is pure, so the
  *   tests cover every row without a hub.
  */
@@ -126,7 +127,7 @@ export function scopeExpired(s: Scope, now = Date.now()): boolean {
 /** kv key: Record<sessionId, ScopeGrant[]>. The session is the security session the owner approved in. */
 export const GRANTS_KV = 'security.grants';
 
-/** An approval grant for live hosts of one target (design 4.3). Written by PR 1b; read here. */
+/** An approval grant for live hosts of one target (design 4.3). Written by security/grants.ts; read here and by the gateway. */
 export interface ScopeGrant {
   id: string;
   /** Hosts or globs it covers; each must also be in the scope's in_scope. */
@@ -135,12 +136,16 @@ export interface ScopeGrant {
   accounts: string[];
   /** Most requests; at most GRANT_MAX_REQUESTS. */
   requestBudget: number;
-  /** Requests counted so far by the egress gateway (PR 1b). */
+  /** Requests counted so far by the egress gateway. */
   used?: number;
   rateRps: number;
   issuedAt: number;
   expiresAt: number;
   revokedAt?: number;
+  /** The scope file the owner approved it on, pinned: the gateway checks hosts against this copy, so a later edit of scope.yaml cannot widen it. */
+  scope?: Scope;
+  /** Why the hunt asked, as the card showed it. */
+  reason?: string;
 }
 
 /** Whether a stored grant is live: not revoked, not expired, inside the 24 h / 500 request caps, budget left. */
@@ -185,7 +190,7 @@ function globRe(glob: string, segment: string): RegExp {
   return new RegExp(`^${body}$`, 'i');
 }
 
-function hostMatches(pattern: string, host: string): boolean {
+export function hostMatches(pattern: string, host: string): boolean {
   const p = normHost(pattern);
   return p.includes('*') ? globRe(p, '.+').test(host) : p === host;
 }

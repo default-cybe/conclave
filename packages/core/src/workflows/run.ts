@@ -34,6 +34,8 @@ import type { WorkflowService } from './service';
 import { loadMeta } from './registry';
 import { captureUrl, hubCapture, type CaptureOptions } from '../browser/capture';
 import { scopeGuardCheck } from '../session/scope-guard';
+import { egressEnv } from '../session/egress';
+import { requestGrant } from '../session/grants';
 import type { BrowserManager } from '../browser/manager';
 import { outputsDir } from '../files/share';
 import { ledgerFence, ledgerId, mergeLedger } from './ledger';
@@ -880,7 +882,10 @@ export class LiveRun {
     const timeoutMs = Math.min(Math.max(1000, opts.timeoutMs ?? 10 * 60_000), 60 * 60_000);
     const run = async (cwd: string) => {
       await this.permitExec(command, cwd, signal);
-      const r = await machine.exec(command, { cwd, timeoutMs, signal, maxOutputBytes: 400_000 });
+      // a Security mode run's commands (the validator's oracle) go out through the hunt's egress gateway (session/egress.ts)
+      const session = this.sessionOf();
+      const env = session ? await egressEnv(this.engine, session, this.row.device) : undefined;
+      const r = await machine.exec(command, { cwd, timeoutMs, signal, maxOutputBytes: 400_000, ...(env ? { env } : {}) });
       return { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr, timedOut: r.timedOut };
     };
     if (opts.worktree !== undefined) {
@@ -1025,6 +1030,18 @@ export class LiveRun {
     return res.decision === 'allow';
   }
 
+  /** lib.approve({ grant }): an approval grant for live hosts (session/grants.ts). Never in an unattended run, args.autoApprove or not: those stay lab-only. */
+  private async grant(raw: unknown, signal: AbortSignal): Promise<boolean> {
+    const session = this.sessionOf();
+    if (this.unattended() || !session) {
+      this.log('lib.approve grant in an unattended run: no grant, the lead stays lab-only');
+      return false;
+    }
+    const r = await requestGrant(this.engine, session, raw, signal, this.row.name);
+    this.log(r.granted ? `approval grant ${r.grantId}${r.asked ? ' approved by the owner' : ' already covers it'}` : `no approval grant: ${r.why}`);
+    return r.granted;
+  }
+
   // ----- the sandbox -----
 
   private hostFns(parentSeq: number | undefined, nested: boolean) {
@@ -1150,6 +1167,8 @@ export class LiveRun {
         return this.hostCall('ask', `ask: ${oneLine(question, 80)}`, { question, options }, parentSeq, (signal) => this.ask(question, options, signal), readAt(o.at));
       },
       approve: (p: unknown) => {
+        const grant = (p as { grant?: unknown })?.grant;
+        if (grant !== undefined) return this.hostCall('ask', 'approval grant', { grant }, parentSeq, (signal) => this.grant(grant, signal), readAt((p as { at?: unknown })?.at));
         const text = String((p as { text?: unknown })?.text ?? '');
         return this.hostCall('ask', 'approve the plan', { approve: text }, parentSeq, (signal) => this.approve(text, signal), readAt((p as { at?: unknown })?.at));
       },

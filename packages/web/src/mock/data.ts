@@ -166,6 +166,7 @@ for (const g of modelGroups) {
 // ---------------------------------------------------------------------------
 
 export const agents: AgentDef[] = [
+  { name: 'sec-lead', description: 'Security mode: plans the hunt and keeps it in scope.', prompt: 'You lead a scoped security hunt...', model: 'anthropic/claude-opus-5-5', icon: 'shield', color: 'red', source: 'builtin', mode: 'agent', recipes: ['scope-guard'] },
   { name: 'assistant', description: 'General help, research and writing. Remembers your setup.', prompt: 'You are a calm, precise assistant...', model: 'anthropic/claude-sonnet-5-5', icon: 'sparkles', color: 'violet', source: 'builtin', primary: true, mode: 'agent' },
   {
     name: 'coder',
@@ -315,6 +316,7 @@ export const sessions: Session[] = [
   session({ id: 's_ret2', title: 'Explain ret2libc with ASLR on', agent: 'tutor', model: 'openai/gpt-5.5', createdAt: ago(6 * DAY), updatedAt: ago(6 * DAY), tags: ['security'] }),
   // Refusal fallback (Settings > Models): Opus on neu declined, Opus on personal answered; the next reply was refused
   session({ id: 's_fw', title: 'Router firmware overflow write-up', agent: 'ctf', model: 'cliproxy/neu/claude-opus-5-5', device: 'kali-vm', cwd: '~/ctf/router-fw', tags: ['security'], meta: { doneAt: ago(9 * MIN) }, createdAt: ago(70 * MIN), updatedAt: ago(9 * MIN), stats: stats(6, 88_000, 2_900, 61_000, 0) }),
+  session({ id: 's_hunt', title: 'Hunt: acme app IDOR leads', agent: 'sec-lead', model: 'anthropic/claude-opus-5-5', status: 'waiting_approval', device: 'local', cwd: '~/hunts/acme', tags: ['security'], createdAt: ago(40 * MIN), updatedAt: ago(MIN), stats: stats(8, 64_000, 3_100, 40_000, 0.22) }),
   session({ id: 's_old', title: 'Hyprland config cleanup', agent: 'assistant', model: 'zai/glm-4.7', archived: true, createdAt: ago(20 * DAY), updatedAt: ago(19 * DAY) }),
 ];
 
@@ -727,6 +729,21 @@ export const todos: Record<string, Todo[]> = {
 };
 
 export const approvals: ApprovalRequest[] = [
+  {
+    id: 'ap_grant',
+    sessionId: 's_hunt',
+    toolUseId: 'grant_1',
+    tool: 'SecurityGrant',
+    input: {
+      host: 'app.acme.com',
+      hosts: ['app.acme.com'],
+      content: 'hosts     app.acme.com\naccounts  attacker, victim\nbudget    300 requests, 2 per second\nexpires   in 24 hours\nscope     acme, ~/hunts/acme/scope.yaml',
+      reason: 'Lead 3 reproduced in the lab; confirm the order IDOR once on the live app with the two test accounts.',
+    },
+    summary: 'hunt: grant live requests to app.acme.com',
+    noAlways: true,
+    createdAt: Date.now() - 50_000,
+  },
   {
     id: 'ap_backup',
     sessionId: 's_backup',

@@ -20,6 +20,7 @@ import { pimFor } from '../pim/registry';
 import { watchesOf } from '../watches';
 import { readFileSync } from 'node:fs';
 import { runDelegate } from './delegate';
+import { egressEnv } from '../session/egress';
 import { incognitoNotice } from '../session/incognito';
 import type { DelegateRequest } from '../tools/delegate';
 import { memberSearchChoice, memberSearchKeys, savedSearchKey } from '../tools/search-settings';
@@ -271,6 +272,11 @@ export class EngineToolHost implements ToolHost {
   /** ShareFile: the path checked against this session's folders now (files/share.ts). */
   shareCheck(path: string) {
     return checkShareable(path, this.engine.shareRoots(this.session), this.engine.config.paths.home);
+  }
+
+  /** Bash in a Security mode hunt: the hunt's egress gateway as HTTP(S)_PROXY (session/egress.ts). */
+  egressEnv() {
+    return egressEnv(this.engine, this.session);
   }
 
   outputsDir() {
