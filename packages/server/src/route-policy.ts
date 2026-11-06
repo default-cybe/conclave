@@ -403,6 +403,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
 
   // ----- workflows -----
   'GET /api/workflows': 'self',
+  'POST /api/workflows': 'self',
   'GET /api/workflows/:id': 'self',
   // preset handlers filter by the caller's account; workflow ids name library entries, not owned rows
   'GET /api/workflows/:id/presets': 'self',
@@ -497,6 +498,9 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   // ----- alerts -----
   'GET /api/alerts': 'self',
   'POST /api/alerts/:id': own({ id: 'alert' }),
+  // Security mode grants: members are lab-only in v1, so only the owner has any
+  'GET /api/sessions/:id/grants': 'admin',
+  'POST /api/sessions/:id/grants/:grant/revoke': 'admin',
 
   // ----- claude.ai and ChatGPT connectors: a grant is the account that approved it -----
   'GET /api/oauth/requests/:id': 'self',
@@ -613,6 +617,9 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'GET /api/graph/nodes': 'self',
   'GET /api/sessions/:id/flows': SESSION,
   'POST /api/sessions/:id/flows/:name': SESSION,
+  'POST /api/sessions/:id/flows/:name/rename': SESSION,
+  // Canvas's New: the caller's own Canvas folder or a folder on their own device (core canvas/new.ts)
+  'POST /api/canvas/programs': 'self',
   'GET /api/sessions/:id/flows/:name/graph': SESSION,
   'POST /api/sessions/:id/flows/:name/graph/op': SESSION,
   'POST /api/sessions/:id/flows/:name/graph/restore': SESSION,

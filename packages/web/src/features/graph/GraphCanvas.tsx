@@ -327,6 +327,13 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
 
   // the Go to target: off screen or not, read once the first view is placed and after every pan or zoom
   const placed = useRef(false);
+  // a blank file's first block: the first fit saw no nodes, so a phone's column is centred now (a computer keeps the view, the block sits where it was put)
+  const wasEmpty = useRef(!graph.nodes.length);
+  useEffect(() => {
+    if (!graph.nodes.length) return void (wasEmpty.current = true);
+    if (wasEmpty.current && vertical && placed.current) fit(200);
+    wasEmpty.current = false;
+  }, [graph.nodes.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const go = full?.go;
   const goNode = go ? nodes.find((n) => n.id === go.id) : undefined;
   const checkGo = () => {

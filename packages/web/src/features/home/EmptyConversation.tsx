@@ -13,6 +13,7 @@ import { useCoarsePointer } from '@/lib/hooks';
 import { useQuietAskToasts } from '@/store/store';
 import { ChatComposer } from '@/features/conversation/ChatComposer';
 import { Greeting } from '@/features/conversation/Greeting';
+import { IncognitoToggle } from '@/features/conversation/incognito';
 import { useSessionTarget } from './SessionStart';
 import { TodaySection } from './today';
 import { WaitingSection } from './sections';
@@ -32,6 +33,8 @@ export function EmptyConversation({ mode }: { mode: Exclude<StartMode, 'canvas'>
   useQuietAskToasts();
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+      {/* Assistant is one kept thread: no incognito there */}
+      {mode !== 'assistant' && <IncognitoToggle code={mode === 'code'} className="absolute top-1 right-3 z-10" />}
       <div aria-hidden className="min-h-8 flex-[4]" />
       <Greeting as="h1" size={MARK} />
       <div className="mt-7">{mode === 'chat' ? <ChatComposer chatId="new" minRows={3} blurOnEsc placeholder={PLACEHOLDER.chat} /> : <SessionComposer key={mode} mode={mode} />}</div>

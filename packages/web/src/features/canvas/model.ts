@@ -88,15 +88,21 @@ export function saveLibraryOpen(open: boolean) {
   }
 }
 
-/** Where the mode switch goes: the last file open, else the start page. */
+/** Where the mode switch goes: the last file open, else a new blank program (/canvas/new), as ComfyUI opens on an empty canvas. */
 export function canvasHome(): string {
   try {
     const v = localStorage.getItem(accountKey(LAST_KEY));
-    return v && v.startsWith('/canvas/') ? v : '/canvas';
+    return v && v.startsWith('/canvas/') && v !== '/canvas/new' ? v : '/canvas/new';
   } catch {
-    return '/canvas';
+    return '/canvas/new';
   }
 }
+
+/** Why Run is off: a file with no blocks has nothing to run. */
+export const runBlocked = (blocks: number): string | undefined => (blocks ? undefined : 'Add a block first: there is nothing to run yet');
+
+/** New in folder: a member who picks the hub hears why before asking (the hub's own words, core canvas/new.ts MEMBER_NOT_ON_HUB). */
+export const newFolderRefusal = (member: boolean, device: string | undefined): string | undefined => (member && device === 'local' ? "Members can't run code on the hub. Pick one of your devices." : undefined);
 
 // ---------------------------------------------------------------------------
 // Programs: the flow routes are a session's, so a folder is read through its newest Code session
@@ -199,6 +205,8 @@ export const READ_ZOOM = 0.55;
  * taller than the pane sits.
  */
 export function deskViewport(graph: Box, focus: Box | undefined, canvas: { w: number; h: number }, pad = 24): { x: number; y: number; zoom: number } {
+  // an empty file: the origin at the top left, so a block lands where the double-click was (layout.ts keeps blocks right of and below the origin)
+  if (!graph.w && !graph.h) return { x: pad, y: pad, zoom: 1 };
   const zoom = Math.max(READ_ZOOM, Math.min(1, (canvas.h - pad * 2) / Math.max(graph.h, 1)));
   const x = graph.w * zoom <= canvas.w - pad * 2 ? (canvas.w - graph.w * zoom) / 2 - graph.x * zoom : pad - graph.x * zoom;
   // the graph centred when it fits, else the focus (or the top) in the middle

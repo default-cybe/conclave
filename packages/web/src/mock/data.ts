@@ -166,6 +166,7 @@ for (const g of modelGroups) {
 // ---------------------------------------------------------------------------
 
 export const agents: AgentDef[] = [
+  { name: 'sec-lead', description: 'Security mode: plans the hunt and keeps it in scope.', prompt: 'You lead a scoped security hunt...', model: 'anthropic/claude-opus-5-5', icon: 'shield', color: 'red', source: 'builtin', mode: 'agent', recipes: ['scope-guard'] },
   { name: 'assistant', description: 'General help, research and writing. Remembers your setup.', prompt: 'You are a calm, precise assistant...', model: 'anthropic/claude-sonnet-5-5', icon: 'sparkles', color: 'violet', source: 'builtin', primary: true, mode: 'agent' },
   {
     name: 'coder',
@@ -322,6 +323,9 @@ export const sessions: Session[] = [
   session({ id: 's_ret2', title: 'Explain ret2libc with ASLR on', agent: 'tutor', model: 'openai/gpt-5.5', createdAt: ago(6 * DAY), updatedAt: ago(6 * DAY), tags: ['security'] }),
   // Refusal fallback (Settings > Models): Opus on neu declined, Opus on personal answered; the next reply was refused
   session({ id: 's_fw', title: 'Router firmware overflow write-up', agent: 'ctf', model: 'cliproxy/neu/claude-opus-5-5', device: 'kali-vm', cwd: '~/ctf/router-fw', tags: ['security'], meta: { doneAt: ago(9 * MIN) }, createdAt: ago(70 * MIN), updatedAt: ago(9 * MIN), stats: stats(6, 88_000, 2_900, 61_000, 0) }),
+  // security-hunt (docs/WORKFLOWS.md): the finding cards the workflow posts, one confirmed by the oracle, one parked without a grant
+  session({ id: 's_hunt_cards', title: 'Hunt acme invoices', agent: 'security', model: 'cliproxy/claude-opus-5-5', device: 'arch-desktop', cwd: '~/hunts', tags: ['security'], meta: { doneAt: ago(3 * MIN) }, createdAt: ago(40 * MIN), updatedAt: ago(3 * MIN), stats: stats(3, 40_000, 2_000, 0, 0.4) }),
+  session({ id: 's_hunt', title: 'Hunt: acme app IDOR leads', agent: 'sec-lead', model: 'anthropic/claude-opus-5-5', status: 'waiting_approval', device: 'local', cwd: '~/hunts/acme', tags: ['security'], createdAt: ago(40 * MIN), updatedAt: ago(MIN), stats: stats(8, 64_000, 3_100, 40_000, 0.22) }),
   session({ id: 's_old', title: 'Hyprland config cleanup', agent: 'assistant', model: 'zai/glm-4.7', archived: true, createdAt: ago(20 * DAY), updatedAt: ago(19 * DAY) }),
 ];
 
@@ -631,6 +635,64 @@ function fwTranscript(): Message[] {
   ];
 }
 
+function huntTranscript(): Message[] {
+  const S = 's_hunt_cards';
+  const t0 = ago(40 * MIN);
+  const votes = [
+    { lens: 'Reachability', vote: 'holds' as const, reason: 'A viewer token reaches GET /api/v2/invoices/:id.' },
+    { lens: 'Boundary rule', vote: 'holds' as const, reason: 'The docs say an invoice belongs to one tenant.' },
+    { lens: 'Downstream check', vote: 'holds' as const, reason: 'No later filter on tenant id.' },
+  ];
+  return [
+    msg(S, 'user', [text('Run security-hunt on acme, source lane.')], {}, t0),
+    msg(S, 'assistant', [text('Finding 1 confirmed: Any viewer reads another tenant invoice')], {
+      kind: 'notice',
+      meta: {
+        type: 'finding',
+        n: 1,
+        title: 'Any viewer reads another tenant invoice',
+        state: 'confirmed',
+        where: 'targets/acme/src/api/invoices.ts:41',
+        summary: 'The route loads the invoice by id and never checks its tenant.',
+        oracle: {
+          model: 'zai/glm-5.3',
+          on: 'sec-lab-acme',
+          runs: [
+            { label: 'Run 1 of 3', detail: 'tenantA got the tenantB canary, 200', pass: true },
+            { label: 'Run 2 of 3', detail: 'fresh session, same result', pass: true },
+            { label: 'Run 3 of 3', detail: 'fresh session, same result', pass: true },
+            { label: 'Own object', detail: 'tenantA reads its own invoice, 200', pass: true },
+            { label: 'Forbidden sibling', detail: 'GET /api/v2/members, 403', pass: true },
+          ],
+          evidence: 'GET /api/v2/invoices/inv_b7731 HTTP/1.1\nAuthorization: Bearer [redacted tenantA]\n\nHTTP/1.1 200 OK\n{"id":"inv_b7731","tenant":"B","memo":"CANARY-3f9a1c2d7e"}',
+          result: 'findings/acme-hunt/RESULT.txt',
+        },
+        refuter: {
+          model: 'openai/gpt-5.5',
+          votes,
+          assumptions: [
+            { text: 'Invoice ids are sequential.', tested: true, how: 'Two seeded ids differ by 1.' },
+            { text: 'The live app runs the lab version.', tested: false, how: 'Needs the live host.' },
+          ],
+        },
+      },
+    }, ago(6 * MIN)),
+    msg(S, 'assistant', [text('Finding 2 partial: Any viewer rewrites another tenant memo')], {
+      kind: 'notice',
+      meta: {
+        type: 'finding',
+        n: 2,
+        title: 'Any viewer rewrites another tenant memo',
+        state: 'partial',
+        where: 'targets/acme/src/api/invoices.ts:58',
+        summary: 'PATCH sets the memo by id with no tenant check.',
+        refuter: { model: 'openai/gpt-5.5', votes, assumptions: [{ text: 'The memo write is not queued for review.', tested: false, how: 'Needs a write on the live host.' }] },
+        next: 'No approval grant for the live host.',
+      },
+    }, ago(5 * MIN)),
+  ];
+}
+
 function debateTranscript(): Message[] {
   const S = 's_debate';
   const t0 = ago(DAY + 2 * HOUR);
@@ -702,6 +764,7 @@ export const transcripts: Record<string, Message[]> = {
   s_ctf: ctfTranscript(),
   s_debate: debateTranscript(),
   s_fw: fwTranscript(),
+  s_hunt_cards: huntTranscript(),
 };
 for (const s of sessions) {
   if (transcripts[s.id]) continue;
@@ -734,6 +797,21 @@ export const todos: Record<string, Todo[]> = {
 };
 
 export const approvals: ApprovalRequest[] = [
+  {
+    id: 'ap_grant',
+    sessionId: 's_hunt',
+    toolUseId: 'grant_1',
+    tool: 'SecurityGrant',
+    input: {
+      host: 'app.acme.com',
+      hosts: ['app.acme.com'],
+      content: 'hosts     app.acme.com\naccounts  attacker, victim\nbudget    300 requests, 2 per second\nexpires   in 24 hours\nscope     acme, ~/hunts/acme/scope.yaml',
+      reason: 'Lead 3 reproduced in the lab; confirm the order IDOR once on the live app with the two test accounts.',
+    },
+    summary: 'hunt: grant live requests to app.acme.com',
+    noAlways: true,
+    createdAt: Date.now() - 50_000,
+  },
   {
     id: 'ap_backup',
     sessionId: 's_backup',

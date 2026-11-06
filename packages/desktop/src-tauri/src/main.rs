@@ -247,6 +247,8 @@ fn grant_hub_ipc(app: &AppHandle, base: &Url) -> Result<(), String> {
             .permission("allow-read-dropped")
             // the clipboard on a paste the webview handed over empty (macOS), only while the window has focus
             .permission("allow-paste-files")
+            // text to the clipboard for a copy button the webview refused (Linux), only while the window has focus
+            .permission("allow-copy-text")
             // the hub page may open the meeting overlay, never start capture (MEETING-MODE.md 2.1.1)
             .permission("allow-meeting-open")
             .permission("allow-meeting-status")
@@ -272,7 +274,9 @@ fn grant_hub_ipc(app: &AppHandle, base: &Url) -> Result<(), String> {
             .permission("allow-meeting-set-height")
             .permission("allow-meeting-displays")
             .permission("allow-meeting-place")
-            .permission("allow-meeting-stt-retry"),
+            .permission("allow-meeting-stt-retry")
+            // the answer card's Copy button when the webview refused it (Linux)
+            .permission("allow-copy-text"),
     )
     .map_err(|e| e.to_string())?;
     granted.insert(origin);
@@ -407,6 +411,27 @@ fn paste_files(window: WebviewWindow) -> Result<PasteFiles, String> {
         None => (None, None),
     };
     Ok(PasteFiles { paths: pasted.paths, image, mime })
+}
+
+/// Text to the system clipboard, for a copy button the webview could not serve
+/// (web lib/clipboard.ts). WebKitGTK often has no navigator.clipboard and may
+/// refuse execCommand('copy'), so Linux copies through GTK. The other webviews
+/// copy themselves. Only for a focused window, like paste_files.
+#[tauri::command]
+fn copy_text(window: WebviewWindow, text: String) -> Result<(), String> {
+    if !window.is_focused().unwrap_or(false) {
+        return Err("Copy in the window first.".into());
+    }
+    // GTK panics off its main thread
+    #[cfg(target_os = "linux")]
+    return window
+        .run_on_main_thread(move || gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD).set_text(&text))
+        .map_err(|e| e.to_string());
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = text;
+        Err("The app copies only on Linux.".into())
+    }
 }
 
 fn focus(win: &WebviewWindow) {
@@ -1804,7 +1829,8 @@ fn main() {
             login_confirm,
             login_cancel,
             read_dropped,
-            paste_files
+            paste_files,
+            copy_text
         ])
         .on_window_event(|window, event| {
             // Closing a window hides it. Quit lives in the tray menu.

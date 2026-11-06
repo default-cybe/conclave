@@ -32,7 +32,7 @@ import type {
   WorktreeActionResult,
 } from '../client/workflows';
 import { staleNodes, type GraphEditInput, type GraphEditResult, type WorkflowGraphView } from '../client/graph';
-import { GraphEditError, applyEdit, cleanPositions, dropLayout, insertNode, layoutPathOf, removeNode, lineDiff, parseGraph, printLayout, readLayout, shiftLayout, type GraphPositions, type InsertKind } from './graph';
+import { GraphEditError, applyEdit, blankWorkflow, cleanPositions, dropLayout, insertNode, layoutPathOf, removeNode, lineDiff, parseGraph, printLayout, readLayout, shiftLayout, type GraphPositions, type InsertKind } from './graph';
 import type { Tool } from '../tools/types';
 import { toolByName } from '../tools';
 import { reminder } from '../session/transcript';
@@ -628,6 +628,24 @@ export class WorkflowService {
     mkdirSync(dir, { recursive: true });
     writeFileSync(path, e.script, { mode: 0o600, flag: 'wx' });
     return this.detail(e.meta.name, sessionId);
+  }
+
+  /**
+   * Canvas's New workflow: untitled-N.js in the caller's own folder with a
+   * meta and no steps yet, so the canvas opens it editable on an empty graph.
+   */
+  async createBlank(): Promise<WorkflowDetail> {
+    const acct = currentAccount() ?? OWNER_ID;
+    const dir = isMember(acct) ? this.registry.accountDir(acct) : this.registry.userDir;
+    mkdirSync(dir, { recursive: true });
+    for (let n = 1; n < 1000; n++) {
+      const name = `untitled-${n}`;
+      // a name the library already has (any source) would be shadowed or shadow it
+      if (existsSync(join(dir, `${name}.js`)) || (await this.registry.get(name, undefined, memberOf(acct)))) continue;
+      writeFileSync(join(dir, `${name}.js`), blankWorkflow(name), { mode: 0o600, flag: 'wx' });
+      return this.detail(name);
+    }
+    throw new EngineError(409, 'too many untitled workflows; rename some');
   }
 
   /** A script by name, inline, or path; the meta checked. Throws EngineError 400 with the reason. */

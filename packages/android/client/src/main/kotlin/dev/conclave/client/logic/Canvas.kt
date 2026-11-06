@@ -1,8 +1,10 @@
 package dev.conclave.client.logic
 
+import dev.conclave.client.ConclaveApiException
 import dev.conclave.client.model.FlowRunStatus
 import dev.conclave.client.model.FlowRunView
 import dev.conclave.client.model.GraphNode
+import dev.conclave.client.model.NewCanvasProgram
 import dev.conclave.client.model.Session
 import dev.conclave.client.model.WorkflowCall
 import dev.conclave.client.model.WorkflowCallKind
@@ -117,6 +119,12 @@ object Canvas {
         is CanvasFile.Program -> "/canvas/program/${enc(f.name)}?device=${enc(f.device)}&cwd=${enc(f.cwd)}"
         is CanvasFile.Workflow -> "/canvas/workflow/${enc(f.runId ?: f.id)}"
     }
+
+    /** What New made, as the file its read-only canvas opens. */
+    fun newFile(made: NewCanvasProgram): CanvasFile.Program = CanvasFile.Program(made.view.name, made.device, made.cwd, made.sessionId)
+
+    /** New with no folder answered 400: a member's programs live on a computer of their own, so they pick a device and folder. */
+    fun asksFolder(e: Throwable): Boolean = e is ConclaveApiException && e.status == 400
 
     /** The hub's queue key for a file (core canvas/queue.ts, web queueFile): a workflow by id, a program by its session and name. */
     fun queueFile(f: CanvasFile, sessionId: String?): String = when (f) {

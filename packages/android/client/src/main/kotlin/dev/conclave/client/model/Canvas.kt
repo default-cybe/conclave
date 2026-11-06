@@ -100,6 +100,15 @@ data class FlowView(
     val lastRun: FlowRunView? = null,
 )
 
+/** POST /api/canvas/programs (Canvas's New): the blank program and the folder's session it is read through. */
+@Serializable
+data class NewCanvasProgram(
+    val sessionId: String = "",
+    val device: String = "",
+    val cwd: String = "",
+    val view: FlowView = FlowView(),
+)
+
 /**
  * A run waiting in Canvas's queue on the hub (GET /api/canvas/queue): one file
  * runs at a time and the hub starts the next when the last ends. [file] is

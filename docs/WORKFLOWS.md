@@ -48,6 +48,7 @@ phase with its agents, tokens, errors so far and the last log lines.
 | fix-issue | A bug report. A reproduction test must fail first, three fixes from different angles run in separate worktrees, and judges pick the smallest correct one. | `issue`, `check` |
 | bug-hunt | Bugs in a codebase, not one change. Rounds of finders until two find nothing new. Keeps the folder's findings ledger. | `path`, `maxRounds`, `prove`, `round` |
 | security-audit | A security review of a repository, or of the homelab with `target: "homelab"`. The shipped hard exclusions (test files, docs, plain DoS, rate limits, memory safety in safe languages, log spoofing, ReDoS, timing, outdated dependencies) drop findings in code before the panel votes; `.conclave/security-exclusions.md` adds project rules for the panel. | `target`, `devices`, `maxComponents` |
+| security-hunt | A Security mode hunt on one target, from a hunt folder with `targets/<target>/scope.yaml`. Preflight parses the scope file and stops on a missing, invalid or expired one, or a live host outside `in_scope`. It reads the ledger, playbook, catalogue and `PARKED.md` first. Recon, three `sec-hunter` routes until two rounds find nothing new (at most 10 leads), citation and dedupe filters, then one `sec-refuter` call per lead. Before any live host it asks for an approval grant (hosts, accounts, request budget, rate, the scope line, at most 24 h); one grant covers every later lead on the target, and without one the lead is parked as partial. `sec-validator` runs the lane oracle (lab stack at the shipped version for source, a two-tenant Caido replay for web, a fix-separating rule first for variant) with its negative controls, 3 of 3 runs. A lead is confirmed only when the validator reports it reproduced, that oracle passed, and a `RESULT.txt` in the hunt's findings folder holds the lead's marker with this run's nonce, checked in the script; refuter votes never confirm. A source lead that only the live host can prove switches to the web lane, and the switch is logged. The 7-Question Gate parks what fails, then `ledger.jsonl` and `PARKED.md` are written, catalogue changes are asked once, and `sec-reporter` drafts `REPORT.md`. Each lead shows in the session as a finding card. Roles go by agent type, so routing and the same-model pin pick the models. | `lane` (source, web, variant), `target`, `url`, `hosts`, `scopeFile`, `device`, `fix`, `advisory`, `proofLane`, `maxLeads`, `round` |
 | design-panel | An open design choice. Four designs from fixed angles, three judges score them in both orders, one design is built from the winner. | `request`, `context` |
 | ui-pass | A visual change in the web app, checked by a verifier that sees only the screenshots, the brief and the spec. Keeps the folder's findings ledger. | `brief`, `spec`, `checks`, `round` |
 | migrate | The same change across many files or packages, in growing batches with a circuit breaker. | `goal`, `check`, `units` |
@@ -62,7 +63,7 @@ arguments in full.
 
 Conclave reads these places, and a later one wins a name:
 
-1. the fourteen built in workflows;
+1. the fifteen built in workflows;
 2. enabled plugins, from their `workflows/` folder (ids look like `plugin:name`);
 3. your own, in `~/.conclave/workflows/*.js` on the hub;
 4. the project's, in `<project>/.conclave/workflows/*.js`, read on the session's device;
@@ -187,6 +188,22 @@ run in Claude Code.
   findings ledger across runs (see Findings ledger below).
 - `lib.ask(question, options)` and `lib.approve(text)` ask you during a run.
   An unattended run takes the first option and treats approve as no.
+- `lib.approve(text, { grant: { hosts, accounts, requests, rateRps, scopeLine } })`
+  (or `lib.approve({ grant: { hosts, accounts, requestBudget, rateRps, reason } })`)
+  asks for a Security mode approval grant on a SecurityGrant card, with `text`
+  as its reason. The hub checks every host against `in_scope` of one scope
+  file in the hunt folder, caps the budget at the scope's `request_budget`
+  (500 at most) and the rate at `rate_limit_rps`; the grant lasts 24 h. It is
+  stored with its scope pinned, where the scope guard and the egress gateway
+  read it, and a live grant that already covers the hosts answers without a
+  card. It resolves to the grant, or `false` when you deny it. An unattended
+  run or a member's run never gets one, and the run goes on.
+- `lib.scope(file, { hosts })` parses a `scope.yaml` with the scope guard's
+  parser and says how each host classifies (`lab`, `in`, `out`, `unknown`),
+  and whether the file expired.
+- `lib.notice(type, text, meta)` posts a `finding` card or a `lane` line in
+  the run's session. A finding card shows `confirmed` only with an oracle of
+  at least 3 runs that all passed; otherwise it shows `partial`.
 - `lib.checkout(seq)` and `lib.diff(seq)` read an earlier call's kept
   worktree.
 - `lib.schemas` has `finding`, `findings`, `verdict` and `claims`.
@@ -368,6 +385,32 @@ git) or one of the run's own worktrees and checkouts; anything else makes
 mode, and acceptEdits allows edits in the agent's own folder, so a script that
 picked `~/.ssh` or another device would otherwise widen what runs without
 asking. Workflows you put in place keep the full `opts.conclave`.
+
+## A blank canvas
+
+Canvas opens like ComfyUI. With no last file, the Canvas mode switch goes
+to `/canvas/new`, which makes a blank program and opens it at once. New sits
+in the Canvas start page, the title's file menu and the sidebar's Canvas
+list; the file menu also has New in folder..., New workflow and Rename....
+
+- Where blank programs live: `flows/untitled-N.flow.ts` in the account's
+  Canvas folder on the hub, `<projects.hubRoot>/canvas/<account>` (the same
+  root Move to hub uses, `~/conclave-projects` by default). The hub makes a
+  Code session there on first use and reuses it after
+  (`POST /api/canvas/programs`).
+- Members have no files on the hub, so a member's New asks for a folder on a
+  computer they paired, as New in folder... does for anyone. The hub refuses
+  a member's New with no folder, on the hub, or on another account's device.
+- A blank program is one comment line and no blocks. The canvas shows "Double-click
+  or drag a block from the library to start", opens the library, and keeps Run
+  off with its reason until there is a block.
+- Describe it: the box on the empty canvas hands your words to the Agent tab,
+  which edits the open file. The canvas reloads as the file changes and counts
+  the blocks as they appear.
+- New workflow makes `untitled-N.js` in your own workflows: a meta and no
+  steps, editable at once (`POST /api/workflows`).
+- Rename... moves `flows/<name>.flow.ts` and its layout to the new name
+  (`POST /api/sessions/:id/flows/:name/rename`).
 
 ## Editing in Canvas
 

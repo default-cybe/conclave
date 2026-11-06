@@ -11,6 +11,11 @@ export const LIB_SOURCE: string = libSource;
 /** Flow names: lowercase words with dashes, so the path and the run command need no quoting. */
 export const FLOW_NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
+/** A flow with no blocks yet (Canvas's New): one comment line, valid and empty; the first insert adds the import. */
+export function blankFlow(name: string): string {
+  return `// Flow "${name}". Conclave draws this file as blocks (.conclave/graph/${name}.json); edit it as code or as blocks.\n`;
+}
+
 export function flowTemplate(name: string): string {
   return `// Flow "${name}". Conclave draws this file as blocks (.conclave/graph/${name}.json); edit it as code or as blocks.
 import { readFile, writeFile, fetchUrl, parseJson, pick, map, filter, joinText, regex, writeCsv, log, shell } from './lib';

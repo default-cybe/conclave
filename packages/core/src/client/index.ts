@@ -2001,6 +2001,9 @@ export class ConclaveClient {
   resolveApproval = (id: string, response: ApprovalResponse) => this.request<{ ok: true }>('POST', `/api/approvals/${id}`, response);
   questions = () => this.request<QuestionRequest[]>('GET', '/api/questions');
   answerQuestion = (id: string, answers: Record<string, string>) => this.request<{ ok: true }>('POST', `/api/questions/${id}`, { answers });
+  /** Security mode approval grants of a hunt session, newest first (owner only). */
+  grants = (sessionId: string) => this.request<Array<Omit<import('../security/scope').ScopeGrant, 'scope'>>>('GET', `/api/sessions/${sessionId}/grants`);
+  revokeGrant = (sessionId: string, grantId: string) => this.request<Omit<import('../security/scope').ScopeGrant, 'scope'>>('POST', `/api/sessions/${sessionId}/grants/${grantId}/revoke`);
   // ----- alerts: file conflicts and stuck turns -----
   alerts = () => this.request<AlertItem[]>('GET', '/api/alerts');
   /** stop or wait (Keep waiting) for a stuck turn, dismiss for a file conflict. */
@@ -2439,6 +2442,11 @@ export class ConclaveClient {
   flowBlocks = () => this.request<FlowBlockSpec[]>('GET', '/api/graph/nodes?use=program');
   flows = (sessionId: string) => this.request<FlowSummary[]>('GET', `/api/sessions/${encodeURIComponent(sessionId)}/flows`);
   createFlow = (sessionId: string, name: string) => this.request<FlowView>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}`);
+  /** Canvas's New: a blank program in the folder named, else (the owner) the account's Canvas folder on the hub. */
+  newCanvasProgram = (input: { device?: string; cwd?: string; name?: string } = {}) => this.request<{ sessionId: string; device: string; cwd: string; view: FlowView }>('POST', '/api/canvas/programs', input);
+  renameFlow = (sessionId: string, name: string, to: string) => this.request<FlowView>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/rename`, { to });
+  /** Canvas's New workflow: untitled-N with no steps, yours to edit. */
+  newWorkflow = () => this.request<WorkflowDetail>('POST', '/api/workflows');
   flowGraph = (sessionId: string, name: string) => this.request<FlowView>('GET', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/graph`);
   flowOp = (sessionId: string, name: string, op: FlowOp, baseSha: string) => this.request<FlowEditResult>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/graph/op`, { ...op, baseSha });
   restoreFlow = (sessionId: string, name: string, sha: string, baseSha: string) => this.request<FlowEditResult>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/flows/${encodeURIComponent(name)}/graph/restore`, { sha, baseSha });

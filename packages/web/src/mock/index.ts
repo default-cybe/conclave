@@ -996,6 +996,15 @@ on('GET', '/api/search', ({ query }) => {
 
 // approvals and questions
 on('GET', '/api/approvals', () => [...db.approvals.values()]);
+// Security mode approval grants (server routes-grants.ts)
+const mockGrants: Record<string, Array<Record<string, unknown> & { id: string; revokedAt?: number }>> = { s_hunt: [{ id: 'grant_m1', hosts: ['api.acme.com'], accounts: ['attacker'], requestBudget: 500, used: 37, rateRps: 1, issuedAt: Date.now() - 3 * 3_600_000, expiresAt: Date.now() + 21 * 3_600_000 }] };
+on('GET', '/api/sessions/:id/grants', ({ params }) => mockGrants[params[0]] ?? []);
+on('POST', '/api/sessions/:id/grants/:grant/revoke', ({ params }) => {
+  const g = (mockGrants[params[0]] ?? []).find((x) => x.id === params[1]);
+  if (!g) throw new Error('This session has no such grant.');
+  g.revokedAt = Date.now();
+  return g;
+});
 on('POST', '/api/approvals/:id', ({ params, body }) => {
   const a = db.approvals.get(params[0]);
   if (!a) return notFound();

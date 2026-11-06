@@ -46,6 +46,7 @@ import { AgentPicker, DEFAULT_DEBATE, DEFAULT_JURY, DEFAULT_LOOP, DebatersPicker
 import { moveSessionTo } from './FolderChooser';
 import { MODES } from './modes';
 import { ULTRA_LINE, UltraSwitch } from '../workflows/UltraSwitch';
+import { GrantChip } from './GrantChip';
 import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPickedFor, StatusLine, useAgentFollow, type StripFile } from '@/features/conversation/ComposerParts';
 import { DeviceChip, FolderChip, deviceItems, useComputers } from '@/features/home/Where';
 import { useThisComputer } from '@/features/home/here';
@@ -585,6 +586,12 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
         />
         {sharedRow}
         {!mineRow && session.chat?.security && <QuietRow right={null} left={<LaneChip session={session} />} />}
+        {/* the phone row has no chips: the Live grant chip and its Revoke sit here */}
+        {agentDef?.recipes?.includes('scope-guard') && (
+          <div className="flex px-1 empty:hidden">
+            <GrantChip sessionId={session.id} />
+          </div>
+        )}
         <StatusLine session={session} phone />
         <Sheet open={sheet} onClose={() => setSheet(false)} title="Options">
           <div className="space-y-4 px-4 pb-4">
@@ -611,6 +618,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
       {session.mode !== 'chat' && <PermissionPicker look="text" value={session.permissionMode} onChange={(permissionMode) => void patch({ permissionMode })} className="h-[24px] text-[12px]" />}
       {session.mode === 'jury' && <JurorsPicker look="text" value={cfg.jury} onChange={(jury) => void patch({ modeConfig: { ...cfg, jury } })} className="h-[24px] text-[12px]" />}
       {session.mode === 'debate' && <DebatersPicker look="text" value={cfg.debate} onChange={(debate) => void patch({ modeConfig: { ...cfg, debate } })} className="h-[24px] text-[12px]" />}
+      {agentDef?.recipes?.includes('scope-guard') && <GrantChip sessionId={session.id} />}
       {session.mode === 'loop' && <LoopPicker look="text" value={cfg.loop} onChange={(loop) => void patch({ modeConfig: { ...cfg, loop } })} className="h-[24px] text-[12px]" />}
       {folders && !narrow && !sessionRepo(session) && <FolderChip device={session.device} cwd={session.cwd} onCwd={(cwd) => void patch({ cwd })} />}
       {folders && !narrow && session.device !== here && computers.length > 1 && <DeviceChip device={session.device} onDevice={(id) => void moveSessionTo(session, id)} />}

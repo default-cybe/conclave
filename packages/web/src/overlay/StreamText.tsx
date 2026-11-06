@@ -19,6 +19,7 @@ import { useLayoutEffect, useRef } from 'react';
 import * as smd from './smd';
 import { chartSvg, parseChart } from './chart';
 import { desktop } from './desktop';
+import { copyText } from '../lib/clipboard';
 
 type Hooks = { onCode?: (box: HTMLElement, code: HTMLElement, lang: string) => void };
 
@@ -167,14 +168,11 @@ export function copyButton(doc: Document, text: () => string, label = 'Copy'): H
   b.textContent = label;
   let t: ReturnType<typeof setTimeout> | undefined;
   b.addEventListener('click', () => {
-    void navigator.clipboard?.writeText(text()).then(
-      () => {
-        b.textContent = 'Copied';
-        clearTimeout(t);
-        t = setTimeout(() => (b.textContent = label), 1500);
-      },
-      () => undefined,
-    );
+    void copyText(text()).then((ok) => {
+      b.textContent = ok ? 'Copied' : 'Could not copy';
+      clearTimeout(t);
+      t = setTimeout(() => (b.textContent = label), 1500);
+    });
   });
   return b;
 }

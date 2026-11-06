@@ -261,6 +261,7 @@ export function App() {
                 <OldGraph />
               </Route>
               <Route path="/workflows" component={WorkflowsPage} />
+              <Route path="/canvas/new" component={CanvasPage} />
               <Route path="/canvas/:kind/:name" component={CanvasPage} />
               <Route path="/canvas" component={CanvasPage} />
               <Route path="/memory/:tab?" component={MemoryPage} />

@@ -11,6 +11,7 @@ const GROUPS: Array<{ title: string; items: Array<[string, string[], boolean?]> 
     items: [
       ['Command palette', [MOD, 'K']],
       ['New chat', [MOD, SHIFT, 'O']],
+      ['New incognito chat', [MOD, SHIFT, 'N']],
       ['New session', [MOD, 'N']],
       ['Go to Home, Chat, Sessions, Inbox, Tasks', ['G', 'H C S I T'], true],
       ['Go to Routines, Agents, Extensions, Memory', ['G', 'R A E M'], true],

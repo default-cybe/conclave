@@ -426,7 +426,10 @@ export function preludeSource(opts: { argsJson: string; nested: boolean }): stri
     recordFindings: (list) => call('recordFindings', { findings: list || [] }),
     ledger,
     ask: (question, options) => call('ask', { question, options: options || [], at: here() }),
-    approve: (text) => call('approve', { text, at: here() }),
+    // lib.approve({ grant }) or lib.approve(text, { grant }) asks for a Security mode approval grant; resolves to the grant or false, never ends the run
+    approve: (p, o) => call('approve', p && typeof p === 'object' ? { grant: p.grant, at: here() } : { text: p, grant: o && o.grant ? o.grant : undefined, at: here() }),
+    scope: (file, o) => call('scope', { file, hosts: (o && o.hosts) || [] }),
+    notice: (type, text, meta) => call('notice', { type, text, meta: meta || {} }),
   };
   define('lib', Object.freeze(lib));
 })();

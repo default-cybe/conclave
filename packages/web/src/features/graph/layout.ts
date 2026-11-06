@@ -82,8 +82,16 @@ function phaseRuns(g: WorkflowGraph): Array<{ title: string; ids: string[] }> {
  * lead to them, so every wire runs left to right into the next column (as in
  * ComfyUI and Blueprint); nodes nothing in the band feeds stack in the first
  * column. vertical: one node per row top to bottom, for a phone's narrow screen.
+ * One phase (or none, a new blank program) draws no band: the blocks sit on
+ * the bare dot grid, as in ComfyUI.
  */
 export function layoutGraph(g: WorkflowGraph, vertical = false): Layout {
+  return bare(framed(g, vertical), phaseRuns(g).length);
+}
+
+const bare = (l: Layout, runs: number): Layout => (runs > 1 ? l : { pos: l.pos, bands: [] });
+
+function framed(g: WorkflowGraph, vertical: boolean): Layout {
   const pos = new Map<string, { x: number; y: number }>();
   const bands: Band[] = [];
   const runs = phaseRuns(g);
@@ -128,10 +136,10 @@ const overlaps = (a: { x: number; y: number }, b: { x: number; y: number }) => M
  * the phone keeps its one column.
  */
 export function placedGraph(g: WorkflowGraph, vertical: boolean, saved?: Record<string, { x: number; y: number }>): Layout {
-  const auto = layoutGraph(g, vertical);
-  if (vertical || !saved || !g.nodes.some((n) => saved[n.id])) return auto;
-  const pos = new Map(auto.pos);
   const runs = phaseRuns(g);
+  const auto = framed(g, vertical);
+  if (vertical || !saved || !g.nodes.some((n) => saved[n.id])) return bare(auto, runs.length);
+  const pos = new Map(auto.pos);
   const bands = auto.bands.map((b, i) => {
     const ids = runs[i].ids;
     const fixed = ids.filter((id) => !saved[id]).map((id) => pos.get(id)!);
@@ -141,7 +149,8 @@ export function placedGraph(g: WorkflowGraph, vertical: boolean, saved?: Record<
       // up to the gap before the next band; the last band has room to its right
       const next = auto.bands[i + 1];
       const maxX = Math.max(b.x + b.w - BAND_PAD - NODE_W, next ? next.x - BAND_GAP / 2 - BAND_PAD - NODE_W : Infinity);
-      const p = { x: Math.min(Math.max(s.x, b.x + BAND_PAD), maxX), y: Math.max(s.y, BAND_HEAD) };
+      // no frame to keep it in: a lone phase's block stays where it was dropped
+      const p = runs.length > 1 ? { x: Math.min(Math.max(s.x, b.x + BAND_PAD), maxX), y: Math.max(s.y, BAND_HEAD) } : { x: s.x, y: s.y };
       while (fixed.some((q) => overlaps(p, q))) p.y = Math.max(...fixed.filter((q) => overlaps(p, q)).map((q) => q.y)) + NODE_H + ROW_GAP;
       fixed.push(p);
       pos.set(id, p);
@@ -150,5 +159,5 @@ export function placedGraph(g: WorkflowGraph, vertical: boolean, saved?: Record<
     const right = Math.max(...ids.map((id) => pos.get(id)!.x)) + NODE_W + BAND_PAD;
     return { ...b, w: Math.max(b.w, right - b.x), h: Math.max(b.h, bottom) };
   });
-  return { pos, bands };
+  return bare({ pos, bands }, runs.length);
 }

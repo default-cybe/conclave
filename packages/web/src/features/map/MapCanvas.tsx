@@ -12,7 +12,7 @@ import { dprNow, isDark, onFrame, tokenRGB, useColorVersion } from '@/components
 import { EASE } from '@/components/motion/ease';
 import { cn } from '@/lib/text';
 import type { LBox, LLink, LNode, Layout } from './layout';
-import { STATE_TONE, groupNoun, groupState, groupStats, hubKnot, isBusy, nodeMeta } from './model';
+import { STATE_TONE, foldedWords, groupNoun, groupState, groupStats, hubKnot, isBusy, nodeMeta } from './model';
 import { Streams, type StreamMode, type StreamSource } from './streams';
 import { clampView, fitView, pinch, startView, wheelFactor, zoomAt, type Insets, type View } from './view';
 
@@ -646,6 +646,7 @@ const Mark = memo(function Mark({
   const meta = nodeMeta(n, now);
   const word = meta.word;
   const tone = n.stuckSince ? 'warn' : STATE_TONE[n.state];
+  const folded = foldedWords(n.folded);
   const kindWord = n.kind === 'chat' ? 'chat' : n.kind === 'subagent' ? 'subagent' : n.kind === 'workflow' ? 'workflow run' : n.kind === 'agent' ? 'workflow agent' : 'session';
   return (
     <button
@@ -655,7 +656,7 @@ const Mark = memo(function Mark({
       data-id={ln.id}
       data-new={fresh || undefined}
       aria-pressed={selected}
-      aria-label={`${n.title}, ${kindWord}, ${word}`}
+      aria-label={`${n.title}, ${kindWord}, ${word}${folded ? `, ${folded}` : ''}`}
       title={n.title}
       onClick={() => onSelect(selected ? undefined : n.id)}
     >
@@ -668,6 +669,7 @@ const Mark = memo(function Mark({
         <span className="map-meta">
           {meta.mode} · <span style={{ color: TONE_COLOR[tone] }}>{word}</span>
           {meta.when && ` · ${meta.when}`}
+          {folded && ` · ${folded}`}
         </span>
       </span>
     </button>
