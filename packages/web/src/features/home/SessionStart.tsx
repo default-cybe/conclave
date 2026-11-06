@@ -40,6 +40,12 @@
  * A member (docs/design/ACCOUNTS.md 5) codes on devices of their own: the
  * hub never stands in, and with none paired the box says where to pair one
  * instead of starting.
+ *
+ * Security (docs/design/SECURITY-MODE.md 1.1) is Code's box for the
+ * security agent with the Security switch on: a device and a hunt folder
+ * (asked for before the first send; the hub makes scope.yaml, targets/ and
+ * playbook/ there), picks of its own, and no GitHub repository, worktree,
+ * design direction or agent choice.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
@@ -66,12 +72,12 @@ import { useAgentFollow } from '@/features/conversation/ComposerParts';
 import { OptionsButton } from '@/features/conversation/PhoneBox';
 import { sameRepo } from '@/lib/github';
 import { BranchPicker, IssuePicker, RepoList, RepoPicker, type IssuePick, type RepoPick } from '@/features/github/RepoPicker';
-import { ASSISTANT_AGENT, CODE_AGENT, CODE_NEEDS_DEVICE, commandOf, customAgent, lastOwnSession, needsOwnDevice, placeName, readPicks, savePicks, sessionSetup, startCommands, startEffort, type Picks } from './start';
+import { ASSISTANT_AGENT, CODE_AGENT, CODE_NEEDS_DEVICE, commandOf, customAgent, lastOwnSession, needsOwnDevice, offersIncognito, placeName, readPicks, savePicks, SECURITY_AGENT, sessionSetup, startCommands, startEffort, type Picks, type SessionKind } from './start';
 import { startSurface, useThisComputer } from './here';
 import { DeviceChip, FolderChip, computerList, deviceItems, useComputers } from './Where';
 import { CODE_INCOGNITO_LINE, memoryChat, MemoryField, memoryItems, usePrivacy } from '@/features/conversation/incognito';
 
-export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerTarget {
+export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
   const [, navigate] = useLocation();
   const mobile = useIsMobile();
   const agents = useHub((s) => s.agents);
@@ -87,7 +93,9 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
   const member = useHub((s) => s.me?.role === 'member');
   const here = useThisComputer();
   const computers = useComputers();
-  const code = kind === 'code';
+  // Security works in a folder on a computer, as Code does
+  const code = kind !== 'assistant';
+  const hunt = kind === 'security';
   // providers turned off (a coding agent's harness): the last session's model of theirs is not carried over
   const offProviders = useMemo(() => new Set(modelGroups.filter((g) => !g.enabled).map((g) => g.provider)), [modelGroups]);
   const [sheet, setSheet] = useState(false);
@@ -101,7 +109,8 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
   const [design, setDesign] = useState<DesignDirection>();
   // Incognito (the toggle at the top right, Code only) and the memory setting, for this one session (not kept for the next)
   const [both, setMemory] = usePrivacy('save');
-  const priv = code ? both : { incognito: false, memory: both.memory };
+  // a hunt is never incognito, even with the toggle left on from Code (start.ts offersIncognito)
+  const priv = offersIncognito(kind) ? both : { incognito: false, memory: both.memory };
   // the box clears at once; until the session opens, a line under it says it is starting
   const [starting, setStarting] = useState<number>();
   // the folder was asked for before the first send: once it is set, the message held goes
@@ -112,7 +121,7 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
   const [last, setLast] = useState(latest);
   if (!last && latest) setLast(latest);
   const resume = useMemo(() => lastOwnSession(sessions, true, kind), [sessions, kind]);
-  const [picks, setPicks] = useState<Picks>(readPicks);
+  const [picks, setPicks] = useState<Picks>(() => readPicks(kind));
   const setup = sessionSetup({
     kind,
     picks,
@@ -132,12 +141,12 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
   // what the session asks for: the pick as this model takes it; unset runs at the agent's level
   const thinking = startEffort(picks.thinking, effort);
   const follow = useAgentFollow(setup.agent, setup.model, code);
-  const repo: RepoPick | undefined = code && picks.repo ? { repo: picks.repo, ...(picks.base ? { base: picks.base } : {}) } : undefined;
+  const repo: RepoPick | undefined = code && !hunt && picks.repo ? { repo: picks.repo, ...(picks.base ? { base: picks.base } : {}) } : undefined;
   const issue = repo && sameRepo(issuePick?.repo, repo.repo) ? issuePick : undefined;
   // a folder picked here (the home folder too), or the last session's; a repository needs none; the assistant works on the hub
   const placeSet = !code || picks.cwd !== undefined || !!setup.cwd || !!repo;
   // "Run in a worktree" is offered only for a folder in a git repository: asked of the device once per folder
-  const gitKey = code && !repo && setup.cwd ? `${setup.device}\n${setup.cwd}` : '';
+  const gitKey = code && !hunt && !repo && setup.cwd ? `${setup.device}\n${setup.cwd}` : '';
   const [folderGit, setFolderGit] = useState<{ key: string; git: boolean; branch?: string }>();
   useEffect(() => {
     if (!gitKey) return;
@@ -157,7 +166,7 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
 
   const update = (p: Picks) => {
     setPicks(p);
-    savePicks(p);
+    savePicks(p, kind);
   };
   // the default coding agent is no pick: a custom one is kept, and brings its own model and device
   const pickAgent = (agent: string) => update({ permissionMode: picks.permissionMode, thinking: picks.thinking, cyber: picks.cyber, ultra: picks.ultra, assistantModel: picks.assistantModel, ...(agent !== CODE_AGENT ? { agent } : {}) });
@@ -216,6 +225,8 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
         if (window.location.pathname === '/') navigate(`/s/${home.id}`);
         return true;
       }
+      // a hunt starts with the Security switch on: the hub loads the security agent and makes the hunt folder
+      const chat = { ...(thinking ? { thinking } : {}), ...(picks.cyber ? { cyber: picks.cyber } : {}), ...(priv.memory !== 'save' ? memoryChat(priv.memory) : {}), ...(hunt ? { security: true } : {}) };
       const common = {
         agent: setup.agent,
         model: setup.model,
@@ -223,7 +234,7 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
         // a design direction is set before the first message goes, so its first turn has the brief
         prompt: command || files || design ? undefined : out.text || undefined,
         ...(picks.permissionMode ? { permissionMode: picks.permissionMode } : {}),
-        ...(thinking || picks.cyber || priv.memory !== 'save' ? { chat: { ...(thinking ? { thinking } : {}), ...(picks.cyber ? { cyber: picks.cyber } : {}), ...(priv.memory !== 'save' ? memoryChat(priv.memory) : {}) } } : {}),
+        ...(Object.keys(chat).length ? { chat } : {}),
         ...(priv.incognito ? { incognito: true } : {}),
       };
       // a folder set by the first send has not been asked about yet: ask now
@@ -289,7 +300,9 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
       ),
     };
 
-  const plus: MenuItem[] = code
+  const plus: MenuItem[] = hunt
+    ? [...(computers.length > 1 ? deviceItems(computers, setup.device, pickDevice) : []), { separator: true, label: '' }, { label: 'Ultra', detail: ULTRA_LINE, checked: !!picks.ultra, keep: true, onSelect: () => update({ ...picks, ultra: !picks.ultra || undefined }) }, ...(priv.incognito ? [] : memoryItems(priv.memory, setMemory))]
+    : code
     ? [
         ...(customs.length ? [{ group: true, label: 'Agent' }, { label: `${CODE_AGENT}, the default`, detail: 'Hands work to its subagents itself', checked: setup.agent === CODE_AGENT, onSelect: () => pickAgent(CODE_AGENT) }, ...customs.map((a) => ({ label: a.name, detail: a.description, checked: setup.agent === a.name, onSelect: () => pickAgent(a.name) }))] : []),
         ...(computers.length > 1 ? deviceItems(computers, setup.device, pickDevice) : []),
@@ -350,7 +363,7 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
         <Sheet open={sheet} onClose={() => setSheet(false)} title="Options">
           <div className="space-y-5 px-4 pb-5">
             {code && <Row label={repo ? 'Device' : 'Device and folder'}>{field.device}</Row>}
-            {code && <Row label="GitHub repository">{field.repo}</Row>}
+            {code && !hunt && <Row label="GitHub repository">{field.repo}</Row>}
             {repo && <Row label="Start from">{field.base}</Row>}
             {repo && <Row label="Issue">{field.issue}</Row>}
             {isGit && (
@@ -384,7 +397,7 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
                 />
               </Row>
             )}
-            {code && (
+            {code && !hunt && (
               <Row label="Design direction">
                 <SelectMenu
                   look="field"
@@ -400,7 +413,7 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
             )}
             {code && !priv.incognito && <MemoryField value={priv.memory} onChange={setMemory} />}
             {/* the default coding agent hands work to its subagents itself: another agent is for custom ones */}
-            {code && (
+            {code && !hunt && (
               <div>
                 <button type="button" aria-expanded={moreOptions} onClick={() => setMoreOptions((o) => !o)} className="flex min-h-11 items-center text-[15px] text-fg-2">
                   More options
@@ -417,6 +430,8 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
             device={setup.device}
             cwd={picks.cwd ?? setup.cwd}
             onDevice={pickDevice}
+            title={hunt ? 'Where should the hunt work?' : undefined}
+            noRepo={hunt}
             onStart={(cwd) => {
               pickCwd(cwd);
               setAsking(false);
@@ -443,23 +458,23 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
       return false;
     },
     send,
-    sendLabel: code ? 'Start session' : 'Send',
+    sendLabel: hunt ? 'Start hunt' : code ? 'Start session' : 'Send',
     sendEmpty: !!issue,
-    placeholder: issue ? `Add a note for #${issue.number}` : mobile ? (code ? 'Describe a task' : 'Ask your assistant') : 'Type / for commands',
+    placeholder: issue ? `Add a note for #${issue.number}` : hunt ? 'Name the target: a repo, URL, CVE, binary or challenge' : mobile ? (code ? 'Describe a task' : 'Ask your assistant') : 'Type / for commands',
     commands,
     incognito: priv.incognito,
     // desktop says it under the toggle at the top right
     note: priv.incognito && mobile && !starting ? (
       <p>Incognito. {CODE_INCOGNITO_LINE}</p>
     ) : starting ? (
-      <LiveStatus state="tool" label={repo ? `Making a worktree of ${repo.repo}${issue ? ` for #${issue.number}` : ''}` : worktreeOn ? 'Making a worktree' : 'Starting the session'} detail={code ? `${setup.agent ?? 'agent'} on ${deviceName}` : 'on the hub'} startedAt={starting} />
+      <LiveStatus state="tool" label={repo ? `Making a worktree of ${repo.repo}${issue ? ` for #${issue.number}` : ''}` : worktreeOn ? 'Making a worktree' : hunt ? 'Starting the hunt' : 'Starting the session'} detail={code ? `${setup.agent ?? 'agent'} on ${deviceName}` : 'on the hub'} startedAt={starting} />
     ) : resume && !mobile ? (
       <p className="truncate">
         Resume{' '}
         <Link href={`/s/${resume.id}`} className="link">
           {resume.title}
         </Link>
-        {resume.agent !== ASSISTANT_AGENT && resume.agent !== CODE_AGENT && `, ${resume.agent}`}, <span className="num">{relTime(resume.updatedAt)}</span>
+        {resume.agent !== ASSISTANT_AGENT && resume.agent !== CODE_AGENT && resume.agent !== SECURITY_AGENT && `, ${resume.agent}`}, <span className="num">{relTime(resume.updatedAt)}</span>
       </p>
     ) : undefined,
   };
@@ -474,11 +489,16 @@ function PlaceSheet({
   onDevice,
   onStart,
   onStartRepo,
+  title = 'Where should it work?',
+  noRepo,
 }: {
   open: boolean;
   onClose: () => void;
   device: string;
   cwd?: string;
+  title?: string;
+  /** A folder only: a hunt starts in no GitHub repository. */
+  noRepo?: boolean;
   onDevice: (id: string) => void;
   onStart: (cwd: string) => void;
   onStartRepo: (r: RepoPick) => void;
@@ -503,7 +523,7 @@ function PlaceSheet({
     <Sheet
       open={open}
       onClose={onClose}
-      title="Where should it work?"
+      title={title}
       footer={
         <Button variant="solid" size="touch" full disabled={!devices[device]?.online || (from === 'github' && !repo)} onClick={() => (from === 'github' ? repo && onStartRepo(repo) : onStart(path.trim() || '~'))} className="h-12! rounded-[12px]! text-[16px]!">
           Start
@@ -518,7 +538,7 @@ function PlaceSheet({
             <span className={cn('text-[14px]', d.online ? 'text-ok' : 'text-fg-3')}>{d.online ? 'online' : 'offline'}</span>
           </button>
         ))}
-        <Segmented
+        {!noRepo && <Segmented
           full
           size="touch"
           label="Work in"
@@ -529,7 +549,7 @@ function PlaceSheet({
             { value: 'folder', label: 'Folder' },
             { value: 'github', label: 'GitHub' },
           ]}
-        />
+        />}
         {from === 'github' && (
           <div className="mt-3">
             <RepoList value={repo?.repo} onPick={(r) => setRepo({ repo: r.fullName })} className="-mx-2 max-h-[40dvh]" />

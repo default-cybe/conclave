@@ -10,6 +10,7 @@ import { logger } from '../util/log';
 import { defuseFrameworkTags } from '../session/untrusted';
 import { markModelDead, subagentModel } from '../extensions/agent-model';
 import { modelPin } from '../session/model-pin';
+import { accountRole } from '../security/roles';
 import { memberCanUse } from '../session/member-fallbacks';
 import { isMember } from '../people/context';
 import { checkFallback } from '../session/limit-tree';
@@ -116,12 +117,16 @@ export async function runSubagent(
   // Same model for all work (session/model-pin.ts): the child runs on the pin and carries the switch to its own hand-offs
   const pin = modelPin(engine, parent);
   // tier words (fast, smart, deep) in the call or the profile resolve here (extensions/agent-model.ts); a delegated job's model was picked for it
-  const picked = dlg?.model ?? subagentModel(engine, opts.model, def.model, parent.model, pin, def.fallback);
+  // a sec-* role routes by Settings > Security > Roles, then its profile (security/roles.ts); a member's only to models of theirs
+  const route = accountRole(engine, def, acct);
+  const picked = dlg?.model ?? subagentModel(engine, opts.model, route.model, parent.model, pin, route.fallback);
   // a member's security role never runs on a model their account may not use, such as the owner's plans: it takes their own chat model (SECURITY-MODE.md 4.7)
   const model = def.group && isMember(acct) && !memberCanUse(engine, acct, picked) ? parent.model : picked;
   // a parent that saves nothing to memory ("Use only", Off) passes that on, as an incognito parent passes incognito
   const own: Session['chat'] = dlg?.chat ?? (parent.chat?.memory === false || parent.chat?.memorySave === false ? { webSearch: true, memory: parent.chat.memory !== false, memorySave: false } : undefined);
-  const chat: Session['chat'] = pin ? { webSearch: true, memory: true, ...(own ?? {}), sameModel: true } : own;
+  // Same model and Security carry down, so Task and Delegate children keep the pin, the sec-* roster and the scope guard's anchor
+  const carry = { ...(pin ? { sameModel: true } : {}), ...(parent.chat?.security ? { security: true } : {}) };
+  const chat: Session['chat'] = Object.keys(carry).length ? { webSearch: true, memory: true, ...(own ?? {}), ...carry } : own;
   const mode = dlg?.permissionMode ?? parent.permissionMode;
   // on a harness the profile rides with the brief, and a read-only profile stays read-only
   // an untrusted parent writes the brief from what it read: its framework tags are defused (session/untrusted.ts)

@@ -118,6 +118,8 @@ const val ULTRA_LINE = "Plans and runs workflows for real tasks. Uses many more 
 /** The chat's "+" switches, with the web's words. */
 const val WEB_HELP = "Look things up and cite sources."
 const val MEMORY_HELP = "Read what it knows about you and save what you tell it. Off: this chat leaves no trace in memory."
+const val SECURITY_HELP = "Loads the security agent and its sec-* roles, and checks every network call against scope.yaml. Off brings back the agent you had."
+
 const val SAME_MODEL_HELP = "Delegate, Task and workflow agents, at any depth, run on this conversation's model unless you name another. If its plan is out or refuses, the usual fallback order applies."
 
 /** A device's name, the hub as "homelab (hub)" (Start.placeName), with "offline" after a computer that is away. */

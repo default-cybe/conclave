@@ -2,8 +2,11 @@
  * What a new conversation starts, by the sidebar's switch: Chat (a plain
  * chat with the chat agent), Assistant (the assistant agent, on the hub,
  * with no device or folder) or Code (the default coding agent, which hands
- * work to its subagents itself, in a folder on a computer). The switch and
- * Code's picks are remembered per device.
+ * work to its subagents itself, in a folder on a computer). Security
+ * (docs/design/SECURITY-MODE.md 1.1) starts the security agent with the
+ * Security switch on, in a hunt folder on a computer: the hub makes
+ * scope.yaml, targets/ and playbook/ there when missing. The switch, Code's
+ * picks and Security's own picks are remembered per device.
  */
 import { create } from 'zustand';
 import type { Device, PermissionMode, Session } from '@conclave/core/types';
@@ -12,18 +15,20 @@ import { clampEffort, isEffortSetting, type EffortSetting, type ModelEffort } fr
 import { isCyberProgram, type CyberProgram } from '@conclave/core/providers/access-programs';
 
 /** Canvas (docs/design/CANVAS-MODE.md): the node editor for programs and workflows; it starts no session, it opens /canvas. */
-export type StartMode = 'chat' | 'assistant' | 'code' | 'canvas';
+export type StartMode = 'chat' | 'assistant' | 'code' | 'security' | 'canvas';
 
 export const START_MODES: Array<{ value: StartMode; label: string; detail: string }> = [
   { value: 'chat', label: 'Chat', detail: 'A model answers, with the web and your memory.' },
   { value: 'assistant', label: 'Assistant', detail: 'Your day, goals and setup, on the hub.' },
   { value: 'code', label: 'Code', detail: 'An agent works in a folder on your computer.' },
+  { value: 'security', label: 'Security', detail: 'A hunt in a folder with its scope file, the sec-* roles and the scope guard.' },
   { value: 'canvas', label: 'Canvas', detail: 'Programs and workflows as blocks, with their runs.' },
 ];
 
 /** The agents the switch starts. Code starts a custom agent only when one was picked under "+". */
 export const ASSISTANT_AGENT = 'assistant';
 export const CODE_AGENT = 'coder';
+export const SECURITY_AGENT = 'security';
 const CHAT_AGENT = 'chat';
 
 /**
@@ -34,11 +39,17 @@ const CHAT_AGENT = 'chat';
 const MODE_KEY = 'conclave.mode';
 /** Kept from the old quick start bar, so the picks made there carry over. */
 const PICKS_KEY = 'conclave.quickstart';
+/** Security's picks (device, hunt folder, model) apart from Code's, so a hunt folder never becomes Code's next folder. */
+const SECURITY_PICKS_KEY = 'conclave.quickstart.security';
+const picksKey = (kind?: SessionKind) => (kind === 'security' ? SECURITY_PICKS_KEY : PICKS_KEY);
+
+/** The modes that start a session (not a chat, not Canvas). */
+export type SessionKind = 'assistant' | 'code' | 'security';
 
 export function readMode(): StartMode {
   try {
     const v = localStorage.getItem(MODE_KEY);
-    return v === 'assistant' || v === 'code' || v === 'canvas' ? v : 'chat';
+    return v === 'assistant' || v === 'code' || v === 'security' || v === 'canvas' ? v : 'chat';
   } catch {
     return 'chat';
   }
@@ -60,16 +71,19 @@ export function setStartMode(mode: StartMode) {
   if (useStartMode.getState().mode !== mode) useStartMode.setState({ mode });
 }
 
-/** Which switch a conversation belongs to: a chat, the assistant's, or Code. */
+/** Which switch a conversation belongs to: a chat, the assistant's, Security's (the security agent), or Code. */
 export function modeOf(s: Pick<Session, 'kind' | 'agent'>): StartMode {
   if (s.kind === 'chat') return 'chat';
-  return s.agent === ASSISTANT_AGENT ? 'assistant' : 'code';
+  return s.agent === ASSISTANT_AGENT ? 'assistant' : s.agent === SECURITY_AGENT ? 'security' : 'code';
 }
 
-/** An agent Code may start in place of its own: not the chat or the assistant agent. */
+/** An agent Code may start in place of its own: not the chat, the assistant or the security agent. */
 export function customAgent(name: string | undefined): boolean {
-  return !!name && name !== CHAT_AGENT && name !== ASSISTANT_AGENT;
+  return !!name && name !== CHAT_AGENT && name !== ASSISTANT_AGENT && name !== SECURITY_AGENT;
 }
+
+/** The modes whose new conversation may be incognito: Assistant is one kept thread, and a hunt keeps its grants, lane log and ledger (an incognito session is deleted). */
+export const offersIncognito = (mode: StartMode): mode is 'chat' | 'code' => mode === 'chat' || mode === 'code';
 
 /** What the owner picked for Code, and the assistant's model. Unset fields follow the last session or the hub. */
 export interface Picks {
@@ -102,9 +116,9 @@ const PERMISSION_MODES: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'b
 /** The saved picks' format: from 2, `device` is only a device picked by hand and a folder keeps the device it is on. */
 const PICKS_VERSION = 2;
 
-export function readPicks(): Picks {
+export function readPicks(kind?: SessionKind): Picks {
   try {
-    const raw = JSON.parse(localStorage.getItem(PICKS_KEY) ?? '{}') as Record<string, unknown>;
+    const raw = JSON.parse(localStorage.getItem(picksKey(kind)) ?? '{}') as Record<string, unknown>;
     const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
     const mode = PERMISSION_MODES.find((m) => m === raw.permissionMode);
     const thinking = isEffortSetting(raw.thinking) ? raw.thinking : undefined;
@@ -119,9 +133,9 @@ export function readPicks(): Picks {
   }
 }
 
-export function savePicks(p: Picks) {
+export function savePicks(p: Picks, kind?: SessionKind) {
   try {
-    localStorage.setItem(PICKS_KEY, JSON.stringify({ ...p, v: PICKS_VERSION }));
+    localStorage.setItem(picksKey(kind), JSON.stringify({ ...p, v: PICKS_VERSION }));
   } catch {
     /* private mode: keep the picks for this page only */
   }
@@ -133,7 +147,7 @@ export function savePicks(p: Picks) {
  * running or waiting, for the Resume line. `mode` keeps the assistant's or
  * Code's only.
  */
-export function lastOwnSession(sessions: Record<string, Session>, settled = false, mode?: 'assistant' | 'code'): Session | undefined {
+export function lastOwnSession(sessions: Record<string, Session>, settled = false, mode?: SessionKind): Session | undefined {
   return Object.values(sessions)
     .filter((s) => !s.archived && !s.incognito && !s.routineId && !underParent(s) && s.mode !== 'jury' && s.mode !== 'debate' && s.kind !== 'chat')
     .filter((s) => !mode || modeOf(s) === mode)
@@ -142,8 +156,8 @@ export function lastOwnSession(sessions: Record<string, Session>, settled = fals
 }
 
 export interface SetupInput {
-  /** What starts: the assistant on the hub, or Code. Default code. */
-  kind?: 'assistant' | 'code';
+  /** What starts: the assistant on the hub, Code, or Security (the security agent, else as Code). Default code. */
+  kind?: SessionKind;
   picks: Picks;
   last?: Pick<Session, 'agent' | 'model' | 'device' | 'cwd'> & { meta?: Session['meta'] };
   agents: Array<{ name: string; model?: string; device?: string; primary?: boolean }>;
@@ -203,7 +217,7 @@ export function sessionSetup(i: SetupInput): Setup {
     const def = i.agents.find((a) => a.name === ASSISTANT_AGENT);
     return { agent: ASSISTANT_AGENT, model: usable(picks.assistantModel) ?? usable(def?.model) ?? i.defaultModel, device: 'local' };
   }
-  const picked = customAgent(picks.agent) ? known(picks.agent) : undefined;
+  const picked = i.kind === 'security' ? known(SECURITY_AGENT) : customAgent(picks.agent) ? known(picks.agent) : undefined;
   const agent = picked ?? known(CODE_AGENT) ?? [i.defaultAgent, ...i.agents.filter((a) => a.primary !== false).map((a) => a.name)].find((n) => customAgent(n) && known(n));
   const def = i.agents.find((a) => a.name === agent);
   const fromLast = !!last && last.agent === agent;

@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Security switch (web and Android model picker, next to Same model for all work): `chat.security` on loads the `security` agent and arms the scope guard, off restores the previous agent; Task and Delegate children carry it and stay under the same scope. Role routing for `sec-*` roles via config `security.roles.<role>.{model,fallback}` (owner-named model, then Same-model pin, then the Roles table, then the role profile, then the parent model); members route only to models their account may use. A pure lane detector sets the lane from the first message; the web lane chip under the composer shows it with alternatives and each lane's routing line, and every lane change is logged. A session created with `chat.security` gets `scope.yaml`, `targets/` and `playbook/` when missing (#271).
+
 ## [0.4.73] - 2026-11-06
 
 ### Added

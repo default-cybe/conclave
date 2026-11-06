@@ -55,6 +55,7 @@ import { MemberSubscriptionsSection } from './member-plans';
 import { AccountsSection } from './accounts';
 import { RefusalSection } from './refusal';
 import { UsageFallbackSection } from './usage-fallback';
+import { SecuritySection } from './security';
 import { MemberProvidersSection, PeopleSection, YourAccountSection } from './people';
 import { useIsOwner } from '@/lib/people';
 import { LogsSection } from './logs';
@@ -133,6 +134,15 @@ const ALL_SECTIONS: SectionDef[] = [
     C: UsageFallbackSection,
     width: 900,
     member: { C: UsageFallbackSection, desc: 'When a model is at its limit on your plans, the next model on your own list takes over. Only models you can use.' },
+  },
+  {
+    id: 'security',
+    label: 'Security',
+    desc: 'Roles: which model each sec-* role of Security mode runs on, over its own.',
+    C: SecuritySection,
+    width: 900,
+    // a member's roles run on models of their own account (core security/roles.ts): the table is the owner's
+    owner: true,
   },
   {
     id: 'defaults',

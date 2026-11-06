@@ -34,7 +34,7 @@ import { hrefOf, liveState } from './recents';
 import { sessionRepo } from './github';
 
 /** canvas lists files (features/canvas/files.tsx), not sessions: sideModeOf never returns it. */
-export type SideMode = 'chat' | 'assistant' | 'code' | 'canvas';
+export type SideMode = 'chat' | 'assistant' | 'code' | 'security' | 'canvas';
 export type SideGroupBy = 'project' | 'device' | 'time';
 
 export const SIDE_GROUP_WORDS: Record<SideGroupBy, string> = { project: 'Project', device: 'Device', time: 'Time' };
@@ -43,13 +43,17 @@ export const SIDE_GROUP_WORDS: Record<SideGroupBy, string> = { project: 'Project
 export const SIDE_LIMIT = 80;
 
 const ASSISTANT = 'assistant';
+const SECURITY = 'security';
 const inWorkflow = (s: Session) => !!(s.meta as { workflow?: unknown } | undefined)?.workflow || s.tags.includes('workflow');
 
 /** Which switch a conversation belongs to (features/home/start.ts modeOf, kept here so this file stays pure). */
 export function sideModeOf(s: Pick<Session, 'kind' | 'agent'>): SideMode {
   if (s.kind === 'chat') return 'chat';
-  return s.agent === ASSISTANT ? 'assistant' : 'code';
+  return s.agent === ASSISTANT ? 'assistant' : s.agent === SECURITY ? 'security' : 'code';
 }
+
+/** Code and Security list by project or device, in folders on computers. */
+export const inFolders = (mode: SideMode) => mode === 'code' || mode === 'security';
 
 /** The conversations of a mode the owner went to, newest first: their own, not archived, not a subagent's, a workflow's or a routine's. */
 export function modeSessions(sessions: Iterable<Session>, mode: SideMode): Session[] {
@@ -164,8 +168,8 @@ export function sideGroups(i: SideInput): SideGroupOut[] {
 function modeGroups(i: SideInput): SideGroupOut[] {
   const waiting = i.waiting ?? new Set<string>();
   const list = modeSessions(i.sessions, i.mode).slice(0, i.limit ?? SIDE_LIMIT);
-  const by: SideGroupBy = i.mode === 'code' ? i.by : 'time';
-  const code = i.mode === 'code';
+  const code = inFolders(i.mode);
+  const by: SideGroupBy = code ? i.by : 'time';
   if (i.mode === 'assistant') {
     const home = list.filter((s) => s.meta?.home);
     const history = list.filter((s) => !s.meta?.home);
@@ -205,13 +209,13 @@ function modeGroups(i: SideInput): SideGroupOut[] {
   });
 }
 
-/** What the sidebar calls the list: "Chats", "Assistant" or "Sessions". */
+/** What the sidebar calls the list: "Chats", "Assistant", "Hunts" or "Sessions". */
 export function sideListWord(mode: SideMode): string {
-  return mode === 'chat' ? 'Chats' : mode === 'assistant' ? 'Assistant' : mode === 'canvas' ? 'Programs and workflows' : 'Sessions';
+  return mode === 'chat' ? 'Chats' : mode === 'assistant' ? 'Assistant' : mode === 'canvas' ? 'Programs and workflows' : mode === 'security' ? 'Hunts' : 'Sessions';
 }
 
 /** The words of the New row for a mode. */
-export const NEW_WORDS: Record<SideMode, string> = { chat: 'New chat', assistant: 'Message assistant', code: 'New session', canvas: 'All of Canvas' };
+export const NEW_WORDS: Record<SideMode, string> = { chat: 'New chat', assistant: 'Message assistant', code: 'New session', security: 'New hunt', canvas: 'All of Canvas' };
 
 // ---------------------------------------------------------------------------
 // Delegated work
@@ -245,7 +249,7 @@ export function fromWords(parent: Pick<Session, 'title' | 'kind' | 'agent'> | un
   const mode = sideModeOf(parent);
   const title = parent.title?.trim() || (mode === 'chat' ? 'a chat' : 'a session');
   if (mode === 'chat') return /\bchat$/i.test(title) ? `from ${title}` : `from ${title} chat`;
-  return `from ${title} in ${mode === 'assistant' ? 'Assistant' : 'Code'}`;
+  return `from ${title} in ${mode === 'assistant' ? 'Assistant' : mode === 'security' ? 'Security' : 'Code'}`;
 }
 
 /** Delegated work that is not archived, newest first, as rows. */

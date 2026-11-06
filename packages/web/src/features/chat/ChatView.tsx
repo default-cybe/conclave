@@ -128,7 +128,7 @@ export function ChatView({ session, column }: { session: Session; /** Shown as a
         <Docked>
           <RepoBar session={session} />
           <LocationBanner session={session} />
-          <BrowserLive sessionId={session.id} preview={modeOf(session) === 'code'} />
+          <BrowserLive sessionId={session.id} preview={modeOf(session) === 'code' || modeOf(session) === 'security'} />
           <RunningTasks sessionId={session.id} />
           <Composer session={session} />
         </Docked>
@@ -146,7 +146,7 @@ export function ChatView({ session, column }: { session: Session; /** Shown as a
       <Docked>
         {todos && !panelShown && <TodoStrip todos={todos} />}
         <LocationBanner session={session} />
-        <BrowserLive sessionId={session.id} preview={modeOf(session) === 'code'} />
+        <BrowserLive sessionId={session.id} preview={modeOf(session) === 'code' || modeOf(session) === 'security'} />
         <RunningTasks sessionId={session.id} />
         <Composer session={session} />
       </Docked>

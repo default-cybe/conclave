@@ -223,6 +223,8 @@ data class ChatSettings(
     val cyber: String? = null,
     /** Same model for all work: Delegate, Task and workflow agents run on the session's model (core session/model-pin.ts). */
     val sameModel: Boolean = false,
+    /** Security mode: the security agent, its sec-* roles and the scope guard (docs/design/SECURITY-MODE.md). */
+    val security: Boolean = false,
 )
 
 // ---------------------------------------------------------------------------

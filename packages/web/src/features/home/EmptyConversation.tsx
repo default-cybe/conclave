@@ -18,7 +18,7 @@ import { useSessionTarget } from './SessionStart';
 import { TodaySection } from './today';
 import { WaitingSection } from './sections';
 import { LearningsBadge } from '@/features/settings/reflectLearnings';
-import type { StartMode } from './start';
+import { offersIncognito, type SessionKind, type StartMode } from './start';
 
 /** The knot over the greeting: as heavy over its 26px heading as the phone's 64px mark over its 28px one. */
 const MARK = 60;
@@ -33,8 +33,8 @@ export function EmptyConversation({ mode }: { mode: Exclude<StartMode, 'canvas'>
   useQuietAskToasts();
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
-      {/* Assistant is one kept thread: no incognito there */}
-      {mode !== 'assistant' && <IncognitoToggle code={mode === 'code'} className="absolute top-1 right-3 z-10" />}
+      {/* Assistant is one kept thread, a hunt keeps its records: no incognito there */}
+      {offersIncognito(mode) && <IncognitoToggle code={mode === 'code'} className="absolute top-1 right-3 z-10" />}
       <div aria-hidden className="min-h-8 flex-[4]" />
       <Greeting as="h1" size={MARK} />
       <div className="mt-7">{mode === 'chat' ? <ChatComposer chatId="new" minRows={3} blurOnEsc placeholder={PLACEHOLDER.chat} /> : <SessionComposer key={mode} mode={mode} />}</div>
@@ -48,7 +48,7 @@ export function EmptyConversation({ mode }: { mode: Exclude<StartMode, 'canvas'>
   );
 }
 
-function SessionComposer({ mode }: { mode: 'assistant' | 'code' }) {
+function SessionComposer({ mode }: { mode: SessionKind }) {
   const target = useSessionTarget(mode);
   return <ChatComposer chatId={`new:${mode}`} minRows={3} blurOnEsc target={target} />;
 }

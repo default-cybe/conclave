@@ -8,7 +8,7 @@
 /** The index's groups, in order, by section id. A section not named here goes under the first group. */
 export const SETTINGS_GROUPS: Array<{ label: string; ids: string[] }> = [
   { label: 'Settings', ids: ['account', 'people', 'appearance', 'notifications', 'assistant', 'reflect'] },
-  { label: 'Models', ids: ['providers', 'subscriptions', 'accounts', 'refusal', 'usage', 'defaults'] },
+  { label: 'Models', ids: ['providers', 'subscriptions', 'accounts', 'refusal', 'usage', 'security', 'defaults'] },
   { label: 'Customize', ids: ['permissions', 'apps', 'github', 'maps', 'websearch', 'meetings', 'calmail', 'browser', 'gateway', 'secrets'] },
   { label: 'Platform', ids: ['remote', 'friends', 'computer', 'audit', 'logs', 'about'] },
 ];
@@ -31,6 +31,7 @@ const KEYWORDS: Record<string, string> = {
   accounts: 'limits reset budget order',
   refusal: 'refuse refused declined safety priority fallback next model',
   usage: 'usage limit quota fallback chain next model',
+  security: 'roles routing sec hunter validator refuter reporter recon exploit hunt lane',
   defaults: 'default model agent device memory',
   permissions: 'rules allow ask deny mode',
   notifications: 'notify push alerts phone browser hold',

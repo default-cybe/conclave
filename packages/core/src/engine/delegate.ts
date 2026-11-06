@@ -13,6 +13,7 @@ import type { DelegateOutcome, DelegatePlace, DelegateRequest } from '../tools/d
 import { projectsOf } from '../projects/attached';
 import { agentModelRef, subagentModel } from '../extensions/agent-model';
 import { modelPin } from '../session/model-pin';
+import { accountRole } from '../security/roles';
 import { CHAT_AGENT, chatUsesMemory } from '../session/chat';
 import { isUntrusted } from '../session/untrusted';
 import { isDelegated, movedSession, movedToMain } from '../session/delegated';
@@ -155,7 +156,9 @@ export async function runDelegate(engine: Engine, parentId: string, req: Delegat
   const pin = modelPin(engine, parent);
   const base = engine.config.get().defaultModel;
   // a role profile's fallback list (sec-*) is tried before the default model when its own model is unusable
-  let model = pin ?? (def.model ? subagentModel(engine, undefined, def.model, base, undefined, def.fallback) : base);
+  // a sec-* role routes by Settings > Security > Roles first (security/roles.ts)
+  const route = accountRole(engine, def, acct);
+  let model = pin ?? (route.model ? subagentModel(engine, undefined, route.model, base, undefined, route.fallback) : base);
   const asked = pin && !req.model?.includes('/') ? undefined : req.model;
   if (asked) {
     // a harness that is off, or a model the owner hid, says where to turn it on before the generic refusal

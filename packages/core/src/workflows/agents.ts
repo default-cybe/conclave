@@ -18,7 +18,7 @@
  */
 import type { Engine } from '../engine/engine';
 import { continueSubagent, runSubagent, type SubagentResult } from '../engine/subagent';
-import { agentModelRef, isModelDead, pinnedAsk } from '../extensions/agent-model';
+import { agentModelRef, isModelDead, pinnedAsk, subagentModel } from '../extensions/agent-model';
 import { tierOf } from '../extensions/model-ref';
 import { bareModel } from '../accounts/policy';
 import { findCatalogEntry } from '../providers/catalog';
@@ -26,6 +26,7 @@ import { variantBase } from '../providers/model-id';
 import { isMember } from '../people/context';
 import { memberCanUse } from '../session/member-fallbacks';
 import { modelPin } from '../session/model-pin';
+import { accountRole } from '../security/roles';
 import { assertOutputSchema, formatProblems, validateSchema, type Schema } from '../tools/schema';
 import { extractJsonObject, STRUCTURED_OUTPUT_ATTEMPTS, structuredOutputNudge, structuredOutputTool, type StructuredOutputState } from '../tools/structured-output';
 import type { Tool } from '../tools/types';
@@ -244,7 +245,7 @@ export async function runStep(o: StepRunOptions): Promise<StepOutcome> {
   let tierGuess = false;
   // the call's model, else the phase's, else the profile's own (verifier: deep), resolved here so a failed harness can fall back
   // Same model for all work (session/model-pin.ts): only a provider/model the call names beats the pin
-  const ask = pinnedAsk(modelPin(engine, parent), spec.model) ?? o.phaseModel ?? profileModel(engine, profile.name, o.cwd, acct);
+  const ask = pinnedAsk(modelPin(engine, parent), spec.model) ?? o.phaseModel ?? profileModel(engine, profile.name, o.cwd, acct, parent.model);
   if (ask) {
     // agentModelRef checks that an ACP harness is installed before a tier lands on it
     const r = agentModelRef(engine, ask, parent.model);
@@ -365,9 +366,13 @@ export async function runStep(o: StepRunOptions): Promise<StepOutcome> {
   }
 }
 
-function profileModel(engine: Engine, name: string, cwd: string, accountId: string): string | undefined {
+function profileModel(engine: Engine, name: string, cwd: string, accountId: string, parentModel: string): string | undefined {
   try {
-    return engine.agentNamed(name, cwd, accountId)?.model;
+    const def = engine.agentNamed(name, cwd, accountId);
+    if (!def) return undefined;
+    // a sec-* role: Settings > Security > Roles over its profile, walking the fallback list as Task does (security/roles.ts)
+    const route = accountRole(engine, def, accountId);
+    return route.fallback?.length ? subagentModel(engine, undefined, route.model, parentModel, undefined, route.fallback) : route.model;
   } catch {
     return undefined;
   }

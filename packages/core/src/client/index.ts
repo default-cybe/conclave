@@ -304,6 +304,8 @@ export interface SessionPatch {
   mcpOff?: string[] | null;
   /** Design direction for UI work (/design, session/design-brief.ts). null clears it. Refused on chats. */
   design?: DesignInput | null;
+  /** Security mode's lane (security/lanes.ts), picked from the lane chip. Only with chat.security on; each change is logged. */
+  lane?: import('../security/lanes').Lane;
 }
 
 /** What fills a session's context now (/context), in tokens counted like a request (chars / 4). */

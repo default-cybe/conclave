@@ -164,6 +164,8 @@ import { checkMemberRefusalList, checkMemberUsageList, memberCanUse } from '../s
 import { modelPin } from '../session/model-pin';
 import { quotedOf } from '../session/quoted';
 import { assistantFor } from '../assistant/registry';
+import { DEFAULT_LANE, detectLanes, isLane, LANES, laneLabel, laneOf, type SessionLane } from '../security/lanes';
+import { ensureHuntFolder, SECURITY_AGENT } from '../security/workspace';
 
 const log = logger('engine');
 /** A session still called New chat after its start is named again after each of its first turns, up to this one. */
@@ -593,7 +595,8 @@ export class Engine implements EngineApi {
       throw new EngineError(400, (err as Error).message);
     }
     // a chat uses the chat agent (when it is installed) and runs on the hub: it has no files or devices
-    const agent = input.agent ?? (isChat && this.extensions.agent(CHAT_AGENT) ? CHAT_AGENT : (prefs.defaultAgent ?? cfg.defaultAgent));
+    // Security on at the start (the Security start mode) starts the security agent unless one is named
+    const agent = input.agent ?? (isChat && this.extensions.agent(CHAT_AGENT) ? CHAT_AGENT : chat?.security && this.agentNamed(SECURITY_AGENT, undefined, acct) ? SECURITY_AGENT : (prefs.defaultAgent ?? cfg.defaultAgent));
     const def = this.agentNamed(agent, undefined, acct) ?? this.extensions.agents()[0];
     if (isMember(acct) && input.agent && !this.agentNamed(input.agent, undefined, acct)) throw new EngineError(404, `Agent ${input.agent} not found`);
     // an agent's tier word (fast, smart, deep) resolves against the default model (extensions/agent-model.ts)
@@ -645,6 +648,12 @@ export class Engine implements EngineApi {
       for (const old of this.repos.sessions.list({ accountId: acct, incognito: true, parentId: null, limit: 1000 })) {
         if (old.id !== session.id && old.status !== 'running' && !this.runners.get(old.id)?.busy) await this.deleteSession(old.id).catch((err) => log.warn(`could not close incognito session ${old.id}`, err));
       }
+    }
+    // a hunt folder (Security start mode): scope.yaml, targets/ and playbook/, made when missing (security/workspace.ts)
+    if (chat?.security && !isChat && !input.parentId) {
+      const made = await ensureHuntFolder(machine, cwd).catch((err: Error) => `Could not set up the hunt folder: ${err.message}`);
+      if (typeof made === 'string') this.notice(session.id, made, 'warning');
+      else if (made.length) this.notice(session.id, `Hunt folder ready: made ${made.join(', ')} in ${cwd}. Fill in scope.yaml before any live target.`, 'info');
     }
     if (input.prompt) await this.send(session.id, { text: input.prompt });
     return session;
@@ -738,6 +747,29 @@ export class Engine implements EngineApi {
       ...('ultra' in patch ? { ultra: !!patch.ultra && kind !== 'chat' } : {}),
       updatedAt: Date.now(),
     };
+    // the Security switch (SECURITY-MODE.md 1.1): on loads the security agent, off brings back the one it replaced; an agent in the same patch wins
+    if (patch.chat?.security !== undefined && !!chat?.security !== !!s.chat?.security && !('agent' in patch)) {
+      const meta: Record<string, unknown> = { ...(next.meta ?? {}) };
+      if (chat?.security) {
+        if (s.agent !== SECURITY_AGENT && this.agentNamed(SECURITY_AGENT, s.cwd, this.accountOf(s))) {
+          meta.securityPrev = s.agent;
+          next.agent = SECURITY_AGENT;
+        }
+      } else if (s.agent === SECURITY_AGENT) {
+        const prev = typeof meta.securityPrev === 'string' && this.agentNamed(meta.securityPrev, s.cwd, this.accountOf(s)) ? meta.securityPrev : undefined;
+        next.agent = prev ?? (kind === 'chat' && this.extensions.agent(CHAT_AGENT) ? CHAT_AGENT : ((isMember(this.accountOf(s)) ? this.accountPrefs(this.accountOf(s)).defaultAgent : undefined) ?? this.config.get().defaultAgent));
+      }
+      if (!chat?.security) delete meta.securityPrev;
+      next.meta = Object.keys(meta).length ? meta : undefined;
+    }
+    // the lane chip (security/lanes.ts): the owner's pick, logged when it changes
+    if ('lane' in patch) {
+      if (!isLane(patch.lane)) throw new EngineError(400, `lane must be one of ${LANES.map((l) => l.value).join(', ')}`);
+      if (!chat?.security) throw new EngineError(400, 'A lane is for a session with Security on.');
+      const old = laneOf(s.meta);
+      next.meta = { ...(next.meta ?? {}), lane: { lane: patch.lane, detected: old?.detected ?? [], by: 'owner' } satisfies SessionLane };
+      if (old?.lane !== patch.lane) this.audit(id, 'security.lane', `${old ? laneLabel(old.lane) : 'none'} to ${laneLabel(patch.lane)} (owner)`);
+    }
     // connectors off for this session only (session/connectors.ts)
     if ('mcpOff' in patch) {
       let off: string[];
@@ -933,12 +965,26 @@ export class Engine implements EngineApi {
       this.repos.sessions.update(next);
       this.bus.emit({ type: 'session.updated', session: next });
     }
+    // Security mode: the lane comes from the first message and its files (security/lanes.ts), logged on the session
+    if (s.chat?.security && !laneOf(s.meta)) this.detectLane(id, input.text, (input.attachments ?? []).map((a) => a.name ?? a.path ?? ''));
     const ready = { ...input, attachments: prepared.attachments, ...(prepared.receipts.length ? { attachmentReceipts: prepared.receipts } : {}) };
     if (s.kind === 'chat' && hasPeople(this.repos.db, id)) {
       void this.sharedTurn(id, this.accountOf(s), ready).catch((err) => this.notice(id, `Turn failed: ${err.message}`, 'error'));
       return { queued: true };
     }
     return this.runnerFor(id).enqueue(ready);
+  }
+
+  /** Set a security session's lane from its first message; nothing matched is white-box source, with every lane offered on the chip. */
+  private detectLane(id: string, text: string, files: string[]): void {
+    const s = this.repos.sessions.get(id);
+    if (!s) return;
+    const detected = detectLanes({ text, files: files.filter(Boolean) });
+    const lane: SessionLane = { lane: detected[0] ?? DEFAULT_LANE, detected };
+    const next = { ...s, meta: { ...s.meta, lane }, updatedAt: Date.now() };
+    this.repos.sessions.update(next);
+    this.bus.emit({ type: 'session.updated', session: next });
+    this.audit(id, 'security.lane', `${laneLabel(lane.lane)} (${detected.length ? `detected${detected.length > 1 ? `, also ${detected.slice(1).join(', ')}` : ''}` : 'nothing matched, the default'})`);
   }
 
   /**

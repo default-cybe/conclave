@@ -15,6 +15,7 @@ import type { RunnerExtension } from '../session/runner-ext';
 import { continueSubagent, runSubagent } from './subagent';
 import { subagentModel } from '../extensions/agent-model';
 import { modelPin } from '../session/model-pin';
+import { accountRole } from '../security/roles';
 import { assertOutputSchema, formatProblems, validateSchema, type Schema } from '../tools/schema';
 import { extractJsonObject, STRUCTURED_OUTPUT_ATTEMPTS, STRUCTURED_OUTPUT_TOOL, structuredOutputNudge, structuredOutputTool, type StructuredOutputState } from '../tools/structured-output';
 import type { Tool } from '../tools/types';
@@ -74,7 +75,8 @@ export async function runStructuredTask(engine: Engine, o: StructuredTaskOptions
   const acct = engine.accountOf(parent);
   const def = engine.agentNamed(o.agent, parent.cwd, acct) ?? engine.agentNamed('general-purpose', undefined, acct);
   // the model runSubagent will pick, Same model for all work included, so the JSON path matches the child
-  const acp = isAcp(engine, subagentModel(engine, o.model, def?.model, parent.model, modelPin(engine, parent), def?.fallback));
+  const route = def ? accountRole(engine, def, acct) : undefined;
+  const acp = isAcp(engine, subagentModel(engine, o.model, route?.model, parent.model, modelPin(engine, parent), route?.fallback));
   const map = registry(engine);
 
   if (acp) {

@@ -39,6 +39,7 @@ export function SelectMenu<T extends string>({
   disabled,
   id,
   invalid,
+  after,
 }: {
   value: T | undefined;
   onChange: (v: T) => void;
@@ -55,6 +56,8 @@ export function SelectMenu<T extends string>({
   disabled?: boolean;
   id?: string;
   invalid?: boolean;
+  /** Rows after the options, under a separator (a link to where they are set). */
+  after?: MenuItem[];
 }) {
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -69,6 +72,7 @@ export function SelectMenu<T extends string>({
     }
     items.push({ label: o.label, lead: o.lead, detail: o.detail, hint: o.hint, disabled: o.disabled, checked: o.value === value, onSelect: () => onChange(o.value) });
   }
+  if (after?.length) items.push({ separator: true, label: '' }, ...after);
   const menuWidth = width ?? Math.max(200, ref.current?.offsetWidth ?? 0);
   return (
     <>

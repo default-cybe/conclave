@@ -3,7 +3,8 @@
  * hook for Security mode sessions. It is the early warning, not the boundary;
  * the egress gateway on Madx (PR 1b) is.
  *
- * - On for a session whose agent lists the `scope-guard` recipe, and for every
+ * - On for a session whose agent lists the `scope-guard` recipe or whose
+ *   Security switch is on (chat.security), and for every
  *   session below one (Task children, Delegate sessions on other devices), so
  *   handing a network task to a child or a device does not drop the guard.
  * - The scope and the grants come from the topmost guarded session in the
@@ -39,7 +40,8 @@ export function guardAnchor(host: ScopeGuardHost, session: Session): Session | u
   let anchor: Session | undefined;
   let s: Session | undefined = session;
   for (let i = 0; s && i < 32; i++) {
-    if (wantsScopeGuard(host.agentFor(s))) anchor = s;
+    // the Security switch arms it too, whatever agent the session runs (SECURITY-MODE.md 1.1)
+    if (s.chat?.security || wantsScopeGuard(host.agentFor(s))) anchor = s;
     s = s.parentId ? host.getSession(s.parentId) : undefined;
   }
   return anchor;
