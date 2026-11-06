@@ -392,6 +392,9 @@ const EDIT_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 const SCOPE_FILE = /(^|[/\\\s'"])scope\.ya?ml\b/i;
 // shortcut: command words that can change a file; a script that writes scope.yaml by a built name is missed. PR 1b pins the scope a grant was issued on.
 const SHELL_WRITE = />|\b(tee|sed|perl|mv|cp|rm|ln|dd|truncate|install|rsync|python3?|node|ruby|bun|yq)\b/;
+// a command that steps around the egress gateway (HTTP(S)_PROXY): its requests are not checked, rated or counted on a grant
+// shortcut: command text only; a program that opens raw sockets is missed until the per-hunt container makes the gateway the only way out.
+const PROXY_OFF = /--no-?proxy\b|--proxy\b|--socks\w*\b|\bcurl\b[^\n;&|]*\s-x\b|\bunset\b[^;&|\n]*\b(?:https?|all)_proxy\b|\benv\b[^;&|\n]*\s-(?:u\s*\S*_proxy\b|i\b)|\b(?:no|https?|all)_proxy=|trust_env\s*=\s*False/i;
 
 /** Tools that can reach the network (the shell, hub fetchers, the browser, Delegate, routines and watches, every MCP tool), plus file tools for scope-file edits. */
 export function guardedTool(name: string): boolean {
@@ -445,8 +448,11 @@ export function decide(call: GuardCall): GuardVerdict | undefined {
   for (const t of targetsOf(call, scopes)) if (t.host) seen.set(`${t.host}\u0000${t.path ?? ''}`, t);
   const targets = [...seen.values()];
   const race = RACE.test(tool);
+  const proxyOff = tool === 'Bash' && typeof call.input.command === 'string' && PROXY_OFF.test(call.input.command);
+  const offAsk = (where: string): GuardVerdict => ({ decision: 'ask', reason: `Scope guard: this command turns off the hunt's egress gateway (proxy variables), so ${where} would not be checked or counted on a grant. Approve only if it reaches lab hosts.` });
 
   if (!targets.length) {
+    if (proxyOff) return offAsk('its requests');
     if (race) return { decision: 'deny', reason: 'Scope guard: Caido race_window_send sends from raw sockets around the proxy, and no lab host was named. Run races only against the lab stack.' };
     if (CAIDO_SEND.test(tool)) return { decision: 'ask', reason: `Scope guard: ${tool} sends traffic and the target host is not in the call. Check it is a lab host or covered by an approval grant.` };
     return undefined;
@@ -475,6 +481,7 @@ export function decide(call: GuardCall): GuardVerdict | undefined {
     } else if (!HUB_FETCH.has(tool)) ask ??= `${t.host} is not listed in scope.yaml. Approve only if it is not a target (docs, a package registry).`;
   }
   if (deny) return { decision: 'deny', reason: `Scope guard: ${deny}` };
+  if (proxyOff && targets.some((t) => classifyAll(scopes, t.host, t.path) !== 'lab')) return offAsk(targets.map((t) => t.host).join(', '));
   if (ask) return { decision: 'ask', reason: `Scope guard: ${ask}` };
   return undefined;
 }

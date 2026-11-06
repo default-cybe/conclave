@@ -38,7 +38,7 @@ export function egressLogPath(cwd: string, st: ScopeState, host: string): string
   return join(cwd, 'findings', `${t.replace(/[^\w.-]+/g, '-')}-hunt`, 'egress.log');
 }
 
-function startFor(host: EgressHost, anchor: Session): Promise<EgressGateway> {
+function startFor(host: EgressHost, anchor: Session, member: boolean): Promise<EgressGateway> {
   let cached: { at: number; st: Promise<ScopeState> } | undefined;
   const scope = () => {
     if (!cached || Date.now() - cached.at > SCOPE_TTL_MS) cached = { at: Date.now(), st: loadScope(host.machineFor(anchor), anchor.cwd) };
@@ -47,7 +47,8 @@ function startFor(host: EgressHost, anchor: Session): Promise<EgressGateway> {
   let chain: Promise<unknown> = Promise.resolve();
   const gw = new EgressGateway({
     scope,
-    grants: () => grantsOf(host.repos.kv, anchor.id),
+    // members are lab-only in v1: their gateway sees no grant
+    grants: () => (member ? [] : grantsOf(host.repos.kv, anchor.id)),
     count: (id) => void countUse(host.repos.kv, anchor.id, id),
     log: (line, h) => {
       // in order, one after another; a failed write never stops the hunt
@@ -72,14 +73,16 @@ export async function egressEnv(host: EgressHost, session: Session, device = ses
   const anchor = guardAnchor(host, session);
   if (!anchor) return undefined;
   // shortcut: the gateway listens on the hub's loopback, so only calls on the hub's own device use it; a paired device keeps the scope guard only. Upgrade with the per-hunt Madx container (design 4.2).
-  if ((device && device !== 'local') || (anchor.device && anchor.device !== 'local') || host.isMemberSession(session)) return undefined;
+  if ((device && device !== 'local') || (anchor.device && anchor.device !== 'local')) return undefined;
+  const member = host.isMemberSession(anchor) || host.isMemberSession(session);
+  const key = member ? `${anchor.id}:member` : anchor.id;
   let byHunt = gateways.get(host);
   if (!byHunt) gateways.set(host, (byHunt = new Map()));
-  let gw = byHunt.get(anchor.id);
+  let gw = byHunt.get(key);
   if (!gw) {
-    gw = startFor(host, anchor);
-    byHunt.set(anchor.id, gw);
-    gw.catch(() => byHunt.delete(anchor.id));
+    gw = startFor(host, anchor, member);
+    byHunt.set(key, gw);
+    gw.catch(() => byHunt.delete(key));
   }
   const url = (await gw).url;
   return { HTTP_PROXY: url, HTTPS_PROXY: url, ALL_PROXY: url, http_proxy: url, https_proxy: url, all_proxy: url, NO_PROXY: '', no_proxy: '' };

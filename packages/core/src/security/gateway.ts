@@ -84,6 +84,9 @@ export class EgressGateway {
   private readonly token = randomBytes(18).toString('base64url');
   private readonly buckets = new Map<string, { tokens: number; at: number }>();
   private readonly sockets = new Set<Socket>();
+  /** Open CONNECT tunnels and the grant each was let through on. */
+  private readonly tunnels = new Map<Socket, string>();
+  private sweeper?: ReturnType<typeof setInterval>;
 
   constructor(private opts: GatewayOptions) {}
 
@@ -106,9 +109,28 @@ export class EgressGateway {
     server.unref();
     this.port = (server.address() as { port: number }).port;
     this.server = server;
+    this.sweeper = setInterval(() => this.sweep(), 1000);
+    this.sweeper.unref?.();
+  }
+
+  /** Close the tunnels whose grant was revoked or expired since they opened (a tunnel otherwise outlives its grant). */
+  sweep(): void {
+    if (!this.tunnels.size) return;
+    const now = this.now();
+    let grants: ScopeGrant[];
+    try {
+      grants = this.opts.grants();
+    } catch {
+      grants = [];
+    }
+    for (const [sock, id] of this.tunnels) {
+      const g = grants.find((x) => x?.id === id);
+      if (!g || g.revokedAt || now >= g.expiresAt) sock.destroy();
+    }
   }
 
   stop(): void {
+    clearInterval(this.sweeper);
     for (const s of this.sockets) s.destroy();
     this.server?.close();
     this.server = undefined;
@@ -177,9 +199,18 @@ export class EgressGateway {
     if (u.protocol !== 'http:') return deny(400, `${u.protocol} is not proxied here; HTTPS goes through CONNECT`);
     const port = Number(u.port) || 80;
     const host = u.hostname.replace(/^\[|\]$/g, '');
-    const v = await this.check(req.method ?? 'GET', host, port, u.pathname);
+    // the path as the server reads it: %6c is l, so an encoded out_of_scope path is still out
+    let path: string;
+    try {
+      path = new URL(decodeURIComponent(u.pathname), 'http://h').pathname;
+    } catch {
+      return deny(400, 'the path has a broken %-escape');
+    }
+    const v = await this.check(req.method ?? 'GET', host, port, path);
     if (!v.allow) return deny(v.status, v.reason);
     const headers = { ...req.headers };
+    // the checked host is the one the server sees: a Host header naming another (out-of-scope) vhost on the same server is replaced
+    headers.host = u.host;
     delete headers['proxy-authorization'];
     delete headers['proxy-connection'];
     const up = httpRequest({ host, port, method: req.method, path: `${u.pathname}${u.search}`, headers, ...(this.opts.dial ? { createConnection: () => this.dial(host, port) } : {}) });
@@ -213,6 +244,10 @@ export class EgressGateway {
     });
     up.once('connect', () => {
       open = true;
+      if (v.grant) {
+        this.tunnels.set(sock, v.grant.id);
+        sock.on('close', () => this.tunnels.delete(sock));
+      }
       sock.write('HTTP/1.1 200 Connection Established\r\n\r\n');
       if (head?.length) up.write(head);
       up.pipe(sock);

@@ -582,6 +582,12 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
           }
         />
         {sharedRow}
+        {/* the phone row has no chips: the Live grant chip and its Revoke sit here */}
+        {agentDef?.recipes?.includes('scope-guard') && (
+          <div className="flex px-1 empty:hidden">
+            <GrantChip sessionId={session.id} />
+          </div>
+        )}
         <StatusLine session={session} phone />
         <Sheet open={sheet} onClose={() => setSheet(false)} title="Options">
           <div className="space-y-4 px-4 pb-4">
