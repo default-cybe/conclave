@@ -4,6 +4,7 @@ import dev.conclave.client.model.CanvasQueuedRun
 import dev.conclave.client.model.FlowRunView
 import dev.conclave.client.model.FlowSummary
 import dev.conclave.client.model.FlowView
+import dev.conclave.client.model.NewCanvasProgram
 import dev.conclave.client.model.WorkflowGraphView
 import dev.conclave.client.model.WorkflowSummary
 import kotlinx.serialization.builtins.ListSerializer
@@ -19,6 +20,20 @@ import kotlinx.serialization.json.put
 /** The programs (flows/<name>.flow.ts) in a Code session's folder. */
 suspend fun ConclaveClient.flows(sessionId: String): List<FlowSummary> =
     get(p("api", "sessions", sessionId, "flows"), ListSerializer(FlowSummary.serializer()))
+
+/**
+ * Canvas's New: a blank flows/untitled-N.flow.ts. With no folder the owner's goes to their Canvas
+ * folder on the hub; a member gets 400 there and names a device and folder of their own.
+ */
+suspend fun ConclaveClient.newCanvasProgram(device: String? = null, cwd: String? = null): NewCanvasProgram =
+    sendJson(
+        "POST", p("api", "canvas", "programs"),
+        buildJsonObject {
+            if (device != null) put("device", device)
+            if (cwd != null) put("cwd", cwd)
+        },
+        NewCanvasProgram.serializer(),
+    )
 
 suspend fun ConclaveClient.flowGraph(sessionId: String, name: String): FlowView =
     get(p("api", "sessions", sessionId, "flows", name, "graph"), FlowView.serializer())

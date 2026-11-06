@@ -43,7 +43,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.conclave.app.data.CodeDefaults
 import dev.conclave.app.data.HubRepository
+import dev.conclave.app.ui.conversation.CodeWhereSheet
 import dev.conclave.app.ui.common.EmptyState
 import dev.conclave.app.ui.common.ErrorBanner
 import dev.conclave.app.ui.common.HubViewModel
@@ -69,6 +71,7 @@ import dev.conclave.client.deleteWorkflowPreset
 import dev.conclave.client.flowGraph
 import dev.conclave.client.flowRun
 import dev.conclave.client.flows
+import dev.conclave.client.newCanvasProgram
 import dev.conclave.client.logic.BlockState
 import dev.conclave.client.logic.Canvas
 import dev.conclave.client.logic.CanvasBlock
@@ -120,8 +123,35 @@ class CanvasListViewModel(hub: HubRepository) : HubViewModel(hub) {
     val error = MutableStateFlow<String?>(null)
     val refreshing = MutableStateFlow(false)
 
+    /** New was refused with no folder (a member's 400): Code's folder sheet asks for a device and folder. */
+    val askFolder = MutableStateFlow(false)
+    val creating = MutableStateFlow(false)
+
     init {
         load()
+    }
+
+    /**
+     * Canvas's New (POST /api/canvas/programs): the owner's blank program goes to their Canvas
+     * folder on the hub; a member names a device and folder of their own, then [onMade] opens it.
+     */
+    fun newProgram(device: String? = null, cwd: String? = null, onMade: (CanvasFile.Program) -> Unit) {
+        if (creating.value) return
+        creating.value = true
+        viewModelScope.launch {
+            try {
+                val made = hub.api { it.newCanvasProgram(device, cwd) }
+                askFolder.value = false
+                load()
+                onMade(Canvas.newFile(made))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (device == null && Canvas.asksFolder(e)) askFolder.value = true else say(errorText(e))
+            } finally {
+                creating.value = false
+            }
+        }
     }
 
     fun load() {
@@ -159,8 +189,18 @@ fun CanvasListScreen(onOpen: (CanvasFile) -> Unit) {
     val groups by vm.groups.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
+    val askFolder by vm.askFolder.collectAsStateWithLifecycle()
+    val creating by vm.creating.collectAsStateWithLifecycle()
+    val toasts = rememberToasts()
+    MessagesEffect(vm.messages, toasts)
+    var where by remember { mutableStateOf(CodeDefaults()) }
     val c = Conclave.colors
-    Scaffold(topBar = { TopBar("Canvas") }) { padding ->
+    Scaffold(
+        topBar = {
+            TopBar("Canvas", actions = { TextButton(onClick = { vm.newProgram(onMade = onOpen) }, enabled = !creating) { Text("New") } })
+        },
+        snackbarHost = { ToastHost(toasts) },
+    ) { padding ->
         PullToRefreshBox(isRefreshing = refreshing && groups != null, onRefresh = { vm.load() }, modifier = Modifier.padding(padding).fillMaxSize()) {
             val list = groups
             when {
@@ -171,7 +211,7 @@ fun CanvasListScreen(onOpen: (CanvasFile) -> Unit) {
                         EmptyState(
                             Icons.Outlined.AccountTree,
                             "No programs or workflows yet",
-                            "A program is flows/<name>.flow.ts in a Code session's folder; ask the agent there for one.",
+                            "New makes a blank program. Add its blocks on the web, or ask the agent in a Code session for one.",
                         )
                     }
                 }
@@ -199,6 +239,16 @@ fun CanvasListScreen(onOpen: (CanvasFile) -> Unit) {
                 }
             }
         }
+    }
+    if (askFolder) {
+        // Code's own device and folder sheet; the hub refuses its own computer to a member in plain words
+        CodeWhereSheet(
+            d = where,
+            onChange = { where = it },
+            onDone = { vm.newProgram(where.device, where.cwd, onOpen) },
+            onDismiss = { vm.askFolder.value = false },
+            done = if (creating) "Creating" else "Create",
+        )
     }
 }
 
@@ -503,7 +553,24 @@ fun CanvasScreen(file: CanvasFile, onBack: () -> Unit) {
                             items(queue, key = { "q:${it.id}" }) { q -> QueuedRow(q, now) { vm.cancelQueued(q.id) } }
                         }
                         if (v.blocks.isEmpty()) {
-                            item(key = "empty") { EmptyState(Icons.Outlined.AccountTree, "No blocks", "This file has no statements the canvas can show yet.") }
+                            item(key = "empty") {
+                                val base = hub.currentUrl
+                                val openWeb: (@Composable () -> Unit)? = if (base == null) {
+                                    null
+                                } else {
+                                    {
+                                        TextButton(onClick = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(base.trimEnd('/') + Canvas.webPath(file)))) } }) {
+                                            Text("Open on web to edit")
+                                        }
+                                    }
+                                }
+                                EmptyState(
+                                    Icons.Outlined.AccountTree,
+                                    "No blocks",
+                                    "This file has no statements the canvas can show yet. Blocks are added on the web.",
+                                    action = openWeb,
+                                )
+                            }
                         }
                         for (section in Canvas.sections(v.blocks)) {
                             section.phase?.let { p -> item(key = "p:$p:${section.blocks.first().id}") { SectionHeader(p) } }
