@@ -16,6 +16,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Fixed
 
+- Copy buttons (code blocks, messages, links, the webhook address, the last code block shortcut, the meeting overlay) copy on Linux and over plain http again. They used only `navigator.clipboard`, which is missing over http on a LAN address and often missing or refused in the Linux desktop app (WebKitGTK), and still said Copied. They now fall back to a hidden textarea and `execCommand('copy')`, then in the desktop app on Linux to the new `copy_text` command (GTK clipboard, focused window only). Copied shows only when the text was copied; otherwise a toast says "Could not copy. Select the text and press Ctrl+C."
 - The Map no longer drops your own finished chats on a busy day. Hundreds of finished subagent, workflow agent and jury sessions filled its 80 places, so chats came and went. A child that finished without an error, whose parent is on the map, now folds into that parent: the node says "12 agents done", its usage includes theirs, and the detail panel lists them under Finished agents. Live and failed children stay nodes of their own. When the map still has more than 80 nodes, it keeps live work first, then the chats and sessions you started, then workflow runs, then children. A replay folds the children that had finished by then.
 
 ## [0.4.71] - 2026-11-05

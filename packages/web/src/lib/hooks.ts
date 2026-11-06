@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { toast } from '@/store/store';
+import { COPY_FAILED, copyText } from './clipboard';
 
 // one subscribe function per query: a new one each render makes React drop and add the listener on every render
 const subscribers = new Map<string, (cb: () => void) => () => void>();
@@ -86,16 +88,26 @@ export function useNow(ms = 1000): number {
   );
 }
 
+/** Copies; says `done` as a toast when it worked (none when the caller shows it), else how to copy by hand. */
+export async function copyAndTell(text: string, done?: string): Promise<boolean> {
+  const ok = await copyText(text);
+  if (!ok) toast({ title: COPY_FAILED, level: 'error' });
+  else if (done) toast({ title: done, level: 'info' });
+  return ok;
+}
+
 export function useCopy(): [boolean, (text: string) => void] {
   const [copied, setCopied] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   return [
     copied,
     (text: string) => {
-      void navigator.clipboard?.writeText(text).catch(() => undefined);
-      setCopied(true);
-      clearTimeout(timer.current);
-      timer.current = setTimeout(() => setCopied(false), 1500);
+      void copyAndTell(text).then((ok) => {
+        if (!ok) return;
+        setCopied(true);
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => setCopied(false), 1500);
+      });
     },
   ];
 }
