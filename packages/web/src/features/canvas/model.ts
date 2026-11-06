@@ -88,15 +88,18 @@ export function saveLibraryOpen(open: boolean) {
   }
 }
 
-/** Where the mode switch goes: the last file open, else the start page. */
+/** Where the mode switch goes: the last file open, else a new blank program (/canvas/new), as ComfyUI opens on an empty canvas. */
 export function canvasHome(): string {
   try {
     const v = localStorage.getItem(accountKey(LAST_KEY));
-    return v && v.startsWith('/canvas/') ? v : '/canvas';
+    return v && v.startsWith('/canvas/') && v !== '/canvas/new' ? v : '/canvas/new';
   } catch {
-    return '/canvas';
+    return '/canvas/new';
   }
 }
+
+/** Why Run is off: a file with no blocks has nothing to run. */
+export const runBlocked = (blocks: number): string | undefined => (blocks ? undefined : 'Add a block first: there is nothing to run yet');
 
 // ---------------------------------------------------------------------------
 // Programs: the flow routes are a session's, so a folder is read through its newest Code session

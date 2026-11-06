@@ -7,6 +7,18 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Canvas opens on a blank canvas, like ComfyUI. With no last file, Canvas makes a
+  blank program (`untitled-N`) in your Canvas folder on the hub and opens it. New
+  is in the Canvas top bar's file menu, the start page and the sidebar list, with
+  New in folder..., New workflow and Rename. The empty canvas shows a hint, opens
+  the library, keeps Run off until there is a block, and has a Describe it box
+  that asks the agent to build the blocks. Members pick a folder on their own
+  computer.
+
 ## [0.4.71] - 2026-11-05
 
 ### Added

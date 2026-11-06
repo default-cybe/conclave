@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { WorkflowRun, WorkflowSummary } from '@conclave/core/client';
 import type { Session } from '@conclave/core/types';
-import { canvasHome, deskViewport, libraryOpen, READ_ZOOM, saveLibraryOpen, fileGroups, fileHref, focusNode, focusViewport, folderSessions, goLabel, goTarget, onScreen, isRunId, programHref, rememberFile, sessionFor, workflowFiles, workflowHref } from '../src/features/canvas/model';
+import { canvasHome, deskViewport, libraryOpen, READ_ZOOM, saveLibraryOpen, fileGroups, fileHref, focusNode, focusViewport, folderSessions, goLabel, goTarget, onScreen, isRunId, programHref, rememberFile, runBlocked, sessionFor, workflowFiles, workflowHref } from '../src/features/canvas/model';
 import { readMode } from '../src/features/home/start';
 import { phonePlace } from '../src/components/PhoneFrame';
 import { NEW_WORDS, sideListWord } from '../src/lib/sidebar';
@@ -39,17 +39,31 @@ describe('addresses', () => {
   });
 });
 
+describe('an empty canvas', () => {
+  test('Run is off with a reason until there is a block', () => {
+    expect(runBlocked(0)).toContain('Add a block first');
+    expect(runBlocked(1)).toBeUndefined();
+  });
+  test('Canvas with no last file opens a new blank program, and /canvas/new is never the last file', () => {
+    expect(canvasHome()).toBe('/canvas/new');
+    rememberFile('/canvas/new');
+    expect(canvasHome()).toBe('/canvas/new');
+    rememberFile('/canvas/program/untitled-1?device=local&cwd=%2Fx');
+    expect(canvasHome()).toBe('/canvas/program/untitled-1?device=local&cwd=%2Fx');
+  });
+});
+
 describe('the last file open', () => {
   test('Canvas opens on it, else the start page', () => {
-    expect(canvasHome()).toBe('/canvas');
+    expect(canvasHome()).toBe('/canvas/new');
     rememberFile('/canvas/workflow/review');
     expect(canvasHome()).toBe('/canvas/workflow/review');
   });
   test('only Canvas addresses are kept', () => {
     rememberFile('/s/s_1');
-    expect(canvasHome()).toBe('/canvas');
+    expect(canvasHome()).toBe('/canvas/new');
     store.set('conclave.canvas.last:none', 'https://evil.example');
-    expect(canvasHome()).toBe('/canvas');
+    expect(canvasHome()).toBe('/canvas/new');
   });
   test('per account: a member signing in after the owner on this browser does not see the owner file', () => {
     const signIn = (c: object) => store.set('conclave.connection', JSON.stringify({ baseUrl: 'https://hub', ...c }));
@@ -57,14 +71,14 @@ describe('the last file open', () => {
     rememberFile('/canvas/workflow/payroll');
     expect(canvasHome()).toBe('/canvas/workflow/payroll');
     signIn({ token: 'member-token', account: { id: 'acc_m', name: 'm', role: 'member' } });
-    expect(canvasHome()).toBe('/canvas');
+    expect(canvasHome()).toBe('/canvas/new');
     rememberFile('/canvas/workflow/notes');
     signIn({ token: 'owner-token' });
     expect(canvasHome()).toBe('/canvas/workflow/payroll');
     // the old key, one per browser, is ignored
     store.set('conclave.canvas.last', '/canvas/workflow/leak');
     signIn({ token: 'another' });
-    expect(canvasHome()).toBe('/canvas');
+    expect(canvasHome()).toBe('/canvas/new');
   });
   test('the node library: folded on a run until opened, kept per account', () => {
     expect(libraryOpen(true)).toBe(false);

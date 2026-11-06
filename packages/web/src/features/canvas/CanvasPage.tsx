@@ -38,7 +38,8 @@ import { Menu, Sheet } from '@/components/ui/Overlay';
 import { Page, PageHeader } from '@/components/ui/Page';
 import { Notice, Section } from '@/components/ui/Section';
 import { Dialog } from '@/components/ui/Overlay';
-import { Textarea } from '@/components/ui/Field';
+import { Input, Textarea } from '@/components/ui/Field';
+import { NewStart, useNewFile } from './NewFile';
 import { isTyping } from '@/components/Shell';
 import { MessageList } from '@/features/chat/MessageList';
 import { ArgsForm, argsFromValues, type ArgValues } from '../workflows/args-form';
@@ -60,7 +61,7 @@ import { liveState } from '../graph/nodes';
 import { useRunDetail, useRuns } from '../workflows/data';
 import { isLive, RUN_WORD } from '../workflows/words';
 import { useCanvasFiles } from './files';
-import { codeHref, fileGroups, fileHref, fileTitle, focusNode, goLabel, goTarget, isRunId, libraryOpen, rememberFile, saveLibraryOpen, sessionFor } from './model';
+import { codeHref, fileGroups, fileHref, fileTitle, focusNode, goLabel, goTarget, isRunId, libraryOpen, programHref, rememberFile, runBlocked, saveLibraryOpen, sessionFor } from './model';
 import { copyClip, pasteClip, programRenamable, removeOps, saveWords, useEditor, workflowRenamable, type Clip } from './editor';
 
 type Positions = Record<string, { x: number; y: number }>;
@@ -86,6 +87,7 @@ export default function CanvasPage() {
   }, [kind, name, loc, search]);
   if (kind === 'program' && name) return <ProgramFile key={`${name}?${search}`} name={name} />;
   if (kind === 'workflow' && name) return isRunId(name) ? <RunFile key={name} runId={name} /> : <WorkflowFile key={name} id={name} />;
+  if (loc === '/canvas/new') return <NewStart />;
   return <CanvasStart />;
 }
 
@@ -97,13 +99,31 @@ function CanvasStart() {
   const phone = useIsMobile();
   const { files, loading, folderLabel } = useCanvasFiles();
   const groups = fileGroups(files, folderLabel);
+  const n = useNewFile();
   return (
     <>
       {phone && <PhoneBar title="Canvas" />}
       <Page width="column">
-        <PageHeader title="Canvas" sub="Programs and workflows as blocks, with their runs. Open one to see it as a graph." />
+        <PageHeader
+          title="Canvas"
+          sub="Programs and workflows as blocks, with their runs. Open one to see it as a graph."
+          actions={
+            <div className="flex flex-wrap gap-2">
+              <Button variant="primary" size={phone ? 'touch' : 'sm'} onClick={() => void n.program()}>
+                New
+              </Button>
+              <Button variant="outline" size={phone ? 'touch' : 'sm'} onClick={n.inFolder}>
+                New in folder...
+              </Button>
+              <Button variant="outline" size={phone ? 'touch' : 'sm'} onClick={() => void n.workflow()}>
+                New workflow
+              </Button>
+            </div>
+          }
+        />
         {loading && !files.length && <LoadingRows loading rows={4} />}
-        {!loading && !files.length && <Notice>No programs or workflows yet. A program is flows/&lt;name&gt;.flow.ts in a Code session's folder; ask the agent there for one.</Notice>}
+        {!loading && !files.length && <Notice>No programs or workflows yet. New opens a blank canvas: double-click it to add blocks, or describe what it should do.</Notice>}
+        {n.dialog}
         {groups.map((g) => (
           <Section key={g.label} title={g.label} className="mt-6">
             {g.files.map((f) => (
@@ -239,6 +259,7 @@ function ProgramFile({ name }: { name: string }) {
       focus={focus}
       target={goTarget(liveStates)}
       edit={{ ...ed, onAdd: (kind) => insert(kind) }}
+      rename={(to) => void attempt(() => api().renameFlow(sid!, name, to)).then((v) => v && navigate(programHref(v.name, device, cwd), { replace: true }))}
       canvas={(sel, onSelect, go) => (
         <GraphCanvas
           graph={view.graph}
@@ -619,6 +640,8 @@ interface ShellProps {
   dialog?: ReactNode;
   /** A library workflow: copy it to your own workflows, where it is editable. */
   duplicate?: () => void;
+  /** A program's new name, from the title's menu. */
+  rename?: (to: string) => void;
   /** One run, read only: the node library starts folded unless this account opened it. */
   run?: boolean;
   status: { word: string; tone: string; rest: string; since?: number };
@@ -651,7 +674,15 @@ function Shell(p: ShellProps) {
   const [sel, setSel] = useState<string | undefined>(phone ? undefined : p.focus);
   const [tab, setTab] = useState<Tab>(p.logs.length ? 'logs' : 'output');
   const [panel, setPanel] = useState(true);
-  const [lib, setLib] = useState(() => libraryOpen(!!p.run));
+  const empty = !!p.edit && !p.graph.nodes.length;
+  // an empty file opens with the library out, whatever was saved: it is where the first block comes from
+  const [lib, setLib] = useState(() => libraryOpen(!!p.run) || empty);
+  const blocked = p.edit ? runBlocked(p.graph.nodes.length) : undefined;
+  const blockedRef = useRef(blocked);
+  blockedRef.current = blocked;
+  // Describe it: the words go to the Agent tab, which sends them with the file; building: the agent's turn goes on
+  const [seed, setSeed] = useState<string>();
+  const [building, setBuilding] = useState(false);
   const [sheet, setSheet] = useState<'library' | 'output' | 'agent'>();
   const [side, setSide] = useState<'inspector' | 'agent'>('inspector');
   useFullScreen(phone);
@@ -667,6 +698,8 @@ function Shell(p: ShellProps) {
   );
   const node = p.graph.nodes.find((n) => n.id === sel);
   const ask = () => (phone ? setSheet('agent') : setSide('agent'));
+  const describe = (text: string) => (setSeed(text), ask());
+  const overlay = p.edit && (empty || building) && <EmptyCanvas empty={empty} building={building} blocks={p.graph.nodes.length} onDescribe={p.agent ? describe : undefined} phone={phone} />;
   const failed = node && p.failedOf?.(node);
   const inspector = (n: GraphNode) => (
     <>
@@ -695,14 +728,14 @@ function Shell(p: ShellProps) {
   // Ctrl/Cmd+Enter: Run, or Queue run while one goes on
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || isTyping(e) || !runRef.current) return;
+      if (e.key !== 'Enter' || !(e.metaKey || e.ctrlKey) || isTyping(e) || !runRef.current || blockedRef.current) return;
       e.preventDefault();
       runRef.current.onRun();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
-  const agentPanel = p.agent && <AgentPanel ctx={p.agent} selection={node ? [{ label: node.label, lines: `lines ${node.span.start} to ${node.span.end}` }] : []} />;
+  const agentPanel = p.agent && <AgentPanel ctx={p.agent} selection={node ? [{ label: node.label, lines: `lines ${node.span.start} to ${node.span.end}` }] : []} seed={seed} onSeeded={() => setSeed(undefined)} onWorking={setBuilding} />;
   const statusLine = (
     <span className="min-w-0 truncate" aria-live="polite">
       <span className={cn('cv-state font-medium', p.status.tone)}>{p.status.word}</span>
@@ -748,7 +781,7 @@ function Shell(p: ShellProps) {
         </Button>
       )}
       {!phone && p.runner && (
-        <Button variant="primary" size="sm" onClick={p.runner.onRun} title={p.runner.live ? 'Queue run: it starts when this one ends (Ctrl+Enter)' : 'Run (Ctrl+Enter)'}>
+        <Button variant="primary" size="sm" disabled={!!blocked} onClick={p.runner.onRun} title={blocked ?? (p.runner.live ? 'Queue run: it starts when this one ends (Ctrl+Enter)' : 'Run (Ctrl+Enter)')}>
           {p.runner.live ? 'Queue run' : 'Run'}
         </Button>
       )}
@@ -775,6 +808,7 @@ function Shell(p: ShellProps) {
         </div>
         <div className="relative flex min-h-0 flex-1 flex-col">
           {p.canvas(sel, setSel, go)}
+          {overlay}
           <div className={cn('pointer-events-none absolute inset-x-0 bottom-0 flex items-end px-3 pb-[calc(12px+var(--safe-b,0px))]', split ? 'gap-1.5' : 'gap-2')}>
             {(p.agent ? (['library', 'output', 'agent'] as const) : (['library', 'output'] as const)).map((s) => (
               <button key={s} type="button" onClick={() => setSheet(s)} className={cn('pointer-events-auto h-11 rounded-[var(--r-2)] border border-rule-2 bg-raise text-fg shadow-[var(--shadow-pop)]', split ? 'px-3 text-[14px]' : 'px-4 text-[15px]')}>
@@ -790,8 +824,10 @@ function Shell(p: ShellProps) {
                     type="button"
                     // onRun queues while a run goes on (a workflow with args asks for them first)
                     onClick={b === 'stop' ? p.runner!.onStop : p.runner!.onRun}
+                    disabled={b === 'run' && !!blocked}
+                    title={b === 'run' ? blocked : undefined}
                     aria-label={b === 'queue' ? 'Queue run: it starts when this one ends' : undefined}
-                    className={cn('font-medium', split ? 'px-3 text-[14px]' : 'px-5 text-[15px]', b === 'stop' ? 'text-fault' : 'text-fg')}
+                    className={cn('font-medium disabled:text-fg-4', split ? 'px-3 text-[14px]' : 'px-5 text-[15px]', b === 'stop' ? 'text-fault' : 'text-fg')}
                   >
                     {b === 'stop' ? 'Stop' : b === 'queue' ? 'Queue' : 'Run'}
                   </button>
@@ -824,7 +860,7 @@ function Shell(p: ShellProps) {
             {lib ? <PanelLeftClose className="size-4" strokeWidth={1.75} aria-hidden /> : <PanelLeftOpen className="size-4" strokeWidth={1.75} aria-hidden />}
           </button>
         </Tooltip>
-        <FileMenu title={p.title} />
+        <FileMenu title={p.title} rename={p.rename} />
         <span className="shrink-0 truncate text-[12px] text-fg-3">{p.meta}</span>
         <span className="mx-2 h-4 w-px shrink-0 bg-rule" aria-hidden />
         <span className="min-w-0 flex-1 truncate text-[13px]">{statusLine}</span>
@@ -845,7 +881,10 @@ function Shell(p: ShellProps) {
           </aside>
         )}
         <div className="flex min-w-0 flex-1 flex-col">
-          {p.canvas(sel, setSel, go)}
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {p.canvas(sel, setSel, go)}
+            {overlay}
+          </div>
           <div className={cn('shrink-0 border-t border-rule', panel ? 'h-[208px]' : 'h-9')}>
             <div className="flex h-9 items-center gap-3 px-3">
               <button type="button" aria-expanded={panel} aria-label={panel ? 'Fold the run panel' : 'Show the run panel'} onClick={() => setPanel(!panel)} className="grid size-6 place-items-center rounded-[var(--r-1)] text-fg-3 hov:bg-hover hov:text-fg">
@@ -871,10 +910,67 @@ function Shell(p: ShellProps) {
   );
 }
 
-function FileMenu({ title }: { title: string }) {
+/**
+ * The empty canvas (ComfyUI's start): a centred hint over the dot grid, and a
+ * Describe it box that hands the words to the Agent tab. While the agent
+ * builds, a line counts the blocks as the canvas reloads them.
+ */
+function EmptyCanvas({ empty, building, blocks, onDescribe, phone }: { empty: boolean; building: boolean; blocks: number; onDescribe?: (text: string) => void; phone: boolean }) {
+  const [text, setText] = useState('');
+  const go = () => text.trim() && (onDescribe?.(text.trim()), setText(''));
+  if (!empty)
+    return (
+      <div role="status" aria-live="polite" className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
+        <span className="rounded-full border border-rule-2 bg-raise px-3 py-1 text-[13px] text-fg-2 shadow-[var(--shadow-pop)]">
+          <span className="cv-dot-pulse mr-2 inline-block size-1.5 rounded-full bg-signal align-middle" />
+          The agent is building: {blocks} {blocks === 1 ? 'block' : 'blocks'} so far
+        </span>
+      </div>
+    );
+  return (
+    <div className={cn('pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-4 px-6', phone && 'pb-24')}>
+      <p className="m-0 text-center text-[15px] text-fg-2">{building ? 'The agent is building the first blocks...' : phone ? 'Tap Nodes, or long-press the canvas, to add a block' : 'Double-click or drag a block from the library to start'}</p>
+      {onDescribe && !building && (
+        <div className="pointer-events-auto w-full max-w-[480px] space-y-2 rounded-[var(--r-2)] border border-rule-2 bg-raise p-3 shadow-[var(--shadow-pop)]">
+          <label htmlFor="cv-describe" className="block text-[12px] font-medium text-fg-3">
+            Or describe it
+          </label>
+          <Textarea id="cv-describe" rows={2} value={text} placeholder="fetch HN top 10, summarise each, post to my inbox" onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && (e.preventDefault(), go())} />
+          <div className="flex justify-end">
+            <Button variant="primary" size={phone ? 'touch' : 'sm'} disabled={!text.trim()} onClick={go}>
+              Build it
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FileMenu({ title, rename }: { title: string; rename?: (to: string) => void }) {
   const [, navigate] = useLocation();
   const { files } = useCanvasFiles();
+  const n = useNewFile();
+  const [naming, setNaming] = useState<string>();
+  const ok = naming !== undefined && /^[a-z0-9][a-z0-9-]{0,63}$/.test(naming);
   return (
+    <>
+    {n.dialog}
+    {rename && (
+      <Dialog
+        open={naming !== undefined}
+        onClose={() => setNaming(undefined)}
+        title="Rename the program"
+        description="Lowercase words with dashes. The file becomes flows/<name>.flow.ts."
+        footer={
+          <Button variant="primary" disabled={!ok} onClick={() => (rename(naming!), setNaming(undefined))}>
+            Rename
+          </Button>
+        }
+      >
+        <Input mono aria-label="Name" value={naming ?? ''} onChange={(e) => setNaming(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && ok && (rename(naming!), setNaming(undefined))} />
+      </Dialog>
+    )}
     <Menu
       label="Open a file"
       placement="bottom-start"
@@ -883,6 +979,10 @@ function FileMenu({ title }: { title: string }) {
         { group: true, label: 'Programs and workflows' },
         ...files.slice(0, 20).map((f) => ({ label: fileTitle(f), detail: f.kind === 'program' ? f.cwd : f.group === 'runs' ? 'run' : f.group, checked: fileTitle(f) === title, onSelect: () => navigate(fileHref(f)) })),
         { separator: true, label: '' },
+        ...(rename ? [{ label: 'Rename...', onSelect: () => setNaming(title.replace(/\.flow\.ts$/, '')) }] : []),
+        { label: 'New', onSelect: () => void n.program() },
+        { label: 'New in folder...', onSelect: n.inFolder },
+        { label: 'New workflow', onSelect: () => void n.workflow() },
         { label: 'All of Canvas', onSelect: () => navigate('/canvas') },
       ]}
       trigger={({ ref, props }) => (
@@ -892,6 +992,7 @@ function FileMenu({ title }: { title: string }) {
         </button>
       )}
     />
+    </>
   );
 }
 
@@ -1028,7 +1129,7 @@ function RunArgs({ schema, queue, onClose, onRun }: { schema: Record<string, Wor
  * each edit as it lands; it reads once more when the turn ends. Closing the
  * tab unmounts the panel, which stops the polling.
  */
-function AgentPanel({ ctx, selection }: { ctx: ShellAgent; selection: Array<{ label: string; lines: string }> }) {
+function AgentPanel({ ctx, selection, seed, onSeeded, onWorking }: { ctx: ShellAgent; selection: Array<{ label: string; lines: string }>; seed?: string; onSeeded?: () => void; onWorking?: (on: boolean) => void }) {
   const [sid, setSid] = useState(() => ctx.sessionId ?? agentSessionOf(ctx.file));
   const session = useHub((s) => (sid ? s.sessions[sid] : undefined));
   const [text, setText] = useState('');
@@ -1042,13 +1143,20 @@ function AgentPanel({ ctx, selection }: { ctx: ShellAgent; selection: Array<{ la
     was.current = session?.status;
   }, [session?.status]);
   const working = agentBusy(session?.status);
+  useEffect(() => onWorking?.(working), [working]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!working) return;
     const t = setInterval(() => void reload.current(), AGENT_POLL_MS);
     return () => clearInterval(t);
   }, [working]);
-  const send = async () => {
-    if (!text.trim() || busy) return;
+  // Describe it on the empty canvas: sent once, as if typed here
+  useEffect(() => {
+    if (!seed) return;
+    onSeeded?.();
+    void send(seed);
+  }, [seed]); // eslint-disable-line react-hooks/exhaustive-deps
+  const send = async (typed = text) => {
+    if (!typed.trim() || busy) return;
     setBusy(true);
     try {
       let id = sid;
@@ -1060,7 +1168,9 @@ function AgentPanel({ ctx, selection }: { ctx: ShellAgent; selection: Array<{ la
         rememberAgentSession(ctx.file, id);
         setSid(id);
       }
-      const msg = agentMessage(text, { file: ctx.file, selection, ...(ctx.error ? { error: ctx.error } : {}) });
+      const msg = agentMessage(typed, { file: ctx.file, selection, ...(ctx.error ? { error: ctx.error } : {}) });
+      // the canvas shows progress from the first poll, before the session's status arrives
+      onWorking?.(true);
       setText('');
       await sendQueued(id, { text: msg, whenBusy: 'queue' });
     } finally {
