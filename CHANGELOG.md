@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Copy buttons (code blocks, messages, links, the webhook address, the last code block shortcut, the meeting overlay) copy on Linux and over plain http again. They used only `navigator.clipboard`, which is missing over http on a LAN address and often missing or refused in the Linux desktop app (WebKitGTK), and still said Copied. They now fall back to a hidden textarea and `execCommand('copy')`, then in the desktop app on Linux to the new `copy_text` command (GTK clipboard, focused window only). Copied shows only when the text was copied; otherwise a toast says "Could not copy. Select the text and press Ctrl+C."
+
 ## [0.4.71] - 2026-11-05
 
 ### Added
