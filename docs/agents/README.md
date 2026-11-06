@@ -49,6 +49,20 @@ The agent files use the same format as a user agent or a Claude Code subagent (`
 
 The general agents pin no model, so each one uses the session's model. The specialists name a tier instead: `fast` (docs-writer, web-searcher), `smart` (most) or `deep` (verifier, debugger). Each session resolves the word through `models.tiers` in config.json, then smallModel, the session's model or the cheapest deep model of a configured provider (`packages/core/src/extensions/agent-model.ts`). Set `model:` in your own copy to pin one.
 
+### Same model for all work
+
+The model picker (the model name at the bottom right of the composer, on the web and on Android) has a switch called **Same model for all work**. It is off by default and belongs to one chat or session; it is stored on the session row. When it is on, a small dot shows before the model's name.
+
+With the switch on, everything the conversation hands off runs on its current model: Delegate (to Assistant, Code or Chat), Task subagents, workflow agents, and the subagents those start, at any depth. An agent profile's own model and the tier words `fast`, `smart` and `deep` give way to it. The session's system prompt gets one line: "Model pinned to <model>: pass a model to Delegate, Task or Workflow only when the owner names one."
+
+- A model you name wins. A full `provider/model` passed to Delegate, Task or a workflow `agent()` call runs as named; a tier word does not.
+- Switching the conversation's model moves the pin to the new model for the next hand-off.
+- A delegated session carries the switch, on whatever device it runs, so its own hand-offs stay on the model too. Routines never inherit it.
+- Usage and refusal fallback work as before: if the pinned model's plan is out or refuses, the usual fallback order applies.
+- A member can turn it on only for a model their account may use. The pin never reaches the owner's plans.
+
+The pin is resolved in `packages/core/src/session/model-pin.ts` (`modelPin`) and applied where hand-offs pick their model: `subagentModel` in `extensions/agent-model.ts` (Task and nested subagents), `engine/delegate.ts` (Delegate) and `workflows/agents.ts` (workflow agents).
+
 ## Changing an agent, and going back
 
 - **Edit:** save a copy from the Agents page, or `PUT /api/agents/<name>` with the fields you change. It is written to `~/.conclave/agents/<name>.md` and replaces the shipped one by name. A project copy in `<project>/.conclave/agents/` wins inside that project.

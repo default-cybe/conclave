@@ -34,6 +34,12 @@ const CLI_ROWS: Array<{ cli: CliName; harness: string; label: string }> = [
   { cli: 'gemini', harness: 'gemini-cli', label: 'Gemini CLI' },
 ];
 
+/** What turning a source on loads, and from where, in one line. */
+export const SOURCE_LOADS: Record<string, string> = {
+  claude:
+    'Loads skills, agents, commands, plugins and hooks from ~/.claude (and settings.json), plus CLAUDE.md and .claude/ in your projects. A new hub turns it on only when ~/.claude has some of these.',
+};
+
 const COMPAT_WORD: Record<string, string> = { codex: 'Codex', opencode: 'OpenCode', gemini: 'Gemini CLI', claudeCode: 'Claude Code' };
 
 export function SourcesTab() {
@@ -97,6 +103,7 @@ function LoadOrder({ src, error, loading, retry, onChanged }: { src: ExtensionSo
                 <span className="num pt-px text-[12px] text-fg-3 phone:text-[13px]">{i + 1}</span>
                 <div className="min-w-0">
                   <div className={cn('t-row', on ? 'text-fg' : 'text-fg-2')}>{s.label}</div>
+                  {SOURCE_LOADS[s.id] && <div className="mt-0.5 text-[12px] leading-[1.45] text-fg-2 phone:text-[13px]">{SOURCE_LOADS[s.id]}</div>}
                   <div className="mt-0.5 text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">{on ? (adds ? `Adds ${adds}` : 'Nothing found here') : 'Off, nothing is read'}</div>
                   {s.paths.length > 0 && (
                     <div className="mt-0.5 text-[11.5px] leading-[1.5] text-fg-3 phone:text-[12px]">

@@ -71,7 +71,7 @@ const confirmed = await lib.loopUntilDry(
     const fresh = await lib.dropDismissed(open)
     phase('Verify')
     // only a complete panel that refutes a finding marks it rejected in the ledger
-    const judged = await pipeline(fresh, (f) => lib.panel(f, { phase: 'Verify', agentType: 'verifier', effort: 'xhigh', model: 'deep' }).then((p) => (p.kept ? { ...f, priority: p.severity || f.priority, confidence: p.confidence } : p.complete ? { ...f, refuted: true, rejected: true } : null)))
+    const judged = await pipeline(fresh, (f) => lib.panel(f, { phase: 'Verify', agentType: 'verifier', effort: 'xhigh', tier: 'deep' }).then((p) => (p.kept ? { ...f, priority: p.severity || f.priority, confidence: p.confidence } : p.complete ? { ...f, refuted: true, rejected: true } : null)))
     // everything seen counts toward "nothing new", confirmed or not, so the loop converges
     return fresh.map((f) => judged.find((j) => j && j.file === f.file && j.line === f.line) || { ...f, refuted: true })
   },

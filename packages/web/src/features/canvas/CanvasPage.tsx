@@ -53,14 +53,14 @@ import { hhmm } from '@/lib/format';
 import { useIsMobile } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { attempt, retainTranscript, sendQueued, toast, upsertSession, useHub } from '@/store/store';
-import { DRAG_KIND, GraphCanvas, INSERTS, type NodeActions } from '../graph/GraphCanvas';
+import { DRAG_KIND, GraphCanvas, INSERTS, type GoTo, type NodeActions } from '../graph/GraphCanvas';
 import { FlowInspector, runWords } from '../graph/FlowInspector';
 import { Inspector } from '../graph/Inspector';
 import { liveState } from '../graph/nodes';
 import { useRunDetail, useRuns } from '../workflows/data';
 import { isLive, RUN_WORD } from '../workflows/words';
 import { useCanvasFiles } from './files';
-import { codeHref, fileGroups, fileHref, fileTitle, focusNode, isRunId, libraryOpen, rememberFile, saveLibraryOpen, sessionFor } from './model';
+import { codeHref, fileGroups, fileHref, fileTitle, focusNode, goLabel, goTarget, isRunId, libraryOpen, rememberFile, saveLibraryOpen, sessionFor } from './model';
 import { copyClip, pasteClip, programRenamable, removeOps, saveWords, useEditor, workflowRenamable, type Clip } from './editor';
 
 type Positions = Record<string, { x: number; y: number }>;
@@ -226,6 +226,9 @@ function ProgramFile({ name }: { name: string }) {
   };
   const code = codeHref(device, `${cwd.replace(/\/+$/, '')}/flows/${title}`);
   const focus = focusNode(view.graph.nodes.map((n) => ({ id: n.id, state: liveState(run?.nodes[n.id]) })));
+  // the Go to button also reaches the block running now, which has no result yet
+  const now = programStates(view.graph.nodes, run);
+  const liveStates = view.graph.nodes.map((n) => ({ id: n.id, state: liveState(run?.nodes[n.id]) ?? now[n.id] }));
   const status = run ? { word: run.status === 'running' ? 'Running' : run.status === 'done' ? 'Done' : run.status === 'failed' ? 'Failed' : runWords(run), tone: run.status === 'running' ? 'text-signal' : run.status === 'failed' ? 'text-fault' : run.status === 'done' ? 'text-ok' : 'text-fg-2', rest: run.status === 'failed' ? (failed.length ? `at ${failed.map(([id]) => view.graph.nodes.find((n) => n.id === id)?.label ?? id).join(', ')}` : (run.error ?? '')) : run.status === 'running' ? `${Object.keys(run.nodes).length} blocks done` : '', since: run.status === 'running' ? run.startedAt : undefined } : { word: 'Not run yet', tone: 'text-fg-3', rest: '' };
   return (
     <Shell
@@ -234,8 +237,9 @@ function ProgramFile({ name }: { name: string }) {
       status={status}
       graph={view.graph}
       focus={focus}
+      target={goTarget(liveStates)}
       edit={{ ...ed, onAdd: (kind) => insert(kind) }}
-      canvas={(sel, onSelect) => (
+      canvas={(sel, onSelect, go) => (
         <GraphCanvas
           graph={view.graph}
           positions={positions}
@@ -245,7 +249,7 @@ function ProgramFile({ name }: { name: string }) {
           selection={selection}
           onSelection={(ids) => (setSelection(ids), ids.length <= 1 && onSelect(ids[0]))}
           flow={flow}
-          full={{ focus }}
+          full={{ focus, go }}
           inserts={blocks.map((b) => ({ kind: b.block, word: b.title, help: b.help }))}
           onInsert={insert}
           onMove={(id, at) => {
@@ -487,6 +491,7 @@ function WorkflowShell({ view, detail, title, meta, run, duplicate, edit, positi
       status={status}
       graph={view.graph}
       focus={focus}
+      target={goTarget(states)}
       links={r ? [{ label: 'Open the run', href: `/workflows/runs/${r.id}` }] : []}
       duplicate={duplicate}
       edit={edit}
@@ -498,7 +503,7 @@ function WorkflowShell({ view, detail, title, meta, run, duplicate, edit, positi
         const nr = runs?.byNode.get(node.id);
         return nr?.state === 'failed' ? { error: nr.error ?? r?.error ?? 'failed', ...(onRerun && nr.seqs.length ? { rerun: { label: 'Re-run from here', go: () => onRerun(nr.seqs) } } : {}) } : undefined;
       }}
-      canvas={(sel, onSelect) => (
+      canvas={(sel, onSelect, go) => (
         <GraphCanvas
           graph={view.graph}
           runs={runs?.byNode}
@@ -507,7 +512,7 @@ function WorkflowShell({ view, detail, title, meta, run, duplicate, edit, positi
           selected={sel}
           currentPhase={live ? r?.phaseTitle : undefined}
           onSelect={onSelect}
-          full={{ focus }}
+          full={{ focus, go }}
           className="min-h-0 flex-1"
           menu={code || onRerun || edit ? menu : undefined}
           {...(edit
@@ -619,8 +624,10 @@ interface ShellProps {
   status: { word: string; tone: string; rest: string; since?: number };
   graph: { nodes: GraphNode[] };
   focus?: string;
+  /** The failed block, else the running one: a Go to button shows while it is off screen. */
+  target?: { id: string; word: 'failed' | 'running' };
   links?: Array<{ label: string; href: string }>;
-  canvas: (sel: string | undefined, onSelect: (id: string | undefined) => void) => ReactNode;
+  canvas: (sel: string | undefined, onSelect: (id: string | undefined) => void, go?: GoTo) => ReactNode;
   library: Array<{ kind: string; word: string; help: string; group: string }>;
   inspector: (node: GraphNode) => ReactNode;
   output: string;
@@ -648,6 +655,16 @@ function Shell(p: ShellProps) {
   const [sheet, setSheet] = useState<'library' | 'output' | 'agent'>();
   const [side, setSide] = useState<'inspector' | 'agent'>('inspector');
   useFullScreen(phone);
+  // Go to failed or running block: the canvas reports whether the target is off screen; each press asks it to pan there
+  const [offScreen, setOffScreen] = useState(false);
+  const [goAsk, setGoAsk] = useState(0);
+  const go: GoTo | undefined = p.target && { id: p.target.id, ask: goAsk, onOffScreen: setOffScreen };
+  const goWords = goLabel(p.target, offScreen);
+  const goButton = goWords && (
+    <Button variant="outline" size={phone ? 'touch' : 'sm'} onClick={() => setGoAsk((n) => n + 1)}>
+      {goWords}
+    </Button>
+  );
   const node = p.graph.nodes.find((n) => n.id === sel);
   const ask = () => (phone ? setSheet('agent') : setSide('agent'));
   const failed = node && p.failedOf?.(node);
@@ -753,10 +770,11 @@ function Shell(p: ShellProps) {
         <PhoneBar title={p.title} />
         <div className="flex min-h-9 shrink-0 items-center gap-1 border-b border-rule px-4 text-[13px]">
           <span className="min-w-0 flex-1 truncate">{statusLine}</span>
+          {goButton}
           {tools}
         </div>
         <div className="relative flex min-h-0 flex-1 flex-col">
-          {p.canvas(sel, setSel)}
+          {p.canvas(sel, setSel, go)}
           <div className={cn('pointer-events-none absolute inset-x-0 bottom-0 flex items-end px-3 pb-[calc(12px+var(--safe-b,0px))]', split ? 'gap-1.5' : 'gap-2')}>
             {(p.agent ? (['library', 'output', 'agent'] as const) : (['library', 'output'] as const)).map((s) => (
               <button key={s} type="button" onClick={() => setSheet(s)} className={cn('pointer-events-auto h-11 rounded-[var(--r-2)] border border-rule-2 bg-raise text-fg shadow-[var(--shadow-pop)]', split ? 'px-3 text-[14px]' : 'px-4 text-[15px]')}>
@@ -810,6 +828,7 @@ function Shell(p: ShellProps) {
         <span className="shrink-0 truncate text-[12px] text-fg-3">{p.meta}</span>
         <span className="mx-2 h-4 w-px shrink-0 bg-rule" aria-hidden />
         <span className="min-w-0 flex-1 truncate text-[13px]">{statusLine}</span>
+        {goButton}
         {tools}
         {p.links?.map((l) => (
           <Link key={l.href} href={l.href} className="shrink-0 text-[13px] text-fg-2 underline underline-offset-2 hov:text-fg">
@@ -826,7 +845,7 @@ function Shell(p: ShellProps) {
           </aside>
         )}
         <div className="flex min-w-0 flex-1 flex-col">
-          {p.canvas(sel, setSel)}
+          {p.canvas(sel, setSel, go)}
           <div className={cn('shrink-0 border-t border-rule', panel ? 'h-[208px]' : 'h-9')}>
             <div className="flex h-9 items-center gap-3 px-3">
               <button type="button" aria-expanded={panel} aria-label={panel ? 'Fold the run panel' : 'Show the run panel'} onClick={() => setPanel(!panel)} className="grid size-6 place-items-center rounded-[var(--r-1)] text-fg-3 hov:bg-hover hov:text-fg">

@@ -19,6 +19,7 @@ import type {
   ExtensionsOverview,
   HookEventInfo,
   HookGroupDto,
+  HookFixRequest,
   HookImportResult,
   HookLintIssue,
   HookTestInput,
@@ -58,6 +59,7 @@ import { PermissionRulesFor, ruleSources } from './permissions-view';
 import { FIRED_HOOK_EVENTS, HOOK_EVENTS, claudeUserSettings, collectHookGroups, hooksFromGroups, projectNeedsTrust, projectSettingsFiles, type HookGroupInfo } from './settings-sources';
 import { handlerLabel } from '../extensions/hooks';
 import { lintHooks, wrapFlatEntries } from '../extensions/hook-lint';
+import { isEmptyEvent } from '../extensions/hook-shape';
 
 const CLI_NAMES: CliName[] = ['claude', 'codex', 'opencode', 'gemini'];
 
@@ -414,23 +416,87 @@ export function hookMcpServerNames(engine: Engine): string[] {
   return [...Object.keys(engine.config.get().mcpServers ?? {}), ...plugin];
 }
 
+/** The settings files whose hooks load, raw as on disk, keyed by path. */
+function loadedHookFiles(engine: Engine, cwd?: string): Map<string, unknown> {
+  const files = new Map<string, unknown>();
+  files.set(engine.config.paths.config, engine.config.getUser().hooks);
+  const compat = engine.config.get().compat.claudeCode;
+  const claude = compat ? claudeUserSettings() : undefined;
+  if (claude) files.set(claude.path, claude.hooks);
+  if (cwd) for (const f of projectSettingsFiles(cwd, compat)) files.set(f.path, f.hooks);
+  return files;
+}
+
 /** Lint what loads: config.json, the project's .conclave/settings.json and Claude Code's settings files, read raw so flat entries show up. */
 function lintLoaded(engine: Engine, cwd?: string): HookLintIssue[] {
   const servers = hookMcpServerNames(engine);
   const out: HookLintIssue[] = [];
-  const add = (raw: unknown, path: string | undefined) => {
-    if (!raw) return;
-    for (const i of lintHooks(raw, { mcpServers: servers }).issues) out.push({ ...i, ...(path ? { path } : {}) });
-  };
-  add(engine.config.getUser().hooks, engine.config.paths.config);
-  const compat = engine.config.get().compat.claudeCode;
-  if (compat) add(claudeUserSettings()?.hooks, claudeUserSettings()?.path);
-  if (cwd) for (const f of projectSettingsFiles(cwd, compat)) add(f.hooks, f.path);
-  // two plugins that inject into every subagent stack their text on each one
-  const sub = engine.extensions.pluginHooks().SubagentStart ?? [];
-  const injecting = [...new Set(sub.filter((g) => !g.matcher || g.matcher === '*').flatMap((g) => (g.hooks as RuntimeHookCommand[]).map((h) => h.plugin)).filter(Boolean))];
-  if (injecting.length > 1) out.push({ level: 'warn', event: 'SubagentStart', group: 0, text: `${injecting.join(' and ')} both add text to every subagent. Each subagent starts with both; turn one plugin's hooks off if they do the same job.` });
+  for (const [path, raw] of loadedHookFiles(engine, cwd)) {
+    if (!raw) continue;
+    for (const i of lintHooks(raw, { mcpServers: servers }).issues) out.push({ ...i, path });
+  }
+  out.push(...pluginHookRepeats(engine.extensions.pluginHooks()));
   return out;
+}
+
+/**
+ * One plugin that registers the same command twice on one event and
+ * matcher: it runs twice. Two plugins on one event is normal (both run),
+ * so that is no problem (owner, 2026-11-05: caveman and ponytail on SubagentStart).
+ */
+export function pluginHookRepeats(hooks: Partial<Record<HookEvent, Array<{ matcher?: string; hooks: unknown[] }>>>): HookLintIssue[] {
+  const out: HookLintIssue[] = [];
+  for (const [event, groups] of Object.entries(hooks) as Array<[HookEvent, Array<{ matcher?: string; hooks: unknown[] }>]>) {
+    const seen = new Set<string>();
+    const told = new Set<string>();
+    for (const g of groups ?? [])
+      for (const h of g.hooks as RuntimeHookCommand[]) {
+        const what = h.command ?? h.prompt;
+        if (!h.plugin || !what) continue;
+        const key = JSON.stringify([h.plugin, g.matcher || '*', what]);
+        if (!seen.has(key)) {
+          seen.add(key);
+          continue;
+        }
+        if (told.has(key)) continue;
+        told.add(key);
+        out.push({ level: 'warn', event, group: 0, plugins: [h.plugin], text: `${h.plugin} registers the same ${h.command ? 'command' : 'prompt'} twice on ${event}${g.matcher && g.matcher !== '*' ? ` for "${g.matcher}"` : ''}, so it runs twice: ${oneLine(what, 80)}` });
+      }
+  }
+  return out;
+}
+
+/**
+ * Apply one lint fix the Hooks page showed, to the file it is in. The hub
+ * lints that file again and writes its own fix, so the page never sends the
+ * contents of a file it does not own (~/.claude/settings.json is written
+ * only here, when the owner presses Fix).
+ */
+export function fixHooks(engine: Engine, input: HookFixRequest): { path: string } {
+  const files = loadedHookFiles(engine, input?.cwd);
+  if (!input || typeof input.path !== 'string' || !files.has(input.path)) throw new EngineError(400, 'path must be a hooks file that loads here');
+  const raw = files.get(input.path);
+  const issue = lintHooks(raw ?? {}, { mcpServers: hookMcpServerNames(engine) }).issues.find(
+    (i) => i.event === input.event && i.group === input.group && i.handler === input.handler && i.text === input.text,
+  );
+  if (!issue?.fix) throw new EngineError(409, 'That problem is gone or has no automatic fix. Reload the page.');
+  // written as linted: only the entry the problem names changes
+  const hooks = issue.fix;
+  if (input.path === engine.config.paths.config) {
+    const { hooks: _old, ...rest } = engine.config.getUser();
+    engine.config.replace(Object.keys(hooks).length ? { ...rest, hooks } : rest);
+    return { path: input.path };
+  }
+  let data: Record<string, unknown>;
+  try {
+    data = parseJsonc<Record<string, unknown>>(readFileSync(input.path, 'utf8')) ?? {};
+  } catch (err) {
+    throw new EngineError(400, `${input.path} is not valid JSON: ${(err as Error).message}`);
+  }
+  if (Object.keys(hooks).length) data.hooks = hooks;
+  else delete data.hooks;
+  writeFileSync(input.path, JSON.stringify(data, null, 2) + '\n');
+  return { path: input.path };
 }
 
 export function hooksOverview(engine: Engine, cwd?: string): HooksOverview {
@@ -561,6 +627,8 @@ export function validateHooks(hooks: unknown): HooksConfig {
   if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) throw new EngineError(400, 'hooks must be an object keyed by event');
   for (const [event, list] of Object.entries(hooks as Record<string, unknown>)) {
     if (!(HOOK_EVENTS as string[]).includes(event)) throw new EngineError(400, `unknown hook event ${event}`);
+    // {} or null for an event means no hooks; saveHooks drops it
+    if (isEmptyEvent(list)) continue;
     if (!Array.isArray(list)) throw new EngineError(400, `hooks.${event} must be a list of groups`);
     list.forEach((g, i) => {
       const where = `hooks.${event}[${i}]`;
@@ -604,8 +672,8 @@ export function saveHooks(engine: Engine, input: { scope: 'user' | 'project'; cw
   const wrapped = wrapFlatEntries(input.hooks);
   const hooks = validateHooks(wrapped.hooks);
   const lint = lintHooks(hooks, { mcpServers: hookMcpServerNames(engine) }).issues;
-  // drop empty events so the files stay tidy
-  for (const k of Object.keys(hooks) as HookEvent[]) if (!hooks[k]?.length) delete hooks[k];
+  // drop empty events ([], {} or null) so the files stay tidy
+  for (const k of Object.keys(hooks) as HookEvent[]) if (isEmptyEvent(hooks[k])) delete hooks[k];
   if (input.scope === 'user') {
     engine.config.replace({ ...engine.config.getUser(), hooks });
     return lint;

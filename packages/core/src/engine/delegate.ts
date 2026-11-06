@@ -12,6 +12,7 @@ import type { Engine } from './engine';
 import type { DelegateOutcome, DelegatePlace, DelegateRequest } from '../tools/delegate';
 import { projectsOf } from '../projects/attached';
 import { agentModelRef } from '../extensions/agent-model';
+import { modelPin } from '../session/model-pin';
 import { CHAT_AGENT, chatUsesMemory } from '../session/chat';
 import { isUntrusted } from '../session/untrusted';
 import { isDelegated, movedSession, movedToMain } from '../session/delegated';
@@ -150,17 +151,20 @@ export async function runDelegate(engine: Engine, parentId: string, req: Delegat
   if (capability) throw new Error(capability);
 
   // the model a new session of this agent gets, as createSession picks it; a model the owner named wins
+  // Same model for all work (session/model-pin.ts): the pin replaces the profile's model and tier words
+  const pin = modelPin(engine, parent);
   const base = engine.config.get().defaultModel;
-  let model = def.model ? agentModelRef(engine, def.model, base).model : base;
-  if (req.model) {
+  let model = pin ?? (def.model ? agentModelRef(engine, def.model, base).model : base);
+  const asked = pin && !req.model?.includes('/') ? undefined : req.model;
+  if (asked) {
     // a harness that is off, or a model the owner hid, says where to turn it on before the generic refusal
-    const hidden = engine.harnessOff(req.model);
+    const hidden = engine.harnessOff(asked);
     if (hidden) throw new Error(hidden);
-    const named = agentModelRef(engine, req.model, base);
+    const named = agentModelRef(engine, asked, base);
     // never run a job the owner pinned to one model on another
     if (named.note) {
       const why = named.tier ? `no usable ${named.tier} model is set up on this hub` : 'it is not set up on this hub';
-      throw new Error(`The model ${req.model} cannot run here: ${why}. Name a model from the model picker as provider/model, or leave model out.`);
+      throw new Error(`The model ${asked} cannot run here: ${why}. Name a model from the model picker as provider/model, or leave model out.`);
     }
     model = named.model;
   }
@@ -191,7 +195,7 @@ export async function runDelegate(engine: Engine, parentId: string, req: Delegat
       readOnly: req.readOnly,
       tags: ['delegated'],
       // a model the owner named is never swapped on a 404 or a stall (subagent.ts driveSubagent)
-      meta: { delegate: { ...place, toolUseId: req.toolUseId }, ...(req.model ? { pinnedModel: true } : {}) },
+      meta: { delegate: { ...place, toolUseId: req.toolUseId }, ...(asked ? { pinnedModel: true } : {}) },
       // a chat with memory off hands on a job that leaves no trace either
       ...(chatUsesMemory(parent) ? {} : { chat: { webSearch: true, memory: false } }),
     },

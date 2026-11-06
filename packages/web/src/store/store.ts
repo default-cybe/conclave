@@ -2,7 +2,7 @@
  * One store for live hub data. Fed by REST on boot and by engine events from
  * ConclaveClient.connect afterwards.
  */
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { create } from 'zustand';
 import type {
   ApprovalRequest,
@@ -231,7 +231,11 @@ export async function loadAll(opts: { transcripts?: boolean } = {}) {
   const ownerOnly = ownerOnlyAfter(meP);
   const [hub, sessions, approvals, questions, limits, tasks, routines, devices, agents, models, commands, memories, skills, toolList, mcp] = await Promise.all([
     settle(c.info(), undefined),
-    settle(c.listSessions({ limit: 500 }), []),
+    // top-level sessions only, every page: a day of subagents and workflow agents must not push older chats out of the list
+    settle(
+      allPages((offset) => c.listSessions({ parentId: 'none', archived: false, limit: SESSION_PAGE, offset })),
+      [],
+    ),
     settle(c.approvals(), []),
     settle(c.questions(), []),
     settle(c.limits(), []),
@@ -246,8 +250,13 @@ export async function loadAll(opts: { transcripts?: boolean } = {}) {
     ownerOnly(() => c.tools(), []),
     ownerOnly(() => c.mcp(), []),
   ]);
-  const [archived, imported, cfg, friends, friendNotes, alerts, receivedShares, sentShares, projects, sharedProjects, me, apps, importOffers, invites, shared] = await Promise.all([
-    settle(c.listSessions({ archived: true, limit: 200 }), []),
+  const [archived, delegated, imported, cfg, friends, friendNotes, alerts, receivedShares, sentShares, projects, sharedProjects, me, apps, importOffers, invites, shared] = await Promise.all([
+    settle(
+      allPages((offset) => c.listSessions({ parentId: 'none', archived: true, limit: SESSION_PAGE, offset })),
+      [],
+    ),
+    // delegated work has a group of its own (lib/sidebar.ts); other children load with their parent (loadMessages)
+    settle(c.listSessions({ tag: 'delegated', archived: false, limit: 200 }), []),
     // imported chats have a place of their own (core session/imported.ts); an export of hundreds would crowd the archive's 200
     settle(c.listSessions({ archived: true, tag: 'imported', limit: 1000 }), []),
     settle(c.config(), undefined),
@@ -276,7 +285,8 @@ export async function loadAll(opts: { transcripts?: boolean } = {}) {
     booted: true,
     syncedAt: Date.now(),
     hub,
-    sessions: byId([...sessions, ...archived, ...imported], (s) => s.id),
+    // the children of open transcripts stay (loadChildren); the hub's answer wins for the rest
+    sessions: byId([...Object.values(get().sessions).filter((s) => s.parentId && get().messagesLoaded[s.parentId]), ...sessions, ...archived, ...delegated, ...imported], (s) => s.id),
     approvals: byId(approvals, (a) => a.id),
     questions: byId(questions, (q) => q.id),
     alerts: byId(alerts, (a) => a.id),
@@ -325,6 +335,51 @@ export function resyncBase(list: Message[] | undefined, streaming: Record<string
   return list.find((m) => streaming[m.id]) ?? list[list.length - 1];
 }
 
+/** Sessions per page of the boot load. */
+export const SESSION_PAGE = 500;
+
+/** Every page of a session list, up to 40 pages (a hub that ignores offset would repeat the first). */
+export async function allPages(page: (offset: number) => Promise<Session[]>, size = SESSION_PAGE): Promise<Session[]> {
+  const out: Session[] = [];
+  for (let offset = 0; offset < 40 * size; offset += size) {
+    const got = await page(offset);
+    out.push(...got);
+    if (got.length < size) break;
+  }
+  return out;
+}
+
+/** The sessions under one (its subagents, workflow agents, delegated work): the boot load has only top-level ones. */
+export async function loadChildren(parentId: string): Promise<void> {
+  const kids = await settle(
+    allPages((offset) => api().listSessions({ parentId, limit: SESSION_PAGE, offset })),
+    [],
+  );
+  if (kids.length) set((st) => ({ sessions: { ...st.sessions, ...byId(kids, (s) => s.id) } }));
+}
+
+/**
+ * A session the boot load did not bring (a subagent's, opened by a link) is
+ * fetched once by id. True only once the hub says it has none.
+ */
+export function useMissingSession(id: string | undefined): boolean {
+  const have = useHub((s) => !!id && !!s.sessions[id]);
+  const booted = useHub((s) => s.booted);
+  const [gone, setGone] = useState<string>();
+  useEffect(() => {
+    if (!id || have || !booted) return;
+    let live = true;
+    void settle(api().getSession(id), undefined).then((s) => {
+      if (s) upsertSession(s);
+      else if (live) setGone(id);
+    });
+    return () => {
+      live = false;
+    };
+  }, [id, have, booted]);
+  return !!id && !have && booted && gone === id;
+}
+
 /** The newest load of each transcript. Views that open one at once share it; an older, slower answer never lands over a newer one. */
 const loads = new Map<string, { done: Promise<void> }>();
 /**
@@ -350,6 +405,8 @@ export function loadMessages(sessionId: string, force = false, from?: Message): 
   const started = new Set<string>();
   loads.set(sessionId, load);
   startedDuringLoad.set(sessionId, started);
+  // a first load also brings the sessions under it, for its subagent and delegated rows
+  if (!from) void loadChildren(sessionId);
   load.done = (async () => {
     const c = api();
     const askedAt = Date.now();

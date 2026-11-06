@@ -1083,6 +1083,18 @@ export interface HookLintIssue {
   fix?: HooksConfig;
   /** Settings file of the group, when linting what loads. */
   path?: string;
+  /** Plugins the problem comes from, when it is not in a settings file. */
+  plugins?: string[];
+}
+
+/** POST /api/hooks/fix: one problem from HooksOverview.lint, as the page got it. */
+export interface HookFixRequest {
+  path: string;
+  cwd?: string;
+  event: string;
+  group: number;
+  handler?: number;
+  text: string;
 }
 
 export type BuiltinHookId = 'memory-recall' | 'memory-extract' | 'compaction' | 'file-recall' | 'scope-guard';
@@ -1868,7 +1880,7 @@ export class ConclaveClient {
 
   // ----- sessions -----
   /** kind "chat" lists chats only; kind "agent" lists workbench sessions only; leave it out for both. */
-  listSessions = (q?: { agent?: string; taskId?: string; archived?: boolean; search?: string; device?: string; limit?: number; parentId?: string | 'none'; kind?: SessionKind; tag?: string }) =>
+  listSessions = (q?: { agent?: string; taskId?: string; archived?: boolean; search?: string; device?: string; limit?: number; offset?: number; parentId?: string | 'none'; kind?: SessionKind; tag?: string }) =>
     this.request<Session[]>('GET', '/api/sessions', undefined, q as Query);
   getSession = (id: string) => this.request<Session>('GET', `/api/sessions/${id}`);
   createSession = (input: CreateSessionInput) => this.request<Session>('POST', '/api/sessions', input);
@@ -2055,6 +2067,8 @@ export class ConclaveClient {
   /** Remove the handlers tagged with the recipe, and the script when nothing else uses it. */
   removeHookRecipe = (id: string, where: RecipeRemoveWhere = {}) => this.request<{ ok: true; removed: number }>('DELETE', `/api/hooks/recipes/${encodeURIComponent(id)}`, undefined, where as Query);
   lintHooks = (hooks: unknown) => this.request<HookLintIssue[]>('POST', '/api/hooks/lint', { hooks });
+  /** Apply the hub's own fix for one problem the Hooks page listed, to the file it is in. */
+  fixHook = (input: HookFixRequest) => this.request<{ ok: true; path: string }>('POST', '/api/hooks/fix', input);
   builtinHooks = () => this.request<BuiltinHookDto[]>('GET', '/api/hooks/builtin');
   setBuiltinHook = (id: BuiltinHookId, patch: { enabled?: boolean; budgetChars?: number }) => this.request<BuiltinHookDto>('PATCH', `/api/hooks/builtin/${encodeURIComponent(id)}`, patch);
   projectTrust = (cwd: string) => this.request<ProjectTrustInfo>('GET', '/api/trust', undefined, { cwd });

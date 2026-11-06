@@ -662,6 +662,10 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
       scopeHooks.set(input.scope === 'user' ? 'user' : (input.cwd ?? ''), structuredClone(input.hooks));
       return [];
     },
+    fixHooks(input) {
+      rec('fixHooks', input);
+      return { path: input.path };
+    },
     readScopeHooks(scope, cwd) {
       return structuredClone(scopeHooks.get(scope === 'user' ? 'user' : (cwd ?? '')) ?? {});
     },

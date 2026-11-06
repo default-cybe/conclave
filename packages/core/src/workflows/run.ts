@@ -27,7 +27,7 @@ import { failingTest } from '../util/test-run';
 import { Sandbox, SandboxError } from './sandbox';
 import { preludeSource } from './prelude';
 import { callDto, callKey, runDto, sha256, type CallRow, type RunRow } from './store';
-import { keyParts, readAgentSpec, runStep, type AgentSpec, type StepState } from './agents';
+import { keyParts, panelModels, readAgentSpec, runStep, type AgentSpec, type StepState } from './agents';
 import { DEFAULTS, Semaphore, count } from './limits';
 import { branchCommit, codeFingerprint, createWorktree, finishWorktree, repoInfo, shq, syncthingMarkerAbove, withDetached, worktreePath, type Worktree } from './worktrees';
 import type { WorkflowService } from './service';
@@ -100,6 +100,8 @@ export class LiveRun {
   private ticker?: ReturnType<typeof setInterval>;
   /** Panel votes seen, for the refuted rate. */
   readonly votes = { panels: 0, refuted: 0 };
+  /** lib.panel's model lists, by tier and o.models (hostFns panelModels). */
+  private readonly panelPicks = new Map<string, Promise<string[]>>();
   private findingsRecorded = false;
   /** Host calls (timers, lib calls, agent calls) and checks this attempt made, and findings it kept. */
   private hostCalls = 0;
@@ -1131,6 +1133,14 @@ export class LiveRun {
       ledgerWrite: async (p: unknown) => {
         const o = (p ?? {}) as { project?: unknown; entries?: unknown };
         return this.writeLedger(await this.ledgerFolder(o.project), Array.isArray(o.entries) ? o.entries : []);
+      },
+      // lib.panel and lib.judgePanel: the models the voters spread over, journaled (agent keys hold the model) and read once per tier and list
+      panelModels: (p: unknown) => {
+        const o = (p ?? {}) as { tier?: unknown; models?: unknown };
+        const k = JSON.stringify([o.tier ?? null, o.models ?? null]);
+        let hit = this.panelPicks.get(k);
+        if (!hit) this.panelPicks.set(k, (hit = this.hostCall('check', 'panel models', { panelModels: k }, parentSeq, () => panelModels(this.engine, this.row.sessionId, o.tier, o.models))));
+        return hit;
       },
       recordFindings: (p: unknown) => this.recordFindings(Array.isArray((p as { findings?: unknown })?.findings) ? ((p as { findings: unknown[] }).findings) : []),
       ask: (p: unknown) => {

@@ -28,7 +28,7 @@ import { useIsMobile } from '@/lib/hooks';
 import { modelName } from '@/lib/models';
 import { effortLabel, effortMenu, shownEffort, useModelEffort, type EffortSetting, type ModelEffort as EffortLevels } from '@/lib/effort';
 import { MenuList, Popover, type MenuItem } from '@/components/ui/Overlay';
-import { Segmented } from '@/components/ui/Field';
+import { Checkbox, Segmented } from '@/components/ui/Field';
 import { LimitRow } from '@/components/ui/Meter';
 import { windowApplies } from '@conclave/core/accounts/windows';
 import type { AccountDto } from '@conclave/core/client';
@@ -37,7 +37,7 @@ import { contextPercent, costWord, stateWord, statusParts } from '@/features/cha
 import { PickerButton, SelectMenu } from '@/components/ui/Select';
 import { ModelList } from '@/components/pickers/ModelPicker';
 import { SwitchModelList } from '@/features/chat/SwitchChoice';
-import { ModelWord } from './PhoneBox';
+import { ModelWord, SameModelDot } from './PhoneBox';
 
 // ---------------------------------------------------------------------------
 // Effort
@@ -88,6 +88,20 @@ interface PickerProps {
   /** The Cyber access program (session.chat.cyber); offered only where the model takes one and onCyber is given. Undefined is Default: nothing sent. */
   cyber?: CyberProgram;
   onCyber?: (v: CyberProgram | undefined) => void;
+  /** Same model for all work (session.chat.sameModel); the switch shows only where onSameModel is given (a session that exists). */
+  sameModel?: boolean;
+  onSameModel?: (on: boolean) => void;
+}
+
+export const SAME_MODEL_HELP = 'Delegate, Task and workflow agents, at any depth, run on this conversation\'s model unless you name another. If its plan is out or refuses, the usual fallback order applies.';
+
+/** Same model for all work: one switch under Effort, with its help line. */
+function SameModelSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <div className="shrink-0 border-b border-rule px-3 pt-2 pb-2.5">
+      <Checkbox checked={on} onChange={onChange} label="Same model for all work" description={SAME_MODEL_HELP} />
+    </div>
+  );
 }
 
 /** Cyber access for a ChatGPT plan model (core providers/access-programs.ts): Default sends nothing, else the program. */
@@ -110,7 +124,7 @@ export function CyberAccess({ model, value, onChange }: { model: string | undefi
 }
 
 /** The picker's body: Effort for the model on top (when it has levels), then the model list. */
-function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = false, onDone, switchOf, cyber, onCyber }: PickerProps & { onDone: () => void }) {
+function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = false, onDone, switchOf, cyber, onCyber, sameModel, onSameModel }: PickerProps & { onDone: () => void }) {
   const e = useModelEffort(model);
   const mobile = useIsMobile();
   const shown = effortShown(value, e, follow);
@@ -134,6 +148,7 @@ function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = 
         </div>
       )}
       {onCyber && !stepping && <CyberAccess model={model} value={cyber} onChange={onCyber} />}
+      {onSameModel && !stepping && <SameModelSwitch on={!!sameModel} onChange={onSameModel} />}
       {switchOf ? <SwitchModelList session={switchOf} harnesses={harnesses} onDone={onDone} onStep={setStepping} /> : <ModelList value={model} harnesses={harnesses} onChange={onModel} onDone={onDone} />}
     </>
   );
@@ -147,7 +162,7 @@ export function ModelEffort({ className, ...p }: PickerProps & { className?: str
   const words = modelEffortWords(p.model, effortShown(p.value, e, p.follow), e);
   return (
     <>
-      <PickerButton ref={ref} look="text" aria-label={`Model and effort, ${words}`} aria-haspopup="dialog" aria-expanded={open} className={cn('h-[24px] text-[12px] phone:text-[13px]', className)} onClick={() => setOpen((o) => !o)}>
+      <PickerButton ref={ref} look="text" lead={p.sameModel ? <SameModelDot /> : undefined} aria-label={`Model and effort, ${words}${p.sameModel ? ', same model for all work' : ''}`} aria-haspopup="dialog" aria-expanded={open} className={cn('h-[24px] text-[12px] phone:text-[13px]', className)} onClick={() => setOpen((o) => !o)}>
         {words}
       </PickerButton>
       <Popover anchor={ref} open={open} onClose={() => setOpen(false)} placement="top-end" width={400} maxHeight={520} label="Model and effort" sheetTitle="Model and effort">
@@ -164,7 +179,7 @@ export function PhoneModelEffort(p: PickerProps) {
   const e = useModelEffort(p.model);
   return (
     <>
-      <ModelWord ref={ref} name={modelEffortWords(p.model, effortShown(p.value, e, p.follow), e)} expanded={open} onClick={() => setOpen(true)} />
+      <ModelWord ref={ref} name={modelEffortWords(p.model, effortShown(p.value, e, p.follow), e)} expanded={open} marked={p.sameModel} onClick={() => setOpen(true)} />
       <Popover anchor={ref} open={open} onClose={() => setOpen(false)} label="Model and effort" sheetTitle="Model and effort">
         <ModelEffortBody {...p} onDone={() => setOpen(false)} />
       </Popover>

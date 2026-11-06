@@ -118,6 +118,7 @@ const val ULTRA_LINE = "Plans and runs workflows for real tasks. Uses many more 
 /** The chat's "+" switches, with the web's words. */
 const val WEB_HELP = "Look things up and cite sources."
 const val MEMORY_HELP = "Read what it knows about you and save what you tell it. Off: this chat leaves no trace in memory."
+const val SAME_MODEL_HELP = "Delegate, Task and workflow agents, at any depth, run on this conversation's model unless you name another. If its plan is out or refuses, the usual fallback order applies."
 
 /** A device's name, the hub as "homelab (hub)" (Start.placeName), with "offline" after a computer that is away. */
 fun deviceLabel(id: String?, devices: List<Device>, hubName: String? = null): String {
@@ -161,6 +162,8 @@ fun QuietChip(
     enabled: Boolean = true,
     maxWidth: Dp = 180.dp,
     strong: Boolean = false,
+    /** A small dot before the text: Same model for all work is on (the model chip). */
+    marked: Boolean = false,
 ) {
     val c = Conclave.colors
     Row(
@@ -172,6 +175,10 @@ fun QuietChip(
             .padding(start = 8.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (marked) {
+            Box(Modifier.size(6.dp).clip(CircleShape).background(c.signal))
+            Spacer(Modifier.width(6.dp))
+        }
         Text(
             text,
             style = ConclaveType.meta,

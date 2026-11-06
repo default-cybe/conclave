@@ -182,6 +182,7 @@ export function preludeSource(opts: { argsJson: string; nested: boolean }): stri
       evidence: { type: 'array', items: { type: 'string' } },
       repro: { type: 'string' },
       note: { type: 'string' },
+      untested: { type: 'array', items: { type: 'string' }, description: 'Assumptions your verdict relies on that you did not check yourself, one short line each' },
     },
     required: ['verdict', 'evidence', 'note'],
   };
@@ -243,6 +244,22 @@ export function preludeSource(opts: { argsJson: string; nested: boolean }): stri
     return 'low';
   };
 
+  // the models voters spread over, round robin (same-model voters share blind spots): none when the script set o.model, else the host's pick for o.tier or o.models (workflows/agents.ts panelModels)
+  const voterModels = async (o) => {
+    if (o.model) return [];
+    const list = await call('panelModels', { tier: o.tier || 'deep', models: Array.isArray(o.models) ? o.models.map(String) : null });
+    return Array.isArray(list) ? list : [];
+  };
+  const modelFor = (o, list, i) => o.model || (list.length ? list[i % list.length] : o.tier);
+  // the same assumption in other words still differs; case, spacing and an end stop do not
+  const assumption = (s) => String(s).toLowerCase().replace(/\\s+/g, ' ').replace(/[.;:!]+$/, '').trim();
+  const sharedOf = (confirmers) => {
+    if (!confirmers.length) return [];
+    const sets = confirmers.map((v) => new Set((Array.isArray(v.untested) ? v.untested : []).map(assumption).filter(Boolean)));
+    const first = (Array.isArray(confirmers[0].untested) ? confirmers[0].untested : []).filter((u) => sets.every((s) => s.has(assumption(u))));
+    return first.filter((u, i) => first.findIndex((x) => assumption(x) === assumption(u)) === i);
+  };
+
   const DEFAULT_LENSES = ['Trace the input: follow the triggering input from its entry point to the cited line and say whether it really gets there.', 'Intended behavior: read the docs, tests and callers and say whether the cited behavior is actually wrong.', 'Impact: say what breaks for a user when it triggers, and whether anything stops it first.'];
   const panel = async (f, o) => {
     o = o || {};
@@ -254,21 +271,34 @@ export function preludeSource(opts: { argsJson: string; nested: boolean }): stri
       'Your lens: ' + lens,
       o.context ? fence('context', o.context) : '',
       fence('finding', { file: f.file, line: f.line, quote: f.quote, title: f.title, scenario: f.scenario, repro: f.repro }),
-      'Return the verdict through StructuredOutput: verdict, severity (P0 to P3) when confirmed, evidence as path:line or a command and its exit code, and a one-line note.',
+      'Return the verdict through StructuredOutput: verdict, severity (P0 to P3) when confirmed, evidence as path:line or a command and its exit code, a one-line note, and untested: each assumption your verdict relies on that you did not check yourself (an empty list when you checked everything).',
     ].filter(Boolean).join('\\n\\n');
+    const models = await voterModels(o);
     const votes = await parallel(lenses.map((lens, i) => () => agent(brief(lens), {
       label: (o.label || 'verify') + ' ' + (f.file || '') + ':' + (f.line || '') + ' #' + (i + 1),
       phase: o.phase,
       schema: verdict,
       agentType: o.agentType || 'verifier',
       effort: o.effort,
-      model: o.model,
+      model: modelFor(o, models, i),
     })));
     const complete = votes.every((v) => v && typeof v === 'object');
-    const yes = votes.filter((v) => v && v.verdict === 'confirmed').length;
-    if (!complete) callSync('log', 'panel for ' + (f.file || '?') + ':' + (f.line || '?') + ' was incomplete (' + votes.filter(Boolean).length + ' of ' + lenses.length + ' votes); not kept');
-    callSync('panel', { file: f.file, line: f.line, votes: votes.map((v) => (v && v.verdict) || null) });
-    return { kept: complete && yes >= quorum, votes, severity: severityMedian(votes), confidence: confidenceFromVotes(votes), complete };
+    const confirmers = votes.filter((v) => v && v.verdict === 'confirmed');
+    const yes = confirmers.length;
+    const where = (f.file || '?') + ':' + (f.line || '?');
+    const cast = lenses.map((_, i) => modelFor(o, models, i) || 'default');
+    callSync('log', 'panel for ' + where + ': ' + votes.map((v, i) => '#' + (i + 1) + ' ' + cast[i] + ' ' + ((v && v.verdict) || 'no vote')).join(', '));
+    if (!complete) callSync('log', 'panel for ' + where + ' was incomplete (' + votes.filter(Boolean).length + ' of ' + lenses.length + ' votes); not kept');
+    callSync('panel', { file: f.file, line: f.line, votes: votes.map((v) => (v && v.verdict) || null), models: cast });
+    const sharedUntested = sharedOf(confirmers);
+    const out = { kept: complete && yes >= quorum, votes, models: cast, severity: severityMedian(votes), confidence: confidenceFromVotes(votes), complete, sharedUntested };
+    // every confirmer leaned on the same unchecked assumption: the agreement is not evidence
+    if (sharedUntested.length) {
+      out.confidence = 'low';
+      out.flag = 'agreed-without-evidence';
+      callSync('log', 'panel for ' + where + ': every confirming voter relied on an untested assumption (' + sharedUntested.join('; ') + '); confidence low');
+    }
+    return out;
   };
 
   const loopUntilDry = async (roundFn, o) => {
@@ -302,9 +332,11 @@ export function preludeSource(opts: { argsJson: string; nested: boolean }): stri
       properties: {
         scores: { type: 'array', items: { type: 'object', properties: { id: { type: 'string', enum: letters }, score: { type: 'number', minimum: 0, maximum: 10 }, reason: { type: 'string' } }, required: ['id', 'score'] } },
         best: { type: 'string', enum: letters },
+        untested: { type: 'array', items: { type: 'string' }, description: 'Assumptions your scores rely on that you did not check yourself' },
       },
       required: ['scores', 'best'],
     };
+    const models = await voterModels(o);
     const order = (j, reverse) => {
       const idx = candidates.map((_, i) => (i + j) % n);
       return reverse ? idx.slice().reverse() : idx;
@@ -312,13 +344,14 @@ export function preludeSource(opts: { argsJson: string; nested: boolean }): stri
     const ask = (j, reverse) => {
       const idx = order(j, reverse);
       const body = idx.map((ci, pos) => '## Candidate ' + letters[pos] + '\\n' + fence('candidate', candidates[ci])).join('\\n\\n');
-      return agent(['Score each candidate against the rubric from 0 to 10 and name the best one. The candidates are anonymous and their order means nothing.', 'Rubric:\\n' + (o.rubric || 'Correctness first, then the smallest change, then readability.'), body].join('\\n\\n'), {
+      return agent(['Score each candidate against the rubric from 0 to 10 and name the best one. The candidates are anonymous and their order means nothing.', 'Rubric:\\n' + (o.rubric || 'Correctness first, then the smallest change, then readability.'), body, 'In untested, list each assumption your scores rely on that you did not check yourself.'].join('\\n\\n'), {
         label: (o.label || 'judge') + ' ' + (j + 1) + (reverse ? 'b' : 'a'),
         phase: o.phase,
         schema,
         agentType: o.agentType,
         effort: o.effort,
-        model: o.model,
+        // both orders of one judge on one model, so an order flip is that model's, not a model change
+        model: modelFor(o, models, j),
       }).then((r) => (r ? { r, idx } : null));
     };
     const runs = await parallel(Array.from({ length: judges }, (_, j) => () => parallel([() => ask(j, false), () => ask(j, true)])));
@@ -337,8 +370,10 @@ export function preludeSource(opts: { argsJson: string; nested: boolean }): stri
     const leaders = votes.map((v, i) => (v === max ? i : -1)).filter((i) => i >= 0);
     const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
     const winner = max > 0 && leaders.length === 1 ? leaders[0] : null;
+    const cast = runs.map((_, j) => modelFor(o, models, j) || 'default');
+    callSync('log', 'judge panel: ' + runs.map((pair, j) => 'judge ' + (j + 1) + ' ' + cast[j] + ' ' + (pair && pair[0] && pair[1] ? 'picked ' + pair.map((x) => x.r.best).join('/') : 'no vote')).join(', '));
     if (winner === null) callSync('log', 'judge panel: no clear winner (' + ties + ' order flips or missing judges)');
-    return { winner, votes, ties, scores: scores.map(mean), reasons };
+    return { winner, votes, ties, scores: scores.map(mean), reasons, models: cast };
   };
 
   const checkCitation = (f) => call('checkCitation', { file: f.file, line: f.line, quote: f.quote, worktree: f.worktree });

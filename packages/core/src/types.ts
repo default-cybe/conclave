@@ -296,6 +296,8 @@ export interface ChatSettings {
    * from the account's access. A program the model does not take is not sent.
    */
   cyber?: 'standard' | 'daybreak_blue' | 'daybreak_red';
+  /** Same model for all work (session/model-pin.ts): hand-offs at any depth run on this session's model unless a tool call names one. Off when unset. */
+  sameModel?: boolean;
 }
 
 export interface SessionStats {

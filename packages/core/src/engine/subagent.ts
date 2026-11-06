@@ -9,6 +9,7 @@ import { truncateMiddle } from '../util/text';
 import { logger } from '../util/log';
 import { defuseFrameworkTags } from '../session/untrusted';
 import { markModelDead, subagentModel } from '../extensions/agent-model';
+import { modelPin } from '../session/model-pin';
 import { checkFallback } from '../session/limit-tree';
 import { ProviderError } from '../providers/types';
 
@@ -108,8 +109,13 @@ export async function runSubagent(
   const now = Date.now();
   const dlg = opts.delegate;
   const wf = opts.workflow ?? dlg;
+  // Same model for all work (session/model-pin.ts): the child runs on the pin and carries the switch to its own hand-offs
+  const pin = modelPin(engine, parent);
   // tier words (fast, smart, deep) in the call or the profile resolve here (extensions/agent-model.ts); a delegated job's model was picked for it
-  const model = dlg?.model ?? subagentModel(engine, opts.model, def.model, parent.model);
+  const model = dlg?.model ?? subagentModel(engine, opts.model, def.model, parent.model, pin);
+  // a parent that saves nothing to memory ("Use only", Off) passes that on, as an incognito parent passes incognito
+  const own: Session['chat'] = dlg?.chat ?? (parent.chat?.memory === false || parent.chat?.memorySave === false ? { webSearch: true, memory: parent.chat.memory !== false, memorySave: false } : undefined);
+  const chat: Session['chat'] = pin ? { webSearch: true, memory: true, ...(own ?? {}), sameModel: true } : own;
   const mode = dlg?.permissionMode ?? parent.permissionMode;
   // on a harness the profile rides with the brief, and a read-only profile stays read-only
   // an untrusted parent writes the brief from what it read: its framework tags are defused (session/untrusted.ts)
@@ -138,8 +144,7 @@ export async function runSubagent(
     updatedAt: now,
     stats: { messages: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
     meta: { subagent: true, ...(untrusted ? { untrusted: true } : {}), ...(wf?.meta ?? {}) },
-    // a parent that saves nothing to memory ("Use only", Off) passes that on, as an incognito parent passes incognito
-    ...(dlg?.chat ? { chat: dlg.chat } : parent.chat?.memory === false || parent.chat?.memorySave === false ? { chat: { webSearch: true, memory: parent.chat.memory !== false, memorySave: false } } : {}),
+    ...(chat ? { chat } : {}),
     ...(parent.incognito ? { incognito: true } : {}),
   };
   engine.repos.sessions.insert(sub);

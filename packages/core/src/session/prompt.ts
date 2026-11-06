@@ -39,6 +39,8 @@ export interface PromptParts {
   conclave?: { card: string; live?: string };
   /** The outputs folder (files/share.ts), set for a session on the hub without a project folder that has ShareFile. */
   outputsDir?: string;
+  /** Same model for all work: the model hand-offs are pinned to (session/model-pin.ts). */
+  modelPin?: string;
   /** The model modelRef resolves to is Claude (an alias like "opus" or "fast" says nothing); unset: judged by modelRef. */
   claude?: boolean;
 }
@@ -170,6 +172,11 @@ export function ultraNote(session: Session): string | undefined {
   return MODE_NOTES.ultra ?? ULTRA_FALLBACK;
 }
 
+/** The line for a session with Same model for all work on (session/model-pin.ts). */
+export function modelPinNote(pin: string): string {
+  return `Model pinned to ${pin}: pass a model to Delegate, Task or Workflow only when the owner names one.`;
+}
+
 /** The step note for a workflow agent's session (workflows/agents.ts sets meta.workflow). */
 export function workflowStepNote(session: Session): string | undefined {
   if (!session.meta?.workflow) return undefined;
@@ -206,6 +213,7 @@ export function buildSystemPrompt(p: PromptParts): SystemBlock[] {
   // workflows: the Ultra note when the switch is on, the step note in a workflow agent (one cache miss on a toggle)
   const ultra = ultraNote(p.session) ?? workflowStepNote(p.session);
   if (ultra) blocks.push({ text: ultra });
+  if (p.modelPin) blocks.push({ text: modelPinNote(p.modelPin) });
 
   if (p.agent.prompt.trim()) blocks.push({ text: `# Your role: ${p.agent.name}\n${p.agent.prompt.trim()}` });
   if (p.conclave?.card) blocks.push({ text: p.conclave.card });

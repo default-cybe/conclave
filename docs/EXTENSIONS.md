@@ -52,7 +52,7 @@ When two places define the same name, the later one in this list wins. Hook list
 | 3 | Codex | `~/.codex/skills`, `prompts`, `agents` | `compat.codex` |
 | 4 | OpenCode | `~/.config/opencode`, `<project>/.opencode` | `compat.opencode` |
 | 5 | Gemini CLI | `~/.gemini`, `<project>/.gemini` | `compat.gemini` |
-| 6 | Claude Code | `~/.claude`, `<project>/.claude` | `compat.claudeCode` (on by default) |
+| 6 | Claude Code | `~/.claude`, `<project>/.claude` | `compat.claudeCode` (a new hub turns it on when `~/.claude` has skills, agents, commands, plugins or hooks, and saves that choice) |
 | 7 | Plugins | `~/.conclave/plugins` | per plugin |
 | 8 | User | `~/.conclave/agents`, `skills`, `commands` | always on |
 | 9 | Project | `<project>/.conclave` | always on |
@@ -290,7 +290,7 @@ Other formats load behind their switches, each with its own argument rules: Code
 
 ## Hooks
 
-A hook is a command (or a prompt for a small model) that runs on an event. It gets JSON on stdin with Claude Code's field names (`session_id`, `cwd`, `hook_event_name`, `tool_name`, `tool_input`, ...). Exit code 2 blocks and shows stderr to the model. Exit 0 with JSON can allow, deny, ask, rewrite the input or add context. Scripts written for Claude Code work as they are.
+A hook is a command (or a prompt for a small model) that runs on an event. It gets JSON on stdin with Claude Code's field names (`session_id`, `cwd`, `hook_event_name`, `tool_name`, `tool_input`, ...). Exit code 2 blocks where the event can be blocked, with stderr as the reason. Exit 0 with JSON can allow, deny, ask, rewrite the input or add context, depending on the event (table below). Scripts written for Claude Code work as they are.
 
 **Add one:** put it under `hooks` in `~/.conclave/config.json` (`conclave config edit`), or in Extensions > Hooks:
 
@@ -317,9 +317,28 @@ Events, in the order they happen:
 | `Notification` | Conclave notifies you (`permission_prompt`, `idle_prompt`, `errors`, ...) | notification type | side effects | none | same |
 | `SubagentStart` | a subagent starts | agent name | add context | same | none |
 | `SubagentStop` | a subagent finishes | agent name | send it back to work | same | none |
-| `PreCompact` | before old messages are summarized | `manual`, `auto` | block, add instructions | same | `PreCompress` |
+| `PreCompact` | before old messages are summarized | `manual`, `auto` | block | same | `PreCompress` |
 | `Stop` | the agent is about to end its turn | (all) | make it continue | same | `AfterAgent` |
 | `SessionEnd` | `/clear`, a deleted session, the hub stopping | `clear`, `other` | side effects (1.5 s limit) | same | same |
+
+What each exit code and stdout field does, per event. Every event's stdin also holds `session_id`, `cwd`, `hook_event_name`, `permission_mode` and `conclave` (model, agent, device). Exit 0 lets the action go on and reads stdout. Any exit other than 0 and 2 is a failure: the action goes on and the run log shows the first line of stderr, unless the handler sets `"onFailure": "block"`.
+
+| Event | stdin adds | Exit 2 | Plain stdout | stdout JSON Conclave reads |
+| --- | --- | --- | --- | --- |
+| `SessionStart` | `source`, `model` | ignored | added to context | `additionalContext`, `systemMessage` |
+| `UserPromptSubmit` | `prompt` | blocks the message, stderr shown to you | added to context (2,000 chars) | `decision: "block"`, `reason`, `additionalContext`, `systemMessage` |
+| `PreToolUse` | `tool_name`, `tool_input`, `tool_use_id` | blocks the call, stderr to the model | ignored | `decision` (`block`, `deny`, `allow`, `ask`), `reason`, `hookSpecificOutput.permissionDecision`, `.permissionDecisionReason`, `.updatedInput`, `additionalContext` |
+| `PermissionRequest` | `tool_name`, `tool_input`, `tool_use_id` | denies the call | ignored | `hookSpecificOutput.decision.behavior` (`allow`, `deny`), `.message`, `.updatedInput`; `hookSpecificOutput.permissionDecision` |
+| `SubagentStart` | `agent_id`, `agent_type` | ignored | ignored | `additionalContext` (joins the subagent's first message) |
+| `PreCompact` | `trigger`, `custom_instructions` | skips this compaction | ignored | `decision: "block"` |
+| `PostToolUse` | tool fields, `tool_response`, `duration_ms` | stderr added to the result as feedback | ignored | `decision: "block"` with `reason`, `additionalContext`, `hookSpecificOutput.updatedToolOutput` (or `updatedMCPToolOutput`), `continue: false` with `stopReason` |
+| `PostToolUseFailure` | tool fields, `tool_response`, `error`, `duration_ms` | stderr added to the error as feedback | ignored | same as PostToolUse |
+| `Stop` | `stop_hook_active`, `last_assistant_message` | keeps the agent going, stderr as feedback | ignored | `decision: "block"` with `reason` |
+| `SubagentStop` | `agent_id`, `agent_type`, `stop_hook_active`, `last_assistant_message` | keeps the subagent going | ignored | `decision: "block"` with `reason` |
+| `SessionEnd` | `reason` | ignored | ignored | none |
+| `Notification` | `notification_type`, `message`, `title` | ignored | ignored | none |
+
+The Hooks page shows the same per event (open "What a hook can do here"), from `packages/core/src/extensions/hook-events.ts`; a test keeps that file in step with the runner. Events are grouped Before, After and Other. Under each event: its problems with a Fix first, then each matcher with its handlers, their source (Conclave config, project `.conclave`, Claude Code `~/.claude`, plugin `<name>`), on or off, timeout and command. Handlers in Conclave config and the project's `.conclave/settings.json` have Edit and Delete. Others say which file to edit, or link to turn their source off (the plugin, or Claude Code compatibility). An event with no handlers is one row that opens to its description and Add.
 
 OpenCode has no shell hooks; its JS plugins (`tool.execute.before`) are the closest thing and do not load in Conclave. Hooks from Gemini CLI and Codex settings can be converted: Extensions > Hooks > Import, or `POST /api/hooks/import`.
 
@@ -344,7 +363,7 @@ All optional, all ignored by Claude Code:
 - PreToolUse handlers run one after another, each seeing the input the one before left. A rewrite keeps the original call's verdict: `Bash(git status)` still allows a hook's `rtk git status`, while a rewrite into a denied command is denied.
 - A hook's `allow` skips the approval prompt, but a deny rule or plan mode still wins, as in Claude Code since 2.1.77. A plugin hook that allows everything cannot undo your deny rules.
 - Plugin hooks get their own `CLAUDE_CONFIG_DIR`. It starts with a `settings.json` whose status line does nothing, because Conclave has none; otherwise caveman and ponytail ask the model to set one up in the first session.
-- Lint on save and import: a bare handler with no `hooks` list is wrapped, and the tab flags timeouts that look like milliseconds, a bare `mcp__server` matcher (it matches nothing; use `mcp__server__.*`) and `if` rules that cannot match. `POST /api/hooks/lint` runs it on demand.
+- Lint on save and import: a bare handler with no `hooks` list is wrapped, and the tab flags timeouts that look like milliseconds, a bare `mcp__server` matcher (it matches nothing; use `mcp__server__.*`) and `if` rules that cannot match. A malformed entry (a group with no `hooks` list, such as `{}`) loads as nothing instead of breaking the page, and shows as a problem under its event with the file, Open file and, where the hub knows one, a Fix that asks first and changes only that entry (`POST /api/hooks/fix`). Two plugins on the same event is normal and both run, so that gets no warning; one plugin that registers the same command twice on one event and matcher does (it runs twice). `POST /api/hooks/lint` runs it on demand.
 - Built in: memory recall, memory extraction, compaction and file recall (off by default) are listed under Hooks > Built in with their last run, cost and an On / Off (`GET /api/hooks/builtin`).
 
 ### Agent hooks and recipes

@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
 
 /** Root of all Conclave state. Override with CONCLAVE_HOME. */
 export function conclaveHome(): string {
@@ -52,6 +52,28 @@ export function ensureDirs(p: Paths): void {
 /** Claude Code home, used for compat loading and usage reading. */
 export function claudeHome(): string {
   return process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+}
+
+/**
+ * True when Claude Code left something the hub would load in ~/.claude:
+ * skills, agents, commands or plugins, or hooks in settings.json. The default
+ * for compat.claudeCode when the owner has not set it.
+ */
+export function claudeHomeHasContent(home = claudeHome()): boolean {
+  const filled = (d: string) => {
+    try {
+      return readdirSync(join(home, d)).some((n) => !n.startsWith('.'));
+    } catch {
+      return false;
+    }
+  };
+  if (['skills', 'agents', 'commands', 'plugins'].some(filled)) return true;
+  try {
+    const hooks = (JSON.parse(readFileSync(join(home, 'settings.json'), 'utf8')) as { hooks?: unknown }).hooks;
+    return !!hooks && typeof hooks === 'object' && Object.keys(hooks).length > 0;
+  } catch {
+    return false;
+  }
 }
 
 export function codexHome(): string {

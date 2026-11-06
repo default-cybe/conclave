@@ -29,6 +29,7 @@ import type {
   ExternalSessionInfo,
   FileEntryDto,
   BuiltinHookDto,
+  HookFixRequest,
   HookImportResult,
   HookLintIssue,
   HookTestInput,
@@ -270,6 +271,8 @@ export interface EngineApi {
   testHook(input: HookTestInput): Promise<HookTestResult>;
   /** Returns lint warnings for what was saved (flat entries are wrapped before the save). */
   saveHooks(input: { scope: 'user' | 'project'; cwd?: string; hooks: HooksConfig }): HookLintIssue[];
+  /** Apply one lint fix the Hooks page showed to the file it is in (the hub re-lints and writes its own fix). */
+  fixHooks(input: HookFixRequest): { path: string };
   importHooks(from: 'gemini' | 'codex', cwd?: string): HookImportResult;
   /** One scope's hooks as stored. */
   readScopeHooks(scope: 'user' | 'project', cwd?: string): HooksConfig;

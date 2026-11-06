@@ -158,7 +158,8 @@ const judged = await pipeline(fresh, (f) =>
     phase: 'Panel',
     agentType: 'verifier',
     effort: 'xhigh',
-    model: 'deep',
+    // a tier, not a model: the voters spread over the tier's models
+    tier: 'deep',
     lenses: [
       'REACHABILITY: can an attacker actually get input from the source to the sink, past every check on the path? Default to refuted.',
       'IMPACT: if it triggers, what does the attacker gain on this owner\'s setup (a single person\'s homelab and laptops)? Default to refuted for no real gain.',

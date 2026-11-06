@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { DEFAULT_CONFIG, type ConclaveConfig, type ProviderConfig } from './schema';
-import { paths, ensureDirs, type Paths } from './paths';
+import { paths, ensureDirs, claudeHomeHasContent, type Paths } from './paths';
 import { dropRetiredKeys, markZaiWire, migrateZaiWire } from './retired';
 import { managedBy, secretPrefix, type SecretInfo } from './secret-names';
 
@@ -115,11 +115,18 @@ export class ConfigStore {
     this.paths = paths(home);
     ensureDirs(this.paths);
     this.overrides = overrides;
+    const fresh = !existsSync(this.paths.config);
     this.userConfig = readJsonFile<Partial<ConclaveConfig>>(this.paths.config) ?? {};
     this.secrets = deepMerge({ providers: {}, values: {} }, readJsonFile<Secrets>(this.paths.secrets) ?? {});
     // the zai move runs on load only, so a later explicit `config set` back to the Anthropic shim stays
     const migrated = migrateZaiWire(this.userConfig as Record<string, unknown>);
     if (this.dropRetired() || migrated) writePrivate(this.paths.config, this.userConfig);
+    // a new hub loads Claude Code's files only when ~/.claude has something to load; saved once, so a hub
+    // that ran with the old default keeps it and a later sync into ~/.claude does not turn it on
+    if (fresh && overrides?.compat?.claudeCode === undefined) {
+      this.userConfig = deepMerge(this.userConfig, { compat: { claudeCode: claudeHomeHasContent() } });
+      writePrivate(this.paths.config, this.userConfig);
+    }
     this.merged = this.compute();
     if (!this.merged.server.token) {
       const token = randomBytes(24).toString('base64url');

@@ -160,7 +160,8 @@ import { SqliteMemory } from '../memory/store';
 import { MemoryConnections, MemoryConnectionService } from '../memory/connections';
 import { ATTACHMENT_LOST, prepareAttachments, type ZipHost } from '../attachments/prepare';
 import { mediaTypeFor } from '../attachments/limits';
-import { checkMemberRefusalList, checkMemberUsageList } from '../session/member-fallbacks';
+import { checkMemberRefusalList, checkMemberUsageList, memberCanUse } from '../session/member-fallbacks';
+import { modelPin } from '../session/model-pin';
 import { quotedOf } from '../session/quoted';
 import { assistantFor } from '../assistant/registry';
 
@@ -586,7 +587,7 @@ export class Engine implements EngineApi {
       if (isChat) chat = mergeChatSettings(undefined, chatInput);
       else if (chatInput !== undefined) {
         const merged = mergeChatSettings(undefined, chatInput);
-        chat = merged.thinking || merged.cyber || !merged.memory || merged.memorySave === false ? merged : undefined;
+        chat = merged.thinking || merged.cyber || merged.sameModel || !merged.memory || merged.memorySave === false ? merged : undefined;
       }
     } catch (err) {
       throw new EngineError(400, (err as Error).message);
@@ -714,6 +715,10 @@ export class Engine implements EngineApi {
       } catch (err) {
         throw new EngineError(400, (err as Error).message);
       }
+      // a member pins only to a model their account may use (session/model-pin.ts)
+      const acct = this.accountOf(s);
+      const pinTo = patch.model ?? s.model;
+      if (chat.sameModel && !s.chat?.sameModel && isMember(acct) && !memberCanUse(this, acct, pinTo)) throw new EngineError(400, `Same model for all work needs a model your account may use; ${pinTo} is not one.`);
     }
     const next: Session = {
       ...s,
@@ -775,8 +780,8 @@ export class Engine implements EngineApi {
     if (kind === 'chat') Object.assign(next, { kind: 'chat', chat });
     else {
       delete next.kind;
-      // a workbench session keeps its effort, Cyber access and memory switches; Continue as a session drops the chat's switches
-      const keep = (patch.chat !== undefined || s.kind !== 'chat') && (!!chat?.thinking || !!chat?.cyber || chat?.memory === false || chat?.memorySave === false);
+      // a workbench session keeps its effort, Cyber access, memory and same-model switches; Continue as a session drops the chat's switches
+      const keep = (patch.chat !== undefined || s.kind !== 'chat') && (!!chat?.thinking || !!chat?.cyber || !!chat?.sameModel || chat?.memory === false || chat?.memorySave === false);
       if (keep) next.chat = chat;
       else delete next.chat;
     }
@@ -1563,6 +1568,12 @@ export class Engine implements EngineApi {
     const lint = ext.saveHooks(this, input);
     this.audit(undefined, 'hooks.save', `${input.scope}${input.cwd ? ` ${input.cwd}` : ''}`);
     return lint;
+  }
+  /** Apply one lint fix from the Hooks page to the file it is in. */
+  fixHooks(input: Parameters<typeof ext.fixHooks>[1]): { path: string } {
+    const res = ext.fixHooks(this, input);
+    this.audit(undefined, 'hooks.fix', `${input.event} in ${res.path}`);
+    return res;
   }
   importHooks(from: 'gemini' | 'codex', cwd?: string): HookImportResult {
     return ext.importHooks(from, cwd);
@@ -2571,6 +2582,7 @@ export class Engine implements EngineApi {
     } catch {
       claude = isClaudeModel(modelRef);
     }
+    const pin = modelPin(this, session);
     return {
       claude,
       session, agent, modelRef, mode, toolNames,
@@ -2585,6 +2597,8 @@ export class Engine implements EngineApi {
       subagents: this.subagents(session),
       date: new Date().toISOString().slice(0, 10),
       ...(conclave ? { conclave } : {}),
+      // Same model for all work (session/model-pin.ts): one line in the prompt
+      ...(pin ? { modelPin: pin } : {}),
       // a session on the hub without a project folder saves the owner's files here (files/share.ts)
       ...(toolNames.includes('ShareFile') && (toolNames.includes('Write') || toolNames.includes('Bash')) && usesOutputs(session) ? { outputsDir: outputsDir(this.config.paths.home, session.id) } : {}),
     };

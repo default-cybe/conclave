@@ -152,6 +152,8 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
                 val approvals = Asks.of(hub.approvals.value, sessionId)
                 val questions = runCatching { hub.api { it.questions() } }.getOrNull()?.let { Asks.of(it, sessionId) }
                 runCatching { hub.api { it.workflowRuns(sessionId = sessionId, limit = 50) } }.getOrNull()?.let { runs.value = it }
+                // the sessions under it, for its subagent rows: the list holds top-level sessions only (its newest 500)
+                runCatching { hub.api { it.listSessions(parentId = sessionId, limit = 500) } }.getOrNull()?.forEach { hub.putSession(it) }
                 transcript.update { t ->
                     t.copy(
                         todos = todos ?: t.todos,
@@ -386,6 +388,11 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
     /** Cyber access for this session (chat.cyber); null goes back to Default, which sends nothing. */
     fun setCyber(program: String?) =
         patch(SessionPatch(chat = if (program == null) ChatSettingsPatch(defaultCyber = true) else ChatSettingsPatch(cyber = program)))
+
+    /** Same model for all work (chat.sameModel): hand-offs from this session run on its model. */
+    fun setSameModel(on: Boolean) {
+        patch(SessionPatch(chat = ChatSettingsPatch(sameModel = on)))
+    }
 
     /** Ultra: the agent plans and runs workflows for real tasks (docs/WORKFLOWS.md). The hub refuses it on chats. */
     fun setUltra(on: Boolean) = patch(SessionPatch(ultra = on))

@@ -270,7 +270,7 @@ interface PromptSnapshot {
 
 /** The parts of a prompt read again once per user turn; the same text keeps the snapshot. */
 function partsSignature(p: PromptParts): string {
-  return JSON.stringify([p.projectInstructions, p.skills.map((k) => [k.name, k.description]), p.isGitRepo, p.testCommand ?? '', p.workspace ?? {}, p.platform, p.hostname ?? '', p.deviceName, p.conclave ?? null]);
+  return JSON.stringify([p.projectInstructions, p.skills.map((k) => [k.name, k.description]), p.isGitRepo, p.testCommand ?? '', p.workspace ?? {}, p.platform, p.hostname ?? '', p.deviceName, p.conclave ?? null, p.modelPin ?? '']);
 }
 
 /** Every memory the snapshot shows is still there with the same text (new ones wait for the next rebuild). */
