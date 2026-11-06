@@ -921,7 +921,7 @@ function EmptyCanvas({ empty, building, blocks, onDescribe, phone }: { empty: bo
   if (!empty)
     return (
       <div role="status" aria-live="polite" className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
-        <span className="rounded-full border border-rule-2 bg-raise px-3 py-1 text-[13px] text-fg-2 shadow-[var(--shadow-pop)]">
+        <span className="rounded-[var(--r-2)] border border-rule-2 bg-raise px-3 py-1 text-[13px] text-fg-2 shadow-[var(--shadow-pop)]">
           <span className="cv-dot-pulse mr-2 inline-block size-1.5 rounded-full bg-signal align-middle" />
           The agent is building: {blocks} {blocks === 1 ? 'block' : 'blocks'} so far
         </span>
