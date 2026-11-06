@@ -12,6 +12,7 @@ import type { Session, Task } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { agentByName, attempt, removeKey, upsertSession, upsertTask, useHub } from '@/store/store';
 import { cn } from '@/lib/text';
+import { copyAndTell } from '@/lib/hooks';
 import { relTime, shortDate } from '@/lib/format';
 import { Button, IconButton } from '@/components/ui/Button';
 import { Input, Segmented, Textarea } from '@/components/ui/Field';
@@ -107,7 +108,7 @@ export function TaskDetail({ task, onClose, page }: { task: Task; onClose?: () =
           <Menu
             label="Task actions"
             items={[
-              { label: 'Copy link', onSelect: () => void navigator.clipboard?.writeText(`${location.origin}/tasks/${task.id}`) },
+              { label: 'Copy link', onSelect: () => void copyAndTell(`${location.origin}/tasks/${task.id}`) },
               { separator: true, label: '' },
               { label: 'Delete task', danger: true, onSelect: () => setConfirm(true) },
             ]}

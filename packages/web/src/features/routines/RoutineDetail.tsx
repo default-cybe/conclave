@@ -12,7 +12,7 @@ import { api } from '@/lib/api';
 import { agentByName, loadRuns, toast, useHub } from '@/store/store';
 import { cn } from '@/lib/text';
 import { hhmm, inTime, usd } from '@/lib/format';
-import { useCopy, useIsMobile, useNow } from '@/lib/hooks';
+import { copyAndTell, useCopy, useIsMobile, useNow } from '@/lib/hooks';
 import { dayStart, describeSchedule } from '@/lib/schedule';
 import { Page, PageHeader, usePageHeader } from '@/components/ui/Page';
 import { Button, IconButton } from '@/components/ui/Button';
@@ -144,7 +144,7 @@ function Header({ routine, runs, onEditFilters }: { routine: Routine; runs: Rout
               label={`${routine.name} actions`}
               items={[
                 { label: 'Duplicate', onSelect: act.duplicate },
-                { label: 'Copy webhook address', onSelect: () => void navigator.clipboard?.writeText(webhookUrl(routine)).then(() => toast({ title: 'Copied the webhook address.' })) },
+                { label: 'Copy webhook address', onSelect: () => void copyAndTell(webhookUrl(routine), 'Copied the webhook address.') },
                 { separator: true, label: '' },
                 { label: 'Delete', danger: true, onSelect: act.askDelete },
               ]}
