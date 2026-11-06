@@ -39,6 +39,7 @@ import { Page, PageHeader } from '@/components/ui/Page';
 import { Notice, Section } from '@/components/ui/Section';
 import { Dialog } from '@/components/ui/Overlay';
 import { Input, Textarea } from '@/components/ui/Field';
+import { EmptyCanvas } from './EmptyCanvas';
 import { NewStart, useNewFile } from './NewFile';
 import { isTyping } from '@/components/Shell';
 import { MessageList } from '@/features/chat/MessageList';
@@ -698,7 +699,8 @@ function Shell(p: ShellProps) {
   );
   const node = p.graph.nodes.find((n) => n.id === sel);
   const ask = () => (phone ? setSheet('agent') : setSide('agent'));
-  const describe = (text: string) => (setSeed(text), ask());
+  // the box folds to the Building chip at once, not when the agent's first poll lands
+  const describe = (text: string) => (setSeed(text), setBuilding(true), ask());
   const renaming = useRenameDialog(p.title, p.rename);
   const overlay = p.edit && (empty || building) && <EmptyCanvas empty={empty} building={building} blocks={p.graph.nodes.length} onDescribe={p.agent ? describe : undefined} phone={phone} />;
   const failed = node && p.failedOf?.(node);
@@ -913,43 +915,6 @@ function Shell(p: ShellProps) {
   );
 }
 
-/**
- * The empty canvas (ComfyUI's start): a centred hint over the dot grid, and a
- * Describe it box that hands the words to the Agent tab. While the agent
- * builds, a line counts the blocks as the canvas reloads them.
- */
-function EmptyCanvas({ empty, building, blocks, onDescribe, phone }: { empty: boolean; building: boolean; blocks: number; onDescribe?: (text: string) => void; phone: boolean }) {
-  const [text, setText] = useState('');
-  const go = () => text.trim() && (onDescribe?.(text.trim()), setText(''));
-  if (!empty)
-    return (
-      <div role="status" aria-live="polite" className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
-        <span className="rounded-[var(--r-2)] border border-rule-2 bg-raise px-3 py-1 text-[13px] text-fg-2 shadow-[var(--shadow-pop)]">
-          <span className="cv-dot-pulse mr-2 inline-block size-1.5 rounded-full bg-signal align-middle" />
-          The agent is building: {blocks} {blocks === 1 ? 'block' : 'blocks'} so far
-        </span>
-      </div>
-    );
-  return (
-    <div className={cn('pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-4 px-6', phone && 'pb-24')}>
-      <p className="m-0 text-center text-[15px] text-fg-2">{building ? 'The agent is building the first blocks...' : phone ? 'Tap Nodes, or long-press the canvas, to add a block' : 'Double-click or drag a block from the library to start'}</p>
-      {onDescribe && !building && (
-        <div className="pointer-events-auto w-full max-w-[480px] space-y-2 rounded-[var(--r-2)] border border-rule-2 bg-raise p-3 shadow-[var(--shadow-pop)]">
-          <label htmlFor="cv-describe" className="block text-[12px] font-medium text-fg-3">
-            Or describe it
-          </label>
-          <Textarea id="cv-describe" rows={2} value={text} placeholder="fetch HN top 10, summarise each, post to my inbox" onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (e.metaKey || e.ctrlKey) && (e.preventDefault(), go())} />
-          <div className="flex justify-end">
-            <Button variant="primary" size={phone ? 'touch' : 'sm'} disabled={!text.trim()} onClick={go}>
-              Build it
-            </Button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /** A program's Rename... dialog: from the file menu on a computer, from the title on a phone. */
 function useRenameDialog(title: string, rename?: (to: string) => void) {
   const [naming, setNaming] = useState<string>();
@@ -1153,7 +1118,13 @@ function AgentPanel({ ctx, selection, seed, onSeeded, onWorking }: { ctx: ShellA
     was.current = session?.status;
   }, [session?.status]);
   const working = agentBusy(session?.status);
-  useEffect(() => onWorking?.(working), [working]); // eslint-disable-line react-hooks/exhaustive-deps
+  // only a turn that ran ends the building: the panel mounting idle must not undo Describe it's chip
+  const told = useRef(false);
+  useEffect(() => {
+    if (!working && !told.current) return;
+    told.current = working;
+    onWorking?.(working);
+  }, [working]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!working) return;
     const t = setInterval(() => void reload.current(), AGENT_POLL_MS);
@@ -1163,16 +1134,20 @@ function AgentPanel({ ctx, selection, seed, onSeeded, onWorking }: { ctx: ShellA
   useEffect(() => {
     if (!seed) return;
     onSeeded?.();
-    void send(seed);
+    // nothing went out (no session, a refused send): the box comes back
+    void send(seed).then(
+      (sent) => sent || onWorking?.(false),
+      () => onWorking?.(false),
+    );
   }, [seed]); // eslint-disable-line react-hooks/exhaustive-deps
   const send = async (typed = text) => {
-    if (!typed.trim() || busy) return;
+    if (!typed.trim() || busy) return false;
     setBusy(true);
     try {
       let id = sid;
       if (!id || !useHub.getState().sessions[id]) {
         const s = await attempt(() => api().createSession({ ...(ctx.device ? { device: ctx.device } : {}), ...(ctx.cwd ? { cwd: ctx.cwd } : {}), title: `Canvas: ${ctx.file.split('/').pop()}` }));
-        if (!s) return;
+        if (!s) return false;
         upsertSession(s);
         id = s.id;
         rememberAgentSession(ctx.file, id);
@@ -1183,6 +1158,7 @@ function AgentPanel({ ctx, selection, seed, onSeeded, onWorking }: { ctx: ShellA
       onWorking?.(true);
       setText('');
       await sendQueued(id, { text: msg, whenBusy: 'queue' });
+      return true;
     } finally {
       setBusy(false);
     }
