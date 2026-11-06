@@ -14,7 +14,7 @@ import type { Db } from '../storage/db';
 import type { Repos } from '../storage/repos';
 import { notIncognito } from '../storage/repos';
 import type { ApprovalRequest, Device, QuestionRequest, Session } from '../types';
-import type { MapDevice, MapGroup, MapNode, MapNodeKind, MapSnapshot, MapState, MapTool, MapUsage } from '../client/map';
+import type { MapDevice, MapFolded, MapGroup, MapNode, MapNodeKind, MapSnapshot, MapState, MapTool, MapUsage } from '../client/map';
 import { baseName, toolsFromRows, type ToolRow } from './tools';
 
 export const MAP_WINDOW_MS = 24 * 3_600_000;
@@ -89,6 +89,14 @@ interface CallRow {
 
 const ZERO: MapUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 };
 
+const addUsage = (a: MapUsage, b: MapUsage): MapUsage => ({
+  inputTokens: a.inputTokens + b.inputTokens,
+  outputTokens: a.outputTokens + b.outputTokens,
+  cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+  cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens,
+  costUsd: a.costUsd + b.costUsd,
+});
+
 function hasTable(db: Db, name: string): boolean {
   return !!db.query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name);
 }
@@ -159,7 +167,7 @@ export function buildMapSnapshot(src: MapSource, opts: MapBuildOptions = {}): Ma
 
   // ----- sessions in the window ----------------------------------------------
   const idRows = db
-    .query(`SELECT id FROM sessions WHERE account_id = $acct AND archived = 0 AND ${notIncognito()} AND created_at <= $at AND updated_at >= $since ORDER BY updated_at DESC LIMIT 400`)
+    .query(`SELECT id FROM sessions WHERE account_id = $acct AND archived = 0 AND ${notIncognito()} AND created_at <= $at AND updated_at >= $since ORDER BY parent_id IS NOT NULL, updated_at DESC LIMIT 400`)
     .all({ at, since, acct } as any) as Row[];
   const all = new Map<string, Session>();
   for (const r of idRows) {
@@ -345,16 +353,7 @@ export function buildMapSnapshot(src: MapSource, opts: MapBuildOptions = {}): Ma
       else state = stateOfRun(run.status);
     }
     if (state === 'running' && agents.some((a) => a.state === 'waiting')) state = 'running';
-    const sum = agents.reduce<MapUsage>(
-      (acc, a) => ({
-        inputTokens: acc.inputTokens + a.usage.inputTokens,
-        outputTokens: acc.outputTokens + a.usage.outputTokens,
-        cacheReadTokens: acc.cacheReadTokens + a.usage.cacheReadTokens,
-        cacheWriteTokens: acc.cacheWriteTokens + a.usage.cacheWriteTokens,
-        costUsd: acc.costUsd + a.usage.costUsd,
-      }),
-      { ...ZERO },
-    );
+    const sum = agents.reduce<MapUsage>((acc, a) => addUsage(acc, a.usage), { ...ZERO });
     const usageOf: MapUsage = live ? { ...sum, inputTokens: Math.max(sum.inputTokens, run.input_tokens), outputTokens: Math.max(sum.outputTokens, run.output_tokens), costUsd: Math.max(sum.costUsd, run.cost_usd) } : sum;
     const parent = !run.host_session && run.session_id && nodes.has(run.session_id) ? run.session_id : undefined;
     const ended = run.finished_at != null && run.finished_at <= at ? run.finished_at : undefined;
@@ -386,7 +385,37 @@ export function buildMapSnapshot(src: MapSource, opts: MapBuildOptions = {}): Ma
   // a parent that is not on the map: the node stands on its own
   for (const n of nodes.values()) if (n.parentId && !nodes.has(n.parentId)) delete n.parentId;
 
-  // ----- keep it readable: every live node and what it hangs off, then the most recent ----
+  // ----- finished subagents and workflow agents fold into their parent, deepest first ----
+  const depth = (n: MapNode) => {
+    let d = 0;
+    for (let x = n; x.parentId && d < 32; x = nodes.get(x.parentId)!) d++;
+    return d;
+  };
+  const kids = new Map<string, number>();
+  for (const n of nodes.values()) if (n.parentId) kids.set(n.parentId, (kids.get(n.parentId) ?? 0) + 1);
+  for (const n of [...nodes.values()].sort((a, b) => depth(b) - depth(a) || b.lastActivityAt - a.lastActivityAt)) {
+    const parent = n.parentId ? nodes.get(n.parentId) : undefined;
+    if (!parent || (n.kind !== 'subagent' && n.kind !== 'agent') || (n.state !== 'done' && n.state !== 'failed')) continue;
+    // a live grandchild keeps its finished parent on the map
+    if (kids.get(n.id)) continue;
+    const f: MapFolded = (parent.folded ??= { done: 0, failed: 0, usage: { ...ZERO }, nodes: [] });
+    f[n.state]++;
+    // a node's own folded children are already in its usage
+    f.usage = addUsage(f.usage, n.usage);
+    f.nodes.push({ id: n.id, kind: n.kind, title: n.title, state: n.state, ...(n.agent ? { agent: n.agent } : {}), ...(n.model ? { model: n.model } : {}), ...(n.endedAt ? { endedAt: n.endedAt } : {}), costUsd: n.usage.costUsd - (n.folded?.usage.costUsd ?? 0), ...(n.error ? { error: n.error } : {}) });
+    if (n.folded) {
+      f.done += n.folded.done;
+      f.failed += n.folded.failed;
+      f.nodes.push(...n.folded.nodes);
+    }
+    // a run's usage already adds up all its agents
+    if (parent.kind !== 'workflow') parent.usage = addUsage(parent.usage, n.usage);
+    kids.set(parent.id, kids.get(parent.id)! - 1);
+    nodes.delete(n.id);
+  }
+  for (const n of nodes.values()) n.folded?.nodes.sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
+
+  // ----- keep it readable: every live node and what it hangs off, then the person's own chats and sessions, then runs, then children ----
   let kept = [...nodes.values()];
   if (kept.length > MAP_MAX_NODES) {
     const keep = new Set<string>();
@@ -394,8 +423,9 @@ export function buildMapSnapshot(src: MapSource, opts: MapBuildOptions = {}): Ma
       for (let x = n; x && !keep.has(x.id); x = x.parentId ? nodes.get(x.parentId) : undefined) keep.add(x.id);
     };
     const busy = (n: MapNode) => n.state === 'running' || n.state === 'waiting' || n.state === 'paused';
+    const rank = (n: MapNode) => (n.kind === 'workflow' ? 1 : n.parentId || n.kind === 'subagent' || n.kind === 'agent' ? 2 : 0);
     for (const n of kept) if (busy(n)) add(n);
-    for (const n of [...kept].sort((a, b) => b.lastActivityAt - a.lastActivityAt)) {
+    for (const n of [...kept].sort((a, b) => rank(a) - rank(b) || b.lastActivityAt - a.lastActivityAt)) {
       if (keep.size >= MAP_MAX_NODES) break;
       add(n);
     }

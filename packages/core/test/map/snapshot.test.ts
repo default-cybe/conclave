@@ -85,7 +85,8 @@ describe('the live map', () => {
   test('every session of the last day, without archived, old or host sessions', () => {
     expect(snap.live).toBe(true);
     expect(snap.at).toBe(NOW);
-    expect(Object.keys(n).sort()).toEqual(['ses_a1', 'ses_a2', 'ses_arch', 'ses_chat', 'ses_explore', 'ses_fix', 'ses_nmap', 'ses_push', 'wf:wfr_1'].sort());
+    // the finished subagent and workflow agent fold into what started them
+    expect(Object.keys(n).sort()).toEqual(['ses_a2', 'ses_arch', 'ses_chat', 'ses_fix', 'ses_nmap', 'ses_push', 'wf:wfr_1'].sort());
   });
 
   test('state from the status and the open approval', () => {
@@ -98,20 +99,25 @@ describe('the live map', () => {
     expect(n.ses_arch.resumeAt).toBe(NOW + 80 * MIN);
     expect(n.ses_chat.state).toBe('idle');
     // a finished subagent is done, not idle
-    expect(n.ses_explore.state).toBe('done');
+    expect(n.ses_fix.folded?.nodes[0]).toMatchObject({ id: 'ses_explore', state: 'done' });
     expect(n['wf:wfr_1'].state).toBe('running');
   });
 
   test('kinds and what hangs off what', () => {
     expect(n.ses_chat.kind).toBe('chat');
     expect(n.ses_fix.kind).toBe('session');
-    expect(n.ses_explore.kind).toBe('subagent');
-    expect(n.ses_explore.parentId).toBe('ses_fix');
+    expect(n.ses_fix.folded).toEqual({
+      done: 1,
+      failed: 0,
+      usage: { inputTokens: 3_000, outputTokens: 200, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.004 },
+      nodes: [{ id: 'ses_explore', kind: 'subagent', title: 'Find JWT usages', state: 'done', agent: 'explore', model: n.ses_fix.folded!.nodes[0].model, endedAt: NOW - 16 * MIN, costUsd: 0.004 }],
+    });
     expect(n['wf:wfr_1'].kind).toBe('workflow');
     expect(n['wf:wfr_1'].parentId).toBeUndefined();
-    expect(n.ses_a1.kind).toBe('agent');
-    expect(n.ses_a1.parentId).toBe('wf:wfr_1');
-    expect(n.ses_a1.agent).toBe('reviewer');
+    expect(n['wf:wfr_1'].folded?.nodes).toMatchObject([{ id: 'ses_a1', kind: 'agent', agent: 'reviewer', state: 'done', costUsd: 0.02 }]);
+    // a live agent stays a node of its own
+    expect(n.ses_a2.kind).toBe('agent');
+    expect(n.ses_a2.parentId).toBe('wf:wfr_1');
     expect(n.ses_a2.title).toBe('prove with tests');
   });
 
@@ -123,7 +129,7 @@ describe('the live map', () => {
     expect(g['f:local:/home/sam/code/scantools']).toMatchObject({ kind: 'folder', name: 'scantools' });
     expect(g['f:local:/home/sam']).toMatchObject({ kind: 'folder', name: 'Home folder' });
     // children sit in their parent's group
-    for (const id of ['ses_fix', 'ses_explore', 'ses_push', 'wf:wfr_1', 'ses_a1', 'ses_a2']) expect(n[id].group).toBe(pg);
+    for (const id of ['ses_fix', 'ses_push', 'wf:wfr_1', 'ses_a2']) expect(n[id].group).toBe(pg);
     expect(n.ses_chat.group).toBe('chats');
     expect(snap.devices.map((d) => [d.id, d.online])).toEqual([
       ['local', true],
@@ -139,17 +145,14 @@ describe('the live map', () => {
       ['Read', 'redirect.ts', 1_200],
     ]);
     expect(n.ses_push.tool?.target).toBe('git push origin fix/login');
-    // a finished node has no tool running
-    expect(n.ses_explore.tool).toBeUndefined();
-    expect(n.ses_explore.tools[0]).toMatchObject({ name: 'Grep', target: 'jwtVerify', durationMs: 300 });
   });
 
   test('usage, tokens per minute and the rate', () => {
-    expect(n.ses_fix.usage).toEqual({ inputTokens: 18_400, outputTokens: 1_300, cacheReadTokens: 42_000, cacheWriteTokens: 3_000, costUsd: 0.11 });
+    // its own and the folded subagent's
+    expect(n.ses_fix.usage).toEqual({ inputTokens: 18_400 + 3_000, outputTokens: 1_300 + 200, cacheReadTokens: 42_000, cacheWriteTokens: 3_000, costUsd: 0.11 + 0.004 });
     expect(n.ses_fix.tokensPerMin).toBe(900);
     expect(n.ses_fix.rate).toBeCloseTo(15, 5);
-    expect(n.ses_explore.rate).toBe(0);
-    // the run adds up its agents
+    // the run adds up its agents, the folded one once
     expect(n['wf:wfr_1'].usage.outputTokens).toBe(1_800);
     expect(n['wf:wfr_1'].usage.costUsd).toBeCloseTo(0.05, 5);
   });
@@ -191,8 +194,9 @@ describe('replay', () => {
     expect(n.ses_fix.state).toBe('running');
     expect(n.ses_fix.tool).toMatchObject({ name: 'Edit', target: 'redirect.ts' });
     expect(n.ses_fix.tools.map((t) => t.name)).toEqual(['Read']);
-    // usage up to that time only
-    expect(n.ses_fix.usage.outputTokens).toBe(400);
+    // usage up to that time only, with the subagent that finished by then
+    expect(n.ses_fix.usage.outputTokens).toBe(400 + 200);
+    expect(n.ses_fix.folded?.done).toBe(1);
     // nodes that did not exist yet are not there
     expect(n.ses_push).toBeUndefined();
     expect(n['wf:wfr_1']).toBeUndefined();
@@ -214,8 +218,12 @@ describe('replay', () => {
   });
 
   test('a subagent runs between its first and last message, then is done', () => {
-    expect(at(NOW - 16.5 * MIN).ses_explore.state).toBe('running');
-    expect(at(NOW - 15 * MIN).ses_explore.state).toBe('done');
+    const mid = at(NOW - 16.5 * MIN);
+    expect(mid.ses_explore.state).toBe('running');
+    expect(mid.ses_fix.folded).toBeUndefined();
+    const after = at(NOW - 15 * MIN);
+    expect(after.ses_explore).toBeUndefined();
+    expect(after.ses_fix.folded?.nodes.map((f) => [f.id, f.state])).toEqual([['ses_explore', 'done']]);
   });
 
   test('workflow agents follow their call, the run its start and finish', () => {
@@ -224,7 +232,7 @@ describe('replay', () => {
     expect(mid.ses_a1.state).toBe('running');
     expect(mid.ses_a1.parentId).toBe('wf:wfr_1');
     expect(mid.ses_a2).toBeUndefined();
-    expect(at(NOW - 2 * MIN).ses_a1.state).toBe('done');
+    expect(at(NOW - 2 * MIN)['wf:wfr_1'].folded?.nodes.map((f) => [f.id, f.state])).toEqual([['ses_a1', 'done']]);
   });
 
   test('a replay says so, and stops at 24 hours back', () => {
@@ -259,6 +267,70 @@ describe('a busy day stays readable', () => {
     expect(ids.has('ses_child')).toBe(true);
     expect(ids.has('ses_done_119')).toBe(true);
     expect(ids.has('ses_done_000')).toBe(false);
+  });
+
+  /** 10 chats in the morning, then 3 sessions that start 300 subagents (15 of them fail) and 2 that still run. */
+  function swarm() {
+    const h = hub(NOW);
+    for (let i = 0; i < 10; i++) h.session({ id: `ses_chat_${i}`, kind: 'chat', agent: 'chat', createdAt: NOW - 22 * HOUR + i * MIN });
+    for (let p = 0; p < 3; p++) h.session({ id: `ses_p${p}`, title: `parent ${p}`, createdAt: NOW - 3 * HOUR, updatedAt: NOW - 3 * HOUR });
+    for (let i = 0; i < 300; i++) {
+      const id = `ses_sub_${String(i).padStart(3, '0')}`;
+      const t = NOW - 2 * HOUR + i * 10_000;
+      h.session({ id, title: `sub ${i}`, agent: 'explore', parentId: `ses_p${i % 3}`, status: i % 3 === 0 && i < 45 ? 'error' : 'idle', createdAt: t, updatedAt: t + 5_000 });
+      h.usage(id, t + 5_000, 100, 10, 0.001);
+    }
+    h.session({ id: 'ses_live_a', parentId: 'ses_p1', status: 'running', createdAt: NOW - MIN, updatedAt: NOW - 5_000 });
+    h.session({ id: 'ses_live_b', parentId: 'ses_p1', status: 'running', createdAt: NOW - MIN, updatedAt: NOW - 5_000 });
+    return h;
+  }
+
+  test('300 finished subagents fold into their parents and keep every chat on the map', () => {
+    const h = swarm();
+    const s = buildMapSnapshot({ repos: h.repos, hubName: 'hub', devices: h.devices, now: NOW });
+    const n = byId(s.nodes);
+    for (let i = 0; i < 10; i++) expect(n[`ses_chat_${i}`]).toBeDefined();
+    expect(Object.keys(n).filter((id) => id.startsWith('ses_sub_'))).toEqual([]);
+    // live children stay nodes of their own
+    expect(n.ses_live_a).toMatchObject({ state: 'running', parentId: 'ses_p1' });
+    expect(n.ses_live_b).toMatchObject({ state: 'running', parentId: 'ses_p1' });
+    expect(s.nodes.length).toBe(10 + 3 + 2);
+    // every 3rd child goes to ses_p0, the first 15 of those failed
+    expect([n.ses_p0.folded?.done, n.ses_p0.folded?.failed]).toEqual([85, 15]);
+    expect([n.ses_p1.folded?.done, n.ses_p1.folded?.failed]).toEqual([100, 0]);
+    expect(n.ses_p0.folded?.nodes).toHaveLength(100);
+    expect(n.ses_p0.folded?.nodes[0].id).toBe('ses_sub_297');
+    expect(n.ses_p0.folded?.usage).toMatchObject({ inputTokens: 10_000, outputTokens: 1_000 });
+    expect(n.ses_p0.folded?.usage.costUsd).toBeCloseTo(0.1, 6);
+    // the parent's usage includes theirs
+    expect(n.ses_p0.usage.costUsd).toBeCloseTo(0.1, 6);
+    expect(n.ses_p0.folded?.nodes.reduce((c, f) => c + f.costUsd, 0)).toBeCloseTo(0.1, 6);
+  });
+
+  test('a replay folds the children that had finished by then', () => {
+    const h = swarm();
+    const s = buildMapSnapshot({ repos: h.repos, hubName: 'hub', devices: h.devices, now: NOW }, { at: NOW - 90 * MIN });
+    const n = byId(s.nodes);
+    for (let i = 0; i < 10; i++) expect(n[`ses_chat_${i}`]).toBeDefined();
+    expect(n.ses_live_a).toBeUndefined();
+    // the 181 children started in the first 30 minutes (the last one just then), none since
+    const folded = ['ses_p0', 'ses_p1', 'ses_p2'].reduce((c, id) => c + n[id].folded!.done + n[id].folded!.failed, 0);
+    expect(folded).toBe(181);
+    expect(s.nodes.length).toBe(13);
+  });
+
+  test('over the cap, the chats and sessions people started come before workflow runs', () => {
+    const h = hub(NOW);
+    for (let i = 0; i < 60; i++) h.session({ id: `ses_own_${i}`, createdAt: NOW - 20 * HOUR + i * MIN });
+    h.session({ id: 'ses_host', tags: ['workflow'], createdAt: NOW - 2 * HOUR });
+    for (let i = 0; i < 30; i++) h.run({ id: `wfr_${i}`, name: `run ${i}`, sessionId: 'ses_host', host: true, status: 'done', createdAt: NOW - HOUR + i * MIN, finishedAt: NOW - HOUR + i * MIN + 30_000 });
+    const s = buildMapSnapshot({ repos: h.repos, hubName: 'hub', devices: h.devices, now: NOW });
+    expect(s.nodes.length).toBe(MAP_MAX_NODES);
+    expect(s.nodes.filter((x) => x.id.startsWith('ses_own_'))).toHaveLength(60);
+    // the newest runs fill what is left
+    expect(s.nodes.filter((x) => x.kind === 'workflow')).toHaveLength(20);
+    expect(s.nodes.some((x) => x.id === 'wf:wfr_29')).toBe(true);
+    expect(s.nodes.some((x) => x.id === 'wf:wfr_0')).toBe(false);
   });
 });
 
