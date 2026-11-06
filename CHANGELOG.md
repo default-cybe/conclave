@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- The Map no longer drops your own finished chats on a busy day. Hundreds of finished subagent, workflow agent and jury sessions filled its 80 places, so chats came and went. A finished (done or failed) child whose parent is on the map now folds into that parent: the node says "12 agents done, 1 failed", its usage includes theirs, and the detail panel lists them under Finished agents. Live children stay nodes of their own. When the map still has more than 80 nodes, it keeps live work first, then the chats and sessions you started, then workflow runs, then children. A replay folds the children that had finished by then.
+
 ## [0.4.71] - 2026-11-05
 
 ### Added
