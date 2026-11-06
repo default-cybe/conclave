@@ -13,6 +13,7 @@ import { join } from 'node:path';
 const GLOBALS = ['window', 'document', 'navigator', 'HTMLElement', 'Node', 'matchMedia', 'IS_REACT_ACT_ENVIRONMENT', 'localStorage', 'requestAnimationFrame', 'cancelAnimationFrame', 'getComputedStyle', 'MutationObserver', 'ResizeObserver', 'IntersectionObserver', 'fetch'];
 const saved: Record<string, unknown> = {};
 const saves: unknown[] = [];
+let tests = 0;
 class Quiet {
   observe() {}
   unobserve() {}
@@ -50,7 +51,10 @@ beforeAll(() => {
         saves.push(JSON.parse(String(init.body)));
         return Response.json({ ok: true });
       }
-      if (u.pathname.endsWith('/test')) return Response.json({ ok: false, detail: '401 Unauthorized' });
+      if (u.pathname.endsWith('/test')) {
+        tests++;
+        return Response.json({ ok: false, detail: '401 Unauthorized' });
+      }
       return Response.json([]);
     },
   });
@@ -115,6 +119,9 @@ test('paste and blur never save; Save and Enter do; Save is off when empty or un
   await Bun.sleep(20);
   expect(saves.length).toBe(2);
   expect((saves[1] as { value: string }).value).toBe('sk-real');
+  // let the second test land before unmounting: a late setState after the DOM goes throws between tests
+  for (let i = 0; i < 200 && !(tests === 2 && host.textContent?.includes('Rejected')); i++) await act(async () => Bun.sleep(10));
+  expect(tests).toBe(2);
 
   await act(async () => root.unmount());
 });
