@@ -88,9 +88,14 @@ export class FlowService {
   /** The first untitled-N with no flows/untitled-N.flow.ts in the session's folder. */
   async untitled(sessionId: string): Promise<string> {
     const taken = new Set((await this.list(sessionId)).map((f) => f.name));
-    let n = 1;
-    while (taken.has(`untitled-${n}`)) n++;
-    return `untitled-${n}`;
+    const { machine, cwd } = this.where(sessionId);
+    // capped like New workflow's untitled-N (workflows/service.ts createBlank): New pressed in a loop stops at 999 files
+    for (let n = 1; n < 1000; n++) {
+      const name = `untitled-${n}`;
+      // list() stops at 200 files: a free-looking name is checked on disk
+      if (!taken.has(name) && !(await machine.stat(this.paths(cwd, name).file).catch(() => null))) return name;
+    }
+    throw new EngineError(409, 'too many untitled programs; rename or delete some');
   }
 
   /** Rename a flow's file (Canvas's title), its layout file with it; the starter's comment line follows the name. Refused while it runs. */

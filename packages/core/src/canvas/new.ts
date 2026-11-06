@@ -17,6 +17,7 @@ import { hubRoot } from '../projects/hubcopy';
 import type { FlowView } from '../client/flows';
 import type { Session } from '../types';
 import { flowsOf } from '../flows/service';
+import { FLOW_NAME_RE } from '../flows/lib';
 
 export const MEMBER_PICKS_FOLDER = 'Your programs live on a computer you paired: pick a folder there (New in folder).';
 
@@ -42,6 +43,8 @@ export interface NewProgram {
 
 /** A blank program in the folder asked for, else the account's Canvas folder on the hub; the session there is reused or made. */
 export async function newProgram(engine: Engine, accountId: string, input: { device?: string; cwd?: string; name?: string } = {}): Promise<NewProgram> {
+  // a bad name is refused before any folder or session is made
+  if (input.name !== undefined && !FLOW_NAME_RE.test(input.name)) throw new EngineError(400, 'a flow name is lowercase letters, digits and dashes, up to 64');
   const member = isMember(accountId);
   let device = input.device || 'local';
   let cwd = input.cwd?.trim();

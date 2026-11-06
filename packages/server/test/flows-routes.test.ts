@@ -5,7 +5,7 @@
  * catalog leaves Call AI out for members.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startTestEngine, type TestEngine } from '../../core/test/engine/harness';
 import { startServer, type RunningServer } from '../src/app';
@@ -126,6 +126,39 @@ describe('flow routes', () => {
     expect((await call(alice.token, 'POST', '/api/canvas/programs', { device: 'dev_not_hers', cwd: '/x' })).status).toBe(404);
     expect(readdirSync(join(root, 'canvas')).sort()).toEqual(before);
     expect(readdirSync(join(root, 'canvas/owner/flows')).filter((f) => f.endsWith('.flow.ts')).sort()).toEqual(['hn-digest.flow.ts', 'untitled-2.flow.ts']);
+  });
+
+  test("New and rename refuse names that leave flows/, and New stops at 999 untitled files", async () => {
+    // a fresh hub root, so a refused name would be the one to make the folder's session
+    t.engine.config.update({ projects: { hubRoot: join(t.cwd, 'hub-fresh') } });
+    const sessions = t.engine.listSessions({ limit: 1000 }).length;
+    for (const name of ['../x', 'a/b', '..', 'é', 'x\n', 'A', '.hidden', 'a'.repeat(65)]) {
+      expect((await call(OWNER, 'POST', '/api/canvas/programs', { name })).status).toBe(400);
+    }
+    // a refused name makes no session and no folder
+    expect(t.engine.listSessions({ limit: 1000 }).length).toBe(sessions);
+    expect(existsSync(join(t.cwd, 'hub-fresh'))).toBe(false);
+    const root = join(t.cwd, 'hub-projects');
+    t.engine.config.update({ projects: { hubRoot: root } });
+    const a = await call(OWNER, 'POST', '/api/canvas/programs', {});
+    const sid = a.body.sessionId;
+    for (const to of ['../../escape', 'a/b', 'ü', '..']) {
+      expect((await call(OWNER, 'POST', `/api/sessions/${sid}/flows/${a.body.view.name}/rename`, { to })).status).toBe(400);
+    }
+    expect(readdirSync(join(root, 'canvas')).sort()).toEqual(['owner']);
+    // past the 200 files the list reads, New still finds the next free name
+    const flows = join(root, 'canvas/owner/flows');
+    for (let n = 1; n < 300; n++) writeFileSync(join(flows, `untitled-${n}.flow.ts`), '// x\n');
+    const next = await call(OWNER, 'POST', '/api/canvas/programs', {});
+    expect(next.status).toBe(201);
+    expect(next.body.view.name).toBe('untitled-300');
+    // the folder full of untitled-1..999: New answers 409, not a 1000th file
+    for (let n = 301; n < 1000; n++) writeFileSync(join(flows, `untitled-${n}.flow.ts`), '// x\n');
+    const full = await call(OWNER, 'POST', '/api/canvas/programs', {});
+    expect(full.status).toBe(409);
+    expect(full.body.error).toContain('too many untitled programs');
+    expect(existsSync(join(flows, 'untitled-1000.flow.ts'))).toBe(false);
+    for (let n = 1; n < 1000; n++) rmSync(join(flows, `untitled-${n}.flow.ts`));
   });
 
   test("New workflow makes an empty script of the caller's own that takes a first node", async () => {
