@@ -121,7 +121,9 @@ describe('flow routes', () => {
     expect(none.body.error).toContain('pick a folder');
     // the hub's own computer, or the owner's folder there, is refused
     expect((await call(alice.token, 'POST', '/api/canvas/programs', { cwd: join(root, 'canvas', 'owner') })).status).toBe(400);
-    expect((await call(alice.token, 'POST', '/api/canvas/programs', { device: 'local', cwd: t.cwd })).status).toBe(400);
+    const hub = await call(alice.token, 'POST', '/api/canvas/programs', { device: 'local', cwd: t.cwd });
+    expect(hub.status).toBe(400);
+    expect(hub.body.error).toBe("Members can't run code on the hub. Pick one of your devices.");
     // someone else's device is unknown
     expect((await call(alice.token, 'POST', '/api/canvas/programs', { device: 'dev_not_hers', cwd: '/x' })).status).toBe(404);
     expect(readdirSync(join(root, 'canvas')).sort()).toEqual(before);

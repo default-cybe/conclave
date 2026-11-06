@@ -12,7 +12,7 @@ import { Dialog } from '@/components/ui/Overlay';
 import { DeviceFolderPicker } from '@/features/chat/pickers';
 import { api } from '@/lib/api';
 import { attempt, memberNow, upsertSession } from '@/store/store';
-import { programHref, workflowHref } from './model';
+import { newFolderRefusal, programHref, workflowHref } from './model';
 
 export function useNewFile() {
   const [, navigate] = useLocation();
@@ -33,6 +33,7 @@ export function useNewFile() {
     const d = await attempt(() => api().newWorkflow());
     if (d) navigate(workflowHref(d.id));
   };
+  const refused = newFolderRefusal(memberNow(), device);
   const dialog = (
     <Dialog
       open={asking}
@@ -40,12 +41,17 @@ export function useNewFile() {
       title="New program in a folder"
       description="flows/untitled-N.flow.ts in the folder you pick, on a computer you paired."
       footer={
-        <Button variant="primary" disabled={!device || !cwd.trim()} onClick={() => void program({ device, cwd: cwd.trim() })}>
+        <Button variant="primary" disabled={!device || !cwd.trim() || !!refused} onClick={() => void program({ device, cwd: cwd.trim() })}>
           Create
         </Button>
       }
     >
       <DeviceFolderPicker look="field" device={device} cwd={cwd} onDevice={setDevice} onCwd={setCwd} />
+      {refused && (
+        <p role="alert" className="m-0 mt-2 text-[13px] text-fault">
+          {refused}
+        </p>
+      )}
     </Dialog>
   );
   return { program, workflow, inFolder: () => setAsking(true), dialog };

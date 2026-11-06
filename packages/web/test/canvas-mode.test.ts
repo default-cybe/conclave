@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { WorkflowRun, WorkflowSummary } from '@conclave/core/client';
 import type { Session } from '@conclave/core/types';
-import { canvasHome, deskViewport, libraryOpen, READ_ZOOM, saveLibraryOpen, fileGroups, fileHref, focusNode, focusViewport, folderSessions, goLabel, goTarget, onScreen, isRunId, programHref, rememberFile, runBlocked, sessionFor, workflowFiles, workflowHref } from '../src/features/canvas/model';
+import { canvasHome, deskViewport, libraryOpen, READ_ZOOM, saveLibraryOpen, fileGroups, fileHref, focusNode, focusViewport, folderSessions, goLabel, goTarget, onScreen, isRunId, newFolderRefusal, programHref, rememberFile, runBlocked, sessionFor, workflowFiles, workflowHref } from '../src/features/canvas/model';
 import { readMode } from '../src/features/home/start';
 import { phonePlace } from '../src/components/PhoneFrame';
 import { NEW_WORDS, sideListWord } from '../src/lib/sidebar';
@@ -43,6 +43,12 @@ describe('an empty canvas', () => {
   test('Run is off with a reason until there is a block', () => {
     expect(runBlocked(0)).toContain('Add a block first');
     expect(runBlocked(1)).toBeUndefined();
+  });
+  test('New in folder: a member who picks the hub is told why in plain words, before any request', () => {
+    expect(newFolderRefusal(true, 'local')).toBe("Members can't run code on the hub. Pick one of your devices.");
+    expect(newFolderRefusal(true, 'dev_1')).toBeUndefined();
+    expect(newFolderRefusal(true, undefined)).toBeUndefined();
+    expect(newFolderRefusal(false, 'local')).toBeUndefined();
   });
   test('Canvas with no last file opens a new blank program, and /canvas/new is never the last file', () => {
     expect(canvasHome()).toBe('/canvas/new');

@@ -12,7 +12,6 @@ import type { Engine } from '../engine/engine';
 import { EngineError } from '../engine/errors';
 import { ASSISTANT_AGENT } from '../assistant/prefs';
 import { isMember } from '../people/context';
-import { CODE_NEEDS_DEVICE } from '../people/guard';
 import { hubRoot } from '../projects/hubcopy';
 import type { FlowView } from '../client/flows';
 import type { Session } from '../types';
@@ -20,6 +19,8 @@ import { flowsOf } from '../flows/service';
 import { FLOW_NAME_RE } from '../flows/lib';
 
 export const MEMBER_PICKS_FOLDER = 'Your programs live on a computer you paired: pick a folder there (New in folder).';
+/** A member who picked the hub's own computer (web NewFile.tsx says it before asking). */
+export const MEMBER_NOT_ON_HUB = "Members can't run code on the hub. Pick one of your devices.";
 
 /** The account's Canvas folder on the hub. */
 export function canvasFolder(engine: Pick<Engine, 'config'>, accountId: string): string {
@@ -53,7 +54,7 @@ export async function newProgram(engine: Engine, accountId: string, input: { dev
     device = 'local';
     cwd = canvasFolder(engine, accountId);
     await engine.machineFor({ device: 'local', accountId } as Session).mkdir(cwd);
-  } else if (member && device === 'local') throw new EngineError(400, CODE_NEEDS_DEVICE);
+  } else if (member && device === 'local') throw new EngineError(400, MEMBER_NOT_ON_HUB);
   // someone else's device answers 404 (createSession checks it too, for a new session)
   if (device !== 'local' && engine.repos.devices.accountOf(device) !== accountId) throw new EngineError(404, `Device ${device} not found`);
   const s = folderSession(engine, accountId, device, cwd) ?? (await engine.createSession({ device, cwd, title: 'Canvas', ...(engine.extensions.agent('coder') ? { agent: 'coder' } : {}) }, accountId, { byPerson: true }));

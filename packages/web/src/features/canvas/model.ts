@@ -101,6 +101,9 @@ export function canvasHome(): string {
 /** Why Run is off: a file with no blocks has nothing to run. */
 export const runBlocked = (blocks: number): string | undefined => (blocks ? undefined : 'Add a block first: there is nothing to run yet');
 
+/** New in folder: a member who picks the hub hears why before asking (the hub's own words, core canvas/new.ts MEMBER_NOT_ON_HUB). */
+export const newFolderRefusal = (member: boolean, device: string | undefined): string | undefined => (member && device === 'local' ? "Members can't run code on the hub. Pick one of your devices." : undefined);
+
 // ---------------------------------------------------------------------------
 // Programs: the flow routes are a session's, so a folder is read through its newest Code session
 // ---------------------------------------------------------------------------
