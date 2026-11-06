@@ -395,7 +395,8 @@ export function buildMapSnapshot(src: MapSource, opts: MapBuildOptions = {}): Ma
   for (const n of nodes.values()) if (n.parentId) kids.set(n.parentId, (kids.get(n.parentId) ?? 0) + 1);
   for (const n of [...nodes.values()].sort((a, b) => depth(b) - depth(a) || b.lastActivityAt - a.lastActivityAt)) {
     const parent = n.parentId ? nodes.get(n.parentId) : undefined;
-    if (!parent || (n.kind !== 'subagent' && n.kind !== 'agent') || (n.state !== 'done' && n.state !== 'failed')) continue;
+    // only done: a failed child stays a node until someone looks at it (the map has no acknowledge)
+    if (!parent || (n.kind !== 'subagent' && n.kind !== 'agent') || n.state !== 'done') continue;
     // a live grandchild keeps its finished parent on the map
     if (kids.get(n.id)) continue;
     const f: MapFolded = (parent.folded ??= { done: 0, failed: 0, usage: { ...ZERO }, nodes: [] });

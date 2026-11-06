@@ -279,32 +279,36 @@ describe('a busy day stays readable', () => {
       const t = NOW - 2 * HOUR + i * 10_000;
       h.session({ id, title: `sub ${i}`, agent: 'explore', parentId: `ses_p${i % 3}`, status: i % 3 === 0 && i < 45 ? 'error' : 'idle', createdAt: t, updatedAt: t + 5_000 });
       h.usage(id, t + 5_000, 100, 10, 0.001);
+      // a replay reads failed from the turn
+      if (i % 3 === 0 && i < 45) h.turn(id, t, t + 5_000, 'error');
     }
     h.session({ id: 'ses_live_a', parentId: 'ses_p1', status: 'running', createdAt: NOW - MIN, updatedAt: NOW - 5_000 });
     h.session({ id: 'ses_live_b', parentId: 'ses_p1', status: 'running', createdAt: NOW - MIN, updatedAt: NOW - 5_000 });
     return h;
   }
 
-  test('300 finished subagents fold into their parents and keep every chat on the map', () => {
+  test('300 finished subagents: the done ones fold into their parents, every chat stays on the map', () => {
     const h = swarm();
     const s = buildMapSnapshot({ repos: h.repos, hubName: 'hub', devices: h.devices, now: NOW });
     const n = byId(s.nodes);
     for (let i = 0; i < 10; i++) expect(n[`ses_chat_${i}`]).toBeDefined();
-    expect(Object.keys(n).filter((id) => id.startsWith('ses_sub_'))).toEqual([]);
+    // every 3rd child goes to ses_p0, the first 15 of those failed: a failed child is never hidden in the fold
+    const failed = Object.keys(n).filter((id) => id.startsWith('ses_sub_'));
+    expect(failed).toHaveLength(15);
+    for (const id of failed) expect(n[id]).toMatchObject({ state: 'failed', parentId: 'ses_p0' });
     // live children stay nodes of their own
     expect(n.ses_live_a).toMatchObject({ state: 'running', parentId: 'ses_p1' });
     expect(n.ses_live_b).toMatchObject({ state: 'running', parentId: 'ses_p1' });
-    expect(s.nodes.length).toBe(10 + 3 + 2);
-    // every 3rd child goes to ses_p0, the first 15 of those failed
-    expect([n.ses_p0.folded?.done, n.ses_p0.folded?.failed]).toEqual([85, 15]);
+    expect(s.nodes.length).toBe(10 + 3 + 2 + 15);
+    expect([n.ses_p0.folded?.done, n.ses_p0.folded?.failed]).toEqual([85, 0]);
     expect([n.ses_p1.folded?.done, n.ses_p1.folded?.failed]).toEqual([100, 0]);
-    expect(n.ses_p0.folded?.nodes).toHaveLength(100);
+    expect(n.ses_p0.folded?.nodes).toHaveLength(85);
     expect(n.ses_p0.folded?.nodes[0].id).toBe('ses_sub_297');
-    expect(n.ses_p0.folded?.usage).toMatchObject({ inputTokens: 10_000, outputTokens: 1_000 });
-    expect(n.ses_p0.folded?.usage.costUsd).toBeCloseTo(0.1, 6);
-    // the parent's usage includes theirs
-    expect(n.ses_p0.usage.costUsd).toBeCloseTo(0.1, 6);
-    expect(n.ses_p0.folded?.nodes.reduce((c, f) => c + f.costUsd, 0)).toBeCloseTo(0.1, 6);
+    expect(n.ses_p0.folded?.usage).toMatchObject({ inputTokens: 8_500, outputTokens: 850 });
+    expect(n.ses_p0.folded?.usage.costUsd).toBeCloseTo(0.085, 6);
+    // the parent's usage includes the folded ones only
+    expect(n.ses_p0.usage.costUsd).toBeCloseTo(0.085, 6);
+    expect(n.ses_p0.folded?.nodes.reduce((c, f) => c + f.costUsd, 0)).toBeCloseTo(0.085, 6);
   });
 
   test('a replay folds the children that had finished by then', () => {
@@ -313,10 +317,10 @@ describe('a busy day stays readable', () => {
     const n = byId(s.nodes);
     for (let i = 0; i < 10; i++) expect(n[`ses_chat_${i}`]).toBeDefined();
     expect(n.ses_live_a).toBeUndefined();
-    // the 181 children started in the first 30 minutes (the last one just then), none since
+    // the 181 children started in the first 30 minutes (the last one just then), none since; the 15 failed stay nodes
     const folded = ['ses_p0', 'ses_p1', 'ses_p2'].reduce((c, id) => c + n[id].folded!.done + n[id].folded!.failed, 0);
-    expect(folded).toBe(181);
-    expect(s.nodes.length).toBe(13);
+    expect(folded).toBe(181 - 15);
+    expect(s.nodes.length).toBe(13 + 15);
   });
 
   test('over the cap, the chats and sessions people started come before workflow runs', () => {
