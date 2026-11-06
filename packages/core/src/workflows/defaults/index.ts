@@ -11,6 +11,7 @@ import fixUntilGreen from './fix-until-green.js' with { type: 'text' };
 import fixIssue from './fix-issue.js' with { type: 'text' };
 import bugHunt from './bug-hunt.js' with { type: 'text' };
 import securityAudit from './security-audit.js' with { type: 'text' };
+import securityHunt from './security-hunt.js' with { type: 'text' };
 import designPanel from './design-panel.js' with { type: 'text' };
 import uiPass from './ui-pass.js' with { type: 'text' };
 import migrate from './migrate.js' with { type: 'text' };
@@ -32,6 +33,7 @@ export const DEFAULT_WORKFLOWS: DefaultWorkflow[] = [
   { file: 'fix-issue.js', script: fixIssue },
   { file: 'bug-hunt.js', script: bugHunt },
   { file: 'security-audit.js', script: securityAudit },
+  { file: 'security-hunt.js', script: securityHunt },
   { file: 'design-panel.js', script: designPanel },
   { file: 'ui-pass.js', script: uiPass },
   { file: 'migrate.js', script: migrate },

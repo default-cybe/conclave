@@ -34,7 +34,7 @@ beforeAll(async () => {
 });
 afterAll(async () => t?.close());
 
-test('all fourteen default workflows load, are Conclave scripts, and compile in the sandbox', async () => {
+test('all fifteen default workflows load, are Conclave scripts, and compile in the sandbox', async () => {
   expect(DEFAULT_WORKFLOWS.map((d) => d.file.replace(/\.js$/, ''))).toEqual([
     'review-changes',
     'deep-research',
@@ -44,6 +44,7 @@ test('all fourteen default workflows load, are Conclave scripts, and compile in 
     'fix-issue',
     'bug-hunt',
     'security-audit',
+    'security-hunt',
     'design-panel',
     'ui-pass',
     'migrate',
@@ -68,7 +69,7 @@ test('all fourteen default workflows load, are Conclave scripts, and compile in 
     expect(d.script).not.toMatch(/[–—]/);
   }
   const library = await svcOf(t.engine).library();
-  expect(library.filter((w) => w.source === 'builtin').length).toBe(14);
+  expect(library.filter((w) => w.source === 'builtin').length).toBe(15);
   expect(library.every((w) => w.runnable)).toBe(true);
 });
 

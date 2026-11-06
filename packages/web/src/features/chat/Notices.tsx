@@ -23,6 +23,7 @@ import { fallbackModel, msgText } from './util';
 import { providerFailureNotice, TryNextModel } from './TryNextModel';
 import { FanOutNotice } from './FanOutCard';
 import { noticeResult } from './agentResult';
+import { FindingBlock, isFinding } from './FindingCard';
 
 interface NoticeMeta {
   type?: string;
@@ -59,6 +60,7 @@ export const NoticeLine = memo(function NoticeLine({ message, session, latest, e
         )}
       />
     );
+  if (isFinding(message)) return <FindingBlock message={message} />;
   const text = msgText(message);
   const meta = (message.meta ?? {}) as NoticeMeta;
   const isLimit = meta.type === 'limit' || (latest && session.status === 'waiting_reset' && /limit/i.test(text));
