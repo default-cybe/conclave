@@ -12,6 +12,22 @@ like `## [0.4.16] - 2026-10-24`.
 ### Added
 
 - Security mode roster: nine `sec-*` subagent profiles, offered by Task and Delegate only when `chat.security` is on; each role's MCP tools narrowed to the ones it needs (read-only roles get no network tools); a member's role runs on the member's own chat model; Delegate walks a role's fallback list like Task; per-role default and fallback models, a group label in the Agents list, the main security agent's scope-guard and refusal-fallback frontmatter, and eleven in-scope hunt skills. The scope-guard recipe is provided by Security mode PR 1; this roster alone does not authorize live traffic (#271).
+- Security mode, PR 1 (#271): the `scope-guard` recipe. An agent that lists it in `recipes:` gets an in-hub PreToolUse guard on every network-capable call (Bash curl/wget/nc/nmap/python and raw IPs, WebFetch, browser tools, any MCP tool with a URL or host, Caido send/batch/replay, and Delegate briefs), for itself and every Task or Delegate session it starts. It reads `scope.yaml` and `targets/<t>/scope.yaml` in the hunt folder on the session's device: lab networks (named docker networks only, never IPs or ranges) pass, out-of-scope hosts and paths are refused, in-scope hosts need a live approval grant (24 h, 500 requests at most) or your answer, unlisted hosts ask, and no scope file asks. WebFetch to a live in-scope host and Caido `race_window_send` to anything but lab are refused; members are lab-only. Grants are read from the hub's store (`security.grants`); issuing them comes in PR 1b. Listed in Extensions > Hooks > Built in. The guard also covers workflow `lib.exec` and `lib.capture`, Capture, ReadPost and SaveInspiration (refused for in-scope hosts, like WebFetch), ScheduleRoutine and WatchCreate (in-scope hosts refused: they run later, outside the guard), bash `/dev/tcp`, socat, hosts in shell variables, and asks before a file tool or a writing command changes a `scope.yaml`. Lab entries must be named `sec-lab-<target>` with no dots, and hosts match across spellings (trailing dots, punycode, numeric IPv4, `lab\@live` URLs).
+
+## [0.4.71] - 2026-11-05
+
+### Added
+
+- Canvas: when the open run has a failed block (or, with none failed, a running one) off screen, the top bar and the phone bar show Go to failed block or Go to running block. It pans to the block, selects it and pulses it once in the minimap. The first view still opens on the start of the graph at a readable zoom.
+- Workflows: lib.panel and lib.judgePanel spread their voters round robin over the distinct usable models of `tier` (default deep) when the script sets no `model`, so voters do not share one model's blind spots; one model when only one is usable, and `models` pins the list. A member's voters use only their own keys and plans. Each verdict has `untested` (assumptions the voter did not check); panel() returns `models` and `sharedUntested`, and a finding whose confirmers all share an untested assumption comes back with confidence low and flag `agreed-without-evidence`. The run log names the model of each vote. bug-hunt, review-changes and security-audit now pass `tier: 'deep'` instead of `model: 'deep'`.
+
+### Changed
+
+- Extensions > Hooks no longer warns when two plugins both add a SubagentStart hook: both run, which is normal. It warns instead when one plugin registers the same command twice on one event and matcher.
+
+### Fixed
+
+- The session list, the sidebar, the command palette and phone Home no longer lose older chats on a busy day. The apps loaded the newest 500 sessions of any kind, so hundreds of subagent and workflow sessions pushed top-level chats out, and the title filter said "No session title matches" for a chat that exists. The web and Android apps now load every top-level session page by page (`parentId=none` with `offset`), plus open delegated work for its group; a session's subagents load when it opens, and a link to one not loaded yet is fetched by id. A filter also says how many archived sessions match, one tap from the archive.
 
 ## [0.4.70] - 2026-11-05
 

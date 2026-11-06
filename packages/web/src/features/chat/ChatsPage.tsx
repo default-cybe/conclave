@@ -8,7 +8,7 @@
  */
 import { useEffect } from 'react';
 import { useLocation, useParams, useSearch } from 'wouter';
-import { useHub } from '@/store/store';
+import { useHub, useMissingSession } from '@/store/store';
 import { openNewChat, useUi } from '@/store/ui';
 import { useBreakpoint } from '@/lib/hooks';
 import { SideSheet } from '@/components/ui/Overlay';
@@ -28,7 +28,6 @@ export function ChatsPage() {
   const [, navigate] = useLocation();
   const id = params.id;
   const session = useHub((s) => (id ? s.sessions[id] : undefined));
-  const booted = useHub((s) => s.booted);
   const previewing = usePreviewOpen((s) => !!id && s.id === id);
   const bp = useBreakpoint();
   const contextOpen = useUi((s) => s.contextOpen);
@@ -74,7 +73,7 @@ export function ChatsPage() {
   }, [id, bp]);
   useEffect(() => () => useUi.getState().set({ drawerOpen: false }), []);
 
-  const missing = !!id && !session && booted;
+  const missing = useMissingSession(id);
 
   if (bp === 'phone') {
     // Code on a phone: agent sessions on your devices

@@ -118,6 +118,13 @@ export function SessionList({ activeId }: { activeId?: string }) {
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups]);
 
+  // a filter also counts the archive's title matches, so an archived chat is one tap away
+  const archivedHits = useMemo(() => {
+    const needle = q.trim();
+    if (!needle || showArchived) return 0;
+    return Object.values(sessions).filter((s) => s.archived && !inImported(s) && !s.incognito && !underParent(s) && fuzzy(needle, `${s.title} ${s.agent} ${modelName(s.model)} ${s.tags.join(' ')} ${devices[s.device]?.name ?? ''}`) >= 0).length;
+  }, [sessions, devices, showArchived, q]);
+
   // jury and debate rows show their verdict: the hub keeps it on meta; older sessions only have it in the messages
   useEffect(() => {
     const want = flat.filter((s) => (s.mode === 'jury' || s.mode === 'debate') && typeof s.meta?.verdict !== 'string').slice(0, 6);
@@ -242,7 +249,7 @@ export function SessionList({ activeId }: { activeId?: string }) {
               <p className="px-4 py-6 text-[13px] leading-[1.45] text-fg-3 phone:text-[14px]">
                 {q ? (
                   <>
-                    No session title matches "{q}". Press <b className="font-medium text-fg-2">↵</b> to search inside messages.
+                    No {archivedHits ? 'open ' : ''}session title matches "{q}". Press <b className="font-medium text-fg-2">↵</b> to search inside messages.
                   </>
                 ) : showArchived ? (
                   'Nothing is archived.'
@@ -263,9 +270,9 @@ export function SessionList({ activeId }: { activeId?: string }) {
                 ))}
               </section>
             ))}
-            {!showArchived && !q && (
+            {!showArchived && (!q || archivedHits > 0) && (
               <button type="button" onClick={() => set({ showArchived: true })} className="link mx-4 mt-4 text-[12px] phone:text-[13px]">
-                Show archived
+                {q ? `${archivedHits} archived ${archivedHits === 1 ? 'session matches' : 'sessions match'}` : 'Show archived'}
               </button>
             )}
           </>

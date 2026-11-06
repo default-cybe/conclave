@@ -7,7 +7,7 @@
  *     its handler groups: where each comes from, whether it is on, its last
  *     runs, and "from recipe" on handlers a recipe added.
  *   Recipes (?view=recipes): tested hooks to add in one step, by goal.
- *   Built in (?view=builtin): memory recall, extraction, compaction, file recall.
+ *   Built in (?view=builtin): memory recall, extraction, compaction, file recall, scope guard.
  * Add or edit handlers at user or project scope, test them against the real
  * hub, import from Gemini CLI or Codex. ?event=PreToolUse scrolls to that
  * event and marks it; ?recipe=<id> opens that recipe.

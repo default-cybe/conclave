@@ -34,6 +34,8 @@ interface Def {
   description: string;
   setting?: string;
   canDisable: boolean;
+  /** Who it runs for and why it has no switch, when not every session. */
+  onFor?: string;
 }
 
 const DEFS: Def[] = [
@@ -68,6 +70,14 @@ const DEFS: Def[] = [
     description: 'When the agent reads a file, adds memories tagged with that path or that mention it, and memories tagged repo:<name> once per session. Off by default.',
     canDisable: true,
   },
+  {
+    id: 'scope-guard',
+    event: 'PreToolUse',
+    label: 'Scope guard',
+    description: 'Checks the shell, WebFetch, browser, MCP (Caido included) and Delegate calls of a Security mode session against the hunt\'s scope.yaml. Lab networks pass, out-of-scope hosts are refused, in-scope hosts need an approval grant or your answer, unlisted hosts ask.',
+    canDisable: false,
+    onFor: 'Agents with scope-guard in their recipes list, and every session they start. It cannot be turned off for them.',
+  },
 ];
 
 function stored(engine: Engine): Stored {
@@ -82,6 +92,7 @@ function isOn(engine: Engine, id: BuiltinHookId): boolean {
     case 'memory-extract':
       return cfg.memory.enabled && cfg.memory.autoExtract;
     case 'compaction':
+    case 'scope-guard':
       return true;
     case 'file-recall':
       return cfg.memory.enabled && stored(engine)['file-recall']?.enabled === true;
@@ -110,6 +121,7 @@ export function builtinHooks(engine: Engine): BuiltinHookDto[] {
       ...(last ? { lastRun: last } : {}),
       ...(tokens ? { tokensPerSession: tokens } : {}),
       ...(d.setting ? { setting: d.setting } : {}),
+      ...(d.onFor ? { onFor: d.onFor } : {}),
     };
   });
 }
@@ -122,6 +134,7 @@ export function setBuiltinHook(engine: Engine, id: string, patch: { enabled?: un
     throw new EngineError(400, 'budgetChars must be a number from 200 to 50000');
   }
   const enabled = patch.enabled as boolean | undefined;
+  if (enabled === false && def.id === 'scope-guard') throw new EngineError(400, `${def.label} cannot be turned off: it runs only for agents that list scope-guard in recipes:. Remove it from that agent instead.`);
   if (enabled === false && !def.canDisable) throw new EngineError(400, `${def.label} cannot be turned off: long sessions would no longer fit the model. Raise context.compactAt instead.`);
   if (patch.budgetChars !== undefined && def.id !== 'file-recall' && def.id !== 'memory-recall') throw new EngineError(400, `${def.label} has no budget to set`);
 

@@ -156,8 +156,24 @@ run in Claude Code.
 - `lib.panel(finding, opts)` asks 3 refuters with different lenses and keeps
   the finding at 2 of 3 complete confirmations, with the median severity and
   a confidence from the votes.
+  - Voters on one model share its blind spots, so without `opts.model` the
+    voters spread round robin over the distinct usable models of
+    `opts.tier` (default `deep`): the tier's own pick first, then the other
+    makers' models the account lists. With one usable model they all run
+    on it. `opts.models: ['provider/model', ...]` pins the list (models the
+    account cannot call are left out); `opts.model` puts every voter on one
+    model, as before. A member's voters use only their own keys and plans,
+    never the owner's. Same model for all work turns the mix off.
+  - Each verdict has `untested`: the assumptions the voter relied on but did
+    not check. The result adds `models` (the model of each vote, also in the
+    run log) and `sharedUntested`: the assumptions every confirming voter
+    listed. When that is not empty the confidence is `low` and `flag` is
+    `agreed-without-evidence`: the panel agreed, but on something nobody
+    checked.
 - `lib.judgePanel(candidates, { judges })` scores candidates in both orders;
-  a preference that flips with the order counts as a tie.
+  a preference that flips with the order counts as a tie. Judges spread over
+  models like `lib.panel` voters (`tier`, `models`, `model`); both orders of
+  one judge run on the same model. The result has `models`, one per judge.
 - `lib.loopUntilDry(round, { k, maxRounds, key })` runs rounds until `k` in a
   row find nothing new.
 - `lib.dropDismissed(findings)` drops findings like 3 or more you dismissed

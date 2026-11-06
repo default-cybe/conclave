@@ -449,11 +449,29 @@ class ConclaveClient(
         kind: SessionKind? = null,
         /** Only sessions with this tag ("imported"). */
         tag: String? = null,
+        offset: Int? = null,
     ): List<Session> = get(
         p("api", "sessions"),
         ListSerializer(Session.serializer()),
-        mapOf("agent" to agent, "taskId" to taskId, "archived" to archived, "search" to search, "device" to device, "limit" to limit, "parentId" to parentId, "kind" to kind?.wire, "tag" to tag),
+        mapOf("agent" to agent, "taskId" to taskId, "archived" to archived, "search" to search, "device" to device, "limit" to limit, "parentId" to parentId, "kind" to kind?.wire, "tag" to tag, "offset" to offset),
     )
+
+    /**
+     * Every top-level session (parentId none), page by page, up to 40 pages:
+     * a day of subagents and workflow agents must not push older chats out of
+     * the list. Their children load with the parent ([listSessions] parentId).
+     */
+    suspend fun topLevelSessions(archived: Boolean, page: Int = 500): List<Session> {
+        val out = mutableListOf<Session>()
+        var offset = 0
+        while (offset < 40 * page) {
+            val got = listSessions(archived = archived, parentId = "none", limit = page, offset = offset)
+            out += got
+            if (got.size < page) break
+            offset += page
+        }
+        return out
+    }
 
     suspend fun getSession(id: String): Session = get(p("api", "sessions", id), Session.serializer())
 

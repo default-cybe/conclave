@@ -14,7 +14,7 @@ import type { FlowBlockSpec, FlowNodeLive, GraphNode, NodeRun, NodeRunState, Wor
 import { MenuList, Popover, type MenuItem } from '@/components/ui/Overlay';
 import { useIsMobile, useMedia } from '@/lib/hooks';
 import { cn } from '@/lib/text';
-import { deskViewport, focusViewport } from '../canvas/model';
+import { deskViewport, focusViewport, onScreen, READ_ZOOM } from '../canvas/model';
 import { NODE_H, NODE_W, clearOf, placedGraph } from './layout';
 import { NODE_TYPES, type BandData, type FlowNodeData } from './nodes';
 
@@ -49,9 +49,16 @@ export interface GraphCanvasProps {
   /** A program flow: block nodes, a value label on each wire from the last run, and wires drawn to an input. */
   flow?: { blocks: Map<string, FlowBlockSpec>; live?: Record<string, FlowNodeLive>; states?: Record<string, NodeRunState>; onConnect?: (from: string, to: string, input: string) => void; check?: (from: string, to: string, input: string) => string | undefined };
   /** Canvas mode (docs/design/CANVAS-MODE.md): the whole pane, a faint dot grid, a minimap; it opens readable on `focus` (the running or failed node) with the start of the graph (canvas/model deskViewport, focusViewport on a phone). */
-  full?: { focus?: string };
+  full?: { focus?: string; go?: GoTo };
   /** Canvas mode: right-click (long-press on touch) on a node opens its menu; Rename and Delete come from onRename and onRemove, the rest from here. */
   menu?: (n: GraphNode) => NodeActions;
+}
+
+/** Canvas mode's Go to button (canvas/model goTarget): the canvas says when `id` leaves the screen, and each new `ask` pans to it, selects it and pulses it in the minimap. */
+export interface GoTo {
+  id: string;
+  ask: number;
+  onOffScreen: (off: boolean) => void;
 }
 
 /** A node menu's actions besides Rename and Delete; one left out is not offered. */
@@ -315,8 +322,31 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
   const fitOnce = () => {
     if (fitted.current) return;
     fitted.current = true;
-    setTimeout(() => fit(), 120);
+    setTimeout(() => (fit(), (placed.current = true), checkGo()), 120);
   };
+
+  // the Go to target: off screen or not, read once the first view is placed and after every pan or zoom
+  const placed = useRef(false);
+  const go = full?.go;
+  const goNode = go ? nodes.find((n) => n.id === go.id) : undefined;
+  const checkGo = () => {
+    const r = box.current?.getBoundingClientRect();
+    if (!go || !r || !placed.current) return;
+    go.onOffScreen(!!goNode && !onScreen({ ...goNode.position, w: NODE_W, h: NODE_H }, flow.getViewport(), { w: r.width, h: r.height }));
+  };
+  useEffect(checkGo, [go?.id, goNode?.position.x, goNode?.position.y]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [pulse, setPulse] = useState<string>();
+  useEffect(() => {
+    const r = box.current?.getBoundingClientRect();
+    if (!go?.ask || !goNode || !r) return;
+    const at = { ...goNode.position, w: NODE_W, h: NODE_H };
+    if (vertical) void flow.setViewport(focusViewport(at, bounds, { w: r.width, h: r.height }), { duration: 300 });
+    else void flow.setCenter(at.x + NODE_W / 2, at.y + NODE_H / 2, { zoom: Math.max(READ_ZOOM, flow.getViewport().zoom), duration: 300 });
+    onSelect(goNode.id);
+    setPulse(goNode.id);
+    const t = setTimeout(() => (setPulse(undefined), checkGo()), 1300);
+    return () => clearTimeout(t);
+  }, [go?.ask]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -474,6 +504,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         maxZoom={1.6}
         defaultViewport={{ x: 16, y: 16, zoom: vertical ? 1 : 0.9 }}
         onInit={fitOnce}
+        onMoveEnd={go ? checkGo : undefined}
         proOptions={{ hideAttribution: true }}
         onNodeClick={(_, n) => n.type !== 'band' && Date.now() - pressedAt.current > 800 && onSelect(n.id)}
         onNodeContextMenu={
@@ -501,7 +532,7 @@ function Canvas({ graph, runs, stale, selected, currentPhase, onSelect, classNam
         {!vertical && <Controls showInteractive={false} position={full ? 'bottom-left' : 'top-right'} fitViewOptions={{ padding: 0.08, maxZoom: 1 }} onFitView={() => fit(200)} />}
         {/* the faint dot grid is Canvas's alone: an exception to SPEC 2's no-grid rule (owner decision on PR #250) */}
         {full && <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} />}
-        {full && !vertical && <MiniMap position="bottom-right" pannable zoomable ariaLabel="Minimap" nodeClassName={miniClass} />}
+        {full && !vertical && <MiniMap position="bottom-right" pannable zoomable ariaLabel="Minimap" nodeClassName={(n) => (n.id === pulse ? `${miniClass(n)} cv-mini-pulse` : miniClass(n))} />}
         {program?.check && <WireHint check={program.check} />}
       </ReactFlow>
       {note && (

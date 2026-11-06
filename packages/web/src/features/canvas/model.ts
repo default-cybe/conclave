@@ -164,7 +164,28 @@ export function focusNode(states: Array<{ id: string; state?: string }>): string
   return undefined;
 }
 
+/** The block the top bar's Go to button reaches: the first failed one, else the first running one. */
+export function goTarget(states: Array<{ id: string; state?: string }>): { id: string; word: 'failed' | 'running' } | undefined {
+  for (const word of ['failed', 'running'] as const) {
+    const hit = states.find((s) => s.state === word);
+    if (hit) return { id: hit.id, word };
+  }
+  return undefined;
+}
+
 type Box = { x: number; y: number; w: number; h: number };
+
+/** Whether any part of a node (flow coordinates) shows in the pane at the viewport. */
+export function onScreen(node: Box, vp: { x: number; y: number; zoom: number }, canvas: { w: number; h: number }): boolean {
+  const l = node.x * vp.zoom + vp.x;
+  const t = node.y * vp.zoom + vp.y;
+  return l + node.w * vp.zoom > 0 && l < canvas.w && t + node.h * vp.zoom > 0 && t < canvas.h;
+}
+
+/** The Go to button's words: only when there is a target and it is off screen. */
+export function goLabel(target: { word: 'failed' | 'running' } | undefined, offScreen: boolean): string | undefined {
+  return target && offScreen ? `Go to ${target.word} block` : undefined;
+}
 
 export const READ_ZOOM = 0.55;
 

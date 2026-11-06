@@ -1097,7 +1097,7 @@ export interface HookFixRequest {
   text: string;
 }
 
-export type BuiltinHookId = 'memory-recall' | 'memory-extract' | 'compaction' | 'file-recall';
+export type BuiltinHookId = 'memory-recall' | 'memory-extract' | 'compaction' | 'file-recall' | 'scope-guard';
 
 export interface BuiltinHookDto {
   id: BuiltinHookId;
@@ -1114,6 +1114,8 @@ export interface BuiltinHookDto {
   tokensPerSession?: number;
   /** Config key behind the switch, for the "Equivalent" line. */
   setting?: string;
+  /** Who it runs for, when not every session (the scope guard: agents that list it in recipes:). */
+  onFor?: string;
 }
 
 export interface HookTestInput {
@@ -1878,7 +1880,7 @@ export class ConclaveClient {
 
   // ----- sessions -----
   /** kind "chat" lists chats only; kind "agent" lists workbench sessions only; leave it out for both. */
-  listSessions = (q?: { agent?: string; taskId?: string; archived?: boolean; search?: string; device?: string; limit?: number; parentId?: string | 'none'; kind?: SessionKind; tag?: string }) =>
+  listSessions = (q?: { agent?: string; taskId?: string; archived?: boolean; search?: string; device?: string; limit?: number; offset?: number; parentId?: string | 'none'; kind?: SessionKind; tag?: string }) =>
     this.request<Session[]>('GET', '/api/sessions', undefined, q as Query);
   getSession = (id: string) => this.request<Session>('GET', `/api/sessions/${id}`);
   createSession = (input: CreateSessionInput) => this.request<Session>('POST', '/api/sessions', input);

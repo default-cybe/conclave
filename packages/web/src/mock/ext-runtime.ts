@@ -927,6 +927,16 @@ export function registerExtensionRuntime(ctx: MockCtx) {
       canDisable: true,
       budgetChars: 1500,
     },
+    {
+      id: 'scope-guard',
+      event: 'PreToolUse',
+      label: 'Scope guard',
+      description: "Checks the shell, WebFetch, browser, MCP (Caido included) and Delegate calls of a Security mode session against the hunt's scope.yaml. Lab networks pass, out-of-scope hosts are refused, in-scope hosts need an approval grant or your answer, unlisted hosts ask.",
+      enabled: true,
+      canDisable: false,
+      onFor: 'Agents with scope-guard in their recipes list, and every session they start. It cannot be turned off for them.',
+      ...(FRESH ? {} : { lastRun: { event: 'PreToolUse', type: 'function', label: 'scope-guard', durationMs: 4, result: 'ask', at: ago(12 * MIN), sessionId: 's_auth' } as HookRunDto }),
+    },
   ];
 
   on('GET', '/api/hooks/builtin', async () => {
@@ -973,16 +983,7 @@ export function registerExtensionRuntime(ctx: MockCtx) {
       last: runs.filter((r) => r.event === event).slice(-10),
     }));
     const lint = [...mockLint(cfg.hooks, CONFIG_PATH), ...(FRESH ? [] : mockLint(CLAUDE_USER_HOOKS, CLAUDE_USER))];
-    // two plugins that inject into every subagent (extensions-api.ts lintLoaded)
-    const injecting = [...new Set(groups.filter((g) => g.event === 'SubagentStart' && g.source === 'plugin' && (!g.matcher || g.matcher === '*')).map((g) => g.plugin!))];
-    if (injecting.length > 1)
-      lint.push({
-        level: 'warn',
-        event: 'SubagentStart',
-        group: 0,
-        plugins: injecting,
-        text: `${injecting.join(' and ')} both add text to every subagent. Each subagent starts with both; turn one plugin's hooks off if they do the same job.`,
-      });
+    // two plugins on one event is normal and both run: no warning (extensions-api.ts pluginHookRepeats warns only for one plugin's repeats)
     const out: HooksOverview = { events, ...(cwd ? { trust: trustInfoEdited(cwd) } : {}), ...(lint.length ? { lint } : {}) };
     return out;
   });

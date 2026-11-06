@@ -27,12 +27,13 @@ import { failingTest } from '../util/test-run';
 import { Sandbox, SandboxError } from './sandbox';
 import { preludeSource } from './prelude';
 import { callDto, callKey, runDto, sha256, type CallRow, type RunRow } from './store';
-import { keyParts, readAgentSpec, runStep, type AgentSpec, type StepState } from './agents';
+import { keyParts, panelModels, readAgentSpec, runStep, type AgentSpec, type StepState } from './agents';
 import { DEFAULTS, Semaphore, count } from './limits';
 import { branchCommit, codeFingerprint, createWorktree, finishWorktree, repoInfo, shq, syncthingMarkerAbove, withDetached, worktreePath, type Worktree } from './worktrees';
 import type { WorkflowService } from './service';
 import { loadMeta } from './registry';
 import { captureUrl, hubCapture, type CaptureOptions } from '../browser/capture';
+import { scopeGuardCheck } from '../session/scope-guard';
 import type { BrowserManager } from '../browser/manager';
 import { outputsDir } from '../files/share';
 import { ledgerFence, ledgerId, mergeLedger } from './ledger';
@@ -99,6 +100,8 @@ export class LiveRun {
   private ticker?: ReturnType<typeof setInterval>;
   /** Panel votes seen, for the refuted rate. */
   readonly votes = { panels: 0, refuted: 0 };
+  /** lib.panel's model lists, by tier and o.models (hostFns panelModels). */
+  private readonly panelPicks = new Map<string, Promise<string[]>>();
   private findingsRecorded = false;
   /** Host calls (timers, lib calls, agent calls) and checks this attempt made, and findings it kept. */
   private hostCalls = 0;
@@ -846,6 +849,8 @@ export class LiveRun {
       workspaceRoots: [cwd],
     });
     if (dangerousCommand(command) && decision.decision === 'allow') decision = { decision: 'ask', reason: 'Potentially destructive command' };
+    const scope = await this.scopeVerdict('Bash', { command }, what);
+    if (scope && decision.decision === 'allow') decision = { decision: 'ask', reason: scope };
     if (decision.decision === 'allow') return;
     if (decision.decision === 'deny') throw new Error(`${what} denied: ${decision.reason}`);
     if (this.unattended()) throw new Error(`${what} needs approval and nobody is there to approve it: ${command}`);
@@ -855,6 +860,19 @@ export class LiveRun {
       signal,
     );
     if (res.decision !== 'allow') throw new Error(`${what} was not approved: ${command}`);
+  }
+
+  /**
+   * The scope guard (session/scope-guard.ts) for a call the run makes itself: lib.exec and lib.capture skip
+   * PreToolUse, so a script started from a Security mode session is checked here. Throws on deny; returns the
+   * reason when it asks.
+   */
+  private async scopeVerdict(tool: string, input: Record<string, unknown>, what: string): Promise<string | undefined> {
+    const session = this.sessionOf();
+    if (!session) return undefined;
+    const v = await scopeGuardCheck(this.engine, { session_id: session.id, cwd: session.cwd, hook_event_name: 'PreToolUse', tool_name: tool, tool_input: input });
+    if (v?.permissionDecision === 'deny') throw new Error(`${what} denied: ${v.reason}`);
+    return v?.permissionDecision === 'ask' ? (v.reason ?? 'Scope guard') : undefined;
   }
 
   private async execOn(command: string, opts: { cwd?: string; timeoutMs?: number; worktree?: number }, signal: AbortSignal): Promise<{ exitCode: number | null; stdout: string; stderr: string; timedOut: boolean }> {
@@ -1093,7 +1111,13 @@ export class LiveRun {
         const full = this.engine.diskRefusal(acct);
         if (full) throw new Error(`lib.capture: ${full}`);
         const opts = (o.opts && typeof o.opts === 'object' ? o.opts : {}) as CaptureOptions;
-        return this.hostCall('check', `capture: ${oneLine(u.href, 80)}`, { capture: u.href, opts }, parentSeq, (signal) => {
+        return this.hostCall('check', `capture: ${oneLine(u.href, 80)}`, { capture: u.href, opts }, parentSeq, async (signal) => {
+          const ask = await this.scopeVerdict('lib.capture', { url: u.href }, 'lib.capture');
+          if (ask) {
+            if (this.unattended()) throw new Error(`lib.capture needs approval and nobody is there to approve it: ${ask}`);
+            const res = await this.engine.requestApproval(this.row.sessionId!, { toolUseId: `wf_${this.id}_${this.seq}`, tool: 'Capture', input: { url: u.href }, summary: `${this.row.name} / lib.capture: ${oneLine(u.href, 160)}` }, signal);
+            if (res.decision !== 'allow') throw new Error(`lib.capture was not approved: ${u.href}`);
+          }
           const out = outputsDir(this.engine.config.paths.home, this.row.sessionId ?? this.id);
           return hubCapture((this.engine as unknown as { browser?: BrowserManager }).browser, this.engine.config.paths.home, out, u.href, opts, signal, acct);
         });
@@ -1109,6 +1133,14 @@ export class LiveRun {
       ledgerWrite: async (p: unknown) => {
         const o = (p ?? {}) as { project?: unknown; entries?: unknown };
         return this.writeLedger(await this.ledgerFolder(o.project), Array.isArray(o.entries) ? o.entries : []);
+      },
+      // lib.panel and lib.judgePanel: the models the voters spread over, journaled (agent keys hold the model) and read once per tier and list
+      panelModels: (p: unknown) => {
+        const o = (p ?? {}) as { tier?: unknown; models?: unknown };
+        const k = JSON.stringify([o.tier ?? null, o.models ?? null]);
+        let hit = this.panelPicks.get(k);
+        if (!hit) this.panelPicks.set(k, (hit = this.hostCall('check', 'panel models', { panelModels: k }, parentSeq, () => panelModels(this.engine, this.row.sessionId, o.tier, o.models))));
+        return hit;
       },
       recordFindings: (p: unknown) => this.recordFindings(Array.isArray((p as { findings?: unknown })?.findings) ? ((p as { findings: unknown[] }).findings) : []),
       ask: (p: unknown) => {
