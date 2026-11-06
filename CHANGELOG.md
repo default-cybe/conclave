@@ -16,8 +16,12 @@ like `## [0.4.16] - 2026-10-24`.
   is in the Canvas top bar's file menu, the start page and the sidebar list, with
   New in folder..., New workflow and Rename. The empty canvas shows a hint, opens
   the library, keeps Run off until there is a block, and has a Describe it box
-  that asks the agent to build the blocks. Members pick a folder on their own
-  computer.
+  that asks the agent to build the blocks; once sent it folds to a Building chip.
+  A program with one phase or none draws no band, so its blocks sit on the bare
+  dot grid. Ports take a 44 px press on touch screens. Members pick a folder on
+  their own computer, and are told in plain words when they pick the hub. The
+  Android app's Canvas list has New too, then opens the file's canvas with Open
+  on web to edit.
 
 ## [0.4.71] - 2026-11-05
 
