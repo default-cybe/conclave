@@ -36,6 +36,7 @@ import { registerRemoteRoutes } from './routes-remote';
 import { registerSubscriptionRoutes } from './routes-subscriptions';
 import { registerAccountRoutes } from './routes-accounts';
 import { registerAlertRoutes } from './routes-alerts';
+import { registerGrantRoutes } from './routes-grants';
 import { registerLogRoutes } from './routes-logs';
 import { logSlowRequest, startLoopLagWatch, trackRequest, trackToolDone, trackToolStarted, type LoopLagWatch } from './lag';
 import { CliproxyManager, type CliproxyOptions } from './cliproxy';
@@ -364,6 +365,9 @@ export function createServer(opts: ServerOptions): ConclaveServer {
 
   // ----- alerts: file conflicts and stuck turns, for the Inbox ---------------
   registerAlertRoutes(app, ctx);
+
+  // ----- Security mode approval grants: list and revoke, owner only (routes-grants.ts)
+  registerGrantRoutes(app, ctx);
 
   // ----- Conclave as an MCP server (/mcp), its OAuth server and its client snippets
   registerOAuthRoutes(app, ctx);
