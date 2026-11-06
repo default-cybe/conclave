@@ -699,6 +699,7 @@ function Shell(p: ShellProps) {
   const node = p.graph.nodes.find((n) => n.id === sel);
   const ask = () => (phone ? setSheet('agent') : setSide('agent'));
   const describe = (text: string) => (setSeed(text), ask());
+  const renaming = useRenameDialog(p.title, p.rename);
   const overlay = p.edit && (empty || building) && <EmptyCanvas empty={empty} building={building} blocks={p.graph.nodes.length} onDescribe={p.agent ? describe : undefined} phone={phone} />;
   const failed = node && p.failedOf?.(node);
   const inspector = (n: GraphNode) => (
@@ -790,7 +791,7 @@ function Shell(p: ShellProps) {
   const facts = (
     <div className="space-y-3 px-5 py-4">
       <div className="t-title mono text-fg">{p.title}</div>
-      <p className="m-0 text-[13px] text-fg-2">{p.graph.nodes.length} blocks. Pick one to see its settings, its calls and its last value.</p>
+      <p className="m-0 text-[13px] text-fg-2">{p.graph.nodes.length} {p.graph.nodes.length === 1 ? 'block' : 'blocks'}. Pick one to see its settings, its calls and its last value.</p>
       <p className="m-0 text-[12px] text-fg-3">{p.meta}.</p>
     </div>
   );
@@ -800,7 +801,8 @@ function Shell(p: ShellProps) {
   if (phone)
     return (
       <div className="flex min-h-0 flex-1 flex-col">
-        <PhoneBar title={p.title} />
+        <PhoneBar title={p.title} {...(renaming.ask ? { onTitle: renaming.ask, titleLabel: `${p.title}: rename` } : {})} />
+        {renaming.dialog}
         <div className="flex min-h-9 shrink-0 items-center gap-1 border-b border-rule px-4 text-[13px]">
           <span className="min-w-0 flex-1 truncate">{statusLine}</span>
           {goButton}
@@ -860,7 +862,8 @@ function Shell(p: ShellProps) {
             {lib ? <PanelLeftClose className="size-4" strokeWidth={1.75} aria-hidden /> : <PanelLeftOpen className="size-4" strokeWidth={1.75} aria-hidden />}
           </button>
         </Tooltip>
-        <FileMenu title={p.title} rename={p.rename} />
+        <FileMenu title={p.title} onRename={renaming.ask} />
+        {renaming.dialog}
         <span className="shrink-0 truncate text-[12px] text-fg-3">{p.meta}</span>
         <span className="mx-2 h-4 w-px shrink-0 bg-rule" aria-hidden />
         <span className="min-w-0 flex-1 truncate text-[13px]">{statusLine}</span>
@@ -947,16 +950,12 @@ function EmptyCanvas({ empty, building, blocks, onDescribe, phone }: { empty: bo
   );
 }
 
-function FileMenu({ title, rename }: { title: string; rename?: (to: string) => void }) {
-  const [, navigate] = useLocation();
-  const { files } = useCanvasFiles();
-  const n = useNewFile();
+/** A program's Rename... dialog: from the file menu on a computer, from the title on a phone. */
+function useRenameDialog(title: string, rename?: (to: string) => void) {
   const [naming, setNaming] = useState<string>();
   const ok = naming !== undefined && /^[a-z0-9][a-z0-9-]{0,63}$/.test(naming);
-  return (
-    <>
-    {n.dialog}
-    {rename && (
+  const ask = rename ? () => setNaming(title.replace(/\.flow\.ts$/, '')) : undefined;
+  const dialog = rename && (
       <Dialog
         open={naming !== undefined}
         onClose={() => setNaming(undefined)}
@@ -970,20 +969,31 @@ function FileMenu({ title, rename }: { title: string; rename?: (to: string) => v
       >
         <Input mono aria-label="Name" value={naming ?? ''} onChange={(e) => setNaming(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && ok && (rename(naming!), setNaming(undefined))} />
       </Dialog>
-    )}
+  );
+  return { ask, dialog };
+}
+
+function FileMenu({ title, onRename }: { title: string; onRename?: () => void }) {
+  const [, navigate] = useLocation();
+  const { files } = useCanvasFiles();
+  const n = useNewFile();
+  return (
+    <>
+    {n.dialog}
     <Menu
       label="Open a file"
       placement="bottom-start"
       width={300}
+      // the actions first: below 20 files they were under the menu's fold
       items={[
-        { group: true, label: 'Programs and workflows' },
-        ...files.slice(0, 20).map((f) => ({ label: fileTitle(f), detail: f.kind === 'program' ? f.cwd : f.group === 'runs' ? 'run' : f.group, checked: fileTitle(f) === title, onSelect: () => navigate(fileHref(f)) })),
-        { separator: true, label: '' },
-        ...(rename ? [{ label: 'Rename...', onSelect: () => setNaming(title.replace(/\.flow\.ts$/, '')) }] : []),
+        ...(onRename ? [{ label: 'Rename...', onSelect: onRename }] : []),
         { label: 'New', onSelect: () => void n.program() },
         { label: 'New in folder...', onSelect: n.inFolder },
         { label: 'New workflow', onSelect: () => void n.workflow() },
         { label: 'All of Canvas', onSelect: () => navigate('/canvas') },
+        { separator: true, label: '' },
+        { group: true, label: 'Programs and workflows' },
+        ...files.slice(0, 20).map((f) => ({ label: fileTitle(f), detail: f.kind === 'program' ? f.cwd : f.group === 'runs' ? 'run' : f.group, checked: fileTitle(f) === title, onSelect: () => navigate(fileHref(f)) })),
       ]}
       trigger={({ ref, props }) => (
         <button ref={ref} type="button" {...props} className="flex h-8 min-w-0 items-center gap-1.5 rounded-[var(--r-1)] px-1.5 hov:bg-hover">

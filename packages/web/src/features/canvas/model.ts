@@ -202,6 +202,8 @@ export const READ_ZOOM = 0.55;
  * taller than the pane sits.
  */
 export function deskViewport(graph: Box, focus: Box | undefined, canvas: { w: number; h: number }, pad = 24): { x: number; y: number; zoom: number } {
+  // an empty file: the origin at the top left, so a block lands where the double-click was (layout.ts keeps blocks right of and below the origin)
+  if (!graph.w && !graph.h) return { x: pad, y: pad, zoom: 1 };
   const zoom = Math.max(READ_ZOOM, Math.min(1, (canvas.h - pad * 2) / Math.max(graph.h, 1)));
   const x = graph.w * zoom <= canvas.w - pad * 2 ? (canvas.w - graph.w * zoom) / 2 - graph.x * zoom : pad - graph.x * zoom;
   // the graph centred when it fits, else the focus (or the top) in the middle

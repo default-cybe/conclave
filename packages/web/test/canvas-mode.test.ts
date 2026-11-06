@@ -206,6 +206,9 @@ describe('a computer opens readable (owner on #250)', () => {
     expect(deskViewport({ x: 0, y: 0, w: 400, h: 1000 }, undefined, pane).zoom).toBeCloseTo((644 - 48) / 1000);
     expect(deskViewport({ x: 0, y: 0, w: 400, h: 3000 }, undefined, pane).zoom).toBe(READ_ZOOM);
   });
+  test('an empty file opens with the origin at the top left, so the first block lands where it was double-clicked', () => {
+    expect(deskViewport({ x: 0, y: 0, w: 0, h: 0 }, undefined, pane)).toEqual({ x: 24, y: 24, zoom: 1 });
+  });
   test('a far failed node never pulls the first blocks off the left or the zoom down', () => {
     const wide = { x: -40, y: 0, w: 3250, h: 200 };
     const v = deskViewport(wide, box(2800), pane);

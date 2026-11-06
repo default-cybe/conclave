@@ -28,7 +28,7 @@ import type {
 } from '@conclave/core/client';
 import type { Message, Session } from '@conclave/core/types';
 import type { WorkflowGraphView } from '@conclave/core/client';
-import { insertNode, lineDiff, parseGraph, removeNode, type InsertKind } from '@conclave/core/workflows/graph';
+import { blankWorkflow, insertNode, lineDiff, parseGraph, removeNode, type InsertKind } from '@conclave/core/workflows/graph';
 import type { MockCtx } from './index';
 
 /** Scripts the graph view parses (the mock's library has no real scripts). */
@@ -518,6 +518,16 @@ export function registerWorkflows(ctx: MockCtx): void {
   };
 
   ctx.on('GET', '/api/workflows', () => LIBRARY.map(summary));
+  // Canvas's New workflow (core workflows/service.ts createBlank): untitled-N, yours, no steps
+  ctx.on('POST', '/api/workflows', () => {
+    let n = 1;
+    while (LIBRARY.some((x) => x.id === `untitled-${n}`)) n++;
+    const id = `untitled-${n}`;
+    const e: LibEntry = { id, description: 'A new workflow. Add steps on the canvas, or ask the agent.', whenToUse: '', phases: [], source: 'user', path: `~/.conclave/workflows/${id}.js` };
+    LIBRARY.push(e);
+    GRAPH_SCRIPTS[id] = blankWorkflow(id);
+    return { ...summary(e), script: GRAPH_SCRIPTS[id] } satisfies WorkflowDetail;
+  });
   ctx.on('GET', '/api/workflows/runs', ({ query }) => {
     let list = [...runs.values()].map((r) => (totals(r), structuredClone(r.run))).sort((a, b) => b.createdAt - a.createdAt);
     const sid = query.get('sessionId');
@@ -533,7 +543,8 @@ export function registerWorkflows(ctx: MockCtx): void {
     await ctx.sleep(250);
     const id = ctx.uid('wfr');
     const t = Date.now();
-    const phases = phasesOf(e.phases.slice(0, 3));
+    // a new workflow has no phases yet: it runs as one
+    const phases = phasesOf(e.phases.length ? e.phases.slice(0, 3) : ['Run']);
     const r: MockRun = {
       run: { id, name: e.id, description: e.description, source: e.source, status: 'running', ...(input.sessionId ? { sessionId: input.sessionId } : {}), device: input.device ?? 'local', cwd: input.cwd ?? '~', phases, phaseIndex: -1, ...(input.budget ? { budget: input.budget } : {}), inputTokens: 0, outputTokens: 0, costUsd: 0, counts: counts([]), scriptPath: `~/.conclave/workflows/runs/${id}.js`, portable: e.source !== 'builtin', createdAt: t, startedAt: t },
       calls: [],
