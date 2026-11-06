@@ -298,6 +298,8 @@ export interface ChatSettings {
   cyber?: 'standard' | 'daybreak_blue' | 'daybreak_red';
   /** Same model for all work (session/model-pin.ts): hand-offs at any depth run on this session's model unless a tool call names one. Off when unset. */
   sameModel?: boolean;
+  /** Security mode (docs/design/SECURITY-MODE.md): Task offers the sec-* roles (engine.subagents). Off when unset. */
+  security?: boolean;
 }
 
 export interface SessionStats {

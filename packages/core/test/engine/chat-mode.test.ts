@@ -39,6 +39,9 @@ describe('chat switches', () => {
     expect(mergeChatSettings(a, { thinking: 'high' })).toEqual({ webSearch: true, memory: false, thinking: 'high' });
     expect(mergeChatSettings({ webSearch: true, memory: true, thinking: 'low' }, { thinking: null })).toEqual({ webSearch: true, memory: true });
     expect(() => mergeChatSettings(a, { webSearch: 'yes' })).toThrow('chat.webSearch must be true or false');
+    expect(mergeChatSettings(a, { security: true }).security).toBe(true);
+    expect(mergeChatSettings(mergeChatSettings(a, { security: true }), { security: false }).security).toBeUndefined();
+    expect(() => mergeChatSettings(a, { security: 'yes' })).toThrow('chat.security must be true or false');
     // Effort keeps the old values and takes Claude's two levels above high
     expect(mergeChatSettings(a, { thinking: 'xhigh' }).thinking).toBe('xhigh');
     expect(mergeChatSettings(a, { thinking: 'max' }).thinking).toBe('max');

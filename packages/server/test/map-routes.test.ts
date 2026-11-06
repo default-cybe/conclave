@@ -127,6 +127,31 @@ describe('map.delta on the socket', () => {
     other.close();
   });
 
+  test("live usage adds the session's own finished subagents, never a failed one or another account's", async () => {
+    const now = Date.now();
+    const repos = hub.engine.repos;
+    const u = (id: string, sessionId: string, costUsd: number) =>
+      repos.usage.insert({ id, ts: now - MIN, sessionId, source: 'api', provider: 'anthropic', model: 'claude-sonnet-5-5', inputTokens: 100, outputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, costUsd });
+    session('ses_par', { title: 'Parent', status: 'running' }, now - 5 * MIN);
+    session('ses_kid_done', { parentId: 'ses_par' }, now - 4 * MIN);
+    session('ses_kid_fail', { parentId: 'ses_par', status: 'error' }, now - 4 * MIN);
+    session('ses_kid_other', { parentId: 'ses_par', accountId: 'acct_other' }, now - 4 * MIN);
+    u('up', 'ses_par', 0.01);
+    u('ud', 'ses_kid_done', 0.1);
+    u('uf', 'ses_kid_fail', 1);
+    u('uo', 'ses_kid_other', 10);
+    const w = await openWs(`${wsUrl}?token=${OWNER}`);
+    await w.next((f) => f.type === 'hello');
+    w.ws.send(JSON.stringify({ type: 'map', on: true }));
+    await Bun.sleep(50);
+    hub.engine.bus.emit({ type: 'usage.recorded', record: { id: 'up2', ts: now, sessionId: 'ses_par', source: 'api', provider: 'anthropic', model: 'm', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, costUsd: 0 } });
+    const delta = await w.next((f) => f.type === 'map.delta' && f.delta.nodes.some((p: { id: string; usage?: unknown }) => p.id === 'ses_par' && p.usage), 3_000);
+    const patch = delta.delta.nodes.find((p: { id: string }) => p.id === 'ses_par');
+    expect(patch.usage.costUsd).toBeCloseTo(0.11, 6);
+    w.ws.send(JSON.stringify({ type: 'map', on: false }));
+    w.close();
+  });
+
   test('a closed watcher no longer counts', async () => {
     const w = await openWs(`${wsUrl}?token=${OWNER}`);
     w.ws.send(JSON.stringify({ type: 'map', on: true }));

@@ -30,10 +30,12 @@ export function mergeChatSettings(base: ChatSettings | undefined, patch: unknown
   if (patch === undefined || patch === null) return next;
   if (typeof patch !== 'object' || Array.isArray(patch)) throw new Error('chat must be an object with webSearch, memory or thinking');
   const p = patch as Record<string, unknown>;
-  if (p.sameModel !== undefined) {
-    if (typeof p.sameModel !== 'boolean') throw new Error('chat.sameModel must be true or false');
-    if (p.sameModel) next.sameModel = true;
-    else delete next.sameModel;
+  // on-only switches: Same model for all work, and Security (sec-* roles for Task)
+  for (const key of ['sameModel', 'security'] as const) {
+    if (p[key] === undefined) continue;
+    if (typeof p[key] !== 'boolean') throw new Error(`chat.${key} must be true or false`);
+    if (p[key]) next[key] = true;
+    else delete next[key];
   }
   for (const key of ['webSearch', 'memory'] as const) {
     if (p[key] === undefined) continue;

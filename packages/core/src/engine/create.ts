@@ -33,6 +33,7 @@ import { ProjectTrust, collectHookGroups, hooksFromGroups } from './settings-sou
 import { join } from 'node:path';
 import { registerBuiltinHooks } from './builtin-hooks';
 import { attachVerifyGate } from '../session/verify-gate';
+import { attachScopeGuard } from '../session/scope-guard';
 import { attachRegressionGate } from '../session/regression-gate';
 import { attachVisualCheck } from '../session/visual-check';
 import { attachLimits } from '../session/limit-tree';
@@ -496,6 +497,8 @@ export async function createEngine(opts: CreateEngineOptions = {}): Promise<Engi
   registerBuiltinHooks(engine, hooks);
   // the verify gate: the project's check on the session's device before a coding agent's turn ends (session/verify-gate.ts)
   attachVerifyGate(engine, hooks);
+  // the scope guard: Security mode sessions' network calls against scope.yaml and approval grants (session/scope-guard.ts)
+  attachScopeGuard(engine, hooks);
   // the regression gate, after it: the turn's changed tests on the code from before the turn (session/regression-gate.ts)
   attachRegressionGate(engine);
   // the visual check, after both: a turn that edited UI and looked at no image is asked to (session/visual-check.ts)

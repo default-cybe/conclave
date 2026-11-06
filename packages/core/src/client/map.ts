@@ -77,6 +77,30 @@ export interface MapNode {
   resumeAt?: number;
   /** When the node stopped making progress. Filled by the stuck agent alert (docs/DESIGN.md 28); unset until then. */
   stuckSince?: number;
+  /** Finished subagents and workflow agents folded into this node instead of being nodes of their own. Their usage is already in `usage`. */
+  folded?: MapFolded;
+}
+
+/** A finished child folded into its parent node. */
+export interface MapFoldedNode {
+  id: string;
+  kind: MapNodeKind;
+  title: string;
+  state: 'done' | 'failed';
+  agent?: string;
+  model?: string;
+  endedAt?: number;
+  costUsd: number;
+  error?: string;
+}
+
+export interface MapFolded {
+  done: number;
+  failed: number;
+  /** What they spent together. */
+  usage: MapUsage;
+  /** Newest first. */
+  nodes: MapFoldedNode[];
 }
 
 /** A project, a folder without one, or the chats. A project on two devices is two groups. */
