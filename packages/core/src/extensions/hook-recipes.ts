@@ -1026,9 +1026,15 @@ export const RECIPE_STARTER: string[] = ['git-work-saver', 'secrets-firewall', '
  * on the code from before the turn (session/regression-gate.ts). Both run on
  * the session's own device, which a hook command on the hub cannot do. The
  * visual check reminds a turn that edited UI files and looked at no image to
- * take screenshots (session/visual-check.ts).
+ * take screenshots (session/visual-check.ts). The scope guard checks every
+ * network-capable call of a Security mode session against the hunt's
+ * scope.yaml and the owner's approval grants (session/scope-guard.ts,
+ * docs/design/SECURITY-MODE.md 4.4); it runs in the hub because the scope
+ * file sits on the session's device and grants sit in the hub's store, which
+ * a script on the hub cannot read for a member or a remote session.
  */
 export const VERIFY_GATE_RECIPE = 'verify-gate';
 export const REGRESSION_GATE_RECIPE = 'regression-gate';
 export const VISUAL_CHECK_RECIPE = 'visual-check';
-export const GATE_RECIPES: ReadonlySet<string> = new Set([VERIFY_GATE_RECIPE, REGRESSION_GATE_RECIPE, VISUAL_CHECK_RECIPE]);
+export const SCOPE_GUARD_RECIPE = 'scope-guard';
+export const GATE_RECIPES: ReadonlySet<string> = new Set([VERIFY_GATE_RECIPE, REGRESSION_GATE_RECIPE, VISUAL_CHECK_RECIPE, SCOPE_GUARD_RECIPE]);

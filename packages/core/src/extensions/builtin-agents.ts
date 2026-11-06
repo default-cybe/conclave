@@ -28,6 +28,15 @@ import factCheckerMd from '../agents-defaults/fact-checker.md' with { type: 'tex
 import synthesizerMd from '../agents-defaults/synthesizer.md' with { type: 'text' };
 import workflowMd from '../agents-defaults/workflow.md' with { type: 'text' };
 import emailMd from '../agents-defaults/email.md' with { type: 'text' };
+import secReconMd from '../agents-defaults/sec-recon.md' with { type: 'text' };
+import secHunterMd from '../agents-defaults/sec-hunter.md' with { type: 'text' };
+import secFuzzerMd from '../agents-defaults/sec-fuzzer.md' with { type: 'text' };
+import secValidatorMd from '../agents-defaults/sec-validator.md' with { type: 'text' };
+import secExploiterMd from '../agents-defaults/sec-exploiter.md' with { type: 'text' };
+import secRefuterMd from '../agents-defaults/sec-refuter.md' with { type: 'text' };
+import secChainerMd from '../agents-defaults/sec-chainer.md' with { type: 'text' };
+import secReporterMd from '../agents-defaults/sec-reporter.md' with { type: 'text' };
+import secPatcherMd from '../agents-defaults/sec-patcher.md' with { type: 'text' };
 
 /**
  * Built-in agent profiles. These ship with Conclave and are always available.
@@ -54,6 +63,15 @@ const DEFAULT_FILES: Array<[string, string]> = [
   ['planner', plannerMd],
   ['sysadmin', sysadminMd],
   ['security', securityMd],
+  ['sec-recon', secReconMd],
+  ['sec-hunter', secHunterMd],
+  ['sec-fuzzer', secFuzzerMd],
+  ['sec-validator', secValidatorMd],
+  ['sec-exploiter', secExploiterMd],
+  ['sec-refuter', secRefuterMd],
+  ['sec-chainer', secChainerMd],
+  ['sec-reporter', secReporterMd],
+  ['sec-patcher', secPatcherMd],
   ['librarian', librarianMd],
   ['explore', exploreMd],
   ['general-purpose', generalPurposeMd],

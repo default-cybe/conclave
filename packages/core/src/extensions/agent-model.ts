@@ -135,12 +135,18 @@ export function pinnedAsk(pin: string | undefined, ask: string | undefined): str
  * A subagent's model: the caller's override when it resolves to a usable
  * model, else the agent profile's model or tier, else the parent's model.
  * With a pin, the pin stands in for everything but a provider/model override.
+ * Without one, a profile model that is not usable or answered 404 recently
+ * gives way to the profile's fallback list, in order, before the parent's.
  */
-export function subagentModel(host: ModelHost, override: string | undefined, agentModel: string | undefined, parentModel: string, pin?: string): string {
+export function subagentModel(host: ModelHost, override: string | undefined, agentModel: string | undefined, parentModel: string, pin?: string, fallback?: string[]): string {
   const ask = pinnedAsk(pin, override);
   if (ask) {
     const r = agentModelRef(host, ask, parentModel);
     if (!r.note) return r.model;
+  }
+  if (!pin && fallback?.length && agentModel?.includes('/')) {
+    for (const m of [agentModel, ...fallback]) if (pickable(host, m)) return m;
+    return parentModel;
   }
   return agentModelRef(host, pin ?? agentModel, parentModel).model;
 }

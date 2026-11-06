@@ -152,8 +152,12 @@ export function hooksField(raw: unknown): HooksConfig | undefined {
 }
 
 /** The frontmatter fields every agent loader reads the same way: tier, effort, hooks, recipes, ultra, verifyCommand. */
-export function agentExtras(data: Record<string, unknown>): Pick<AgentDef, 'thinking' | 'hooks' | 'recipes' | 'ultra' | 'verifyCommand' | 'optInTools' | 'refusalFallback' | 'platformCard'> {
+export function agentExtras(data: Record<string, unknown>): Pick<AgentDef, 'thinking' | 'hooks' | 'recipes' | 'ultra' | 'verifyCommand' | 'optInTools' | 'refusalFallback' | 'platformCard' | 'group' | 'fallback'> {
   return {
+    // a roster Task offers only in a chat that turns it on (engine.subagents)
+    group: str(data.group)?.toLowerCase(),
+    // models tried after `model` when it is not usable (agent-model.ts subagentModel)
+    fallback: toList(data.fallback),
     // the owner's refusal fallback list, replaced or turned off for this agent
     refusalFallback: refusalFallbackField(data.refusalFallback ?? data['refusal-fallback']),
     thinking: thinkingField(data),
