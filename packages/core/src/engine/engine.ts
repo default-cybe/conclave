@@ -587,7 +587,7 @@ export class Engine implements EngineApi {
       if (isChat) chat = mergeChatSettings(undefined, chatInput);
       else if (chatInput !== undefined) {
         const merged = mergeChatSettings(undefined, chatInput);
-        chat = merged.thinking || merged.cyber || merged.sameModel || !merged.memory || merged.memorySave === false ? merged : undefined;
+        chat = merged.thinking || merged.cyber || merged.sameModel || merged.security || !merged.memory || merged.memorySave === false ? merged : undefined;
       }
     } catch (err) {
       throw new EngineError(400, (err as Error).message);
@@ -780,8 +780,8 @@ export class Engine implements EngineApi {
     if (kind === 'chat') Object.assign(next, { kind: 'chat', chat });
     else {
       delete next.kind;
-      // a workbench session keeps its effort, Cyber access, memory and same-model switches; Continue as a session drops the chat's switches
-      const keep = (patch.chat !== undefined || s.kind !== 'chat') && (!!chat?.thinking || !!chat?.cyber || !!chat?.sameModel || chat?.memory === false || chat?.memorySave === false);
+      // a workbench session keeps its effort, Cyber access, memory, same-model and Security switches; Continue as a session drops the chat's switches
+      const keep = (patch.chat !== undefined || s.kind !== 'chat') && (!!chat?.thinking || !!chat?.cyber || !!chat?.sameModel || !!chat?.security || chat?.memory === false || chat?.memorySave === false);
       if (keep) next.chat = chat;
       else delete next.chat;
     }
@@ -2054,8 +2054,9 @@ export class Engine implements EngineApi {
     return this.usesMemory(session) && chatSavesMemory(session);
   }
 
+  /** The agents Task offers this session. A grouped roster shows only where its chat switch is on: sec-* in a security chat. */
   subagents(session: Session): AgentDef[] {
-    return this.agentsFor(this.accountOf(session), session.cwd).filter((a) => a.subagent);
+    return this.agentsFor(this.accountOf(session), session.cwd).filter((a) => a.subagent && (!a.group || (a.group === 'security' && !!session.chat?.security)));
   }
 
   /**
@@ -2568,7 +2569,8 @@ export class Engine implements EngineApi {
       return undefined;
     });
     // a member's session sees the skills that ship and plugin skills, not the owner's own
-    const skills = this.skillsFor(this.accountOf(session), session.cwd);
+    // shipped hunt skills (group security) list only for an agent that names them, so other prompts stay short
+    const skills = this.skillsFor(this.accountOf(session), session.cwd).filter((s) => !s.group || agent.skills?.includes(s.name));
     // the skills section matches skills against the first message, which holds until a compaction, so the section holds too
     const textOf = (m: Message) => m.content.filter((b) => b.type === 'text' && !isReminder(b)).map((b) => (b as { text: string }).text).join('\n');
     const firstMessage = activeMessages(this.repos.messages.list(session.id))

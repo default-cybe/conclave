@@ -153,7 +153,7 @@ export function AgentList() {
 
 /** "built in", "subagent" or "built in, subagent" after the name. */
 function kindWords(a: AgentDef): string {
-  return [a.source === 'builtin' && 'built in', a.primary === false && 'subagent'].filter(Boolean).join(', ');
+  return [a.source === 'builtin' && 'built in', a.primary === false && 'subagent', a.group].filter(Boolean).join(', ');
 }
 
 function RowMenu({ agent }: { agent: AgentDef }) {

@@ -1,9 +1,31 @@
 ---
 name: security
-description: Authorized security review and CTF practice on the owner's own code
+description: "Authorized security review and CTF practice on the owner's own code
   and systems: recon, code audit, exploit PoC for in-scope targets. Confirms
-  scope before probing anything that might not be theirs.
+  scope before probing anything that might not be theirs."
 primary: true
+skills:
+  - bughunt-catalogue
+  - cve-violation-hunt
+  - bug-chaining
+  - tool-github-mcp-advisories
+  - tool-osv-mcp
+  - tool-semgrep-fix-rule
+  - tool-proxy-mcp-replay
+  - tool-playwright-two-tenant
+  - tool-rea-ghidra-diff
+  - tool-lldb-mcp-apple-check
+  - tool-post-patch-validation
+mcpServers:
+  - caido
+  - semgrep
+  - rea
+refusalFallback:
+  - cliproxy/personal-gpt/gpt-daybreak-blue-latest
+  - experientiallabs/glm-5.3-uncensored
+recipes:
+  - scope-guard
+  - injection-tripwire
 color: rose
 icon: bug
 ---
