@@ -927,6 +927,16 @@ export function registerExtensionRuntime(ctx: MockCtx) {
       canDisable: true,
       budgetChars: 1500,
     },
+    {
+      id: 'scope-guard',
+      event: 'PreToolUse',
+      label: 'Scope guard',
+      description: "Checks the shell, WebFetch, browser, MCP (Caido included) and Delegate calls of a Security mode session against the hunt's scope.yaml. Lab networks pass, out-of-scope hosts are refused, in-scope hosts need an approval grant or your answer, unlisted hosts ask.",
+      enabled: true,
+      canDisable: false,
+      onFor: 'Agents with scope-guard in their recipes list, and every session they start. It cannot be turned off for them.',
+      ...(FRESH ? {} : { lastRun: { event: 'PreToolUse', type: 'function', label: 'scope-guard', durationMs: 4, result: 'ask', at: ago(12 * MIN), sessionId: 's_auth' } as HookRunDto }),
+    },
   ];
 
   on('GET', '/api/hooks/builtin', async () => {

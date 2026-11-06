@@ -113,7 +113,7 @@ function BuiltinSheet({ b, open, onClose, onChanged }: { b?: BuiltinHookDto; ope
       <div className="flex flex-col gap-5">
         <p className="m-0 text-[14px] leading-[1.5] text-fg phone:text-[15px]">{b.description}</p>
         <div className="flex items-center justify-between gap-4">
-          <span className="text-[13px] text-fg-2 phone:text-[14px]">{b.canDisable ? 'Every session on this hub' : 'Always on: long sessions would not fit the model without it'}</span>
+          <span className="text-[13px] text-fg-2 phone:text-[14px]">{b.onFor ?? (b.canDisable ? 'Every session on this hub' : 'Always on: long sessions would not fit the model without it')}</span>
           {b.canDisable && <OnOff label={b.label} checked={b.enabled} disabled={busy} onChange={(v) => void patch({ enabled: v })} />}
         </div>
         {b.budgetChars !== undefined && (

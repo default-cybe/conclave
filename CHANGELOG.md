@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Security mode, PR 1 (#271): the `scope-guard` recipe. An agent that lists it in `recipes:` gets an in-hub PreToolUse guard on every network-capable call (Bash curl/wget/nc/nmap/python and raw IPs, WebFetch, browser tools, any MCP tool with a URL or host, Caido send/batch/replay, and Delegate briefs), for itself and every Task or Delegate session it starts. It reads `scope.yaml` and `targets/<t>/scope.yaml` in the hunt folder on the session's device: lab networks (named docker networks only, never IPs or ranges) pass, out-of-scope hosts and paths are refused, in-scope hosts need a live approval grant (24 h, 500 requests at most) or your answer, unlisted hosts ask, and no scope file asks. WebFetch to a live in-scope host and Caido `race_window_send` to anything but lab are refused; members are lab-only. Grants are read from the hub's store (`security.grants`); issuing them comes in PR 1b. Listed in Extensions > Hooks > Built in. The guard also covers workflow `lib.exec` and `lib.capture`, Capture, ReadPost and SaveInspiration (refused for in-scope hosts, like WebFetch), ScheduleRoutine and WatchCreate (in-scope hosts refused: they run later, outside the guard), bash `/dev/tcp`, socat, hosts in shell variables, and asks before a file tool or a writing command changes a `scope.yaml`. Lab entries must be named `sec-lab-<target>` with no dots, and hosts match across spellings (trailing dots, punycode, numeric IPv4, `lab\@live` URLs).
+
 ## [0.4.71] - 2026-11-05
 
 ### Added
