@@ -49,8 +49,8 @@ export interface LaneInput {
 const ARCHIVE = /\.(?:zip|tar|tgz|gz|xz|bz2|7z|rar)$/i;
 const BINARY_EXT = /\.(?:ipa|apk|dmg|bin|img|exe|elf|so|dylib|dll|macho|fw)$/i;
 const POC_FILE = /(?:^|[\W_])(?:po[cv]|crash|repro)(?:[\W_]|$)/i;
-// a git host repo URL, or a .git URL
-const REPO = /\b(?:github|gitlab)\.com\/[\w.-]+\/[\w.-]+|\S+\.git\b/i;
+// a git host repo URL, or a .git URL (one character before .git, not \S+: no backtracking on long runs)
+const REPO = /\b(?:github|gitlab)\.com\/[\w.-]+\/[\w.-]+|\S\.git\b/i;
 // a folder path: ~/x/, ./x/, ../x/ or an absolute path with at least two parts
 const FOLDER = /(?:^|\s)(?:~|\.{1,2})?\/[\w.-]+\/[\w./-]*/;
 const URL_RE = /\bhttps?:\/\/([\w.-]+)/gi;
@@ -69,12 +69,16 @@ export function detectLanes(input: LaneInput | string): Lane[] {
   // 3. crash log (a sanitizer, or SIGSEGV with a stack), or an attached PoV/PoC
   if (/AddressSanitizer|UndefinedBehaviorSanitizer|MemorySanitizer/.test(text) || (/\bSIGSEGV\b/.test(text) && /#\d+\s+0x[0-9a-f]+|\bstack\b|\bbacktrace\b/i.test(text)) || files.some((f) => POC_FILE.test(f))) hit.add('exploit');
   // 4. binary or firmware, named in the text or attached
-  if (/\b(?:ELF|Mach-O|PE32\+?)\b/.test(text) || /\bfirmware\b/i.test(text) || /[\w-]+\.(?:ipa|apk|dmg|bin|img|exe)\b/i.test(text) || files.some((f) => BINARY_EXT.test(f))) hit.add('re');
+  if (/\b(?:ELF|Mach-O|PE32\+?)\b/.test(text) || /\bfirmware\b/i.test(text) || /[\w-]\.(?:ipa|apk|dmg|bin|img|exe)\b/i.test(text) || files.some((f) => BINARY_EXT.test(f))) hit.add('re');
   // 5. a repository or a source folder (URLs taken out first, so a web path is not a folder)
   if (REPO.test(text) || FOLDER.test(text.replace(/\bhttps?:\/\/\S+/gi, ' '))) hit.add('source');
   // 6. any other URL or host: a GitHub or GitLab link is source, not web
   const hosts = [...text.matchAll(URL_RE)].map((m) => m[1].toLowerCase());
-  const bare = text.replace(/\bhttps?:\/\/\S+/gi, ' ').replace(/\b(?:github|gitlab)\.com\/\S*/gi, ' ').replace(/\S+\.git\b/gi, ' ');
+  // word by word, so no pattern backtracks over a long run of one character (CodeQL js/polynomial-redos)
+  const bare = text
+    .split(/\s+/)
+    .filter((w) => !/https?:\/\//i.test(w) && !/\b(?:github|gitlab)\.com\//i.test(w) && !/\.git\b/i.test(w))
+    .join(' ');
   if (hosts.some((h) => !GIT_HOST.test(h)) || BARE_HOST.test(bare)) hit.add('web');
   return LANES.map((l) => l.value).filter((l) => hit.has(l));
 }

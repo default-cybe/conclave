@@ -48,6 +48,12 @@ describe('lane detector (SECURITY-MODE.md 1.2)', () => {
     expect(DEFAULT_LANE).toBe('source');
   });
 
+  test('long runs of one character stay linear (CodeQL js/polynomial-redos)', () => {
+    const t0 = performance.now();
+    for (const c of ['!', '-', 'a', '/', '.']) detectLanes(c.repeat(100_000));
+    expect(performance.now() - t0).toBeLessThan(1000);
+  });
+
   test('laneOf reads only valid lanes', () => {
     expect(laneOf({ lane: { lane: 'web', detected: ['web', 'bogus'] } })).toEqual({ lane: 'web', detected: ['web'] });
     expect(laneOf({ lane: { lane: 'bogus', detected: [] } })).toBeUndefined();
