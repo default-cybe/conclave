@@ -44,7 +44,9 @@ import dev.conclave.app.ui.common.TopBar
 import dev.conclave.app.ui.common.hubName
 import dev.conclave.app.ui.conversation.ChatComposer
 import dev.conclave.app.ui.conversation.ChatHomeViewModel
-import dev.conclave.app.ui.conversation.PrivacyRows
+import dev.conclave.app.ui.conversation.IncognitoAction
+import dev.conclave.app.ui.conversation.IncognitoMark
+import dev.conclave.app.ui.conversation.MemoryRows
 import dev.conclave.app.ui.conversation.SwitchRow
 import dev.conclave.app.ui.conversation.WEB_HELP
 import dev.conclave.app.ui.conversation.CodePlus
@@ -208,7 +210,12 @@ fun HomeScreen(
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().imePadding()) {
-            TopBar(title = "", newChat = false, titleContent = { ModeSwitch(mode, onChange = { StartModes.set(it) }) })
+            // a new chat or Code session sets Incognito here, until its first message goes; Assistant is one kept thread
+            val offersIncognito = (mode == StartMode.CHAT || coding) && !sending
+            TopBar(title = "", newChat = false, titleContent = { ModeSwitch(mode, onChange = { StartModes.set(it) }) }, actions = {
+                if (offersIncognito) IncognitoAction(privacy, code = coding, onChange = chat::setPrivacy)
+            })
+            if (offersIncognito && privacy.incognito) IncognitoMark(code = coding)
             // something the owner can fix: say it in full, with the way out
             if (p is HubProblem.Rejected || (p is HubProblem.Lost && p.newCode)) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp).background(c.surface2, RoundedCornerShape(20.dp)).padding(16.dp)) {
@@ -344,7 +351,7 @@ fun HomeScreen(
                                 whereGithub = gh
                                 where = true
                             }, dismiss = dismiss)
-                            PrivacyRows(privacy, code = true, onChange = chat::setPrivacy)
+                            MemoryRows(privacy, onChange = chat::setPrivacy)
                         },
                         commands = commands,
                         note = when {
@@ -376,7 +383,7 @@ fun HomeScreen(
                         // a chat never gets a device or folder: "+" has the web and memory
                         plus = { _ ->
                             SwitchRow("Search the web", WEB_HELP, switches.webSearch, chat::setWeb)
-                            PrivacyRows(privacy, code = false, onChange = chat::setPrivacy)
+                            MemoryRows(privacy, onChange = chat::setPrivacy)
                         },
                     )
                 }

@@ -291,6 +291,14 @@ export class MapLive implements MapLiveView {
         const needed = new Set<string>();
         for (const id of ids) {
           const n = byId.get(id);
+          // a child that finished folds into its parent: it leaves, the parent comes whole with the new count
+          const into = n ? undefined : snap.nodes.find((x) => x.folded?.nodes.some((f) => f.id === id));
+          if (into) {
+            patch(id).removed = true;
+            patch(into.id).node = into;
+            needed.add(into.group);
+            continue;
+          }
           // not on the map (a workflow's host session, or one outside the window): nothing to send
           if (!n) continue;
           patch(id).node = n;

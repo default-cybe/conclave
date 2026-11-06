@@ -88,6 +88,23 @@ export function mapFixture(now: number): MapSnapshot {
         usage: usage(184_200, 9_400, 1_510_000, 0.71),
         tokensPerMin: 1_920,
         rate: 34,
+        // earlier explorers that finished, folded into the session (map/snapshot.ts); their usage is in the session's
+        folded: {
+          done: 12,
+          failed: 1,
+          usage: usage(260_000, 8_100, 1_200_000, 0.23),
+          nodes: Array.from({ length: 13 }, (_, i) => ({
+            id: `ses_mgwfold${String(i).padStart(2, '0')}x7k2p`,
+            kind: 'subagent' as const,
+            title: ['Find callers of verifyToken', 'List env vars for auth', 'Read the pairing flow', 'Map cookie options', 'Check refresh token path'][i % 5] + (i >= 5 ? ` (${Math.floor(i / 5) + 1})` : ''),
+            state: i === 3 ? ('failed' as const) : ('done' as const),
+            agent: 'explore',
+            model: 'anthropic/claude-haiku-5-5',
+            endedAt: now - (6 + i * 2) * MIN,
+            costUsd: i === 3 ? 0.01 : 0.0183,
+            ...(i === 3 ? { error: 'Context limit reached' } : {}),
+          })),
+        },
       },
       38,
       2,

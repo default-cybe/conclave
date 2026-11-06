@@ -17,7 +17,7 @@ import { compact, countdown, duration, durationShort, hhmm, shortPath, usd } fro
 import { modelName } from '@/lib/models';
 import { toast } from '@/store/store';
 import { cn } from '@/lib/text';
-import { STATE_TONE, STATE_WORD, canStop, childrenOf, nodeHref, shortId, stuckWords } from './model';
+import { STATE_TONE, STATE_WORD, canStop, childrenOf, foldedWords, nodeHref, shortId, stuckWords } from './model';
 
 const KIND_WORD: Record<MapNode['kind'], string> = {
   chat: 'Chat',
@@ -200,9 +200,41 @@ function Detail({ node: n, snap, replay, onSelect, onClose, phone }: { node: Map
             </ul>
           </Block>
         )}
+
+        {n.folded && <Folded key={n.id} f={n.folded} />}
       </div>
 
     </>
+  );
+}
+
+/** The finished subagents and workflow agents folded into the node: a count, and the list on demand. */
+function Folded({ f }: { f: NonNullable<MapNode['folded']> }) {
+  const [, navigate] = useLocation();
+  const [open, setOpen] = useState(false);
+  return (
+    <Block title="Finished agents">
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="-mx-2 flex w-[calc(100%+16px)] items-baseline gap-3 rounded-[var(--r-1)] px-2 py-1.5 text-left hov:bg-hover">
+        <span className="min-w-0 flex-1 truncate text-[13.5px] text-fg phone:text-[15px]">{foldedWords(f)}</span>
+        <span className="num text-[12.5px] text-fg-3">{usd(f.usage.costUsd, { precise: true })}</span>
+        <span className="text-[12.5px] text-fg-3">{open ? 'Hide' : 'Show'}</span>
+      </button>
+      {open && (
+        <ul className="m-0 list-none p-0">
+          {f.nodes.map((k) => (
+            <li key={k.id}>
+              <button type="button" title={k.error} onClick={() => navigate(`/s/${k.id}`)} className="-mx-2 flex w-[calc(100%+16px)] items-baseline gap-3 rounded-[var(--r-1)] px-2 py-1.5 text-left hov:bg-hover">
+                <span className="min-w-0 flex-1 truncate text-[13.5px] text-fg phone:text-[15px]">{k.title}</span>
+                {k.endedAt && <span className="num text-[12px] text-fg-3">{hhmm(k.endedAt)}</span>}
+                <StateWord tone={STATE_TONE[k.state]} className="text-[12.5px] phone:text-[13px]">
+                  {STATE_WORD[k.state]}
+                </StateWord>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Block>
   );
 }
 

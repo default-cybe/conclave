@@ -18,6 +18,7 @@ import { useHub } from '@/store/store';
 import { openNewChat, openPalette, toggleContext, toggleTheme, useUi } from '@/store/ui';
 import { useBreakpoint } from '@/lib/hooks';
 import { setRailOpen, useChatUi } from '@/features/conversation/state';
+import { setIncognito } from '@/features/conversation/incognito';
 import { CommandPalette } from './CommandPalette';
 import { ShortcutsSheet } from './ShortcutsSheet';
 import { ShellBar, SidePanel, phonePlace, useVisibleViewport } from './PhoneFrame';
@@ -140,6 +141,13 @@ function useGlobalKeys() {
       }
       if (mod && e.shiftKey && k === 'o') {
         e.preventDefault();
+        newChat(navigate);
+        return;
+      }
+      // a new incognito chat (a browser keeps this key for its own private window; the desktop app gets it)
+      if (mod && e.shiftKey && k === 'n') {
+        e.preventDefault();
+        setIncognito(true);
         newChat(navigate);
         return;
       }

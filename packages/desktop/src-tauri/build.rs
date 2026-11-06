@@ -36,6 +36,8 @@ fn main() {
             "read_dropped",
             // the clipboard on a paste the webview handed over empty (main.rs paste_files)
             "paste_files",
+            // text to the clipboard when the webview refused a copy (main.rs copy_text)
+            "copy_text",
             // meeting mode: open and status for the hub page, the rest only for the overlay window
             "meeting_open",
             "meeting_status",

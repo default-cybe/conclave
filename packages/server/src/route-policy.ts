@@ -498,6 +498,9 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   // ----- alerts -----
   'GET /api/alerts': 'self',
   'POST /api/alerts/:id': own({ id: 'alert' }),
+  // Security mode grants: members are lab-only in v1, so only the owner has any
+  'GET /api/sessions/:id/grants': 'admin',
+  'POST /api/sessions/:id/grants/:grant/revoke': 'admin',
 
   // ----- claude.ai and ChatGPT connectors: a grant is the account that approved it -----
   'GET /api/oauth/requests/:id': 'self',
