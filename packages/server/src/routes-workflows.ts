@@ -78,6 +78,13 @@ export function registerWorkflowRoutes(app: Hono<HonoEnv>, ctx: ServerContext, a
 
   app.get('/api/workflows', async (c) => c.json(await svc().library({ sessionId: sessionQuery(c), accountId: accountOf(c) })));
 
+  // Canvas's New workflow: untitled-N with a meta and no steps, in the caller's own folder
+  app.post('/api/workflows', async (c) => {
+    const detail = await svc().createBlank();
+    audit(c, 'workflow.create', detail.path ?? detail.id);
+    return c.json(detail, 201);
+  });
+
   // runs first, so "runs" never reads as a workflow id
   app.get('/api/workflows/runs', (c) => {
     const status = c.req.query('status');

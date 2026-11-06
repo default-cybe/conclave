@@ -403,6 +403,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
 
   // ----- workflows -----
   'GET /api/workflows': 'self',
+  'POST /api/workflows': 'self',
   'GET /api/workflows/:id': 'self',
   // preset handlers filter by the caller's account; workflow ids name library entries, not owned rows
   'GET /api/workflows/:id/presets': 'self',
@@ -613,6 +614,9 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'GET /api/graph/nodes': 'self',
   'GET /api/sessions/:id/flows': SESSION,
   'POST /api/sessions/:id/flows/:name': SESSION,
+  'POST /api/sessions/:id/flows/:name/rename': SESSION,
+  // Canvas's New: the caller's own Canvas folder or a folder on their own device (core canvas/new.ts)
+  'POST /api/canvas/programs': 'self',
   'GET /api/sessions/:id/flows/:name/graph': SESSION,
   'POST /api/sessions/:id/flows/:name/graph/op': SESSION,
   'POST /api/sessions/:id/flows/:name/graph/restore': SESSION,

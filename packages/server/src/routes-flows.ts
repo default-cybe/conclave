@@ -11,6 +11,7 @@ import type { FlowOp } from '@conclave/core/client/flows.ts';
 import { FLOW_BLOCKS } from '@conclave/core/flows/plugins.ts';
 import { flowsOf } from '@conclave/core/flows/service.ts';
 import { canvasQueueOf } from '@conclave/core/canvas/queue.ts';
+import { newProgram } from '@conclave/core/canvas/new.ts';
 import type { HonoEnv, ServerContext } from './context';
 import { badRequest, optString, readJson } from './http';
 import type { AuditFn } from './routes-extensions';
@@ -67,6 +68,23 @@ export function registerFlowRoutes(app: Hono<HonoEnv>, ctx: ServerContext, audit
     const v = await svc().create(c.req.param('id'), c.req.param('name'));
     audit(c, 'flow.create', `${c.req.param('id')} ${v.path}`);
     return c.json(v, 201);
+  });
+
+  // Canvas's title: the file (and its layout) under a new name
+  app.post('/api/sessions/:id/flows/:name/rename', async (c) => {
+    const body = await readJson<{ to?: unknown }>(c);
+    const v = await svc().rename(c.req.param('id'), c.req.param('name'), short(body.to, 'to'));
+    audit(c, 'flow.rename', `${c.req.param('id')} ${c.req.param('name')} to ${v.name}`);
+    return c.json(v);
+  });
+
+  // Canvas's New: a blank program in the folder named, else the caller's Canvas folder on the hub (core canvas/new.ts); members name a folder on their own device
+  app.post('/api/canvas/programs', async (c) => {
+    const b = await readJson<Record<string, unknown>>(c);
+    const name = optString(b.name, 'name', 64);
+    const made = await newProgram(ctx.engine as unknown as Engine, accountOf(c), { device: optString(b.device, 'device', 512), cwd: optString(b.cwd, 'cwd', 4096), ...(name ? { name } : {}) });
+    audit(c, 'flow.create', `${made.sessionId} ${made.cwd}/${made.view.path}`);
+    return c.json(made, 201);
   });
 
   app.get('/api/sessions/:id/flows/:name/graph', async (c) => c.json(await svc().view(c.req.param('id'), c.req.param('name'))));

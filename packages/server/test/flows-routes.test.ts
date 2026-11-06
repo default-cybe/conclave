@@ -5,7 +5,7 @@
  * catalog leaves Call AI out for members.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startTestEngine, type TestEngine } from '../../core/test/engine/harness';
 import { startServer, type RunningServer } from '../src/app';
@@ -78,6 +78,72 @@ describe('flow routes', () => {
       expect((await call(alice.token, method, path, method === 'GET' ? undefined : {})).status).toBe(404);
     }
     expect(existsSync(join(t.cwd, 'flows/x.flow.ts'))).toBe(false);
+  });
+
+  test("Canvas's New makes a blank program in the owner's Canvas folder on the hub, which takes a first block and a rename", async () => {
+    const root = join(t.cwd, 'hub-projects');
+    t.engine.config.update({ projects: { hubRoot: root } });
+    const a = await call(OWNER, 'POST', '/api/canvas/programs', {});
+    expect(a.status).toBe(201);
+    expect(a.body.device).toBe('local');
+    expect(a.body.cwd).toBe(join(root, 'canvas', 'owner'));
+    expect(a.body.view.name).toBe('untitled-1');
+    expect(a.body.view.graph.nodes).toEqual([]);
+    expect(existsSync(join(root, 'canvas/owner/flows/untitled-1.flow.ts'))).toBe(true);
+    // the second New reuses the folder's session and takes the next name
+    const b = await call(OWNER, 'POST', '/api/canvas/programs', {});
+    expect(b.body.sessionId).toBe(a.body.sessionId);
+    expect(b.body.view.name).toBe('untitled-2');
+    // the empty graph takes its first block, and a second wired after it
+    const sid = a.body.sessionId;
+    const first = await call(OWNER, 'POST', `/api/sessions/${sid}/flows/untitled-1/graph/op`, { op: 'insert', block: 'fetchUrl', baseSha: a.body.view.sha });
+    expect(first.status).toBe(200);
+    expect(first.body.view.graph.nodes.map((n: { block: string }) => n.block)).toEqual(['fetchUrl']);
+    const second = await call(OWNER, 'POST', `/api/sessions/${sid}/flows/untitled-1/graph/op`, { op: 'insert', block: 'log', after: first.body.nodeId, baseSha: first.body.sha });
+    expect(second.body.view.graph.edges).toEqual([{ from: first.body.nodeId, to: second.body.nodeId, name: 'value' }]);
+    // renamed from the title: the file moves, and a taken name is refused
+    const r = await call(OWNER, 'POST', `/api/sessions/${sid}/flows/untitled-1/rename`, { to: 'hn-digest' });
+    expect(r.status).toBe(200);
+    expect(r.body.graph.nodes.length).toBe(2);
+    expect(readFileSync(join(root, 'canvas/owner/flows/hn-digest.flow.ts'), 'utf8')).toContain('// Flow "hn-digest".');
+    expect(existsSync(join(root, 'canvas/owner/flows/untitled-1.flow.ts'))).toBe(false);
+    expect((await call(OWNER, 'POST', `/api/sessions/${sid}/flows/untitled-2/rename`, { to: 'hn-digest' })).status).toBe(409);
+    expect((await call(alice.token, 'POST', `/api/sessions/${sid}/flows/untitled-2/rename`, { to: 'mine' })).status).toBe(404);
+  });
+
+  test("a member's New never lands on the hub or in the owner's folder", async () => {
+    const root = join(t.cwd, 'hub-projects');
+    t.engine.config.update({ projects: { hubRoot: root } });
+    const before = readdirSync(join(root, 'canvas')).sort();
+    // no folder: a member picks one on a device of their own
+    const none = await call(alice.token, 'POST', '/api/canvas/programs', {});
+    expect(none.status).toBe(400);
+    expect(none.body.error).toContain('pick a folder');
+    // the hub's own computer, or the owner's folder there, is refused
+    expect((await call(alice.token, 'POST', '/api/canvas/programs', { cwd: join(root, 'canvas', 'owner') })).status).toBe(400);
+    expect((await call(alice.token, 'POST', '/api/canvas/programs', { device: 'local', cwd: t.cwd })).status).toBe(400);
+    // someone else's device is unknown
+    expect((await call(alice.token, 'POST', '/api/canvas/programs', { device: 'dev_not_hers', cwd: '/x' })).status).toBe(404);
+    expect(readdirSync(join(root, 'canvas')).sort()).toEqual(before);
+    expect(readdirSync(join(root, 'canvas/owner/flows')).filter((f) => f.endsWith('.flow.ts')).sort()).toEqual(['hn-digest.flow.ts', 'untitled-2.flow.ts']);
+  });
+
+  test("New workflow makes an empty script of the caller's own that takes a first node", async () => {
+    const made = await call(OWNER, 'POST', '/api/workflows');
+    expect(made.status).toBe(201);
+    expect(made.body.name).toMatch(/^untitled-\d+$/);
+    const g = await call(OWNER, 'GET', `/api/workflows/${made.body.id}/graph`);
+    expect(g.body.editable).toBe(true);
+    expect(g.body.graph.nodes).toEqual([]);
+    const ins = await call(OWNER, 'POST', `/api/workflows/${made.body.id}/graph/insert`, { kind: 'agent', baseSha: g.body.sha });
+    expect(ins.status).toBe(200);
+    expect(ins.body.view.graph.nodes.map((n: { kind: string }) => n.kind)).toEqual(['agent']);
+    // a member's New workflow is theirs: the owner's library does not list it
+    const hers = await call(alice.token, 'POST', '/api/workflows');
+    expect(hers.status).toBe(201);
+    expect(hers.body.path).not.toBe(made.body.path);
+    const ownerList = (await call(OWNER, 'GET', '/api/workflows')).body.map((w: { path?: string }) => w.path);
+    expect(ownerList).not.toContain(hers.body.path);
   });
 
   test('the catalog hides Call AI from members', async () => {
