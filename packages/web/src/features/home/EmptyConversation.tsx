@@ -17,7 +17,7 @@ import { useSessionTarget } from './SessionStart';
 import { TodaySection } from './today';
 import { WaitingSection } from './sections';
 import { LearningsBadge } from '@/features/settings/reflectLearnings';
-import type { StartMode } from './start';
+import type { SessionKind, StartMode } from './start';
 
 /** The knot over the greeting: as heavy over its 26px heading as the phone's 64px mark over its 28px one. */
 const MARK = 60;
@@ -45,7 +45,7 @@ export function EmptyConversation({ mode }: { mode: Exclude<StartMode, 'canvas'>
   );
 }
 
-function SessionComposer({ mode }: { mode: 'assistant' | 'code' }) {
+function SessionComposer({ mode }: { mode: SessionKind }) {
   const target = useSessionTarget(mode);
   return <ChatComposer chatId={`new:${mode}`} minRows={3} blurOnEsc target={target} />;
 }

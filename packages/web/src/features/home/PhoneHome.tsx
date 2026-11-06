@@ -19,7 +19,7 @@ import { greeting } from '@/features/conversation/units';
 import { useOwnerName } from '@/features/conversation/Greeting';
 import { preloadChatPage } from '@/features/conversation/lazy';
 import { useSessionTarget } from './SessionStart';
-import { setStartMode, useStartMode } from './start';
+import { setStartMode, useStartMode, type SessionKind } from './start';
 import { useToday } from './today';
 import { nextEventLine } from './proposalWords';
 import { useLearningsWaiting } from '@/features/settings/reflectLearnings';
@@ -41,8 +41,8 @@ export function PhoneHome() {
   // New asks for Chat, Assistant or Code in the address, once
   useEffect(() => {
     const q = new URLSearchParams(search);
-    if (!q.has('chat') && !q.has('code') && !q.has('assistant')) return;
-    setStartMode(q.has('code') ? 'code' : q.has('assistant') ? 'assistant' : 'chat');
+    if (!q.has('chat') && !q.has('code') && !q.has('assistant') && !q.has('security')) return;
+    setStartMode(q.has('code') ? 'code' : q.has('assistant') ? 'assistant' : q.has('security') ? 'security' : 'chat');
     navigate('/', { replace: true });
   }, [search, navigate]);
 
@@ -87,7 +87,7 @@ export function PhoneHome() {
   );
 }
 
-function SessionBox({ mode }: { mode: 'assistant' | 'code' }) {
+function SessionBox({ mode }: { mode: SessionKind }) {
   const target = useSessionTarget(mode);
   return <ChatComposer chatId={`new:${mode}`} target={target} />;
 }

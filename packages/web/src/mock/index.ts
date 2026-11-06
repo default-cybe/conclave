@@ -6,6 +6,7 @@
 import type { ApprovalResponse, ContentBlock, Device, EngineEvent, EngineEventEnvelope, Message, Session, Task, Routine, RoutineRun, MemoryEntry, Todo } from '@conclave/core/types';
 import type { AppDto, ContextUsageDto, ModelGroup, SwitchEstimate } from '@conclave/core/client';
 import { DEFAULT_CONFIG } from '@conclave/core/config/schema';
+import { DEFAULT_LANE, detectLanes, laneOf } from '@conclave/core/security/lanes';
 import { managedBy, type SecretInfo } from '@conclave/core/config/secret-names';
 import { isDelegated, movedSession, movedToMain } from '@conclave/core/session/delegated';
 import { askOnceUsd, isCheapTarget, summaryUsd, SUGGEST_BRIEF_USD, SWITCH_BRIEF_AT, switchMath } from '@conclave/core/modes/switch-math';
@@ -146,6 +147,8 @@ const BASE_CONFIG = {
       ],
     },
   },
+  // Settings > Security > Roles: the hunter on GLM-5.3 first (core security/roles.ts)
+  security: { roles: { 'sec-hunter': { model: 'zai/glm-5.3', fallback: ['cliproxy/claude-opus-5-5'] } } },
 };
 
 const FRESH_CONFIG = {
@@ -673,6 +676,14 @@ on('POST', '/api/sessions', ({ body }) => {
     ...(body.chat ? { chat: body.chat } : {}),
     ...(body.incognito === true ? { incognito: true } : {}),
   };
+  // Security on at the start: the security agent, and the first message sets the lane (core engine.createSession, security/lanes.ts)
+  if (body.chat?.security) {
+    if (!body.agent) s.agent = 'security';
+    if (body.prompt) {
+      const detected = detectLanes(String(body.prompt));
+      s.meta = { ...s.meta, lane: { lane: detected[0] ?? DEFAULT_LANE, detected } };
+    }
+  }
   db.sessions.set(s.id, s);
   db.messages.set(s.id, []);
   emit({ type: 'session.created', session: structuredClone(s) });
@@ -716,7 +727,27 @@ on('PATCH', '/api/sessions/:id', ({ params, body }) => {
     delete patch.design;
     patch.meta = meta;
   }
-  if (patch.chat) patch.chat = { ...(db.sessions.get(params[0])?.chat ?? {}), ...patch.chat, ...(patch.chat.thinking === null ? { thinking: undefined } : {}) };
+  const was = db.sessions.get(params[0]);
+  // the Security switch swaps in the security agent and back, as the hub does (core engine.updateSession)
+  if (patch.chat && 'security' in patch.chat && !!patch.chat.security !== !!was?.chat?.security && !('agent' in patch)) {
+    const meta = { ...(patch.meta ?? was?.meta ?? {}) } as Record<string, unknown>;
+    if (patch.chat.security) {
+      meta.securityPrev = was?.agent;
+      patch.agent = 'security';
+    } else {
+      patch.agent = typeof meta.securityPrev === 'string' ? meta.securityPrev : 'coder';
+      delete meta.securityPrev;
+    }
+    patch.meta = meta;
+  }
+  // the lane chip: the owner's pick (core security/lanes.ts)
+  if ('lane' in patch) {
+    const old = laneOf(was?.meta);
+    patch.meta = { ...(patch.meta ?? was?.meta ?? {}), lane: { lane: patch.lane, detected: old?.detected ?? [], by: 'owner' } };
+    delete patch.lane;
+  }
+  if (patch.chat) patch.chat = { ...(was?.chat ?? {}), ...patch.chat, ...(patch.chat.thinking === null ? { thinking: undefined } : {}) };
+  if (patch.chat?.security === false) delete patch.chat.security;
   return patchSession(params[0], patch) ?? notFound();
 });
 on('DELETE', '/api/sessions/:id', ({ params }) => {
@@ -769,6 +800,11 @@ on('POST', '/api/sessions/:id/messages', ({ params, body }) => {
   const content: ContentBlock[] = [{ type: 'text', text: body.text }];
   for (const a of body.attachments ?? []) if (a.mediaType?.startsWith('image/')) content.push({ type: 'image', mediaType: a.mediaType, data: a.data });
   addMessage({ sessionId: s.id, role: 'user', kind: 'normal', content });
+  // Security on: the first message sets the lane (core security/lanes.ts)
+  if (s.chat?.security && !laneOf(s.meta)) {
+    const detected = detectLanes({ text: String(body.text ?? ''), files: (body.attachments ?? []).map((a: { name?: string }) => a.name ?? '') });
+    patchSession(s.id, { meta: { ...s.meta, lane: { lane: detected[0] ?? DEFAULT_LANE, detected } } });
+  }
   if (s.stats.messages === 0 && s.title === 'New chat') patchSession(s.id, { title: String(body.text).slice(0, 48) });
   void reply(s.id, body.text);
   return { queued: false };

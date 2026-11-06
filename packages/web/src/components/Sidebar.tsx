@@ -36,7 +36,7 @@ import { cn } from '@/lib/text';
 import { useNow } from '@/lib/hooks';
 import { askHome } from '@/lib/asks';
 import { useIsOwner } from '@/lib/people';
-import { DELEGATED_KEY, DELEGATED_WORDS, delegatedRows, NEW_WORDS, SIDE_GROUP_WORDS, sideGroups, sideListWord, type DelegatedRow, type SideGroupBy, type SideGroupOut, type SideMode, type SideRow } from '@/lib/sidebar';
+import { DELEGATED_KEY, DELEGATED_WORDS, delegatedRows, inFolders, NEW_WORDS, SIDE_GROUP_WORDS, sideGroups, sideListWord, type DelegatedRow, type SideGroupBy, type SideGroupOut, type SideMode, type SideRow } from '@/lib/sidebar';
 import { SharedChatsGroup } from '@/features/chat/shared';
 import { isDelegated } from '@conclave/core/session/delegated';
 import { moveToMainList, MOVE_TO_MAIN } from '@/features/chat/delegated';
@@ -45,7 +45,7 @@ import { openNew, ModeSwitch, useCurrentMode } from '@/features/home/ModeSwitch'
 import { SideFiles } from '@/features/canvas/files';
 import { LazyShareProjectDialog } from '@/features/friends/ShareProject';
 import { useMeetingHint } from '@/features/meeting/useMeetingHint';
-import { Brand, Mark } from './brand/Mark';
+import { Mark } from './brand/Mark';
 import { Button } from './ui/Button';
 import { Input } from './ui/Field';
 import { MOD } from './ui/Kbd';
@@ -108,7 +108,8 @@ function Expanded() {
     <aside aria-label="Sidebar" className="flex h-full shrink-0 flex-col bg-side pt-safe" style={{ width: SIDEBAR_W }}>
       <div className="flex h-[52px] shrink-0 items-center gap-2 pr-2 pl-4">
         <Link href="/" aria-label="Conclave, Home" className="flex min-w-0 items-center rounded-[var(--r-1)]">
-          <Brand size={14} />
+          {/* five modes leave no room for the word beside the switch: the mark alone */}
+          <Mark size={20} />
         </Link>
         <ModeSwitch compact className="ml-auto" />
         <FoldButton />
@@ -278,8 +279,8 @@ function ModeSessions({ mode, phone, onPick }: { mode: SideMode; phone?: boolean
   const groups = useMemo(() => sideGroups({ sessions: Object.values(sessions), mode, by, ctx: { projects, devices }, waiting, now }), [sessions, mode, by, projects, devices, waiting, now]);
   const delegated = useMemo(() => delegatedRows({ sessions: Object.values(sessions), ctx: { projects, devices }, waiting }), [sessions, projects, devices, waiting]);
   const actions = useRowActions();
-  const code = mode === 'code';
-  const empty = mode === 'chat' ? 'Chats you start show up here.' : mode === 'assistant' ? 'Conversations with your assistant show up here.' : 'Sessions you start show up here, by project.';
+  const code = inFolders(mode);
+  const empty = mode === 'chat' ? 'Chats you start show up here.' : mode === 'assistant' ? 'Conversations with your assistant show up here.' : mode === 'security' ? 'Hunts you start show up here, by project.' : 'Sessions you start show up here, by project.';
 
   return (
     <section aria-label={sideListWord(mode)}>
@@ -289,7 +290,7 @@ function ModeSessions({ mode, phone, onPick }: { mode: SideMode; phone?: boolean
       </div>
       {groups.length === 0 && <p className={cn('m-0 px-2.5 py-2 leading-[1.45] text-fg-3', phone ? 'text-[14px]' : 'text-[12.5px]')}>{empty}</p>}
       {groups.map((g) => (
-        <Group key={g.key} g={g} folded={folded.includes(`${mode}:${g.key}`)} foldKey={`${mode}:${g.key}`} path={path} phone={phone} onPick={onPick} actions={actions} titled={g.key !== 'home' && (code || groups.length > 1 || g.key !== 'today')} />
+        <Group key={g.key} g={g} folded={folded.includes(`${mode}:${g.key}`)} foldKey={`${mode}:${g.key}`} path={path} phone={phone} onPick={onPick} actions={actions} titled={g.key !== 'home' && (code || groups.length > 1 || g.key !== 'today')} newIn={mode === 'security' ? 'security' : 'code'} />
       ))}
       {delegated.length > 0 && <DelegatedGroup rows={delegated} folded={folded.includes(DELEGATED_KEY)} path={path} phone={phone} onPick={onPick} actions={actions} />}
       {/* chats someone else owns, and invites to accept (SHARED-WITH-MEMBERS.md 6) */}
@@ -322,14 +323,14 @@ function GroupBy({ by, phone }: { by: SideGroupBy; phone?: boolean }) {
   );
 }
 
-function Group({ g, folded, foldKey, path, phone, onPick, actions, titled }: { g: SideGroupOut; folded: boolean; foldKey: string; path: string; phone?: boolean; onPick?: () => void; actions: RowActions; titled: boolean }) {
+function Group({ g, folded, foldKey, path, phone, onPick, actions, titled, newIn }: { g: SideGroupOut; folded: boolean; foldKey: string; path: string; phone?: boolean; onPick?: () => void; actions: RowActions; titled: boolean; /** What the group's + starts there: a Code session, or a hunt in Security. */ newIn: 'code' | 'security' }) {
   const [, navigate] = useLocation();
   const [share, setShare] = useState(false);
   const owner = useIsOwner();
   const project = !!g.target || g.key.startsWith('p:') || g.key.startsWith('f:');
   const Chevron = folded ? ChevronRight : ChevronDown;
   const menu: MenuItem[] = [
-    ...(g.target ? [{ label: 'New session here', onSelect: () => openNew('code', navigate, g.target) }] : []),
+    ...(g.target ? [{ label: 'New session here', onSelect: () => openNew(newIn, navigate, g.target) }] : []),
     { label: folded ? 'Show its sessions' : 'Fold it', onSelect: () => toggleFolded(foldKey) },
     ...(owner && g.projectId ? [{ label: 'Share with friends…', onSelect: () => setTimeout(() => setShare(true), 0) }] : []),
   ];
@@ -345,7 +346,7 @@ function Group({ g, folded, foldKey, path, phone, onPick, actions, titled }: { g
             <span className={cn('absolute top-1/2 right-1 flex -translate-y-1/2 items-center gap-0.5 transition-opacity duration-[var(--dur-1)]', !phone && 'opacity-0 group-hover/head:opacity-100 group-focus-within/head:opacity-100 coarse:opacity-100')}>
               {g.target && (
                 <Tooltip content={`New session in ${g.label}`}>
-                  <button type="button" aria-label={`New session in ${g.label}`} onClick={() => openNew('code', navigate, g.target)} className={cn(HEAD_BTN, phone && 'size-9')}>
+                  <button type="button" aria-label={`New session in ${g.label}`} onClick={() => openNew(newIn, navigate, g.target)} className={cn(HEAD_BTN, phone && 'size-9')}>
                     <Plus className="size-3.5" strokeWidth={2} aria-hidden />
                   </button>
                 </Tooltip>

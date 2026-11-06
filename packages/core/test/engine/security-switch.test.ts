@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { startTestEngine } from './harness';
+import { noHarnesses, runScript } from '../workflows/helpers';
 import { subagentModel } from '../../src/extensions/agent-model';
 import { roleDef, rolesProblem } from '../../src/security/roles';
 import { guardAnchor } from '../../src/session/scope-guard';
@@ -122,6 +123,31 @@ describe('Security switch', () => {
       t.engine.updateSession(parent.id, { chat: { sameModel: true } });
       const p = await runSubagent(t.engine, { parentSessionId: parent.id, agent: 'sec-recon', prompt: 'x', description: 'x' });
       expect(t.engine.getSession(p.sessionId)!.model).toBe(t.engine.getSession(parent.id)!.model);
+    } finally { await t.close(); }
+  });
+
+  test('workflow: a sec-* role takes the Roles table, under the pin the chat model, and a named model wins (design PR 4)', async () => {
+    const t = await startTestEngine({ models: ['claude-sonnet-5-5'], extraProviders: { zai: ['glm-5.3', 'glm-5.2'] }, script: [[{ text: 'unused' }]], route: (body) => (JSON.stringify(body).includes('WF-') ? [{ text: 'ok' }] : undefined) });
+    try {
+      noHarnesses(t.engine);
+      t.engine.config.update({ security: { roles: { 'sec-recon': { model: 'zai/glm-5.2' } } } } as never);
+      const script = `export const meta = { name: 'roles', description: 'x' }
+await agent('WF-ROLE', { agentType: 'sec-recon', label: 'role' })
+await agent('WF-NAMED', { agentType: 'sec-recon', model: 'zai/glm-5.3', label: 'named' })
+return 'ok'`;
+      const s = await t.engine.createSession({ cwd: t.cwd, permissionMode: 'bypass' });
+      t.engine.updateSession(s.id, { chat: { security: true } });
+      // the steps of the latest run only: the ones made since `seen`
+      let seen = new Set<string>();
+      const step = (label: string) => t.engine.listSessions({ parentId: s.id }).find((c) => !seen.has(c.id) && (c.meta?.workflow as { label?: string } | undefined)?.label === label)!;
+      expect((await runScript(t, script, { sessionId: s.id })).status).toBe('done');
+      expect(step('role').model).toBe('zai/glm-5.2');
+      expect(step('named').model).toBe('zai/glm-5.3');
+      t.engine.updateSession(s.id, { chat: { sameModel: true } });
+      seen = new Set(t.engine.listSessions({ parentId: s.id }).map((c) => c.id));
+      expect((await runScript(t, script, { sessionId: s.id })).status).toBe('done');
+      expect(step('role').model).toBe(t.engine.getSession(s.id)!.model);
+      expect(step('named').model).toBe('zai/glm-5.3');
     } finally { await t.close(); }
   });
 

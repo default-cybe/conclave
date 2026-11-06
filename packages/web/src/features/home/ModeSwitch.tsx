@@ -6,7 +6,7 @@
  * remembered; a press opens a new conversation in that mode.
  */
 import { useLocation } from 'wouter';
-import { CalendarDays, Code, MessageCircle, Spline, type LucideIcon } from 'lucide-react';
+import { CalendarDays, Code, MessageCircle, ShieldCheck, Spline, type LucideIcon } from 'lucide-react';
 import { useHub } from '@/store/store';
 import { cn } from '@/lib/text';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -14,7 +14,7 @@ import { canvasHome } from '@/features/canvas/model';
 import { modeOf, readPicks, savePicks, setStartMode, START_MODES, useStartMode, type Picks, type StartMode } from './start';
 
 /** The compact switch's glyphs. */
-export const MODE_ICONS: Record<StartMode, LucideIcon> = { chat: MessageCircle, assistant: CalendarDays, code: Code, canvas: Spline };
+export const MODE_ICONS: Record<StartMode, LucideIcon> = { chat: MessageCircle, assistant: CalendarDays, code: Code, security: ShieldCheck, canvas: Spline };
 
 /** The mode of what is on screen: the open chat or session's, else the switch's. */
 export function useCurrentMode(): StartMode {
@@ -40,8 +40,10 @@ export function openNew(mode: StartMode, navigate: (to: string) => void, at?: Pi
   // Canvas starts no conversation: it opens on the last file open (owner decision, PR #250)
   if (mode === 'canvas') return navigate(canvasHome());
   if (at) {
-    const picks = readPicks();
-    savePicks(at.repo ? { ...picks, repo: at.repo, base: undefined } : { ...picks, repo: undefined, base: undefined, device: at.device, cwd: at.cwd, cwdDevice: at.device });
+    // Security keeps picks of its own (start.ts)
+    const kind = mode === 'security' ? mode : undefined;
+    const picks = readPicks(kind);
+    savePicks(at.repo ? { ...picks, repo: at.repo, base: undefined } : { ...picks, repo: undefined, base: undefined, device: at.device, cwd: at.cwd, cwdDevice: at.device }, kind);
     useStartMode.setState((s) => ({ fresh: s.fresh + 1 }));
   }
   navigate('/');

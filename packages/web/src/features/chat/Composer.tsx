@@ -103,6 +103,8 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   const here = useThisComputer();
   const computers = useComputers();
   const code = session.kind !== 'chat' && modeOf(session) === 'code';
+  // a hunt works in a folder on a computer too: its folder and device chips, not Code's agent list
+  const folders = code || (session.kind !== 'chat' && modeOf(session) === 'security');
   // a chat with other people in it (features/chat/shared.tsx); a Viewer reads only, and "Just talk" sends without a turn
   const meId = useMeId();
   const { rows: people } = useParticipants(session.id, session.kind === 'chat');
@@ -116,7 +118,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   }, [mineRow?.seatId, session.id]);
   const ownTurn = !!mineRow && seat?.status === 'running';
   // with no Effort of its own a session runs at its agent's level (a coding agent's medium), so the row says what runs
-  const follow = useAgentFollow(session.agent, session.model, code);
+  const follow = useAgentFollow(session.agent, session.model, folders);
 
   useEffect(() => {
     setText(drafts.get(session.id) ?? '');
@@ -597,7 +599,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   const customs = agents.filter((a) => (a.primary !== false && a.source !== 'builtin' && customAgent(a.name)) || a.name === session.agent).filter((a) => a.name !== CODE_AGENT);
   const plus: MenuItem[] = [
     ...(code && customs.length ? [{ group: true, label: 'Agent' }, { label: `${CODE_AGENT}, the default`, detail: 'Hands work to its subagents itself', checked: session.agent === CODE_AGENT, onSelect: () => void patch({ agent: CODE_AGENT }) }, ...customs.map((a) => ({ label: a.name, detail: a.description, checked: session.agent === a.name, onSelect: () => void patch({ agent: a.name }) }))] : []),
-    ...(code && computers.length > 1 ? deviceItems(computers, session.device, (id) => void moveSessionTo(session, id)) : []),
+    ...(folders && computers.length > 1 ? deviceItems(computers, session.device, (id) => void moveSessionTo(session, id)) : []),
     { group: true, label: 'Mode' },
     ...MODES.map((m) => ({ label: m.label, detail: m.description, checked: session.mode === m.value, onSelect: () => setMode(m.value) })),
     ...(session.kind !== 'chat' && session.mode !== 'chat' ? [{ separator: true, label: '' }, { label: 'Ultra', detail: ULTRA_LINE, checked: !!session.ultra, keep: true, onSelect: () => void patch({ ultra: !session.ultra }) }] : []),
@@ -610,8 +612,8 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
       {session.mode === 'jury' && <JurorsPicker look="text" value={cfg.jury} onChange={(jury) => void patch({ modeConfig: { ...cfg, jury } })} className="h-[24px] text-[12px]" />}
       {session.mode === 'debate' && <DebatersPicker look="text" value={cfg.debate} onChange={(debate) => void patch({ modeConfig: { ...cfg, debate } })} className="h-[24px] text-[12px]" />}
       {session.mode === 'loop' && <LoopPicker look="text" value={cfg.loop} onChange={(loop) => void patch({ modeConfig: { ...cfg, loop } })} className="h-[24px] text-[12px]" />}
-      {code && !narrow && !sessionRepo(session) && <FolderChip device={session.device} cwd={session.cwd} onCwd={(cwd) => void patch({ cwd })} />}
-      {code && !narrow && session.device !== here && computers.length > 1 && <DeviceChip device={session.device} onDevice={(id) => void moveSessionTo(session, id)} />}
+      {folders && !narrow && !sessionRepo(session) && <FolderChip device={session.device} cwd={session.cwd} onCwd={(cwd) => void patch({ cwd })} />}
+      {folders && !narrow && session.device !== here && computers.length > 1 && <DeviceChip device={session.device} onDevice={(id) => void moveSessionTo(session, id)} />}
     </>
   );
 
