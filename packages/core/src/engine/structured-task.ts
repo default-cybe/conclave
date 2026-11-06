@@ -74,7 +74,7 @@ export async function runStructuredTask(engine: Engine, o: StructuredTaskOptions
   const acct = engine.accountOf(parent);
   const def = engine.agentNamed(o.agent, parent.cwd, acct) ?? engine.agentNamed('general-purpose', undefined, acct);
   // the model runSubagent will pick, Same model for all work included, so the JSON path matches the child
-  const acp = isAcp(engine, subagentModel(engine, o.model, def?.model, parent.model, modelPin(engine, parent)));
+  const acp = isAcp(engine, subagentModel(engine, o.model, def?.model, parent.model, modelPin(engine, parent), def?.fallback));
   const map = registry(engine);
 
   if (acp) {

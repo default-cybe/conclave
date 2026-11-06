@@ -10,6 +10,8 @@ import { logger } from '../util/log';
 import { defuseFrameworkTags } from '../session/untrusted';
 import { markModelDead, subagentModel } from '../extensions/agent-model';
 import { modelPin } from '../session/model-pin';
+import { memberCanUse } from '../session/member-fallbacks';
+import { isMember } from '../people/context';
 import { checkFallback } from '../session/limit-tree';
 import { ProviderError } from '../providers/types';
 
@@ -104,6 +106,8 @@ export async function runSubagent(
   // the agent as the parent's account sees it: a member's Task never gets the owner's own agent files (docs/design/ACCOUNTS.md 2)
   const acct = engine.accountOf(parent);
   const def = engine.agentNamed(opts.agent, parent.cwd, acct) ?? engine.agentNamed('general-purpose', undefined, acct) ?? engine.agentFor(parent);
+  // a grouped role (sec-*) runs only where Task offers it: a security chat (engine.subagents)
+  if (def.group && !opts.workflow && !engine.subagents(parent).some((a) => a.name === def.name)) throw new Error(`${def.name} runs only in a security chat. Turn on Security for this chat, or pick another agent.`);
   // a subagent of an untrusted agent (email, web) stays untrusted whatever agent it runs, so Task never hands it tools its parent lacks
   const untrusted = !!engine.agentFor(parent).untrusted || parent.meta?.untrusted === true;
   const now = Date.now();
@@ -112,7 +116,9 @@ export async function runSubagent(
   // Same model for all work (session/model-pin.ts): the child runs on the pin and carries the switch to its own hand-offs
   const pin = modelPin(engine, parent);
   // tier words (fast, smart, deep) in the call or the profile resolve here (extensions/agent-model.ts); a delegated job's model was picked for it
-  const model = dlg?.model ?? subagentModel(engine, opts.model, def.model, parent.model, pin);
+  const picked = dlg?.model ?? subagentModel(engine, opts.model, def.model, parent.model, pin, def.fallback);
+  // a member's security role never runs on a model their account may not use, such as the owner's plans: it takes their own chat model (SECURITY-MODE.md 4.7)
+  const model = def.group && isMember(acct) && !memberCanUse(engine, acct, picked) ? parent.model : picked;
   // a parent that saves nothing to memory ("Use only", Off) passes that on, as an incognito parent passes incognito
   const own: Session['chat'] = dlg?.chat ?? (parent.chat?.memory === false || parent.chat?.memorySave === false ? { webSearch: true, memory: parent.chat.memory !== false, memorySave: false } : undefined);
   const chat: Session['chat'] = pin ? { webSearch: true, memory: true, ...(own ?? {}), sameModel: true } : own;

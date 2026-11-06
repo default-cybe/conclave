@@ -31,6 +31,21 @@ describe('built-in agents come from agents-defaults/*.md', () => {
     expect(explore.subagent).toBe(true);
     expect(explore.primary).toBeUndefined();
     expect(BUILTIN_AGENTS.find((a) => a.name === 'assistant')!.memory).toBe('global');
+    const roles = BUILTIN_AGENTS.filter((a) => a.group === 'security');
+    expect(roles).toHaveLength(9);
+    expect(roles.every((a) => a.subagent && a.name.startsWith('sec-') && a.fallback?.length && a.recipes?.includes('scope-guard'))).toBe(true);
+    expect(Object.fromEntries(roles.map((a) => [a.name, [a.model, ...(a.fallback ?? [])]]))).toEqual({
+      'sec-recon': ['zai/glm-5.3', 'cliproxy/claude-opus-5-5'],
+      'sec-hunter': ['cliproxy/claude-opus-5-5', 'zai/glm-5.3'],
+      'sec-fuzzer': ['zai/glm-5.3', 'cliproxy/claude-opus-5-5'],
+      'sec-validator': ['zai/glm-5.3', 'cliproxy/personal-gpt/gpt-daybreak-blue-latest'],
+      'sec-exploiter': ['cliproxy/claude-opus-5-5', 'claude-mythos-5-1', 'zai/glm-5.3'],
+      'sec-refuter': ['cliproxy/personal-gpt/gpt-daybreak-blue-latest', 'zai/glm-5.3'],
+      'sec-chainer': ['cliproxy/claude-opus-5-5', 'zai/glm-5.3'],
+      'sec-reporter': ['cliproxy/claude-opus-5-5', 'zai/glm-5.3'],
+      'sec-patcher': ['cliproxy/claude-opus-5-5', 'zai/glm-5.3'],
+    });
+    expect(BUILTIN_AGENTS.find((a) => a.name === 'security')?.mcpServers).toEqual(['caido', 'semgrep', 'rea']);
     // multi-line YAML descriptions fold to one line
     expect(BUILTIN_AGENTS.find((a) => a.name === 'coder')!.description).not.toContain('\n');
   });

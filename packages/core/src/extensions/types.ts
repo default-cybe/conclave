@@ -54,6 +54,17 @@ export interface AgentDef {
   memory?: 'global' | 'agent' | 'none';
   /** Can be picked as a subagent by the Task tool. */
   subagent?: boolean;
+  /**
+   * A roster the subagent belongs to. Task offers a grouped subagent only in
+   * a chat that turns the group on: "security" needs chat.security
+   * (engine.subagents). Unset: offered everywhere.
+   */
+  group?: string;
+  /**
+   * Models to try, in order, when `model` is not usable or answered 404
+   * recently (extensions/agent-model.ts subagentModel). Then the parent's model.
+   */
+  fallback?: string[];
   /** Show in the main agent picker. */
   primary?: boolean;
   /** Treat this agent's inputs as untrusted (email, web): no shell, no file writes. */
@@ -114,6 +125,8 @@ export interface SkillDef {
   plugin?: string;
   /** A skill that ships in the binary (extensions/builtin-skills.ts): its text, with dir and path empty. */
   body?: string;
+  /** A shipped skill for one agent group (security): listed only in prompts of agents that name it in skills. */
+  group?: string;
   /** Set for a skill an agent wrote (extensions/learned.ts): where it came from. */
   learned?: { sessionId?: string; project?: string; created?: string; updated?: string };
 }
