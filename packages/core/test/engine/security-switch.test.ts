@@ -151,6 +151,23 @@ return 'ok'`;
     } finally { await t.close(); }
   });
 
+  test('workflow: an unusable Roles model gives way to its own fallback, as in Task', async () => {
+    const t = await startTestEngine({ models: ['claude-sonnet-5-5'], extraProviders: { zai: ['glm-5.3', 'glm-5.2'] }, script: [[{ text: 'unused' }]], route: (body) => (JSON.stringify(body).includes('WF-') ? [{ text: 'ok' }] : undefined) });
+    try {
+      noHarnesses(t.engine);
+      t.engine.config.update({ security: { roles: { 'sec-recon': { model: 'gone/model', fallback: ['zai/glm-5.2'] } } } } as never);
+      const s = await t.engine.createSession({ cwd: t.cwd, permissionMode: 'bypass' });
+      t.engine.updateSession(s.id, { chat: { security: true } });
+      const script = `export const meta = { name: 'fb', description: 'x' }
+await agent('WF-FB', { agentType: 'sec-recon', label: 'fb' })
+return 'ok'`;
+      expect((await runScript(t, script, { sessionId: s.id })).status).toBe('done');
+      const child = t.engine.listSessions({ parentId: s.id }).find((c) => (c.meta?.workflow as { label?: string } | undefined)?.label === 'fb')!;
+      expect(child.model).toBe('zai/glm-5.2');
+      expect(child.chat?.security).toBe(true);
+    } finally { await t.close(); }
+  });
+
   test("members cannot route to owner-only models through the Roles table", async () => {
     const t = await startTestEngine({ models: ['claude-sonnet-5-5'], extraProviders: { zai: ['glm-5.3', 'glm-5.2'] }, script: [[{ text: 'ok' }]], route: () => [{ text: 'DONE' }] });
     try {

@@ -8,7 +8,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { Session } from '@conclave/core/types';
-import { customAgent, lastOwnSession, modeOf, readMode, readPicks, saveMode, savePicks, sessionSetup, START_MODES } from '../src/features/home/start';
+import { customAgent, lastOwnSession, modeOf, offersIncognito, readMode, readPicks, saveMode, savePicks, sessionSetup, START_MODES } from '../src/features/home/start';
 import { fromWords, inFolders, modeSessions, NEW_WORDS, sideGroups, sideListWord, sideModeOf } from '../src/lib/sidebar';
 import { groupSections, searchSections } from '../src/features/settings/nav';
 
@@ -31,6 +31,10 @@ describe('Security start mode', () => {
     g.localStorage = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) };
     saveMode('security');
     expect(readMode()).toBe('security');
+  });
+
+  test('a hunt is never incognito: only Chat and Code offer it', () => {
+    expect(START_MODES.map((m) => m.value).filter(offersIncognito)).toEqual(['chat', 'code']);
   });
 
   test('a session of the security agent belongs to Security; Code never offers it as a custom agent', () => {

@@ -72,7 +72,7 @@ import { useAgentFollow } from '@/features/conversation/ComposerParts';
 import { OptionsButton } from '@/features/conversation/PhoneBox';
 import { sameRepo } from '@/lib/github';
 import { BranchPicker, IssuePicker, RepoList, RepoPicker, type IssuePick, type RepoPick } from '@/features/github/RepoPicker';
-import { ASSISTANT_AGENT, CODE_AGENT, CODE_NEEDS_DEVICE, commandOf, customAgent, lastOwnSession, needsOwnDevice, placeName, readPicks, savePicks, SECURITY_AGENT, sessionSetup, startCommands, startEffort, type Picks, type SessionKind } from './start';
+import { ASSISTANT_AGENT, CODE_AGENT, CODE_NEEDS_DEVICE, commandOf, customAgent, lastOwnSession, needsOwnDevice, offersIncognito, placeName, readPicks, savePicks, SECURITY_AGENT, sessionSetup, startCommands, startEffort, type Picks, type SessionKind } from './start';
 import { startSurface, useThisComputer } from './here';
 import { DeviceChip, FolderChip, computerList, deviceItems, useComputers } from './Where';
 import { CODE_INCOGNITO_LINE, memoryChat, MemoryField, memoryItems, usePrivacy } from '@/features/conversation/incognito';
@@ -109,7 +109,8 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
   const [design, setDesign] = useState<DesignDirection>();
   // Incognito (the toggle at the top right, Code only) and the memory setting, for this one session (not kept for the next)
   const [both, setMemory] = usePrivacy('save');
-  const priv = code ? both : { incognito: false, memory: both.memory };
+  // a hunt is never incognito, even with the toggle left on from Code (start.ts offersIncognito)
+  const priv = offersIncognito(kind) ? both : { incognito: false, memory: both.memory };
   // the box clears at once; until the session opens, a line under it says it is starting
   const [starting, setStarting] = useState<number>();
   // the folder was asked for before the first send: once it is set, the message held goes
