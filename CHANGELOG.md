@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Incognito moved out of the composer's "+" menu to the top right of a new chat and a new Code session (web, phone web and Android). Off it is a plain icon; on it is highlighted, the memory setting sits beside it (Use only by default, or Use and save, or Off) and a line says what is not kept. It goes once the first message is sent, and the conversation keeps its Incognito mark. Without incognito, "+" still holds the memory setting. Ctrl/Cmd+Shift+N opens a new incognito chat in the desktop app (browsers keep that key for their own private window).
+
 ## [0.4.71] - 2026-11-05
 
 ### Added
