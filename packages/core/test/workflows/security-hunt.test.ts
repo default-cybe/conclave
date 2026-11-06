@@ -150,6 +150,50 @@ test('an agreeing refuter without a passing step 7 never yields confirmed; the o
   expect(ledger.find((e) => e.finding.startsWith(LEAD2.title))?.evidence).toBe('findings/acme-hunt/RESULT.txt');
 });
 
+test('a RESULT.txt left by an earlier run never confirms a validator that claims passes without running', async () => {
+  const dir = huntFolder();
+  // run 1: the validator writes RESULT.txt with its marker, as told, but one run fails
+  let r = roles(dir, [LEAD1], (_title, marker) => {
+    r.result(marker);
+    return { reproduced: true, runs: [...PASS.slice(0, 2), { ...PASS[2], pass: false }], controls: CONTROLS, evidence: 'flaky', result: 'findings/acme-hunt/RESULT.txt' };
+  });
+  const first = await hunt(dir, { lane: 'source' });
+  expect(first.result.leads[0].status).toBe('partial');
+  // run 2: the validator only says it passed; the old file is still there
+  r = roles(dir, [LEAD1], () => ({ reproduced: true, runs: PASS, controls: CONTROLS, evidence: 'trust me', result: 'findings/acme-hunt/RESULT.txt' }));
+  const second = await hunt(dir, { lane: 'source' });
+  expect(second.run.error).toBeUndefined();
+  expect(second.result.leads[0].status).toBe('partial');
+  expect(second.result.leads[0].reason).toContain('does not hold the marker');
+});
+
+test('a validator that says not reproduced, or points at evidence outside the hunt folder, is never confirmed', async () => {
+  const dir = huntFolder();
+  const r = roles(dir, [LEAD1, LEAD2], (title, marker) => {
+    if (title === LEAD1.title) {
+      r.result(marker);
+      return { reproduced: false, runs: PASS, controls: CONTROLS, evidence: '200 ' + marker, result: 'findings/acme-hunt/RESULT.txt' };
+    }
+    // a transcript elsewhere holds the marker from the prompt
+    writeFileSync(join(dir, 'transcript.log'), 'prompt: seed ' + marker);
+    return { reproduced: true, runs: PASS, controls: CONTROLS, evidence: '200 ' + marker, result: 'findings/acme-hunt/../../transcript.log' };
+  });
+  const h = await hunt(dir, { lane: 'source' });
+  expect(h.run.error).toBeUndefined();
+  expect(h.result.leads.map((l) => l.status)).toEqual(['partial', 'partial']);
+  expect(h.result.leads[0].reason).toContain('did not report it reproduced');
+  expect(h.result.leads[1].reason).toContain('is not in findings/acme-hunt');
+});
+
+test('a variant proved on the web lane without a live host stops at preflight', async () => {
+  roles(huntFolder(), [], () => null);
+  const h = await hunt(huntFolder(), { lane: 'variant', fix: 'abc123', proofLane: 'web' });
+  expect(h.run.error).toBeUndefined();
+  expect(h.result.stopped).toBe('preflight');
+  expect(h.result.reason).toContain('needs args.url or args.hosts');
+  expect(h.calls.some((c) => c.kind === 'agent')).toBe(false);
+});
+
 test('a refuter that agrees and a validator that returns nothing: partial, never confirmed', async () => {
   const dir = huntFolder();
   roles(dir, [LEAD1], () => null);

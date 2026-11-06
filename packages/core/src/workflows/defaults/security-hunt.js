@@ -43,6 +43,7 @@ if (sc.expired) return stop('preflight', sc.file + ' expired on ' + sc.scope.exp
 const notIn = LIVE.filter((h) => sc.hosts[h] !== 'in')
 if (notIn.length) return stop('preflight', 'not in in_scope of ' + sc.file + ': ' + notIn.join(', '))
 if (LANE === 'web' && !LIVE.length) return stop('preflight', 'the web lane needs args.url or args.hosts')
+if (LANE === 'variant' && A.proofLane === 'web' && !LIVE.length) return stop('preflight', 'a variant proved on the web lane needs args.url or args.hosts')
 if (LANE === 'variant' && !A.fix) return stop('preflight', 'the variant lane needs args.fix (the fix commit)')
 const scope = sc.scope
 log('Scope ' + sc.file + ': program ' + scope.program + ', ' + scope.inScope.length + ' in-scope entries, lab ' + (scope.lab.join(', ') || 'none') + (scope.expires ? ', expires ' + scope.expires : ''))
@@ -196,16 +197,24 @@ const oracleCheck = async (l, v, proofLane, marker) => {
   const controls = Array.isArray(v.controls) ? v.controls : []
   const need = row ? row.controls.length : 1
   if (v.reproduced === false && runs.length && runs.every((r) => !r.pass)) return { state: 'refuted', why: 'not reproduced in ' + runs.length + ' runs' }
+  if (v.reproduced !== true) return { state: 'partial', why: 'the validator did not report it reproduced' }
   if (runs.length < 3 || !runs.every((r) => r.pass === true)) return { state: 'partial', why: runs.filter((r) => r.pass === true).length + ' of ' + Math.max(3, runs.length) + ' runs passed' }
   if (controls.length < need || !controls.every((c) => c.pass === true)) return { state: 'partial', why: 'negative control ' + controls.filter((c) => c.pass === true).length + ' of ' + need + ' held' }
   if (proofLane === 'web' && !(typeof v.pairs === 'string' && v.pairs.trim())) return { state: 'partial', why: 'the request pairs were not exported' }
   // the evidence file is read here, not taken from the agent: it must exist and hold this lead's marker
-  const file = typeof v.result === 'string' && v.result.trim() ? v.result.trim() : RESULT
+  const file = typeof v.result === 'string' && v.result.trim() ? v.result.trim().replace(/^\.\//, '') : RESULT
+  // only a file in this hunt's findings folder: a transcript or database elsewhere holds the marker from the prompt
+  if (!file.startsWith(HUNT + '/') || file.split('/').includes('..')) return { state: 'partial', why: file + ' is not in ' + HUNT }
   const cat = await lib.exec('cat ' + lib.shq(file))
   if (cat.exitCode !== 0) return { state: 'partial', why: file + ' could not be read' }
   if (!cat.stdout.includes(marker)) return { state: 'partial', why: file + ' does not hold the marker ' + marker }
   return { state: 'confirmed', why: '3 of 3 runs and every negative control passed; evidence in ' + file }
 }
+
+// a fresh nonce per run in every marker: a RESULT.txt left by an earlier run (written even when the runs failed) never matches
+const nonce = live.length ? (await lib.exec('head -c 6 /dev/urandom | od -An -tx1')).stdout.replace(/\s/g, '') : ''
+const fresh = /^[0-9a-f]{12}$/.test(nonce)
+if (live.length && !fresh) log('No run nonce from the device; no lead can be confirmed this run')
 
 for (const l of live) {
   phase('Approve')
@@ -250,7 +259,7 @@ for (const l of live) {
   }
 
   phase('Validate')
-  const marker = 'CANARY-' + lib.ledger.id(T + ' ' + l.id).slice(0, 10)
+  const marker = 'CANARY-' + lib.ledger.id(T + ' ' + l.id + ' ' + l.n).slice(0, 10) + nonce
   const row = ORACLES[l.class]
   const untested = l.assumptions.filter((a) => !a.tested)
   const r = await agent(
@@ -288,7 +297,7 @@ for (const l of live) {
   )
   const v = r && r.value
   if (proofLane === 'web' && v) grantLeft -= Math.max(1, Number(v.requests) || 0)
-  const verdict = await oracleCheck(l, v, proofLane, marker)
+  const verdict = fresh ? await oracleCheck(l, v, proofLane, marker) : { state: 'partial', why: 'no run nonce, so the evidence cannot be told from an earlier run' }
   // the only place a lead becomes confirmed: step 7's runtime oracle passed
   l.status = verdict.state
   l.reason = verdict.why
