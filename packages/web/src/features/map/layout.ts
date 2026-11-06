@@ -13,7 +13,7 @@
  * until nothing does.
  */
 import type { MapDevice, MapGroup, MapNode, MapSnapshot } from '@conclave/core/client';
-import { STATE_WORD, groupLine, groupStats, mapLabel, nodeMeta, nodePlace } from './model';
+import { STATE_WORD, foldedWords, groupLine, groupStats, mapLabel, nodeMeta, nodePlace } from './model';
 
 export type LKind = 'hub' | 'device' | 'group' | 'node';
 
@@ -130,7 +130,7 @@ interface T {
 /** The words a node's label shows: its short name, then what it is, its state (or how long it has been stuck) and when. */
 export function labelWords(n: MapNode, now = Date.now(), where: { group?: string; device?: string } = {}, fits?: (s: string) => boolean): { title: string; meta: string } {
   const m = nodeMeta(n, now);
-  return { title: mapLabel(n, where, fits), meta: [m.mode, m.word, m.when].filter(Boolean).join(' · ') };
+  return { title: mapLabel(n, where, fits), meta: [m.mode, m.word, m.when, foldedWords(n.folded)].filter(Boolean).join(' · ') };
 }
 
 export function hubWords(snap: Pick<MapSnapshot, 'hub' | 'nodes'>, online = true): { title: string; meta: string } {
@@ -173,7 +173,7 @@ export function layoutMap(snap: Pick<MapSnapshot, 'hub' | 'nodes' | 'groups' | '
     seen.add(n.id);
     const w = labelWords(n, now, nodePlace(n, { hub: snap.hub, groups, devices: snap.devices }), (s) => measure(s, 'title') <= TITLE_MAX);
     // the widest the line gets as the state changes: a resting node adds when ("paused · 59m ago")
-    const t = mk(n.id, 'node', depth, w.title, w.meta, `${w.meta.split(' · ')[0]} · ${STATE_WORD.paused} · 59m ago`, 'title', { node: n });
+    const t = mk(n.id, 'node', depth, w.title, w.meta, [w.meta.split(' · ')[0], STATE_WORD.paused, '59m ago', foldedWords(n.folded)].filter(Boolean).join(' · '), 'title', { node: n });
     t.children = (kids.get(n.id) ?? []).filter((c) => !seen.has(c.id)).sort(byStart).map((c) => nodeT(c, depth + 1, seen));
     return t;
   };

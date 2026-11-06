@@ -135,9 +135,10 @@ class MapModelTest {
 
     @Test
     fun `a snapshot decodes, with a replay's devices that have no online`() {
+        // "folded" (finished agents folded into a node) is a field this client does not read yet: it is skipped
         val s = ConclaveJson.decodeFromString(
             MapSnapshot.serializer(),
-            """{"at":1,"live":false,"from":0,"hub":{"name":"madx","state":"idle"},"devices":[{"id":"mac","name":"MacBook"}],"groups":[{"id":"chats","kind":"chats","name":"Chats","device":"local"}],"nodes":[{"id":"s1","kind":"chat","title":"A","state":"sleeping","device":"local","group":"chats","startedAt":1,"lastActivityAt":1,"tools":[],"usage":{"inputTokens":1,"outputTokens":2,"cacheReadTokens":0,"cacheWriteTokens":0,"costUsd":0.1},"tokensPerMin":0,"rate":0}],"totals":{"running":0,"waiting":0,"today":{"from":0,"tokens":3,"costUsd":0.1}},"conflicts":[{"a":"s1","b":"s2","file":"auth.ts","since":3}]}""",
+            """{"at":1,"live":false,"from":0,"hub":{"name":"madx","state":"idle"},"devices":[{"id":"mac","name":"MacBook"}],"groups":[{"id":"chats","kind":"chats","name":"Chats","device":"local"}],"nodes":[{"id":"s1","kind":"chat","title":"A","state":"sleeping","device":"local","group":"chats","startedAt":1,"lastActivityAt":1,"tools":[],"usage":{"inputTokens":1,"outputTokens":2,"cacheReadTokens":0,"cacheWriteTokens":0,"costUsd":0.1},"tokensPerMin":0,"rate":0,"folded":{"done":12,"failed":1,"usage":{"inputTokens":1,"outputTokens":1,"cacheReadTokens":0,"cacheWriteTokens":0,"costUsd":0.05},"nodes":[{"id":"s9","kind":"subagent","title":"x","state":"failed","costUsd":0.01,"error":"boom"}]}}],"totals":{"running":0,"waiting":0,"today":{"from":0,"tokens":3,"costUsd":0.1}},"conflicts":[{"a":"s1","b":"s2","file":"auth.ts","since":3}]}""",
         )
         assertFalse(s.live)
         assertNull(s.devices.single().online)

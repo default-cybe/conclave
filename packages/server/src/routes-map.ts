@@ -9,6 +9,7 @@ import type { EngineApi } from '@conclave/core/engine/api.ts';
 import type { MapSnapshot } from '@conclave/core/client/map.ts';
 import { MAP_WINDOW_MS, buildMapSnapshot, type MapLiveView } from '@conclave/core/map/snapshot.ts';
 import { MapLive } from '@conclave/core/map/live.ts';
+import { notIncognito } from '@conclave/core/storage/repos.ts';
 import { liveAlerts } from '@conclave/core/alerts/attached.ts';
 import type { HonoEnv, ServerContext } from './context';
 import { badRequest } from './http';
@@ -42,16 +43,24 @@ function withAlerts(engine: EngineApi, snap: MapSnapshot): MapSnapshot {
 
 /** The tracker behind map.delta. It sends nothing while wanted() is false. */
 export function createMapLive(engine: EngineApi, wanted: () => boolean): MapLive {
-  const usage = engine.repos.db.query(
-    `SELECT SUM(input_tokens) AS i, SUM(output_tokens) AS o, SUM(cache_read_tokens) AS cr, SUM(cache_write_tokens) AS cw, SUM(cost_usd) AS c FROM usage WHERE session_id = ?`,
-  );
+  // a node's usage includes its finished subagents, folded into it (map/snapshot.ts); workflow agents fold into their run instead.
+  // workflow_calls appears on the first run, so the query is made on first use
+  const db = engine.repos.db;
+  const usageQuery = () =>
+    db.query(
+      `SELECT SUM(input_tokens) AS i, SUM(output_tokens) AS o, SUM(cache_read_tokens) AS cr, SUM(cache_write_tokens) AS cw, SUM(cost_usd) AS c FROM usage
+       WHERE session_id = $id OR session_id IN (
+         SELECT id FROM sessions s WHERE parent_id = $id AND status IN ('idle', 'paused') AND updated_at >= $since AND archived = 0 AND ${notIncognito('s')}
+           AND account_id = (SELECT account_id FROM sessions WHERE id = $id)
+           ${db.query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workflow_calls'`).get() ? 'AND NOT EXISTS (SELECT 1 FROM workflow_calls w WHERE w.child_session_id = s.id)' : ''})`,
+    );
   const live: MapLive = new MapLive({
     bus: engine.bus,
     wanted,
     snapshot: (accountId) => mapSnapshot(engine, live, {}, accountId),
     accountOf: (sessionId) => engine.sessionAccount(sessionId),
     usage: (sessionId) => {
-      const r = usage.get(sessionId) as { i: number | null; o: number | null; cr: number | null; cw: number | null; c: number | null } | null;
+      const r = usageQuery().get({ id: sessionId, since: Date.now() - MAP_WINDOW_MS } as any) as { i: number | null; o: number | null; cr: number | null; cw: number | null; c: number | null } | null;
       if (!r || r.i === null) return undefined;
       return { inputTokens: r.i ?? 0, outputTokens: r.o ?? 0, cacheReadTokens: r.cr ?? 0, cacheWriteTokens: r.cw ?? 0, costUsd: r.c ?? 0 };
     },
