@@ -51,6 +51,10 @@ webpki-roots = "1"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# copy buttons the WebKitGTK page could not serve (src/main.rs copy_text): the gtk tauri already brings
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+
 # the terminal command's folder on the user's PATH (src/terminal.rs, src/winpath.rs):
 # the same registry crate the deep-link and autostart plugins already bring
 [target.'cfg(windows)'.dependencies]

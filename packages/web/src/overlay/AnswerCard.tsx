@@ -10,6 +10,7 @@
  * combined into Conclave (AGPL-3.0-only) under GPLv3 section 13.
  */
 import { memo, useEffect, useState } from 'react';
+import { copyText } from '../lib/clipboard';
 import { splitAnswer } from './model';
 import { StreamText } from './StreamText';
 import type { AnswerPaintInput, MeetingAnswer } from './wire';
@@ -34,22 +35,19 @@ export function paintReporter(post: (answerId: string, body: AnswerPaintInput) =
 const STATE: Record<MeetingAnswer['state'], string> = { streaming: 'Writing', done: '', cancelled: 'Stopped', failed: 'No answer' };
 
 function Copy({ text }: { text: string }) {
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState<'Copied' | 'Could not copy'>();
   return (
     <button
       type="button"
       className="ov-copy"
       onClick={() =>
-        void navigator.clipboard?.writeText(text).then(
-          () => {
-            setDone(true);
-            setTimeout(() => setDone(false), 1500);
-          },
-          () => undefined,
-        )
+        void copyText(text).then((ok) => {
+          setDone(ok ? 'Copied' : 'Could not copy');
+          setTimeout(() => setDone(undefined), 1500);
+        })
       }
     >
-      {done ? 'Copied' : 'Copy'}
+      {done ?? 'Copy'}
     </button>
   );
 }

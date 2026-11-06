@@ -23,7 +23,7 @@ import { attempt, removeKey, retainTranscript, toast, upsertSession, useHub, use
 import { openNewChat, toggleContext, useUi } from '@/store/ui';
 import { cn } from '@/lib/text';
 import { countWord, folderName, hhmm, inTime } from '@/lib/format';
-import { useIsMobile, useIsWide, useNow } from '@/lib/hooks';
+import { copyAndTell, useIsMobile, useIsWide, useNow } from '@/lib/hooks';
 import { harnessId, modelName } from '@/lib/models';
 import { Button, IconButton } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
@@ -83,7 +83,7 @@ export function ChatView({ session, column }: { session: Session; /** Shown as a
         const code = lastCodeBlock(useHub.getState().messages[session.id]);
         if (code) {
           e.preventDefault();
-          void navigator.clipboard?.writeText(code).then(() => toast({ title: 'Copied the last code block.', level: 'info' }));
+          void copyAndTell(code, 'Copied the last code block.');
         }
         return;
       }
