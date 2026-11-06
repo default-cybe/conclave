@@ -567,6 +567,11 @@ export function applyEdit(script: string, edit: Pick<GraphEditInput, 'nodeId' | 
 export type InsertKind = 'agent' | 'parallel' | 'check' | 'approve' | 'ask';
 export const INSERT_KINDS: InsertKind[] = ['agent', 'parallel', 'check', 'approve', 'ask'];
 
+/** Canvas's New workflow: a meta and no steps; insertNode adds the first one at the end. */
+export function blankWorkflow(name: string): string {
+  return `export const meta = {\n  name: '${name}',\n  description: 'A new workflow. Add steps on the canvas, or ask the agent.',\n  phases: [],\n}\n`;
+}
+
 /** A name no statement in the script uses yet: base, base2, base3... */
 export function freshName(toks: Tok[], base: string): string {
   const used = new Set(toks.filter((t) => t.kind === 'ident').map((t) => t.text));

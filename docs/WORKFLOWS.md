@@ -386,6 +386,32 @@ mode, and acceptEdits allows edits in the agent's own folder, so a script that
 picked `~/.ssh` or another device would otherwise widen what runs without
 asking. Workflows you put in place keep the full `opts.conclave`.
 
+## A blank canvas
+
+Canvas opens like ComfyUI. With no last file, the Canvas mode switch goes
+to `/canvas/new`, which makes a blank program and opens it at once. New sits
+in the Canvas start page, the title's file menu and the sidebar's Canvas
+list; the file menu also has New in folder..., New workflow and Rename....
+
+- Where blank programs live: `flows/untitled-N.flow.ts` in the account's
+  Canvas folder on the hub, `<projects.hubRoot>/canvas/<account>` (the same
+  root Move to hub uses, `~/conclave-projects` by default). The hub makes a
+  Code session there on first use and reuses it after
+  (`POST /api/canvas/programs`).
+- Members have no files on the hub, so a member's New asks for a folder on a
+  computer they paired, as New in folder... does for anyone. The hub refuses
+  a member's New with no folder, on the hub, or on another account's device.
+- A blank program is one comment line and no blocks. The canvas shows "Double-click
+  or drag a block from the library to start", opens the library, and keeps Run
+  off with its reason until there is a block.
+- Describe it: the box on the empty canvas hands your words to the Agent tab,
+  which edits the open file. The canvas reloads as the file changes and counts
+  the blocks as they appear.
+- New workflow makes `untitled-N.js` in your own workflows: a meta and no
+  steps, editable at once (`POST /api/workflows`).
+- Rename... moves `flows/<name>.flow.ts` and its layout to the new name
+  (`POST /api/sessions/:id/flows/:name/rename`).
+
 ## Editing in Canvas
 
 Canvas (the fourth mode, next to Chat, Assistant and Code) opens a program

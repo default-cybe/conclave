@@ -6,6 +6,7 @@
  *   bun test packages/web/test/workflow-graph.test.tsx
  */
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ReactFlowProvider } from '@xyflow/react';
 import type { GraphNode, NodeRun, NodeRunState, WorkflowGraph } from '@conclave/core/client';
@@ -119,6 +120,18 @@ describe('layout', () => {
     expect(pos.get('n3')!.y).toBeGreaterThan(pos.get('n1')!.y);
   });
 
+  test('one phase or none draws no band: the blocks sit on the bare grid, where they were dropped', () => {
+    const wired: WorkflowGraph = { name: 'x', phases: [], edges: [{ from: 'n0', to: 'n1', name: 'a' }], nodes: [0, 1].map((i) => ({ ...node, id: `n${i}`, phase: undefined })) };
+    expect(layoutGraph(wired).bands).toEqual([]);
+    expect(layoutGraph(wired, true).bands).toEqual([]);
+    expect(layoutGraph({ ...wired, nodes: [], edges: [] }).bands).toEqual([]);
+    const one: WorkflowGraph = { name: 'x', phases: ['A'], edges: [], nodes: ['A', 'A'].map((p, i) => ({ ...node, id: `n${i}`, phase: p })) };
+    expect(layoutGraph(one).bands).toEqual([]);
+    const dropped = placedGraph(wired, false, { n0: { x: 0, y: 4 } });
+    expect(dropped.bands).toEqual([]);
+    expect(dropped.pos.get('n0')).toEqual({ x: 0, y: 4 });
+  });
+
   test('a node dragged out of its band stays in it, and one dropped on another moves clear', () => {
     const g: WorkflowGraph = { name: 'x', phases: ['A', 'B'], edges: [], nodes: ['A', 'A', 'B'].map((p, i) => ({ ...node, id: `n${i}`, phase: p })) };
     const auto = layoutGraph(g);
@@ -129,5 +142,18 @@ describe('layout', () => {
     // dropped on n0: moved below it
     const on = placedGraph(g, false, { n1: { ...auto.pos.get('n0')! } });
     expect(on.pos.get('n1')!.y).toBeGreaterThanOrEqual(auto.pos.get('n0')!.y + 92);
+  });
+});
+
+describe('ports', () => {
+  test('a flow port looks 12px but takes a 44px press on a coarse pointer, on every canvas', () => {
+    const css = readFileSync(new URL('../src/features/graph/graph.css', import.meta.url), 'utf8');
+    const port = /\.react-flow__node-flow \.react-flow__handle \{([^}]*)\}/.exec(css)![1];
+    const px = (block: string, prop: string) => Number(new RegExp(`${prop}:\\s*(-?\\d+)px`).exec(block)![1]);
+    expect(px(port, 'width')).toBe(12);
+    const coarse = /@media \(pointer: coarse\) \{\s*([^{]+)\{([^}]*)\}/.exec(css)!;
+    expect(coarse[1].trim()).toBe('.cv-graph .react-flow__node-flow .react-flow__handle.connectionindicator::after');
+    // ::after's inset counts from the padding box, inside the border
+    expect(px(port, 'width') - 2 * px(port, 'border-width') - 2 * px(coarse[2], 'inset')).toBeGreaterThanOrEqual(44);
   });
 });

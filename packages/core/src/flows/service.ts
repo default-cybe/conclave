@@ -19,7 +19,7 @@ import { GraphEditError, cleanPositions, lineDiff, printLayout, readLayout, type
 import { newId } from '../util/ids';
 import { oneLine } from '../util/text';
 import { applyFlowOp, parseFlow, type FlowGraph } from './graph';
-import { FLOW_NAME_RE, LIB_SOURCE, flowTemplate } from './lib';
+import { FLOW_NAME_RE, LIB_SOURCE, blankFlow, flowTemplate } from './lib';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 /** Flow node ids are variable names, or kind-n for unnamed blocks and code. */
@@ -75,14 +75,46 @@ export class FlowService {
       .map((name) => ({ name, path: `flows/${name}.flow.ts` }));
   }
 
-  /** A new flow from the starter, and flows/lib/index.ts when the project has none. The helpers are never overwritten. */
-  async create(sessionId: string, name: string): Promise<FlowView> {
+  /** A new flow from the starter (or blank: no blocks, Canvas's New), and flows/lib/index.ts when the project has none. The helpers are never overwritten. */
+  async create(sessionId: string, name: string, opts: { blank?: boolean } = {}): Promise<FlowView> {
     const { machine, cwd } = this.where(sessionId);
     const p = this.paths(cwd, name);
     if (await machine.stat(p.file).catch(() => null)) throw new EngineError(409, `${p.rel} already exists`);
     if (!(await machine.stat(p.lib).catch(() => null))) await this.write(machine, p.lib, LIB_SOURCE);
-    await this.write(machine, p.file, flowTemplate(name));
+    await this.write(machine, p.file, opts.blank ? blankFlow(name) : flowTemplate(name));
     return this.view(sessionId, name);
+  }
+
+  /** The first untitled-N with no flows/untitled-N.flow.ts in the session's folder. */
+  async untitled(sessionId: string): Promise<string> {
+    const taken = new Set((await this.list(sessionId)).map((f) => f.name));
+    const { machine, cwd } = this.where(sessionId);
+    // capped like New workflow's untitled-N (workflows/service.ts createBlank): New pressed in a loop stops at 999 files
+    for (let n = 1; n < 1000; n++) {
+      const name = `untitled-${n}`;
+      // list() stops at 200 files: a free-looking name is checked on disk
+      if (!taken.has(name) && !(await machine.stat(this.paths(cwd, name).file).catch(() => null))) return name;
+    }
+    throw new EngineError(409, 'too many untitled programs; rename or delete some');
+  }
+
+  /** Rename a flow's file (Canvas's title), its layout file with it; the starter's comment line follows the name. Refused while it runs. */
+  async rename(sessionId: string, name: string, to: string): Promise<FlowView> {
+    const { machine, cwd } = this.where(sessionId);
+    const from = this.paths(cwd, name);
+    const next = this.paths(cwd, to);
+    if (name === to) return this.view(sessionId, name);
+    const live = this.runs.get(`${sessionId}\0${name}`)?.view.status;
+    if (live === 'running' || live === 'approval') throw new EngineError(409, `${name} is running; stop it first`);
+    const src = await this.read(machine, from.file, from.rel);
+    if (await machine.stat(next.file).catch(() => null)) throw new EngineError(409, `${next.rel} already exists`);
+    const head = `// Flow "${name}".`;
+    // the starter's comment line names the flow; the first insert puts the import above it
+    await this.write(machine, next.file, src.includes(head) ? src.replace(head, `// Flow "${to}".`).replace(`.conclave/graph/${name}.json`, `.conclave/graph/${to}.json`) : src);
+    await machine.remove(from.file);
+    if (await machine.stat(from.layout).catch(() => null)) await machine.rename(from.layout, next.layout).catch(() => {});
+    this.engine.audit(sessionId, 'flow.rename', `${name} to ${to}`);
+    return this.view(sessionId, to);
   }
 
   private async read(machine: Machine, file: string, rel: string): Promise<string> {

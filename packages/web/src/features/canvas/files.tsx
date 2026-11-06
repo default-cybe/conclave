@@ -12,6 +12,7 @@ import { folderName } from '@/lib/format';
 import { cn } from '@/lib/text';
 import { useHub } from '@/store/store';
 import { useLibrary, useRuns } from '../workflows/data';
+import { useNewFile } from './NewFile';
 import { fileGroups, fileHref, fileTitle, folderSessions, workflowFiles, type CanvasFile } from './model';
 
 export { canvasHome } from './model';
@@ -61,10 +62,15 @@ export function SideFiles({ phone, onPick }: { phone?: boolean; onPick?: () => v
   const [loc] = useLocation();
   const path = decodeURIComponent(loc.split('?')[0]);
   const groups = fileGroups(files, folderLabel);
+  const n = useNewFile();
   return (
     <section aria-label="Programs and workflows">
+      {n.dialog}
       <div className={cn('flex items-center pr-1 pl-2.5', phone ? 'h-11' : 'h-7')}>
         <h2 className={cn('m-0 min-w-0 flex-1 truncate font-medium text-fg-3', phone ? 'text-[13px]' : 'text-[12px]')}>Programs and workflows</h2>
+        <button type="button" onClick={() => (onPick?.(), void n.program())} title="A blank program, opened on an empty canvas" className={cn('shrink-0 rounded-[6px] px-2 font-medium text-fg-2 hov:bg-side-hover hov:text-fg', phone ? 'min-h-11 text-[15px]' : 'h-6 text-[12px]')}>
+          New
+        </button>
       </div>
       {!loading && groups.length === 0 && <p className={cn('m-0 px-2.5 py-2 leading-[1.45] text-fg-3', phone ? 'text-[14px]' : 'text-[12.5px]')}>Programs (flows/*.flow.ts in a Code session's folder) and workflows show up here.</p>}
       {groups.map((g) => (
