@@ -529,6 +529,8 @@ data class ChatSettingsPatch(
     @Transient val defaultCyber: Boolean = false,
     /** Same model for all work on or off. */
     val sameModel: Boolean? = null,
+    /** Security on or off. */
+    val security: Boolean? = null,
 )
 
 @Serializable

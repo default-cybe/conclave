@@ -91,7 +91,12 @@ interface PickerProps {
   /** Same model for all work (session.chat.sameModel); the switch shows only where onSameModel is given (a session that exists). */
   sameModel?: boolean;
   onSameModel?: (on: boolean) => void;
+  /** Security mode (session.chat.security); the switch shows only where onSecurity is given. */
+  security?: boolean;
+  onSecurity?: (on: boolean) => void;
 }
+
+export const SECURITY_HELP = 'Loads the security agent and its sec-* roles, and checks every network call against scope.yaml. Off brings back the agent you had.';
 
 export const SAME_MODEL_HELP = 'Delegate, Task and workflow agents, at any depth, run on this conversation\'s model unless you name another. If its plan is out or refuses, the usual fallback order applies.';
 
@@ -124,7 +129,7 @@ export function CyberAccess({ model, value, onChange }: { model: string | undefi
 }
 
 /** The picker's body: Effort for the model on top (when it has levels), then the model list. */
-function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = false, onDone, switchOf, cyber, onCyber, sameModel, onSameModel }: PickerProps & { onDone: () => void }) {
+function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = false, onDone, switchOf, cyber, onCyber, sameModel, onSameModel, security, onSecurity }: PickerProps & { onDone: () => void }) {
   const e = useModelEffort(model);
   const mobile = useIsMobile();
   const shown = effortShown(value, e, follow);
@@ -149,6 +154,11 @@ function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = 
       )}
       {onCyber && !stepping && <CyberAccess model={model} value={cyber} onChange={onCyber} />}
       {onSameModel && !stepping && <SameModelSwitch on={!!sameModel} onChange={onSameModel} />}
+      {onSecurity && !stepping && (
+        <div className="shrink-0 border-b border-rule px-3 pt-2 pb-2.5">
+          <Checkbox checked={!!security} onChange={onSecurity} label="Security" description={SECURITY_HELP} />
+        </div>
+      )}
       {switchOf ? <SwitchModelList session={switchOf} harnesses={harnesses} onDone={onDone} onStep={setStepping} /> : <ModelList value={model} harnesses={harnesses} onChange={onModel} onDone={onDone} />}
     </>
   );

@@ -469,6 +469,8 @@ fun ChatThreadScreen(
                 onCyber = vm::setCyber,
                 sameModel = s?.chat?.sameModel == true,
                 onSameModel = if (s != null) vm::setSameModel else null,
+                security = s?.chat?.security == true,
+                onSecurity = if (s != null) vm::setSecurity else null,
                 switches = sw,
                 // the quiet row: no device or folder in a chat, the model with its effort and the ring at the right
                 context = ContextUse.of(live.messages, s, info),

@@ -394,6 +394,11 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
         patch(SessionPatch(chat = ChatSettingsPatch(sameModel = on)))
     }
 
+    /** Security (chat.security): the hub swaps in the security agent, and back when off. */
+    fun setSecurity(on: Boolean) {
+        patch(SessionPatch(chat = ChatSettingsPatch(security = on)))
+    }
+
     /** Ultra: the agent plans and runs workflows for real tasks (docs/WORKFLOWS.md). The hub refuses it on chats. */
     fun setUltra(on: Boolean) = patch(SessionPatch(ultra = on))
     fun togglePin() = patch(SessionPatch(pinned = !(_session.value?.pinned ?: false)))

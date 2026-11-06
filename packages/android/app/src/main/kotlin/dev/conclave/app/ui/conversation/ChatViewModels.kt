@@ -699,6 +699,11 @@ class ChatThreadViewModel(
         patch(SessionPatch(chat = ChatSettingsPatch(sameModel = on)))
     }
 
+    /** Security (chat.security): the hub swaps in the security agent, and back when off. */
+    fun setSecurity(on: Boolean) {
+        patch(SessionPatch(chat = ChatSettingsPatch(security = on)))
+    }
+
     fun setWeb(on: Boolean) = action { rememberDefaults(patchNow(SessionPatch(chat = ChatSettingsPatch(webSearch = on)))) }
     fun setMemory(on: Boolean) = action { rememberDefaults(patchNow(SessionPatch(chat = ChatSettingsPatch(memory = on)))) }
 

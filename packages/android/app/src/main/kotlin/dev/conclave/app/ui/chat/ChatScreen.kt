@@ -315,6 +315,8 @@ fun ChatScreen(
                         onCyber = vm::setCyber,
                         sameModel = s?.chat?.sameModel == true,
                         onSameModel = if (s != null) vm::setSameModel else null,
+                        security = s?.chat?.security == true,
+                        onSecurity = if (s != null) vm::setSecurity else null,
                         context = ContextUse.of(live.messages, s, info),
                         onUsage = onOpenUsage,
                         left = {

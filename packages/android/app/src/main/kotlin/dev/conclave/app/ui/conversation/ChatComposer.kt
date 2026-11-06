@@ -117,6 +117,9 @@ class ComposerModel(
     /** Same model for all work (chat.sameModel): hand-offs run on this model. The switch shows only with [onSameModel] (a session that exists). */
     val sameModel: Boolean = false,
     val onSameModel: ((Boolean) -> Unit)? = null,
+    /** Security mode (chat.security). The switch shows only with [onSecurity]. */
+    val security: Boolean = false,
+    val onSecurity: ((Boolean) -> Unit)? = null,
     /** A chat's switches, for the note under the box when memory is off. Null for an agent session. */
     val switches: ChatSettings? = null,
     /** The light on the composer's edge: live while a reply runs, amber while it waits on you (CHAT-AND-MOTION 1.3). */
@@ -378,11 +381,13 @@ fun ChatComposer(
         // the Effort row on top: the levels this model has; a model without Effort shows none
         val e = m.effort?.takeIf { Effort.choices(it).isNotEmpty() }
         val same = m.onSameModel
-        val header: (@Composable () -> Unit)? = if (e != null || m.cyberChoices.isNotEmpty() || same != null) {
+        val sec = m.onSecurity
+        val header: (@Composable () -> Unit)? = if (e != null || m.cyberChoices.isNotEmpty() || same != null || sec != null) {
             {
                 if (e != null) EffortPicker(e, m.effortValue, m.follow, m.onEffort)
                 CyberPicker(m.cyberChoices, m.cyberValue, m.onCyber)
                 if (same != null) SwitchRow("Same model for all work", SAME_MODEL_HELP, m.sameModel, same)
+                if (sec != null) SwitchRow("Security", SECURITY_HELP, m.security, sec)
             }
         } else {
             null

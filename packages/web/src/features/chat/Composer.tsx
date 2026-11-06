@@ -56,6 +56,7 @@ import { findSlash, INIT_PROMPT, menuList, PHONE_TOP_COMMANDS, pickAction, SECTI
 import { SessionSheets } from './sheets/SessionSheets';
 import { useMeId, useParticipants } from './shared';
 import { useDraft } from './useDraft';
+import { LaneChip } from './Security';
 import { NO_KV } from './draft';
 
 type FileEntry = { name: string; path: string; type: 'dir' | 'file'; size?: number };
@@ -565,7 +566,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
           add={<AddButton onFiles={(list) => void addFiles(list)} accept={ACCEPT} />}
           // a participant's turns run on their own seat and its model: the owner's pickers are not theirs to change
           options={mineRow ? undefined : <OptionsButton label="Options: agent, device and permissions" onClick={() => setSheet(true)} />}
-          model={mineRow ? undefined : <PhoneModelEffort model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} sameModel={!!session.chat?.sameModel} onSameModel={(on) => void patch({ chat: { sameModel: on } })} harnesses switchOf={messages?.length ? session : undefined} />}
+          model={mineRow ? undefined : <PhoneModelEffort model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} sameModel={!!session.chat?.sameModel} onSameModel={(on) => void patch({ chat: { sameModel: on } })} security={!!session.chat?.security} onSecurity={(on) => void patch({ chat: { security: on } })} harnesses switchOf={messages?.length ? session : undefined} />}
           mic={canDictate() && <DictateButton onText={(t) => setText((x) => (x.trim() ? `${x.trimEnd()} ${t}` : t))} />}
           send={
             <PhoneSend
@@ -581,6 +582,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
           }
         />
         {sharedRow}
+        {!mineRow && session.chat?.security && <QuietRow right={null} left={<LaneChip session={session} />} />}
         <StatusLine session={session} phone />
         <Sheet open={sheet} onClose={() => setSheet(false)} title="Options">
           <div className="space-y-4 px-4 pb-4">
@@ -603,6 +605,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   const cfg = session.modeConfig ?? {};
   const left = (
     <>
+      {!mineRow && <LaneChip session={session} />}
       {session.mode !== 'chat' && <PermissionPicker look="text" value={session.permissionMode} onChange={(permissionMode) => void patch({ permissionMode })} className="h-[24px] text-[12px]" />}
       {session.mode === 'jury' && <JurorsPicker look="text" value={cfg.jury} onChange={(jury) => void patch({ modeConfig: { ...cfg, jury } })} className="h-[24px] text-[12px]" />}
       {session.mode === 'debate' && <DebatersPicker look="text" value={cfg.debate} onChange={(debate) => void patch({ modeConfig: { ...cfg, debate } })} className="h-[24px] text-[12px]" />}
@@ -681,7 +684,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
         left={mineRow ? undefined : left}
         right={
           <>
-            {!mineRow && <ModelEffort model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} sameModel={!!session.chat?.sameModel} onSameModel={(on) => void patch({ chat: { sameModel: on } })} harnesses switchOf={messages?.length ? session : undefined} />}
+            {!mineRow && <ModelEffort model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} sameModel={!!session.chat?.sameModel} onSameModel={(on) => void patch({ chat: { sameModel: on } })} security={!!session.chat?.security} onSecurity={(on) => void patch({ chat: { security: on } })} harnesses switchOf={messages?.length ? session : undefined} />}
             {!mineRow && <ContextRing session={session} />}
           </>
         }

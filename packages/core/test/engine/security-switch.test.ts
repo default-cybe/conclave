@@ -168,10 +168,11 @@ describe('Security switch', () => {
       const other = join(dir, 'kept');
       mkdirSync(other);
       writeFileSync(join(other, 'scope.yaml'), 'program: kept\nin_scope: [app.example.com]\n');
-      const made = await ensureHuntFolder(t.engine.deps.localMachine, other);
+      const local = new HomeMachine('local', 'Hub', dir);
+      const made = await ensureHuntFolder(local, other);
       expect(made).toEqual(['targets/', 'playbook/']);
       expect(readFileSync(join(other, 'scope.yaml'), 'utf8')).toContain('app.example.com');
-      expect(await ensureHuntFolder(t.engine.deps.localMachine, other)).toEqual([]);
+      expect(await ensureHuntFolder(local, other)).toEqual([]);
     } finally { cleanup(dir); await t.close(); }
   });
 });
