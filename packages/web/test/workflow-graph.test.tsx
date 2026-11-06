@@ -119,6 +119,18 @@ describe('layout', () => {
     expect(pos.get('n3')!.y).toBeGreaterThan(pos.get('n1')!.y);
   });
 
+  test('one phase or none draws no band: the blocks sit on the bare grid, where they were dropped', () => {
+    const wired: WorkflowGraph = { name: 'x', phases: [], edges: [{ from: 'n0', to: 'n1', name: 'a' }], nodes: [0, 1].map((i) => ({ ...node, id: `n${i}`, phase: undefined })) };
+    expect(layoutGraph(wired).bands).toEqual([]);
+    expect(layoutGraph(wired, true).bands).toEqual([]);
+    expect(layoutGraph({ ...wired, nodes: [], edges: [] }).bands).toEqual([]);
+    const one: WorkflowGraph = { name: 'x', phases: ['A'], edges: [], nodes: ['A', 'A'].map((p, i) => ({ ...node, id: `n${i}`, phase: p })) };
+    expect(layoutGraph(one).bands).toEqual([]);
+    const dropped = placedGraph(wired, false, { n0: { x: 0, y: 4 } });
+    expect(dropped.bands).toEqual([]);
+    expect(dropped.pos.get('n0')).toEqual({ x: 0, y: 4 });
+  });
+
   test('a node dragged out of its band stays in it, and one dropped on another moves clear', () => {
     const g: WorkflowGraph = { name: 'x', phases: ['A', 'B'], edges: [], nodes: ['A', 'A', 'B'].map((p, i) => ({ ...node, id: `n${i}`, phase: p })) };
     const auto = layoutGraph(g);
