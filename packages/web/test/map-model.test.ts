@@ -6,7 +6,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { MapDelta, MapNode, MapSnapshot } from '@conclave/core/client';
-import { applyDelta, canStop, groupLine, hubKnot, hubState, mapLabel, modeWord, nodeHref, nodeMeta, replayTicks, shortId, stuckWords } from '../src/features/map/model';
+import { applyDelta, canStop, foldedWords, groupLine, hubKnot, hubState, mapLabel, modeWord, nodeHref, nodeMeta, replayTicks, shortId, stuckWords } from '../src/features/map/model';
 import { labelWords } from '../src/features/map/layout';
 import { clampView, fitView, pinch, toScreen, toWorld, wheelFactor, zoomAt, ZOOM_MAX, ZOOM_MIN } from '../src/features/map/view';
 import { CAP, emitRate, Quality, Streams } from '../src/features/map/streams';
@@ -290,5 +290,27 @@ describe('node labels', () => {
     expect(labelWords(byId(snap)[I.login], NOW).meta).toBe('Code · running');
     // the full title is kept on the node: only the label is short
     expect(e2e.title).toBe('fernway-web - Session continued from prior context');
+  });
+
+  test('a child that folds into its parent does not add to today twice', () => {
+    const snap = mapFixture(NOW);
+    const p = byId(snap)[I.auth];
+    const child = byId(snap)[I.paths];
+    const f = p.folded!;
+    const node = { ...p, usage: { ...p.usage, inputTokens: p.usage.inputTokens + child.usage.inputTokens, costUsd: p.usage.costUsd + child.usage.costUsd }, folded: { ...f, done: f.done + 1, usage: { ...f.usage, inputTokens: f.usage.inputTokens + child.usage.inputTokens, costUsd: f.usage.costUsd + child.usage.costUsd } } };
+    const next = applyDelta(snap, { at: NOW, nodes: [{ id: I.paths, removed: true }, { id: I.auth, node }] });
+    expect(byId(next)[I.paths]).toBeUndefined();
+    expect(byId(next)[I.auth].folded?.done).toBe(13);
+    expect(next.totals.today.tokens).toBe(snap.totals.today.tokens);
+    expect(next.totals.today.costUsd).toBeCloseTo(snap.totals.today.costUsd, 6);
+  });
+
+  test('finished agents folded into a node: a count on its label', () => {
+    const u = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 };
+    expect(foldedWords(undefined)).toBeUndefined();
+    expect(foldedWords({ done: 12, failed: 1, usage: u, nodes: [] })).toBe('12 agents done, 1 failed');
+    expect(foldedWords({ done: 1, failed: 0, usage: u, nodes: [] })).toBe('1 agent done');
+    expect(foldedWords({ done: 0, failed: 2, usage: u, nodes: [] })).toBe('2 agents failed');
+    expect(labelWords(byId(mapFixture(NOW))[I.auth], NOW).meta).toBe('Code · running · 12 agents done, 1 failed');
   });
 });
