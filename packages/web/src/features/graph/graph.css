@@ -39,10 +39,11 @@
   border-radius: 50%;
 }
 
-/* a finger gets a 44px port (SPEC 14); the ring is invisible */
+/* a finger gets a 44px port (SPEC 14); the ring is invisible. The inset is from
+   the padding box: 12px less the 2px border each side is 8, plus 18 each side is 44 */
 @media (pointer: coarse) {
-  .cv-full .react-flow__node-flow .react-flow__handle.connectionindicator::after {
-    inset: -16px;
+  .cv-graph .react-flow__node-flow .react-flow__handle.connectionindicator::after {
+    inset: -18px;
   }
 }
 

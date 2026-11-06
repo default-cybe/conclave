@@ -6,6 +6,7 @@
  *   bun test packages/web/test/workflow-graph.test.tsx
  */
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ReactFlowProvider } from '@xyflow/react';
 import type { GraphNode, NodeRun, NodeRunState, WorkflowGraph } from '@conclave/core/client';
@@ -141,5 +142,18 @@ describe('layout', () => {
     // dropped on n0: moved below it
     const on = placedGraph(g, false, { n1: { ...auto.pos.get('n0')! } });
     expect(on.pos.get('n1')!.y).toBeGreaterThanOrEqual(auto.pos.get('n0')!.y + 92);
+  });
+});
+
+describe('ports', () => {
+  test('a flow port looks 12px but takes a 44px press on a coarse pointer, on every canvas', () => {
+    const css = readFileSync(new URL('../src/features/graph/graph.css', import.meta.url), 'utf8');
+    const port = /\.react-flow__node-flow \.react-flow__handle \{([^}]*)\}/.exec(css)![1];
+    const px = (block: string, prop: string) => Number(new RegExp(`${prop}:\\s*(-?\\d+)px`).exec(block)![1]);
+    expect(px(port, 'width')).toBe(12);
+    const coarse = /@media \(pointer: coarse\) \{\s*([^{]+)\{([^}]*)\}/.exec(css)!;
+    expect(coarse[1].trim()).toBe('.cv-graph .react-flow__node-flow .react-flow__handle.connectionindicator::after');
+    // ::after's inset counts from the padding box, inside the border
+    expect(px(port, 'width') - 2 * px(port, 'border-width') - 2 * px(coarse[2], 'inset')).toBeGreaterThanOrEqual(44);
   });
 });
