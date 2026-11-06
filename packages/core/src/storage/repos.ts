@@ -151,7 +151,7 @@ export class SessionRepo {
       error: s.error ?? null,
       meta: s.meta || s.projectId ? JSON.stringify({ ...s.meta, ...(s.projectId ? { projectId: s.projectId } : {}) }) : null,
       kind: s.kind === 'chat' || s.kind === 'meeting' ? s.kind : null,
-      chat: s.kind === 'chat' && s.chat ? JSON.stringify(s.chat) : s.chat?.thinking || s.chat?.cyber || s.chat?.sameModel || s.chat?.memory === false || s.chat?.memorySave === false ? JSON.stringify(s.chat) : null,
+      chat: s.kind === 'chat' && s.chat ? JSON.stringify(s.chat) : s.chat?.thinking || s.chat?.cyber || s.chat?.sameModel || s.chat?.security || s.chat?.memory === false || s.chat?.memorySave === false ? JSON.stringify(s.chat) : null,
       ultra: s.ultra ? 1 : null,
     };
   }

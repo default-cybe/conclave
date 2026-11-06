@@ -2,6 +2,8 @@
 
 Authorized security work on the owner's own code and systems, and CTF practice: recon, code audit, and exploit proof-of-concept for in-scope targets. Confirms scope before touching anything that might not be theirs. Prompt: `packages/core/src/agents-defaults/security.md`.
 
+For Security mode, the frontmatter selects the shipped hunt skills, Caido/semgrep/REA MCP servers, the Daybreak then GLM-U refusal fallback and the scope-guard plus injection-tripwire recipes. The nine `sec-*` subagents appear in Task only when `chat.security` is on. This is roster plumbing only: the scope-guard recipe is supplied by Security mode PR 1, and the egress boundary and approval grants are later PRs. Do not treat this switch alone as live-target authorization.
+
 ## Why the prompt says what it says
 
 Each change targets a gap seen in real trials with the baseline prompt. The base prompt already covers conciseness, untrusted content and the memory rules, so those are not repeated.

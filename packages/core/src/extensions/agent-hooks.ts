@@ -11,7 +11,8 @@
  * - A recipe entry is "id" or "id NAME=value ...": the tunables of that recipe.
  *   "verify-gate", "regression-gate" and "visual-check" are not hooks: they
  *   turn on the built-in gates (session/verify-gate.ts,
- *   session/regression-gate.ts, session/visual-check.ts).
+ *   session/regression-gate.ts, session/visual-check.ts); "scope-guard"
+ *   turns on the in-hub scope guard (session/scope-guard.ts).
  * - Recipe scripts are written to <hooks>/recipes/<id>.sh when missing or
  *   different from the shipped text, the same path an install uses. A recipe
  *   whose programs (jq, bash) are not on the hub is skipped with one warning,
@@ -28,7 +29,7 @@ import { join, sep } from 'node:path';
 import type { HookEvent, HookMatcher, HooksConfig } from '../config/schema';
 import type { AgentDef, RuntimeHookCommand } from './types';
 import { recipeById, recipeHooks } from './recipes';
-import { GATE_RECIPES, REGRESSION_GATE_RECIPE, VERIFY_GATE_RECIPE, VISUAL_CHECK_RECIPE, type HookRecipe } from './hook-recipes';
+import { GATE_RECIPES, REGRESSION_GATE_RECIPE, SCOPE_GUARD_RECIPE, VERIFY_GATE_RECIPE, VISUAL_CHECK_RECIPE, type HookRecipe } from './hook-recipes';
 import { logger } from '../util/log';
 
 const log = logger('agent-hooks');
@@ -68,6 +69,11 @@ export function wantsRegressionGate(def: AgentDef | undefined): boolean {
 /** Whether an agent turns on the visual check (session/visual-check.ts). */
 export function wantsVisualCheck(def: AgentDef | undefined): boolean {
   return !!def && (def.recipes ?? []).some((r) => parseRecipeRef(r).id === VISUAL_CHECK_RECIPE);
+}
+
+/** Whether an agent turns on the scope guard (session/scope-guard.ts). */
+export function wantsScopeGuard(def: AgentDef | undefined): boolean {
+  return !!def && (def.recipes ?? []).some((r) => parseRecipeRef(r).id === SCOPE_GUARD_RECIPE);
 }
 
 const written = new Map<string, string>();

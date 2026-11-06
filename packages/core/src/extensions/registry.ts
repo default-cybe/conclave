@@ -435,6 +435,8 @@ function agentFrontmatter(def: AgentDef): Record<string, unknown> {
     mcpServers: def.mcpServers,
     memory: def.memory,
     subagent: def.subagent,
+    group: def.group,
+    fallback: def.fallback,
     primary: def.primary,
     untrusted: def.untrusted,
     device: def.device,

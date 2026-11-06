@@ -71,8 +71,8 @@ describe('overview, inventory, sources', () => {
   test('sources are listed low to high precedence with counts and toggles', () => {
     const src = engine.extensionSources(cwd);
     expect(src.map((s) => s.id)).toEqual(['builtin', 'agents', 'codex', 'opencode', 'gemini', 'claude', 'plugin', 'user', 'project']);
-    // 12 general agents, the 12 specialists (ROUND-IMPORT-PATHS-WORKFLOWS.md 4.3) and the email agent (Calendar and mail)
-    expect(src.find((s) => s.id === 'builtin')!.counts.agents).toBe(25);
+    // 12 general agents, the 12 specialists (ROUND-IMPORT-PATHS-WORKFLOWS.md 4.3), the email agent (Calendar and mail) and the 9 sec-* roles (SECURITY-MODE.md 2.2)
+    expect(src.find((s) => s.id === 'builtin')!.counts.agents).toBe(34);
     expect(src.find((s) => s.id === 'claude')).toMatchObject({ on: true, toggle: 'claudeCode', counts: { agents: 2 } });
     expect(src.find((s) => s.id === 'codex')!.on).toBe(false);
   });
