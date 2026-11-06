@@ -34,7 +34,10 @@ import type { WorkflowService } from './service';
 import { loadMeta } from './registry';
 import { captureUrl, hubCapture, type CaptureOptions } from '../browser/capture';
 import { guardAnchor, scopeGuardCheck } from '../session/scope-guard';
-import { classifyAll, GRANT_MAX_MS, GRANT_MAX_REQUESTS, GRANTS_KV, parseScope, scopeExpired, ScopeError, type ScopeGrant } from '../security/scope';
+import { classifyAll, parseScope, scopeExpired, ScopeError, type ScopeGrant } from '../security/scope';
+import { grantsOf } from '../security/grants';
+import { egressEnv } from '../session/egress';
+import { requestGrant } from '../session/grants';
 import type { BrowserManager } from '../browser/manager';
 import { outputsDir } from '../files/share';
 import { ledgerFence, ledgerId, mergeLedger } from './ledger';
@@ -881,7 +884,10 @@ export class LiveRun {
     const timeoutMs = Math.min(Math.max(1000, opts.timeoutMs ?? 10 * 60_000), 60 * 60_000);
     const run = async (cwd: string) => {
       await this.permitExec(command, cwd, signal);
-      const r = await machine.exec(command, { cwd, timeoutMs, signal, maxOutputBytes: 400_000 });
+      // a Security mode run's commands (the validator's oracle) go out through the hunt's egress gateway (session/egress.ts)
+      const session = this.sessionOf();
+      const env = session ? await egressEnv(this.engine, session, this.row.device) : undefined;
+      const r = await machine.exec(command, { cwd, timeoutMs, signal, maxOutputBytes: 400_000, ...(env ? { env } : {}) });
       return { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr, timedOut: r.timedOut };
     };
     if (opts.worktree !== undefined) {
@@ -1064,10 +1070,11 @@ export class LiveRun {
   }
 
   /**
-   * lib.approve(text, { grant }): an approval grant for live hosts of one target (docs/design/SECURITY-MODE.md 4.3).
-   * The hosts come from a script and its agents, so they are checked here against the scope file; budget, rate and
-   * expiry are capped by the scope and the owner's limits (24 h, 500 requests). Unattended runs and members never
-   * get one, and the script parks the lead. On approval the grant is stored where the scope guard reads it.
+   * lib.approve({ grant }) or lib.approve(text, { grant }): an approval grant for live hosts (docs/design/SECURITY-MODE.md 4.3).
+   * One path for both forms: session/grants.ts checks the hosts against the hunt's scope files, caps budget and rate,
+   * asks on a SecurityGrant card and stores the grant (scope pinned) where the scope guard and the egress gateway read it.
+   * Unattended runs (args.autoApprove or not) and members never get one, and the script parks the lead.
+   * Resolves to the stored grant (plus the script's scopeLine) or false.
    */
   private async grant(text: string, raw: Record<string, unknown>, signal: AbortSignal): Promise<(ScopeGrant & { scopeLine?: string }) | false> {
     const session = this.sessionOf();
@@ -1075,51 +1082,15 @@ export class LiveRun {
       this.log('approval grant: an unattended run never gets one, so the lead stays lab-only');
       return false;
     }
-    if (this.engine.isMemberSession(session)) {
-      this.log('approval grant: Security mode is lab-only for members');
-      return false;
-    }
-    const hosts = (Array.isArray(raw.hosts) ? raw.hosts : []).filter((h): h is string => typeof h === 'string' && !!h.trim()).map((h) => h.trim());
-    if (!hosts.length) throw new Error('lib.approve: a grant needs hosts');
-    const st = await this.readScope(typeof raw.scopeFile === 'string' ? raw.scopeFile : 'scope.yaml', hosts);
-    if (!st.ok || st.expired) {
-      this.log(`approval grant refused: ${st.ok ? `${st.file} expired on ${st.scope.expires}` : st.error}`);
-      return false;
-    }
-    const outside = hosts.filter((h) => st.hosts[h] !== 'in');
-    if (outside.length) {
-      this.log(`approval grant refused: ${outside.join(', ')} not in_scope in ${st.file}`);
-      return false;
-    }
-    const s = st.scope;
-    const accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).filter((a): a is string => typeof a === 'string' && s.accounts.includes(a));
-    const most = Math.min(s.requestBudget, GRANT_MAX_REQUESTS);
-    const requestBudget = Math.max(1, Math.min(Math.floor(Number(raw.requests) || most), most));
-    const rateRps = Math.min(Number(raw.rateRps) > 0 ? Number(raw.rateRps) : s.rateLimitRps, s.rateLimitRps);
-    const hours = Math.min(Number(raw.hours) > 0 ? Number(raw.hours) : 24, GRANT_MAX_MS / 3_600_000);
-    const scopeLine = typeof raw.scopeLine === 'string' ? oneLine(raw.scopeLine, 200) : `in_scope ${s.inScope.join(', ')}, ${st.file}`;
-    const card = [
-      text,
-      '',
-      `hosts     ${hosts.join(', ')}`,
-      `accounts  ${accounts.join(', ') || 'none'}`,
-      `budget    ${requestBudget} requests, ${rateRps} per second`,
-      `expires   in ${hours} hours`,
-      `scope     ${scopeLine}`,
-    ].join('\n');
-    const res = await this.engine.requestApproval(session.id, { toolUseId: `wf_${this.id}_grant_${this.seq}`, tool: 'ExitPlanMode', input: { plan: card }, summary: `${this.row.name}: allow live requests to ${oneLine(hosts.join(', '), 120)}?` }, signal);
-    if (res.decision !== 'allow') {
-      this.log(`approval grant for ${hosts.join(', ')} denied`);
-      return false;
-    }
-    const now = Date.now();
-    const g: ScopeGrant = { id: newId('grant'), hosts, accounts, requestBudget, rateRps, issuedAt: now, expiresAt: now + hours * 3_600_000 };
-    // keyed by the security session the scope guard anchors on, so its children's calls see the grant
-    const owner = guardAnchor(this.engine, session)?.id ?? session.id;
-    const all = this.engine.repos.kv.get<Record<string, ScopeGrant[]>>(GRANTS_KV, {});
-    this.engine.repos.kv.set(GRANTS_KV, { ...all, [owner]: [...(Array.isArray(all[owner]) ? all[owner] : []), g] });
-    this.log(`approval grant ${g.id}: ${hosts.join(', ')}, ${requestBudget} requests at ${rateRps}/s for ${hours} h`);
-    return { ...g, scopeLine };
+    // lib.approve(text, { grant }) names the budget `requests` and gives the card's question as text
+    const req = { ...raw, requestBudget: raw.requestBudget ?? raw.requests, reason: raw.reason ?? (text ? oneLine(text, 600) : undefined) };
+    const r = await requestGrant(this.engine, session, req, signal, this.row.name);
+    this.log(r.granted ? `approval grant ${r.grantId}${r.asked ? ' approved by the owner' : ' already covers it'}` : `no approval grant: ${r.why}`);
+    if (!r.granted) return false;
+    const anchor = guardAnchor(this.engine, session) ?? session;
+    const g = grantsOf(this.engine.repos.kv, anchor.id).find((x) => x.id === r.grantId);
+    if (!g) return false;
+    return { ...g, ...(typeof raw.scopeLine === 'string' ? { scopeLine: oneLine(raw.scopeLine, 200) } : {}) };
   }
 
   /**
@@ -1270,8 +1241,9 @@ export class LiveRun {
       approve: (p: unknown) => {
         const text = String((p as { text?: unknown })?.text ?? '');
         const grant = (p as { grant?: unknown })?.grant;
-        if (grant && typeof grant === 'object') {
-          const g = grant as Record<string, unknown>;
+        // any grant goes to grant(), which refuses a malformed one, never to a plan approval
+        if (grant !== undefined) {
+          const g = (grant && typeof grant === 'object' ? grant : {}) as Record<string, unknown>;
           const hosts = Array.isArray(g.hosts) ? g.hosts.map(String).join(', ') : '';
           return this.hostCall('ask', `grant: ${oneLine(hosts, 80)}`, { approve: text, grant: g }, parentSeq, (signal) => this.grant(text, g, signal), readAt((p as { at?: unknown })?.at));
         }

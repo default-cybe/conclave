@@ -182,6 +182,15 @@ describe('usage and whole nodes', () => {
     expect(r.live.flush()).toBeUndefined();
   });
 
+  test('a subagent that finishes leaves, and its parent comes whole with the folded count', () => {
+    const folded = { done: 1, failed: 0, usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.01 }, nodes: [{ id: 'ses_sub', kind: 'subagent' as const, title: 's', state: 'done' as const, costUsd: 0.01 }] };
+    const r = rig({ snapshot: () => ({ at: 0, live: true, from: 0, hub: { name: 'h', state: 'idle' }, devices: [], groups: [], nodes: [node('ses_p', { folded })], totals: { running: 0, waiting: 0, today: { from: 0, tokens: 0, costUsd: 0 } } }) });
+    r.emit({ type: 'session.updated', session: { id: 'ses_sub', status: 'idle', parentId: 'ses_p', title: 's', model: 'm', agent: 'a', device: 'local', cwd: '/w' } as Session });
+    const d = r.live.flush()!;
+    expect(d.nodes.find((p) => p.id === 'ses_sub')?.removed).toBe(true);
+    expect(d.nodes.find((p) => p.id === 'ses_p')?.node?.folded?.done).toBe(1);
+  });
+
   test('a deleted session is removed', () => {
     const r = rig();
     r.text('ses_a', 40);

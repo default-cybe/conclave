@@ -140,6 +140,14 @@ export function nodeMeta(n: MapNode, now: number): { mode: string; word: string;
   return { mode: modeWord(n), word, ...(isBusy(n.state) || n.stuckSince ? {} : { when: whenWords(n.endedAt ?? n.lastActivityAt, now) }) };
 }
 
+/** "12 agents done, 1 failed" for the finished children folded into a node. */
+export function foldedWords(f: MapNode['folded']): string | undefined {
+  if (!f || f.done + f.failed === 0) return undefined;
+  const noun = f.done + f.failed === 1 ? ' agent' : ' agents';
+  if (!f.done) return `${f.failed}${noun} failed`;
+  return `${f.done}${noun} done${f.failed ? `, ${f.failed} failed` : ''}`;
+}
+
 /** The hub's state from its nodes: waiting on you before running, then idle. Workflow runs count through their agents. */
 export function hubState(nodes: MapNode[]): MapState {
   const counted = nodes.filter((n) => n.kind !== 'workflow');
@@ -226,9 +234,11 @@ export function applyDelta(snap: MapSnapshot, delta: MapDelta): MapSnapshot {
     }
     if (p.node) {
       if (old) {
+        // children that just folded in were counted on their own nodes already
         const d = usageDiff(old.usage, p.node.usage);
-        tokens += Math.max(0, d.tokens);
-        cost += Math.max(0, d.cost);
+        const f = p.node.folded ? usageDiff(old.folded?.usage, p.node.folded.usage) : { tokens: 0, cost: 0 };
+        tokens += Math.max(0, d.tokens - f.tokens);
+        cost += Math.max(0, d.cost - f.cost);
       }
       nodes.set(p.id, p.node);
       continue;

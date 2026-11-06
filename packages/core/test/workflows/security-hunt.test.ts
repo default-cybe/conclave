@@ -228,9 +228,11 @@ test('one grant covers two leads on the target; it is capped by the scope and st
   const approvals = t.approvals.length;
   const h = await hunt(dir, { lane: 'web', url: 'https://app.acme.example' });
   expect(h.run.error).toBeUndefined();
-  const asks = t.approvals.slice(approvals).filter((a) => a.includes('allow live requests to'));
+  const asks = t.approvals.slice(approvals).filter((a) => a.includes('grant live requests to'));
   expect(asks.length).toBe(1);
-  // the card names hosts, accounts, budget and rate, expiry and the scope line
+  // the SecurityGrant card (session/grants.ts) names hosts, accounts, budget and rate, expiry and the scope file
+  // the hunt's question is the card's reason
+  expect(asks[0]).toContain('needs the live host');
   expect(asks[0]).toContain('app.acme.example');
   expect(asks[0]).toContain('tenantA (test)');
   expect(asks[0]).toContain('40 requests, 1 per second');
@@ -241,7 +243,9 @@ test('one grant covers two leads on the target; it is capped by the scope and st
   expect(h.result.leads.map((l) => l.status)).toEqual(['confirmed', 'confirmed']);
   const g = grantsOf(h.session.id);
   expect(g.length).toBe(1);
-  expect(g[0].hosts).toEqual(['https://app.acme.example']);
+  expect(g[0].hosts).toEqual(['app.acme.example']);
+  // pinned, so the egress gateway checks paths against the approved scope
+  expect(g[0].scope?.program).toBe('acme');
   expect(g[0].requestBudget).toBe(40);
   expect(g[0].expiresAt - g[0].issuedAt).toBeLessThanOrEqual(24 * 3_600_000);
 });

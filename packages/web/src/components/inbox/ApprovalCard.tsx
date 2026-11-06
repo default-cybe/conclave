@@ -46,6 +46,7 @@ const RESOLVED_WORD: Record<Decision, string> = { once: 'Allowed once', session:
 
 /** What a decision reads once given; the session answer names a subagent's own session "this subagent". */
 function resolvedWord(a: ApprovalRequest, d: Decision): string {
+  if (a.tool === 'SecurityGrant' && d === 'once') return 'Granted for 24 hours';
   return d === 'session' ? sessionDoneWord(a) : RESOLVED_WORD[d];
 }
 
@@ -74,6 +75,8 @@ export function approvalQuestion(a: ApprovalRequest, device?: string): { text: s
   const i = a.input;
   const t = a.tool;
   if (t === 'Bash' || t === 'Shell' || t === 'exec') return { text: `Run this command${device ? ` on ${device}` : ''}?` };
+  // Security mode's grant before a live target (docs/design/SECURITY-MODE.md 4.3)
+  if (t === 'SecurityGrant') return { text: `Allow live requests to ${str(i.host) ?? 'the target'}?` };
   if (t === 'Edit' || t === 'MultiEdit' || t === 'Write' || t === 'NotebookEdit') return { text: 'Edit ', mono: str(i.file_path) ?? str(i.path) ?? 'a file', after: '?' };
   if (t === 'WebFetch' || t === 'Fetch') {
     let host = str(i.url) ?? '';
@@ -111,6 +114,7 @@ export function approvalSubject(a: ApprovalRequest): { text: string; mono: boole
   if (t === 'WebFetch' || t === 'Fetch') return { text: str(i.url) ?? a.summary, mono: true, verb: 'Wants to fetch', Icon: Globe };
   const mcp = t.match(/^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/);
   if (mcp) return { text: `${mcp[1]} ${mcp[2]}`, mono: true, verb: 'Wants to use', Icon: Plug };
+  if (t === 'SecurityGrant') return { text: str(i.content) ?? a.summary, mono: true, verb: 'Wants live requests to', Icon: Globe };
   if (t === 'PullRequest') return { text: a.summary, mono: false, verb: i.action === 'open' ? 'Wants to open a pull request' : 'Wants to push', Icon: GitPullRequest };
   return { text: a.summary || t, mono: false, verb: `Wants to use ${t}`, Icon: CircleHelp };
 }
@@ -255,6 +259,8 @@ function ApprovalCardBody({ approval: a, collapsed, onExpand, inSession, onResol
   const diff = !command ? editDiff(a) : undefined;
   const content = !command && !diff && str(a.input.content);
   const reason = str(a.input.description) ?? str(a.input.reason) ?? str(a.input.justification);
+  // a Security grant covers the target until it expires (SECURITY-MODE.md 4.3): no session answer
+  const grant = a.tool === 'SecurityGrant';
 
   // each decision button carries its confirmation, so the label swaps in place and the button keeps its width
   const word = (d: Decision, label: ReactNode) => (
@@ -294,7 +300,7 @@ function ApprovalCardBody({ approval: a, collapsed, onExpand, inSession, onResol
     if (done || e.target !== ref.current || e.metaKey || e.ctrlKey || e.altKey) return;
     const k = e.key.toLowerCase();
     if (k === 'a') void decide('once');
-    else if (k === 's') void decide('session');
+    else if (k === 's' && !grant) void decide('session');
     else if (k === 'd') void decide('deny');
     else return;
     e.preventDefault();
@@ -338,11 +344,13 @@ function ApprovalCardBody({ approval: a, collapsed, onExpand, inSession, onResol
 
       <div className="mt-3.5 flex flex-wrap items-center gap-2">
         <Button variant={done?.d === 'once' ? 'outline' : 'solid'} disabled={off('once')} busy={busy === 'once' ? 'Allowing' : false} onClick={() => decide('once')}>
-          {word('once', 'Allow once')}
+          {word('once', grant ? 'Grant for 24 hours' : 'Allow once')}
         </Button>
-        <Button variant="outline" disabled={off('session')} busy={busy === 'session'} onClick={() => decide('session')}>
-          {word('session', sessionWord(a, 'session'))}
-        </Button>
+        {!grant && (
+          <Button variant="outline" disabled={off('session')} busy={busy === 'session'} onClick={() => decide('session')}>
+            {word('session', sessionWord(a, 'session'))}
+          </Button>
+        )}
         <Button variant="quiet-fault" disabled={off('deny')} busy={busy === 'deny'} onClick={() => decide('deny')}>
           {word('deny', 'Deny')}
         </Button>
@@ -415,6 +423,7 @@ function PhonePrompt({
   const subject = approvalSubject(a);
   const reason = str(a.input.description) ?? str(a.input.reason) ?? str(a.input.justification);
   const title = approvalTitle(a);
+  const grant = a.tool === 'SecurityGrant';
   const later = (fn: () => void) => () => setTimeout(fn, 0);
   const items: MenuItem[] = a.noAlways ? [] : [{ label: 'Always allow…', detail: 'Save a rule and stop asking', disabled: !!done, onSelect: later(() => setConfirm(true)) }];
   if (!inSession && session) items.push({ label: 'Open the conversation', onSelect: () => navigate(session.kind === 'chat' ? `/chat/${session.id}` : `/s/${session.id}`) });
@@ -436,7 +445,7 @@ function PhonePrompt({
           </IconButton>
         )}
       </div>
-      <p className="m-0 mt-3 rounded-[12px] bg-surface-2 px-3.5 py-3 font-mono text-[14px] leading-[1.5] text-fg [overflow-wrap:anywhere]">{command ? <Words text={command} /> : subject.text}</p>
+      <p className="m-0 mt-3 rounded-[12px] bg-surface-2 px-3.5 py-3 font-mono text-[14px] leading-[1.5] text-fg [overflow-wrap:anywhere] whitespace-pre-wrap">{command ? <Words text={command} /> : subject.text}</p>
       {diff && (
         <button type="button" onClick={() => setChanges(true)} className="-mb-1 flex min-h-11 items-center text-[15px] text-fg-2 active:text-fg">
           Show the changes
@@ -445,11 +454,13 @@ function PhonePrompt({
       {reason && <p className="m-0 mt-3 text-[15px] leading-[1.45] text-pretty text-fg-2">“{reason}”</p>}
       <div className="mt-4 flex flex-col gap-2">
         <Button variant={done?.d === 'once' ? 'outline' : 'solid'} size="touch" full disabled={off('once')} busy={busy === 'once' ? 'Allowing' : false} onClick={() => decide('once')} className="h-12! rounded-[12px]! text-[16px]!">
-          {word('once', 'Allow once')}
+          {word('once', grant ? 'Grant for 24 hours' : 'Allow once')}
         </Button>
-        <Button variant="outline" size="touch" full disabled={off('session')} busy={busy === 'session' ? 'Allowing' : false} onClick={() => decide('session')} className="h-12! rounded-[12px]! text-[16px]!">
-          {word('session', sessionWord(a, 'chat'))}
-        </Button>
+        {!grant && (
+          <Button variant="outline" size="touch" full disabled={off('session')} busy={busy === 'session' ? 'Allowing' : false} onClick={() => decide('session')} className="h-12! rounded-[12px]! text-[16px]!">
+            {word('session', sessionWord(a, 'chat'))}
+          </Button>
+        )}
         <Button variant="outline" size="touch" full disabled={off('deny')} busy={busy === 'deny' ? 'Denying' : false} onClick={() => decide('deny')} className="h-12! rounded-[12px]! text-[16px]!">
           {word('deny', 'Deny')}
         </Button>

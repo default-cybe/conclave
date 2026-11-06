@@ -188,13 +188,16 @@ run in Claude Code.
   findings ledger across runs (see Findings ledger below).
 - `lib.ask(question, options)` and `lib.approve(text)` ask you during a run.
   An unattended run takes the first option and treats approve as no.
-- `lib.approve(text, { grant: { hosts, accounts, requests, rateRps, hours, scopeFile, scopeLine } })`
-  asks for a Security mode approval grant. The hub checks every host against
-  `in_scope` of the scope file, caps the budget at the scope's
-  `request_budget` (500 at most), the rate at `rate_limit_rps` and the expiry
-  at 24 h, and stores the grant where the scope guard reads it. It resolves to
-  the grant, or `false` when you deny it. An unattended run or a member's run
-  never gets one, and the run goes on.
+- `lib.approve(text, { grant: { hosts, accounts, requests, rateRps, scopeLine } })`
+  (or `lib.approve({ grant: { hosts, accounts, requestBudget, rateRps, reason } })`)
+  asks for a Security mode approval grant on a SecurityGrant card, with `text`
+  as its reason. The hub checks every host against `in_scope` of one scope
+  file in the hunt folder, caps the budget at the scope's `request_budget`
+  (500 at most) and the rate at `rate_limit_rps`; the grant lasts 24 h. It is
+  stored with its scope pinned, where the scope guard and the egress gateway
+  read it, and a live grant that already covers the hosts answers without a
+  card. It resolves to the grant, or `false` when you deny it. An unattended
+  run or a member's run never gets one, and the run goes on.
 - `lib.scope(file, { hosts })` parses a `scope.yaml` with the scope guard's
   parser and says how each host classifies (`lab`, `in`, `out`, `unknown`),
   and whether the file expired.

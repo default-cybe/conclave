@@ -1999,6 +1999,9 @@ export class ConclaveClient {
   resolveApproval = (id: string, response: ApprovalResponse) => this.request<{ ok: true }>('POST', `/api/approvals/${id}`, response);
   questions = () => this.request<QuestionRequest[]>('GET', '/api/questions');
   answerQuestion = (id: string, answers: Record<string, string>) => this.request<{ ok: true }>('POST', `/api/questions/${id}`, { answers });
+  /** Security mode approval grants of a hunt session, newest first (owner only). */
+  grants = (sessionId: string) => this.request<Array<Omit<import('../security/scope').ScopeGrant, 'scope'>>>('GET', `/api/sessions/${sessionId}/grants`);
+  revokeGrant = (sessionId: string, grantId: string) => this.request<Omit<import('../security/scope').ScopeGrant, 'scope'>>('POST', `/api/sessions/${sessionId}/grants/${grantId}/revoke`);
   // ----- alerts: file conflicts and stuck turns -----
   alerts = () => this.request<AlertItem[]>('GET', '/api/alerts');
   /** stop or wait (Keep waiting) for a stuck turn, dismiss for a file conflict. */
