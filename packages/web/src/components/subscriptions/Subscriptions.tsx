@@ -22,7 +22,7 @@ import { toast, useHub } from '@/store/store';
 import { Logo, ModelMark } from '@/components/logo';
 import { LiveStatus } from '@/components/motion';
 import { Button, ButtonLink, IconButton } from '@/components/ui/Button';
-import { Field, Help, Input } from '@/components/ui/Field';
+import { Field, Help, Input, SECRET_FIELD } from '@/components/ui/Field';
 import { ConfirmDialog, Menu } from '@/components/ui/Overlay';
 
 const LINK = 'underline decoration-rule-2 underline-offset-[3px] hover:decoration-fg-3 phone:-my-3 phone:inline-block phone:py-3';
@@ -529,10 +529,10 @@ export function ExternalForm({ status, onSaved, onCancel }: { status: Subscripti
         <Input mono value={url} onChange={(e) => setUrl(e.target.value)} placeholder="http://192.168.1.10:8317" autoComplete="off" spellCheck={false} />
       </Field>
       <Field label="Client key" help={haveKey ? 'A key is saved on the hub. Paste a new one to replace it.' : 'One of access.api-keys in its config.yaml.'}>
-        <Input mono type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder={haveKey ? 'Saved' : 'Paste the client key'} autoComplete="off" />
+        <Input mono {...SECRET_FIELD} value={key} onChange={(e) => setKey(e.target.value)} placeholder={haveKey ? 'Saved' : 'Paste the client key'} />
       </Field>
       <Field label="Management key" optional help={status.external?.managementKey ? 'Saved. Sign-in and accounts work from here.' : 'Lets you sign in and see accounts from here. Its config.yaml needs management.allow-remote: true unless it runs on the hub.'}>
-        <Input mono type="password" value={mk} onChange={(e) => setMk(e.target.value)} placeholder={status.external?.managementKey ? 'Saved' : 'management.secret-key'} autoComplete="off" />
+        <Input mono {...SECRET_FIELD} value={mk} onChange={(e) => setMk(e.target.value)} placeholder={status.external?.managementKey ? 'Saved' : 'management.secret-key'} />
       </Field>
       {error && <p className="m-0 text-[13px] text-fault phone:text-[14px]">{error}</p>}
       <div className="flex flex-wrap gap-2">

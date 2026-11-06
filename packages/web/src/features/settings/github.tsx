@@ -9,7 +9,7 @@ import { api } from '@/lib/api';
 import { useIsMobile } from '@/lib/hooks';
 import { toast } from '@/store/store';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Field';
+import { Input, SECRET_FIELD } from '@/components/ui/Field';
 import { ConfirmDialog } from '@/components/ui/Overlay';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { githubStatus, RepoList } from '@/features/github/RepoPicker';
@@ -92,7 +92,7 @@ export function GithubSection() {
                   if (token.trim()) void connect();
                 }}
               >
-                <Input id="github-token" type="password" autoComplete="off" spellCheck={false} value={token} onChange={(e) => setToken(e.target.value)} placeholder="github_pat_…" className="flex-1" invalid={!!error} />
+                <Input id="github-token" {...SECRET_FIELD} value={token} onChange={(e) => setToken(e.target.value)} placeholder="github_pat_…" className="flex-1" invalid={!!error} />
                 <Button type="submit" variant="solid" size={size === 'sm' ? 'md' : size} disabled={!token.trim()} busy={busy ? 'Checking' : false}>
                   Connect
                 </Button>

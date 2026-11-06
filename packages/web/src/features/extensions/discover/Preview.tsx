@@ -17,7 +17,7 @@ import { useBreakpoint, useIsMobile } from '@/lib/hooks';
 import { bytes, plural } from '@/lib/format';
 import { cn } from '@/lib/text';
 import { Button } from '@/components/ui/Button';
-import { Checkbox, Field, Input, Radio, Segmented } from '@/components/ui/Field';
+import { Checkbox, Field, Input, Radio, SECRET_FIELD, Segmented } from '@/components/ui/Field';
 import { SelectMenu } from '@/components/ui/Select';
 import { ConfirmDialog } from '@/components/ui/Overlay';
 import { CodeBlock, Command } from '@/components/ui/Code';
@@ -1023,9 +1023,8 @@ function Body(p: {
                   return (
                     <Field key={inp.name} htmlFor={`disc-in-${inp.name}`} label={inp.label} optional={!inp.required} help={help} error={bad ? `${inp.label} is needed. ${inp.description}` : undefined}>
                       <Input
-                        type={inp.secret ? 'password' : 'text'}
                         mono={inp.secret || /url|path|host|dir/i.test(inp.name)}
-                        autoComplete={inp.secret ? 'new-password' : 'off'}
+                        {...(inp.secret ? SECRET_FIELD : { type: 'text', autoComplete: 'off' })}
                         value={p.values[inp.name] ?? ''}
                         placeholder={saved ? 'Saved' : inp.example}
                         onChange={(e) => {

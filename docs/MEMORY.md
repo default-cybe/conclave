@@ -153,6 +153,11 @@ What still exists: the text the model provider received, as for any chat;
 hub backups and disk snapshots taken before the delete; and, in Code, the
 files changed and commands run on the device. Those are real and stay.
 
+From a terminal, `conclave run --incognito "Reply with only the word OK"`
+runs one turn in an incognito session and closes it when the run ends, so
+the hub deletes it at once. `--memory off|use|save` sets the memory setting
+below for any `conclave run`.
+
 Each session has a memory setting with three values:
 
 - **Use and save** (normal sessions): memories are recalled, and new ones are

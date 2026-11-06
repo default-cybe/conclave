@@ -18,7 +18,7 @@ import { cn } from '@/lib/text';
 import { MODE_HELP, MODE_LABEL, MODES, outsideAddress, rememberAddresses, stateSentence } from '@/lib/remote';
 import { toast, useHub } from '@/store/store';
 import { Button, IconButton } from '@/components/ui/Button';
-import { Input, OnOff, Radio } from '@/components/ui/Field';
+import { Input, OnOff, Radio, SECRET_FIELD } from '@/components/ui/Field';
 import { SelectMenu } from '@/components/ui/Select';
 import { ConfirmDialog } from '@/components/ui/Overlay';
 import { LoadingRows } from '@/components/ui/EmptyState';
@@ -309,7 +309,7 @@ function StableSetup({ s, set }: { s: RemoteStatus; set: (s: RemoteStatus) => vo
             if (token.trim()) void check();
           }}
         >
-          <Input mono type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="Cloudflare API token" aria-label="Cloudflare API token" autoComplete="off" spellCheck={false} className="min-w-0 flex-1" />
+          <Input mono {...SECRET_FIELD} value={token} onChange={(e) => setToken(e.target.value)} placeholder="Cloudflare API token" aria-label="Cloudflare API token" className="min-w-0 flex-1" />
           <Button type="submit" variant="solid" size={size} disabled={!token.trim()} busy={busy === 'token' ? 'Checking' : false}>
             Check
           </Button>

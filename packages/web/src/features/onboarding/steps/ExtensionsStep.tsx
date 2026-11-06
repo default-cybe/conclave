@@ -12,7 +12,7 @@ import { EXTENSION_PACKS, KEY_HELP, type ExtensionPack } from '@conclave/core/ca
 import { api } from '@/lib/api';
 import { cn } from '@/lib/text';
 import { reloadConfig, useHub } from '@/store/store';
-import { Checkbox, Field, Input } from '@/components/ui/Field';
+import { Checkbox, Field, Input, SECRET_FIELD } from '@/components/ui/Field';
 import { SectionHeading } from '@/components/ui/Section';
 import { StateWord, type StateTone } from '@/components/ui/List';
 import { StepFrame } from '../StepLayout';
@@ -180,9 +180,7 @@ export function ExtensionsStep() {
                 >
                   <Input
                     mono
-                    type={f.secret ? 'password' : 'text'}
-                    autoComplete="off"
-                    spellCheck={false}
+                    {...(f.secret ? SECRET_FIELD : { type: 'text', autoComplete: 'off', spellCheck: false })}
                     autoCapitalize="off"
                     value={values[f.name] ?? ''}
                     placeholder={f.example}

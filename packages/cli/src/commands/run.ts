@@ -1,6 +1,8 @@
 /**
  * `conclave run`: one headless turn. Assistant text streams to stdout, tool
  * lines and notices go to stderr. Approvals are denied unless --yes.
+ * --incognito makes the session incognito and deletes it when the run ends,
+ * so a quick test chat leaves no history (session/incognito.ts).
  */
 import { fstatSync } from 'node:fs';
 import type { ConclaveClient } from '@conclave/core/client/index.ts';
@@ -88,7 +90,18 @@ function waitOpen(client: ConclaveClient, onEvent: (e: EngineEventEnvelope) => v
   });
 }
 
+/** --memory off|use|save as the session's chat switches; unset leaves the hub's default. */
+export function memoryFlag(v: string | undefined): { memory: boolean; memorySave?: boolean } | undefined {
+  if (v === undefined) return undefined;
+  if (v === 'off') return { memory: false };
+  if (v === 'use') return { memory: true, memorySave: false };
+  if (v === 'save') return { memory: true, memorySave: true };
+  throw new CliError(`--memory takes off, use or save, not "${v}"`);
+}
+
 export async function runCommand(args: ParsedArgs, promptFrom = 1): Promise<number> {
+  const incognito = bool(args, 'incognito');
+  const chat = memoryFlag(str(args, 'memory'));
   const prompt = await buildPrompt(args, promptFrom);
   const asJson = bool(args, 'json');
   const yes = bool(args, 'yes');
@@ -293,6 +306,8 @@ export async function runCommand(args: ParsedArgs, promptFrom = 1): Promise<numb
       cwd: str(args, 'cwd') ?? process.cwd(),
       device: str(args, 'device'),
       tags: ['cli-run'],
+      ...(incognito ? { incognito: true } : {}),
+      ...(chat ? { chat } : {}),
     });
     sessionId = session.id;
     if (asJson) stdout.write(JSON.stringify({ type: 'run.session', session }) + '\n');
@@ -339,5 +354,7 @@ export async function runCommand(args: ParsedArgs, promptFrom = 1): Promise<numb
     if (poll) clearInterval(poll);
     process.off('SIGINT', onSigint);
     closeWs();
+    // closing an incognito session purges it on the hub (engine deleteSession)
+    if (incognito && sessionId) await client.deleteSession(sessionId).catch((e) => stderr.write(ep.yellow(`· Could not delete the incognito session ${sessionId}: ${e instanceof Error ? e.message : String(e)}. The hub deletes it after 12 hours idle.\n`)));
   }
 }

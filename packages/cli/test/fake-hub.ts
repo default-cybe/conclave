@@ -279,6 +279,8 @@ export function startFakeHub(opts: { token?: string } = {}): FakeHub {
           createdAt: Date.now(),
           updatedAt: Date.now(),
           stats: { messages: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, costUsd: 0 },
+          ...(body.incognito ? { incognito: true } : {}),
+          ...(body.chat ? { chat: body.chat as Session['chat'] } : {}),
         };
         sessions.set(id, s);
         messages.set(id, []);
@@ -288,6 +290,11 @@ export function startFakeHub(opts: { token?: string } = {}): FakeHub {
       if (path === '/api/sessions' && req.method === 'GET') return json([...sessions.values()]);
       let m = /^\/api\/sessions\/([^/]+)$/.exec(path);
       if (m && req.method === 'GET') return sessions.has(m[1]) ? json(sessions.get(m[1])) : json({ error: 'not found' }, 404);
+      if (m && req.method === 'DELETE') {
+        sessions.delete(m[1]);
+        messages.delete(m[1]);
+        return json({ ok: true });
+      }
       m = /^\/api\/sessions\/([^/]+)\/messages$/.exec(path);
       if (m && req.method === 'GET') return json(messages.get(m[1]) ?? []);
       if (m && req.method === 'POST') {

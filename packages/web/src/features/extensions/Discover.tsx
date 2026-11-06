@@ -18,7 +18,7 @@ import { useIsMobile } from '@/lib/hooks';
 import { hhmm, plural, shortDate } from '@/lib/format';
 import { cn } from '@/lib/text';
 import { Button } from '@/components/ui/Button';
-import { Field, Input } from '@/components/ui/Field';
+import { Field, Input, SECRET_FIELD } from '@/components/ui/Field';
 import { Dialog, Sheet } from '@/components/ui/Overlay';
 import { Notice, SectionHeading, TextAction } from '@/components/ui/Section';
 import { EmptyState, LoadingRows } from '@/components/ui/EmptyState';
@@ -610,7 +610,7 @@ function TokenDialog({ open, onClose, onSaved, status }: { open: boolean; onClos
         </p>
       )}
       <Field label="GitHub token" className="mt-4" error={error} help={<>Saved in the hub's secrets store as <span className="mono">{TOKEN_KEY}</span>. It is never shown again or logged.</>}>
-        <Input type="password" mono autoComplete="new-password" value={value} onChange={(e) => setValue(e.target.value)} placeholder={own ? 'Saved. Paste a new one to replace it' : 'github_pat_…'} />
+        <Input {...SECRET_FIELD} mono value={value} onChange={(e) => setValue(e.target.value)} placeholder={own ? 'Saved. Paste a new one to replace it' : 'github_pat_…'} />
       </Field>
       {sources.length > 0 && (
         <div className="mt-5">
