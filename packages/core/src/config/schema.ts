@@ -687,6 +687,12 @@ export interface ConclaveConfig {
     limitFallback?: LimitFallbackConfig;
   };
 
+  /** Security mode (docs/design/SECURITY-MODE.md). */
+  security?: {
+    /** Settings > Security > Roles: a model and fallback list per sec-* role over its profile's (security/roles.ts). Empty uses the profile's. */
+    roles?: Record<string, { model?: string; fallback?: string[] }>;
+  };
+
   /** Agents across the hub. */
   agents?: {
     /**

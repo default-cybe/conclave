@@ -26,6 +26,7 @@ import { variantBase } from '../providers/model-id';
 import { isMember } from '../people/context';
 import { memberCanUse } from '../session/member-fallbacks';
 import { modelPin } from '../session/model-pin';
+import { accountRole } from '../security/roles';
 import { assertOutputSchema, formatProblems, validateSchema, type Schema } from '../tools/schema';
 import { extractJsonObject, STRUCTURED_OUTPUT_ATTEMPTS, structuredOutputNudge, structuredOutputTool, type StructuredOutputState } from '../tools/structured-output';
 import type { Tool } from '../tools/types';
@@ -367,7 +368,9 @@ export async function runStep(o: StepRunOptions): Promise<StepOutcome> {
 
 function profileModel(engine: Engine, name: string, cwd: string, accountId: string): string | undefined {
   try {
-    return engine.agentNamed(name, cwd, accountId)?.model;
+    const def = engine.agentNamed(name, cwd, accountId);
+    // a sec-* role: Settings > Security > Roles over its profile (security/roles.ts)
+    return def && accountRole(engine, def, accountId).model;
   } catch {
     return undefined;
   }
