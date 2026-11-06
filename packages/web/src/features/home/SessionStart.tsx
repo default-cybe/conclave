@@ -69,7 +69,7 @@ import { BranchPicker, IssuePicker, RepoList, RepoPicker, type IssuePick, type R
 import { ASSISTANT_AGENT, CODE_AGENT, CODE_NEEDS_DEVICE, commandOf, customAgent, lastOwnSession, needsOwnDevice, placeName, readPicks, savePicks, sessionSetup, startCommands, startEffort, type Picks } from './start';
 import { startSurface, useThisComputer } from './here';
 import { DeviceChip, FolderChip, computerList, deviceItems, useComputers } from './Where';
-import { CODE_INCOGNITO_LINE, memoryChat, privacyItems, PrivacyFields, type Privacy } from '@/features/conversation/incognito';
+import { CODE_INCOGNITO_LINE, memoryChat, MemoryField, memoryItems, usePrivacy } from '@/features/conversation/incognito';
 
 export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerTarget {
   const [, navigate] = useLocation();
@@ -99,8 +99,9 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
   const [issuePick, setIssuePick] = useState<IssuePick>();
   // a design direction for this one session (not kept for the next); Match a reference is /design in the session, it needs a URL or a screenshot
   const [design, setDesign] = useState<DesignDirection>();
-  // Incognito and the memory setting, for this one session (not kept for the next)
-  const [priv, setPriv] = useState<Privacy>({ incognito: false, memory: 'save' });
+  // Incognito (the toggle at the top right, Code only) and the memory setting, for this one session (not kept for the next)
+  const [both, setMemory] = usePrivacy('save');
+  const priv = code ? both : { incognito: false, memory: both.memory };
   // the box clears at once; until the session opens, a line under it says it is starting
   const [starting, setStarting] = useState<number>();
   // the folder was asked for before the first send: once it is set, the message held goes
@@ -238,7 +239,7 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
       if (!s) return false;
       keepSession(s);
       setIssuePick(undefined);
-      setPriv({ incognito: false, memory: 'save' });
+      setMemory('save');
       if (code && picks.ultra) {
         const on = await attempt(() => api().updateSession(s.id, { ultra: true }));
         if (on) upsertSession(on);
@@ -301,7 +302,7 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
         ...DESIGN_DIRECTIONS.filter((d) => d.id !== 'reference').map((d) => ({ label: d.label, detail: d.detail, checked: design === d.id, keep: true, onSelect: () => setDesign(design === d.id ? undefined : d.id) })),
         { separator: true, label: '' },
         { label: 'Ultra', detail: ULTRA_LINE, checked: !!picks.ultra, keep: true, onSelect: () => update({ ...picks, ultra: !picks.ultra || undefined }) },
-        ...privacyItems(priv, setPriv, true),
+        ...(priv.incognito ? [] : memoryItems(priv.memory, setMemory)),
       ]
     : [];
 
@@ -397,7 +398,7 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
                 />
               </Row>
             )}
-            {code && <PrivacyFields value={priv} onChange={setPriv} code />}
+            {code && !priv.incognito && <MemoryField value={priv.memory} onChange={setMemory} />}
             {/* the default coding agent hands work to its subagents itself: another agent is for custom ones */}
             {code && (
               <div>
@@ -447,7 +448,8 @@ export function useSessionTarget(kind: 'assistant' | 'code' = 'code'): ComposerT
     placeholder: issue ? `Add a note for #${issue.number}` : mobile ? (code ? 'Describe a task' : 'Ask your assistant') : 'Type / for commands',
     commands,
     incognito: priv.incognito,
-    note: priv.incognito && !starting ? (
+    // desktop says it under the toggle at the top right
+    note: priv.incognito && mobile && !starting ? (
       <p>Incognito. {CODE_INCOGNITO_LINE}</p>
     ) : starting ? (
       <LiveStatus state="tool" label={repo ? `Making a worktree of ${repo.repo}${issue ? ` for #${issue.number}` : ''}` : worktreeOn ? 'Making a worktree' : 'Starting the session'} detail={code ? `${setup.agent ?? 'agent'} on ${deviceName}` : 'on the hub'} startedAt={starting} />

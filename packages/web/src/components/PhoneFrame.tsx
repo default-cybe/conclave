@@ -28,6 +28,7 @@ import { cn } from '@/lib/text';
 import { NEW_WORDS } from '@/lib/sidebar';
 import { useReducedMotion } from './motion';
 import { ModeSwitch } from '@/features/home/ModeSwitch';
+import { IncognitoToggle } from '@/features/conversation/incognito';
 import { useStartMode, type StartMode } from '@/features/home/start';
 import { useMeetingHint } from '@/features/meeting/useMeetingHint';
 import { AccountRow } from './AccountMenu';
@@ -159,6 +160,7 @@ export function PhoneBar({
   titleLabel,
   code,
   heading = true,
+  action,
   className,
 }: {
   lead?: 'menu' | 'back';
@@ -173,6 +175,8 @@ export function PhoneBar({
   code?: boolean;
   /** The title is the screen's heading (h1). Off for a page that has its own. */
   heading?: boolean;
+  /** One more button before New (Home's Incognito). */
+  action?: ReactNode;
   className?: string;
 }) {
   const [, navigate] = useLocation();
@@ -186,7 +190,7 @@ export function PhoneBar({
   const Title = heading && title ? 'h1' : 'div';
   return (
     <header className={cn('z-20 shrink-0 bg-bg pt-safe', className)}>
-      <div className="grid h-14 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-1 px-2.5">
+      <div className={cn('grid h-14 items-center gap-1 px-2.5', action ? 'grid-cols-[44px_minmax(0,1fr)_auto]' : 'grid-cols-[44px_minmax(0,1fr)_44px]')}>
         {lead === 'menu' ? (
           <button type="button" aria-label="Open the menu" aria-expanded={open} aria-haspopup="dialog" onClick={() => useUi.setState({ panelOpen: true })} className={ICON_BTN} data-panel-button>
             <MenuIcon />
@@ -206,12 +210,21 @@ export function PhoneBar({
         ) : (
           <Title className="m-0 flex min-w-0 justify-center px-2">{words}</Title>
         )}
-        <button type="button" aria-label={NEW_WORDS[code ? 'code' : mode]} onClick={() => newChat(navigate, code ? 'code' : undefined)} className={ICON_BTN}>
-          <SquarePen className="size-[22px]" strokeWidth={1.75} aria-hidden />
-        </button>
+        <div className="flex items-center">
+          {action}
+          <button type="button" aria-label={NEW_WORDS[code ? 'code' : mode]} onClick={() => newChat(navigate, code ? 'code' : undefined)} className={ICON_BTN}>
+            <SquarePen className="size-[22px]" strokeWidth={1.75} aria-hidden />
+          </button>
+        </div>
       </div>
     </header>
   );
+}
+
+/** Home's Incognito for a new chat or Code session; Assistant is one kept thread. */
+function HomeIncognito() {
+  const mode = useStartMode((s) => s.mode);
+  return mode === 'chat' || mode === 'code' ? <IncognitoToggle bar code={mode === 'code'} /> : null;
 }
 
 /** The bar the shell draws for a screen that does not draw its own: its title from the route or the page (usePageHeader). */
@@ -220,7 +233,7 @@ export function ShellBar({ path }: { path: string }) {
   const place = phonePlace(path);
   const route = phoneTitle(path);
   // Home has the switch for a title
-  if (path.split('?')[0] === '/') return <PhoneBar title={<ModeSwitch phone />} heading={false} />;
+  if (path.split('?')[0] === '/') return <PhoneBar title={<ModeSwitch phone />} heading={false} action={<HomeIncognito />} />;
   // a main screen inside itself (the archived chats) leads back to it
   if (place === 'main' && !header?.back) return <PhoneBar title={route.title} code={startsCode(path)} />;
   const title = header?.title ?? route.title;

@@ -44,7 +44,7 @@ import { DEFAULTS_EVENT, readDefaults, saveDefaults, setEditing, setRestore, use
 import { useSharedChat } from '@/features/chat/shared';
 import { ModelName } from '@/components/logo';
 import { NO_KV } from '@/features/chat/draft';
-import { INCOGNITO_LINE, memoryChat, privacyItems, PrivacyFields, type Privacy } from './incognito';
+import { firstSend, INCOGNITO_LINE, memoryChat, MemoryField, memoryItems, usePrivacy, type MemoryMode } from './incognito';
 
 /** One file; 15 in a message at most, and together what the hub reads in one request (core attachments/limits.ts). */
 const MAX_BYTES = 20 * 1024 * 1024;
@@ -208,11 +208,11 @@ export function ChatComposer({
   const [sw, change] = useSwitches(session);
   // Same model for all work: a switch of this chat only, never a default for the next one
   const same = session ? { sameModel: !!session.chat?.sameModel, onSameModel: (on: boolean) => void patchChat(session.id, { chat: { sameModel: on } }) } : {};
-  // a new chat's Incognito and memory setting; incognito is not kept for the next one
-  const [priv, setPriv] = useState<Privacy>(() => ({ incognito: false, memory: sw.memory ? 'save' : 'off' }));
-  const setPrivacy = (p: Privacy) => {
-    setPriv(p);
-    if (!p.incognito) change({ memory: p.memory !== 'off' });
+  // a new chat's Incognito (the toggle at the top right) and memory setting; incognito is not kept for the next one
+  const [priv, setMemory] = usePrivacy(sw.memory ? 'save' : 'off');
+  const setPrivacy = (m: MemoryMode) => {
+    setMemory(m);
+    change({ memory: m !== 'off' });
   };
   const incognito = session ? !!session.incognito : target ? !!target.incognito : priv.incognito;
   const restore = useChatUi((s) => s.restore[chatId]);
@@ -334,11 +334,19 @@ export function ChatComposer({
     drafts.delete(chatId);
     clearDraft();
     setBusy(true);
-    const ok = target
-      ? await target.send(out)
-      : session
-        ? await sendTo(mine ? { ...session, status: 'idle' } : session, shared && justTalk ? { ...out, justTalk: true } : out)
-        : await startChat(out, { model: sw.model, incognito: priv.incognito, chat: { webSearch: sw.webSearch, ...memoryChat(priv.memory), ...(sw.thinking ? { thinking: sw.thinking } : {}), ...(sw.cyber ? { cyber: sw.cyber } : {}) } }, navigate);
+    // a new chat or session: the incognito toggle goes while its first message is on the way
+    if (!session) firstSend();
+    let ok = false;
+    try {
+      ok = target
+        ? await target.send(out)
+        : session
+          ? await sendTo(mine ? { ...session, status: 'idle' } : session, shared && justTalk ? { ...out, justTalk: true } : out)
+          : await startChat(out, { model: sw.model, incognito: priv.incognito, chat: { webSearch: sw.webSearch, ...memoryChat(priv.memory), ...(sw.thinking ? { thinking: sw.thinking } : {}), ...(sw.cyber ? { cyber: sw.cyber } : {}) } }, navigate);
+    } finally {
+      // a throw must not leave the toggle hidden
+      if (!session) firstSend(ok);
+    }
     if (!ok) {
       if (alive.current) {
         setText(out.text);
@@ -453,7 +461,8 @@ export function ChatComposer({
   const sendLabel = target?.sendLabel ?? 'Send';
 
   const memoryNote = !target && (session ? !sw.memory : priv.memory === 'off');
-  const incognitoNote = !target && !session && priv.incognito;
+  // desktop says it under the toggle at the top right
+  const incognitoNote = mobile && !target && !session && priv.incognito;
   const notes =
     memoryNote || incognitoNote || target?.note ? (
       <div className="mt-2 space-y-0.5 px-0.5 text-[12px] text-fg-3 phone:px-2 phone:text-[13px]">
@@ -546,7 +555,7 @@ export function ChatComposer({
                   {session && <Checkbox checked={sw.memory} onChange={(v) => change({ memory: v })} label="Use memory" description={MEMORY_HELP} />}
                 </div>
               </OptionRow>
-              {!session && <PrivacyFields value={priv} onChange={setPrivacy} code={false} />}
+              {!session && !priv.incognito && <MemoryField value={priv.memory} onChange={setPrivacy} />}
             </div>
           </Sheet>
         )}
@@ -558,7 +567,7 @@ export function ChatComposer({
     ? (target.plus ?? [])
     : [
         { label: 'Search the web', detail: WEB_HELP, checked: sw.webSearch, keep: true, onSelect: () => change({ webSearch: !sw.webSearch }) },
-        ...(session ? [{ label: 'Use memory', detail: MEMORY_HELP, checked: sw.memory, keep: true, onSelect: () => change({ memory: !sw.memory }) }] : privacyItems(priv, setPrivacy, false)),
+        ...(session ? [{ label: 'Use memory', detail: MEMORY_HELP, checked: sw.memory, keep: true, onSelect: () => change({ memory: !sw.memory }) }] : priv.incognito ? [] : memoryItems(priv.memory, setPrivacy)),
       ];
   const modelEffort = target ? (
     <ModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} cyber={target.cyber} onCyber={target.onCyber} harnesses={target.harnesses} />
