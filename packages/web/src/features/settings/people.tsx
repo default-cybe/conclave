@@ -24,7 +24,7 @@ import { compact, relTime, shortDate, usd } from '@/lib/format';
 import { hubKeyProviders, providerInfo } from '@/lib/providers';
 import { toast, useHub } from '@/store/store';
 import { Button } from '@/components/ui/Button';
-import { Checkbox, Field, Input, Segmented, Select } from '@/components/ui/Field';
+import { Checkbox, Field, Input, SECRET_FIELD, Segmented, Select } from '@/components/ui/Field';
 import { ConfirmDialog, Dialog } from '@/components/ui/Overlay';
 import { Command } from '@/components/ui/Code';
 import { LoadingRows } from '@/components/ui/EmptyState';
@@ -904,7 +904,7 @@ function ProviderRow({ p }: { p: ProviderAccessDto }) {
             if (key.trim()) void save(key.trim());
           }}
         >
-          <Input type="password" className="flex-1 md:w-[200px]" placeholder="Your key" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" spellCheck={false} aria-label={`Your ${p.name} key`} />
+          <Input {...SECRET_FIELD} className="flex-1 md:w-[200px]" placeholder="Your key" value={key} onChange={(e) => setKey(e.target.value)} aria-label={`Your ${p.name} key`} />
           <Button type="submit" variant="outline" size={size === 'sm' ? 'md' : size} disabled={!key.trim()} busy={busy ? 'Saving' : false}>
             Save
           </Button>

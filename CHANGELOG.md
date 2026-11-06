@@ -7,6 +7,16 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- `conclave run --incognito` runs one turn in an incognito session (memory "Use only") and deletes it when the run ends, so quick model test chats leave no history. `--memory off|use|save` sets the session's memory setting for any `conclave run`.
+
+### Fixed
+
+- A provider API key no longer saves on paste, on blur or when a password manager fills the field. The row has a Save button (off while the field is empty or holds the key just tried) and Cancel; Enter still saves. API key and token fields across Settings, onboarding, Extensions and Memory connections now tell password managers (1Password, LastPass, Bitwarden, Dashlane) to skip them, so a filled password is never taken for a key.
+
 ## [0.4.74] - 2026-11-06
 
 ### Added

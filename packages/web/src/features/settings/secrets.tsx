@@ -13,7 +13,7 @@ import { api } from '@/lib/api';
 import { attempt, reloadConfig, toast } from '@/store/store';
 import { useIsMobile, useLoad, useNow } from '@/lib/hooks';
 import { Button } from '@/components/ui/Button';
-import { Field, Input } from '@/components/ui/Field';
+import { Field, Input, SECRET_FIELD } from '@/components/ui/Field';
 import { ConfirmDialog, Dialog } from '@/components/ui/Overlay';
 import { EmptyState, LoadingRows } from '@/components/ui/EmptyState';
 import { agoWords, Group } from './parts';
@@ -174,7 +174,7 @@ function SecretDialog({ open, name, taken, onClose, onSaved }: { open: boolean; 
           </Field>
         )}
         <Field label="Value" help="Saved on the hub only. It is never shown again.">
-          <Input mono type="password" data-autofocus={replacing ? true : undefined} value={value} onChange={(e) => setValue(e.target.value)} autoComplete="new-password" spellCheck={false} />
+          <Input mono {...SECRET_FIELD} data-autofocus={replacing ? true : undefined} value={value} onChange={(e) => setValue(e.target.value)} />
         </Field>
       </form>
     </Dialog>

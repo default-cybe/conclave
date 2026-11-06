@@ -13,7 +13,7 @@ import { api } from '@/lib/api';
 import { useIsMobile } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { Button } from '@/components/ui/Button';
-import { Input, OnOff, Segmented } from '@/components/ui/Field';
+import { Input, OnOff, SECRET_FIELD, Segmented } from '@/components/ui/Field';
 import { readPlacement, writePlacement } from '@/overlay/dock';
 import type { Mode } from '@/overlay/place';
 import { LoadingRows } from '@/components/ui/EmptyState';
@@ -173,7 +173,7 @@ export function SttBody({ chosen, values, reload, member, first }: { chosen: Stt
         {p.id !== 'local' && (
           <SettingRow label="Key" help={keyed(p.id) ? 'Saved on the hub. Paste a new one to replace it.' : 'Not saved.'} top>
             <div className="flex flex-wrap items-center gap-2 md:justify-end">
-              <Input mono type="password" autoComplete="off" spellCheck={false} value={key} onChange={(e) => setKey(e.target.value)} placeholder={keyed(p.id) ? 'Paste a new key' : 'API key'} aria-label={`${p.name} API key`} className="w-[200px]!" size="sm" />
+              <Input mono {...SECRET_FIELD} value={key} onChange={(e) => setKey(e.target.value)} placeholder={keyed(p.id) ? 'Paste a new key' : 'API key'} aria-label={`${p.name} API key`} className="w-[200px]!" size="sm" />
               <Button
                 variant="solid"
                 size={size}

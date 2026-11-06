@@ -19,7 +19,7 @@ import { ProviderHeader, ProviderRow, PROVIDER_COLS } from '@/components/provide
 import { CompanyMark, HarnessMark, ModelName } from '@/components/logo';
 import { LiveStatus } from '@/components/motion';
 import { Button, IconButton } from '@/components/ui/Button';
-import { Checkbox, Field, Input, OnOff, Segmented } from '@/components/ui/Field';
+import { Checkbox, Field, Input, OnOff, SECRET_FIELD, Segmented } from '@/components/ui/Field';
 import { ConfirmDialog, Dialog, Menu, type MenuItem } from '@/components/ui/Overlay';
 import { errText, Group, Outcome, save } from './parts';
 
@@ -345,7 +345,7 @@ function CustomProviderDialog({ open, onClose, taken }: { open: boolean; onClose
           <Input mono value={baseUrl} placeholder={type === 'openai' ? 'https://api.example.com/v1' : 'https://api.example.com'} onChange={(e) => (setBaseUrl(e.target.value), reset())} onKeyDown={(e) => e.key === 'Enter' && void find()} />
         </Field>
         <Field label="API key" optional>
-          <Input mono type="password" autoComplete="off" spellCheck={false} value={key} placeholder="Paste a key" onChange={(e) => (setKey(e.target.value), reset())} />
+          <Input mono {...SECRET_FIELD} value={key} placeholder="Paste a key" onChange={(e) => (setKey(e.target.value), reset())} />
         </Field>
         <Button variant="outline" size="sm" busy={finding ? 'Finding models' : false} onClick={() => void find()}>
           Find models

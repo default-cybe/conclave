@@ -51,6 +51,20 @@ export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
   boxClassName?: string;
 }
 
+/**
+ * Spread on an API key or token field. Password managers skip it, so a
+ * filled password is never taken for a key; such fields save only on a press.
+ */
+export const SECRET_FIELD = {
+  type: 'password',
+  autoComplete: 'new-password',
+  spellCheck: false,
+  'data-1p-ignore': 'true',
+  'data-lpignore': 'true',
+  'data-bwignore': 'true',
+  'data-form-type': 'other',
+} as const;
+
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   { className, boxClassName, mono, size = 'md', invalid, prefix, suffix, kbd, ...rest },
   ref,

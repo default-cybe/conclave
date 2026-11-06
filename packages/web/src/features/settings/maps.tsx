@@ -15,7 +15,7 @@ import { api } from '@/lib/api';
 import { useIsMobile } from '@/lib/hooks';
 import { Button } from '@/components/ui/Button';
 import { CodeBlock } from '@/components/ui/Code';
-import { Input, Segmented } from '@/components/ui/Field';
+import { Input, SECRET_FIELD, Segmented } from '@/components/ui/Field';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { toast } from '@/store/store';
 import { useIsOwner } from '@/lib/people';
@@ -140,7 +140,7 @@ function Body({ s, onChange }: { s: MapsSettingsDto; onChange: (s: MapsSettingsD
       <Group title={member ? 'Your Google Maps key' : 'Google Maps key'} help={member ? 'Your key stays on the hub, in your own account. Apps get only results and pictures, never the key, and tools never see it.' : 'The key stays on the hub. Apps get only results and pictures, never the key, and tools never see it. From a terminal: conclave secret google-maps.'}>
         <SettingRow label="Key" help={s.google.keySet ? (s.google.keyFrom === 'env' ? 'Set in the hub environment (GOOGLE_MAPS_API_KEY).' : s.google.keyFrom === 'own' ? 'Set, stored in your account.' : 'Set, stored on the hub.') : member ? 'Not set. Maps do not work for you until you add one.' : 'Not set.'} top>
           <div className="flex flex-wrap items-center gap-2 md:justify-end">
-            <Input mono type="password" autoComplete="off" spellCheck={false} value={key} onChange={(e) => setKey(e.target.value)} placeholder={s.google.keySet ? 'Paste a new key' : 'AIza...'} aria-label="Google Maps API key" className="w-[200px]!" size="sm" />
+            <Input mono {...SECRET_FIELD} value={key} onChange={(e) => setKey(e.target.value)} placeholder={s.google.keySet ? 'Paste a new key' : 'AIza...'} aria-label="Google Maps API key" className="w-[200px]!" size="sm" />
             <Button
               variant="solid"
               size={size}

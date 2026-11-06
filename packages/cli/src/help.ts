@@ -42,10 +42,12 @@ export const HELP: Record<string, CommandHelp> = {
       ['--json', 'Print events as JSON lines'],
       ['-y, --yes', 'Allow tool approvals (default: deny them)'],
       ['-t, --timeout DUR', 'Give up after e.g. 90s, 10m (exit 1)'],
+      ['--incognito', 'Leave no history: the session is incognito and deleted when the run ends'],
+      ['--memory MODE', 'off, use (read only) or save. Incognito defaults to use'],
       ...HUB_FLAGS,
     ],
     details: ['Assistant text goes to stdout, tool lines to stderr. Exit code 0 on success, 1 on error.', 'Reads the prompt from stdin when it is "-" or missing and stdin is piped.'],
-    examples: ['conclave run "summarize README.md"', 'git diff | conclave run "review this diff" -m openai/gpt-5.5'],
+    examples: ['conclave run "summarize README.md"', 'git diff | conclave run "review this diff" -m openai/gpt-5.5', 'conclave run --incognito -m openai/gpt-5.5 "Reply with only the word OK"'],
   },
   serve: {
     usage: 'conclave serve [--host H] [--port P] [--detach]',

@@ -89,4 +89,28 @@ describe('conclave run against a fake hub', () => {
     expect(r.code).toBe(0);
     expect(r.stdout).toBe('Hello world!\n');
   }, 15_000);
+
+  test('--incognito creates an incognito session and deletes it when the run ends', async () => {
+    const r = await run(['run', '--incognito', 'Reply with only the word OK', '--json']);
+    expect(r.code).toBe(0);
+    const first = JSON.parse(r.stdout.split('\n')[0]!);
+    expect(first.type).toBe('run.session');
+    expect(first.session.incognito).toBe(true);
+    const id = first.session.id as string;
+    expect(hub.requests).toContain(`DELETE /api/sessions/${id}`);
+    expect(hub.sessions.has(id)).toBe(false);
+  }, 15_000);
+
+  test('a plain run keeps its session; --memory sets the chat switches', async () => {
+    const r = await run(['run', 'hi', '--memory', 'off', '--json']);
+    expect(r.code).toBe(0);
+    const s = JSON.parse(r.stdout.split('\n')[0]!).session;
+    expect(s.incognito).toBeUndefined();
+    expect(s.chat).toEqual({ memory: false });
+    expect(hub.sessions.has(s.id)).toBe(true);
+    expect(hub.requests).not.toContain(`DELETE /api/sessions/${s.id}`);
+    const bad = await run(['run', 'hi', '--memory', 'maybe']);
+    expect(bad.code).not.toBe(0);
+    expect(bad.stderr).toContain('--memory takes off, use or save');
+  }, 15_000);
 });

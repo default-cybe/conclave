@@ -11,7 +11,7 @@ import { toast, useHub } from '@/store/store';
 import { useIsMobile } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { Button } from '@/components/ui/Button';
-import { Field, Input, OnOff, Radio, Textarea } from '@/components/ui/Field';
+import { Field, Input, OnOff, Radio, SECRET_FIELD, Textarea } from '@/components/ui/Field';
 import { SectionHeading, TextAction } from '@/components/ui/Section';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { errMsg, Panel, TestSteps, Working } from './parts';
@@ -315,14 +315,12 @@ export function ConnectionForm({ open, edit, onClose, onSaved }: { open: boolean
                     ) : (
                       <Input
                         mono={info.mono}
-                        type={kind === 'secret' ? 'password' : 'text'}
+                        {...(kind === 'secret' ? SECRET_FIELD : { type: 'text', autoComplete: 'off', spellCheck: false })}
                         value={v}
                         onChange={(e) => set(e.target.value)}
                         onFocus={(e) => hiddenSecret && e.target.select()}
                         placeholder={f.key === 'url' ? (URL_HINT[type] ?? info.placeholder) : info.placeholder}
-                        spellCheck={false}
                         autoCapitalize="off"
-                        autoComplete={kind === 'secret' ? 'new-password' : 'off'}
                         list={f.key === 'server' && servers.length ? 'conn-servers' : undefined}
                       />
                     )}

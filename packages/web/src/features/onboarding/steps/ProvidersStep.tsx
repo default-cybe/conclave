@@ -1,6 +1,6 @@
 /**
  * Step 2, Providers (spec 11.11, graft 9): CLI logins found on the owner's
- * machines first, then API keys. Keys are write only: a paste saves with
+ * machines first, then API keys. Keys are write only: Save (or Enter) saves with
  * setSecret and tests with testProvider, and the result shows in words.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';

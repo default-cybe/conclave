@@ -17,7 +17,7 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/text';
 import { useIsMobile } from '@/lib/hooks';
 import { Button } from '@/components/ui/Button';
-import { Input, Segmented } from '@/components/ui/Field';
+import { Input, SECRET_FIELD, Segmented } from '@/components/ui/Field';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { toast } from '@/store/store';
 import { errText, Group, Outcome, SettingRow } from './parts';
@@ -153,7 +153,7 @@ export function WebSearchBody({ s, onChange, initial }: { s: WebSearchSettingsDt
             top
           >
             <div className="flex flex-wrap items-center gap-2 md:justify-end">
-              <Input mono type="password" autoComplete="off" spellCheck={false} value={key} onChange={(e) => setKey(e.target.value)} placeholder={p.keySet ? 'Paste a new key' : 'API key'} aria-label={`${p.name} API key`} className="w-[200px]!" size="sm" />
+              <Input mono {...SECRET_FIELD} value={key} onChange={(e) => setKey(e.target.value)} placeholder={p.keySet ? 'Paste a new key' : 'API key'} aria-label={`${p.name} API key`} className="w-[200px]!" size="sm" />
               <Button size={size} onClick={() => void paste()}>
                 Paste
               </Button>

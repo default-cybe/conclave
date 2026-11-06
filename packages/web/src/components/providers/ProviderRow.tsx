@@ -2,8 +2,9 @@
  * One provider row, shared by Settings > Providers and the onboarding
  * Providers step (spec 0.3 graft 7, 11.10, 11.11 step 2): company logo 22 in
  * brand color, name and one line, how it signs in, the key field, and the
- * result in words. On paste or blur the key is saved with setSecret and
- * tested with testProvider; while testing the Knot and the words show the host.
+ * result in words. Save (or Enter) saves the key with setSecret and tests it
+ * with testProvider; a paste, blur or password manager fill never saves.
+ * While testing the Knot and the words show the host.
  * A rejected key turns the field fault and explains why under the row.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -15,8 +16,8 @@ import { keyPlaceholder, providerInfo, type ProviderInfo } from '@/lib/providers
 import { useIsMobile } from '@/lib/hooks';
 import { CompanyMark } from '../logo';
 import { LiveStatus } from '../motion';
-import { Input } from '../ui/Field';
-import { IconButton } from '../ui/Button';
+import { Input, SECRET_FIELD } from '../ui/Field';
+import { Button, IconButton } from '../ui/Button';
 import { Menu, type MenuItem } from '../ui/Overlay';
 
 export type ProviderState = 'notset' | 'set' | 'saving' | 'testing' | 'works' | 'rejected' | 'found';
@@ -132,7 +133,7 @@ export interface ProviderRowProps {
   menu?: MenuItem[];
   /** Expanded content under the row (Settings: base URL, models, plan). */
   children?: ReactNode;
-  /** Test once on mount (Settings shows live state; onboarding tests on paste). */
+  /** Test once on mount (Settings shows live state; onboarding tests on Save). */
   testOnMount?: boolean;
   onResult?: (r: ProviderResult) => void;
   className?: string;
@@ -168,34 +169,45 @@ export function ProviderRow({ provider, name, description, menu, children, testO
   };
 
   const rejected = k.result.state === 'rejected';
+  const busy = k.result.state === 'saving' || k.result.state === 'testing';
+  // empty, or the key just tried: nothing new to save
+  const unchanged = !value.trim() || value.trim() === last.current;
+  const cancel = () => {
+    setEditing(false);
+    setValue('');
+    last.current = '';
+  };
   const keyCell =
     info?.signIn === 'none' ? (
       <span className="text-[13px] text-fg-3">No key needed</span>
     ) : editing ? (
-      <Input
-        mono
-        size="sm"
-        type="password"
-        autoComplete="off"
-        spellCheck={false}
-        value={value}
-        invalid={rejected}
-        placeholder={keyPlaceholder(info)}
-        aria-label={`${info?.name ?? provider} API key`}
-        onChange={(e) => setValue(e.target.value)}
-        onPaste={(e) => {
-          const t = e.clipboardData.getData('text');
-          if (t) {
-            e.preventDefault();
-            setValue(t.trim());
-            void submit(t);
-          }
-        }}
-        onBlur={() => void submit(value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') void submit(value);
-        }}
-      />
+      <span className="flex items-center gap-2">
+        <Input
+          mono
+          size="sm"
+          {...SECRET_FIELD}
+          value={value}
+          invalid={rejected}
+          placeholder={keyPlaceholder(info)}
+          aria-label={`${info?.name ?? provider} API key`}
+          className="min-w-0 flex-1"
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              void submit(value);
+            }
+          }}
+        />
+        <Button size={mobile ? 'touch' : 'sm'} variant="solid" disabled={unchanged || busy} onClick={() => void submit(value)}>
+          Save
+        </Button>
+        {k.hasKey && (
+          <Button size={mobile ? 'touch' : 'sm'} variant="quiet" onClick={cancel}>
+            Cancel
+          </Button>
+        )}
+      </span>
     ) : (
       <span className="flex items-center gap-3 text-[13px]">
         <span className="font-mono text-[12.5px] text-fg-3">••••••••</span>
