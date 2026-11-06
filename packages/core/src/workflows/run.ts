@@ -33,7 +33,8 @@ import { branchCommit, codeFingerprint, createWorktree, finishWorktree, repoInfo
 import type { WorkflowService } from './service';
 import { loadMeta } from './registry';
 import { captureUrl, hubCapture, type CaptureOptions } from '../browser/capture';
-import { scopeGuardCheck } from '../session/scope-guard';
+import { guardAnchor, scopeGuardCheck } from '../session/scope-guard';
+import { classifyAll, GRANT_MAX_MS, GRANT_MAX_REQUESTS, GRANTS_KV, parseScope, scopeExpired, ScopeError, type ScopeGrant } from '../security/scope';
 import type { BrowserManager } from '../browser/manager';
 import { outputsDir } from '../files/share';
 import { ledgerFence, ledgerId, mergeLedger } from './ledger';
@@ -1025,6 +1026,123 @@ export class LiveRun {
     return res.decision === 'allow';
   }
 
+  /**
+   * lib.scope (security-hunt step 0): a scope.yaml on the run's device, read with the scope guard's own parser,
+   * and how each host the script names classifies against it (lab, in, out, unknown).
+   */
+  private async readScope(file: string, hosts: string[]): Promise<{ ok: true; file: string; scope: ReturnType<typeof parseScope>; expired: boolean; hosts: Record<string, string> } | { ok: false; file: string; error: string }> {
+    const machine = this.machineFor();
+    const path = posix.normalize(machine.resolve(file, this.row.cwd));
+    let text: string;
+    try {
+      if (!(await machine.stat(path))) return { ok: false, file: path, error: `${path} does not exist` };
+      text = await machine.readText(path);
+    } catch (err) {
+      return { ok: false, file: path, error: `could not read ${path}: ${(err as Error).message}` };
+    }
+    try {
+      const scope = parseScope(text);
+      const classes: Record<string, string> = {};
+      for (const h of hosts) {
+        let host = h;
+        let urlPath: string | undefined;
+        if (/^[a-z][a-z0-9+.-]*:\/\//i.test(h)) {
+          try {
+            const u = new URL(h);
+            host = u.hostname;
+            urlPath = u.pathname;
+          } catch {
+            /* left as written: classifies as unknown */
+          }
+        }
+        classes[h] = classifyAll([scope], host, urlPath);
+      }
+      return { ok: true, file: path, scope, expired: scopeExpired(scope), hosts: classes };
+    } catch (err) {
+      return { ok: false, file: path, error: err instanceof ScopeError ? err.message : (err as Error).message };
+    }
+  }
+
+  /**
+   * lib.approve(text, { grant }): an approval grant for live hosts of one target (docs/design/SECURITY-MODE.md 4.3).
+   * The hosts come from a script and its agents, so they are checked here against the scope file; budget, rate and
+   * expiry are capped by the scope and the owner's limits (24 h, 500 requests). Unattended runs and members never
+   * get one, and the script parks the lead. On approval the grant is stored where the scope guard reads it.
+   */
+  private async grant(text: string, raw: Record<string, unknown>, signal: AbortSignal): Promise<(ScopeGrant & { scopeLine?: string }) | false> {
+    const session = this.sessionOf();
+    if (this.unattended() || !session) {
+      this.log('approval grant: an unattended run never gets one, so the lead stays lab-only');
+      return false;
+    }
+    if (this.engine.isMemberSession(session)) {
+      this.log('approval grant: Security mode is lab-only for members');
+      return false;
+    }
+    const hosts = (Array.isArray(raw.hosts) ? raw.hosts : []).filter((h): h is string => typeof h === 'string' && !!h.trim()).map((h) => h.trim());
+    if (!hosts.length) throw new Error('lib.approve: a grant needs hosts');
+    const st = await this.readScope(typeof raw.scopeFile === 'string' ? raw.scopeFile : 'scope.yaml', hosts);
+    if (!st.ok || st.expired) {
+      this.log(`approval grant refused: ${st.ok ? `${st.file} expired on ${st.scope.expires}` : st.error}`);
+      return false;
+    }
+    const outside = hosts.filter((h) => st.hosts[h] !== 'in');
+    if (outside.length) {
+      this.log(`approval grant refused: ${outside.join(', ')} not in_scope in ${st.file}`);
+      return false;
+    }
+    const s = st.scope;
+    const accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).filter((a): a is string => typeof a === 'string' && s.accounts.includes(a));
+    const most = Math.min(s.requestBudget, GRANT_MAX_REQUESTS);
+    const requestBudget = Math.max(1, Math.min(Math.floor(Number(raw.requests) || most), most));
+    const rateRps = Math.min(Number(raw.rateRps) > 0 ? Number(raw.rateRps) : s.rateLimitRps, s.rateLimitRps);
+    const hours = Math.min(Number(raw.hours) > 0 ? Number(raw.hours) : 24, GRANT_MAX_MS / 3_600_000);
+    const scopeLine = typeof raw.scopeLine === 'string' ? oneLine(raw.scopeLine, 200) : `in_scope ${s.inScope.join(', ')}, ${st.file}`;
+    const card = [
+      text,
+      '',
+      `hosts     ${hosts.join(', ')}`,
+      `accounts  ${accounts.join(', ') || 'none'}`,
+      `budget    ${requestBudget} requests, ${rateRps} per second`,
+      `expires   in ${hours} hours`,
+      `scope     ${scopeLine}`,
+    ].join('\n');
+    const res = await this.engine.requestApproval(session.id, { toolUseId: `wf_${this.id}_grant_${this.seq}`, tool: 'ExitPlanMode', input: { plan: card }, summary: `${this.row.name}: allow live requests to ${oneLine(hosts.join(', '), 120)}?` }, signal);
+    if (res.decision !== 'allow') {
+      this.log(`approval grant for ${hosts.join(', ')} denied`);
+      return false;
+    }
+    const now = Date.now();
+    const g: ScopeGrant = { id: newId('grant'), hosts, accounts, requestBudget, rateRps, issuedAt: now, expiresAt: now + hours * 3_600_000 };
+    // keyed by the security session the scope guard anchors on, so its children's calls see the grant
+    const owner = guardAnchor(this.engine, session)?.id ?? session.id;
+    const all = this.engine.repos.kv.get<Record<string, ScopeGrant[]>>(GRANTS_KV, {});
+    this.engine.repos.kv.set(GRANTS_KV, { ...all, [owner]: [...(Array.isArray(all[owner]) ? all[owner] : []), g] });
+    this.log(`approval grant ${g.id}: ${hosts.join(', ')}, ${requestBudget} requests at ${rateRps}/s for ${hours} h`);
+    return { ...g, scopeLine };
+  }
+
+  /**
+   * lib.notice: a typed notice in the run's session. A finding notice (the finding card) says confirmed only with a
+   * runtime oracle whose every run passed; anything else is shown as partial, whatever the script sent.
+   */
+  private notice(type: string, text: string, meta: Record<string, unknown>): boolean {
+    if (type !== 'finding' && type !== 'lane') throw new Error('lib.notice: type must be finding or lane');
+    const sessionId = this.row.sessionId;
+    if (!sessionId || !this.engine.getSession(sessionId)) return false;
+    const m: Record<string, unknown> = { ...meta, type, level: 'info', workflowRunId: this.id };
+    if (type === 'finding' && m.state === 'confirmed') {
+      const o = m.oracle as { runs?: Array<{ pass?: unknown }> } | undefined;
+      const runs = Array.isArray(o?.runs) ? o.runs : [];
+      if (runs.length < 3 || !runs.every((r) => r && r.pass === true)) {
+        m.state = 'partial';
+        this.log(`finding notice ${String(m.title ?? '')}: confirmed without a passing runtime oracle, shown as partial`);
+      }
+    }
+    this.engine.addMessage(sessionId, { role: 'assistant', kind: 'notice', content: [{ type: 'text', text: oneLine(text, 300) }], meta: m });
+    return true;
+  }
+
   // ----- the sandbox -----
 
   private hostFns(parentSeq: number | undefined, nested: boolean) {
@@ -1151,7 +1269,26 @@ export class LiveRun {
       },
       approve: (p: unknown) => {
         const text = String((p as { text?: unknown })?.text ?? '');
+        const grant = (p as { grant?: unknown })?.grant;
+        if (grant && typeof grant === 'object') {
+          const g = grant as Record<string, unknown>;
+          const hosts = Array.isArray(g.hosts) ? g.hosts.map(String).join(', ') : '';
+          return this.hostCall('ask', `grant: ${oneLine(hosts, 80)}`, { approve: text, grant: g }, parentSeq, (signal) => this.grant(text, g, signal), readAt((p as { at?: unknown })?.at));
+        }
         return this.hostCall('ask', 'approve the plan', { approve: text }, parentSeq, (signal) => this.approve(text, signal), readAt((p as { at?: unknown })?.at));
+      },
+      scope: (p: unknown) => {
+        const o = (p ?? {}) as { file?: unknown; hosts?: unknown };
+        const file = typeof o.file === 'string' && o.file.trim() ? o.file : 'scope.yaml';
+        const hosts = Array.isArray(o.hosts) ? o.hosts.filter((h): h is string => typeof h === 'string' && !!h.trim()).slice(0, 50) : [];
+        return this.hostCall('check', `scope: ${oneLine(file, 80)}`, { scope: file, hosts }, parentSeq, () => this.readScope(file, hosts));
+      },
+      notice: (p: unknown) => {
+        const o = (p ?? {}) as { type?: unknown; text?: unknown; meta?: unknown };
+        const type = String(o.type ?? '');
+        const meta = o.meta && typeof o.meta === 'object' && !Array.isArray(o.meta) ? (o.meta as Record<string, unknown>) : {};
+        // journaled, so a resumed run does not post the same notice twice
+        return this.hostCall('check', `notice: ${type}`, { notice: type, text: o.text ?? '', meta }, parentSeq, async () => this.notice(type, String(o.text ?? ''), meta));
       },
     };
     // every async host call counts toward the run's host call cap

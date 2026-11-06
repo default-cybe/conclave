@@ -426,7 +426,10 @@ export function preludeSource(opts: { argsJson: string; nested: boolean }): stri
     recordFindings: (list) => call('recordFindings', { findings: list || [] }),
     ledger,
     ask: (question, options) => call('ask', { question, options: options || [], at: here() }),
-    approve: (text) => call('approve', { text, at: here() }),
+    // with { grant }: an approval grant for live hosts (Security mode); resolves to the grant or false, never ends the run
+    approve: (text, o) => call('approve', { text, grant: o && o.grant ? o.grant : undefined, at: here() }),
+    scope: (file, o) => call('scope', { file, hosts: (o && o.hosts) || [] }),
+    notice: (type, text, meta) => call('notice', { type, text, meta: meta || {} }),
   };
   define('lib', Object.freeze(lib));
 })();
