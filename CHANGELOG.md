@@ -7,11 +7,13 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
-## [0.4.76] - 2026-11-07
+## [Unreleased]
 
 ### Added
 
 - Notes: one to-do list per account, shown as a slim line at the top of every Chat and Code conversation ("3 to do: Call the bank"). It stays hidden until you pick Add a note in the chat's menu. Click or tap the line to open a short checklist: add, check off, edit, delete, and drag to reorder on desktop. Escape folds it back. Notes are tasks with the `note` label, so they also show on the Tasks page and sync to Android, and each member has their own. A checked note leaves the line after a day and stays on the Tasks page as done. Android shows the same line on the chat screen: check notes off there, and Add a note opens a sheet.
+
+## [0.4.76] - 2026-11-07
 
 ### Changed
 
