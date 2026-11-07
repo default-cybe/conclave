@@ -62,6 +62,7 @@ export function SideFiles({ phone, onPick }: { phone?: boolean; onPick?: () => v
   const [loc] = useLocation();
   const path = decodeURIComponent(loc.split('?')[0]);
   const groups = fileGroups(files, folderLabel);
+  const devices = useHub((s) => s.devices);
   const n = useNewFile();
   return (
     <section aria-label="Programs and workflows">
@@ -84,6 +85,8 @@ export function SideFiles({ phone, onPick }: { phone?: boolean; onPick?: () => v
             return (
               <Link key={href} href={href} onClick={onPick} aria-current={on ? 'page' : undefined} className={cn(ROW, phone ? 'min-h-11 text-[15px]' : 'h-8 text-[13.5px]', on ? 'bg-side-active text-fg' : 'text-fg-2 hov:bg-side-hover hov:text-fg')}>
                 <span className="min-w-0 flex-1 truncate">{fileTitle(f)}</span>
+                {/* the same file in this folder on another device: say which device, else the rows read alike */}
+                {f.kind === 'program' && g.files.some((o) => o !== f && o.kind === 'program' && o.name === f.name) && <span className={cn('shrink-0 text-fg-4', phone ? 'text-[13px]' : 'text-[12px]')}>{devices[f.device || 'local']?.name ?? f.device}</span>}
                 <FileState f={f} phone={phone} />
               </Link>
             );
