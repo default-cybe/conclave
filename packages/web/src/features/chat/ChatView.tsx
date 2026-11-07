@@ -42,6 +42,7 @@ import { canScheduleHere, scheduleHere } from '@/features/meeting/links';
 import { Composer } from './Composer';
 import { PeopleControl } from './shared';
 import { TodoStrip } from './TodoStrip';
+import { addNote, NotesStrip } from './NotesStrip';
 import { RunningTasks } from './RunningTasks';
 import { BrowserLive } from './BrowserLive';
 import { ImportedLine } from '@/features/import/ImportedLine';
@@ -121,6 +122,7 @@ export function ChatView({ session, column }: { session: Session; /** Shown as a
             <IncognitoMark code />
           </div>
         )}
+        <NotesStrip />
         <DelegatedLine session={session} className="shrink-0 px-5 py-1.5" />
         <ImportedLine session={session} className="shrink-0 px-5 py-1.5" />
         <FriendShareLine session={session} className="shrink-0 px-5 py-1.5" />
@@ -139,6 +141,7 @@ export function ChatView({ session, column }: { session: Session; /** Shown as a
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
       <ChatHeader session={session} />
+      <NotesStrip />
       <RepoBar session={session} />
       <ImportedLine session={session} className="shrink-0 border-b border-rule px-8 py-1.5 phone:px-4" />
       <FriendShareLine session={session} className="shrink-0 border-b border-rule px-8 py-1.5 phone:px-4" />
@@ -400,6 +403,7 @@ function SessionMenu({ session }: { session: Session }) {
               },
             },
             { label: 'Compact', detail: 'Summarize older messages', onSelect: () => attempt(() => api().compact(session.id)) },
+            { label: 'Add a note', detail: 'Shown in every chat', onSelect: later(addNote) },
             // meetings start from the Meetings page now (MEETING-MODE.md 11.1); this fills in the folder
             ...(canScheduleHere(session) ? [{ label: 'Schedule a meeting here…', onSelect: () => navigate(scheduleHere(session)) }] : []),
             ...(hub.items.length ? [{ separator: true, label: '' }, ...hub.items] : []),
