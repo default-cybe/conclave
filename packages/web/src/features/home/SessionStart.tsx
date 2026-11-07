@@ -13,19 +13,20 @@
  * hub, "madx (hub)", unless a device was picked in this browser before; on
  * a phone on the last computer used (start.ts startDevice). The row has the
  * permission mode, then the folder ("Choose folder" until one is set; the
- * first send asks for it), then the device unless it is the desktop app's
- * own computer. "+" holds the agent, the device (the hub always among
- * them), a GitHub repository and Ultra.
+ * first send asks for it), then the device when there is more than one
+ * place to run; at the right the agent, mode (with Ultra) and memory chips
+ * and the model (design PR #292). "+" holds the files and the add-ons: a
+ * folder or a GitHub repository, a worktree, a design direction.
  * "/" lists the hub's commands, and Resume points at the last session.
  *
  * Effort is in the model's picker: the levels the model has (lib/effort.ts);
  * unset runs at the agent's own level. A level the next model lacks becomes
  * the nearest one it has.
  *
- * Phones (docs/design/MOBILE-V2.md 3, 4): the model with its effort sits in
- * the box (the same picker); the options sheet holds the device and folder,
- * the permission mode and Ultra, with the agent under More options. The
- * first send asks where to work when no folder is set yet.
+ * Phones (docs/design/MOBILE-V2.md 3, 4): the permission mode, the chips and
+ * the model wrap under the box; the options sheet holds the device and
+ * folder, the repository, the worktree and the design direction. The first
+ * send asks where to work when no folder is set yet.
  *
  * From GitHub (docs/DESIGN.md 30): with a repository picked, the session
  * starts in a new worktree of it on its own branch, on the device picked
@@ -49,7 +50,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
-import type { PermissionMode } from '@conclave/core/types';
+import type { PermissionMode, SessionMode } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { attempt, toast, upsertSession, useHub } from '@/store/store';
 import { cn } from '@/lib/text';
@@ -63,19 +64,17 @@ import { DESIGN_DIRECTIONS, type DesignDirection } from '@conclave/core/session/
 import { Sheet, type MenuItem } from '@/components/ui/Overlay';
 import { SelectMenu } from '@/components/ui/Select';
 import { LiveStatus } from '@/components/motion';
-import { AgentPicker } from '@/components/pickers/Pickers';
-import { DeviceFolderPicker, PermissionPicker } from '@/features/chat/pickers';
-import { ULTRA_LINE } from '@/features/workflows/UltraSwitch';
+import { DeviceFolderPicker, modePatch, PermissionPicker } from '@/features/chat/pickers';
 import { keepSession, sendToAssistant, type Outgoing } from '@/features/conversation/actions';
 import { SEND_EVENT, type ComposerTarget } from '@/features/conversation/ChatComposer';
-import { useAgentFollow } from '@/features/conversation/ComposerParts';
+import { AgentChip, MemoryChip, ModeChip, useAgentFollow } from '@/features/conversation/ComposerParts';
 import { OptionsButton } from '@/features/conversation/PhoneBox';
 import { sameRepo } from '@/lib/github';
 import { BranchPicker, IssuePicker, RepoList, RepoPicker, type IssuePick, type RepoPick } from '@/features/github/RepoPicker';
 import { ASSISTANT_AGENT, CODE_AGENT, CODE_NEEDS_DEVICE, commandOf, customAgent, lastOwnSession, needsOwnDevice, offersIncognito, placeName, readPicks, savePicks, SECURITY_AGENT, sessionSetup, startCommands, startEffort, type Picks, type SessionKind } from './start';
 import { startSurface, useThisComputer } from './here';
-import { DeviceChip, FolderChip, computerList, deviceItems, useComputers } from './Where';
-import { CODE_INCOGNITO_LINE, memoryChat, MemoryField, memoryItems, usePrivacy } from '@/features/conversation/incognito';
+import { DeviceChip, FolderChip, computerList, useComputers } from './Where';
+import { CODE_INCOGNITO_LINE, memoryChat, usePrivacy } from '@/features/conversation/incognito';
 
 export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
   const [, navigate] = useLocation();
@@ -101,8 +100,9 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
   const [sheet, setSheet] = useState(false);
   const [asking, setAsking] = useState(false);
   const [folderOpen, setFolderOpen] = useState(false);
-  const [moreOptions, setMoreOptions] = useState(false);
   const [wantRepo, setWantRepo] = useState(false);
+  // the mode chip, for this one session (not kept for the next), as the design direction
+  const [mode, setMode] = useState<SessionMode>('agent');
   // an issue is for the next session only, so it is not kept with the picks
   const [issuePick, setIssuePick] = useState<IssuePick>();
   // a design direction for this one session (not kept for the next); Match a reference is /design in the session, it needs a URL or a screenshot
@@ -231,8 +231,8 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
         agent: setup.agent,
         model: setup.model,
         device: setup.device,
-        // a design direction is set before the first message goes, so its first turn has the brief
-        prompt: command || files || design ? undefined : out.text || undefined,
+        // a design direction or another mode is set before the first message goes, so its first turn has it
+        prompt: command || files || design || mode !== 'agent' ? undefined : out.text || undefined,
         ...(picks.permissionMode ? { permissionMode: picks.permissionMode } : {}),
         ...(Object.keys(chat).length ? { chat } : {}),
         ...(priv.incognito ? { incognito: true } : {}),
@@ -260,10 +260,15 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
         if (set) upsertSession(set);
         setDesign(undefined);
       }
+      if (code && mode !== 'agent') {
+        const set = await attempt(() => api().updateSession(s.id, modePatch(mode)));
+        if (set) upsertSession(set);
+        setMode('agent');
+      }
       if (command) {
         const r = await attempt(() => api().command(s.id, out.text.trim()));
         if (r?.output) toast({ title: `/${command}`, body: r.output, level: 'info' });
-      } else if (files || (design && out.text)) {
+      } else if (files || ((design || mode !== 'agent') && out.text)) {
         await attempt(() => api().send(s.id, { text: out.text, attachments: out.attachments }));
       }
       // still on the new conversation: open it. Gone elsewhere meanwhile: it waits in the sidebar
@@ -275,8 +280,8 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
   };
 
   const deviceName = placeName(devices[setup.device], setup.device);
-  // the device says itself unless it is the obvious one: the desktop app's own computer, or the only place there is
-  const showDevice = code && !repo && setup.device !== here && computers.length > 1;
+  // the device says itself whenever there is another place to run (it left "+" for this chip, design PR #292)
+  const showDevice = code && !repo && computers.length > 1;
   const customs = agents.filter((a) => (a.primary !== false && a.source !== 'builtin' && customAgent(a.name)) || a.name === picks.agent);
 
   // a member with no device of their own: the hub's computer would refuse every tool, so say where code runs
@@ -300,12 +305,10 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
       ),
     };
 
-  const plus: MenuItem[] = hunt
-    ? [...(computers.length > 1 ? deviceItems(computers, setup.device, pickDevice) : []), { separator: true, label: '' }, { label: 'Ultra', detail: ULTRA_LINE, checked: !!picks.ultra, keep: true, onSelect: () => update({ ...picks, ultra: !picks.ultra || undefined }) }, ...(priv.incognito ? [] : memoryItems(priv.memory, setMemory))]
-    : code
+  // "+" is files and add-ons only: the agent, mode, Ultra and memory are chips, the device is the chip at the left
+  const plus: MenuItem[] =
+    code && !hunt
     ? [
-        ...(customs.length ? [{ group: true, label: 'Agent' }, { label: `${CODE_AGENT}, the default`, detail: 'Hands work to its subagents itself', checked: setup.agent === CODE_AGENT, onSelect: () => pickAgent(CODE_AGENT) }, ...customs.map((a) => ({ label: a.name, detail: a.description, checked: setup.agent === a.name, onSelect: () => pickAgent(a.name) }))] : []),
-        ...(computers.length > 1 ? deviceItems(computers, setup.device, pickDevice) : []),
         { group: true, label: 'Work in' },
         // back from a repository (picked, or only asked for): the folder chip again, open when there is no repository to drop
         { label: 'A folder', checked: !repo && !wantRepo, onSelect: () => (repo ? pickRepo(undefined) : (setWantRepo(false), setTimeout(() => setFolderOpen(true), 0))) },
@@ -313,11 +316,15 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
         ...(isGit && !wantRepo ? [{ label: 'Run in a worktree', detail: worktreeDetail, checked: worktreeOn, keep: true, onSelect: () => update({ ...picks, worktree: !picks.worktree || undefined }) }] : []),
         { group: true, label: 'Design direction' },
         ...DESIGN_DIRECTIONS.filter((d) => d.id !== 'reference').map((d) => ({ label: d.label, detail: d.detail, checked: design === d.id, keep: true, onSelect: () => setDesign(design === d.id ? undefined : d.id) })),
-        { separator: true, label: '' },
-        { label: 'Ultra', detail: ULTRA_LINE, checked: !!picks.ultra, keep: true, onSelect: () => update({ ...picks, ultra: !picks.ultra || undefined }) },
-        ...(priv.incognito ? [] : memoryItems(priv.memory, setMemory)),
       ]
     : [];
+  const chips = code && (
+    <>
+      {!hunt && <AgentChip value={setup.agent} agents={[{ name: CODE_AGENT, description: 'The default. Hands work to its subagents itself' }, ...customs.filter((a) => a.name !== CODE_AGENT)]} onChange={pickAgent} />}
+      <ModeChip mode={mode} onMode={setMode} ultra={!!picks.ultra} onUltra={(on) => update({ ...picks, ultra: on || undefined })} />
+      {!priv.incognito && <MemoryChip value={priv.memory} onChange={setMemory} />}
+    </>
+  );
 
   const permission = <PermissionPicker look="text" value={permissionMode} onChange={(m) => update({ ...picks, permissionMode: m })} className="h-[24px] text-[12px]" />;
   const left = (
@@ -338,7 +345,6 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
   );
 
   const field = {
-    agent: <AgentPicker look="field" value={setup.agent} onChange={pickAgent} />,
     device: <DeviceFolderPicker look="field" device={setup.device} cwd={setup.cwd} onDevice={pickDevice} onCwd={repo ? undefined : pickCwd} showCwd={!repo} />,
     repo: <RepoPicker look="field" value={repo} onChange={pickRepo} onIssue={pickIssue} />,
     base: repo ? <BranchPicker look="field" repo={repo.repo} value={repo.base} onChange={pickBase} /> : null,
@@ -357,9 +363,11 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
     cyber: picks.cyber,
     onCyber: pickCyber,
     plus,
+    chips,
+    phoneLeft: permission,
     phoneOptions: (
       <>
-        <OptionsButton label={code ? `Options: ${setup.agent ?? 'agent'} on ${deviceName}` : 'Options: permissions'} onClick={() => setSheet(true)} />
+        {code && <OptionsButton label={`Options: ${setup.agent ?? 'agent'} on ${deviceName}`} onClick={() => setSheet(true)} />}
         <Sheet open={sheet} onClose={() => setSheet(false)} title="Options">
           <div className="space-y-5 px-4 pb-5">
             {code && <Row label={repo ? 'Device' : 'Device and folder'}>{field.device}</Row>}
@@ -380,23 +388,6 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
                 />
               </Row>
             )}
-            <Row label="Permissions">
-              <PermissionPicker look="field" value={permissionMode} onChange={(m) => update({ ...picks, permissionMode: m })} />
-            </Row>
-            {code && (
-              <Row label="Ultra">
-                <SelectMenu
-                  look="field"
-                  label="Ultra"
-                  value={picks.ultra ? 'on' : 'off'}
-                  onChange={(v) => update({ ...picks, ultra: v === 'on' || undefined })}
-                  options={[
-                    { value: 'off', label: 'Off', text: 'Off', detail: 'Workflows only when you ask or the task clearly needs one.' },
-                    { value: 'on', label: 'On', text: 'On', detail: ULTRA_LINE },
-                  ]}
-                />
-              </Row>
-            )}
             {code && !hunt && (
               <Row label="Design direction">
                 <SelectMenu
@@ -410,16 +401,6 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
                   ]}
                 />
               </Row>
-            )}
-            {code && !priv.incognito && <MemoryField value={priv.memory} onChange={setMemory} />}
-            {/* the default coding agent hands work to its subagents itself: another agent is for custom ones */}
-            {code && !hunt && (
-              <div>
-                <button type="button" aria-expanded={moreOptions} onClick={() => setMoreOptions((o) => !o)} className="flex min-h-11 items-center text-[15px] text-fg-2">
-                  More options
-                </button>
-                {moreOptions && <Row label="Agent">{field.agent}</Row>}
-              </div>
             )}
           </div>
         </Sheet>

@@ -4,7 +4,7 @@
  * device and folder, permission mode, mode, jurors, debaters and loop.
  */
 import { useRef, useState } from 'react';
-import type { DebateConfig, JuryConfig, LoopConfig, PermissionMode, SessionMode } from '@conclave/core/types';
+import type { DebateConfig, JuryConfig, LoopConfig, ModeConfig, PermissionMode, SessionMode } from '@conclave/core/types';
 import { cn } from '@/lib/text';
 import { useHub } from '@/store/store';
 import { modelName } from '@/lib/models';
@@ -172,6 +172,19 @@ export interface ModeValue {
 export const DEFAULT_JURY: JuryConfig = { jurors: ['anthropic/claude-sonnet-5-5', 'openai/gpt-5.5', 'zai/glm-5', 'google/gemini-3-pro'], strategy: 'synthesize', anonymize: true, jurorTools: 'none' };
 export const DEFAULT_DEBATE: DebateConfig = { a: 'openai/gpt-5.5', b: 'anthropic/claude-opus-5-5', rounds: 2 };
 export const DEFAULT_LOOP: LoopConfig = { untilCommand: 'bun test', maxIterations: 8 };
+
+/** A mode change, with that mode's defaults where the session has none yet (the mode chip, /mode, a new session). */
+export function modePatch(mode: SessionMode, cfg: ModeConfig = {}): { mode: SessionMode; modeConfig: ModeConfig } {
+  return {
+    mode,
+    modeConfig: {
+      ...cfg,
+      ...(mode === 'jury' && !cfg.jury ? { jury: DEFAULT_JURY } : {}),
+      ...(mode === 'debate' && !cfg.debate ? { debate: DEFAULT_DEBATE } : {}),
+      ...(mode === 'loop' && !cfg.loop ? { loop: DEFAULT_LOOP } : {}),
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Jury: "[logos] 4 jurors" and "Judge Opus 5.5"

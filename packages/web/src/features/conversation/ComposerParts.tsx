@@ -2,8 +2,9 @@
  * Parts of the composer, shaped like Claude Code's: one box with "+" at the
  * left, the field, the mic and Send; under it one quiet row with the
  * permission mode (and Code's folder) at the left, and at the right the
- * model with its effort as one picker and a small ring for the context used.
- * Everything else sits in the "+" menu or behind "/".
+ * agent, mode and memory chips, the model with its effort as one picker and
+ * a small ring for the context used (design PR #292). "+" holds files and
+ * add-ons only; the rest is behind "/".
  *
  * Effort offers the levels the hub's model list gives each model
  * (ModelInfo.effort, lib/effort.ts), its default marked; a level the next
@@ -16,7 +17,7 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Link } from 'wouter';
 import { FileArchive, FileText, Plus, X } from 'lucide-react';
-import type { Session } from '@conclave/core/types';
+import type { Session, SessionMode } from '@conclave/core/types';
 import { claudeEffort } from '@conclave/core/providers/effort';
 import { cyberLabel, type CyberProgram } from '@conclave/core/providers/access-programs';
 import { filesWord, isZip, mediaTypeFor, takeFiles } from '@conclave/core/attachments/limits';
@@ -33,11 +34,14 @@ import { LimitRow } from '@/components/ui/Meter';
 import { windowApplies } from '@conclave/core/accounts/windows';
 import type { AccountDto } from '@conclave/core/client';
 import { STATE_WORD, markedName, rowWindows, sessionPlan, useAccounts, type PlanReason } from '@/lib/accounts';
-import { contextPercent, costWord, stateWord, statusParts } from '@/features/chat/panel';
+import { costWord, stateWord } from '@/features/chat/panel';
+import { MODES } from '@/features/chat/modes';
+import { ULTRA_LINE } from '@/features/workflows/UltraSwitch';
+import { memoryItems, type MemoryMode } from './incognito';
 import { PickerButton, SelectMenu } from '@/components/ui/Select';
 import { ModelList } from '@/components/pickers/ModelPicker';
 import { SwitchModelList } from '@/features/chat/SwitchChoice';
-import { ModelWord, SameModelDot } from './PhoneBox';
+import { SameModelDot } from './PhoneBox';
 
 // ---------------------------------------------------------------------------
 // Effort
@@ -169,33 +173,24 @@ function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = 
   );
 }
 
-/** The model and its effort as one picker, in the quiet row: "Opus 5.5 Medium". */
-export function ModelEffort({ className, ...p }: PickerProps & { className?: string }) {
+/**
+ * The model and its effort as one picker, in the quiet row: "Opus 5.5 Medium".
+ * With `session` its tooltip also says the context left and the cost, the
+ * numbers the status line under the composer used to show.
+ */
+export function ModelEffort({ className, session, ...p }: PickerProps & { className?: string; session?: Session }) {
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const e = useModelEffort(p.model);
   const words = modelEffortWords(p.model, effortShown(p.value, e, p.follow), e);
+  const u = useContextUse(session, p.model);
+  const use = session ? `${u.window ? `, ${100 - Math.round(u.share * 100)}% context left` : ''}, ${u.word}` : '';
   return (
     <>
-      <PickerButton ref={ref} look="text" lead={p.sameModel ? <SameModelDot /> : undefined} aria-label={`Model and effort, ${words}${p.sameModel ? ', same model for all work' : ''}`} aria-haspopup="dialog" aria-expanded={open} className={cn('h-[24px] text-[12px] phone:text-[13px]', className)} onClick={() => setOpen((o) => !o)}>
+      <PickerButton ref={ref} look="text" lead={p.sameModel ? <SameModelDot /> : undefined} data-chip="model" title={`${words}${use}`} aria-label={`Model and effort, ${words}${p.sameModel ? ', same model for all work' : ''}${use}`} aria-haspopup="dialog" aria-expanded={open} className={cn(CHIP, className)} onClick={() => setOpen((o) => !o)}>
         {words}
       </PickerButton>
       <Popover anchor={ref} open={open} onClose={() => setOpen(false)} placement="top-end" width={400} maxHeight={520} label="Model and effort" sheetTitle="Model and effort">
-        <ModelEffortBody {...p} onDone={() => setOpen(false)} />
-      </Popover>
-    </>
-  );
-}
-
-/** Phones: the same picker behind the model's name in the box. */
-export function PhoneModelEffort(p: PickerProps) {
-  const ref = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const e = useModelEffort(p.model);
-  return (
-    <>
-      <ModelWord ref={ref} name={modelEffortWords(p.model, effortShown(p.value, e, p.follow), e)} expanded={open} marked={p.sameModel} onClick={() => setOpen(true)} />
-      <Popover anchor={ref} open={open} onClose={() => setOpen(false)} label="Model and effort" sheetTitle="Model and effort">
         <ModelEffortBody {...p} onDone={() => setOpen(false)} />
       </Popover>
     </>
@@ -332,7 +327,7 @@ export function ContextRing({ session, model }: { session?: Session; model?: str
   const label = u.used ? `Context, ${pct}% used` : 'Context, nothing used yet';
   return (
     <>
-      <button ref={ref} type="button" aria-label={label} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="grid size-6 shrink-0 place-items-center rounded-full text-fg-3 hov:bg-hover hov:text-fg">
+      <button ref={ref} type="button" aria-label={label} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="grid size-6 shrink-0 place-items-center rounded-full text-fg-3 hov:bg-hover hov:text-fg phone:size-9">
         <svg viewBox="0 0 14 14" className="size-3.5 -rotate-90" aria-hidden>
           <circle cx="7" cy="7" r={r} fill="none" stroke="var(--rule-2)" strokeWidth="1.5" />
           <circle cx="7" cy="7" r={r} fill="none" stroke={u.share > 0.8 ? 'var(--warn)' : 'currentColor'} strokeWidth="1.5" strokeDasharray={c} strokeDashoffset={c * (1 - u.share)} strokeLinecap="round" />
@@ -370,48 +365,6 @@ function ContextDetails({ anchor, open, onClose, session, model }: { anchor: Ref
   );
 }
 
-const STATE_TONE: Record<string, string> = { live: 'text-signal', warn: 'text-warn', fault: 'text-fault', dim: 'text-fg-3' };
-
-/**
- * One quiet line under the composer, like the terminal app's status row:
- * model, the plan it runs on, context used, tokens and cost this session,
- * and the state at the right. Same numbers as the ring and the Context card;
- * the account list loads once when nothing loaded it yet (useAccounts).
- * Phones have no ring: there the line leaves out the plan so it stays one
- * line, and a tap opens the ring's sheet, which has the plan and its limits.
- */
-export function StatusLine({ session, phone = false }: { session: Session; phone?: boolean }) {
-  const ref = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const u = useContextUse(session, undefined);
-  const { status: accounts } = useAccounts();
-  const agentModel = useHub((s) => s.agents.find((a) => a.name === session.agent)?.model);
-  const hubDefault = useHub((s) => s.hub?.defaultModel);
-  const plan = sessionPlan(session.model, session.meta, agentModel ?? hubDefault, accounts)?.current;
-  const parts = statusParts({ model: session.model, plan: plan && !phone ? planWords(plan) : undefined, contextPct: contextPercent(u.used, u.window), tokens: u.tokensIn + u.tokensOut, cost: u.word });
-  const state = stateWord(session.status, session.resumeAt);
-  const line = (
-    <>
-      <span className="num min-w-0 flex-1 truncate">{parts.join(' · ')}</span>
-      <span className={cn('shrink-0', STATE_TONE[state.tone])}>{state.word}</span>
-    </>
-  );
-  if (!phone)
-    return (
-      <div data-status-line="" className="flex min-h-[20px] items-baseline gap-2 px-0.5 text-[12px] text-fg-3">
-        {line}
-      </div>
-    );
-  return (
-    <>
-      <button ref={ref} type="button" data-status-line="" aria-haspopup="dialog" aria-expanded={open} aria-label={`${parts.join(', ')}, ${state.word}. Plan and context`} onClick={() => setOpen(true)} className="flex min-h-11 w-full items-center gap-2 px-1.5 text-left text-[12px] text-fg-3">
-        {line}
-      </button>
-      <ContextDetails anchor={ref} open={open} onClose={() => setOpen(false)} session={session} />
-    </>
-  );
-}
-
 function Row({ k, children }: { k: string; children: ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4">
@@ -425,7 +378,7 @@ function Row({ k, children }: { k: string; children: ReactNode }) {
 // "+"
 // ---------------------------------------------------------------------------
 
-/** "+": attach files first, then what the conversation adds (web and memory, agent, device, folder, Ultra, modes). */
+/** "+": attach files first, then the add-ons (search the web, a GitHub repository, a worktree, a design direction). */
 export function PlusMenu({ items, onFiles, accept, label = 'Add files and more' }: { items: MenuItem[]; onFiles: (files: File[]) => void; accept: string; label?: string }) {
   const ref = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -456,8 +409,15 @@ export function PlusMenu({ items, onFiles, accept, label = 'Add files and more' 
   );
 }
 
-/** The quiet row under the box: the left side, then the model and the ring at the right. */
-export function QuietRow({ left, right }: { left?: ReactNode; right: ReactNode }) {
+/** The quiet row under the box: the left side, then the chips, the model and the ring at the right. Phones (`wrap`): one run that wraps, as the mock. */
+export function QuietRow({ left, right, wrap }: { left?: ReactNode; right: ReactNode; wrap?: boolean }) {
+  if (wrap)
+    return (
+      <div data-chip-row="" className="mt-1 flex flex-wrap items-center gap-x-1 px-1 text-[13px] text-fg-3">
+        {left}
+        {right}
+      </div>
+    );
   return (
     <div className="mt-1 flex min-h-[26px] items-center gap-2 px-0.5 text-[12px] text-fg-3">
       <div className="-my-1 flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden py-1">{left}</div>
@@ -465,6 +425,59 @@ export function QuietRow({ left, right }: { left?: ReactNode; right: ReactNode }
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Chips: agent, mode and memory under the box (design PR #292)
+// ---------------------------------------------------------------------------
+
+/** The chips' size: the quiet row's on desktop, a 36px place to tap on phones. */
+export const CHIP = 'h-[24px] text-[12px] phone:h-9 phone:text-[13px]';
+
+/** A compact chip under the box that opens a menu (a sheet on phones). */
+export function ChipMenu({ label, words, items, width = 300, className }: { label: string; words: string; items: MenuItem[]; width?: number; className?: string }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <PickerButton ref={ref} look="text" data-chip={label.toLowerCase()} aria-label={`${label}, ${words}`} aria-haspopup="menu" aria-expanded={open} className={cn(CHIP, className)} onClick={() => setOpen((o) => !o)}>
+        {words}
+      </PickerButton>
+      <Popover anchor={ref} open={open} onClose={() => setOpen(false)} placement="top-end" width={width} maxHeight={520} label={label} sheetTitle={label}>
+        <MenuList items={items} onDone={() => setOpen(false)} label={label} />
+      </Popover>
+    </>
+  );
+}
+
+/** The agent: the ones offered here (Code: the default and the custom ones). */
+export function AgentChip({ value, agents, onChange }: { value: string | undefined; agents: Array<{ name: string; description?: string }>; onChange: (name: string) => void }) {
+  const items: MenuItem[] = [{ group: true, label: 'Agent' }, ...agents.map((a) => ({ label: a.name, detail: a.description, checked: a.name === value, onSelect: () => a.name !== value && onChange(a.name) }))];
+  return <ChipMenu label="Agent" words={value ?? 'Agent'} items={items} />;
+}
+
+/** "Agent mode": the six modes, and Ultra under a rule where the session takes it (`onUltra`). */
+export function ModeChip({ mode, onMode, ultra, onUltra }: { mode: SessionMode; onMode: (m: SessionMode) => void; ultra?: boolean; onUltra?: (on: boolean) => void }) {
+  const cur = MODES.find((m) => m.value === mode) ?? MODES[0];
+  const items: MenuItem[] = [
+    { group: true, label: 'Mode' },
+    ...MODES.map((m) => ({ label: m.label, detail: m.description, checked: m.value === mode, onSelect: () => m.value !== mode && onMode(m.value) })),
+    ...(onUltra ? [{ separator: true, label: '' }, { label: 'Ultra', detail: ULTRA_LINE, checked: !!ultra, keep: true, onSelect: () => onUltra(!ultra) }] : []),
+  ];
+  return <ChipMenu label="Mode" words={`${cur.label} mode${onUltra && ultra ? ', Ultra' : ''}`} items={items} />;
+}
+
+export const MEMORY_WORDS: Record<MemoryMode, string> = { save: 'Memory', use: 'Memory, use only', off: 'No memory' };
+
+/** "Memory", "Memory, use only" or "No memory" (in fg-3): Use and save, Use only, Off. */
+export function MemoryChip({ value, onChange }: { value: MemoryMode; onChange: (m: MemoryMode) => void }) {
+  return <ChipMenu label="Memory" words={MEMORY_WORDS[value]} items={memoryItems(value, onChange)} width={280} className={value === 'off' ? 'text-fg-3' : undefined} />;
+}
+
+/** A session's memory setting from its chat switches (core session/chat.ts). */
+export const memoryModeOf = (chat: { memory?: boolean; memorySave?: boolean } | undefined): MemoryMode => (chat?.memory === false ? 'off' : chat?.memorySave === false ? 'use' : 'save');
+
+/** The chat patch for a session that exists: Use and save sends memorySave true, which session/chat.ts clears. */
+export const memoryPatch = (m: MemoryMode) => ({ memory: m !== 'off', memorySave: m !== 'use' });
 
 // ---------------------------------------------------------------------------
 // Attachments
