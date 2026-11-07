@@ -7,6 +7,13 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- The model picker's foot is one Settings row instead of the Same model for all work and Security switches with their help text: it names what is on ("Settings: Same model") and opens in place to show the switches and Cyber access, so the model list keeps its room.
+- The sidebar's header has the five mode icons again (Chat, Assistant, Code, Security, Canvas), the open one raised; the phone keeps the one picker that names the mode.
+
 ## [0.4.79] - 2026-11-07
 
 ### Changed

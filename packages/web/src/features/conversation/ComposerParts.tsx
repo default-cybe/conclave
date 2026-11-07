@@ -16,7 +16,7 @@
  */
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Link } from 'wouter';
-import { FileArchive, FileText, Plus, X } from 'lucide-react';
+import { ChevronDown, FileArchive, FileText, Plus, Settings2, X } from 'lucide-react';
 import type { Session, SessionMode } from '@conclave/core/types';
 import { claudeEffort } from '@conclave/core/providers/effort';
 import { cyberLabel, type CyberProgram } from '@conclave/core/providers/access-programs';
@@ -104,11 +104,32 @@ export const SECURITY_HELP = 'Loads the security agent and its sec-* roles, and 
 
 export const SAME_MODEL_HELP = 'Delegate, Task and workflow agents, at any depth, run on this conversation\'s model unless you name another. If its plan is out or refuses, the usual fallback order applies.';
 
-/** Same model for all work: one switch under Effort, with its help line. */
-function SameModelSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+/**
+ * The picker's foot: one Settings row that opens, in place, the switches that
+ * go with the model (Cyber access, Same model for all work, Security). Shut,
+ * it names the ones that are on, so the model list keeps its room.
+ */
+function PickerSettings({ model, cyber, onCyber, sameModel, onSameModel, security, onSecurity }: Pick<PickerProps, 'model' | 'cyber' | 'onCyber' | 'sameModel' | 'onSameModel' | 'security' | 'onSecurity'>) {
+  const [open, setOpen] = useState(false);
+  const on = [cyber && cyberLabel(cyber), onSameModel && sameModel && 'Same model', onSecurity && security && 'Security'].filter(Boolean).join(', ');
   return (
-    <div className="shrink-0 border-t border-rule px-3 pt-2 pb-2.5">
-      <Checkbox checked={on} onChange={onChange} label="Same model for all work" description={SAME_MODEL_HELP} />
+    <div className="shrink-0 border-t border-rule" data-part="picker-settings">
+      <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="flex h-9 w-full items-center gap-2 px-3 text-left text-[12px] text-fg-3 hov:text-fg phone:h-11 phone:text-[13px]">
+        <Settings2 className="size-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
+        <span className="flex-1 truncate">Settings{on ? <span className="text-fg-2">: {on}</span> : null}</span>
+        <ChevronDown className={cn('size-3.5 shrink-0 transition-transform duration-[var(--dur-1)]', open && 'rotate-180')} strokeWidth={1.75} aria-hidden />
+      </button>
+      {open && (
+        <>
+          {onCyber && <CyberAccess model={model} value={cyber} onChange={onCyber} />}
+          {(onSameModel || onSecurity) && (
+            <div className="space-y-2.5 px-3 pt-1 pb-2.5">
+              {onSameModel && <Checkbox checked={!!sameModel} onChange={onSameModel} label="Same model for all work" description={SAME_MODEL_HELP} />}
+              {onSecurity && <Checkbox checked={!!security} onChange={onSecurity} label="Security" description={SECURITY_HELP} />}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -158,17 +179,7 @@ function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = 
         </div>
       )}
       {switchOf ? <SwitchModelList session={switchOf} harnesses={harnesses} onDone={onDone} onStep={setStepping} /> : <ModelList value={model} harnesses={harnesses} onChange={onModel} onDone={onDone} />}
-      {onCyber && !stepping && (
-        <div className="border-t border-rule">
-          <CyberAccess model={model} value={cyber} onChange={onCyber} />
-        </div>
-      )}
-      {onSameModel && !stepping && <SameModelSwitch on={!!sameModel} onChange={onSameModel} />}
-      {onSecurity && !stepping && (
-        <div className="shrink-0 border-t border-rule px-3 pt-2 pb-2.5">
-          <Checkbox checked={!!security} onChange={onSecurity} label="Security" description={SECURITY_HELP} />
-        </div>
-      )}
+      {(onCyber || onSameModel || onSecurity) && !stepping && <PickerSettings model={model} cyber={cyber} onCyber={onCyber} sameModel={sameModel} onSameModel={onSameModel} security={security} onSecurity={onSecurity} />}
     </>
   );
 }
