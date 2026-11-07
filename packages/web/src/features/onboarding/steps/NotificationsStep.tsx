@@ -43,7 +43,7 @@ export function NotificationsStep() {
       ? `${here} gets notifications${others.length ? `, and ${others.length === 1 ? 'one more device' : `${others.length} more devices`}` : ''}.`
       : others.length
         ? `${andList(others)} ${others.length === 1 ? 'gets' : 'get'} notifications.`
-        : 'No device yet. The Inbox still shows approvals and questions.';
+        : 'No device gets notifications. The Inbox shows approvals and questions.';
   const idle = n.idleSeconds ?? 60;
 
   return (
@@ -79,7 +79,7 @@ export function NotificationsStep() {
           </SettingRow>
         </div>
         <div className="mt-5 grid gap-x-8 gap-y-4 sm:grid-cols-2">
-          <Footnote title="Other computers and phones">Open Conclave on each one and turn on Notify this device there. Settings has the list.</Footnote>
+          <Footnote title="Other computers and phones">Open Conclave on each one and turn on Notify this device. Settings lists them all.</Footnote>
           <Footnote title="Android app">{ANDROID_NOTE}</Footnote>
         </div>
       </section>
@@ -93,8 +93,8 @@ export function NotificationsStep() {
         </div>
         <p className="m-0 mt-4 text-[12px] text-fg-3 phone:text-[13px]">
           {idle > 0
-            ? 'While you are using Conclave on any device, only approvals, questions and failures go out. Settings can change this.'
-            : 'Notifications go out even while you are using Conclave. Settings can change this.'}
+            ? 'While Conclave is open on any device, only approvals, questions and failures are sent. Change this in Settings.'
+            : 'Notifications are sent even while Conclave is open. Change this in Settings.'}
         </p>
       </section>
     </StepFrame>

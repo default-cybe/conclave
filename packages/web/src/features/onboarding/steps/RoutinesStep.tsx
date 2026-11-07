@@ -196,7 +196,7 @@ export function RoutinesStep() {
   const first = templates?.slice(0, 4) ?? [];
   const rest = templates?.slice(4) ?? [];
   const count = Object.values(routines).length;
-  const summary = count ? `${count} ${count === 1 ? 'routine' : 'routines'} on the hub.` : 'None added yet.';
+  const summary = count ? `${count} ${count === 1 ? 'routine' : 'routines'} on the hub.` : 'No routine added.';
 
   return (
     <StepFrame summary={summary}>
@@ -216,7 +216,7 @@ export function RoutinesStep() {
               <TextAction className={LINK} label={`${rest.length} more: ${rest.map((t) => t.name).join(', ')}`} onClick={() => setMore(true)} />
             </div>
           )}
-          <p className="m-0 mt-8 max-w-[60ch] text-[12px] leading-[1.5] text-fg-3 phone:text-[13px]">Each one starts with the default model and can be edited, paused or run now from Routines. Times are in this device&apos;s time zone.</p>
+          <p className="m-0 mt-8 max-w-[60ch] text-[12px] leading-[1.5] text-fg-3 phone:text-[13px]">Each one uses the default model. Edit, pause or run it from Routines. Times use this device&apos;s time zone.</p>
         </section>
       )}
     </StepFrame>

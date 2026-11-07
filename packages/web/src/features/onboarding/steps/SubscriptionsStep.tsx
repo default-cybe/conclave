@@ -26,7 +26,7 @@ export function SubscriptionsStep() {
     return (
       <StepFrame summary={older ? 'Not available on this hub.' : 'Loading.'}>
         {older ? (
-          <p className="m-0 max-w-[64ch] text-[14px] leading-[1.5] text-fg-2">This hub is older than subscription sign-in. Update the hub, then run setup again from Settings, About. Skip this step for now.</p>
+          <p className="m-0 max-w-[64ch] text-[14px] leading-[1.5] text-fg-2">This hub does not support subscription sign-in. Update the hub, then run setup again from Settings, About.</p>
         ) : error ? (
           <p className="m-0 text-[14px] text-fault">{error}</p>
         ) : (
@@ -41,7 +41,7 @@ export function SubscriptionsStep() {
       <span className="font-[560] text-ok">{n === 1 ? 'One account' : `${n} accounts`}</span> signed in
     </>
   ) : (
-    'Nothing signed in yet.'
+    'No account signed in.'
   );
   const showForm = external || status.mode === 'external';
 
@@ -65,11 +65,11 @@ export function SubscriptionsStep() {
           <SectionHeading rule={false} className="pb-1">
             Sign in
           </SectionHeading>
-          <p className="m-0 pb-3 max-w-[64ch] text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">Each one opens the provider&apos;s own sign-in page in a new tab. You can sign in to more than one account of the same plan.</p>
+          <p className="m-0 pb-3 max-w-[64ch] text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">Each opens the provider&apos;s sign-in page in a new tab. More than one account per plan is allowed.</p>
           <SubscriptionRows status={status} />
           <div className="pt-4 text-[13px] text-fg-3 phone:text-[14px]">
             <button type="button" className={LINK} onClick={() => setExternal(true)}>
-              I already run CLIProxyAPI
+              Use an existing CLIProxyAPI
             </button>
           </div>
         </section>
@@ -80,7 +80,7 @@ export function SubscriptionsStep() {
           <SectionHeading rule={false} className="pb-1">
             Your CLIProxyAPI
           </SectionHeading>
-          <p className="m-0 pb-4 max-w-[64ch] text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">The hub uses the one you run on another computer. Nothing is installed here.</p>
+          <p className="m-0 pb-4 max-w-[64ch] text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">The hub uses a CLIProxyAPI that runs on another computer. Nothing is installed here.</p>
           <div className="max-w-[560px]">
             <ExternalForm
               status={status}
@@ -114,9 +114,9 @@ export function SubscriptionsStep() {
       )}
 
       <div className="mt-10 grid gap-x-12 gap-y-6 md:grid-cols-2">
-        <Footnote title="Where sign-ins live">On {hub?.name ?? 'the hub'}, in CLIProxyAPI&apos;s own folder that only the hub reads. Keys and tokens never reach this page or your sessions.</Footnote>
+        <Footnote title="Where sign-ins are stored">On {hub?.name ?? 'the hub'}, in a folder only the hub reads. Tokens never reach this page or your sessions.</Footnote>
         <Footnote title="CLIProxyAPI">
-          A separate open source project (MIT) that the hub downloads, version {status.pinned.version}, and checks against its release checksums before it runs.
+          An open source (MIT) program that signs in to these plans. The hub downloads version {status.pinned.version} and checks its release checksum before it runs.
         </Footnote>
       </div>
     </StepFrame>

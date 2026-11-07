@@ -288,7 +288,7 @@ export function ConnectForm({
             <span className="mono">conclave serve</span> prints it when it starts.
           </>
         ) : mode === 'password' ? (
-          'Settings, Remote access on the hub shows it. Use the https one away from home.'
+          'Settings, Remote access on the hub shows it. From other networks, use the https address.'
         ) : undefined
       }
     >

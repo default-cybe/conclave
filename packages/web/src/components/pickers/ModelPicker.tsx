@@ -521,12 +521,12 @@ function startAt(items: PickerItem[], current: string | undefined): number {
 }
 
 /** The account's pinned models (GET /api/me), shared by its devices. */
-export const usePins = (): string[] => useHub((s) => s.me?.preferences.pinnedModels) ?? NO_PINS;
+export const usePins = (): string[] => useHub((s) => s.me?.preferences?.pinnedModels) ?? NO_PINS;
 const NO_PINS: string[] = [];
 
 /** Pin or unpin a model: at once on screen, then on the hub; a refusal puts the old list back and the toast says why. */
 export async function togglePin(ref: string): Promise<void> {
-  const before = useHub.getState().me?.preferences.pinnedModels ?? [];
+  const before = useHub.getState().me?.preferences?.pinnedModels ?? [];
   const next = before.includes(ref) ? before.filter((x) => x !== ref) : [...before, ref].slice(-PINS_MAX);
   const put = (pinnedModels: string[] | undefined) => {
     const me = useHub.getState().me;

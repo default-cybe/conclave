@@ -550,7 +550,8 @@ describe('the list, clicked and keyed', () => {
     await connectClient({ baseUrl: 'http://hub.test', token: 't' });
     const sent: unknown[] = [];
     Object.assign(api(), { updateMe: async (patch: unknown) => (sent.push(patch), { ok: true }) });
-    useHub.setState({ me: { preferences: {} } as never });
+    // an account read with no preferences at all (an older hub) still pins
+    useHub.setState({ me: {} as never });
     const v = await mount({});
     try {
       await v.click(v.host.querySelector('[aria-label="Pin Gemini 3 Pro"]')!);
