@@ -350,8 +350,9 @@ export function SharedChatsGroup({ phone, onPick }: { phone?: boolean; onPick?: 
     .filter((x) => x.session);
   if (!chats.length && !invites.length) return null;
   return (
-    <section aria-label="Shared with you" className="mt-2" data-shared-group="">
-      <h2 className={cn('m-0 px-2.5 font-medium text-fg-3', phone ? 'text-[13px]' : 'text-[12px]')}>Shared with you</h2>
+    <section aria-label="Shared with you" className="mt-4" data-shared-group="">
+      {/* as the sidebar's other group headings (Sidebar.tsx GroupHeading) */}
+      <h3 className={cn('m-0 flex items-center px-2.5 font-semibold text-fg-3', phone ? 'min-h-10 text-[13px]' : 'h-6 text-[12px]')}>Shared with you</h3>
       {chats.map(({ card, session }) => (
         <Link key={card.chatId} href={`/chat/${card.chatId}`} onClick={onPick} aria-current={path === `/chat/${card.chatId}` ? 'page' : undefined} className={cn('flex w-full flex-col justify-center rounded-[8px] px-2.5 text-left transition-colors duration-[var(--dur-1)]', phone ? 'min-h-14 py-1.5 text-[15px]' : 'min-h-11 py-1 text-[13.5px]', path === `/chat/${card.chatId}` ? 'bg-side-active text-fg' : 'text-fg-2 hov:bg-side-hover hov:text-fg')}>
           <span className="min-w-0 truncate">{session!.title}</span>

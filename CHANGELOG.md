@@ -12,6 +12,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Changed
 
 - Home in Chat and Code no longer shows the day: the calendar, tasks, the plan and calendar proposals stay on Assistant's Home only. This holds on the web, the phone web app and Android. What waits on you still shows in every mode.
+- Sidebar group headings (Today, Yesterday, This week, Older, and project, device or Delegated work when grouped) now read as section labels, not rows: smaller semibold text in the muted colour, more space above, and no row hover fill. They are level 3 headings with a fold button. Same in the phone drawer and the Android side panel.
 
 ## [0.4.75] - 2026-11-06
 

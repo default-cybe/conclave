@@ -221,11 +221,11 @@ fun SidePanel(
                 item(key = "h:" + g.key) {
                     Text(
                         g.title,
-                        style = ConclaveType.meta.copy(fontSize = 12.sp),
+                        style = GroupHeadStyle,
                         color = c.fg3,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 2.dp).semantics { heading() },
+                        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = GroupHeadTop, bottom = 4.dp).semantics { heading() },
                     )
                 }
                 items(g.items, key = { "s:" + g.key + ":" + it.id }) { r ->
@@ -288,6 +288,11 @@ fun SidePanel(
     }
 }
 
+/** A group heading (Today, a project, a device): a section label, smaller and bolder than the rows, in fg-3 (web Sidebar.tsx GroupHeading). Sentence case, never uppercase. */
+private val GroupHeadStyle = ConclaveType.meta.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+/** Space above a group heading, so it starts a section. */
+private val GroupHeadTop = 20.dp
+
 /** "Delegated work" and its chevron: a tap folds the group (Search opens it while it looks). */
 @Composable
 private fun DelegatedHeading(open: Boolean, onToggle: () -> Unit) {
@@ -295,7 +300,7 @@ private fun DelegatedHeading(open: Boolean, onToggle: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(top = 12.dp)
+            .padding(top = GroupHeadTop - 8.dp)
             .heightIn(min = 40.dp)
             .clip(RoundedCornerShape(10.dp))
             .clickable(onClickLabel = if (open) "Fold" else "Show", onClick = onToggle)
@@ -306,7 +311,7 @@ private fun DelegatedHeading(open: Boolean, onToggle: () -> Unit) {
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(Delegated.WORDS, style = ConclaveType.meta.copy(fontSize = 12.sp), color = c.fg3, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+        Text(Delegated.WORDS, style = GroupHeadStyle, color = c.fg3, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
         Spacer(Modifier.width(4.dp))
         Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = null, tint = c.fg3, modifier = Modifier.size(16.dp).rotate(if (open) 0f else -90f))
     }
