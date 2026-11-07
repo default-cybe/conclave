@@ -20,7 +20,7 @@ import { useOwnerName } from '@/features/conversation/Greeting';
 import { preloadChatPage } from '@/features/conversation/lazy';
 import { IncognitoBarLine } from '@/features/conversation/incognito';
 import { useSessionTarget } from './SessionStart';
-import { setStartMode, useStartMode, type SessionKind } from './start';
+import { setStartMode, showsDay, useStartMode, type SessionKind } from './start';
 import { useToday } from './today';
 import { nextEventLine } from './proposalWords';
 import { useLearningsWaiting } from '@/features/settings/reflectLearnings';
@@ -32,10 +32,12 @@ export function PhoneHome() {
   const waiting = useHub((s) => Object.keys(s.approvals).length + Object.keys(s.questions).length);
   // the calendar (docs/DESIGN.md, Calendar and mail): proposals wait on you too, and one quiet line says what is next
   const { data: today } = useToday();
-  const proposals = today?.proposals?.length ?? 0;
-  const next = today?.events?.length ? nextEventLine(today.events, now, today.timezone) : undefined;
-  const learnings = useLearningsWaiting();
   const mode = useStartMode((s) => s.mode);
+  // the day belongs to Assistant: Chat and Code show no proposals or next event (start.ts showsDay)
+  const day = showsDay(mode) ? today : undefined;
+  const proposals = day?.proposals?.length ?? 0;
+  const next = day?.events?.length ? nextEventLine(day.events, now, day.timezone) : undefined;
+  const learnings = useLearningsWaiting();
   const search = useSearch();
   const [, navigate] = useLocation();
 

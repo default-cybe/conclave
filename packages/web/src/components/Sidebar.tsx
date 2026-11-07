@@ -328,20 +328,15 @@ function Group({ g, folded, foldKey, path, phone, onPick, actions, titled, newIn
   const [share, setShare] = useState(false);
   const owner = useIsOwner();
   const project = !!g.target || g.key.startsWith('p:') || g.key.startsWith('f:');
-  const Chevron = folded ? ChevronRight : ChevronDown;
   const menu: MenuItem[] = [
     ...(g.target ? [{ label: 'New session here', onSelect: () => openNew(newIn, navigate, g.target) }] : []),
     { label: folded ? 'Show its sessions' : 'Fold it', onSelect: () => toggleFolded(foldKey) },
     ...(owner && g.projectId ? [{ label: 'Share with friends…', onSelect: () => setTimeout(() => setShare(true), 0) }] : []),
   ];
   return (
-    <div role="group" aria-label={g.label} className={cn(titled && 'mt-2')}>
+    <div role="group" aria-label={g.label} className={cn(titled && GROUP_GAP)}>
       {titled && (
-        <div className={cn('group/head relative flex items-center rounded-[8px] hov:bg-side-hover', phone ? 'min-h-10' : 'h-7')}>
-          <button type="button" aria-expanded={!folded} onClick={() => toggleFolded(foldKey)} className={cn('flex min-w-0 flex-1 items-center gap-1 self-stretch pl-2.5 text-left font-medium text-fg-3 hov:text-fg', phone ? 'text-[13px]' : 'text-[12px]', project && 'pr-14')}>
-            <span className="min-w-0 truncate">{g.label}</span>
-            <Chevron className={cn('size-3 shrink-0 text-fg-4 transition-opacity duration-[var(--dur-1)]', !folded && 'opacity-0 group-hover/head:opacity-100 group-focus-within/head:opacity-100')} strokeWidth={2} aria-hidden />
-          </button>
+        <GroupHeading label={g.label} folded={folded} onToggle={() => toggleFolded(foldKey)} phone={phone} actions={project}>
           {project && (
             <span className={cn('absolute top-1/2 right-1 flex -translate-y-1/2 items-center gap-0.5 transition-opacity duration-[var(--dur-1)]', !phone && 'opacity-0 group-hover/head:opacity-100 group-focus-within/head:opacity-100 coarse:opacity-100')}>
               {g.target && (
@@ -366,10 +361,36 @@ function Group({ g, folded, foldKey, path, phone, onPick, actions, titled, newIn
               )}
             </span>
           )}
-        </div>
+        </GroupHeading>
       )}
       {!folded && g.rows.map((r) => <Row key={r.id} r={r} active={path === r.href} phone={phone} onPick={onPick} actions={actions} />)}
       {g.projectId && <LazyShareProjectDialog open={share} onClose={() => setShare(false)} from={{ localProjectId: g.projectId, name: g.label }} />}
+    </div>
+  );
+}
+
+/** Space above a titled group, so its heading reads as the start of a section. */
+export const GROUP_GAP = 'mt-4';
+/** A group heading's words: `meta` 600 in `--fg-3` (SPEC.md 5.3 and 10.3), smaller and bolder than the 13.5px `--fg-2` rows. Sentence case, never uppercase (SPEC.md 2). */
+export const GROUP_HEAD_TEXT = 'font-semibold text-fg-3';
+
+/**
+ * A sidebar group's heading (Today, Yesterday, a project, a device): a quiet
+ * section label, not a row. No hover fill; the words are an h3 with a
+ * button inside that folds the group, and the chevron shows on hover.
+ * `actions`: room at the right for the project's + and ... (children).
+ */
+export function GroupHeading({ label, folded, onToggle, phone, actions, children }: { label: string; folded: boolean; onToggle: () => void; phone?: boolean; actions?: boolean; children?: ReactNode }) {
+  const Chevron = folded ? ChevronRight : ChevronDown;
+  return (
+    <div className={cn('group/head relative flex items-center', phone ? 'min-h-10' : 'h-6')}>
+      <h3 className="m-0 flex min-w-0 flex-1 self-stretch">
+        <button type="button" aria-expanded={!folded} onClick={onToggle} className={cn('flex min-w-0 flex-1 items-center gap-1 pl-2.5 text-left transition-colors duration-[var(--dur-1)] hov:text-fg-2', GROUP_HEAD_TEXT, phone ? 'text-[13px]' : 'text-[12px]', actions && 'pr-14')}>
+          <span className="min-w-0 truncate">{label}</span>
+          <Chevron className={cn('size-3 shrink-0 text-fg-4 transition-opacity duration-[var(--dur-1)]', !folded && 'opacity-0 group-hover/head:opacity-100 group-focus-within/head:opacity-100')} strokeWidth={2} aria-hidden />
+        </button>
+      </h3>
+      {children}
     </div>
   );
 }
@@ -430,15 +451,9 @@ function Row({ r, active, phone, onPick, actions }: { r: SideRow; active: boolea
  * on MadX Arch, from Capstone chat"); its menu has Move to main list.
  */
 export function DelegatedGroup({ rows, folded, path, phone, onPick, actions }: { rows: DelegatedRow[]; folded: boolean; path: string; phone?: boolean; onPick?: () => void; actions: RowActions }) {
-  const Chevron = folded ? ChevronRight : ChevronDown;
   return (
-    <div role="group" aria-label={DELEGATED_WORDS} data-delegated-group="" className="mt-2">
-      <div className={cn('group/head relative flex items-center rounded-[8px] hov:bg-side-hover', phone ? 'min-h-10' : 'h-7')}>
-        <button type="button" aria-expanded={!folded} onClick={() => toggleFolded(DELEGATED_KEY)} className={cn('flex min-w-0 flex-1 items-center gap-1 self-stretch pl-2.5 text-left font-medium text-fg-3 hov:text-fg', phone ? 'text-[13px]' : 'text-[12px]')}>
-          <span className="min-w-0 truncate">{DELEGATED_WORDS}</span>
-          <Chevron className={cn('size-3 shrink-0 text-fg-4 transition-opacity duration-[var(--dur-1)]', !folded && 'opacity-0 group-hover/head:opacity-100 group-focus-within/head:opacity-100')} strokeWidth={2} aria-hidden />
-        </button>
-      </div>
+    <div role="group" aria-label={DELEGATED_WORDS} data-delegated-group="" className={GROUP_GAP}>
+      <GroupHeading label={DELEGATED_WORDS} folded={folded} onToggle={() => toggleFolded(DELEGATED_KEY)} phone={phone} />
       {!folded && rows.map((r) => <DelegatedItem key={r.id} r={r} active={path === r.href} phone={phone} onPick={onPick} actions={actions} />)}
     </div>
   );

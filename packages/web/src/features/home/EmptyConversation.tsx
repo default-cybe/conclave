@@ -1,7 +1,8 @@
 /**
  * A new conversation, in any of the three modes: the greeting and the box,
  * like claude.ai. Under the box, and only here, today's cards: what waits on
- * you (answerable in place) and the day's plan and proposals. Chat sends
+ * you (answerable in place) and, in Assistant, the day's plan and proposals
+ * (start.ts showsDay; Chat and Code leave the day out). Chat sends
  * start a chat at /chat/:id; Assistant and Code start a session at /s/:id
  * (SessionStart.tsx).
  *
@@ -18,7 +19,7 @@ import { useSessionTarget } from './SessionStart';
 import { TodaySection } from './today';
 import { WaitingSection } from './sections';
 import { LearningsBadge } from '@/features/settings/reflectLearnings';
-import { offersIncognito, type SessionKind, type StartMode } from './start';
+import { offersIncognito, showsDay, type SessionKind, type StartMode } from './start';
 
 /** The knot over the greeting: as heavy over its 26px heading as the phone's 64px mark over its 28px one. */
 const MARK = 60;
@@ -41,7 +42,7 @@ export function EmptyConversation({ mode }: { mode: Exclude<StartMode, 'canvas'>
       <div className="mx-auto w-full max-w-[784px] space-y-7 px-8 pt-4">
         <WaitingSection open={1} />
         <LearningsBadge />
-        <TodaySection />
+        {showsDay(mode) && <TodaySection />}
       </div>
       <div aria-hidden className="min-h-8 flex-[6]" />
     </div>

@@ -85,6 +85,9 @@ export function customAgent(name: string | undefined): boolean {
 /** The modes whose new conversation may be incognito: Assistant is one kept thread, and a hunt keeps its grants, lane log and ledger (an incognito session is deleted). */
 export const offersIncognito = (mode: StartMode): mode is 'chat' | 'code' => mode === 'chat' || mode === 'code';
 
+/** The modes whose Home shows the owner's day (calendar, tasks, plan, proposals): Assistant only. Chat, Code and Security start work, so their Home is the box. */
+export const showsDay = (mode: StartMode): boolean => mode === 'assistant';
+
 /** What the owner picked for Code, and the assistant's model. Unset fields follow the last session or the hub. */
 export interface Picks {
   /** A custom agent picked under "+". Unset: the default coding agent. */

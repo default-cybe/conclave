@@ -259,7 +259,7 @@ fun HomeScreen(
                         Text(needYou, style = ConclaveType.body.copy(fontSize = 16.sp), color = c.warn)
                     }
                 }
-                val t = today
+                val t = today?.takeIf { Start.showsDay(mode) }
                 val waiting = t?.let { TodayWords.waiting(it) }
                 val next = t?.let { TodayWords.nextLine(it, System.currentTimeMillis()) }
                 listOfNotNull(waiting?.let { it to c.warn }, next?.let { it to c.fg3 }).forEach { (line, color) ->
