@@ -1,9 +1,9 @@
 /**
- * The model picker in two levels (components/pickers/ModelPicker.tsx):
- * Recent and one row per maker first (Anthropic, OpenAI, Google, Z.ai, then
- * the others, coding agents last), a maker's models behind its row with a
- * back row, one flat list while searching, and the keys. The list is
- * mounted on linkedom for the clicks and keys.
+ * The model picker (components/pickers/ModelPicker.tsx): rows under their
+ * maker, provider tabs (Local and Coding agents of their own), Pinned, then
+ * Recent, then the tab's models most capable first, one list across every
+ * tab while searching, pins, and the keys. The list is mounted on linkedom
+ * for the clicks and keys.
  *
  *   cd packages/web && bun test test/model-picker.test.tsx
  */
@@ -12,7 +12,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { ModelEntry, ModelGroup } from '@conclave/core/client';
 import type { Session } from '@conclave/core/types';
-import { buildPicker, compareModels, familyHead, groupNote, groupOf, makerRank, pickerItems, routeLabel, rowName, type Picker, type PickerInput } from '../src/components/pickers/ModelPicker';
+import { allRows, buildPicker, capabilityLine, capabilityRank, compareModels, makerRank, pickerItems, routeLabel, rowName, shownTabs, tabOf, type Picker, type PickerInput, type PickerItem } from '../src/components/pickers/ModelPicker';
 import { registerModelNames } from '../src/lib/models';
 
 function model(provider: string, id: string, name: string, extra: Partial<ModelEntry> = {}): ModelEntry {
@@ -74,21 +74,78 @@ describe('the first level', () => {
     expect(buildPicker(input({ harnesses: false })).groups.map((g) => g.key)).not.toContain('harness');
   });
 
-  test('Recent stays at the top, newest first, then the makers', () => {
-    const items = pickerItems(p, '', null);
-    expect(items.slice(0, 2).map((it) => (it.kind === 'model' ? it.row.ref : it.kind))).toEqual(['openai/gpt-5.5', 'anthropic/claude-sonnet-5-5']);
-    expect(items.slice(2).every((it) => it.kind === 'group')).toBe(true);
+  test('Pinned, then Recent (newest first, pins left out), then every model', () => {
+    const items = pickerItems(p, '', 'all', ['anthropic/claude-haiku-5-5', 'openai/gpt-5.5']);
+    // pins go most capable first too
+    expect(lines(items).slice(0, 6)).toEqual(['# Pinned', 'openai/gpt-5.5', 'anthropic/claude-haiku-5-5', '# Recent', 'anthropic/claude-sonnet-5-5', '# All models, most capable first']);
+    // no pins: Recent first
+    expect(lines(pickerItems(p, '', 'all')).slice(0, 4)).toEqual(['# Recent', 'openai/gpt-5.5', 'anthropic/claude-sonnet-5-5', '# All models, most capable first']);
+  });
+});
+
+/** The list as lines: "# Heading", a model's ref, "> route". */
+const lines = (items: PickerItem[]) => items.map((it) => (it.kind === 'head' ? `# ${it.label}` : it.kind === 'route' ? `> ${it.route.ref}` : it.row.ref));
+
+describe('tabs and ranking', () => {
+  const ranked: ModelGroup[] = [
+    group('anthropic', [
+      model('anthropic', 'claude-haiku-5-5', 'Claude Haiku 5.5', { tier: 'fast' }),
+      model('anthropic', 'claude-sonnet-5-5', 'Claude Sonnet 5.5', { tier: 'smart', contextWindow: 1_000_000 }),
+      model('anthropic', 'claude-opus-5-5', 'Claude Opus 5.5', { tier: 'deep', outputPrice: 25 }),
+      model('anthropic', 'claude-opus-5-1', 'Claude Opus 5.1', { tier: 'deep', outputPrice: 75 }),
+      model('anthropic', 'claude-sonnet-5', 'Claude Sonnet 5', { tier: 'smart' }),
+      model('anthropic', 'claude-mythos-5-1', 'Claude Mythos 5.1', { tier: 'deep', unavailable: 'Your plan refused it (HTTP 404)' }),
+    ]),
+    group('ollama', [model('ollama', 'qwen3', 'Qwen3', { inputPrice: 0, outputPrice: 0 }), model('ollama', 'llama-4-local', 'Llama 4')]),
+    group('deepseek', [model('deepseek', 'deepseek-chat', 'DeepSeek V3.2')]),
+    group('claude-code', [model('claude-code', 'default', 'Claude Code')], { type: 'acp' }),
+    group('codex', [model('codex', 'default', 'Codex')], { type: 'acp' }),
+  ];
+  const p = buildPicker(input({ models: ranked, sessions: {} }));
+
+  test('most capable first: tier deep, smart, fast; then context; then output price; unavailable last', () => {
+    expect(lines(pickerItems(p, '', 'anthropic'))).toEqual([
+      // the tab's heading carries the account word, as the maker's back row did
+      '# Anthropic, key set, most capable first',
+      'anthropic/claude-opus-5-1',
+      'anthropic/claude-opus-5-5',
+      'anthropic/claude-sonnet-5-5',
+      'anthropic/claude-sonnet-5',
+      'anthropic/claude-haiku-5-5',
+      'anthropic/claude-mythos-5-1',
+    ]);
+    const rows = allRows(p);
+    const mythos = rows.find((r) => r.ref.endsWith('mythos-5-1'))!;
+    const opus = rows.find((r) => r.ref.endsWith('opus-5-5'))!;
+    expect(capabilityRank(opus, mythos)).toBeLessThan(0);
+    expect(capabilityLine(opus)).toBe('Deep, 200K context, $1 / $25, vision, tools, thinking');
+    expect(capabilityLine(rows.find((r) => r.ref === 'ollama/qwen3')!)).toContain('local');
   });
 
-  test("a maker's row says the current model's name there, else how many models it has", () => {
-    const anthropic = p.groups[0];
-    expect(groupNote(anthropic, 'anthropic/claude-opus-5-5')).toBe('Opus 5.5');
-    expect(groupNote(anthropic, 'openai/gpt-5.5')).toBe('3');
-    expect(groupNote(anthropic, undefined)).toBe('3');
-    expect(groupNote(p.groups.at(-1)!, 'claude-code/opus')).toBe('Claude Code, Opus');
-    // jurors: one picked names it, more count them
-    expect(groupNote(anthropic, undefined, ['anthropic/claude-haiku-5-5'])).toBe('Haiku 5.5');
-    expect(groupNote(anthropic, undefined, ['anthropic/claude-haiku-5-5', 'anthropic/claude-opus-5-5', 'openai/gpt-5.5'])).toBe('2 selected');
+  test('Local holds the local servers, Coding agents the harnesses, Other the rest; only tabs with models show', () => {
+    const rows = allRows(p);
+    const tab = (ref: string) => tabOf(rows.find((r) => r.ref === ref)!);
+    // Llama under Ollama is Local, not Meta's; DeepSeek is Other
+    expect(tab('ollama/llama-4-local')).toBe('local');
+    expect(tab('ollama/qwen3')).toBe('local');
+    expect(tab('claude-code/default')).toBe('agents');
+    expect(tab('codex/default')).toBe('agents');
+    expect(tab('deepseek/deepseek-chat')).toBe('other');
+    expect(tab('anthropic/claude-opus-5-5')).toBe('anthropic');
+    expect(shownTabs(rows).map((t) => t.label)).toEqual(['All', 'Anthropic', 'Local', 'Coding agents', 'Other']);
+    expect(lines(pickerItems(p, '', 'agents')).slice(1)).toEqual(['claude-code/default', 'codex/default']);
+    expect(lines(pickerItems(p, '', 'local')).slice(1).sort()).toEqual(['ollama/llama-4-local', 'ollama/qwen3']);
+    // the coding agents come after every model on All, and only what cannot be picked after them
+    expect(lines(pickerItems(p, '', 'all')).slice(-3)).toEqual(['claude-code/default', 'codex/default', 'anthropic/claude-mythos-5-1']);
+    // without coding agents, no such tab
+    expect(shownTabs(allRows(buildPicker(input({ models: ranked, sessions: {}, harnesses: false })))).map((t) => t.value)).not.toContain('agents');
+  });
+
+  test('a pin shows in Pinned on its own tab and on All, not on another tab', () => {
+    const pins = ['ollama/qwen3'];
+    expect(lines(pickerItems(p, '', 'local', pins)).slice(0, 2)).toEqual(['# Pinned', 'ollama/qwen3']);
+    expect(lines(pickerItems(p, '', 'all', pins)).slice(0, 2)).toEqual(['# Pinned', 'ollama/qwen3']);
+    expect(lines(pickerItems(p, '', 'anthropic', pins))[0]).toBe('# Anthropic, key set, most capable first');
   });
 });
 
@@ -155,33 +212,25 @@ describe('a custom provider', () => {
   });
 });
 
-describe('inside a maker, and searching', () => {
+describe('a tab, and searching', () => {
   const p: Picker = buildPicker(input());
 
-  test('a maker opens to a back row and its models', () => {
-    const items = pickerItems(p, '', 'openai');
-    expect(items[0]).toMatchObject({ kind: 'back', group: { key: 'openai' } });
-    expect(items.slice(1).map((it) => (it.kind === 'model' ? it.row.ref : it.kind))).toEqual(['openai/gpt-5.5', 'openai/gpt-5.5-mini']);
+  test('a tab lists its models only, with Recent of that tab', () => {
+    expect(lines(pickerItems(p, '', 'openai'))).toEqual(['# Recent', 'openai/gpt-5.5', '# OpenAI, key set, most capable first', 'openai/gpt-5.5', 'openai/gpt-5.5-mini']);
+    // GLM through OpenRouter is Z.ai's
+    expect(lines(pickerItems(p, '', 'zai'))).toContain('openrouter/z-ai/glm-5.3');
   });
 
-  test('the picker opens on the maker of the current model, and on the makers with none', () => {
-    expect(groupOf(p.groups, 'zai/glm-5')).toBe('zai');
-    expect(groupOf(p.groups, 'openrouter/z-ai/glm-5.3')).toBe('zai');
-    expect(groupOf(p.groups, 'claude-code/opus')).toBe('harness');
-    expect(groupOf(p.groups, undefined)).toBeNull();
-    expect(groupOf(p.groups, 'nowhere/some-model')).toBeNull();
-  });
-
-  test('a search is one flat list of models from every maker, Recent not twice', () => {
-    for (const open of [null, 'anthropic']) {
-      const items = pickerItems(p, '5.5', open);
-      expect(items.every((it) => it.kind === 'model')).toBe(true);
-      const refs = items.map((it) => (it.kind === 'model' ? it.row.ref : ''));
+  test('a search is one list from every tab, with no Pinned or Recent, each model once', () => {
+    for (const tab of ['all', 'anthropic'] as const) {
+      const items = pickerItems(p, '5.5', tab, ['openai/gpt-5.5']);
+      expect(items[0]).toEqual({ kind: 'head', label: 'Matches for "5.5"' });
+      const refs = lines(items).slice(1);
       expect(refs).toContain('anthropic/claude-opus-5-5');
       expect(refs).toContain('openai/gpt-5.5');
       expect(refs.length).toBe(new Set(refs).size);
     }
-    expect(pickerItems(p, 'zzzz', null)).toEqual([]);
+    expect(pickerItems(p, 'zzzz', 'all')).toEqual([]);
   });
 });
 
@@ -225,7 +274,6 @@ describe('one row per model, by its name, the routes behind it', () => {
     expect(rows('anthropic').map((r) => r.ref)).toEqual(['cliproxy/claude-opus-5-5', 'cliproxy/claude-opus-4-6-thinking', 'anthropic/claude-opus-4-5-20251101', 'cliproxy/claude-sonnet-5-5', 'anthropic/claude-haiku-5-5']);
     // a dated snapshot reads without its date; a variant alone stands as its model
     expect(rows('anthropic').map(rowName)).toEqual(['Opus 5.5', 'Opus 4.6', 'Opus 4.5', 'Sonnet 5.5', 'Haiku 5.5']);
-    expect(rows('anthropic').map((_, i) => familyHead(rows('anthropic'), i))).toEqual(['Opus', null, null, 'Sonnet', 'Haiku']);
     const all = p.groups.flatMap((g) => g.rows.map((r) => r.ref));
     expect(all.length).toBe(new Set(all).size);
     expect(p.groups.map((g) => g.key)).toEqual(['anthropic', 'openai', 'meta', 'harness']);
@@ -236,7 +284,7 @@ describe('one row per model, by its name, the routes behind it', () => {
     expect(rows('anthropic')[1].routes).toEqual([{ ref: 'cliproxy/claude-opus-4-6-thinking', label: 'Thinking', first: true }]);
     expect(rows('openai').map((r) => r.ref)).toEqual(['cliproxy/gpt-6.1-sol', 'cliproxy/neu/gpt-6-astra']);
     expect(rows('meta').map((r) => r.ref)).toEqual(['cliproxy/muse-spark-1']);
-    expect(pickerItems(p, 'image', null).filter((it) => it.kind === 'model')).toEqual([]);
+    expect(pickerItems(p, 'image', 'all').filter((it) => it.kind === 'model')).toEqual([]);
   });
 
   test('a row names no provider or plan; the other routes are a choice under it, the owner\'s first route first', () => {
@@ -248,13 +296,9 @@ describe('one row per model, by its name, the routes behind it', () => {
       { ref: 'cliproxy/claude-opus-5-5-high', label: 'High' },
     ]);
     expect(rows('anthropic')[2].routes).toBeUndefined();
-    const items = pickerItems(p, '', 'anthropic', 'anthropic:cliproxy/claude-opus-5-5');
-    expect(items.slice(1, 5).map((it) => it.kind + ':' + (it.kind === 'route' ? it.route.ref : it.kind === 'model' ? it.row.ref : ''))).toEqual([
-      'model:cliproxy/claude-opus-5-5',
-      'route:cliproxy/claude-opus-5-5',
-      'route:cliproxy/neu-claude/claude-opus-5-5',
-      'route:openrouter/anthropic/claude-opus-5.5',
-    ]);
+    const items = pickerItems(p, '', 'anthropic', [], 'list:anthropic:cliproxy/claude-opus-5-5');
+    const at = lines(items).indexOf('cliproxy/claude-opus-5-5');
+    expect(lines(items).slice(at, at + 4)).toEqual(['cliproxy/claude-opus-5-5', '> cliproxy/claude-opus-5-5', '> cliproxy/neu-claude/claude-opus-5-5', '> openrouter/anthropic/claude-opus-5.5']);
     expect(routeLabel('anthropic/claude-opus-5-5')).toBe('Anthropic');
   });
 
@@ -382,6 +426,10 @@ async function mount(props: { value?: string; values?: string[]; models?: ModelG
   });
   const options = () => [...host.querySelectorAll('[role="option"]')] as HTMLElement[];
   const texts = () => options().map((o) => o.getAttribute('aria-label') ?? o.textContent ?? '');
+  const radios = () => [...host.querySelectorAll('[role="radio"]')] as HTMLElement[];
+  const tabs = () => radios().map((r) => r.textContent ?? '');
+  const tab = () => radios().find((r) => r.getAttribute('aria-checked') === 'true')?.textContent;
+  const radio = (label: string) => radios().find((r) => r.textContent === label)!;
   /** The highlighted line: the one with the hover fill. */
   const highlighted = () => options().find((o) => o.className.split(/\s+/).includes('bg-hover'));
   const key = async (k: string) =>
@@ -406,6 +454,9 @@ async function mount(props: { value?: string; values?: string[]; models?: ModelG
     picks,
     options,
     texts,
+    tabs,
+    tab,
+    radio,
     highlighted,
     key,
     click,
@@ -418,61 +469,54 @@ async function mount(props: { value?: string; values?: string[]; models?: ModelG
 }
 
 describe('the list, clicked and keyed', () => {
-  test('it opens on the current model: the back row to the makers, its models, the current one checked and highlighted', async () => {
+  test("it opens on the current model's tab: the tabs that have models, its Recent, its models, the current one checked and highlighted", async () => {
     const v = await mount({ value: 'anthropic/claude-sonnet-5-5' });
     try {
-      expect(v.texts()[0]).toBe('Back from Anthropic');
+      expect(v.tabs()).toEqual(['All', 'Anthropic', 'OpenAI', 'Google', 'Z.ai', 'Local', 'Coding agents', 'Other']);
+      expect(v.tab()).toBe('Anthropic');
+      // Recent Sonnet, then the three Anthropic models
       expect(v.options().length).toBe(4);
+      expect(v.host.textContent).toContain('Anthropic, key set, most capable first');
       const checked = v.options().filter((o) => o.getAttribute('aria-selected') === 'true');
-      expect(checked.map((o) => o.textContent)).toEqual([expect.stringContaining('Sonnet 5.5')]);
+      expect(checked.length).toBe(2);
+      expect(checked.every((o) => o.textContent?.includes('Sonnet 5.5'))).toBe(true);
       expect(v.highlighted()?.textContent).toContain('Sonnet 5.5');
-      expect(v.host.textContent).not.toContain('Recent');
+      // each row has its line: context, price, abilities
+      expect(v.options()[1].textContent).toContain('200K context, $1 / $5, vision, tools, thinking');
     } finally {
       await v.unmount();
     }
   });
 
-  test('with no model it opens on Recent and the makers; a maker opens in place and its back row comes back', async () => {
+  test('with no model it opens on All with Recent; a tab click shows that tab', async () => {
     const v = await mount({});
     try {
+      expect(v.tab()).toBe('All');
       expect(v.host.textContent).toContain('Recent');
-      expect(v.texts().slice(2).map((t) => t.replace(/\d+$/, ''))).toEqual(['Anthropic', 'OpenAI', 'Google', 'Z.ai', 'DeepSeek', 'Ollama', 'Coding agents']);
-      // drill in with a click
-      const google = v.options().find((o) => o.textContent?.startsWith('Google'))!;
-      await v.click(google);
-      expect(v.texts()).toEqual(['Back from Google', expect.stringContaining('Gemini 3 Pro')]);
-      expect(v.host.textContent).not.toContain('Recent');
-      // and out with the back row: the makers again, Google highlighted
-      await v.click(v.options()[0]);
-      expect(v.host.textContent).toContain('Recent');
-      expect(v.highlighted()?.textContent).toStartWith('Google');
+      expect(v.host.textContent).toContain('All models, most capable first');
+      await v.click(v.radio('Google'));
+      expect(v.tab()).toBe('Google');
+      expect(v.options().map((o) => o.textContent)).toEqual([expect.stringContaining('Gemini 3 Pro')]);
+      await v.click(v.radio('Local'));
+      expect(v.options().map((o) => o.textContent)).toEqual([expect.stringContaining('Llama 4')]);
     } finally {
       await v.unmount();
     }
   });
 
-  test('keys: arrows move, Enter opens a maker and picks a model, Left and Backspace on an empty search go back', async () => {
+  test('keys: Right and Left change tabs on an empty search, arrows move, Enter picks', async () => {
     const v = await mount({});
     try {
-      // Recent GPT-5.5 first, then Sonnet, then Anthropic's row
+      // Recent GPT-5.5 first
       expect(v.highlighted()?.textContent).toContain('GPT-5.5');
-      await v.key('ArrowDown');
-      await v.key('ArrowDown');
-      expect(v.highlighted()?.textContent).toStartWith('Anthropic');
-      await v.key('Enter');
-      expect(v.texts()[0]).toBe('Back from Anthropic');
-      expect(v.highlighted()?.textContent).toContain('Opus 5.5');
-      // Backspace on the empty search goes back, onto the maker it left
-      await v.key('Backspace');
-      expect(v.highlighted()?.textContent).toStartWith('Anthropic');
-      // Right opens it too, Left goes back
       await v.key('ArrowRight');
-      expect(v.texts()[0]).toBe('Back from Anthropic');
+      expect(v.tab()).toBe('Anthropic');
+      await v.key('ArrowRight');
+      expect(v.tab()).toBe('OpenAI');
       await v.key('ArrowLeft');
-      expect(v.texts()[0]).not.toBe('Back from Anthropic');
-      expect(v.highlighted()?.textContent).toStartWith('Anthropic');
-      // in again, down to Haiku, Enter picks it
-      await v.key('Enter');
+      expect(v.tab()).toBe('Anthropic');
+      // Recent Sonnet, then Opus, Sonnet, Haiku
+      await v.key('ArrowDown');
       await v.key('ArrowDown');
       await v.key('ArrowDown');
       expect(v.highlighted()?.textContent).toContain('Haiku 5.5');
@@ -483,36 +527,55 @@ describe('the list, clicked and keyed', () => {
     }
   });
 
-  test('a disabled model is passed over by the arrows, and the back row is one of the lines', async () => {
-    const v = await mount({ value: 'zai/glm-5' });
+  test('a model that cannot be picked sits last, says why, and the arrows pass it over', async () => {
+    const v = await mount({});
     try {
-      expect(v.highlighted()?.textContent).toContain('GLM-5');
-      await v.key('ArrowUp');
-      expect(v.highlighted()?.textContent).toContain('GLM-5.3');
-      await v.key('ArrowUp');
-      expect(v.highlighted()?.getAttribute('aria-label')).toBe('Back from Z.ai');
-      await v.key('Enter');
-      expect(v.host.textContent).toContain('Recent');
-      expect(v.highlighted()?.textContent).toStartWith('Z.ai');
+      await v.click(v.radio('Other'));
       // DeepSeek's key was refused: its one model is there, and cannot be picked
-      await v.key('ArrowDown');
-      await v.key('Enter');
-      expect(v.texts()[0]).toBe('Back from DeepSeek');
-      expect(v.options()[1].getAttribute('aria-disabled')).toBe('true');
-      expect(v.highlighted()?.getAttribute('aria-label')).toBe('Back from DeepSeek');
+      const deepseek = v.options().find((o) => o.textContent?.includes('DeepSeek'))!;
+      expect(deepseek.getAttribute('aria-disabled')).toBe('true');
+      expect(deepseek.textContent).toContain('No key for this provider');
+      await v.click(v.radio('All'));
+      expect(v.options().at(-1)?.textContent).toContain('DeepSeek');
+      for (let i = 0; i < 30; i++) await v.key('ArrowDown');
+      expect(v.highlighted()?.textContent).not.toContain('DeepSeek');
     } finally {
       await v.unmount();
+    }
+  });
+
+  test('a pin goes to the hub and puts the model in Pinned; a refusal puts the old list back', async () => {
+    const { connectClient, api } = await import('../src/lib/api');
+    const { useHub } = await import('../src/store/store');
+    await connectClient({ baseUrl: 'http://hub.test', token: 't' });
+    const sent: unknown[] = [];
+    Object.assign(api(), { updateMe: async (patch: unknown) => (sent.push(patch), { ok: true }) });
+    useHub.setState({ me: { preferences: {} } as never });
+    const v = await mount({});
+    try {
+      await v.click(v.host.querySelector('[aria-label="Pin Gemini 3 Pro"]')!);
+      expect(sent).toEqual([{ pinnedModels: ['google/gemini-3-pro'] }]);
+      expect(v.host.textContent).toContain('Pinned');
+      expect(v.host.querySelector('[aria-label="Unpin Gemini 3 Pro"]')?.getAttribute('aria-pressed')).toBe('true');
+      Object.assign(api(), { updateMe: async () => Promise.reject(new Error('The hub is busy.')) });
+      await v.click(v.host.querySelector('[aria-label="Unpin Gemini 3 Pro"]')!);
+      await Bun.sleep(5);
+      expect(useHub.getState().me?.preferences.pinnedModels).toEqual(['google/gemini-3-pro']);
+    } finally {
+      await v.unmount();
+      useHub.setState({ me: undefined });
     }
   });
 
   test('the via button opens the routes; picking one stores its own ref, and the row then says which', async () => {
     const v = await mount({ value: 'cliproxy/claude-opus-5-5', models: HUB });
     try {
-      expect(v.texts()[0]).toBe('Back from Anthropic');
+      expect(v.tab()).toBe('Anthropic');
       expect(v.texts().some((t) => /neu|cliproxy|OpenRouter/.test(t))).toBe(false);
       const via = v.host.querySelector('[aria-label="Choose a route"]')!;
       await v.click(via);
-      expect(v.texts().slice(1, 5)).toEqual([expect.stringContaining('Opus 5.5'), 'Main accounts, the first route', 'via neu-claude', 'via OpenRouter']);
+      const at = v.texts().indexOf('Main accounts, the first route');
+      expect(v.texts().slice(at - 1, at + 3)).toEqual([expect.stringContaining('Opus 5.5'), 'Main accounts, the first route', 'via neu-claude', 'via OpenRouter']);
       await v.click(v.options().find((o) => o.getAttribute('aria-label') === 'via neu-claude')!);
       expect(v.picks).toEqual(['cliproxy/neu-claude/claude-opus-5-5']);
     } finally {
@@ -523,12 +586,12 @@ describe('the list, clicked and keyed', () => {
     try {
       const checked = w.options().filter((o) => o.getAttribute('aria-selected') === 'true');
       expect(checked.map((o) => o.textContent)).toEqual([expect.stringContaining('Opus 5.5via neu-claude')]);
-      // Right opens the routes from the keys, Left closes them
+      // Right opens the routes from the keys, Left closes them, and the tab stays
       await w.key('ArrowRight');
       expect(w.texts()).toContain('via OpenRouter');
       await w.key('ArrowLeft');
       expect(w.texts()).not.toContain('via OpenRouter');
-      expect(w.texts()[0]).toBe('Back from Anthropic');
+      expect(w.tab()).toBe('Anthropic');
     } finally {
       await w.unmount();
     }
@@ -551,30 +614,22 @@ describe('the list, clicked and keyed', () => {
     }
   });
 
-  test('typing searches every maker as one flat list; clearing it goes back to the makers', async () => {
+  test('typing searches every tab as one list; clearing it goes back to the tab', async () => {
     const v = await mount({ value: 'anthropic/claude-opus-5-5' });
     try {
-      expect(v.texts()[0]).toBe('Back from Anthropic');
-      // opened inside Anthropic, a search still finds the Coding agents' Opus: one list, no back row, no makers' rows
+      expect(v.tab()).toBe('Anthropic');
+      // opened on Anthropic, a search still finds the Coding agents' Opus and says each maker
       await v.type('opus');
-      const found = v.texts();
-      expect(found.slice(0, 2).some((t) => t.includes('Claude Code, Opus'))).toBe(true);
-      // the maker's name says where each one sits
-      expect(found.slice(0, 2).find((t) => t.includes('Opus 5.5'))).toContain('Anthropic');
-      expect(v.options().every((o) => !o.getAttribute('aria-label') && !o.textContent?.match(/^(Anthropic|OpenAI|Google|Z\.ai)\d/))).toBe(true);
-      expect(v.host.querySelectorAll('.lucide-chevron-right').length).toBe(0);
+      expect(v.texts().some((t) => t.includes('Claude Code, Opus'))).toBe(true);
+      expect(v.texts().find((t) => t.includes('Opus 5.5'))).toContain('Anthropic');
+      expect(v.host.textContent).not.toContain('Recent');
       await v.type('glm');
-      expect(v.texts().slice(0, 3).every((t) => t.includes('GLM') && t.includes('Z.ai'))).toBe(true);
-      // Backspace in a search edits the search: no going back
-      const before = v.texts().length;
-      await v.key('Backspace');
-      expect(v.texts().length).toBe(before);
+      const glm = v.texts().filter((t) => t.includes('GLM'));
+      expect(glm.length).toBe(3);
+      expect(glm.every((t) => t.includes('Z.ai'))).toBe(true);
       await v.type('');
+      expect(v.host.textContent).toContain('Anthropic, key set, most capable first');
       expect(v.host.textContent).toContain('Recent');
-      expect(v.texts().some((t) => t.startsWith('Anthropic'))).toBe(true);
-      // Enter on the first line picks the newest recent model
-      await v.key('Enter');
-      expect(v.picks).toEqual(['openai/gpt-5.5']);
     } finally {
       await v.unmount();
     }

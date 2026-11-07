@@ -1,20 +1,19 @@
 /**
- * Model picker (spec 10.5): a 380px popover with search on top, in two
- * levels like the Claude app's picker. The first level: Recent (the last
- * five models used, each picks at once), then one row per maker (Anthropic,
- * OpenAI, Google, Z.ai, then the others) and "Coding agents" (harnesses that
- * are turned on) last. A maker's row shows its mark, its name, and the
- * current model's name when it is there, else how many models it has.
- * Tapping it opens its models in place, under a back row ("< Anthropic")
- * that carries the account word. Model rows 34px: brand model mark 16,
- * display name, context and price per million at the right, a check on the
- * current model. The picker opens on the current model's maker.
+ * Model picker (spec 10.5, design PR #292): search on top, then provider
+ * tabs (All, Anthropic, OpenAI, Google, Z.ai, Local, Coding agents, Other;
+ * only the ones that have models). The list: Pinned (the account's pins,
+ * kept on the hub in preferences.pinnedModels, shared by its devices), Recent
+ * (the last three in the tab), then the tab's models ranked most capable
+ * first (tier deep, smart, fast; then context window; then output price),
+ * the ones that cannot be picked last with their reason. Each row: brand
+ * mark, name, the maker on All, and a line with tier, context, price or
+ * "plan", vision, tools, thinking. A pin at the right (on hover; a long
+ * press on phones). The picker opens on the current model's tab.
  *
- * Typing searches every model and shows one flat list; clearing the search
- * goes back to the makers. Keys: arrows move, Enter opens a maker or picks a
- * model, Right opens a maker, Left or Backspace in an empty search goes
- * back, Esc closes. multiple: checkboxes and a "4 selected" footer for jury
- * and debate members.
+ * Typing searches every tab. Keys: arrows move, Enter picks, Right opens a
+ * model's routes and Left closes them, else Left and Right in an empty
+ * search change tabs; Esc closes. multiple: checkboxes and a "4 selected"
+ * footer for jury and debate members.
  *
  * One row per model (core providers/merge.ts): a model reached through
  * several providers or plans (CLIProxyAPI's main accounts, a plan's prefix
@@ -28,12 +27,12 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
-import { Check, ChevronLeft, ChevronRight, SquareTerminal } from 'lucide-react';
-import type { AccountDto, ModelEntry, ModelGroup } from '@conclave/core/client';
+import { Check, Pin } from 'lucide-react';
+import { PINS_MAX, type AccountDto, type ModelEntry, type ModelGroup } from '@conclave/core/client';
 import type { Device, Session } from '@conclave/core/types';
 import { MODEL_VARIANT as VARIANT } from '@conclave/core/providers/model-id';
 import { cn, fuzzy } from '@/lib/text';
-import { useHub } from '@/store/store';
+import { attempt, useHub } from '@/store/store';
 import { useIsMobile } from '@/lib/hooks';
 import { api } from '@/lib/api';
 import { contextLabel, HARNESSES, modelName, providerName } from '@/lib/models';
@@ -41,8 +40,9 @@ import { PROVIDERS } from '@/lib/providers';
 import { Popover } from '../ui/Overlay';
 import { PickerButton } from '../ui/Select';
 import { Button } from '../ui/Button';
+import { Segmented } from '../ui/Field';
 import { planParts } from '../ui/Meter';
-import { CompanyMark, HarnessMark, ModelMark, ModelName } from '../logo';
+import { HarnessMark, ModelMark, ModelName } from '../logo';
 
 const HARNESS_CLI: Record<string, string> = {
   'claude-code': 'claude',
@@ -397,101 +397,146 @@ function usePicker(includeHarness: boolean): Picker {
   return useMemo(() => buildPicker({ models, sessions, devices, secrets, limits, harnesses: includeHarness, accounts }), [models, sessions, devices, secrets, limits, includeHarness, accounts]);
 }
 
-/** One line of the list: the back row, a maker's row, a model, or one route to a model under its row. */
-export type PickerItem = { kind: 'back'; group: PickerGroup } | { kind: 'group'; group: PickerGroup } | { kind: 'model'; row: Row } | { kind: 'route'; row: Row; route: Route };
+/** Where a row sits in the list: Pinned, Recent, or the tab's ranked list. Each opens its routes on its own. */
+export type Section = 'pin' | 'recent' | 'list';
 
-/** A model's line, then its routes when the owner opened them (`expanded` is the row's key). */
-function withRoutes(rows: Row[], expanded: string | null | undefined): PickerItem[] {
-  return rows.flatMap((row): PickerItem[] => [{ kind: 'model', row }, ...(expanded === rowKey(row) && row.routes ? row.routes.map((route): PickerItem => ({ kind: 'route', row, route })) : [])]);
+/** One line of the list: a heading, a model, or one route to a model under its row. */
+export type PickerItem = { kind: 'head'; label: string } | { kind: 'model'; row: Row; section: Section } | { kind: 'route'; row: Row; route: Route; section: Section };
+
+/** A row's key in the list. */
+export const rowKey = (r: Row) => `${r.groupKey}:${r.ref}`;
+/** A row's key with its section: the key `expanded` names. */
+export const lineKey = (r: Row, section: Section) => `${section}:${rowKey(r)}`;
+
+/** A model's line, then its routes when the owner opened them. */
+function withRoutes(rows: Row[], section: Section, expanded: string | null | undefined): PickerItem[] {
+  return rows.flatMap((row): PickerItem[] => [{ kind: 'model', row, section }, ...(expanded === lineKey(row, section) && row.routes ? row.routes.map((route): PickerItem => ({ kind: 'route', row, route, section })) : [])]);
 }
 
-/** A row's key in the list: its ref in its section, so Recent's copy opens on its own. */
-export const rowKey = (r: Row) => `${r.groupKey}:${r.ref}`;
+/** The provider tabs, in order; the picker shows All and the ones that have models. */
+export const TABS = [
+  { value: 'all', label: 'All' },
+  { value: 'anthropic', label: 'Anthropic' },
+  { value: 'openai', label: 'OpenAI' },
+  { value: 'google', label: 'Google' },
+  { value: 'zai', label: 'Z.ai' },
+  { value: 'local', label: 'Local' },
+  { value: 'agents', label: 'Coding agents' },
+  { value: 'other', label: 'Other' },
+] as const;
+export type Tab = (typeof TABS)[number]['value'];
+const MAKER_TABS: readonly string[] = ['anthropic', 'openai', 'google', 'zai'];
+
+// shortcut: local servers by provider id, as price() reads them; a custom provider on a LAN address counts as Other until the hub says where a provider runs
+const LOCAL = new Set(['ollama', 'lmstudio', 'llamacpp', 'llama-cpp', 'vllm', 'localai', 'jan']);
+export const isLocalProvider = (provider: string) => LOCAL.has(provider);
+
+/** A row's tab: coding agents, then local servers (whoever made the model), then its maker, else Other. */
+export function tabOf(r: Pick<Row, 'ref' | 'harness' | 'groupKey'>): Tab {
+  if (r.harness) return 'agents';
+  if (isLocalProvider(r.ref.split('/')[0])) return 'local';
+  return MAKER_TABS.includes(r.groupKey) ? (r.groupKey as Tab) : 'other';
+}
+
+const TIER: Record<string, number> = { deep: 0, smart: 1, fast: 2 };
+const TIER_WORD: Record<string, string> = { deep: 'Deep', smart: 'Smart', fast: 'Fast' };
 
 /**
- * What the list shows. A search: every model that matches, as one flat
- * list (Recent left out, its rows are there already). Inside a maker: the
- * back row, then its models. Else Recent, then a row per maker. A model
- * whose routes are open has them under it.
+ * Most capable first: rows that can be picked before the rest, then the
+ * catalog's tier (deep, smart, fast, none; coding agents after), then the
+ * larger context window, then the higher output price, then the newer model.
  */
-export function pickerItems(p: Picker, q: string, open: string | null, expanded?: string | null): PickerItem[] {
-  if (q.trim())
-    return withRoutes(
-      p.groups
-        .flatMap((g) => g.rows)
-        .map((r) => ({ r, s: fuzzy(q, `${rowName(r)} ${r.model?.name ?? ''} ${r.ref} ${r.group}`) }))
-        .filter((x) => x.s >= 0)
-        .sort((a, b) => b.s - a.s)
-        .map((x) => x.r),
-      expanded,
-    );
-  const g = open ? p.groups.find((x) => x.key === open) : undefined;
-  if (g) return [{ kind: 'back', group: g }, ...withRoutes(g.rows, expanded)];
-  return [...withRoutes(p.recent, expanded), ...p.groups.map((group): PickerItem => ({ kind: 'group', group }))];
+export function capabilityRank(a: Row, b: Row): number {
+  const tier = (r: Row) => (r.harness ? 4 : (TIER[r.model?.tier ?? ''] ?? 3));
+  return (
+    Number(!!a.disabled) - Number(!!b.disabled) ||
+    tier(a) - tier(b) ||
+    (b.model?.contextWindow ?? 0) - (a.model?.contextWindow ?? 0) ||
+    (b.model?.outputPrice ?? 0) - (a.model?.outputPrice ?? 0) ||
+    compareModels(a.model?.id ?? a.ref, b.model?.id ?? b.ref)
+  );
 }
 
-/** The family heading over a row inside a maker: where the family changes, in a maker with more than one. */
-export function familyHead(rows: Row[], i: number): string | null {
-  const r = rows[i];
-  if (!r.family || new Set(rows.map((x) => x.family ?? '')).size < 2) return null;
-  return i === 0 || rows[i - 1].family !== r.family ? r.family : null;
+/** "Deep, 1M context, $4 / $20, vision, tools, thinking": the row's second line. A coding agent says where it runs. */
+export function capabilityLine(r: Row): string {
+  if (r.harness) return r.where || 'Coding agent';
+  const m = r.model;
+  if (!m) return '';
+  // price before the abilities: on a phone the line wraps to two lines at most, and the price matters more
+  return [m.tier && TIER_WORD[m.tier], m.contextWindow ? `${contextLabel(m.contextWindow)} context` : '', price(m, r.ref.split('/')[0]), m.vision && 'vision', m.tools && 'tools', m.thinking && 'thinking'].filter(Boolean).join(', ');
 }
 
-/** The maker that holds a model: where the picker opens. None for no model, or one no maker offers. */
-export function groupOf(groups: PickerGroup[], ref: string | undefined): string | null {
-  if (!ref) return null;
-  return groups.find((g) => g.rows.some((r) => r.ref === ref))?.key ?? null;
+/** Every row of every maker, once; a plan's copy of a model with no tier of its own takes the catalog's by name. */
+export function allRows(p: Picker): Row[] {
+  const rows = p.groups.flatMap((g) => g.rows);
+  const tiers = new Map(rows.filter((r) => r.model?.tier).map((r) => [rowName(r), r.model!.tier]));
+  return rows.map((r) => (r.model && !r.model.tier && tiers.has(rowName(r)) ? { ...r, model: { ...r.model, tier: tiers.get(rowName(r)) } } : r));
 }
 
-/** What a maker's row says at the right: the current model's name when it is there, else how many models it has. */
-export function groupNote(g: PickerGroup, current: string | undefined, picked?: string[]): string {
-  if (picked) {
-    const on = g.rows.filter((r) => picked.includes(r.ref));
-    if (on.length > 1) return `${on.length} selected`;
-    if (on.length === 1) return rowName(on[0]);
-    return String(g.rows.length);
-  }
-  const cur = current ? g.rows.find((r) => r.ref === current) : undefined;
-  return cur ? rowName(cur) : String(g.rows.length);
+/** All, and the tabs that have a model. */
+export function shownTabs(rows: Row[]): Array<(typeof TABS)[number]> {
+  return TABS.filter((t) => t.value === 'all' || rows.some((r) => tabOf(r) === t.value));
 }
 
-const canPick = (it: PickerItem | undefined) => !!it && ((it.kind !== 'model' && it.kind !== 'route') || !it.row.disabled);
+/**
+ * What the list shows under the search and the tabs: Pinned (the account's
+ * pins in this tab), Recent (the last three in this tab, pins left out),
+ * then the tab's models, most capable first, the ones that cannot be picked
+ * last. A search lists the matches of every tab (a model is never hidden
+ * behind the tab the picker opened on), ranked the same, with no Pinned or
+ * Recent. A model whose routes are open has them under it.
+ */
+export function pickerItems(p: Picker, q: string, tab: Tab, pinned: readonly string[] = [], expanded?: string | null): PickerItem[] {
+  const all = allRows(p);
+  const inTab = (r: Row) => tab === 'all' || tabOf(r) === tab;
+  const needle = q.trim();
+  const ranked = all.filter((r) => (needle || inTab(r)) && (!needle || fuzzy(needle, `${rowName(r)} ${r.model?.name ?? ''} ${r.ref} ${r.group}`) >= 0)).sort(capabilityRank);
+  if (!ranked.length) return [];
+  if (needle) return [{ kind: 'head', label: `Matches for "${needle}"` }, ...withRoutes(ranked, 'list', expanded)];
+  const pins = ranked.filter((r) => pinned.includes(r.ref));
+  const recent = p.recent
+    .map((r) => all.find((x) => x.ref === r.ref) ?? r)
+    .filter((r) => inTab(r) && !pinned.includes(r.ref))
+    .slice(0, 3);
+  const name = TABS.find((t) => t.value === tab)?.label ?? 'Other';
+  const word = p.groups.find((g) => g.key === tab)?.word;
+  return [
+    ...(pins.length ? [{ kind: 'head', label: 'Pinned' } as const, ...withRoutes(pins, 'pin', expanded)] : []),
+    ...(recent.length ? [{ kind: 'head', label: 'Recent' } as const, ...withRoutes(recent, 'recent', expanded)] : []),
+    { kind: 'head', label: tab === 'all' ? 'All models, most capable first' : `${name}${word ? `, ${word}` : ''}, most capable first` },
+    ...withRoutes(ranked, 'list', expanded),
+  ];
+}
 
-/** Where the highlight starts: the maker just left, else the current model, else the first line that is not the back row. */
-function startAt(items: PickerItem[], current: string | undefined, from: string | null): number {
-  if (from) {
-    const i = items.findIndex((it) => it.kind === 'group' && it.group.key === from);
-    if (i >= 0) return i;
-  }
+const canPick = (it: PickerItem | undefined) => !!it && it.kind !== 'head' && !it.row.disabled;
+
+/** Where the highlight starts: the current model, else the first line that can be picked. */
+function startAt(items: PickerItem[], current: string | undefined): number {
   if (current) {
     const i = items.findIndex((it) => it.kind === 'model' && it.row.ref === current && !it.row.disabled);
     if (i >= 0) return i;
   }
-  const i = items.findIndex((it) => it.kind !== 'back' && canPick(it));
+  const i = items.findIndex(canPick);
   return i >= 0 ? i : 0;
 }
 
-/**
- * The height of the tallest level, in px: the list keeps it while it moves
- * between levels, so the popover does not jump or flip sides and the sheet
- * keeps its top edge. Rows are 34px (44 on phones), a model with its route
- * under the name 37.
- */
-export function listHeight(p: Picker, phone: boolean): number {
-  const row = phone ? 44 : 34;
-  const rows = (rs: Row[]) => rs.length * row;
-  // a family heading is 24px
-  const heads = (rs: Row[]) => rs.filter((_, i) => familyHead(rs, i)).length * 24;
-  const top = (p.recent.length ? 30 + rows(p.recent) + 9 : 0) + p.groups.length * row;
-  const inner = Math.max(0, ...p.groups.map((g) => row + 2 + rows(g.rows) + heads(g.rows)));
-  return Math.max(80, 8 + Math.max(top, inner));
+/** The account's pinned models (GET /api/me), shared by its devices. */
+export const usePins = (): string[] => useHub((s) => s.me?.preferences.pinnedModels) ?? NO_PINS;
+const NO_PINS: string[] = [];
+
+/** Pin or unpin a model: at once on screen, then on the hub; a refusal puts the old list back and the toast says why. */
+export async function togglePin(ref: string): Promise<void> {
+  const before = useHub.getState().me?.preferences.pinnedModels ?? [];
+  const next = before.includes(ref) ? before.filter((x) => x !== ref) : [...before, ref].slice(-PINS_MAX);
+  const put = (pinnedModels: string[] | undefined) => {
+    const me = useHub.getState().me;
+    if (me) useHub.setState({ me: { ...me, preferences: { ...me.preferences, pinnedModels } } });
+  };
+  put(next.length ? next : undefined);
+  if (!(await attempt(() => api().updateMe({ pinnedModels: next.length ? next : null })))) put(before.length ? before : undefined);
 }
 
-function GroupMark({ group }: { group: PickerGroup }) {
-  return group.key === 'harness' ? <SquareTerminal className="size-4 shrink-0 text-fg-2" strokeWidth={1.5} aria-hidden /> : <CompanyMark provider={group.key} size={16} tone="brand" />;
-}
-
-const ROW = 'flex min-h-[34px] items-center gap-2 rounded-[var(--r-1)] px-2 text-[13px] phone:min-h-11 phone:text-[15px]';
+const ROW = 'flex min-h-[44px] items-center gap-2.5 rounded-[var(--r-1)] px-2 py-1.5 text-[13px] phone:min-h-14 phone:text-[15px]';
 
 export interface ModelListProps {
   value?: string;
@@ -506,10 +551,12 @@ export interface ModelListProps {
   /** Footer content in multiple mode, after the count (the judge picker). */
   footer?: ReactNode;
   autoFocus?: boolean;
+  /** Under the list (the composer's Effort for the model). */
+  foot?: ReactNode;
 }
 
 /** The searchable list itself, for embedding in a popover, sheet or page. */
-export function ModelList({ value, values, onChange, onChangeMany, harnesses = true, onDone, footer, autoFocus = true }: ModelListProps) {
+export function ModelList({ value, values, onChange, onChangeMany, harnesses = true, onDone, footer, autoFocus = true, foot }: ModelListProps) {
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const [, navigate] = useLocation();
@@ -517,60 +564,61 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
   const picker = usePicker(harnesses);
   const phone = useIsMobile();
   const groups = useHub((s) => s.models);
+  const pinned = usePins();
   const multiple = !!onChangeMany;
   const picked = (values ?? []).map((v) => shownRef(groups, v) ?? v);
   // a session that names another route's ref (anthropic/ while the plan goes first) checks the merged row
   const current = shownRef(groups, value);
+  const rows = useMemo(() => allRows(picker), [picker]);
+  const tabs = shownTabs(rows);
 
-  // Opens on the current model's maker; with no model (or several), on the makers.
-  const [open, setOpen] = useState<string | null>(() => (multiple ? null : groupOf(picker.groups, current)));
-  // which way the list last moved, for its slide: into a maker, or back out
-  const [dir, setDir] = useState<'in' | 'back' | null>(null);
+  // Opens on the current model's tab; with no model (or several), on All.
+  const tabFor = (): Tab => {
+    const r = !multiple && current ? rows.find((x) => x.ref === current) : undefined;
+    return r ? tabOf(r) : 'all';
+  };
+  const [want, setWant] = useState<Tab>(tabFor);
+  const tab: Tab = tabs.some((t) => t.value === want) ? want : 'all';
   const moved = useRef(false);
-  const left = useRef<string | null>(null);
-  // the models came after the list opened: open on the current maker then, unless the owner moved already
-  const known = picker.groups.length > 0;
+  // the models came after the list opened: open on the current model's tab then, unless the owner moved already
+  const known = rows.length > 0;
   useEffect(() => {
-    if (known && !moved.current && !multiple && !open) setOpen(groupOf(picker.groups, current));
+    if (known && !moved.current) setWant(tabFor());
   }, [known]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // the model whose routes are open under it (rowKey), if any
+  // the model whose routes are open under it (lineKey), if any
   const [expanded, setExpanded] = useState<string | null>(null);
-  const items = useMemo(() => pickerItems(picker, q, open, multiple ? null : expanded), [picker, q, open, expanded, multiple]);
+  const items = useMemo(() => pickerItems(picker, q, tab, pinned, multiple ? null : expanded), [picker, q, tab, pinned, expanded, multiple]);
   const enabled = items.map((it, i) => (canPick(it) ? i : -1)).filter((i) => i >= 0);
-  const level = q.trim() ? 'search' : (items[0]?.kind === 'back' && open) || 'top';
-  const size = picker.recent.length + picker.groups.reduce((n, g) => n + g.rows.length + 1, 0);
+  const level = `${tab}:${q.trim() ? 'search' : 'list'}`;
 
-  // Each level starts on the current model (or the first line) in view; later, only keys scroll the list, never the pointer.
+  const setTab = (t: Tab) => {
+    moved.current = true;
+    setExpanded(null);
+    setWant(t);
+  };
+
+  // Each tab starts on the current model (or the first line) in view; later, only keys scroll the list, never the pointer.
   const keyMove = useRef(false);
   const reveal = (i: number) => listRef.current?.querySelector<HTMLElement>(`[data-idx="${i}"]`)?.scrollIntoView?.({ block: 'nearest' });
   useEffect(() => {
-    const start = startAt(items, q.trim() ? undefined : current, left.current);
-    left.current = null;
+    const start = startAt(items, q.trim() ? undefined : current);
     setSel(start);
     if (listRef.current) listRef.current.scrollTop = 0;
     reveal(start);
-  }, [level, size]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [level, rows.length]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!keyMove.current) return;
     keyMove.current = false;
     reveal(sel);
   }, [sel]);
 
-  const go = (key: string | null) => {
-    moved.current = true;
-    if (key === null) left.current = open;
-    setDir(key ? 'in' : 'back');
-    setExpanded(null);
-    setOpen(key);
-  };
-
   /** Open or close a model's routes, keeping the highlight on its row. */
-  const toggleRoutes = (r: Row) => {
+  const toggleRoutes = (r: Row, section: Section) => {
     if (!r.routes || multiple) return;
-    const k = rowKey(r);
+    const k = lineKey(r, section);
     setExpanded((x) => (x === k ? null : k));
-    const i = items.findIndex((it) => it.kind === 'model' && rowKey(it.row) === k);
+    const i = items.findIndex((it) => it.kind === 'model' && lineKey(it.row, it.section) === k);
     if (i >= 0) setSel(i);
   };
 
@@ -586,10 +634,8 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
   };
 
   const choose = (it: PickerItem | undefined) => {
-    if (!it) return;
-    if (it.kind === 'group') go(it.group.key);
-    else if (it.kind === 'back') go(null);
-    else if (it.kind === 'route') {
+    if (!it || it.kind === 'head') return;
+    if (it.kind === 'route') {
       if (it.row.disabled) return;
       // one account or provider, as the owner asked: its own ref is stored
       onChange(it.route.ref);
@@ -610,25 +656,27 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
     } else if (e.key === 'Enter') {
       e.preventDefault();
       choose(items[sel]);
-    } else if (e.key === 'ArrowRight' && q === '' && items[sel]?.kind === 'group') {
-      e.preventDefault();
-      choose(items[sel]);
-    } else if (e.key === 'ArrowRight' && (q === '' || (e.target as HTMLInputElement).selectionStart === q.length) && items[sel]?.kind === 'model') {
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') return;
+    const it = items[sel];
+    const atEnd = q === '' || (e.target as HTMLInputElement).selectionStart === q.length;
+    if (e.key === 'ArrowRight' && atEnd && it?.kind === 'model' && it.row.routes && !multiple && expanded !== lineKey(it.row, it.section)) {
       // a model with several routes opens them
-      const it = items[sel] as Extract<PickerItem, { kind: 'model' }>;
-      if (it.row.routes && !multiple && expanded !== rowKey(it.row)) {
-        e.preventDefault();
-        toggleRoutes(it.row);
-      }
-    } else if (e.key === 'ArrowLeft' && expanded && (items[sel]?.kind === 'route' || (items[sel]?.kind === 'model' && rowKey((items[sel] as Extract<PickerItem, { kind: 'model' }>).row) === expanded))) {
+      e.preventDefault();
+      toggleRoutes(it.row, it.section);
+    } else if (e.key === 'ArrowLeft' && expanded && it && it.kind !== 'head' && lineKey(it.row, it.section) === expanded) {
       // closes the routes first, back on their model
       e.preventDefault();
-      const i = items.findIndex((it) => it.kind === 'model' && rowKey(it.row) === expanded);
+      const i = items.findIndex((x) => x.kind === 'model' && lineKey(x.row, x.section) === expanded);
       setExpanded(null);
       if (i >= 0) setSel(i);
-    } else if ((e.key === 'ArrowLeft' || e.key === 'Backspace') && q === '' && open && level !== 'top') {
-      e.preventDefault();
-      go(null);
+    } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && q === '') {
+      // with no search, Left and Right move between the tabs
+      const i = tabs.findIndex((t) => t.value === tab) + (e.key === 'ArrowRight' ? 1 : -1);
+      if (tabs[i]) {
+        e.preventDefault();
+        setTab(tabs[i].value);
+      }
     }
   };
 
@@ -641,24 +689,21 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
 
   return (
     <div className="flex min-h-0 flex-col" onKeyDown={onKey}>
-      <div className="shrink-0 border-b border-rule p-2">
+      <div className="shrink-0 space-y-2 border-b border-rule p-2">
         <input
           autoFocus={autoFocus}
           value={q}
-          onChange={(e) => {
-            const v = e.target.value;
-            // clearing the search goes back to the makers
-            if (q.trim() && !v.trim()) {
-              moved.current = true;
-              setOpen(null);
-              setDir(null);
-            }
-            setQ(v);
-          }}
+          onChange={(e) => setQ(e.target.value)}
           placeholder="Search models"
           aria-label="Search models"
           className="h-8 w-full rounded-[var(--r-1)] border border-edge bg-sunk px-2.5 text-[13px] text-fg outline-none placeholder:text-fg-3 focus:border-signal focus:shadow-[0_0_0_1px_var(--signal)] phone:h-11 phone:text-[16px]"
         />
+        {tabs.length > 2 && (
+          // on a phone the row scrolls sideways rather than squeeze the makers
+          <div className="no-scrollbar -mx-2 overflow-x-auto px-2">
+            <Segmented size="sm" full label="Provider" value={tab} onChange={setTab} options={tabs.map((t) => ({ value: t.value, label: t.label }))} />
+          </div>
+        )}
       </div>
       <div
         ref={listRef}
@@ -666,40 +711,19 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
         aria-label="Models"
         aria-multiselectable={multiple || undefined}
         className="min-h-0 flex-1 overflow-y-auto p-1"
-        // the tallest level's height, shrunk to what the popover or sheet has room for
-        style={{ flexBasis: `min(${listHeight(picker, phone)}px, 64dvh)` }}
+        // one height for every tab, so the popover does not jump or flip sides and the sheet keeps its top edge
+        style={{ flexBasis: phone ? '52dvh' : 'min(360px, 64dvh)' }}
       >
-        <div key={level} className={level === 'search' ? undefined : dir === 'in' ? 'anim-right' : dir === 'back' ? 'anim-left' : undefined}>
+        <div>
           {items.length === 0 && <p className="px-2 py-4 text-[13px] text-fg-3">{q.trim() ? `No model matches "${q}".` : 'No models yet. Add a key in Settings, Providers.'}</p>}
           {items.map((it, i) => {
             const on = i === sel;
-            if (it.kind === 'back') {
-              const g = it.group;
+            if (it.kind === 'head')
               return (
-                <div key="back" role="option" aria-selected={false} aria-label={`Back from ${g.name}`} {...hover(i, it)} onClick={() => go(null)} className={cn(ROW, 'mb-0.5 font-semibold text-fg', on && 'bg-hover')}>
-                  <ChevronLeft className="-mx-0.5 size-4 shrink-0 text-fg-3" strokeWidth={1.75} aria-hidden />
-                  <GroupMark group={g} />
-                  <span className="min-w-0 flex-1 truncate">{g.name}</span>
-                  {g.word && <span className={cn('shrink-0 text-[12px] font-normal', g.word === 'rejected' ? 'text-fault' : 'text-fg-3')}>{g.word}</span>}
+                <div key={`h:${it.label}`} role="presentation" className="px-2 pt-2.5 pb-1 text-[12px] font-medium text-fg-3 phone:text-[13px]">
+                  {it.label}
                 </div>
               );
-            }
-            if (it.kind === 'group') {
-              const g = it.group;
-              const note = groupNote(g, current, multiple ? picked : undefined);
-              const named = !/^\d+$/.test(note);
-              return (
-                <div key={`g:${g.key}`}>
-                  {i > 0 && items[i - 1].kind === 'model' && <div aria-hidden className="mx-2 my-1 h-px bg-rule" />}
-                  <div role="option" aria-selected={false} {...hover(i, it)} onClick={() => go(g.key)} className={cn(ROW, 'text-fg', on && 'bg-hover')}>
-                    <GroupMark group={g} />
-                    <span className="min-w-0 flex-1 truncate font-medium">{g.name}</span>
-                    <span className={cn('min-w-0 shrink truncate text-[12px] phone:text-[13px]', named ? 'text-fg-2' : 'num text-fg-3')}>{note}</span>
-                    <ChevronRight className="-mr-0.5 size-3.5 shrink-0 text-fg-4" strokeWidth={1.75} aria-hidden />
-                  </div>
-                </div>
-              );
-            }
             const r = it.row;
             if (it.kind === 'route') {
               const rt = it.route;
@@ -707,7 +731,7 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
               const here = !multiple && value === rt.ref;
               return (
                 <div
-                  key={`route:${rowKey(r)}:${rt.ref}`}
+                  key={`route:${lineKey(r, it.section)}:${rt.ref}`}
                   role="option"
                   aria-selected={here}
                   aria-disabled={r.disabled || undefined}
@@ -724,36 +748,44 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
                 </div>
               );
             }
-            const head = level === 'top' && i === 0 ? 'Recent' : null;
-            const inMaker = level !== 'top' && level !== 'search' ? picker.groups.find((g) => g.key === open) : undefined;
-            const family = inMaker ? familyHead(inMaker.rows, inMaker.rows.indexOf(r)) : null;
+            const section = it.section;
             const checked = multiple ? picked.includes(r.ref) : r.ref === current;
             // picked through one account or provider: the row says which
             const through = !multiple && checked && value && value !== r.ref && r.routes?.some((x) => !x.first && x.ref === value) ? routeLabel(value) : undefined;
-            const routesOpen = expanded === rowKey(r);
+            const routesOpen = expanded === lineKey(r, section);
+            const pin = pinned.includes(r.ref);
             return (
-              <div key={`${r.groupKey}:${r.ref}`}>
-                {head && <div className="px-2 pt-1.5 pb-1 text-[13px] font-semibold text-fg">{head}</div>}
-                {family && <div className="px-2 pt-1.5 pb-0.5 text-[11.5px] font-medium text-fg-3 phone:text-[13px]">{family}</div>}
+              <div key={lineKey(r, section)}>
                 <div
                   role="option"
                   aria-selected={checked}
                   aria-disabled={r.disabled || undefined}
                   {...hover(i, it)}
                   onClick={() => pick(r)}
+                  // phones: a long press pins, so rows carry no pin until one is pinned
+                  onContextMenu={(e) => {
+                    if (!phone || r.disabled) return;
+                    e.preventDefault();
+                    void togglePin(r.ref);
+                  }}
                   title={r.model?.via}
-                  className={cn(ROW, on && !r.disabled && 'bg-hover', r.disabled ? 'text-fg-3' : 'text-fg')}
+                  className={cn(ROW, 'group/row', on && !r.disabled && 'bg-hover', r.disabled ? 'text-fg-3' : 'text-fg')}
                 >
                   {multiple && (
                     <span aria-hidden className={cn('grid size-3.5 shrink-0 place-items-center rounded-[2px] border', checked ? 'border-fg bg-fg text-bg' : 'border-edge')}>
                       {checked && <Check className="size-2.5" strokeWidth={2.5} />}
                     </span>
                   )}
-                  {r.harness ? <HarnessMark harness={r.ref} size={16} /> : <ModelMark model={r.ref} size={16} tone={r.disabled ? 'mono' : 'brand'} />}
-                  <span className="min-w-0 flex-1 truncate font-medium">
-                    {rowName(r)}
-                    {level === 'search' && r.groupKey !== 'harness' && <span className="ml-2 text-[12px] font-normal text-fg-3">{r.group}</span>}
-                    {(through ?? r.source) && <span className="ml-2 text-[12px] font-normal text-fg-3">via {through ?? r.source}</span>}
+                  {r.harness ? <HarnessMark harness={r.ref} size={18} /> : <ModelMark model={r.ref} size={18} tone={r.disabled ? 'mono' : 'brand'} />}
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-baseline gap-2">
+                      <span className="truncate font-medium">{rowName(r)}</span>
+                      {(tab === 'all' || q.trim()) && !r.harness && r.groupKey !== 'recent' && <span className="shrink-0 text-[12px] text-fg-3 phone:text-[13px]">{r.group}</span>}
+                      {(through ?? r.source) && <span className="min-w-0 truncate text-[12px] text-fg-3 phone:text-[13px]">via {through ?? r.source}</span>}
+                    </span>
+                    <span className={cn('block truncate text-[12px] phone:line-clamp-2 phone:text-[13px] phone:whitespace-normal', r.model?.unavailable ? 'text-warn' : 'text-fg-3')}>
+                      {r.model?.unavailable ?? (r.disabled && !r.harness ? 'No key for this provider' : capabilityLine(r))}
+                    </span>
                   </span>
                   {r.routes && !multiple && !r.disabled && (
                     <button
@@ -763,16 +795,14 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
                       aria-expanded={routesOpen}
                       onClick={(e) => {
                         e.stopPropagation();
-                        toggleRoutes(r);
+                        toggleRoutes(r, section);
                       }}
-                      className={cn('shrink-0 rounded-[var(--r-1)] px-1 text-[11.5px] text-fg-3 hover:text-fg phone:text-[13px]', routesOpen && 'text-fg')}
+                      className={cn('shrink-0 rounded-[var(--r-1)] px-1 text-[12px] text-fg-3 hover:text-fg phone:text-[13px]', routesOpen && 'text-fg')}
                     >
                       via
                     </button>
                   )}
-                  {r.model?.unavailable ? (
-                    <span className="shrink-0 text-[12px] text-fg-3">{r.model.unavailable}</span>
-                  ) : r.disabled && !r.harness ? (
+                  {r.disabled && !r.harness && !r.model?.unavailable ? (
                     <Button
                       variant="quiet"
                       size="sm"
@@ -785,7 +815,19 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
                       Add key
                     </Button>
                   ) : (
-                    <span className="num shrink-0 text-[12px] text-fg-3">{r.harness ? r.where : `${r.model ? contextLabel(r.model.contextWindow) : ''}${r.model ? `, ${price(r.model, r.ref.split('/')[0])}` : ''}`}</span>
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      aria-pressed={pin}
+                      aria-label={pin ? `Unpin ${rowName(r)}` : `Pin ${rowName(r)}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void togglePin(r.ref);
+                      }}
+                      className={cn('grid size-6 shrink-0 place-items-center rounded-[var(--r-1)] hov:bg-hover phone:size-9', pin ? 'text-fg-2' : 'text-fg-4 opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 phone:sr-only')}
+                    >
+                      <Pin className="size-3.5" strokeWidth={1.75} aria-hidden />
+                    </button>
                   )}
                   {!multiple && <Check className={cn('size-3.5 shrink-0', !checked && 'invisible')} strokeWidth={1.75} aria-hidden />}
                 </div>
@@ -794,6 +836,7 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
           })}
         </div>
       </div>
+      {foot}
       {multiple && (
         <div className="flex shrink-0 items-center gap-3 border-t border-rule px-3 py-2 text-[12px] text-fg-3">
           <span className="num">{picked.length} selected</span>

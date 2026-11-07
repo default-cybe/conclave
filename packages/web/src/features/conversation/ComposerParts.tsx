@@ -103,7 +103,7 @@ export const SAME_MODEL_HELP = 'Delegate, Task and workflow agents, at any depth
 /** Same model for all work: one switch under Effort, with its help line. */
 function SameModelSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
   return (
-    <div className="shrink-0 border-b border-rule px-3 pt-2 pb-2.5">
+    <div className="shrink-0 border-t border-rule px-3 pt-2 pb-2.5">
       <Checkbox checked={on} onChange={onChange} label="Same model for all work" description={SAME_MODEL_HELP} />
     </div>
   );
@@ -128,16 +128,18 @@ export function CyberAccess({ model, value, onChange }: { model: string | undefi
   );
 }
 
-/** The picker's body: Effort for the model on top (when it has levels), then the model list. */
+/** The picker's body: the model list, then Effort for the model at the foot (when it has levels). */
 function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = false, onDone, switchOf, cyber, onCyber, sameModel, onSameModel, security, onSecurity }: PickerProps & { onDone: () => void }) {
   const e = useModelEffort(model);
   const mobile = useIsMobile();
   const shown = effortShown(value, e, follow);
   const [stepping, setStepping] = useState(false);
+  // the list first, then what goes with the picked model at the foot (design PR #292)
   return (
     <>
+      {switchOf ? <SwitchModelList session={switchOf} harnesses={harnesses} onDone={onDone} onStep={setStepping} /> : <ModelList value={model} harnesses={harnesses} onChange={onModel} onDone={onDone} />}
       {e && !stepping && (
-        <div className="shrink-0 space-y-2 border-b border-rule px-3 pt-2 pb-2.5">
+        <div className="shrink-0 space-y-2 border-t border-rule px-3 pt-2 pb-2.5">
           <div className="flex min-h-[20px] items-center justify-between gap-3 text-[12px] phone:text-[13px]">
             <span className="text-fg-3">Effort</span>
             {follow &&
@@ -152,14 +154,17 @@ function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = 
           <EffortSegments effort={e} value={shown} onChange={(v) => onEffort(v)} size={mobile ? 'touch' : 'sm'} />
         </div>
       )}
-      {onCyber && !stepping && <CyberAccess model={model} value={cyber} onChange={onCyber} />}
+      {onCyber && !stepping && (
+        <div className="border-t border-rule">
+          <CyberAccess model={model} value={cyber} onChange={onCyber} />
+        </div>
+      )}
       {onSameModel && !stepping && <SameModelSwitch on={!!sameModel} onChange={onSameModel} />}
       {onSecurity && !stepping && (
-        <div className="shrink-0 border-b border-rule px-3 pt-2 pb-2.5">
+        <div className="shrink-0 border-t border-rule px-3 pt-2 pb-2.5">
           <Checkbox checked={!!security} onChange={onSecurity} label="Security" description={SECURITY_HELP} />
         </div>
       )}
-      {switchOf ? <SwitchModelList session={switchOf} harnesses={harnesses} onDone={onDone} onStep={setStepping} /> : <ModelList value={model} harnesses={harnesses} onChange={onModel} onDone={onDone} />}
     </>
   );
 }
