@@ -37,10 +37,8 @@ describe('Security start mode', () => {
     expect(START_MODES.map((m) => m.value).filter(offersIncognito)).toEqual(['chat', 'code']);
   });
 
-  test('Chat and Code Home leave out the day (calendar, tasks, plan); Assistant keeps it', () => {
-    expect(showsDay('chat')).toBe(false);
-    expect(showsDay('code')).toBe(false);
-    expect(showsDay('assistant')).toBe(true);
+  test('Chat, Code and Security Home leave out the day (calendar, tasks, plan); Assistant keeps it', () => {
+    expect(START_MODES.map((m) => m.value).filter(showsDay)).toEqual(['assistant']);
   });
 
   test('a session of the security agent belongs to Security; Code never offers it as a custom agent', () => {
