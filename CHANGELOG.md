@@ -9,6 +9,12 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Changed
+
+- Sidebar group headings (Today, This week, a project or device name) are bold in the full text colour and a little larger, so they stand out from the session rows on the web, the phone and Android.
+
+## [0.4.77] - 2026-11-07
+
 ### Added
 
 - Notes: one to-do list per account, shown as a slim line at the top of every Chat and Code conversation ("3 to do: Call the bank"). It stays hidden until you pick Add a note in the chat's menu. Click or tap the line to open a short checklist: add, check off, edit, delete, and drag to reorder on desktop. Escape folds it back. Notes are tasks with the `note` label, so they also show on the Tasks page and sync to Android, and each member has their own. A checked note leaves the line after a day and stays on the Tasks page as done. Android shows the same line on the chat screen: check notes off there, and Add a note opens a sheet.
@@ -23,7 +29,6 @@ like `## [0.4.16] - 2026-10-24`.
 - The live line under a running turn no longer shows tokens per second; the header already shows the running time.
 - Home on a phone shows one line under the greeting instead of up to four: what waits on you ("4 need you, 2 proposals") in amber, else the next event, else learnings to review.
 - Canvas lists its files once: in the sidebar on a desktop (the start page points there) and on the page on a phone. Programs group by folder only, in the normal font.
-- Sidebar group headings (Today, This week, a project or device name) are bold in the full text colour and a little larger, so they stand out from the session rows on the web, the phone and Android.
 
 ## [0.4.76] - 2026-11-07
 
