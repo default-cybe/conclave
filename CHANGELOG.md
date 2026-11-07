@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Sidebar group headings (Today, This week, a project or device name) are bold in the full text colour and a little larger, so they stand out from the session rows on the web, the phone and Android.
+
 ## [0.4.77] - 2026-11-07
 
 ### Added
