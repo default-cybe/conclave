@@ -27,7 +27,7 @@ import type { Context, Hono } from 'hono';
 import { createHash, randomBytes } from 'node:crypto';
 import type { PairResult } from '@conclave/core/client/index.ts';
 import type { Contact } from '@conclave/core/client/contacts.ts';
-import { contactName, shownName, SPLIT_MAX, type AccountRef, type InviteDto, type InviteInfo, type MeDto, type MePatch, type PersonCreated, type PersonDto, type PersonInput, type PersonPatch, type ProviderGrantsDto, type WorkspaceCode } from '@conclave/core/client/people.ts';
+import { contactName, shownName, SPLIT_MAX, PINS_MAX, type AccountRef, type InviteDto, type InviteInfo, type MeDto, type MePatch, type PersonCreated, type PersonDto, type PersonInput, type PersonPatch, type ProviderGrantsDto, type WorkspaceCode } from '@conclave/core/client/people.ts';
 import { isMember } from '@conclave/core/people/context.ts';
 import { PeopleError, accountKey, type HubAccount, type ProviderGrants } from '@conclave/core/people/store.ts';
 import { MEMBER_ALLOW_KEY } from '@conclave/core/engine/permissions-view.ts';
@@ -216,6 +216,7 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
         ...(a.settings.defaultAgent ? { defaultAgent: a.settings.defaultAgent } : {}),
         ...(a.settings.importWatch ? { importWatch: true } : {}),
         ...(a.settings.splitView?.length ? { splitView: a.settings.splitView } : {}),
+        ...(a.settings.pinnedModels?.length ? { pinnedModels: a.settings.pinnedModels } : {}),
       },
       ...(isMember(a.id) ? { allow: engine.repos.kv.get<string[]>(accountKey(a.id, MEMBER_ALLOW_KEY), []), disk: engine.diskUse(a.id) } : {}),
     };
@@ -281,6 +282,12 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
       if (!Array.isArray(ids) || ids.length > SPLIT_MAX || ids.some((x) => typeof x !== 'string' || !x || x.length > 100)) throw badRequest(`splitView must be at most ${SPLIT_MAX} session ids`);
       if (ids.length) settings.splitView = [...new Set(ids)];
       else delete settings.splitView;
+    }
+    if (body.pinnedModels !== undefined) {
+      const refs = body.pinnedModels ?? [];
+      if (!Array.isArray(refs) || refs.length > PINS_MAX || refs.some((x) => typeof x !== 'string' || !x || x.length > 200)) throw badRequest(`pinnedModels must be at most ${PINS_MAX} model refs`);
+      if (refs.length) settings.pinnedModels = [...new Set(refs)];
+      else delete settings.pinnedModels;
     }
     if (body.allow !== undefined) {
       // the owner's rules are the hub's config (permissions.allow)

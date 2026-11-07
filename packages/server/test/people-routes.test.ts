@@ -84,6 +84,23 @@ describe('the owner adds people', () => {
     expect((await asJson(await hub.api('/api/me', { token: alice.token }))).body.preferences.splitView).toBeUndefined();
   });
 
+  test('each account keeps its own pinned models, on every device', async () => {
+    const pins = ['anthropic/claude-opus-5-5', 'ollama/qwen3', 'anthropic/claude-opus-5-5'];
+    expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { pinnedModels: pins } })).status).toBe(200);
+    // another device of alice's reads the same list
+    const phone = await asJson(await hub.api('/api/login', { method: 'POST', token: null, json: { account: 'alice', password: PW, name: 'tablet' } }));
+    expect((await asJson(await hub.api('/api/me', { token: phone.body.token }))).body.preferences.pinnedModels).toEqual(['anthropic/claude-opus-5-5', 'ollama/qwen3']);
+    // the owner's pins are the owner's, and the owner's write does not touch alice's
+    expect((await asJson(await hub.api('/api/me'))).body.preferences.pinnedModels).toBeUndefined();
+    expect((await hub.api('/api/me', { method: 'PATCH', json: { pinnedModels: ['openai/gpt-5.5'] } })).status).toBe(200);
+    expect((await asJson(await hub.api('/api/me', { token: alice.token }))).body.preferences.pinnedModels).toEqual(['anthropic/claude-opus-5-5', 'ollama/qwen3']);
+    expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { pinnedModels: [7] } })).status).toBe(400);
+    expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { pinnedModels: Array.from({ length: 51 }, (_, i) => `m/${i}`) } })).status).toBe(400);
+    expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { pinnedModels: null } })).status).toBe(200);
+    expect((await asJson(await hub.api('/api/me', { token: alice.token }))).body.preferences.pinnedModels).toBeUndefined();
+    expect((await hub.api('/api/me', { method: 'PATCH', json: { pinnedModels: [] } })).status).toBe(200);
+  });
+
   test('a member changes their own name, defaults and password, and nothing of anyone else', async () => {
     expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { name: 'alice2', defaultModel: 'anthropic/claude-sonnet-5-5' } })).status).toBe(200);
     expect((await asJson(await hub.api('/api/me', { token: alice.token }))).body).toMatchObject({ name: 'alice2', preferences: { defaultModel: 'anthropic/claude-sonnet-5-5' } });

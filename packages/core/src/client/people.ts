@@ -93,6 +93,9 @@ export interface ProviderAccessDto {
 /** The most sessions side by side (/sessions/split). */
 export const SPLIT_MAX = 4;
 
+/** The most models pinned at the top of the model picker. */
+export const PINS_MAX = 50;
+
 export interface MePreferences {
   defaultModel?: string;
   smallModel?: string;
@@ -101,6 +104,8 @@ export interface MePreferences {
   importWatch?: boolean;
   /** Sessions side by side (/sessions/split): up to SPLIT_MAX session ids, left to right. */
   splitView?: string[];
+  /** Models pinned at the top of the model picker, on every device: refs, at most PINS_MAX. */
+  pinnedModels?: string[];
 }
 
 export interface AccountUsage {
@@ -138,6 +143,8 @@ export interface MePatch {
   importWatch?: boolean;
   /** Up to SPLIT_MAX session ids; null or [] clears the view. */
   splitView?: string[] | null;
+  /** The whole pinned list, at most PINS_MAX refs; null or [] clears it. */
+  pinnedModels?: string[] | null;
   /** A member's own usage fallback: models they can call, first tried first. null clears it. The owner's is models.limitFallback in /api/config. */
   usageFallback?: { enabled?: boolean; models?: string[] } | null;
   /** A member's own refusal fallback: models they can call, no accounts. null clears it. The owner's is models.refusalFallback. */
