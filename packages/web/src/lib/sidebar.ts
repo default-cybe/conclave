@@ -1,8 +1,8 @@
 /**
  * The sessions in the sidebar (desktop) and the drawer (phone), as the
  * Claude app lists them: the conversations of the mode the switch is on,
- * one row each (title, a quiet dot while it runs or waits on you, the
- * device when the list is not grouped by device), in groups.
+ * one row each (the title, and "running" or "waiting" as a word while it
+ * runs or waits on you; the device is in the session's header), in groups.
  *
  * Code goes by project (one group per project across devices, the + of a
  * group starts a session there), by device, or by time. Chats go by time:
@@ -14,7 +14,7 @@
  *
  * Delegated work (a Delegate call's Code or Assistant session) has a group
  * of its own under the list in every mode, newest first: the title, who did
- * it and where ("Code on MadX Arch"), its dot, and the conversation it came
+ * it and where ("Code on MadX Arch"), its state word, and the conversation it came
  * from as a quiet second line ("from Capstone chat"). Moved to the main
  * list, it is a normal session of its kind. Pure, so test/sidebar.test.ts
  * checks it.
@@ -29,7 +29,7 @@ import type { Session } from '@conclave/core/types';
 import { delegateMark, isDelegated, underParent } from '@conclave/core/session/delegated';
 import { isUnread } from '@conclave/core/session/unread';
 import { IMPORTED_KEY, IMPORTED_WORDS, byImportedDate, importedLabel, inImported } from '@conclave/core/session/imported';
-import { CHATS, deviceName, groupSessions, type GroupContext } from './grouping';
+import { CHATS, groupSessions, type GroupContext } from './grouping';
 import { hrefOf, liveState } from './recents';
 import { sessionRepo } from './github';
 
@@ -71,11 +71,11 @@ export interface SideRow {
   id: string;
   title: string;
   href: string;
-  /** running: a small dot in signal. waiting: amber, an approval or a question waits on the owner. */
+  /** running: the word in signal. waiting: in amber, an approval or a question waits on the owner. */
   state?: 'running' | 'waiting';
   /** A reply came after the owner last opened it: the title is bold (core session/unread.ts). */
   unread?: boolean;
-  /** The device, only when the list is not grouped by device, and only for Code. */
+  /** A quiet word at the right: an imported chat's source and date ("claude.ai, 2 May"). */
   device?: string;
 }
 
@@ -183,7 +183,7 @@ function modeGroups(i: SideInput): SideGroupOut[] {
     const push = (key: string, label: string, s: Session) => {
       let g = out.find((x) => x.key === key);
       if (!g) out.push((g = { key, label, rows: [] }));
-      g.rows.push(rowOf(s, waiting, code ? deviceName(s, i.ctx) : undefined));
+      g.rows.push(rowOf(s, waiting));
     };
     for (const s of list) {
       if (s.pinned) push('pinned', 'Pinned', s);
@@ -202,7 +202,7 @@ function modeGroups(i: SideInput): SideGroupOut[] {
     return {
       key: g.key,
       label,
-      rows: g.items.map((s) => rowOf(s, waiting, project ? deviceName(s, i.ctx) : undefined)),
+      rows: g.items.map((s) => rowOf(s, waiting)),
       ...(target ? { target } : {}),
       ...(g.key.startsWith('p:') ? { projectId: g.key.slice(2) } : {}),
     };

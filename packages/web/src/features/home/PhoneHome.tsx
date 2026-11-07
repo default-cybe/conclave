@@ -1,8 +1,9 @@
 /**
  * Home on a phone (the iPhone app, docs/design/MOBILE-V2.md 3) is a new
  * conversation: an empty canvas with the mark and the greeting in the
- * middle, one line in amber when something waits on you ("2 need you", to
- * the Inbox), and the composer at the bottom. Chat, Assistant or Code is
+ * middle, ONE line under it (homeLine: what waits on you in amber, else
+ * the next event or the learnings to review, quiet), and the composer at
+ * the bottom. Chat, Assistant or Code is
  * the switch in the bar at the top (ModeSwitch.tsx), remembered on this
  * device; New opens Home with the one it was asked for (?chat, ?assistant,
  * ?code).
@@ -10,7 +11,6 @@
 import { useEffect } from 'react';
 import { Link, useLocation, useSearch } from 'wouter';
 import { useHub } from '@/store/store';
-import { cn } from '@/lib/text';
 import { useNow } from '@/lib/hooks';
 import { Mark } from '@/components/brand/Mark';
 import { Docked } from '@/components/ui/Toast';
@@ -38,6 +38,7 @@ export function PhoneHome() {
   const proposals = day?.proposals?.length ?? 0;
   const next = day?.events?.length ? nextEventLine(day.events, now, day.timezone) : undefined;
   const learnings = useLearningsWaiting();
+  const line = homeLine({ waiting, proposals, next, learnings });
   const search = useSearch();
   const [, navigate] = useLocation();
 
@@ -65,31 +66,29 @@ export function PhoneHome() {
         <h1 className="m-0 mt-5 max-w-[16ch] text-[28px] leading-[1.18] font-semibold tracking-[-0.02em] text-balance text-fg" style={{ fontStretch: '104%' }}>
           {greeting(name, new Date(now))}
         </h1>
-        {waiting > 0 && (
-          <Link href="/approvals" className="mt-3 flex min-h-11 items-center px-3 text-[16px] font-medium text-warn">
-            {waiting} {waiting === 1 ? 'needs' : 'need'} you
-          </Link>
-        )}
-        {proposals > 0 && (
-          <Link href="/today" className={cn('flex min-h-11 items-center px-3 text-[16px] font-medium text-warn', waiting > 0 ? 'mt-0' : 'mt-3')}>
-            {proposals} {proposals === 1 ? 'proposal' : 'proposals'} to approve
-          </Link>
-        )}
-        {next && (
-          <Link href="/today" className={cn('flex min-h-11 items-center px-3 text-[15px] text-fg-3', waiting + proposals > 0 ? 'mt-0' : 'mt-3')}>
-            {next}
-          </Link>
-        )}
-        {/* as desktop Home's LearningsBadge: quiet, not amber, since nothing is blocked on it */}
-        {learnings > 0 && (
-          <Link href="/settings/reflect" className={cn('flex min-h-11 items-center px-3 text-[15px] text-fg-3', waiting + proposals > 0 || next ? 'mt-0' : 'mt-3')}>
-            {learnings} {learningsWaitWords(learnings)}
+        {line && (
+          <Link href={line.href} className={line.warn ? 'mt-3 flex min-h-11 items-center px-3 text-[16px] font-medium text-warn' : 'mt-3 flex min-h-11 items-center px-3 text-[15px] text-fg-3'}>
+            {line.text}
           </Link>
         )}
       </div>
       <Docked>{mode === 'chat' || mode === 'canvas' ? <ChatComposer chatId="new" /> : <SessionBox key={mode} mode={mode} />}</Docked>
     </div>
   );
+}
+
+/**
+ * Home's one line: what waits on you ("4 need you, 2 proposals", amber, to
+ * the Inbox, or to Today when only proposals wait), else the next event,
+ * else the learnings to review (quiet: nothing is blocked on them). The
+ * others are one tap away in the Inbox, Today and Settings > Reflect.
+ */
+export function homeLine(p: { waiting: number; proposals: number; next?: string; learnings: number }): { text: string; href: string; warn: boolean } | undefined {
+  const asks = [p.waiting ? `${p.waiting} ${p.waiting === 1 ? 'needs' : 'need'} you` : '', p.proposals ? `${p.proposals} ${p.proposals === 1 ? 'proposal' : 'proposals'}` : ''].filter(Boolean);
+  if (asks.length) return { text: asks.join(', ') + (p.waiting ? '' : ' to approve'), href: p.waiting ? '/approvals' : '/today', warn: true };
+  if (p.next) return { text: p.next, href: '/today', warn: false };
+  if (p.learnings) return { text: `${p.learnings} ${learningsWaitWords(p.learnings)}`, href: '/settings/reflect', warn: false };
+  return undefined;
 }
 
 function SessionBox({ mode }: { mode: SessionKind }) {

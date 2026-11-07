@@ -91,8 +91,13 @@ export function WorkflowRowView({
   const shown = open && expandable;
   const since = run ? (run.startedAt ?? run.createdAt) : startedAt;
   const detail = st.detail && <span className={st.fault ? 'text-fault' : 'text-fg-3'}>{`${st.sep}${st.detail}`}</span>;
-  const body = shown && <WorkflowDetail name={name} run={run} calls={calls} progress={progress} runResult={runResult} result={result} />;
-  const bar = run && run.phases.length > 0 && <PhaseBar run={run} calls={calls ?? []} className={layout === 'phone' ? 'mb-2' : 'mb-2 ml-[calc(64px*var(--log-scale,1)+12px)] phone:ml-[calc(52px*var(--log-scale,1)+12px)]'} />;
+  // the phase meters and agent counts are in the detail: the row's summary is enough until it is opened
+  const body = shown && (
+    <>
+      {run && run.phases.length > 0 && <PhaseBar run={run} calls={calls ?? []} className="pt-2 pb-1" />}
+      <WorkflowDetail name={name} run={run} calls={calls} progress={progress} runResult={runResult} result={result} />
+    </>
+  );
   const attrs = { id: toolId ? `tool-${toolId}` : undefined, 'data-workflow-row': '', 'data-state': run?.status ?? (st.live ? 'starting' : 'ended') };
 
   if (layout === 'phone') {
@@ -108,7 +113,6 @@ export function WorkflowRowView({
           {stat && <span className="num shrink-0 tx-14 text-fg-3">{stat}</span>}
           {expandable && <ChevronRight aria-hidden strokeWidth={2} className={cn('size-4 shrink-0 text-fg-4 transition-transform duration-[var(--dur-1)]', shown && 'rotate-90')} />}
         </button>
-        {bar}
         {body && <div className="mb-2 ml-1 border-l border-rule pl-3 anim-fade">{body}</div>}
       </div>
     );
@@ -137,7 +141,6 @@ export function WorkflowRowView({
       ) : (
         <div className={ROW}>{head}</div>
       )}
-      {bar}
       {body && <div className="mb-2 ml-4 border-l border-rule pl-4 anim-fade">{body}</div>}
     </div>
   );
@@ -202,7 +205,7 @@ export function WorkflowDetail({
 }
 
 /**
- * Where the run is at a glance, under its row: one 3px meter per phase (done
+ * Where the run is, at the top of the opened row: one 3px meter per phase (done
  * full, the current one in signal by its agents done, one with a failed agent
  * in red, the rest empty) and the agent counts, "4 of 9 agents done, 1 failed".
  */

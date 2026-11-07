@@ -27,6 +27,9 @@ import { sessionCanvasHref } from '@/features/canvas/model';
 /** How often the line asks the hub whether the session's page is open, while the session has used the browser. */
 const STATUS_MS = 3_000;
 
+/** Preview and Open in Canvas: quiet text buttons, as the pickers under the box, not outlined pills over it. */
+const QUIET = 'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[var(--r-1)] px-1.5 text-[12.5px] transition-colors duration-[var(--dur-1)] hov:bg-hover hov:text-fg phone:h-9 phone:px-2 phone:text-[14px]';
+
 /** The Preview pane's switch (features/preview), on the live line's row; Code sessions only. */
 export function PreviewButton({ sessionId }: { sessionId: string }) {
   const open = usePreviewOpen((s) => s.id === sessionId);
@@ -36,12 +39,9 @@ export function PreviewButton({ sessionId }: { sessionId: string }) {
       data-preview-button=""
       aria-pressed={open}
       onClick={() => togglePreview(sessionId)}
-      className={cn(
-        'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-rule-2 bg-raise px-2.5 text-[12.5px] transition-colors duration-[var(--dur-1)] hov:text-fg phone:h-9 phone:px-3.5 phone:text-[14px]',
-        open ? 'text-fg' : 'text-fg-2',
-      )}
+      className={cn(QUIET, open ? 'text-fg' : 'text-fg-3')}
     >
-      <Monitor aria-hidden strokeWidth={1.75} className={cn('size-3.5', open ? 'text-signal' : 'text-fg-3')} />
+      <Monitor aria-hidden strokeWidth={1.75} className={cn('size-3.5', open ? 'text-signal' : 'text-fg-4')} />
       Preview
     </button>
   );
@@ -62,9 +62,9 @@ export function CanvasButton({ sessionId }: { sessionId: string }) {
     <button
       type="button"
       onClick={open}
-      className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-rule-2 bg-raise px-2.5 text-[12.5px] text-fg-2 transition-colors duration-[var(--dur-1)] hov:text-fg phone:h-9 phone:px-3.5 phone:text-[14px]"
+      className={cn(QUIET, 'text-fg-3')}
     >
-      <Workflow aria-hidden strokeWidth={1.75} className="size-3.5 text-fg-3" />
+      <Workflow aria-hidden strokeWidth={1.75} className="size-3.5 text-fg-4" />
       Open in Canvas
     </button>
   );
@@ -98,7 +98,7 @@ export function BrowserLive({ sessionId, narrow = false, preview = false }: { se
   if (!shown && !preview) return null;
   const words = liveWords(live, calls.running);
   return (
-    <div className={cn('mx-auto flex w-full gap-2 px-8 pb-1.5 anim-fade phone:px-4 phone:pb-1', narrow ? 'max-w-[784px]' : 'max-w-[924px]')}>
+    <div className={cn('mx-auto flex w-full gap-1 px-8 pb-1 anim-fade phone:px-4 phone:pb-1', narrow ? 'max-w-[784px]' : 'max-w-[924px]')}>
       {preview && <PreviewButton sessionId={sessionId} />}
       {preview && <CanvasButton sessionId={sessionId} />}
       {shown && (

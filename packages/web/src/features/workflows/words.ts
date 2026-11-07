@@ -180,7 +180,8 @@ export interface WorkflowRowState {
  * workflow.* events), the run's result and the call's own result text.
  * "Workflow deep-research, 3 of 6 agents running" with the time while it
  * runs; "Workflow deep-research: Use Caddy for the homelab." and "done in
- * 4m" once it ended.
+ * 4m" once it ended ("done in 4m, 1 failed" in amber when an agent
+ * failed: the phase meters that said so are in the opened row).
  */
 export function workflowRowState({ run, result, runResult, toolText }: { run?: WorkflowRun; result?: { isError?: boolean; meta?: Record<string, unknown> }; runResult?: unknown; toolText?: string }): WorkflowRowState {
   if (run && isLive(run.status)) {
@@ -191,11 +192,12 @@ export function workflowRowState({ run, result, runResult, toolText }: { run?: W
   if (run) {
     const took = run.finishedAt ? durationShort(run.finishedAt - (run.startedAt ?? run.createdAt)) : undefined;
     const line = resultLine(runResult, toolText, run.error);
+    const failed = run.status === 'done' && run.counts.failed > 0 ? `, ${run.counts.failed} failed` : '';
     return {
       detail: line ?? `${run.counts.agents} ${run.counts.agents === 1 ? 'agent' : 'agents'}`,
       sep: line ? ': ' : ', ',
-      word: run.status === 'done' && took ? `done in ${took}` : RUN_WORD[run.status],
-      tone: RUN_TONE[run.status],
+      word: run.status === 'done' && took ? `done in ${took}${failed}` : RUN_WORD[run.status],
+      tone: failed ? 'warn' : RUN_TONE[run.status],
       running: false,
       live: false,
     };

@@ -12,7 +12,7 @@
  *
  *   Sessions                                 Project v
  *   conclave                                    + ...
- *     Move auth middleware to jose      arch-desktop .
+ *     Move auth middleware to jose            running
  *   ...
  *   All conversations
  *
@@ -397,11 +397,12 @@ export function GroupHeading({ label, folded, onToggle, phone, actions, children
 
 const HEAD_BTN = 'grid size-6 place-items-center rounded-[6px] text-fg-3 transition-colors duration-[var(--dur-1)] hov:bg-side-active hov:text-fg';
 
-/** running: a small dot in signal that breathes. waiting: amber, still. */
-export function StateDot({ state }: { state: 'running' | 'waiting' }) {
+/** A row's state as a word (SPEC 0.4 rule 2): "running" in signal, "waiting" in amber. */
+export function StateText({ state, phone }: { state: 'running' | 'waiting'; phone?: boolean }) {
   return (
-    <span className="relative inline-grid size-2 shrink-0 place-items-center" role="img" aria-label={state === 'running' ? 'Running' : 'Waiting on you'}>
-      <span className={cn('size-1.5 rounded-full', state === 'running' ? 'bg-signal cv-dot-pulse' : 'bg-warn')} />
+    <span className={cn('shrink-0', phone ? 'text-[13px]' : 'text-[12px]', state === 'running' ? 'text-signal' : 'text-warn')}>
+      {state}
+      {state === 'waiting' && <span className="sr-only"> on you</span>}
     </span>
   );
 }
@@ -424,7 +425,7 @@ function Row({ r, active, phone, onPick, actions }: { r: SideRow; active: boolea
         {(r.device || r.state) && (
           <span className={cn('flex max-w-[45%] shrink-0 items-center gap-2', !phone && 'group-hover/row:hidden group-focus-within/row:hidden')}>
             {r.device && <span className={cn('min-w-0 truncate text-fg-4', phone ? 'text-[13px]' : 'text-[12px]')}>{r.device}</span>}
-            {r.state && <StateDot state={r.state} />}
+            {r.state && <StateText state={r.state} phone={phone} />}
           </span>
         )}
       </Link>
@@ -481,7 +482,7 @@ function DelegatedItem({ r, active, phone, onPick, actions }: { r: DelegatedRow;
           {r.unread && <span className="sr-only">, new reply</span>}
           {r.state && (
             <span className={cn('flex shrink-0 items-center', !phone && 'group-hover/row:hidden group-focus-within/row:hidden')}>
-              <StateDot state={r.state} />
+              <StateText state={r.state} phone={phone} />
             </span>
           )}
         </span>

@@ -160,6 +160,8 @@ describe('row words', () => {
     expect(workflowRowState({ run: run({ status: 'paused' }) })).toMatchObject({ word: 'paused', tone: 'warn', running: false, live: true });
     expect(workflowRowState({ run: run({ status: 'waiting_reset' }) })).toMatchObject({ word: 'waiting for the limit', tone: 'warn' });
     expect(workflowRowState({ run: ended, runResult: report })).toMatchObject({ detail: 'Use Caddy for the homelab front door.', sep: ': ', word: 'done in 2m', live: false });
+    // the phase meters are in the opened row: a failed agent is said on the closed one
+    expect(workflowRowState({ run: { ...ended, counts: { ...ended.counts, done: 4, failed: 1 } }, runResult: report })).toMatchObject({ word: 'done in 2m, 1 failed', tone: 'warn' });
     expect(workflowRowState({ run: run({ status: 'failed', error: 'budget reached', finishedAt: NOW }) })).toMatchObject({ detail: 'budget reached', word: 'failed', tone: 'fault' });
     // a run with no result line says how many agents it had
     expect(workflowRowState({ run: run({ status: 'stopped', finishedAt: NOW }) })).toMatchObject({ detail: '5 agents', sep: ', ', word: 'stopped' });

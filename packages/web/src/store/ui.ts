@@ -79,7 +79,8 @@ function loadPrefs(): Prefs {
     juryLayout: 'columns',
     sideGroup: 'project',
     foldedGroups: [],
-    cards: { context: true, tasks: true },
+    // the panel starts as one row per card, as Settings does; a card opens with a click
+    cards: {},
   };
   try {
     const a = JSON.parse(localStorage.getItem(APPEARANCE_KEY) || '{}');
