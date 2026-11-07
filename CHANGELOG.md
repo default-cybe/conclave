@@ -13,6 +13,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Home in Chat, Code and Security no longer shows the day: the calendar, tasks, the plan and calendar proposals stay on Assistant's Home only. This holds on the web, the phone web app and Android. What waits on you still shows in every mode.
 - Sidebar group headings (Today, Yesterday, This week, Older, and project, device or Delegated work when grouped) now read as section labels, not rows: smaller semibold text in the muted colour, more space above, and no row hover fill. They are level 3 headings with a fold button. Same in the phone drawer and the Android side panel.
+- The model picker has provider tabs (All, Anthropic, OpenAI, Google, Z.ai, Local, Coding agents, Other; only tabs with models show) under the search. It lists Pinned, then Recent, then the tab's models with the most capable first (tier, then context window, then output price). Models you cannot use come last with the reason. Each row shows tier, context, price or "plan", and vision, tools and thinking. Pins are saved on the hub per account, so every device sees the same ones. Effort moved to the foot of the picker.
 
 ## [0.4.75] - 2026-11-06
 
