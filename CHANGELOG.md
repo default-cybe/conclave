@@ -17,6 +17,8 @@ like `## [0.4.16] - 2026-10-24`.
 - Preview and Open in Canvas over a Code session's box are quiet text buttons, no longer outlined pills.
 - A Workflow row in the transcript no longer draws its phase meters and agent counts under it; they are at the top of the opened row. A run that ended with a failed agent says so on its row ("done in 33m, 1 failed", in amber).
 - The live line under a running turn no longer shows tokens per second; the header already shows the running time.
+- Home on a phone shows one line under the greeting instead of up to four: what waits on you ("4 need you, 2 proposals") in amber, else the next event, else learnings to review.
+- Canvas lists its files once: in the sidebar on a desktop (the start page points there) and on the page on a phone. Programs group by folder only, in the normal font.
 - Home in Chat, Code and Security no longer shows the day: the calendar, tasks, the plan and calendar proposals stay on Assistant's Home only. This holds on the web, the phone web app and Android. What waits on you still shows in every mode.
 - Sidebar group headings (Today, Yesterday, This week, Older, and project, device or Delegated work when grouped) now read as section labels, not rows: smaller semibold text in the muted colour, more space above, and no row hover fill. They are level 3 headings with a fold button. Same in the phone drawer and the Android side panel.
 

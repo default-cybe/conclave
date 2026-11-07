@@ -125,7 +125,9 @@ function CanvasStart() {
         {loading && !files.length && <LoadingRows loading rows={4} />}
         {!loading && !files.length && <Notice>No programs or workflows yet. New opens a blank canvas: double-click it to add blocks, or describe what it should do.</Notice>}
         {n.dialog}
-        {groups.map((g) => (
+        {/* on a desktop the sidebar lists the files (features/canvas/files.tsx SideFiles): one list, not two */}
+        {!phone && files.length > 0 && <p className="m-0 mt-6 text-[13px] text-fg-3">Open a program or workflow from the list at the left.</p>}
+        {phone && groups.map((g) => (
           <Section key={g.label} title={g.label} className="mt-6">
             {g.files.map((f) => (
               <ListRow key={fileHref(f)} href={fileHref(f)} title={fileTitle(f)} state={f.kind === 'workflow' ? (f.live ? 'running' : f.failed ? 'failed' : undefined) : undefined} stateTone={f.kind === 'workflow' && f.live ? 'signal' : 'fault'} />

@@ -22,7 +22,6 @@ type Program = Extract<CanvasFile, { kind: 'program' }>;
 /** Every file, programs first; `loading` while the first answers are out. */
 export function useCanvasFiles(): { files: CanvasFile[]; loading: boolean; folderLabel: (f: Program) => string } {
   const sessions = useHub((s) => s.sessions);
-  const devices = useHub((s) => s.devices);
   const folders = useMemo(() => folderSessions(Object.values(sessions)), [sessions]);
   const key = folders.map((s) => s.id).join(',');
   const [programs, setPrograms] = useState<Program[]>();
@@ -37,7 +36,8 @@ export function useCanvasFiles(): { files: CanvasFile[]; loading: boolean; folde
   const library = useLibrary();
   const runs = useRuns({ limit: 8 });
   const files = useMemo(() => [...(programs ?? []), ...workflowFiles(library.data, runs.data)], [programs, library.data, runs.data]);
-  const folderLabel = (f: Program) => `${folderName(f.cwd) || f.cwd}, ${devices[f.device || 'local']?.name ?? f.device}`;
+  // grouped by folder only: the same folder on two devices is one group (the program page says the device)
+  const folderLabel = (f: Program) => folderName(f.cwd) || f.cwd;
   return { files, loading: !programs || (!library.data && !library.error), folderLabel };
 }
 
@@ -83,7 +83,7 @@ export function SideFiles({ phone, onPick }: { phone?: boolean; onPick?: () => v
             const on = path === decodeURIComponent(href.split('?')[0]) && (f.kind !== 'program' || loc.includes(new URLSearchParams({ cwd: f.cwd }).toString()));
             return (
               <Link key={href} href={href} onClick={onPick} aria-current={on ? 'page' : undefined} className={cn(ROW, phone ? 'min-h-11 text-[15px]' : 'h-8 text-[13.5px]', on ? 'bg-side-active text-fg' : 'text-fg-2 hov:bg-side-hover hov:text-fg')}>
-                <span className={cn('min-w-0 flex-1 truncate', f.kind === 'program' && 'mono text-[12.5px]')}>{fileTitle(f)}</span>
+                <span className="min-w-0 flex-1 truncate">{fileTitle(f)}</span>
                 <FileState f={f} phone={phone} />
               </Link>
             );
