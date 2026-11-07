@@ -419,9 +419,10 @@ export function QuietRow({ left, right, wrap }: { left?: ReactNode; right: React
       </div>
     );
   return (
-    <div className="mt-1 flex min-h-[26px] items-center gap-2 px-0.5 text-[12px] text-fg-3">
-      <div className="-my-1 flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden py-1">{left}</div>
-      <div className="flex shrink-0 items-center gap-0.5">{right}</div>
+    // with the chips the row can outgrow a narrow column: the right side goes under the left, nothing is cut to "Ask bef..."
+    <div className="mt-1 flex min-h-[26px] flex-wrap items-center gap-x-2 px-0.5 text-[12px] text-fg-3">
+      <div className="-my-1 flex min-w-0 items-center gap-0.5 py-1 [&>*]:shrink-0">{left}</div>
+      <div className="ml-auto flex shrink-0 items-center gap-0.5">{right}</div>
     </div>
   );
 }
