@@ -7,6 +7,8 @@ import dev.conclave.app.ui.common.HubViewModel
 import dev.conclave.app.ui.common.errorText
 import dev.conclave.app.ui.conversation.attachmentsOf
 import dev.conclave.client.ConclaveApiException
+import dev.conclave.app.ui.conversation.MemoryMode
+import dev.conclave.app.ui.conversation.memoryPatch
 import dev.conclave.client.logic.AgentResults
 import dev.conclave.client.logic.Asks
 import dev.conclave.client.logic.Attach
@@ -15,6 +17,7 @@ import dev.conclave.client.logic.ChatItems
 import dev.conclave.client.logic.DraftStore
 import dev.conclave.client.logic.ModelRefs
 import dev.conclave.client.logic.PendingQueue
+import dev.conclave.client.logic.SessionModes
 import dev.conclave.client.logic.ShareIn
 import dev.conclave.client.logic.Transcript
 import dev.conclave.client.logic.RunReducer
@@ -377,8 +380,12 @@ class ChatViewModel(hub: HubRepository, val sessionId: String, drafts: DraftStor
         hub.api { it.secondOpinion(sessionId, SecondOpinionInput(reviewer = model, includeTranscript = true)) }
     }
 
-    fun setMode(mode: SessionMode) = patch(SessionPatch(mode = mode))
+    /** A mode change sends the mode's defaults (jurors, debaters, the loop's check) where the session has none yet (web modePatch). */
+    fun setMode(mode: SessionMode) = patch(SessionPatch(mode = mode, modeConfig = SessionModes.config(mode, _session.value?.modeConfig)))
     fun setAgent(agent: String) = patch(SessionPatch(agent = agent))
+
+    /** The memory chip: Use and save, Use only, or Off (web memoryPatch). */
+    fun setMemory(m: MemoryMode) = patch(SessionPatch(chat = memoryPatch(m)))
     fun setPermissionMode(mode: PermissionMode) = patch(SessionPatch(permissionMode = mode))
 
     /** Effort for this session (chat.thinking); null goes back to the agent's level. */

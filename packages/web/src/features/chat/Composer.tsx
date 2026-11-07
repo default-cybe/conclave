@@ -3,10 +3,12 @@
  * (conversation/ComposerParts.tsx): one box with "+" at the left, the
  * field, the mic and Send, or Steer and Queue while a turn runs. Under it
  * one quiet row: the permission mode, Code's folder (always open to change)
- * and its device when it is not this computer at the left; the model with
- * its effort (the levels the model has; unset runs at the agent's) and the
- * context ring at the right. "+" holds the agent (custom agents only), the
- * device, the mode (jury, debate, loop...) and Ultra.
+ * and its device when there is more than one place to run at the left; at
+ * the right the agent (Code), mode (with Ultra) and memory chips, the model
+ * with its effort (the levels the model has; unset runs at the agent's) and
+ * the context ring (design PR #292). "+" holds the files only. The model's
+ * tooltip, the ring and the session panel say the context left and the
+ * cost; no status line under the box.
  * "/" opens the menu of slash.ts, as in Claude Code: Commands, Skills (run
  * through the Skill tool as /<name> args) and Custom. Settings commands
  * (/mcp, /context, /hooks, ...) open a sheet over the session
@@ -14,8 +16,8 @@
  *
  * Phones (the iPhone app, docs/design/MOBILE-V2.md 4): the box of
  * conversation/PhoneBox.tsx. +, the options sheet (agent, device and
- * folder, permissions, Ultra, mode), the model's short name with its effort
- * (the same picker), the mic and Send, which folds into Stop.
+ * folder, permissions, Ultra, mode), the mic and Send, which folds into
+ * Stop; the same chips and the model wrap under the box.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
@@ -42,14 +44,13 @@ import { Rim, SendStopButton, type RimState } from '@/components/motion';
 import { Sheet, type MenuItem } from '@/components/ui/Overlay';
 import { canDictate, DictateButton } from '@/features/conversation/Dictate';
 import { AddButton, fitField, OptionsButton, PHONE_FIELD, PhoneBox, PhoneSend, sizeField } from '@/features/conversation/PhoneBox';
-import { AgentPicker, DEFAULT_DEBATE, DEFAULT_JURY, DEFAULT_LOOP, DebatersPicker, DeviceFolderPicker, JudgePicker, JurorsPicker, LoopPicker, ModePicker, PermissionPicker } from './pickers';
+import { AgentPicker, DEFAULT_DEBATE, DEFAULT_JURY, DebatersPicker, DeviceFolderPicker, JudgePicker, JurorsPicker, LoopPicker, ModePicker, modePatch, PermissionPicker } from './pickers';
 import { moveSessionTo } from './FolderChooser';
 import { MODES } from './modes';
-import { ULTRA_LINE, UltraSwitch } from '../workflows/UltraSwitch';
+import { UltraSwitch } from '../workflows/UltraSwitch';
 import { GrantChip } from './GrantChip';
-import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPickedFor, StatusLine, useAgentFollow, type StripFile } from '@/features/conversation/ComposerParts';
-import { DeviceChip, FolderChip, deviceItems, useComputers } from '@/features/home/Where';
-import { useThisComputer } from '@/features/home/here';
+import { AgentChip, AttachmentStrip, ContextRing, MemoryChip, memoryModeOf, memoryPatch, ModeChip, ModelEffort, PlusMenu, QuietRow, readPickedFor, useAgentFollow, type StripFile } from '@/features/conversation/ComposerParts';
+import { DeviceChip, FolderChip, useComputers } from '@/features/home/Where';
 import { CODE_AGENT, customAgent, modeOf } from '@/features/home/start';
 import { COMPOSE_EVENT, downloadExport, isReminder, type ComposeDetail } from './util';
 import { sessionRepo } from '@/lib/github';
@@ -101,7 +102,6 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   const waitingReset = session.status === 'waiting_reset';
   const empty = !messages?.length;
   const agents = useHub((s) => s.agents);
-  const here = useThisComputer();
   const computers = useComputers();
   const code = session.kind !== 'chat' && modeOf(session) === 'code';
   // a hunt works in a folder on a computer too: its folder and device chips, not Code's agent list
@@ -183,18 +183,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
     } else void patch({ model });
   };
 
-  const setMode = (mode: SessionMode) => {
-    const cfg = session.modeConfig ?? {};
-    void patch({
-      mode,
-      modeConfig: {
-        ...cfg,
-        ...(mode === 'jury' && !cfg.jury ? { jury: DEFAULT_JURY } : {}),
-        ...(mode === 'debate' && !cfg.debate ? { debate: DEFAULT_DEBATE } : {}),
-        ...(mode === 'loop' && !cfg.loop ? { loop: DEFAULT_LOOP } : {}),
-      },
-    });
-  };
+  const setMode = (mode: SessionMode) => void patch(modePatch(mode, session.modeConfig));
 
   const mode = slashMode(session);
   const items: SlashItem[] = useMemo(() => slashItems({ mode, skills, commands, agent: agentDef }), [mode, skills, commands, agentDef]);
@@ -521,6 +510,23 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
       )}
     </div>
   );
+  // the chips under the box (design PR #292): the agent (Code), the mode with Ultra where the session takes it, memory
+  const customs = agents.filter((a) => (a.primary !== false && a.source !== 'builtin' && customAgent(a.name)) || a.name === session.agent).filter((a) => a.name !== CODE_AGENT);
+  const ultraOk = session.kind !== 'chat' && session.mode !== 'chat';
+  const chips = !mineRow && (
+    <>
+      {code && <AgentChip value={session.agent} agents={[{ name: CODE_AGENT, description: 'The default. Hands work to its subagents itself' }, ...customs]} onChange={(agent) => void patch({ agent })} />}
+      <ModeChip mode={session.mode} onMode={setMode} ultra={!!session.ultra} onUltra={ultraOk ? (ultra) => void patch({ ultra }) : undefined} />
+      {!session.incognito && <MemoryChip value={memoryModeOf(session.chat)} onChange={(m) => void patch({ chat: memoryPatch(m) })} />}
+    </>
+  );
+  const right = !mineRow && (
+    <>
+      {chips}
+      <ModelEffort session={session} model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} sameModel={!!session.chat?.sameModel} onSameModel={(on) => void patch({ chat: { sameModel: on } })} security={!!session.chat?.security} onSecurity={(on) => void patch({ chat: { security: on } })} harnesses switchOf={messages?.length ? session : undefined} />
+      <ContextRing session={session} />
+    </>
+  );
   // a Viewer reads only (SHARED-WITH-MEMBERS.md 6): no box, one quiet line
   if (mineRow?.access === 'viewer')
     return (
@@ -569,7 +575,6 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
           add={<AddButton onFiles={(list) => void addFiles(list)} accept={ACCEPT} />}
           // a participant's turns run on their own seat and its model: the owner's pickers are not theirs to change
           options={mineRow ? undefined : <OptionsButton label="Options: agent, device and permissions" onClick={() => setSheet(true)} />}
-          model={mineRow ? undefined : <PhoneModelEffort model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} sameModel={!!session.chat?.sameModel} onSameModel={(on) => void patch({ chat: { sameModel: on } })} security={!!session.chat?.security} onSecurity={(on) => void patch({ chat: { security: on } })} harnesses switchOf={messages?.length ? session : undefined} />}
           mic={canDictate() && <DictateButton onText={(t) => setText((x) => (x.trim() ? `${x.trimEnd()} ${t}` : t))} />}
           send={
             <PhoneSend
@@ -585,14 +590,13 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
           }
         />
         {sharedRow}
-        {!mineRow && session.chat?.security && <QuietRow right={null} left={<LaneChip session={session} />} />}
+        {!mineRow && <QuietRow wrap left={session.chat?.security ? <LaneChip session={session} /> : session.mode !== 'chat' && <PermissionPicker look="text" value={session.permissionMode} onChange={(permissionMode) => void patch({ permissionMode })} className="h-9 text-[13px]" />} right={right} />}
         {/* the phone row has no chips: the Live grant chip and its Revoke sit here */}
         {agentDef?.recipes?.includes('scope-guard') && (
           <div className="flex px-1 empty:hidden">
             <GrantChip sessionId={session.id} />
           </div>
         )}
-        <StatusLine session={session} phone />
         <Sheet open={sheet} onClose={() => setSheet(false)} title="Options">
           <div className="space-y-4 px-4 pb-4">
             {empty && <Segmented size="touch" full label="Mode" value={session.mode} onChange={setMode} options={MODES.map((m) => ({ value: m.value, label: m.label }))} />}
@@ -603,14 +607,8 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
       </div>
     );
 
-  const customs = agents.filter((a) => (a.primary !== false && a.source !== 'builtin' && customAgent(a.name)) || a.name === session.agent).filter((a) => a.name !== CODE_AGENT);
-  const plus: MenuItem[] = [
-    ...(code && customs.length ? [{ group: true, label: 'Agent' }, { label: `${CODE_AGENT}, the default`, detail: 'Hands work to its subagents itself', checked: session.agent === CODE_AGENT, onSelect: () => void patch({ agent: CODE_AGENT }) }, ...customs.map((a) => ({ label: a.name, detail: a.description, checked: session.agent === a.name, onSelect: () => void patch({ agent: a.name }) }))] : []),
-    ...(folders && computers.length > 1 ? deviceItems(computers, session.device, (id) => void moveSessionTo(session, id)) : []),
-    { group: true, label: 'Mode' },
-    ...MODES.map((m) => ({ label: m.label, detail: m.description, checked: session.mode === m.value, onSelect: () => setMode(m.value) })),
-    ...(session.kind !== 'chat' && session.mode !== 'chat' ? [{ separator: true, label: '' }, { label: 'Ultra', detail: ULTRA_LINE, checked: !!session.ultra, keep: true, onSelect: () => void patch({ ultra: !session.ultra }) }] : []),
-  ];
+  // "+" is the files only: agent, mode, Ultra and memory are chips, the device is the chip at the left
+  const plus: MenuItem[] = [];
   const cfg = session.modeConfig ?? {};
   const left = (
     <>
@@ -621,7 +619,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
       {agentDef?.recipes?.includes('scope-guard') && <GrantChip sessionId={session.id} />}
       {session.mode === 'loop' && <LoopPicker look="text" value={cfg.loop} onChange={(loop) => void patch({ modeConfig: { ...cfg, loop } })} className="h-[24px] text-[12px]" />}
       {folders && !narrow && !sessionRepo(session) && <FolderChip device={session.device} cwd={session.cwd} onCwd={(cwd) => void patch({ cwd })} />}
-      {folders && !narrow && session.device !== here && computers.length > 1 && <DeviceChip device={session.device} onDevice={(id) => void moveSessionTo(session, id)} />}
+      {folders && !narrow && computers.length > 1 && <DeviceChip device={session.device} onDevice={(id) => void moveSessionTo(session, id)} />}
     </>
   );
 
@@ -690,16 +688,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
 
       {sharedRow}
 
-      <QuietRow
-        left={mineRow ? undefined : left}
-        right={
-          <>
-            {!mineRow && <ModelEffort model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} sameModel={!!session.chat?.sameModel} onSameModel={(on) => void patch({ chat: { sameModel: on } })} security={!!session.chat?.security} onSecurity={(on) => void patch({ chat: { security: on } })} harnesses switchOf={messages?.length ? session : undefined} />}
-            {!mineRow && <ContextRing session={session} />}
-          </>
-        }
-      />
-      <StatusLine session={session} />
+      <QuietRow left={mineRow ? undefined : left} right={right} />
     </div>
   );
 }

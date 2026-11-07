@@ -82,7 +82,7 @@ import type { AccountRef, AccountUsage, InviteDto, InviteInfo, MeDto, MePatch, P
 import type { Contact } from './contacts';
 export type * from './people';
 export type * from './contacts';
-export { DISPLAY_NAME_MAX, OWNER_DEFAULT_NAME, SPLIT_MAX, displayNameProblem, shownName, tidyDisplayName } from './people';
+export { DISPLAY_NAME_MAX, OWNER_DEFAULT_NAME, SPLIT_MAX, PINS_MAX, displayNameProblem, shownName, tidyDisplayName } from './people';
 export type * from './pim';
 import type { CaldavPreset, MailSecurity, OAuthClientKind, OAuthFlowDto, PimAccountDto, PimSettingsDto, PimWants, ProposalDto, ProposalStatus } from './pim';
 import type {

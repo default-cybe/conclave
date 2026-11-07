@@ -32,6 +32,8 @@ export interface AccountSettings {
   importWatch?: boolean;
   /** Sessions side by side in the web app, left to right (at most SPLIT_MAX, core client/people.ts). */
   splitView?: string[];
+  /** Models pinned at the top of the model picker, shared by the person's devices (at most PINS_MAX). */
+  pinnedModels?: string[];
   /** A member's own usage fallback (session/member-fallbacks.ts): models only, each one they can call. The owner's is models.limitFallback. */
   usageFallback?: LimitFallbackConfig;
   /** A member's own refusal fallback: entries without accounts, each a model they can call. The owner's is models.refusalFallback. */

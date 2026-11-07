@@ -45,6 +45,8 @@ data class MePreferences(
     val smallModel: String? = null,
     val defaultAgent: String? = null,
     val importWatch: Boolean = false,
+    /** Models pinned at the top of the model picker, on every device of this account (the hub leaves it out when empty). */
+    val pinnedModels: List<String> = emptyList(),
 )
 
 /** GET /api/me: who this token is and what they may use. */
@@ -72,6 +74,8 @@ data class MePatch(
     val name: String? = null,
     val email: String? = null,
     val defaultModel: String? = null,
+    /** The whole pinned list, at most 50 refs; an empty list clears it. Null leaves it as it is. */
+    val pinnedModels: List<String>? = null,
 )
 
 /** GET /api/invite/:secret: who an invite is for, before they set a password. */

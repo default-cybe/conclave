@@ -30,7 +30,6 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
@@ -63,25 +62,24 @@ import dev.conclave.app.ui.common.MessagesEffect
 import dev.conclave.app.ui.common.ModelPickerSheet
 import dev.conclave.app.ui.common.OfflineBanner
 import dev.conclave.app.ui.common.TopBar
+import dev.conclave.app.ui.conversation.AgentChip
 import dev.conclave.app.ui.conversation.ChatComposer
 import dev.conclave.app.ui.conversation.ChatHandoff
-import dev.conclave.app.ui.conversation.ChoiceRow
 import dev.conclave.app.ui.conversation.ComposerModel
 import dev.conclave.app.ui.conversation.IncognitoMark
 import dev.conclave.app.ui.conversation.ConversationSheet
+import dev.conclave.app.ui.conversation.MemoryChip
+import dev.conclave.app.ui.conversation.ModeChip
 import dev.conclave.app.ui.conversation.NextModelAct
-import dev.conclave.app.ui.conversation.OptionLabel
-import dev.conclave.app.ui.conversation.OptionRow
 import dev.conclave.app.ui.conversation.PermissionChip
 import dev.conclave.app.ui.conversation.QuietChip
 import dev.conclave.app.ui.conversation.RunningTasksLine
 import dev.conclave.app.ui.conversation.SessionWork
 import dev.conclave.app.ui.conversation.SheetAction
 import dev.conclave.app.ui.conversation.SheetRow
-import dev.conclave.app.ui.conversation.SwitchRow
-import dev.conclave.app.ui.conversation.ULTRA_LINE
 import dev.conclave.app.ui.conversation.deviceLabel
 import dev.conclave.app.ui.conversation.folderLabel
+import dev.conclave.app.ui.conversation.memoryModeOf
 import dev.conclave.app.ui.friends.FriendShareLine
 import dev.conclave.app.ui.friends.SendToFriendSheet
 import dev.conclave.app.ui.motion.Swap
@@ -111,12 +109,10 @@ import dev.conclave.client.logic.ShareWords
 import dev.conclave.client.logic.Start
 import dev.conclave.client.logic.StartMode
 import dev.conclave.client.logic.Tasks
-import dev.conclave.client.model.AgentDef
 import dev.conclave.client.model.CommandDef
 import dev.conclave.client.model.Message
 import dev.conclave.client.model.MessageKind
 import dev.conclave.client.model.Role
-import dev.conclave.client.model.Session
 import dev.conclave.client.model.SessionMode
 import dev.conclave.client.model.SessionStatus
 import dev.conclave.client.model.TodoStatus
@@ -333,22 +329,13 @@ fun ChatScreen(
                                 if (showComputer) {
                                     QuietChip("on " + deviceLabel(s.device, devices), onClickLabel = "Change the computer", onClick = { pickDevice = true })
                                 }
-                            }
-                        },
-                        plus = { dismiss ->
-                            if (s != null) {
-                                SessionPlus(
-                                    session = s,
-                                    customs = if (coding) Start.customAgents(agents, s.agent) else emptyList(),
-                                    deviceName = if (showComputer) deviceLabel(s.device, devices) else null,
-                                    onAgent = vm::setAgent,
-                                    onMode = vm::setMode,
-                                    onUltra = vm::setUltra,
-                                    onDevice = {
-                                        dismiss()
-                                        pickDevice = true
-                                    },
-                                )
+                                // the chips beside the model (web chat/Composer.tsx): the agent in Code, the mode with Ultra, memory
+                                if (coding) {
+                                    val customs = Start.customAgents(agents, s.agent).map { it.name to it.description.ifBlank { null } }
+                                    AgentChip(s.agent, listOf(Start.CODE_AGENT to "The default. Hands work to its subagents itself") + customs, onChange = vm::setAgent)
+                                }
+                                ModeChip(s.mode, onMode = vm::setMode, ultra = s.ultra == true, onUltra = if (s.mode != SessionMode.CHAT) ({ on: Boolean -> vm.setUltra(on) }) else null)
+                                if (!s.isIncognito) MemoryChip(memoryModeOf(s.chat), onChange = vm::setMemory)
                             }
                         },
                         commands = commands,
@@ -762,40 +749,3 @@ private fun MessageActionsSheet(
     }
 }
 
-/**
- * A session's "+" after the files (docs/DESIGN.md 40, web chat/Composer.tsx):
- * the agent, only when there are custom ones ([customs]), the computer it
- * runs on when there are several ([deviceName]), the mode (jury, debate,
- * loop...) and Ultra. The model and Effort are under the box; the
- * permission mode and the folder too.
- */
-@Composable
-private fun SessionPlus(
-    session: Session,
-    customs: List<AgentDef>,
-    deviceName: String?,
-    onAgent: (String) -> Unit,
-    onMode: (SessionMode) -> Unit,
-    onUltra: (Boolean) -> Unit,
-    onDevice: () -> Unit,
-) {
-    val c = Conclave.colors
-    if (customs.isNotEmpty()) {
-        OptionLabel("Agent")
-        ChoiceRow("${Start.CODE_AGENT}, the default", selected = session.agent == Start.CODE_AGENT, detail = "Hands work to its subagents itself", onClick = { onAgent(Start.CODE_AGENT) })
-        customs.forEach { a -> ChoiceRow(a.name, selected = session.agent == a.name, detail = a.description.ifBlank { null }, onClick = { onAgent(a.name) }) }
-        HorizontalDivider(thickness = 1.dp, color = c.rule, modifier = Modifier.padding(top = 6.dp))
-    }
-    if (deviceName != null) {
-        OptionRow("Run on", deviceName, onClick = onDevice)
-        HorizontalDivider(thickness = 1.dp, color = c.rule)
-    }
-    OptionLabel("Mode")
-    SessionMode.entries.filter { it != SessionMode.CHAT }.forEach { m ->
-        ChoiceRow(m.wire.replaceFirstChar { it.uppercaseChar() }, selected = session.mode == m, onClick = { onMode(m) })
-    }
-    if (session.mode != SessionMode.CHAT) {
-        HorizontalDivider(thickness = 1.dp, color = c.rule, modifier = Modifier.padding(top = 6.dp))
-        SwitchRow("Ultra", ULTRA_LINE, session.ultra == true, onUltra)
-    }
-}

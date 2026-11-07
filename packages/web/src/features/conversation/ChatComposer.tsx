@@ -1,20 +1,23 @@
 /**
  * The chat composer (docs/design/CHAT-AND-MOTION.md 2.5), shaped like
  * Claude Code's (ComposerParts.tsx): one box with the field, "+" at the
- * left (attach, search the web, use memory) and the mic and Send at the
- * right; Send turns into Stop while a reply runs. Under the box one quiet
- * row: the model with its effort (the levels the model has, lib/effort.ts)
- * and the context ring at the right. Picking another model keeps the Effort
- * level when it has it, else the nearest one it has.
+ * left (attach, search the web) and the mic and Send at the right; Send
+ * turns into Stop while a reply runs. Under the box one quiet row: the
+ * memory chip, the model with its effort (the levels the model has,
+ * lib/effort.ts) and the context ring at the right (design PR #292). Picking
+ * another model keeps the Effort level when it has it, else the nearest one
+ * it has. The model's tooltip and the ring say the context left and the
+ * cost; no status line under the box.
  *
  * A new Assistant or Code conversation uses the same box with a `target`
- * (SessionStart.tsx): the quiet row's left side, its own model and effort,
- * more under "+", another place for the message, and slash commands.
+ * (SessionStart.tsx): the quiet row's left side, its chips (agent, mode,
+ * memory), its own model and effort, add-ons under "+", another place for
+ * the message, and slash commands.
  *
- * Phones (docs/design/MOBILE-V2.md 4): the box of PhoneBox.tsx. +, the
- * options sheet (web and memory, or the target's), the model's short name
- * with its effort (the same picker), the mic and Send. The Chat, Assistant
- * and Code switch is in Home's bar.
+ * Phones (docs/design/MOBILE-V2.md 4): the box of PhoneBox.tsx with +, the
+ * target's options sheet, the mic and Send; the same chips and model wrap
+ * under it, each opening a sheet. The Chat, Assistant and Code switch is in
+ * Home's bar.
  */
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
@@ -29,22 +32,21 @@ import { btwQuestion } from '@/features/chat/slash';
 import { cn, fuzzyFilter } from '@/lib/text';
 import { useIsMobile } from '@/lib/hooks';
 import { effortForModel, effortOf, type EffortSetting } from '@/lib/effort';
-import { Checkbox } from '@/components/ui/Field';
 import { Kbd } from '@/components/ui/Kbd';
-import { Sheet, type MenuItem } from '@/components/ui/Overlay';
+import type { MenuItem } from '@/components/ui/Overlay';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { Rim, SendStopButton, type RimState } from '@/components/motion';
 import { isReminder } from '@/features/chat/util';
 import { useDraft } from '@/features/chat/useDraft';
 import { canDictate, DictateButton } from './Dictate';
-import { AttachmentStrip, ContextRing, ModelEffort, PhoneModelEffort, PlusMenu, QuietRow, readPickedFor, StatusLine, type EffortFollow } from './ComposerParts';
-import { AddButton, fitField, OptionsButton, PHONE_FIELD, PhoneBox, PhoneSend, sizeField } from './PhoneBox';
+import { AttachmentStrip, ContextRing, MemoryChip, memoryModeOf, memoryPatch, ModelEffort, PlusMenu, QuietRow, readPickedFor, type EffortFollow } from './ComposerParts';
+import { AddButton, fitField, PHONE_FIELD, PhoneBox, PhoneSend, sizeField } from './PhoneBox';
 import { patchChat, sendTo, startChat, stopChat, type Outgoing } from './actions';
 import { DEFAULTS_EVENT, readDefaults, saveDefaults, setEditing, setRestore, useChatUi, type Thinking } from './state';
 import { useSharedChat } from '@/features/chat/shared';
 import { ModelName } from '@/components/logo';
 import { NO_KV } from '@/features/chat/draft';
-import { firstSend, INCOGNITO_LINE, memoryChat, MemoryField, memoryItems, usePrivacy, type MemoryMode } from './incognito';
+import { firstSend, INCOGNITO_LINE, memoryChat, usePrivacy, type MemoryMode } from './incognito';
 
 /** One file; 15 in a message at most, and together what the hub reads in one request (core attachments/limits.ts). */
 const MAX_BYTES = 20 * 1024 * 1024;
@@ -91,9 +93,13 @@ export interface ComposerTarget {
   /** Cyber access for a ChatGPT plan model (session.chat.cyber at the start); offered where the model takes one. */
   cyber?: CyberProgram;
   onCyber?: (v: CyberProgram | undefined) => void;
-  /** "+" after Attach files: agent, device, folder, repository, Ultra. */
+  /** "+" after Attach files: the add-ons (a GitHub repository, a worktree, a design direction). */
   plus?: MenuItem[];
-  /** Phones: the options button and its sheet, in place of the chat's. */
+  /** The chips before the model: agent, mode, memory (ComposerParts.tsx). */
+  chips?: ReactNode;
+  /** Phones: the start of the chip row (the permission mode); `left` is desktop's. */
+  phoneLeft?: ReactNode;
+  /** Phones: the options button and its sheet. */
   phoneOptions: ReactNode;
   /**
    * Before the box clears: false holds the message here while the target asks
@@ -126,7 +132,6 @@ const fileDrafts = new Map<string, FileItem[]>();
 let focusUntil = 0;
 
 const WEB_HELP = 'Look things up and cite sources';
-const MEMORY_HELP = 'Read what it knows about you and save what you tell it. Off: this chat leaves no trace in memory.';
 
 /** The switches of a chat, or of the next new chat (the last ones used on this device). */
 function useSwitches(session: Session | undefined): [Switches, (p: Partial<Switches>) => void] {
@@ -200,7 +205,6 @@ export function ChatComposer({
   // the chat the box shows now, so a slow read never attaches to the next one
   const shownId = useRef(chatId);
   shownId.current = chatId;
-  const [sheet, setSheet] = useState(false);
   const [busy, setBusy] = useState(false);
   const box = useRef<HTMLTextAreaElement>(null);
   const mobile = useIsMobile();
@@ -518,6 +522,31 @@ export function ChatComposer({
     />
   );
 
+  // "+" holds the files and what a chat adds (web search) or the target's add-ons; memory, agent and mode are chips
+  const plus: MenuItem[] = target ? (target.plus ?? []) : [{ label: 'Search the web', detail: WEB_HELP, checked: sw.webSearch, keep: true, onSelect: () => change({ webSearch: !sw.webSearch }) }];
+  // a new chat's memory is the toggle's while incognito (the header holds it); a chat's is its own switches
+  const memoryMode: MemoryMode = session ? memoryModeOf(session.chat) : priv.memory;
+  const pickMemory = (m: MemoryMode) => {
+    if (!session) return setPrivacy(m);
+    saveDefaults({ memory: m !== 'off' });
+    void patchChat(session.id, { chat: memoryPatch(m) });
+  };
+  const chips = target ? target.chips : !session && priv.incognito ? null : <MemoryChip value={memoryMode} onChange={pickMemory} />;
+  const modelEffort = target ? (
+    <ModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} cyber={target.cyber} onCyber={target.onCyber} harnesses={target.harnesses} />
+  ) : (
+    <ModelEffort session={session} model={sw.model} value={sw.thinking} onModel={(m) => change({ model: m })} onEffort={(v) => change({ thinking: v })} cyber={sw.cyber} onCyber={(v) => change({ cyber: v })} {...same} />
+  );
+  const right = mine ? (
+    seatModel
+  ) : (
+    <>
+      {chips}
+      {modelEffort}
+      <ContextRing session={session} model={target ? target.model : sw.model} />
+    </>
+  );
+
   if (mobile)
     return (
       <div className="w-full px-3 pt-1 pb-2">
@@ -528,52 +557,17 @@ export function ChatComposer({
             rim={rim}
             attachments={<AttachmentStrip phone files={files} onRemove={(i) => setFiles((x) => x.filter((_, k) => k !== i))} />}
             field={field(PHONE_FIELD)}
-            add={mine ? null : <AddButton onFiles={(list) => void addFiles(list)} accept={ACCEPT} />}
-            options={
-              target ? (
-                target.phoneOptions
-              ) : (
-                <>
-                  {!mine && <OptionsButton label="Options: web and memory" onClick={() => setSheet(true)} />}
-                  {talk}
-                </>
-              )
-            }
-            model={mine ? undefined : target ? <PhoneModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} cyber={target.cyber} onCyber={target.onCyber} harnesses={target.harnesses} /> : <PhoneModelEffort model={sw.model} value={sw.thinking} onModel={(m) => change({ model: m })} onEffort={(v) => change({ thinking: v })} cyber={sw.cyber} onCyber={(v) => change({ cyber: v })} {...same} />}
+            // the target's add-ons are in its options sheet on phones
+            add={mine ? null : <AddButton onFiles={(list) => void addFiles(list)} accept={ACCEPT} items={target ? [] : plus} />}
+            options={target ? target.phoneOptions : talk}
             mic={canDictate() && <DictateButton onText={(t) => setText((x) => (x.trim() ? `${x.trimEnd()} ${t}` : t))} />}
             send={<PhoneSend running={running} ready={hasText} label={sendLabel} onSend={send} onStop={stop} keepFocus={() => document.activeElement === box.current} />}
           />
         </div>
-        {mine ? <div className="mt-1.5 flex justify-center px-2">{seatModel}</div> : session && <StatusLine session={session} phone />}
+        {mine ? <div className="mt-1.5 flex justify-center px-2">{seatModel}</div> : <QuietRow wrap left={target?.phoneLeft} right={right} />}
         {notes}
-        {!target && (
-          <Sheet open={sheet} onClose={() => setSheet(false)} title="Options">
-            <div className="space-y-5 px-4 pb-5">
-              <OptionRow label="Tools">
-                <div className="space-y-2">
-                  <Checkbox checked={sw.webSearch} onChange={(v) => change({ webSearch: v })} label="Search the web" description={WEB_HELP} />
-                  {session && <Checkbox checked={sw.memory} onChange={(v) => change({ memory: v })} label="Use memory" description={MEMORY_HELP} />}
-                </div>
-              </OptionRow>
-              {!session && !priv.incognito && <MemoryField value={priv.memory} onChange={setPrivacy} />}
-            </div>
-          </Sheet>
-        )}
       </div>
     );
-
-  // "+" holds what a chat adds (web, memory) or what the target adds; the quiet row has the model with its effort and the ring
-  const plus: MenuItem[] = target
-    ? (target.plus ?? [])
-    : [
-        { label: 'Search the web', detail: WEB_HELP, checked: sw.webSearch, keep: true, onSelect: () => change({ webSearch: !sw.webSearch }) },
-        ...(session ? [{ label: 'Use memory', detail: MEMORY_HELP, checked: sw.memory, keep: true, onSelect: () => change({ memory: !sw.memory }) }] : priv.incognito ? [] : memoryItems(priv.memory, setPrivacy)),
-      ];
-  const modelEffort = target ? (
-    <ModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} cyber={target.cyber} onCyber={target.onCyber} harnesses={target.harnesses} />
-  ) : (
-    <ModelEffort model={sw.model} value={sw.thinking} onModel={(m) => change({ model: m })} onEffort={(v) => change({ thinking: v })} cyber={sw.cyber} onCyber={(v) => change({ cyber: v })} {...same} />
-  );
 
   return (
     <div className="mx-auto w-full max-w-[784px] px-8 pb-3 phone:px-4 phone:pb-3">
@@ -606,30 +600,8 @@ export function ChatComposer({
           </div>
         </div>
       </div>
-      <QuietRow
-        left={target?.left}
-        right={
-          mine ? (
-            seatModel
-          ) : (
-            <>
-              {modelEffort}
-              <ContextRing session={session} model={target ? target.model : sw.model} />
-            </>
-          )
-        }
-      />
-      {session && !mine && <StatusLine session={session} />}
+      <QuietRow left={target?.left} right={right} />
       {notes}
-    </div>
-  );
-}
-
-function OptionRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div>
-      <div className="mb-1.5 text-[13px] font-medium text-fg-2">{label}</div>
-      {children}
     </div>
   );
 }

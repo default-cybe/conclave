@@ -58,28 +58,18 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
 /**
- * Code's "+" on Home after the files (docs/DESIGN.md 40): the agent, only
- * when there are custom ones (the default coding agent hands work to its
- * subagents itself), the computer when there are several, where it works (a
- * folder or a GitHub repository), Run in a worktree when the folder is in a
- * git repository, and Ultra. [onWhere] opens where it works, on GitHub when true.
+ * Code's "+" on Home after the files (docs/DESIGN.md 40): the computer when
+ * there are several, where it works (a folder or a GitHub repository), Run
+ * in a worktree when the folder is in a git repository, and Ultra (Home has
+ * no mode chip to hold it). The agent and memory are chips beside the
+ * model. [onWhere] opens where it works, on GitHub when true.
  */
 @Composable
 fun CodePlus(d: CodeDefaults, setup: Start.Setup, onChange: (CodeDefaults) -> Unit, onWhere: (github: Boolean) -> Unit, dismiss: () -> Unit) {
     val hub = LocalAppContainer.current.hub
-    val agents by hub.agents.collectAsStateWithLifecycle()
     val devices by hub.devices.collectAsStateWithLifecycle()
     val info by hub.hubInfo.collectAsStateWithLifecycle()
     val c = Conclave.colors
-    val customs = Start.customAgents(agents, d.agent)
-    if (customs.isNotEmpty()) {
-        // another agent brings its own model and computer: only the permission mode, Effort and Ultra stay
-        fun pick(agent: String?) = onChange(CodeDefaults(agent = agent, permissionMode = d.permissionMode, ultra = d.ultra, thinking = d.thinking, assistantModel = d.assistantModel))
-        OptionLabel("Agent")
-        ChoiceRow("${Start.CODE_AGENT}, the default", selected = setup.agent == Start.CODE_AGENT, detail = "Hands work to its subagents itself", onClick = { pick(null) })
-        customs.forEach { a -> ChoiceRow(a.name, selected = setup.agent == a.name, detail = a.description.ifBlank { null }, onClick = { pick(a.name) }) }
-        HorizontalDivider(thickness = 1.dp, color = c.rule, modifier = Modifier.padding(top = 6.dp))
-    }
     val computers = Start.computers(devices)
     if (computers.size > 1 && d.repo == null) {
         OptionLabel("Run on")

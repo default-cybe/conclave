@@ -46,7 +46,8 @@ import dev.conclave.app.ui.conversation.ChatComposer
 import dev.conclave.app.ui.conversation.ChatHomeViewModel
 import dev.conclave.app.ui.conversation.IncognitoAction
 import dev.conclave.app.ui.conversation.IncognitoMark
-import dev.conclave.app.ui.conversation.MemoryRows
+import dev.conclave.app.ui.conversation.AgentChip
+import dev.conclave.app.ui.conversation.MemoryChip
 import dev.conclave.app.ui.conversation.SwitchRow
 import dev.conclave.app.ui.conversation.WEB_HELP
 import dev.conclave.app.ui.conversation.CodePlus
@@ -345,13 +346,22 @@ fun HomeScreen(
                                     where = true
                                 })
                             }
+                            // the chips beside the model (web SessionStart.tsx): the agent, then memory
+                            val customs = Start.customAgents(agents, code.agent).map { it.name to it.description.ifBlank { null } }
+                            if (customs.isNotEmpty()) {
+                                AgentChip(setup.agent, listOf(Start.CODE_AGENT to "The default. Hands work to its subagents itself") + customs, onChange = { name ->
+                                    // another agent brings its own model and computer: only the permission mode, Effort and Ultra stay
+                                    val now = chat.code.value
+                                    chat.setCode(CodeDefaults(agent = if (name == Start.CODE_AGENT) null else name, permissionMode = now.permissionMode, ultra = now.ultra, thinking = now.thinking, assistantModel = now.assistantModel))
+                                })
+                            }
+                            if (!privacy.incognito) MemoryChip(privacy.memory, onChange = { m -> chat.setPrivacy(privacy.copy(memory = m)) })
                         },
                         plus = { dismiss ->
                             CodePlus(code, setup, onChange = chat::setCode, onWhere = { gh ->
                                 whereGithub = gh
                                 where = true
                             }, dismiss = dismiss)
-                            MemoryRows(privacy, onChange = chat::setPrivacy)
                         },
                         commands = commands,
                         note = when {
@@ -377,14 +387,11 @@ fun HomeScreen(
                         effort = hub.modelInfo(chatModel)?.effort,
                         effortValue = switches.thinking,
                         onEffort = chat::setThinking,
-                        switches = switches,
                         context = ContextUse.of(emptyList(), null, hub.modelInfo(chatModel)),
                         onUsage = onOpenUsage,
-                        // a chat never gets a device or folder: "+" has the web and memory
-                        plus = { _ ->
-                            SwitchRow("Search the web", WEB_HELP, switches.webSearch, chat::setWeb)
-                            MemoryRows(privacy, onChange = chat::setPrivacy)
-                        },
+                        // a chat never gets a device or folder: the memory chip beside the model, "+" has the web
+                        left = { if (!privacy.incognito) MemoryChip(privacy.memory, onChange = { m -> chat.setPrivacy(privacy.copy(memory = m)) }) },
+                        plus = { _ -> SwitchRow("Search the web", WEB_HELP, switches.webSearch, chat::setWeb) },
                     )
                 }
                 ChatComposer(m, groups = groups, onError = { msg -> scope.launch { snackbar.showSnackbar(msg) } })

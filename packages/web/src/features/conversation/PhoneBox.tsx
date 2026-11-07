@@ -13,7 +13,7 @@
  */
 import { forwardRef, useRef, useState, type ReactNode } from 'react';
 import { Plus, SlidersHorizontal } from 'lucide-react';
-import { MenuList, Popover } from '@/components/ui/Overlay';
+import { MenuList, Popover, type MenuItem } from '@/components/ui/Overlay';
 import { Rim, SendStopButton, type RimState } from '@/components/motion';
 
 /** Lines the box grows to before it scrolls. */
@@ -93,8 +93,8 @@ export function sizeField(el: HTMLTextAreaElement, size: (scrollHeight: number) 
 
 const ROUND = 'grid size-11 shrink-0 place-items-center rounded-full text-fg-2 transition-colors duration-[var(--dur-1)] active:bg-hover';
 
-/** + : photos, camera or files, each its own picker. */
-export function AddButton({ onFiles, accept }: { onFiles: (files: File[]) => void; accept: string }) {
+/** + : photos, camera or files, each its own picker; then the add-ons (`items`), as the desktop "+". */
+export function AddButton({ onFiles, accept, items = [] }: { onFiles: (files: File[]) => void; accept: string; items?: MenuItem[] }) {
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const photos = useRef<HTMLInputElement>(null);
@@ -131,6 +131,7 @@ export function AddButton({ onFiles, accept }: { onFiles: (files: File[]) => voi
             { label: 'Photos', onSelect: pick(photos) },
             { label: 'Camera', onSelect: pick(camera) },
             { label: 'Files', onSelect: pick(files) },
+            ...(items.length ? [{ separator: true, label: '' }, ...items] : []),
           ]}
         />
       </Popover>
@@ -151,16 +152,6 @@ export const OptionsButton = forwardRef<HTMLButtonElement, { onClick: () => void
 export function SameModelDot() {
   return <span aria-hidden data-same-model="" className="size-1.5 shrink-0 rounded-full bg-signal" />;
 }
-
-/** The model's short name in fg-3; a tap opens the model list. */
-export const ModelWord = forwardRef<HTMLButtonElement, { name: string; onClick: () => void; expanded?: boolean; marked?: boolean }>(function ModelWord({ name, onClick, expanded, marked }, ref) {
-  return (
-    <button ref={ref} type="button" aria-label={`Model, ${name}${marked ? ', same model for all work' : ''}`} aria-haspopup="dialog" aria-expanded={expanded} onClick={onClick} className="flex h-11 min-w-0 items-center gap-1.5 rounded-full px-2 text-[14px] text-fg-3 active:bg-hover">
-      {marked && <SameModelDot />}
-      <span className="truncate">{name}</span>
-    </button>
-  );
-});
 
 /** Send in a 36px circle, with a 44px place to tap. `running`: a reply runs; with the box empty Send is Stop. */
 export function PhoneSend({ running, ready, label, onSend, onStop, keepFocus }: { running: boolean; ready: boolean; label: string; onSend: () => void; onStop: () => void; keepFocus: () => boolean }) {

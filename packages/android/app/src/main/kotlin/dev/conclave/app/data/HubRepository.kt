@@ -21,6 +21,10 @@ import dev.conclave.client.logic.DeepLink
 import dev.conclave.client.logic.HubAddress
 import dev.conclave.client.logic.HubAddresses
 import dev.conclave.client.logic.RemoteWords
+import dev.conclave.client.logic.PickerTabs
+import dev.conclave.client.me
+import dev.conclave.client.updateMe
+import dev.conclave.client.model.MePatch
 import dev.conclave.client.model.AgentDef
 import dev.conclave.client.model.AlertAction
 import dev.conclave.client.model.AlertItem
@@ -189,6 +193,8 @@ class HubRepository(
     val projects = MutableStateFlow<List<Project>>(emptyList())
     val agents = MutableStateFlow<List<AgentDef>>(emptyList())
     val models = MutableStateFlow<List<ModelGroup>>(emptyList())
+    /** The account's pinned models (GET /api/me preferences.pinnedModels), shared by its devices: on top of the model picker. */
+    val pinnedModels = MutableStateFlow<List<String>>(emptyList())
     val tasks = MutableStateFlow<List<Task>>(emptyList())
     val hubInfo = MutableStateFlow<HubInfo?>(null)
     val lastError = MutableStateFlow<String?>(null)
@@ -404,6 +410,7 @@ class HubRepository(
         projects.value = emptyList()
         agents.value = emptyList()
         models.value = emptyList()
+        pinnedModels.value = emptyList()
         tasks.value = emptyList()
         hubInfo.value = null
         syncedAt.value = null
@@ -653,6 +660,8 @@ class HubRepository(
     private suspend fun refreshCatalog(c: ConclaveClient) = coroutineScope {
         launch { load { agents.value = c.agents() } }
         launch { load { models.value = c.models() } }
+        // a hub from before pins (or before accounts) has none: the picker shows no Pinned
+        launch { optional { pinnedModels.value = c.me().preferences.pinnedModels } }
         // config changes (config.updated) can rename the owner too
         launch {
             load {
@@ -689,6 +698,23 @@ class HubRepository(
     }
 
     // ------------------------------------------------------------ helpers used by several screens
+
+    /** Pin or unpin a model: at once on screen, then on the hub (PATCH /api/me pinnedModels); a refusal puts the old list back. */
+    fun togglePin(ref: String) {
+        val before = pinnedModels.value
+        val next = PickerTabs.togglePin(before, ref)
+        pinnedModels.value = next
+        scope.launch {
+            try {
+                api { it.updateMe(MePatch(pinnedModels = next)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                pinnedModels.value = before
+                lastError.value = e.message ?: "Could not save the pin"
+            }
+        }
+    }
 
     /** What the hub knows about a model ref, or null. */
     fun modelInfo(ref: String?): ModelInfo? =

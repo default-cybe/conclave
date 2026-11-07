@@ -29,6 +29,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
+import dev.conclave.client.model.ChatSettings
 import dev.conclave.client.model.ChatSettingsPatch
 
 /** The memory setting of a new chat or Code session (core session/chat.ts). */
@@ -36,6 +37,23 @@ enum class MemoryMode(val label: String, val detail: String) {
     SAVE("Use and save", "Recall what it knows and save what you tell it"),
     USE("Use only", "Recall what it knows, save nothing"),
     OFF("Off", "No recall, nothing saved"),
+}
+
+/** A session's memory setting from its chat switches (web memoryModeOf). */
+fun memoryModeOf(chat: ChatSettings?): MemoryMode = when {
+    chat?.memory == false -> MemoryMode.OFF
+    chat?.memorySave == false -> MemoryMode.USE
+    else -> MemoryMode.SAVE
+}
+
+/** The chat patch for a session that exists: Use and save sends memorySave true, which core session/chat.ts clears (web memoryPatch). */
+fun memoryPatch(m: MemoryMode): ChatSettingsPatch = ChatSettingsPatch(memory = m != MemoryMode.OFF, memorySave = m != MemoryMode.USE)
+
+/** The memory chip's words. */
+fun memoryWords(m: MemoryMode): String = when (m) {
+    MemoryMode.SAVE -> "Memory"
+    MemoryMode.USE -> "Memory, use only"
+    MemoryMode.OFF -> "No memory"
 }
 
 /** Incognito (core session/incognito.ts) and the memory setting; Incognito on starts memory at "Use only". */
@@ -52,14 +70,6 @@ data class Privacy(val incognito: Boolean = false, val memory: MemoryMode = Memo
 
 const val INCOGNITO_LINE = "Not kept: no history, search or summaries, deleted when closed. Messages still go to the model provider."
 const val CODE_INCOGNITO_LINE = "Only the conversation is not kept: file changes and commands on the device are real and stay."
-
-/** "+" rows for a new chat or Code session that is not incognito: the three memory settings. Incognito has its own in the top bar. */
-@Composable
-fun MemoryRows(p: Privacy, onChange: (Privacy) -> Unit) {
-    if (p.incognito) return
-    OptionLabel("Memory")
-    MemoryMode.entries.forEach { m -> ChoiceRow(m.label, selected = p.memory == m, detail = m.detail, onClick = { onChange(p.copy(memory = m)) }) }
-}
 
 /**
  * The top bar's Incognito on a new chat or Code session. Off, a plain icon:
