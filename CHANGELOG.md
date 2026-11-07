@@ -7,6 +7,18 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Setup opens on one clear choice: Set up a hub (this computer, or the server it reaches, runs Conclave for you and your devices) or Connect to an existing hub (this device is a client, which opens the Connect screen). A hub on this computer, such as the desktop app's, gets no client choice. The desktop app's first page says the same: Connect to an existing hub, or Set up a hub on this computer.
+- Setup wording is shorter and plainer: step titles are nouns (Hub, Subscriptions, API keys, Devices, Setup complete), each step has a one line description, and the Providers step is now API keys (pay per use), apart from Subscriptions (sign in with a Claude, ChatGPT or Gemini plan). "Reach it from your phone" is now Remote access.
+
+### Fixed
+
+- After choosing to set up a hub, the Hub step no longer offers to connect to another hub.
+- The Hub step's name field starts empty on a new hub. It used to show a person's name as its placeholder ("Kai Ahir") and fill in the name the hub already held (the hub's greeting name, or the owner account's display name from a restored backup or someone else's hub). Run again on a hub that finished setup, it shows the owner's own name.
+
 ## [0.4.75] - 2026-11-06
 
 ### Added
