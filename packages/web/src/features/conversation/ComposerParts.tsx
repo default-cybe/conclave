@@ -132,18 +132,17 @@ export function CyberAccess({ model, value, onChange }: { model: string | undefi
   );
 }
 
-/** The picker's body: the model list, then Effort for the model at the foot (when it has levels). */
+/** The picker's body: Effort for the model on top (when it has levels), then the model list, then the switches that go with it at the foot. */
 function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = false, onDone, switchOf, cyber, onCyber, sameModel, onSameModel, security, onSecurity }: PickerProps & { onDone: () => void }) {
   const e = useModelEffort(model);
   const mobile = useIsMobile();
   const shown = effortShown(value, e, follow);
   const [stepping, setStepping] = useState(false);
-  // the list first, then what goes with the picked model at the foot (design PR #292)
+  // Effort above the search, as before #298 (the owner asked for it back on top)
   return (
     <>
-      {switchOf ? <SwitchModelList session={switchOf} harnesses={harnesses} onDone={onDone} onStep={setStepping} /> : <ModelList value={model} harnesses={harnesses} onChange={onModel} onDone={onDone} />}
       {e && !stepping && (
-        <div className="shrink-0 space-y-2 border-t border-rule px-3 pt-2 pb-2.5">
+        <div data-part="effort" className="shrink-0 space-y-2 border-b border-rule px-3 pt-2 pb-2.5">
           <div className="flex min-h-[20px] items-center justify-between gap-3 text-[12px] phone:text-[13px]">
             <span className="text-fg-3">Effort</span>
             {follow &&
@@ -158,6 +157,7 @@ function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = 
           <EffortSegments effort={e} value={shown} onChange={(v) => onEffort(v)} size={mobile ? 'touch' : 'sm'} />
         </div>
       )}
+      {switchOf ? <SwitchModelList session={switchOf} harnesses={harnesses} onDone={onDone} onStep={setStepping} /> : <ModelList value={model} harnesses={harnesses} onChange={onModel} onDone={onDone} />}
       {onCyber && !stepping && (
         <div className="border-t border-rule">
           <CyberAccess model={model} value={cyber} onChange={onCyber} />

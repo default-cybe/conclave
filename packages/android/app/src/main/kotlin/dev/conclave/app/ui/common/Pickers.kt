@@ -22,9 +22,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.Category
+import androidx.compose.material.icons.outlined.Computer
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Visibility
@@ -64,7 +68,9 @@ import java.util.Locale
  * Bottom sheet for picking a model, as the web's ModelPicker.tsx
  * (logic/PickerTabs.kt): the search, then provider tabs (All, Anthropic,
  * OpenAI, Google, Z.ai, Local, Coding agents, Other; only the ones with
- * models), then Pinned, Recent and the tab's models most capable first.
+ * models; the makers as their logos, named for TalkBack), then Pinned,
+ * Recent and the tab's models under a heading per maker and a small one per
+ * family, strongest family first.
  * Each model row has a pin; pins live on the hub (preferences.pinnedModels)
  * and so follow the account to every device. A search lists the matches of
  * every tab. The sheet opens on the current model's tab. [extra] free-form
@@ -118,7 +124,7 @@ fun ModelPickerSheet(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    tabs.forEach { t -> TabChip(t.label, selected = t == tab, onClick = { tab = t }) }
+                    tabs.forEach { t -> TabChip(t, selected = t == tab, onClick = { tab = t }) }
                 }
             }
             val list = remember(entries, q, tab, pinned, recent) { PickerTabs.items(entries, q, if (tab in tabs) tab else PickerTabs.Tab.ALL, pinned, recent) }
@@ -131,21 +137,22 @@ fun ModelPickerSheet(
                     }
                     item { HorizontalDivider(thickness = 1.dp, color = Conclave.colors.rule, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) }
                 }
-                items(list, key = { i ->
+                // a family heading such as "Other" can repeat under two makers: headings key by place
+                itemsIndexed(list, key = { n, i ->
                     when (i) {
-                        is PickerTabs.Item.Head -> "h:" + i.label
+                        is PickerTabs.Item.Head -> "h:$n:" + i.label
                         is PickerTabs.Item.Model -> i.section.name + ":" + i.entry.makerKey + ":" + i.entry.row.ref
                     }
-                }) { i ->
+                }) { _, i ->
                     when (i) {
-                        is PickerTabs.Item.Head -> SectionHeader(i.label)
+                        is PickerTabs.Item.Head -> if (i.family) FamilyHeader(i.label) else MakerHeader(i.label, i.maker)
                         is PickerTabs.Item.Model -> {
                             val r = i.entry.row
                             ModelRow(
                                 r,
                                 selected = r.ref == shown,
-                                // the maker says itself where the list mixes makers (All, a search), never on Recent or a coding agent
-                                maker = if ((tab == PickerTabs.Tab.ALL || q.isNotEmpty()) && i.section != PickerTabs.Section.RECENT) i.entry.makerName else null,
+                                // the maker's logo where the list mixes makers (All, a search), never on Recent or a coding agent
+                                maker = if ((tab == PickerTabs.Tab.ALL || q.isNotEmpty()) && i.section != PickerTabs.Section.RECENT) i.entry.makerKey to i.entry.makerName else null,
                                 current = current,
                                 onRoute = onPick,
                                 pinned = r.ref in pinned,
@@ -168,11 +175,12 @@ fun ModelPickerSheet(
     }
 }
 
-/** One provider tab: an outline, the chosen one raised (the composer's Effort chips). */
+/** One provider tab: an outline, the chosen one raised (the composer's Effort chips). All is a word, a maker its logo, the rest a neutral icon; each named for TalkBack. */
 @Composable
-private fun TabChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun TabChip(tab: PickerTabs.Tab, selected: Boolean, onClick: () -> Unit) {
     val c = Conclave.colors
     val shape = RoundedCornerShape(20.dp)
+    val tint = if (selected) c.fg else c.fg3
     Box(
         Modifier
             .heightIn(min = 40.dp)
@@ -182,8 +190,37 @@ private fun TabChip(label: String, selected: Boolean, onClick: () -> Unit) {
             .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, style = ConclaveType.meta, color = if (selected) c.fg else c.fg3, maxLines = 1)
+        val icon = when (tab) {
+            PickerTabs.Tab.LOCAL -> Icons.Outlined.Computer
+            PickerTabs.Tab.AGENTS -> Icons.Outlined.Terminal
+            PickerTabs.Tab.OTHER -> Icons.Outlined.Category
+            else -> null
+        }
+        when {
+            tab.maker != null -> CompanyMark(tab.maker, size = 16.dp, tint = tint, label = tab.label)
+            icon != null -> Icon(icon, contentDescription = tab.label, modifier = Modifier.size(16.dp), tint = tint)
+            else -> Text(tab.label, style = ConclaveType.meta, color = tint, maxLines = 1)
+        }
     }
+}
+
+/** A maker's heading in the list, with its logo (none for Coding agents). */
+@Composable
+private fun MakerHeader(label: String, maker: String?) {
+    val c = Conclave.colors
+    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (maker != null) {
+            CompanyMark(maker, size = 14.dp, tint = c.fg3)
+            Spacer(Modifier.width(6.dp))
+        }
+        Text(label, style = ConclaveType.meta, color = c.fg3, maxLines = 1)
+    }
+}
+
+/** A family's small heading under its maker ("Opus", "Gemini Flash"). */
+@Composable
+private fun FamilyHeader(label: String) {
+    Text(label, style = ConclaveType.meta, color = Conclave.colors.fg4, maxLines = 1, modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 2.dp))
 }
 
 /**
@@ -204,7 +241,8 @@ private val KeepEnd = object : NestedScrollConnection {
 private fun ModelRow(
     r: ModelPicks.Row,
     selected: Boolean,
-    maker: String? = null,
+    /** The maker's key and name, shown as its logo. */
+    maker: Pair<String, String>? = null,
     current: String? = null,
     onRoute: (String) -> Unit = {},
     pinned: Boolean = false,
@@ -217,7 +255,8 @@ private fun ModelRow(
     PickerRow(
         ref = r.ref,
         label = r.label,
-        sub = if (maker != null && !r.harness) listOfNotNull(maker, sub).joinToString(", ") else sub,
+        sub = sub,
+        maker = maker.takeIf { !r.harness },
         detail = modelDetail(r.model),
         selected = selected,
         vision = r.model.vision,
@@ -273,6 +312,8 @@ private fun PickerRow(
     detail: String?,
     selected: Boolean,
     vision: Boolean = false,
+    /** The maker's key and name: its logo after the model's name. */
+    maker: Pair<String, String>? = null,
     pinned: Boolean = false,
     /** Null: no pin on this row (an agent from [extra]). */
     onPin: (() -> Unit)? = null,
@@ -289,7 +330,13 @@ private fun PickerRow(
             Spacer(Modifier.width(logoGap(16.dp)))
         }
         Column(Modifier.weight(1f)) {
-            Text(label, style = ConclaveType.rowTitle, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, style = ConclaveType.rowTitle, color = c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                if (maker != null) {
+                    Spacer(Modifier.width(6.dp))
+                    CompanyMark(maker.first, size = 12.dp, tint = c.fg3, label = maker.second)
+                }
+            }
             if (sub != null) Text(sub, style = ConclaveType.meta, color = c.fg3, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (vision) {

@@ -1,8 +1,9 @@
 /**
  * The model picker (components/pickers/ModelPicker.tsx): rows under their
  * maker, provider tabs (Local and Coding agents of their own), Pinned, then
- * Recent, then the tab's models most capable first, one list across every
- * tab while searching, pins, and the keys. The list is mounted on linkedom
+ * Recent, then the tab's models by maker and family (strongest family first,
+ * newest first inside), one list across every tab while searching, pins,
+ * the tabs as logos, and the keys. The list is mounted on linkedom
  * for the clicks and keys.
  *
  *   cd packages/web && bun test test/model-picker.test.tsx
@@ -12,7 +13,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { ModelEntry, ModelGroup } from '@conclave/core/client';
 import type { Session } from '@conclave/core/types';
-import { allRows, buildPicker, capabilityLine, capabilityRank, compareModels, makerRank, pickerItems, routeLabel, rowName, shownTabs, tabOf, type Picker, type PickerInput, type PickerItem } from '../src/components/pickers/ModelPicker';
+import { allRows, buildPicker, capabilityLine, capabilityRank, compareModels, familyOf, makerRank, pickerItems, routeLabel, rowName, shownTabs, tabOf, type Picker, type PickerInput, type PickerItem } from '../src/components/pickers/ModelPicker';
 import { registerModelNames } from '../src/lib/models';
 
 function model(provider: string, id: string, name: string, extra: Partial<ModelEntry> = {}): ModelEntry {
@@ -77,14 +78,65 @@ describe('the first level', () => {
   test('Pinned, then Recent (newest first, pins left out), then every model', () => {
     const items = pickerItems(p, '', 'all', ['anthropic/claude-haiku-5-5', 'openai/gpt-5.5']);
     // pins go most capable first too
-    expect(lines(items).slice(0, 6)).toEqual(['# Pinned', 'openai/gpt-5.5', 'anthropic/claude-haiku-5-5', '# Recent', 'anthropic/claude-sonnet-5-5', '# All models, most capable first']);
+    expect(lines(items).slice(0, 7)).toEqual(['# Pinned', 'openai/gpt-5.5', 'anthropic/claude-haiku-5-5', '# Recent', 'anthropic/claude-sonnet-5-5', '# Anthropic, key set', '## Opus']);
     // no pins: Recent first
-    expect(lines(pickerItems(p, '', 'all')).slice(0, 4)).toEqual(['# Recent', 'openai/gpt-5.5', 'anthropic/claude-sonnet-5-5', '# All models, most capable first']);
+    expect(lines(pickerItems(p, '', 'all')).slice(0, 4)).toEqual(['# Recent', 'openai/gpt-5.5', 'anthropic/claude-sonnet-5-5', '# Anthropic, key set']);
+    // All goes by maker, then family
+    const heads = lines(pickerItems(p, '', 'all')).filter((l) => l.startsWith('#')).slice(1);
+    expect(heads).toEqual(['# Anthropic, key set', '## Opus', '## Sonnet', '## Haiku', '# OpenAI, key set', '## GPT', '## GPT mini and nano', '# Google, key set', '## Gemini Pro', '# Z.ai', '## GLM', '# DeepSeek, rejected', '# Ollama, local', '# Coding agents']);
   });
 });
 
-/** The list as lines: "# Heading", a model's ref, "> route". */
-const lines = (items: PickerItem[]) => items.map((it) => (it.kind === 'head' ? `# ${it.label}` : it.kind === 'route' ? `> ${it.route.ref}` : it.row.ref));
+/** The list as lines: "# Heading", "## Family", a model's ref, "> route". */
+const lines = (items: PickerItem[]) => items.map((it) => (it.kind === 'head' ? `${it.family ? '##' : '#'} ${it.label}` : it.kind === 'route' ? `> ${it.route.ref}` : it.row.ref));
+const refsOf = (items: PickerItem[]) => lines(items).filter((l) => !l.startsWith('#'));
+
+describe('families, most powerful first', () => {
+  const claude: ModelGroup[] = [
+    group('anthropic', [
+      model('anthropic', 'claude-haiku-5-5', 'Claude Haiku 5.5'),
+      model('anthropic', 'claude-sonnet-5', 'Claude Sonnet 5'),
+      model('anthropic', 'claude-opus-4-5-20251101', 'Claude Opus 4.5'),
+      model('anthropic', 'claude-opus-4-5', 'Claude Opus 4.5'),
+      model('anthropic', 'claude-fable-5', 'Claude Fable 5'),
+      model('anthropic', 'claude-sonnet-5-5', 'Claude Sonnet 5.5'),
+      model('anthropic', 'claude-mythos-5-1', 'Claude Mythos 5.1', { unavailable: 'Your plan refused it (HTTP 404)' }),
+      model('anthropic', 'claude-opus-5-5', 'Claude Opus 5.5'),
+      model('anthropic', 'claude-fable-5-1', 'Claude Fable 5.1'),
+      model('anthropic', 'claude-mythos-5', 'Claude Mythos 5'),
+    ]),
+  ];
+  const p = buildPicker(input({ models: claude, sessions: {} }));
+
+  test('Mythos, Fable, Opus, Sonnet, Haiku; newest first inside, undated before dated, unavailable last in its family', () => {
+    expect(lines(pickerItems(p, '', 'anthropic'))).toEqual([
+      '# Anthropic, key set',
+      '## Mythos',
+      'anthropic/claude-mythos-5',
+      'anthropic/claude-mythos-5-1',
+      '## Fable',
+      'anthropic/claude-fable-5-1',
+      'anthropic/claude-fable-5',
+      '## Opus',
+      'anthropic/claude-opus-5-5',
+      'anthropic/claude-opus-4-5',
+      'anthropic/claude-opus-4-5-20251101',
+      '## Sonnet',
+      'anthropic/claude-sonnet-5-5',
+      'anthropic/claude-sonnet-5',
+      '## Haiku',
+      'anthropic/claude-haiku-5-5',
+    ]);
+  });
+
+  test('the other makers: GPT, mini and nano, o-series, Codex; Gemini Pro, Flash, Flash-Lite; GLM by size', () => {
+    const fam = (ids: string[]) => [...ids].sort(compareModels).map((id) => familyOf(id).family);
+    expect(fam(['gpt-5.3-codex', 'o4-mini', 'gpt-5.4-nano', 'gpt-6-sol', 'gpt-5.4-mini'])).toEqual(['GPT', 'GPT mini and nano', 'GPT mini and nano', 'o-series', 'Codex']);
+    expect(fam(['gemini-3.1-flash-lite', 'gemini-3-flash', 'gemini-3.1-pro', 'gemma-3'])).toEqual(['Gemini Pro', 'Gemini Flash', 'Gemini Flash-Lite', 'Gemma']);
+    expect([...['glm-4.7-flash', 'glm-4.5-air', 'glm-5.3', 'glm-5'].sort(compareModels)]).toEqual(['glm-5.3', 'glm-5', 'glm-4.5-air', 'glm-4.7-flash']);
+    expect(familyOf('claude-3-7-something').family).toBe('Claude');
+  });
+});
 
 describe('tabs and ranking', () => {
   const ranked: ModelGroup[] = [
@@ -103,16 +155,20 @@ describe('tabs and ranking', () => {
   ];
   const p = buildPicker(input({ models: ranked, sessions: {} }));
 
-  test('most capable first: tier deep, smart, fast; then context; then output price; unavailable last', () => {
+  test('by family whatever the tier; capabilityRank still ranks the pins: deep, smart, fast, then context, then price', () => {
     expect(lines(pickerItems(p, '', 'anthropic'))).toEqual([
-      // the tab's heading carries the account word, as the maker's back row did
-      '# Anthropic, key set, most capable first',
-      'anthropic/claude-opus-5-1',
+      // the maker's heading carries the account word, as the maker's back row did
+      '# Anthropic, key set',
+      '## Mythos',
+      'anthropic/claude-mythos-5-1',
+      '## Opus',
       'anthropic/claude-opus-5-5',
+      'anthropic/claude-opus-5-1',
+      '## Sonnet',
       'anthropic/claude-sonnet-5-5',
       'anthropic/claude-sonnet-5',
+      '## Haiku',
       'anthropic/claude-haiku-5-5',
-      'anthropic/claude-mythos-5-1',
     ]);
     const rows = allRows(p);
     const mythos = rows.find((r) => r.ref.endsWith('mythos-5-1'))!;
@@ -134,9 +190,9 @@ describe('tabs and ranking', () => {
     expect(tab('anthropic/claude-opus-5-5')).toBe('anthropic');
     expect(shownTabs(rows).map((t) => t.label)).toEqual(['All', 'Anthropic', 'Local', 'Coding agents', 'Other']);
     expect(lines(pickerItems(p, '', 'agents')).slice(1)).toEqual(['claude-code/default', 'codex/default']);
-    expect(lines(pickerItems(p, '', 'local')).slice(1).sort()).toEqual(['ollama/llama-4-local', 'ollama/qwen3']);
-    // the coding agents come after every model on All, and only what cannot be picked after them
-    expect(lines(pickerItems(p, '', 'all')).slice(-3)).toEqual(['claude-code/default', 'codex/default', 'anthropic/claude-mythos-5-1']);
+    expect(refsOf(pickerItems(p, '', 'local')).sort()).toEqual(['ollama/llama-4-local', 'ollama/qwen3']);
+    // the coding agents come after every model on All
+    expect(lines(pickerItems(p, '', 'all')).slice(-3)).toEqual(['# Coding agents', 'claude-code/default', 'codex/default']);
     // without coding agents, no such tab
     expect(shownTabs(allRows(buildPicker(input({ models: ranked, sessions: {}, harnesses: false })))).map((t) => t.value)).not.toContain('agents');
   });
@@ -145,7 +201,7 @@ describe('tabs and ranking', () => {
     const pins = ['ollama/qwen3'];
     expect(lines(pickerItems(p, '', 'local', pins)).slice(0, 2)).toEqual(['# Pinned', 'ollama/qwen3']);
     expect(lines(pickerItems(p, '', 'all', pins)).slice(0, 2)).toEqual(['# Pinned', 'ollama/qwen3']);
-    expect(lines(pickerItems(p, '', 'anthropic', pins))[0]).toBe('# Anthropic, key set, most capable first');
+    expect(lines(pickerItems(p, '', 'anthropic', pins))[0]).toBe('# Anthropic, key set');
   });
 });
 
@@ -179,9 +235,10 @@ describe('a custom provider', () => {
     registerModelNames(CUSTOM.flatMap((g) => g.models));
     const zai = buildPicker(input({ models: CUSTOM, sessions: {} })).groups.find((g) => g.key === 'zai')!;
     expect(zai.rows.map((r) => [r.ref, rowName(r), r.source])).toEqual([
+      // GLM before GLM Flash: by size
       ['zai/glm-5.3', 'GLM-5.3', undefined],
-      ['zai/glm-5.3-flash', 'GLM-5.3 Flash', undefined],
       ['experientiallabs/glm-5.3-uncensored', 'GLM-5.3 Uncensored', 'Experiential Labs'],
+      ['zai/glm-5.3-flash', 'GLM-5.3 Flash', undefined],
       ['experientiallabs/glm-5.3-flash-uncensored', 'GLM-5.3 Flash Uncensored', 'Experiential Labs'],
     ]);
     const deepseek = buildPicker(input({ models: [group('experientiallabs', CUSTOM[1].models)], sessions: {} })).groups.find((g) => g.key === 'deepseek')!;
@@ -216,7 +273,7 @@ describe('a tab, and searching', () => {
   const p: Picker = buildPicker(input());
 
   test('a tab lists its models only, with Recent of that tab', () => {
-    expect(lines(pickerItems(p, '', 'openai'))).toEqual(['# Recent', 'openai/gpt-5.5', '# OpenAI, key set, most capable first', 'openai/gpt-5.5', 'openai/gpt-5.5-mini']);
+    expect(lines(pickerItems(p, '', 'openai'))).toEqual(['# Recent', 'openai/gpt-5.5', '# OpenAI, key set', '## GPT', 'openai/gpt-5.5', '## GPT mini and nano', 'openai/gpt-5.5-mini']);
     // GLM through OpenRouter is Z.ai's
     expect(lines(pickerItems(p, '', 'zai'))).toContain('openrouter/z-ai/glm-5.3');
   });
@@ -427,9 +484,10 @@ async function mount(props: { value?: string; values?: string[]; models?: ModelG
   const options = () => [...host.querySelectorAll('[role="option"]')] as HTMLElement[];
   const texts = () => options().map((o) => o.getAttribute('aria-label') ?? o.textContent ?? '');
   const radios = () => [...host.querySelectorAll('[role="radio"]')] as HTMLElement[];
-  const tabs = () => radios().map((r) => r.textContent ?? '');
-  const tab = () => radios().find((r) => r.getAttribute('aria-checked') === 'true')?.textContent;
-  const radio = (label: string) => radios().find((r) => r.textContent === label)!;
+  // a tab is a logo or an icon (All a word); its name is its tooltip
+  const tabs = () => radios().map((r) => r.getAttribute('title') ?? '');
+  const tab = () => radios().find((r) => r.getAttribute('aria-checked') === 'true')?.getAttribute('title');
+  const radio = (label: string) => radios().find((r) => r.getAttribute('title') === label)!;
   /** The highlighted line: the one with the hover fill. */
   const highlighted = () => options().find((o) => o.className.split(/\s+/).includes('bg-hover'));
   const key = async (k: string) =>
@@ -474,9 +532,18 @@ describe('the list, clicked and keyed', () => {
     try {
       expect(v.tabs()).toEqual(['All', 'Anthropic', 'OpenAI', 'Google', 'Z.ai', 'Local', 'Coding agents', 'Other']);
       expect(v.tab()).toBe('Anthropic');
+      // the makers' tabs are their logos, named; All is a word; Local, agents and Other neutral icons, named
+      const radios = [...v.host.querySelectorAll('[role="radio"]')];
+      expect(radios[0].textContent).toBe('All');
+      for (const [i, name] of ['Anthropic', 'OpenAI', 'Google', 'Z.ai', 'Local', 'Coding agents', 'Other'].entries()) {
+        expect(radios[i + 1].textContent).toBe('');
+        expect(radios[i + 1].querySelector(`[role="img"][aria-label="${name}"]`)).not.toBeNull();
+      }
+      expect(radios[1].querySelector('[data-logo="anthropic"]')).not.toBeNull();
       // Recent Sonnet, then the three Anthropic models
       expect(v.options().length).toBe(4);
-      expect(v.host.textContent).toContain('Anthropic, key set, most capable first');
+      expect(v.host.textContent).toContain('Anthropic, key set');
+      expect([...v.host.querySelectorAll('[data-family]')].map((h) => h.textContent)).toEqual(['Opus', 'Sonnet', 'Haiku']);
       const checked = v.options().filter((o) => o.getAttribute('aria-selected') === 'true');
       expect(checked.length).toBe(2);
       expect(checked.every((o) => o.textContent?.includes('Sonnet 5.5'))).toBe(true);
@@ -493,7 +560,11 @@ describe('the list, clicked and keyed', () => {
     try {
       expect(v.tab()).toBe('All');
       expect(v.host.textContent).toContain('Recent');
-      expect(v.host.textContent).toContain('All models, most capable first');
+      expect(v.host.textContent).toContain('Anthropic, key set');
+      // a row on All shows its maker's logo, named, not the word
+      const gemini = v.options().find((o) => o.textContent?.includes('Gemini 3 Pro'))!;
+      expect(gemini.querySelector('[role="img"][aria-label="Google"]')).not.toBeNull();
+      expect(gemini.textContent).not.toContain('Google');
       await v.click(v.radio('Google'));
       expect(v.tab()).toBe('Google');
       expect(v.options().map((o) => o.textContent)).toEqual([expect.stringContaining('Gemini 3 Pro')]);
@@ -527,7 +598,7 @@ describe('the list, clicked and keyed', () => {
     }
   });
 
-  test('a model that cannot be picked sits last, says why, and the arrows pass it over', async () => {
+  test('a model that cannot be picked says why, and the arrows pass it over', async () => {
     const v = await mount({});
     try {
       await v.click(v.radio('Other'));
@@ -536,7 +607,7 @@ describe('the list, clicked and keyed', () => {
       expect(deepseek.getAttribute('aria-disabled')).toBe('true');
       expect(deepseek.textContent).toContain('No key for this provider');
       await v.click(v.radio('All'));
-      expect(v.options().at(-1)?.textContent).toContain('DeepSeek');
+      expect(v.options().some((o) => o.textContent?.includes('DeepSeek'))).toBe(true);
       for (let i = 0; i < 30; i++) await v.key('ArrowDown');
       expect(v.highlighted()?.textContent).not.toContain('DeepSeek');
     } finally {
@@ -622,14 +693,14 @@ describe('the list, clicked and keyed', () => {
       // opened on Anthropic, a search still finds the Coding agents' Opus and says each maker
       await v.type('opus');
       expect(v.texts().some((t) => t.includes('Claude Code, Opus'))).toBe(true);
-      expect(v.texts().find((t) => t.includes('Opus 5.5'))).toContain('Anthropic');
+      expect(v.options().find((o) => o.textContent?.includes('Opus 5.5'))?.querySelector('[aria-label="Anthropic"]')).not.toBeNull();
       expect(v.host.textContent).not.toContain('Recent');
       await v.type('glm');
-      const glm = v.texts().filter((t) => t.includes('GLM'));
+      const glm = v.options().filter((o) => o.textContent?.includes('GLM'));
       expect(glm.length).toBe(3);
-      expect(glm.every((t) => t.includes('Z.ai'))).toBe(true);
+      expect(glm.every((o) => !!o.querySelector('[aria-label="Z.ai"]'))).toBe(true);
       await v.type('');
-      expect(v.host.textContent).toContain('Anthropic, key set, most capable first');
+      expect(v.host.textContent).toContain('Anthropic, key set');
       expect(v.host.textContent).toContain('Recent');
     } finally {
       await v.unmount();

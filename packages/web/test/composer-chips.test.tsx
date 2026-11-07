@@ -223,6 +223,26 @@ describe('the chat composer', () => {
   });
 });
 
+describe('the model chip', () => {
+  test('Effort sits on top of the picker, above the search and the list, as before #298', async () => {
+    const { claudeEffort } = await import('@conclave/core/providers/effort');
+    const { ModelEffort } = await import('../src/features/conversation/ComposerParts');
+    const before = useHub.getState().models;
+    const opus = { id: 'claude-opus-5-5', ref: 'anthropic/claude-opus-5-5', provider: 'anthropic', name: 'Claude Opus 5.5', effort: claudeEffort('claude-opus-5-5') };
+    useHub.setState({ models: [{ provider: 'anthropic', name: 'Anthropic', type: 'anthropic', configured: true, enabled: true, models: [opus] }] } as never);
+    const v = await mount(<ModelEffort model={opus.ref} value={undefined} onModel={() => {}} onEffort={() => {}} />);
+    try {
+      await v.act(async () => v.chip('model')!.click());
+      // document order: Effort, then the search, then the list
+      const parts = [...document.querySelectorAll('[data-part="effort"], input[aria-label="Search models"], [role="listbox"][aria-label="Models"]')];
+      expect(parts.map((el) => (el.getAttribute('data-part') ? 'effort' : el.tagName === 'INPUT' ? 'search' : 'list'))).toEqual(['effort', 'search', 'list']);
+    } finally {
+      await v.unmount();
+      useHub.setState({ models: before } as never);
+    }
+  });
+});
+
 describe('the Code start', () => {
   test('chips for agent, mode with Ultra and memory; "+" keeps Work in, worktree and design direction', async () => {
     patches();

@@ -7,19 +7,23 @@ import dev.conclave.client.model.Session
  * provider tabs (All, Anthropic, OpenAI, Google, Z.ai, Local, Coding agents,
  * Other; only the ones that have models), then Pinned (the account's pins,
  * kept on the hub in preferences.pinnedModels), Recent (the last three in the
- * tab), then the tab's models most capable first. A search lists the matches
- * of every tab, ranked the same, with no Pinned or Recent.
+ * tab), then the tab's models under a heading per maker and a small one per
+ * family, strongest family first (Mythos, Fable, Opus, Sonnet, Haiku; GPT,
+ * mini and nano, o-series, Codex; Gemini Pro, Flash, Flash-Lite; GLM by
+ * size), newest first inside. A search lists the matches of every tab, most
+ * capable first, with no Pinned or Recent.
  */
 object PickerTabs {
     /** The hub keeps at most this many pins (core client/people.ts PINS_MAX). */
     const val PINS_MAX = 50
 
-    enum class Tab(val label: String) {
+    /** A tab; [maker] is the provider whose logo it shows, null for All (a word) and the neutral tabs (an icon). */
+    enum class Tab(val label: String, val maker: String? = null) {
         ALL("All"),
-        ANTHROPIC("Anthropic"),
-        OPENAI("OpenAI"),
-        GOOGLE("Google"),
-        ZAI("Z.ai"),
+        ANTHROPIC("Anthropic", "anthropic"),
+        OPENAI("OpenAI", "openai"),
+        GOOGLE("Google", "google"),
+        ZAI("Z.ai", "zai"),
         LOCAL("Local"),
         AGENTS("Coding agents"),
         OTHER("Other"),
@@ -40,9 +44,9 @@ object PickerTabs {
     /** Where a row sits in the list: Pinned, Recent, or the tab's ranked list. */
     enum class Section { PIN, RECENT, LIST }
 
-    /** One line of the list: a heading or a model. */
+    /** One line of the list: a heading (a maker's, with its logo, or a small family one) or a model. */
     sealed class Item {
-        data class Head(val label: String) : Item()
+        data class Head(val label: String, val maker: String? = null, val family: Boolean = false) : Item()
         data class Model(val entry: Entry, val section: Section) : Item()
     }
 
@@ -85,21 +89,26 @@ object PickerTabs {
             ?: compareModels(a.model.id, b.model.id)
     }
 
-    /** A model's family inside its maker, its place among the families, and its version (the web's familyOf). */
-    private data class Family(val name: String, val rank: Int, val version: List<Int>, val dated: Long)
+    /** A model's family inside its maker, its power rank among the maker's families (0 the strongest), and its version (the web's familyOf). */
+    data class Family(val name: String, val rank: Int, val version: List<Int>, val dated: Long)
 
-    private fun familyOf(id: String): Family {
+    /** Anthropic's families, most powerful first. */
+    private val CLAUDE_FAMILIES = listOf("mythos", "fable", "opus", "sonnet", "haiku")
+
+    fun familyOf(id: String): Family {
         val m = id.lowercase().substringAfterLast('/')
         val date = Regex("-(\\d{8})$").find(m)
         val base = m.replace(Regex("-\\d{8}$"), "")
         val version = Regex("\\d+").findAll(base).mapNotNull { it.value.toIntOrNull() }.toList()
         val dated = date?.groupValues?.get(1)?.toLongOrNull() ?: 0L
         fun fam(name: String, rank: Int) = Family(name, rank, version, dated)
-        listOf("opus", "sonnet", "haiku").forEachIndexed { i, f -> if (f in base) return fam(f.replaceFirstChar { it.uppercase() }, i) }
+        CLAUDE_FAMILIES.forEachIndexed { i, f -> if (f in base) return fam(f.replaceFirstChar { it.uppercase() }, i) }
         return when {
-            base.startsWith("gpt") -> fam("GPT", 0)
-            Regex("^o\\d").containsMatchIn(base) -> fam("o-series", 1)
-            "codex" in base -> fam("Codex", 2)
+            base.startsWith("claude") -> fam("Claude", CLAUDE_FAMILIES.size)
+            // Codex before GPT: gpt-5.3-codex is a Codex model
+            "codex" in base -> fam("Codex", 3)
+            base.startsWith("gpt") -> if (Regex("-(mini|nano)\\b").containsMatchIn(base)) fam("GPT mini and nano", 1) else fam("GPT", 0)
+            Regex("^o\\d").containsMatchIn(base) -> fam("o-series", 2)
             base.startsWith("gemini") -> when {
                 "flash-lite" in base -> fam("Gemini Flash-Lite", 2)
                 "flash" in base -> fam("Gemini Flash", 1)
@@ -107,6 +116,11 @@ object PickerTabs {
                 else -> fam("Gemini", 3)
             }
             base.startsWith("gemma") -> fam("Gemma", 4)
+            base.startsWith("glm") -> when {
+                Regex("-air\\b").containsMatchIn(base) -> fam("GLM Air", 1)
+                Regex("-flash\\b").containsMatchIn(base) -> fam("GLM Flash", 2)
+                else -> fam("GLM", 0)
+            }
             else -> fam("", 9)
         }
     }
@@ -132,10 +146,11 @@ object PickerTabs {
 
     /**
      * What the list shows under the search and the tabs: Pinned (the pins in
-     * this tab), Recent (the last three in this tab, pins left out), then the
-     * tab's models, most capable first. A search lists the matches of every
-     * tab, ranked the same, with no Pinned or Recent. [recent] holds refs the
-     * picker already mapped to their rows.
+     * this tab, most capable first), Recent (the last three in this tab, pins
+     * left out), then the tab's models by maker (in [entries]' order) and
+     * family, strongest family first, newest first inside. A search lists the
+     * matches of every tab, most capable first, with no Pinned or Recent.
+     * [recent] holds refs the picker already mapped to their rows.
      */
     fun items(entries: List<Entry>, query: String, tab: Tab, pinned: List<String> = emptyList(), recent: List<String> = emptyList()): List<Item> {
         val q = query.trim().lowercase()
@@ -160,8 +175,26 @@ object PickerTabs {
             out += Item.Head("Recent")
             recents.forEach { out += Item.Model(it, Section.RECENT) }
         }
-        out += Item.Head(if (tab == Tab.ALL) "All models, most capable first" else "${tab.label}, most capable first")
-        ranked.forEach { out += Item.Model(it, Section.LIST) }
+        val makers = entries.map { it.makerKey }.distinct()
+        val family = { e: Entry -> if (e.row.harness) Family("", 9, emptyList(), 0) else familyOf(e.row.model.id) }
+        val byFamily = compareBy<Entry> { makers.indexOf(it.makerKey) }
+            .thenBy { family(it).rank }
+            .thenBy { family(it).name }
+            .thenComparator { a, b -> compareModels(a.row.model.id, b.row.model.id) }
+        var maker: String? = null
+        var fam: String? = null
+        for (e in ranked.sortedWith(byFamily)) {
+            if (e.makerKey != maker) {
+                maker = e.makerKey
+                fam = null
+                out += Item.Head(e.makerName, maker = maker.takeIf { !e.row.harness && it != ModelPicks.AGENTS })
+            }
+            val f = family(e).name
+            // a model of no known family after the families goes under "Other"
+            if (f != (fam ?: "") && (f.isNotEmpty() || !fam.isNullOrEmpty())) out += Item.Head(f.ifEmpty { "Other" }, family = true)
+            fam = f
+            out += Item.Model(e, Section.LIST)
+        }
         return out
     }
 
