@@ -28,6 +28,7 @@ import { repoFacts, RepoSheetActions, useArchiveRepo } from '@/features/github/R
 import { sessionRepo } from '@/lib/github';
 import { isDelegated } from '@conclave/core/session/delegated';
 import { moveToMainList, MOVE_TO_MAIN } from './delegated';
+import { addNote } from './NotesStrip';
 import { canScheduleHere, scheduleHere } from '@/features/meeting/links';
 
 /** "Today, 18:58", "16 Oct, 14:02". */
@@ -100,6 +101,7 @@ export function ConversationSheet({ session, open, onClose, onPeople, peopleLabe
           {onPeople && <Action onClick={later(onPeople)}>{peopleLabel}</Action>}
           {isDelegated(session) && <Action onClick={() => (onClose(), void moveToMainList(session.id))}>{MOVE_TO_MAIN}</Action>}
           <Action onClick={later(() => setRenaming(true))}>Rename</Action>
+          <Action onClick={later(addNote)}>Add a note</Action>
           <RepoSheetActions session={session} onClose={onClose} Action={Action} />
           {/* Send to friend (FRIENDS.md phase 2): pick friends, review what goes, send */}
           <SendToFriendAction session={session} onOpen={later(() => setSend(true))} />

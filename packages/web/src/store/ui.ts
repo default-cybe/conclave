@@ -56,6 +56,8 @@ interface UiState extends Prefs {
   drawerOpen: boolean;
   /** Phones: the side panel is open (components/PhoneFrame.tsx). */
   panelOpen: boolean;
+  /** The notes strip at the top of a conversation (features/chat/NotesStrip.tsx): one line, open, or open with the add box focused. */
+  notes: 'closed' | 'open' | 'add';
   newChatPreset?: { agent?: string; model?: string; taskId?: string; prompt?: string; device?: string; mode?: SessionMode };
   /** Set by pages through usePageHeader. */
   header?: PageHeaderInfo;
@@ -109,6 +111,7 @@ export const useUi = create<UiState>((set) => ({
   newChatOpen: false,
   drawerOpen: false,
   panelOpen: false,
+  notes: 'closed',
   set: (p) => set(p),
 }));
 
