@@ -222,7 +222,7 @@ fun SidePanel(
                     Text(
                         g.title,
                         style = GroupHeadStyle,
-                        color = c.fg3,
+                        color = c.fg,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = GroupHeadTop, bottom = 4.dp).semantics { heading() },
@@ -288,8 +288,8 @@ fun SidePanel(
     }
 }
 
-/** A group heading (Today, a project, a device): a section label, smaller and bolder than the rows, in fg-3 (web Sidebar.tsx GroupHeading). Sentence case, never uppercase. */
-private val GroupHeadStyle = ConclaveType.meta.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+/** A group heading (Today, a project, a device): semibold in full fg, so it stands out from the regular fg-2 rows (web Sidebar.tsx GroupHeading). Sentence case, never uppercase. */
+private val GroupHeadStyle = ConclaveType.meta.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
 /** Space above a group heading, so it starts a section. */
 private val GroupHeadTop = 20.dp
 
@@ -311,7 +311,7 @@ private fun DelegatedHeading(open: Boolean, onToggle: () -> Unit) {
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(Delegated.WORDS, style = GroupHeadStyle, color = c.fg3, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+        Text(Delegated.WORDS, style = GroupHeadStyle, color = c.fg, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
         Spacer(Modifier.width(4.dp))
         Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = null, tint = c.fg3, modifier = Modifier.size(16.dp).rotate(if (open) 0f else -90f))
     }

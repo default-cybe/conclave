@@ -13,6 +13,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 - The model picker has provider tabs (All, Anthropic, OpenAI, Google, Z.ai, Local, Coding agents, Other; only tabs with models show) under the search. It lists Pinned, then Recent, then the tab's models with the most capable first (tier, then context window, then output price). Models you cannot use come last with the reason. Each row shows tier, context, price or "plan", and vision, tools and thinking. Pins are saved on the hub per account, so every device sees the same ones. Effort moved to the foot of the picker.
 - The composer has compact chips under the message box: agent (Code), mode (Agent, Chat, Plan, Jury, Debate, Loop, with Ultra under a rule), memory (Memory, Memory use only, No memory) and the model. "+" now holds only attachments and add-ons (web search, a folder or GitHub repository, a worktree, a design direction); the device is the chip at the left whenever there is more than one place to run. The status line under the composer is gone: the model chip's tooltip, the context ring and the session panel show the model, context left and cost. Phones wrap the same chips under the box. Android gets the same picker tabs, ranking and hub pins, and the same chips.
+- Sidebar group headings (Today, This week, a project or device name) are bold in the full text colour and a little larger, so they stand out from the session rows on the web, the phone and Android.
 
 ## [0.4.77] - 2026-11-07
 
