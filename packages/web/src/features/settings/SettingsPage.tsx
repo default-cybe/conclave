@@ -96,7 +96,7 @@ const ALL_SECTIONS: SectionDef[] = [
   {
     id: 'providers',
     label: 'Providers',
-    desc: 'Keys and plans the hub signs in with. Keys stay on the hub.',
+    desc: 'API keys for providers you pay per use, and CLI logins. Keys stay on the hub.',
     C: ProvidersSection,
     width: 900,
     member: { C: MemberProvidersSection, desc: "Which key your calls use: your own, or the hub's where the owner allows it." },
@@ -104,7 +104,7 @@ const ALL_SECTIONS: SectionDef[] = [
   {
     id: 'subscriptions',
     label: 'Subscriptions',
-    desc: 'Sign in to Claude, ChatGPT, Google and other plans you pay for. Every model from those accounts shows up here.',
+    desc: 'Sign in with a Claude, ChatGPT, Gemini or other plan you pay for. Its models appear in the model picker.',
     C: SubscriptionsSection,
     width: 900,
     member: { C: MemberSubscriptionsSection, desc: 'Sign in to Claude, ChatGPT and other plans you pay for. Only your chats use them.' },
@@ -162,7 +162,7 @@ const ALL_SECTIONS: SectionDef[] = [
   {
     id: 'notifications',
     label: 'Notifications',
-    desc: 'How Conclave reaches you while you are away from it.',
+    desc: 'Which events send a notification, and which devices get them.',
     C: NotificationsSection,
   },
   {
@@ -259,7 +259,7 @@ const ALL_SECTIONS: SectionDef[] = [
   {
     id: 'remote',
     label: 'Remote access',
-    desc: 'How your phone and other computers reach this hub, at home and away.',
+    desc: 'How phones and other computers reach this hub, on this network and from others.',
     C: RemoteSection,
     owner: true,
   },

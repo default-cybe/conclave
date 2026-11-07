@@ -151,9 +151,9 @@ export function ExtensionsStep() {
         <section>
           <SectionHeading count={fields.length}>Keys and values</SectionHeading>
           <p className="m-0 mt-3 max-w-[64ch] text-[13px] leading-[1.5] text-fg-2 phone:text-[14px]">
-            Secrets go to the hub&apos;s secrets store. Leave a required one empty and that extension is skipped. Model provider keys are on the{' '}
+            Secrets are stored on the hub. An extension with an empty required value is skipped. Model provider keys are on the{' '}
             <Link href="/setup/providers" className={LINK}>
-              Providers
+              API keys
             </Link>{' '}
             step.
           </p>
@@ -217,7 +217,7 @@ export function ExtensionsStep() {
             })}
           </div>
           {phase === 'finished' && (
-            <p className="m-0 mt-6 text-[12px] leading-[1.5] text-fg-3 phone:text-[13px]">Skipped and failed ones can be added later in Extensions, Discover.</p>
+            <p className="m-0 mt-6 text-[12px] leading-[1.5] text-fg-3 phone:text-[13px]">Add skipped or failed extensions later in Extensions, Discover.</p>
           )}
         </section>
       )}
