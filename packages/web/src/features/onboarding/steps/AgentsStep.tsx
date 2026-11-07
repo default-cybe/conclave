@@ -53,7 +53,7 @@ function DeviceTable({ device, looking, tests }: { device: Device; looking: bool
       {looking ? (
         <div className="h-[132px]" aria-hidden />
       ) : !found.length ? (
-        <p className="m-0 py-3 text-[13px] text-fg-3 phone:text-[14px]">None of the four are installed here. Install one, or run coding sessions on another machine.</p>
+        <p className="m-0 py-3 text-[13px] text-fg-3 phone:text-[14px]">No coding agent CLI is installed here. Install one, or run coding sessions on another machine.</p>
       ) : (
         <>
           {!mobile && (
@@ -128,7 +128,7 @@ function Engines({ harnesses }: { harnesses: string[] }) {
           <div key={h} className="flex items-center gap-4 py-2.5">
             <span className="min-w-0 flex-1">
               <HarnessName harness={h} size={14} className="text-[13.5px] font-medium text-fg phone:text-[15px]" />
-              <span className="block text-[12px] text-fg-3 phone:text-[13px]">Use {harnessLabel(h)} as the engine for a session, with its own login.</span>
+              <span className="block text-[12px] text-fg-3 phone:text-[13px]">Run sessions with {harnessLabel(h)} and its own login.</span>
             </span>
             <OnOff label={`Use ${harnessLabel(h)} as an engine`} size={ctl === 'touch' ? 'touch' : 'sm'} checked={providers?.[h]?.enabled === true} onChange={(on) => void set(h, on)} />
           </div>
@@ -189,7 +189,7 @@ export function AgentsStep() {
         <Button variant="outline" size={ctl} onClick={() => setRound((r) => r + 1)} disabled={looking}>
           Look again
         </Button>
-        <p className="m-0 text-[12px] text-fg-3 phone:text-[13px]">Pair another computer in the Devices step and its CLIs show up here.</p>
+        <p className="m-0 text-[12px] text-fg-3 phone:text-[13px]">Computers paired in the Devices step are listed here.</p>
       </div>
     </StepFrame>
   );

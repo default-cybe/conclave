@@ -41,7 +41,7 @@ export function ImportStep() {
   ) : last && last.status === 'done' ? (
     `Imported ${last.imported + last.updated} chats${last.memoriesAdded ? ` and learned ${last.memoriesAdded} memories` : ''}.`
   ) : (
-    'Pick the chats to bring over, or skip this step.'
+    'Choose the chats to import.'
   );
 
   return (
@@ -51,7 +51,7 @@ export function ImportStep() {
         <div className={mobile ? 'space-y-3' : 'flex items-start justify-between gap-6'}>
           <div className="min-w-0">
             <div className="text-[13.5px] font-medium text-fg phone:text-[15px]">Keep importing new chats</div>
-            <p className="m-0 mt-0.5 max-w-[56ch] text-[12px] leading-[1.5] text-fg-3 phone:text-[13px]">Every 6 hours the hub reads the online machines and imports new chats the same way, so they are copied before the tools delete them.</p>
+            <p className="m-0 mt-0.5 max-w-[56ch] text-[12px] leading-[1.5] text-fg-3 phone:text-[13px]">Every 6 hours the hub imports new chats from online machines, before the tools delete them.</p>
           </div>
           <OnOff checked={watch} onChange={(v) => void setWatch(v)} label="Keep importing new chats" disabled={saving} size={mobile ? 'touch' : 'sm'} />
         </div>

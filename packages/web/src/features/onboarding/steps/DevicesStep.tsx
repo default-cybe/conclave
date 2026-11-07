@@ -58,7 +58,7 @@ function ComputerEditor({ device }: { device: Device }) {
         {found.length ? `. ${andList(found)} ${found.length === 1 ? 'is' : 'are'} installed there.` : '.'}
       </p>
       <div className="rows">
-        <SettingRow label="Name" help="How sessions, Devices and the audit log refer to it." htmlFor="device-name">
+        <SettingRow label="Name" help="Shown in sessions, Devices and the audit log." htmlFor="device-name">
           <Input
             id="device-name"
             value={name}
@@ -67,7 +67,7 @@ function ComputerEditor({ device }: { device: Device }) {
             onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
           />
         </SettingRow>
-        <SettingRow label="Folders sessions may use" help="Sessions here can only read and write inside these. With none, the home folder." top>
+        <SettingRow label="Folders sessions may use" help="Sessions here read and write only inside these. With none, the home folder." top>
           <div>
             {roots.length > 0 && (
               <ul className="m-0 mb-2 list-none p-0">
@@ -151,7 +151,7 @@ function ComputerPairing({ onPaired }: { onPaired?: (d: Device) => void }) {
   if (paired)
     return (
       <p className="m-0 pt-4 text-[14px] text-fg phone:text-[15px]">
-        <span className="text-ok">Paired</span> {paired.name}. Sessions can run there now.
+        <span className="text-ok">Paired</span> {paired.name}. Sessions can run there.
       </p>
     );
   const left = info ? info.expiresAt - now : 0;
@@ -159,7 +159,7 @@ function ComputerPairing({ onPaired }: { onPaired?: (d: Device) => void }) {
   const cmd = info ? `conclave daemon pair ${hubUrl.replace(/\/$/, '')} ${info.code}\nconclave daemon install --start` : '';
   return (
     <div className="pt-4">
-      <p className="m-0 mb-2.5 text-[13px] text-fg-2 phone:text-[14px]">Run these on the computer. The first pairs it, the second starts the agent at login.</p>
+      <p className="m-0 mb-2.5 text-[13px] text-fg-2 phone:text-[14px]">Run these on the computer. The first line pairs it; the second starts the agent at login.</p>
       {info ? <CodeBlock code={cmd} shell wrap /> : <div className="h-[66px] rounded-[var(--r-2)] border border-rule bg-sunk" aria-hidden />}
       <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-[12px] text-fg-3 phone:text-[13px]">
         {info && !expired && (
@@ -183,7 +183,7 @@ function ComputerPairing({ onPaired }: { onPaired?: (d: Device) => void }) {
             <CodeBlock code={INSTALL_CLI} shell wrap />
           </div>
         ) : (
-          <TextAction className={LINK} label="No conclave CLI on that computer yet?" onClick={() => setCli(true)} />
+          <TextAction className={LINK} label="Install the conclave CLI first" onClick={() => setCli(true)} />
         )}
       </div>
     </div>
@@ -221,7 +221,7 @@ export function DevicesStep() {
       </section>
 
       <section className="mt-10">
-        <SectionHeading count={phones.length > 1 ? phones.length : undefined}>Your phone</SectionHeading>
+        <SectionHeading count={phones.length > 1 ? phones.length : undefined}>Phone</SectionHeading>
         {phones.length > 0 && (
           <div className="rows">
             {phones.map((p) => (
@@ -237,7 +237,7 @@ export function DevicesStep() {
         )}
         {pairing === 'phone' ? (
           <div className="pt-5">
-            <p className="m-0 mb-4 max-w-[60ch] text-[13px] leading-[1.5] text-fg-2 phone:text-[14px]">Open the Conclave app on your phone and scan the code, or type the code under it. On the same Wi-Fi it works now. To use it away from home, turn on remote access in step 1 first.</p>
+            <p className="m-0 mb-4 max-w-[60ch] text-[13px] leading-[1.5] text-fg-2 phone:text-[14px]">In the Conclave app on the phone, scan the code or type the code below it. On the same network this works now. From other networks, turn on Remote access in the Hub step first.</p>
             <PairingPanel kind="client" onPaired={() => setPairing(null)} />
           </div>
         ) : (
