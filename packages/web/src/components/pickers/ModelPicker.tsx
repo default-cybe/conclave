@@ -3,10 +3,13 @@
  * tabs (All, Anthropic, OpenAI, Google, Z.ai, Local, Coding agents, Other;
  * only the ones that have models). The list: Pinned (the account's pins,
  * kept on the hub in preferences.pinnedModels, shared by its devices), Recent
- * (the last three in the tab), then the tab's models ranked most capable
- * first (tier deep, smart, fast; then context window; then output price),
- * the ones that cannot be picked last with their reason. Each row: brand
- * mark, name, the maker on All, and a line with tier, context, price or
+ * (the last three in the tab), then the tab's models under a heading per
+ * maker and a small one per family, strongest family first (Mythos, Fable,
+ * Opus, Sonnet, Haiku; GPT, mini and nano, o-series, Codex; Gemini Pro,
+ * Flash, Flash-Lite; GLM by size), newest first inside, the ones that cannot
+ * be picked last in their family with their reason. The tabs show the
+ * makers' logos, their names as tooltip and label. Each row: brand mark,
+ * name, the maker's logo on All, and a line with tier, context, price or
  * "plan", vision, tools, thinking. A pin at the right (on hover; a long
  * press on phones). The picker opens on the current model's tab.
  *
@@ -27,7 +30,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
-import { Check, Pin } from 'lucide-react';
+import { Check, HardDrive, Pin, Shapes, SquareTerminal } from 'lucide-react';
 import { PINS_MAX, type AccountDto, type ModelEntry, type ModelGroup } from '@conclave/core/client';
 import type { Device, Session } from '@conclave/core/types';
 import { MODEL_VARIANT as VARIANT } from '@conclave/core/providers/model-id';
@@ -42,7 +45,7 @@ import { PickerButton } from '../ui/Select';
 import { Button } from '../ui/Button';
 import { Segmented } from '../ui/Field';
 import { planParts } from '../ui/Meter';
-import { HarnessMark, ModelMark, ModelName } from '../logo';
+import { CompanyMark, HarnessMark, ModelMark, ModelName } from '../logo';
 
 const HARNESS_CLI: Record<string, string> = {
   'claude-code': 'claude',
@@ -151,10 +154,16 @@ export function planLabel(ref: string, maker: string, accounts?: PlanAccount[]):
   return `${label} (${service ? service[0].toUpperCase() + service.slice(1) : a.vendorName})`;
 }
 
+/** Anthropic's families, most powerful first. */
+const CLAUDE_FAMILIES = ['mythos', 'fable', 'opus', 'sonnet', 'haiku'];
+
 /**
- * A model's family inside its maker, its place among the families, and its
- * version: Opus, Sonnet, Haiku; GPT, o-series, Codex; Gemini Pro, Flash,
- * Flash-Lite, Gemma. A maker with no known families has one, its own.
+ * A model's family inside its maker, its power rank among the maker's
+ * families (0 is the strongest), and its version. Anthropic: Mythos, Fable,
+ * Opus, Sonnet, Haiku, other Claude. OpenAI: GPT, GPT mini and nano,
+ * o-series, Codex. Google: Gemini Pro, Flash, Flash-Lite, other Gemini,
+ * Gemma. Z.ai: GLM, GLM Air, GLM Flash (by size). A maker with no known
+ * families has one, its own (rank 9).
  */
 export function familyOf(id: string): { family: string; rank: number; version: number[]; dated: number } {
   let m = id.toLowerCase();
@@ -164,10 +173,12 @@ export function familyOf(id: string): { family: string; rank: number; version: n
   const version = (base.match(/\d+/g) ?? []).map(Number);
   const dated = date ? Number(date[1]) : 0;
   const fam = (family: string, rank: number) => ({ family, rank, version, dated });
-  for (const [i, f] of ['opus', 'sonnet', 'haiku'].entries()) if (base.includes(f)) return fam(f[0].toUpperCase() + f.slice(1), i);
-  if (/^gpt/.test(base)) return fam('GPT', 0);
-  if (/^o\d/.test(base)) return fam('o-series', 1);
-  if (/codex/.test(base)) return fam('Codex', 2);
+  for (const [i, f] of CLAUDE_FAMILIES.entries()) if (base.includes(f)) return fam(f[0].toUpperCase() + f.slice(1), i);
+  if (/^claude/.test(base)) return fam('Claude', CLAUDE_FAMILIES.length);
+  // Codex before GPT: gpt-5.3-codex is a Codex model
+  if (/codex/.test(base)) return fam('Codex', 3);
+  if (/^gpt/.test(base)) return /-(mini|nano)\b/.test(base) ? fam('GPT mini and nano', 1) : fam('GPT', 0);
+  if (/^o\d/.test(base)) return fam('o-series', 2);
   if (/^gemini/.test(base)) {
     if (/flash-lite/.test(base)) return fam('Gemini Flash-Lite', 2);
     if (/flash/.test(base)) return fam('Gemini Flash', 1);
@@ -175,6 +186,7 @@ export function familyOf(id: string): { family: string; rank: number; version: n
     return fam('Gemini', 3);
   }
   if (/^gemma/.test(base)) return fam('Gemma', 4);
+  if (/^glm/.test(base)) return /-air\b/.test(base) ? fam('GLM Air', 1) : /-flash\b/.test(base) ? fam('GLM Flash', 2) : fam('GLM', 0);
   return fam('', 9);
 }
 
@@ -400,8 +412,8 @@ function usePicker(includeHarness: boolean): Picker {
 /** Where a row sits in the list: Pinned, Recent, or the tab's ranked list. Each opens its routes on its own. */
 export type Section = 'pin' | 'recent' | 'list';
 
-/** One line of the list: a heading, a model, or one route to a model under its row. */
-export type PickerItem = { kind: 'head'; label: string } | { kind: 'model'; row: Row; section: Section } | { kind: 'route'; row: Row; route: Route; section: Section };
+/** One line of the list: a heading (a maker's with its mark, or a family's), a model, or one route to a model under its row. */
+export type PickerItem = { kind: 'head'; label: string; maker?: string; family?: boolean } | { kind: 'model'; row: Row; section: Section } | { kind: 'route'; row: Row; route: Route; section: Section };
 
 /** A row's key in the list. */
 export const rowKey = (r: Row) => `${r.groupKey}:${r.ref}`;
@@ -426,6 +438,16 @@ export const TABS = [
 ] as const;
 export type Tab = (typeof TABS)[number]['value'];
 const MAKER_TABS: readonly string[] = ['anthropic', 'openai', 'google', 'zai'];
+
+const TAB_ICON = { local: HardDrive, agents: SquareTerminal, other: Shapes } as const;
+
+/** A tab's face: "All" in words, a maker's logo, else a neutral icon; the name is its tooltip and label. */
+function TabFace({ tab, label }: { tab: Tab; label: string }) {
+  if (tab === 'all') return <>{label}</>;
+  if (MAKER_TABS.includes(tab)) return <CompanyMark provider={tab} size={14} tone="brand" label={label} />;
+  const Icon = TAB_ICON[tab as keyof typeof TAB_ICON];
+  return <Icon className="size-3.5" strokeWidth={1.75} role="img" aria-label={label} />;
+}
 
 // shortcut: local servers by provider id, as price() reads them; a custom provider on a LAN address counts as Other until the hub says where a provider runs
 const LOCAL = new Set(['ollama', 'lmstudio', 'llamacpp', 'llama-cpp', 'vllm', 'localai', 'jan']);
@@ -473,6 +495,43 @@ export function allRows(p: Picker): Row[] {
   return rows.map((r) => (r.model && !r.model.tier && tiers.has(rowName(r)) ? { ...r, model: { ...r.model, tier: tiers.get(rowName(r)) } } : r));
 }
 
+const rowFamily = (r: Row) => (r.harness ? { family: '', rank: 9 } : familyOf(r.model?.id ?? r.ref));
+
+/** The list's order: by maker, then family by power (Mythos, Fable, Opus, Sonnet, Haiku), the ones that cannot be picked last inside it, then newest first. */
+export function familyOrder(a: Row, b: Row): number {
+  const x = rowFamily(a);
+  const y = rowFamily(b);
+  return (
+    makerRank(a.groupKey) - makerRank(b.groupKey) ||
+    a.groupKey.localeCompare(b.groupKey) ||
+    x.rank - y.rank ||
+    x.family.localeCompare(y.family) ||
+    Number(!!a.disabled) - Number(!!b.disabled) ||
+    compareModels(a.model?.id ?? a.ref, b.model?.id ?? b.ref)
+  );
+}
+
+/** The tab's models: a heading per maker (with its account word), a small one per family, rows in familyOrder. */
+function byFamily(p: Picker, rows: Row[], expanded: string | null | undefined): PickerItem[] {
+  const out: PickerItem[] = [];
+  let maker = '';
+  let family: string | undefined;
+  for (const r of [...rows].sort(familyOrder)) {
+    if (r.groupKey !== maker) {
+      maker = r.groupKey;
+      family = undefined;
+      const word = p.groups.find((g) => g.key === maker)?.word;
+      out.push({ kind: 'head', label: `${r.harness ? 'Coding agents' : r.group}${word ? `, ${word}` : ''}`, ...(r.harness ? {} : { maker }) });
+    }
+    const f = rowFamily(r).family;
+    // a model of no known family after the families goes under "Other"
+    if (f !== (family ?? '') && (f || family)) out.push({ kind: 'head', label: f || 'Other', family: true });
+    family = f;
+    out.push(...withRoutes([r], 'list', expanded));
+  }
+  return out;
+}
+
 /** All, and the tabs that have a model. */
 export function shownTabs(rows: Row[]): Array<(typeof TABS)[number]> {
   return TABS.filter((t) => t.value === 'all' || rows.some((r) => tabOf(r) === t.value));
@@ -481,8 +540,8 @@ export function shownTabs(rows: Row[]): Array<(typeof TABS)[number]> {
 /**
  * What the list shows under the search and the tabs: Pinned (the account's
  * pins in this tab), Recent (the last three in this tab, pins left out),
- * then the tab's models, most capable first, the ones that cannot be picked
- * last. A search lists the matches of every tab (a model is never hidden
+ * then the tab's models by maker and family, strongest family first, newest
+ * first inside, the ones that cannot be picked last in their family. A search lists the matches of every tab (a model is never hidden
  * behind the tab the picker opened on), ranked the same, with no Pinned or
  * Recent. A model whose routes are open has them under it.
  */
@@ -498,13 +557,10 @@ export function pickerItems(p: Picker, q: string, tab: Tab, pinned: readonly str
     .map((r) => all.find((x) => x.ref === r.ref) ?? r)
     .filter((r) => inTab(r) && !pinned.includes(r.ref))
     .slice(0, 3);
-  const name = TABS.find((t) => t.value === tab)?.label ?? 'Other';
-  const word = p.groups.find((g) => g.key === tab)?.word;
   return [
     ...(pins.length ? [{ kind: 'head', label: 'Pinned' } as const, ...withRoutes(pins, 'pin', expanded)] : []),
     ...(recent.length ? [{ kind: 'head', label: 'Recent' } as const, ...withRoutes(recent, 'recent', expanded)] : []),
-    { kind: 'head', label: tab === 'all' ? 'All models, most capable first' : `${name}${word ? `, ${word}` : ''}, most capable first` },
-    ...withRoutes(ranked, 'list', expanded),
+    ...byFamily(p, ranked, expanded),
   ];
 }
 
@@ -701,7 +757,7 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
         {tabs.length > 2 && (
           // on a phone the row scrolls sideways rather than squeeze the makers
           <div className="no-scrollbar -mx-2 overflow-x-auto px-2">
-            <Segmented size="sm" full label="Provider" value={tab} onChange={setTab} options={tabs.map((t) => ({ value: t.value, label: t.label }))} />
+            <Segmented size="sm" full label="Provider" value={tab} onChange={setTab} options={tabs.map((t) => ({ value: t.value, label: <TabFace tab={t.value} label={t.label} />, title: t.label }))} />
           </div>
         )}
       </div>
@@ -719,8 +775,13 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
           {items.map((it, i) => {
             const on = i === sel;
             if (it.kind === 'head')
-              return (
-                <div key={`h:${it.label}`} role="presentation" className="px-2 pt-2.5 pb-1 text-[12px] font-medium text-fg-3 phone:text-[13px]">
+              return it.family ? (
+                <div key={`h:${i}:${it.label}`} role="presentation" data-family={it.label} className="px-2 pt-1.5 pb-0.5 text-[11px] text-fg-4 phone:text-[12px]">
+                  {it.label}
+                </div>
+              ) : (
+                <div key={`h:${i}:${it.label}`} role="presentation" className="flex items-center gap-1.5 px-2 pt-2.5 pb-1 text-[12px] font-medium text-fg-3 phone:text-[13px]">
+                  {it.maker && <CompanyMark provider={it.maker} size={12} />}
                   {it.label}
                 </div>
               );
@@ -780,7 +841,7 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline gap-2">
                       <span className="truncate font-medium">{rowName(r)}</span>
-                      {(tab === 'all' || q.trim()) && !r.harness && r.groupKey !== 'recent' && <span className="shrink-0 text-[12px] text-fg-3 phone:text-[13px]">{r.group}</span>}
+                      {(tab === 'all' || q.trim()) && !r.harness && r.groupKey !== 'recent' && <CompanyMark provider={r.groupKey} size={12} label={r.group} className="self-center text-fg-3" />}
                       {(through ?? r.source) && <span className="min-w-0 truncate text-[12px] text-fg-3 phone:text-[13px]">via {through ?? r.source}</span>}
                     </span>
                     <span className={cn('block truncate text-[12px] phone:line-clamp-2 phone:text-[13px] phone:whitespace-normal', r.model?.unavailable ? 'text-warn' : 'text-fg-3')}>

@@ -15,8 +15,8 @@ import kotlin.test.assertTrue
 /**
  * The model picker's tabs and list (logic/PickerTabs.kt), the same rules as
  * the web's ModelPicker.tsx and test/model-picker.test.tsx: provider tabs,
- * Pinned, then Recent, then the tab's models most capable first, and a
- * search across every tab.
+ * Pinned, then Recent, then the tab's models by maker and family (strongest
+ * family first, newest first inside), and a search across every tab.
  */
 class PickerTabsTest {
     private fun m(provider: String, id: String, name: String, tier: String? = null, ctx: Long = 0, out: Double = 0.0) =
@@ -67,24 +67,70 @@ class PickerTabsTest {
     }
 
     @Test
-    fun mostCapableFirstByTierThenContextThenPrice() {
+    fun allGoesByMakerThenFamilyCodingAgentsLast() {
         val all = PickerTabs.items(entries, "", Tab.ALL)
+        assertEquals(listOf("anthropic/claude-opus-5-5", "anthropic/claude-sonnet-5-5", "anthropic/claude-haiku-5", "openai/gpt-5.5"), refs(all).take(4))
+        assertEquals(listOf("Anthropic", "Opus", "Sonnet", "Haiku", "OpenAI", "GPT"), heads(all).take(6))
+        // a maker's heading carries its logo key, a family's is small
+        val first = all.first() as Item.Head
+        assertEquals("anthropic", first.maker)
+        assertTrue((all[1] as Item.Head).family)
+        // coding agents last, under their own heading, with no logo
+        assertEquals("claude-code/default", refs(all).last())
+        val agents = all.filterIsInstance<Item.Head>().last()
+        assertEquals("Coding agents", agents.label)
+        assertEquals(null, agents.maker)
+        assertEquals(listOf("Anthropic", "Opus", "Sonnet", "Haiku"), heads(PickerTabs.items(entries, "", Tab.ANTHROPIC)))
+    }
+
+    @Test
+    fun familiesMostPowerfulFirstNewestFirstInside() {
+        val claude = listOf(
+            g(
+                "anthropic",
+                m("anthropic", "claude-haiku-5-5", "Claude Haiku 5.5", tier = "fast"),
+                m("anthropic", "claude-sonnet-5", "Claude Sonnet 5", tier = "smart"),
+                m("anthropic", "claude-opus-4-5-20251101", "Claude Opus 4.5", tier = "deep"),
+                m("anthropic", "claude-opus-4-5", "Claude Opus 4.5", tier = "deep"),
+                m("anthropic", "claude-fable-5", "Claude Fable 5", tier = "deep"),
+                m("anthropic", "claude-sonnet-5-5", "Claude Sonnet 5.5", tier = "smart", ctx = 1_000_000),
+                m("anthropic", "claude-opus-5-5", "Claude Opus 5.5", tier = "deep"),
+                m("anthropic", "claude-fable-5-1", "Claude Fable 5.1", tier = "deep"),
+                m("anthropic", "claude-mythos-5-1", "Claude Mythos 5.1", tier = "deep"),
+            ),
+        )
+        val items = PickerTabs.items(PickerTabs.entries(ModelPicks.groups(claude)), "", Tab.ANTHROPIC)
+        assertEquals(listOf("Anthropic", "Mythos", "Fable", "Opus", "Sonnet", "Haiku"), heads(items))
         assertEquals(
             listOf(
-                "anthropic/claude-opus-5-5", // deep, 1M
-                "openai/gpt-5.5", // deep, 400K
-                "anthropic/claude-sonnet-5-5", // smart, 1M
-                "zai/glm-5", // smart, 200K
-                "anthropic/claude-haiku-5", // fast
-                "deepseek/deepseek-chat", // no tier, 128K
+                "anthropic/claude-mythos-5-1",
+                "anthropic/claude-fable-5-1",
+                "anthropic/claude-fable-5",
+                "anthropic/claude-opus-5-5",
+                "anthropic/claude-opus-4-5",
+                "anthropic/claude-opus-4-5-20251101",
+                "anthropic/claude-sonnet-5-5",
+                "anthropic/claude-sonnet-5",
+                "anthropic/claude-haiku-5-5",
             ),
-            refs(all).take(6),
+            refs(items),
         )
-        // coding agents last
-        assertEquals("claude-code/default", refs(all).last())
-        assertEquals(listOf("All models, most capable first"), heads(all))
-        assertEquals(listOf("anthropic/claude-opus-5-5", "anthropic/claude-sonnet-5-5", "anthropic/claude-haiku-5"), refs(PickerTabs.items(entries, "", Tab.ANTHROPIC)))
-        assertEquals(listOf("Anthropic, most capable first"), heads(PickerTabs.items(entries, "", Tab.ANTHROPIC)))
+    }
+
+    @Test
+    fun theOtherMakersFamiliesByPower() {
+        fun fams(vararg ids: String) = ids.sortedWith { a, b -> PickerTabs.compareModels(a, b) }.map { PickerTabs.familyOf(it).name }
+        assertEquals(listOf("GPT", "GPT mini and nano", "GPT mini and nano", "o-series", "Codex"), fams("gpt-5.3-codex", "o4-mini", "gpt-5.4-nano", "gpt-6-sol", "gpt-5.4-mini"))
+        assertEquals(listOf("Gemini Pro", "Gemini Flash", "Gemini Flash-Lite", "Gemma"), fams("gemini-3.1-flash-lite", "gemini-3-flash", "gemini-3.1-pro", "gemma-3"))
+        assertEquals(listOf("glm-5.3", "glm-5", "glm-4.5-air", "glm-4.7-flash"), listOf("glm-4.7-flash", "glm-4.5-air", "glm-5.3", "glm-5").sortedWith { a, b -> PickerTabs.compareModels(a, b) })
+        assertEquals("Claude", PickerTabs.familyOf("claude-3-7-something").name)
+    }
+
+    @Test
+    fun makerTabsShowTheirLogoAllAWord() {
+        assertEquals(null, Tab.ALL.maker)
+        assertEquals(listOf("anthropic", "openai", "google", "zai"), listOf(Tab.ANTHROPIC, Tab.OPENAI, Tab.GOOGLE, Tab.ZAI).map { it.maker })
+        assertEquals(listOf(null, null, null), listOf(Tab.LOCAL, Tab.AGENTS, Tab.OTHER).map { it.maker })
     }
 
     @Test
@@ -97,7 +143,7 @@ class PickerTabsTest {
     @Test
     fun pinnedThenRecentThenTheList() {
         val items = PickerTabs.items(entries, "", Tab.ALL, pinned = listOf("zai/glm-5"), recent = listOf("zai/glm-5", "openai/gpt-5.5", "ollama/gemma-3", "anthropic/claude-haiku-5", "claude-code/default"))
-        assertEquals(listOf("Pinned", "Recent", "All models, most capable first"), heads(items))
+        assertEquals(listOf("Pinned", "Recent", "Anthropic"), heads(items).take(3))
         assertEquals(listOf("zai/glm-5"), refs(items, Section.PIN))
         // a pin is not repeated in Recent; three at most
         assertEquals(listOf("openai/gpt-5.5", "ollama/gemma-3", "anthropic/claude-haiku-5"), refs(items, Section.RECENT))
@@ -105,7 +151,8 @@ class PickerTabsTest {
         assertTrue("zai/glm-5" in refs(items, Section.LIST))
         // in a tab, pins and Recent of other tabs stay out
         val local = PickerTabs.items(entries, "", Tab.LOCAL, pinned = listOf("zai/glm-5"), recent = listOf("ollama/gemma-3"))
-        assertEquals(listOf("Recent", "Local, most capable first"), heads(local))
+        assertEquals("Recent", heads(local).first())
+        assertEquals(listOf("ollama/gemma-3", "ollama/llama-4-local"), refs(local, Section.LIST).sorted())
         assertEquals(listOf("ollama/gemma-3"), refs(local, Section.RECENT))
     }
 

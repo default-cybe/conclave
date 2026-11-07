@@ -121,8 +121,8 @@ export function formatModelId(id: string): string {
   if (m.includes('/')) m = m.slice(m.lastIndexOf('/') + 1);
   m = m.replace(/-\d{8}$/, '').replace(/@.*$/, '').replace(/-latest$/, '');
   let r: RegExpMatchArray | null;
-  // claude-opus-5-5, claude-sonnet-4-5, opus, sonnet
-  if ((r = m.match(/^(?:claude-)?(opus|sonnet|haiku)(?:-(\d+)(?:[-.](\d+))?)?(.*)$/))) {
+  // claude-opus-5-5, claude-sonnet-4-5, claude-mythos-5-1, opus, sonnet
+  if ((r = m.match(/^(?:claude-)?(mythos|fable|opus|sonnet|haiku)(?:-(\d+)(?:[-.](\d+))?)?(.*)$/))) {
     const v = r[2] ? ` ${r[2]}${r[3] ? '.' + r[3] : ''}` : '';
     return `${r[1][0].toUpperCase()}${r[1].slice(1)}${v}${r[4] ? ' ' + titleCase(r[4]) : ''}`;
   }
@@ -155,7 +155,7 @@ export function registerModelNames(entries: Array<{ ref: string; name: string }>
       knownNames.delete(e.ref);
       continue;
     }
-    knownNames.set(e.ref, e.name.replace(/^Claude (?=(Opus|Sonnet|Haiku)\b)/, ''));
+    knownNames.set(e.ref, e.name.replace(/^Claude (?=(Mythos|Fable|Opus|Sonnet|Haiku)\b)/, ''));
   }
 }
 
