@@ -75,13 +75,14 @@ import dev.conclave.client.logic.ContextUse
 import dev.conclave.client.logic.Effort
 import dev.conclave.client.logic.EffortFollow
 import dev.conclave.client.logic.Paths
+import dev.conclave.client.logic.SessionModes
 import dev.conclave.client.logic.Start
 import dev.conclave.client.model.Attachment
-import dev.conclave.client.model.ChatSettings
 import dev.conclave.client.model.CommandDef
 import dev.conclave.client.model.Device
 import dev.conclave.client.model.ModelEffort
 import dev.conclave.client.model.PermissionMode
+import dev.conclave.client.model.SessionMode
 import dev.conclave.client.model.ThinkingLevel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -91,7 +92,8 @@ import kotlinx.coroutines.withContext
  * features/conversation/ComposerParts.tsx): under the box one quiet row,
  * the permission mode (and Code's folder) at the left, the model with its
  * effort as one picker ("Opus 5.5 Medium") and a small context ring at the
- * right. Everything else is under "+" or "/". The sheets' rows live here
+ * right; the agent, mode and memory chips sit beside the model. "+" holds
+ * the files and add-ons, "/" the commands. The sheets' rows live here
  * too, so every screen's "+" reads the same. The files over the field are
  * one row that scrolls sideways at a fixed height (AttachmentStrip).
  */
@@ -117,7 +119,6 @@ const val ULTRA_LINE = "Plans and runs workflows for real tasks. Uses many more 
 
 /** The chat's "+" switches, with the web's words. */
 const val WEB_HELP = "Look things up and cite sources."
-const val MEMORY_HELP = "Read what it knows about you and save what you tell it. Off: this chat leaves no trace in memory."
 const val SECURITY_HELP = "Loads the security agent and its sec-* roles, and checks every network call against scope.yaml. Off brings back the agent you had."
 
 const val SAME_MODEL_HELP = "Delegate, Task and workflow agents, at any depth, run on this conversation's model unless you name another. If its plan is out or refuses, the usual fallback order applies."
@@ -395,11 +396,67 @@ fun SlashMenu(matches: List<CommandDef>, onPick: (CommandDef) -> Unit, modifier:
     }
 }
 
-/** A chat's "+" after the files: search the web and use memory. */
+// ---------------------------------------------------------------------------
+// Chips beside the model: agent, mode and memory (web ComposerParts.tsx AgentChip, ModeChip, MemoryChip)
+// ---------------------------------------------------------------------------
+
+/** The agent: the ones offered here (Code: the default and the custom ones), each with its line. */
 @Composable
-fun ChatSwitches(sw: ChatSettings, onWeb: (Boolean) -> Unit, onMemory: (Boolean) -> Unit) {
-    SwitchRow("Search the web", WEB_HELP, sw.webSearch, onWeb)
-    SwitchRow("Use memory", MEMORY_HELP, sw.memory, onMemory)
+fun AgentChip(value: String?, agents: List<Pair<String, String?>>, onChange: (String) -> Unit, enabled: Boolean = true) {
+    var open by remember { mutableStateOf(false) }
+    val words = value?.ifBlank { null } ?: "Agent"
+    QuietChip(words, onClickLabel = "Agent, $words", onClick = { open = true }, enabled = enabled)
+    if (open) {
+        OptionsSheet("Agent", onDismiss = { open = false }) {
+            agents.forEach { (name, detail) ->
+                ChoiceRow(name, selected = name == value, detail = detail, onClick = {
+                    open = false
+                    if (name != value) onChange(name)
+                })
+            }
+        }
+    }
+}
+
+/** "Agent mode": the six modes, and Ultra under a rule where the session takes it ([onUltra]). */
+@Composable
+fun ModeChip(mode: SessionMode, onMode: (SessionMode) -> Unit, ultra: Boolean = false, onUltra: ((Boolean) -> Unit)? = null, enabled: Boolean = true) {
+    val c = Conclave.colors
+    var open by remember { mutableStateOf(false) }
+    val words = SessionModes.chipWords(mode, ultra, onUltra != null)
+    QuietChip(words, onClickLabel = "Mode, $words", onClick = { open = true }, enabled = enabled)
+    if (open) {
+        OptionsSheet("Mode", onDismiss = { open = false }) {
+            SessionMode.entries.forEach { m ->
+                ChoiceRow(SessionModes.label(m), selected = m == mode, detail = SessionModes.detail(m), onClick = {
+                    open = false
+                    if (m != mode) onMode(m)
+                })
+            }
+            if (onUltra != null) {
+                HorizontalDivider(thickness = 1.dp, color = c.rule, modifier = Modifier.padding(top = 6.dp))
+                SwitchRow("Ultra", ULTRA_LINE, ultra, onUltra)
+            }
+        }
+    }
+}
+
+/** "Memory", "Memory, use only" or "No memory" (in fg-3): Use and save, Use only, Off. */
+@Composable
+fun MemoryChip(value: MemoryMode, onChange: (MemoryMode) -> Unit, enabled: Boolean = true) {
+    var open by remember { mutableStateOf(false) }
+    val words = memoryWords(value)
+    QuietChip(words, onClickLabel = "Memory, $words", onClick = { open = true }, enabled = enabled, strong = value != MemoryMode.OFF)
+    if (open) {
+        OptionsSheet("Memory", onDismiss = { open = false }) {
+            MemoryMode.entries.forEach { m ->
+                ChoiceRow(m.label, selected = m == value, detail = m.detail, onClick = {
+                    open = false
+                    if (m != value) onChange(m)
+                })
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

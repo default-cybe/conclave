@@ -76,7 +76,6 @@ import dev.conclave.client.logic.Effort
 import dev.conclave.client.logic.EffortFollow
 import dev.conclave.client.logic.Start
 import dev.conclave.client.model.Attachment
-import dev.conclave.client.model.ChatSettings
 import dev.conclave.client.model.CommandDef
 import dev.conclave.client.model.ModelEffort
 import dev.conclave.client.model.ModelGroup
@@ -120,17 +119,15 @@ class ComposerModel(
     /** Security mode (chat.security). The switch shows only with [onSecurity]. */
     val security: Boolean = false,
     val onSecurity: ((Boolean) -> Unit)? = null,
-    /** A chat's switches, for the note under the box when memory is off. Null for an agent session. */
-    val switches: ChatSettings? = null,
     /** The light on the composer's edge: live while a reply runs, amber while it waits on you (CHAT-AND-MOTION 1.3). */
     val rim: RimState = RimState.IDLE,
     /** The context ring's numbers; null leaves the ring out. */
     val context: ContextUse? = null,
     /** Usage, from the ring's sheet. */
     val onUsage: (() -> Unit)? = null,
-    /** The quiet row's left side: the permission mode, Code's folder and device. */
+    /** The quiet row's left side: the permission mode, Code's folder and device, then the agent, mode and memory chips. */
     val left: (@Composable RowScope.() -> Unit)? = null,
-    /** "+" after Photos, Camera and Files: web and memory, the agent, where it runs, the mode, Ultra. */
+    /** "+" after Photos, Camera and Files: add-ons only (web search, where Code works). */
     val plus: (@Composable (dismiss: () -> Unit) -> Unit)? = null,
     /** The hub's commands, offered while the message is "/" and part of a name. */
     val commands: List<CommandDef> = emptyList(),
@@ -143,10 +140,10 @@ class ComposerModel(
  * one rounded box in the second surface, a hairline round it in light, the
  * text on top (up to six lines), then "+" at the left and the mic and Send
  * at the right; Send folds into Stop while a reply runs. Under the box one
- * quiet row: the permission mode (and Code's folder) at the left, the model
- * with its effort as one picker ("Opus 5.5 Medium") and the context ring at
- * the right. "+" holds the files and the rest (web and memory, the agent,
- * the device, the mode, Ultra); "/" lists the hub's commands. The Rim on
+ * quiet row: the permission mode (and Code's folder), then the agent, mode
+ * and memory chips at the left, the model with its effort as one picker
+ * ("Opus 5.5 Medium") and the context ring at the right. "+" holds the
+ * files and add-ons; "/" lists the hub's commands. The Rim on
  * the box's edge says what the reply is doing.
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -339,14 +336,6 @@ fun ChatComposer(
             },
             modifier = Modifier.padding(start = 4.dp),
         )
-        if (m.switches?.memory == false) {
-            Text(
-                "Memory is off for this chat. It will not read or save notes.",
-                style = ConclaveType.meta,
-                color = c.fg3,
-                modifier = Modifier.padding(bottom = 4.dp, start = 12.dp),
-            )
-        }
         val note = m.note
         if (note != null) Text(note, style = ConclaveType.meta, color = c.fg3, modifier = Modifier.padding(bottom = 4.dp, start = 12.dp))
     }

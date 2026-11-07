@@ -705,7 +705,8 @@ class ChatThreadViewModel(
     }
 
     fun setWeb(on: Boolean) = action { rememberDefaults(patchNow(SessionPatch(chat = ChatSettingsPatch(webSearch = on)))) }
-    fun setMemory(on: Boolean) = action { rememberDefaults(patchNow(SessionPatch(chat = ChatSettingsPatch(memory = on)))) }
+    /** The memory chip: Use and save, Use only, or Off (web memoryPatch). */
+    fun setMemory(m: MemoryMode) = action { rememberDefaults(patchNow(SessionPatch(chat = memoryPatch(m)))) }
 
     fun rename(title: String) {
         if (title.isNotBlank()) patch(SessionPatch(title = title.trim()))

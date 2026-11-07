@@ -471,11 +471,11 @@ fun ChatThreadScreen(
                 onSameModel = if (s != null) vm::setSameModel else null,
                 security = s?.chat?.security == true,
                 onSecurity = if (s != null) vm::setSecurity else null,
-                switches = sw,
-                // the quiet row: no device or folder in a chat, the model with its effort and the ring at the right
+                // the quiet row: no device or folder in a chat, the memory chip, the model with its effort and the ring at the right
                 context = ContextUse.of(live.messages, s, info),
                 onUsage = onOpenUsage,
-                plus = { _ -> ChatSwitches(sw, onWeb = vm::setWeb, onMemory = vm::setMemory) },
+                left = { if (s != null && !s.isIncognito) MemoryChip(memoryModeOf(sw), onChange = vm::setMemory) },
+                plus = { _ -> SwitchRow("Search the web", WEB_HELP, sw.webSearch, vm::setWeb) },
                 running = running,
                 busy = false,
                 rim = when {

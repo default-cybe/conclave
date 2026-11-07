@@ -24,7 +24,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.conclave.app.ui.common.LocalAppContainer
 import dev.conclave.app.ui.common.OfflineBanner
 import dev.conclave.app.ui.common.TopBar
-import dev.conclave.client.model.ChatSettings
 import dev.conclave.client.model.ImageBlock
 import dev.conclave.client.motion.RimState
 
@@ -106,7 +105,6 @@ fun ChatStartScreen(startKey: String, onBound: (String) -> Unit, onBack: () -> U
                 onRemove = {},
                 model = start.model,
                 onModel = {},
-                switches = ChatSettings(),
                 running = false,
                 busy = true,
                 placeholder = "Reply",

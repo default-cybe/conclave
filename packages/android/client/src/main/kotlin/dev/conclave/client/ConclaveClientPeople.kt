@@ -13,7 +13,7 @@ import dev.conclave.client.model.PairResponse
 /** Who this token is: name, role, and which keys their calls may use. A hub from before accounts answers 404: treat it as the owner. */
 suspend fun ConclaveClient.me(): Me = get(p("api", "me"), Me.serializer())
 
-/** Change your own name, email or default model. */
+/** Change your own name, email, default model or pinned models. */
 suspend fun ConclaveClient.updateMe(patch: MePatch) = sendUnit("PATCH", p("api", "me"), MePatch.serializer(), patch)
 
 /** Who an invite link is for (no token sent). */
