@@ -23,6 +23,7 @@ like `## [0.4.16] - 2026-10-24`.
 - The live line under a running turn no longer shows tokens per second; the header already shows the running time.
 - Home on a phone shows one line under the greeting instead of up to four: what waits on you ("4 need you, 2 proposals") in amber, else the next event, else learnings to review.
 - Canvas lists its files once: in the sidebar on a desktop (the start page points there) and on the page on a phone. Programs group by folder only, in the normal font.
+- Sidebar group headings (Today, This week, a project or device name) are bold in the full text colour and a little larger, so they stand out from the session rows on the web, the phone and Android.
 
 ## [0.4.76] - 2026-11-07
 
