@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Changed
+
+- Home in Chat and Code no longer shows the day: the calendar, tasks, the plan and calendar proposals stay on Assistant's Home only. This holds on the web, the phone web app and Android. What waits on you still shows in every mode.
+
 ## [0.4.75] - 2026-11-06
 
 ### Added

@@ -45,6 +45,9 @@ object Start {
     /** The box's words: commands for the assistant and Code, a question for a chat. */
     fun placeholder(mode: StartMode): String = if (mode == StartMode.CHAT) "Ask anything" else "Type / for commands"
 
+    /** Home shows the owner's day (proposals, the next event) in Assistant only; Chat and Code are the box (web start.ts showsDay). */
+    fun showsDay(mode: StartMode): Boolean = mode == StartMode.ASSISTANT
+
     /** Which switch a conversation belongs to: a chat, the assistant's, or Code. */
     fun modeOf(s: Session): StartMode = when {
         s.isChat -> StartMode.CHAT
