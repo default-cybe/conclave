@@ -55,6 +55,7 @@ const TodayPage = lazy(() => import('./features/home/TodayPage'));
 const MeetingPage = lazy(() => import('./features/meeting/MeetingPage'));
 const Gallery = lazy(() => import('./components/dev/Gallery'));
 const MotionPage = lazy(() => import('./components/dev/MotionGallery'));
+const PickerComposerDesign = lazy(() => import('./components/dev/PickerComposerDesign'));
 
 /** stranger: an address answered with another key (docs/design/HUB-LOGIN-AND-IDENTITY.md). */
 type Phase = 'boot' | 'connect' | 'ready' | 'stranger';
@@ -273,6 +274,7 @@ export function App() {
               <Route path="/settings/:section?" component={SettingsPage} />
               <Route path="/dev/ui" component={Gallery} />
               <Route path="/dev/motion" component={MotionPage} />
+              <Route path="/dev/picker-composer" component={PickerComposerDesign} />
               <Route>
                 <Redirect to="/" />
               </Route>

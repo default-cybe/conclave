@@ -210,7 +210,7 @@ export function shownRef(groups: ModelGroup[], ref: string | undefined): string 
   return ref;
 }
 
-function price(m: ModelEntry | undefined, provider: string): string {
+export function price(m: ModelEntry | undefined, provider: string): string {
   if (!m) return '';
   if (provider === 'ollama' || provider === 'lmstudio') return 'local';
   if (!m.inputPrice && !m.outputPrice) return 'plan';
