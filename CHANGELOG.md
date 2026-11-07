@@ -13,6 +13,17 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Notes: one to-do list per account, shown as a slim line at the top of every Chat and Code conversation ("3 to do: Call the bank"). It stays hidden until you pick Add a note in the chat's menu. Click or tap the line to open a short checklist: add, check off, edit, delete, and drag to reorder on desktop. Escape folds it back. Notes are tasks with the `note` label, so they also show on the Tasks page and sync to Android, and each member has their own. A checked note leaves the line after a day and stays on the Tasks page as done. Android shows the same line on the chat screen: check notes off there, and Add a note opens a sheet.
 
+### Changed
+
+- The session panel lists its cards as Settings lists things: one row each with a label, one value and a chevron, all closed at first. Context reads "5%, 345K tokens, $0.71" on its row, and the card order is Context, Environment, Plan, Changes, Outputs, Background tasks, Connectors, Memory used. Environment says "offline" only when the device is.
+- Sidebar and drawer session rows show the title only, with "running" or "waiting" as a word when it matters, instead of the device name and a coloured dot. The device is in the session's header and under Group by Device.
+- The mode switch in the sidebar header and the phone's drawer and Home bar is one picker naming the mode ("Code"); its menu lists all five modes with a line each, so Security and Canvas are no longer cut off on a phone. The folded sidebar keeps its icons.
+- Preview and Open in Canvas over a Code session's box are quiet text buttons, no longer outlined pills.
+- A Workflow row in the transcript no longer draws its phase meters and agent counts under it; they are at the top of the opened row. A run that ended with a failed agent says so on its row ("done in 33m, 1 failed", in amber).
+- The live line under a running turn no longer shows tokens per second; the header already shows the running time.
+- Home on a phone shows one line under the greeting instead of up to four: what waits on you ("4 need you, 2 proposals") in amber, else the next event, else learnings to review.
+- Canvas lists its files once: in the sidebar on a desktop (the start page points there) and on the page on a phone. Programs group by folder only, in the normal font.
+
 ## [0.4.76] - 2026-11-07
 
 ### Changed

@@ -1,9 +1,8 @@
-/** Helpers for the chat feature: text extraction, verdict parsing, live rate, exports. */
-import { useEffect, useState } from 'react';
+/** Helpers for the chat feature: text extraction, verdict parsing, exports. */
 import type { ContentBlock, Message, Session, ToolResultBlock } from '@conclave/core/types';
 import type { ModelGroup } from '@conclave/core/client';
 import { api } from '@/lib/api';
-import { attempt, useHub, type HubConfig } from '@/store/store';
+import { attempt, type HubConfig } from '@/store/store';
 import { HARNESSES, harnessId, splitRef } from '@/lib/models';
 import { companyLogo } from '@/components/logo';
 
@@ -163,44 +162,6 @@ export function turnStartedAt(messages: Message[] | undefined, s: Session): numb
   return s.createdAt;
 }
 
-/** Total assistant characters written so far in a session. */
-function outputChars(sessionId: string): number {
-  const list = useHub.getState().messages[sessionId] ?? [];
-  let n = 0;
-  for (const m of list) {
-    if (m.role !== 'assistant') continue;
-    for (const b of m.content) n += b.type === 'text' ? b.text.length : b.type === 'thinking' ? b.thinking.length : 0;
-  }
-  return n;
-}
-
-/**
- * Live tokens per second, estimated from how fast assistant text grows
- * (4 characters per token), smoothed over a few seconds.
- */
-export function useTps(sessionId: string, active: boolean): number {
-  const [tps, setTps] = useState(0);
-  useEffect(() => {
-    if (!active) {
-      setTps(0);
-      return;
-    }
-    let last = outputChars(sessionId);
-    let lastT = performance.now();
-    let ema = 0;
-    const id = setInterval(() => {
-      const c = outputChars(sessionId);
-      const t = performance.now();
-      const rate = Math.max(0, (c - last) / 4 / Math.max(0.25, (t - lastT) / 1000));
-      ema = ema ? ema * 0.55 + rate * 0.45 : rate;
-      last = c;
-      lastT = t;
-      setTps(Math.round(ema));
-    }, 1000);
-    return () => clearInterval(id);
-  }, [sessionId, active]);
-  return tps;
-}
 
 /**
  * The model to switch to when this session's provider is limited: the

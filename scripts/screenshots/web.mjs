@@ -262,7 +262,8 @@ async function afterShot(name) {
  */
 async function fromGithub(page, mobile) {
   if (mobile) {
-    await page.getByRole('radio', { name: 'Code' }).click();
+    await page.getByRole('button', { name: /What to start/ }).click();
+    await page.getByRole('menuitemcheckbox', { name: /^Code/ }).first().click();
     await page.getByRole('button', { name: /^Options:/ }).click();
     await page.waitForTimeout(400);
     await page.getByRole('button', { name: 'From GitHub' }).click();

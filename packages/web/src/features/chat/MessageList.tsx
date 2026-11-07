@@ -26,7 +26,7 @@ import { asksBelow, asksOf } from '@/lib/asks';
 import { ApprovalCard } from '@/components/inbox/ApprovalCard';
 import { QuestionCard } from '@/components/inbox/QuestionCard';
 import { EmptyState, LoadingRows } from '@/components/ui/EmptyState';
-import { GapList, Knot, LiveStatus, Roll, Steps, arrived, useArrivals, usePresence, useReducedMotion, type LiveState, type MarkState } from '@/components/motion';
+import { GapList, Knot, LiveStatus, Steps, arrived, useArrivals, usePresence, useReducedMotion, type LiveState, type MarkState } from '@/components/motion';
 import { permissionMeta } from './modes';
 import { LogRow } from './Log';
 import { ErrorBody, NoticeLine, SummaryLine } from './Notices';
@@ -34,7 +34,7 @@ import { AssistantTurn, SecondOpinion, UserMessage } from './Turn';
 import { PendingMessages } from './Pending';
 import { DebateGroup, JuryGroup, type GroupUnit } from './Group';
 import { revealOnMount, toolInfo } from './ToolRows';
-import { isContextOnly, isToolResultOnly, msgText, turnStartedAt, useTps } from './util';
+import { isContextOnly, isToolResultOnly, msgText, turnStartedAt } from './util';
 import { fillDirection, grow, idleDirection, mountedRange, nearEdge, openSpan, partsOf, sticks, unitIndexOf, type Direction, type Span } from './window';
 
 export type Unit =
@@ -566,8 +566,8 @@ const THINK_WORD_MS = 400;
 
 /**
  * Under the last event (spec 9.3, 11.2.2, CHAT-AND-MOTION 1.3): the Knot, the
- * state in words, and tokens per second at the right while tokens flow.
- * Each state has one look:
+ * state in words. The running time is in the header (ChatView HeaderState),
+ * so the line says nothing at its right. Each state has one look:
  *
  * thinking   the Knot writes, "Thinking 4s" after 400ms
  * tool       the Knot holds and a light runs along it; Steps: "Running bun test", "Reading src/auth.ts"
@@ -597,7 +597,6 @@ function LiveLine({ session, failure }: { session: Session; /** The reason and R
     return list?.[list.length - 1]?.kind === 'notice';
   });
   const startedAt = useHub((s) => turnStartedAt(s.messages[session.id], session));
-  const tps = useTps(session.id, running);
   const now = useNow(1000);
 
   // a turn that ended while we watched: say how long it took, or keep quiet after a stop or an error.
@@ -658,8 +657,6 @@ function LiveLine({ session, failure }: { session: Session; /** The reason and R
   // after a stop the notice says it; the line keeps its place, empty
   const quiet = !live && !failed && lastIsNotice;
   const words = !(running && act.kind === 'thinking' && !wordReady);
-  // tokens per second only while tokens flow, never left over from the last burst
-  const flowing = running && (act.kind === 'writing' || (act.kind === 'thinking' && act.streaming));
 
   // tools and writing are steps: the old one leaves before the new one arrives
   const step = running && (act.kind === 'tool' || act.kind === 'writing') ? (act.kind === 'tool' ? { verb: act.verb, target: act.target || undefined } : { id: 'writing', verb: 'Writing' }) : undefined;
@@ -681,15 +678,6 @@ function LiveLine({ session, failure }: { session: Session; /** The reason and R
               ) : (
                 <LiveStatus state={state} label={label} startedAt={liveSince} endedAt={endedAt} mark={false} className={cn('min-w-0', running && act.kind === 'thinking' && 'anim-fade')} />
               ))}
-          </span>
-          <span className="num ml-auto shrink-0 text-fg-3" aria-hidden>
-            {flowing && tps > 0 ? (
-              <>
-                <Roll value={tps} /> tokens per second
-              </>
-            ) : (
-              ''
-            )}
           </span>
         </div>
       </div>
