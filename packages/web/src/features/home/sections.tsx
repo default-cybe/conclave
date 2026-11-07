@@ -146,7 +146,7 @@ export function RunningSection({ sessions, todos, rates, now, phone }: RunningPr
       {/* a container: in a narrow column the model moves from its own column into the meta line */}
       <div className="rows @container">
         {/* the status sentence already says "Nothing running.": say how to start something instead */}
-        {rows.length === 0 && <p className="py-3 text-[13px] text-fg-3 phone:text-[14px]">Sessions you start show up here. Switch the box above to Session to start one.</p>}
+        {rows.length === 0 && <p className="py-3 text-[13px] text-fg-3 phone:text-[14px]">To start a session, switch the box above to Session.</p>}
         {rows.map(({ item: s, leaving }) => {
           const motion = leaving ? 'anim-out' : arrived(seen, s.id) ? 'anim-fade' : undefined;
           const deviceName = devices[s.device]?.name ?? s.device;
@@ -239,8 +239,8 @@ function parkedFor(l: LimitState, parked: Session[]): Session[] {
 function noLimitsWords(reported: number, keys: string[]): string {
   if (reported > 0) return 'Nothing is close to a limit. API limits show up here past half.';
   if (keys.length === 1) return `${providerName(keys[0])} has reported no limits for this key yet.`;
-  if (keys.length > 1) return 'Your providers have reported no limits yet.';
-  return 'Limits show up here once a plan or key is connected.';
+  if (keys.length > 1) return 'No provider has reported limits yet.';
+  return 'Limits appear here after a plan or key is added.';
 }
 
 export function LimitsSection({ limits, parked }: { limits: LimitState[]; parked: Session[] }) {
@@ -598,7 +598,7 @@ export function FirstDay() {
   return (
     <section aria-label="Get started">
       <EmptyState pet action={{ label: 'Import sessions', onClick: () => navigate('/setup/import?again=1') }}>
-        Sessions you start show up here. Switch the box above from Chat to Session to start one, or import past sessions from Claude Code and Codex.
+        Sessions appear here. To start one, switch the box above from Chat to Session. Past Claude Code and Codex sessions can be imported.
       </EmptyState>
     </section>
   );

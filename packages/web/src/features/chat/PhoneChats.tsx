@@ -42,8 +42,8 @@ type Kind = 'chats' | 'code';
 type Hit = { sessionId: string; messageId: string; snippet: string; title: string };
 
 const WORDS: Record<Kind, { root: string; empty: string; archivedEmpty: string; search: string }> = {
-  chats: { root: '/chats', empty: 'Chats you start show up here. Each one can add to what the assistant remembers.', archivedEmpty: 'No archived chats.', search: 'Search chats' },
-  code: { root: '/sessions', empty: 'Sessions an agent runs on your devices show up here. Switch Home to Code to start one.', archivedEmpty: 'No archived sessions.', search: 'Search sessions' },
+  chats: { root: '/chats', empty: 'No chats. Chats can add to what the assistant remembers.', archivedEmpty: 'No archived chats.', search: 'Search chats' },
+  code: { root: '/sessions', empty: 'No sessions. To start one, switch Home to Code.', archivedEmpty: 'No archived sessions.', search: 'Search sessions' },
 };
 
 export function PhoneChats({ kind }: { kind: Kind }) {

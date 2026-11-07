@@ -280,7 +280,7 @@ function ModeSessions({ mode, phone, onPick }: { mode: SideMode; phone?: boolean
   const delegated = useMemo(() => delegatedRows({ sessions: Object.values(sessions), ctx: { projects, devices }, waiting }), [sessions, projects, devices, waiting]);
   const actions = useRowActions();
   const code = inFolders(mode);
-  const empty = mode === 'chat' ? 'Chats you start show up here.' : mode === 'assistant' ? 'Conversations with your assistant show up here.' : mode === 'security' ? 'Hunts you start show up here, by project.' : 'Sessions you start show up here, by project.';
+  const empty = mode === 'chat' ? 'No chats.' : mode === 'assistant' ? 'No assistant conversations.' : mode === 'security' ? 'No hunts. They are listed by project.' : 'No sessions. They are listed by project.';
 
   return (
     <section aria-label={sideListWord(mode)}>
