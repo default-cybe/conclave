@@ -43,7 +43,7 @@ Settings works because each row is one line: a label at the left, one value at t
 6. Preview and Open in Canvas as outlined buttons over the composer on every Code turn (`features/chat/BrowserLive.tsx:45`, `:68`).
 7. The workflow card's six bar segments and "26 of 27 agents done, 1 failed" in the transcript (`features/workflows/WorkflowCard.tsx:206`). The summary line is enough until opened.
 8. "52 tokens per second" beside Writing (`features/chat/MessageList.tsx:688`), and "Running 38:05" in the header at the same time (`features/chat/ChatView.tsx:171`).
-9. Home on a phone stacks four status lines in two colors under the greeting ("4 need you", "2 proposals to approve", "Now: ...", "3 learnings ...") (`features/home/SessionStart.tsx`). One line, the rest in the Inbox.
+9. Home on a phone stacks four status lines in two colors under the greeting ("4 need you", "2 proposals to approve", "Now: ...", "3 learnings ...") (`features/home/PhoneHome.tsx:4`). One line, the rest in the Inbox.
 10. Canvas lists every file twice, in the sidebar (mono) and the page (sans), one group per folder and device, each with one row (`features/canvas/CanvasPage.tsx`, `components/Sidebar.tsx:258`). One list, grouped by folder only.
 
 ## Screenshots
