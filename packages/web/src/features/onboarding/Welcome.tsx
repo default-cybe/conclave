@@ -1,7 +1,9 @@
 /**
  * Welcome (spec 11.11): the brand moment. Hero wave, the wordmark, one
- * paragraph on what Conclave is, Start setup, and the twelve steps as a
- * procedure strip along the bottom.
+ * paragraph on what Conclave is, then the first choice (branch.ts): set up
+ * a hub, or connect to an existing hub as a client. A hub on this computer
+ * was already chosen as the hub, so it gets no client choice. The twelve
+ * steps run along the bottom as a procedure strip.
  */
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
@@ -10,12 +12,15 @@ import { Kbd } from '@/components/ui/Kbd';
 import { useIsMobile } from '@/lib/hooks';
 import { cn } from '@/lib/text';
 import { useHub } from '@/store/store';
+import { MOCK, loadConnection } from '@/lib/api';
 import { isOnboarded } from '@/lib/onboarding';
+import { Radio } from '@/components/ui/Field';
 import { IntroFrame } from '../connect/IntroFrame';
 import { RestoreDialog } from '../settings/backup';
 import { STEPS, stepDef, stepNumber, type StepId } from './steps';
 import { useProgress } from './progress';
 import { useContinueKeys } from './StepLayout';
+import { branchChoices, branchTarget, hubIsHere, type SetupBranch } from './branch';
 
 export function Welcome({ onStart, onSkip }: { onStart: (at: StepId) => void; onSkip: () => void }) {
   const hub = useHub((s) => s.hub);
@@ -24,7 +29,12 @@ export function Welcome({ onStart, onSkip }: { onStart: (at: StepId) => void; on
   const [, navigate] = useLocation();
   const [restoring, setRestoring] = useState(false);
   const resume = progress.step && progress.step !== 'hub' && progress.done.length ? progress.step : undefined;
-  const start = () => onStart(resume ?? 'hub');
+  const address = MOCK ? (hub?.publicUrl ?? location.origin) : (loadConnection()?.baseUrl ?? location.origin);
+  const here = hubIsHere(address);
+  // a setup already under way is the hub branch: no choice to make again
+  const choices = resume ? (['hub'] as SetupBranch[]) : branchChoices(address);
+  const [branch, setBranch] = useState<SetupBranch>('hub');
+  const start = () => (branch === 'client' ? navigate(branchTarget('client')) : onStart(resume ?? 'hub'));
   useContinueKeys(start);
 
   return (
@@ -47,18 +57,41 @@ export function Welcome({ onStart, onSkip }: { onStart: (at: StepId) => void; on
       bottom={<ProcedureStrip done={progress.done} />}
     >
       <p className="m-0 text-[17px] leading-[1.5] text-fg-2 phone:text-[16px]">
-        Your models, agents, routines and usage limits in one place, served from <span className="font-[560] text-fg">a hub you run</span>. Setup takes about five minutes and every choice can be changed later.
+        Models, agents, routines and usage limits in one place. <span className="font-[560] text-fg">A hub</span> keeps your chats, keys and memory; your other devices connect to it.
       </p>
-      {resume && <p className="m-0 mt-3 text-[13px] text-fg-3 phone:text-[14px]">You stopped at {stepDef(resume).name}. Your answers so far are saved on the hub.</p>}
+      {resume ? (
+        <p className="m-0 mt-3 text-[13px] text-fg-3 phone:text-[14px]">Setup stopped at {stepDef(resume).name}. Your answers are saved on the hub.</p>
+      ) : choices.length === 1 ? (
+        <p className="m-0 mt-3 text-[13px] text-fg-3 phone:text-[14px]">This computer runs the hub. Setup takes about five minutes.</p>
+      ) : (
+        <fieldset className="m-0 mt-6 border-0 p-0">
+          <legend className="mb-2 p-0 text-[13px] text-fg-3 phone:text-[14px]">How this device uses Conclave</legend>
+          <Radio
+            name="setup-branch"
+            checked={branch === 'hub'}
+            onChange={() => setBranch('hub')}
+            label="Set up a hub"
+            description={here || !hub?.name ? 'This computer runs Conclave for you and your devices.' : `${hub.name} runs Conclave for you and your devices.`}
+            className="phone:py-2"
+          />
+          {choices.includes('client') && (
+            <Radio
+              name="setup-branch"
+              checked={branch === 'client'}
+              onChange={() => setBranch('client')}
+              label="Connect to an existing hub"
+              description="This device is a client. Use a pairing code, or an address and password."
+              className="mt-2 phone:py-2"
+            />
+          )}
+        </fieldset>
+      )}
       <div className="mt-6 flex flex-wrap items-center gap-3 phone:flex-col phone:items-stretch">
         <Button variant="solid" size={mobile ? 'touch' : 'lg'} onClick={start}>
-          {resume ? 'Continue setup' : 'Start setup'}
-        </Button>
-        <Button variant="outline" size={mobile ? 'touch' : 'lg'} onClick={() => navigate('/connect')}>
-          I have a pairing code
+          {resume ? 'Continue setup' : branch === 'client' ? 'Connect' : 'Start setup'}
         </Button>
         <span className="ml-2 text-[13px] text-fg-3 coarse:hidden">
-          Press <Kbd>↵</Kbd> to start
+          Press <Kbd>↵</Kbd> to continue
         </span>
       </div>
       {mobile && (

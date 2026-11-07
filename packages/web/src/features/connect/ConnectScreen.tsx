@@ -44,7 +44,7 @@ export function ConnectScreen({
   // the web app served by the hub itself: a plain sign in, the address is this page
   if (!own && servedFrom()) {
     title = 'Sign in to Conclave';
-    lede = 'Use your hub password. No password yet? Set one in Settings, Remote access, on a device that is signed in.';
+    lede = 'Use the hub password. To set one, open Settings, Remote access on a device that is signed in.';
   }
   if (mobile) return <PhoneConnect onConnected={onConnected} title={own || servedFrom() ? title : undefined} lede={own || servedFrom() ? lede : undefined} />;
   return (
@@ -166,7 +166,7 @@ function PhoneConnect({ onConnected, title, lede }: { onConnected: (c: Connectio
             </div>
           </div>
           <h1 className="mt-7 text-[28px] leading-[34px] font-semibold tracking-[-0.01em] text-balance text-fg" style={{ fontStretch: '104%' }}>
-            {title ?? 'Connect to your hub'}
+            {title ?? 'Connect to a hub'}
           </h1>
           {!checking && <p className="mt-2 max-w-[34ch] text-[15px] leading-[22px] text-balance text-fg-2">{lede ?? (mode === 'start' ? START : LEDE[mode])}</p>}
           {error && (

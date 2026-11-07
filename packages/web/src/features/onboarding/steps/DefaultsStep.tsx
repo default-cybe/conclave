@@ -96,10 +96,10 @@ export function DefaultsStep() {
   return (
     <StepFrame summary={summary}>
       <div className="rows border-y border-rule">
-        <SettingRow label="Default model" help="New chats and sessions use it when you do not pick a model.">
+        <SettingRow label="Default model" help="Used by new chats and sessions unless you pick another.">
           <ModelPicker look="field" label="Default model" value={defaultModel} onChange={(m) => void save({ defaultModel: m })} harnesses={false} />
         </SettingRow>
-        <SettingRow label="Small model" help="Titles, summaries and memory notes. Pick something fast and cheap.">
+        <SettingRow label="Small model" help="Writes titles, summaries and memory notes. A fast, low-cost model fits.">
           <ModelPicker look="field" label="Small model" value={smallModel} onChange={(m) => void save({ smallModel: m })} harnesses={false} />
         </SettingRow>
         <SettingRow
@@ -134,7 +134,7 @@ export function DefaultsStep() {
       {kinds.length > 0 && (
         <section className="mt-11">
           <SectionHeading count={kinds.length}>Per kind of work</SectionHeading>
-          <p className="m-0 mt-3 mb-1 max-w-[60ch] text-[13px] leading-[1.5] text-fg-2 phone:text-[14px]">Each kind of work has its own agent. Its model and device are what a session of that kind starts with.</p>
+          <p className="m-0 mt-3 mb-1 max-w-[60ch] text-[13px] leading-[1.5] text-fg-2 phone:text-[14px]">Each kind of work has its own agent. A session of that kind starts with this model and device.</p>
           {!mobile && (
             <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.3fr)_minmax(0,1fr)] gap-x-4 border-b border-rule pt-3 pb-[7px] text-[12px] text-fg-3">
               <span>Kind</span>

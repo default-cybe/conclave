@@ -195,7 +195,7 @@ export function MemoryStep() {
                 checked={where === 'hub'}
                 onChange={useHubStore}
                 label="Keep notes in the hub"
-                description={`In the database on ${hub?.name ?? 'the hub'}. Nothing else to run.`}
+                description={`In the database on ${hub?.name ?? 'the hub'}. Nothing else to install.`}
                 className="phone:py-2"
               >
                 {vault && where === 'hub' && <p className="max-w-[60ch] text-[12px] text-fg-3 phone:text-[13px]">Continue removes the {vault.name} connection. Notes it already imported stay in the hub.</p>}
@@ -206,7 +206,7 @@ export function MemoryStep() {
                 checked={where === 'vault'}
                 onChange={() => setWhere('vault')}
                 label="Use a Basic Memory vault"
-                description="Markdown notes you can open in any editor, served by the Basic Memory MCP server. Conclave keeps its own copy too."
+                description="Markdown notes that open in any editor, served by the Basic Memory MCP server. Conclave also keeps a copy."
               >
                 <div className="grid max-w-[560px] gap-4 sm:grid-cols-[minmax(0,1fr)_140px]">
                   <Field label="Server URL" optional help={<>Leave empty to run it on the hub with <span className="mono">uvx</span>. Agents and routines get its tools too.</>}>
@@ -242,8 +242,8 @@ export function MemoryStep() {
             )}
             <Field
               className="pt-4"
-              label={profiles.length ? 'Add a line' : 'A few lines about you that every model should know'}
-              help="For example: security student, homelab on Proxmox, short answers. Saved as a profile note when you continue."
+              label={profiles.length ? 'Add a line' : 'About you'}
+              help="A few lines every model reads, such as your role and how you like answers. Saved as a profile note on Continue."
             >
               <Textarea prose minRows={3} maxRows={8} value={profile} onChange={(e) => setProfile(e.target.value)} />
             </Field>
