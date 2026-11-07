@@ -2,25 +2,25 @@
  * Step 1, Hub (spec 11.11): this client is already talking to a hub, so the
  * step confirms it in words, asks the owner's name (their display name, saved
  * with PATCH /api/me, docs/design/ACCOUNTS.md; Home greets them by it, and
- * the sign-in name stays as it is), asks
+ * the sign-in name stays as it is), and asks
  * how the phone should reach it away from this network (the same choice as
- * Settings, Remote access), and offers the connect form for a different hub.
+ * Settings, Remote access). Setup is the hub branch (branch.ts): it offers no
+ * way to connect to another hub; that is the Welcome screen's client choice.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { MeDto } from '@conclave/core/client';
 import { api, MOCK, loadConnection } from '@/lib/api';
 import { durationShort } from '@/lib/format';
+import { isOnboarded } from '@/lib/onboarding';
 import { DISPLAY_NAME_MAX, displayNameProblem, personName, refreshAccount, tidyDisplayName } from '@/lib/people';
 import { cn } from '@/lib/text';
 import { useHub } from '@/store/store';
-import { Button } from '@/components/ui/Button';
 import { Field, Input } from '@/components/ui/Field';
 import { SectionHeading } from '@/components/ui/Section';
-import { ConnectForm } from '../../connect/ConnectForm';
 import { transportWords } from '@/lib/remote';
 import { RemoteChoice, RemoteStatusLine, useRemote } from '../../settings/remote';
 import { StepFrame } from '../StepLayout';
-import { andList, errText, useCtlSize } from '../parts';
+import { startingName } from '../branch';
+import { andList, errText } from '../parts';
 
 function Row({ k, children, mono }: { k: string; children: ReactNode; mono?: boolean }) {
   return (
@@ -31,29 +31,21 @@ function Row({ k, children, mono }: { k: string; children: ReactNode; mono?: boo
   );
 }
 
-/** The name the account shows, or the one Home already greeted by when it could be a display name. */
-function startingName(me: MeDto | undefined, uiName: unknown): string {
-  const own = personName(me);
-  if (own) return own;
-  return typeof uiName === 'string' && uiName.trim() && !displayNameProblem(uiName) ? tidyDisplayName(uiName) : '';
-}
-
 export function HubStep() {
-  const ctl = useCtlSize();
   const hub = useHub((s) => s.hub);
   const conn = useHub((s) => s.conn);
   const devices = useHub((s) => s.devices);
   const me = useHub((s) => s.me);
   const uiName = useHub((s) => (s.config?.ui as { name?: unknown } | undefined)?.name);
+  const done = useHub((s) => !!isOnboarded(s.config));
   const [ms, setMs] = useState<number>();
-  const [other, setOther] = useState(false);
-  const [name, setName] = useState(() => startingName(me, uiName));
+  const [name, setName] = useState(() => startingName(me, done));
   const [nameError, setNameError] = useState<string>();
   const typed = useRef(false);
   // who is signed in can load after the step opens: fill the field once, unless the owner typed
   useEffect(() => {
-    if (!typed.current) setName(startingName(me, uiName));
-  }, [me, uiName]);
+    if (!typed.current) setName(startingName(me, done));
+  }, [me, done]);
   const owner = me?.role === 'owner';
   const address = MOCK ? (hub?.publicUrl ?? location.origin) : (loadConnection()?.baseUrl ?? location.origin);
 
@@ -73,7 +65,7 @@ export function HubStep() {
   const ok = conn !== 'closed' && !!hub;
   const remote = useRemote();
   const away = remote.status?.addresses.find((a) => a.kind !== 'lan');
-  const summary = !ok ? 'The hub is not answering.' : away ? `Connected to ${hub!.name}, reachable from anywhere.` : `Connected to ${hub!.name}.`;
+  const summary = !ok ? 'The hub does not answer.' : away ? `Connected to ${hub!.name}. Remote access is on.` : `Connected to ${hub!.name}.`;
 
   /** Save the name as the owner's display name; the hub sets Home's greeting from it. Empty keeps what there is. */
   const saveName = async (): Promise<boolean> => {
@@ -115,7 +107,7 @@ export function HubStep() {
           </>
         ) : (
           <>
-            <span className="text-fault">Not connected.</span> The hub stopped answering. Check that <span className="mono">conclave serve</span> is running.
+            <span className="text-fault">Not connected.</span> The hub does not answer. Check that <span className="mono">conclave serve</span> is running.
           </>
         )}
       </p>
@@ -131,14 +123,13 @@ export function HubStep() {
 
       {ok && owner && (
         <section className="mt-10">
-          <SectionHeading>You</SectionHeading>
-          <Field className="max-w-[320px] pt-4" label="Your name" error={nameError} help="Home greets you by it. Spaces are fine.">
+          <SectionHeading>Owner</SectionHeading>
+          <Field className="max-w-[320px] pt-4" label="Your name" optional error={nameError} help="Shown on Home and to people on this hub.">
             <Input
               value={name}
               maxLength={DISPLAY_NAME_MAX}
               autoComplete="name"
               spellCheck={false}
-              placeholder="Kai Ahir"
               invalid={!!nameError}
               onChange={(e) => {
                 typed.current = true;
@@ -152,10 +143,10 @@ export function HubStep() {
 
       {ok && (
         <section className="mt-10">
-          <SectionHeading>Reach it from your phone</SectionHeading>
+          <SectionHeading>Remote access</SectionHeading>
           {!away && (
             <p className="m-0 mt-3 max-w-[64ch] text-[13px] leading-[1.5] text-fg-2 phone:text-[14px]">
-              On the same Wi-Fi a phone can connect now. To use it anywhere else, pick a way in. The quick tunnel needs nothing else installed.
+              Devices on the same network can connect now. To connect from other networks, choose a method. Quick tunnel needs no setup.
             </p>
           )}
           {remote.status ? (
@@ -170,35 +161,6 @@ export function HubStep() {
           ) : null}
         </section>
       )}
-
-      <section className="mt-10">
-        <SectionHeading>A different hub</SectionHeading>
-        {other ? (
-          <div className="pt-5">
-            <ConnectForm
-              autoFocus
-              initialUrl=""
-              submitLabel="Connect and continue"
-              onConnected={() => {
-                // the app boots again with the saved connection and resumes setup there
-                location.assign('/setup/providers');
-              }}
-              footer={
-                <Button variant="quiet" size={ctl === 'touch' ? 'touch' : 'lg'} onClick={() => setOther(false)}>
-                  Cancel
-                </Button>
-              }
-            />
-          </div>
-        ) : (
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-4">
-            <p className="m-0 max-w-[52ch] min-w-[280px] flex-1 text-[13px] leading-[1.5] text-fg-2 phone:text-[14px]">If your hub runs somewhere else, connect to it with its address and token, or a pairing code from a device that already uses it.</p>
-            <Button variant="outline" size={ctl} onClick={() => setOther(true)}>
-              Connect to another hub
-            </Button>
-          </div>
-        )}
-      </section>
     </StepFrame>
   );
 }

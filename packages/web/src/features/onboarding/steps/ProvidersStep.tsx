@@ -141,14 +141,14 @@ export function ProvidersStep() {
   const parts: ReactNode[] = [];
   if (ready) parts.push(<span key="r" className="font-[560] text-ok">{ready} ready</span>);
   if (bad) parts.push(<span key="b">{bad === 1 ? '1 needs a new key' : `${bad} need a new key`}</span>);
-  const summary = parts.length ? parts.flatMap((p, i) => (i ? [<span key={`c${i}`}>, </span>, p] : [p])) : 'Nothing added yet.';
+  const summary = parts.length ? parts.flatMap((p, i) => (i ? [<span key={`c${i}`}>, </span>, p] : [p])) : 'No key added.';
 
   return (
     <StepFrame summary={<>{summary}</>}>
       {found.length > 0 && (
         <section className="mb-10">
-          <SectionHeading count={found.length}>Coding agents found on your machines</SectionHeading>
-          <p className="m-0 mt-2 text-[12px] text-fg-3 phone:text-[13px]">Optional. Conclave runs its own agent loop; use one of these as the engine for a session with the login it already has.</p>
+          <SectionHeading count={found.length}>Coding agents found</SectionHeading>
+          <p className="m-0 mt-2 text-[12px] text-fg-3 phone:text-[13px]">Optional. Run a session with one of these CLIs and the login it already has.</p>
           <div className="rows">
             {found.map(({ login, on }) => (
               <LoginRow key={login.id} login={login} devices={on} used={logins.includes(login.id)} onUsed={onUsed} />
@@ -159,7 +159,7 @@ export function ProvidersStep() {
 
       <section>
         <SectionHeading rule={false} className="pb-3">
-          API keys
+          Providers
         </SectionHeading>
         <ProviderHeader />
         <div className="rows border-b border-rule">
@@ -200,8 +200,8 @@ export function ProvidersStep() {
       </section>
 
       <div className="mt-10 grid gap-x-12 gap-y-6 md:grid-cols-2">
-        <Footnote title="Where keys live">On {hub?.name ?? 'the hub'} only, in a file that only the hub can read. The hub never sends a key back, not even to this page.</Footnote>
-        <Footnote title="Subscriptions">Claude Max and ChatGPT Pro run through their own CLIs. Conclave reads their limits so Home can show what is left.</Footnote>
+        <Footnote title="Where keys are stored">On {hub?.name ?? 'the hub'} only, in a file only the hub reads. The hub never sends a key back, not even to this page.</Footnote>
+        <Footnote title="Subscriptions">A Claude, ChatGPT or Gemini plan is signed in on the Subscriptions step, not with a key here.</Footnote>
       </div>
     </StepFrame>
   );

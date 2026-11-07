@@ -81,7 +81,7 @@ export function DoneStep() {
   const harnessDevices = [...new Set(f.harnesses.flatMap((h) => h.devices))];
 
   return (
-    <StepFrame summary={`Saved on ${hub?.name ?? 'the hub'}. Other devices see the same setup.`} onContinue={open} continueLabel="Open Home" continueBusy="Opening" hideContinue>
+    <StepFrame summary={`Saved on ${hub?.name ?? 'the hub'}. Other devices use the same setup.`} onContinue={open} continueLabel="Open Home" continueBusy="Opening" hideContinue>
       {/* the pet hops once: setup is done (CHAT-AND-MOTION 1.11) */}
       <div className="-mt-2 mb-6 flex items-end gap-4">
         <Pet state="done" size={64} className="mb-1 text-fg" />
@@ -107,7 +107,7 @@ export function DoneStep() {
         </Row>
         <Row
           step="providers"
-          label="Providers"
+          label="API keys"
           empty="No keys or logins yet"
           marks={
             f.providers.length || f.logins.length ? (
