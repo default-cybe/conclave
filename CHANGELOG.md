@@ -11,6 +11,12 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Changed
 
+- The session panel lists its cards as Settings lists things: one row each with a label, one value and a chevron, all closed at first. Context reads "5%, 345K tokens, $0.71" on its row, and the card order is Context, Environment, Plan, Changes, Outputs, Background tasks, Connectors, Memory used. Environment says "offline" only when the device is.
+- Sidebar and drawer session rows show the title only, with "running" or "waiting" as a word when it matters, instead of the device name and a coloured dot. The device is in the session's header and under Group by Device.
+- The mode switch in the sidebar header and the phone's drawer and Home bar is one picker naming the mode ("Code"); its menu lists all five modes with a line each, so Security and Canvas are no longer cut off on a phone. The folded sidebar keeps its icons.
+- Preview and Open in Canvas over a Code session's box are quiet text buttons, no longer outlined pills.
+- A Workflow row in the transcript no longer draws its phase meters and agent counts under it; they are at the top of the opened row. A run that ended with a failed agent says so on its row ("done in 33m, 1 failed", in amber).
+- The live line under a running turn no longer shows tokens per second; the header already shows the running time.
 - Home in Chat, Code and Security no longer shows the day: the calendar, tasks, the plan and calendar proposals stay on Assistant's Home only. This holds on the web, the phone web app and Android. What waits on you still shows in every mode.
 - Sidebar group headings (Today, Yesterday, This week, Older, and project, device or Delegated work when grouped) now read as section labels, not rows: smaller semibold text in the muted colour, more space above, and no row hover fill. They are level 3 headings with a fold button. Same in the phone drawer and the Android side panel.
 

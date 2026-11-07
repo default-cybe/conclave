@@ -1,15 +1,18 @@
 /**
- * Chat, Assistant, Code: the switch in the sidebar's header (three small
- * icon buttons, like the Claude app's chat and code toggle), at the top of
- * the phone's drawer, and as the title over a phone's new conversation. It
+ * Chat, Assistant, Code, Security, Canvas: the switch in the sidebar's
+ * header, at the top of the phone's drawer, and as the title over a phone's
+ * new conversation. It is one picker that names the mode ("Code"), as
+ * Settings shows a value; its menu has the five with a line each, so none is
+ * clipped on a phone. The folded sidebar's strip keeps the five icons. It
  * shows the mode of the conversation that is open, else the one
- * remembered; a press opens a new conversation in that mode.
+ * remembered; a pick opens a new conversation in that mode.
  */
 import { useLocation } from 'wouter';
 import { CalendarDays, Code, MessageCircle, ShieldCheck, Spline, type LucideIcon } from 'lucide-react';
 import { useHub } from '@/store/store';
 import { cn } from '@/lib/text';
 import { Tooltip } from '@/components/ui/Tooltip';
+import { SelectMenu } from '@/components/ui/Select';
 import { canvasHome } from '@/features/canvas/model';
 import { modeOf, readPicks, savePicks, setStartMode, START_MODES, useStartMode, type Picks, type StartMode } from './start';
 
@@ -50,7 +53,7 @@ export function openNew(mode: StartMode, navigate: (to: string) => void, at?: Pi
   requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-composer]')?.focus({ preventScroll: true }));
 }
 
-/** The sidebar's switch: icon buttons, the open mode raised. `vertical`: a column, for the folded sidebar's strip. */
+/** The folded sidebar's strip: a column of icon buttons, the open mode raised. */
 function CompactSwitch({ className, vertical }: { className?: string; vertical?: boolean }) {
   const [, navigate] = useLocation();
   const mode = useCurrentMode();
@@ -82,35 +85,23 @@ function CompactSwitch({ className, vertical }: { className?: string; vertical?:
 }
 
 export function ModeSwitch({ phone, compact, vertical, className }: { phone?: boolean; compact?: boolean; vertical?: boolean; className?: string }) {
-  if (compact) return <CompactSwitch className={className} vertical={vertical} />;
-  return <WordSwitch phone={phone} className={className} />;
+  if (compact && vertical) return <CompactSwitch className={className} vertical />;
+  return <ModePicker phone={phone} className={className} />;
 }
 
-function WordSwitch({ phone, className }: { phone?: boolean; className?: string }) {
+/** One picker naming the open mode; the menu lists the five with what each does. */
+function ModePicker({ phone, className }: { phone?: boolean; className?: string }) {
   const [, navigate] = useLocation();
   const mode = useCurrentMode();
   return (
-    <div role="radiogroup" aria-label="What to start" className={cn('flex items-center rounded-full p-0.5', phone ? 'gap-0 bg-surface-2' : 'gap-0.5 bg-sunk', className)}>
-      {START_MODES.map((m) => {
-        const on = m.value === mode;
-        return (
-          <button
-            key={m.value}
-            type="button"
-            role="radio"
-            aria-checked={on}
-            title={phone ? undefined : m.detail}
-            onClick={() => openNew(m.value, navigate)}
-            className={cn(
-              'flex items-center rounded-full font-medium whitespace-nowrap transition-colors duration-[var(--dur-1)] focus-visible:outline-offset-1',
-              phone ? 'h-9 px-3 text-[14px]' : 'h-[26px] px-3 text-[13px]',
-              on ? 'bg-raise text-fg shadow-[inset_0_0_0_1px_var(--rule)]' : 'text-fg-3 hov:text-fg active:bg-hover',
-            )}
-          >
-            {m.label}
-          </button>
-        );
-      })}
-    </div>
+    <SelectMenu
+      look="text"
+      label="What to start"
+      value={mode}
+      width={phone ? 300 : 280}
+      options={START_MODES.map((m) => ({ value: m.value, label: m.label, detail: m.detail }))}
+      onChange={(v) => openNew(v, navigate)}
+      className={cn('font-medium text-fg', phone ? 'h-11 px-2 text-[16px]' : 'text-[13px]', className)}
+    />
   );
 }
