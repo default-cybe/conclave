@@ -1,8 +1,8 @@
 /**
  * The sidebar's group headings (Today, Yesterday, a project, a device) read
  * as section labels, not session rows (Sidebar.tsx GroupHeading,
- * docs/design/SPEC.md 5.3): an h3 with a fold button, `meta` 600 in
- * `--fg-3`, no hover fill, never uppercase.
+ * docs/design/SPEC.md 5.3): an h3 with a fold button, 600 in full `--fg`
+ * against the rows' regular `--fg-2`, no hover fill, never uppercase.
  *
  *   cd packages/web && bun test test/sidebar-group-heading.test.tsx
  */
@@ -20,15 +20,15 @@ describe('GroupHeading', () => {
     expect(draw(true)).toContain('aria-expanded="false"');
   });
 
-  test('looks like a label: semibold fg-3 at the meta size, no row hover fill, no uppercase', () => {
+  test('reads as a heading: semibold full fg, not the muted row colour, no row hover fill, no uppercase', () => {
     const out = draw(false);
     expect(out).toContain('font-semibold');
-    expect(out).toContain('text-fg-3');
-    expect(out).toContain('text-[12px]');
-    expect(draw(false, true)).toContain('text-[13px]');
+    const button = out.match(/<button[^>]*class="([^"]*)"/)?.[1] ?? '';
+    expect(button.split(' ')).toContain('text-fg');
+    expect(button).not.toMatch(/text-fg-[234]\b/);
+    expect(out).toContain('text-[13px]');
+    expect(draw(false, true)).toContain('text-[14px]');
     expect(out).not.toContain('bg-side-hover');
     expect(out).not.toContain('uppercase');
-    // smaller than the 13.5px session rows
-    expect(out).not.toContain('text-[13.5px]');
   });
 });

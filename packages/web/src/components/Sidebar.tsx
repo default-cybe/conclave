@@ -371,8 +371,8 @@ function Group({ g, folded, foldKey, path, phone, onPick, actions, titled, newIn
 
 /** Space above a titled group, so its heading reads as the start of a section. */
 export const GROUP_GAP = 'mt-4';
-/** A group heading's words: `meta` 600 in `--fg-3` (SPEC.md 5.3 and 10.3), smaller and bolder than the 13.5px `--fg-2` rows. Sentence case, never uppercase (SPEC.md 2). */
-export const GROUP_HEAD_TEXT = 'font-semibold text-fg-3';
+/** A group heading's words: 600 in full `--fg`, so it stands out from the regular 13.5px `--fg-2` rows. Sentence case, never uppercase (SPEC.md 2). */
+export const GROUP_HEAD_TEXT = 'font-semibold text-fg';
 
 /**
  * A sidebar group's heading (Today, Yesterday, a project, a device): a quiet
@@ -385,7 +385,7 @@ export function GroupHeading({ label, folded, onToggle, phone, actions, children
   return (
     <div className={cn('group/head relative flex items-center', phone ? 'min-h-10' : 'h-6')}>
       <h3 className="m-0 flex min-w-0 flex-1 self-stretch">
-        <button type="button" aria-expanded={!folded} onClick={onToggle} className={cn('flex min-w-0 flex-1 items-center gap-1 pl-2.5 text-left transition-colors duration-[var(--dur-1)] hov:text-fg-2', GROUP_HEAD_TEXT, phone ? 'text-[13px]' : 'text-[12px]', actions && 'pr-14')}>
+        <button type="button" aria-expanded={!folded} onClick={onToggle} className={cn('flex min-w-0 flex-1 items-center gap-1 pl-2.5 text-left', GROUP_HEAD_TEXT, phone ? 'text-[14px]' : 'text-[13px]', actions && 'pr-14')}>
           <span className="min-w-0 truncate">{label}</span>
           <Chevron className={cn('size-3 shrink-0 text-fg-4 transition-opacity duration-[var(--dur-1)]', !folded && 'opacity-0 group-hover/head:opacity-100 group-focus-within/head:opacity-100')} strokeWidth={2} aria-hidden />
         </button>
