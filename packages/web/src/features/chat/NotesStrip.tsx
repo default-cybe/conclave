@@ -235,7 +235,7 @@ function AddNote({ autoFocus, order }: { autoFocus: boolean; order: number }) {
         }
       }}
     >
-      <Input ref={ref} size="sm" value={title} placeholder="Add a note" aria-label="Add a note" onChange={(e) => setTitle(e.target.value)} disabled={busy} />
+      <Input ref={ref} size="sm" value={title} placeholder="Add a note" aria-label="Add a note" onChange={(e) => setTitle(e.target.value)} readOnly={busy} />
     </form>
   );
 }
