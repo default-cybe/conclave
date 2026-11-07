@@ -57,6 +57,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.conclave.app.ui.chat.ApprovalPrompt
+import dev.conclave.app.ui.chat.NotesStrip
+import dev.conclave.app.ui.chat.NotesViewModel
 import dev.conclave.app.ui.chat.QuestionPrompt
 import dev.conclave.app.ui.common.ConfirmDialog
 import dev.conclave.app.ui.common.ErrorBanner
@@ -193,6 +195,10 @@ fun ChatThreadScreen(
     val scope = rememberCoroutineScope()
     val snackbar = rememberToasts()
     MessagesEffect(vm.messages, snackbar)
+    // the account's notes line under the top bar (chat/NotesStrip.kt)
+    val notesVm: NotesViewModel = viewModel(key = "notes") { NotesViewModel(hub) }
+    var addingNote by remember { mutableStateOf(false) }
+    MessagesEffect(notesVm.messages, snackbar)
     // text or files shared to this chat from another app ("Share to"): in the box, not sent
     LaunchedEffect(sessionId) {
         hub.pendingShare.collect { s ->
@@ -328,6 +334,7 @@ fun ChatThreadScreen(
         if (s?.isIncognito == true) IncognitoMark(code = false)
         // made from a friend's share: whose turns are quoted here
         s?.let { FriendShareLine(it, onOpenShare) }
+        NotesStrip(notesVm, addingNote, onAdding = { addingNote = it })
         OfflineBanner(connection)
         dev.conclave.app.ui.chat.RetryProvider(s, live.messages, groups)
         error?.let { ErrorBanner(it, onRetry = { vm.load() }) }
@@ -514,6 +521,7 @@ fun ChatThreadScreen(
                 val stoppedTurn = (s.meta?.get("stoppedTurn") as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
                 if (s.status == SessionStatus.PAUSED || (s.status == SessionStatus.IDLE && stoppedTurn)) add(SheetAction("Resume", onClick = then { vm.resume() }))
                 add(SheetAction("Rename", onClick = then { renaming = true }))
+                add(SheetAction("Add a note", onClick = then { addingNote = true }))
                 if (ShareWords.canSend(s)) add(SheetAction("Send to friend", onClick = then { sendingToFriend = true }))
                 add(SheetAction("Archive", onClick = then { vm.archive(onDone = onNewChat) }))
                 add(SheetAction("Move to Code", onClick = then { continuing = true }))

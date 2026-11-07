@@ -28,6 +28,7 @@ import { usePageHeader } from '@/components/ui/Page';
 import { isTyping } from '@/components/Shell';
 import { PhoneBar } from '@/components/PhoneFrame';
 import { ConversationSheet } from '@/features/chat/ConversationSheet';
+import { addNote, NotesStrip } from '@/features/chat/NotesStrip';
 import { ContextPanel, PANEL_W } from '@/features/chat/ContextPanel';
 import { downloadExport, isChat } from '@/features/chat/util';
 import { canSend, SendToFriendDialog } from '@/features/friends/SendToFriend';
@@ -142,6 +143,7 @@ export default function ChatPage() {
     column = (
       <>
         {!phone && <ChatHeader id={id} renaming={renaming} setRenaming={setRenaming} />}
+        {!guest && <NotesStrip narrow />}
         <FriendShareLine session={session} className="mx-auto w-full max-w-[784px] shrink-0 px-8 py-1.5 phone:px-5" />
         {/* an imported chat says where it came from; writing in it continues it here (core session/imported.ts) */}
         <ImportedLine session={session} className="mx-auto w-full max-w-[784px] shrink-0 px-8 py-1.5 phone:px-5" />
@@ -298,6 +300,7 @@ function ChatMenu({ id, onRename }: { id: string; onRename: () => void }) {
             { label: 'Rename', onSelect: later(onRename) },
             { label: 'Branch from the last reply', onSelect: () => branchChat(session, undefined, navigate) },
             { label: 'Continue as a session…', onSelect: () => openContinue(session.id) },
+            { label: 'Add a note', onSelect: later(addNote) },
             { separator: true, label: '' },
             { label: 'Export Markdown', onSelect: () => downloadExport(session, 'md') },
             ...(session.kind === 'chat' ? [{ label: 'Add people…', onSelect: later(() => setAdding(true)) }] : []),

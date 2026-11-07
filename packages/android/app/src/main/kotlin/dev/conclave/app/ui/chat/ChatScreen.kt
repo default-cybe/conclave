@@ -180,6 +180,10 @@ fun ChatScreen(
     val snackbar = rememberToasts()
     MessagesEffect(vm.messages, snackbar)
     MessagesEffect(locVm.messages, snackbar)
+    // the account's notes line under the top bar (NotesStrip.kt)
+    val notesVm: NotesViewModel = viewModel(key = "notes") { NotesViewModel(hub) }
+    var addingNote by remember { mutableStateOf(false) }
+    MessagesEffect(notesVm.messages, snackbar)
     // text or files shared to this session from another app ("Share to"): in the box, not sent
     LaunchedEffect(sessionId) {
         hub.pendingShare.collect { s ->
@@ -271,6 +275,7 @@ fun ChatScreen(
                 if (session?.isIncognito == true) IncognitoMark(code = true)
                 // made from a friend's share: whose turns are quoted here
                 session?.let { FriendShareLine(it, onOpenShare) }
+                NotesStrip(notesVm, addingNote, onAdding = { addingNote = it })
             }
         },
         bottomBar = {
@@ -477,6 +482,7 @@ fun ChatScreen(
                 // delegated work (docs/DESIGN.md 43): a normal session of its kind from now on
                 if (Delegated.isDelegated(s)) add(SheetAction(Delegated.MOVE, onClick = then { vm.moveToMainList() }))
                 add(SheetAction("Rename", onClick = then { renaming = true }))
+                add(SheetAction("Add a note", onClick = then { addingNote = true }))
                 if (ShareWords.canSend(s)) add(SheetAction("Send to friend", onClick = then { sendingToFriend = true }))
                 // a repo session: Push, Open pull request, View pull request, Check now, Clean up (docs/DESIGN.md 30)
                 val r = repoLive

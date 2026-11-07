@@ -1,16 +1,16 @@
 /**
- * The session panel (spec 11.2.4, docs/design/CHAT-AND-MOTION.md 2.11), like
- * the Claude app's: a stack of rounded cards, each a title, a short value at
- * the right and a chevron that opens it. Which cards are open is kept on
- * this device.
+ * The session panel (spec 11.2.4, docs/design/CHAT-AND-MOTION.md 2.11), as
+ * Settings lists things: one row per card, a label at the left, one value at
+ * the right and a chevron that opens it in place. All start closed; which
+ * are open is kept on this device.
  *
- *   Environment        arch-desktop .    device and its state, folder, branch, permissions, task
- *   Context            [ring] 12%        tokens in and out, cost, cache hits, what fills it
- *   Connectors         3 connected       the MCP servers, each on or off for this session (/mcp)
+ *   Context            12%, 345K tokens, $0.71   tokens in and out, cost, cache hits, what fills it
+ *   Environment        arch-desktop      device and its state, folder, branch, permissions, task
  *   Plan               3 of 5            the agent's todo list
- *   Outputs            4 files           files it wrote, pictures and pages it made, each opening its preview
  *   Changes            +8 -6             changed files, checkpoints with Restore, Open pull request
+ *   Outputs            4 files           files it wrote, pictures and pages it made, each opening its preview
  *   Background tasks   2 running         workflows, subagents and background shells, Stop; "3 finished" folded
+ *   Connectors         3 connected       the MCP servers, each on or off for this session (/mcp)
  *   Memory used        3                 the facts it was given
  *
  * The assistant's conversations have no Environment or Changes; a chat has
@@ -74,7 +74,7 @@ export function ContextPanel({ session, onClose }: { session: Session; onClose?:
           </IconButton>
         </div>
       )}
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-3 pt-3 pb-8 phone:px-4 phone:pt-2">{isGroup ? <GroupCards session={session} /> : <SessionCards session={session} />}</div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pt-3 pb-8 phone:px-4 phone:pt-2">{isGroup ? <GroupCards session={session} /> : <SessionCards session={session} />}</div>
     </aside>
   );
 }
@@ -86,15 +86,15 @@ export function ContextPanel({ session, onClose }: { session: Session; onClose?:
 function Card({ id, title, value, children }: { id: string; title: ReactNode; value?: ReactNode; children: ReactNode }) {
   const open = useUi((s) => !!s.cards[id]);
   return (
-    <section data-card={id} className="rounded-[12px] bg-card light:shadow-[0_0_0_1px_var(--rule)]">
+    <section data-card={id} className="border-b border-rule first:border-t">
       <h3 className="m-0">
-        <button type="button" aria-expanded={open} onClick={() => setCardOpen(id, !open)} className="group/card flex h-11 w-full items-center gap-3 rounded-[12px] px-3.5 text-left focus-visible:-outline-offset-2">
-          <span className="shrink-0 text-[13.5px] font-medium text-fg">{title}</span>
-          <span className="ml-auto flex min-w-0 items-center justify-end gap-1.5 truncate text-[13px] text-fg-3">{value}</span>
+        <button type="button" aria-expanded={open} onClick={() => setCardOpen(id, !open)} className="group/card flex min-h-11 w-full items-center gap-3 px-1 text-left transition-colors duration-[var(--dur-1)] hov:bg-hover focus-visible:-outline-offset-2 phone:min-h-12">
+          <span className="shrink-0 text-[13.5px] font-normal text-fg phone:text-[15px]">{title}</span>
+          <span className="ml-auto flex min-w-0 items-center justify-end gap-1.5 truncate text-[13px] text-fg-2 phone:text-[14px]">{value}</span>
           <ChevronRight aria-hidden strokeWidth={1.75} className={cn('size-3.5 shrink-0 text-fg-4 transition-transform duration-[var(--dur-1)] group-hover/card:text-fg-2', open && 'rotate-90')} />
         </button>
       </h3>
-      {open && <div className="px-3.5 pb-3.5 text-[13px] anim-fade">{children}</div>}
+      {open && <div className="px-1 pb-3.5 text-[13px] anim-fade">{children}</div>}
     </section>
   );
 }
@@ -121,13 +121,13 @@ function SessionCards({ session }: { session: Session }) {
   const show = (id: CardId) => cards.includes(id);
   return (
     <>
-      {show('environment') && <EnvironmentCard session={session} />}
       {show('context') && <ContextCard session={session} onDetails={() => setSheet('context')} />}
-      {show('connectors') && <ConnectorsCard session={session} onManage={() => setSheet('mcp')} />}
+      {show('environment') && <EnvironmentCard session={session} />}
       {show('plan') && <PlanCard session={session} />}
-      {show('outputs') && <OutputsCard session={session} />}
       {show('changes') && <ChangesCard session={session} />}
+      {show('outputs') && <OutputsCard session={session} />}
       {show('tasks') && <TasksCard session={session} />}
+      {show('connectors') && <ConnectorsCard session={session} onManage={() => setSheet('mcp')} />}
       {show('memory') && <MemoryCard session={session} />}
       <SessionSheet open={!!sheet} onClose={() => setSheet(null)} title={sheet === 'mcp' ? 'Connectors' : 'Context'} sub={session.title}>
         {sheet === 'mcp' ? <ConnectorsSheet session={session} onClose={() => setSheet(null)} /> : sheet === 'context' ? <ContextSheet session={session} openConnectors={() => setSheet('mcp')} /> : null}
@@ -164,8 +164,8 @@ function EnvironmentCard({ session }: { session: Session }) {
       value={
         <>
           <span className="truncate">{name}</span>
-          <span aria-hidden className={cn('size-[7px] shrink-0 rounded-full', online ? 'bg-ok' : 'bg-fg-4')} />
-          <span className="sr-only">{online ? 'online' : 'offline'}</span>
+          {/* said only when it matters; online is the normal case */}
+          {online ? <span className="sr-only">online</span> : <span className="shrink-0 text-fg-3">offline</span>}
         </>
       }
     >
@@ -227,19 +227,6 @@ function EnvironmentCard({ session }: { session: Session }) {
 // Context
 // ---------------------------------------------------------------------------
 
-/** A small ring for how full the context is: neutral, amber from 70%, red from 90% (spec 10.9). */
-function Ring({ pct, live }: { pct: number; live: boolean }) {
-  const r = 6;
-  const c = 2 * Math.PI * r;
-  const tone = pct >= 90 ? 'var(--fault)' : pct >= 70 ? 'var(--warn)' : live ? 'var(--signal)' : 'var(--fg-2)';
-  return (
-    <svg viewBox="0 0 16 16" className="size-4 shrink-0 -rotate-90" aria-hidden>
-      <circle cx="8" cy="8" r={r} fill="none" stroke="var(--meter-off)" strokeWidth="2" />
-      <circle cx="8" cy="8" r={r} fill="none" stroke={tone} strokeWidth="2" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - pct / 100)} style={{ transition: 'stroke-dashoffset var(--dur-3) var(--ease)' }} />
-    </svg>
-  );
-}
-
 function ContextCard({ session, onDetails }: { session: Session; onDetails: () => void }) {
   const messages = useHub((s) => s.messages[session.id]);
   const models = useHub((s) => s.models);
@@ -259,14 +246,11 @@ function ContextCard({ session, onDetails }: { session: Session; onDetails: () =
       id="context"
       title="Context"
       value={
-        pct === undefined ? (
-          'Not measured'
-        ) : (
-          <>
-            <Ring pct={pct} live={running} />
-            <span className="num text-fg-2">{pct}%</span>
-          </>
-        )
+        <span className="num truncate">
+          {/* the ring's tone, as a word colour, from 70% (spec 10.9) */}
+          <span className={cn(pct !== undefined && pct >= 90 ? 'text-fault' : pct !== undefined && pct >= 70 && 'text-warn')}>{pct === undefined ? 'Not measured' : `${pct}%`}</span>
+          {tokensTotal > 0 && `, ${compact(tokensTotal)} tokens, ${cost}`}
+        </span>
       }
     >
       {tokensTotal === 0 ? (

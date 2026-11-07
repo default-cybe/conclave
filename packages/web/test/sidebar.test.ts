@@ -89,9 +89,9 @@ describe('grouped by project', () => {
     expect(titles(groups[0])).toEqual(['Move auth to jose', 'Group the list']);
   });
 
-  test('a row is its title, a quiet state and its device', () => {
-    expect(groups[0].rows[0]).toEqual({ id: 'auth', title: 'Move auth to jose', href: '/s/auth', state: 'running', device: 'arch-desktop' });
-    expect(groups[0].rows[1]).toEqual({ id: 'list', title: 'Group the list', href: '/s/list', device: 'MacBook' });
+  test('a row is its title and a quiet state, no device', () => {
+    expect(groups[0].rows[0]).toEqual({ id: 'auth', title: 'Move auth to jose', href: '/s/auth', state: 'running' });
+    expect(groups[0].rows[1]).toEqual({ id: 'list', title: 'Group the list', href: '/s/list' });
     expect(groups[1].rows[0].state).toBe('waiting');
   });
 
@@ -115,14 +115,14 @@ describe('grouped by device', () => {
 });
 
 describe('grouped by time', () => {
-  test('Today, Yesterday, This week, Older, with the device on Code rows', () => {
+  test('Today, Yesterday, This week, Older, with no device on Code rows', () => {
     const groups = sideGroups({ sessions, mode: 'code', by: 'time', ctx, now: NOW });
     expect(groups.map((g) => g.label)).toEqual(['Today', 'Yesterday', 'This week', 'Older']);
     expect(titles(groups[0])).toEqual(['Move auth to jose', 'pwn 300', 'Group the list']);
     expect(titles(groups[1])).toEqual(['Caddy or Traefik']);
     expect(titles(groups[2])).toEqual(['Fix the README']);
     expect(titles(groups[3])).toEqual(['Old session']);
-    expect(groups[0].rows[0].device).toBe('arch-desktop');
+    expect(groups[0].rows[0].device).toBeUndefined();
   });
 
   test('chats always go by time, pinned first, with no device', () => {

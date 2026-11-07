@@ -56,6 +56,8 @@ interface UiState extends Prefs {
   drawerOpen: boolean;
   /** Phones: the side panel is open (components/PhoneFrame.tsx). */
   panelOpen: boolean;
+  /** The notes strip at the top of a conversation (features/chat/NotesStrip.tsx): one line, open, or open with the add box focused. */
+  notes: 'closed' | 'open' | 'add';
   newChatPreset?: { agent?: string; model?: string; taskId?: string; prompt?: string; device?: string; mode?: SessionMode };
   /** Set by pages through usePageHeader. */
   header?: PageHeaderInfo;
@@ -79,7 +81,8 @@ function loadPrefs(): Prefs {
     juryLayout: 'columns',
     sideGroup: 'project',
     foldedGroups: [],
-    cards: { context: true, tasks: true },
+    // the panel starts as one row per card, as Settings does; a card opens with a click
+    cards: {},
   };
   try {
     const a = JSON.parse(localStorage.getItem(APPEARANCE_KEY) || '{}');
@@ -108,6 +111,7 @@ export const useUi = create<UiState>((set) => ({
   newChatOpen: false,
   drawerOpen: false,
   panelOpen: false,
+  notes: 'closed',
   set: (p) => set(p),
 }));
 

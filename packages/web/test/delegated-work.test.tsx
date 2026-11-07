@@ -140,7 +140,7 @@ describe('the drawn group', async () => {
     expect(out).toContain('Code on MadX Arch');
     expect(out).toContain('from Capstone chat');
     expect(out).toContain('href="/s/draft"');
-    expect(out).toContain('aria-label="Running"');
+    expect(out).toContain('text-signal">running</span>');
     expect(out).toContain('aria-label="Actions for Find names in the capstone PDFs"');
     expect(out).not.toContain('href="/s/sub"');
   });
