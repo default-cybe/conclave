@@ -241,6 +241,30 @@ describe('the model chip', () => {
       useHub.setState({ models: before } as never);
     }
   });
+
+  test('Same model and Security sit behind one Settings row at the foot, which names what is on', async () => {
+    const { ModelEffort } = await import('../src/features/conversation/ComposerParts');
+    const before = useHub.getState().models;
+    const opus = { id: 'claude-opus-5-5', ref: 'anthropic/claude-opus-5-5', provider: 'anthropic', name: 'Claude Opus 5.5' };
+    useHub.setState({ models: [{ provider: 'anthropic', name: 'Anthropic', type: 'anthropic', configured: true, enabled: true, models: [opus] }] } as never);
+    const v = await mount(<ModelEffort model={opus.ref} value={undefined} onModel={() => {}} onEffort={() => {}} sameModel onSameModel={() => {}} security={false} onSecurity={() => {}} />);
+    try {
+      await v.act(async () => v.chip('model')!.click());
+      const foot = document.querySelector('[data-part="picker-settings"]')!;
+      const row = foot.querySelector('button[aria-expanded]') as HTMLButtonElement;
+      expect(row.getAttribute('aria-expanded')).toBe('false');
+      expect(row.textContent).toBe('Settings: Same model');
+      // shut: no switch takes room under the list
+      expect(document.body.textContent).not.toContain('Delegate, Task and workflow agents');
+      expect(document.body.textContent).not.toContain('Loads the security agent');
+      await v.act(async () => row.click());
+      expect(document.body.textContent).toContain('Same model for all work');
+      expect(document.body.textContent).toContain('Loads the security agent');
+    } finally {
+      await v.unmount();
+      useHub.setState({ models: before } as never);
+    }
+  });
 });
 
 describe('the Code start', () => {

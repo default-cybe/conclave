@@ -1,9 +1,9 @@
 /**
  * Chat, Assistant, Code, Security, Canvas: the switch in the sidebar's
- * header, at the top of the phone's drawer, and as the title over a phone's
- * new conversation. It is one picker that names the mode ("Code"), as
- * Settings shows a value; its menu has the five with a line each, so none is
- * clipped on a phone. The folded sidebar's strip keeps the five icons. It
+ * header (five icon buttons, the open one raised, like the Claude app's
+ * toggle), at the top of the phone's drawer, and as the title over a phone's
+ * new conversation. On a phone it is one picker that names the mode
+ * ("Code"), with the five and a line each, so none is clipped. It
  * shows the mode of the conversation that is open, else the one
  * remembered; a pick opens a new conversation in that mode.
  */
@@ -53,7 +53,7 @@ export function openNew(mode: StartMode, navigate: (to: string) => void, at?: Pi
   requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-composer]')?.focus({ preventScroll: true }));
 }
 
-/** The folded sidebar's strip: a column of icon buttons, the open mode raised. */
+/** The sidebar's switch: icon buttons, the open mode raised. `vertical`: a column, for the folded sidebar's strip. */
 function CompactSwitch({ className, vertical }: { className?: string; vertical?: boolean }) {
   const [, navigate] = useLocation();
   const mode = useCurrentMode();
@@ -85,7 +85,8 @@ function CompactSwitch({ className, vertical }: { className?: string; vertical?:
 }
 
 export function ModeSwitch({ phone, compact, vertical, className }: { phone?: boolean; compact?: boolean; vertical?: boolean; className?: string }) {
-  if (compact && vertical) return <CompactSwitch className={className} vertical />;
+  // the desktop sidebar keeps the icon switch (owner, 2026-11-07); the phone keeps the picker, where five pills were clipped
+  if (compact) return <CompactSwitch className={className} vertical={vertical} />;
   return <ModePicker phone={phone} className={className} />;
 }
 
