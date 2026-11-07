@@ -211,7 +211,7 @@ export function DevicesStep() {
   const phoneNames = phones.map((p) => p.name);
   const machines = named.length ? `${andList(named)} ${named.length === 1 ? 'is' : 'are'} paired.` : '';
   const signed = phoneNames.length ? `${andList(phoneNames)} ${phoneNames.length === 1 ? 'is' : 'are'} signed in.` : '';
-  const summary = pairing === 'phone' && !phones.length ? [machines, 'Waiting for the phone.'].filter(Boolean).join(' ') : machines || signed ? [machines, signed].filter(Boolean).join(' ') : 'Nothing paired yet.';
+  const summary = pairing === 'phone' && !phones.length ? [machines, 'Waiting for the phone.'].filter(Boolean).join(' ') : machines || signed ? [machines, signed].filter(Boolean).join(' ') : 'No device paired.';
 
   return (
     <StepFrame summary={summary}>

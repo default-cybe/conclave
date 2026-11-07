@@ -176,7 +176,7 @@ export function AgentsStep() {
 
   const withAny = machines.filter((d) => HARNESS_ORDER.some((h) => d.info?.clis?.[HARNESS_CLI[h]]));
   const total = new Set(withAny.flatMap((d) => HARNESS_ORDER.filter((h) => d.info?.clis?.[HARNESS_CLI[h]]))).size;
-  const summary = looking ? 'Looking for Claude Code, Codex, Gemini CLI and OpenCode.' : total ? `${total} found on ${andList(withAny.map((d) => d.name))}.` : 'None found yet.';
+  const summary = looking ? 'Looking for Claude Code, Codex, Gemini CLI and OpenCode.' : total ? `${total} found on ${andList(withAny.map((d) => d.name))}.` : 'None found.';
 
   const found = HARNESS_ORDER.filter((h) => withAny.some((d) => d.info?.clis?.[HARNESS_CLI[h]]));
   return (
