@@ -93,4 +93,9 @@ class AssistantHomeTest {
         assertNull(Drawer.homeOf(listOf(archived)))
         assertEquals("home", Drawer.homeOf(listOf(archived.copy(archived = false)))?.id)
     }
+
+    @Test
+    fun onlyAssistantHomeShowsTheDay() {
+        assertEquals(listOf(StartMode.ASSISTANT), StartMode.entries.filter { Start.showsDay(it) })
+    }
 }

@@ -11,6 +11,8 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Changed
 
+- Home in Chat, Code and Security no longer shows the day: the calendar, tasks, the plan and calendar proposals stay on Assistant's Home only. This holds on the web, the phone web app and Android. What waits on you still shows in every mode.
+- Sidebar group headings (Today, Yesterday, This week, Older, and project, device or Delegated work when grouped) now read as section labels, not rows: smaller semibold text in the muted colour, more space above, and no row hover fill. They are level 3 headings with a fold button. Same in the phone drawer and the Android side panel.
 - Setup opens on one clear choice: Set up a hub (this computer, or the server it reaches, runs Conclave for you and your devices) or Connect to an existing hub (this device is a client, which opens the Connect screen). A hub on this computer, such as the desktop app's, gets no client choice. The desktop app's first page says the same: Connect to an existing hub, or Set up a hub on this computer.
 - Setup wording is shorter and plainer: step titles are nouns (Hub, Subscriptions, API keys, Devices, Setup complete), each step has a one line description, and the Providers step is now API keys (pay per use), apart from Subscriptions (sign in with a Claude, ChatGPT or Gemini plan). "Reach it from your phone" is now Remote access.
 - The first screens after setup use the same plain wording: Home's empty Running, Limits and first-day notes, the empty chat and session lists (sidebar and phone), and the Providers, Subscriptions, Notifications and Remote access intros in Settings.
