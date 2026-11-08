@@ -1195,6 +1195,18 @@ on('PATCH', '/api/devices/:id', ({ params, body }) => {
   saveFresh();
   return d;
 });
+// the folder pickers' check: a made-up path ("does-not-exist", "missing" or "old-" in it) is not there until Create folder
+const madeFolders = new Set<string>();
+const mockFolderGone = (path: string) => /does-not-exist|missing|\/old-/.test(path) && !madeFolders.has(path);
+on('GET', '/api/devices/:id/folder', ({ query }) => {
+  const path = query.get('path') ?? '';
+  return { path, exists: !mockFolderGone(path) };
+});
+on('POST', '/api/devices/:id/folder', ({ body }) => {
+  const path = String((body as { path?: unknown } | undefined)?.path ?? '');
+  madeFolders.add(path);
+  return { path, exists: true };
+});
 on('DELETE', '/api/devices/:id', ({ params }) => {
   db.devices.delete(params[0]);
   emit({ type: 'device.deleted', deviceId: params[0] });

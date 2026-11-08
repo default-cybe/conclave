@@ -74,6 +74,8 @@ import { BranchPicker, IssuePicker, RepoList, RepoPicker, type IssuePick, type R
 import { ASSISTANT_AGENT, CODE_AGENT, CODE_NEEDS_DEVICE, commandOf, customAgent, lastOwnSession, needsOwnDevice, offersIncognito, placeName, readPicks, savePicks, SECURITY_AGENT, sessionSetup, startCommands, startEffort, type Picks, type SessionKind } from './start';
 import { startSurface, useThisComputer } from './here';
 import { DeviceChip, FolderChip, computerList, useComputers } from './Where';
+import { FolderCheckNote, useFolderCheck, useMissingFolders } from '@/features/chat/folderCheck';
+import { StateWord } from '@/components/ui/List';
 import { CODE_INCOGNITO_LINE, memoryChat, usePrivacy } from '@/features/conversation/incognito';
 
 export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
@@ -500,13 +502,17 @@ function PlaceSheet({
     for (const r of devices[device]?.roots ?? []) seen.add(r);
     return [...seen].slice(0, 4);
   }, [sessions, devices, device]);
+  // the folder is asked of the device; an offline one waits for "Use anyway" (features/chat/folderCheck.tsx)
+  const folder = from === 'folder' && open;
+  const check = useFolderCheck(device, folder ? path : '');
+  const gone = useMissingFolders(device, folder ? known : []);
   return (
     <Sheet
       open={open}
       onClose={onClose}
       title={title}
       footer={
-        <Button variant="solid" size="touch" full disabled={!devices[device]?.online || (from === 'github' && !repo)} onClick={() => (from === 'github' ? repo && onStartRepo(repo) : onStart(path.trim() || '~'))} className="h-12! rounded-[12px]! text-[16px]!">
+        <Button variant="solid" size="touch" full disabled={from === 'github' ? !devices[device]?.online || !repo : !check.ready} onClick={() => (from === 'github' ? repo && onStartRepo(repo) : onStart(path.trim() || '~'))} className="h-12! rounded-[12px]! text-[16px]!">
           Start
         </Button>
       }
@@ -548,13 +554,15 @@ function PlaceSheet({
               Folder
             </label>
             <Input id="start-folder" mono value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/code/project" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+            <FolderCheckNote check={check} className="mt-1.5" />
           </>
         )}
         {from === 'folder' && known.length > 0 && (
           <div className="mt-1.5 flex flex-col">
             {known.map((k) => (
-              <button key={k} type="button" onClick={() => setPath(k)} className="flex min-h-11 items-center text-left font-mono text-[14px] text-fg-2">
-                <span className="truncate">{k}</span>
+              <button key={k} type="button" aria-disabled={gone.has(k) || undefined} onClick={() => !gone.has(k) && setPath(k)} className={cn('flex min-h-11 items-center gap-2 text-left font-mono text-[14px]', gone.has(k) ? 'cursor-default text-fg-3' : 'text-fg-2')}>
+                <span className="min-w-0 flex-1 truncate">{k}</span>
+                {gone.has(k) && <StateWord tone="warn">missing</StateWord>}
               </button>
             ))}
           </div>

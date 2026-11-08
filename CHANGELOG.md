@@ -7,6 +7,13 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- The folder pickers no longer accept a folder that does not exist. A typed or chosen path is checked on its device; a missing one shows "No folder at <path> on <device>" under the field, keeps Choose and Start off, and offers Create folder. Recent folders that are gone are marked "missing". An offline device says the folder can't be checked and needs "Use anyway". The hub refuses a new session with a missing folder (400, same words), so no client can skip the check. The Android folder sheet does the same.
+- Android: a new chat no longer shows the prompt sent from the last one. The composer's field was saved UI state and outlived the clear after Send; it now starts from its own chat's draft only.
+
 ## [0.4.80] - 2026-11-07
 
 ### Changed

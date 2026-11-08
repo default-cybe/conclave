@@ -380,6 +380,8 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'DELETE /api/devices/:id': own({ id: 'device' }),
   'GET /api/devices/:device/files': own({ device: 'device' }),
   'GET /api/devices/:device/file': own({ device: 'device' }),
+  'GET /api/devices/:device/folder': own({ device: 'device' }),
+  'POST /api/devices/:device/folder': own({ device: 'device' }),
 
   // ----- chat import -----
   'GET /api/import/scan': 'self',

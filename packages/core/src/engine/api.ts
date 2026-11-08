@@ -317,6 +317,9 @@ export interface EngineApi {
 
   // devices and files
   browse(device: string, path: string): Promise<FileEntryDto[]>;
+  /** Whether a folder is there on a device (machine/folder-check.ts). */
+  folderCheck(device: string, path: string): Promise<import('../machine/folder-check').FolderCheckDto>;
+  makeFolder(device: string, path: string): Promise<import('../machine/folder-check').FolderCheckDto>;
   readDeviceFile(device: string, path: string): Promise<{ content: string; truncated: boolean }>;
   /** A file a ShareFile call in the session shared, checked again (files/share.ts); 404 when there is none. With image, picture N of a GenerateImage call. */
   sharedFile(sessionId: string, toolUseId: string, image?: number): Promise<{ bytes: Uint8Array; name: string; mediaType: string; size: number }>;

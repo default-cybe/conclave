@@ -19,6 +19,8 @@ import dev.conclave.client.model.ExportResult
 import dev.conclave.client.model.ExternalSessionInfo
 import dev.conclave.client.model.FileContent
 import dev.conclave.client.model.FileEntry
+import dev.conclave.client.model.FolderCheck
+import dev.conclave.client.model.FolderPath
 import dev.conclave.client.model.GatewayKey
 import dev.conclave.client.model.HubIdentity
 import dev.conclave.client.model.HubInfo
@@ -754,6 +756,14 @@ class ConclaveClient(
 
     suspend fun browse(device: String, path: String): List<FileEntry> =
         get(p("api", "devices", device, "files"), ListSerializer(FileEntry.serializer()), mapOf("path" to path))
+
+    /** Whether a folder is at the path on the device ("~" is its home): the folder sheet asks before Start. */
+    suspend fun folderCheck(device: String, path: String): FolderCheck =
+        get(p("api", "devices", device, "folder"), FolderCheck.serializer(), mapOf("path" to path))
+
+    /** Make the folder (and its parents) on the device. */
+    suspend fun makeFolder(device: String, path: String): FolderCheck =
+        send("POST", p("api", "devices", device, "folder"), FolderPath.serializer(), FolderPath(path), FolderCheck.serializer())
 
     suspend fun readDeviceFile(device: String, path: String): FileContent =
         get(p("api", "devices", device, "file"), FileContent.serializer(), mapOf("path" to path))

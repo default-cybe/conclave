@@ -1118,6 +1118,22 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     return c.json(await engine.browse(device, c.req.query('path') ?? ''));
   });
 
+  // the folder pickers ask before Choose or Start (core machine/folder-check.ts); 409 when the device is offline
+  app.get('/api/devices/:device/folder', async (c) => {
+    const device = c.req.param('device');
+    deviceMachine(device);
+    return c.json(await engine.folderCheck(device, requireString(c.req.query('path'), 'path')));
+  });
+
+  app.post('/api/devices/:device/folder', async (c) => {
+    const device = c.req.param('device');
+    deviceMachine(device);
+    const path = requireString((await readJson<{ path?: unknown }>(c)).path, 'path');
+    const made = await engine.makeFolder(device, path);
+    audit(c, 'device.folder.create', made.path, { device });
+    return c.json(made);
+  });
+
   app.get('/api/devices/:device/file', async (c) => {
     const device = c.req.param('device');
     deviceMachine(device);
