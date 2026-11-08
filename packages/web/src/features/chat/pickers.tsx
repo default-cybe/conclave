@@ -17,6 +17,7 @@ import { ModelList, ModelPicker } from '@/components/pickers/ModelPicker';
 import { placeName } from '@/features/home/start';
 import { computerList } from '@/features/home/Where';
 import { MODES, PERMISSION_MODES } from './modes';
+import { FolderCheckNote, useFolderCheck } from './folderCheck';
 
 export { AgentPicker } from '@/components/pickers/Pickers';
 
@@ -55,6 +56,8 @@ export function DeviceFolderPicker({
   const [path, setPath] = useState(cwd ?? '');
   // the hub first, by its name ("madx (hub)"), then the computers
   const list = computerList(devices);
+  // the folder is asked of the device before Set (folderCheck.tsx)
+  const check = useFolderCheck(device, open && onCwd ? path : '');
   return (
     <>
       <PickerButton
@@ -100,6 +103,7 @@ export function DeviceFolderPicker({
             className="border-t border-rule p-2"
             onSubmit={(e) => {
               e.preventDefault();
+              if (!check.ready) return;
               onCwd(path.trim() || '~');
               setOpen(false);
             }}
@@ -109,10 +113,11 @@ export function DeviceFolderPicker({
             </label>
             <div className="flex gap-1.5">
               <Input id="chat-folder" mono size="sm" value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/code/project" className="flex-1" />
-              <Button type="submit" size="md" variant="outline">
+              <Button type="submit" size="md" variant="outline" disabled={!check.ready}>
                 Set
               </Button>
             </div>
+            <FolderCheckNote check={check} className="mt-1.5 px-1" />
             {d?.roots?.length ? (
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 px-1">
                 {d.roots.map((r) => (

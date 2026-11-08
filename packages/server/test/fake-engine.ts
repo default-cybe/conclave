@@ -813,6 +813,13 @@ export function createFakeEngine(overrides: Partial<ConclaveConfig> = {}): FakeE
       const m = registry.get(device)!;
       return (await m.readdir(path || '/home/me')).map((e) => ({ ...e, path: `${path}/${e.name}` }));
     },
+    async folderCheck(device, path) {
+      return { path, exists: (await registry.get(device)!.stat(path))?.type === 'dir' };
+    },
+    async makeFolder(device, path) {
+      await registry.get(device)!.mkdir(path);
+      return { path, exists: true };
+    },
     async readDeviceFile(device, path) {
       return { content: await registry.get(device)!.readText(path), truncated: false };
     },

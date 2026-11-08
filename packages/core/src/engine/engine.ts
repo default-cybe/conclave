@@ -98,6 +98,7 @@ import { QUEUE_KEY, SessionRunner, canResumeStopped, type StoredQueued } from '.
 import { fallbackPolicyFor } from '../session/limit-tree';
 import { RunnerExtensions } from '../session/runner-ext';
 import { OfflineMachine, isOfflineError, waitForReturn } from '../projects/offline';
+import { noFolderLine, type FolderCheckDto } from '../machine/folder-check';
 import { checkMcpOff, mcpOff, sessionAllowsServerTool } from '../session/connectors';
 import { projectsOf } from '../projects/attached';
 import { workflowsOf } from '../workflows/attached';
@@ -612,6 +613,12 @@ export class Engine implements EngineApi {
     const machine = this.devices.get(device) ?? this.deps.localMachine;
     // a member's session on the hub has no folder there: a placeholder, never the hub's home
     const cwd = input.cwd ?? (isMember(acct) && device === 'local' ? '~' : await this.safeHome(machine));
+    // a folder asked for must be there (machine/folder-check.ts). A hunt makes its own folder. An offline device
+    // cannot be checked: the pickers ask "Use anyway" first, so the session is made and the folder found when it is back
+    if (opts.byPerson && input.cwd !== undefined && !chat?.security && this.devices.get(device)) {
+      const there = await this.folderCheck(device, input.cwd).catch(() => undefined);
+      if (there && !there.exists) throw new EngineError(400, noFolderLine(input.cwd, this.devices.list().find((d) => d.id === device)?.name ?? device));
+    }
     const now = Date.now();
     const session: Session = {
       id: newId('ses'),
@@ -1844,6 +1851,18 @@ export class Engine implements EngineApi {
     const machine = this.machineById(device);
     const entries = await machine.readdir(path);
     return entries.map((e) => ({ name: e.name, path: path.replace(/\/$/, '') + '/' + e.name, type: e.type, size: e.size }));
+  }
+  /** Whether a folder is at `path` on a device ("~" is the device's home). Throws 404 when the device is not connected. */
+  async folderCheck(device: string, path: string): Promise<FolderCheckDto> {
+    const machine = this.machineById(device);
+    const abs = machine.resolve(path, (await this.machineHome(machine)) ?? '');
+    return { path: abs, exists: (await machine.stat(abs))?.type === 'dir' };
+  }
+  /** Make the folder (and its parents); every daemon has mkdir (machine/protocol.ts). */
+  async makeFolder(device: string, path: string): Promise<FolderCheckDto> {
+    const machine = this.machineById(device);
+    await machine.mkdir(machine.resolve(path, (await this.machineHome(machine)) ?? ''));
+    return this.folderCheck(device, path);
   }
   async readDeviceFile(device: string, path: string): Promise<{ content: string; truncated: boolean }> {
     const machine = this.machineById(device);

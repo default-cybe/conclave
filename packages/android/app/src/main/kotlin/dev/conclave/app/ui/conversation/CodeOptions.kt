@@ -28,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +57,7 @@ import dev.conclave.client.model.GithubRepo
 import dev.conclave.client.model.GithubStatus
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Code's "+" on Home after the files (docs/DESIGN.md 40): the computer when
@@ -146,6 +148,28 @@ fun CodeWhereSheet(
     var fromGithub by remember { mutableStateOf(github && (startGithub || d.repo != null)) }
     val device = d.device
     val folders = remember(sessions, device) { if (device == null) emptyList() else Panel.recentFolders(sessions, device) }
+    // the folder picked is asked of its device before Start; the hub refuses a missing one too (core machine/folder-check.ts)
+    val chosen = if (fromGithub) null else d.cwd
+    val online = device == Start.HUB || devices.firstOrNull { it.id == device }?.online == true
+    val deviceName = devices.firstOrNull { it.id == device }?.name?.ifBlank { null } ?: info?.name ?: device ?: ""
+    var check by remember { mutableStateOf(FolderState.OK) }
+    // an offline device cannot be checked: Start waits for an explicit "Use anyway"
+    var anyway by remember(device, chosen) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(device, chosen, online) {
+        check = FolderState.OK
+        if (device == null || chosen == null || !online) return@LaunchedEffect
+        check = FolderState.CHECKING
+        check = try {
+            if (hub.api { it.folderCheck(device, chosen) }.exists) FolderState.OK else FolderState.MISSING
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            FolderState.OK
+        }
+    }
+    val offline = device != null && chosen != null && !online
+    val folderReady = check == FolderState.OK && (!offline || anyway)
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state, containerColor = c.bgRaise) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
             Text("Where should it work?", style = ConclaveType.title, color = c.fg, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
@@ -197,17 +221,38 @@ fun CodeWhereSheet(
                 if (custom != null && custom != "~" && custom !in folders) {
                     ChoiceRow(Paths.folderName(custom).ifEmpty { custom }, selected = true, detail = Paths.shortPath(custom, 3), onClick = {})
                 }
+                if (chosen != null && check == FolderState.MISSING) {
+                    // the same words as the web and the hub's 400
+                    Text("No folder at $chosen on $deviceName", style = ConclaveType.meta, color = c.fault, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+                    TextButton(onClick = {
+                        scope.launch {
+                            check = try {
+                                if (hub.api { it.makeFolder(device, chosen) }.exists) FolderState.OK else FolderState.MISSING
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (_: Exception) {
+                                FolderState.MISSING
+                            }
+                        }
+                    }, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Create folder") }
+                } else if (offline) {
+                    Text("$deviceName is offline, the folder can't be checked", style = ConclaveType.meta, color = c.fg2, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+                    if (!anyway) TextButton(onClick = { anyway = true }, modifier = Modifier.padding(horizontal = 12.dp)) { Text("Use anyway") }
+                }
             }
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick = onDone,
-                enabled = d.device != null && (if (fromGithub) d.repo != null else d.cwd != null),
+                enabled = d.device != null && (if (fromGithub) d.repo != null else d.cwd != null && folderReady),
                 colors = solidButtonColors(),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(52.dp),
             ) { Text(done) }
         }
     }
 }
+
+/** The folder picked in CodeWhereSheet: there (or not checkable: OK), being asked, or not on the device. */
+private enum class FolderState { OK, CHECKING, MISSING }
 
 /**
  * A repository the hub's GitHub token can see, searched as you type, most

@@ -27,7 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.TextFieldDecorator
 import androidx.compose.foundation.text.input.TextFieldLineLimits
-import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -71,6 +71,7 @@ import dev.conclave.app.ui.motion.rim
 import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
 import dev.conclave.client.logic.Attach
+import dev.conclave.client.logic.ComposerText
 import dev.conclave.client.logic.ContextUse
 import dev.conclave.client.logic.Effort
 import dev.conclave.client.logic.EffortFollow
@@ -210,28 +211,19 @@ fun ChatComposer(
         if (granted) launchCamera() else onError("Camera permission denied")
     }
     // the field holds its own text so it can take pasted pictures (contentReceiver needs a TextFieldState)
-    val field = rememberTextFieldState(m.draft)
+    // not saved UI state: it starts from this chat's draft only, so a sent prompt cannot come back in a new chat (ComposerText)
+    val field = remember { TextFieldState(m.draft) }
     val draftNow = rememberUpdatedState(m.draft)
     val onDraftNow = rememberUpdatedState(m.onDraft)
-    // what the field sent up and the draft has not echoed back yet: an echo is not a change from outside
-    val sent = remember { ArrayDeque<String>() }
+    val sync = remember { ComposerText() }
     LaunchedEffect(field) {
         snapshotFlow { field.text.toString() }.collect { text ->
-            if (text == draftNow.value) return@collect
-            sent.addLast(text)
-            if (sent.size > 64) sent.removeFirst()
-            onDraftNow.value(text)
+            if (sync.fieldChanged(text, draftNow.value)) onDraftNow.value(text)
         }
     }
     LaunchedEffect(m.draft) {
-        val echo = sent.indexOf(m.draft)
-        if (echo >= 0) {
-            repeat(echo + 1) { sent.removeFirst() }
-        } else if (m.draft != field.text.toString()) {
-            // set from outside: voice, a slash command, cleared after Send, another chat's draft
-            sent.clear()
-            field.setTextAndPlaceCursorAtEnd(m.draft)
-        }
+        // set from outside: voice, a slash command, cleared after Send, another chat's draft
+        sync.draftChanged(m.draft, field.text.toString())?.let { field.setTextAndPlaceCursorAtEnd(it) }
     }
     val voice = rememberVoiceInput(
         onText = { partial -> m.onDraft(listOf(voiceBase, partial).filter { it.isNotBlank() }.joinToString(" ")) },

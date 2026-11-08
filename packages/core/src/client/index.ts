@@ -157,6 +157,9 @@ export type * from './projects';
 import type { CleanupInput, FolderGitDto, GithubBranchesDto, GithubIssueDto, GithubRepoDto, GithubStatusDto, MergeInput, OpenPrInput, PrDraft, PushInput, PushResult, RepoSessionDto, RepoSessionInput, WorktreeSessionInput } from './github';
 export type * from './github';
 export { sessionRepo } from './github';
+import type { FolderCheckDto } from '../machine/folder-check';
+export type { FolderCheckDto } from '../machine/folder-check';
+export { noFolderLine, offlineFolderLine } from '../machine/folder-check';
 // ----- workflow engine DTOs: block "workflows", docs/design/ROUND-IMPORT-PATHS-WORKFLOWS.md 3.17 -----
 import type {
   FindingVerdict,
@@ -2361,6 +2364,9 @@ export class ConclaveClient {
   updateDevice = (id: string, patch: { name?: string; roots?: string[] }) => this.request<Device>('PATCH', `/api/devices/${id}`, patch);
   deleteDevice = (id: string) => this.request<{ ok: true }>('DELETE', `/api/devices/${id}`);
   browse = (device: string, path: string) => this.request<FileEntryDto[]>('GET', `/api/devices/${device}/files`, undefined, { path });
+  /** Whether a folder is at the path on the device (machine/folder-check.ts). */
+  folderCheck = (device: string, path: string) => this.request<FolderCheckDto>('GET', `/api/devices/${device}/folder`, undefined, { path });
+  makeFolder = (device: string, path: string) => this.request<FolderCheckDto>('POST', `/api/devices/${device}/folder`, { path });
   readDeviceFile = (device: string, path: string) => this.request<{ content: string; truncated: boolean }>('GET', `/api/devices/${device}/file`, undefined, { path });
   externalSessions = (device = 'local') => this.request<ExternalSessionInfo[]>('GET', '/api/import/sessions', undefined, { device });
   importSession = (source: ExternalSessionInfo['source'], id: string, device = 'local') => this.request<Session>('POST', '/api/import', { source, id, device });

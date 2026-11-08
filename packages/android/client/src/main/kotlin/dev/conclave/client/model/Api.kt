@@ -429,6 +429,13 @@ data class ExportResult(val content: String = "", val filename: String = "")
 @Serializable
 data class FileContent(val content: String = "", val truncated: Boolean = false)
 
+/** GET /api/devices/:device/folder: is a folder at the path on that device (core machine/folder-check.ts). */
+@Serializable
+data class FolderCheck(val path: String = "", val exists: Boolean = false)
+
+@Serializable
+data class FolderPath(val path: String)
+
 @Serializable
 data class SchedulePreview(val next: List<Long> = emptyList(), val error: String? = null)
 

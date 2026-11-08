@@ -24,6 +24,7 @@ import { Input } from '@/components/ui/Field';
 import { Dialog } from '@/components/ui/Overlay';
 import { StateWord } from '@/components/ui/List';
 import { LoadingRows } from '@/components/ui/EmptyState';
+import { FolderCheckNote, useFolderCheck } from './folderCheck';
 
 type NotResolved = Extract<MoveResult, { resolved: false }>;
 
@@ -140,6 +141,9 @@ function FolderChooser({ req, onClose }: { req: ChooserRequest; onClose: () => v
   // the cwd may be a folder inside the project, so the project's own name comes first
   const projectName = useMemo(() => req.projectName || baseName(session?.cwd ?? ''), [req.projectName, session?.cwd]);
   const cloning = req.intent === 'clone';
+  // the folder is asked of the device: a typed path that is not there keeps Use and Clone off, with Create folder (folderCheck.tsx)
+  const [made, setMade] = useState(0);
+  const there = useFolderCheck(req.device, path, () => setMade((n) => n + 1));
 
   // list the folder
   useEffect(() => {
@@ -155,7 +159,7 @@ function FolderChooser({ req, onClose }: { req: ChooserRequest; onClose: () => v
     return () => {
       alive = false;
     };
-  }, [req.device, path, home]);
+  }, [req.device, path, home, made]);
 
   // how the folder compares with the old copy, a moment after the owner stops moving
   useEffect(() => {
@@ -221,10 +225,10 @@ function FolderChooser({ req, onClose }: { req: ChooserRequest; onClose: () => v
       <Button variant="quiet" onClick={onClose}>
         Cancel
       </Button>
-      <Button variant="outline" busy={busy === 'Moving' ? 'Moving' : false} onClick={() => void use({ allowMismatch: true })}>
+      <Button variant="outline" busy={busy === 'Moving' ? 'Moving' : false} disabled={!there.ready} onClick={() => void use({ allowMismatch: true })}>
         Use once
       </Button>
-      <Button variant="solid" busy={busy === 'Saving' ? 'Saving' : false} onClick={() => void use({ allowMismatch: true, remember: true })}>
+      <Button variant="solid" busy={busy === 'Saving' ? 'Saving' : false} disabled={!there.ready} onClick={() => void use({ allowMismatch: true, remember: true })}>
         Use and remember
       </Button>
     </>
@@ -233,7 +237,7 @@ function FolderChooser({ req, onClose }: { req: ChooserRequest; onClose: () => v
       <Button variant="quiet" onClick={onClose}>
         Cancel
       </Button>
-      <Button variant="solid" busy={busy === 'Cloning' ? 'Cloning' : false} disabled={!cloneUrl} onClick={() => void clone()}>
+      <Button variant="solid" busy={busy === 'Cloning' ? 'Cloning' : false} disabled={!cloneUrl || !there.ready} onClick={() => void clone()}>
         Clone here
       </Button>
     </>
@@ -243,11 +247,11 @@ function FolderChooser({ req, onClose }: { req: ChooserRequest; onClose: () => v
         Continue without files
       </Button>
       {cloneUrl && (
-        <Button variant="outline" busy={busy === 'Cloning' ? 'Cloning' : false} onClick={() => void clone()}>
+        <Button variant="outline" busy={busy === 'Cloning' ? 'Cloning' : false} disabled={!there.ready} onClick={() => void clone()}>
           Clone here
         </Button>
       )}
-      <Button variant="solid" busy={busy === 'Moving' || busy === 'Saving' ? busy : false} onClick={() => void use({})}>
+      <Button variant="solid" busy={busy === 'Moving' || busy === 'Saving' ? busy : false} disabled={!there.ready} onClick={() => void use({})}>
         Use this folder
       </Button>
     </>
@@ -293,6 +297,7 @@ function FolderChooser({ req, onClose }: { req: ChooserRequest; onClose: () => v
           Go
         </Button>
       </form>
+      <FolderCheckNote check={there} className="mt-2" />
 
       {!cloning && (
         <p aria-live="polite" className="mt-2 flex min-h-[20px] items-baseline gap-3 text-[13px] phone:text-[14px]">
@@ -302,7 +307,7 @@ function FolderChooser({ req, onClose }: { req: ChooserRequest; onClose: () => v
       )}
 
       <div className="mt-2 max-h-[38vh] min-h-[120px] overflow-y-auto border-t border-rule phone:max-h-[34vh]">
-        {browseError ? (
+        {there.state === 'missing' ? null : browseError ? (
           <p className="py-3 text-[13px] text-fault">{browseError}</p>
         ) : !entries ? (
           <LoadingRows loading rows={4} />

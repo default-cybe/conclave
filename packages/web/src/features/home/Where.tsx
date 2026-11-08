@@ -14,7 +14,9 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
 import { Popover, type MenuItem } from '@/components/ui/Overlay';
 import { PickerButton } from '@/components/ui/Select';
+import { StateWord } from '@/components/ui/List';
 import { placeName } from './start';
+import { FolderCheckNote, useFolderCheck, useMissingFolders } from '@/features/chat/folderCheck';
 
 const CHIP = 'h-[24px] text-[12px] phone:text-[13px]';
 
@@ -46,6 +48,9 @@ export function FolderChip({ device, cwd, onCwd, open: openProp, onOpenChange }:
     onCwd(p.trim() || '~');
     setOpen(false);
   };
+  // a typed path is asked of the device; a recent one that is gone is marked, not offered (features/chat/folderCheck.tsx)
+  const check = useFolderCheck(device, open ? path : '');
+  const gone = useMissingFolders(device, open ? known : []);
   const shown = cwd && cwd !== '~' ? shortPath(cwd, 2) : undefined;
   return (
     <>
@@ -57,7 +62,7 @@ export function FolderChip({ device, cwd, onCwd, open: openProp, onOpenChange }:
           className="p-2"
           onSubmit={(e) => {
             e.preventDefault();
-            set(path);
+            if (check.ready) set(path);
           }}
         >
           <label className="mb-1.5 block px-1 text-[12px] text-fg-3 phone:hidden" htmlFor="where-folder">
@@ -65,16 +70,18 @@ export function FolderChip({ device, cwd, onCwd, open: openProp, onOpenChange }:
           </label>
           <div className="flex gap-1.5">
             <Input id="where-folder" autoFocus mono size="sm" value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/code/project" autoCapitalize="off" autoCorrect="off" spellCheck={false} className="flex-1" />
-            <Button type="submit" size="md" variant="outline">
+            <Button type="submit" size="md" variant="outline" disabled={!check.ready}>
               Use
             </Button>
           </div>
+          <FolderCheckNote check={check} className="mt-1.5 px-1" />
         </form>
         {known.length > 0 && (
           <div className="border-t border-rule p-1" role="listbox" aria-label="Recent folders">
             {known.map((k) => (
-              <button key={k} type="button" role="option" aria-selected={k === cwd} onClick={() => set(k)} className={cn('flex min-h-[30px] w-full items-center rounded-[var(--r-1)] px-2 text-left font-mono text-[12.5px] hov:bg-hover phone:min-h-11 phone:text-[14px]', k === cwd ? 'text-fg' : 'text-fg-2')}>
-                <span className="truncate">{k}</span>
+              <button key={k} type="button" role="option" aria-selected={k === cwd} aria-disabled={gone.has(k) || undefined} onClick={() => !gone.has(k) && set(k)} className={cn('flex min-h-[30px] w-full items-center gap-2 rounded-[var(--r-1)] px-2 text-left font-mono text-[12.5px] phone:min-h-11 phone:text-[14px]', gone.has(k) ? 'cursor-default text-fg-3' : 'hov:bg-hover', !gone.has(k) && (k === cwd ? 'text-fg' : 'text-fg-2'))}>
+                <span className="min-w-0 flex-1 truncate">{k}</span>
+                {gone.has(k) && <StateWord tone="warn">missing</StateWord>}
               </button>
             ))}
           </div>
