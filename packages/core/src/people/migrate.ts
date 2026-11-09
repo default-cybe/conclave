@@ -40,11 +40,15 @@ export function emailKey(email: string | null | undefined): string | undefined {
 /** The single hub password from before accounts (kv), which was the owner's. */
 export const OLD_PASSWORD_KEY = 'auth.password';
 
-export function migratePeople(db: Database, now = Date.now()): void {
+/**
+ * newDb: openDb found the file with no tables, so this run creates the hub.
+ * Only then does the owner start with Security and Canvas off; an upgrade
+ * (any hub that had tables, with or without sessions or an owner row) never
+ * turns a mode off.
+ */
+export function migratePeople(db: Database, now = Date.now(), newDb = false): void {
   db.transaction(() => {
-    // a new hub's owner starts with Security and Canvas off; one from before accounts (sessions already there) keeps them on
-    const has = (t: string) => !!db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t);
-    const fresh = !has('hub_accounts') && !(has('sessions') && db.query('SELECT 1 FROM sessions LIMIT 1').get());
+    const fresh = newDb && !(db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'hub_accounts'").get() && db.query('SELECT 1 FROM hub_accounts WHERE id = ?').get(OWNER_ID));
     db.exec(PEOPLE_SCHEMA);
     db.query('INSERT OR IGNORE INTO hub_accounts (id, name, name_key, role, settings, created_at, updated_at) VALUES (?,?,?,?,?,?,?)').run(OWNER_ID, 'owner', 'owner', 'owner', fresh ? JSON.stringify({ modes: NEW_ACCOUNT_MODES }) : '{}', now, now);
     // display names: an account from before them starts with its sign-in name, the owner's default "owner" with none.
