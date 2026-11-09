@@ -170,6 +170,25 @@ describe('the migration', () => {
     expect(JSON.stringify(db.query('SELECT * FROM hub_accounts ORDER BY id').all())).toBe(before);
   });
 
+  test('modes: a new hub’s owner and a new member start with Security and Canvas off; an account from before keeps them on', () => {
+    const fresh = new PeopleStore(openDb(':memory:'));
+    expect(fresh.owner().settings.modes).toEqual({ security: false, canvas: false });
+    expect(fresh.create({ name: 'mia' }).settings.modes).toEqual({ security: false, canvas: false });
+    // the owner grants keep the modes default unless given
+    expect(fresh.create({ name: 'ned', settings: { webSearch: true } }).settings).toEqual({ modes: { security: false, canvas: false }, webSearch: true });
+    // a hub from before accounts with sessions: its owner was using it, so nothing is hidden
+    const db = openDb(':memory:');
+    new Repos(db).sessions.insert(session('ses_old'));
+    db.exec('DROP TABLE hub_accounts');
+    migratePeople(db);
+    expect(new PeopleStore(db).owner().settings.modes).toBeUndefined();
+    // a hub that already had its owner row keeps it as it was
+    const old = openDb(':memory:');
+    old.query("UPDATE hub_accounts SET settings = '{}' WHERE id = ?").run(OWNER_ID);
+    migratePeople(old);
+    expect(new PeopleStore(old).owner().settings.modes).toBeUndefined();
+  });
+
   test('every table is classed once: an account’s, a child of one, or the hub’s', () => {
     const lists = [...ACCOUNT_TABLES, ...Object.keys(CHILD_TABLES), ...HUB_TABLES];
     expect(lists.length).toBe(new Set(lists).size);

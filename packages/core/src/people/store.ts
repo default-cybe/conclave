@@ -10,7 +10,7 @@ import { newId } from '../util/ids';
 import { OWNER_ID } from './context';
 import { ACCOUNT_TABLES, CHILD_TABLES } from './tables';
 import { emailKey, migratePeople } from './migrate';
-import { DISPLAY_NAME_MAX, contactName, displayNameProblem, tidyDisplayName } from '../client/people';
+import { DISPLAY_NAME_MAX, NEW_ACCOUNT_MODES, contactName, displayNameProblem, tidyDisplayName, type ModesPreference } from '../client/people';
 
 export { migratePeople };
 
@@ -34,6 +34,8 @@ export interface AccountSettings {
   splitView?: string[];
   /** Models pinned at the top of the model picker, shared by the person's devices (at most PINS_MAX). */
   pinnedModels?: string[];
+  /** Security and Canvas shown or hidden (GET /api/me preferences.modes). Missing: an account from before the setting, both on. */
+  modes?: ModesPreference;
   /** A member's own usage fallback (session/member-fallbacks.ts): models only, each one they can call. The owner's is models.limitFallback. */
   usageFallback?: LimitFallbackConfig;
   /** A member's own refusal fallback: entries without accounts, each a model they can call. The owner's is models.refusalFallback. */
@@ -195,7 +197,7 @@ export class PeopleStore {
     const now = Date.now();
     this.db
       .query('INSERT INTO hub_accounts (id, name, name_key, display_name, email, email_key, role, settings, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
-      .run(id, name, name.toLowerCase(), displayName, email ?? null, emailKey(email) ?? null, 'member', JSON.stringify(input.settings ?? {}), now, now);
+      .run(id, name, name.toLowerCase(), displayName, email ?? null, emailKey(email) ?? null, 'member', JSON.stringify({ modes: NEW_ACCOUNT_MODES, ...input.settings }), now, now);
     this.fresh();
     return this.get(id)!;
   }

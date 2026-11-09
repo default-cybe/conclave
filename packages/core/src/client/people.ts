@@ -96,6 +96,19 @@ export const SPLIT_MAX = 4;
 /** The most models pinned at the top of the model picker. */
 export const PINS_MAX = 50;
 
+/** The modes a person may hide (Settings, Modes). Chat, Assistant and Code are always on. */
+export type OptionalMode = 'security' | 'canvas';
+export type ModesPreference = Record<OptionalMode, boolean>;
+
+/** A new account starts with both off; one from before the setting has none saved and keeps both on. */
+export const NEW_ACCOUNT_MODES: ModesPreference = { security: false, canvas: false };
+
+/**
+ * A mode is shown unless the person turned it off. It hides the mode only:
+ * its sessions still open and the hub still serves its APIs.
+ */
+export const modeOn = (p: Pick<MePreferences, 'modes'> | undefined, mode: OptionalMode): boolean => p?.modes?.[mode] !== false;
+
 export interface MePreferences {
   defaultModel?: string;
   smallModel?: string;
@@ -106,6 +119,8 @@ export interface MePreferences {
   splitView?: string[];
   /** Models pinned at the top of the model picker, on every device: refs, at most PINS_MAX. */
   pinnedModels?: string[];
+  /** Security and Canvas shown or hidden. Missing: an account from before the setting (both on, Home says they can be turned off). */
+  modes?: ModesPreference;
 }
 
 export interface AccountUsage {
@@ -145,6 +160,8 @@ export interface MePatch {
   splitView?: string[] | null;
   /** The whole pinned list, at most PINS_MAX refs; null or [] clears it. */
   pinnedModels?: string[] | null;
+  /** Show or hide Security and Canvas; a key left out keeps its value. */
+  modes?: Partial<ModesPreference>;
   /** A member's own usage fallback: models they can call, first tried first. null clears it. The owner's is models.limitFallback in /api/config. */
   usageFallback?: { enabled?: boolean; models?: string[] } | null;
   /** A member's own refusal fallback: models they can call, no accounts. null clears it. The owner's is models.refusalFallback. */
