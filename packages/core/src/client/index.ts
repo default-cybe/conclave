@@ -409,7 +409,17 @@ export interface Attachment {
   data?: string;
   /** Path on the session's device (read by the hub). */
   path?: string;
+  /** A file uploaded first (POST /api/uploads); the hub reads it from the sender's uploads. */
+  uploadId?: string;
   name?: string;
+}
+
+/** What POST /api/uploads answers: the id a message names the file by. */
+export interface UploadedFile {
+  id: string;
+  name: string;
+  mediaType: string;
+  size: number;
 }
 
 /** One person's membership in a chat (docs/design/SHARED-WITH-MEMBERS.md 6): shown name only. */
@@ -2407,6 +2417,23 @@ export class ConclaveClient {
     }
     if (!res.ok) throw new ApiError(res.status, (data as { error?: string })?.error ?? res.statusText, data);
     return data as ImportUploadResult;
+  };
+  /** One file of a message, sent as its raw bytes (core attachments/uploads.ts); the message then names it by `id`. */
+  upload = async (file: Blob, name: string, type?: string): Promise<UploadedFile> => {
+    const check = this.guard();
+    if (check) await check;
+    const headers: Record<string, string> = { 'content-type': 'application/octet-stream' };
+    if (this.token) headers.authorization = `Bearer ${this.token}`;
+    const res = await this.f(`${this.baseUrl}/api/uploads${qs({ name, type: type || undefined })}`, { method: 'POST', headers, body: file });
+    const text = await res.text();
+    let data: unknown = undefined;
+    try {
+      data = text ? JSON.parse(text) : undefined;
+    } catch {
+      data = text;
+    }
+    if (!res.ok) throw new ApiError(res.status, (data as { error?: string })?.error ?? res.statusText, data);
+    return data as UploadedFile;
   };
   syncImported = (sessionId: string) => this.request<ImportSyncResult>('POST', `/api/import/sessions/${encodeURIComponent(sessionId)}/sync`);
   importRetention = (device = 'local') => this.request<ImportRetention[]>('GET', '/api/import/retention', undefined, { device });

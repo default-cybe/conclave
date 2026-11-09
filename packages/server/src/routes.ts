@@ -26,6 +26,8 @@ import { browserConfigProblems } from '@conclave/core/browser/engine.ts';
 import { buildBundle } from '@conclave/core/session/share.ts';
 import { trimMessage } from '@conclave/core/session/trim.ts';
 import { INLINE_TYPES } from '@conclave/core/files/share.ts';
+import { putUpload, removeUpload, uploadMaxBytes, UploadRefused } from '@conclave/core/attachments/uploads.ts';
+import { forgetDiskUse } from '@conclave/core/people/disk.ts';
 import type { ShareOptions } from '@conclave/core/client/share.ts';
 import type { HonoEnv, ServerContext } from './context';
 import { HttpError, PUBLIC_BODY_MAX, auditFor, badRequest, clientIp, isDirectLocal, notFound, optBool, qBool, qNum, readBody, readJson, requestOrigin, requireString } from './http';
@@ -448,6 +450,35 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     const block = view?.content[Number(c.req.param('index'))];
     if (!block) throw notFound('unknown block');
     return c.json(block);
+  });
+
+  // one file of a message, streamed to the caller's own uploads folder; the message then names it by id (core attachments/uploads.ts)
+  app.post('/api/uploads', async (c) => {
+    const acct = accountOf(c);
+    const name = c.req.query('name') ?? '';
+    const max = uploadMaxBytes(engine.config.get().server.uploadMaxMb);
+    const length = Number(c.req.header('content-length'));
+    // sizes are checked before a byte is written: the cap per file, then a member's disk cap
+    if (Number.isFinite(length) && length > max) throw new HttpError(413, `${name || 'The file'} is over ${Math.round(max / 1024 / 1024)} MB, the most one file can be.`);
+    const full = engine.diskRefusal(acct, Number.isFinite(length) ? length : 0);
+    if (full) throw new HttpError(413, full);
+    try {
+      const up = await putUpload(engine.config.paths.home, acct, { name, mediaType: c.req.query('type') || c.req.header('content-type'), body: c.req.raw.body, max });
+      if (isMember(acct)) {
+        forgetDiskUse(acct);
+        // a body with no length: measured once written
+        const over = engine.diskRefusal(acct, 0);
+        if (over) {
+          await removeUpload(engine.config.paths.home, acct, up.id);
+          forgetDiskUse(acct);
+          throw new HttpError(413, over);
+        }
+      }
+      return c.json({ id: up.id, name: up.name, mediaType: up.mediaType, size: up.size });
+    } catch (err) {
+      if (err instanceof UploadRefused) throw new HttpError(err.status, err.message);
+      throw err;
+    }
   });
 
   app.post('/api/sessions/:id/messages', async (c) => {

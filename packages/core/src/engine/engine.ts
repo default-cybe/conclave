@@ -160,6 +160,7 @@ import { checkShareable, expandHome, outputsDir, usesOutputs, SHARE_MAX_BYTES, t
 import { SqliteMemory } from '../memory/store';
 import { MemoryConnections, MemoryConnectionService } from '../memory/connections';
 import { ATTACHMENT_LOST, prepareAttachments, type ZipHost } from '../attachments/prepare';
+import { getUpload, removeUpload } from '../attachments/uploads';
 import { mediaTypeFor } from '../attachments/limits';
 import { isModelImage } from '../attachments/image';
 import { checkMemberRefusalList, checkMemberUsageList, memberCanUse } from '../session/member-fallbacks';
@@ -960,13 +961,15 @@ export class Engine implements EngineApi {
       const m = this.addMessage(id, { role: 'user', kind: 'normal', content: [{ type: 'text', text: input.text }] });
       return { queued: false, messageId: m.id };
     }
-    // 15 files at most, and a zip turned into what the session can use (attachments/prepare.ts)
+    // any number of files; what the model reads goes inline, the rest is saved (attachments/prepare.ts)
     const prepared = await prepareAttachments(input.attachments, this.zipHost(s));
     // a file the hub could not read is never dropped silently: the sender chooses to go without it
     if (prepared.lost.length && input.attachmentLoss !== 'drop') {
       const names = prepared.lost.join(', ');
       throw new EngineError(409, `${ATTACHMENT_LOST}${names} could not be read. Send again to go without ${prepared.lost.length === 1 ? 'it' : 'them'}.`);
     }
+    // an upload a message took is gone from the uploads folder: what it became is in the message or the session's folder
+    for (const a of input.attachments ?? []) if (typeof a.uploadId === 'string') void removeUpload(this.config.paths.home, this.accountOf(s), a.uploadId).catch(() => {});
     // an imported chat the owner writes in leaves Imported: unarchived, a normal conversation from here (session/imported.ts)
     if (inImported(s)) {
       const next = { ...s, ...continuedPatch(s), updatedAt: Date.now() };
@@ -1030,6 +1033,8 @@ export class Engine implements EngineApi {
         const m = this.machineFor(s);
         return m.readFile(m.resolve(path, s.cwd || '~'));
       },
+      // the session's account's uploads only: someone else's id is unknown here
+      upload: (id) => getUpload(this.config.paths.home, this.accountOf(s), id),
     };
   }
 

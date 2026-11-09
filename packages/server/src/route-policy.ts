@@ -119,6 +119,8 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'GET /api/sessions/:id/messages': SEAT,
   'GET /api/sessions/:id/messages/:msgId/blocks/:index': SEAT,
   'POST /api/sessions/:id/messages': SEAT,
+  // the upload lands in the caller's own uploads folder (core attachments/uploads.ts)
+  'POST /api/uploads': 'self',
   'GET /api/sessions/:id/queue': SESSION,
   'DELETE /api/sessions/:id/queue/:pendingId': SESSION,
   'POST /api/sessions/:id/queue/:pendingId/send': SESSION,

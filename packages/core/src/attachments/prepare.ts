@@ -38,6 +38,8 @@ export interface ZipHost {
   save(name: string, bytes: Uint8Array): Promise<string>;
   /** A file on the session's device, for a zip attached by path. */
   read(path: string): Promise<Uint8Array>;
+  /** The sender's upload `id` (attachments/uploads.ts) with the hub path of its bytes, or undefined. */
+  upload?(id: string): { path: string; name: string; mediaType: string; size: number } | undefined;
 }
 
 /** Prefix of the 409 that names the files a send would lose; the apps offer to send without them. */
@@ -71,6 +73,15 @@ export function saveName(label: string): string {
   return /\.zip$/i.test(clean) ? clean : `${clean}.zip`;
 }
 
+/** An uploaded file as the inline file it stands for; one the hub does not have is refused. */
+async function fromUpload(a: Attachment, host: ZipHost): Promise<Attachment> {
+  if (a.uploadId === undefined) return a;
+  const up = typeof a.uploadId === 'string' ? host.upload?.(a.uploadId) : undefined;
+  if (!up) throw new EngineError(400, `${a.name ?? 'A file'} is no longer on the hub. Attach it again.`);
+  const { uploadId: _u, ...rest } = a;
+  return { ...rest, name: a.name ?? up.name, mediaType: a.mediaType || up.mediaType, data: Buffer.from(await Bun.file(up.path).arrayBuffer()).toString('base64') };
+}
+
 function textDoc(name: string, text: string): Attachment {
   return { mediaType: 'text/plain', data: Buffer.from(text, 'utf8').toString('base64'), name };
 }
@@ -91,6 +102,7 @@ function partOf(a: Attachment): PartKind {
  */
 export async function prepareAttachments(list: Attachment[] | undefined, host: ZipHost): Promise<PreparedAttachments> {
   if (!list?.length) return { attachments: list, receipts: [], lost: [] };
+  list = await Promise.all(list.map((a) => fromUpload(a, host)));
   const receipts: AttachmentReceipt[] = [];
   const lost: string[] = [];
   const unreadable = (name: string): AttachmentReceipt => {
