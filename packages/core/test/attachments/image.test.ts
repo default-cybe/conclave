@@ -47,7 +47,7 @@ describe('sniffing', () => {
   });
 
   test('not pictures: text, a video ftyp, "BM" text, a short file, HTML', () => {
-    for (const b of [bytes('hello'), ftyp('isom', 'mp41'), bytes('BMW is a car maker, not a bitmap at all'), bytes([0x89, 0x50]), bytes('<!doctype html><html>'), new Uint8Array()]) expect(sniffImageType(b)).toBeUndefined();
+    for (const b of [bytes('hello'), ftyp('isom', 'mp41'), bytes('BMW is a car maker, not a bitmap at all'), bytes([0x89, 0x50]), bytes('<!doctype html><html>'), bytes('<!--' + '--><!--'.repeat(100)), bytes('<?xml version="1.0"'), new Uint8Array()]) expect(sniffImageType(b)).toBeUndefined();
   });
 });
 

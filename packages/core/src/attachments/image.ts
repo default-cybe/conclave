@@ -56,9 +56,18 @@ export function sniffImageType(b: Uint8Array): string | undefined {
   const iso = ftypImage(b);
   if (iso) return iso;
   // SVG: markup whose first element (after a prolog, comments or a doctype) is <svg
-  const head = new TextDecoder('utf-8').decode(b.subarray(0, SNIFF_BYTES)).replace(/^\uFEFF/, '').trimStart();
-  if (head.startsWith('<') && /^(?:<\?xml[^>]*>\s*|<!--[\s\S]*?-->\s*|<!DOCTYPE[^>]*>\s*)*<svg[\s>]/i.test(head)) return 'image/svg+xml';
-  return undefined;
+  let head = new TextDecoder('utf-8').decode(b.subarray(0, SNIFF_BYTES)).replace(/^\uFEFF/, '').trimStart();
+  // skipped with indexOf, not one regex: a prolog regex backtracks badly on crafted input (CodeQL js/redos)
+  for (;;) {
+    const lower = head.slice(0, 9).toLowerCase();
+    let end: number;
+    if (lower.startsWith('<?xml') || lower === '<!doctype') end = head.indexOf('>') + 1;
+    else if (head.startsWith('<!--')) end = head.indexOf('-->', 4) + 3;
+    else break;
+    if (end < 3) return undefined;
+    head = head.slice(end).trimStart();
+  }
+  return /^<svg[\s>]/i.test(head) ? 'image/svg+xml' : undefined;
 }
 
 /** "HEIC", "AVIF", "SVG": a picture type's name for the words. */
