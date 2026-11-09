@@ -26,10 +26,16 @@ object Attachments {
 
     suspend fun fromUri(context: Context, uri: Uri): Attachment = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
-        val type = resolver.getType(uri) ?: "application/octet-stream"
         val name = displayName(context, uri)
+        // some pickers give a phone's HEIC no type: the extension says it is a picture
+        val type = resolver.getType(uri)?.takeUnless { it == "application/octet-stream" } ?: pictureTypeOf(name) ?: "application/octet-stream"
         if (type.startsWith("image/") && type != "image/gif") {
-            val jpeg = downscaleImage(context, uri)
+            // every picture but a GIF goes as JPEG: a HEIC, AVIF or BMP is one no model reads (core attachments/image.ts)
+            val jpeg = try {
+                downscaleImage(context, uri)
+            } catch (e: IOException) {
+                throw IOException("$name could not be turned into a JPEG on this phone. Save it as PNG or JPEG and attach it again.", e)
+            }
             Attachment(mediaType = "image/jpeg", data = Base64.getEncoder().encodeToString(jpeg), name = name)
         } else {
             val bytes = resolver.openInputStream(uri)?.use { readAtMost(it, name) } ?: throw IOException("Cannot read $name")
@@ -50,6 +56,14 @@ object Attachments {
         }
     }
 
+    private val PICTURE_EXT = mapOf(
+        "heic" to "image/heic", "heif" to "image/heif", "avif" to "image/avif", "bmp" to "image/bmp",
+        "tif" to "image/tiff", "tiff" to "image/tiff", "jpg" to "image/jpeg", "jpeg" to "image/jpeg",
+        "png" to "image/png", "webp" to "image/webp",
+    )
+
+    private fun pictureTypeOf(name: String): String? = PICTURE_EXT[name.substringAfterLast('.', "").lowercase()]
+
     private fun displayName(context: Context, uri: Uri): String {
         context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
             if (c.moveToFirst()) {
@@ -60,7 +74,7 @@ object Attachments {
         return uri.lastPathSegment ?: "attachment"
     }
 
-    /** Decodes with subsampling, scales the long edge to [MAX_EDGE] and re-encodes as JPEG. */
+    /** Decodes with subsampling (HEIC from Android 9, AVIF from 12), scales the long edge to [MAX_EDGE] and re-encodes as JPEG. */
     private fun downscaleImage(context: Context, uri: Uri): ByteArray {
         val resolver = context.contentResolver
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }

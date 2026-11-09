@@ -14,11 +14,18 @@
  * A file the hub cannot read (a device path that went away) is dropped from
  * the message instead, with a receipt saying so; engine.send asks for an
  * explicit choice before it goes on without one (ATTACHMENT_LOST).
+ *
+ * Every other file is checked by its bytes (attachments/image.ts): a declared
+ * type the bytes contradict is corrected, and a picture no model reads (HEIC,
+ * AVIF, TIFF, BMP) refuses the message with the reason, so it never lands in
+ * the history where every later turn would resend it.
  */
 import type { Attachment } from '../client/index';
 import type { AttachmentReceipt } from '../types';
 import { EngineError } from '../engine/errors';
-import { isZip, MAX_ATTACHMENTS, TOO_MANY_FILES } from './limits';
+import { checkPicture, isModelImage, SNIFF_BYTES } from './image';
+import { base64Head } from '../providers/common';
+import { isZip, MAX_ATTACHMENTS, mediaTypeFor, TOO_MANY_FILES } from './limits';
 import { checkAll, listingNote, openZip, readForChat, ZipRefused } from './zip';
 
 export interface ZipHost {
@@ -68,7 +75,7 @@ function textDoc(name: string, text: string): Attachment {
 type PartKind = 'image' | 'pdf' | 'text';
 
 function partOf(a: Attachment): PartKind {
-  if (a.mediaType.startsWith('image/')) return 'image';
+  if (isModelImage(a.mediaType)) return 'image';
   if (a.mediaType === 'application/pdf') return 'pdf';
   return 'text';
 }
@@ -88,13 +95,23 @@ export async function prepareAttachments(list: Attachment[] | undefined, host: Z
     lost.push(name);
     return { name, state: 'omitted', reason: 'could not be read from the device' };
   };
+  // the file checked by its bytes: as it was, with its type corrected, or undefined when the device cannot give it; a picture no model reads throws
+  const checked = async (a: Attachment): Promise<Attachment | undefined> => {
+    if (!a.data && !a.path) return a;
+    const head = a.data ? base64Head(a.data) : await host.read(a.path!).then((b) => b.subarray(0, SNIFF_BYTES), () => undefined);
+    if (!head) return undefined;
+    const r = checkPicture(head, mediaTypeFor(a.mediaType, a.name ?? a.path), pickedName(a));
+    if ('refused' in r) throw new EngineError(400, r.refused);
+    return r.mediaType === a.mediaType ? a : { ...a, mediaType: r.mediaType };
+  };
   const take = (a: Attachment, as?: Attachment[]): AttachmentReceipt => ({ name: pickedName(a), state: 'prepared', ...(as?.length ? { as: as.map((x) => x.name ?? pickedName(x)) } : {}), ...(as?.length ? { parts: as.map(partOf) } : { parts: [partOf(a)] }) });
   if (!list.some((a) => isZip(a.mediaType, a.name ?? a.path))) {
     // no zip to open; a file by path the hub cannot read is dropped now, so the sender chooses
     const out: Attachment[] = [];
-    for (const a of list) {
-      if (!a.data && a.path && !(await host.read(a.path).then(() => true, () => false))) {
-        receipts.push(unreadable(pickedName(a)));
+    for (const picked of list) {
+      const a = await checked(picked);
+      if (!a) {
+        receipts.push(unreadable(pickedName(picked)));
         continue;
       }
       out.push(a);
@@ -109,12 +126,13 @@ export async function prepareAttachments(list: Attachment[] | undefined, host: Z
   try {
     for (const a of list) {
       if (!isZip(a.mediaType, a.name ?? a.path)) {
-        if (!a.data && a.path && !(await host.read(a.path).then(() => true, () => false))) {
+        const file = await checked(a);
+        if (!file) {
           receipts.push(unreadable(pickedName(a)));
           continue;
         }
-        out.push(a);
-        receipts.push(take(a));
+        out.push(file);
+        receipts.push(take(file));
         continue;
       }
       const label = zipLabel(a);

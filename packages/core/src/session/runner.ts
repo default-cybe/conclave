@@ -26,6 +26,8 @@ import { delegateCatalog } from '../engine/delegate';
 import { flattenLastToolTurn, isTranscriptShapeError } from './pairing';
 import { streamCompletion, takeCallTimings, type Served } from './stream';
 import { isTextOnlyImageError, transcribeImages } from './image-text';
+import { dropNewestImage } from './bad-image';
+import { isUnreadableImageError } from '../providers/errors';
 import { seesImages } from '../providers/common';
 import { pickedName } from '../attachments/prepare';
 import { refusalPlanFor } from './member-fallbacks';
@@ -1162,6 +1164,8 @@ export class SessionRunner {
     let shapeRetry: 'unused' | 'next' | 'used' = 'unused';
     /** Set once a model the config says sees images answered "text only": the rest of the turn sends images as text. */
     let textOnly = false;
+    /** One retry per turn after the API could not decode a picture: the newest one leaves the history first (session/bad-image.ts). */
+    let imageRetried = false;
     /** Models that hit a limit this turn: a limit fallback never goes back to one. */
     const limited: string[] = [];
     const maxSteps = this.stepBudget();
@@ -1316,6 +1320,17 @@ export class SessionRunner {
             textOnly = true;
             log.warn(`${currentModel} in ${this.id} takes no images; retrying with them transcribed: ${oneLine(err.message, 160)}`);
             continue;
+          }
+          // a picture the API could not decode stays in every later request: take the newest out of the history and retry once
+          if (!imageRetried && isUnreadableImageError(err)) {
+            imageRetried = true;
+            const name = dropNewestImage(activeMessages(activeStored(engine.repos.messages, this.id)), (id, content) => engine.updateMessage(id, { content }));
+            if (name) {
+              this.meter = undefined;
+              log.warn(`${currentModel} in ${this.id} could not read an image; left out ${name} and retrying: ${oneLine(err.message, 160)}`);
+              engine.notice(this.id, `An image could not be read by the model and was left out: ${name}.`, 'warning');
+              continue;
+            }
           }
           if (err.kind === 'context_length' && mayCompact) {
             if (await maybeCompact(engine, this.id, currentModel, signal, 'auto')) {

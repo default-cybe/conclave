@@ -13,17 +13,24 @@ const saved = g.FileReader;
 let finish: () => void = () => {};
 
 beforeAll(() => {
-  // a FileReader that finishes when the test says so
+  // a FileReader that finishes when the test says so, even when it says so before the read starts (the picture check comes first)
   g.FileReader = class {
     result = '';
     onload: (() => void) | null = null;
     onerror: (() => void) | null = null;
     readAsDataURL(f: File) {
       this.result = `data:${f.type};base64,aGk=`;
-      finish = () => this.onload?.();
+      const done = () => this.onload?.();
+      if (finished) done();
+      else finish = done;
     }
   };
 });
+let finished = false;
+const finishNow = () => {
+  finished = true;
+  finish();
+};
 afterAll(() => {
   g.FileReader = saved;
 });
@@ -34,13 +41,13 @@ test('a read that ends after a chat switch attaches nothing', async () => {
   const shown = { current: 's1' };
   const read = readPickedFor('s1', shown, [], [file()], 1024);
   shown.current = 's2';
-  finish();
+  finishNow();
   expect(await read).toEqual([]);
 });
 
 test('a read that ends in the same chat attaches the file', async () => {
   const shown = { current: 's1' };
   const read = readPickedFor('s1', shown, [], [file()], 1024);
-  finish();
+  finishNow();
   expect((await read).map((f) => f.name)).toEqual(['a.txt']);
 });

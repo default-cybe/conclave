@@ -222,7 +222,7 @@ describe('OpenAIProvider request mapping', () => {
               toolUseId: 'call_1',
               content: [
                 { type: 'text', text: 'shot taken' },
-                { type: 'image', mediaType: 'image/png', data: 'QUJD' },
+                { type: 'image', mediaType: 'image/png', data: 'iVBORw0KGgo=' },
               ],
             },
             { type: 'text', text: 'what do you see?' },
@@ -243,7 +243,7 @@ describe('OpenAIProvider request mapping', () => {
       role: 'user',
       content: [
         { type: 'text', text: 'Images returned by tool call call_1:' },
-        { type: 'image_url', image_url: { url: 'data:image/png;base64,QUJD' } },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgo=' } },
         { type: 'text', text: 'what do you see?' },
       ],
     });

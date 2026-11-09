@@ -7,10 +7,12 @@
  * comes with no file at all. So: files, else file items, else (desktop app,
  * and the paste is not plain text) the app reads the clipboard (desktop
  * main.rs paste_files). A copied file comes back as its path and is read
- * through read_dropped like a drop. TIFF becomes PNG, which every model takes.
+ * through read_dropped like a drop. TIFF (and any picture no model reads)
+ * becomes PNG, which every model takes.
  */
 import { desktop, type Desktop } from '@/overlay/desktop';
 import { droppedFiles, readDropped } from './fileDrop';
+import { isModelImage, SNIFF_BYTES, sniffImageType } from '@conclave/core/attachments/image';
 
 type Clip = Pick<DataTransfer, 'types' | 'files' | 'items' | 'getData'>;
 
@@ -20,9 +22,20 @@ export function mayHoldFiles(dt: Clip): boolean {
   return !types.includes('text/plain') || types.includes('Files') || types.includes('text/uri-list');
 }
 
-/** A TIFF as PNG, drawn through a canvas; anything else, or a TIFF the page cannot draw, as it was. */
+/** A file's picture type: by its first bytes (core attachments/image.ts), else the type it declares; undefined for no picture. */
+export async function pictureType(f: File): Promise<string | undefined> {
+  const head = await f.slice(0, SNIFF_BYTES).arrayBuffer().then((b) => new Uint8Array(b), () => new Uint8Array());
+  return sniffImageType(head) ?? (f.type.startsWith('image/') ? f.type : undefined);
+}
+
+/**
+ * A picture no model reads (TIFF from a Mac paste, BMP, HEIC, AVIF, SVG) as
+ * PNG, drawn through a canvas; a JPEG, PNG, GIF or WebP, any other file, or a
+ * picture the page cannot draw, as it was (the hub then refuses it by name).
+ */
 export async function asPng(f: File): Promise<File> {
-  if (f.type !== 'image/tiff') return f;
+  const type = await pictureType(f);
+  if (!type || isModelImage(type)) return f;
   try {
     const bmp = await createImageBitmap(f);
     const canvas = document.createElement('canvas');
@@ -31,7 +44,7 @@ export async function asPng(f: File): Promise<File> {
     canvas.getContext('2d')?.drawImage(bmp, 0, 0);
     const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'));
     if (!blob) return f;
-    return new File([blob], f.name.replace(/\.tiff?$/i, '') + '.png', { type: 'image/png' });
+    return new File([blob], f.name.replace(/\.[^./\\]+$/, '') + '.png', { type: 'image/png' });
   } catch {
     return f;
   }
