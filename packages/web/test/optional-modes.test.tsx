@@ -7,11 +7,12 @@
  *   bun test packages/web/test/optional-modes.test.tsx
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { MeDto } from '@conclave/core/client';
 import { modeOn, NEW_ACCOUNT_MODES } from '@conclave/core/client';
-import { shownModes } from '../src/features/home/modes';
+import { listedMode, shownModes } from '../src/features/home/modes';
 
 const values = (p: Parameters<typeof shownModes>[0]) => shownModes(p).map((m) => m.value);
 
@@ -28,6 +29,21 @@ describe('which modes show', () => {
     expect(values({ modes: { security: true, canvas: false } })).toEqual(['chat', 'assistant', 'code', 'security']);
     expect(values({ modes: { security: false, canvas: true } })).toEqual(['chat', 'assistant', 'code', 'canvas']);
   });
+  test('a hunt or Canvas opened by a link while off: the sidebar lists and starts Chat, not New hunt', () => {
+    const off = { modes: NEW_ACCOUNT_MODES };
+    expect(listedMode('security', off)).toBe('chat');
+    expect(listedMode('canvas', off)).toBe('chat');
+    expect(listedMode('code', off)).toBe('code');
+    expect(listedMode('security', undefined)).toBe('security');
+  });
+});
+
+test('setup has a Modes step, and the Welcome strip a column for every step (13 wrapped Done onto a row of its own)', async () => {
+  const { STEPS } = await import('../src/features/onboarding/steps');
+  expect(STEPS.map((s) => s.id)).toContain('modes');
+  const src = readFileSync(join(import.meta.dir, '../src/features/onboarding/Welcome.tsx'), 'utf8');
+  expect(src).toContain(` grid-cols-${Math.ceil(STEPS.length / 2)} `);
+  expect(src).toContain(`xl:grid-cols-${STEPS.length}"`);
 });
 
 const GLOBALS = ['window', 'document', 'navigator', 'HTMLElement', 'Node', 'localStorage', 'IS_REACT_ACT_ENVIRONMENT'];

@@ -42,6 +42,7 @@ import { isDelegated } from '@conclave/core/session/delegated';
 import { moveToMainList, MOVE_TO_MAIN } from '@/features/chat/delegated';
 import { setRailOpen, useChatUi } from '@/features/conversation/state';
 import { openNew, ModeSwitch, useCurrentMode } from '@/features/home/ModeSwitch';
+import { listedMode } from '@/features/home/modes';
 import { SideFiles } from '@/features/canvas/files';
 import { LazyShareProjectDialog } from '@/features/friends/ShareProject';
 import { useMeetingHint } from '@/features/meeting/useMeetingHint';
@@ -77,9 +78,16 @@ const ROWS: Array<{ to: string; label: string; Icon: Icon; match?: (p: string) =
   { to: '/extensions', label: 'Extensions', Icon: Blocks },
 ];
 
+/** The mode the sidebar lists and starts: the open one, or Chat when it is a mode turned off in Settings (a hunt or Canvas opened by a link). */
+function useSideMode() {
+  const mode = useCurrentMode();
+  const prefs = useHub((s) => s.me?.preferences);
+  return listedMode(mode, prefs);
+}
+
 /** A new conversation in the mode the switch is on. */
 function useNewConversation(): { words: string; start: () => void } {
-  const mode = useCurrentMode();
+  const mode = useSideMode();
   const [, navigate] = useLocation();
   return { words: NEW_WORDS[mode], start: () => openNew(mode, navigate) };
 }
@@ -101,7 +109,7 @@ function Expanded() {
   const owner = useIsOwner();
   const inbox = useInboxCount();
   const meeting = useMeetingHint();
-  const mode = useCurrentMode();
+  const mode = useSideMode();
   const fresh = useNewConversation();
   const rows = ROWS.filter((r) => owner || !OWNER_PAGES.has(r.to));
   return (

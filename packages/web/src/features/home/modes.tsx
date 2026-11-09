@@ -23,6 +23,9 @@ const optional = (m: StartMode): m is OptionalMode => m === 'security' || m === 
 /** The switch's modes this person sees: Chat, Assistant and Code always, Security and Canvas when on. */
 export const shownModes = (prefs: Pick<MePreferences, 'modes'> | undefined) => START_MODES.filter((m) => !optional(m.value) || modeOn(prefs, m.value));
 
+/** The mode the sidebar lists and its New starts: the open one, or Chat when that is a mode turned off (a hunt or Canvas opened by a link). */
+export const listedMode = (mode: StartMode, prefs: Pick<MePreferences, 'modes'> | undefined): StartMode => (optional(mode) && !modeOn(prefs, mode) ? 'chat' : mode);
+
 export const useModeOn = (mode: OptionalMode): boolean => useHub((s) => modeOn(s.me?.preferences, mode));
 
 export function useShownModes() {
