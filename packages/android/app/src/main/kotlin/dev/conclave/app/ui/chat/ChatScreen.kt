@@ -110,6 +110,7 @@ import dev.conclave.client.logic.Start
 import dev.conclave.client.logic.StartMode
 import dev.conclave.client.logic.Tasks
 import dev.conclave.client.model.CommandDef
+import dev.conclave.client.model.securityOn
 import dev.conclave.client.model.Message
 import dev.conclave.client.model.MessageKind
 import dev.conclave.client.model.Role
@@ -171,6 +172,7 @@ fun ChatScreen(
     val models by hub.models.collectAsStateWithLifecycle()
     val agents by hub.agents.collectAsStateWithLifecycle()
     val devices by hub.devices.collectAsStateWithLifecycle()
+    val modes by hub.modes.collectAsStateWithLifecycle()
     val runs by vm.runs.collectAsStateWithLifecycle()
     val sessions by hub.sessions.collectAsStateWithLifecycle()
     // folders across devices: the banner above the composer, moving, and Choose folder
@@ -317,7 +319,8 @@ fun ChatScreen(
                         sameModel = s?.chat?.sameModel == true,
                         onSameModel = if (s != null) vm::setSameModel else null,
                         security = s?.chat?.security == true,
-                        onSecurity = if (s != null) vm::setSecurity else null,
+                        // Security off in Settings: no switch, unless this session has it on (so it can still be turned off)
+                        onSecurity = if (s != null && (modes.securityOn || s.chat?.security == true)) vm::setSecurity else null,
                         context = ContextUse.of(live.messages, s, info),
                         onUsage = onOpenUsage,
                         left = {

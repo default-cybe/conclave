@@ -52,6 +52,7 @@ import { GrantChip } from './GrantChip';
 import { AgentChip, AttachmentStrip, ContextRing, MemoryChip, memoryModeOf, memoryPatch, ModeChip, ModelEffort, PlusMenu, QuietRow, readPickedFor, useAgentFollow, type StripFile } from '@/features/conversation/ComposerParts';
 import { DeviceChip, FolderChip, useComputers } from '@/features/home/Where';
 import { CODE_AGENT, customAgent, modeOf } from '@/features/home/start';
+import { useModeOn } from '@/features/home/modes';
 import { COMPOSE_EVENT, downloadExport, isReminder, type ComposeDetail } from './util';
 import { sessionRepo } from '@/lib/github';
 import { findSlash, INIT_PROMPT, menuList, PHONE_TOP_COMMANDS, pickAction, SECTION_WORDS, slashItems, slashMode, type SheetId, type SlashItem } from './slash';
@@ -108,6 +109,8 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   const folders = code || (session.kind !== 'chat' && modeOf(session) === 'security');
   // a chat with other people in it (features/chat/shared.tsx); a Viewer reads only, and "Just talk" sends without a turn
   const meId = useMeId();
+  // Security off in Settings: no Security switch, unless this session has it on (so it can still be turned off)
+  const securitySwitch = useModeOn('security') || !!session.chat?.security;
   const { rows: people } = useParticipants(session.id, session.kind === 'chat');
   const sharedChat = !!people?.some((r) => r.state === 'active' || r.state === 'invited');
   const mineRow = people?.find((r) => r.accountId === meId && r.state === 'active');
@@ -523,7 +526,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   const right = !mineRow && (
     <>
       {chips}
-      <ModelEffort session={session} model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} sameModel={!!session.chat?.sameModel} onSameModel={(on) => void patch({ chat: { sameModel: on } })} security={!!session.chat?.security} onSecurity={(on) => void patch({ chat: { security: on } })} harnesses switchOf={messages?.length ? session : undefined} />
+      <ModelEffort session={session} model={session.model} value={session.chat?.thinking} follow={follow} onModel={(m) => void switchModel(m)} onEffort={pickEffort} cyber={session.chat?.cyber} onCyber={(v) => void patch({ chat: { cyber: v ?? null } })} sameModel={!!session.chat?.sameModel} onSameModel={(on) => void patch({ chat: { sameModel: on } })} security={!!session.chat?.security} onSecurity={securitySwitch ? (on) => void patch({ chat: { security: on } }) : undefined} harnesses switchOf={messages?.length ? session : undefined} />
       <ContextRing session={session} />
     </>
   );

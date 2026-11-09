@@ -29,12 +29,15 @@ import { useRunDetail } from './data';
 import { CallHeader, CallRows, hasToolCell } from './CallRows';
 import { Findings } from './Findings';
 import { workflowHref } from '../canvas/model';
+import { useModeOn } from '@/features/home/modes';
 import { Worktrees } from './Worktrees';
 import { Race, raceOf } from './Race';
 import { byPhase, isLive, petFor, runSummary, statusParts } from './words';
 
 export function RunView({ id }: { id: string }) {
   const phone = useIsMobile();
+  // Canvas off: the summary stays, without the link
+  const canvas = useModeOn('canvas');
   const { data, error, progress, lastActivity, reload } = useRunDetail(id);
   const [detail, setDetail] = useState<WorkflowRunDetail>();
   const [openCall, setOpenCall] = useState<WorkflowCall>();
@@ -187,9 +190,11 @@ export function RunView({ id }: { id: string }) {
               </>
             )}
           </dl>
-          <Link href={workflowHref(run.id)} className={cn(buttonClass('outline', phone ? 'touch' : 'md'), 'shrink-0')}>
-            Open in Canvas
-          </Link>
+          {canvas && (
+            <Link href={workflowHref(run.id)} className={cn(buttonClass('outline', phone ? 'touch' : 'md'), 'shrink-0')}>
+              Open in Canvas
+            </Link>
+          )}
         </section>
 
         {phases.map((p, i) => (

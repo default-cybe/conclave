@@ -101,6 +101,27 @@ describe('the owner adds people', () => {
     expect((await hub.api('/api/me', { method: 'PATCH', json: { pinnedModels: [] } })).status).toBe(200);
   });
 
+  test('each account shows or hides Security and Canvas for itself; a new one starts with both off', async () => {
+    const me = async (token?: string) => (await asJson(await hub.api('/api/me', token ? { token } : {}))).body.preferences.modes;
+    // both new: the test hub's owner and alice
+    expect(await me(alice.token)).toEqual({ security: false, canvas: false });
+    expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { modes: { security: true } } })).status).toBe(200);
+    expect(await me(alice.token)).toEqual({ security: true, canvas: false });
+    // the owner's are the owner's
+    expect(await me()).toEqual({ security: false, canvas: false });
+    expect((await hub.api('/api/me', { method: 'PATCH', json: { modes: { canvas: true } } })).status).toBe(200);
+    expect(await me()).toEqual({ security: false, canvas: true });
+    expect(await me(alice.token)).toEqual({ security: true, canvas: false });
+    // an account from before the setting has none saved (both on); a first write keeps the other one on
+    const a = hub.engine.people.get(alice.id)!;
+    const { modes: _, ...rest } = a.settings;
+    hub.engine.people.update(alice.id, { settings: rest });
+    expect(await me(alice.token)).toBeUndefined();
+    expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { modes: { canvas: false } } })).status).toBe(200);
+    expect(await me(alice.token)).toEqual({ security: true, canvas: false });
+    for (const bad of [null, [], { security: 'yes' }, { chat: false }]) expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { modes: bad } })).status).toBe(400);
+  });
+
   test('a member changes their own name, defaults and password, and nothing of anyone else', async () => {
     expect((await hub.api('/api/me', { method: 'PATCH', token: alice.token, json: { name: 'alice2', defaultModel: 'anthropic/claude-sonnet-5-5' } })).status).toBe(200);
     expect((await asJson(await hub.api('/api/me', { token: alice.token }))).body).toMatchObject({ name: 'alice2', preferences: { defaultModel: 'anthropic/claude-sonnet-5-5' } });

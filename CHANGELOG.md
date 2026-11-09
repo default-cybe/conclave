@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Security and Canvas can be turned off. Settings, Appearance has a Modes group with a switch for each, and setup asks in a new Modes step (Chat, Assistant and Code are always on). The choice is saved on the hub per account, so a member chooses their own and every device agrees. A new account starts with both off; an existing one keeps both on, and Home says once that they can now be turned off. A mode that is off leaves the sidebar icons, the phone's mode picker, Home, the command palette, the model picker's Security switch, Settings' Security page, the "Open in Canvas" links (the run summary stays) and, on Android, the side panel's Canvas row. Its sessions and files still open: a link to a hunt or to Canvas while it is off shows "Security is off in Settings" (or Canvas) with Turn it on. The hub still serves both modes either way.
+
 ## [0.4.83] - 2026-11-09
 
 ### Fixed

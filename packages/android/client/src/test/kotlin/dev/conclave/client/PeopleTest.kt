@@ -1,6 +1,8 @@
 package dev.conclave.client
 
 import dev.conclave.client.model.MePatch
+import dev.conclave.client.model.canvasOn
+import dev.conclave.client.model.securityOn
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -71,6 +73,20 @@ class PeopleTest {
         assertFalse(me.providers[1].overBudget)
         assertEquals("anthropic/claude-sonnet-5-5", me.preferences.defaultModel)
         assertEquals("/api/me", server.takeRequest().url.encodedPath)
+    }
+
+    @Test
+    fun meReadsWhichModesShow() = runBlocking {
+        server.enqueue(MockResponse(body = """{"id":"owner","preferences":{"modes":{"security":false,"canvas":true}}}"""))
+        server.enqueue(MockResponse(body = """{"id":"owner","preferences":{}}"""))
+        val off = client("tok").me().preferences.modes
+        assertFalse(off.securityOn)
+        assertTrue(off.canvasOn)
+        // an account from before the setting: nothing saved, both on
+        val before = client("tok").me().preferences.modes
+        assertTrue(before.securityOn)
+        assertTrue(before.canvasOn)
+        assertNull(before)
     }
 
     @Test

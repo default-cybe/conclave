@@ -18,6 +18,7 @@ import { compact, relTime, usd } from '@/lib/format';
 import { useIsMobile, useNow } from '@/lib/hooks';
 import { useLibrary, useRuns } from './data';
 import { RunSheet } from './RunSheet';
+import { useModeOn } from '@/features/home/modes';
 import { RunView } from './RunView';
 import { RUN_TONE, RUN_WORD, SOURCE_WORD, isLive } from './words';
 import { workflowHref } from '../canvas/model';
@@ -67,6 +68,7 @@ function Library() {
   const groups = useMemo(() => SOURCE_ORDER.map((s) => ({ source: s, items: (data ?? []).filter((w) => w.source === s) })).filter((g) => g.items.length), [data]);
   const now = useNow(60_000);
   const phone = useIsMobile();
+  const canvas = useModeOn('canvas');
 
   return (
     <Page>
@@ -106,7 +108,7 @@ function Library() {
                     time={w.lastRun ? relTime(w.lastRun.finishedAt ?? w.lastRun.createdAt, now) : undefined}
                     state={w.lastRun ? <StateWord tone={RUN_TONE[w.lastRun.status]}>{RUN_WORD[w.lastRun.status]}</StateWord> : <span className="text-fg-3">never run</span>}
                   />
-                  {!phone && w.runnable && (
+                  {!phone && canvas && w.runnable && (
                     <Link href={workflowHref(w.id)} className="link flex shrink-0 items-center px-2 text-[12.5px]" aria-label={`Open ${w.name} in Canvas`}>
                       Canvas
                     </Link>

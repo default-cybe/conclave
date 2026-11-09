@@ -7,6 +7,7 @@
 import type { Database } from 'bun:sqlite';
 import { OWNER_ID } from './context';
 import { ACCOUNT_TABLES, ensureAccountColumn, ensureColumn, hasColumn } from './tables';
+import { NEW_ACCOUNT_MODES } from '../client/people';
 
 export const PEOPLE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS hub_accounts (
@@ -41,8 +42,11 @@ export const OLD_PASSWORD_KEY = 'auth.password';
 
 export function migratePeople(db: Database, now = Date.now()): void {
   db.transaction(() => {
+    // a new hub's owner starts with Security and Canvas off; one from before accounts (sessions already there) keeps them on
+    const has = (t: string) => !!db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t);
+    const fresh = !has('hub_accounts') && !(has('sessions') && db.query('SELECT 1 FROM sessions LIMIT 1').get());
     db.exec(PEOPLE_SCHEMA);
-    db.query('INSERT OR IGNORE INTO hub_accounts (id, name, name_key, role, settings, created_at, updated_at) VALUES (?,?,?,?,?,?,?)').run(OWNER_ID, 'owner', 'owner', 'owner', '{}', now, now);
+    db.query('INSERT OR IGNORE INTO hub_accounts (id, name, name_key, role, settings, created_at, updated_at) VALUES (?,?,?,?,?,?,?)').run(OWNER_ID, 'owner', 'owner', 'owner', fresh ? JSON.stringify({ modes: NEW_ACCOUNT_MODES }) : '{}', now, now);
     // display names: an account from before them starts with its sign-in name, the owner's default "owner" with none.
     // Only when the column is new, so a name cleared or set apart later is never filled in again.
     if (!hasColumn(db, 'hub_accounts', 'display_name')) {

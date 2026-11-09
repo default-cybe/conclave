@@ -95,6 +95,7 @@ import dev.conclave.client.logic.Meetings
 import dev.conclave.client.logic.Recent
 import dev.conclave.client.logic.RecentDot
 import dev.conclave.client.logic.StartMode
+import dev.conclave.client.model.canvasOn
 import dev.conclave.client.meetings
 import dev.conclave.client.model.EngineEvent
 import dev.conclave.client.model.Meeting
@@ -138,6 +139,7 @@ fun SidePanel(
     val questions by hub.questions.collectAsStateWithLifecycle()
     val projects by hub.projects.collectAsStateWithLifecycle()
     val devices by hub.devices.collectAsStateWithLifecycle()
+    val modes by hub.modes.collectAsStateWithLifecycle()
     val settings by container.settings.state.collectAsStateWithLifecycle()
     val by = settings?.drawerGroup ?: GroupBy.PROJECT
     val waitingIds = remember(approvals, questions) { (approvals.map { it.sessionId } + questions.map { it.sessionId }).toSet() }
@@ -189,13 +191,16 @@ fun SidePanel(
                 endSearch()
                 onMeetings()
             })
-            // Canvas is a page here, not a StartMode: sharing into the app offers only the modes that start a conversation
-            PanelRow("Canvas", selected = inCanvas, strong = true, onClick = {
-                endSearch()
-                onCanvas()
-            }, leading = {
-                Icon(Icons.Outlined.AccountTree, contentDescription = null, tint = c.fg2, modifier = Modifier.size(20.dp))
-            })
+            // Canvas is a page here, not a StartMode: sharing into the app offers only the modes that start a conversation.
+            // Turned off in Settings (web, Appearance, Modes): no row, unless Canvas is the page open
+            if (modes.canvasOn || inCanvas) {
+                PanelRow("Canvas", selected = inCanvas, strong = true, onClick = {
+                    endSearch()
+                    onCanvas()
+                }, leading = {
+                    Icon(Icons.Outlined.AccountTree, contentDescription = null, tint = c.fg2, modifier = Modifier.size(20.dp))
+                })
+            }
             ModeSwitch(mode, onChange = onMode, modifier = Modifier.padding(start = 4.dp, top = 12.dp))
         }
 

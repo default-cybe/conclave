@@ -14,12 +14,14 @@ import { canvasHome } from '@/features/canvas/model';
 import { ChatPageRoute } from '@/features/conversation/lazy';
 import ConversationPage from './ConversationPage';
 import { useStartMode } from './start';
+import { useModeOn } from './modes';
 
 export default function HomePage() {
   const mode = useStartMode((s) => s.mode);
   const phone = useIsMobile();
-  // Canvas starts no conversation: Home in Canvas mode is the last file open
-  if (mode === 'canvas') return <Redirect to={canvasHome()} replace />;
+  const canvas = useModeOn('canvas');
+  // Canvas starts no conversation: Home in Canvas mode is the last file open (Canvas off: the guard puts the switch back on Chat)
+  if (mode === 'canvas' && canvas) return <Redirect to={canvasHome()} replace />;
   if (!phone && mode === 'chat') return <ChatPageRoute />;
   return <ConversationPage />;
 }

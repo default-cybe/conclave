@@ -64,6 +64,7 @@ import { isLive, RUN_WORD } from '../workflows/words';
 import { useCanvasFiles } from './files';
 import { codeHref, fileGroups, fileHref, fileTitle, focusNode, goLabel, goTarget, isRunId, libraryOpen, programHref, rememberFile, runBlocked, saveLibraryOpen, sessionFor } from './model';
 import { copyClip, pasteClip, programRenamable, removeOps, saveWords, useEditor, workflowRenamable, type Clip } from './editor';
+import { ModeOffNote } from '@/features/home/modes';
 
 type Positions = Record<string, { x: number; y: number }>;
 const snap = (p: { x: number; y: number }) => ({ x: Math.round(p.x / 8) * 8, y: Math.round(p.y / 8) * 8 });
@@ -86,10 +87,14 @@ export default function CanvasPage() {
   useEffect(() => {
     if (kind && name) rememberFile(`${loc}${search ? `?${search}` : ''}`);
   }, [kind, name, loc, search]);
-  if (kind === 'program' && name) return <ProgramFile key={`${name}?${search}`} name={name} />;
-  if (kind === 'workflow' && name) return isRunId(name) ? <RunFile key={name} runId={name} /> : <WorkflowFile key={name} id={name} />;
-  if (loc === '/canvas/new') return <NewStart />;
-  return <CanvasStart />;
+  const file = kind === 'program' && name ? <ProgramFile key={`${name}?${search}`} name={name} /> : kind === 'workflow' && name ? isRunId(name) ? <RunFile key={name} runId={name} /> : <WorkflowFile key={name} id={name} /> : loc === '/canvas/new' ? <NewStart /> : <CanvasStart />;
+  // a link here while Canvas is off in Settings opens it anyway, with one line saying so
+  return (
+    <>
+      <ModeOffNote mode="canvas" className="shrink-0 border-b border-rule px-8 phone:px-4" />
+      {file}
+    </>
+  );
 }
 
 // ---------------------------------------------------------------------------

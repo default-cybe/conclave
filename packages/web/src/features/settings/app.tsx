@@ -14,7 +14,8 @@ import { RUN_SETUP_AGAIN } from '@/lib/onboarding';
 import { disablePush } from '@/lib/push';
 import { transportWords } from '@/lib/remote';
 import { Button } from '@/components/ui/Button';
-import { Input, Segmented } from '@/components/ui/Field';
+import { Input, OnOff, Segmented } from '@/components/ui/Field';
+import { MODE_WORDS, saveModes, useModeOn } from '@/features/home/modes';
 import { SelectMenu } from '@/components/ui/Select';
 import { ConfirmDialog } from '@/components/ui/Overlay';
 import { Table, type Column } from '@/components/ui/Table';
@@ -124,7 +125,25 @@ export function AppearanceSection() {
           </SettingRow>
         )}
       </Group>
+      <ModesGroup />
     </div>
+  );
+}
+
+/** Security and Canvas shown or hidden, for this account on every device (features/home/modes.tsx). Chat, Assistant and Code are always there. */
+function ModesGroup() {
+  const mobile = useIsMobile();
+  const security = useModeOn('security');
+  const canvas = useModeOn('canvas');
+  const on = { security, canvas };
+  return (
+    <Group id="modes" title="Modes" help="Chat, Assistant and Code are always on. Off hides a mode from the sidebar, Home and menus on every device; what you made in it still opens.">
+      {(['security', 'canvas'] as const).map((m) => (
+        <SettingRow key={m} label={MODE_WORDS[m].label} help={MODE_WORDS[m].line}>
+          <OnOff label={MODE_WORDS[m].label} size={mobile ? 'touch' : 'sm'} checked={on[m]} onChange={(v) => void saveModes({ [m]: v })} />
+        </SettingRow>
+      ))}
+    </Group>
   );
 }
 

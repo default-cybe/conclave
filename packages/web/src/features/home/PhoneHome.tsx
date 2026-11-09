@@ -25,6 +25,7 @@ import { useToday } from './today';
 import { nextEventLine } from './proposalWords';
 import { useLearningsWaiting } from '@/features/settings/reflectLearnings';
 import { learningsWaitWords } from '@/features/settings/reflectWords';
+import { ModesNote } from './modes';
 
 export function PhoneHome() {
   const now = useNow(60_000);
@@ -59,6 +60,7 @@ export function PhoneHome() {
     <div className="flex min-h-0 flex-1 flex-col">
       {/* the bar's Incognito is on: the mark and its memory setting */}
       {(mode === 'chat' || mode === 'code') && <IncognitoBarLine code={mode === 'code'} />}
+      <ModesNote className="shrink-0 px-5" />
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-5 pb-6 text-center">
         <span data-hero-mark className="grid">
           <Mark size={64} />

@@ -58,6 +58,7 @@ import { UsageFallbackSection } from './usage-fallback';
 import { SecuritySection } from './security';
 import { MemberProvidersSection, PeopleSection, YourAccountSection } from './people';
 import { useIsOwner } from '@/lib/people';
+import { useModeOn } from '@/features/home/modes';
 import { LogsSection } from './logs';
 import { FriendsSection } from '@/features/friends/FriendsSection';
 import { FriendPage } from '@/features/friends/FriendPage';
@@ -246,7 +247,7 @@ const ALL_SECTIONS: SectionDef[] = [
   {
     id: 'appearance',
     label: 'Appearance',
-    desc: 'How Conclave looks on this device, and the name it greets you by.',
+    desc: 'How Conclave looks on this device, the name it greets you by, and which modes you see.',
     C: AppearanceSection,
   },
   {
@@ -299,8 +300,11 @@ export const SECTIONS: SectionDef[] = ALL_SECTIONS.filter((s) => !s.when || s.wh
 /** The sections this person sees: a member gets their own variant of some, and none of the owner's. */
 function useSections(): SectionDef[] {
   const owner = useIsOwner();
-  if (owner) return SECTIONS;
-  return SECTIONS.filter((s) => !s.owner).map((s) => (s.member ? { ...s, C: s.member.C, desc: s.member.desc, width: undefined } : s));
+  // Security's roles serve Security mode only: hidden with it (Appearance, Modes)
+  const security = useModeOn('security');
+  const shown = security ? SECTIONS : SECTIONS.filter((s) => s.id !== 'security');
+  if (owner) return shown;
+  return shown.filter((s) => !s.owner).map((s) => (s.member ? { ...s, C: s.member.C, desc: s.member.desc, width: undefined } : s));
 }
 
 /** Sections with pages under them (/settings/<section>/<item>). */
