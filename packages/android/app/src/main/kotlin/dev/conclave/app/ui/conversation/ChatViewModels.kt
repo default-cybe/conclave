@@ -509,7 +509,7 @@ class ChatThreadViewModel(
         }
     }
 
-    /** 15 at most (Attach.MAX): the composer says so before it gets here, this keeps it true. */
+    /** Under what the hub reads in one message (Attach.refusal): the composer says so before it gets here, this keeps it true. */
     fun addAttachment(a: Attachment) = attachments.update { if (Attach.refusal(it, a) == null) it + a else it }
     fun removeAttachment(a: Attachment) = attachments.update { list -> list.filterNot { it === a } }
 
@@ -990,7 +990,7 @@ class ChatHomeViewModel(hub: HubRepository, private val settings: SettingsStore)
         save()
     }
 
-    /** 15 at most (Attach.MAX): the composer says so before it gets here, this keeps it true. */
+    /** Under what the hub reads in one message (Attach.refusal): the composer says so before it gets here, this keeps it true. */
     fun addAttachment(a: Attachment) = attachments.update { if (Attach.refusal(it, a) == null) it + a else it }
     fun removeAttachment(a: Attachment) = attachments.update { list -> list.filterNot { it === a } }
 

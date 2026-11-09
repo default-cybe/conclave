@@ -151,15 +151,19 @@ import { PLAN_PROVIDER } from '../people/plans';
 import { eventAccount } from '../people/events';
 import { RefusedMachine, MachineRefused, HUB_REFUSED, DEVICE_REFUSED, CODE_NEEDS_DEVICE } from '../people/guard';
 import { accountConfigView } from '../people/config-view';
-import { DEFAULT_DISK_GB, accountDiskUse, diskRefusal } from '../people/disk';
+import { DEFAULT_DISK_GB, accountDiskUse, diskRefusal, forgetDiskUse } from '../people/disk';
 import { memberFetch, memberMcpClientFactory } from '../people/memory';
-import { isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import { constants as fsConstants } from 'node:fs';
-import { open as fsOpen } from 'node:fs/promises';
+import { copyFile as fsCopyFile, mkdir as fsMkdir, open as fsOpen, readFile as fsReadFile, realpath as fsRealpath, writeFile as fsWriteFile } from 'node:fs/promises';
+import { assertNotHubPrivate } from '../machine/private';
+import { MAX_READ_BYTES } from '../machine/protocol';
+import { budgetFor } from '../attachments/budget';
 import { checkShareable, expandHome, outputsDir, usesOutputs, SHARE_MAX_BYTES, type ShareRoot, type SharedFileMeta } from '../files/share';
 import { SqliteMemory } from '../memory/store';
 import { MemoryConnections, MemoryConnectionService } from '../memory/connections';
 import { ATTACHMENT_LOST, prepareAttachments, type ZipHost } from '../attachments/prepare';
+import { getUpload, removeUpload } from '../attachments/uploads';
 import { mediaTypeFor } from '../attachments/limits';
 import { isModelImage } from '../attachments/image';
 import { checkMemberRefusalList, checkMemberUsageList, memberCanUse } from '../session/member-fallbacks';
@@ -310,6 +314,8 @@ export class Engine implements EngineApi {
   readonly sharedTurns = new SharedChatTurns(this);
 
   private runners = new Map<string, SessionRunner>();
+  /** Upload ids a send is taking now (attachments/uploads.ts), so two sends never take one. */
+  private uploadsTaking = new Set<string>();
   /** Sessions with a compaction in progress (one at a time per session). */
   readonly compacting = new Set<string>();
   private mcpCache: { tools: Tool[]; at: number } | null = null;
@@ -960,12 +966,23 @@ export class Engine implements EngineApi {
       const m = this.addMessage(id, { role: 'user', kind: 'normal', content: [{ type: 'text', text: input.text }] });
       return { queued: false, messageId: m.id };
     }
-    // 15 files at most, and a zip turned into what the session can use (attachments/prepare.ts)
-    const prepared = await prepareAttachments(input.attachments, this.zipHost(s));
-    // a file the hub could not read is never dropped silently: the sender chooses to go without it
-    if (prepared.lost.length && input.attachmentLoss !== 'drop') {
-      const names = prepared.lost.join(', ');
-      throw new EngineError(409, `${ATTACHMENT_LOST}${names} could not be read. Send again to go without ${prepared.lost.length === 1 ? 'it' : 'them'}.`);
+    // an upload goes with one message: one another send is taking right now is refused, as a taken one is (404)
+    const ups = (input.attachments ?? []).flatMap((a) => (typeof a.uploadId === 'string' ? [a.uploadId] : []));
+    if (ups.some((u) => this.uploadsTaking.has(u))) throw new EngineError(409, 'A file of this message is being sent with another message.');
+    for (const u of ups) this.uploadsTaking.add(u);
+    let prepared: Awaited<ReturnType<typeof prepareAttachments>>;
+    try {
+      // any number of files; what the model reads goes inline, the rest is saved (attachments/prepare.ts)
+      prepared = await prepareAttachments(input.attachments, this.zipHost(s));
+      // a file the hub could not read is never dropped silently: the sender chooses to go without it
+      if (prepared.lost.length && input.attachmentLoss !== 'drop') {
+        const names = prepared.lost.join(', ');
+        throw new EngineError(409, `${ATTACHMENT_LOST}${names} could not be read. Send again to go without ${prepared.lost.length === 1 ? 'it' : 'them'}.`);
+      }
+      // an upload a message took is gone from the uploads folder: what it became is in the message or the session's folder
+      await Promise.all(ups.map((u) => removeUpload(this.config.paths.home, this.accountOf(s), u).catch(() => {})));
+    } finally {
+      for (const u of ups) this.uploadsTaking.delete(u);
     }
     // an imported chat the owner writes in leaves Imported: unarchived, a normal conversation from here (session/imported.ts)
     if (inImported(s)) {
@@ -1000,36 +1017,88 @@ export class Engine implements EngineApi {
    * its own tools (a shell, or a harness with its own), else the hub reads it.
    */
   private zipHost(s: Session): ZipHost {
-    return {
-      fileTools: () => {
-        if (s.kind === 'chat') return false;
-        try {
-          if (this.providers.resolve(s.model).acp) return true;
-        } catch {
-          /* not a model this hub knows: its tools decide */
-        }
-        try {
-          return this.toolsFor(s, this.agentFor(s), s.mode, 0).some((t) => t.name === 'Bash');
-        } catch {
-          return false;
-        }
-      },
-      save: async (name, bytes) => {
-        const m = this.machineFor(s);
-        const dot = name.toLowerCase().lastIndexOf('.zip');
+    let tools: boolean | undefined;
+    const fileTools = (): boolean => {
+      if (s.kind === 'chat') return false;
+      try {
+        if (this.providers.resolve(s.model).acp) return true;
+      } catch {
+        /* not a model this hub knows: its tools decide */
+      }
+      try {
+        return this.toolsFor(s, this.agentFor(s), s.mode, 0).some((t) => t.name === 'Bash');
+      } catch {
+        return false;
+      }
+    };
+    // the name, then name-2.ext, name-3.ext...: an earlier file is never overwritten
+    const named = (name: string, n: number) => {
+      const dot = name.lastIndexOf('.') > 0 ? name.lastIndexOf('.') : name.length;
+      return n === 1 ? name : `${name.slice(0, dot)}-${n}${name.slice(dot)}`;
+    };
+    // a file the model does not get inline (attachments/prepare.ts); `name` is already a plain file name (fileSaveName)
+    const keep: NonNullable<ZipHost['keep']> = async (name, from) => {
+      const size = 'bytes' in from ? from.bytes.byteLength : from.size;
+      if (!(tools ??= fileTools())) {
+        // no file tools (a chat): on the hub, in the chat's outputs folder, counted toward a member's disk cap
+        const acct = this.accountOf(s);
+        const full = this.diskRefusal(acct, size);
+        if (full) throw new EngineError(413, full);
+        const dir = join(outputsDir(this.config.paths.home, s.id), 'uploads');
+        await fsMkdir(dir, { recursive: true });
         for (let n = 1; n < 100; n++) {
-          const file = n === 1 ? name : `${name.slice(0, dot)}-${n}${name.slice(dot)}`;
-          const path = m.resolve(`uploads/${file}`, s.cwd || '~');
-          if (await m.stat(path)) continue;
-          await m.writeFile(path, bytes);
+          const path = join(dir, named(name, n));
+          try {
+            if ('bytes' in from) await fsWriteFile(path, from.bytes, { flag: 'wx' });
+            else await fsCopyFile(from.hubPath, path, fsConstants.COPYFILE_EXCL);
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException).code === 'EEXIST') continue;
+            throw err;
+          }
+          if (isMember(acct)) forgetDiskUse(acct!);
           return path;
         }
         throw new Error('no free name');
+      }
+      const m = this.machineFor(s);
+      for (let n = 1; n < 100; n++) {
+        const path = m.resolve(`uploads/${named(name, n)}`, s.cwd || '~');
+        // stat goes through the machine's guard: a machine the account may not use refuses here
+        if (await m.stat(path)) continue;
+        if ('bytes' in from) await m.writeFile(path, from.bytes);
+        else if (m.id === 'local') {
+          // the hub's own disk: copied, so a big upload never sits in memory
+          assertNotHubPrivate(path);
+          await fsMkdir(dirname(path), { recursive: true });
+          // uploads/ may be a link the session made: the folder it really is must not be the hub's private one either
+          assertNotHubPrivate(join(await fsRealpath(dirname(path)), basename(path)));
+          await fsCopyFile(from.hubPath, path, fsConstants.COPYFILE_EXCL);
+        } else {
+          // shortcut: a paired device takes one write message, so a file is held whole and capped at MAX_READ_BYTES; stream in chunks when the daemon protocol gets an append
+          if (size > MAX_READ_BYTES) throw new Error(`${name} is ${Math.round(size / 1048576)} MB, more than the ${MAX_READ_BYTES / 1048576} MB ${m.name} takes at once`);
+          await m.writeFile(path, new Uint8Array(await fsReadFile(from.hubPath)));
+        }
+        return path;
+      }
+      throw new Error('no free name');
+    };
+    return {
+      fileTools: () => (tools ??= fileTools()),
+      save: (name, bytes) => keep(name, { bytes }),
+      keep,
+      budget: () => {
+        try {
+          return budgetFor(this.providersFor(this.accountOf(s)).resolve(s.model).info.contextWindow);
+        } catch {
+          return budgetFor(undefined);
+        }
       },
       read: (path) => {
         const m = this.machineFor(s);
         return m.readFile(m.resolve(path, s.cwd || '~'));
       },
+      // the session's account's uploads only: someone else's id is unknown here
+      upload: (id) => getUpload(this.config.paths.home, this.accountOf(s), id),
     };
   }
 

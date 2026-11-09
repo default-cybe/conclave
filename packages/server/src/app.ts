@@ -57,6 +57,7 @@ import { SECURITY_HEADERS, placeholderPage, resolveWebDir, serveStatic, webDirCa
 import { UpdateService, type UpdateOptions } from './update/service';
 import { registerUpdateRoutes } from './routes-update';
 import { registerMeetingRoutes } from './routes-meetings';
+import { uploadMaxBytes } from '@conclave/core/attachments/uploads.ts';
 
 const log = logger('server');
 
@@ -556,7 +557,8 @@ export function startServer(engine: EngineApi, opts: StartOptions = {}): Running
     idleTimeout: 0,
     // never show Bun's dev error page (stack traces) to remote clients
     development: false,
-    maxRequestBodySize: 128 * 1024 * 1024,
+    // an upload streams one file of up to server.uploadMaxMb (core attachments/uploads.ts); JSON bodies keep their own cap (http.ts)
+    maxRequestBodySize: Math.max(128 * 1024 * 1024, uploadMaxBytes(cfg.uploadMaxMb) + 1024 * 1024),
   });
   const host = isWildcard(server.hostname) ? '127.0.0.1' : server.hostname;
   const url = `http://${host?.includes(':') ? `[${host}]` : host}:${server.port}`;

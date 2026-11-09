@@ -43,6 +43,7 @@ import { registerUpdates } from './updates';
 import { registerBrowser } from './browser';
 import { registerBrowserLive } from './browserLive';
 import { registerMeetings } from './meetings';
+import { receiptsFor, registerUploads } from './uploads';
 import { mockIdentity, OWNER_TOKEN, registerIdentity, scenarioError, seedAddresses } from './identity';
 
 const MIN = 60_000;
@@ -523,6 +524,7 @@ const ctx = {
   waiting,
 };
 export type MockCtx = typeof ctx;
+registerUploads(ctx);
 registerExtensionCatalog(ctx);
 registerExtensionRuntime(ctx);
 registerMemoryConnections(ctx);
@@ -807,9 +809,10 @@ on('POST', '/api/sessions/:id/messages', ({ params, body }) => {
   const s = getSession(params[0]);
   // a turn runs or waits on you: the message waits, listed, until its turn (as on the hub)
   if (s.status === 'running' || s.status === 'waiting_approval' || s.status === 'waiting_input') return waiting.wait(s.id, body ?? {});
-  const content: ContentBlock[] = [{ type: 'text', text: body.text }];
-  for (const a of body.attachments ?? []) if (a.mediaType?.startsWith('image/')) content.push({ type: 'image', mediaType: a.mediaType, data: a.data });
-  addMessage({ sessionId: s.id, role: 'user', kind: 'normal', content });
+  // files past the budget are saved to uploads/ in the session's folder, with receipts (mock/uploads.ts)
+  const files = receiptsFor(body.attachments ?? [], s.cwd || '~', 'session');
+  const content: ContentBlock[] = [{ type: 'text', text: body.text }, ...files.content];
+  addMessage({ sessionId: s.id, role: 'user', kind: 'normal', content, ...(files.receipts.length ? { meta: { attachments: files.receipts } } : {}) });
   // Security on: the first message sets the lane (core security/lanes.ts)
   if (s.chat?.security && !laneOf(s.meta)) {
     const detected = detectLanes({ text: String(body.text ?? ''), files: (body.attachments ?? []).map((a: { name?: string }) => a.name ?? '') });

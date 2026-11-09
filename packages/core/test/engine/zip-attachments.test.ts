@@ -10,7 +10,6 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ContentBlock } from '../../src/types';
-import { TOO_MANY_FILES } from '../../src/attachments/limits';
 import { b64, makeZip, PNG, unb64 } from '../attachments/zipkit';
 import { startTestEngine, until, type TestEngine } from './harness';
 
@@ -72,13 +71,11 @@ describe('a zip with a message', () => {
     expect(await until(() => existsSync(join(t!.cwd, 'uploads', 'project-2.zip')), 10_000)).toBe(true);
   });
 
-  test('a zip with a path outside, or a 16th file, is refused before the turn', async () => {
+  test('a zip with a path outside is refused before the turn', async () => {
     t = await startTestEngine({ script: [[{ text: 'never' }]] });
     const chat = await t.engine.createSession({ kind: 'chat' });
     const evil = makeZip([{ name: '../../escape.sh', data: 'rm -rf ~' }]);
     await expect(t.engine.send(chat.id, { text: 'x', attachments: [{ mediaType: 'application/zip', data: b64(evil), name: 'evil.zip' }] })).rejects.toThrow('evil.zip has a file outside its folder');
-    const files = Array.from({ length: 16 }, (_, i) => ({ mediaType: 'text/plain', data: b64(new TextEncoder().encode(`${i}`)), name: `${i}.txt` }));
-    await expect(t.engine.send(chat.id, { text: 'x', attachments: files })).rejects.toThrow(TOO_MANY_FILES);
     expect(t.engine.getMessages(chat.id).length).toBe(0);
     expect(t.requests.length).toBe(0);
   });

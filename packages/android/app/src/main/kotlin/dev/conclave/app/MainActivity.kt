@@ -154,17 +154,9 @@ class MainActivity : FragmentActivity() {
                     val files = mutableListOf<Attachment>()
                     val notes = mutableListOf<String>()
                     for (uri in uris) {
-                        if (files.size >= Attach.MAX) {
-                            notes += Attach.TOO_MANY
-                            break
-                        }
-                        val (type, name) = runCatching { Attachments.typeAndName(this@MainActivity, uri) }
-                            .getOrElse { null to (uri.lastPathSegment ?: "A file") }
-                        // a video, audio or Office file is never read: the hub could not use it
-                        if (!ShareIn.supported(type, name)) {
-                            notes += ShareIn.unsupported(name)
-                            continue
-                        }
+                        // any type: the hub saves what the model cannot read in the session's folder
+                        val name = runCatching { Attachments.typeAndName(this@MainActivity, uri).second }
+                            .getOrElse { uri.lastPathSegment ?: "A file" }
                         val a = try {
                             Attachments.fromUri(this@MainActivity, uri)
                         } catch (e: CancellationException) {

@@ -26,7 +26,8 @@ import { browserConfigProblems } from '@conclave/core/browser/engine.ts';
 import { buildBundle } from '@conclave/core/session/share.ts';
 import { trimMessage } from '@conclave/core/session/trim.ts';
 import { INLINE_TYPES } from '@conclave/core/files/share.ts';
-import { MAX_ATTACHMENTS, TOO_MANY_FILES } from '@conclave/core/attachments/limits.ts';
+import { putUpload, removeUpload, uploadMaxBytes, UploadRefused } from '@conclave/core/attachments/uploads.ts';
+import { forgetDiskUse } from '@conclave/core/people/disk.ts';
 import type { ShareOptions } from '@conclave/core/client/share.ts';
 import type { HonoEnv, ServerContext } from './context';
 import { HttpError, PUBLIC_BODY_MAX, auditFor, badRequest, clientIp, isDirectLocal, notFound, optBool, qBool, qNum, readBody, readJson, requestOrigin, requireString } from './http';
@@ -451,13 +452,45 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     return c.json(block);
   });
 
+  // one file of a message, streamed to the caller's own uploads folder; the message then names it by id (core attachments/uploads.ts)
+  app.post('/api/uploads', async (c) => {
+    const acct = accountOf(c);
+    const name = c.req.query('name') ?? '';
+    const perFile = uploadMaxBytes(engine.config.get().server.uploadMaxMb);
+    // a member's body with no length stops at the room left under their disk cap too, while it streams
+    const room = isMember(acct) ? (({ usedBytes, limitBytes }) => Math.max(0, limitBytes - usedBytes))(engine.diskUse(acct!)) : Infinity;
+    const max = Math.min(perFile, room);
+    const length = Number(c.req.header('content-length'));
+    // sizes are checked before a byte is written: the cap per file, then a member's disk cap
+    if (Number.isFinite(length) && length > perFile) throw new HttpError(413, `${name || 'The file'} is over ${Math.round(perFile / 1024 / 1024)} MB, the most one file can be.`);
+    const full = engine.diskRefusal(acct, Number.isFinite(length) ? length : 0);
+    if (full) throw new HttpError(413, full);
+    try {
+      const up = await putUpload(engine.config.paths.home, acct, { name, mediaType: c.req.query('type') || c.req.header('content-type'), body: c.req.raw.body, max });
+      if (isMember(acct)) {
+        forgetDiskUse(acct);
+        // a body with no length: measured once written
+        const over = engine.diskRefusal(acct, 0);
+        if (over) {
+          await removeUpload(engine.config.paths.home, acct, up.id);
+          forgetDiskUse(acct);
+          throw new HttpError(413, over);
+        }
+      }
+      return c.json({ id: up.id, name: up.name, mediaType: up.mediaType, size: up.size });
+    } catch (err) {
+      // stopped at the room under a member's cap, not the per-file cap: the disk line says why
+      if (err instanceof UploadRefused && err.status === 413 && max < perFile) throw new HttpError(413, engine.diskRefusal(acct, max + 1) ?? err.message);
+      if (err instanceof UploadRefused) throw new HttpError(err.status, err.message);
+      throw err;
+    }
+  });
+
   app.post('/api/sessions/:id/messages', async (c) => {
     const id = sid(c);
     const input = await readJson<SendInput>(c);
     if (typeof input.text !== 'string') throw badRequest('text is required');
     if (input.attachments !== undefined && !Array.isArray(input.attachments)) throw badRequest('attachments must be an array');
-    // the apps refuse more before sending; the hub says the same (core attachments/limits.ts)
-    if (input.attachments && input.attachments.length > MAX_ATTACHMENTS) throw badRequest(TOO_MANY_FILES);
     if (input.pendingId !== undefined && typeof input.pendingId !== 'string') throw badRequest('pendingId must be a string');
     // a shared chat: a participant's message is theirs, and starts a turn on their own seat, never on the chat (SHARED-WITH-MEMBERS.md 6)
     const caller = accountOf(c);

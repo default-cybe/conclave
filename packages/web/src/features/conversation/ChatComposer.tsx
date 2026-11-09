@@ -24,7 +24,6 @@ import { useLocation } from 'wouter';
 import type { Attachment } from '@conclave/core/client';
 import type { CyberProgram } from '@conclave/core/providers/access-programs';
 import type { Session } from '@conclave/core/types';
-import { ACCEPT_FILES, MAX_ATTACHMENTS } from '@conclave/core/attachments/limits';
 import { askBtw, useHub } from '@/store/store';
 import { onPasteFiles } from '@/lib/pasteFiles';
 import { BtwCards } from '@/features/chat/Pending';
@@ -48,10 +47,6 @@ import { ModelName } from '@/components/logo';
 import { NO_KV } from '@/features/chat/draft';
 import { firstSend, INCOGNITO_LINE, memoryChat, usePrivacy, type MemoryMode } from './incognito';
 
-/** One file; 15 in a message at most, and together what the hub reads in one request (core attachments/limits.ts). */
-const MAX_BYTES = 20 * 1024 * 1024;
-/** Pictures, PDFs, text and code, and zips (the hub unpacks a zip, core attachments/zip.ts). */
-const ACCEPT = ACCEPT_FILES;
 export const FILES_EVENT = 'conclave:chat-files';
 /** A target that held a message to ask something first (Code's device and folder) sends it with this. */
 export const SEND_EVENT = 'conclave:chat-send';
@@ -199,9 +194,6 @@ export function ChatComposer({
 }) {
   const [text, setText] = useState(() => drafts.get(chatId) ?? '');
   const [files, setFiles] = useState<FileItem[]>([]);
-  // what is attached now, for a pick that lands while another is still being read
-  const filesNow = useRef(files);
-  filesNow.current = files;
   // the chat the box shows now, so a slow read never attaches to the next one
   const shownId = useRef(chatId);
   shownId.current = chatId;
@@ -302,10 +294,9 @@ export function ChatComposer({
     box.current?.focus();
   };
 
-  // 15 at most: the rest is refused with "Up to 15 files per message. Zip the rest."
   const addFiles = async (list: FileList | File[]) => {
-    const out = await readPickedFor(chatId, shownId, filesNow.current, Array.from(list), MAX_BYTES);
-    if (out.length) setFiles((x) => [...x, ...out].slice(0, MAX_ATTACHMENTS));
+    const out = await readPickedFor(chatId, shownId, Array.from(list));
+    if (out.length) setFiles((x) => [...x, ...out]);
     box.current?.focus();
   };
 
@@ -558,7 +549,7 @@ export function ChatComposer({
             attachments={<AttachmentStrip phone files={files} onRemove={(i) => setFiles((x) => x.filter((_, k) => k !== i))} />}
             field={field(PHONE_FIELD)}
             // the target's add-ons are in its options sheet on phones
-            add={mine ? null : <AddButton onFiles={(list) => void addFiles(list)} accept={ACCEPT} items={target ? [] : plus} />}
+            add={mine ? null : <AddButton onFiles={(list) => void addFiles(list)} items={target ? [] : plus} />}
             options={target ? target.phoneOptions : talk}
             mic={canDictate() && <DictateButton onText={(t) => setText((x) => (x.trim() ? `${x.trimEnd()} ${t}` : t))} />}
             send={<PhoneSend running={running} ready={hasText} label={sendLabel} onSend={send} onStop={stop} keepFocus={() => document.activeElement === box.current} />}
@@ -579,7 +570,7 @@ export function ChatComposer({
           <AttachmentStrip files={files} onRemove={(i) => setFiles((x) => x.filter((_, k) => k !== i))} />
           {field('t-chat block w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-fg outline-none placeholder:text-fg-3 focus-visible:outline-none')}
           <div className="flex items-center gap-1 px-2 pb-2">
-            {!mine && <PlusMenu items={plus} accept={ACCEPT} onFiles={(list) => void addFiles(list)} />}
+            {!mine && <PlusMenu items={plus} onFiles={(list) => void addFiles(list)} />}
             {talk}
             <span className="flex-1" />
             {canDictate() && <DictateButton onText={(t) => setText((x) => (x.trim() ? `${x.trimEnd()} ${t}` : t))} className="size-[30px] [&_svg]:size-[18px]" />}

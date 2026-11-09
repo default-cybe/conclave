@@ -7,9 +7,9 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { Attachment } from '../../src/client/index';
-import { isZip, MAX_ATTACHMENTS, takeFiles, TOO_LARGE_TOGETHER, TOO_MANY_FILES, ATTACHMENTS_MAX_TOTAL_BYTES, ACCEPT_FILES, filesWord } from '../../src/attachments/limits';
+import { isZip, takeFiles, TOO_LARGE_TOGETHER, ATTACHMENTS_MAX_TOTAL_BYTES, filesWord } from '../../src/attachments/limits';
 import { listing, openZip, readEntry, readForChat, safeEntryName, ZIP_LIST_MAX, ZIP_MAX_ENTRIES, ZIP_TEXT_MAX_BYTES, ZipRefused } from '../../src/attachments/zip';
-import { prepareAttachments, saveName, type ZipHost } from '../../src/attachments/prepare';
+import { prepareAttachments, saveName, ZIP_PICTURES_MAX, type ZipHost } from '../../src/attachments/prepare';
 import { b64, makeZip, PNG, unb64 } from './zipkit';
 
 const host = (over: Partial<ZipHost> = {}): ZipHost & { saved: Array<{ name: string; bytes: Uint8Array }> } => {
@@ -31,15 +31,11 @@ const host = (over: Partial<ZipHost> = {}): ZipHost & { saved: Array<{ name: str
 const zipAttachment = (bytes: Uint8Array, name = 'project.zip', mediaType = 'application/zip'): Attachment => ({ mediaType, data: b64(bytes), name });
 const docText = (a: Attachment) => unb64(a.data!);
 
-describe('the cap of 15 files', () => {
-  test('takeFiles keeps the first that fit and says why the rest stay out', () => {
+describe('no count cap', () => {
+  test('takeFiles keeps any number that fit and says why the rest stay out', () => {
     const f = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `f${i}`, size: 10 }));
-    expect(takeFiles([], f(15))).toEqual({ take: f(15) });
-    const over = takeFiles(f(10), f(7));
-    expect(over.take.length).toBe(5);
-    expect(over.refused).toBe(TOO_MANY_FILES);
-    expect(TOO_MANY_FILES).toBe('Up to 15 files per message. Zip the rest.');
-    expect(takeFiles(f(15), f(1))).toEqual({ take: [], refused: TOO_MANY_FILES });
+    expect(takeFiles([], f(40))).toEqual({ take: f(40) });
+    expect(takeFiles(f(30), f(10))).toEqual({ take: f(10) });
     // together under what the hub reads in one request
     const big = takeFiles([{ size: ATTACHMENTS_MAX_TOTAL_BYTES - 5 }], [{ size: 10 }, { size: 3 }]);
     expect(big.take).toEqual([{ size: 3 }]);
@@ -48,12 +44,10 @@ describe('the cap of 15 files', () => {
     expect(filesWord(7)).toBe('7 files');
   });
 
-  test('the hub refuses a 16th file before anything runs', async () => {
-    const list = Array.from({ length: MAX_ATTACHMENTS + 1 }, (_, i) => ({ mediaType: 'text/plain', data: b64(new TextEncoder().encode(`${i}`)), name: `${i}.txt` }));
-    await expect(prepareAttachments(list, host())).rejects.toThrow(TOO_MANY_FILES);
-    const fifteen = list.slice(0, MAX_ATTACHMENTS);
-    // no zip: the very same list goes on
-    expect((await prepareAttachments(fifteen, host())).attachments).toEqual(fifteen);
+  test('the hub takes 40 files in one message', async () => {
+    const list = Array.from({ length: 40 }, (_, i) => ({ mediaType: 'text/plain', data: b64(new TextEncoder().encode(`${i}`)), name: `${i}.txt` }));
+    // small text, no zip: the very same list goes on
+    expect((await prepareAttachments(list, host())).attachments).toEqual(list);
   });
 });
 
@@ -65,9 +59,6 @@ describe('zips are files the pickers offer', () => {
     expect(isZip('', 'src.zip')).toBe(true);
     expect(isZip('text/plain', 'notes.zip')).toBe(false);
     expect(isZip('application/pdf', 'a.pdf')).toBe(false);
-    expect(ACCEPT_FILES).toContain('.zip');
-    expect(ACCEPT_FILES).toContain('application/zip');
-    expect(ACCEPT_FILES).toContain('application/x-zip-compressed');
   });
 });
 
@@ -125,13 +116,11 @@ describe('a zip in a chat', () => {
     expect(listing(many).split('\n').filter((l) => l.startsWith('f')).length).toBe(ZIP_LIST_MAX);
   });
 
-  test('pictures take only what is left of the cap', async () => {
-    const zip = makeZip(Array.from({ length: 6 }, (_, i) => ({ name: `p${i}.png`, data: PNG })));
-    const others = Array.from({ length: 12 }, (_, i) => ({ mediaType: 'text/plain', data: b64(new TextEncoder().encode('x')), name: `${i}.txt` }));
-    const out = (await prepareAttachments([...others, zipAttachment(zip)], host())).attachments!;
-    expect(out.length).toBe(MAX_ATTACHMENTS);
-    expect(out.filter((a) => a.mediaType === 'image/png').length).toBe(2);
-    expect(docText(out[12])).toContain('The 2 pictures follow as images, and 4 more are not included.');
+  test('pictures from zips stop at ZIP_PICTURES_MAX for the message', async () => {
+    const zip = (n: number) => makeZip(Array.from({ length: n }, (_, i) => ({ name: `p${i}.png`, data: PNG })));
+    const out = (await prepareAttachments([zipAttachment(zip(12), 'a.zip'), zipAttachment(zip(6), 'b.zip')], host())).attachments!;
+    expect(out.filter((a) => a.mediaType === 'image/png').length).toBe(ZIP_PICTURES_MAX);
+    expect(docText(out[13])).toContain('The 3 pictures follow as images, and 3 more are not included.');
   });
 });
 

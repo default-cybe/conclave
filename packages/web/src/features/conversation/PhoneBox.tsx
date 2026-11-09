@@ -94,7 +94,7 @@ export function sizeField(el: HTMLTextAreaElement, size: (scrollHeight: number) 
 const ROUND = 'grid size-11 shrink-0 place-items-center rounded-full text-fg-2 transition-colors duration-[var(--dur-1)] active:bg-hover';
 
 /** + : photos, camera or files, each its own picker; then the add-ons (`items`), as the desktop "+". */
-export function AddButton({ onFiles, accept, items = [] }: { onFiles: (files: File[]) => void; accept: string; items?: MenuItem[] }) {
+export function AddButton({ onFiles, accept, items = [] }: { onFiles: (files: File[]) => void; /** Any file when left out. */ accept?: string; items?: MenuItem[] }) {
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const photos = useRef<HTMLInputElement>(null);

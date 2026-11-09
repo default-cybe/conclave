@@ -22,7 +22,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
 import type { Session, SessionMode } from '@conclave/core/types';
-import { ACCEPT_FILES, MAX_ATTACHMENTS } from '@conclave/core/attachments/limits';
 import type { EffortSetting } from '@/lib/effort';
 import type { Attachment } from '@conclave/core/client';
 import { api } from '@/lib/api';
@@ -65,10 +64,6 @@ import { NO_KV } from './draft';
 type FileEntry = { name: string; path: string; type: 'dir' | 'file'; size?: number };
 
 const drafts = new Map<string, string>();
-/** Pictures, PDFs, text and code, and zips: in a session the hub saves a zip in its folder (core attachments/zip.ts). */
-const ACCEPT = ACCEPT_FILES;
-/** One file; 15 in a message at most (core attachments/limits.ts). */
-const MAX_BYTES = 12 * 1024 * 1024;
 
 /** Phones: the session menu asks the composer to open its sheet of pickers (agent, model, device, mode). */
 export const SESSION_SETTINGS_EVENT = 'conclave:session-settings';
@@ -81,9 +76,6 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   const messages = useHub((s) => s.messages[session.id]);
   const [text, setText] = useState(() => drafts.get(session.id) ?? '');
   const [files, setFiles] = useState<Array<Attachment & StripFile>>([]);
-  // what is attached now, for a pick that lands while another is still being read
-  const filesNow = useRef(files);
-  filesNow.current = files;
   // the session the box shows now, so a slow read never attaches to the next one
   const shownId = useRef(session.id);
   shownId.current = session.id;
@@ -394,10 +386,9 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
     }
   };
 
-  // 15 at most: the rest is refused with "Up to 15 files per message. Zip the rest."
   const addFiles = async (list: FileList | File[]) => {
-    const out = await readPickedFor(session.id, shownId, filesNow.current, Array.from(list), MAX_BYTES);
-    if (out.length) setFiles((x) => [...x, ...out].slice(0, MAX_ATTACHMENTS));
+    const out = await readPickedFor(session.id, shownId, Array.from(list));
+    if (out.length) setFiles((x) => [...x, ...out]);
   };
 
   const placeholder = running ? 'Reply, or steer the running turn' : waitingOnYou ? 'Reply. It is sent after you answer above' : waitingReset && session.resumeAt ? `Reply. Sent when it resumes at ${hhmm(session.resumeAt)}` : 'Type / for commands';
@@ -575,7 +566,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
               className={PHONE_FIELD}
             />
           }
-          add={<AddButton onFiles={(list) => void addFiles(list)} accept={ACCEPT} />}
+          add={<AddButton onFiles={(list) => void addFiles(list)} />}
           // a participant's turns run on their own seat and its model: the owner's pickers are not theirs to change
           options={mineRow ? undefined : <OptionsButton label="Options: agent, device and permissions" onClick={() => setSheet(true)} />}
           mic={canDictate() && <DictateButton onText={(t) => setText((x) => (x.trim() ? `${x.trimEnd()} ${t}` : t))} />}
@@ -668,7 +659,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
             className="block w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-[14px] leading-[1.5] text-fg outline-none placeholder:text-fg-3 focus-visible:outline-none phone:text-[16px]"
           />
         <div ref={bar} className="flex items-center gap-1 px-2 pb-2">
-          <PlusMenu items={plus} accept={ACCEPT} onFiles={(list) => void addFiles(list)} />
+          <PlusMenu items={plus} onFiles={(list) => void addFiles(list)} />
           {sharedChat && (
             <Tooltip content="Send without starting your AI turn">
               <button type="button" aria-pressed={justTalk} onClick={() => setJustTalk((v) => !v)} className={cn('h-[24px] rounded-[6px] px-1.5 text-[12px] font-medium transition-colors duration-[var(--dur-1)] hov:bg-side-hover', justTalk ? 'text-fg' : 'text-fg-3 hov:text-fg')}>

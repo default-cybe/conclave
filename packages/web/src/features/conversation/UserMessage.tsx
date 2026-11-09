@@ -18,7 +18,9 @@ import { Button } from '@/components/ui/Button';
 import { Dialog, MenuList, Popover } from '@/components/ui/Overlay';
 import { ImageThumb } from '@/components/ui/ImageViewer';
 import { Swap } from '@/components/motion';
-import { pendingPreview, removeQueued, useHub } from '@/store/store';
+import { attempt, memberNow, pendingPreview, removeQueued, upsertSession, useHub } from '@/store/store';
+import { api } from '@/lib/api';
+import { CODE_AGENT } from '@/features/home/start';
 import { msgText } from '@/features/chat/util';
 import { PersonLine, senderName } from '@/features/chat/shared';
 import { pendingWord, SendHeld, storedWord } from '@/features/chat/Pending';
@@ -29,31 +31,87 @@ import { Act } from './Reply';
 import { setEditing, useChatUi, type Pending } from './state';
 
 
-function Attachments({ images, files }: { images: string[]; files: string[] }) {
+type Chip = { name: string; word?: string };
+
+/** Past this many file chips, the first FOLD_SHOWN show and one chip opens the rest, so a big pick never fills the screen. */
+const FOLD_AT = 6;
+const FOLD_SHOWN = 5;
+const CHIP = 'flex h-10 items-center gap-2 rounded-[var(--r-2)] border border-rule px-3 text-[13px] text-fg-2';
+
+export function Attachments({ images, files }: { images: string[]; files: Array<Chip | string> }) {
+  const [all, setAll] = useState(false);
   if (!images.length && !files.length) return null;
+  const folds = files.length > FOLD_AT;
+  const shown = folds && !all ? files.slice(0, FOLD_SHOWN) : files;
   return (
     <div className="mb-1.5 flex flex-wrap justify-end gap-2">
       {images.map((src, i) => (
         <ImageThumb key={i} src={src} className="max-h-40 max-w-[240px] rounded-[var(--r-2)] border border-rule object-cover" />
       ))}
-      {files.map((f, i) => (
-        <span key={`f${i}`} className="flex h-10 items-center rounded-[var(--r-2)] border border-rule px-3 text-[13px] text-fg-2">
-          {f}
+      {shown.map((c, i) => ({ f: typeof c === 'string' ? { name: c } as Chip : c, i })).map(({ f, i }) => (
+        <span key={`f${i}`} data-file-chip={f.word ?? ''} className={CHIP}>
+          <span className="max-w-[220px] truncate">{f.name}</span>
+          {f.word && <span className="text-[12px] text-fg-3">{f.word}</span>}
         </span>
       ))}
+      {/* stays after opening, as "Show fewer", so keyboard focus is not lost */}
+      {folds && (
+        <button type="button" aria-expanded={all} onClick={() => setAll((x) => !x)} className={cn(CHIP, 'text-fg transition-colors duration-[var(--dur-1)] hov:bg-hover')}>
+          {all ? 'Show fewer' : `${files.length - FOLD_SHOWN} more files`}
+        </button>
+      )}
     </div>
   );
 }
 
-function imagesOf(m: Message): string[] {
+/**
+ * A chip per picked file that is not a picture shown above: its name, and
+ * "sent" or "saved to uploads/" (core attachments/budget.ts). A message with
+ * no receipts (imported, older) shows its documents' names.
+ */
+export function chipsOf(receipts: AttachmentReceipt[], docs: string[]): Chip[] {
+  if (!receipts.length) return docs.map((name) => ({ name }));
+  return receipts.filter((r) => r.state === 'prepared' && (r.saved || r.parts?.some((p) => p !== 'image'))).map((r) => ({ name: r.name, word: r.saved ? 'saved to uploads/' : 'sent' }));
+}
+
+/** Files a chat saved on the hub (core attachments/prepare.ts): Chat cannot open them, a Code session on the hub can. */
+function SavedInChat({ files }: { files: AttachmentReceipt[] }) {
+  const [, navigate] = useLocation();
+  const [busy, setBusy] = useState(false);
+  const dir = files[0].saved!.replace(/[\\/][^\\/]*$/, '');
+  const open = async () => {
+    setBusy(true);
+    const s = await attempt(() => api().createSession({ agent: CODE_AGENT, device: 'local', cwd: dir, title: `Files from a chat` }));
+    setBusy(false);
+    if (s) {
+      upsertSession(s);
+      navigate(`/s/${s.id}`);
+    }
+  };
+  return (
+    <div data-saved-in-chat="" className="mb-1.5 flex max-w-[min(85%,520px)] flex-col items-end gap-1.5 text-right text-[13px] text-fg-2">
+      {files.map((r, i) => (
+        <span key={i}>{r.name} was saved but can't be opened in Chat. Start a Code session to work with it.</span>
+      ))}
+      {/* a member has no hub machine (people/guard.ts): the owner's hub is not theirs to open */}
+      {!memberNow() && (
+        <Button variant="outline" size="sm" busy={busy ? 'Starting' : false} onClick={() => void open()}>
+          Start a Code session
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export function imagesOf(m: Message): string[] {
   return m.content.filter((b): b is Extract<ContentBlock, { type: 'image' }> => b.type === 'image').map((b) => b.url ?? `data:${b.mediaType};base64,${b.data}`);
 }
 
-function filesOf(m: Message): string[] {
+export function filesOf(m: Message): string[] {
   return m.content.filter((b): b is Extract<ContentBlock, { type: 'document' }> => b.type === 'document').map((b) => b.title ?? 'Document');
 }
 
-function receiptsOf(m: Message): AttachmentReceipt[] {
+export function receiptsOf(m: Message): AttachmentReceipt[] {
   return Array.isArray(m.meta?.attachments) ? (m.meta.attachments as AttachmentReceipt[]) : [];
 }
 
@@ -121,7 +179,8 @@ export const UserMessage = memo(function UserMessage({ message, session, after, 
 
   return (
     <div id={`cm-${message.id}`} className={cn('group/user relative flex flex-col items-end', leaving && 'cv-leave')}>
-      <Attachments images={imagesOf(message)} files={[...filesOf(message), ...(split?.files ?? [])]} />
+      <Attachments images={imagesOf(message)} files={[...chipsOf(receipts, filesOf(message)), ...(split?.files ?? []).map((name) => ({ name }))]} />
+      {receipts.some((r) => r.savedOn === 'hub') && <SavedInChat files={receipts.filter((r) => r.savedOn === 'hub')} />}
       {receiptLines.length > 0 && (
         <div className="mb-1.5 flex flex-col items-end gap-0.5 text-[12px] text-fg-3 phone:text-[13px]">
           {receiptLines.map((r, i) => (

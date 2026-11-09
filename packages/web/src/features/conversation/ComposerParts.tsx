@@ -12,7 +12,7 @@
  *
  * Attachments sit above the field as one row of chips that scrolls sideways
  * at a fixed height (AttachmentStrip), so the field never leaves the screen
- * however many files there are; 15 at most (core attachments/limits.ts).
+ * however many files there are; any number (core attachments/limits.ts).
  */
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Link } from 'wouter';
@@ -20,7 +20,8 @@ import { ChevronDown, FileArchive, FileText, Plus, Settings2, X } from 'lucide-r
 import type { Session, SessionMode } from '@conclave/core/types';
 import { claudeEffort } from '@conclave/core/providers/effort';
 import { cyberLabel, type CyberProgram } from '@conclave/core/providers/access-programs';
-import { filesWord, isZip, mediaTypeFor, takeFiles } from '@conclave/core/attachments/limits';
+import { filesWord, isZip, mediaTypeFor, takeFiles, UPLOAD_MAX_BYTES } from '@conclave/core/attachments/limits';
+import { api } from '@/lib/api';
 import { isModelImage, unreadablePicture } from '@conclave/core/attachments/image';
 import { asPng, pictureType } from '@/lib/pasteFiles';
 import { toast, useHub } from '@/store/store';
@@ -392,7 +393,7 @@ function Row({ k, children }: { k: string; children: ReactNode }) {
 // ---------------------------------------------------------------------------
 
 /** "+": attach files first, then the add-ons (search the web, a GitHub repository, a worktree, a design direction). */
-export function PlusMenu({ items, onFiles, accept, label = 'Add files and more' }: { items: MenuItem[]; onFiles: (files: File[]) => void; accept: string; label?: string }) {
+export function PlusMenu({ items, onFiles, accept, label = 'Add files and more' }: { items: MenuItem[]; onFiles: (files: File[]) => void; /** Any file when left out. */ accept?: string; label?: string }) {
   const ref = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
@@ -583,9 +584,9 @@ export function AttachmentStrip({ files, onRemove, phone = false }: { files: Str
 }
 
 /**
- * Files picked, dropped or pasted, read for sending: the first ones that fit
- * the cap of 15 (and what the hub reads in one message), each at most
- * `maxBytes`. Past the cap: "Up to 15 files per message. Zip the rest."
+ * Files picked, dropped or pasted, of any type and any number, read for
+ * sending: each at most `maxBytes`, and together what the hub reads in one
+ * message.
  */
 export async function readPicked(current: Array<{ size: number }>, picked: File[], maxBytes: number): Promise<Array<StripFile & { mediaType: string; data: string; name: string }>> {
   // a picture no model reads (HEIC, AVIF, BMP, TIFF) goes as PNG; one the page cannot draw is refused here, as the hub would
@@ -622,12 +623,44 @@ export async function readPicked(current: Array<{ size: number }>, picked: File[
   return out;
 }
 
+/** A picked file sent to the hub on its own (POST /api/uploads); the message names it by uploadId. */
+export type UploadedPick = StripFile & { uploadId: string; mediaType: string; name: string };
+
 /**
- * readPicked for the box of chat `id`. A read can outlast a chat switch (a
- * big file, a paste the desktop app reads): when `shown` moved on meanwhile,
- * nothing comes back, so the file never lands in another chat's draft.
+ * Files picked, dropped or pasted, of any type and any number, each uploaded
+ * to the hub on its own (core attachments/uploads.ts), so no count or total
+ * cap applies; the hub refuses one past its per-file cap. The hub decides
+ * what the model gets inline and what it saves (core attachments/budget.ts).
  */
-export async function readPickedFor(id: string, shown: { current: string }, current: Array<{ size: number }>, picked: File[], maxBytes: number): ReturnType<typeof readPicked> {
-  const out = await readPicked(current, picked, maxBytes);
+export async function uploadPicked(picked: File[]): Promise<UploadedPick[]> {
+  const pictures = await Promise.all(picked.map(async (was) => ({ was, f: await asPng(was), type: await pictureType(was) })));
+  const out: UploadedPick[] = [];
+  for (const { was, f, type } of pictures) {
+    if (f === was && type && !isModelImage(type) && type !== 'image/svg+xml') {
+      toast({ title: unreadablePicture(was.name, type), level: 'error' });
+      continue;
+    }
+    if (f.size > UPLOAD_MAX_BYTES) {
+      toast({ title: `${f.name} is over ${Math.round(UPLOAD_MAX_BYTES / 1024 / 1024)} MB. Attach a smaller file.`, level: 'error' });
+      continue;
+    }
+    const mediaType = mediaTypeFor(f.type, f.name);
+    try {
+      const up = await api().upload(f, f.name, mediaType);
+      out.push({ uploadId: up.id, mediaType, name: f.name, size: f.size, preview: mediaType.startsWith('image/') ? URL.createObjectURL(f) : undefined });
+    } catch (err) {
+      toast({ title: err instanceof Error ? err.message : `Could not upload ${f.name}. Try attaching it again.`, level: 'error' });
+    }
+  }
+  return out;
+}
+
+/**
+ * uploadPicked for the box of chat `id`. An upload can outlast a chat switch
+ * (a big file, a paste the desktop app reads): when `shown` moved on
+ * meanwhile, nothing comes back, so the file never lands in another chat's draft.
+ */
+export async function readPickedFor(id: string, shown: { current: string }, picked: File[]): Promise<UploadedPick[]> {
+  const out = await uploadPicked(picked);
   return shown.current === id ? out : [];
 }

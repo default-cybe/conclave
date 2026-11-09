@@ -406,6 +406,8 @@ export interface ConclaveConfig {
      * line off. Paired devices are never limited.
      */
     heavyCommands?: number;
+    /** One uploaded file at most, in MB (POST /api/uploads). Default 500. Read when the hub starts. */
+    uploadMaxMb?: number;
   };
 
   permissions: {
