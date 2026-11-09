@@ -36,6 +36,14 @@ describe('which modes show', () => {
     expect(listedMode('code', off)).toBe('code');
     expect(listedMode('security', undefined)).toBe('security');
   });
+  test('Canvas opened while off lists its files on the page: the sidebar lists Chat, so "the list at the left" would point at nothing', () => {
+    expect(listedMode('canvas', { modes: { security: true, canvas: false } })).toBe('chat');
+    const src = readFileSync(join(import.meta.dir, '../src/features/canvas/CanvasPage.tsx'), 'utf8');
+    expect(src).toContain("const canvasOn = useModeOn('canvas');");
+    expect(src).toContain('const inline = phone || !canvasOn;');
+    expect(src).toContain('{!inline && files.length > 0 && <p');
+    expect(src).toContain('{inline && groups.map(');
+  });
 });
 
 test('setup has a Modes step, and the Welcome strip a column for every step (13 wrapped Done onto a row of its own)', async () => {
