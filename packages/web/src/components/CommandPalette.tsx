@@ -28,6 +28,8 @@ import { ModelMark, ModelName } from './logo';
 import { MODES } from '@/features/chat/modes';
 import { chooseChatModel } from '@/features/conversation/actions';
 import { useStartMode } from '@/features/home/start';
+import { useShownModes } from '@/features/home/modes';
+import { openNew } from '@/features/home/ModeSwitch';
 import { RUN_SETUP_AGAIN } from '@/lib/onboarding';
 import { isDelegated } from '@conclave/core/session/delegated';
 import { delegateWho } from '@/lib/sidebar';
@@ -75,7 +77,7 @@ const SETTINGS_SECTIONS: Array<[string, string, string]> = [
   ['notifications', 'Notifications', 'notify push alerts phone browser hold'],
   ['assistant', 'Assistant', 'proactive preferences tell me never quiet hours message hours timezone heartbeat checklist nightly reflection'],
   ['gateway', 'Gateway keys', 'gateway keys claude code codex usage'],
-  ['appearance', 'Appearance', 'theme dark light density motion name text size font'],
+  ['appearance', 'Appearance', 'theme dark light density motion name text size font modes security canvas hide'],
   ['audit', 'Audit log', 'history actions blocked pairings'],
   ['remote', 'Remote access', 'phone away from home anywhere tunnel cloudflare tailscale address url network wifi'],
   ['friends', 'Friends', 'friend invite link qr code safety code verify notes other hubs people share'],
@@ -118,6 +120,7 @@ function Palette() {
   // so it does on Home while its box starts a chat
   const chatId = loc.startsWith('/chat/') ? loc.slice(6).split('/')[0] : undefined;
   const startMode = useStartMode((s) => s.mode);
+  const startModes = useShownModes();
   const onChat = loc === '/chat' || !!chatId || (loc === '/' && startMode === 'chat');
   useFocusTrap(boxRef, true, { initial: inputRef });
 
@@ -254,6 +257,8 @@ function Palette() {
     action('import', 'Import past chats', go('/sessions?import=1'));
     // a new session that starts in a mode (the New session dialog opens on it)
     for (const m of MODES.filter((x) => x.value !== 'agent' && x.value !== 'chat')) list.push({ id: `new:${m.value}`, group: 'Actions', label: `New ${m.label.toLowerCase()} session`, text: `New ${m.label} session mode ${m.description}`, run: () => openNewChat({ mode: m.value }) });
+    // the sidebar's switch: the modes this person sees (Security and Canvas only when on)
+    for (const m of startModes) list.push({ id: `mode:${m.value}`, group: 'Actions', label: `${m.label} mode`, text: `${m.label} mode switch start ${m.detail}`, run: () => openNew(m.value, navigate) });
     action('split', 'Sessions side by side', go('/sessions/split'));
     action('shortcuts', 'Keyboard shortcuts', () => openShortcuts(), <Kbd>?</Kbd>);
     // extensions
@@ -351,7 +356,7 @@ function Palette() {
       list.push({ id: `mem:${m.id}`, group: 'Memory', text: m.content, label: m.content, detail: m.kind, run: go(`/memory?focus=${m.id}`) });
     }
     return list;
-  }, [mode, models, agents, routines, workflows, sessions, memories, current, chatId, onChat, navigate, set, owner]);
+  }, [mode, models, agents, routines, workflows, sessions, memories, current, chatId, onChat, navigate, set, owner, startModes]);
 
   const filtered = useMemo(() => {
     if (mode !== 'root') {

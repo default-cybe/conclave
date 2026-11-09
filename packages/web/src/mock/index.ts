@@ -580,8 +580,12 @@ const hub = { name: 'madx', version: '0.1.0', startedAt: D.NOW - 3 * 24 * 3_600_
 
 on('GET', '/api/info', async () => ({ ...hub, fingerprint: (await mockIdentity()).fingerprint }));
 // the owner's account; its layout of Side by side starts with three sessions (?split=0 starts empty)
-const mePrefs: { splitView?: string[]; pinnedModels?: string[] } = FRESH || new URLSearchParams(location.search).get('split') === '0' ? {} : { splitView: ['s_auth', 's_backup', 's_os'] };
+const mePrefs: { splitView?: string[]; pinnedModels?: string[]; modes?: { security: boolean; canvas: boolean } } = FRESH || new URLSearchParams(location.search).get('split') === '0' ? {} : { splitView: ['s_auth', 's_backup', 's_os'] };
 if (!FRESH) mePrefs.pinnedModels = ['anthropic/claude-opus-5-5'];
+// a fresh hub's owner starts with Security and Canvas off; ?modes=off hides them, ?modes=on shows them; none: an account from before (both on, with Home's note)
+const MODES_Q = new URLSearchParams(location.search).get('modes');
+if (FRESH || MODES_Q === 'off') mePrefs.modes = { security: false, canvas: false };
+else if (MODES_Q === 'on') mePrefs.modes = { security: true, canvas: true };
 // ?member=1 signs in as a member (nihir), with their own fallback lists in Settings > Models
 const MEMBER = new URLSearchParams(location.search).get('member') === '1';
 const memberLists: Record<string, unknown> = { limitFallback: { enabled: true, models: ['anthropic/claude-sonnet-5-5', 'openai/gpt-6-mini'] }, refusalFallback: { enabled: true, entries: [{ model: 'anthropic/claude-sonnet-5-5' }, { model: 'openai/gpt-6-mini' }] } };
@@ -613,6 +617,7 @@ on('PATCH', '/api/me', ({ body }) => {
     if (body.pinnedModels?.length) mePrefs.pinnedModels = [...new Set(body.pinnedModels as string[])];
     else delete mePrefs.pinnedModels;
   }
+  if (body?.modes) mePrefs.modes = { security: true, canvas: true, ...mePrefs.modes, ...body.modes };
   return { ok: true };
 });
 on('POST', '/api/pair', async ({ body }) => {

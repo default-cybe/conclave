@@ -23,6 +23,7 @@ import { RemotePage } from '@/features/settings/RemotePage';
 import { browserCalls, liveWords, showLive } from './liveBrowser';
 import { usePreviewOpen, togglePreview } from '@/features/preview/PreviewPane';
 import { sessionCanvasHref } from '@/features/canvas/model';
+import { useModeOn } from '@/features/home/modes';
 
 /** How often the line asks the hub whether the session's page is open, while the session has used the browser. */
 const STATUS_MS = 3_000;
@@ -77,6 +78,7 @@ export function BrowserLive({ sessionId, narrow = false, preview = false }: { se
   const calls = useMemo(() => browserCalls(messages, (id) => tools[id]?.status === 'running'), [messages, tools]);
   const [live, setLive] = useState<BrowserLiveDto>();
   const [open, setOpen] = useState(false);
+  const canvas = useModeOn('canvas');
 
   useEffect(() => {
     if (!calls.used) return;
@@ -100,7 +102,7 @@ export function BrowserLive({ sessionId, narrow = false, preview = false }: { se
   return (
     <div className={cn('mx-auto flex w-full gap-1 px-8 pb-1 anim-fade phone:px-4 phone:pb-1', narrow ? 'max-w-[784px]' : 'max-w-[924px]')}>
       {preview && <PreviewButton sessionId={sessionId} />}
-      {preview && <CanvasButton sessionId={sessionId} />}
+      {preview && canvas && <CanvasButton sessionId={sessionId} />}
       {shown && (
       <button
         type="button"

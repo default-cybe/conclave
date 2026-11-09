@@ -1,7 +1,7 @@
 /**
  * First-run setup (spec 11.11). Routes, rendered outside the shell:
  *   /welcome            the Welcome screen
- *   /setup/<step>       one of the twelve steps (also /welcome/<step>)
+ *   /setup/<step>       one of the thirteen steps (also /welcome/<step>)
  *   /setup              resumes where the owner stopped
  *   /setup?again=1      "Run setup again": opens step 2 (Subscriptions) with answers prefilled
  * Progress is saved to the hub config (ui.onboardingSteps, setup.progress)
@@ -21,6 +21,7 @@ import { ProvidersStep } from './steps/ProvidersStep';
 import { ExtensionsStep } from './steps/ExtensionsStep';
 import { AgentsStep } from './steps/AgentsStep';
 import { DefaultsStep } from './steps/DefaultsStep';
+import { ModesStep } from './steps/ModesStep';
 import { MemoryStep } from './steps/MemoryStep';
 import { ImportStep } from './steps/ImportStep';
 import { DevicesStep } from './steps/DevicesStep';
@@ -35,6 +36,7 @@ const VIEWS: Record<StepId, ComponentType> = {
   extensions: ExtensionsStep,
   agents: AgentsStep,
   defaults: DefaultsStep,
+  modes: ModesStep,
   memory: MemoryStep,
   import: ImportStep,
   devices: DevicesStep,

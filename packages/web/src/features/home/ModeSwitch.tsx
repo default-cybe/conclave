@@ -5,7 +5,8 @@
  * new conversation. On a phone it is one picker that names the mode
  * ("Code"), with the five and a line each, so none is clipped. It
  * shows the mode of the conversation that is open, else the one
- * remembered; a pick opens a new conversation in that mode.
+ * remembered; a pick opens a new conversation in that mode. Security and
+ * Canvas are left out when the person turned them off (modes.tsx).
  */
 import { useLocation } from 'wouter';
 import { CalendarDays, Code, MessageCircle, ShieldCheck, Spline, type LucideIcon } from 'lucide-react';
@@ -15,6 +16,7 @@ import { Tooltip } from '@/components/ui/Tooltip';
 import { SelectMenu } from '@/components/ui/Select';
 import { canvasHome } from '@/features/canvas/model';
 import { modeOf, readPicks, savePicks, setStartMode, START_MODES, useStartMode, type Picks, type StartMode } from './start';
+import { useShownModes } from './modes';
 
 /** The compact switch's glyphs. */
 export const MODE_ICONS: Record<StartMode, LucideIcon> = { chat: MessageCircle, assistant: CalendarDays, code: Code, security: ShieldCheck, canvas: Spline };
@@ -57,9 +59,10 @@ export function openNew(mode: StartMode, navigate: (to: string) => void, at?: Pi
 function CompactSwitch({ className, vertical }: { className?: string; vertical?: boolean }) {
   const [, navigate] = useLocation();
   const mode = useCurrentMode();
+  const modes = useShownModes();
   return (
     <div role="radiogroup" aria-label="What to start" className={cn('flex items-center gap-0.5 rounded-[9px] bg-hover/60 p-0.5', vertical && 'flex-col', className)}>
-      {START_MODES.map((m) => {
+      {modes.map((m) => {
         const on = m.value === mode;
         const Icon = MODE_ICONS[m.value];
         return (
@@ -94,13 +97,16 @@ export function ModeSwitch({ phone, compact, vertical, className }: { phone?: bo
 function ModePicker({ phone, className }: { phone?: boolean; className?: string }) {
   const [, navigate] = useLocation();
   const mode = useCurrentMode();
+  const modes = useShownModes();
   return (
     <SelectMenu
       look="text"
       label="What to start"
       value={mode}
       width={phone ? 300 : 280}
-      options={START_MODES.map((m) => ({ value: m.value, label: m.label, detail: m.detail }))}
+      options={modes.map((m) => ({ value: m.value, label: m.label, detail: m.detail }))}
+      // a hunt or Canvas opened by a link while that mode is off still names it
+      placeholder={START_MODES.find((m) => m.value === mode)?.label}
       onChange={(v) => openNew(v, navigate)}
       className={cn('font-medium text-fg', phone ? 'h-11 px-2 text-[16px]' : 'text-[13px]', className)}
     />

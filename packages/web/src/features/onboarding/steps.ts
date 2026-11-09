@@ -1,8 +1,8 @@
 /**
- * The twelve setup steps (spec 11.11, plus subscription sign-in as step 2). Ids are the URL segment: /setup/<id>.
+ * The thirteen setup steps (spec 11.11, plus subscription sign-in as step 2 and Modes after Defaults). Ids are the URL segment: /setup/<id>.
  * `line` is the one line under the name on the Welcome procedure strip.
  */
-export const STEP_IDS = ['hub', 'subscriptions', 'providers', 'extensions', 'agents', 'defaults', 'memory', 'import', 'devices', 'notifications', 'routines', 'done'] as const;
+export const STEP_IDS = ['hub', 'subscriptions', 'providers', 'extensions', 'agents', 'defaults', 'modes', 'memory', 'import', 'devices', 'notifications', 'routines', 'done'] as const;
 export type StepId = (typeof STEP_IDS)[number];
 
 export interface StepDef {
@@ -32,6 +32,7 @@ export const STEPS: StepDef[] = [
   { id: 'extensions', name: 'Extensions', line: 'Recommended set', title: 'Extensions', lede: 'Install a recommended set of extensions. Any of them can be removed later.', skippable: true },
   { id: 'agents', name: 'Coding agents', line: 'Optional', title: 'Coding agents', lede: 'Optional. Run a session with Claude Code, Codex or another installed CLI instead of the built-in agent.', skippable: true, wide: true },
   { id: 'defaults', name: 'Defaults', line: 'Models per agent', title: 'Defaults', lede: 'The model, agent and device a new session uses. Each session can change them.', skippable: true },
+  { id: 'modes', name: 'Modes', line: 'What you see', title: 'Modes', lede: 'Chat, Assistant and Code are always on. Turn on the others if you want them; Settings, Appearance changes this later.', skippable: true },
   { id: 'memory', name: 'Memory', line: 'Where notes live', title: 'Memory', lede: 'What Conclave remembers about you, and where it stores the notes.', skippable: true },
   { id: 'import', name: 'Import', line: 'Past chats', title: 'Past chats', lede: 'Import Claude Code, Codex and Gemini CLI chats as archived sessions. Memory can learn from them.', skippable: true },
   { id: 'devices', name: 'Devices', line: 'Computers and phones', title: 'Devices', lede: 'Sessions run on the computers you pair. Phones get approvals and notifications.', skippable: true },

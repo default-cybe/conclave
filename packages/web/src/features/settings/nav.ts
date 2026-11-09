@@ -46,7 +46,7 @@ const KEYWORDS: Record<string, string> = {
   secrets: 'secret token api key mcp env header password value',
   apps: 'mcp chatbot claude.ai chatgpt oauth connector',
   github: 'token pull request repo',
-  appearance: 'theme dark light density motion logos text size font',
+  appearance: 'theme dark light density motion logos text size font modes security canvas hide',
   audit: 'history actions blocked pairings',
   remote: 'phone away tunnel cloudflare tailscale address network',
   friends: 'friend invite safety code notes share',

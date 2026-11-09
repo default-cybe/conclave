@@ -20,6 +20,7 @@ import { TodaySection } from './today';
 import { WaitingSection } from './sections';
 import { LearningsBadge } from '@/features/settings/reflectLearnings';
 import { offersIncognito, showsDay, type SessionKind, type StartMode } from './start';
+import { ModesNote } from './modes';
 
 /** The knot over the greeting: as heavy over its 26px heading as the phone's 64px mark over its 28px one. */
 const MARK = 60;
@@ -40,6 +41,7 @@ export function EmptyConversation({ mode }: { mode: Exclude<StartMode, 'canvas'>
       <Greeting as="h1" size={MARK} />
       <div className="mt-7">{mode === 'chat' ? <ChatComposer chatId="new" minRows={3} blurOnEsc placeholder={PLACEHOLDER.chat} /> : <SessionComposer key={mode} mode={mode} />}</div>
       <div className="mx-auto w-full max-w-[784px] space-y-7 px-8 pt-4">
+        <ModesNote />
         <WaitingSection open={1} />
         <LearningsBadge />
         {showsDay(mode) && <TodaySection />}

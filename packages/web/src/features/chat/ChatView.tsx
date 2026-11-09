@@ -48,6 +48,7 @@ import { BrowserLive } from './BrowserLive';
 import { ImportedLine } from '@/features/import/ImportedLine';
 import { LocationBanner } from './LocationBanner';
 import { modeOf } from '@/features/home/start';
+import { ModeOffNote } from '@/features/home/modes';
 import { ConversationSheet } from './ConversationSheet';
 import { PhoneTranscript } from './PhoneTranscript';
 import { downloadExport, isChat, lastCodeBlock, turnStartedAt } from './util';
@@ -126,6 +127,8 @@ export function ChatView({ session, column }: { session: Session; /** Shown as a
         <DelegatedLine session={session} className="shrink-0 px-5 py-1.5" />
         <ImportedLine session={session} className="shrink-0 px-5 py-1.5" />
         <FriendShareLine session={session} className="shrink-0 px-5 py-1.5" />
+        {/* a hunt opened by a link while Security is off in Settings */}
+        {modeOf(session) === 'security' && <ModeOffNote mode="security" className="shrink-0 px-5" />}
         <PhoneTranscript session={session} />
         <Docked>
           <RepoBar session={session} />
@@ -145,6 +148,7 @@ export function ChatView({ session, column }: { session: Session; /** Shown as a
       <RepoBar session={session} />
       <ImportedLine session={session} className="shrink-0 border-b border-rule px-8 py-1.5 phone:px-4" />
       <FriendShareLine session={session} className="shrink-0 border-b border-rule px-8 py-1.5 phone:px-4" />
+      {modeOf(session) === 'security' && <ModeOffNote mode="security" className="shrink-0 border-b border-rule px-8 phone:px-4" />}
       <MessageList session={session} />
       <Docked>
         {todos && !panelShown && <TodoStrip todos={todos} />}
