@@ -189,6 +189,23 @@ describe('the migration', () => {
     expect(new PeopleStore(old).owner().settings.modes).toBeUndefined();
   });
 
+  test('modes: an upgrade never turns a mode off, even a hub with no sessions and no owner row yet', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cv-modes-'));
+    try {
+      // a hub from before accounts that was never used: tables, no sessions, no hub_accounts
+      const file = join(dir, 'old.db');
+      const before = openDb(file);
+      before.exec('DROP TABLE hub_accounts');
+      expect(before.query('SELECT 1 FROM sessions LIMIT 1').get()).toBeNull();
+      before.close();
+      expect(new PeopleStore(openDb(file)).owner().settings.modes).toBeUndefined();
+      // a new file is a new hub
+      expect(new PeopleStore(openDb(join(dir, 'new.db'))).owner().settings.modes).toEqual({ security: false, canvas: false });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('every table is classed once: an account’s, a child of one, or the hub’s', () => {
     const lists = [...ACCOUNT_TABLES, ...Object.keys(CHILD_TABLES), ...HUB_TABLES];
     expect(lists.length).toBe(new Set(lists).size);

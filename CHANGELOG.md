@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Optional modes: an upgrade never turns Security or Canvas off. Only a hub whose database is created new starts its owner with both off; before, an unused hub from before accounts (no sessions yet) counted as new. Canvas opened by a link while it is off lists its programs and workflows on the page, since the sidebar then lists Chat. Android reads `/api/me` once for the whole app and decides with one rule, `Start.modeOn`, which hides the side panel's Canvas row and the model picker's Security switch.
+
 ## [0.4.84] - 2026-11-09
 
 ### Added

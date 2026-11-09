@@ -55,10 +55,6 @@ data class MePreferences(
 @Serializable
 data class ModesPreference(val security: Boolean = true, val canvas: Boolean = true)
 
-/** Shown unless the person turned it off (web core/client/people.ts modeOn). */
-val ModesPreference?.securityOn: Boolean get() = this?.security != false
-val ModesPreference?.canvasOn: Boolean get() = this?.canvas != false
-
 /** GET /api/me: who this token is and what they may use. */
 @Serializable
 data class Me(
@@ -86,6 +82,8 @@ data class MePatch(
     val defaultModel: String? = null,
     /** The whole pinned list, at most 50 refs; an empty list clears it. Null leaves it as it is. */
     val pinnedModels: List<String>? = null,
+    /** Show or hide Security and Canvas. Null leaves them as they are. */
+    val modes: ModesPreference? = null,
 )
 
 /** GET /api/invite/:secret: who an invite is for, before they set a password. */
