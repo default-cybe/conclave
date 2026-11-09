@@ -13,6 +13,12 @@ like `## [0.4.16] - 2026-10-24`.
 
 - A chat no longer gets stuck on "Could not process image" after a picture the model can't read. The hub checks every attached picture by its bytes: a wrong declared type is corrected, and a HEIC, AVIF, TIFF or BMP is refused with "<name> is a HEIC picture, which models can't read. Save it as PNG or JPEG and attach it again." The web and desktop apps turn such pictures into PNG first when the browser can draw them, and Android sends a HEIC as JPEG. Before each request an image whose bytes are not JPEG, PNG, GIF or WebP (also in a tool result) goes as a note instead. When the API still answers "Could not process image" (or OpenAI's "Invalid image"), the newest picture is taken out of the history, the turn says "An image could not be read by the model and was left out: <name>." and retries once, so a chat that is already stuck frees itself on its next send. Read refuses a file that is not really a supported picture.
 
+## [0.4.82] - 2026-11-09
+
+### Fixed
+
+- Pasting a screenshot in the Linux desktop app attaches it. WebKitGTK hands the page a screenshot paste with no file, and the app only read the clipboard on macOS; now it reads the GTK clipboard on Linux too (a picture comes as PNG, copied files as files). Needs the updated desktop app.
+
 ## [0.4.81] - 2026-11-08
 
 ### Fixed
