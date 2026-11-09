@@ -3,7 +3,8 @@
 //! WKWebView (macOS) often hands the page a paste with no files for a
 //! screenshot, a picture copied in Preview or Photos, or a file copied in
 //! Finder. The page then asks here (main.rs paste_files, web
-//! lib/pasteFiles.ts). Other systems answer empty: their webviews put the
+//! lib/pasteFiles.ts). WebKitGTK (Linux) does the same for a screenshot, so
+//! Linux reads the GTK clipboard. Windows answers empty: WebView2 puts the
 //! picture in the paste event.
 
 use std::path::PathBuf;
@@ -43,7 +44,29 @@ pub fn read() -> Pasted {
     Pasted { paths, image }
 }
 
-#[cfg(not(target_os = "macos"))]
+/// WebKitGTK hands the page a screenshot paste with no file (Spectacle, GNOME
+/// Screenshot, grim | wl-copy), so the GTK clipboard is read: copied files as
+/// file:// URIs, else the picture, saved as PNG.
+#[cfg(target_os = "linux")]
+pub fn read() -> Pasted {
+    // GTK panics off its main thread; sync commands run there, so this only guards
+    if !gtk::is_initialized_main_thread() {
+        return Pasted::default();
+    }
+    let board = gtk::Clipboard::get(&gtk::gdk::SELECTION_CLIPBOARD);
+    let paths: Vec<PathBuf> = board
+        .wait_for_uris()
+        .iter()
+        .filter_map(|u| tauri::Url::parse(u).ok()?.to_file_path().ok())
+        .collect();
+    if !paths.is_empty() {
+        return Pasted { paths, image: None };
+    }
+    let image = board.wait_for_image().and_then(|p| p.save_to_bufferv("png", &[]).ok()).map(|b| (b, "image/png"));
+    Pasted { paths, image }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub fn read() -> Pasted {
     Pasted::default()
 }

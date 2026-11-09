@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- Pasting a screenshot in the Linux desktop app attaches it. WebKitGTK hands the page a screenshot paste with no file, and the app only read the clipboard on macOS; now it reads the GTK clipboard on Linux too (a picture comes as PNG, copied files as files). Needs the updated desktop app.
+
 ## [0.4.81] - 2026-11-08
 
 ### Fixed
