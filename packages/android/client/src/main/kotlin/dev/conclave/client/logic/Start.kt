@@ -3,6 +3,7 @@ package dev.conclave.client.logic
 import dev.conclave.client.model.AgentDef
 import dev.conclave.client.model.CommandDef
 import dev.conclave.client.model.Device
+import dev.conclave.client.model.MePreferences
 import dev.conclave.client.model.Session
 import dev.conclave.client.model.SessionMode
 import dev.conclave.client.model.SessionStatus
@@ -44,6 +45,17 @@ object Start {
 
     /** The box's words: commands for the assistant and Code, a question for a chat. */
     fun placeholder(mode: StartMode): String = if (mode == StartMode.CHAT) "Ask anything" else "Type / for commands"
+
+    /**
+     * Whether "security" or "canvas" shows (web core/client/people.ts modeOn):
+     * on unless the person turned it off. Null [prefs] (none loaded, or a hub
+     * from before the setting) is on.
+     */
+    fun modeOn(prefs: MePreferences?, mode: String): Boolean = when (mode) {
+        "security" -> prefs?.modes?.security != false
+        "canvas" -> prefs?.modes?.canvas != false
+        else -> true
+    }
 
     /** Home shows the owner's day (proposals, the next event) in Assistant only; Chat and Code are the box (web start.ts showsDay). */
     fun showsDay(mode: StartMode): Boolean = mode == StartMode.ASSISTANT
