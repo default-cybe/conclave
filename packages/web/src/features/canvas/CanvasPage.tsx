@@ -64,7 +64,7 @@ import { isLive, RUN_WORD } from '../workflows/words';
 import { useCanvasFiles } from './files';
 import { codeHref, fileGroups, fileHref, fileTitle, focusNode, goLabel, goTarget, isRunId, libraryOpen, programHref, rememberFile, runBlocked, saveLibraryOpen, sessionFor } from './model';
 import { copyClip, pasteClip, programRenamable, removeOps, saveWords, useEditor, workflowRenamable, type Clip } from './editor';
-import { ModeOffNote } from '@/features/home/modes';
+import { ModeOffNote, useModeOn } from '@/features/home/modes';
 
 type Positions = Record<string, { x: number; y: number }>;
 const snap = (p: { x: number; y: number }) => ({ x: Math.round(p.x / 8) * 8, y: Math.round(p.y / 8) * 8 });
@@ -106,6 +106,9 @@ function CanvasStart() {
   const { files, loading, folderLabel } = useCanvasFiles();
   const groups = fileGroups(files, folderLabel);
   const n = useNewFile();
+  // Canvas off in Settings: the sidebar lists Chat, not the files, so they are listed here as on a phone
+  const canvasOn = useModeOn('canvas');
+  const inline = phone || !canvasOn;
   return (
     <>
       {phone && <PhoneBar title="Canvas" />}
@@ -131,8 +134,8 @@ function CanvasStart() {
         {!loading && !files.length && <Notice>No programs or workflows yet. New opens a blank canvas: double-click it to add blocks, or describe what it should do.</Notice>}
         {n.dialog}
         {/* on a desktop the sidebar lists the files (features/canvas/files.tsx SideFiles): one list, not two */}
-        {!phone && files.length > 0 && <p className="m-0 mt-6 text-[13px] text-fg-3">Open a program or workflow from the list at the left.</p>}
-        {phone && groups.map((g) => (
+        {!inline && files.length > 0 && <p className="m-0 mt-6 text-[13px] text-fg-3">Open a program or workflow from the list at the left.</p>}
+        {inline && groups.map((g) => (
           <Section key={g.label} title={g.label} className="mt-6">
             {g.files.map((f) => (
               <ListRow key={fileHref(f)} href={fileHref(f)} title={fileTitle(f)} state={f.kind === 'workflow' ? (f.live ? 'running' : f.failed ? 'failed' : undefined) : undefined} stateTone={f.kind === 'workflow' && f.live ? 'signal' : 'fault'} />
