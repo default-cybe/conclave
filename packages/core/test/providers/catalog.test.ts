@@ -117,6 +117,12 @@ describe('cost', () => {
     expect(opus).toMatchObject({ inputPrice: 4, outputPrice: 20, cacheReadPrice: 0.2, cacheWritePrice: 5, cacheWrite1hPrice: 8 });
     // Fable 5.1 reads at 0.025x
     expect(lookupModel('anthropic', 'claude-fable-5-1')).toMatchObject({ inputPrice: 10, cacheReadPrice: 0.25, cacheWrite1hPrice: 20 });
+    // Fable 5.2 and Mythos 5.2 (overview page, 2026-11-09): 8 / 40, reads 0.20, writes 10 (5 min) and 16 (1 hour), with vision
+    for (const id of ['claude-fable-5-2', 'claude-mythos-5-2']) {
+      expect(lookupModel('anthropic', id)).toMatchObject({ inputPrice: 8, outputPrice: 40, cacheReadPrice: 0.2, cacheWritePrice: 10, cacheWrite1hPrice: 16, contextWindow: 1_000_000, maxOutput: 128_000, vision: true, thinking: true, tier: 'deep' });
+    }
+    // "fable" names the newest Fable
+    expect(findCatalogEntry('fable')?.id).toBe('claude-fable-5-2');
     // other vendors carry no 1 hour price
     expect(lookupModel('openai', 'gpt-5.5').cacheWrite1hPrice).toBeUndefined();
   });

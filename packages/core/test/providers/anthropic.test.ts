@@ -465,6 +465,34 @@ describe('planAnthropicThinking', () => {
     expect(plan('claude-haiku-5-5', { thinking: { budgetTokens: 2000 } }).effort).toBe('low');
   });
 
+  test('Fable and Mythos 5.2: adaptive with drop_block always, never disabled or a budget, no forced tool choice', () => {
+    const bound = { type: 'adaptive', display: 'summarized', block_binding: { prefix_mismatch_behavior: 'drop_block' } };
+    for (const m of ['claude-fable-5-2', 'claude-mythos-5-2']) {
+      for (const req of [{}, { thinking: { off: true } }, { thinking: { budgetTokens: 20_000 } }, { thinking: { effort: 'max' as const } }]) {
+        const p = plan(m, req);
+        expect(p.thinking).toEqual(bound);
+        expect(p.noForcedToolChoice).toBe(true);
+      }
+      expect(plan(m, { thinking: { off: true } }).effort).toBe('low');
+      expect(plan(m, { thinking: { effort: 'xhigh' } }).effort).toBe('xhigh');
+    }
+    // 5.1 keeps the plain shape; forced tool choice off without depending on the thinking branch
+    expect(plan('claude-fable-5-1', {}).thinking).toEqual({ type: 'adaptive', display: 'summarized' });
+    expect(planAnthropicThinking('claude-mythos-5-2', base({ model: 'claude-mythos-5-2' }), { ...lookupModel('anthropic', 'claude-mythos-5-2', { type: 'anthropic' }), thinking: false }, 64_000).noForcedToolChoice).toBe(true);
+  });
+
+  test('Fable 5.2 requests carry the binding beta; forced tool choice goes auto', async () => {
+    const tools = [{ name: 'A', description: 'a', inputSchema: { type: 'object' } }];
+    const b = provider().buildBody(base({ model: 'claude-fable-5-2', tools, toolChoice: { name: 'A' } })) as any;
+    expect(b.tool_choice).toEqual({ type: 'auto' });
+    expect(JSON.stringify(b)).not.toContain('budget_tokens');
+    expect(JSON.stringify(b)).not.toContain('disabled');
+    await collect(provider().stream(base({ model: 'claude-fable-5-2' })));
+    expect(server.requests.at(-1)!.headers['anthropic-beta']).toBe('thinking-binding-controls-2026-08-01');
+    await collect(provider().stream(base({ model: 'claude-fable-5-1' })));
+    expect(server.requests.at(-1)!.headers['anthropic-beta']).toBeUndefined();
+  });
+
   test('Opus 4.7: adaptive at its default effort with no level, disabled for Off', () => {
     expect(plan('claude-opus-4-7', {}).thinking).toEqual({ type: 'adaptive', display: 'summarized' });
     expect(plan('claude-opus-4-7', {}).effort).toBeUndefined();

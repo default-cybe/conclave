@@ -483,6 +483,9 @@ export function classifyHttpError(
   // a picture the API could not decode: the request's content, never a limit, a refusal or the server, so no wait and no other account
   const badImage = isUnreadableImageText(`${message} ${info.code ?? ''} ${info.type ?? ''}`);
   if (badImage) kind = 'bad_request';
+  // replayed thinking whose prefix changed (Fable and Mythos 5.2): the request's history, not the account
+  const bound = !badImage && THINKING_BOUND_RE.test(message);
+  if (bound) kind = 'bad_request';
 
   let retryAfterMs = parseRetryAfter(headers, now);
   let resetAt: number | undefined;
@@ -536,7 +539,7 @@ export function classifyHttpError(
     resetAt,
     provider,
     body: bodyText.slice(0, 4000),
-    ...(spendCap ? { code: 'spend_cap' } : badImage ? { code: 'image_unreadable' } : {}),
+    ...(spendCap ? { code: 'spend_cap' } : badImage ? { code: 'image_unreadable' } : bound ? { code: 'thinking_bound' } : {}),
   });
 }
 
@@ -550,6 +553,14 @@ export function isUnreadableImageText(text: string): boolean {
 /** The API could not read a picture in the request (classifyHttpError marked it). */
 export function isUnreadableImageError(err: unknown): boolean {
   return err instanceof ProviderError && err.code === 'image_unreadable';
+}
+
+/** Anthropic's 400 for a thinking block replayed after an edit to the request before it. */
+const THINKING_BOUND_RE = /block is bound to a different conversation/i;
+
+/** The API rejected replayed thinking bound to another prefix (classifyHttpError marked it). */
+export function isThinkingBoundError(err: unknown): boolean {
+  return err instanceof ProviderError && err.code === 'thinking_bound';
 }
 
 /** Status code implied by an error type sent mid-stream (no HTTP status available). */

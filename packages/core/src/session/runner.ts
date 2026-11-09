@@ -24,10 +24,10 @@ import { activeMessages, activeStored, buildProviderMessages, lastAssistantText,
 import { buildSystemPrompt, subagentCatalog, TOOL_NOTE_TOOLS, type PromptParts } from './prompt';
 import { delegateCatalog } from '../engine/delegate';
 import { flattenLastToolTurn, isTranscriptShapeError } from './pairing';
-import { streamCompletion, takeCallTimings, type Served } from './stream';
+import { dropThinking, streamCompletion, takeCallTimings, type Served } from './stream';
 import { isTextOnlyImageError, transcribeImages } from './image-text';
 import { dropNewestImage } from './bad-image';
-import { isUnreadableImageError } from '../providers/errors';
+import { isThinkingBoundError, isUnreadableImageError } from '../providers/errors';
 import { seesImages } from '../providers/common';
 import { pickedName } from '../attachments/prepare';
 import { refusalPlanFor } from './member-fallbacks';
@@ -1166,6 +1166,11 @@ export class SessionRunner {
     let textOnly = false;
     /** One retry per turn after the API could not decode a picture: the newest one leaves the history first (session/bad-image.ts). */
     let imageRetried = false;
+    /**
+     * Set once the API said replayed thinking is bound to another prefix (Fable and Mythos 5.2): the messages
+     * the failed request had go without thinking for the rest of the turn; newer ones keep theirs, as a tool loop needs.
+     */
+    let thinkingDroppedBefore: number | undefined;
     /** Models that hit a limit this turn: a limit fallback never goes back to one. */
     const limited: string[] = [];
     const maxSteps = this.stepBudget();
@@ -1255,6 +1260,7 @@ export class SessionRunner {
         shapeRetry = 'used';
         messages = flattenLastToolTurn(messages);
       }
+      if (thinkingDroppedBefore !== undefined) messages = [...dropThinking(messages.slice(0, thinkingDroppedBefore)), ...messages.slice(thinkingDroppedBefore)];
 
       const info = resolved.info;
       // the last real usage plus what was stored since; chars/4 alone undercounts schemas, code and CJK text.
@@ -1319,6 +1325,12 @@ export class SessionRunner {
           if (!imageText && isTextOnlyImageError(err)) {
             textOnly = true;
             log.warn(`${currentModel} in ${this.id} takes no images; retrying with them transcribed: ${oneLine(err.message, 160)}`);
+            continue;
+          }
+          // history edited before a bound thinking block (a route that dropped block_binding): retry once without replayed thinking
+          if (thinkingDroppedBefore === undefined && isThinkingBoundError(err)) {
+            thinkingDroppedBefore = messages.length;
+            log.warn(`${currentModel} in ${this.id} rejected replayed thinking bound to an edited prefix; retrying without it: ${oneLine(err.message, 160)}`);
             continue;
           }
           // a picture the API could not decode stays in every later request: take the newest out of the history and retry once

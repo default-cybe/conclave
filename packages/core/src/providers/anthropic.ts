@@ -97,7 +97,10 @@ export interface AnthropicThinkingPlan {
  *   on Sonnet 5.5 (no level with either), nothing on 4.6, and Opus 5.5, Fable and Mythos,
  *   which cannot stop thinking, get their lowest level.
  * - Older Claude and Anthropic-compatible gateways (GLM, MiniMax, Kimi): enabled + budget_tokens.
- * Opus 5.5, Sonnet 5.5, Fable 5.1 and Mythos 5.1 reject forced tool_choice; so does any request with thinking on.
+ * Opus 5.5, Sonnet 5.5 and the Fable and Mythos 5.x line reject forced tool_choice; so does any request with thinking on.
+ * Fable and Mythos 5.2 bind each thinking block to the request prefix before it: an edited prefix
+ * (cleared tool output, compaction, a swapped image, a new system prompt) is a 400 unless the request
+ * asks the API to drop the bound blocks (block_binding drop_block, BINDING_BETA).
  */
 export function planAnthropicThinking(model: string, req: ChatRequest, info: ModelInfo, maxTokens: number): AnthropicThinkingPlan {
   const id = normalizeModelId(model);
@@ -110,7 +113,7 @@ export function planAnthropicThinking(model: string, req: ChatRequest, info: Mod
   const wants = asked && !off;
   const plan: AnthropicThinkingPlan = {
     dropTemperature: claude && adaptiveOnly,
-    noForcedToolChoice: /^claude-(opus-5-5|sonnet-5-5|fable-5-1|mythos-5-1)/.test(id),
+    noForcedToolChoice: /^claude-(opus-5-5|sonnet-5-5|fable-5|mythos-5)/.test(id),
     maxTokens,
   };
 
@@ -123,6 +126,7 @@ export function planAnthropicThinking(model: string, req: ChatRequest, info: Mod
     // a 4.x model set not to think (modelOverrides) is left as it is; the 5 family thinks either way
     if (!gen5 && !info.thinking) return plan;
     plan.thinking = adaptiveOnly ? { type: 'adaptive', display: 'summarized' } : { type: 'adaptive' };
+    if (bindsThinking(id)) plan.thinking.block_binding = { prefix_mismatch_behavior: 'drop_block' };
     plan.noForcedToolChoice = true;
     const levels = claudeEffort(id);
     if (wants) {
@@ -139,6 +143,26 @@ export function planAnthropicThinking(model: string, req: ChatRequest, info: Mod
   if (max <= budget) budget = max - 1024;
   if (budget < 1024) return plan;
   return { thinking: { type: 'enabled', budget_tokens: budget }, dropTemperature: true, noForcedToolChoice: true, maxTokens: max };
+}
+
+/** The beta that lets a request carry thinking.block_binding. */
+export const BINDING_BETA = 'thinking-binding-controls-2026-08-01';
+
+/** Fable and Mythos 5.2 and later: thinking blocks bound to their prefix (planAnthropicThinking). */
+export function bindsThinking(id: string): boolean {
+  return /^claude-(fable|mythos)-5-([2-9]|\d{2})(?!\d)/.test(id);
+}
+
+/** The headers plus BINDING_BETA when the body sets block_binding, joined to any anthropic-beta already there. */
+function withBindingBeta(h: Record<string, string>, body: Wire): Record<string, string> {
+  if (!(body.thinking as Wire | undefined)?.block_binding) return h;
+  const key = Object.keys(h).find((k) => k.toLowerCase() === 'anthropic-beta');
+  const have = key ? h[key] : '';
+  if (have.split(',').some((b) => b.trim() === BINDING_BETA)) return h;
+  const out = { ...h };
+  if (key) delete out[key];
+  out['anthropic-beta'] = have ? `${have},${BINDING_BETA}` : BINDING_BETA;
+  return out;
 }
 
 /** Claude models that take an effort level (output_config.effort): the 5 family and Opus/Sonnet 4.6 to 4.8. */
@@ -480,7 +504,7 @@ export class AnthropicProvider extends BaseProvider {
     const fingerprint = replayKey ? replayFingerprint(body) : undefined;
     let res: Response;
     try {
-      res = await openStream(`${this.baseUrl}/v1/messages`, { ...this.headers(), ...this.sessionHeaders(req) }, body, this.http(req.signal));
+      res = await openStream(`${this.baseUrl}/v1/messages`, withBindingBeta({ ...this.headers(), ...this.sessionHeaders(req) }, body), body, this.http(req.signal));
     } catch (error) {
       const coordinates = replayCoordinates(error);
       if (coordinates) {
@@ -554,7 +578,7 @@ export class AnthropicProvider extends BaseProvider {
   async countTokens(req: ChatRequest): Promise<number> {
     const body = this.buildBody(req);
     for (const k of ['max_tokens', 'temperature', 'metadata', 'output_config']) delete body[k];
-    const res = await postJson<{ input_tokens?: number }>(`${this.baseUrl}/v1/messages/count_tokens`, this.headers(), body, this.http(req.signal));
+    const res = await postJson<{ input_tokens?: number }>(`${this.baseUrl}/v1/messages/count_tokens`, withBindingBeta(this.headers(), body), body, this.http(req.signal));
     return res.input_tokens ?? 0;
   }
 }

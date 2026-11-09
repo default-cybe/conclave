@@ -157,7 +157,7 @@ export type ProviderErrorKind =
   | 'server'
   | 'unknown';
 
-export type ProviderErrorCode = 'spend_cap' | 'budget' | 'access' | 'fallback_policy' | 'image_unreadable';
+export type ProviderErrorCode = 'spend_cap' | 'budget' | 'access' | 'fallback_policy' | 'image_unreadable' | 'thinking_bound';
 
 export class ProviderError extends Error {
   kind: ProviderErrorKind;

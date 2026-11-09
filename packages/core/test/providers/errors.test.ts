@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   classifyHttpError,
   classifyStreamError,
+  isThinkingBoundError,
   modelRefusal,
   nextMidnightIn,
   parseRateLimitHeaders,
@@ -13,6 +14,16 @@ import { httpRequest, postJson } from '../../src/providers/http';
 
 const NOW = Date.parse('2026-10-16T08:00:00Z');
 const body = (o: unknown) => JSON.stringify(o);
+
+describe('thinking bound to another prefix', () => {
+  test('a 400 the request caused: bad_request, marked thinking_bound, never a refusal', () => {
+    const e = classifyHttpError('cliproxy', 400, {}, body({ type: 'error', error: { type: 'invalid_request_error', message: 'messages.3.content.0: The block is bound to a different conversation' } }), NOW);
+    expect(e.kind).toBe('bad_request');
+    expect(isThinkingBoundError(e)).toBe(true);
+    expect(modelRefusal(e)).toBeUndefined();
+    expect(isThinkingBoundError(classifyHttpError('cliproxy', 400, {}, body({ error: { message: 'max_tokens too large' } }), NOW))).toBe(false);
+  });
+});
 
 describe('modelRefusal', () => {
   const err = (status: number, o: unknown) => classifyHttpError('cliproxy', status, {}, body(o), NOW);
