@@ -9,23 +9,16 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Files in one message (docs/design/CHAT-AND-MOTION.md 2.5): 15 at most, the
- * same line as the web app and the hub past that, and zips in the picker.
+ * Files in one message (docs/design/CHAT-AND-MOTION.md 2.5): any number of
+ * any type, under what the hub reads in one request, and any file in the picker.
  */
 class AttachTest {
     private fun file(bytes: Int, name: String = "a.txt") = Attachment(mediaType = "text/plain", data = "A".repeat(bytes * 4 / 3), name = name)
 
     @Test
-    fun fifteenAtMostWithTheSameLine() {
-        assertEquals(15, Attach.MAX)
-        assertEquals("Up to 15 files per message. Zip the rest.", Attach.TOO_MANY)
-        assertEquals(15, Attach.room(0))
-        assertEquals(5, Attach.room(10))
-        assertEquals(0, Attach.room(15))
-        assertEquals(0, Attach.room(20))
-        val fourteen = List(14) { file(10) }
-        assertNull(Attach.refusal(fourteen, file(10)))
-        assertEquals(Attach.TOO_MANY, Attach.refusal(fourteen + file(10), file(10)))
+    fun noCountCap() {
+        val forty = List(40) { file(10) }
+        assertNull(Attach.refusal(forty, file(10)))
     }
 
     @Test
@@ -36,9 +29,8 @@ class AttachTest {
     }
 
     @Test
-    fun zipsArePicked() {
-        assertTrue("application/zip" in Attach.PICKER_TYPES)
-        assertTrue("application/x-zip-compressed" in Attach.PICKER_TYPES)
+    fun anyFileIsPicked() {
+        assertEquals(listOf("*/*"), Attach.PICKER_TYPES.toList())
         assertTrue(Attach.isZip("application/x-zip-compressed", "src.zip"))
         assertTrue(Attach.isZip("application/octet-stream", "Src.ZIP"))
         assertFalse(Attach.isZip("text/plain", "notes.zip"))

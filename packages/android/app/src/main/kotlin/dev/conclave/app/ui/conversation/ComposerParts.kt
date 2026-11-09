@@ -518,7 +518,7 @@ fun ChoiceRow(label: String, selected: Boolean, onClick: () -> Unit, detail: Str
  * The files over the field (docs/design/CHAT-AND-MOTION.md 2.5; the web's
  * ComposerParts.tsx AttachmentStrip): one row of chips, left to right, that
  * scrolls sideways at a fixed height, so the field stays on screen with any
- * number of files (15 at most, Attach.MAX). A picture is a thumbnail,
+ * number of files. A picture is a thumbnail,
  * another file its name and size; each has an x. Once the row scrolls,
  * "7 files" sits at its right.
  */

@@ -249,7 +249,7 @@ const b64 = (b: Uint8Array) => Buffer.from(b.buffer, b.byteOffset, b.byteLength)
  * A chat's zip, read by the hub: one text document (named as the zip) with
  * the listing and the text files, whole, up to ZIP_TEXT_MAX_BYTES together,
  * and "and N more files" for those it cut; then the pictures as images,
- * `room` at most (what is left of MAX_ATTACHMENTS).
+ * `room` at most (ZIP_PICTURES_MAX for the whole message).
  */
 export function readForChat(zip: OpenedZip, room: number): Attachment[] {
   const texts: Array<{ name: string; text: string }> = [];

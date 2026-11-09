@@ -17,9 +17,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { Message, Session } from '@conclave/core/types';
-import { ACCEPT_FILES, MAX_ATTACHMENTS, TOO_MANY_FILES } from '@conclave/core/attachments/limits';
+import { takeFiles } from '@conclave/core/attachments/limits';
 import { ReplyIcons } from '../src/features/conversation/ReplyIcons';
-import { AttachmentStrip } from '../src/features/conversation/ComposerParts';
+import { AttachmentStrip, PlusMenu } from '../src/features/conversation/ComposerParts';
 import { PhoneBox, PHONE_FIELD } from '../src/features/conversation/PhoneBox';
 
 const NOW = 1_800_000_000_000;
@@ -90,13 +90,17 @@ describe('the composer', () => {
     expect(desk).toContain('h-[52px]');
   });
 
-  test('the pickers take zips, and the cap is 15 with its line', () => {
-    expect(ACCEPT_FILES.split(',')).toEqual(expect.arrayContaining(['.zip', 'application/zip', 'application/x-zip-compressed', 'image/*', 'application/pdf']));
+  test('the pickers take any file, and any number of them', () => {
     const src = (p: string) => readFileSync(join(import.meta.dir, '../src', p), 'utf8');
-    expect(src('features/conversation/ChatComposer.tsx')).toContain('const ACCEPT = ACCEPT_FILES;');
-    expect(src('features/chat/Composer.tsx')).toContain('const ACCEPT = ACCEPT_FILES;');
-    expect(MAX_ATTACHMENTS).toBe(15);
-    expect(TOO_MANY_FILES).toBe('Up to 15 files per message. Zip the rest.');
+    for (const p of ['features/conversation/ChatComposer.tsx', 'features/chat/Composer.tsx']) {
+      expect(src(p)).not.toContain('accept={');
+      expect(src(p)).not.toContain('MAX_ATTACHMENTS');
+    }
+    // the Files input of the phone's + has no accept list either (its Photos and Camera inputs ask for pictures)
+    const add = renderToStaticMarkup(<PlusMenu items={[]} onFiles={() => {}} />);
+    expect(add).not.toContain('accept=');
+    const forty = Array.from({ length: 40 }, () => ({ size: 10 }));
+    expect(takeFiles([], forty).take.length).toBe(40);
   });
 });
 

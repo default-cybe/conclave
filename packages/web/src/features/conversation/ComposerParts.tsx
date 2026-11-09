@@ -12,7 +12,7 @@
  *
  * Attachments sit above the field as one row of chips that scrolls sideways
  * at a fixed height (AttachmentStrip), so the field never leaves the screen
- * however many files there are; 15 at most (core attachments/limits.ts).
+ * however many files there are; any number (core attachments/limits.ts).
  */
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Link } from 'wouter';
@@ -392,7 +392,7 @@ function Row({ k, children }: { k: string; children: ReactNode }) {
 // ---------------------------------------------------------------------------
 
 /** "+": attach files first, then the add-ons (search the web, a GitHub repository, a worktree, a design direction). */
-export function PlusMenu({ items, onFiles, accept, label = 'Add files and more' }: { items: MenuItem[]; onFiles: (files: File[]) => void; accept: string; label?: string }) {
+export function PlusMenu({ items, onFiles, accept, label = 'Add files and more' }: { items: MenuItem[]; onFiles: (files: File[]) => void; /** Any file when left out. */ accept?: string; label?: string }) {
   const ref = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
@@ -583,9 +583,9 @@ export function AttachmentStrip({ files, onRemove, phone = false }: { files: Str
 }
 
 /**
- * Files picked, dropped or pasted, read for sending: the first ones that fit
- * the cap of 15 (and what the hub reads in one message), each at most
- * `maxBytes`. Past the cap: "Up to 15 files per message. Zip the rest."
+ * Files picked, dropped or pasted, of any type and any number, read for
+ * sending: each at most `maxBytes`, and together what the hub reads in one
+ * message.
  */
 export async function readPicked(current: Array<{ size: number }>, picked: File[], maxBytes: number): Promise<Array<StripFile & { mediaType: string; data: string; name: string }>> {
   // a picture no model reads (HEIC, AVIF, BMP, TIFF) goes as PNG; one the page cannot draw is refused here, as the hub would

@@ -170,14 +170,12 @@ fun ChatComposer(
 
     // what is attached now, for files read after the pick (the list grows as each one lands)
     val attached = rememberUpdatedState(m.attachments)
-    /** 15 at most (Attach.MAX): the first that fit are read, the rest refused with "Up to 15 files per message. Zip the rest." */
+    /** Any number: each that fits under what the hub reads in one message (Attach.refusal) is read. */
     fun add(uris: List<Uri>) {
         if (uris.isEmpty()) return
-        val room = Attach.room(attached.value.size)
-        if (uris.size > room) onError(Attach.TOO_MANY)
         scope.launch {
             var have = attached.value
-            for (i in 0 until minOf(uris.size, room)) {
+            for (i in uris.indices) {
                 try {
                     val a = Attachments.fromUri(context, uris[i])
                     val why = Attach.refusal(have, a)
@@ -193,7 +191,7 @@ fun ChatComposer(
             }
         }
     }
-    val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(Attach.MAX)) { uris -> add(uris) }
+    val photos = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris -> add(uris) }
     val files = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> add(uris) }
     val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val uri = cameraUri

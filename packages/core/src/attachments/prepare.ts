@@ -25,8 +25,11 @@ import type { AttachmentReceipt } from '../types';
 import { EngineError } from '../engine/errors';
 import { checkPicture, isModelImage, SNIFF_BYTES } from './image';
 import { base64Head } from '../providers/common';
-import { isZip, MAX_ATTACHMENTS, mediaTypeFor, TOO_MANY_FILES } from './limits';
+import { isZip, mediaTypeFor } from './limits';
 import { checkAll, listingNote, openZip, readForChat, ZipRefused } from './zip';
+
+/** Pictures a chat's zips may add to one message as images, all zips together. */
+export const ZIP_PICTURES_MAX = 15;
 
 export interface ZipHost {
   /** The session can unzip with its own tools: the zip goes into its folder. Asked only when a zip comes. */
@@ -82,13 +85,12 @@ function partOf(a: Attachment): PartKind {
 
 /**
  * The attachments to send on, with a receipt per picked file. The same list
- * when there is no zip; throws EngineError 400 past MAX_ATTACHMENTS or for a
+ * when there is no zip; throws EngineError 400 for a
  * zip the hub refuses. A file whose bytes the hub cannot read is left out and
  * named in lost: the sender chooses whether the message goes without it.
  */
 export async function prepareAttachments(list: Attachment[] | undefined, host: ZipHost): Promise<PreparedAttachments> {
   if (!list?.length) return { attachments: list, receipts: [], lost: [] };
-  if (list.length > MAX_ATTACHMENTS) throw new EngineError(400, TOO_MANY_FILES);
   const receipts: AttachmentReceipt[] = [];
   const lost: string[] = [];
   const unreadable = (name: string): AttachmentReceipt => {
@@ -122,7 +124,7 @@ export async function prepareAttachments(list: Attachment[] | undefined, host: Z
   let fileTools: boolean | undefined;
   const out: Attachment[] = [];
   // the pictures from a zip take what is left of the cap
-  let room = MAX_ATTACHMENTS - list.length;
+  let room = ZIP_PICTURES_MAX;
   try {
     for (const a of list) {
       if (!isZip(a.mediaType, a.name ?? a.path)) {

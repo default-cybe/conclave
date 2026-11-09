@@ -26,7 +26,6 @@ import { browserConfigProblems } from '@conclave/core/browser/engine.ts';
 import { buildBundle } from '@conclave/core/session/share.ts';
 import { trimMessage } from '@conclave/core/session/trim.ts';
 import { INLINE_TYPES } from '@conclave/core/files/share.ts';
-import { MAX_ATTACHMENTS, TOO_MANY_FILES } from '@conclave/core/attachments/limits.ts';
 import type { ShareOptions } from '@conclave/core/client/share.ts';
 import type { HonoEnv, ServerContext } from './context';
 import { HttpError, PUBLIC_BODY_MAX, auditFor, badRequest, clientIp, isDirectLocal, notFound, optBool, qBool, qNum, readBody, readJson, requestOrigin, requireString } from './http';
@@ -456,8 +455,6 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
     const input = await readJson<SendInput>(c);
     if (typeof input.text !== 'string') throw badRequest('text is required');
     if (input.attachments !== undefined && !Array.isArray(input.attachments)) throw badRequest('attachments must be an array');
-    // the apps refuse more before sending; the hub says the same (core attachments/limits.ts)
-    if (input.attachments && input.attachments.length > MAX_ATTACHMENTS) throw badRequest(TOO_MANY_FILES);
     if (input.pendingId !== undefined && typeof input.pendingId !== 'string') throw badRequest('pendingId must be a string');
     // a shared chat: a participant's message is theirs, and starts a turn on their own seat, never on the chat (SHARED-WITH-MEMBERS.md 6)
     const caller = accountOf(c);

@@ -10,9 +10,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 /** Files and text shared from other apps, and the "Share to" picker's list. */
 class ShareInTest {
@@ -35,21 +33,7 @@ class ShareInTest {
     }
 
     @Test
-    fun takesWhatTheHubReads() {
-        assertTrue(ShareIn.supported("image/heic", "IMG_1.heic"))
-        assertTrue(ShareIn.supported("application/pdf", "a.pdf"))
-        assertTrue(ShareIn.supported("text/plain; charset=utf-8", "a.txt"))
-        assertTrue(ShareIn.supported("application/json", "a"))
-        assertTrue(ShareIn.supported("application/zip", "a"))
-        assertTrue(ShareIn.supported("application/octet-stream", "src.zip"))
-        // a type that says nothing: the extension decides, the hub fixes the type by it
-        assertTrue(ShareIn.supported("application/octet-stream", "notes.md"))
-        assertTrue(ShareIn.supported(null, "scan.pdf"))
-        assertFalse(ShareIn.supported("video/mp4", "clip.mp4"))
-        assertFalse(ShareIn.supported("audio/mpeg", "song.mp3"))
-        assertFalse(ShareIn.supported("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "cv.docx"))
-        assertFalse(ShareIn.supported("application/octet-stream", "app.apk"))
-        assertTrue(ShareIn.unsupported("clip.mp4").startsWith("clip.mp4 was not added"))
+    fun unreadableSaysWhy() {
         assertEquals("a.pdf is larger than 8 MB", ShareIn.unreadable("a.pdf", "a.pdf is larger than 8 MB"))
         assertEquals("a.jpg: Cannot decode image", ShareIn.unreadable("a.jpg", "Cannot decode image"))
         assertEquals("a.pdf could not be read.", ShareIn.unreadable("a.pdf", null))
@@ -60,9 +44,10 @@ class ShareInTest {
         val (all, none) = ShareIn.merge(listOf(file(10)), listOf(file(10), file(10)))
         assertEquals(3, all.size)
         assertNull(none)
-        val (fifteen, many) = ShareIn.merge(List(14) { file(10) }, List(3) { file(10) })
-        assertEquals(Attach.MAX, fifteen.size)
-        assertEquals(Attach.TOO_MANY, many)
+        // no count cap
+        val (forty, many) = ShareIn.merge(List(38) { file(10) }, List(2) { file(10) })
+        assertEquals(40, forty.size)
+        assertNull(many)
         // too big together: that one stays out, a smaller one after it still goes in
         val (some, large) = ShareIn.merge(emptyList(), listOf(file(40 * 1024 * 1024, "big"), file(10 * 1024 * 1024, "next"), file(10, "small")))
         assertEquals(listOf("big", "small"), some.map { it.name })

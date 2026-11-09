@@ -1,14 +1,13 @@
 /**
  * What the hub takes with a message over HTTP (docs/design/CHAT-AND-MOTION.md
- * 2.5): 15 files at most, the same line the apps show past that, and a zip
- * it will not open refused with its reason, both before the turn starts.
+ * 2.5): any number of files, and a zip it will not open refused with its
+ * reason before the turn starts.
  *
  *   bun test packages/server/test/attachments-routes.test.ts
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { startTestEngine, until, type TestEngine } from '../../core/test/engine/harness';
 import { b64, makeZip } from '../../core/test/attachments/zipkit';
-import { MAX_ATTACHMENTS, TOO_MANY_FILES } from '../../core/src/attachments/limits';
 import { startServer, type RunningServer } from '../src/app';
 
 const OWNER = 'owner-token-attachments-0123456789';
@@ -40,18 +39,13 @@ afterAll(async () => {
 const file = (i: number) => ({ mediaType: 'text/plain', data: b64(new TextEncoder().encode(`file ${i}`)), name: `${i}.txt` });
 
 describe('attachments over HTTP', () => {
-  test('16 files are refused with the line the apps show; 15 go', async () => {
+  test('40 files inline go in one message, as an old client sends them', async () => {
     const s = await call('POST', '/api/sessions', { kind: 'chat' });
     const id = s.body.id as string;
-    const over = await call('POST', `/api/sessions/${id}/messages`, { text: 'many', attachments: Array.from({ length: MAX_ATTACHMENTS + 1 }, (_, i) => file(i)) });
-    expect(over.status).toBe(400);
-    expect(over.body.error).toBe(TOO_MANY_FILES);
-    expect(t.engine.getMessages(id).length).toBe(0);
-
-    const ok = await call('POST', `/api/sessions/${id}/messages`, { text: 'fifteen', attachments: Array.from({ length: MAX_ATTACHMENTS }, (_, i) => file(i)) });
+    const ok = await call('POST', `/api/sessions/${id}/messages`, { text: 'forty', attachments: Array.from({ length: 40 }, (_, i) => file(i)) });
     expect(ok.status).toBe(200);
     expect(await until(() => t.engine.getMessages(id).some((m) => m.role === 'user'))).toBe(true);
-    expect(t.engine.getMessages(id).find((m) => m.role === 'user')!.content.filter((b) => b.type === 'document').length).toBe(MAX_ATTACHMENTS);
+    expect(t.engine.getMessages(id).find((m) => m.role === 'user')!.content.filter((b) => b.type === 'document').length).toBe(40);
   });
 
   test('a zip bomb and a zip with a link are refused with the reason', async () => {

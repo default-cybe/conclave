@@ -10,21 +10,6 @@ import dev.conclave.client.model.Session
  * tested without a device.
  */
 object ShareIn {
-    /** Extensions the hub reads (core attachments/limits.ts EXT_TYPES): it fixes the type by them on arrival. */
-    private val EXTENSIONS = setOf(
-        "pdf", "zip", "md", "markdown", "txt", "log", "csv", "json", "xml", "yaml", "yml", "toml",
-        "html", "htm", "css", "js", "ts", "tsx", "py", "sh",
-    )
-
-    /** Text-like types outside the text types the hub reads as text. */
-    private val TEXT_TYPES = setOf(
-        "application/json", "application/xml", "application/yaml", "application/x-yaml", "application/toml",
-        "application/x-sh", "application/javascript", "application/x-javascript",
-    )
-
-    /** The line for a file of a kind the hub cannot read (video, audio, Office documents...). */
-    fun unsupported(name: String): String = "$name was not added: Conclave takes pictures, PDFs, text and code files, and zips."
-
     /** The line for a file that could not be read, with the reason ("report.pdf is larger than 8 MB"). */
     fun unreadable(name: String, reason: String?): String = reason?.takeIf { it.isNotBlank() }
         ?.let { if (it.contains(name)) it else "$name: $it" } ?: "$name could not be read."
@@ -40,18 +25,6 @@ object ShareIn {
     /** The shared words: subject and text, each once, blank ones left out. */
     fun text(subject: String?, text: String?): String =
         listOfNotNull(subject, text).map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString("\n")
-
-    /**
-     * Whether the hub can read a file of [mediaType] named [name], as the
-     * web's file picker allows (core ACCEPT_FILES): pictures, PDFs, text and
-     * code, and zips. The extension decides when the type says nothing.
-     */
-    fun supported(mediaType: String?, name: String?): Boolean {
-        val t = mediaType.orEmpty().substringBefore(';').trim().lowercase()
-        val ext = name.orEmpty().substringAfterLast('.', "").lowercase()
-        return t.startsWith("image/") || t.startsWith("text/") || t == "application/pdf" || t in TEXT_TYPES ||
-            Attach.isZip(t, name) || ext in EXTENSIONS
-    }
 
     /**
      * [incoming] added to [current] in order, each that fits ([Attach.refusal]);
