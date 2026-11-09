@@ -1534,7 +1534,8 @@ export class Engine implements EngineApi {
       const list = g.type === 'acp' ? this.harnessModelList(g.provider) : undefined;
       if (!list?.device) return g;
       const ids = new Set(list.models.map((m) => m.id));
-      return { ...g, models: g.models.map((m) => (ids.has(m.id) ? { ...m, via: `via ${this.providerLabel(g.provider)} on ${list.device}` } : m)) };
+      const where = this.devices.list().find((d) => d.id === list.device)?.name ?? list.device;
+      return { ...g, models: g.models.map((m) => (ids.has(m.id) ? { ...m, via: `via ${this.providerLabel(g.provider)} on ${where}` } : m)) };
     });
   }
 
@@ -2742,7 +2743,7 @@ export class Engine implements EngineApi {
     this.bus.emit({ type: 'models.updated' });
   }
 
-  /** The models each harness's account offered, by harness id (kept in kv); device names the paired device that was asked when the hub lacks the CLI. */
+  /** The models each harness's account offered, by harness id (kept in kv); device is the id of the paired device that was asked when the hub lacks the CLI. */
   private harnessModelLists?: Record<string, { at: number; models: Array<{ id: string; name?: string }>; device?: string }>;
 
   harnessModels(harness: string): Array<{ id: string; name?: string }> | undefined {
@@ -2796,13 +2797,16 @@ export class Engine implements EngineApi {
         let machine: Machine | undefined = this.providers.isConfigured(id) ? this.deps.localMachine : undefined;
         let device: string | undefined;
         if (!machine) {
-          const d = this.devices.list(OWNER_ID).find((x) => x.id !== 'local' && this.devices.isOnline(x.id) && !!x.info?.clis?.[p.command!] && this.devices.get(x.id));
+          // devices report CLIs by bare name ("opencode"), the config may name a path
+          const cli = p.command.split('/').pop()!;
+          const has = this.devices.list(OWNER_ID).filter((x) => x.id !== 'local' && !!x.info?.clis?.[cli]);
+          const d = has.find((x) => this.devices.isOnline(x.id) && this.devices.get(x.id));
           if (!d) {
-            failed.push(`${this.providerLabel(id)}: ${harnessInstallHint(p.command)}`);
+            failed.push(`${this.providerLabel(id)}: ${has.length ? `${has.map((x) => x.name).join(', ')} ${has.length > 1 ? 'are' : 'is'} offline` : harnessInstallHint(cli)}`);
             continue;
           }
           machine = this.devices.get(d.id)!;
-          device = d.name;
+          device = d.id;
         }
         runs.push(
           Promise.race([acp.listModels(id, machine), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('no answer within 60 seconds')), 60_000).unref?.())])

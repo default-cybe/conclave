@@ -119,6 +119,11 @@ describe('model lists from the account', () => {
       expect(g.models.find((x) => x.id === 'big-pickle')!.via).toBe('via OpenCode on Xeno');
       // the configured fallback was not read on the device
       expect(g.models.find((x) => x.id === 'default')!.via).toBeUndefined();
+      // the device went away: it says so instead of asking to install, and the last list stays
+      t.engine.devices.detach(m.id);
+      const again = await t.engine.refreshModels();
+      expect(again.failed).toEqual(['OpenCode: Xeno is offline']);
+      expect(again.groups.find((x) => x.provider === 'opencode')!.models.map((x) => x.id)).toContain('big-pickle');
     } finally {
       await t.close();
     }
