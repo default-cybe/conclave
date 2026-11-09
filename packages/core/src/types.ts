@@ -117,6 +117,10 @@ export interface AttachmentReceipt {
   parts?: Array<'image' | 'pdf' | 'text'>;
   /** Set once a request carried it; false when that model could not read it. */
   included?: boolean;
+  /** Where the hub saved it instead of sending it inline (attachments/budget.ts): a path on the session's device, or on the hub. */
+  saved?: string;
+  /** session: in the session's folder, its tools open it. hub: a chat's outputs folder, Chat cannot open it. */
+  savedOn?: 'session' | 'hub';
 }
 
 export type Role = 'user' | 'assistant';

@@ -60,8 +60,84 @@ describe('uploads', () => {
   test('an unknown upload id refuses the message', async () => {
     const s = await call('POST', '/api/sessions', { kind: 'chat' });
     const sent = await call('POST', `/api/sessions/${s.body.id}/messages`, { text: 'x', attachments: [{ uploadId: 'up_000000000000000000000000', name: 'gone.bin', mediaType: 'application/octet-stream' }] });
-    expect(sent.status).toBe(400);
+    expect(sent.status).toBe(404);
     expect(sent.body.error).toContain('gone.bin is no longer on the hub');
+  });
+
+  test('an upload id is taken by one message only; a second message naming it is refused', async () => {
+    const r = await up('once.txt', 'once');
+    const s = await call('POST', '/api/sessions', { kind: 'chat' });
+    const att = [{ uploadId: r.body.id, name: 'once.txt', mediaType: 'text/plain' }];
+    expect((await call('POST', `/api/sessions/${s.body.id}/messages`, { text: 'a', attachments: att })).status).toBe(200);
+    expect(await until(() => !existsSync(join(t.engine.config.paths.home, 'uploads', r.body.id)))).toBe(true);
+    const again = await call('POST', `/api/sessions/${s.body.id}/messages`, { text: 'b', attachments: att });
+    expect(again.status).toBe(404);
+  });
+
+  test("a member's upload id named in the owner's message is unknown (404), and the member's file stays", async () => {
+    const home = t.engine.config.paths.home;
+    const { putUpload } = await import('../../core/src/attachments/uploads');
+    const m = await putUpload(home, 'acct_member9', { name: 'theirs.txt', body: new Blob(['secret']).stream(), max: 100 });
+    const s = await call('POST', '/api/sessions', { kind: 'chat' });
+    const sent = await call('POST', `/api/sessions/${s.body.id}/messages`, { text: 'x', attachments: [{ uploadId: m.id, name: 'theirs.txt' }] });
+    expect(sent.status).toBe(404);
+    expect(existsSync(join(home, 'accounts', 'acct_member9', 'uploads', m.id))).toBe(true);
+  });
+
+  test('a body that says 1 GB is refused before it is read, and nothing is written', async () => {
+    const { connect } = await import('node:net');
+    const u = new URL(running.url);
+    const reply = await new Promise<string>((resolve, reject) => {
+      const sock = connect(Number(u.port), u.hostname, () => {
+        sock.write(`POST /api/uploads?name=huge.bin HTTP/1.1\r\nHost: ${u.host}\r\nAuthorization: Bearer ${OWNER}\r\nContent-Type: application/octet-stream\r\nContent-Length: ${1024 ** 3}\r\n\r\n`);
+        sock.write(new Uint8Array(64 * 1024));
+      });
+      let got = '';
+      sock.on('data', (d) => {
+        got += d.toString();
+        if (got.includes('\r\n\r\n')) {
+          sock.destroy();
+          resolve(got);
+        }
+      });
+      sock.on('error', reject);
+      setTimeout(() => reject(new Error('no reply')), 5_000);
+    });
+    expect(reply).toMatch(/^HTTP\/1\.1 413/);
+    const { readdirSync } = await import('node:fs');
+    expect(readdirSync(join(t.engine.config.paths.home, 'uploads')).filter((n) => n.endsWith('.part'))).toEqual([]);
+  });
+
+  test('an APK in a chat is saved in its outputs folder on the hub, and the receipt says Chat cannot open it', async () => {
+    const r = await up('app.apk', new Uint8Array([0x50, 0x4b, 3, 4, ...new Array(60).fill(0)]), 'application/vnd.android.package-archive');
+    const s = await call('POST', '/api/sessions', { kind: 'chat' });
+    expect((await call('POST', `/api/sessions/${s.body.id}/messages`, { text: 'what is this', attachments: [{ uploadId: r.body.id, name: 'app.apk' }] })).status).toBe(200);
+    const saved = join(t.engine.config.paths.home, 'outputs', s.body.id, 'uploads', 'app.apk');
+    expect(await until(() => existsSync(saved))).toBe(true);
+    expect(await until(() => t.engine.getMessages(s.body.id).some((m) => m.role === 'user'))).toBe(true);
+    const msg = t.engine.getMessages(s.body.id).find((m) => m.role === 'user')!;
+    expect(msg.meta?.attachments).toEqual([expect.objectContaining({ name: 'app.apk', saved, savedOn: 'hub' })]);
+    const note = msg.content.find((b) => b.type === 'document') as { data: string };
+    expect(Buffer.from(note.data, 'base64').toString()).toContain('- app.apk (APK, 64 bytes)');
+  });
+
+  test('an uploaded ELF in a Code session is saved under uploads/, never run, and the model gets the note', async () => {
+    const elf = new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0, ...new Array(120).fill(0)]);
+    const r = await up('tool', elf, 'application/octet-stream');
+    const s = await call('POST', '/api/sessions', { title: 'code', agent: 'coder', cwd: t.cwd });
+    const sent = await call('POST', `/api/sessions/${s.body.id}/messages`, { text: 'look', attachments: [{ uploadId: r.body.id, name: 'tool' }] });
+    expect(sent.status).toBe(200);
+    const saved = join(t.cwd, 'uploads', 'tool');
+    expect(await until(() => existsSync(saved))).toBe(true);
+    const { readFileSync, statSync } = await import('node:fs');
+    expect(readFileSync(saved).equals(Buffer.from(elf))).toBe(true);
+    // copied as data: no execute bit
+    expect(statSync(saved).mode & 0o111).toBe(0);
+    expect(await until(() => t.engine.getMessages(s.body.id).some((m) => m.role === 'user'))).toBe(true);
+    const msg = t.engine.getMessages(s.body.id).find((m) => m.role === 'user')!;
+    const note = msg.content.find((b) => b.type === 'document') as { data: string };
+    expect(Buffer.from(note.data, 'base64').toString()).toBe(`Saved to the session folder, open with your tools:\n- ${saved} (ELF, 128 bytes)`);
+    expect(msg.meta?.attachments).toEqual([expect.objectContaining({ name: 'tool', saved, savedOn: 'session' })]);
   });
 
   test('path traversal and control characters in a name are refused', async () => {
