@@ -186,7 +186,7 @@ const keyName = (k: PoolKey, i: number) => (k.label ? `"${k.label}"` : `key ${i 
 
 function hostMatches(host: string, domain: string): boolean {
   const h = host.toLowerCase().replace(/^www\./, '');
-  const d = domain.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
+  const d = domain.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]!;
   return h === d || h.endsWith('.' + d);
 }
 
