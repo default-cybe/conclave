@@ -85,7 +85,6 @@ import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
 import dev.conclave.app.ui.theme.chatDensity
 import dev.conclave.client.logic.CyberAccess
-import dev.conclave.client.model.securityOn
 import dev.conclave.client.logic.Asks
 import dev.conclave.client.logic.ChatList
 import dev.conclave.client.logic.ChatLive
@@ -99,6 +98,7 @@ import dev.conclave.client.logic.StopCards
 import dev.conclave.client.logic.TodayWords
 import dev.conclave.client.logic.PendingQueue
 import dev.conclave.client.logic.ShareWords
+import dev.conclave.client.logic.Start
 import dev.conclave.client.model.ApprovalRequest
 import dev.conclave.client.model.ImageBlock
 import dev.conclave.client.model.Message
@@ -189,7 +189,7 @@ fun ChatThreadScreen(
     val aliases by vm.aliases.collectAsStateWithLifecycle()
     val thoughtMs by vm.thoughtMs.collectAsStateWithLifecycle()
     val nextFor by vm.nextFor.collectAsStateWithLifecycle()
-    val modes by hub.modes.collectAsStateWithLifecycle()
+    val me by hub.me.collectAsStateWithLifecycle()
     val connection by hub.connection.collectAsStateWithLifecycle()
     val groups by hub.models.collectAsStateWithLifecycle()
     val c = Conclave.colors
@@ -480,7 +480,7 @@ fun ChatThreadScreen(
                 onSameModel = if (s != null) vm::setSameModel else null,
                 security = s?.chat?.security == true,
                 // Security off in Settings: no switch, unless this chat has it on (so it can still be turned off)
-                onSecurity = if (s != null && (modes.securityOn || s.chat?.security == true)) vm::setSecurity else null,
+                onSecurity = if (s != null && (Start.modeOn(me?.preferences, "security") || s.chat?.security == true)) vm::setSecurity else null,
                 // the quiet row: no device or folder in a chat, the memory chip, the model with its effort and the ring at the right
                 context = ContextUse.of(live.messages, s, info),
                 onUsage = onOpenUsage,

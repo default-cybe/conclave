@@ -1,8 +1,8 @@
 package dev.conclave.client
 
+import dev.conclave.client.logic.Start
 import dev.conclave.client.model.MePatch
-import dev.conclave.client.model.canvasOn
-import dev.conclave.client.model.securityOn
+import dev.conclave.client.model.ModesPreference
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -79,14 +79,21 @@ class PeopleTest {
     fun meReadsWhichModesShow() = runBlocking {
         server.enqueue(MockResponse(body = """{"id":"owner","preferences":{"modes":{"security":false,"canvas":true}}}"""))
         server.enqueue(MockResponse(body = """{"id":"owner","preferences":{}}"""))
-        val off = client("tok").me().preferences.modes
-        assertFalse(off.securityOn)
-        assertTrue(off.canvasOn)
+        val off = client("tok").me().preferences
+        assertFalse(Start.modeOn(off, "security"))
+        assertTrue(Start.modeOn(off, "canvas"))
         // an account from before the setting: nothing saved, both on
-        val before = client("tok").me().preferences.modes
-        assertTrue(before.securityOn)
-        assertTrue(before.canvasOn)
-        assertNull(before)
+        val before = client("tok").me().preferences
+        assertTrue(Start.modeOn(before, "security"))
+        assertTrue(Start.modeOn(before, "canvas"))
+        assertNull(before.modes)
+    }
+
+    @Test
+    fun updateMeSendsModes() = runBlocking {
+        server.enqueue(MockResponse(body = """{"ok":true}"""))
+        client("tok").updateMe(MePatch(modes = ModesPreference(security = false, canvas = true)))
+        assertEquals("""{"modes":{"security":false,"canvas":true}}""", server.takeRequest().body?.utf8())
     }
 
     @Test
