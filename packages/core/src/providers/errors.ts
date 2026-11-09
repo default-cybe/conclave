@@ -480,6 +480,9 @@ export function classifyHttpError(
   // a Cyber access program ChatGPT refused (providers/access-programs.ts): the request's choice, not the account, so no fallback to another account
   const program = accessProgramError(info.code, message);
   if (program) kind = 'bad_request';
+  // a picture the API could not decode: the request's content, never a limit, a refusal or the server, so no wait and no other account
+  const badImage = isUnreadableImageText(`${message} ${info.code ?? ''} ${info.type ?? ''}`);
+  if (badImage) kind = 'bad_request';
 
   let retryAfterMs = parseRetryAfter(headers, now);
   let resetAt: number | undefined;
@@ -533,8 +536,20 @@ export function classifyHttpError(
     resetAt,
     provider,
     body: bodyText.slice(0, 4000),
-    ...(spendCap ? { code: 'spend_cap' } : {}),
+    ...(spendCap ? { code: 'spend_cap' } : badImage ? { code: 'image_unreadable' } : {}),
   });
+}
+
+/** Anthropic's "Could not process image" (and "Image does not match the provided media type"), OpenAI's "Invalid image" and image_parse_error. */
+const UNREADABLE_IMAGE_RE = /could not process image|image does not match the provided media type|invalid[ _]image|image_parse_error/i;
+
+export function isUnreadableImageText(text: string): boolean {
+  return UNREADABLE_IMAGE_RE.test(text);
+}
+
+/** The API could not read a picture in the request (classifyHttpError marked it). */
+export function isUnreadableImageError(err: unknown): boolean {
+  return err instanceof ProviderError && err.code === 'image_unreadable';
 }
 
 /** Status code implied by an error type sent mid-stream (no HTTP status available). */

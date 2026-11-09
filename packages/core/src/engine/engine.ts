@@ -161,6 +161,7 @@ import { SqliteMemory } from '../memory/store';
 import { MemoryConnections, MemoryConnectionService } from '../memory/connections';
 import { ATTACHMENT_LOST, prepareAttachments, type ZipHost } from '../attachments/prepare';
 import { mediaTypeFor } from '../attachments/limits';
+import { isModelImage } from '../attachments/image';
 import { checkMemberRefusalList, checkMemberUsageList, memberCanUse } from '../session/member-fallbacks';
 import { modelPin } from '../session/model-pin';
 import { quotedOf } from '../session/quoted';
@@ -2909,7 +2910,8 @@ export class Engine implements EngineApi {
     if (!data) return undefined;
     // a client that gave no type (or octet-stream): the name says what it is
     const mediaType = mediaTypeFor(a.mediaType, a.name ?? a.path);
-    if (mediaType.startsWith('image/')) return { type: 'image', mediaType, data } as ImageBlock;
+    // only the pictures a model reads go as images; an SVG goes as its text, anything else as a note (documentsForWire)
+    if (isModelImage(mediaType)) return { type: 'image', mediaType, data } as ImageBlock;
     return { type: 'document', mediaType, data, title: a.name };
   }
 

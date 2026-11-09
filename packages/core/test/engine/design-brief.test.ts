@@ -13,7 +13,8 @@ afterEach(async () => {
   t = undefined;
 });
 
-const PNG = Buffer.from('fake png bytes').toString('base64');
+// a PNG's signature and more: the wire leaves out an image whose bytes are no picture (attachments/image.ts)
+const PNG = Buffer.from('\x89PNG\r\n\x1a\nfake png bytes', 'latin1').toString('base64');
 
 describe('checkDesign', () => {
   test('takes a style, refuses junk, and needs a URL or a screenshot to match a reference', () => {

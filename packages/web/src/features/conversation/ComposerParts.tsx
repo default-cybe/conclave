@@ -21,6 +21,8 @@ import type { Session, SessionMode } from '@conclave/core/types';
 import { claudeEffort } from '@conclave/core/providers/effort';
 import { cyberLabel, type CyberProgram } from '@conclave/core/providers/access-programs';
 import { filesWord, isZip, mediaTypeFor, takeFiles } from '@conclave/core/attachments/limits';
+import { isModelImage, unreadablePicture } from '@conclave/core/attachments/image';
+import { asPng, pictureType } from '@/lib/pasteFiles';
 import { toast, useHub } from '@/store/store';
 import { cn } from '@/lib/text';
 import { bytes, compact, usd } from '@/lib/format';
@@ -586,7 +588,14 @@ export function AttachmentStrip({ files, onRemove, phone = false }: { files: Str
  * `maxBytes`. Past the cap: "Up to 15 files per message. Zip the rest."
  */
 export async function readPicked(current: Array<{ size: number }>, picked: File[], maxBytes: number): Promise<Array<StripFile & { mediaType: string; data: string; name: string }>> {
-  const small = picked.filter((f) => {
+  // a picture no model reads (HEIC, AVIF, BMP, TIFF) goes as PNG; one the page cannot draw is refused here, as the hub would
+  const pictures = await Promise.all(picked.map(async (was) => ({ was, f: await asPng(was), type: await pictureType(was) })));
+  const readable = pictures.filter(({ was, f, type }) => {
+    if (f !== was || !type || isModelImage(type) || type === 'image/svg+xml') return true;
+    toast({ title: unreadablePicture(was.name, type), level: 'error' });
+    return false;
+  });
+  const small = readable.map(({ f }) => f).filter((f) => {
     if (f.size <= maxBytes) return true;
     toast({ title: `${f.name} is over ${Math.round(maxBytes / 1024 / 1024)} MB. Attach a smaller file.`, level: 'error' });
     return false;

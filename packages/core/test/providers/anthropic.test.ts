@@ -384,7 +384,7 @@ describe('AnthropicProvider request mapping', () => {
           {
             role: 'user',
             content: [
-              { type: 'image', mediaType: 'image/png', data: 'AAAA' },
+              { type: 'image', mediaType: 'image/png', data: 'iVBORw0KGgo=' },
               { type: 'image', mediaType: 'image/png', url: 'https://x/y.png' },
               { type: 'document', mediaType: 'application/pdf', data: 'JVBERi0=', title: 'spec' },
               { type: 'document', mediaType: 'text/plain', data: Buffer.from('hello doc').toString('base64') },
@@ -409,7 +409,7 @@ describe('AnthropicProvider request mapping', () => {
                 isError: true,
                 content: [
                   { type: 'text', text: 'failed' },
-                  { type: 'image', mediaType: 'image/jpeg', data: 'BBBB' },
+                  { type: 'image', mediaType: 'image/jpeg', data: '/9j/4A==' },
                 ],
               },
             ],
@@ -418,7 +418,7 @@ describe('AnthropicProvider request mapping', () => {
       }),
     ) as any;
     const [u, a, r] = body.messages;
-    expect(u.content[0]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } });
+    expect(u.content[0]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } });
     expect(u.content[1]).toEqual({ type: 'image', source: { type: 'url', url: 'https://x/y.png' } });
     expect(u.content[2]).toEqual({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERi0=' }, title: 'spec' });
     expect(u.content[3]).toEqual({ type: 'text', text: '<document name="document" type="text/plain">\nhello doc\n</document>' });
@@ -430,7 +430,7 @@ describe('AnthropicProvider request mapping', () => {
       is_error: true,
       content: [
         { type: 'text', text: 'failed' },
-        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'BBBB' } },
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: '/9j/4A==' } },
       ],
     });
   });

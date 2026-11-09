@@ -141,7 +141,7 @@ describe('GPT over Responses, Gemini over its own wire', () => {
     messages: [
       { role: 'user' as const, content: [{ type: 'text' as const, text: 'read it' }] },
       { role: 'assistant' as const, content: [{ type: 'tool_use' as const, id: 'call_1', name: 'Read', input: { path: 'a.png' } }] },
-      { role: 'user' as const, content: [{ type: 'tool_result' as const, toolUseId: 'call_1', content: [{ type: 'text' as const, text: 'a.png' }, { type: 'image' as const, mediaType: 'image/png', data: 'QUJD' }] }] },
+      { role: 'user' as const, content: [{ type: 'tool_result' as const, toolUseId: 'call_1', content: [{ type: 'text' as const, text: 'a.png' }, { type: 'image' as const, mediaType: 'image/png', data: 'iVBORw0KGgo=' }] }] },
     ],
     ...extra,
   });
@@ -169,7 +169,7 @@ describe('GPT over Responses, Gemini over its own wire', () => {
       call_id: 'call_1',
       output: [
         { type: 'input_text', text: 'a.png' },
-        { type: 'input_image', image_url: 'data:image/png;base64,QUJD', detail: 'auto' },
+        { type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=', detail: 'auto' },
       ],
     });
     expect(gemini.headers['x-goog-api-key']).toBe('client-key-1');

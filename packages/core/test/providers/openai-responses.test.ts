@@ -119,7 +119,7 @@ describe('OpenAIResponsesProvider', () => {
             role: 'user',
             content: [
               { type: 'tool_result', toolUseId: 'call_1', content: 'file body' },
-              { type: 'tool_result', toolUseId: 'call_2', content: [{ type: 'image', mediaType: 'image/png', data: 'QQ==' }], isError: true },
+              { type: 'tool_result', toolUseId: 'call_2', content: [{ type: 'image', mediaType: 'image/png', data: 'iVBORw0KGgo=' }], isError: true },
             ],
           },
         ],
@@ -143,7 +143,7 @@ describe('OpenAIResponsesProvider', () => {
       call_id: 'call_2',
       output: [
         { type: 'input_text', text: 'Error: (image output follows)' },
-        { type: 'input_image', image_url: 'data:image/png;base64,QQ==', detail: 'auto' },
+        { type: 'input_image', image_url: 'data:image/png;base64,iVBORw0KGgo=', detail: 'auto' },
       ],
     });
 

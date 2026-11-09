@@ -157,6 +157,8 @@ export type ProviderErrorKind =
   | 'server'
   | 'unknown';
 
+export type ProviderErrorCode = 'spend_cap' | 'budget' | 'access' | 'fallback_policy' | 'image_unreadable';
+
 export class ProviderError extends Error {
   kind: ProviderErrorKind;
   status?: number;
@@ -166,13 +168,13 @@ export class ProviderError extends Error {
   resetAt?: number;
   provider?: string;
   body?: string;
-  /** spend_cap: the provider's own spend limit (Anthropic enforced_spend_limit_reached). budget: the owner's budget in Conclave (or a member's monthly budget on the hub's key). access: a member may not use this provider. fallback_policy: the task's fallback policy (session/limit-tree.ts) denied the call. */
-  code?: 'spend_cap' | 'budget' | 'access' | 'fallback_policy';
+  /** spend_cap: the provider's own spend limit (Anthropic enforced_spend_limit_reached). budget: the owner's budget in Conclave (or a member's monthly budget on the hub's key). access: a member may not use this provider. fallback_policy: the task's fallback policy (session/limit-tree.ts) denied the call. image_unreadable: the API could not decode a picture in the request (providers/errors.ts). */
+  code?: ProviderErrorCode;
 
   constructor(
     kind: ProviderErrorKind,
     message: string,
-    extra: { status?: number; retryAfterMs?: number; resetAt?: number; provider?: string; body?: string; code?: 'spend_cap' | 'budget' | 'access' | 'fallback_policy' } = {},
+    extra: { status?: number; retryAfterMs?: number; resetAt?: number; provider?: string; body?: string; code?: ProviderErrorCode } = {},
   ) {
     super(message);
     this.name = 'ProviderError';

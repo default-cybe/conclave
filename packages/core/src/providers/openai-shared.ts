@@ -1,4 +1,5 @@
 import type { Usage } from '../types';
+import { sniffImageType } from '../attachments/image';
 import type { ProviderOptions } from './common';
 import { getJson, httpRequest, postJson, type HttpOptions } from './http';
 import { ProviderError, type ImageRequest, type ImageResult, type ModelInfo } from './types';
@@ -138,12 +139,10 @@ export async function openaiGenerateImage(baseUrl: string, headers: Record<strin
   return { images, ...(res.usage ? { usage: openaiUsage(res.usage) } : {}) };
 }
 
-/** PNG, JPEG or WebP by magic bytes; anything else (an SVG, an HTML error page) is not an image we save. */
+/** PNG, JPEG or WebP by magic bytes (attachments/image.ts); anything else (an SVG, an HTML error page) is not an image we save. */
 export function sniffImage(b: Uint8Array): 'image/png' | 'image/jpeg' | 'image/webp' | undefined {
-  if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return 'image/png';
-  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
-  if (b.length > 12 && String.fromCharCode(...b.subarray(0, 4)) === 'RIFF' && String.fromCharCode(...b.subarray(8, 12)) === 'WEBP') return 'image/webp';
-  return undefined;
+  const t = sniffImageType(b);
+  return t === 'image/png' || t === 'image/jpeg' || t === 'image/webp' ? t : undefined;
 }
 
 /** POST {base}/embeddings in batches, results in input order. */

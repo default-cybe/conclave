@@ -1,5 +1,6 @@
 import type { DocumentBlock, ImageBlock, TextBlock } from '../types';
 import type { Tool, ToolContext, ToolOutput } from './types';
+import { imageFormatName, isModelImage, SNIFF_BYTES, sniffImageType } from '../attachments/image';
 import { parseNotebook, renderNotebook } from './notebook';
 import { LEGACY_OFFICE, OFFICE_EXT, officeToMarkdown } from './office';
 import { DOCLING_EXT, doclingConvert, doclingFor } from './docling';
@@ -73,7 +74,7 @@ export const ReadTool: Tool<ReadInput> = {
     if (st.type === 'dir') return fail(`${path} is a directory, not a file. Use Glob or Bash (ls) to list it.`);
 
     const ext = extname(path);
-    if (IMAGE_EXT[ext]) return readImage(ctx, path, st.size, st.mtimeMs, IMAGE_EXT[ext]);
+    if (IMAGE_EXT[ext]) return readImage(ctx, path, st.size, st.mtimeMs);
     if (ext === 'pdf') return readPdf(ctx, path, st.size, st.mtimeMs, input.pages);
     const offset = Math.max(1, Math.floor(input.offset ?? 1));
     const limit = Math.max(1, Math.floor(input.limit ?? DEFAULT_LIMIT));
@@ -222,21 +223,15 @@ async function readLargeText(ctx: ToolContext, path: string, size: number, mtime
   return { ...out, meta: { ...out.meta, readMark: readMarkOf(path, mtimeMs) } };
 }
 
-function sniffImageType(bytes: Uint8Array, fallback: string): string {
-  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png';
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
-  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'image/gif';
-  if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return 'image/webp';
-  return fallback;
-}
-
-async function readImage(ctx: ToolContext, path: string, size: number, mtimeMs: number, fallbackType: string): Promise<ToolOutput> {
+async function readImage(ctx: ToolContext, path: string, size: number, mtimeMs: number): Promise<ToolOutput> {
   if (size > MAX_IMAGE_BYTES) {
     return fail(`Image ${path} is ${formatBytes(size)}, over the ${formatBytes(MAX_IMAGE_BYTES)} limit. Make a smaller copy first (for example with Bash: convert in.png -resize 50% /tmp/small.png) and read that.`);
   }
   const bytes = await ctx.machine.readFile(path);
   ctx.readState.set(path, mtimeMs);
-  const mediaType = sniffImageType(bytes, fallbackType);
+  // the bytes decide, not the extension: a model API refuses a picture that is not what it claims (attachments/image.ts)
+  const mediaType = sniffImageType(bytes.subarray(0, SNIFF_BYTES));
+  if (!isModelImage(mediaType)) return fail(`${path} is not a PNG, JPEG, GIF or WebP picture${mediaType ? ` (its bytes are ${imageFormatName(mediaType)})` : ''}, so the model cannot read it. Convert it first (for example with Bash: convert in.heic /tmp/out.png) and read that.`);
   const image: ImageBlock = { type: 'image', mediaType, data: Buffer.from(bytes).toString('base64') };
   return { content: [{ type: 'text', text: `Image ${path} (${mediaType}, ${formatBytes(size)})` }, image], meta: { path, readMark: readMarkOf(path, mtimeMs, Buffer.from(bytes).toString('utf8')) } };
 }

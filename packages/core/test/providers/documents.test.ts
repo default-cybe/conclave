@@ -146,7 +146,8 @@ describe('per wire', () => {
 });
 
 describe('tool results', () => {
-  const PNG = b64('png bytes');
+  // a PNG's signature: an image the wire would leave out unless its bytes are one (attachments/image.ts)
+  const PNG = 'iVBORw0KGgo=';
   const NO_IMG = '[image (image/png) not readable by this model]';
   /** What Read returns: a text file, an image and a PDF with no text layer, all in one turn. */
   const toolReq = (model: string): ChatRequest => ({

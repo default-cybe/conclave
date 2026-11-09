@@ -1,5 +1,6 @@
 import type { ContentBlock, DocumentBlock, ImageBlock, TextBlock, ToolResultBlock } from '../types';
 import { isZip, mediaTypeFor } from '../attachments/limits';
+import { imageLeftOutNote, isModelImage, SNIFF_BYTES, sniffImageType } from '../attachments/image';
 import type { ProviderConfig } from '../config/schema';
 import { catalogEntries, familyForProvider, findCatalogEntry, lookupModel, normalizeModelId, type CatalogEntry } from './catalog';
 import { DEFAULT_IDLE_TIMEOUT_MS, type FetchFn, type HttpOptions } from './http';
@@ -155,6 +156,12 @@ function textOf(bytes: Buffer): string | undefined {
   }
 }
 
+/** The first SNIFF_BYTES of base64 data, for sniffImageType; a data: prefix or line breaks some senders add are skipped. */
+export function base64Head(data: string): Uint8Array {
+  const b64 = data.slice(0, 4 * SNIFF_BYTES).replace(/^data:[^,]*,/, '').replace(/\s+/g, '');
+  return new Uint8Array(Buffer.from(b64.slice(0, (SNIFF_BYTES / 3) * 4), 'base64'));
+}
+
 /**
  * A user message's documents as a wire takes them. Text documents become
  * `<document name type>` text blocks, cut at DOC_TEXT_MAX_BYTES each and
@@ -162,14 +169,23 @@ function textOf(bytes: Buffer): string | undefined {
  * reads them (`pdf`); anything else (a binary, an archive, a PDF the wire
  * cannot read) becomes a one-line note, so the model always learns what was
  * attached. Base64 of a binary is never sent as text. Images become a note
- * for a model without vision. Tool results' content takes the same rules.
+ * for a model without vision, and for any model when their bytes are not a
+ * JPEG, PNG, GIF or WebP (the API would refuse the whole request); a declared
+ * type the bytes contradict is corrected. Tool results' content takes the
+ * same rules.
  */
 export function documentsForWire(content: ContentBlock[], pdf: boolean, vision = true): ContentBlock[] {
   let room = MESSAGE_DOCS_MAX_BYTES;
   const note = (text: string): TextBlock => ({ type: 'text', text });
   const one = (b: ContentBlock): ContentBlock => {
     if (b.type === 'tool_result') return typeof b.content === 'string' ? b : { ...b, content: b.content.map(one) as ToolResultBlock['content'] };
-    if (b.type === 'image') return vision ? b : note(`[image (${b.mediaType}) not readable by this model]`);
+    if (b.type === 'image') {
+      if (!vision) return note(`[image (${b.mediaType}) not readable by this model]`);
+      if (!b.data) return b;
+      const type = sniffImageType(base64Head(b.data));
+      if (!isModelImage(type)) return note(imageLeftOutNote(`(${type ?? b.mediaType})`));
+      return type === b.mediaType ? b : { ...b, mediaType: type };
+    }
     if (b.type !== 'document') return b;
     const name = (b.title ?? '').replace(/["\r\n\t]+/g, ' ').trim() || 'document';
     const type = mediaTypeFor(b.mediaType, b.title);
