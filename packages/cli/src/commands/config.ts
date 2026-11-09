@@ -2,7 +2,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { parseJsonc, DEFAULT_CONFIG, deepMerge, SECRET_NAME, secretPrefix } from '@conclave/core/config/index.ts';
-import { formatFingerprint } from '@conclave/core/client/index.ts';
+import { formatFingerprint, type SearchKeyDto } from '@conclave/core/client/index.ts';
 import { out as p } from '../ansi';
 import { bool, str, type ParsedArgs } from '../args';
 import { cliPaths } from '../files';
@@ -148,8 +148,36 @@ async function namedSecret(args: ParsedArgs): Promise<number> {
   return 0;
 }
 
+const SEARCH_STATUS: Record<SearchKeyDto['status'], string> = { working: 'working', credit: 'out of credit', cooloff: 'rate limited', rejected: 'rejected' };
+
+/** `conclave secret search.<engine>`: the engine's keys in Settings > Web search, in the order WebSearch uses them. Labels and last 4 characters only. */
+async function searchKeys(args: ParsedArgs, engine: string): Promise<number> {
+  const { client } = await getClient(args);
+  const index = str(args, 'index');
+  const at = index === undefined ? undefined : Number(index) - 1;
+  if (at !== undefined && !(Number.isInteger(at) && at >= 0)) throw new CliError('--index is the key number from --list, starting at 1.');
+  let s;
+  if (bool(args, 'list')) s = await client.webSearchSettings();
+  else if (bool(args, 'delete')) s = await client.setWebSearchKey(engine, null, at === undefined ? undefined : { index: at });
+  else {
+    const value = str(args, 'value') ?? (await prompt(`${engine} search key (input hidden): `, { hidden: true }));
+    if (!value.trim()) throw new CliError('Empty key, nothing saved.');
+    s = await client.setWebSearchKey(engine, value.trim(), { add: bool(args, 'add'), ...(at !== undefined ? { index: at } : {}), ...(str(args, 'label') !== undefined ? { label: str(args, 'label') } : {}) });
+  }
+  const p0 = s.providers.find((x) => x.id === engine);
+  if (!p0) throw new CliError(`No search engine ${engine}. Engines: ${s.providers.filter((x) => x.needs === 'key').map((x) => x.id).join(', ')}.`);
+  if (!p0.keys.length) print(p0.keySet ? `${p0.name}: a key from ${p0.keyFrom === 'env' ? 'the environment' : 'config.json'}, not listed here.` : `${p0.name}: no keys. Add one with conclave secret search.${engine} --add`);
+  p0.keys.forEach((k, i) => {
+    const until = k.until ? ` until ${new Date(k.until).toLocaleString()}` : '';
+    print(`${i + 1}. ${k.label ?? p.dim('(no label)')} ${p.dim(k.last4 ? `…${k.last4}` : '(short key)')} ${k.status === 'working' ? p.green(SEARCH_STATUS[k.status]) : p.yellow(SEARCH_STATUS[k.status] + until)}`);
+  });
+  return 0;
+}
+
 export async function secretCommand(args: ParsedArgs): Promise<number> {
   if (args._[1] === 'set') return namedSecret(args);
+  const search = /^search\.([a-z]+)$/.exec(String(args._[1] ?? ''));
+  if (search) return searchKeys(args, search[1]!);
   const provider = requireArg(args._[1], 'conclave secret <provider> | conclave secret set <name>');
   const { client } = await getClient(args);
   if (bool(args, 'delete')) {

@@ -74,7 +74,7 @@ import type { LearningPreview, LearningSaveInput, LearningsDto, SkillIdea } from
 export type * from './learnings';
 import type { LeaveByDto, MapsSettingsDto, MapsSettingsPatch, MapsTestResult } from './maps';
 export type * from './maps';
-import type { MemberProxyDto, MemberProxyUpdate, WebSearchSettingsDto, WebSearchSettingsPatch, WebSearchTestResult } from './websearch';
+import type { MemberProxyDto, MemberProxyUpdate, WebSearchKeysPatch, WebSearchKeyUpdate, WebSearchSettingsDto, WebSearchSettingsPatch, WebSearchTestResult } from './websearch';
 export type * from './websearch';
 export { SEARCH_PROVIDERS } from './websearch';
 // ----- accounts: several people on one hub, docs/design/ACCOUNTS.md -----
@@ -2179,10 +2179,12 @@ export class ConclaveClient {
   // ----- web search: the engine WebSearch uses (Settings > Web search) -----
   webSearchSettings = () => this.request<WebSearchSettingsDto>('GET', '/api/websearch');
   setWebSearchSettings = (patch: WebSearchSettingsPatch) => this.request<WebSearchSettingsDto>('PATCH', '/api/websearch', patch);
-  /** Store an engine's key on the hub, or remove it with null. The reply only says whether one is set. */
-  setWebSearchKey = (provider: string, key: string | null) => this.request<WebSearchSettingsDto>('PUT', '/api/websearch/key', { provider, key });
-  /** One real query on the engine (the one in use when none is named). */
-  testWebSearch = (provider?: string) => this.request<WebSearchTestResult>('POST', '/api/websearch/test', { provider });
+  /** Add (more.add), replace or remove (null) an engine's key; with no index, key 1 or (null) all of them. The reply has labels, last 4 characters and states, never a key. */
+  setWebSearchKey = (provider: string, key: string | null, more?: Pick<WebSearchKeyUpdate, 'label' | 'index' | 'add'>) => this.request<WebSearchSettingsDto>('PUT', '/api/websearch/key', { provider, key, ...more });
+  /** Reorder an engine's keys (the old indexes in their new places), or relabel the key at index. */
+  patchWebSearchKeys = (patch: WebSearchKeysPatch) => this.request<WebSearchSettingsDto>('PATCH', '/api/websearch/keys', patch);
+  /** One real query on the engine (the one in use when none is named), on the key at index (else the first working one). */
+  testWebSearch = (provider?: string, index?: number) => this.request<WebSearchTestResult>('POST', '/api/websearch/test', { provider, index });
   /** A member's own proxy for blocked requests (never the hub's). The reply only says whether a login or password is saved. */
   memberProxy = () => this.request<MemberProxyDto>('GET', '/api/websearch/proxy');
   setMemberProxy = (update: MemberProxyUpdate) => this.request<MemberProxyDto>('PUT', '/api/websearch/proxy', update);

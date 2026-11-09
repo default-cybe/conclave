@@ -24,7 +24,7 @@ export interface ArgSpec {
 
 /** Flags known to every command. Unknown flags still parse (value if one follows). */
 export const GLOBAL_SPEC: ArgSpec = {
-  boolean: ['help', 'version', 'json', 'yes', 'continue', 'detach', 'delete', 'verbose', 'print', 'no-open', 'all', 'files', 'start', 'dry-run', 'login-path', 'app-token-stdin', 'keep-pairing', 'password', 'raw', 'thinking', 'lan', 'draft', 'force', 'refresh', 'share-new', 'forget', 'incognito'],
+  boolean: ['help', 'version', 'json', 'yes', 'continue', 'detach', 'delete', 'verbose', 'print', 'no-open', 'all', 'files', 'start', 'dry-run', 'login-path', 'app-token-stdin', 'keep-pairing', 'password', 'raw', 'thinking', 'lan', 'draft', 'force', 'refresh', 'share-new', 'forget', 'incognito', 'list', 'add'],
   string: [
     'hub',
     'token',
