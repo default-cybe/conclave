@@ -71,6 +71,14 @@ describe('classifyKeyError', () => {
     expect(classifyKeyError(429, 'slow down', undefined, now)).toEqual({ status: 'cooloff', until: now + COOLOFF_MS, at: now });
     expect(classifyKeyError(429, '', new Headers({ 'retry-after': '5' }), now)?.until).toBe(now + 5000);
     expect(classifyKeyError(429, 'monthly quota exceeded', undefined, now)?.status).toBe('credit');
+    expect(classifyKeyError(429, '{"error":"Your account has run out of searches."}', undefined, now)?.status).toBe('credit');
+  });
+  test("Brave's per-second 429 cools off; a spent Brave quota is out of credit until the monthly reset", () => {
+    const brave = (cur: number) => `{"type":"ErrorResponse","error":{"id":"x","status":429,"detail":"Request rate limit exceeded for plan","meta":{"plan":"Free","rate_limit":1,"rate_current":1,"quota_limit":2000,"quota_current":${cur},"component":"rate_limiter"},"code":"RATE_LIMITED"}}`;
+    const h = (left: string) => new Headers({ 'x-ratelimit-reset': '1, 1419704', 'x-ratelimit-remaining': left });
+    expect(classifyKeyError(429, brave(15), h('0, 1985'), now)).toEqual({ status: 'cooloff', until: now + 1000, at: now });
+    expect(classifyKeyError(429, brave(2000), h('0, 0'), now)).toEqual({ status: 'credit', until: now + 1419704_000, at: now });
+    expect(classifyKeyError(429, '', h('0, 0'), now)?.status).toBe('credit');
   });
   test('server errors and bad queries do not blame the key', () => {
     expect(classifyKeyError(500, 'oops', undefined, now)).toBeUndefined();

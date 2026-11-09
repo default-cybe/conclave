@@ -219,7 +219,15 @@ export function resetFrom(headers: Headers | undefined, pick: 'min' | 'max', now
 }
 
 const INVALID = /invalid[^.]{0,30}(api[ _-]?key|token|subscription|credential)|(api[ _-]?key|token)[^.]{0,30}(invalid|not valid|revoked|unknown)|unauthori[sz]ed|invalid_api_key|authentication failed/i;
-const CREDIT = /credit|quota|limit exceeded|exceeded your|insufficient|balance|billing|payment|usage limit|monthly|limit reached|top.?up/i;
+const CREDIT = /credit|quota|limit exceeded|exceeded your|insufficient|balance|billing|payment|usage limit|monthly|limit reached|top.?up|run out/i;
+
+/** Brave's quota is spent: its body counts past the limit, or the last (monthly) window of X-RateLimit-Remaining is 0. */
+function quotaSpent(body: string, headers: Headers | undefined): boolean {
+  const num = (f: string) => Number(body.match(new RegExp(`"${f}"\\s*:\\s*(\\d+)`))?.[1] ?? Number.NaN);
+  if (num('quota_current') >= num('quota_limit')) return true;
+  const left = headers?.get('x-ratelimit-remaining')?.split(',');
+  return !!left && left.length > 1 && left.at(-1)!.trim() === '0';
+}
 
 /**
  * What a refused call says about its key, or undefined when the key is not
@@ -230,8 +238,10 @@ const CREDIT = /credit|quota|limit exceeded|exceeded your|insufficient|balance|b
 export function classifyKeyError(status: number, body: string, headers?: Headers, now = Date.now()): KeyMark | undefined {
   // Brave answers a bad token with 422 SUBSCRIPTION_TOKEN_INVALID
   if (status === 401 || (status >= 400 && status < 500 && INVALID.test(body))) return { status: 'rejected', at: now };
-  if (status === 429 && !/quota|credit|monthly|insufficient|balance|usage/i.test(body)) return { status: 'cooloff', until: resetFrom(headers, 'min', now) ?? now + COOLOFF_MS, at: now };
-  if (status === 402 || status === 403 || status === 429 || (status >= 400 && status < 500 && CREDIT.test(body))) return { status: 'credit', until: resetFrom(headers, 'max', now) ?? nextUtcDay(now), at: now };
+  // Brave puts "quota_limit" and "quota_current" in every 429 body, a 1-request-a-second limit too, so those names are not words about credit
+  const words = body.replace(/"quota_\w+"/g, '');
+  if (status === 429 && !quotaSpent(body, headers) && !/quota|credit|monthly|insufficient|balance|usage|run out/i.test(words)) return { status: 'cooloff', until: resetFrom(headers, 'min', now) ?? now + COOLOFF_MS, at: now };
+  if (status === 402 || status === 403 || status === 429 || (status >= 400 && status < 500 && CREDIT.test(words))) return { status: 'credit', until: resetFrom(headers, 'max', now) ?? nextUtcDay(now), at: now };
   return undefined;
 }
 
