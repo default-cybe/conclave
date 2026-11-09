@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Claude Fable 5.2 and Claude Mythos 5.2: in the model list with their prices ($8 in, $40 out per million tokens), image input and effort levels, also on a Claude plan through CLIProxyAPI. "fable" now names Fable 5.2. Their requests ask the API to drop thinking from an edited history instead of failing, and a turn that still gets "The block is bound to a different conversation" retries once without the old thinking. The security exploiter tries Mythos 5.2 before Mythos 5.1.
+
 ## [0.4.87] - 2026-11-09
 
 ### Changed

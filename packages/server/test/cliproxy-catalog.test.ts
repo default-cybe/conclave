@@ -9,10 +9,16 @@ const CPA_CLAUDE = [
 ];
 
 describe('claude section extras from Conclave catalog', () => {
-  test("against CLIProxyAPI's real list only Mythos 5.1 is missing; a dated id counts as the model", () => {
+  test("against CLIProxyAPI's real list the 5.2 models and Mythos 5.1 are missing; a dated id counts as the model", () => {
     const extras = claudeExtras(new Set(CPA_CLAUDE));
-    expect(extras.map((e) => e.id)).toEqual(['claude-mythos-5-1']);
-    expect(extras[0]).toEqual({ section: CLAUDE_SECTION, id: 'claude-mythos-5-1', name: 'Claude Mythos 5.1', like: 'claude-fable-5', fields: { context_length: 1_000_000, max_completion_tokens: 128_000 } });
+    expect(extras.map((e) => e.id)).toEqual(['claude-fable-5-2', 'claude-mythos-5-2', 'claude-mythos-5-1']);
+    expect(extras[2]).toEqual({ section: CLAUDE_SECTION, id: 'claude-mythos-5-1', name: 'Claude Mythos 5.1', like: 'claude-fable-5', fields: { context_length: 1_000_000, max_completion_tokens: 128_000 } });
+  });
+
+  test('a list with Fable 5.2 but not Mythos 5.2 (the live hub, 2026-11-09): Mythos 5.2 is added and copies Fable 5.2', () => {
+    const extras = claudeExtras(new Set([...CPA_CLAUDE, 'claude-fable-5-2']));
+    expect(extras.map((e) => e.id)).toEqual(['claude-mythos-5-2', 'claude-mythos-5-1']);
+    expect(extras[0]).toEqual({ section: CLAUDE_SECTION, id: 'claude-mythos-5-2', name: 'Claude Mythos 5.2', like: 'claude-fable-5-2', fields: { context_length: 1_000_000, max_completion_tokens: 128_000 } });
   });
 
   test('the writer copies the like model, keeps the official entries and leaves other sections alone', () => {
@@ -23,7 +29,8 @@ describe('claude section extras from Conclave catalog', () => {
       ],
       'codex-plus': [{ id: 'gpt-6-astra' }],
     };
-    const { catalog, added } = withExtras(base, claudeExtras(new Set(CPA_CLAUDE)));
+    const listed = new Set([...CPA_CLAUDE, 'claude-fable-5-2', 'claude-mythos-5-2']);
+    const { catalog, added } = withExtras(base, claudeExtras(listed));
     expect(added.map((e) => e.id)).toEqual(['claude-mythos-5-1']);
     expect(catalog.claude.slice(0, 2)).toEqual(base.claude);
     expect(catalog.claude[2]).toEqual({
@@ -38,6 +45,6 @@ describe('claude section extras from Conclave catalog', () => {
     });
     expect(catalog['codex-plus']).toEqual(base['codex-plus']);
     // nothing to add once CLIProxyAPI has it
-    expect(withExtras(catalog, claudeExtras(new Set([...CPA_CLAUDE, 'claude-mythos-5-1']))).added).toEqual([]);
+    expect(withExtras(catalog, claudeExtras(new Set([...listed, 'claude-mythos-5-1']))).added).toEqual([]);
   });
 });

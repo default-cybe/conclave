@@ -17,7 +17,7 @@ const ALL = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 
 describe('Claude', () => {
   test('levels, Off and default per model', () => {
-    for (const m of ['claude-fable-5-1', 'claude-fable-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-haiku-5-5', 'claude-opus-4-8', 'claude-opus-4-7']) {
+    for (const m of ['claude-fable-5-2', 'claude-mythos-5-2', 'claude-fable-5-1', 'claude-fable-5', 'claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-haiku-5-5', 'claude-opus-4-8', 'claude-opus-4-7']) {
       expect(claudeEffort(m)?.levels).toEqual(ALL as never);
     }
     expect(claudeEffort('claude-opus-4-6')).toEqual({ levels: ['low', 'medium', 'high', 'max'], off: true, default: 'high' });
@@ -32,6 +32,12 @@ describe('Claude', () => {
     // Opus 5.5 and Fable cannot turn thinking off
     expect(claudeEffort('claude-opus-5-5')?.off).toBe(false);
     expect(claudeEffort('claude-fable-5')?.off).toBe(false);
+    // Fable and Mythos 5.2 always think: no Off, high by default, xhigh and max offered
+    for (const m of ['claude-fable-5-2', 'claude-mythos-5-2']) {
+      expect(claudeEffort(m)).toEqual({ levels: [...ALL], off: false, default: 'high' });
+      expect(effortChoices(claudeEffort(m))).toEqual([...ALL]);
+      expect(claudeThinkingOff(m)).toBeUndefined();
+    }
     expect(claudeEffort('claude-sonnet-5-5')?.off).toBe(true);
   });
 

@@ -60,14 +60,18 @@ const K = 1000;
  * Anthropic: Claude API model reference. cacheWrite is the 5 minute rate
  * (1.25x input); the 1 hour rate is 2x input (cacheWrite1hPrice, set in e()).
  * Cache reads are 0.1x input, except Opus 5.5 and Sonnet 5.5 at 0.05x and
- * Fable 5.1 and Mythos 5.1 at 0.025x. Opus 5.5 and Sonnet 5.5 were checked
- * against platform.claude.com/docs/en/about-claude/pricing on 2026-10-22.
+ * Fable 5.1, Mythos 5.1, Fable 5.2 and Mythos 5.2 at 0.025x. Opus 5.5 and Sonnet 5.5 were checked
+ * against platform.claude.com/docs/en/about-claude/pricing on 2026-10-22. Fable 5.2 and
+ * Mythos 5.2 (5 minute write 1.25x, 1 hour write 2x) against
+ * platform.claude.com/docs/en/models/fable-5-2/overview on 2026-11-09.
  * Others: LiteLLM model_prices_and_context_window.json as of 2026-10-16 unless noted.
  * Tiered prices (long prompts) are not modeled; the base tier is used.
  */
 export const CATALOG: CatalogEntry[] = [
   // Anthropic
-  e('anthropic', 'claude-fable-5-1', 'Claude Fable 5.1', M, 128 * K, 'vtr', [10, 50, 0.25, 12.5], 'deep', { aliases: ['fable'] }),
+  e('anthropic', 'claude-fable-5-2', 'Claude Fable 5.2', M, 128 * K, 'vtr', [8, 40, 0.2, 10], 'deep', { aliases: ['fable'] }),
+  e('anthropic', 'claude-mythos-5-2', 'Claude Mythos 5.2', M, 128 * K, 'vtr', [8, 40, 0.2, 10], 'deep'),
+  e('anthropic', 'claude-fable-5-1', 'Claude Fable 5.1', M, 128 * K, 'vtr', [10, 50, 0.25, 12.5], 'deep'),
   e('anthropic', 'claude-fable-5', 'Claude Fable 5', M, 128 * K, 'vtr', [10, 50, 1, 12.5], 'deep'),
   e('anthropic', 'claude-mythos-5-1', 'Claude Mythos 5.1', M, 128 * K, 'vtr', [10, 50, 0.25, 12.5], 'deep'),
   e('anthropic', 'claude-opus-5-5', 'Claude Opus 5.5', M, 128 * K, 'vtr', [4, 20, 0.2, 5], 'deep', { aliases: ['opus'] }),

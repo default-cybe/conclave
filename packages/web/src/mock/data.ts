@@ -68,6 +68,8 @@ export const modelGroups: ModelGroup[] = [
     enabled: true,
     models: [
       // the hub's catalog prices (core providers/catalog.ts): 5 minute writes 1.25x input, 1 hour writes 2x
+      model('anthropic', 'claude-mythos-5-2', 'Claude Mythos 5.2', 1_000_000, 8, 40, { tier: 'deep', cacheReadPrice: 0.2, cacheWrite1hPrice: 16, unavailable: 'Your plan refused it (HTTP 404)' }),
+      model('anthropic', 'claude-fable-5-2', 'Claude Fable 5.2', 1_000_000, 8, 40, { tier: 'deep', cacheReadPrice: 0.2, cacheWrite1hPrice: 16 }),
       model('anthropic', 'claude-mythos-5-1', 'Claude Mythos 5.1', 1_000_000, 15, 75, { tier: 'deep', unavailable: 'Your plan refused it (HTTP 404)' }),
       model('anthropic', 'claude-fable-5-1', 'Claude Fable 5.1', 1_000_000, 10, 50, { tier: 'deep' }),
       model('anthropic', 'claude-opus-4-6', 'Claude Opus 4.6', 1_000_000, 5, 25, { tier: 'deep' }),

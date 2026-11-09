@@ -12,7 +12,7 @@ import type { Engine } from '../../src/engine/engine';
 import type { ConclaveConfig, HooksConfig } from '../../src/config/schema';
 import { tempDir, cleanup } from '../extensions/_helpers';
 
-export type Block = { text: string } | { tool: string; input: Record<string, unknown> };
+export type Block = { text: string } | { tool: string; input: Record<string, unknown> } | { thinking: string; signature: string };
 
 /**
  * One scripted reply: its blocks, or blocks with an explicit stop reason
@@ -45,6 +45,10 @@ function sse(step: Step, turn: number): string {
     if ('text' in b) {
       events.push({ type: 'content_block_start', index, content_block: { type: 'text', text: '' } });
       events.push({ type: 'content_block_delta', index, delta: { type: 'text_delta', text: b.text } });
+    } else if ('thinking' in b) {
+      events.push({ type: 'content_block_start', index, content_block: { type: 'thinking', thinking: '' } });
+      events.push({ type: 'content_block_delta', index, delta: { type: 'thinking_delta', thinking: b.thinking } });
+      events.push({ type: 'content_block_delta', index, delta: { type: 'signature_delta', signature: b.signature } });
     } else {
       events.push({ type: 'content_block_start', index, content_block: { type: 'tool_use', id: `toolu_${turn}_${index}`, name: b.tool, input: {} } });
       events.push({ type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: JSON.stringify(b.input) } });

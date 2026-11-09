@@ -39,7 +39,7 @@ describe('built-in agents come from agents-defaults/*.md', () => {
       'sec-hunter': ['cliproxy/claude-opus-5-5', 'zai/glm-5.3'],
       'sec-fuzzer': ['zai/glm-5.3', 'cliproxy/claude-opus-5-5'],
       'sec-validator': ['zai/glm-5.3', 'cliproxy/personal-gpt/gpt-daybreak-blue-latest'],
-      'sec-exploiter': ['cliproxy/claude-opus-5-5', 'claude-mythos-5-1', 'zai/glm-5.3'],
+      'sec-exploiter': ['cliproxy/claude-opus-5-5', 'claude-mythos-5-2', 'claude-mythos-5-1', 'zai/glm-5.3'],
       'sec-refuter': ['cliproxy/personal-gpt/gpt-daybreak-blue-latest', 'zai/glm-5.3'],
       'sec-chainer': ['cliproxy/claude-opus-5-5', 'zai/glm-5.3'],
       'sec-reporter': ['cliproxy/claude-opus-5-5', 'zai/glm-5.3'],

@@ -24,6 +24,12 @@ export function dropForeignThinking(messages: ProviderMessage[], vendor: string 
   return messages.map((m) => (m.content.some(foreign) ? { ...m, content: m.content.filter((b) => !foreign(b)) } : m));
 }
 
+/** Every replayed thinking block left out: the retry after a thinking_bound 400 (runner.ts). */
+export function dropThinking(messages: ProviderMessage[]): ProviderMessage[] {
+  const thinking = (b: ContentBlock) => b.type === 'thinking' || b.type === 'redacted_thinking';
+  return messages.map((m) => (m.content.some(thinking) ? { ...m, content: m.content.filter((b) => !thinking(b)) } : m));
+}
+
 /** "session asked served" pairs already told: a served program the plan cannot change is said once. */
 const servedNoted = new Set<string>();
 
