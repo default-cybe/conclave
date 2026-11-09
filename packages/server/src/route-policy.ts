@@ -333,6 +333,7 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   'GET /api/websearch': 'self',
   'PATCH /api/websearch': 'admin',
   'PUT /api/websearch/key': 'self',
+  'PATCH /api/websearch/keys': 'self',
   'POST /api/websearch/test': 'self',
   // a member's own proxy (never the hub's) for blocked requests; the owner's is PUT /api/browser/proxy
   'GET /api/websearch/proxy': 'self',

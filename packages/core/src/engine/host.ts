@@ -23,7 +23,8 @@ import { runDelegate } from './delegate';
 import { egressEnv } from '../session/egress';
 import { incognitoNotice } from '../session/incognito';
 import type { DelegateRequest } from '../tools/delegate';
-import { memberSearchChoice, memberSearchKeys, savedSearchKey } from '../tools/search-settings';
+import { hubKeyStore, memberKeyStore, memberSearchKeys, storeKeys } from '../tools/search-settings';
+import { accountKv } from '../people/scoped';
 import { isMember } from '../people/context';
 import { checkShareable, outputsDir } from '../files/share';
 import type { BrowserManager } from '../browser/manager';
@@ -51,16 +52,13 @@ export class EngineToolHost implements ToolHost {
     return this.engine.config.get();
   }
 
-  /** The hub's saved web search keys: the owner's, and a member's the owner allowed (searchChoice). */
-  searchKey(provider: string) {
-    return savedSearchKey(this.engine.config)(provider);
-  }
-
-  /** A member's own engine and key first; the hub's only when the owner allowed it, else DuckDuckGo (docs/design/ACCOUNTS.md 6). */
-  searchChoice() {
+  /** The hub's web search keys for the owner; a member's own first, the hub's only when the owner allowed it, else none, so DuckDuckGo (docs/design/ACCOUNTS.md 6). */
+  searchKeys() {
     const acct = this.engine.accountOf(this.session);
-    if (!isMember(acct)) return undefined;
-    return memberSearchChoice(memberSearchKeys(this.engine.accountSecrets, acct).get, !!this.engine.people.get(acct)?.settings.webSearch);
+    const hub = hubKeyStore(this.engine.config, this.engine.repos.kv);
+    if (!isMember(acct)) return storeKeys(hub);
+    const own = memberKeyStore(this.engine.accountSecrets, acct, accountKv(this.engine.repos.kv, acct));
+    return memberSearchKeys(own, hub, !!this.engine.people.get(acct)?.settings.webSearch);
   }
 
   async runSubagent(opts: Parameters<ToolHost['runSubagent']>[0]) {

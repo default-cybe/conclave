@@ -28,10 +28,8 @@ export interface ToolOutput {
  */
 export interface ToolHost {
   config(): ConclaveConfig;
-  /** The web search key saved in Settings > Web search (a hub secret), for WebSearch only. */
-  searchKey?(provider: string): string | undefined;
-  /** A member's own engine and key (or DuckDuckGo); undefined: the hub's, for the owner or a member the owner allowed. */
-  searchChoice?(): { id: import('./search-providers').SearchProviderId; key?: string } | undefined;
+  /** The web search keys WebSearch rotates through (Settings > Web search): the hub's, or a member's own (own: true). */
+  searchKeys?(): import('./websearch').SearchKeys;
   /** Run a subagent to completion and return its final text. */
   runSubagent(opts: {
     parentSessionId: string;

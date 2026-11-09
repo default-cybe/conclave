@@ -11,7 +11,7 @@ import type { ToolResultBlock } from '../types';
  * files never look alike and a poll that keeps getting new output is fine.
  */
 
-export type LoopCode = 'repeat' | 'cycle' | 'same_error' | 'denied' | 'frequency' | 'after_compaction' | 'search_miss' | 'poll';
+export type LoopCode = 'repeat' | 'cycle' | 'same_error' | 'denied' | 'frequency' | 'after_compaction' | 'search_miss' | 'poll' | 'search_down';
 
 export interface Verdict {
   level: 'ok' | 'warn' | 'halt';
@@ -115,6 +115,8 @@ export class LoopGuard {
   private errorStreaks = new Map<string, { res: string; n: number }>();
   /** Signatures that already tripped a halt this turn. */
   private stopped = new Set<string>();
+  /** Tools with nothing left to work with this turn, whatever the input: WebSearch once every key is down. */
+  private stoppedTools = new Set<string>();
   private frequencyWarned = new Set<string>();
   private searchMisses = 0;
   /** Per signature and result: identical polls that returned without a real wait. */
@@ -127,6 +129,8 @@ export class LoopGuard {
 
   /** Refuse a call that already tripped a halt this turn (used when an interactive turn was warned and went on). */
   before(tool: string, input: unknown): Verdict {
+    // a new query cannot help when the engine has no working key; the first failure already said so
+    if (this.stoppedTools.has(tool)) return { level: 'halt', code: 'search_down', message: `Not run: ${tool} has no working key left in this turn. Work with what you have, or tell the user to add a key in Settings > Web search.` };
     if (!this.stopped.has(callSignature(tool, input))) return { level: 'ok' };
     return {
       level: 'halt',
@@ -214,6 +218,12 @@ export class LoopGuard {
           message: `You polled ${tool} with the same input ${n} times in this turn and nothing changed. Stop polling: TaskWait with timeoutSec blocks until a task finishes, background results are delivered to you when they are ready, or finish now and report.`,
         });
       }
+    }
+
+    // every web search key is down: different queries would each fail the same way, so the tool stops for the turn
+    if (result.meta?.searchKeysDown && !this.stoppedTools.has(tool)) {
+      this.stoppedTools.add(tool);
+      v = worst(v, { level: 'warn', code: 'search_down', message: `${tool} has no working key left. Do not call it again in this turn: work with what you have, or tell the user to add a key in Settings > Web search.` });
     }
 
     // one tool used very often

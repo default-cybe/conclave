@@ -5,6 +5,10 @@ import { conclaveUA, DESKTOP_UA } from './webfetch';
 import { fail, withTimeout, wrapUntrusted } from './util';
 import { fetchUnblocked } from './blocked';
 import { SEARCH_PROVIDERS, type SearchProviderId } from './search-providers';
+import { classifyKeyError, downWords, keyPool, memoryMeta, type KeyMark, type PoolKey, type SearchKeyPool } from './search-keys';
+import { logger } from '../util/log';
+
+const log = logger('websearch');
 
 export type { SearchProviderId };
 
@@ -121,6 +125,65 @@ export function pickProvider(cfg: ConclaveConfig['search'], saved?: SavedSearchK
   return { id: 'duckduckgo' };
 }
 
+/** The keys WebSearch rotates through. own: a member's own keys only, never config.json, the environment or SearXNG. */
+export interface SearchKeys {
+  pool: SearchKeyPool;
+  own?: boolean;
+}
+
+/** One key per engine from a lookup (the old SavedSearchKey, or config.json and the environment), with marks in memory. */
+export function singleKeyPool(saved?: SavedSearchKey, meta = memoryMeta()): SearchKeyPool {
+  return keyPool({ get: (name) => (name.includes('#') ? undefined : saved?.(name.slice('search.'.length) as SearchProviderId)), set: () => undefined }, meta);
+}
+
+/** Marks for the key from config.json or the environment, which has no slot of its own. */
+const extraMeta = memoryMeta();
+
+/** An engine's keys and the pool that marks them: the saved ones in order, else the hub's config.json or environment key. */
+export function engineKeys(id: SearchProviderId, cfg: ConclaveConfig['search'], keys: SearchKeys): { pool: SearchKeyPool; keys: PoolKey[] } {
+  const listed = keys.pool.list(id);
+  if (listed.length || keys.own) return { pool: keys.pool, keys: listed };
+  const pool = singleKeyPool((p) => keyFor(p, cfg), extraMeta);
+  return { pool, keys: pool.list(id) };
+}
+
+/** The engines WebSearch tries in order: the chosen one, or in auto every engine with a key or address. DuckDuckGo is the fallback after them. */
+export function engineOrder(cfg: ConclaveConfig['search'], keys: SearchKeys): Array<{ id: SearchProviderId; keys: PoolKey[]; pool: SearchKeyPool; url?: string }> {
+  const one = (id: SearchProviderId) => {
+    const info = SEARCH_PROVIDERS.find((p) => p.id === id)!;
+    if (info.needs === 'url') return keys.own ? undefined : { id, keys: [], pool: keys.pool, url: searxngUrl(cfg) };
+    if (info.needs === 'none') return undefined;
+    const k = engineKeys(id, cfg, keys);
+    return k.keys.length ? { id, ...k } : undefined;
+  };
+  if (!keys.own && cfg.provider && cfg.provider !== 'auto') {
+    const id = cfg.provider;
+    if (id === 'duckduckgo') return [];
+    // the chosen engine even with no key, so its own error says what is missing
+    return [one(id) ?? { id, keys: [], pool: keys.pool }];
+  }
+  // the catalog's order: the biggest free allowance with no card first
+  return SEARCH_PROVIDERS.map((p) => (p.needs === 'url' && !searxngUrl(cfg) ? undefined : one(p.id))).filter((x): x is NonNullable<typeof x> => !!x);
+}
+
+/** The engine WebSearch uses now: the first in the order with a working key or an address. */
+export function activeEngine(cfg: ConclaveConfig['search'], keys: SearchKeys): SearchProviderId {
+  const order = engineOrder(cfg, keys);
+  return (order.find((e) => e.url || e.keys.some((k) => !k.mark)) ?? (order.length && cfg.provider !== 'auto' && !keys.own ? order[0] : undefined))?.id ?? 'duckduckgo';
+}
+
+const engineName = (id: string) => SEARCH_PROVIDERS.find((p) => p.id === id)?.name ?? id;
+
+/** "All Brave keys are out of credit (2 keys); add one in Settings > Web search" */
+export function keysDownLine(down: Array<{ id: string; marks: KeyMark[] }>): string {
+  const parts = down.map((d) => `all ${engineName(d.id)} keys are ${downWords(d.marks)} (${d.marks.length} key${d.marks.length === 1 ? '' : 's'})`);
+  const text = parts.join(', ');
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}; add one in Settings > Web search`;
+}
+
+/** A key's name for logs and notes: its label, else its place. Never the key. */
+const keyName = (k: PoolKey, i: number) => (k.label ? `"${k.label}"` : `key ${i + 1}`);
+
 function hostMatches(host: string, domain: string): boolean {
   const h = host.toLowerCase().replace(/^www\./, '');
   const d = domain.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
@@ -150,11 +213,27 @@ function withSiteOperators(query: string, allowed: string[], blocked: string[]):
   return q;
 }
 
+/** A refused engine call, with what search-keys.ts classifyKeyError needs to tell a spent key from a server error. */
+export class SearchHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: string,
+    readonly headers: Headers,
+  ) {
+    super(`HTTP ${status}${body ? `: ${body}` : ''}`);
+  }
+}
+
+/** Every key of the engines WebSearch may use is out of credit, rejected or cooling off. */
+export class SearchKeysDownError extends Error {
+  readonly keysDown = true;
+}
+
 async function getJson(url: string, init: RequestInit, signal: AbortSignal, key?: string): Promise<any> {
   const res = await fetch(url, { ...init, signal });
   if (!res.ok) {
     const body = redactKey(await res.text().catch(() => ''), key).slice(0, 300);
-    throw new Error(`HTTP ${res.status}${body ? `: ${body}` : ''}`);
+    throw new SearchHttpError(res.status, body, res.headers);
   }
   return res.json();
 }
@@ -323,7 +402,10 @@ async function runProvider(id: SearchProviderId, r: SearchRequest): Promise<Sear
     return await PROVIDERS[id](r);
   } catch (err) {
     if (!r.key || !String((err as Error)?.message).includes(r.key)) throw err;
-    throw new Error(redactKey((err as Error).message, r.key));
+    // the same error, so a SearchHttpError keeps its status for the key rotation
+    (err as Error).message = redactKey((err as Error).message, r.key);
+    if ((err as Error).stack) (err as Error).stack = redactKey((err as Error).stack!, r.key);
+    throw err;
   }
 }
 
@@ -378,10 +460,10 @@ export function parseDuckDuckGo(html: string): SearchResult[] {
 export async function webSearch(
   cfg: ConclaveConfig['search'],
   query: string,
-  opts: { limit?: number; allowed?: string[]; blocked?: string[]; signal: AbortSignal; saved?: SavedSearchKey; choice?: { id: SearchProviderId; key?: string } },
+  opts: { limit?: number; allowed?: string[]; blocked?: string[]; signal: AbortSignal; saved?: SavedSearchKey; keys?: SearchKeys },
 ): Promise<{ provider: SearchProviderId; results: SearchResult[]; note?: string }> {
-  // a member's own engine and key (search-settings.ts memberSearchChoice), else the hub's
-  const choice: { id: SearchProviderId; key?: string; url?: string } = opts.choice ?? pickProvider(cfg, opts.saved);
+  // a member's own keys (search-settings.ts memberSearchKeys), else the hub's
+  const keys = opts.keys ?? { pool: singleKeyPool(opts.saved) };
   const limit = Math.min(MAX_LIMIT, Math.max(1, Math.floor(opts.limit ?? DEFAULT_LIMIT)));
   const notes: string[] = [];
   const req = (id: SearchProviderId, key?: string, url?: string): SearchRequest => ({
@@ -394,19 +476,64 @@ export async function webSearch(
     signal: withTimeout(opts.signal, TIMEOUT_MS),
     notes,
   });
-  let provider = choice.id;
+  let provider: SearchProviderId = 'duckduckgo';
   let note: string | undefined;
-  let results: SearchResult[];
+  let results: SearchResult[] = [];
   const wantsReddit = /\breddit\b|(?:^|\s)\/?r\/\w+/i.test(query) || (opts.allowed ?? []).some((d) => hostMatches('reddit.com', d));
   let failed: Error | undefined;
+  /** Engines whose every key is down, for the one clear line. */
+  const down: Array<{ id: SearchProviderId; marks: KeyMark[] }> = [];
+  const rotated: string[] = [];
+  /** The engine to try, its keys in order: a refused key is marked and the call runs again on the next one. */
+  const tryEngine = async (e: ReturnType<typeof engineOrder>[number]): Promise<SearchResult[] | undefined> => {
+    if (e.url || !e.keys.length) return runProvider(e.id, req(e.id, undefined, e.url));
+    for (const [i, k] of e.keys.entries()) {
+      if (k.mark) continue;
+      try {
+        const out = await runProvider(e.id, req(e.id, k.key));
+        log.info(`${e.id} answered on ${keyName(k, i)}`);
+        return out;
+      } catch (err) {
+        const mark = err instanceof SearchHttpError && !opts.signal.aborted ? classifyKeyError(err.status, err.body, err.headers) : undefined;
+        if (!mark) throw err;
+        e.pool.mark(e.id, k.key, mark);
+        k.mark = mark;
+        log.warn(`${e.id} ${keyName(k, i)} is ${downWords([mark])}${mark.until ? ` until ${new Date(mark.until).toISOString()}` : ''} (HTTP ${err instanceof SearchHttpError ? err.status : '?'}); trying the next key`);
+        rotated.push(`${engineName(e.id)} ${keyName(k, i)} is ${downWords([mark])}`);
+      }
+    }
+    down.push({ id: e.id, marks: e.keys.map((k) => k.mark!) });
+    return undefined;
+  };
   try {
-    try {
-      results = await runProvider(choice.id, req(choice.id, choice.key, choice.url));
-    } catch (err) {
-      if (choice.id === 'duckduckgo' || opts.signal.aborted) throw err;
-      note = `${choice.id} search failed (${(err as Error).message}); used DuckDuckGo instead.`;
+    let engineErr: Error | undefined;
+    for (const e of engineOrder(cfg, keys)) {
+      provider = e.id;
+      try {
+        const out = await tryEngine(e);
+        if (out) {
+          results = out;
+          break;
+        }
+      } catch (err) {
+        if (opts.signal.aborted) throw err;
+        engineErr = err as Error;
+        break;
+      }
       provider = 'duckduckgo';
-      results = await PROVIDERS.duckduckgo(req('duckduckgo'));
+    }
+    if (rotated.length && provider !== 'duckduckgo') note = `${rotated.join('; ')}; used the next key.`;
+    if (engineErr || provider === 'duckduckgo') {
+      const why = engineErr ? `${provider} search failed (${engineErr.message})` : down.length ? keysDownLine(down) : undefined;
+      provider = 'duckduckgo';
+      try {
+        results = await PROVIDERS.duckduckgo(req('duckduckgo'));
+      } catch (err) {
+        if (opts.signal.aborted || !down.length || engineErr) throw err;
+        // nothing is left: say it once, plainly
+        throw new SearchKeysDownError(`${keysDownLine(down)}. DuckDuckGo, the last resort, failed too (${(err as Error).message}).`);
+      }
+      if (why) note = `${why}; used DuckDuckGo instead.`;
     }
   } catch (err) {
     if (!wantsReddit || opts.signal.aborted) throw err;
@@ -421,7 +548,7 @@ export async function webSearch(
       if (opts.signal.aborted) throw err;
       const hint = (err as { hint?: string }).hint;
       const why = `Reddit's own search also failed (${(err as Error).message}).${hint && !failed?.message.includes(hint) ? ` ${hint}` : ''}`;
-      if (failed) throw new Error(`${failed.message} ${why}`);
+      if (failed) throw Object.assign(new Error(`${failed.message} ${why}`), { keysDown: failed instanceof SearchKeysDownError });
       note = `${note ? `${note} ` : ''}${why}`;
     }
   }
@@ -458,8 +585,10 @@ export const WebSearchTool: Tool<WebSearchInput> = {
     if (allowed.length && blocked.length) return fail('Use either allowed_domains or blocked_domains, not both.');
     let out;
     try {
-      out = await webSearch(ctx.host.config().search, input.query.trim(), { limit: input.limit, allowed, blocked, signal: ctx.signal, saved: ctx.host.searchKey?.bind(ctx.host), choice: ctx.host.searchChoice?.() });
+      out = await webSearch(ctx.host.config().search, input.query.trim(), { limit: input.limit, allowed, blocked, signal: ctx.signal, keys: ctx.host.searchKeys?.() });
     } catch (err) {
+      // every key is down: the loop guard (session/loop-guard.ts) stops WebSearch for the rest of the turn
+      if ((err as { keysDown?: boolean }).keysDown) return fail(`Web search failed: ${(err as Error).message} Do not search again in this turn: work with what you have, or tell the user to add a key.`, { searchKeysDown: true });
       return fail(`Web search failed: ${(err as Error).message}`);
     }
     const head = `Web search results for "${input.query.trim()}" (via ${out.provider})${out.note ? `\nNote: ${out.note}` : ''}`;

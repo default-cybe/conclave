@@ -215,8 +215,8 @@ export interface WebSearchSettingsDto {
   /** The SearXNG address, and where it comes from. */
   url?: string;
   urlFrom?: 'config' | 'env';
-  /** keyFrom 'own': a member's own key, in their own secrets file. */
-  providers: Array<SearchProviderInfo & { keySet: boolean; keyFrom?: 'hub' | 'config' | 'env' | 'own' }>;
+  /** keyFrom 'own': a member's own key, in their own secrets file. keys: the saved keys in the order WebSearch uses them, never a key itself. */
+  providers: Array<SearchProviderInfo & { keySet: boolean; keyFrom?: 'hub' | 'config' | 'env' | 'own'; keys: SearchKeyDto[] }>;
   /** A member's page only: the owner lets them use the hub's web search when they have no key of their own. */
   hubAllowed?: boolean;
 }
@@ -238,6 +238,34 @@ export interface MemberProxyUpdate {
   url?: string | null;
   login?: string | null;
   password?: string | null;
+}
+
+/** One saved key as the apps see it: its label, last 4 characters and state. */
+export interface SearchKeyDto {
+  label?: string;
+  /** Empty for a key under 12 characters. */
+  last4: string;
+  /** working, out of credit, cooling off after a 429, or rejected until it is replaced. */
+  status: 'working' | 'credit' | 'cooloff' | 'rejected';
+  /** When credit or cooloff ends. */
+  until?: number;
+}
+
+/** PUT /api/websearch/key: add a key, replace the one at index, remove it (key null), or with neither index nor add replace key 1 (null: remove them all). */
+export interface WebSearchKeyUpdate {
+  provider: string;
+  key: string | null;
+  label?: string;
+  index?: number;
+  add?: boolean;
+}
+
+/** PATCH /api/websearch/keys: a new order (the old indexes in their new places), or a label for the key at index. */
+export interface WebSearchKeysPatch {
+  provider: string;
+  order?: number[];
+  index?: number;
+  label?: string;
 }
 
 export interface WebSearchSettingsPatch {

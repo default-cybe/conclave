@@ -16,7 +16,7 @@ import { inUseWords, WebSearchBody } from '../src/features/settings/websearch';
 
 type Handler = (p: { params: string[]; query: URLSearchParams; body: any }) => unknown;
 
-function mock() {
+function mock(fresh = true) {
   const routes: Array<[string, string, Handler]> = [];
   const ctx = {
     on: (m: string, path: string, h: Handler) => routes.push([m, path, h]),
@@ -24,7 +24,7 @@ function mock() {
       throw Object.assign(new Error(msg), { status });
     },
     sleep: async () => undefined,
-    FRESH: false,
+    FRESH: fresh,
   };
   registerWebSearch(ctx as never);
   return async <T,>(method: string, path: string, body?: unknown): Promise<T> => {
@@ -80,6 +80,35 @@ describe('Settings > Web search', () => {
     expect((await api<WebSearchSettingsDto>('PUT', '/api/websearch/key', { provider: 'brave', key: 'BSA-0123456789' })).active).toBe('brave');
     expect((await api<WebSearchSettingsDto>('PUT', '/api/websearch/key', { provider: 'serper', key: 'serper-0123456789' })).active).toBe('serper');
     await expect(api('PATCH', '/api/websearch', { url: 'http://me:pw@sx.lan' })).rejects.toThrow('user name');
+  });
+
+  test('key rows: label, last 4 and state; Add another key needs Save; reorder and remove', async () => {
+    const api = mock(false);
+    let s = await api<WebSearchSettingsDto>('GET', '/api/websearch');
+    const brave = () => s.providers.find((p) => p.id === 'brave')!;
+    expect(brave().keys.map((k) => [k.label, k.status])).toEqual([
+      ['personal', 'credit'],
+      ['card 2', 'working'],
+    ]);
+    expect(JSON.stringify(s)).not.toContain('BSA-mock');
+    let html = renderToStaticMarkup(<WebSearchBody s={s} onChange={() => {}} initial="brave" />);
+    expect(html).toContain('aria-label="Brave Search keys"');
+    expect(html).toContain('\u20267f3a');
+    expect(html).toMatch(/Out of credit until/);
+    for (const b of ['>Add another key<', 'aria-label="Move up"', 'aria-label="Move down"', '>Remove<', '>Test<']) expect(html).toContain(b);
+    // the key field stays hidden until Add another key; nothing saves without the Save button
+    expect(html).not.toContain('type="password"');
+    s = await api('PUT', '/api/websearch/key', { provider: 'brave', key: 'BSA-third-key-abcd', add: true, label: 'work' });
+    expect(brave().keys.map((k) => k.label)).toEqual(['personal', 'card 2', 'work']);
+    s = await api('PATCH', '/api/websearch/keys', { provider: 'brave', order: [2, 0, 1] });
+    expect(brave().keys.map((k) => k.label)).toEqual(['work', 'personal', 'card 2']);
+    s = await api('PUT', '/api/websearch/key', { provider: 'brave', key: null, index: 1 });
+    expect(brave().keys.map((k) => k.label)).toEqual(['work', 'card 2']);
+    html = renderToStaticMarkup(<WebSearchBody s={s} onChange={() => {}} initial="brave" />);
+    expect(html).toContain('>2 keys<');
+    const src = readFileSync(join(import.meta.dir, '../src/features/settings/websearch.tsx'), 'utf8');
+    // no save on paste or blur
+    expect(src).not.toMatch(/onBlur|onPaste/);
   });
 
   test('owner only, in the Customize group; no em or en dashes', () => {

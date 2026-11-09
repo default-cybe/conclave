@@ -1,9 +1,9 @@
 /**
  * Settings > Web search (core tools/search-settings.ts): the engines
  * WebSearch can use with their free allowance, which one is in use, and
- * for the one picked here its sign-up steps, its key (stored on the hub,
- * never shown again) with Paste, Save, Test and Remove, or the SearXNG
- * address.
+ * for the one picked here its sign-up steps, its keys (stored on the hub,
+ * shown only by label and last 4 characters, with their state) in the order
+ * WebSearch uses them, each with Test and Remove, or the SearXNG address.
  *
  * A member gets the same page on their own account: their own keys only
  * (the first one saved is the engine they use), whether the owner lets them
@@ -11,12 +11,13 @@
  * choice and the SearXNG address are the owner's, so those rows are hidden.
  */
 import { useEffect, useState } from 'react';
-import type { MemberProxyDto, SearchProviderId, WebSearchSettingsDto, WebSearchTestResult } from '@conclave/core/client';
+import type { MemberProxyDto, SearchKeyDto, SearchProviderId, WebSearchSettingsDto, WebSearchTestResult } from '@conclave/core/client';
+import { ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
 import { useIsOwner } from '@/lib/people';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/text';
 import { useIsMobile } from '@/lib/hooks';
-import { Button } from '@/components/ui/Button';
+import { Button, IconButton } from '@/components/ui/Button';
 import { Input, SECRET_FIELD, Segmented } from '@/components/ui/Field';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { toast } from '@/store/store';
@@ -47,12 +48,110 @@ export function inUseWords(s: WebSearchSettingsDto): string {
   return s.active === 'duckduckgo' ? `${name}, because no engine has a key or address yet.` : `${name}, the first engine with a key or address.`;
 }
 
+const STATUS: Record<SearchKeyDto['status'], string> = { working: 'Working', credit: 'Out of credit', cooloff: 'Rate limited', rejected: 'Rejected' };
+
+/** "Out of credit until 01:00", "Rejected, replace it" */
+export function keyStateWords(k: SearchKeyDto): string {
+  if (k.status === 'rejected') return 'Rejected: the engine refused this key. Remove it or add a new one.';
+  if (!k.until) return STATUS[k.status];
+  const d = new Date(k.until);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return `${STATUS[k.status]} until ${sameDay ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+}
+
+/** An engine's saved keys in order: label, last 4 characters, state, Test, Remove, and drag or up and down to reorder. */
+export function KeyRows({
+  p,
+  busy,
+  size,
+  mobile,
+  call,
+  onTest,
+}: {
+  p: WebSearchSettingsDto['providers'][number];
+  busy?: string;
+  size: 'touch' | 'sm';
+  mobile: boolean;
+  call: (what: string, fn: () => Promise<WebSearchSettingsDto>) => Promise<boolean>;
+  onTest: (index: number) => void;
+}) {
+  const [drag, setDrag] = useState<number>();
+  const [over, setOver] = useState<number>();
+  const move = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= p.keys.length) return;
+    const order = p.keys.map((_, i) => i);
+    order.splice(to, 0, ...order.splice(from, 1));
+    void call('order', () => api().patchWebSearchKeys({ provider: p.id, order }));
+  };
+  return (
+    <ol className="m-0 list-none divide-y divide-line p-0" aria-label={`${p.name} keys`}>
+      {p.keys.map((k, i) => (
+        <li
+          key={`${i}-${k.last4}-${k.label ?? ''}`}
+          className={cn('flex items-center gap-3 py-2.5 phone:flex-wrap', drag === i && 'opacity-50', over === i && drag !== i && 'shadow-[inset_0_2px_0_var(--signal)]')}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setOver(i);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (drag !== undefined) move(drag, i);
+            setDrag(undefined);
+            setOver(undefined);
+          }}
+        >
+          <span className="num w-4 shrink-0 text-right text-[12.5px] text-fg-3" aria-label={`Key ${i + 1}`}>
+            {i + 1}
+          </span>
+          {!mobile && (
+            <span
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = 'move';
+                setDrag(i);
+              }}
+              onDragEnd={() => (setDrag(undefined), setOver(undefined))}
+              className="-ml-1 cursor-grab text-fg-4 hover:text-fg-2"
+              aria-hidden
+            >
+              <GripVertical className="size-4" strokeWidth={1.75} />
+            </span>
+          )}
+          {/* a phone keeps the label and state on one line and drops the buttons below */}
+          <span className="min-w-0 flex-1 phone:min-w-[75%]">
+            <span className="text-[13.5px] text-fg phone:text-[15px]">{k.label ?? `Key ${i + 1}`}</span>
+            <span className="ml-2 whitespace-nowrap font-mono text-[12px] text-fg-3">{k.last4 ? `\u2026${k.last4}` : 'short key'}</span>
+            <span className={cn('mt-0.5 block text-[12px] leading-[1.45] phone:text-[13px]', k.status === 'working' ? 'text-ok' : k.status === 'rejected' ? 'text-fault' : 'text-warn')}>{keyStateWords(k)}</span>
+          </span>
+          <span className="flex shrink-0 items-center gap-1 phone:ml-7">
+            <Button size={size} busy={busy === `test${i}` ? 'Testing' : false} onClick={() => onTest(i)}>
+              Test
+            </Button>
+            <IconButton label="Move up" size={mobile ? 'touch' : 'sm'} disabled={i === 0} onClick={() => move(i, i - 1)}>
+              <ChevronUp />
+            </IconButton>
+            <IconButton label="Move down" size={mobile ? 'touch' : 'sm'} disabled={i === p.keys.length - 1} onClick={() => move(i, i + 1)}>
+              <ChevronDown />
+            </IconButton>
+            <Button variant="danger" size={size} busy={busy === `rm${i}` ? 'Removing' : false} onClick={() => void call(`rm${i}`, () => api().setWebSearchKey(p.id, null, { index: i }))}>
+              Remove
+            </Button>
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 export function WebSearchBody({ s, onChange, initial }: { s: WebSearchSettingsDto; onChange: (s: WebSearchSettingsDto) => void; initial?: SearchProviderId }) {
   const mobile = useIsMobile();
   const member = !useIsOwner();
   const size = mobile ? 'touch' : 'sm';
   const [open, setOpen] = useState<SearchProviderId>(initial ?? s.active);
   const [key, setKey] = useState('');
+  const [label, setLabel] = useState('');
+  // the new-key row shows on its own when an engine has no key; with keys, behind "Add another key"
+  const [adding, setAdding] = useState(false);
   const [url, setUrl] = useState(s.url ?? '');
   const [busy, setBusy] = useState<string>();
   const [test, setTest] = useState<WebSearchTestResult>();
@@ -73,6 +172,8 @@ export function WebSearchBody({ s, onChange, initial }: { s: WebSearchSettingsDt
   const pick = (id: SearchProviderId) => {
     setOpen(id);
     setKey('');
+    setLabel('');
+    setAdding(false);
     setTest(undefined);
   };
   const paste = async () => {
@@ -82,11 +183,13 @@ export function WebSearchBody({ s, onChange, initial }: { s: WebSearchSettingsDt
       toast({ title: 'The browser did not allow reading the clipboard. Paste into the field instead.', level: 'error' });
     }
   };
-  const runTest = async () => {
-    setBusy('test');
+  /** index: one key's Test button; it also brings back that key's state, so the list reloads after. */
+  const runTest = async (index?: number) => {
+    setBusy(index === undefined ? 'test' : `test${index}`);
     setTest(undefined);
     try {
-      setTest(await api().testWebSearch(p.id));
+      setTest(await api().testWebSearch(p.id, index));
+      if (index !== undefined) onChange(await api().webSearchSettings());
     } catch (e) {
       toast({ title: `The test did not run. ${errText(e)}`, level: 'error' });
     }
@@ -114,7 +217,8 @@ export function WebSearchBody({ s, onChange, initial }: { s: WebSearchSettingsDt
               >
                 <span className="text-[13.5px] font-medium text-fg phone:text-[15px]">{x.name}</span>
                 {x.id === s.active && <span className="ml-2 text-[12px] text-ok">In use</span>}
-                {x.keySet && <span className="ml-2 text-[12px] text-fg-3">Key saved</span>}
+                {x.keySet && <span className="ml-2 text-[12px] text-fg-3">{x.keys.length > 1 ? `${x.keys.length} keys` : 'Key saved'}</span>}
+                {x.keys.length > 0 && x.keys.every((k) => k.status !== 'working') && <span className="ml-2 text-[12px] text-warn">No working key</span>}
                 <span className="mt-0.5 block text-[12px] leading-[1.45] text-fg-3 phone:text-[13px]">
                   {x.card && <span className="mr-1.5 font-medium text-warn">Needs a card.</span>}
                   {x.free}
@@ -147,34 +251,59 @@ export function WebSearchBody({ s, onChange, initial }: { s: WebSearchSettingsDt
           </div>
         )}
         {p.needs === 'key' && (
-          <SettingRow
-            label="Key"
-            help={p.keySet ? (p.keyFrom === 'env' ? `Set in the hub environment (${p.env?.join(' or ')}).` : p.keyFrom === 'config' ? 'Set in config.json (search.apiKey).' : p.keyFrom === 'own' ? 'Set, stored in your account.' : 'Set, stored on the hub.') : `Not set.${p.keyHint ? ` ${p.keyHint}.` : ''}`}
-            top
-          >
-            <div className="flex flex-wrap items-center gap-2 md:justify-end">
-              <Input mono {...SECRET_FIELD} value={key} onChange={(e) => setKey(e.target.value)} placeholder={p.keySet ? 'Paste a new key' : 'API key'} aria-label={`${p.name} API key`} className="w-[200px]!" size="sm" />
-              <Button size={size} onClick={() => void paste()}>
-                Paste
-              </Button>
-              <Button
-                variant="solid"
-                size={size}
-                disabled={!key.trim()}
-                busy={busy === 'key' ? 'Saving' : false}
-                onClick={async () => {
-                  if (await call('key', () => api().setWebSearchKey(p.id, key.trim()))) setKey('');
-                }}
-              >
-                Save
-              </Button>
-              {p.keySet && (p.keyFrom === 'hub' || p.keyFrom === 'own') && (
-                <Button variant="danger" size={size} busy={busy === 'rmkey' ? 'Removing' : false} onClick={() => void call('rmkey', () => api().setWebSearchKey(p.id, null))}>
-                  Remove
+          <>
+            <SettingRow
+              label={p.keys.length > 1 ? 'Keys' : 'Key'}
+              help={
+                p.keys.length
+                  ? `${p.keyFrom === 'own' ? 'Stored in your account' : 'Stored on the hub'}. WebSearch uses them in this order and moves to the next when one runs out of credit or is refused.`
+                  : p.keySet
+                    ? p.keyFrom === 'env'
+                      ? `Set in the hub environment (${p.env?.join(' or ')}).`
+                      : 'Set in config.json (search.apiKey).'
+                    : `Not set.${p.keyHint ? ` ${p.keyHint}.` : ''}`
+              }
+              top
+            >
+              {p.keys.length > 0 && !adding && (
+                <Button size={size} onClick={() => setAdding(true)}>
+                  Add another key
                 </Button>
               )}
-            </div>
-          </SettingRow>
+            </SettingRow>
+            {p.keys.length > 0 && <KeyRows p={p} busy={busy} size={size} mobile={mobile} call={call} onTest={(i) => void runTest(i)} />}
+            {(adding || !p.keys.length) && (
+              <SettingRow label={p.keys.length ? 'New key' : 'Add a key'} help="Paste the key, give it a label if you like, then Save." top>
+                <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                  <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label, optional" aria-label={`${p.name} key label`} className="w-[140px]!" size="sm" maxLength={40} />
+                  <Input mono {...SECRET_FIELD} value={key} onChange={(e) => setKey(e.target.value)} placeholder="API key" aria-label={`${p.name} API key`} className="w-[200px]!" size="sm" />
+                  <Button size={size} onClick={() => void paste()}>
+                    Paste
+                  </Button>
+                  <Button
+                    variant="solid"
+                    size={size}
+                    disabled={!key.trim()}
+                    busy={busy === 'key' ? 'Saving' : false}
+                    onClick={async () => {
+                      if (await call('key', () => api().setWebSearchKey(p.id, key.trim(), { add: true, ...(label.trim() ? { label: label.trim() } : {}) }))) {
+                        setKey('');
+                        setLabel('');
+                        setAdding(false);
+                      }
+                    }}
+                  >
+                    Save
+                  </Button>
+                  {p.keys.length > 0 && (
+                    <Button size={size} onClick={() => (setAdding(false), setKey(''), setLabel(''))}>
+                      Cancel
+                    </Button>
+                  )}
+                </div>
+              </SettingRow>
+            )}
+          </>
         )}
         {!member && p.needs === 'url' && (
           <SettingRow label="Address" help={s.urlFrom === 'env' ? 'Set in the hub environment (SEARXNG_URL).' : 'The SearXNG server the hub asks, such as http://searxng.lan:8080.'} top>

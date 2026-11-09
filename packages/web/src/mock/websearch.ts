@@ -1,26 +1,54 @@
 /**
  * Mock routes for Settings > Web search: DuckDuckGo until a key is saved,
- * keys that answer only whether one is set, and the Test button.
+ * a list of keys per engine that answers only labels, last 4 characters and
+ * states, and the Test button. The full mock (not ?fresh) starts with two
+ * Brave keys, the first out of credit, so the page shows the rotation.
  */
-import { SEARCH_PROVIDERS, type SearchChoice, type SearchProviderId, type WebSearchSettingsDto, type WebSearchSettingsPatch, type WebSearchTestResult } from '@conclave/core/client';
+import { SEARCH_PROVIDERS, type SearchChoice, type SearchKeyDto, type SearchProviderId, type WebSearchKeysPatch, type WebSearchKeyUpdate, type WebSearchSettingsDto, type WebSearchSettingsPatch, type WebSearchTestResult } from '@conclave/core/client';
 import type { MockCtx } from './index';
+
+interface MockKey {
+  key: string;
+  label?: string;
+  status: SearchKeyDto['status'];
+  until?: number;
+}
+
+const nextUtcDay = () => {
+  const d = new Date();
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
+};
 
 export function registerWebSearch(ctx: MockCtx) {
   const { on, fail } = ctx;
   let chosen: SearchChoice = 'auto';
   let url: string | undefined;
-  const keys = new Set<string>();
+  const keys = new Map<string, MockKey[]>();
+  if (!ctx.FRESH)
+    keys.set('brave', [
+      { key: 'BSA-mock-personal-7f3a', label: 'personal', status: 'credit', until: nextUtcDay() },
+      { key: 'BSA-mock-card2-91c2', label: 'card 2', status: 'working' },
+    ]);
+  const list = (id: string) => keys.get(id) ?? [];
+  const working = (id: string) => list(id).some((k) => k.status === 'working');
   const active = (): SearchProviderId => {
     if (chosen !== 'auto') return chosen;
-    // the hub's automatic order is the catalog's
-    return SEARCH_PROVIDERS.find((p) => (p.needs === 'key' && keys.has(p.id)) || (p.needs === 'url' && url))?.id ?? 'duckduckgo';
+    // the hub's automatic order is the catalog's; an engine whose keys are all down is skipped
+    return SEARCH_PROVIDERS.find((p) => (p.needs === 'key' && working(p.id)) || (p.needs === 'url' && url))?.id ?? 'duckduckgo';
   };
   const view = (): WebSearchSettingsDto => ({
     chosen,
     active: active(),
     ...(url ? { url, urlFrom: 'config' as const } : {}),
-    providers: SEARCH_PROVIDERS.map((p) => ({ ...p, keySet: keys.has(p.id), ...(keys.has(p.id) ? { keyFrom: 'hub' as const } : {}) })),
+    providers: SEARCH_PROVIDERS.map((p) => {
+      const ks = list(p.id);
+      return { ...p, keySet: ks.length > 0, ...(ks.length ? { keyFrom: 'hub' as const } : {}), keys: ks.map((k) => ({ ...(k.label ? { label: k.label } : {}), last4: k.key.length >= 12 ? k.key.slice(-4) : '', status: k.status, ...(k.until ? { until: k.until } : {}) })) };
+    }),
   });
+  const at = (id: string, i: number) => {
+    if (!list(id)[i]) fail(400, `There is no key ${i + 1}.`);
+    return i;
+  };
 
   on('GET', '/api/websearch', () => view());
   on('PATCH', '/api/websearch', ({ body }) => {
@@ -38,18 +66,37 @@ export function registerWebSearch(ctx: MockCtx) {
     return view();
   });
   on('PUT', '/api/websearch/key', ({ body }) => {
-    const { provider, key } = body as { provider: string; key: string | null };
+    const { provider, key, label, index, add } = body as WebSearchKeyUpdate;
     if (SEARCH_PROVIDERS.find((p) => p.id === provider)?.needs !== 'key') fail(400, `${provider} takes no key.`);
-    if (key && !/^\S{8,512}$/.test(key.trim())) fail(400, 'That does not look like a key: it is one word of at least 8 characters, with no spaces.');
-    if (key) keys.add(provider);
-    else keys.delete(provider);
+    const k = key?.trim();
+    if (k && !/^\S{8,512}$/.test(k)) fail(400, 'That does not look like a key: it is one word of at least 8 characters, with no spaces.');
+    const ks = [...list(provider)];
+    if (k && ks.some((x) => x.key === k)) fail(400, 'That key is already in the list.');
+    if (!k) {
+      if (index === undefined) ks.splice(0);
+      else ks.splice(at(provider, index), 1);
+    } else if (add || (index === undefined && !ks.length)) ks.push({ key: k, ...(label?.trim() ? { label: label.trim() } : {}), status: 'working' });
+    else ks[at(provider, index ?? 0)] = { key: k, label: label?.trim() || ks[index ?? 0]!.label, status: 'working' };
+    keys.set(provider, ks);
+    return view();
+  });
+  on('PATCH', '/api/websearch/keys', ({ body }) => {
+    const { provider, order, index, label } = body as WebSearchKeysPatch;
+    const ks = list(provider);
+    if (order) {
+      if (order.length !== ks.length || new Set(order).size !== order.length) fail(400, 'order must list every key index once.');
+      keys.set(provider, order.map((i) => ks[at(provider, i)]!));
+    } else if (index !== undefined) ks[at(provider, index)]!.label = label?.trim() || undefined;
     return view();
   });
   on('POST', '/api/websearch/test', async ({ body }): Promise<WebSearchTestResult> => {
     await ctx.sleep(500);
-    const provider = ((body as { provider?: SearchProviderId } | undefined)?.provider ?? active()) as SearchProviderId;
+    const b = (body ?? {}) as { provider?: SearchProviderId; index?: number };
+    const provider = (b.provider ?? active()) as SearchProviderId;
     const info = SEARCH_PROVIDERS.find((p) => p.id === provider)!;
-    if (info.needs === 'key' && !keys.has(provider)) return { provider, ok: false, message: `no ${info.name} API key` };
+    const k = b.index !== undefined ? list(provider)[b.index] : list(provider).find((x) => x.status === 'working');
+    if (info.needs === 'key' && !k) return { provider, ok: false, message: `no ${info.name} API key` };
+    if (k && k.status !== 'working') return { provider, ok: false, message: 'HTTP 402: usage limit exceeded for this subscription' };
     if (provider === 'duckduckgo') return { provider, ok: false, message: 'DuckDuckGo refused this hub with a bot check (HTTP 202).' };
     return { provider, ok: true, message: `Works. ${info.name} answered with 3 results.` };
   });
