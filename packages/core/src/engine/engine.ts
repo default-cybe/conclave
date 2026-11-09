@@ -153,9 +153,9 @@ import { RefusedMachine, MachineRefused, HUB_REFUSED, DEVICE_REFUSED, CODE_NEEDS
 import { accountConfigView } from '../people/config-view';
 import { DEFAULT_DISK_GB, accountDiskUse, diskRefusal, forgetDiskUse } from '../people/disk';
 import { memberFetch, memberMcpClientFactory } from '../people/memory';
-import { dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join } from 'node:path';
 import { constants as fsConstants } from 'node:fs';
-import { copyFile as fsCopyFile, mkdir as fsMkdir, open as fsOpen, readFile as fsReadFile, writeFile as fsWriteFile } from 'node:fs/promises';
+import { copyFile as fsCopyFile, mkdir as fsMkdir, open as fsOpen, readFile as fsReadFile, realpath as fsRealpath, writeFile as fsWriteFile } from 'node:fs/promises';
 import { assertNotHubPrivate } from '../machine/private';
 import { MAX_READ_BYTES } from '../machine/protocol';
 import { budgetFor } from '../attachments/budget';
@@ -314,6 +314,8 @@ export class Engine implements EngineApi {
   readonly sharedTurns = new SharedChatTurns(this);
 
   private runners = new Map<string, SessionRunner>();
+  /** Upload ids a send is taking now (attachments/uploads.ts), so two sends never take one. */
+  private uploadsTaking = new Set<string>();
   /** Sessions with a compaction in progress (one at a time per session). */
   readonly compacting = new Set<string>();
   private mcpCache: { tools: Tool[]; at: number } | null = null;
@@ -964,15 +966,24 @@ export class Engine implements EngineApi {
       const m = this.addMessage(id, { role: 'user', kind: 'normal', content: [{ type: 'text', text: input.text }] });
       return { queued: false, messageId: m.id };
     }
-    // any number of files; what the model reads goes inline, the rest is saved (attachments/prepare.ts)
-    const prepared = await prepareAttachments(input.attachments, this.zipHost(s));
-    // a file the hub could not read is never dropped silently: the sender chooses to go without it
-    if (prepared.lost.length && input.attachmentLoss !== 'drop') {
-      const names = prepared.lost.join(', ');
-      throw new EngineError(409, `${ATTACHMENT_LOST}${names} could not be read. Send again to go without ${prepared.lost.length === 1 ? 'it' : 'them'}.`);
+    // an upload goes with one message: one another send is taking right now is refused, as a taken one is (404)
+    const ups = (input.attachments ?? []).flatMap((a) => (typeof a.uploadId === 'string' ? [a.uploadId] : []));
+    if (ups.some((u) => this.uploadsTaking.has(u))) throw new EngineError(409, 'A file of this message is being sent with another message.');
+    for (const u of ups) this.uploadsTaking.add(u);
+    let prepared: Awaited<ReturnType<typeof prepareAttachments>>;
+    try {
+      // any number of files; what the model reads goes inline, the rest is saved (attachments/prepare.ts)
+      prepared = await prepareAttachments(input.attachments, this.zipHost(s));
+      // a file the hub could not read is never dropped silently: the sender chooses to go without it
+      if (prepared.lost.length && input.attachmentLoss !== 'drop') {
+        const names = prepared.lost.join(', ');
+        throw new EngineError(409, `${ATTACHMENT_LOST}${names} could not be read. Send again to go without ${prepared.lost.length === 1 ? 'it' : 'them'}.`);
+      }
+      // an upload a message took is gone from the uploads folder: what it became is in the message or the session's folder
+      await Promise.all(ups.map((u) => removeUpload(this.config.paths.home, this.accountOf(s), u).catch(() => {})));
+    } finally {
+      for (const u of ups) this.uploadsTaking.delete(u);
     }
-    // an upload a message took is gone from the uploads folder: what it became is in the message or the session's folder
-    for (const a of input.attachments ?? []) if (typeof a.uploadId === 'string') void removeUpload(this.config.paths.home, this.accountOf(s), a.uploadId).catch(() => {});
     // an imported chat the owner writes in leaves Imported: unarchived, a normal conversation from here (session/imported.ts)
     if (inImported(s)) {
       const next = { ...s, ...continuedPatch(s), updatedAt: Date.now() };
@@ -1059,6 +1070,8 @@ export class Engine implements EngineApi {
           // the hub's own disk: copied, so a big upload never sits in memory
           assertNotHubPrivate(path);
           await fsMkdir(dirname(path), { recursive: true });
+          // uploads/ may be a link the session made: the folder it really is must not be the hub's private one either
+          assertNotHubPrivate(join(await fsRealpath(dirname(path)), basename(path)));
           await fsCopyFile(from.hubPath, path, fsConstants.COPYFILE_EXCL);
         } else {
           // shortcut: a paired device takes one write message, so a file is held whole and capped at MAX_READ_BYTES; stream in chunks when the daemon protocol gets an append

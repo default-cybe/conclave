@@ -74,6 +74,15 @@ describe('uploads', () => {
     expect(again.status).toBe(404);
   });
 
+  test('two sends at once naming one upload: only one takes it', async () => {
+    const r = await up('race.txt', 'race');
+    const s1 = await call('POST', '/api/sessions', { kind: 'chat' });
+    const s2 = await call('POST', '/api/sessions', { kind: 'chat' });
+    const att = [{ uploadId: r.body.id, name: 'race.txt', mediaType: 'text/plain' }];
+    const both = await Promise.all([s1, s2].map((s) => call('POST', `/api/sessions/${s.body.id}/messages`, { text: 'x', attachments: att })));
+    expect(both.map((b) => b.status).sort()).toEqual([200, 409]);
+  });
+
   test("a member's upload id named in the owner's message is unknown (404), and the member's file stays", async () => {
     const home = t.engine.config.paths.home;
     const { putUpload } = await import('../../core/src/attachments/uploads');
@@ -106,6 +115,16 @@ describe('uploads', () => {
     expect(reply).toMatch(/^HTTP\/1\.1 413/);
     const { readdirSync } = await import('node:fs');
     expect(readdirSync(join(t.engine.config.paths.home, 'uploads')).filter((n) => n.endsWith('.part'))).toEqual([]);
+  });
+
+  test('an uploaded zip bomb is refused like an inline one', async () => {
+    const { makeZip } = await import('../../core/test/attachments/zipkit');
+    const bomb = makeZip([{ name: 'zeros.txt', data: new Uint8Array(4 * 1024 * 1024), method: 8, claim: 512 }]);
+    const r = await up('bomb.zip', new Blob([bomb as Uint8Array<ArrayBuffer>]), 'application/zip');
+    const s = await call('POST', '/api/sessions', { kind: 'chat' });
+    const sent = await call('POST', `/api/sessions/${s.body.id}/messages`, { text: 'x', attachments: [{ uploadId: r.body.id, name: 'bomb.zip' }] });
+    expect(sent.status).toBe(400);
+    expect(sent.body.error).toBe('bomb.zip is damaged (zeros.txt).');
   });
 
   test('an APK in a chat is saved in its outputs folder on the hub, and the receipt says Chat cannot open it', async () => {

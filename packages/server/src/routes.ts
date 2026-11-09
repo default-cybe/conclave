@@ -456,10 +456,13 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
   app.post('/api/uploads', async (c) => {
     const acct = accountOf(c);
     const name = c.req.query('name') ?? '';
-    const max = uploadMaxBytes(engine.config.get().server.uploadMaxMb);
+    const perFile = uploadMaxBytes(engine.config.get().server.uploadMaxMb);
+    // a member's body with no length stops at the room left under their disk cap too, while it streams
+    const room = isMember(acct) ? (({ usedBytes, limitBytes }) => Math.max(0, limitBytes - usedBytes))(engine.diskUse(acct!)) : Infinity;
+    const max = Math.min(perFile, room);
     const length = Number(c.req.header('content-length'));
     // sizes are checked before a byte is written: the cap per file, then a member's disk cap
-    if (Number.isFinite(length) && length > max) throw new HttpError(413, `${name || 'The file'} is over ${Math.round(max / 1024 / 1024)} MB, the most one file can be.`);
+    if (Number.isFinite(length) && length > perFile) throw new HttpError(413, `${name || 'The file'} is over ${Math.round(perFile / 1024 / 1024)} MB, the most one file can be.`);
     const full = engine.diskRefusal(acct, Number.isFinite(length) ? length : 0);
     if (full) throw new HttpError(413, full);
     try {
@@ -476,6 +479,8 @@ export function registerRoutes(app: Hono<HonoEnv>, ctx: ServerContext): void {
       }
       return c.json({ id: up.id, name: up.name, mediaType: up.mediaType, size: up.size });
     } catch (err) {
+      // stopped at the room under a member's cap, not the per-file cap: the disk line says why
+      if (err instanceof UploadRefused && err.status === 413 && max < perFile) throw new HttpError(413, engine.diskRefusal(acct, max + 1) ?? err.message);
       if (err instanceof UploadRefused) throw new HttpError(err.status, err.message);
       throw err;
     }
