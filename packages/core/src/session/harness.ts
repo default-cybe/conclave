@@ -151,7 +151,8 @@ export async function runHarnessTurn(engine: Engine, runner: SessionRunner, sess
           break;
         case 'models':
           // the models its account offers (a new model on a Codex account): the picker lists them next to the built-in ones
-          engine.noteHarnessModels(harness, ev.models);
+          // read on a paired device while the hub lacks the CLI: the picker says "via OpenCode on Xeno"
+          engine.noteHarnessModels(harness, ev.models, session.device && session.device !== 'local' && !engine.providers.isConfigured(harness) ? (engine.devices.list().find((d) => d.id === session.device)?.name ?? session.device) : undefined);
           break;
         case 'text_delta': {
           if (textIndex < 0 || content[textIndex]?.type !== 'text') {

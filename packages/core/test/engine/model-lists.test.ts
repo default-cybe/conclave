@@ -8,6 +8,8 @@ import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
 import { AcpAdapter, harnessModels } from '../../src/acp/adapter';
 import type { HarnessEvent } from '../../src/acp/types';
+import { harnessInstallHint } from '../../src/acp/harness-off';
+import type { Device } from '../../src/types';
 import { startTestEngine } from './harness';
 import { TestMachine } from '../acp/test-machine';
 
@@ -92,4 +94,51 @@ describe('model lists from the account', () => {
       await t.close();
     }
   }, 60_000);
+
+  // a CLI the hub's PATH does not have; the device's machine runs the fake agent in its place
+  const CLI = 'conclave-test-opencode-not-on-hub';
+  const opencode = { type: 'acp', name: 'OpenCode', command: CLI, args: [AGENT], models: ['default'], enabled: true, env: { FAKE_ACP_NEW_MODEL: 'big-pickle', FAKE_ACP_NEW_MODEL_NAME: 'Big Pickle' } };
+
+  test('Refresh models asks a paired online device that has the CLI when the hub lacks it, and labels its models', async () => {
+    const t = await startTestEngine({ script: [[{ text: 'ok' }]] });
+    try {
+      t.engine.config.update({ providers: { opencode } } as never);
+      class Xeno extends TestMachine {
+        override spawn(command: string, args: string[], opts: Parameters<TestMachine['spawn']>[2]) {
+          return super.spawn(command === CLI ? process.execPath : command, args, opts);
+        }
+      }
+      const m = new Xeno({ id: 'xeno', name: 'Xeno' });
+      t.engine.repos.devices.insert({ id: m.id, name: m.name, tokenHash: 'test', roots: [] });
+      t.engine.devices.attach({ ...t.engine.repos.devices.get(m.id)!, online: true, info: { ...(await m.info()), clis: { [CLI]: '1.0.0' } } } as Device, m);
+      const { groups, failed } = await t.engine.refreshModels();
+      expect(failed).toEqual([]);
+      expect(m.spawned.some((s) => s.command === process.execPath)).toBe(true);
+      const g = groups.find((x) => x.provider === 'opencode')!;
+      expect(g.models.map((x) => x.id)).toContain('big-pickle');
+      expect(g.models.find((x) => x.id === 'big-pickle')!.via).toBe('via OpenCode on Xeno');
+      // the configured fallback was not read on the device
+      expect(g.models.find((x) => x.id === 'default')!.via).toBeUndefined();
+    } finally {
+      await t.close();
+    }
+  }, 60_000);
+
+  test('Refresh models says how to install the CLI when neither the hub nor a device has it', async () => {
+    const t = await startTestEngine({ script: [[{ text: 'ok' }]] });
+    try {
+      t.engine.config.update({ providers: { opencode: { ...opencode, command: 'opencode' } } } as never);
+      // shortcut: assumes the test host has no opencode on PATH; skip the check where it does
+      if (Bun.which('opencode')) return;
+      const { failed } = await t.engine.refreshModels();
+      expect(failed).toContain('OpenCode: Install opencode on the hub or a device: curl -fsSL https://opencode.ai/install | bash');
+    } finally {
+      await t.close();
+    }
+  }, 30_000);
+
+  test('the install hint names the command', () => {
+    expect(harnessInstallHint('opencode')).toBe('Install opencode on the hub or a device: curl -fsSL https://opencode.ai/install | bash');
+    expect(harnessInstallHint('codex')).toBe('Install codex on the hub or a device');
+  });
 });

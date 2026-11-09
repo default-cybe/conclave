@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- OpenCode's free models (big-pickle and the `-free` ones) are easy to use through the OpenCode engine. Refresh models now asks a paired, online device that has opencode when the hub does not, and its models show in the picker as "via OpenCode on Xeno". With opencode nowhere, it says "Install opencode on the hub or a device: curl -fsSL https://opencode.ai/install | bash". In the web and Android pickers these models carry a small "Free" tag under Coding agents, with the note "Free inside OpenCode for a limited time; providers may keep data." Settings, Providers, OpenCode says that turning it on gives these models through the opencode CLI, with no key needed.
+
 ## [0.4.83] - 2026-11-09
 
 ### Fixed

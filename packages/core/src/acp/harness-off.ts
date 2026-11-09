@@ -48,6 +48,11 @@ function usedSince(db: Db, id: string, since: number): boolean {
   return !!db.query('SELECT 1 FROM usage WHERE ts >= ? AND provider = ? AND session_id IS NOT NULL LIMIT 1').get(since, id);
 }
 
+/** What Refresh models says when neither the hub nor an online device has a harness's command. */
+export function harnessInstallHint(command: string): string {
+  return command === 'opencode' ? 'Install opencode on the hub or a device: curl -fsSL https://opencode.ai/install | bash' : `Install ${command} on the hub or a device`;
+}
+
 /** What a session on a harness that is off is told. Undefined when the provider is no harness or is on. */
 export function harnessOffWords(id: string, cfg: Pick<ProviderConfig, 'type' | 'name' | 'enabled'> | undefined): string | undefined {
   if (!cfg || cfg.type !== 'acp' || cfg.enabled !== false) return undefined;

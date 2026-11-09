@@ -114,7 +114,8 @@ export function SubscriptionsSection() {
       useHub.setState({ models: groups });
       reload();
       const count = groups.find((g) => g.provider === status.provider)?.models.length ?? 0;
-      toast(failed.length ? { title: `Read again. Could not ask ${failed.map((f) => f.split(':')[0]).join(', ')}.`, level: 'warning' } : { title: `Read again. ${count} ${count === 1 ? 'model' : 'models'} from your accounts.` });
+      // the body says why, such as "OpenCode: Install opencode on the hub or a device: curl ..."
+      toast(failed.length ? { title: `Read again. Could not ask ${failed.map((f) => f.split(':')[0]).join(', ')}.`, body: failed.join('\n'), level: 'warning' } : { title: `Read again. ${count} ${count === 1 ? 'model' : 'models'} from your accounts.` });
     } catch (e) {
       toast({ title: `Failed. ${errText(e)}`, level: 'error' });
     }

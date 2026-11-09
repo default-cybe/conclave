@@ -176,6 +176,19 @@ class PickerTabsTest {
     }
 
     @Test
+    fun openCodeFreeModelsAreTaggedUnderCodingAgents() {
+        val oc = m("opencode", "big-pickle", "Big Pickle")
+        val row = ModelPicks.Row(oc.fullRef, oc, "Big Pickle", "via OpenCode on Xeno", harness = true)
+        assertTrue(PickerTabs.isFree(row))
+        assertTrue(PickerTabs.isFree(row.copy(ref = "opencode/opencode/grok-code-free")))
+        assertEquals(false, PickerTabs.isFree(row.copy(ref = "opencode/opencode/claude-sonnet-5-5")))
+        // a "-free" id from a key-based provider is no OpenCode freebie
+        assertEquals(false, PickerTabs.isFree(row.copy(ref = "openrouter/x-free", harness = false)))
+        assertEquals(Tab.AGENTS, PickerTabs.tabOf("opencode", row))
+        assertEquals("Free inside OpenCode for a limited time; providers may keep data.", PickerTabs.FREE_NOTE)
+    }
+
+    @Test
     fun recentIsTheLastDistinctModelsNewestFirst() {
         val sessions = listOf(
             Session(id = "1", model = "openai/gpt-5.5", updatedAt = 1),

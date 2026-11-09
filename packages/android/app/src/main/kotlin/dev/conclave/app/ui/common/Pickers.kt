@@ -251,11 +251,13 @@ private fun ModelRow(
 ) {
     // the row is the model's name; a route picked by hand ("via neu") says so, the ref only for a coding agent
     val picked = r.routes.firstOrNull { !it.first && it.ref == current }
-    val sub = picked?.let { "via ${it.label}" } ?: r.via ?: if (r.harness) r.ref else null
+    val free = PickerTabs.isFree(r)
+    val sub = (picked?.let { "via ${it.label}" } ?: r.via ?: if (r.harness) r.ref else null)?.let { if (free) "$it. ${PickerTabs.FREE_NOTE}" else it }
     PickerRow(
         ref = r.ref,
         label = r.label,
         sub = sub,
+        free = free,
         maker = maker.takeIf { !r.harness },
         detail = modelDetail(r.model),
         selected = selected,
@@ -317,6 +319,8 @@ private fun PickerRow(
     pinned: Boolean = false,
     /** Null: no pin on this row (an agent from [extra]). */
     onPin: (() -> Unit)? = null,
+    /** OpenCode's free model: a small "Free" tag after the name. */
+    free: Boolean = false,
     onClick: () -> Unit,
 ) {
     val c = Conclave.colors
@@ -336,8 +340,12 @@ private fun PickerRow(
                     Spacer(Modifier.width(6.dp))
                     CompanyMark(maker.first, size = 12.dp, tint = c.fg3, label = maker.second)
                 }
+                if (free) {
+                    Spacer(Modifier.width(6.dp))
+                    Text("Free", style = ConclaveType.meta, color = c.fg3, modifier = Modifier.border(1.dp, c.edge, RoundedCornerShape(4.dp)).padding(horizontal = 4.dp))
+                }
             }
-            if (sub != null) Text(sub, style = ConclaveType.meta, color = c.fg3, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (sub != null) Text(sub, style = ConclaveType.meta, color = c.fg3, maxLines = if (free) 2 else 1, overflow = TextOverflow.Ellipsis)
         }
         if (vision) {
             Icon(Icons.Outlined.Visibility, contentDescription = "Reads images", modifier = Modifier.size(16.dp), tint = c.fg3)

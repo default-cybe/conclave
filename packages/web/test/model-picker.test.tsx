@@ -13,7 +13,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { ModelEntry, ModelGroup } from '@conclave/core/client';
 import type { Session } from '@conclave/core/types';
-import { allRows, buildPicker, capabilityLine, capabilityRank, compareModels, familyOf, makerRank, pickerItems, routeLabel, rowName, shownTabs, tabOf, type Picker, type PickerInput, type PickerItem } from '../src/components/pickers/ModelPicker';
+import { FREE_NOTE, allRows, buildPicker, capabilityLine, isFreeModel, capabilityRank, compareModels, familyOf, makerRank, pickerItems, routeLabel, rowName, shownTabs, tabOf, type Picker, type PickerInput, type PickerItem } from '../src/components/pickers/ModelPicker';
 import { registerModelNames } from '../src/lib/models';
 
 function model(provider: string, id: string, name: string, extra: Partial<ModelEntry> = {}): ModelEntry {
@@ -195,6 +195,19 @@ describe('tabs and ranking', () => {
     expect(lines(pickerItems(p, '', 'all')).slice(-3)).toEqual(['# Coding agents', 'claude-code/default', 'codex/default']);
     // without coding agents, no such tab
     expect(shownTabs(allRows(buildPicker(input({ models: ranked, sessions: {}, harnesses: false })))).map((t) => t.value)).not.toContain('agents');
+  });
+
+  test("OpenCode's free models carry a Free tag and a note, under Coding agents; a device's list says where it was read", () => {
+    const oc = group('opencode', [model('opencode', 'default', 'OpenCode'), model('opencode', 'big-pickle', 'Big Pickle', { via: 'via OpenCode on Xeno' }), model('opencode', 'opencode/grok-code-free', 'Grok Code Fast 1', { via: 'via OpenCode on Xeno' }), model('opencode', 'opencode/claude-sonnet-5-5', 'Sonnet')], { type: 'acp' });
+    const rows = allRows(buildPicker({ models: [oc], sessions: {}, devices: {}, limits: {}, harnesses: true }));
+    const row = (ref: string) => rows.find((r) => r.ref === ref)!;
+    expect(rows.filter(isFreeModel).map((r) => r.ref)).toEqual(['opencode/big-pickle', 'opencode/opencode/grok-code-free']);
+    expect(tabOf(row('opencode/big-pickle'))).toBe('agents');
+    expect(capabilityLine(row('opencode/big-pickle'))).toBe(`via OpenCode on Xeno. ${FREE_NOTE}`);
+    expect(FREE_NOTE).toBe('Free inside OpenCode for a limited time; providers may keep data.');
+    expect(capabilityLine(row('opencode/opencode/claude-sonnet-5-5'))).not.toContain('Free');
+    // only a coding agent's model: a "-free" id from a key-based provider is no OpenCode freebie
+    expect(isFreeModel({ ref: 'openrouter/x-free', harness: false })).toBe(false);
   });
 
   test('a pin shows in Pinned on its own tab and on All, not on another tab', () => {

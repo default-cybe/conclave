@@ -57,6 +57,14 @@ object PickerTabs {
         else -> MAKER_TABS[makerKey] ?: Tab.OTHER
     }
 
+    /** OpenCode's free models (big-pickle, ids ending in -free), as the web's isFreeModel: free only inside the opencode CLI. */
+    fun isFree(row: ModelPicks.Row): Boolean {
+        val id = row.ref.substringAfterLast('/').lowercase()
+        return row.harness && (id.endsWith("-free") || id == "big-pickle")
+    }
+
+    const val FREE_NOTE = "Free inside OpenCode for a limited time; providers may keep data."
+
     /** Every row of every maker, once; a plan's copy of a model with no tier of its own takes the catalog's by name. */
     fun entries(groups: List<ModelPicks.Group>): List<Entry> {
         val all = groups.flatMap { g -> g.rows.map { Entry(it, g.key, g.name) } }

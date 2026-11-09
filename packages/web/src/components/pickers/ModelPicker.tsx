@@ -479,9 +479,16 @@ export function capabilityRank(a: Row, b: Row): number {
   );
 }
 
-/** "Deep, 1M context, $4 / $20, vision, tools, thinking": the row's second line. A coding agent says where it runs. */
+/** OpenCode's free models (big-pickle, ids ending in -free): free only inside the opencode CLI. */
+export function isFreeModel(r: Pick<Row, 'ref' | 'harness'>): boolean {
+  const id = r.ref.slice(r.ref.lastIndexOf('/') + 1).toLowerCase();
+  return !!r.harness && (id.endsWith('-free') || id === 'big-pickle');
+}
+export const FREE_NOTE = 'Free inside OpenCode for a limited time; providers may keep data.';
+
+/** "Deep, 1M context, $4 / $20, vision, tools, thinking": the row's second line. A coding agent says where it runs ("via OpenCode on Xeno" when a device listed it). */
 export function capabilityLine(r: Row): string {
-  if (r.harness) return r.where || 'Coding agent';
+  if (r.harness) return [r.model?.via ?? (r.where || 'Coding agent'), isFreeModel(r) && FREE_NOTE].filter(Boolean).join('. ');
   const m = r.model;
   if (!m) return '';
   // price before the abilities: on a phone the line wraps to two lines at most, and the price matters more
@@ -841,6 +848,7 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
                   <span className="min-w-0 flex-1">
                     <span className="flex items-baseline gap-2">
                       <span className="truncate font-medium">{rowName(r)}</span>
+                      {isFreeModel(r) && <span className="shrink-0 self-center rounded-[var(--r-1)] border border-edge px-1 text-[10.5px] leading-4 text-fg-3">Free</span>}
                       {(tab === 'all' || q.trim()) && !r.harness && r.groupKey !== 'recent' && <CompanyMark provider={r.groupKey} size={12} label={r.group} className="self-center text-fg-3" />}
                       {(through ?? r.source) && <span className="min-w-0 truncate text-[12px] text-fg-3 phone:text-[13px]">via {through ?? r.source}</span>}
                     </span>

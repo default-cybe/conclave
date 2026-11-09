@@ -91,7 +91,7 @@ import type { MemoryService } from '../memory/types';
 import type { RoutineService, Scheduler } from '../scheduler/types';
 import type { Notifier } from '../notify/types';
 import type { HarnessAdapter } from '../acp/types';
-import { harnessOffWords } from '../acp/harness-off';
+import { harnessInstallHint, harnessOffWords } from '../acp/harness-off';
 import type { Tool } from '../tools/types';
 import { builtinTools, filterTools } from '../tools';
 import { QUEUE_KEY, SessionRunner, canResumeStopped, type StoredQueued } from '../session/runner';
@@ -1528,7 +1528,14 @@ export class Engine implements EngineApi {
     const accounts = accountsOf(this);
     // a model a member's own plan lists goes to that plan: the owner's order does not speak for it
     const routeOf = (m: string) => (accountId && this.access.ownPlan(accountId, PLAN_PROVIDER, m) ? undefined : accounts?.routeOf(m));
-    return mergeModelGroups(groups, routeOf, { member: isMember(accountId), vendorOf: (m) => accounts?.listedVendor(m) });
+    const merged = mergeModelGroups(groups, routeOf, { member: isMember(accountId), vendorOf: (m) => accounts?.listedVendor(m) });
+    // a harness's list read on a paired device says so: "via OpenCode on Xeno"
+    return merged.map((g) => {
+      const list = g.type === 'acp' ? this.harnessModelList(g.provider) : undefined;
+      if (!list?.device) return g;
+      const ids = new Set(list.models.map((m) => m.id));
+      return { ...g, models: g.models.map((m) => (ids.has(m.id) ? { ...m, via: `via ${this.providerLabel(g.provider)} on ${list.device}` } : m)) };
+    });
   }
 
   testProvider(id: string): Promise<{ ok: boolean; detail: string; latencyMs?: number }> {
@@ -2735,12 +2742,16 @@ export class Engine implements EngineApi {
     this.bus.emit({ type: 'models.updated' });
   }
 
-  /** The models each harness's account offered, by harness id (kept in kv). */
-  private harnessModelLists?: Record<string, { at: number; models: Array<{ id: string; name?: string }> }>;
+  /** The models each harness's account offered, by harness id (kept in kv); device names the paired device that was asked when the hub lacks the CLI. */
+  private harnessModelLists?: Record<string, { at: number; models: Array<{ id: string; name?: string }>; device?: string }>;
 
   harnessModels(harness: string): Array<{ id: string; name?: string }> | undefined {
-    this.harnessModelLists ??= this.repos.kv.get<Record<string, { at: number; models: Array<{ id: string; name?: string }> }>>(HARNESS_MODELS_KEY, {});
-    return this.harnessModelLists[harness]?.models;
+    return this.harnessModelList(harness)?.models;
+  }
+
+  private harnessModelList(harness: string) {
+    this.harnessModelLists ??= this.repos.kv.get<Record<string, { at: number; models: Array<{ id: string; name?: string }>; device?: string }>>(HARNESS_MODELS_KEY, {});
+    return this.harnessModelLists[harness];
   }
 
   /**
@@ -2748,12 +2759,13 @@ export class Engine implements EngineApi {
    * keep them, so the model list shows models no release knows yet, such as
    * a new Codex model. The configured list stays as the fallback.
    */
-  noteHarnessModels(harness: string, models: Array<{ id: string; name?: string }>): void {
+  noteHarnessModels(harness: string, models: Array<{ id: string; name?: string }>, device?: string): void {
     const clean = models.filter((m) => m && typeof m.id === 'string' && m.id.trim()).map((m) => ({ id: m.id, ...(m.name ? { name: m.name } : {}) }));
     if (!clean.length) return;
-    const cur = this.harnessModels(harness);
-    if (cur && cur.length === clean.length && cur.every((m, i) => m.id === clean[i].id && m.name === clean[i].name)) return;
-    this.harnessModelLists = { ...this.harnessModelLists, [harness]: { at: Date.now(), models: clean } };
+    const prev = this.harnessModelList(harness);
+    const cur = prev?.models;
+    if (cur && prev.device === device && cur.length === clean.length && cur.every((m, i) => m.id === clean[i].id && m.name === clean[i].name)) return;
+    this.harnessModelLists = { ...this.harnessModelLists, [harness]: { at: Date.now(), models: clean, ...(device ? { device } : {}) } };
     this.repos.kv.set(HARNESS_MODELS_KEY, this.harnessModelLists);
     this.bus.emit({ type: 'models.updated' });
   }
@@ -2779,10 +2791,22 @@ export class Engine implements EngineApi {
     const acp = this.acp;
     if (acp?.listModels) {
       for (const [id, p] of Object.entries(cfg.providers)) {
-        if (p.type !== 'acp' || p.enabled === false || !this.providers.isConfigured(id)) continue;
+        if (p.type !== 'acp' || p.enabled === false || !p.command) continue;
+        // the hub first; without the CLI there, a paired online device that has it (its daemon runs the harness)
+        let machine: Machine | undefined = this.providers.isConfigured(id) ? this.deps.localMachine : undefined;
+        let device: string | undefined;
+        if (!machine) {
+          const d = this.devices.list(OWNER_ID).find((x) => x.id !== 'local' && this.devices.isOnline(x.id) && !!x.info?.clis?.[p.command!] && this.devices.get(x.id));
+          if (!d) {
+            failed.push(`${this.providerLabel(id)}: ${harnessInstallHint(p.command)}`);
+            continue;
+          }
+          machine = this.devices.get(d.id)!;
+          device = d.name;
+        }
         runs.push(
-          Promise.race([acp.listModels(id, this.deps.localMachine), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('no answer within 60 seconds')), 60_000).unref?.())])
-            .then((models) => this.noteHarnessModels(id, models))
+          Promise.race([acp.listModels(id, machine), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('no answer within 60 seconds')), 60_000).unref?.())])
+            .then((models) => this.noteHarnessModels(id, models, device))
             .catch((err) => void failed.push(`${this.providerLabel(id)}: ${oneLine((err as Error)?.message ?? String(err), 200)}`)),
         );
       }

@@ -41,11 +41,12 @@ export const PROVIDERS: ProviderInfo[] = [
 ];
 
 /** CLI logins that can stand in for a key (spec 11.11 step 2, "Found on this computer"). */
-export const HARNESS_LOGINS: Array<{ id: string; name: string; plan: string; cli: string; company: string }> = [
+export const HARNESS_LOGINS: Array<{ id: string; name: string; plan: string; cli: string; company: string; note?: string }> = [
   { id: 'claude-code', name: 'Claude Code', plan: 'Claude Max', cli: 'claude', company: 'anthropic' },
   { id: 'codex', name: 'Codex', plan: 'ChatGPT Pro', cli: 'codex', company: 'openai' },
   { id: 'gemini-cli', name: 'Gemini CLI', plan: 'Google account', cli: 'gemini', company: 'google' },
-  { id: 'opencode', name: 'OpenCode', plan: 'Z.ai GLM Coding plan', cli: 'opencode', company: 'zai' },
+  // OpenCode's free models answer only inside its own CLI (opencode.ai/docs/console/harnesses)
+  { id: 'opencode', name: 'OpenCode', plan: 'Z.ai GLM Coding plan', cli: 'opencode', company: 'zai', note: "Turn it on to use OpenCode's free models through the opencode CLI. No key is needed." },
 ];
 
 export function providerInfo(id: string): ProviderInfo | undefined {

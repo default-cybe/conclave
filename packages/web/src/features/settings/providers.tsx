@@ -531,6 +531,7 @@ function HarnessLoginRow({ login, cfg, onRetest }: { login: (typeof HARNESS_LOGI
           {menuCell}
         </div>
       )}
+      {login.note && <p className={cn('mt-1.5 text-[12px] leading-[1.4] text-fg-3 phone:text-[13px]', !mobile && 'pl-[36px]')}>{login.note}</p>}
       {r.state === 'missing' && <p className={cn('mt-1.5 text-[12px] leading-[1.4] text-fg-3 phone:text-[13px]', !mobile && 'pl-[36px]')}>{r.detail}</p>}
     </div>
   );
