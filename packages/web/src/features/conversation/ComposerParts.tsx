@@ -20,7 +20,8 @@ import { ChevronDown, FileArchive, FileText, Plus, Settings2, X } from 'lucide-r
 import type { Session, SessionMode } from '@conclave/core/types';
 import { claudeEffort } from '@conclave/core/providers/effort';
 import { cyberLabel, type CyberProgram } from '@conclave/core/providers/access-programs';
-import { filesWord, isZip, mediaTypeFor, takeFiles } from '@conclave/core/attachments/limits';
+import { filesWord, isZip, mediaTypeFor, takeFiles, UPLOAD_MAX_BYTES } from '@conclave/core/attachments/limits';
+import { api } from '@/lib/api';
 import { isModelImage, unreadablePicture } from '@conclave/core/attachments/image';
 import { asPng, pictureType } from '@/lib/pasteFiles';
 import { toast, useHub } from '@/store/store';
@@ -622,12 +623,44 @@ export async function readPicked(current: Array<{ size: number }>, picked: File[
   return out;
 }
 
+/** A picked file sent to the hub on its own (POST /api/uploads); the message names it by uploadId. */
+export type UploadedPick = StripFile & { uploadId: string; mediaType: string; name: string };
+
 /**
- * readPicked for the box of chat `id`. A read can outlast a chat switch (a
- * big file, a paste the desktop app reads): when `shown` moved on meanwhile,
- * nothing comes back, so the file never lands in another chat's draft.
+ * Files picked, dropped or pasted, of any type and any number, each uploaded
+ * to the hub on its own (core attachments/uploads.ts), so no count or total
+ * cap applies; the hub refuses one past its per-file cap. The hub decides
+ * what the model gets inline and what it saves (core attachments/budget.ts).
  */
-export async function readPickedFor(id: string, shown: { current: string }, current: Array<{ size: number }>, picked: File[], maxBytes: number): ReturnType<typeof readPicked> {
-  const out = await readPicked(current, picked, maxBytes);
+export async function uploadPicked(picked: File[]): Promise<UploadedPick[]> {
+  const pictures = await Promise.all(picked.map(async (was) => ({ was, f: await asPng(was), type: await pictureType(was) })));
+  const out: UploadedPick[] = [];
+  for (const { was, f, type } of pictures) {
+    if (f === was && type && !isModelImage(type) && type !== 'image/svg+xml') {
+      toast({ title: unreadablePicture(was.name, type), level: 'error' });
+      continue;
+    }
+    if (f.size > UPLOAD_MAX_BYTES) {
+      toast({ title: `${f.name} is over ${Math.round(UPLOAD_MAX_BYTES / 1024 / 1024)} MB. Attach a smaller file.`, level: 'error' });
+      continue;
+    }
+    const mediaType = mediaTypeFor(f.type, f.name);
+    try {
+      const up = await api().upload(f, f.name, mediaType);
+      out.push({ uploadId: up.id, mediaType, name: f.name, size: f.size, preview: mediaType.startsWith('image/') ? URL.createObjectURL(f) : undefined });
+    } catch (err) {
+      toast({ title: err instanceof Error ? err.message : `Could not upload ${f.name}. Try attaching it again.`, level: 'error' });
+    }
+  }
+  return out;
+}
+
+/**
+ * uploadPicked for the box of chat `id`. An upload can outlast a chat switch
+ * (a big file, a paste the desktop app reads): when `shown` moved on
+ * meanwhile, nothing comes back, so the file never lands in another chat's draft.
+ */
+export async function readPickedFor(id: string, shown: { current: string }, picked: File[]): Promise<UploadedPick[]> {
+  const out = await uploadPicked(picked);
   return shown.current === id ? out : [];
 }

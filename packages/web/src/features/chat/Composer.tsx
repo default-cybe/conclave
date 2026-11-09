@@ -64,8 +64,6 @@ import { NO_KV } from './draft';
 type FileEntry = { name: string; path: string; type: 'dir' | 'file'; size?: number };
 
 const drafts = new Map<string, string>();
-/** One file; any type and any number in a message (core attachments/limits.ts). */
-const MAX_BYTES = 12 * 1024 * 1024;
 
 /** Phones: the session menu asks the composer to open its sheet of pickers (agent, model, device, mode). */
 export const SESSION_SETTINGS_EVENT = 'conclave:session-settings';
@@ -78,9 +76,6 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   const messages = useHub((s) => s.messages[session.id]);
   const [text, setText] = useState(() => drafts.get(session.id) ?? '');
   const [files, setFiles] = useState<Array<Attachment & StripFile>>([]);
-  // what is attached now, for a pick that lands while another is still being read
-  const filesNow = useRef(files);
-  filesNow.current = files;
   // the session the box shows now, so a slow read never attaches to the next one
   const shownId = useRef(session.id);
   shownId.current = session.id;
@@ -392,7 +387,7 @@ export function Composer({ session, narrow }: { session: Session; /** A column o
   };
 
   const addFiles = async (list: FileList | File[]) => {
-    const out = await readPickedFor(session.id, shownId, filesNow.current, Array.from(list), MAX_BYTES);
+    const out = await readPickedFor(session.id, shownId, Array.from(list));
     if (out.length) setFiles((x) => [...x, ...out]);
   };
 

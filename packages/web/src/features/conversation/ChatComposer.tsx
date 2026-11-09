@@ -47,8 +47,6 @@ import { ModelName } from '@/components/logo';
 import { NO_KV } from '@/features/chat/draft';
 import { firstSend, INCOGNITO_LINE, memoryChat, usePrivacy, type MemoryMode } from './incognito';
 
-/** One file; any type and any number in a message (core attachments/limits.ts). */
-const MAX_BYTES = 20 * 1024 * 1024;
 export const FILES_EVENT = 'conclave:chat-files';
 /** A target that held a message to ask something first (Code's device and folder) sends it with this. */
 export const SEND_EVENT = 'conclave:chat-send';
@@ -196,9 +194,6 @@ export function ChatComposer({
 }) {
   const [text, setText] = useState(() => drafts.get(chatId) ?? '');
   const [files, setFiles] = useState<FileItem[]>([]);
-  // what is attached now, for a pick that lands while another is still being read
-  const filesNow = useRef(files);
-  filesNow.current = files;
   // the chat the box shows now, so a slow read never attaches to the next one
   const shownId = useRef(chatId);
   shownId.current = chatId;
@@ -300,7 +295,7 @@ export function ChatComposer({
   };
 
   const addFiles = async (list: FileList | File[]) => {
-    const out = await readPickedFor(chatId, shownId, filesNow.current, Array.from(list), MAX_BYTES);
+    const out = await readPickedFor(chatId, shownId, Array.from(list));
     if (out.length) setFiles((x) => [...x, ...out]);
     box.current?.focus();
   };
