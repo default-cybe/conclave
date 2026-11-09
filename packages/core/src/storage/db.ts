@@ -396,9 +396,11 @@ export function openDb(file: string): Db {
   db.exec('PRAGMA temp_store = MEMORY;');
   // modest mmap: an I/O error on a mapped page is SIGBUS, so not the whole file
   db.exec('PRAGMA mmap_size = 268435456;');
+  // no tables yet: a new hub, not an upgrade (its owner starts with Security and Canvas off)
+  const newDb = !db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' LIMIT 1").get();
   migrate(db);
   // accounts (docs/design/ACCOUNTS.md 9): every owned table gets account_id, every old row is the owner's
-  migratePeople(db);
+  migratePeople(db, Date.now(), newDb);
   migrateSharedChats(db);
   // what a call is worth at API prices, kept from the day it is recorded (usage/value.ts); older rows have none
   ensureColumn(db, 'usage', 'api_value_usd', 'REAL');

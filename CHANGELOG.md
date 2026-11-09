@@ -13,6 +13,10 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Several keys per web search engine. Settings, Web search lists each engine's keys as rows with a label, the last 4 characters and a state (working, out of credit until a time, rate limited, rejected), each with Test and Remove, drag or up and down to reorder, and "Add another key" that saves only with the Save button. When an engine answers 401, 402, 403, 429 or a credit error, WebSearch marks that key and runs the same call once more on the next one: a 429 cools off for a minute (or until Retry-After), out of credit waits until the next day UTC (or the engine's reset header), and a rejected key waits until it is replaced. In Automatic, an engine with every key down is skipped for the next one with a key. When nothing is left the tool says so once ("All Brave Search keys are out of credit (2 keys); add one in Settings > Web search") and the loop guard stops WebSearch for the rest of the turn. An existing key is key 1 as it was. Logs name the key's label, never the key. Members keep their own list in their own account. `conclave secret search.brave --add --label "card 2"`, `--list` and `--index N --delete` manage the list from the CLI. Provider API keys (Settings, Providers) still take one key each.
 
+### Fixed
+
+- Optional modes: an upgrade never turns Security or Canvas off. Only a hub whose database is created new starts its owner with both off; before, an unused hub from before accounts (no sessions yet) counted as new. Canvas opened by a link while it is off lists its programs and workflows on the page, since the sidebar then lists Chat. Android reads `/api/me` once for the whole app and decides with one rule, `Start.modeOn`, which hides the side panel's Canvas row and the model picker's Security switch.
+
 ## [0.4.84] - 2026-11-09
 
 ### Added
