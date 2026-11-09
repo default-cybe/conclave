@@ -7,7 +7,7 @@
  *   bun test packages/web/test/paste-files.test.ts
  */
 import { afterEach, describe, expect, test } from 'bun:test';
-import { asPng, mayHoldFiles, onPasteFiles } from '../src/lib/pasteFiles';
+import { asPng, mayHoldFiles, onPasteFiles, pasteApp } from '../src/lib/pasteFiles';
 import type { Desktop } from '../src/overlay/desktop';
 
 const png = new File(['png'], 'image.png', { type: 'image/png' });
@@ -125,6 +125,20 @@ describe('the paste came empty: the macOS app reads the clipboard', () => {
     await p.settle();
     expect(p.got).toEqual([]);
     expect(inserted).toEqual(['https://x.dev']);
+  });
+
+  test('the Linux app is asked too (WebKitGTK hands a screenshot over empty); Windows and Android are not', () => {
+    const invoke = (async () => undefined) as Desktop['invoke'];
+    const before = g.window;
+    g.window = { __TAURI_INTERNALS__: { invoke } };
+    try {
+      expect(pasteApp('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15')?.invoke).toBe(invoke);
+      expect(pasteApp('Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15')?.invoke).toBe(invoke);
+      expect(pasteApp('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/130.0')).toBeUndefined();
+      expect(pasteApp('Mozilla/5.0 (Linux; Android 15; Pixel 8a) Chrome/130.0')).toBeUndefined();
+    } finally {
+      g.window = before;
+    }
   });
 
   test('an older app without paste_files: the text is pasted', async () => {

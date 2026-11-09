@@ -37,8 +37,12 @@ export async function asPng(f: File): Promise<File> {
   }
 }
 
-/** The macOS desktop app; elsewhere the paste event holds the picture and paste_files answers empty. */
-const macApp = () => (/Mac OS X|Macintosh/.test(navigator.userAgent) ? desktop() : undefined);
+/**
+ * The desktop app on macOS or Linux, whose webviews (WKWebView, WebKitGTK)
+ * can hand over a screenshot paste with no file. Windows' WebView2 puts the
+ * picture in the paste event, so it is not asked.
+ */
+export const pasteApp = (ua = navigator.userAgent) => (/Mac OS X|Macintosh|Linux/.test(ua) && !/Android/.test(ua) ? desktop() : undefined);
 
 type AppPaste = { paths?: string[]; image?: string | null; mime?: string | null };
 
@@ -55,7 +59,7 @@ export async function clipboardFiles(app: Desktop): Promise<File[]> {
  * onPaste for a message box: attaches what the paste carries and keeps text
  * pasting as text.
  */
-export function onPasteFiles(e: { clipboardData: Clip; preventDefault(): void; currentTarget: EventTarget }, add: (files: File[]) => void, app: Desktop | undefined = macApp()): void {
+export function onPasteFiles(e: { clipboardData: Clip; preventDefault(): void; currentTarget: EventTarget }, add: (files: File[]) => void, app: Desktop | undefined = pasteApp()): void {
   const dt = e.clipboardData;
   // the paste's own files: dataTransfer.files, or its file items
   const own = droppedFiles(dt);
