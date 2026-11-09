@@ -25,6 +25,7 @@ import dev.conclave.client.logic.PickerTabs
 import dev.conclave.client.me
 import dev.conclave.client.updateMe
 import dev.conclave.client.model.MePatch
+import dev.conclave.client.model.ModesPreference
 import dev.conclave.client.model.AgentDef
 import dev.conclave.client.model.AlertAction
 import dev.conclave.client.model.AlertItem
@@ -195,6 +196,8 @@ class HubRepository(
     val models = MutableStateFlow<List<ModelGroup>>(emptyList())
     /** The account's pinned models (GET /api/me preferences.pinnedModels), shared by its devices: on top of the model picker. */
     val pinnedModels = MutableStateFlow<List<String>>(emptyList())
+    /** Security and Canvas shown or hidden (GET /api/me preferences.modes). Null: none saved, both on. */
+    val modes = MutableStateFlow<ModesPreference?>(null)
     val tasks = MutableStateFlow<List<Task>>(emptyList())
     val hubInfo = MutableStateFlow<HubInfo?>(null)
     val lastError = MutableStateFlow<String?>(null)
@@ -411,6 +414,7 @@ class HubRepository(
         agents.value = emptyList()
         models.value = emptyList()
         pinnedModels.value = emptyList()
+        modes.value = null
         tasks.value = emptyList()
         hubInfo.value = null
         syncedAt.value = null
@@ -661,7 +665,13 @@ class HubRepository(
         launch { load { agents.value = c.agents() } }
         launch { load { models.value = c.models() } }
         // a hub from before pins (or before accounts) has none: the picker shows no Pinned
-        launch { optional { pinnedModels.value = c.me().preferences.pinnedModels } }
+        launch {
+            optional {
+                val prefs = c.me().preferences
+                pinnedModels.value = prefs.pinnedModels
+                modes.value = prefs.modes
+            }
+        }
         // config changes (config.updated) can rename the owner too
         launch {
             load {
