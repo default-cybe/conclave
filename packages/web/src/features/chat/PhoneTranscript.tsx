@@ -46,6 +46,7 @@ import { ModelList } from '@/components/pickers/ModelPicker';
 import { Elapsed, GapList, Knot, LiveStatus, usePresence } from '@/components/motion';
 import { BubbleText } from '@/components/ui/Bubble';
 import { ImageThumb } from '@/components/ui/ImageViewer';
+import { Attachments, chipsOf, filesOf, receiptsOf } from '@/features/conversation/UserMessage';
 import { BlockView, SecondOpinion, turnPieces } from './Turn';
 import { Markdown } from './Markdown';
 import { DebateGroup, JuryGroup } from './Group';
@@ -266,6 +267,8 @@ export const Bubble = memo(function Bubble({ message }: { message: Message }) {
           ))}
         </div>
       )}
+      {/* a chip per file: "sent", or "saved to uploads/" in the session's folder (core attachments/budget.ts) */}
+      <Attachments images={[]} files={chipsOf(receiptsOf(message), filesOf(message))} />
       {text && (
         <div className="max-w-[85%] rounded-[20px] bg-surface-2 px-4 py-2.5 text-fg">
           <BubbleText text={text}>

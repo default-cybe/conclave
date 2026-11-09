@@ -33,19 +33,33 @@ import { setEditing, useChatUi, type Pending } from './state';
 
 type Chip = { name: string; word?: string };
 
-function Attachments({ images, files }: { images: string[]; files: Array<Chip | string> }) {
+/** Past this many file chips, the first FOLD_SHOWN show and one chip opens the rest, so a big pick never fills the screen. */
+const FOLD_AT = 6;
+const FOLD_SHOWN = 5;
+const CHIP = 'flex h-10 items-center gap-2 rounded-[var(--r-2)] border border-rule px-3 text-[13px] text-fg-2';
+
+export function Attachments({ images, files }: { images: string[]; files: Array<Chip | string> }) {
+  const [all, setAll] = useState(false);
   if (!images.length && !files.length) return null;
+  const folds = files.length > FOLD_AT;
+  const shown = folds && !all ? files.slice(0, FOLD_SHOWN) : files;
   return (
     <div className="mb-1.5 flex flex-wrap justify-end gap-2">
       {images.map((src, i) => (
         <ImageThumb key={i} src={src} className="max-h-40 max-w-[240px] rounded-[var(--r-2)] border border-rule object-cover" />
       ))}
-      {files.map((c, i) => ({ f: typeof c === 'string' ? { name: c } as Chip : c, i })).map(({ f, i }) => (
-        <span key={`f${i}`} data-file-chip={f.word ?? ''} className="flex h-10 items-center gap-2 rounded-[var(--r-2)] border border-rule px-3 text-[13px] text-fg-2">
+      {shown.map((c, i) => ({ f: typeof c === 'string' ? { name: c } as Chip : c, i })).map(({ f, i }) => (
+        <span key={`f${i}`} data-file-chip={f.word ?? ''} className={CHIP}>
           <span className="max-w-[220px] truncate">{f.name}</span>
           {f.word && <span className="text-[12px] text-fg-3">{f.word}</span>}
         </span>
       ))}
+      {/* stays after opening, as "Show fewer", so keyboard focus is not lost */}
+      {folds && (
+        <button type="button" aria-expanded={all} onClick={() => setAll((x) => !x)} className={cn(CHIP, 'text-fg transition-colors duration-[var(--dur-1)] hov:bg-hover')}>
+          {all ? 'Show fewer' : `${files.length - FOLD_SHOWN} more files`}
+        </button>
+      )}
     </div>
   );
 }
@@ -55,7 +69,7 @@ function Attachments({ images, files }: { images: string[]; files: Array<Chip | 
  * "sent" or "saved to uploads/" (core attachments/budget.ts). A message with
  * no receipts (imported, older) shows its documents' names.
  */
-function chipsOf(receipts: AttachmentReceipt[], docs: string[]): Chip[] {
+export function chipsOf(receipts: AttachmentReceipt[], docs: string[]): Chip[] {
   if (!receipts.length) return docs.map((name) => ({ name }));
   return receipts.filter((r) => r.state === 'prepared' && (r.saved || r.parts?.some((p) => p !== 'image'))).map((r) => ({ name: r.name, word: r.saved ? 'saved to uploads/' : 'sent' }));
 }
@@ -89,15 +103,15 @@ function SavedInChat({ files }: { files: AttachmentReceipt[] }) {
   );
 }
 
-function imagesOf(m: Message): string[] {
+export function imagesOf(m: Message): string[] {
   return m.content.filter((b): b is Extract<ContentBlock, { type: 'image' }> => b.type === 'image').map((b) => b.url ?? `data:${b.mediaType};base64,${b.data}`);
 }
 
-function filesOf(m: Message): string[] {
+export function filesOf(m: Message): string[] {
   return m.content.filter((b): b is Extract<ContentBlock, { type: 'document' }> => b.type === 'document').map((b) => b.title ?? 'Document');
 }
 
-function receiptsOf(m: Message): AttachmentReceipt[] {
+export function receiptsOf(m: Message): AttachmentReceipt[] {
   return Array.isArray(m.meta?.attachments) ? (m.meta.attachments as AttachmentReceipt[]) : [];
 }
 

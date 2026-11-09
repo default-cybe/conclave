@@ -11,7 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Changed
 
-- Attach any file type, and any number of files, in one message. The web app uploads each file on its own (up to 500 MB each, `server.uploadMaxMb`), so the 15-file cap is gone. Pictures, PDFs and text the model can read go inline up to a budget; everything else (APKs, binaries, databases, .exe files) is saved to `uploads/` in the session's folder and the model is told the path, type and size so it can open it with its own tools. Each file's chip says "sent" or "saved to uploads/". In Chat, a saved file says it can't be opened there, with a button to start a Code session on it.
+- Attach any file type, and any number of files, in one message. The web app uploads each file on its own (up to 500 MB each, `server.uploadMaxMb`), so the 15-file cap is gone. Pictures, PDFs and text the model can read go inline up to a budget; everything else (APKs, binaries, databases, .exe files) is saved to `uploads/` in the session's folder and the model is told the path, type and size so it can open it with its own tools. Each file's chip says "sent" or "saved to uploads/", in Chat and in Code sessions on desktop and phone; past six files the rest fold behind one "N more files" chip. In Chat, a saved file says it can't be opened there, with a button to start a Code session on it.
 
 ## [0.4.86] - 2026-11-09
 

@@ -21,6 +21,7 @@ import { takeFiles } from '@conclave/core/attachments/limits';
 import { ReplyIcons } from '../src/features/conversation/ReplyIcons';
 import { AttachmentStrip, PlusMenu } from '../src/features/conversation/ComposerParts';
 import { PhoneBox, PHONE_FIELD } from '../src/features/conversation/PhoneBox';
+import { Attachments, chipsOf } from '../src/features/conversation/UserMessage';
 
 const NOW = 1_800_000_000_000;
 const session: Session = {
@@ -101,6 +102,20 @@ describe('the composer', () => {
     expect(add).not.toContain('accept=');
     const forty = Array.from({ length: 40 }, () => ({ size: 10 }));
     expect(takeFiles([], forty).take.length).toBe(40);
+  });
+
+  test("a message's file chips say sent or saved, and many fold behind one chip", () => {
+    const receipts = [
+      { name: 'a.txt', state: 'prepared' as const, parts: ['text' as const], included: true },
+      { name: 'b.apk', state: 'prepared' as const, parts: ['text' as const], saved: '~/x/uploads/b.apk', savedOn: 'session' as const },
+      { name: 'c.png', state: 'prepared' as const, parts: ['image' as const], included: true },
+    ];
+    expect(chipsOf(receipts, [])).toEqual([{ name: 'a.txt', word: 'sent' }, { name: 'b.apk', word: 'saved to uploads/' }]);
+    const twenty = Array.from({ length: 20 }, (_, i) => ({ name: `f${i}`, word: 'sent' }));
+    const html = renderToStaticMarkup(<Attachments images={[]} files={twenty} />);
+    expect(html.match(/data-file-chip=/g)?.length).toBe(5);
+    expect(html).toContain('15 more files');
+    expect(renderToStaticMarkup(<Attachments images={[]} files={twenty.slice(0, 6)} />)).not.toContain('more files');
   });
 });
 

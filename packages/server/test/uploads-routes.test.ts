@@ -188,6 +188,36 @@ describe('uploads', () => {
     expect(left).toEqual([]);
   });
 
+  test("a member's chunked body (no length) stops at the room under their disk cap, and no .part is left", async () => {
+    const { mkdirSync, readdirSync, truncateSync, writeFileSync } = await import('node:fs');
+    const { forgetDiskUse } = await import('../../core/src/people/disk');
+    const made = await call('POST', '/api/people', { name: 'dana', password: 'correct horse battery staple' });
+    expect(made.status).toBe(200);
+    const id = made.body.person.id as string;
+    expect((await call('PATCH', `/api/people/${id}`, { diskLimitGb: 1 })).status).toBe(200);
+    const login = await fetch(`${running.url}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ account: 'dana', password: 'correct horse battery staple', name: 'dana phone', platform: 'web' }) }).then((r) => r.json());
+    // 512 KB left under the 1 GB cap, less than the 1 MB per-file cap; a sparse file takes no real disk
+    const mine = join(t.engine.config.paths.home, 'accounts', id);
+    mkdirSync(mine, { recursive: true });
+    writeFileSync(join(mine, 'filler.bin'), '');
+    truncateSync(join(mine, 'filler.bin'), 1024 ** 3 - 512 * 1024);
+    forgetDiskUse(id);
+    const chunk = new Uint8Array(256 * 1024);
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        // 1.5 MB, past both: stopped at the room left, the disk line says why (at the per-file cap it would say "over 1 MB")
+        if (sent++ >= 6) return c.close();
+        c.enqueue(chunk);
+      },
+    });
+    const res = await fetch(`${running.url}/api/uploads?name=stream.bin`, { method: 'POST', headers: { authorization: `Bearer ${login.token}` }, body, duplex: 'half' } as RequestInit);
+    expect(res.status).toBe(413);
+    expect((await res.json()).error).toContain('of your 1 GB');
+    const ups = join(mine, 'uploads');
+    expect(existsSync(ups) ? readdirSync(ups) : []).toEqual([]);
+  });
+
   test('an upload no message took is deleted after a day', async () => {
     const r = await up('old.txt', 'old');
     const home = t.engine.config.paths.home;

@@ -29,6 +29,7 @@ import { underParent } from '@conclave/core/session/delegated';
 import fox1 from './images/fox-snow-1.png';
 import fox2 from './images/fox-snow-2.png';
 import fox3 from './images/fox-snow-3.png';
+import { receiptsFor } from './uploads';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -578,19 +579,17 @@ export function registerChat(ctx: MockCtx) {
     void reply(sessionId, next.text);
   }
 
-  type Attachments = Array<{ mediaType?: string; data?: string; name?: string }>;
+  type Attachments = Array<{ uploadId?: string; mediaType?: string; data?: string; name?: string }>;
 
   function userMessage(sessionId: string, text: string, attachments: Attachments = [], extra?: Record<string, unknown>) {
     const s = db.sessions.get(sessionId);
-    const content: ContentBlock[] = [{ type: 'text', text }];
-    for (const a of attachments) {
-      if (a.mediaType?.startsWith('image/')) content.push({ type: 'image', mediaType: a.mediaType, data: a.data });
-      else content.push({ type: 'document', mediaType: a.mediaType ?? 'application/octet-stream', data: a.data, title: a.name });
-    }
+    // a chat has no file tools: what the model does not get inline is saved on the hub (mock/uploads.ts)
+    const files = receiptsFor(attachments, `~/.conclave/outputs/${sessionId}`, 'hub');
+    const content: ContentBlock[] = [{ type: 'text', text }, ...files.content];
     const recalled = s && settings(s).memory && /madx|arch|caddy|uni|comp|pbs|pve/i.test(text) ? ['mm2', 'mm5'] : undefined;
     // like the hub: the recalled notes ride on the message as a reminder for the model (never shown, never resent)
     if (recalled) content.push(recallReminder(recalled));
-    const meta = { ...(recalled ? { recalled } : {}), ...extra };
+    const meta = { ...(recalled ? { recalled } : {}), ...(files.receipts.length ? { attachments: files.receipts } : {}), ...extra };
     return add({ sessionId, role: 'user', kind: 'normal', content, meta: Object.keys(meta).length ? meta : undefined });
   }
 

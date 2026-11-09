@@ -28,7 +28,6 @@ import { ConfirmDialog, MenuList, Popover } from '@/components/ui/Overlay';
 import { ModelList } from '@/components/pickers/ModelPicker';
 import { Fold, InkReveal, Swap, arrived } from '@/components/motion';
 import { BUBBLE, BubbleText } from '@/components/ui/Bubble';
-import { ImageThumb } from '@/components/ui/ImageViewer';
 import { ActionText, AuthorLine, LogRow, REVEAL } from './Log';
 import { Markdown, StreamedMarkdown } from './Markdown';
 import { ToolGroup, type ThoughtItem, type WorkItem } from './ToolRows';
@@ -38,6 +37,7 @@ import { thoughtTime } from '@/lib/toolLine';
 import { COMPOSE_EVENT, SHAPED_CALL, msgText, readDismissed, writeDismissed, type ComposeDetail } from './util';
 import { storedWord } from './Pending';
 import { senderName } from './shared';
+import { Attachments, chipsOf, filesOf, imagesOf, receiptsOf } from '@/features/conversation/UserMessage';
 
 // ---------------------------------------------------------------------------
 // The owner
@@ -58,8 +58,6 @@ export const UserMessage = memo(function UserMessage({ message, session, enter }
   const [copied, copy] = useCopy();
   const [confirm, setConfirm] = useState(false);
   const text = msgText(message);
-  const images = message.content.filter((b): b is Extract<ContentBlock, { type: 'image' }> => b.type === 'image');
-  const docs = message.content.filter((b): b is Extract<ContentBlock, { type: 'document' }> => b.type === 'document');
   // sent while it worked: "Queued" or "Steered the running turn", next to the bubble where the pending one said it (Pending.tsx)
   const busyWord = storedWord(message.meta?.whenBusy);
   const time = hhmm(message.createdAt);
@@ -77,18 +75,8 @@ export const UserMessage = memo(function UserMessage({ message, session, enter }
     <LogRow time={time} id={`msg-${message.id}`} hover="turn" className={cn(enter && 'anim-rise')}>
       {/* your words in the Chat page's bubble, at the right; Copy and Edit wait at its left on hover (always on touch) */}
       <div data-author="you" className="flex flex-col items-end">
-        {(images.length > 0 || docs.length > 0) && (
-          <div className="mb-1.5 flex flex-wrap justify-end gap-2">
-            {images.map((img, i) => (
-              <ImageThumb key={i} src={img.url ?? `data:${img.mediaType};base64,${img.data}`} className="max-h-40 max-w-[240px] rounded-[var(--r-2)] border border-rule object-cover" />
-            ))}
-            {docs.map((d, i) => (
-              <span key={i} className="flex h-10 items-center rounded-[var(--r-2)] border border-rule px-3 text-[13px] text-fg-2">
-                {d.title ?? 'Attached document'}
-              </span>
-            ))}
-          </div>
-        )}
+        {/* a chip per file: "sent", or "saved to uploads/" in the session's folder (core attachments/budget.ts) */}
+        <Attachments images={imagesOf(message)} files={chipsOf(receiptsOf(message), filesOf(message))} />
         <div className="flex w-full items-end justify-end gap-2">
           <div className="flex shrink-0 items-center pb-1">
             {text && (
