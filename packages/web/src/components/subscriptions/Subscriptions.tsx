@@ -45,7 +45,7 @@ export function SubMark({ id, name, size = 22 }: { id: string; name: string; siz
 // Status line
 // ---------------------------------------------------------------------------
 
-/** "On. CLIProxyAPI 8.0.32 runs on the hub. 2 accounts are signed in.", or what is happening, or what went wrong. */
+/** "On. CLIProxyAPI 8.0.64 runs on the hub. 2 accounts are signed in.", or what is happening, or what went wrong. */
 export function SubscriptionsStatusLine({ s, onRetry, compact }: { s: SubscriptionsStatus; onRetry?: () => void; compact?: boolean }) {
   const t = statusSentence(s);
   const size = useCtl();

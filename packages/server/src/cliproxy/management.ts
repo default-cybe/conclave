@@ -535,7 +535,7 @@ export class Management {
     if (!store.data.sources?.some((s) => s.id === 'official' && s.url === OFFICIAL_PLUGIN_SOURCE)
       || !entries.some((p) => p.source_id === 'official' && p.source_url === OFFICIAL_PLUGIN_SOURCE && p.repository === reviewed.repository))
       throw new ManagementError(`The official store no longer identifies the reviewed ${id} repository. Nothing was installed.`, 409);
-    // 8.0.32 accepts the version in JSON and the source selector in the query.
+    // 8.0.32 and 8.0.64 accept the version in JSON and the source selector in the query.
     const r = await this.call<Record<string, unknown>>('POST', `/v0/management/plugin-store/${id}/install`, { version: reviewed.version }, { source: 'official' }, 120_000);
     if (r.status !== 200) this.fail(r.status, r.data, `install the ${id} plugin`);
     if (r.data.id !== id || r.data.version !== reviewed.version || r.data.source_id !== 'official' || r.data.source_url !== OFFICIAL_PLUGIN_SOURCE)
@@ -565,7 +565,7 @@ export class Management {
 /**
  * One account's model list as credentials/models gives it, split into its
  * prefix and each model once. CLIProxyAPI's credentials list never carries
- * the prefix (8.0.32 keeps it in the auth file only), but once a plan has
+ * the prefix (8.0.32 to 8.0.64 keep it in the auth file only), but once a plan has
  * one its list names every model twice: "claude-opus-5-5" and
  * "personal/claude-opus-5-5". Undefined prefix: the list has no prefixed id.
  * While a renamed plan is listed under both names, `prefer` (the name the

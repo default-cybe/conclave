@@ -1,6 +1,6 @@
 /**
  * Mock routes for subscription sign-in (setup step 2 and Settings > Models >
- * Subscriptions). The busy hub runs CLIProxyAPI 8.0.32 with a Claude account,
+ * Subscriptions). The busy hub runs CLIProxyAPI 8.0.64 with a Claude account,
  * a second Claude account under neu/ and a ChatGPT account. A first-run hub
  * (?fresh=1) starts off; the first sign-in turns it on and downloads it.
  *
@@ -110,9 +110,9 @@ export function registerSubscriptions(ctx: MockCtx) {
     detail,
     error,
     provider: 'cliproxy',
-    version: mode === 'off' ? undefined : mode === 'external' ? '8.1.0' : installed ? '8.0.32' : undefined,
-    binary: mode === 'builtin' && installed ? { path: '/home/kai/.conclave/bin/cli-proxy-api', version: '8.0.32', managed: true, verified: true, sha256: '2b48544067f25d8c8cb9db598baa4a741ed252292faacb22e67ef0a6f46257b7' } : undefined,
-    pinned: { version: '8.0.32', repo: 'github.com/router-for-me/CLIProxyAPI', license: 'MIT' },
+    version: mode === 'off' ? undefined : mode === 'external' ? '8.1.0' : installed ? '8.0.64' : undefined,
+    binary: mode === 'builtin' && installed ? { path: '/home/kai/.conclave/bin/cli-proxy-api', version: '8.0.64', managed: true, verified: true, sha256: '5b61275d231d7e06c55b2ffcdcd78cddb2e67d4bca773139fdaca6693fa24cc3' } : undefined,
+    pinned: { version: '8.0.64', repo: 'github.com/router-for-me/CLIProxyAPI', license: 'MIT' },
     external: mode === 'external' ? { url, key: extKey, managementKey: extMgmt } : undefined,
     management: management(),
     managementNote: mode === 'external' && !extMgmt ? 'Add its management key to sign in and see the accounts from here. Models work without it.' : undefined,
@@ -134,14 +134,14 @@ export function registerSubscriptions(ctx: MockCtx) {
   /** Download (the first time), then start. */
   const startBuiltin = async () => {
     if (!installed) {
-      for (const done of [3, 7, 11, 15, 19, 22]) {
-        setState('installing', `Downloading CLIProxyAPI 8.0.32, ${done} of 22 MB`);
+      for (const done of [3, 7, 11, 15, 19, 24]) {
+        setState('installing', `Downloading CLIProxyAPI 8.0.64, ${done} of 24 MB`);
         await sleep(450);
         if (mode !== 'builtin') return;
       }
       installed = true;
     }
-    setState('starting', 'Starting CLIProxyAPI 8.0.32');
+    setState('starting', 'Starting CLIProxyAPI 8.0.64');
     await sleep(700);
     if (mode === 'builtin') setState('on');
   };
@@ -174,7 +174,7 @@ export function registerSubscriptions(ctx: MockCtx) {
     return { ...status(), local };
   });
 
-  on('POST', '/api/subscriptions/update', () => fail(409, 'CLIProxyAPI 8.0.32 is the newest version this hub knows. A Conclave update brings newer ones.'));
+  on('POST', '/api/subscriptions/update', () => fail(409, 'CLIProxyAPI 8.0.64 is the newest version this hub knows. A Conclave update brings newer ones.'));
 
   on('POST', '/api/subscriptions/signin', ({ body }) => {
     if (mode === 'off') fail(409, 'Subscriptions are off. Run CLIProxyAPI on the hub, or connect the one you run, first.');
