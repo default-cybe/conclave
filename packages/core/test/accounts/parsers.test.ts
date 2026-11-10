@@ -139,7 +139,8 @@ describe('the Anthropic spend cap', () => {
     expect(isSpendCapError(429, body)).toBe(false);
     const e = classifyHttpError('anthropic', 429, { 'retry-after': '20' }, body, NOW);
     expect(e.kind).toBe('rate_limit');
-    expect(e.code).toBeUndefined();
+    // a per-minute limit, retried in place (session/stream.ts)
+    expect(e.code).toBe('short_limit');
     expect(isSpendCapError(400, JSON.stringify({ error: { type: 'invalid_request_error', message: 'max_tokens: too large' } }))).toBe(false);
   });
 });

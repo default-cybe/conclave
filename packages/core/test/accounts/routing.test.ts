@@ -40,7 +40,7 @@ const cpa = Bun.serve({
     await req.text();
     planCalls.push({ session: req.headers.get('x-session-id') });
     if (plan === 'limited') {
-      return json(429, { type: 'error', error: { type: 'rate_limit_error', message: 'all credentials are limited' } }, { 'anthropic-ratelimit-unified-status': 'rejected', 'anthropic-ratelimit-unified-reset': String(Math.floor(Date.now() / 1000) + 7200) });
+      return json(429, { type: 'error', error: { type: 'rate_limit_error', message: 'all credentials are limited' } }, { 'anthropic-ratelimit-unified-status': 'rejected', 'anthropic-ratelimit-unified-representative-claim': 'five_hour', 'anthropic-ratelimit-unified-reset': String(Math.floor(Date.now() / 1000) + 7200) });
     }
     return sse('from the plan');
   },

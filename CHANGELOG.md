@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- A Claude per-minute rate limit ("This request would exceed your account's rate limit", or CLIProxyAPI's "All credentials ... are cooling down" around it) no longer parks sessions for hours. The call retries in place with backoff for up to 3 minutes, honouring Retry-After and the per-minute reset headers, and clears CLIProxyAPI's cooldown on the account before each retry. When retries run out it moves to the next account or fallback, else the turn stops with "Stopped: still rate limited after 3 minutes. Send again or wait a minute." A session parks for the plan's window only when Anthropic names the 5 hour or weekly window, or the plan's own usage read says it is spent; a model's own window (7d Fable) parks only that model's sessions. Two sessions hitting the limit together on one plan get one hint to run fewer at once, and memory extraction tries once more a minute later instead of dropping the turn.
+
 ## [0.4.88] - 2026-11-09
 
 ### Added
