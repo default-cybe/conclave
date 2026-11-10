@@ -1,7 +1,7 @@
 import type { ContentBlock, StopReason, Usage } from '../types';
 import type { ChatRequest, ProviderMessage } from '../providers/types';
 import { ProviderError, parseModelRef } from '../providers/types';
-import { modelRefusal } from '../providers/errors';
+import { SHORT_LIMIT_MS, modelRefusal } from '../providers/errors';
 import type { Engine } from '../engine/engine';
 import { accountsOf } from '../accounts/attached';
 import { sleep } from '../util/text';
@@ -79,6 +79,24 @@ export function takeCallTimings(sessionId: string): { ttftMs: number[]; streamMs
 
 /** Longest retry-after the retry loop sleeps on; a longer one is a usage limit. */
 const MAX_RETRY_WAIT_MS = 60_000;
+
+/** How long a per-minute limit is retried in place in total, and the first backoff (doubling to 30 s). Tests shorten them. */
+export const shortLimitTiming = { budgetMs: SHORT_LIMIT_MS, baseMs: 2000 };
+
+/** Per account (or provider), the sessions that hit a per-minute limit lately, and when the hub last suggested fewer at once. */
+const shortHits = new Map<string, Map<string, number>>();
+const shortHinted = new Map<string, number>();
+
+/** Two or more sessions on one account hit its per-minute limit together: one notice, at most every 15 minutes per account. */
+function noteShortHit(engine: Engine, sessionId: string, key: string, label: string, now = Date.now()): void {
+  const hits = shortHits.get(key) ?? new Map<string, number>();
+  hits.set(sessionId, now);
+  for (const [s, t] of hits) if (now - t > 120_000) hits.delete(s);
+  shortHits.set(key, hits);
+  if (hits.size < 2 || now - (shortHinted.get(key) ?? 0) < 15 * 60_000) return;
+  shortHinted.set(key, now);
+  engine.notice(sessionId, `${hits.size} sessions on ${label} hit its per-minute rate limit together. Running fewer heavy sessions at once avoids this.`, 'info');
+}
 
 export interface StreamResult {
   content: ContentBlock[];
@@ -309,6 +327,9 @@ async function streamCall(
   const maxRetries = engine.config.get().limits.maxRetries;
   let fullRef = `${resolved.provider}/${resolved.model}`;
   let attempt = 0;
+  /** A per-minute limit on this route: when the first hit came, and the retries since. */
+  let shortSince = 0;
+  let shortTries = 0;
   // last line before the wire: ends with a user turn, every tool_use paired with its result
   const guarded = guardTranscript(req.messages);
   if (guarded.repairs.length) {
@@ -441,21 +462,53 @@ async function streamCall(
       }
       if (req.signal?.aborted || e.kind === 'aborted') throw new ProviderError('aborted', 'aborted');
       e.provider ??= resolved.provider;
+      // a per-minute limit (providers/errors.ts): retried here for about three minutes, never parked for the plan's window
+      let shortWait: number | undefined;
+      const shortAcct = e.code === 'short_limit' && accounts && paidBy === 'hub' ? ((target.pin?.provider === resolved.provider ? target.pin.account : undefined) ?? accounts.accountFor(resolved.provider, resolved.model, target.sessionId)) : undefined;
+      // shortcut: a bare id on several plans clears only the account the hub inferred; CLIProxyAPI rotates to the others itself
+      const shortLabel = (shortAcct ? accounts?.account(shortAcct)?.label : undefined) ?? engine.providerLabel(resolved.provider);
+      if (e.code === 'short_limit') {
+        // the plan's own usage read says the window this model draws from is spent: that is the limit to wait for
+        const spent = shortAcct ? accounts!.planWindowSpent(shortAcct, resolved.model) : undefined;
+        if (spent) {
+          e.kind = 'quota';
+          e.code = 'plan_window';
+          e.resetAt = spent;
+          e.retryAfterMs = Math.max(0, spent - Date.now());
+        } else {
+          shortSince ||= Date.now();
+          const base = shortLimitTiming.baseMs;
+          const wait = Math.max(base / 2, e.retryAfterMs ?? 0, Math.min(30_000, base * 2 ** shortTries)) + Math.floor(Math.random() * (base / 2));
+          if (Date.now() - shortSince + wait <= shortLimitTiming.budgetMs) shortWait = wait;
+        }
+      }
+      const shortWords = `${signer() === 'anthropic' ? 'Claude' : engine.providerLabel(resolved.provider)} rate limit (too many requests per minute on ${shortLabel})`;
       // a wait past the cap is a usage limit, not a blip: the limit path below fails over or the runner parks, instead of sleeping for hours
-      if (e.retryable && e.retryAfterMs !== undefined && e.retryAfterMs > MAX_RETRY_WAIT_MS) {
+      if (e.code !== 'short_limit' && e.retryable && e.retryAfterMs !== undefined && e.retryAfterMs > MAX_RETRY_WAIT_MS) {
         e.kind = 'rate_limit';
         e.resetAt ??= Date.now() + e.retryAfterMs;
       }
-      if (e.retryable && attempt < maxRetries && (e.retryAfterMs ?? 0) <= MAX_RETRY_WAIT_MS) {
-        const wait = e.retryAfterMs ?? Math.min(30_000, 1000 * 2 ** attempt) + Math.floor(Math.random() * 500);
-        attempt++;
-        log.warn(`${fullRef} ${e.kind}: retry ${attempt}/${maxRetries} in ${wait}ms`);
+      if (shortWait !== undefined || (e.code !== 'short_limit' && e.retryable && attempt < maxRetries && (e.retryAfterMs ?? 0) <= MAX_RETRY_WAIT_MS)) {
+        const wait = shortWait ?? e.retryAfterMs ?? Math.min(30_000, 1000 * 2 ** attempt) + Math.floor(Math.random() * 500);
+        if (shortWait !== undefined) {
+          shortTries++;
+          log.warn(`${fullRef} short rate limit: retry ${shortTries} in ${wait}ms`);
+          if (target.sessionId) {
+            if (shortTries === 1) engine.notice(target.sessionId, `${shortWords}. Retrying in ${Math.ceil(wait / 1000)}s…`, 'warning');
+            noteShortHit(engine, target.sessionId, shortAcct ?? resolved.provider, shortLabel);
+          }
+        } else {
+          attempt++;
+          log.warn(`${fullRef} ${e.kind}: retry ${attempt}/${maxRetries} in ${wait}ms`);
+        }
         if (target.messageId && target.sessionId) {
           // reset the partially streamed message on clients
           const msg = engine.repos.messages.get(target.messageId);
           if (msg) engine.bus.emit({ type: 'message.updated', message: { ...msg, content: [] } });
         }
         await sleep(wait, req.signal);
+        // CLIProxyAPI may have cooled the account for the plan's whole window after a per-minute 429
+        if (shortWait !== undefined && shortAcct) await accounts!.clearCooldown(shortAcct).catch(() => undefined);
         if (member) {
           // a member's call pays on one side: a plan signed out (or in) since the last attempt refuses the retry instead of paying on the wrong side
           held.release?.();
@@ -464,6 +517,19 @@ async function streamCall(
           hold();
         }
         continue;
+      }
+      if (e.code === 'short_limit') {
+        // retries ran out: the next plan in the owner's order, else the caller's fallback (session/limits.ts), else stop
+        if (shortAcct) await accounts!.clearCooldown(shortAcct).catch(() => undefined);
+        if (!begun && fallback(resolved.provider, `${shortWords}.`)) {
+          fullRef = `${resolved.provider}/${resolved.model}`;
+          attempt = 0;
+          shortSince = 0;
+          shortTries = 0;
+          continue;
+        }
+        log.warn(`${fullRef} short rate limit: still limited after ${Math.round((Date.now() - shortSince) / 1000)}s`);
+        throw new ProviderError('rate_limit', `Stopped: still rate limited after ${Math.max(1, Math.round(shortLimitTiming.budgetMs / 60_000))} minutes. Send again or wait a minute.`, { provider: resolved.provider, status: e.status, code: 'short_limit' });
       }
       // a plan that refuses this one model: its picker row greys out with the reason, so the next turn is not sent to it again
       const refused = paidBy === 'hub' && accounts ? modelRefusal(e) : undefined;

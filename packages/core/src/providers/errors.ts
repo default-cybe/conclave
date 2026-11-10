@@ -1,12 +1,21 @@
 import type { LimitWindow } from '../types';
 import { parseDuration } from '../util/text';
-import { ProviderError, type ProviderErrorKind } from './types';
+import { ProviderError, type ProviderErrorCode, type ProviderErrorKind } from './types';
 import { accessProgramError } from './access-programs';
 
 export type HeaderSource = Headers | Record<string, string | undefined> | undefined;
 
 /** Waits up to this long are short enough to retry in place. Longer ones get a resetAt. */
 const LONG_WAIT_MS = 90_000;
+
+/** A per-minute rate limit is retried in place for about this long in total (session/stream.ts); a Retry-After up to this long marks one. */
+export const SHORT_LIMIT_MS = 180_000;
+
+/** Anthropic's per-minute limit ("This request would exceed your account's rate limit", "... per minute"), also inside CLIProxyAPI's "All credentials ... are cooling down (last error: ...)". */
+const SHORT_LIMIT_RE = /would exceed your account['’]?s rate limit|per[ -]minute/i;
+
+/** Representative claims that name a plan window (5 hour, weekly, a model's weekly). */
+const PLAN_CLAIM_RE = /^(five_hour|seven_day\w*|5h|7d\w*)$/i;
 
 export function getHeader(h: HeaderSource, name: string): string | undefined {
   if (!h) return undefined;
@@ -357,6 +366,18 @@ export function isSpendCapError(status: number, bodyText: string): boolean {
   return status === 400 && /reached your specified API usage limits/i.test(info.message);
 }
 
+/** Wait until an exhausted per-minute window (anthropic-ratelimit-{requests,input-tokens,output-tokens}) resets, when one is. */
+function minuteReset(headers: HeaderSource, now: number): number | undefined {
+  let best: number | undefined;
+  for (const kind of ['requests', 'input-tokens', 'output-tokens', 'tokens']) {
+    if (num(getHeader(headers, `anthropic-ratelimit-${kind}-remaining`)) !== 0) continue;
+    const t = parseResetValue(getHeader(headers, `anthropic-ratelimit-${kind}-reset`), now);
+    const wait = t === undefined ? 0 : Math.max(0, t - now);
+    best = best === undefined ? wait : Math.max(best, wait);
+  }
+  return best;
+}
+
 /** Latest reset among exhausted windows: every exhausted window must recover before a retry works. */
 function exhaustedReset(headers: HeaderSource, now: number): number | undefined {
   let best: number | undefined;
@@ -489,6 +510,7 @@ export function classifyHttpError(
 
   let retryAfterMs = parseRetryAfter(headers, now);
   let resetAt: number | undefined;
+  let code: ProviderErrorCode | undefined = spendCap ? 'spend_cap' : badImage ? 'image_unreadable' : bound ? 'thinking_bound' : undefined;
 
   if (kind === 'rate_limit' || kind === 'quota' || kind === 'overloaded') {
     const gem = geminiRetry(info);
@@ -527,6 +549,23 @@ export function classifyHttpError(
     if (resetAt === undefined && retryAfterMs !== undefined && retryAfterMs > LONG_WAIT_MS) resetAt = now + retryAfterMs;
     // a 529/503 that says come back in hours is a usage limit (CLIProxyAPI with every credential cooling down), not a blip
     if (kind === 'overloaded' && resetAt !== undefined) kind = 'rate_limit';
+
+    // a spent plan window or a per-minute limit: only a rejected window named by its claim parks; the hub's plan usage may confirm the rest (session/stream.ts)
+    if (!zcode && !gem.daily && !spendCap && info.status !== 'RESOURCE_EXHAUSTED' && (kind === 'rate_limit' || kind === 'quota')) {
+      const unified = getHeader(headers, 'anthropic-ratelimit-unified-status')?.trim().toLowerCase() === 'rejected';
+      const claim = getHeader(headers, 'anthropic-ratelimit-unified-representative-claim')?.trim() ?? '';
+      const minute = minuteReset(headers, now);
+      const header = parseRetryAfter(headers, now);
+      if (unified && PLAN_CLAIM_RE.test(claim)) code = 'plan_window';
+      else if (unified || SHORT_LIMIT_RE.test(message) || minute !== undefined || (kind === 'rate_limit' && header !== undefined && header <= SHORT_LIMIT_MS)) {
+        // CLIProxyAPI's Retry-After after a per-minute 429 can be the plan's reset hours away: not a wait to honour
+        const wait = minute === undefined ? header : Math.max(minute, header ?? 0);
+        kind = 'rate_limit';
+        code = 'short_limit';
+        resetAt = undefined;
+        retryAfterMs = wait !== undefined && wait <= SHORT_LIMIT_MS ? wait : undefined;
+      }
+    }
   }
 
   const label = info.type || info.code || info.status;
@@ -539,7 +578,7 @@ export function classifyHttpError(
     resetAt,
     provider,
     body: bodyText.slice(0, 4000),
-    ...(spendCap ? { code: 'spend_cap' } : badImage ? { code: 'image_unreadable' } : bound ? { code: 'thinking_bound' } : {}),
+    ...(code ? { code } : {}),
   });
 }
 

@@ -6,7 +6,8 @@ import type { ConfigStore } from '../config';
 import type { MemoryEntry, MemoryHit, MemoryKind, MemoryMeta, MemoryScope, Message } from '../types';
 import type { ExtractReport, MemoryInput, MemorySearchOptions, MemoryService } from './types';
 import { newId } from '../util/ids';
-import { estimateTokens } from '../util/text';
+import { estimateTokens, sleep } from '../util/text';
+import { ProviderError } from '../providers/types';
 import { logger } from '../util/log';
 import { containsSecret, redactSecrets } from './secrets';
 import { coverage, cosine, fromBlob, jaccard, nearDuplicate, noteText, overlap, queryText, renderTranscript, termSet, toBlob, userText } from './text';
@@ -30,6 +31,8 @@ export interface SqliteMemoryOptions {
   external?: ExternalMemory;
   /** Clock override for tests. */
   now?: () => number;
+  /** How long extraction waits before its one retry after a rate limit. Default a minute. */
+  extractRetryMs?: number;
   /** The account whose memory this is (docs/design/ACCOUNTS.md). Every read and write stays inside it. Default: the owner's. */
   accountId?: string;
 }
@@ -197,6 +200,7 @@ export class SqliteMemory implements MemoryService {
   readonly external?: ExternalMemory;
   private kv: KvRepo;
   private now: () => number;
+  private extractRetryMs: number;
   /** Whose memory this is: every query filters on it, every insert sets it. */
   readonly accountId: string;
   /** The owner's notes did not answer: inOwnNotes does not ask them again until then. */
@@ -212,6 +216,7 @@ export class SqliteMemory implements MemoryService {
     this.external = opts.external;
     this.kv = new KvRepo(opts.db);
     this.now = opts.now ?? Date.now;
+    this.extractRetryMs = opts.extractRetryMs ?? 60_000;
   }
 
   private get cfg() {
@@ -1033,13 +1038,21 @@ export class SqliteMemory implements MemoryService {
       await this.rank(seed, { scopes, preferred: [], excludeKinds: ['episode', 'inspiration'], limit: 12, external: false, minRelevance: 0.15 })
     ).map((r) => r.hit as MemoryEntry);
 
-    let reply: string;
-    try {
-      reply = await this.complete({
+    const ask = () =>
+      this.complete({
         system: EXTRACT_SYSTEM,
         prompt: buildExtractPrompt({ transcript, existing: related, project: opts.project, agent: opts.agent, today: new Date(this.now()).toISOString().slice(0, 10) }),
         maxTokens: 1200,
         purpose: 'memory',
+      });
+    let reply: string;
+    try {
+      reply = await ask().catch(async (err) => {
+        // a rate limit (often the turn's own sessions at their per-minute limit): once more a minute later, not dropped
+        if (!(err instanceof ProviderError) || err.kind !== 'rate_limit') throw err;
+        log.info(`extraction for ${sessionId} rate limited; trying again in ${Math.round(this.extractRetryMs / 1000)}s`);
+        await sleep(this.extractRetryMs);
+        return ask();
       });
     } catch (err) {
       log.warn(`extraction failed for ${sessionId}: ${(err as Error).message}`);

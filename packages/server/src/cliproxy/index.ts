@@ -1097,8 +1097,11 @@ export class CliproxyManager {
    * (the headers of its last response, the starter's own included), and its
    * plan usage when asked. A usage backoff still holds.
    */
-  async readAccount(id: string, opts: { usage?: boolean } = {}): Promise<void> {
+  async readAccount(id: string, opts: { usage?: boolean; clearCooldown?: boolean } = {}): Promise<void> {
     if (this.state !== 'on' || !this.mgmt || this.closing) return;
+    // a per-minute 429 that CLIProxyAPI cooled for the plan's whole window (session/stream.ts): the hub retries it soon itself
+    const authIndex = opts.clearCooldown && this.mgmt.apiVersion === 'v8' ? this.accountService.credentialOf(id)?.authIndex : undefined;
+    if (authIndex) await this.mgmt.resetCooldown(authIndex).catch((err) => log.debug(`cooldown reset for one account: ${(err as Error).message}`));
     try {
       await this.readCredentials();
     } catch (err) {

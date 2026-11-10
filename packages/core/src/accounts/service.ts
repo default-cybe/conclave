@@ -35,7 +35,7 @@ import { assess, bareModel, orderIds, ownModel, pickAccount, priorities, reaches
 import { credentialVendor, vendorName, vendorOfModel } from './vendors';
 import { splitAccount } from '../providers/split';
 import { DEFAULT_END, DEFAULT_START, type StarterFacts } from './starter';
-import { annotateWindow, limitKey, mergeWindows, MODEL_SCOPES, modelFamily, windowOrder } from './windows';
+import { annotateWindow, limitKey, mergeWindows, MODEL_SCOPES, modelFamily, windowApplies, windowOrder } from './windows';
 import type { CyberProgram } from '../providers/access-programs';
 
 /** One CLIProxyAPI credential as the cliproxy manager reads it. No tokens. */
@@ -123,7 +123,7 @@ export class AccountsService {
   /** The window starter's view of a plan (accounts/starter.ts), when one runs. */
   private starterView?: { view: (f: StarterFacts, all: StarterFacts[]) => StarterDto; noted: () => boolean; onEnable: () => void };
   /** Reads one account again now (the cliproxy manager). */
-  private reader?: (id: string, opts: { usage?: boolean }) => Promise<void>;
+  private reader?: (id: string, opts: { usage?: boolean; clearCooldown?: boolean }) => Promise<void>;
 
   constructor(private readonly deps: AccountsDeps) {
     // header windows of API accounts survive a restart
@@ -419,7 +419,7 @@ export class AccountsService {
   }
 
   /** The cliproxy manager reads one account again on request (the window starter, around a reset). */
-  setReader(fn: ((id: string, opts: { usage?: boolean }) => Promise<void>) | undefined): void {
+  setReader(fn: ((id: string, opts: { usage?: boolean; clearCooldown?: boolean }) => Promise<void>) | undefined): void {
     this.reader = fn;
   }
 
@@ -694,6 +694,25 @@ export class AccountsService {
     }
     if (vendor) for (const fn of this.hitListeners) fn(vendor);
     this.changed();
+  }
+
+  /**
+   * The plan's own usage read (OAuth) says a window this model draws from is
+   * spent: when the last of them resets. Undefined when the read says there
+   * is room, or there is no read. A model's own window (7d fable) counts only
+   * for that model.
+   */
+  planWindowSpent(id: string, model: string): number | undefined {
+    const a = this.accts().find((x) => x.cfg.id === id);
+    if (!a) return undefined;
+    const now = this.now();
+    const full = this.windowsOf(a, now).filter((w) => w.source === 'oauth' && windowApplies(w, model) && (w.usedPercent ?? 0) >= 100 && (w.resetsAt ?? 0) > now);
+    return full.length ? Math.max(...full.map((w) => w.resetsAt!)) : undefined;
+  }
+
+  /** A per-minute limit made CLIProxyAPI cool the account down for as long as the plan's window: clear that, so the next call is tried. Nothing when no reader is set. */
+  async clearCooldown(id: string): Promise<void> {
+    await this.reader?.(id, { clearCooldown: true });
   }
 
   /** Forget the block the hub guessed from a 429 ("Try now"). */

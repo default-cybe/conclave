@@ -376,6 +376,13 @@ export async function handleLimit(engine: Engine, runner: SessionRunner, modelRe
     log.info(`${sessionId}: ${modelRef} resets within ${Math.round(SHORT_RESET_MS / 60_000)} min and the chat is big; waiting instead of falling back to ${fallback}`);
   }
 
+  // a per-minute limit the call already retried for minutes (session/stream.ts): never parked for the plan's window
+  if (err.code === 'short_limit') {
+    engine.notice(sessionId, err.message, 'warning');
+    log.info(`${sessionId}: ${modelRef} still rate limited per minute; stopped without parking`);
+    return {};
+  }
+
   if (!cfg.limits.autoResume || !resetAt || resetAt - Date.now() > 24 * 3600_000) {
     engine.notice(sessionId, `Rate limit on ${modelRef}: ${err.message}${resetAt ? `. Resets ${new Date(resetAt).toLocaleString()}.` : ''}`, 'error');
     return {};

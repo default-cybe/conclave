@@ -191,11 +191,12 @@ describe('classifyHttpError', () => {
     const e = classifyHttpError(
       'anthropic',
       429,
-      { 'anthropic-ratelimit-unified-status': 'rejected', 'anthropic-ratelimit-unified-reset': String(reset) },
+      { 'anthropic-ratelimit-unified-status': 'rejected', 'anthropic-ratelimit-unified-representative-claim': 'five_hour', 'anthropic-ratelimit-unified-reset': String(reset) },
       body({ error: { type: 'rate_limit_error', message: 'limit' } }),
       NOW,
     );
     expect(e.kind).toBe('quota');
+    expect(e.code).toBe('plan_window');
     expect(e.resetAt).toBe(reset * 1000);
   });
 
