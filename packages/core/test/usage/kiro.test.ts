@@ -4,7 +4,7 @@ import { annotateWindow } from '../../src/accounts/windows';
 import { mapKiroQuota } from '../../src/usage/readers/kiro';
 
 /**
- * GET /v8/management/plugins/kiro4cpa/quota as CLIProxyAPI 8.0.32 answers it:
+ * GET /v8/management/plugins/kiro4cpa/quota as CLIProxyAPI 8.0.32 and 8.0.64 answer it:
  * kiro4cpa 1.0.5 quotaResponse (internal/kiro/quota.go) over getUsageLimits,
  * a Pro plan with an active bonus. Numbers made up, shape from the plugin.
  */

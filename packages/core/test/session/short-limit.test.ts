@@ -5,7 +5,7 @@
  * are cooling down" around it retry in place for a few minutes and never
  * park a session for hours. Only a rejected 5h or 7d claim, or the plan's
  * own OAuth usage read, parks; a model's own window (7d fable) parks only
- * that model. Headers below are as Anthropic and CLIProxyAPI v8.0.32 send them.
+ * that model. Headers below are as Anthropic and CLIProxyAPI v8.0.32 to v8.0.64 send them.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';

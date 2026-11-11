@@ -525,7 +525,7 @@ describe('accounts on the hub', () => {
     // the window starter can now reach that plan alone
     const facts = accountsOf(hub.engine)!.starterFacts();
     expect(facts.find((f) => f.id === id)?.prefix).toBe('neu');
-    // CLIProxyAPI's credentials list never carries the prefix (8.0.32 keeps it in the auth file only)
+    // CLIProxyAPI's credentials list never carries the prefix (8.0.32 to 8.0.64 keep it in the auth file only)
     const raw = (await (await fetch(`http://127.0.0.1:${port}/v8/management/credentials`, { headers: { authorization: 'Bearer ext-mgmt-key' } })).json()) as { files: Array<Record<string, unknown>> };
     expect(raw.files.find((f) => f.name === 'claude-two@example.test.json')).not.toHaveProperty('prefix');
     // the hub knows it from the plan's own models, which name each model twice: after the credentials poll and a full read too

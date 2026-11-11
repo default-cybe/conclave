@@ -13,7 +13,7 @@ import { ProviderRegistry } from '@conclave/core/providers/registry.ts';
 import { CliproxyManager, cleanRoot, pastedCallback } from '../src/cliproxy';
 import { cliproxyEnv, cliproxyFiles, renderConfig, writeConfig } from '../src/cliproxy/config';
 import { Management } from '../src/cliproxy/management';
-import { ReleaseError, assetFor, compareVersions, installRelease, parseChecksums, parseVersion, pinFor, pluginHostProblem, ensureManagedBinary, type Pin } from '../src/cliproxy/release';
+import { ReleaseError, assetFor, compareVersions, installRelease, newestPin, parseChecksums, parseVersion, pinFor, pluginHostProblem, ensureManagedBinary, type Pin } from '../src/cliproxy/release';
 import { isProblem, message, scrub, type CliProcess, type CliSpawner } from '../src/cliproxy/runner';
 import { PidFile, processMatches } from '../src/remote/pids';
 import { OWNER, startHub, type TestHub } from './helpers';
@@ -412,17 +412,31 @@ describe('subscription store plugins', () => {
 
 describe('release names, checksums and versions', () => {
   test('picks the release archive for each OS and CPU', () => {
-    expect(assetFor('8.0.32', 'linux', 'x64')?.name).toBe('CLIProxyAPI_8.0.32_linux_amd64.tar.gz');
-    expect(assetFor('8.0.32', 'linux', 'arm64')?.name).toBe('CLIProxyAPI_8.0.32_linux_aarch64.tar.gz');
-    expect(assetFor('8.0.32', 'darwin', 'arm64')?.name).toBe('CLIProxyAPI_8.0.32_darwin_aarch64.tar.gz');
-    expect(assetFor('8.0.32', 'win32', 'x64')).toEqual({ name: 'CLIProxyAPI_8.0.32_windows_amd64.zip', kind: 'zip', binary: 'cli-proxy-api.exe' });
-    expect(assetFor('8.0.32', 'freebsd', 'x64')).toBeUndefined();
-    expect(assetFor('8.0.32', 'linux', 'ia32')).toBeUndefined();
+    expect(assetFor('8.0.64', 'linux', 'x64')?.name).toBe('CLIProxyAPI_8.0.64_linux_amd64.tar.gz');
+    expect(assetFor('8.0.64', 'linux', 'arm64')?.name).toBe('CLIProxyAPI_8.0.64_linux_aarch64.tar.gz');
+    expect(assetFor('8.0.64', 'darwin', 'arm64')?.name).toBe('CLIProxyAPI_8.0.64_darwin_aarch64.tar.gz');
+    expect(assetFor('8.0.64', 'win32', 'x64')).toEqual({ name: 'CLIProxyAPI_8.0.64_windows_amd64.zip', kind: 'zip', binary: 'cli-proxy-api.exe' });
+    expect(assetFor('8.0.64', 'freebsd', 'x64')).toBeUndefined();
+    expect(assetFor('8.0.64', 'linux', 'ia32')).toBeUndefined();
+  });
+
+  test('the hub installs 8.0.64 (Claude Code 2.1.321 baseline), pinned for every archive it can pick', () => {
+    const pin = newestPin();
+    expect([pin.version, pin.tag]).toEqual(['8.0.64', 'v8.0.64']);
+    const names: string[] = [];
+    for (const [platform, arch, libc] of [['linux', 'x64', null], ['linux', 'arm64', null], ['linux', 'x64', '2.36'], ['linux', 'arm64', '2.36'], ['darwin', 'x64'], ['darwin', 'arm64'], ['win32', 'x64'], ['win32', 'arm64']] as const)
+      names.push(assetFor(pin.version, platform, arch, libc)!.name);
+    expect(names.sort()).toEqual(Object.keys(pin.assets).sort());
+    for (const a of Object.values(pin.assets)) expect(a.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(pin.assets['CLIProxyAPI_8.0.64_linux_amd64_no-plugin.tar.gz']).toEqual({ sha256: '5b61275d231d7e06c55b2ffcdcd78cddb2e67d4bca773139fdaca6693fa24cc3', size: 25333151 });
+    // an external CLIProxyAPI between the pins keeps the older pin's sign-in list
+    expect(pinFor('8.0.63').version).toBe('8.0.32');
+    expect(pinFor('8.0.70').version).toBe('8.0.64');
   });
 
   test('reads checksums.txt, the version line and compares versions', () => {
-    const sums = parseChecksums(`${'a'.repeat(64)}  CLIProxyAPI_8.0.32_linux_amd64.tar.gz\n${'B'.repeat(64)}  checksums-of-something.zip\ngarbage line\n`);
-    expect(sums.get('CLIProxyAPI_8.0.32_linux_amd64.tar.gz')).toBe('a'.repeat(64));
+    const sums = parseChecksums(`${'a'.repeat(64)}  CLIProxyAPI_8.0.64_linux_amd64.tar.gz\n${'B'.repeat(64)}  checksums-of-something.zip\ngarbage line\n`);
+    expect(sums.get('CLIProxyAPI_8.0.64_linux_amd64.tar.gz')).toBe('a'.repeat(64));
     expect(sums.get('checksums-of-something.zip')).toBe('b'.repeat(64));
     expect(sums.size).toBe(2);
     expect(parseVersion('CLIProxyAPI Version: 8.0.32, Commit: 911f49c, BuiltAt: 2026-10-17')).toBe('8.0.32');
@@ -1030,7 +1044,7 @@ describe('external: one the owner already runs', () => {
     try {
       const st = (await (await hub.api('/api/subscriptions')).json()) as SubscriptionsStatus;
       expect(st).toMatchObject({ mode: 'off', state: 'off', management: false, accounts: [], models: [] });
-      expect(st.pinned).toEqual({ version: '8.0.32', repo: 'github.com/router-for-me/CLIProxyAPI', license: 'MIT' });
+      expect(st.pinned).toEqual({ version: '8.0.64', repo: 'github.com/router-for-me/CLIProxyAPI', license: 'MIT' });
       expect(st.providers.map((p) => p.id)).toContain('claude');
       expect(existsSync(join(hub.engine.home, 'cliproxy'))).toBe(false);
       expect(existsSync(join(hub.engine.home, 'bin'))).toBe(false);

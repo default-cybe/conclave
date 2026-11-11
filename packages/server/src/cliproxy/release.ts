@@ -35,9 +35,9 @@ export interface PinnedAsset {
 }
 
 export interface Pin {
-  /** "8.0.32", as the program prints it. */
+  /** "8.0.64", as the program prints it. */
   version: string;
-  /** Release tag, "v8.0.32". */
+  /** Release tag, "v8.0.64". */
   tag: string;
   /** Subscriptions this version signs in to (GET /v8/management/oauth/auth-url?provider=). */
   providers: string[];
@@ -65,6 +65,22 @@ export const PINS: Pin[] = [
       'CLIProxyAPI_8.0.32_darwin_aarch64.tar.gz': { sha256: '48fe6a391a01e730ee6ebe3f1609ff92578a97a7a9a44579013ca8f3a6d58d51', size: 21629235 },
       'CLIProxyAPI_8.0.32_windows_amd64.zip': { sha256: 'df364b1f2dc9fe357f6a481bfb8a4066c3e5f5ef4ad7abfe45e59b4cec547c18', size: 23752725 },
       'CLIProxyAPI_8.0.32_windows_aarch64.zip': { sha256: '9e83b3f19f3359b52a1fe7acc763ed9285698a46d49caec650943d5b67e82010', size: 21184737 },
+    },
+  },
+  {
+    // Claude Code 2.1.321 fingerprint baseline (2.1.280 before): Claude plans need it for Claude Fable 5.2
+    version: '8.0.64',
+    tag: 'v8.0.64',
+    providers: ['claude', 'codex', 'antigravity', 'xai', 'kimi', 'kimi-ai', 'meta', 'devin'],
+    assets: {
+      'CLIProxyAPI_8.0.64_linux_amd64_no-plugin.tar.gz': { sha256: '5b61275d231d7e06c55b2ffcdcd78cddb2e67d4bca773139fdaca6693fa24cc3', size: 25333151 },
+      'CLIProxyAPI_8.0.64_linux_aarch64_no-plugin.tar.gz': { sha256: '353d7659930064ea172099b5437fa46b9824b107cf03ed46dcc57c2ac8897531', size: 22828479 },
+      'CLIProxyAPI_8.0.64_linux_amd64.tar.gz': { sha256: 'e793bb469d79f8a08ffb661eed82dc069c32f9fc4e738f6258656f4d84af1b05', size: 25475471 },
+      'CLIProxyAPI_8.0.64_linux_aarch64.tar.gz': { sha256: '6d03cd535942a02ab99eacfe43a90ef8a3fdfacf2d1b82d1a7116abde61afb13', size: 22953958 },
+      'CLIProxyAPI_8.0.64_darwin_amd64.tar.gz': { sha256: '7803a41dac91459956ffdb7e5e8546b4ef2325e77c85d39f82865848f1196a74', size: 25433321 },
+      'CLIProxyAPI_8.0.64_darwin_aarch64.tar.gz': { sha256: 'c3dc41458cf5a2835f833b2c74517d4de78d95f8a8d2b5367bdea95cb631e5aa', size: 23474431 },
+      'CLIProxyAPI_8.0.64_windows_amd64.zip': { sha256: '978f7309423c04a7944c35e2e23c0483591c2df906157801700f48c2c8d9e503', size: 25759929 },
+      'CLIProxyAPI_8.0.64_windows_aarch64.zip': { sha256: 'f2d4453d0b8c1bd0ecd342130ec9314c25e734f05341c0f858930f9c7ed40506', size: 22970012 },
     },
   },
 ];
@@ -152,7 +168,7 @@ export function parseChecksums(text: string): Map<string, string> {
   return out;
 }
 
-/** "CLIProxyAPI Version: 8.0.32, Commit: abc, BuiltAt: ..." -> "8.0.32". */
+/** "CLIProxyAPI Version: 8.0.64, Commit: abc, BuiltAt: ..." -> "8.0.64". */
 export function parseVersion(text: string): string | undefined {
   return /CLIProxyAPI Version:\s*v?([0-9][^\s,]*)/i.exec(text)?.[1];
 }

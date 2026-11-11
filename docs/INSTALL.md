@@ -701,14 +701,14 @@ usage rows still say which plan or key paid. A person on your hub (section
 
 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) is a separate
 open source project (MIT license). The hub does not include it; on first use
-it downloads release **8.0.32** for your system into `~/.conclave/bin`
+it downloads release **8.0.64** for your system into `~/.conclave/bin`
 (`/data/bin` in Docker) and checks it before it runs:
 
 - the release's `checksums.txt` lists the archive, with the SHA-256 that
   Conclave pins for that version;
 - the archive has the pinned size and that SHA-256;
 - the program inside is a program for this computer and `cli-proxy-api -h`
-  prints version 8.0.32.
+  prints version 8.0.64.
 
 It is unpacked next to its final place and renamed in, never run from a temp
 folder. On Linux it is the static `no-plugin` build, so it runs on any

@@ -196,7 +196,7 @@ interface CredState {
   /**
    * Its prefix (the plan's short name), from its model list, or as the hub
    * just wrote it. "" when it has none. CLIProxyAPI's credentials list never
-   * says (8.0.32 keeps it in the auth file only).
+   * says (8.0.32 to 8.0.64 keep it in the auth file only).
    */
   prefix?: string;
   /** The prefix the hub last wrote, and when: it stands until the model list shows it (CLIProxyAPI lists the old ids for a while) or PREFIX_SETTLE_MS pass. */
