@@ -435,6 +435,27 @@ describe('AnthropicProvider request mapping', () => {
     });
   });
 
+  test('over 20 images, one wider than 3000 px becomes a note on the wire; at 20 it stays', () => {
+    const be32 = (n: number) => [n >>> 24, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff];
+    const png = (w: number, h: number) =>
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, ...be32(w), ...be32(h), 8, 6, 0, 0, 0]).toString('base64');
+    const big = { type: 'image' as const, mediaType: 'image/png', data: png(3100, 100) };
+    const small = { type: 'image' as const, mediaType: 'image/png', data: png(800, 600) };
+    // the big one is a tool result's image, the rest are attachments across two user turns
+    const req = (smalls: number): ChatRequest['messages'] => [
+      { role: 'user', content: Array.from({ length: smalls - 10 }, () => small) },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'call_1', name: 'Read', input: { file_path: 'shot.png' } }] },
+      { role: 'user', content: [{ type: 'tool_result', toolUseId: 'call_1', content: [big] }, ...Array.from({ length: 10 }, () => small)] },
+    ];
+    const shot = (smalls: number) => ((provider().buildBody(base({ messages: req(smalls) })) as any).messages[2].content[0].content[0]);
+    expect(shot(20)).toEqual({ type: 'text', text: '[image (image/png) left out: too large (3100x100) for a request with more than 20 images; ask for a smaller copy]' });
+    expect(shot(19)).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: big.data } });
+    // the small ones always stay
+    const body = provider().buildBody(base({ messages: req(20) })) as any;
+    expect(body.messages[0].content.every((b: any) => b.type === 'image')).toBe(true);
+    expect(body.messages[2].content.filter((b: any) => b.type === 'image')).toHaveLength(10);
+  });
+
   test('responseSchema uses output_config on the first-party API only', () => {
     const native = new AnthropicProvider({ id: 'anthropic', config: { type: 'anthropic' }, apiKey: 'k' });
     const schema = { type: 'object', properties: { a: { type: 'string' } } };

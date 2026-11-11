@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { logEvent } from '../util/log';
-import type { ContentBlock, StopReason, Usage } from '../types';
+import type { ContentBlock, StopReason, ToolResultBlock, Usage } from '../types';
+import { imageLeftOutNote, imageSize } from '../attachments/image';
 import type { ProviderConfig } from '../config/schema';
 import { sanitizeToolId } from '../util/ids';
 import { normalizeModelId } from './catalog';
@@ -221,11 +222,39 @@ function lastCacheable(blocks: Wire[]): Wire | undefined {
   return undefined;
 }
 
+/** Over this many images in one request, each image's longer side must stay within MANY_IMAGE_MAX_PX. */
+const MANY_IMAGES = 20;
+// Anthropic 400: "At least one of the image dimensions exceed max allowed size for many-image requests: 3000 pixels" (vision docs: 3,000 px)
+const MANY_IMAGE_MAX_PX = 3000;
+
+/**
+ * The request's messages with each image too large for a many-image request
+ * replaced by a note, once the request holds more than MANY_IMAGES images
+ * (attachments and tool results' images). On the wire only: the stored
+ * history keeps the image, so it comes back when the count drops. An image
+ * whose size cannot be read is kept (the runner's bad-image retry covers it).
+ */
+function capManyImages(contents: ContentBlock[][]): ContentBlock[][] {
+  const count = (bs: ContentBlock[]): number =>
+    bs.reduce((n, b) => n + (b.type === 'image' ? 1 : b.type === 'tool_result' && typeof b.content !== 'string' ? count(b.content) : 0), 0);
+  if (contents.reduce((n, c) => n + count(c), 0) <= MANY_IMAGES) return contents;
+  const one = (b: ContentBlock): ContentBlock => {
+    if (b.type === 'tool_result') return typeof b.content === 'string' ? b : { ...b, content: b.content.map(one) as ToolResultBlock['content'] };
+    if (b.type !== 'image' || !b.data) return b;
+    // the header is near the start; 256 KB of base64 covers a JPEG's EXIF and ICC segments before its frame header
+    const s = imageSize(Buffer.from(b.data.replace(/^data:[^,]*,/, '').slice(0, 256 * 1024), 'base64'));
+    if (!s || Math.max(s.width, s.height) <= MANY_IMAGE_MAX_PX) return b;
+    return { type: 'text', text: imageLeftOutNote(`(${b.mediaType})`, `too large (${s.width}x${s.height}) for a request with more than ${MANY_IMAGES} images; ask for a smaller copy`) };
+  };
+  return contents.map((c) => c.map(one));
+}
+
 function mapMessages(msgs: ProviderMessage[], names: ToolNameMap, breakpoints: Wire[], vision: boolean): Wire[] {
   const out: Wire[] = [];
-  for (const m of msgs) {
-    // text documents as text: Anthropic-compatible endpoints (Z.ai) drop a text-source document
-    const content = m.role === 'user' ? documentsForWire(m.content, true, vision) : m.content;
+  // text documents as text: Anthropic-compatible endpoints (Z.ai) drop a text-source document
+  const contents = capManyImages(msgs.map((m) => (m.role === 'user' ? documentsForWire(m.content, true, vision) : m.content)));
+  for (const [i, m] of msgs.entries()) {
+    const content = contents[i];
     let blocks = content.map((b) => mapBlock(b, names)).filter((x): x is Wire => !!x);
     // Tool results must lead the user turn.
     if (m.role === 'user') blocks = [...blocks.filter((b) => b.type === 'tool_result'), ...blocks.filter((b) => b.type !== 'tool_result')];
