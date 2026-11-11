@@ -70,6 +70,48 @@ export function sniffImageType(b: Uint8Array): string | undefined {
   return /^<svg[\s>]/i.test(head) ? 'image/svg+xml' : undefined;
 }
 
+const be16 = (b: Uint8Array, i: number) => (b[i] << 8) | b[i + 1];
+const le16 = (b: Uint8Array, i: number) => b[i] | (b[i + 1] << 8);
+const le24 = (b: Uint8Array, i: number) => le16(b, i) | (b[i + 2] << 16);
+const be32 = (b: Uint8Array, i: number) => ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) >>> 0;
+
+/**
+ * A PNG's, JPEG's, GIF's or WebP's pixel size from its header, without
+ * decoding it. Undefined for any other type, a header cut short, or a size of
+ * zero. A JPEG needs its bytes up to the frame header (SOFn), past any EXIF.
+ */
+export function imageSize(b: Uint8Array): { width: number; height: number } | undefined {
+  const size = (width: number, height: number) => (width > 0 && height > 0 ? { width, height } : undefined);
+  switch (sniffImageType(b.subarray(0, SNIFF_BYTES))) {
+    case 'image/png':
+      return b.length >= 24 && ascii(b, 12, 16) === 'IHDR' ? size(be32(b, 16), be32(b, 20)) : undefined;
+    case 'image/gif':
+      return b.length >= 10 ? size(le16(b, 6), le16(b, 8)) : undefined;
+    case 'image/webp': {
+      const chunk = ascii(b, 12, 16);
+      if (chunk === 'VP8 ' && b.length >= 30) return size(le16(b, 26) & 0x3fff, le16(b, 28) & 0x3fff);
+      if (chunk === 'VP8L' && b.length >= 25 && b[20] === 0x2f) {
+        const bits = (le24(b, 21) | (b[24] << 24)) >>> 0;
+        return size((bits & 0x3fff) + 1, ((bits >>> 14) & 0x3fff) + 1);
+      }
+      if (chunk === 'VP8X' && b.length >= 30) return size(le24(b, 24) + 1, le24(b, 27) + 1);
+      return undefined;
+    }
+    case 'image/jpeg':
+      for (let i = 2; i + 9 <= b.length; ) {
+        if (b[i] !== 0xff) return undefined;
+        const m = b[i + 1];
+        if (m === 0xff) i++; // fill byte
+        else if (m === 0x01 || (m >= 0xd0 && m <= 0xd8)) i += 2; // markers with no length
+        else if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return size(be16(b, i + 7), be16(b, i + 5));
+        else if (m === 0xd9 || m === 0xda) return undefined; // image end or scan start before any frame header
+        else i += 2 + be16(b, i + 2);
+      }
+      return undefined;
+  }
+  return undefined;
+}
+
 /** "HEIC", "AVIF", "SVG": a picture type's name for the words. */
 export function imageFormatName(type: string): string {
   const sub = type.replace(/^image\//, '').replace(/^x-/, '');
@@ -85,8 +127,8 @@ export function unreadablePicture(name: string, type: string | undefined): strin
 }
 
 /** What a request carries in place of a picture the model cannot read. */
-export function imageLeftOutNote(name: string): string {
-  return `[image ${name} left out: not a format the model can read]`;
+export function imageLeftOutNote(name: string, why = 'not a format the model can read'): string {
+  return `[image ${name} left out: ${why}]`;
 }
 
 /**

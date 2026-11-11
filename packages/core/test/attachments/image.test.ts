@@ -8,7 +8,7 @@
  *   bun test packages/core/test/attachments/image.test.ts
  */
 import { describe, expect, test } from 'bun:test';
-import { checkPicture, sniffImageType, unreadablePicture } from '../../src/attachments/image';
+import { checkPicture, imageSize, sniffImageType, unreadablePicture } from '../../src/attachments/image';
 import { prepareAttachments, type ZipHost } from '../../src/attachments/prepare';
 import { documentsForWire } from '../../src/providers/common';
 import { classifyHttpError, classifyStreamError, isUnreadableImageError } from '../../src/providers/errors';
@@ -48,6 +48,28 @@ describe('sniffing', () => {
 
   test('not pictures: text, a video ftyp, "BM" text, a short file, HTML', () => {
     for (const b of [bytes('hello'), ftyp('isom', 'mp41'), bytes('BMW is a car maker, not a bitmap at all'), bytes([0x89, 0x50]), bytes('<!doctype html><html>'), bytes('<!--' + '--><!--'.repeat(100)), bytes('<?xml version="1.0"'), new Uint8Array()]) expect(sniffImageType(b)).toBeUndefined();
+  });
+});
+
+describe('imageSize', () => {
+  const le = (n: number, len: number) => Array.from({ length: len }, (_, i) => (n >>> (8 * i)) & 0xff);
+  const be = (n: number, len: number) => le(n, len).reverse();
+  const webp = (chunk: string, data: number[]) => bytes('RIFF', [0x24, 0, 0, 0], 'WEBP', chunk, le(data.length, 4), data);
+  test.each([
+    ['PNG', bytes([0x89], 'PNG', [0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13], 'IHDR', be(3100, 4), be(100, 4), [8, 6, 0, 0, 0]), 3100, 100],
+    // APP0 JFIF, then a DQT segment, then SOF2 (progressive): height before width
+    ['JPEG', bytes([0xff, 0xd8, 0xff, 0xe0, 0, 16], 'JFIF', [0, 1, 1, 0, 0, 1, 0, 1, 0, 0], [0xff, 0xdb, 0, 4, 0, 0], [0xff, 0xc2, 0, 17, 8], be(7900, 2), be(1280, 2), [3, 1, 0x22, 0]), 1280, 7900],
+    ['JPEG after fill bytes', bytes([0xff, 0xd8, 0xff, 0xff, 0xc0, 0, 17, 8], be(20, 2), be(30, 2), [3, 1, 0x22, 0, 0]), 30, 20],
+    ['GIF', bytes('GIF89a', le(640, 2), le(480, 2), [0xf7, 0, 0]), 640, 480],
+    ['WebP VP8', webp('VP8 ', [0x50, 0x09, 0, 0x9d, 0x01, 0x2a, ...le(4000, 2), ...le(300, 2)]), 4000, 300],
+    ['WebP VP8L', webp('VP8L', [0x2f, ...le((1999) | (2999 << 14), 4), 0]), 2000, 3000],
+    ['WebP VP8X', webp('VP8X', [0x10, 0, 0, 0, ...le(4999, 3), ...le(99, 3)]), 5000, 100],
+  ] as Array<[string, Uint8Array, number, number]>)('%s', (_, b, width, height) => {
+    expect(imageSize(b)).toEqual({ width, height });
+  });
+
+  test('undefined for other types, a header cut short, or a JPEG with no frame header', () => {
+    for (const b of [HEIC, bytes('hello'), PNG.subarray(0, 20), bytes('GIF89a', [1]), JPEG, bytes([0xff, 0xd8, 0xff, 0xda, 0, 2, 0, 0, 0, 0, 0])]) expect(imageSize(b)).toBeUndefined();
   });
 });
 
@@ -110,5 +132,10 @@ describe('the API could not read a picture', () => {
     expect(stream.kind).toBe('bad_request');
     expect(isUnreadableImageError(stream)).toBe(true);
     expect(isUnreadableImageError(classifyHttpError('cliproxy', 400, undefined, JSON.stringify({ error: { type: 'invalid_request_error', message: 'max_tokens too large' } })))).toBe(false);
+    // a picture too large for a request with more than 20 images, whose size the wire cap could not read
+    const many = 'messages.283.content.9.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests: 3000 pixels';
+    const big = classifyHttpError('cliproxy', 400, undefined, JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: many } }));
+    expect(big.kind).toBe('bad_request');
+    expect(isUnreadableImageError(big)).toBe(true);
   });
 });
