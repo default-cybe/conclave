@@ -93,3 +93,73 @@ describe('an attached picture in your message', () => {
     }
   });
 });
+
+describe('the media viewer', () => {
+  const A = 'data:image/png;base64,QUFB';
+  const B = 'data:image/gif;base64,QkJC';
+  const key = (k: string) => Object.assign(new win.Event('keydown', { bubbles: true, cancelable: true }), { key: k });
+
+  test('Left and Right move between the pictures of the transcript, Close and the backdrop shut it and focus goes back', async () => {
+    const { act } = await import('react');
+    const { createRoot } = await import('react-dom/client');
+    const { ImageThumb } = await import('../src/components/ui/ImageViewer');
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () =>
+      root.render(
+        <div role="log">
+          <ImageThumb src={A} name="a.png" alt="First" />
+          <ImageThumb src={B} name="b.gif" alt="Second" />
+        </div>,
+      ),
+    );
+    const dialog = () => document.body.querySelector('[role="dialog"]');
+    const shown = () => dialog()!.querySelector('img')!.getAttribute('src');
+    const facts = () => dialog()!.querySelector('#media-viewer-facts')!.textContent;
+    const click = (el: Element) => act(async () => void el.dispatchEvent(new win.Event('click', { bubbles: true, cancelable: true })));
+    const press = (k: string) => act(async () => void document.dispatchEvent(key(k)));
+    try {
+      const first = host.querySelector('button[aria-label="Open first full size"]') as HTMLButtonElement;
+      // linkedom keeps no focus: the thumbnail is the focused element, and its focus() is counted
+      Object.defineProperty(document, 'activeElement', { configurable: true, get: () => first });
+      let focused = 0;
+      first.focus = () => void focused++;
+      await click(first);
+      expect(dialog()!.getAttribute('aria-label')).toBe('a.png');
+      expect(shown()).toBe(A);
+      expect(facts()).toBe('PNG image, 1 of 2');
+      await press('ArrowRight');
+      expect(shown()).toBe(B);
+      expect(facts()).toBe('GIF image, 2 of 2');
+      // the last one stays the last
+      await press('ArrowRight');
+      expect(shown()).toBe(B);
+      await press('ArrowLeft');
+      expect(shown()).toBe(A);
+      await click(dialog()!.querySelector('[data-close]')!);
+      expect(dialog()).toBeNull();
+      expect(focused).toBe(1);
+      // again, and a click on the backdrop closes it
+      await click(first);
+      await click(dialog()!.querySelector('[aria-hidden]')!);
+      expect(dialog()).toBeNull();
+    } finally {
+      delete (document as unknown as Record<string, unknown>).activeElement;
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  test('what a file opens as', async () => {
+    const { mediaKind } = await import('../src/components/ui/ImageViewer');
+    expect(mediaKind('image/gif')).toBe('image');
+    expect(mediaKind('video/mp4')).toBe('video');
+    expect(mediaKind('audio/mpeg')).toBe('audio');
+    expect(mediaKind('application/pdf')).toBe('pdf');
+    expect(mediaKind('text/html')).toBe('text');
+    expect(mediaKind('application/octet-stream', 'main.ts')).toBe('text');
+    expect(mediaKind('application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'a.docx')).toBe('other');
+    expect(mediaKind('application/zip', 'a.zip')).toBe('other');
+  });
+});

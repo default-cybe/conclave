@@ -29,6 +29,9 @@ import { underParent } from '@conclave/core/session/delegated';
 import fox1 from './images/fox-snow-1.png';
 import fox2 from './images/fox-snow-2.png';
 import fox3 from './images/fox-snow-3.png';
+import chartGif from './images/chart-growth.gif';
+import chartVideo from './images/chart-growth.webm';
+import reportPdf from './images/homelab-report.pdf';
 import { receiptsFor } from './uploads';
 
 const MIN = 60_000;
@@ -48,6 +51,37 @@ const FOX = [
   { url: fox2, name: 'image-20261103-101500-2.png', size: 11_413 },
   { url: fox3, name: 'image-20261103-101500-3.png', size: 16_235 },
 ];
+
+const RENDER_TS = `/** Renders the monthly homelab chart as a GIF (bars grow in, last frame holds). */
+import { createCanvas } from './canvas';
+
+export interface Bar {
+  label: string;
+  value: number;
+}
+
+export function render(bars: Bar[], frames = 12): Uint8Array[] {
+  const out: Uint8Array[] = [];
+  for (let f = 0; f < frames; f++) {
+    const c = createCanvas(320, 200);
+    const t = f / (frames - 1);
+    bars.forEach((b, i) => {
+      const h = Math.max(0, Math.min(1, t * 1.6 - i * 0.12)) * b.value * 150;
+      c.rect(34 + i * 46, 180 - h, 30, h, i === 3 ? 'accent' : 'bar');
+    });
+    out.push(c.encode());
+  }
+  return out;
+}
+`;
+
+/** The media chat's shared files (ShareFile cards), served by GET /api/sessions/:id/files/:toolUseId. */
+const MEDIA: Record<string, { url?: string; text?: string; name: string; mediaType: string; size: number }> = {
+  tu_m_gif: { url: chartGif, name: 'uptime-chart.gif', mediaType: 'image/gif', size: 12_183 },
+  tu_m_vid: { url: chartVideo, name: 'uptime-chart.webm', mediaType: 'video/webm', size: 34_503 },
+  tu_m_pdf: { url: reportPdf, name: 'homelab-report.pdf', mediaType: 'application/pdf', size: 27_132 },
+  tu_m_ts: { text: RENDER_TS, name: 'render.ts', mediaType: 'text/plain', size: RENDER_TS.length },
+};
 
 type Seed = Omit<Session, 'stats' | 'mode' | 'permissionMode' | 'cwd' | 'device' | 'status' | 'tags' | 'pinned' | 'archived' | 'agent' | 'kind'> & { agent?: string };
 
@@ -264,6 +298,16 @@ function seeds(now: number): Array<{ session: Session; turns: Turn[] }> {
       ],
     },
     {
+      // ShareFile cards of every kind the media viewer shows: a GIF, a video, a PDF and a code file
+      session: chatSession({ id: 'c_media', title: 'Monthly homelab report', model: SONNET, createdAt: at(30 * MIN), updatedAt: at(29 * MIN), chat: DEFAULTS }, 4),
+      turns: [
+        { role: 'user', at: at(30 * MIN), content: [t('make the monthly homelab report: a PDF, the uptime chart as a GIF and a short video, and the script that draws it')] },
+        { role: 'assistant', at: at(30 * MIN - 1_000), model: SONNET, content: Object.entries(MEDIA).map(([id, f]) => ({ type: 'tool_use', id, name: 'ShareFile', input: { path: `/outputs/c_media/${f.name}` } }) as ContentBlock) },
+        { role: 'user', at: at(30 * MIN - 20_000), content: Object.entries(MEDIA).map(([id, f]) => ({ type: 'tool_result', toolUseId: id, content: `Shared ${f.name}`, meta: { file: { name: f.name, mediaType: f.mediaType, size: f.size } } }) as ContentBlock) },
+        { role: 'assistant', at: at(29 * MIN), model: SONNET, content: [t('Here is the report, the chart as a GIF and a video, and `render.ts`, which draws it. Tap any card to view it full screen.')] },
+      ],
+    },
+    {
       session: chatSession({ id: 'c_immich', title: 'Immich moved to CT 115', model: SONNET, createdAt: at(26 * HOUR), updatedAt: at(26 * HOUR), chat: DEFAULTS }, 4),
       turns: [
         { role: 'user', at: at(26 * HOUR), content: [t("fyi I moved immich to CT 115 on madx, it's not on 105 anymore")] },
@@ -427,6 +471,8 @@ export function registerChat(ctx: MockCtx) {
 
   // a generated picture of the seeded fox chat, as GET /api/sessions/:id/files/:toolUseId?image=N serves it
   ctx.on('GET', '/api/sessions/:id/files/:toolUseId', async ({ params, query }) => {
+    const m = MEDIA[params[1]];
+    if (m) return new Response(m.text ?? (await (await fetch(m.url!)).blob()), { headers: { 'content-type': m.mediaType } });
     const f = params[1] === 'tu_fox' ? FOX[Number(query.get('image'))] : undefined;
     if (!f) return new Response(JSON.stringify({ error: `unknown session ${params[0]}` }), { status: 404, headers: { 'content-type': 'application/json' } });
     return new Response(await (await fetch(f.url)).blob(), { headers: { 'content-type': 'image/png' } });

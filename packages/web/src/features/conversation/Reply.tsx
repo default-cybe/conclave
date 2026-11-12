@@ -12,7 +12,7 @@
  * retry, more (ReplyIcons.tsx), quieter under earlier replies. A long press
  * selects the reply's text, as anywhere else on the phone; it opens nothing.
  */
-import { memo, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, memo, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import { ChevronRight, MoreHorizontal } from 'lucide-react';
 import type { ContentBlock, Message, Session, ToolResultBlock, ToolUseBlock } from '@conclave/core/types';
@@ -36,6 +36,7 @@ import { ReplyIcons } from './ReplyIcons';
 import { ChatCode, ChatMarkdown } from './ChatMarkdown';
 import { MapsCards, MapsLine } from '@/features/maps/MapsCard';
 import { FileCards, FileLine, ImageGrid } from '@/features/files/FileCard';
+import { ToolImages, toolImageItems } from '@/features/chat/ToolImages';
 import { generatedCards, generatedNames } from '@/features/files/words';
 import { WatchCards, WatchLine } from '@/features/watches/WatchCards';
 import { mapsWorkingWords } from '@/features/maps/words';
@@ -484,16 +485,26 @@ export const Reply = memo(function Reply({ reply, session, isLast, live, phase, 
                 <div key={p.key}>
                   <ToolFold label={toolLine(toolPieces.map((t) => t.tool))}>
                     {toolPieces.map((t) => (
-                      <ToolLine key={t.key} tool={t.tool} result={results[t.tool.id]} run={tools[t.tool.id]} live={live} messages={reply.messages} results={results} folded />
+                      <Fragment key={t.key}>
+                        <ToolLine tool={t.tool} result={results[t.tool.id]} run={tools[t.tool.id]} live={live} messages={reply.messages} results={results} folded />
+                        <ToolImages items={toolImageItems([{ tool: t.tool, result: results[t.tool.id] ?? tools[t.tool.id]?.result }])} always className="mt-1 mb-1.5" />
+                      </Fragment>
                     ))}
                   </ToolFold>
+                  {/* the pictures tools returned stay in view under the fold (Appearance > Show pictures from tools) */}
+                  <ToolImages items={toolImageItems(toolPieces.map((t) => ({ tool: t.tool, result: results[t.tool.id] ?? tools[t.tool.id]?.result })))} className="mb-2" />
                   <MapsCards results={toolPieces.map((t) => results[t.tool.id] ?? tools[t.tool.id]?.result)} className="mb-2" />
                   <WatchCards results={toolPieces.map((t) => results[t.tool.id] ?? tools[t.tool.id]?.result)} sessionId={session.id} className="mb-2" />
                   <FileCards calls={toolPieces.map((t) => ({ name: t.tool.name, result: results[t.tool.id] ?? tools[t.tool.id]?.result }))} sessionId={session.id} className="mb-2" />
                 </div>
               );
             }
-            return <ToolLine key={p.key} tool={p.tool} result={results[p.tool.id]} run={tools[p.tool.id]} live={live} messages={reply.messages} results={results} />;
+            return (
+              <Fragment key={p.key}>
+                <ToolLine tool={p.tool} result={results[p.tool.id]} run={tools[p.tool.id]} live={live} messages={reply.messages} results={results} />
+                <ToolImages items={toolImageItems([{ tool: p.tool, result: results[p.tool.id] ?? tools[p.tool.id]?.result }])} className="mt-1 mb-1.5" />
+              </Fragment>
+            );
           case 'image':
             return <img key={p.key} src={p.src} alt="Image from the model" className="my-2 max-h-80 rounded-[var(--r-2)] border border-rule" />;
           case 'text': {

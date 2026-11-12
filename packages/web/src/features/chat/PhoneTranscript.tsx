@@ -46,6 +46,7 @@ import { ModelList } from '@/components/pickers/ModelPicker';
 import { Elapsed, GapList, Knot, LiveStatus, usePresence } from '@/components/motion';
 import { BubbleText } from '@/components/ui/Bubble';
 import { ImageThumb } from '@/components/ui/ImageViewer';
+import { ToolImages, toolImageItems } from './ToolImages';
 import { Attachments, chipsOf, filesOf, receiptsOf } from '@/features/conversation/UserMessage';
 import { BlockView, SecondOpinion, turnPieces } from './Turn';
 import { Markdown } from './Markdown';
@@ -381,6 +382,8 @@ function PhoneGroup({ entries, sessionId, live }: { entries: WorkItem[]; session
   const [chosen, setChosen] = useState<boolean | null>(null);
   const open = chosen ?? false;
   const held = open ? [] : calls.filter((_, i) => pinned(statuses[i]));
+  // closed, the group's pictures stay in view under its line (Appearance > Show pictures from tools)
+  const images = useMemo(() => (open ? [] : toolImageItems(calls.map((c) => ({ tool: c.tool, result: c.result ?? c.run?.result })))), [open, calls]);
   const stat =
     state.state === 'waiting' ? (
       <span className="text-warn">waiting</span>
@@ -417,6 +420,7 @@ function PhoneGroup({ entries, sessionId, live }: { entries: WorkItem[]; session
               ))}
         </ul>
       )}
+      <ToolImages items={images} className="mb-2" />
     </div>
   );
 }
@@ -450,6 +454,7 @@ function CallRow({ item, sessionId }: { item: ToolItem; sessionId: string }) {
   else if (status === 'denied') stat = 'denied';
   else if (files.length) stat = changeWords(files.reduce((n, f) => n + f.added, 0), files.reduce((n, f) => n + f.removed, 0));
   const output = res ? resultText(res) : (item.run?.progress ?? '');
+  const images = useMemo(() => toolImageItems([{ tool, result: res }]), [tool, res]);
   const opens = !task && (files.length > 0 || !!output.trim());
   const row = (
     <>
@@ -460,14 +465,23 @@ function CallRow({ item, sessionId }: { item: ToolItem; sessionId: string }) {
     </>
   );
   const cls = 'flex min-h-11 w-full items-center gap-3 text-left tx-15';
-  if (!opens) return <div className={cls}>{row}</div>;
+  const pics = <ToolImages items={images} className="mb-2" />;
+  if (!opens)
+    return (
+      <>
+        <div className={cls}>{row}</div>
+        {pics}
+      </>
+    );
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} className={cn(cls, 'active:bg-hover')}>
         {row}
       </button>
+      {pics}
       <Sheet open={open} onClose={() => setOpen(false)} title={<CallTitle tool={tool} />}>
         <div className="px-4 pb-4">
+          <ToolImages items={images} always className="mb-3" />
           <CallBody item={item} files={files} output={output} sessionId={sessionId} />
         </div>
       </Sheet>

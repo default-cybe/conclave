@@ -18,6 +18,7 @@ import { groupState, pinned, segment, standsAlone, troubleWords, workName, type 
 import { AssistantTurn, turnPieces } from '../src/features/chat/Turn';
 import { ToolGroup, asWork, callStatus, groupNow, type ToolItem, type WorkItem } from '../src/features/chat/ToolRows';
 import { linkedCall } from '../src/features/chat/MessageList';
+import { useUi } from '../src/store/ui';
 
 const bash = (command: string): ToolCall => ({ name: 'Bash', input: { command } });
 const read = (file_path: string): ToolCall => ({ name: 'Read', input: { file_path } });
@@ -372,5 +373,34 @@ describe('a link to a tool result', () => {
     expect(linkedCall([calls, result, prose], 'a')).toBe('t1');
     expect(linkedCall([calls, result, prose], 'p')).toBe(null);
     expect(linkedCall([calls, result, prose], 'nope')).toBe(null);
+  });
+});
+
+describe('pictures from tools in the transcript', () => {
+  const shot: ToolItem = { tool: { type: 'tool_use', id: 'sh', name: 'browser_screenshot', input: {} }, result: { type: 'tool_result', toolUseId: 'sh', content: [{ type: 'image', mediaType: 'image/png', data: 'iVBORw0KGgo=' }] } };
+  const ls: ToolItem = { tool: { type: 'tool_use', id: 'ls', name: 'Bash', input: { command: 'ls' } }, result: { type: 'tool_result', toolUseId: 'ls', content: 'a' } };
+  const html = (items: ToolItem[]) => renderToStaticMarkup(<Router ssrPath="/s/s1"><ToolGroup entries={asWork(items)} sessionId="s1" /></Router>);
+  // renderToStaticMarkup reads the store's initial state
+  const pref = (on: boolean) => Object.assign(useUi.getInitialState(), { toolImages: on });
+
+  test('on by default: a closed group shows its screenshot as a lazy thumbnail under its row', () => {
+    expect(useUi.getInitialState().toolImages).toBe(true);
+    const h = html([ls, shot]);
+    expect(h).toContain('data-group-toggle="" aria-expanded="false"');
+    expect(h).toContain('data-tool-images="1"');
+    expect(h).toContain('aria-label="Open browser_screenshot-1.png"');
+    expect(h).toContain('loading="lazy"');
+    // a call on its own shows it under its row too
+    expect(html([shot])).toContain('data-tool-images="1"');
+  });
+
+  test('off: no thumbnails outside the fold', () => {
+    pref(false);
+    try {
+      expect(html([ls, shot])).not.toContain('data-tool-images');
+      expect(html([shot])).not.toContain('data-tool-images');
+    } finally {
+      pref(true);
+    }
   });
 });
