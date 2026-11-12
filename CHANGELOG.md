@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Added
+
+- Android: shared and generated files (pictures, GIFs, videos, PDFs, text and code) open in a full-screen in-app viewer with swipe between a message's files, zoom, and Share, Save and Open with; pictures a tool returns (browser screenshots, a Read of a PNG) show as thumbnails under its row, behind a new "Show pictures from tools in the transcript" setting (on by default)
+
 ## [0.4.92] - 2026-11-12
 
 ### Fixed
