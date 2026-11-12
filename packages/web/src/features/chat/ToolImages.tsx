@@ -32,7 +32,8 @@ function picturesOf(tool: Call['tool'], result: ToolResultBlock): MediaItem[] {
   if (typeof result.content === 'string') return [];
   const path = tool.input?.file_path ?? tool.input?.path ?? tool.input?.notebook_path;
   const base = typeof path === 'string' && path ? path.split(/[\\/]/).pop()! : tool.name.replace(/^mcp__/, '').replace(/__/g, '-');
-  const pics = result.content.filter((b): b is Extract<typeof b, { type: 'image' }> => b.type === 'image' && !!(b.url || b.data));
+  // a url from an imported file goes into <img> and a Download link: web and picture data only
+  const pics = result.content.filter((b): b is Extract<typeof b, { type: 'image' }> => b.type === 'image' && (b.url ? /^(https?:|data:image\/|blob:)/i.test(b.url) : !!b.data));
   return pics.map((b, i) => {
     const ext = b.mediaType.split('/')[1]?.replace('jpeg', 'jpg').replace('svg+xml', 'svg') ?? 'png';
     const name = /\.\w+$/.test(base) && pics.length === 1 ? base : `${base.replace(/\.\w+$/, '')}-${i + 1}.${ext}`;
@@ -52,4 +53,9 @@ export const ToolImages = memo(function ToolImages({ items, always, className }:
       ))}
     </div>
   );
-});
+}, same);
+
+/** The items are cached per result, so a fresh array of the same items is no change (Reply builds one each render). */
+function same(a: { items: MediaItem[]; always?: boolean; className?: string }, b: typeof a): boolean {
+  return a.always === b.always && a.className === b.className && a.items.length === b.items.length && a.items.every((it, i) => it === b.items[i]);
+}

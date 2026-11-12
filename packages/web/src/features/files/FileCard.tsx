@@ -15,7 +15,7 @@ import { Download, FileText, Maximize2 } from 'lucide-react';
 import type { ToolResultBlock, ToolUseBlock } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/text';
-import { Button, buttonClass } from '@/components/ui/Button';
+import { Button, buttonClass, IconButton } from '@/components/ui/Button';
 import { useIsMobile } from '@/lib/hooks';
 import { MediaButton, mediaKind, type MediaItem } from '@/components/ui/ImageViewer';
 import { fileCardOf, fileFacts, generatedCards, generatedNames, previewOf, shareCards, SVG_PREVIEW_MAX, type FileCardData } from './words';
@@ -95,6 +95,8 @@ export function FileCard({ card, sessionId, className }: { card: FileCardData; s
   const [failed, setFailed] = useState<string>();
   const item = mediaItem(sessionId, card, kind === 'svg' ? svg : src);
   const viewable = mediaKind(card.mediaType, card.name) !== 'other';
+  // phones: icon-only actions, so the name keeps the row's width
+  const mobile = useIsMobile();
   const download = () =>
     fileBlob(sessionId, card)
       .then(({ url }) => {
@@ -118,14 +120,20 @@ export function FileCard({ card, sessionId, className }: { card: FileCardData; s
           <div className="truncate text-[12.5px] text-fg-3 phone:text-[13.5px]">{card.title ? `${card.name}, ` : ''}{fileFacts(card)}</div>
         </div>
         {viewable && (
-          <MediaButton item={item} label={`View ${card.name}`} className={buttonClass('quiet', 'sm', 'cursor-pointer')}>
-            <Maximize2 className="size-4" aria-hidden />
-            View
+          <MediaButton item={item} label={`View ${card.name}`} className={mobile ? 'inline-flex size-11 shrink-0 items-center justify-center rounded-[var(--r-1)] text-fg-3 hov:bg-hover hov:text-fg' : buttonClass('quiet', 'sm', 'cursor-pointer')}>
+            <Maximize2 className={mobile ? 'size-[18px]' : 'size-4'} aria-hidden />
+            {!mobile && 'View'}
           </MediaButton>
         )}
-        <Button size="sm" variant="outline" icon={<Download className="size-4" />} onClick={() => void download()}>
-          Download
-        </Button>
+        {mobile ? (
+          <IconButton label={`Download ${card.name}`} size="touch" tooltip={false} onClick={() => void download()}>
+            <Download />
+          </IconButton>
+        ) : (
+          <Button size="sm" variant="outline" icon={<Download className="size-4" />} onClick={() => void download()}>
+            Download
+          </Button>
+        )}
       </div>
       {(failed ?? error) && <p className="px-3.5 pb-2.5 text-[12.5px] text-fault">Could not load the file. {failed ?? error}</p>}
     </div>

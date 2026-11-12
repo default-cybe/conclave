@@ -17,6 +17,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { createRoot, type Root } from 'react-dom/client';
 import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, X } from 'lucide-react';
 import { cn } from '@/lib/text';
 import { langFromPath } from '@/lib/highlight';
@@ -80,18 +81,27 @@ export function galleryOf(el: Element, item: MediaItem): { list: MediaItem[]; at
 /** A thumbnail or a View button that opens `item` in the viewer, with the scope's other media a swipe away. */
 export function MediaButton({ item, label, className, children }: { item: MediaItem; label: string; className?: string; children: ReactNode }) {
   const ref = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState<{ list: MediaItem[]; at: number } | null>(null);
   useEffect(() => {
     if (ref.current) items.set(ref.current, item);
   });
   return (
-    <>
-      <button ref={ref} type="button" data-media="" aria-label={label} aria-haspopup="dialog" onClick={() => ref.current && setOpen(galleryOf(ref.current, item))} className={cn('tap cursor-zoom-in', className)}>
-        {children}
-      </button>
-      {open && <MediaViewer items={open.list} start={open.at} onClose={() => setOpen(null)} />}
-    </>
+    <button ref={ref} type="button" data-media="" aria-label={label} aria-haspopup="dialog" onClick={() => ref.current && openMedia(galleryOf(ref.current, item))} className={cn('tap cursor-zoom-in', className)}>
+      {children}
+    </button>
   );
+}
+
+/** One viewer for the page, in a root of its own: it stays open when the thumbnail that opened it unmounts (a windowed transcript). */
+let host: Root | undefined;
+let opened = 0;
+export function openMedia({ list, at }: { list: MediaItem[]; at: number }) {
+  if (!host) {
+    const el = document.createElement('div');
+    document.body.appendChild(el);
+    host = createRoot(el);
+  }
+  const root = host;
+  root.render(<MediaViewer key={++opened} items={list} start={at} onClose={() => root.render(null)} />);
 }
 
 /** A picture you attached (or any picture by URL), as a thumbnail that opens in the viewer. */
@@ -175,13 +185,16 @@ async function openInTab(item: MediaItem) {
 // The viewer
 // ---------------------------------------------------------------------------
 
-type Loaded = { url?: string; text?: string; cut?: boolean; error?: string };
+type Loaded = { key?: string; url?: string; text?: string; cut?: boolean; error?: string };
 
 function useLoaded(item: MediaItem, kind: MediaKind): Loaded {
   const direct = !!item.src && kind !== 'text';
-  const [state, setState] = useState<Loaded>(direct ? { url: item.src } : {});
+  const [got, setGot] = useState<Loaded>({});
+  // tagged with the item, so a step to the next one never draws the last one's bytes for a frame
+  const setState = (s: Loaded) => setGot({ ...s, key: item.key });
   useEffect(() => {
-    setState(direct ? { url: item.src } : {});
+    if (direct) return;
+    setState({});
     if (direct || kind === 'other') return;
     let alive = true;
     const p = item.load ? item.load() : blobOf(item).then((blob) => ({ url: item.src!, blob }));
@@ -193,8 +206,10 @@ function useLoaded(item: MediaItem, kind: MediaKind): Loaded {
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item, kind, direct]);
-  return state;
+  if (direct) return { url: item.src };
+  return got.key === item.key ? got : {};
 }
 
 const BAR_BTN = 'inline-flex size-9 shrink-0 items-center justify-center rounded-[var(--r-1)] text-white/75 transition-colors duration-[var(--dur-1)] hov:bg-white/10 hov:text-white focus-visible:outline-2 focus-visible:outline-white/70 phone:size-11 [&_svg]:size-[18px] [&_svg]:stroke-[1.75]';
@@ -218,6 +233,8 @@ export function MediaViewer({ items: list, start, onClose }: { items: MediaItem[
   const loaded = useLoaded(item, kind);
   const n = list.length;
   const go = (d: number) => setAt((i) => Math.min(n - 1, Math.max(0, i + d)));
+  const goRef = useRef(go);
+  goRef.current = go;
   useEscape(true, onClose);
   useFocusTrap(ref, true, { initial: ref });
   useLockScroll(true);
@@ -228,11 +245,11 @@ export function MediaViewer({ items: list, start, onClose }: { items: MediaItem[
       const t = e.target as HTMLElement | null;
       if (t?.closest?.('video,audio,input,textarea,iframe')) return;
       e.preventDefault();
-      go(e.key === 'ArrowRight' ? 1 : -1);
+      goRef.current(e.key === 'ArrowRight' ? 1 : -1);
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  });
+  }, []);
 
   const facts = [kindWord(item.mediaType), item.size !== undefined ? sizeWords(item.size) : '', n > 1 ? `${at + 1} of ${n}` : ''].filter(Boolean).join(', ');
   const act = (f: () => Promise<void>) => () => void f().catch((e: unknown) => toast({ title: message(e), level: 'error' }));
@@ -334,7 +351,7 @@ function ZoomImage({ src, alt, onSwipe, onBackdrop }: { src: string; alt: string
   const cur = useRef(view);
   cur.current = view;
   const pts = useRef(new Map<number, { x: number; y: number }>());
-  const gesture = useRef<{ x: number; y: number; v: View; dist: number; moved: boolean } | null>(null);
+  const gesture = useRef<{ x: number; y: number; v: View; dist: number; moved: boolean; bg: boolean } | null>(null);
 
   const zoomAt = (s: number, cx: number, cy: number) => {
     const r = box.current!.getBoundingClientRect();
@@ -371,7 +388,8 @@ function ZoomImage({ src, alt, onSwipe, onBackdrop }: { src: string; alt: string
         box.current!.setPointerCapture?.(e.pointerId);
         pts.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
         const p = pts.current.size === 2 ? spread() : { dist: 0, x: e.clientX, y: e.clientY };
-        gesture.current = { x: p.x, y: p.y, v: cur.current, dist: p.dist, moved: pts.current.size > 1 };
+        // where the press began: after capture, pointerup always targets the box
+        gesture.current = { x: p.x, y: p.y, v: cur.current, dist: p.dist, moved: pts.current.size > 1, bg: e.target === e.currentTarget };
       }}
       onPointerMove={(e) => {
         const g = gesture.current;
@@ -394,7 +412,12 @@ function ZoomImage({ src, alt, onSwipe, onBackdrop }: { src: string; alt: string
       onPointerUp={(e) => {
         const g = gesture.current;
         pts.current.delete(e.pointerId);
-        if (pts.current.size) return;
+        if (pts.current.size) {
+          // one finger left after a pinch: carry on from where the pinch is now
+          const [rest] = [...pts.current.values()];
+          gesture.current = { x: rest.x, y: rest.y, v: cur.current, dist: 0, moved: true, bg: false };
+          return;
+        }
         gesture.current = null;
         setMoving(false);
         if (!g) return;
@@ -402,7 +425,7 @@ function ZoomImage({ src, alt, onSwipe, onBackdrop }: { src: string; alt: string
         const dy = e.clientY - g.y;
         if (g.v.s === 1 && cur.current.s === 1 && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) onSwipe(dx < 0 ? 1 : -1);
         // a plain click beside the picture closes, as on the rest of the backdrop
-        else if (!g.moved && e.target === box.current && cur.current.s === 1) onBackdrop();
+        else if (!g.moved && g.bg && cur.current.s === 1) onBackdrop();
       }}
       onPointerCancel={(e) => {
         pts.current.delete(e.pointerId);

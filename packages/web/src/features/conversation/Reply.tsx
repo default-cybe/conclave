@@ -134,7 +134,8 @@ function Expand({ label, tone, children, defaultOpen = false }: { label: ReactNo
 }
 
 /** Phones: a reply's tool rows as one quiet line that opens to them. */
-function ToolFold({ label, children }: { label: string; children: ReactNode }) {
+/** `closed` shows under the fold only while it is shut (the pictures tools returned). */
+function ToolFold({ label, children, closed }: { label: string; children: ReactNode; closed?: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <div>
@@ -142,7 +143,7 @@ function ToolFold({ label, children }: { label: string; children: ReactNode }) {
         <span className="min-w-0 truncate">{label}</span>
         <ChevronRight aria-hidden strokeWidth={2} className={cn('size-4 shrink-0 text-fg-4 transition-transform duration-[var(--dur-1)]', open && 'rotate-90')} />
       </button>
-      {open && <div className="mb-2 anim-fade">{children}</div>}
+      {open ? <div className="mb-2 anim-fade">{children}</div> : closed}
     </div>
   );
 }
@@ -483,7 +484,10 @@ export const Reply = memo(function Reply({ reply, session, isLast, live, phase, 
               if (p !== toolPieces[0]) return null;
               return (
                 <div key={p.key}>
-                  <ToolFold label={toolLine(toolPieces.map((t) => t.tool))}>
+                  <ToolFold
+                    label={toolLine(toolPieces.map((t) => t.tool))}
+                    closed={<ToolImages items={toolImageItems(toolPieces.map((t) => ({ tool: t.tool, result: results[t.tool.id] ?? tools[t.tool.id]?.result })))} className="mb-2" />}
+                  >
                     {toolPieces.map((t) => (
                       <Fragment key={t.key}>
                         <ToolLine tool={t.tool} result={results[t.tool.id]} run={tools[t.tool.id]} live={live} messages={reply.messages} results={results} folded />
@@ -491,8 +495,6 @@ export const Reply = memo(function Reply({ reply, session, isLast, live, phase, 
                       </Fragment>
                     ))}
                   </ToolFold>
-                  {/* the pictures tools returned stay in view under the fold (Appearance > Show pictures from tools) */}
-                  <ToolImages items={toolImageItems(toolPieces.map((t) => ({ tool: t.tool, result: results[t.tool.id] ?? tools[t.tool.id]?.result })))} className="mb-2" />
                   <MapsCards results={toolPieces.map((t) => results[t.tool.id] ?? tools[t.tool.id]?.result)} className="mb-2" />
                   <WatchCards results={toolPieces.map((t) => results[t.tool.id] ?? tools[t.tool.id]?.result)} sessionId={session.id} className="mb-2" />
                   <FileCards calls={toolPieces.map((t) => ({ name: t.tool.name, result: results[t.tool.id] ?? tools[t.tool.id]?.result }))} sessionId={session.id} className="mb-2" />
