@@ -53,6 +53,12 @@ class MediaTest {
     }
 
     @Test
+    fun aVideoTooBigToHoldGoesToOpenWith() {
+        assertTrue(Media.viewable(FileCardData("v", "clip.mp4", "video/mp4", Media.VIDEO_MAX)))
+        assertEquals(false, Media.viewable(FileCardData("v", "film.mp4", "video/mp4", Media.VIDEO_MAX + 1)))
+    }
+
+    @Test
     fun aTappedFileMissingFromTheListStillOpensAlone() {
         val pdf = card("p", "application/pdf", "r.pdf")
         assertEquals(listOf(pdf) to 0, Media.pager(emptyList(), pdf))

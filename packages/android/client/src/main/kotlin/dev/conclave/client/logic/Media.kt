@@ -23,7 +23,10 @@ object Media {
     const val TOOL_PICTURES_DEFAULT = true
 
     /** Most of a text or code file the viewer lays out (one Text); past it, it says so and offers Open with. */
-    const val TEXT_MAX = 512L * 1024
+    const val TEXT_MAX = 64L * 1024
+
+    /** Largest video the viewer plays: it holds the whole file in memory first. A bigger one goes to Open with. */
+    const val VIDEO_MAX = 100L * 1024 * 1024
 
     private val TEXT_TYPES = setOf(
         "application/json", "application/xml", "application/javascript", "application/x-javascript",
@@ -54,7 +57,11 @@ object Media {
     }
 
     /** A file card the viewer can show. */
-    fun viewable(c: FileCardData): Boolean = kind(c.mediaType, c.name) != null
+    fun viewable(c: FileCardData): Boolean = when (kind(c.mediaType, c.name)) {
+        null -> false
+        MediaKind.VIDEO -> c.size <= VIDEO_MAX
+        else -> true
+    }
 
     /**
      * What the pager swipes through when [tapped] is opened: the viewable

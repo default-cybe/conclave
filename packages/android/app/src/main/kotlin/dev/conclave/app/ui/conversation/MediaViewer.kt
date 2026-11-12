@@ -89,6 +89,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import dev.conclave.app.data.HubRepository
 import dev.conclave.app.ui.common.CodeBox
+import dev.conclave.app.ui.common.LocalAppContainer
 import dev.conclave.app.ui.common.errorText
 import dev.conclave.app.ui.theme.ConclaveType
 import dev.conclave.client.logic.FileCardData
@@ -432,16 +433,22 @@ private fun VideoPage(item: ViewerItem, bytes: ByteArray, name: String, active: 
     val path = f.getOrNull() ?: return Message("Could not get the file ready. ${errorText(f.exceptionOrNull() ?: Exception())}")
     var failed by remember(item.key) { mutableStateOf(false) }
     var view by remember { mutableStateOf<VideoView?>(null) }
+    val controls = remember { MediaController(context) }
     LaunchedEffect(view, active) {
         val v = view ?: return@LaunchedEffect
-        if (active) v.start() else v.pause()
+        if (active) {
+            v.start()
+        } else {
+            v.pause()
+            // its popup would float over the next page
+            controls.hide()
+        }
     }
     if (failed) return Message("This phone cannot play this video. Use Open with in the menu.")
     AndroidView(
         factory = { ctx ->
             VideoView(ctx).apply {
                 contentDescription = name
-                val controls = MediaController(ctx)
                 controls.setAnchorView(this)
                 setMediaController(controls)
                 setOnErrorListener { _, _, _ -> failed = true; true }
@@ -449,7 +456,8 @@ private fun VideoPage(item: ViewerItem, bytes: ByteArray, name: String, active: 
                 view = this
             }
         },
-        onRelease = { it.stopPlayback() },
+        // hidden first: a popup still up when the dialog closes leaks its window
+        onRelease = { controls.hide(); it.stopPlayback() },
         modifier = Modifier.fillMaxWidth(),
     )
 }
@@ -466,8 +474,13 @@ private class PdfDoc(file: File) : Closeable {
     private var closed = false
 
     /** Every page's size in points, read up front so each row holds its place before it draws. */
-    val sizes: List<IntSize> = synchronized(this) {
+    val sizes: List<IntSize> = try {
         (0 until renderer.pageCount).map { i -> renderer.openPage(i).use { IntSize(it.width, it.height) } }
+    } catch (e: Exception) {
+        // a malformed page: nothing stays open
+        renderer.close()
+        fd.close()
+        throw e
     }
 
     fun render(page: Int, width: Int): ImageBitmap? = synchronized(this) {
@@ -493,10 +506,12 @@ private class PdfDoc(file: File) : Closeable {
 @Composable
 private fun PdfPage(item: ViewerItem, bytes: ByteArray, name: String) {
     val context = LocalContext.current
+    val appScope = LocalAppContainer.current.appScope
     val doc by produceState<Result<PdfDoc>?>(null, item.key) {
         val opened = withContext(Dispatchers.IO) { runCatching { PdfDoc(cacheCopy(context, item, bytes)) } }
         value = opened
-        awaitDispose { opened.getOrNull()?.close() }
+        // off the main thread: close waits for a page that is still rendering
+        awaitDispose { opened.getOrNull()?.let { d -> appScope.launch(Dispatchers.IO) { d.close() } } }
     }
     val d = doc ?: return CircularProgressIndicator(color = Color.White)
     val pdf = d.getOrNull() ?: return Message("Could not open this PDF. It may be locked with a password. Use Open with in the menu.")
