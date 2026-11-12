@@ -12,6 +12,7 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dev.conclave.app.ui.theme.ThemeMode
 import dev.conclave.client.logic.GroupBy
+import dev.conclave.client.logic.Media
 import dev.conclave.client.logic.SessionGrouping
 import dev.conclave.client.logic.Start
 import dev.conclave.client.logic.TextSize
@@ -63,6 +64,8 @@ data class AppSettings(
     val updateAtStartup: Boolean = true,
     /** A model switch in a big chat starts on Short handover: the owner picked it on this phone (docs/DESIGN.md 44). */
     val switchBrief: Boolean = false,
+    /** Appearance, "Show pictures from tools in the transcript": a tool's screenshots as thumbnails under its row, on this phone. */
+    val toolPictures: Boolean = Media.TOOL_PICTURES_DEFAULT,
 )
 
 /** A new chat's model and switches (CHAT-AND-MOTION 2.5). Null model: the hub's default. */
@@ -142,6 +145,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         val updateSkipped = stringPreferencesKey("update_skipped")
         val updateAtStartup = booleanPreferencesKey("update_at_startup")
         val switchBrief = booleanPreferencesKey("switch_brief")
+        val toolPictures = booleanPreferencesKey("tool_pictures")
     }
 
     /** Code's device pick and its folder's device, from picks of any version (Start.savedPlace). */
@@ -187,6 +191,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
         updateSkipped = p[Keys.updateSkipped],
         updateAtStartup = p[Keys.updateAtStartup] ?: true,
         switchBrief = p[Keys.switchBrief] ?: false,
+        toolPictures = p[Keys.toolPictures] ?: Media.TOOL_PICTURES_DEFAULT,
     )
 
     /** Null until the first read finishes. */
@@ -243,6 +248,7 @@ class SettingsStore(context: Context, scope: CoroutineScope) {
     suspend fun setUpdateSkipped(version: String) = edit { it[Keys.updateSkipped] = version }
     suspend fun setUpdateAtStartup(on: Boolean) = edit { it[Keys.updateAtStartup] = on }
     suspend fun setSwitchBrief(on: Boolean) = edit { it[Keys.switchBrief] = on }
+    suspend fun setToolPictures(on: Boolean) = edit { it[Keys.toolPictures] = on }
 
     suspend fun setChatDefaults(d: ChatDefaults) = edit { p ->
         if (d.model != null) p[Keys.chatModel] = d.model else p.remove(Keys.chatModel)
