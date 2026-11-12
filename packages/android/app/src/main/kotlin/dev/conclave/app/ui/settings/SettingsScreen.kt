@@ -285,6 +285,12 @@ fun SettingsScreen(
             }
             // the transcripts' text only (CHAT-AND-MOTION 6.5); the rest of the app stays as it is
             NavRow("Text size", s.textSize.label, onClick = { pickingTextSize = true })
+            ToggleRow(
+                title = "Show pictures from tools in the transcript",
+                help = "Screenshots and images a tool returns show as small pictures under its row.",
+                checked = s.toolPictures,
+                onChange = { on -> scope.launch { settingsStore.setToolPictures(on) } },
+            )
             // Home greets the owner by this name (hub config ui.name)
             val ownerName by hub.ownerName.collectAsStateWithLifecycle()
             NavRow("Your name", ownerName ?: "Not set", onClick = { editingName = true })

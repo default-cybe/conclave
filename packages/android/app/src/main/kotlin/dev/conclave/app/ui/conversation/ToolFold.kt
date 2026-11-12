@@ -7,7 +7,13 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,13 +39,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
@@ -50,7 +61,9 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.conclave.app.ui.chat.DiffView
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.conclave.app.ui.common.CodeBox
+import dev.conclave.app.ui.common.LocalAppContainer
 import dev.conclave.app.ui.motion.Motion
 import dev.conclave.app.ui.motion.reducedMotion
 import dev.conclave.app.ui.theme.CodeStyle
@@ -60,14 +73,20 @@ import dev.conclave.app.ui.workflows.LocalOpenWorkflowRun
 import dev.conclave.client.logic.ChatSources
 import dev.conclave.client.logic.ChatTools
 import dev.conclave.client.logic.Diffs
+import dev.conclave.client.logic.FileCardData
+import dev.conclave.client.logic.FileCards
+import dev.conclave.client.logic.Media
 import dev.conclave.client.logic.ToolLines
 import dev.conclave.client.logic.ToolStep
 import dev.conclave.client.logic.Work
 import dev.conclave.client.logic.WorkEntry
 import dev.conclave.client.logic.WorkSegment
+import dev.conclave.client.model.ImageBlock
 import dev.conclave.client.model.ToolResultBlock
 import dev.conclave.client.model.ToolUseBlock
 import dev.conclave.client.model.string
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
@@ -85,7 +104,9 @@ private val PrettyJson = Json { prettyPrint = true }
  * thought is drawn by [thought], as it was. A Workflow or Task call is a
  * compact row of its own (Tasks.kt) that splits the stretch around it; the
  * Task calls of one message are one fan-out card (FanOutCard).
- * Places and routes sit under the stretch, open or not.
+ * Places and routes sit under the stretch, open or not. Pictures a call
+ * returned (a browser screenshot, a Read of a PNG) are thumbnails under its
+ * row, outside the fold, while Settings allows them (ToolPictures).
  *
  * [live]: the turn works on this stretch now (no text after it yet).
  * [turnLive]: the turn still runs, so a call with no result runs.
@@ -107,6 +128,8 @@ fun TurnWork(
 ) {
     val segments = remember(entries) { Work.segment(entries) }
     val calls = remember(entries) { Work.calls(entries) }
+    val settings by LocalAppContainer.current.settings.state.collectAsStateWithLifecycle()
+    val pictures = settings?.toolPictures ?: Media.TOOL_PICTURES_DEFAULT
     Column(modifier.fillMaxWidth()) {
         segments.forEachIndexed { i, seg ->
             key(seg.key) {
@@ -124,6 +147,11 @@ fun TurnWork(
                     is WorkSegment.FanOut -> FanOutCard(seg.calls.map { it.use }, results, turnLive)
                     is WorkSegment.Lone -> thought(seg.thought)
                     is WorkSegment.Group -> WorkGroup(seg.entries, results, live && i == segments.lastIndex, turnLive, cwd, measured, onForget, onOpenMemory)
+                }
+                when (seg) {
+                    is WorkSegment.One -> ToolPictures(listOf(seg.call.use), results, pictures)
+                    is WorkSegment.Group -> ToolPictures(Work.calls(seg.entries), results, pictures)
+                    else -> Unit
                 }
             }
         }
@@ -259,6 +287,65 @@ private fun ThoughtSheet(t: WorkEntry.Thought, measured: Long?, onDismiss: () ->
                 ChatProse(t.text, streaming = t.streaming, color = c.fg2, style = ConclaveType.meta.copy(lineHeight = ConclaveType.meta.fontSize * 1.6f))
             }
         }
+    }
+}
+
+private val ThumbSize = 96.dp
+
+/** One picture a call returned, as the viewer takes it: named after the tool, "browser_screenshot-1.png". */
+private class ToolPicture(use: ToolUseBlock, index: Int, val block: ImageBlock) {
+    val key = "${use.id}:$index"
+    val tool = use.name
+    val item = ViewerItem(
+        FileCardData(
+            toolUseId = "${use.id}-$index",
+            name = FileCards.pictureName("${use.name}-${index + 1}", block.mediaType),
+            mediaType = block.mediaType,
+            size = (block.data?.length ?: 0) * 3L / 4,
+        ),
+    ) { withContext(Dispatchers.Default) { java.util.Base64.getDecoder().decode(block.data.orEmpty()) } }
+}
+
+/**
+ * The pictures the calls of a row returned, under the row and outside its
+ * fold: a strip of 96dp squares, each holding its place while it decodes so
+ * the transcript never jumps. A tap opens the in-app viewer on that picture,
+ * the row's others a swipe away.
+ */
+@Composable
+private fun ToolPictures(calls: List<ToolUseBlock>, results: Map<String, ToolResultBlock>, enabled: Boolean) {
+    val pics = remember(calls, results, enabled) {
+        calls.flatMap { u -> Media.toolPictures(enabled, results[u.id]).mapIndexed { i, b -> ToolPicture(u, i, b) } }
+    }
+    if (pics.isEmpty()) return
+    var open by remember { mutableStateOf<Int?>(null) }
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 2.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        pics.forEachIndexed { n, p -> key(p.key) { Thumb(p, onClick = { open = n }) } }
+    }
+    open?.let { n -> MediaViewer(pics.map { it.item }, n) { open = null } }
+}
+
+@Composable
+private fun Thumb(p: ToolPicture, onClick: () -> Unit) {
+    val c = Conclave.colors
+    val target = with(LocalDensity.current) { (ThumbSize * 2).roundToPx() }
+    val bitmap by produceState<ImageBitmap?>(null, p.key) {
+        value = withContext(Dispatchers.Default) { p.block.data?.let { decodeScaled(it, target) } }
+    }
+    val shape = RoundedCornerShape(5.dp)
+    Box(
+        Modifier
+            .size(ThumbSize)
+            .clip(shape)
+            .border(1.dp, c.rule, shape)
+            .background(c.bgSunk)
+            .clickable(onClickLabel = "Open full screen", onClick = onClick)
+            .semantics { contentDescription = "Picture from ${p.tool}" },
+    ) {
+        bitmap?.let { Image(bitmap = it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
     }
 }
 

@@ -67,6 +67,7 @@ import dev.conclave.app.ui.theme.Conclave
 import dev.conclave.app.ui.theme.ConclaveType
 import dev.conclave.client.logic.FileCardData
 import dev.conclave.client.logic.FileCards
+import dev.conclave.client.logic.Media
 import dev.conclave.client.model.ImageBlock
 import dev.conclave.client.model.ToolResultBlock
 import dev.conclave.client.model.ToolUseBlock
@@ -84,7 +85,9 @@ import kotlinx.coroutines.withContext
  * maps cards (MapsCards.kt; the web's FileCard.tsx). Name, type and size,
  * then Open and Save. The bytes come from the hub by the call's id
  * (GET /api/sessions/:id/files/:toolUseId, with the token), never by a path.
- * Open writes them to the cache's shared/ folder (res/xml/file_paths.xml)
+ * Open shows a picture, GIF, video, PDF or text in the in-app viewer
+ * (MediaViewer.kt), swiping through the message's other files; any other
+ * type it writes to the cache's shared/ folder (res/xml/file_paths.xml)
  * and hands the FileProvider link to the app for the type; Save asks where
  * with the system's create-document picker. A PNG, JPEG, WebP or GIF up to
  * 20 MB also shows above the title (FileCard.tsx); an animated GIF or WebP
@@ -96,7 +99,7 @@ import kotlinx.coroutines.withContext
  * Pictures a GenerateImage call made come first, as a grid (the web's
  * ImageGrid): one shows large, two to four in two columns. They draw from the
  * call's result (meta.files) as soon as it ends, fetched with ?image=N, and a
- * tap opens the full-screen viewer (Reply.kt FullImage). The turn-end cards
+ * tap opens the in-app viewer (MediaViewer.kt). The turn-end cards
  * of the same files are left out (FileCards.cards).
  */
 @Composable
@@ -105,36 +108,42 @@ fun FileCardsView(uses: List<ToolUseBlock>, results: Map<String, ToolResultBlock
     val pics = FileCards.generated(uses, results)
     val cards = FileCards.cards(uses, results)
     if (cards.isEmpty() && pics.isEmpty()) return
+    val hub = LocalAppContainer.current.hub
+    var viewing by remember { mutableStateOf<FileCardData?>(null) }
     Column(Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (pics.isNotEmpty()) ImageGrid(sessionId, pics)
-        cards.forEach { FileCard(sessionId, it) }
+        if (pics.isNotEmpty()) ImageGrid(sessionId, pics, onView = { viewing = it })
+        cards.forEach { FileCard(sessionId, it, onView = { c -> viewing = c }) }
+    }
+    viewing?.let { v ->
+        val (list, start) = Media.pager(pics + cards, v)
+        MediaViewer(remember(list) { list.map { it.viewerItem(hub, sessionId) } }, start) { viewing = null }
     }
 }
 
 @Composable
-private fun ImageGrid(sessionId: String, cards: List<FileCardData>) {
+private fun ImageGrid(sessionId: String, cards: List<FileCardData>, onView: (FileCardData) -> Unit) {
     val one = cards.size == 1
     Column(Modifier.widthIn(max = if (one) 420.dp else 560.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         cards.chunked(if (one) 1 else 2).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { GridCell(sessionId, it, one, Modifier.weight(1f)) }
+                row.forEach { GridCell(sessionId, it, one, Modifier.weight(1f), onView) }
                 if (row.size == 1 && !one) Spacer(Modifier.weight(1f))
             }
         }
     }
 }
 
-/** One generated picture: square and cropped in a grid, whole when alone. A tap opens it full screen (pinch to zoom). */
+/** One generated picture: square and cropped in a grid, whole when alone. A tap opens it in the viewer (pinch to zoom). */
 @Composable
-private fun GridCell(sessionId: String, card: FileCardData, one: Boolean, modifier: Modifier) {
+private fun GridCell(sessionId: String, card: FileCardData, one: Boolean, modifier: Modifier, onView: (FileCardData) -> Unit) {
     val c = Conclave.colors
     val hub = LocalAppContainer.current.hub
     val target = with(LocalDensity.current) { 560.dp.roundToPx() }
     var failed by remember(card.toolUseId, card.image) { mutableStateOf(false) }
-    val loaded by produceState<Pair<ByteArray, ImageBitmap>?>(null, card.toolUseId, card.image) {
+    val loaded by produceState<ImageBitmap?>(null, card.toolUseId, card.image) {
         val got = try {
             val (bytes, _) = hub.api { it.sessionFile(sessionId, card.toolUseId, card.image) }
-            withContext(Dispatchers.Default) { decodeScaled(bytes, target) }?.let { bytes to it }
+            withContext(Dispatchers.Default) { decodeScaled(bytes, target) }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -143,24 +152,19 @@ private fun GridCell(sessionId: String, card: FileCardData, one: Boolean, modifi
         if (got == null) failed = true
         value = got
     }
-    var open by remember { mutableStateOf(false) }
     val shape = Modifier.clip(CardShape).border(1.dp, c.rule, CardShape)
     val l = loaded
     when {
         l != null -> Image(
-            bitmap = l.second,
+            bitmap = l,
             contentDescription = card.title ?: "Generated image",
             contentScale = if (one) ContentScale.Fit else ContentScale.Crop,
-            modifier = (if (one) modifier.heightIn(max = 420.dp) else modifier.aspectRatio(1f)).then(shape).clickable(onClickLabel = "Open full screen") { open = true },
+            modifier = (if (one) modifier.heightIn(max = 420.dp) else modifier.aspectRatio(1f)).then(shape).clickable(onClickLabel = "Open full screen") { onView(card) },
         )
         failed -> Box(modifier.aspectRatio(1f).then(shape).background(c.bgSunk).padding(12.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
             Text("Could not load ${card.name}", style = ConclaveType.meta, color = c.fault)
         }
         else -> Box(modifier.aspectRatio(1f).then(shape).background(c.bgSunk))
-    }
-    if (open && l != null) {
-        val block = remember(l) { ImageBlock(mediaType = card.mediaType, data = java.util.Base64.getEncoder().encodeToString(l.first)) }
-        FullImage(block, name = card.name) { open = false }
     }
 }
 
@@ -180,7 +184,7 @@ private fun decodePreview(bytes: ByteArray, mediaType: String, target: Int): Pre
 }
 
 @RequiresApi(Build.VERSION_CODES.P)
-private fun decodeAnimated(bytes: ByteArray, target: Int): Drawable? = runCatching {
+internal fun decodeAnimated(bytes: ByteArray, target: Int): Drawable? = runCatching {
     ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) { decoder, info, _ ->
         var sample = 1
         while (maxOf(info.size.width, info.size.height) / (sample * 2) >= target) sample *= 2
@@ -189,7 +193,7 @@ private fun decodeAnimated(bytes: ByteArray, target: Int): Drawable? = runCatchi
 }.getOrNull()
 
 @Composable
-private fun FileCard(sessionId: String, card: FileCardData) {
+private fun FileCard(sessionId: String, card: FileCardData, onView: (FileCardData) -> Unit) {
     val c = Conclave.colors
     val context = LocalContext.current
     val hub = LocalAppContainer.current.hub
@@ -215,7 +219,8 @@ private fun FileCard(sessionId: String, card: FileCardData) {
             }
         }
     }
-    fun open() = fetch { bytes ->
+    // the in-app viewer for what it can show; anything else to the app for the type, as before
+    fun open() = if (Media.viewable(card)) onView(card) else fetch { bytes ->
         val file = withContext(Dispatchers.IO) {
             val dir = File(File(context.cacheDir, "shared"), FileCards.cacheFolder(card)).apply { mkdirs() }
             File(dir, FileCards.cacheName(card)).apply { writeBytes(bytes) }
@@ -342,7 +347,7 @@ internal fun ImageActions(block: ImageBlock, name: String?, modifier: Modifier =
 
 /** The picture into Pictures/Conclave, hidden from other apps until it is whole; a clash of names gets " (1)" from MediaStore. */
 @RequiresApi(Build.VERSION_CODES.Q)
-private fun saveToPictures(context: Context, bytes: ByteArray, name: String, type: String) {
+internal fun saveToPictures(context: Context, bytes: ByteArray, name: String, type: String) {
     val resolver = context.contentResolver
     val values = ContentValues().apply {
         put(MediaStore.MediaColumns.DISPLAY_NAME, name)
@@ -407,7 +412,7 @@ private fun PreviewImage(preview: Preview, description: String, onClick: () -> U
  * windows, every navigation refused and every request but data: answered
  * empty. No JavaScript bridge, ever. Long press does nothing (no save-image menu).
  */
-private fun inertWebView(ctx: Context): WebView = WebView(ctx).apply {
+internal fun inertWebView(ctx: Context): WebView = WebView(ctx).apply {
     settings.apply {
         javaScriptEnabled = false
         javaScriptCanOpenWindowsAutomatically = false
