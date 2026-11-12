@@ -200,6 +200,11 @@ jobs:
           mkdir -p binaries
           printf 'stand-in' > "binaries/conclave-daemon-${{ matrix.triple }}${{ matrix.ext }}"
 
+      # ort-sys copy-dylibs panics (os error 3) on a clean target without these folders
+      - name: Target folders for ort-sys
+        if: runner.os == 'Windows'
+        run: mkdir -p target/debug/examples target/debug/deps
+
       - name: Check
         run: cargo check --locked --all-targets
 
