@@ -12,7 +12,7 @@
  * retry, more (ReplyIcons.tsx), quieter under earlier replies. A long press
  * selects the reply's text, as anywhere else on the phone; it opens nothing.
  */
-import { memo, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, memo, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
 import { ChevronRight, MoreHorizontal } from 'lucide-react';
 import type { ContentBlock, Message, Session, ToolResultBlock, ToolUseBlock } from '@conclave/core/types';
@@ -36,6 +36,7 @@ import { ReplyIcons } from './ReplyIcons';
 import { ChatCode, ChatMarkdown } from './ChatMarkdown';
 import { MapsCards, MapsLine } from '@/features/maps/MapsCard';
 import { FileCards, FileLine, ImageGrid } from '@/features/files/FileCard';
+import { ToolImages, toolImageItems } from '@/features/chat/ToolImages';
 import { generatedCards, generatedNames } from '@/features/files/words';
 import { WatchCards, WatchLine } from '@/features/watches/WatchCards';
 import { mapsWorkingWords } from '@/features/maps/words';
@@ -133,7 +134,8 @@ function Expand({ label, tone, children, defaultOpen = false }: { label: ReactNo
 }
 
 /** Phones: a reply's tool rows as one quiet line that opens to them. */
-function ToolFold({ label, children }: { label: string; children: ReactNode }) {
+/** `closed` shows under the fold only while it is shut (the pictures tools returned). */
+function ToolFold({ label, children, closed }: { label: string; children: ReactNode; closed?: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <div>
@@ -141,7 +143,7 @@ function ToolFold({ label, children }: { label: string; children: ReactNode }) {
         <span className="min-w-0 truncate">{label}</span>
         <ChevronRight aria-hidden strokeWidth={2} className={cn('size-4 shrink-0 text-fg-4 transition-transform duration-[var(--dur-1)]', open && 'rotate-90')} />
       </button>
-      {open && <div className="mb-2 anim-fade">{children}</div>}
+      {open ? <div className="mb-2 anim-fade">{children}</div> : closed}
     </div>
   );
 }
@@ -482,9 +484,15 @@ export const Reply = memo(function Reply({ reply, session, isLast, live, phase, 
               if (p !== toolPieces[0]) return null;
               return (
                 <div key={p.key}>
-                  <ToolFold label={toolLine(toolPieces.map((t) => t.tool))}>
+                  <ToolFold
+                    label={toolLine(toolPieces.map((t) => t.tool))}
+                    closed={<ToolImages items={toolImageItems(toolPieces.map((t) => ({ tool: t.tool, result: results[t.tool.id] ?? tools[t.tool.id]?.result })))} className="mb-2" />}
+                  >
                     {toolPieces.map((t) => (
-                      <ToolLine key={t.key} tool={t.tool} result={results[t.tool.id]} run={tools[t.tool.id]} live={live} messages={reply.messages} results={results} folded />
+                      <Fragment key={t.key}>
+                        <ToolLine tool={t.tool} result={results[t.tool.id]} run={tools[t.tool.id]} live={live} messages={reply.messages} results={results} folded />
+                        <ToolImages items={toolImageItems([{ tool: t.tool, result: results[t.tool.id] ?? tools[t.tool.id]?.result }])} always className="mt-1 mb-1.5" />
+                      </Fragment>
                     ))}
                   </ToolFold>
                   <MapsCards results={toolPieces.map((t) => results[t.tool.id] ?? tools[t.tool.id]?.result)} className="mb-2" />
@@ -493,7 +501,12 @@ export const Reply = memo(function Reply({ reply, session, isLast, live, phase, 
                 </div>
               );
             }
-            return <ToolLine key={p.key} tool={p.tool} result={results[p.tool.id]} run={tools[p.tool.id]} live={live} messages={reply.messages} results={results} />;
+            return (
+              <Fragment key={p.key}>
+                <ToolLine tool={p.tool} result={results[p.tool.id]} run={tools[p.tool.id]} live={live} messages={reply.messages} results={results} />
+                <ToolImages items={toolImageItems([{ tool: p.tool, result: results[p.tool.id] ?? tools[p.tool.id]?.result }])} className="mt-1 mb-1.5" />
+              </Fragment>
+            );
           case 'image':
             return <img key={p.key} src={p.src} alt="Image from the model" className="my-2 max-h-80 rounded-[var(--r-2)] border border-rule" />;
           case 'text': {

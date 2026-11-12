@@ -7,16 +7,18 @@
  * a card. An SVG only ever draws as an <img> (the browser runs no script and
  * loads nothing in one), from a data: URL so even "open image in new tab" is an
  * opaque origin, never the app's; it has no Open. HTML never renders here.
+ * The picture and View open the media viewer (components/ui/ImageViewer.tsx):
+ * pictures, video, audio, PDF and text or code files; HTML shows as code there.
  */
 import { useEffect, useState } from 'react';
-import { Download, ExternalLink, FileText } from 'lucide-react';
+import { Download, FileText, Maximize2 } from 'lucide-react';
 import type { ToolResultBlock, ToolUseBlock } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/text';
-import { Button } from '@/components/ui/Button';
+import { Button, buttonClass, IconButton } from '@/components/ui/Button';
 import { useIsMobile } from '@/lib/hooks';
-import { ImageThumb } from '@/components/ui/ImageViewer';
-import { fileCardOf, fileFacts, generatedCards, generatedNames, opensInTab, previewOf, shareCards, SVG_PREVIEW_MAX, type FileCardData } from './words';
+import { MediaButton, mediaKind, type MediaItem } from '@/components/ui/ImageViewer';
+import { fileCardOf, fileFacts, generatedCards, generatedNames, previewOf, shareCards, SVG_PREVIEW_MAX, type FileCardData } from './words';
 
 const BOX = 'rounded-[var(--r-2)] border border-rule-2 bg-raise';
 
@@ -50,12 +52,25 @@ function dataUrl(blob: Blob): Promise<string> {
   });
 }
 
+/** The card as the media viewer's item: the bytes come when it opens; an SVG as a data: URL, as inline. */
+function mediaItem(sessionId: string, card: FileCardData, src?: string): MediaItem {
+  const svg = card.mediaType === 'image/svg+xml';
+  return {
+    key: `${sessionId}/${card.toolUseId}/${card.image ?? ''}`,
+    name: card.name,
+    mediaType: card.mediaType,
+    size: card.size,
+    src,
+    load: () => fileBlob(sessionId, card).then(async (r) => (svg ? { url: await dataUrl(r.blob), blob: r.blob } : r)),
+  };
+}
+
 function usePreview(sessionId: string, card: FileCardData): { src?: string; svg?: string; error?: string } {
   const kind = previewOf(card);
-  const tab = opensInTab(card.mediaType);
   const [state, setState] = useState<{ src?: string; svg?: string; error?: string }>({});
   useEffect(() => {
-    if (!kind && !tab) return;
+    // a PDF, video or text file loads only when the viewer opens it
+    if (!kind) return;
     let alive = true;
     fileBlob(sessionId, card)
       .then(async ({ url, blob }) => {
@@ -69,7 +84,7 @@ function usePreview(sessionId: string, card: FileCardData): { src?: string; svg?
     return () => {
       alive = false;
     };
-  }, [sessionId, card.toolUseId, card.image, kind, tab]);
+  }, [sessionId, card.toolUseId, card.image, kind]);
   return state;
 }
 
@@ -78,6 +93,10 @@ export function FileCard({ card, sessionId, className }: { card: FileCardData; s
   const { src, svg, error } = usePreview(sessionId, card);
   const alt = card.title ?? card.name;
   const [failed, setFailed] = useState<string>();
+  const item = mediaItem(sessionId, card, kind === 'svg' ? svg : src);
+  const viewable = mediaKind(card.mediaType, card.name) !== 'other';
+  // phones: icon-only actions, so the name keeps the row's width
+  const mobile = useIsMobile();
   const download = () =>
     fileBlob(sessionId, card)
       .then(({ url }) => {
@@ -89,22 +108,32 @@ export function FileCard({ card, sessionId, className }: { card: FileCardData; s
       .catch((e: unknown) => setFailed(e instanceof Error ? e.message : String(e)));
   return (
     <div className={cn(BOX, 'max-w-[560px] overflow-hidden', className)} data-file-card={card.mediaType}>
-      {kind === 'image' && src && <img src={src} alt={alt} className="block max-h-96 w-full bg-sunk object-contain" draggable={false} />}
-      {kind === 'svg' && svg && <img src={svg} alt={alt} className="block max-h-96 w-full bg-sunk object-contain" draggable={false} referrerPolicy="no-referrer" />}
+      {((kind === 'image' && src) || (kind === 'svg' && svg)) && (
+        <MediaButton item={item} label={`Open ${alt} full size`} className="block w-full p-0">
+          <img src={kind === 'svg' ? svg : src} alt={alt} className="block max-h-96 w-full bg-sunk object-contain" draggable={false} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+        </MediaButton>
+      )}
       <div className="flex items-center gap-3 px-3.5 py-3 phone:px-4">
         <FileText className="size-5 shrink-0 text-fg-3" aria-hidden />
         <div className="min-w-0 flex-1">
           <div className="t-row truncate text-fg">{card.title ?? card.name}</div>
           <div className="truncate text-[12.5px] text-fg-3 phone:text-[13.5px]">{card.title ? `${card.name}, ` : ''}{fileFacts(card)}</div>
         </div>
-        {opensInTab(card.mediaType) && src && (
-          <Button size="sm" variant="quiet" icon={<ExternalLink className="size-4" />} onClick={() => window.open(src, '_blank', 'noopener')}>
-            Open
+        {viewable && (
+          <MediaButton item={item} label={`View ${card.name}`} className={mobile ? 'inline-flex size-11 shrink-0 items-center justify-center rounded-[var(--r-1)] text-fg-3 hov:bg-hover hov:text-fg' : buttonClass('quiet', 'sm', 'cursor-pointer')}>
+            <Maximize2 className={mobile ? 'size-[18px]' : 'size-4'} aria-hidden />
+            {!mobile && 'View'}
+          </MediaButton>
+        )}
+        {mobile ? (
+          <IconButton label={`Download ${card.name}`} size="touch" tooltip={false} onClick={() => void download()}>
+            <Download />
+          </IconButton>
+        ) : (
+          <Button size="sm" variant="outline" icon={<Download className="size-4" />} onClick={() => void download()}>
+            Download
           </Button>
         )}
-        <Button size="sm" variant="outline" icon={<Download className="size-4" />} onClick={() => void download()}>
-          Download
-        </Button>
       </div>
       {(failed ?? error) && <p className="px-3.5 pb-2.5 text-[12.5px] text-fault">Could not load the file. {failed ?? error}</p>}
     </div>
@@ -116,7 +145,11 @@ function GridCell({ card, sessionId, one }: { card: FileCardData; sessionId: str
   const box = cn('w-full rounded-[var(--r-2)] border border-rule bg-sunk object-cover', one ? 'max-h-[420px] object-contain' : 'aspect-square');
   if (error) return <div className={cn(box, 'flex aspect-square items-center justify-center p-3 text-center text-[12.5px] text-fault')}>Could not load {card.name}</div>;
   if (!src) return <div className={cn(box, 'aspect-square animate-pulse')} aria-label={`Loading ${card.name}`} />;
-  return <ImageThumb src={src} alt={card.title ?? 'Generated image'} name={card.name} className={box} />;
+  return (
+    <MediaButton item={mediaItem(sessionId, card, src)} label={`Open ${(card.title ?? 'generated image').toLowerCase()} full size`} className="block rounded-[var(--r-2)] p-0">
+      <img src={src} alt={card.title ?? 'Generated image'} className={box} loading="lazy" decoding="async" draggable={false} />
+    </MediaButton>
+  );
 }
 
 /** Pictures GenerateImage made, as a grid: one shows large, two to four in two columns. A tap opens one full screen with Download. */

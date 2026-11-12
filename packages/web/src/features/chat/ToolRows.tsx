@@ -41,6 +41,7 @@ import { WorkflowRow } from '../workflows/WorkflowCard';
 import { MapsCard } from '../maps/MapsCard';
 import { FileCard } from '../files/FileCard';
 import { fileCardOf } from '../files/words';
+import { ToolImages, toolImageItems } from './ToolImages';
 import { isMapsTool, mapsCardOf, mapsDoneWords, mapsRowTarget } from '../maps/words';
 import { WatchCard } from '../watches/WatchCards';
 import { WATCH_TOOLS, watchCardOf, watchDoneWords } from '../watches/words';
@@ -469,6 +470,8 @@ function CallGroup({ entries, sessionId, depth, live, thought }: { entries: Work
 
   const row = (e: WorkItem) => (e.type === 'call' ? <ToolRow key={e.item.tool.id} item={e.item} sessionId={sessionId} depth={depth} /> : <ThoughtRow key={e.item.key} item={e.item} thought={thought} />);
   const held = open ? [] : calls.filter((_, i) => pinned(statuses[i]));
+  // closed, the group's pictures stay in view under its row (Appearance > Show pictures from tools)
+  const images = useMemo(() => (open ? [] : toolImageItems(calls.map((c) => ({ tool: c.tool, result: c.result ?? c.run?.result })))), [open, calls]);
 
   return (
     <div ref={root} data-tool-group="">
@@ -497,6 +500,7 @@ function CallGroup({ entries, sessionId, depth, live, thought }: { entries: Work
       ) : (
         <>
           {held.length > 0 && <div className={GROUP_BODY}>{held.map((c) => row({ type: 'call', name: c.tool.name, item: c }))}</div>}
+          <ToolImages items={images} className="mb-2.5 ml-[76px] phone:ml-0" />
           {/* a marker per call, so the session's file list and links find a call in a closed group (revealToolRow) */}
           {calls.map((c) => {
             const info = toolInfo(c.tool);
@@ -532,6 +536,7 @@ export function ToolRow({ item, sessionId, depth = 0 }: { item: ToolItem; sessio
   const { res, status, ms } = useToolState(item);
   const info = TASK_TOOLS.has(tool.name) ? { ...toolInfo(tool), ...taskToolWords(tool.name, tool.input, res ? resultText(res) : undefined) } : toolInfo(tool);
   const files = useMemo(() => (info.kind === 'edit' ? editFiles(tool, res) : []), [info.kind, tool, res]);
+  const images = useMemo(() => toolImageItems([{ tool, result: res }]), [tool, res]);
   const output = res ? resultText(res) : (item.run?.progress ?? '');
   const lines = lineCount(output);
 
@@ -606,8 +611,12 @@ export function ToolRow({ item, sessionId, depth = 0 }: { item: ToolItem; sessio
         </button>
       )}
 
+      {/* open, the pictures sit in the fold above the output instead */}
+      {!expanded && <ToolImages items={images} className="mb-2.5 ml-[76px] phone:ml-0" />}
+
       {expanded && (
         <div className="pb-2.5 anim-fade">
+          <ToolImages items={images} always className="mb-2" />
           {info.kind === 'edit' && files.length > 0 ? (
             <div className="space-y-2">
               {files.map((f, i) => (

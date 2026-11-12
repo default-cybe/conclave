@@ -22,6 +22,8 @@ import type { AgentDef, InstalledPlugin } from '@conclave/core/extensions/types'
 import type { ModelInfo } from '@conclave/core/providers/types';
 import { EFFORTS, modelEffort, type Effort } from '@conclave/core/providers/effort';
 import { longSession, longTurns } from './long';
+import shotLogin from './images/shot-login.png';
+import shotDashboard from './images/shot-dashboard.png';
 
 export const NOW = Date.now();
 const MIN = 60_000;
@@ -324,6 +326,8 @@ export const sessions: Session[] = [
   session({ id: 's_brief', title: 'Morning brief, Thursday', agent: 'researcher', model: 'google/gemini-3-flash', routineId: 'r_brief', meta: { doneAt: ago(DAY + 6 * HOUR - 3 * MIN) }, createdAt: ago(DAY + 6 * HOUR), updatedAt: ago(DAY + 6 * HOUR - 3 * MIN), stats: stats(4, 48_000, 2_100, 0, 0.02) }),
   session({ id: 's_os', title: 'OS assignment: MLFQ scheduler', agent: 'tutor', model: 'codex/gpt-5.5', status: 'running', device: 'local', cwd: '~/uni/os/a3', taskId: 't_os', tags: ['uni'], createdAt: ago(31 * MIN), updatedAt: ago(8_000), stats: stats(12, 96_000, 7_200, 64_000, 0) }),
   session({ id: 's_nmap', title: 'Parse nmap XML into a report', agent: 'coder', model: 'ollama/qwen3-coder:30b', status: 'error', error: 'Connection refused: ollama at 127.0.0.1:11434', device: 'arch-desktop', cwd: '~/code/scantools', createdAt: ago(3 * DAY), updatedAt: ago(3 * DAY - 20 * MIN) }),
+  // pictures from tools: browser screenshots and a Read of a PNG, as thumbnails under their rows (Appearance > Show pictures from tools)
+  session({ id: 's_shots', title: 'Check the dashboard login in the browser', agent: 'coder', model: 'anthropic/claude-sonnet-5-5', device: 'arch-desktop', cwd: '~/code/homelab-dash', createdAt: ago(3 * HOUR), updatedAt: ago(3 * HOUR - 4 * MIN), stats: stats(6, 40_000, 1_900, 30_000, 0.09) }),
   session({ id: 's_wg', title: 'WireGuard split tunnel for uni VPN', agent: 'sysadmin', model: 'anthropic/claude-opus-5-5', device: 'arch-desktop', createdAt: ago(4 * DAY), updatedAt: ago(4 * DAY - HOUR), tags: ['network'] }),
   session({ id: 's_ret2', title: 'Explain ret2libc with ASLR on', agent: 'tutor', model: 'openai/gpt-5.5', createdAt: ago(6 * DAY), updatedAt: ago(6 * DAY), tags: ['security'] }),
   // Refusal fallback (Settings > Models): Opus on neu declined, Opus on personal answered; the next reply was refused
@@ -756,7 +760,36 @@ function wgTranscript(): Message[] {
   ];
 }
 
+function shotsTranscript(): Message[] {
+  const S = 's_shots';
+  const t0 = ago(3 * HOUR);
+  const by = { model: 'anthropic/claude-sonnet-5-5', agent: 'coder' };
+  const pic = (url: string) => ({ type: 'image' as const, mediaType: 'image/png', url });
+  return [
+    msg(S, 'user', [text('The dashboard login says invalid credentials for kai. Open it in the browser and check what happens.')], {}, t0),
+    msg(
+      S,
+      'assistant',
+      [
+        { type: 'thinking', thinking: 'Open the page, sign in as kai, and look at what the form shows.', durationMs: 4_000 },
+        { type: 'tool_use', id: 'sh_nav', name: 'browser_navigate', input: { url: 'http://dash.lan/login' } },
+        { type: 'tool_use', id: 'sh_fill', name: 'browser_fill', input: { selector: '#password', value: '********' } },
+        { type: 'tool_use', id: 'sh_shot1', name: 'browser_screenshot', input: {} },
+      ],
+      by,
+      t0 + 6_000,
+    ),
+    msg(S, 'user', [{ type: 'tool_result', toolUseId: 'sh_nav', content: 'Opened http://dash.lan/login' }, { type: 'tool_result', toolUseId: 'sh_fill', content: 'Filled #password' }, { type: 'tool_result', toolUseId: 'sh_shot1', content: [pic(shotLogin)] }], {}, t0 + 14_000),
+    msg(S, 'assistant', [text('The form rejects the password. The proxy sends the login to Authentik with the wrong client id; fixing `AUTH_CLIENT_ID` in `.env` and trying again:'), { type: 'tool_use', id: 'sh_edit', name: 'Edit', input: { file_path: '.env', old_string: 'AUTH_CLIENT_ID=dash-old', new_string: 'AUTH_CLIENT_ID=dash' } }, { type: 'tool_use', id: 'sh_shot2', name: 'browser_screenshot', input: {} }], by, t0 + 30_000),
+    msg(S, 'user', [{ type: 'tool_result', toolUseId: 'sh_edit', content: 'Edited .env' }, { type: 'tool_result', toolUseId: 'sh_shot2', content: [pic(shotDashboard)] }], {}, t0 + 52_000),
+    msg(S, 'assistant', [{ type: 'tool_use', id: 'sh_read', name: 'Read', input: { file_path: 'docs/login-before.png' } }], by, t0 + 55_000),
+    msg(S, 'user', [{ type: 'tool_result', toolUseId: 'sh_read', content: [pic(shotLogin)] }], {}, t0 + 56_000),
+    msg(S, 'assistant', [text('Signed in as kai now. The dashboard shows all six tiles; `docs/login-before.png` is the old error for the issue.')], { ...by, stopReason: 'end_turn' }, t0 + 60_000),
+  ];
+}
+
 export const transcripts: Record<string, Message[]> = {
+  s_shots: shotsTranscript(),
   s_wg: wgTranscript(),
   s_auth: authTranscript(),
   s_explore: exploreTranscript(),

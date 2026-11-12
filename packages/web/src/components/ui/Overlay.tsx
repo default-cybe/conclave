@@ -597,7 +597,7 @@ export function SideSheet({ open, onClose, children, width = 340, className, lab
 }
 
 let locks = 0;
-function useLockScroll(on: boolean) {
+export function useLockScroll(on: boolean) {
   useEffect(() => {
     if (!on) return;
     locks++;

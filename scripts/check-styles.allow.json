@@ -1,5 +1,11 @@
 [
   {
+    "file": "packages/web/src/components/ui/ImageViewer.tsx",
+    "rule": "glass",
+    "match": "bg-black/92 backdrop-blur-xl",
+    "reason": "The owner asked for the full-screen media viewer's backdrop to be dark and blurred; it is a scrim over the whole app, not glass chrome."
+  },
+  {
     "file": "packages/web/src/features/conversation/Preview.tsx",
     "rule": "hex",
     "match": "background:#fff",

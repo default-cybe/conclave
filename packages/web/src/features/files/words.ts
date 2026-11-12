@@ -84,9 +84,17 @@ const KIND: Record<string, string> = {
   'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PowerPoint deck',
 };
 
+/** "PDF", "PNG image", "MP4 video", "File". */
+export function kindWord(mediaType: string): string {
+  if (KIND[mediaType]) return KIND[mediaType];
+  const [top, sub = ''] = mediaType.split('/');
+  const name = sub.replace(/^x-/, '').split(/[+.;]/)[0].toUpperCase();
+  return name && ['image', 'video', 'audio'].includes(top) ? `${name} ${top}` : 'File';
+}
+
 /** "PDF, 14.2 KB". */
 export function fileFacts(c: Pick<FileCardData, 'mediaType' | 'size'>): string {
-  return `${KIND[c.mediaType] ?? 'File'}, ${sizeWords(c.size)}`;
+  return `${kindWord(c.mediaType)}, ${sizeWords(c.size)}`;
 }
 
 /** Largest raster image a card shows inline (the phone's FileCards.INLINE_MAX). */

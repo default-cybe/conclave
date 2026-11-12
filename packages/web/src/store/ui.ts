@@ -21,6 +21,8 @@ interface Prefs {
   motion: MotionPref;
   /** Appearance: the conversation's text, Small to Larger (lib/textSize.ts). */
   textSize: TextSize;
+  /** Appearance: pictures from tools (screenshots, a Read of a PNG) as thumbnails under their tool row, outside the fold. */
+  toolImages: boolean;
   listGroup: ListGroup;
   showArchived: boolean;
   pinnedOnly: boolean;
@@ -74,6 +76,7 @@ function loadPrefs(): Prefs {
     density: 'comfortable',
     motion: 'system',
     textSize: 'default',
+    toolImages: true,
     listGroup: 'date',
     showArchived: false,
     pinnedOnly: false,
@@ -117,12 +120,12 @@ export const useUi = create<UiState>((set) => ({
 
 // persist prefs on change
 useUi.subscribe((s, prev) => {
-  const keys: Array<keyof Prefs> = ['theme', 'logos', 'density', 'motion', 'textSize', 'listGroup', 'showArchived', 'pinnedOnly', 'contextOpen', 'juryLayout', 'sideGroup', 'foldedGroups', 'cards'];
+  const keys: Array<keyof Prefs> = ['theme', 'logos', 'density', 'motion', 'textSize', 'toolImages', 'listGroup', 'showArchived', 'pinnedOnly', 'contextOpen', 'juryLayout', 'sideGroup', 'foldedGroups', 'cards'];
   if (!keys.some((k) => s[k] !== prev[k])) return;
   try {
-    const { theme, logos, density, motion, textSize, listGroup, showArchived, pinnedOnly, contextOpen, juryLayout, sideGroup, foldedGroups, cards } = s;
+    const { theme, logos, density, motion, textSize, toolImages, listGroup, showArchived, pinnedOnly, contextOpen, juryLayout, sideGroup, foldedGroups, cards } = s;
     localStorage.setItem(PREFS_KEY, JSON.stringify({ listGroup, showArchived, pinnedOnly, contextOpen, juryLayout, sideGroup, foldedGroups, cards }));
-    localStorage.setItem(APPEARANCE_KEY, JSON.stringify({ theme, logos, density, motion, textSize }));
+    localStorage.setItem(APPEARANCE_KEY, JSON.stringify({ theme, logos, density, motion, textSize, toolImages }));
   } catch {
     /* private mode: keep it in memory */
   }

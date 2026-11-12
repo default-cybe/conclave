@@ -43,6 +43,7 @@ export function AppearanceSection() {
   const density = useUi((s) => s.density);
   const motion = useUi((s) => s.motion);
   const textSize = useUi((s) => s.textSize);
+  const toolImages = useUi((s) => s.toolImages);
   const set = useUi((s) => s.set);
   // a member's greeting is their display name, set in Your account; the hub's ui.name is the owner's
   const owner = useIsOwner();
@@ -88,6 +89,9 @@ export function AppearanceSection() {
           />
         </SettingRow>
         <TextSizeRow value={textSize} onChange={(v) => set({ textSize: v })} size={size} />
+        <SettingRow label="Show pictures from tools in the transcript" help="Screenshots and other pictures a tool returns show as thumbnails under their tool row, outside the fold. Off keeps them inside the fold only.">
+          <OnOff label="Show pictures from tools in the transcript" size={size} checked={toolImages} onChange={(v) => set({ toolImages: v })} />
+        </SettingRow>
         <SettingRow label="Density" help="Compact tightens rows and uses 13px body text.">
           <Segmented<Density>
             label="Density"
