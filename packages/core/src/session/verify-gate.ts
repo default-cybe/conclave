@@ -132,7 +132,9 @@ export async function detectVerifyCommand(machine: Machine, cwd: string, pyFiles
   }
   if (await exists(machine, at('Cargo.toml'))) return 'cargo check --quiet';
   if (await exists(machine, at('go.mod'))) return 'go build ./...';
-  if (pyFiles.length) return `python3 -m py_compile ${pyFiles.map(shq).join(' ')}`;
+  // a file the agent edited and then deleted (a one-off script) has nothing left to compile
+  const present = (await Promise.all(pyFiles.map(async (f) => ((await exists(machine, f.startsWith('/') ? f : at(f))) ? f : undefined)))).filter((f): f is string => !!f);
+  if (present.length) return `python3 -m py_compile ${present.map(shq).join(' ')}`;
   return undefined;
 }
 

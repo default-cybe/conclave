@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startTestEngine, toolResults, type Block, type Step } from './harness';
@@ -182,7 +182,7 @@ describe('verify gate', () => {
       readText: async () => {
         throw new Error('missing');
       },
-      stat: async () => null,
+      stat: async (p: string) => (p === '/new/app.py' ? { isFile: true } : null),
     } as unknown as Machine;
     const coder = { name: 'coder', description: '', prompt: 'x', source: 'builtin', recipes: ['verify-gate'] };
     const engine = {
@@ -200,6 +200,58 @@ describe('verify gate', () => {
     gate.extension().afterTool!({ sessionId: session.id, session, tool: edit, input: { file_path: '/old/app.py' } } as never, {} as never, { content: 'ok', meta: { path: '/new/app.py' } });
     await gate.check(session);
     expect(commands).toEqual(["python3 -m py_compile '/new/app.py'"]);
+  });
+
+  /** A coder session whose device is the real disk; records the commands the gate runs. */
+  function pyGate() {
+    const commands: string[] = [];
+    const machine = {
+      exec: async (command: string) => (commands.push(command), { exitCode: 1, stdout: '', stderr: 'No such file', timedOut: false, aborted: false, durationMs: 1 }),
+      readText: async () => {
+        throw new Error('missing');
+      },
+      stat: async (p: string) => (existsSync(p) ? { isFile: true } : null),
+    } as unknown as Machine;
+    const coder = { name: 'coder', description: '', prompt: 'x', source: 'builtin', recipes: ['verify-gate'] };
+    const notices: string[] = [];
+    const engine = {
+      extensions: { agent: () => coder },
+      agentNamed: () => coder,
+      accountOf: () => OWNER_ID,
+      trust: { isTrusted: () => true },
+      machineFor: () => machine,
+      notice: (_id: string, text: string) => notices.push(text),
+      audit: () => {},
+    } as unknown as Engine;
+    const cwd = td();
+    const session = { id: 'ses_pydel', kind: 'agent', agent: 'coder', cwd, device: 'local', permissionMode: 'default' } as Session;
+    return { gate: new VerifyGate(engine), session, cwd, commands, notices };
+  }
+
+  test('a Python file the agent edited and then deleted is not compiled, and the turn ends quietly', async () => {
+    // before: `python3 -m py_compile '/root/ak_fix.py'` ran on the deleted one-off script and "still fails" was shown
+    const { gate, session, cwd, commands, notices } = pyGate();
+    const script = join(cwd, 'ak_fix.py');
+    writeFileSync(script, 'print(1)\n');
+    gate.noteEdit(session.id, script);
+    rmSync(script);
+    expect(await gate.check(session)).toBeUndefined();
+    expect(commands).toEqual([]);
+    expect(await gate.check(session)).toBeUndefined();
+    expect(notices).toEqual([]);
+  });
+
+  test('with one deleted and one existing Python file, only the existing one is compiled', async () => {
+    const { gate, session, cwd, commands } = pyGate();
+    const gone = join(cwd, 'gone.py');
+    const kept = join(cwd, 'kept.py');
+    writeFileSync(gone, 'x = 1\n');
+    writeFileSync(kept, 'y = 2\n');
+    gate.noteEdit(session.id, gone);
+    gate.noteEdit(session.id, kept);
+    rmSync(gone);
+    await gate.check(session);
+    expect(commands).toEqual([`python3 -m py_compile '${kept}'`]);
   });
 
   test('a real failure still sends the agent back', async () => {

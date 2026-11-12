@@ -7,6 +7,12 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
+## [Unreleased]
+
+### Fixed
+
+- The verify gate no longer reports 'py_compile still fails' for a Python file the agent deleted
+
 ## [0.4.91] - 2026-11-11
 
 ### Fixed
