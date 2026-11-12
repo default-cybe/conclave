@@ -247,6 +247,13 @@ jobs:
           MACOS_SIGNING_P12_PASSWORD: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
         run: scripts/ci/macos-keychain.sh
 
+      # ort-sys copy-dylibs panics (os error 3) on a clean target without these folders (build/ is OUT_DIR's 3rd ancestor in cargo's new build-dir layout)
+      - name: Target folders for ort-sys
+        if: runner.os == 'Windows'
+        shell: bash
+        working-directory: packages/desktop/src-tauri
+        run: mkdir -p target/release/examples target/release/deps target/release/build/examples target/release/build/deps
+
       # The desktop app ships only its small connection page (packages/desktop/src)
       # and loads the web UI from the hub, so it does not need the web build.
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
