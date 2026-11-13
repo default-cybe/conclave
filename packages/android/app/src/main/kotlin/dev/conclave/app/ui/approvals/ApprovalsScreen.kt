@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.conclave.app.data.HubRepository
+import dev.conclave.app.ui.common.EXPIRED
 import dev.conclave.app.ui.common.HubViewModel
 import dev.conclave.app.ui.common.LocalAppContainer
 import dev.conclave.app.ui.common.MessagesEffect
@@ -75,7 +76,7 @@ class ApprovalsViewModel(hub: HubRepository) : HubViewModel(hub) {
         hub.alerts.value = hub.api { it.alerts() }
     }
 
-    fun decide(id: String, response: ApprovalResponse) = action { hub.resolveApproval(id, response) }
+    fun decide(id: String, response: ApprovalResponse) = action { if (!hub.resolveApproval(id, response)) say(EXPIRED) }
 
     fun answer(id: String, what: AlertAction) = action { hub.actOnAlert(id, what) }
 }

@@ -18,6 +18,8 @@ import { RunningTasksView } from '../src/features/chat/RunningTasks';
 import { subagentNowOf } from '../src/features/chat/ToolRows';
 import { ApprovalCard } from '../src/components/inbox/ApprovalCard';
 import { QuestionCard } from '../src/components/inbox/QuestionCard';
+import { connectClient } from '../src/lib/api';
+import { answerApproval, applyEvent, useHub } from '../src/store/store';
 
 const NOW = 1_800_000_000_000;
 
@@ -198,3 +200,48 @@ describe('waiting on you, on the task', () => {
     expect(subagentNowOf({ ...state, approvals: {} }, 's_email').waiting).toBe(false);
   });
 });
+
+describe('an approval the hub no longer holds', () => {
+  /** A hub that answers every approval with `status` and lists `open` as the pending ones. */
+  async function hubSays(status: number, open: ApprovalRequest[]) {
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.endsWith('/api/approvals')) return Response.json(open);
+      return Response.json(status === 200 ? { ok: true } : { error: 'approval is not pending' }, { status });
+    }) as typeof fetch;
+    try {
+      await connectClient({ baseUrl: 'http://hub.test', token: 't' });
+    } finally {
+      globalThis.fetch = real;
+    }
+  }
+
+  test('a 404 "not pending" or a 409 removes the card, refetches the open ones and says so quietly', async () => {
+    for (const status of [404, 409]) {
+      const stale = approval({ id: 'ap_stale', sessionId: 's_mail', from: undefined });
+      await hubSays(status, [twoDown]);
+      useHub.setState({ approvals: { ap_stale: stale }, toasts: [] } as never);
+      expect(await answerApproval('ap_stale', { decision: 'allow', scope: 'once' })).toBe(false);
+      expect(useHub.getState().approvals.ap_stale).toBeUndefined();
+      expect(useHub.getState().toasts.map((t) => [t.title, t.level])).toEqual([['This request expired', 'info']]);
+      // the hub's list came back: the one it still holds shows
+      expect(await until(() => !!useHub.getState().approvals.ap_deep)).toBe(true);
+    }
+  });
+
+  test('a turn that ended takes its running calls and the approvals the hub dropped with it', async () => {
+    await hubSays(200, []);
+    const tu = { type: 'tool_use' as const, id: 'tu_bash', name: 'Bash', input: { command: 'ls' } };
+    const msg: Message = { id: 'm1', sessionId: 's_mail', seq: 1, role: 'assistant', kind: 'normal', content: [tu], createdAt: NOW };
+    useHub.setState({ sessions: { s_mail: top }, messages: { s_mail: [msg] }, tools: { tu_bash: { status: 'running', name: 'Bash', startedAt: NOW, progress: '' } }, approvals: { ap_own: own } } as never);
+    applyEvent({ type: 'session.updated', session: { ...top, status: 'idle' }, seq: 1, ts: NOW } as never);
+    expect(useHub.getState().tools.tu_bash).toBeUndefined();
+    expect(await until(() => !useHub.getState().approvals.ap_own)).toBe(true);
+  });
+});
+
+async function until(fn: () => boolean, ms = 2000): Promise<boolean> {
+  for (const end = Date.now() + ms; Date.now() < end; await Bun.sleep(10)) if (fn()) return true;
+  return fn();
+}

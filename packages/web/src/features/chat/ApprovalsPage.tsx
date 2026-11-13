@@ -28,8 +28,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'wouter';
 import type { ApprovalRequest, QuestionRequest } from '@conclave/core/types';
 import type { AlertItem } from '@conclave/core/client';
-import { api } from '@/lib/api';
-import { attempt, removeKey, useHub, useQuietAlertToasts, useQuietAskToasts } from '@/store/store';
+import { answerApproval, removeKey, useHub, useQuietAlertToasts, useQuietAskToasts } from '@/store/store';
 import { cn } from '@/lib/text';
 import { hhmm, relTime } from '@/lib/format';
 import { harnessId } from '@/lib/models';
@@ -152,7 +151,7 @@ function InboxPage() {
     for (const id of checked) {
       const a = approvalMap[id];
       if (!a) continue;
-      const ok = await attempt(() => api().resolveApproval(id, { decision: 'deny' }));
+      const ok = await answerApproval(id, { decision: 'deny' });
       if (ok) {
         logResolved({ kind: 'approval', id, at: Date.now(), decision: 'deny', approval: a });
         removeKey('approvals', id);
