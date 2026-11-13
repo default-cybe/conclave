@@ -38,9 +38,11 @@ export function useSessionFiles(sessionId: string): SessionFile[] {
   const messages = useHub((s) => s.messages[sessionId]);
   const older = useHub((s) => !!s.messagesOlder[sessionId]);
   const local = useMemo(() => newestFirst(filesOf(messages ?? [])), [messages]);
-  // asked again only when the loaded list grows: a new file, not every streamed word
-  const hub = useLoad(() => (older ? api().sessionFiles(sessionId) : Promise.resolve(undefined)), [sessionId, older, local.length]);
-  return useMemo(() => mergeFiles(local, older ? hub.data : undefined), [local, older, hub.data]);
+  // asked once per chat (the hub reads the whole transcript for it); files that come later are in `local`.
+  // The answer carries its chat, so a list from the chat before a switch is never shown
+  const hub = useLoad(() => (older ? api().sessionFiles(sessionId).then((list) => ({ sessionId, list })) : Promise.resolve(undefined)), [sessionId, older]);
+  const list = hub.data?.sessionId === sessionId ? hub.data.list : undefined;
+  return useMemo(() => mergeFiles(local, older ? list : undefined), [local, older, list]);
 }
 
 /** The hub's list with what the app has that the hub has not yet saved, newest first. */
@@ -87,7 +89,7 @@ export function fileItem(sessionId: string, f: SessionFile, messages: readonly M
   // the loaded message's bytes, when it has them, show at once
   const held = messages?.find((x) => x.id === f.messageId)?.content[f.index];
   const part = held?.type === 'tool_result' && Array.isArray(held.content) && f.part !== undefined ? held.content[f.part] : held;
-  if (f.page === undefined && part && (part.type === 'image' || part.type === 'document') && part.data) return { ...base, src: `data:${part.mediaType};base64,${part.data}` };
+  if (f.page === undefined && part && (part.type === 'image' || part.type === 'document') && part.data) return { ...base, src: dataUrl(part as { mediaType: string; data: string }) };
   const id = `${sessionId}/${f.key}`;
   return {
     ...base,
@@ -96,15 +98,38 @@ export function fileItem(sessionId: string, f: SessionFile, messages: readonly M
       if (!p) {
         p = fetchBytes(sessionId, f, messages);
         p.catch(() => loads.delete(id));
-        loads.set(id, p);
+        remember(id, p);
       }
       return p;
     },
   };
 }
 
-/** One fetch per file for the page's life, as FileCard.tsx fileBlob: a thumbnail and the viewer share it. */
+/** One data: URL per block, not a new multi-MB string on every streamed render. */
+const dataUrls = new WeakMap<object, string>();
+function dataUrl(b: { mediaType: string; data: string }): string {
+  let u = dataUrls.get(b);
+  if (!u) dataUrls.set(b, (u = `data:${b.mediaType};base64,${b.data}`));
+  return u;
+}
+
+/**
+ * One fetch per file, as FileCard.tsx fileBlob: a thumbnail and the viewer share it.
+ * Kept for the open chat only and at most LOADS_MAX, oldest out first, so a long
+ * screenshot session does not pin its bytes for the page's life.
+ */
 const loads = new Map<string, Promise<{ url: string; blob: Blob }>>();
+const LOADS_MAX = 120;
+function forget(id: string) {
+  void loads.get(id)?.then((r) => URL.revokeObjectURL(r.url), () => undefined);
+  loads.delete(id);
+}
+function remember(id: string, p: Promise<{ url: string; blob: Blob }>) {
+  const chat = id.slice(0, id.indexOf('/') + 1);
+  for (const k of [...loads.keys()]) if (!k.startsWith(chat)) forget(k);
+  while (loads.size >= LOADS_MAX) forget(loads.keys().next().value!);
+  loads.set(id, p);
+}
 
 async function fetchBytes(sessionId: string, f: SessionFile, messages: readonly Message[] | undefined): Promise<{ url: string; blob: Blob }> {
   const b = await blockOf(sessionId, f, messages);

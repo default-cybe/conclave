@@ -29,7 +29,8 @@ pub fn safe_name(name: &str) -> String {
     let base = name.rsplit(|c: char| c == '/' || c == '\\').next().unwrap_or("");
     let mut out: String = base
         .chars()
-        .map(|c| if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*') { '_' } else { c })
+        // bidi controls too: "invoice\u{202E}fdp.exe" would show as invoiceexe.pdf
+        .map(|c| if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}') { '_' } else { c })
         .collect();
     out = out.trim().trim_start_matches('.').trim_end_matches(|c: char| c == '.' || c == ' ').to_string();
     if out.chars().count() > 120 {
@@ -116,6 +117,7 @@ mod tests {
         assert_eq!(safe_name("con.txt"), "_con.txt");
         assert_eq!(safe_name("COM1"), "_COM1");
         assert_eq!(safe_name("compute.txt"), "compute.txt");
+        assert_eq!(safe_name("invoice\u{202E}fdp.exe"), "invoice_fdp.exe");
         let long = format!("{}.png", "x".repeat(300));
         let cut = safe_name(&long);
         assert_eq!(cut.chars().count(), 120);
