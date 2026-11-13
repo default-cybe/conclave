@@ -49,7 +49,7 @@ fun memoryModeOf(chat: ChatSettings?): MemoryMode = when {
 /** The chat patch for a session that exists: Use and save sends memorySave true, which core session/chat.ts clears (web memoryPatch). */
 fun memoryPatch(m: MemoryMode): ChatSettingsPatch = ChatSettingsPatch(memory = m != MemoryMode.OFF, memorySave = m != MemoryMode.USE)
 
-/** The memory chip's words. */
+/** Memory in words, as the Options chip and its sheet say it. */
 fun memoryWords(m: MemoryMode): String = when (m) {
     MemoryMode.SAVE -> "Memory"
     MemoryMode.USE -> "Memory, use only"

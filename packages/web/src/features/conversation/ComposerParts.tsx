@@ -1,10 +1,11 @@
 /**
  * Parts of the composer, shaped like Claude Code's: one box with "+" at the
  * left, the field, the mic and Send; under it one quiet row with the
- * permission mode (and Code's folder) at the left, and at the right the
- * agent, mode and memory chips, the model with its effort as one picker and
- * a small ring for the context used (design PR #292). "+" holds files and
- * add-ons only; the rest is behind "/".
+ * permission mode (and Code's folder and device, one chip) at the left, and
+ * at the right the model with its effort as one picker, the Options chip
+ * (style, agent, memory; design review #6) and a small ring for the context
+ * used (design PR #292). "+" holds files and add-ons only; the rest is
+ * behind "/".
  *
  * Effort offers the levels the hub's model list gives each model
  * (ModelInfo.effort, lib/effort.ts), its default marked; a level the next
@@ -442,20 +443,20 @@ export function QuietRow({ left, right, wrap }: { left?: ReactNode; right: React
 }
 
 // ---------------------------------------------------------------------------
-// Chips: agent, style (the session mode) and memory under the box (design PR #292)
+// Options: style (the session mode), agent and memory in one chip (design review #6)
 // ---------------------------------------------------------------------------
 
 /** The chips' size: the quiet row's on desktop, a 36px place to tap on phones. */
 export const CHIP = 'h-[24px] text-[12px] phone:h-9 phone:text-[13px]';
 
 /** A compact chip under the box that opens a menu (a sheet on phones). */
-export function ChipMenu({ label, words, items, width = 300, className, onClose }: { label: string; words: string; items: MenuItem[]; width?: number; className?: string; onClose?: () => void }) {
+export function ChipMenu({ label, words, spoken = typeof words === 'string' ? words : label, items, width = 300, className, onClose }: { label: string; words: ReactNode; /** What a screen reader says after the label, when the chip shows less. */ spoken?: string; items: MenuItem[]; width?: number; className?: string; onClose?: () => void }) {
   const ref = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const close = () => (setOpen(false), onClose?.());
   return (
     <>
-      <PickerButton ref={ref} look="text" data-chip={label.toLowerCase()} aria-label={`${label}, ${words}`} aria-haspopup="menu" aria-expanded={open} className={cn(CHIP, className)} onClick={() => (open ? close() : setOpen(true))}>
+      <PickerButton ref={ref} look="text" data-chip={label.toLowerCase()} aria-label={`${label}, ${spoken}`} title={spoken === words ? undefined : spoken} aria-haspopup="menu" aria-expanded={open} className={cn(CHIP, className)} onClick={() => (open ? close() : setOpen(true))}>
         {words}
       </PickerButton>
       <Popover anchor={ref} open={open} onClose={close} placement="top-end" width={width} maxHeight={520} label={label} sheetTitle={label}>
@@ -465,41 +466,78 @@ export function ChipMenu({ label, words, items, width = 300, className, onClose 
   );
 }
 
-/** The agent: the ones offered here (Code: the default and the custom ones). */
-export function AgentChip({ value, agents, onChange }: { value: string | undefined; agents: Array<{ name: string; description?: string }>; onChange: (name: string) => void }) {
-  const items: MenuItem[] = [{ group: true, label: 'Agent' }, ...agents.map((a) => ({ label: a.name, detail: a.description, checked: a.name === value, onSelect: () => a.name !== value && onChange(a.name) }))];
-  return <ChipMenu label="Agent" words={value ?? 'Agent'} items={items} />;
+export const MEMORY_WORDS: Record<MemoryMode, string> = { save: 'Memory', use: 'Memory, use only', off: 'No memory' };
+
+/** The style part of Options: the session mode, and Ultra where the session takes it (`onUltra`). */
+export interface StyleOption {
+  mode: SessionMode;
+  onMode: (m: SessionMode) => void;
+  ultra?: boolean;
+  onUltra?: (on: boolean) => void;
+}
+
+/** The agent part of Options: the ones offered here, the default first (Code: coder, then the custom ones). */
+export interface AgentOption {
+  value: string | undefined;
+  agents: Array<{ name: string; description?: string }>;
+  onChange: (name: string) => void;
 }
 
 /**
- * "Agent style" (design review #4): Agent, Chat and Plan, then a "More styles"
- * fold with Jury, Debate, Loop and Ultra (where the session takes it,
- * `onUltra`). The fold starts open while one of those is on; a toggle by
- * hand lasts until the menu closes.
+ * What Options has changed from the defaults, in words: memory first, so "No
+ * memory" is never the part left out, then the style ("Plan"), Ultra and an
+ * agent other than the default.
  */
-export function ModeChip({ mode, onMode, ultra, onUltra }: { mode: SessionMode; onMode: (m: SessionMode) => void; ultra?: boolean; onUltra?: (on: boolean) => void }) {
-  const cur = MODES.find((m) => m.value === mode) ?? MODES[0];
-  const ultraOn = !!onUltra && !!ultra;
-  const [fold, setFold] = useState<boolean>();
-  const more = fold ?? (!!cur.more || ultraOn);
-  const row = (m: (typeof MODES)[number]): MenuItem => ({ label: m.label, detail: m.description, checked: m.value === mode, onSelect: () => m.value !== mode && onMode(m.value) });
-  const items: MenuItem[] = [
-    { group: true, label: STYLE_HEADING },
-    ...MODES.filter((m) => !m.more).map(row),
-    { separator: true, label: '' },
-    { label: MORE_STYLES, hint: <ChevronDown size={14} className={cn('transition-transform', more && 'rotate-180')} aria-hidden />, expanded: more, keep: true, onSelect: () => setFold(!more) },
-    ...(more ? MODES.filter((m) => m.more).map(row) : []),
-    // Ultra off keeps the fold open under the row just used
-    ...(more && onUltra ? [{ label: 'Ultra', detail: ULTRA_LINE, checked: !!ultra, keep: true, onSelect: () => (setFold(true), onUltra(!ultra)) }] : []),
-  ];
-  return <ChipMenu label="Style" words={`${cur.label} style${ultraOn ? ', Ultra' : ''}`} items={items} onClose={() => setFold(undefined)} />;
+export function optionsChanges({ style, agent, memory }: { style?: Pick<StyleOption, 'mode' | 'ultra' | 'onUltra'>; agent?: Pick<AgentOption, 'value' | 'agents'>; memory?: MemoryMode }): string[] {
+  const mode = style && style.mode !== 'agent' ? MODES.find((m) => m.value === style.mode)?.label : undefined;
+  const custom = agent?.value && agent.value !== agent.agents[0]?.name ? agent.value : undefined;
+  return [memory && memory !== 'save' ? MEMORY_WORDS[memory] : undefined, mode, style?.onUltra && style.ultra ? 'Ultra' : undefined, custom].filter((w): w is string => !!w);
 }
 
-export const MEMORY_WORDS: Record<MemoryMode, string> = { save: 'Memory', use: 'Memory, use only', off: 'No memory' };
+/** The chip's words: "Options" at the defaults, else the first change and how many more ("No memory +1"). */
+export const optionsWords = (changes: string[]) => (changes.length ? `${changes[0]}${changes.length > 1 ? ` +${changes.length - 1}` : ''}` : 'Options');
 
-/** "Memory", "Memory, use only" or "No memory" (in fg-3): Use and save, Use only, Off. */
-export function MemoryChip({ value, onChange }: { value: MemoryMode; onChange: (m: MemoryMode) => void }) {
-  return <ChipMenu label="Memory" words={MEMORY_WORDS[value]} items={memoryItems(value, onChange)} width={280} className={value === 'off' ? 'text-fg-3' : undefined} />;
+/**
+ * "Options" (design review #6): one chip for how a turn runs, in place of the
+ * agent, style and memory chips. Its menu: Working style (Agent, Chat, Plan,
+ * then a "More styles" fold with Jury, Debate, Loop and Ultra, design review
+ * #4), the agent (Code) and memory. The fold starts open while one of those
+ * is on; a toggle by hand lasts until the menu closes. Nothing to offer (a
+ * new incognito chat): no chip.
+ */
+export function OptionsChip({ style, agent, memory }: { style?: StyleOption; agent?: AgentOption; memory?: { value: MemoryMode; onChange: (m: MemoryMode) => void } }) {
+  const [fold, setFold] = useState<boolean>();
+  const phone = useIsMobile();
+  const items: MenuItem[] = [];
+  if (style) {
+    const { mode, onMode, ultra, onUltra } = style;
+    const cur = MODES.find((m) => m.value === mode) ?? MODES[0];
+    const more = fold ?? (!!cur.more || (!!onUltra && !!ultra));
+    const row = (m: (typeof MODES)[number]): MenuItem => ({ label: m.label, detail: m.description, checked: m.value === mode, onSelect: () => m.value !== mode && onMode(m.value) });
+    items.push(
+      { group: true, label: STYLE_HEADING },
+      ...MODES.filter((m) => !m.more).map(row),
+      { separator: true, label: '' },
+      { label: MORE_STYLES, hint: <ChevronDown size={14} className={cn('transition-transform', more && 'rotate-180')} aria-hidden />, expanded: more, keep: true, onSelect: () => setFold(!more) },
+      ...(more ? MODES.filter((m) => m.more).map(row) : []),
+      // Ultra off keeps the fold open under the row just used
+      ...(more && onUltra ? [{ label: 'Ultra', detail: ULTRA_LINE, checked: !!ultra, keep: true, onSelect: () => (setFold(true), onUltra(!ultra)) }] : []),
+    );
+  }
+  if (agent) {
+    if (items.length) items.push({ separator: true, label: '' });
+    items.push({ group: true, label: 'Agent' }, ...agent.agents.map((a) => ({ label: a.name, detail: a.description, checked: a.name === agent.value, onSelect: () => a.name !== agent.value && agent.onChange(a.name) })));
+  }
+  if (memory) {
+    if (items.length) items.push({ separator: true, label: '' });
+    items.push(...memoryItems(memory.value, memory.onChange));
+  }
+  if (!items.length) return null;
+  const changes = optionsChanges({ style, agent, memory: memory?.value });
+  // a phone's row stays one line: at the defaults Options is an icon; a change ("No memory") is always in words
+  const words = phone && !changes.length ? <Settings2 className="size-4" strokeWidth={1.75} aria-hidden /> : optionsWords(changes);
+  // a change from the defaults reads a step brighter than the quiet row, "No memory" among them
+  return <ChipMenu label="Options" words={words} spoken={changes.length ? changes.join(', ') : 'all at their defaults'} items={items} width={320} className={changes.length ? 'text-fg' : undefined} onClose={() => setFold(undefined)} />;
 }
 
 /** A session's memory setting from its chat switches (core session/chat.ts). */

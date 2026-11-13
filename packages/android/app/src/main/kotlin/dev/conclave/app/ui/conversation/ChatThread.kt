@@ -344,8 +344,9 @@ fun ChatThreadScreen(
             if (loading && units.isEmpty() && pending == null) {
                 LoadingBox()
             } else {
-                // one column of at most 720dp, centered on tablets; its text at the Text size of Settings, Appearance
-                CompositionLocalProvider(LocalDensity provides chatDensity()) {
+                // one column of at most 720dp, centered on tablets; its text at the Text size of Settings, Appearance.
+                // The chat is a session on the hub: its shared files load from it (FileCards.kt, ToolFold.kt), as on the web.
+                CompositionLocalProvider(LocalDensity provides chatDensity(), LocalSessionWork provides SessionWork(s, progress = live.toolProgress)) {
                     LazyColumn(
                         state = listState,
                         reverseLayout = true,
@@ -481,10 +482,10 @@ fun ChatThreadScreen(
                 security = s?.chat?.security == true,
                 // Security off in Settings: no switch, unless this chat has it on (so it can still be turned off)
                 onSecurity = if (s != null && (Start.modeOn(me?.preferences, "security") || s.chat?.security == true)) vm::setSecurity else null,
-                // the quiet row: no device or folder in a chat, the memory chip, the model with its effort and the ring at the right
+                // the quiet row: no device or folder in a chat, the model with its effort, Options (memory) and the ring at the right
                 context = ContextUse.of(live.messages, s, info),
                 onUsage = onOpenUsage,
-                left = { if (s != null && !s.isIncognito) MemoryChip(memoryModeOf(sw), onChange = vm::setMemory) },
+                options = { if (s != null && !s.isIncognito) OptionsChip(memory = MemoryOption(memoryModeOf(sw), onChange = vm::setMemory)) },
                 plus = { _ -> SwitchRow("Search the web", WEB_HELP, sw.webSearch, vm::setWeb) },
                 running = running,
                 busy = false,

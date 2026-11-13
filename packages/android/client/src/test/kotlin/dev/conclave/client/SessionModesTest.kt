@@ -7,14 +7,21 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-/** The composer's Style chip (logic/SessionModes.kt), as the web's ModeChip (design review #4). */
+/** The style in the composer's Options chip (logic/SessionModes.kt), as the web's OptionsChip (design reviews #4, #6). */
 class SessionModesTest {
     @Test
-    fun chipSaysStyle() {
-        assertEquals("Agent style", SessionModes.chipWords(SessionMode.AGENT, ultra = false, ultraOffered = true))
-        assertEquals("Jury style, Ultra", SessionModes.chipWords(SessionMode.JURY, ultra = true, ultraOffered = true))
-        // Ultra is only named where the session takes it
-        assertEquals("Chat style", SessionModes.chipWords(SessionMode.CHAT, ultra = true, ultraOffered = false))
+    fun optionsSaysWhatChanged() {
+        // at the defaults: one word
+        val none = SessionModes.optionsChanges(SessionMode.AGENT, ultra = false, ultraOffered = true, agent = "coder", defaultAgent = "coder", memory = null)
+        assertEquals("Options", SessionModes.optionsWords(none))
+        assertEquals("Plan", SessionModes.optionsWords(SessionModes.optionsChanges(SessionMode.PLAN, false, true, null, null, null)))
+        // memory leads, so No memory is never folded into the count
+        val many = SessionModes.optionsChanges(SessionMode.JURY, ultra = true, ultraOffered = true, agent = "reviewer", defaultAgent = "coder", memory = "No memory")
+        assertEquals(listOf("No memory", "Jury", "Ultra", "reviewer"), many)
+        assertEquals("No memory +3", SessionModes.optionsWords(many))
+        // Ultra is only named where the session takes it; no style offered (a chat) names none
+        assertEquals(listOf("Chat"), SessionModes.optionsChanges(SessionMode.CHAT, ultra = true, ultraOffered = false, agent = null, defaultAgent = null, memory = null))
+        assertEquals(listOf("Memory, use only"), SessionModes.optionsChanges(null, ultra = true, ultraOffered = true, agent = null, defaultAgent = null, memory = "Memory, use only"))
     }
 
     @Test
