@@ -96,7 +96,7 @@ export class MemberPlanProvider implements Provider {
   /** Only the member's own plans make images: a grant to the hub's plans covers chat, never the owner's image quota. */
   generateImage(req: ImageRequest): Promise<ImageResult> {
     if (!this.opts.serves(req.model) || !this.own.generateImage) {
-      return Promise.reject(new ProviderError('auth', `None of your own signed in plans offers ${req.model}. Images are made only on your own plans or keys; sign in a ChatGPT plan in Settings > Accounts, or add an API key.`, { provider: this.id, code: 'access' }));
+      return Promise.reject(new ProviderError('auth', `None of your own signed in plans offers ${req.model}. Images are made only on your own plans or keys; sign in a ChatGPT plan in Settings > AI connections > Subscriptions, or add an API key.`, { provider: this.id, code: 'access' }));
     }
     return this.own.generateImage(req);
   }

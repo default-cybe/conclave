@@ -405,7 +405,7 @@ Set the tiers once with `conclave config set models.tiers '{"deep": "anthropic/c
 
 `group: security` marks a subagent as a Security-mode role. Task offers it only when the session has `chat.security: true`, off by default. `fallback:` in the role profile lists model refs tried after its default when the default is unusable or has answered 404; the parent model comes last. A named Task model or Same model pin wins over the role's list. See `docs/agents/sec-*.md`. This is not an authorization boundary: the scope guard and the egress gateway are separate.
 
-`refusalFallback:` gives sessions with this agent their own Refusal fallback list (what the owner calls "safety priority", docs/DESIGN.md 47): each entry is a model, or `model@account` with an account id from Settings > Models > Accounts. A list replaces the owner's and turns it on for this agent; `refusalFallback: off` turns it off. Without the field the owner's setting applies.
+`refusalFallback:` gives sessions with this agent their own Refusal fallback list (what the owner calls "safety priority", docs/DESIGN.md 47): each entry is a model, or `model@account` with an account id from Settings > Advanced > Accounts. A list replaces the owner's and turns it on for this agent; `refusalFallback: off` turns it off. Without the field the owner's setting applies.
 
 ```yaml
 refusalFallback:

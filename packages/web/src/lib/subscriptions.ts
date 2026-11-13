@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import type { SubscriptionAccountDto, SubscriptionsStatus } from '@conclave/core/client';
 import type { LogoId } from '@/components/logo';
 import { api } from './api';
+import { modelUsable } from './providers';
 import { useHub } from '@/store/store';
 
 /** Company mark per sign-in id. Muse signs in with Meta. */
@@ -86,7 +87,7 @@ export function subscriptionDefaults(status: SubscriptionsStatus, config: Record
   const ids = status.models.flatMap((g) => g.models.map((m) => m.id));
   if (!ids.length) return undefined;
   const pick = (order: string[]) => order.find((id) => ids.includes(id)) ?? ids[0];
-  const usable = (ref: unknown) => typeof ref === 'string' && ref.includes('/') && configured(ref.slice(0, ref.indexOf('/')));
+  const usable = (ref: unknown) => modelUsable(ref, configured);
   const out: { defaultModel?: string; smallModel?: string } = {};
   if (!usable(config?.defaultModel)) out.defaultModel = `${status.provider}/${pick(['claude-sonnet-5-5', 'claude-opus-5-5', 'gpt-6.1-sol', 'gpt-6-astra', 'gemini-4-argon'])}`;
   if (!usable(config?.smallModel)) out.smallModel = `${status.provider}/${pick(['claude-haiku-5-5', 'gpt-6-luna', 'gemini-3.8-flash', 'claude-sonnet-5-5'])}`;

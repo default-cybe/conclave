@@ -111,7 +111,7 @@ export function isHubPrivatePath(path: string): boolean {
   return r !== p && (within(r, dirs.map((d) => clean(real(d)))) || inAccountPrivate(r));
 }
 
-export const PRIVATE_REFUSAL = 'Refused: that folder holds the hub\'s subscription sign-ins (CLIProxyAPI). Sessions cannot read or change it. Settings > Models > Subscriptions shows the accounts.';
+export const PRIVATE_REFUSAL = 'Refused: that folder holds the hub\'s subscription sign-ins (CLIProxyAPI). Sessions cannot read or change it. Settings > AI connections > Subscriptions shows the accounts.';
 export const SECRETS_REFUSAL = 'Refused: that file holds the hub\'s keys and tokens. Sessions cannot read or change it. Settings shows which keys are set.';
 
 /** The refusal for a path or a command: the secrets file has its own words. */

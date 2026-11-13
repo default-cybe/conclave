@@ -4,14 +4,16 @@
  * in starts CLIProxyAPI on the hub the first time; every model from those
  * accounts then shows up under CLIProxyAPI in the model picker. "Use an
  * existing CLIProxyAPI" connects the one the owner runs elsewhere instead.
- * A signed-in plan becomes the default model on Continue; with keys only, the
- * hub uses the first model that works. Coding CLIs are found in the
+ * On Continue, a default or small model that cannot run is replaced: by a
+ * model from a signed-in plan, or else from the first provider whose key
+ * works (lib/providers.ts keyDefaults). Coding CLIs are found in the
  * background and wait on the "Set up later" Coding agents page. Skippable.
  */
 import { useCallback, useState, type ReactNode } from 'react';
 import { api } from '@/lib/api';
 import { subscriptionDefaults, useSubscriptions } from '@/lib/subscriptions';
-import { updateConfig, useHub } from '@/store/store';
+import { keyDefaults, providerReady } from '@/lib/providers';
+import { reloadModels, updateConfig, useHub } from '@/store/store';
 import { SectionHeading } from '@/components/ui/Section';
 import { LoadingRows } from '@/components/ui/EmptyState';
 import { AccountRows, ExternalForm, SubscriptionRows, SubscriptionsStatusLine } from '@/components/subscriptions/Subscriptions';
@@ -50,11 +52,21 @@ export function ModelStep() {
     </div>
   );
 
+  // with no working default model, a model these accounts give, or else the first working key's, becomes the default
+  const adopt = async () => {
+    // a key saved a moment ago: its provider's models may not be listed yet
+    await reloadModels();
+    const { config, models } = useHub.getState();
+    const ready = providerReady(models);
+    const next = (status && subscriptionDefaults(status, config, ready)) ?? keyDefaults(models, config, ready);
+    if (next) await updateConfig(next).catch(() => undefined);
+  };
+
   // a hub from before subscription sign-in: say so instead of an error
   const older = !!hub?.features?.length && !hub.features.includes('subscriptions');
   if (!status)
     return (
-      <StepFrame summary={older ? summaryOf(0, ...keys) : 'Loading.'}>
+      <StepFrame summary={older ? summaryOf(0, ...keys) : 'Loading.'} onContinue={adopt}>
         {older ? (
           <p className="m-0 max-w-[64ch] text-[14px] leading-[1.5] text-fg-2">This hub does not support subscription sign-in. Paste an API key below, or update the hub and run setup again from Settings, About.</p>
         ) : error ? (
@@ -69,13 +81,6 @@ export function ModelStep() {
   const n = status.accounts.length;
   const summary = <>{summaryOf(n, ...keys)}</>;
   const showForm = external || status.mode === 'external';
-
-  // with no working default model, a model these accounts give becomes the default
-  const adopt = async () => {
-    const { config, models } = useHub.getState();
-    const next = subscriptionDefaults(status, config, (p) => !!models.find((g) => g.provider === p && g.configured && g.enabled && !g.error));
-    if (next) await updateConfig(next).catch(() => undefined);
-  };
 
   return (
     <StepFrame summary={summary} onContinue={adopt}>
