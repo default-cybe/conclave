@@ -70,7 +70,7 @@ export function ConnectionsTab({ adding, setAdding }: { adding: boolean; setAddi
                     Share it with them
                   </Link>
                   , or{' '}
-                  <Link href="/memory/import" className="link">
+                  <Link href="/settings/data" className="link">
                     import their memory files
                   </Link>
                   .
