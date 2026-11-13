@@ -551,8 +551,9 @@ export function ToolRow({ item, sessionId, depth = 0, pictures }: { item: ToolIt
   const { res, status, ms } = useToolState(item);
   const info = TASK_TOOLS.has(tool.name) ? { ...toolInfo(tool), ...taskToolWords(tool.name, tool.input, res ? resultText(res) : undefined) } : toolInfo(tool);
   const files = useMemo(() => (info.kind === 'edit' ? editFiles(tool, res) : []), [info.kind, tool, res]);
-  // open, a lone call's pictures show in its fold, the tool's too when they are off outside it
-  const images = useMemo(() => (pictures ? pictureRow([{ tool, result: res }], sessionId, true) : []), [pictures, tool, res, sessionId]);
+  // open, a lone call's row moves into its fold as it is (deduped with the stretch); with tool pictures off, the fold shows the call's own too
+  const toolPictures = useUi((s) => s.toolImages);
+  const images = useMemo(() => (!pictures ? [] : toolPictures ? pictures : pictureRow([{ tool, result: res }], sessionId, true)), [pictures, toolPictures, tool, res, sessionId]);
   const output = res ? resultText(res) : (item.run?.progress ?? '');
   const lines = lineCount(output);
 

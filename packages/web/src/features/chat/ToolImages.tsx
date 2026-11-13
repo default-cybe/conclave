@@ -52,15 +52,16 @@ function named(input: Record<string, unknown> | undefined): string | undefined {
   for (const k of ['file_path', 'path', 'filePath', 'notebook_path', 'url']) {
     const v = input?.[k];
     if (typeof v !== 'string' || !v.trim()) continue;
-    const p = v.trim().split(/[?#]/)[0].replace(/\\/g, '/').replace(/\/+$/, '');
+    // "./a.png" and "x/./a.png" are "a.png" and "x/a.png", so a relative Read matches the share
+    const p = v.trim().split(/[?#]/)[0].replace(/\\/g, '/').replace(/\/+$/, '').replace(/(^|\/)(\.\/)+/g, '$1');
     if (p) return p;
   }
   return undefined;
 }
 
-/** A file as a row matches it: its name and the path it came by when known, both lowercased (a Read of Chart.PNG is the shared chart.png). */
+/** A file as a row matches it: its name, lowercased, and the path it came by when known (as Android: two folders that differ in case are two files). */
 type Source = { name: string; path?: string };
-const source = (name: string, path?: string): Source => ({ name: name.split(/[\\/]/).pop()!.trim().toLowerCase(), path: path?.toLowerCase() });
+const source = (name: string, path?: string): Source => ({ name: name.split(/[\\/]/).pop()!.trim().toLowerCase(), path });
 
 /** One name, and one path, or one path the end of the other (a relative Read of an absolute share), or a path unknown. */
 export function sameFile(a: Source, b: Source): boolean {

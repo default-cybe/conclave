@@ -458,8 +458,7 @@ describe('one picture row: tool pictures, then shared ones, each file once (Andr
   const png = 'iVBORw0KGgo=';
   const readOf = (id: string, file_path: string) => ({ tool: { name: 'Read', input: { file_path } }, result: { type: 'tool_result' as const, toolUseId: id, content: [{ type: 'image' as const, mediaType: 'image/png', data: png }] } });
   const shotOf = (id: string) => ({ tool: { name: 'browser_screenshot', input: {} }, result: { type: 'tool_result' as const, toolUseId: id, content: [{ type: 'image' as const, mediaType: 'image/png', data: png }] } });
-  const shareOf = (id: string, path: string, mediaType = 'image/png', title?: string) => {
-    const name = path.split('/').pop()!;
+  const shareOf = (id: string, path: string, mediaType = 'image/png', title?: string, name = path.split('/').pop()!) => {
     return { tool: { name: 'ShareFile', input: { path } }, result: { type: 'tool_result' as const, toolUseId: id, content: `Shared ${name}`, meta: { file: { name, mediaType, size: 4096, ...(title ? { title } : {}) } } } };
   };
   const names = (rows: ReturnType<typeof pictureRows>) => rows.map((r) => r.map((it) => it.name));
@@ -473,14 +472,15 @@ describe('one picture row: tool pictures, then shared ones, each file once (Andr
   });
 
   test('a Read of the shared file is one thumbnail, the shared one, at the tool picture\'s place: by name, any case', () => {
-    const rows = pictureRows([[readOf('r', '/out/Chart.PNG'), shotOf('t'), shareOf('s', '/out/chart.png', 'image/png', 'Real bar, right half')]], 's', true);
-    expect(names(rows)).toEqual([['chart.png', 'browser_screenshot-1.png']]);
+    const rows = pictureRows([[readOf('r', '/out/chart.png'), shotOf('t'), shareOf('s', '/out/chart.png', 'image/png', 'Real bar, right half', 'Chart.PNG')]], 's', true);
+    expect(names(rows)).toEqual([['Chart.PNG', 'browser_screenshot-1.png']]);
     expect(rows[0][0]).toMatchObject({ key: 's/s/', size: 4096, caption: 'Real bar, right half' });
   });
 
   test('a relative Read matches an absolute share by the end of its path', () => {
     expect(names(pictureRows([[readOf('r', 'chart.png'), shareOf('s', '/out/chart.png')]], 's', true))).toEqual([['chart.png']]);
     expect(names(pictureRows([[readOf('r', 'docs/chart.png'), shareOf('s', '/home/kai/docs/chart.png')]], 's', true))).toEqual([['chart.png']]);
+    expect(names(pictureRows([[readOf('r', './docs/./chart.png'), shareOf('s', '/home/kai/docs/chart.png')]], 's', true))).toEqual([['chart.png']]);
     expect(sameFile({ name: 'chart.png', path: 'chart.png' }, { name: 'chart.png', path: '/out/chart.png' })).toBe(true);
     // the end of a path only at a folder boundary
     expect(sameFile({ name: 'chart.png', path: 'xchart.png' }, { name: 'chart.png', path: '/out/chart.png' })).toBe(false);
@@ -488,6 +488,8 @@ describe('one picture row: tool pictures, then shared ones, each file once (Andr
 
   test('two files of one name in different folders both show; the same file read twice shows once', () => {
     expect(names(pictureRows([[readOf('r', '/a/chart.png'), shareOf('s', '/b/chart.png')]], 's', true))).toEqual([['chart.png', 'chart.png']]);
+    // folders that differ in case are different folders, as on Android
+    expect(names(pictureRows([[readOf('r', '/w/Out/chart.png'), shareOf('s', '/w/out/chart.png')]], 's', true))).toEqual([['chart.png', 'chart.png']]);
     expect(names(pictureRows([[readOf('r1', '/a/chart.png'), readOf('r2', '/a/chart.png')]], 's', true))).toEqual([['chart.png']]);
     // the same picture shared twice is one thumbnail
     expect(names(pictureRows([[shareOf('s1', '/out/a.png'), shareOf('s2', '/out/a.png')]], 's', true))).toEqual([['a.png']]);
