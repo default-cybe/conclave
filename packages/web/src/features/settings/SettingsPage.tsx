@@ -30,7 +30,7 @@ import { Page, usePageHeader } from '@/components/ui/Page';
 import { IconButton } from '@/components/ui/Button';
 import { useFocusTrap } from '@/components/ui/Overlay';
 import { closeSettings } from '@/lib/settingsRoute';
-import { OWNER_PAGES, PHONE_PAGES, useInboxCount } from '@/components/nav';
+import { OWNER_PAGES, PHONE_ADVANCED, PHONE_PAGES, useInboxCount } from '@/components/nav';
 import { groupSections, searchSections, settingsRedirect } from './nav';
 import { ProvidersSection } from './providers';
 import { DefaultsSection } from './defaults';
@@ -577,7 +577,7 @@ function PhoneMore() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
       <h1 className="sr-only">More</h1>
-      <PhoneGroups groups={[{ label: '', rows: phoneMoreRows(owner, keyboard) }]} />
+      <PhoneGroups groups={[{ label: '', rows: phoneMoreRows(owner, keyboard) }, { label: 'Advanced', rows: PHONE_ADVANCED }]} />
     </div>
   );
 }

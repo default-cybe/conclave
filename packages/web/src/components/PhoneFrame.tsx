@@ -22,7 +22,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'wouter';
-import { ArrowLeft, CalendarClock, ChevronDown, Ellipsis, Inbox, Presentation, Search, SquarePen } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Ellipsis, Inbox, Presentation, Search, SquarePen } from 'lucide-react';
 import { openPalette, useUi } from '@/store/ui';
 import { cn } from '@/lib/text';
 import { NEW_WORDS } from '@/lib/sidebar';
@@ -33,8 +33,8 @@ import { useStartMode, type StartMode } from '@/features/home/start';
 import { useModeOn } from '@/features/home/modes';
 import { useMeetingHint } from '@/features/meeting/useMeetingHint';
 import { AccountRow } from './AccountMenu';
-import { SideSessions } from './Sidebar';
-import { MODE_PAGES, PHONE_MORE, useInboxCount } from './nav';
+import { SIDE_ROWS, SideSessions } from './Sidebar';
+import { isActive, MODE_PAGES, PHONE_MORE, useInboxCount } from './nav';
 
 // ---------------------------------------------------------------------------
 // Places and titles
@@ -446,8 +446,11 @@ function PanelBody() {
             </span>
           </MainRow>
         )}
-        {/* the mode's own rows (Routines in Assistant), then More: every other page (nav.ts PHONE_PAGES), so none is out of reach on a phone */}
-        {(MODE_PAGES[mode] ?? []).includes('/routines') && <MainRow Icon={CalendarClock} label="Routines" to="/routines" active={path === '/routines' || path.startsWith('/routines/')} />}
+        {/* the mode's own rows (Today, Tasks, Goals, Routines in Assistant), then More: every other page (nav.ts PHONE_PAGES), so none is out of reach on a phone */}
+        {(MODE_PAGES[mode] ?? []).map((to) => {
+          const r = SIDE_ROWS[to];
+          return <MainRow key={to} Icon={r.Icon} label={r.label} to={r.to} active={isActive(r, path)} />;
+        })}
         <MainRow Icon={Ellipsis} label="More" to={PHONE_MORE} active={path === PHONE_MORE} />
         <div className="mt-4">
           <SideSessions mode={mode} phone onPick={close} />

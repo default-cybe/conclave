@@ -248,10 +248,10 @@ describe('deliveryWords', () => {
 });
 
 describe('where friends live on a phone', () => {
-  test("Friends is a row of the sidebar's More menu, before Remote access", () => {
-    const rows = MORE_PAGES.map((p) => p.label);
-    expect(rows.indexOf('Friends')).toBe(rows.indexOf('Remote access') - 1);
-    expect(MORE_PAGES.find((p) => p.label === 'Friends')?.to).toBe('/settings/friends');
+  test("Friends and Remote access are in Settings only, not in the sidebar's More menu", () => {
+    const to = MORE_PAGES.map((p) => p.to);
+    expect(to).not.toContain('/settings/friends');
+    expect(to).not.toContain('/settings/remote');
   });
 
   test("the list is a settings page; a friend's notes draw their own bar, like a conversation", () => {

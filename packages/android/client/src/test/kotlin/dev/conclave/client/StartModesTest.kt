@@ -48,7 +48,8 @@ class StartModesTest {
     fun panelRowsPerMode() {
         assertEquals(emptyList<Drawer.Page>(), Drawer.pages(StartMode.CHAT, meetings = false))
         assertEquals(listOf(Drawer.Page.MEETINGS), Drawer.pages(StartMode.CODE, meetings = true))
-        assertEquals(listOf(Drawer.Page.ROUTINES), Drawer.pages(StartMode.ASSISTANT, meetings = false))
-        assertEquals(listOf(Drawer.Page.MEETINGS, Drawer.Page.ROUTINES), Drawer.pages(StartMode.ASSISTANT, meetings = true))
+        assertEquals(listOf(Drawer.Page.TODAY, Drawer.Page.TASKS, Drawer.Page.ROUTINES), Drawer.pages(StartMode.ASSISTANT, meetings = false))
+        assertEquals(listOf(Drawer.Page.MEETINGS, Drawer.Page.TODAY, Drawer.Page.TASKS, Drawer.Page.ROUTINES), Drawer.pages(StartMode.ASSISTANT, meetings = true))
+        assertEquals(listOf(Drawer.Page.MEETINGS), Drawer.pages(StartMode.CHAT, meetings = true))
     }
 }

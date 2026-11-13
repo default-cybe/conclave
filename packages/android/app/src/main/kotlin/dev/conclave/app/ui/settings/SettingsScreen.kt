@@ -106,11 +106,12 @@ enum class SettingsPage(val label: String) {
     MAP("Map"),
 }
 
-/** The sections of pages at the top of Settings, under quiet headings, in this order. Devices and Map are under Hub. */
+/** The sections of pages at the top of Settings, under quiet headings, in this order. Devices is under Hub; Agents and Map under Advanced (the web's More, Advanced). */
 private val PAGE_SECTIONS = listOf(
     "Conversations" to listOf(SettingsPage.INBOX, SettingsPage.CHATS, SettingsPage.SESSIONS),
-    "Automation" to listOf(SettingsPage.TASKS, SettingsPage.ROUTINES, SettingsPage.WORKFLOWS, SettingsPage.AGENTS),
+    "Automation" to listOf(SettingsPage.TASKS, SettingsPage.ROUTINES, SettingsPage.WORKFLOWS),
     "Memory and usage" to listOf(SettingsPage.MEMORY, SettingsPage.REFLECT, SettingsPage.IMPORT, SettingsPage.USAGE),
+    "Advanced" to listOf(SettingsPage.AGENTS, SettingsPage.MAP),
 )
 
 /**
@@ -198,7 +199,6 @@ fun SettingsScreen(
             }
             problem?.let { p -> Note(p.text, color = c.warn) }
             NavRow("Devices", devices.count { it.online }.let { n -> if (n == 1) "1 online" else "$n online" }, onClick = { onOpenPage(SettingsPage.DEVICES) })
-            NavRow("Map", "Every device, project and agent", onClick = { onOpenPage(SettingsPage.MAP) })
             NavRow(
                 "Remote access",
                 remote?.let { r -> RemoteWords.label(r.mode) },
