@@ -16,6 +16,7 @@ like `## [0.4.16] - 2026-10-24`.
 - Workflows, Memory and Extensions moved into the sidebar's More menu, in that order; their G W, G M and G E keys still work. The phone drawer gained a More row that lists every page
 - Android Settings has a Modes list (Security, Canvas, Meetings), saved on the account like the web's
 - In Chat the Details column on the right starts closed, so a chat gets the full width. Its toggle (and Ctrl Shift \) opens it, and the choice is kept for chats on this device apart from sessions, which still open with Details shown
+- Home's "Waiting on you" lists only the requests of the mode you are in, so a Chat Home no longer shows a Code session's command to approve. The other modes' requests become one line, "3 more in Inbox", that opens the Inbox
 
 ### Fixed
 

@@ -3,7 +3,8 @@
  * the owner is in (docs/design/CHAT-AND-MOTION.md 1.4, src/lib/asks.ts):
  * which requests show in a session, the quiet line above the card, the
  * session answer's words, the Inbox line, and "waiting on you" on the task
- * row and the running tasks line. The words have no em or en dashes.
+ * row and the running tasks line, and Home's "Waiting on you" per mode. The
+ * words have no em or en dashes.
  *
  *   bun test packages/web/test/subagent-asks.test.tsx
  */
@@ -12,7 +13,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { Router } from 'wouter';
 import type { WorkflowRun } from '@conclave/core/client';
 import type { ApprovalRequest, Message, QuestionRequest, Session } from '@conclave/core/types';
-import { askFromInbox, askFromLine, askHome, askerLine, asksBelow, asksIn, asksOf, runWaits, sessionDoneWord, sessionWord, waitsIn } from '../src/lib/asks';
+import { askFromInbox, askFromLine, askHome, askerLine, asksBelow, asksForMode, asksIn, asksOf, runWaits, sessionDoneWord, sessionWord, waitsIn } from '../src/lib/asks';
+import { WaitingSection } from '../src/features/home/sections';
 import { runningTasks, taskCalls } from '../src/features/chat/liveTasks';
 import { RunningTasksView } from '../src/features/chat/RunningTasks';
 import { subagentNowOf } from '../src/features/chat/ToolRows';
@@ -198,6 +200,57 @@ describe('waiting on you, on the task', () => {
     const state = { sessions, messages: {}, tools: {}, streaming: {}, approvals: { ap_deep: twoDown }, questions: {} };
     expect(subagentNowOf(state, 's_email')).toEqual({ text: 'Waiting on you', waiting: true });
     expect(subagentNowOf({ ...state, approvals: {} }, 's_email').waiting).toBe(false);
+  });
+});
+
+describe("Home's waiting on you, per mode", () => {
+  const code = session({ id: 's_code', title: 'Fix the build', agent: 'coder' });
+  const chat = session({ id: 's_chat', title: 'Heap question', agent: 'chat', kind: 'chat' });
+  const codeAsk = approval({ id: 'ap_code', sessionId: 's_code', rootSessionId: 's_code', from: undefined, summary: 'Run: make build' });
+  const chatAsk = approval({ id: 'ap_chat', sessionId: 's_chat', rootSessionId: 's_chat', from: undefined, summary: 'Search the web' });
+  const lost = approval({ id: 'ap_lost', sessionId: 's_gone', rootSessionId: 's_gone', from: undefined, summary: 'Run: ls' });
+  const sessions = { s_mail: top, s_email: email, s_code: code, s_chat: chat };
+
+  test("a request counts in its top conversation's mode; one from an unknown conversation shows here", () => {
+    const all = [approval(), codeAsk, chatAsk, lost];
+    expect(asksForMode(all, sessions, 'assistant')).toEqual({ here: [approval(), lost], elsewhere: 2 });
+    expect(asksForMode(all, sessions, 'code')).toEqual({ here: [codeAsk, lost], elsewhere: 2 });
+    expect(asksForMode(all, sessions, 'chat')).toEqual({ here: [chatAsk, lost], elsewhere: 2 });
+    expect(asksForMode([], sessions, 'chat')).toEqual({ here: [], elsewhere: 0 });
+  });
+
+  function homeWith(approvals: ApprovalRequest[], mode: 'chat' | 'code') {
+    const init = useHub.getInitialState();
+    const saved = { sessions: init.sessions, approvals: init.approvals, questions: init.questions };
+    // renderToStaticMarkup reads zustand's initial state
+    Object.assign(init, { sessions, approvals: Object.fromEntries(approvals.map((a) => [a.id, a])), questions: {} });
+    try {
+      return renderToStaticMarkup(
+        <Router ssrPath="/">
+          <WaitingSection mode={mode} open={1} />
+        </Router>,
+      );
+    } finally {
+      Object.assign(init, saved);
+    }
+  }
+
+  test('Code Home shows its own request and one line for the rest', () => {
+    const out = homeWith([codeAsk, chatAsk, approval()], 'code');
+    expect(out).toContain('Run: make build');
+    expect(out).not.toContain('Search the web');
+    expect(out).not.toContain('Read message msg_4f1c');
+    expect(out).toContain('<span class="num">2</span> more in Inbox');
+    expect(out).toContain('href="/approvals"');
+  });
+
+  test("nothing in this mode: the heading and the one line; nothing anywhere: no section", () => {
+    const out = homeWith([codeAsk], 'chat');
+    expect(out).toContain('Waiting on you');
+    expect(out).not.toContain('Run: make build');
+    expect(out).toContain('<span class="num">1</span> more in Inbox');
+    expect(homeWith([chatAsk], 'chat')).not.toContain('more in Inbox');
+    expect(homeWith([], 'chat')).toBe('');
   });
 });
 

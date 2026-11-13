@@ -9,7 +9,8 @@
  *
  * Pure, and tested (test/subagent-asks.test.ts).
  */
-import type { ApprovalRequest, QuestionRequest } from '@conclave/core/types';
+import type { ApprovalRequest, QuestionRequest, Session } from '@conclave/core/types';
+import { sideModeOf, type SideMode } from './sidebar';
 
 /** The parts of an approval or a question these rules read. */
 export type Ask = Pick<ApprovalRequest | QuestionRequest, 'sessionId' | 'rootSessionId' | 'from'>;
@@ -29,6 +30,21 @@ export function asksOf<T extends Ask>(list: Iterable<T>, sessionId: string): T[]
   const out: T[] = [];
   for (const r of list) if (asksIn(r, sessionId)) out.push(r);
   return out;
+}
+
+/**
+ * Home's "Waiting on you" for one mode: the requests whose conversation is
+ * in this mode, and how many wait in the others (shown as "N more in
+ * Inbox"). A conversation the store does not know yet counts here, so a
+ * request never waits out of sight.
+ */
+export function asksForMode<T extends Ask>(list: T[], sessions: Record<string, Pick<Session, 'kind' | 'agent'> | undefined>, mode: SideMode): { here: T[]; elsewhere: number } {
+  const here: T[] = [];
+  for (const r of list) {
+    const s = sessions[askHome(r)];
+    if (!s || sideModeOf(s) === mode) here.push(r);
+  }
+  return { here, elsewhere: list.length - here.length };
 }
 
 /** A session under this one waits on you (this session itself keeps working on the call that started it). */
