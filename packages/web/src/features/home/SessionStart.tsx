@@ -326,6 +326,7 @@ export function useSessionTarget(kind: SessionKind = 'code'): ComposerTarget {
       style={{ mode, onMode: setMode, ultra: !!picks.ultra, onUltra: (on) => update({ ...picks, ultra: on || undefined }) }}
       agent={hunt ? undefined : { value: setup.agent, agents: [{ name: CODE_AGENT, description: 'The default. Hands work to its subagents itself' }, ...customs.filter((a) => a.name !== CODE_AGENT)], onChange: pickAgent }}
       memory={priv.incognito ? undefined : { value: priv.memory, onChange: setMemory }}
+      turn={{ model: setup.model, cyber: picks.cyber, onCyber: pickCyber }}
     />
   );
 

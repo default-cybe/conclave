@@ -128,8 +128,8 @@ class ComposerModel(
     val onUsage: (() -> Unit)? = null,
     /** The quiet row's left side: the permission mode (Bypass always), Code's folder and device as one chip. */
     val left: (@Composable RowScope.() -> Unit)? = null,
-    /** The Options chip between the model and the ring: style, agent, memory (design review #6). */
-    val options: (@Composable RowScope.() -> Unit)? = null,
+    /** The Options chip between the model and the ring: style, agent, memory (design review #6), and the conversation's switches it is handed (design review #7). */
+    val options: (@Composable RowScope.(turn: TurnOption) -> Unit)? = null,
     /** "+" after Photos, Camera and Files: add-ons only (web search, where Code works). */
     val plus: (@Composable (dismiss: () -> Unit) -> Unit)? = null,
     /** The hub's commands, offered while the message is "/" and part of a name. */
@@ -325,7 +325,7 @@ fun ChatComposer(
                     maxWidth = if (m.options != null) 160.dp else 200.dp,
                     marked = m.sameModel,
                 )
-                m.options?.invoke(this)
+                m.options?.invoke(this, TurnOption(m.cyberChoices, m.cyberValue, m.onCyber, m.sameModel, m.onSameModel, m.security, m.onSecurity))
                 val use = m.context
                 if (use != null) ContextRing(use, onClick = { contextOpen = true }, enabled = enabled)
             },
@@ -362,20 +362,10 @@ fun ChatComposer(
         }
     }
     if (picking) {
-        // the Effort row on top: the levels this model has; a model without Effort shows none
+        // the Effort row on top, one line: the levels this model has; a model without Effort shows none.
+        // Cyber access, Same model and Security are in Options now (design review #7)
         val e = m.effort?.takeIf { Effort.choices(it).isNotEmpty() }
-        val same = m.onSameModel
-        val sec = m.onSecurity
-        val header: (@Composable () -> Unit)? = if (e != null || m.cyberChoices.isNotEmpty() || same != null || sec != null) {
-            {
-                if (e != null) EffortPicker(e, m.effortValue, m.follow, m.onEffort)
-                CyberPicker(m.cyberChoices, m.cyberValue, m.onCyber)
-                if (same != null) SwitchRow("Same model for all work", SAME_MODEL_HELP, m.sameModel, same)
-                if (sec != null) SwitchRow("Security", SECURITY_HELP, m.security, sec)
-            }
-        } else {
-            null
-        }
+        val header: (@Composable () -> Unit)? = if (e != null) ({ EffortPicker(e, m.effortValue, m.follow, m.onEffort) }) else null
         ModelPickerSheet(
             title = if (e != null) "Model and effort" else "Model",
             groups = groups,

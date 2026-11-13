@@ -222,10 +222,10 @@ fun PermissionChip(value: PermissionMode, onChange: (PermissionMode) -> Unit, en
 // ---------------------------------------------------------------------------
 
 /**
- * The Effort row on top of the model picker: the levels the model has
- * (ModelInfo.effort), the one it runs at marked, the default named under
- * them. With [follow] (a session's agent), unset runs at the agent's level
- * and "Use the coder agent's" goes back to it.
+ * The Effort row on top of the model picker, one compact line (design review
+ * #7): "Effort", the levels the model has (ModelInfo.effort) with the one it
+ * runs at marked, and with [follow] (a session's agent) set by hand, "Reset"
+ * back to the agent's level. The model's default is named for TalkBack.
  */
 @Composable
 fun EffortPicker(effort: ModelEffort, value: ThinkingLevel?, follow: EffortFollow?, onEffort: (ThinkingLevel?) -> Unit) {
@@ -234,62 +234,38 @@ fun EffortPicker(effort: ModelEffort, value: ThinkingLevel?, follow: EffortFollo
     if (levels.isEmpty()) return
     val shown = Effort.running(value, effort, follow)
     val modelDefault = Effort.defaultOf(effort)
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Effort", style = ConclaveType.meta, color = c.fg3, modifier = Modifier.weight(1f))
-            if (follow != null) {
-                if (value != null) {
-                    Text(
-                        "Use ${follow.label}'s",
-                        style = ConclaveType.meta,
-                        color = c.fg2,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(onClickLabel = "Use ${follow.label}'s effort", role = Role.Button) { onEffort(null) }
-                            .padding(horizontal = 8.dp, vertical = 10.dp),
-                    )
-                } else {
-                    Text("As ${follow.label} sets", style = ConclaveType.meta, color = c.fg4)
-                }
-            }
-        }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("Effort", style = ConclaveType.meta, color = c.fg3)
+        Spacer(Modifier.width(10.dp))
+        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             levels.forEach { level ->
-                EffortChip(Effort.label(level, effort), selected = level == shown, onClick = { onEffort(level) })
+                val word = Effort.label(level, effort)
+                EffortChip(word, selected = level == shown, onClick = { onEffort(level) }, about = if (level == modelDefault) "$word, the model's default" else null)
             }
         }
-        if (modelDefault != null) {
+        if (follow != null && value != null) {
             Text(
-                "${Effort.label(modelDefault, effort)} is the model's default.",
+                "Reset",
                 style = ConclaveType.meta,
-                color = c.fg3,
-                modifier = Modifier.padding(top = 6.dp, bottom = 4.dp),
+                color = c.fg2,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClickLabel = "Use ${follow.label}'s effort", role = Role.Button) { onEffort(null) }
+                    .padding(horizontal = 8.dp, vertical = 12.dp),
             )
         }
     }
 }
 
-/** Cyber access under Effort: Default (sends nothing), then the programs the model takes (core providers/access-programs.ts). */
+/** One level: an outline, the chosen one raised. Neutral ink, never violet (docs/DESIGN.md 13). [about] names it for TalkBack. */
 @Composable
-fun CyberPicker(choices: List<String?>, value: String?, onCyber: (String?) -> Unit) {
-    if (choices.isEmpty()) return
-    val c = Conclave.colors
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
-        Text("Cyber access", style = ConclaveType.meta, color = c.fg3, modifier = Modifier.heightIn(min = 40.dp).padding(top = 12.dp))
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            choices.forEach { p -> EffortChip(CyberAccess.label(p), selected = p == value, onClick = { onCyber(p) }) }
-        }
-    }
-}
-
-/** One level: an outline, the chosen one raised. Neutral ink, never violet (docs/DESIGN.md 13). */
-@Composable
-private fun EffortChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun EffortChip(label: String, selected: Boolean, onClick: () -> Unit, about: String? = null) {
     val c = Conclave.colors
     val shape = RoundedCornerShape(20.dp)
     Box(
         Modifier
             .heightIn(min = 40.dp)
+            .then(if (about != null) Modifier.semantics { contentDescription = about } else Modifier)
             .clip(shape)
             .then(if (selected) Modifier.background(c.bgRaise).border(1.dp, c.edge, shape) else Modifier.border(1.dp, c.rule2, shape))
             .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
@@ -416,21 +392,46 @@ class AgentOption(val value: String?, val agents: List<Pair<String, String?>>, v
 class MemoryOption(val value: MemoryMode, val onChange: (MemoryMode) -> Unit)
 
 /**
+ * The conversation's switches, in Options since they left the model picker
+ * (design review #7). Same model for all work and Security show only with
+ * their handler (a conversation that exists); Cyber access only where the
+ * model takes a program ([cyberChoices]: Default, then the programs).
+ */
+class TurnOption(
+    val cyberChoices: List<String?> = emptyList(),
+    val cyber: String? = null,
+    val onCyber: (String?) -> Unit = {},
+    val sameModel: Boolean = false,
+    val onSameModel: ((Boolean) -> Unit)? = null,
+    val security: Boolean = false,
+    val onSecurity: ((Boolean) -> Unit)? = null,
+) {
+    val offered: Boolean get() = cyberChoices.isNotEmpty() || onSameModel != null || onSecurity != null
+}
+
+/**
  * "Options" (design review #6): one chip in place of the agent, style and
  * memory chips. Its sheet: Working style (Agent, Chat, Plan, then a "More
  * styles" fold with Jury, Debate, Loop and Ultra, design review #4), the
- * agent and memory. The chip says "Options" at the defaults, else the first
- * change ("No memory" first) and how many more. The fold starts open while
- * one of those is on; a toggle by hand lasts until the sheet closes.
+ * agent, memory, then the conversation's switches ([turn]: Same model for
+ * all work, Security, Cyber access; design review #7). The chip says
+ * "Options" at the defaults, else the first change ("No memory" first), any
+ * risky one (Security), and how many more. The fold starts open while one of
+ * those is on; a toggle by hand lasts until the sheet closes.
  */
 @Composable
-fun OptionsChip(style: StyleOption? = null, agent: AgentOption? = null, memory: MemoryOption? = null, enabled: Boolean = true) {
-    if (style == null && agent == null && memory == null) return
+fun OptionsChip(style: StyleOption? = null, agent: AgentOption? = null, memory: MemoryOption? = null, enabled: Boolean = true, turn: TurnOption? = null) {
+    if (style == null && agent == null && memory == null && turn?.offered != true) return
     val c = Conclave.colors
     var open by remember { mutableStateOf(false) }
     var fold by remember { mutableStateOf<Boolean?>(null) }
     val memoryWord = memory?.value?.takeIf { it != MemoryMode.SAVE }?.let(::memoryWords)
-    val changes = SessionModes.optionsChanges(style?.mode, style?.ultra == true, style?.onUltra != null, agent?.value, agent?.agents?.firstOrNull()?.first, memoryWord)
+    val changes = SessionModes.optionsChanges(
+        style?.mode, style?.ultra == true, style?.onUltra != null, agent?.value, agent?.agents?.firstOrNull()?.first, memoryWord,
+        security = turn?.onSecurity != null && turn.security,
+        sameModel = turn?.onSameModel != null && turn.sameModel,
+        cyber = turn?.cyber?.takeIf { turn.cyberChoices.isNotEmpty() }?.let { CyberAccess.label(it) },
+    )
     val close = {
         open = false
         fold = null
@@ -493,6 +494,22 @@ fun OptionsChip(style: StyleOption? = null, agent: AgentOption? = null, memory: 
                 ChoiceRow(m.label, selected = m == memory.value, detail = m.detail, onClick = {
                     close()
                     if (m != memory.value) memory.onChange(m)
+                })
+            }
+        }
+        val same = turn?.onSameModel
+        val sec = turn?.onSecurity
+        if (same != null || sec != null) {
+            section("This conversation", style != null || agent != null || memory != null)
+            if (same != null) SwitchRow("Same model for all work", SAME_MODEL_HELP, turn.sameModel, same)
+            if (sec != null) SwitchRow("Security", SECURITY_HELP, turn.security, sec)
+        }
+        if (turn != null && turn.cyberChoices.isNotEmpty()) {
+            section("Cyber access", true)
+            turn.cyberChoices.forEach { p ->
+                ChoiceRow(CyberAccess.label(p), selected = p == turn.cyber, onClick = {
+                    close()
+                    if (p != turn.cyber) turn.onCyber(p)
                 })
             }
         }

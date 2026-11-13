@@ -485,7 +485,7 @@ fun ChatThreadScreen(
                 // the quiet row: no device or folder in a chat, the model with its effort, Options (memory) and the ring at the right
                 context = ContextUse.of(live.messages, s, info),
                 onUsage = onOpenUsage,
-                options = { if (s != null && !s.isIncognito) OptionsChip(memory = MemoryOption(memoryModeOf(sw), onChange = vm::setMemory)) },
+                options = { turn -> OptionsChip(memory = if (s != null && !s.isIncognito) MemoryOption(memoryModeOf(sw), onChange = vm::setMemory) else null, turn = turn) },
                 plus = { _ -> SwitchRow("Search the web", WEB_HELP, sw.webSearch, vm::setWeb) },
                 running = running,
                 busy = false,

@@ -25,6 +25,17 @@ class SessionModesTest {
     }
 
     @Test
+    fun theConversationsSwitchesSayWhatChangedAndSecurityIsNeverFolded() {
+        // the switches that left the model picker (design review #7)
+        val turn = SessionModes.optionsChanges(SessionMode.PLAN, false, true, null, null, memory = "No memory", security = true, sameModel = true, cyber = "Daybreak Blue")
+        assertEquals(listOf("No memory", "Security", "Plan", "Same model", "Daybreak Blue"), turn)
+        assertEquals("No memory, Security +3", SessionModes.optionsWords(turn))
+        // Security alone after another change is still named
+        assertEquals("Plan, Security", SessionModes.optionsWords(listOf("Plan", "Security")))
+        assertEquals("Same model", SessionModes.optionsWords(SessionModes.optionsChanges(null, false, false, null, null, null, sameModel = true)))
+    }
+
+    @Test
     fun expertStylesFoldUnderMoreStyles() {
         assertEquals(listOf(SessionMode.AGENT, SessionMode.CHAT, SessionMode.PLAN), SessionModes.EVERYDAY)
         assertEquals(listOf(SessionMode.JURY, SessionMode.DEBATE, SessionMode.LOOP), SessionModes.MORE_STYLES)

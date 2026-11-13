@@ -13,7 +13,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { ModelEntry, ModelGroup } from '@conclave/core/client';
 import type { Session } from '@conclave/core/types';
-import { allRows, buildPicker, capabilityLine, capabilityRank, compareModels, familyOf, makerRank, pickerItems, routeLabel, rowName, shownTabs, tabOf, type Picker, type PickerInput, type PickerItem } from '../src/components/pickers/ModelPicker';
+import { allRows, buildPicker, capabilityLine, capabilityRank, compareModels, familyOf, makerRank, NOT_AVAILABLE, pickerItems, routeLabel, rowName, shownTabs, tabOf, type Picker, type PickerInput, type PickerItem } from '../src/components/pickers/ModelPicker';
 import { registerModelNames } from '../src/lib/models';
 
 function model(provider: string, id: string, name: string, extra: Partial<ModelEntry> = {}): ModelEntry {
@@ -83,13 +83,15 @@ describe('the first level', () => {
     expect(lines(pickerItems(p, '', 'all')).slice(0, 4)).toEqual(['# Recent', 'openai/gpt-5.5', 'anthropic/claude-sonnet-5-5', '# Anthropic, key set']);
     // All goes by maker, then family
     const heads = lines(pickerItems(p, '', 'all')).filter((l) => l.startsWith('#')).slice(1);
-    expect(heads).toEqual(['# Anthropic, key set', '## Opus', '## Sonnet', '## Haiku', '# OpenAI, key set', '## GPT', '## GPT mini and nano', '# Google, key set', '## Gemini Pro', '# Z.ai', '## GLM', '# DeepSeek, rejected', '# Ollama, local', '# Coding agents']);
+    // DeepSeek's refused key leaves it no model to pick: its one model waits in the fold, so it has no heading
+    expect(heads).toEqual(['# Anthropic, key set', '## Opus', '## Sonnet', '## Haiku', '# OpenAI, key set', '## GPT', '## GPT mini and nano', '# Google, key set', '## Gemini Pro', '# Z.ai', '## GLM', '# Ollama, local', '# Coding agents']);
+    expect(lines(pickerItems(p, '', 'all')).at(-1)).toBe(`+ ${NOT_AVAILABLE} (1)`);
   });
 });
 
-/** The list as lines: "# Heading", "## Family", a model's ref, "> route". */
-const lines = (items: PickerItem[]) => items.map((it) => (it.kind === 'head' ? `${it.family ? '##' : '#'} ${it.label}` : it.kind === 'route' ? `> ${it.route.ref}` : it.row.ref));
-const refsOf = (items: PickerItem[]) => lines(items).filter((l) => !l.startsWith('#'));
+/** The list as lines: "# Heading", "## Family", "+ Not available (2)" (the fold), a model's ref, "> route". */
+const lines = (items: PickerItem[]) => items.map((it) => (it.kind === 'head' ? `${it.family ? '##' : '#'} ${it.label}` : it.kind === 'fold' ? `+ ${it.label} (${it.count})` : it.kind === 'route' ? `> ${it.route.ref}` : it.row.ref));
+const refsOf = (items: PickerItem[]) => lines(items).filter((l) => !l.startsWith('#') && !l.startsWith('+'));
 
 describe('families, most powerful first', () => {
   const claude: ModelGroup[] = [
@@ -108,12 +110,11 @@ describe('families, most powerful first', () => {
   ];
   const p = buildPicker(input({ models: claude, sessions: {} }));
 
-  test('Mythos, Fable, Opus, Sonnet, Haiku; newest first inside, undated before dated, unavailable last in its family', () => {
-    expect(lines(pickerItems(p, '', 'anthropic'))).toEqual([
+  test('Mythos, Fable, Opus, Sonnet, Haiku; newest first inside, undated before dated, a refused one in the Not available fold', () => {
+    const shut = [
       '# Anthropic, key set',
       '## Mythos',
       'anthropic/claude-mythos-5',
-      'anthropic/claude-mythos-5-1',
       '## Fable',
       'anthropic/claude-fable-5-1',
       'anthropic/claude-fable-5',
@@ -126,7 +127,13 @@ describe('families, most powerful first', () => {
       'anthropic/claude-sonnet-5',
       '## Haiku',
       'anthropic/claude-haiku-5-5',
-    ]);
+      '+ Not available (1)',
+    ];
+    expect(lines(pickerItems(p, '', 'anthropic'))).toEqual(shut);
+    // open, the fold lists it with no headings of its own
+    expect(lines(pickerItems(p, '', 'anthropic', [], null, true))).toEqual([...shut, 'anthropic/claude-mythos-5-1']);
+    // a search finds it whether the fold is open or not
+    expect(refsOf(pickerItems(p, 'mythos 5.1', 'anthropic'))).toContain('anthropic/claude-mythos-5-1');
   });
 
   test('the other makers: GPT, mini and nano, o-series, Codex; Gemini Pro, Flash, Flash-Lite; GLM by size', () => {
@@ -159,8 +166,6 @@ describe('tabs and ranking', () => {
     expect(lines(pickerItems(p, '', 'anthropic'))).toEqual([
       // the maker's heading carries the account word, as the maker's back row did
       '# Anthropic, key set',
-      '## Mythos',
-      'anthropic/claude-mythos-5-1',
       '## Opus',
       'anthropic/claude-opus-5-5',
       'anthropic/claude-opus-5-1',
@@ -169,6 +174,7 @@ describe('tabs and ranking', () => {
       'anthropic/claude-sonnet-5',
       '## Haiku',
       'anthropic/claude-haiku-5-5',
+      '+ Not available (1)',
     ]);
     const rows = allRows(p);
     const mythos = rows.find((r) => r.ref.endsWith('mythos-5-1'))!;
@@ -192,7 +198,7 @@ describe('tabs and ranking', () => {
     expect(lines(pickerItems(p, '', 'agents')).slice(1)).toEqual(['claude-code/default', 'codex/default']);
     expect(refsOf(pickerItems(p, '', 'local')).sort()).toEqual(['ollama/llama-4-local', 'ollama/qwen3']);
     // the coding agents come after every model on All
-    expect(lines(pickerItems(p, '', 'all')).slice(-3)).toEqual(['# Coding agents', 'claude-code/default', 'codex/default']);
+    expect(lines(pickerItems(p, '', 'all')).slice(-4)).toEqual(['# Coding agents', 'claude-code/default', 'codex/default', '+ Not available (1)']);
     // without coding agents, no such tab
     expect(shownTabs(allRows(buildPicker(input({ models: ranked, sessions: {}, harnesses: false })))).map((t) => t.value)).not.toContain('agents');
   });
@@ -516,6 +522,7 @@ async function mount(props: { value?: string; values?: string[]; models?: ModelG
     tab,
     radio,
     highlighted,
+    act,
     key,
     click,
     type,
@@ -548,8 +555,13 @@ describe('the list, clicked and keyed', () => {
       expect(checked.length).toBe(2);
       expect(checked.every((o) => o.textContent?.includes('Sonnet 5.5'))).toBe(true);
       expect(v.highlighted()?.textContent).toContain('Sonnet 5.5');
-      // each row has its line: context, price, abilities
-      expect(v.options()[1].textContent).toContain('200K context, $1 / $5, vision, tools, thinking');
+      // the specs show on the highlighted row only; the others keep them in their tooltip (design review #7)
+      const specs = '200K context, $1 / $5, vision, tools, thinking';
+      expect(v.highlighted()!.textContent).toContain(specs);
+      expect(v.options()[1].textContent).not.toContain(specs);
+      expect(v.options()[1].getAttribute('title')).toContain(specs);
+      await v.act(async () => v.options()[1].dispatchEvent(new win.Event('mousemove', { bubbles: true })));
+      expect(v.options()[1].textContent).toContain(specs);
     } finally {
       await v.unmount();
     }
@@ -598,18 +610,28 @@ describe('the list, clicked and keyed', () => {
     }
   });
 
-  test('a model that cannot be picked says why, and the arrows pass it over', async () => {
+  test('a model that cannot be picked waits in the Not available fold, says why, and the arrows pass it over', async () => {
     const v = await mount({});
     try {
       await v.click(v.radio('Other'));
-      // DeepSeek's key was refused: its one model is there, and cannot be picked
+      // DeepSeek's key was refused: shut, the fold hides its one model
+      const fold = () => v.host.querySelector('[data-fold="unavailable"]') as HTMLElement;
+      expect(fold().getAttribute('aria-expanded')).toBe('false');
+      expect(fold().textContent).toBe('Not available1');
+      expect(v.options().some((o) => o.textContent?.includes('DeepSeek'))).toBe(false);
+      await v.click(fold());
       const deepseek = v.options().find((o) => o.textContent?.includes('DeepSeek'))!;
       expect(deepseek.getAttribute('aria-disabled')).toBe('true');
       expect(deepseek.textContent).toContain('No key for this provider');
-      await v.click(v.radio('All'));
-      expect(v.options().some((o) => o.textContent?.includes('DeepSeek'))).toBe(true);
+      // the keys stop on the fold, never on the model; Left shuts the fold
       for (let i = 0; i < 30; i++) await v.key('ArrowDown');
-      expect(v.highlighted()?.textContent).not.toContain('DeepSeek');
+      expect(v.highlighted()).toBeUndefined();
+      expect(fold().className).toContain('bg-hover');
+      await v.key('ArrowLeft');
+      expect(fold().getAttribute('aria-expanded')).toBe('false');
+      // a search finds it with the fold shut
+      await v.type('deepseek');
+      expect(v.options().some((o) => o.textContent?.includes('DeepSeek'))).toBe(true);
     } finally {
       await v.unmount();
     }
