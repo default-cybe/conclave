@@ -82,6 +82,40 @@ export function keyPlaceholder(p: ProviderInfo | undefined): string {
   return p.keyPrefix ? `Paste a key that starts with ${p.keyPrefix}` : 'Paste a key';
 }
 
+/** A provider can run calls: it has a key (or needs none), is on, and its model listing did not fail. */
+export function providerReady(groups: readonly ModelGroup[]): (provider: string) => boolean {
+  return (p) => groups.some((g) => g.provider === p && g.configured && g.enabled && !g.error);
+}
+
+const providerOf = (ref: string) => ref.slice(0, ref.indexOf('/'));
+
+/** A "provider/model" ref whose provider is ready, or that runs as the same model on a ready route (a plan; ModelEntry.sameAs in [groups]). */
+export function modelUsable(ref: unknown, ready: (provider: string) => boolean, groups: readonly ModelGroup[] = []): boolean {
+  if (typeof ref !== 'string' || !ref.includes('/')) return false;
+  if (ready(providerOf(ref))) return true;
+  const same = groups.flatMap((g) => g.models).find((m) => m.ref === ref)?.sameAs;
+  return !!same && same.includes('/') && ready(providerOf(same));
+}
+
+/**
+ * Defaults from the first provider in PROVIDERS order that works (a tested key
+ * or a local runtime), for the default or small model that cannot run. Its
+ * models' catalog tier picks them: smart for the default, fast for the small
+ * one. Undefined when nothing needs to change or no provider works.
+ */
+export function keyDefaults(groups: readonly ModelGroup[], config: Record<string, unknown> | undefined, ready: (provider: string) => boolean): { defaultModel?: string; smallModel?: string } | undefined {
+  const g = PROVIDERS.map((p) => groups.find((x) => x.provider === p.id)).find((x) => x && ready(x.provider) && x.models.some((m) => !m.unavailable));
+  if (!g) return undefined;
+  const ok = g.models.filter((m) => !m.unavailable);
+  const pick = (...tiers: string[]) => (tiers.map((t) => ok.find((m) => m.tier === t)).find(Boolean) ?? ok[0]).ref;
+  // a provider with a key whose listing failed keeps its model: the failure may pass, and Defaults shows it meanwhile
+  const keep = (ref: unknown) => modelUsable(ref, ready, groups) || (typeof ref === 'string' && groups.some((x) => x.provider === providerOf(ref) && x.configured && x.enabled && !!x.error));
+  const out: { defaultModel?: string; smallModel?: string } = {};
+  if (!keep(config?.defaultModel)) out.defaultModel = pick('smart', 'deep');
+  if (!keep(config?.smallModel)) out.smallModel = pick('fast', 'smart');
+  return Object.keys(out).length ? out : undefined;
+}
+
 /**
  * The hub's providers the owner can let a person use (People, docs/design/ACCOUNTS.md 6):
  * the ones that are on and that the hub has a key for, or need none (a local server,

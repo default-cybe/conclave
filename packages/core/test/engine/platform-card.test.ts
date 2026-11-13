@@ -125,7 +125,7 @@ describe('the platform card in requests', () => {
     for (const n of ['Delegate', 'ShareFile', 'ConclaveHelp']) expect(coderTools).toContain(n);
     expect(sys).toContain('# Files you deliver');
     expect(sys).toContain('Delegate');
-    expect(sys).not.toContain('Settings > Models');
+    expect(sys).not.toContain('Settings > AI connections');
     // 14,476 chars before the cut (v0.4.41), about 13.5k after
     // +350 for the identity lines at the top of BASE.md (who Conclave is and who made it)
     expect(sys.length).toBeLessThan(14_250);
@@ -133,7 +133,7 @@ describe('the platform card in requests', () => {
     const assistant = await t.engine.createSession({ title: 't', cwd: t.cwd, agent: 'assistant' });
     await t.run(assistant.id, 'my day');
     expect(toolsOf(1)).toEqual(expect.arrayContaining(LIFE));
-    expect(systemOf(t.requests[1])).toContain('Settings > Models');
+    expect(systemOf(t.requests[1])).toContain('Settings > AI connections');
     const chat = await t.engine.createSession({ kind: 'chat' });
     await t.run(chat.id, 'cafes near me');
     expect(toolsOf(2)).toEqual(expect.arrayContaining(['Directions', 'PlaceSearch', 'PlaceDetails', 'MapImage']));

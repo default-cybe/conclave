@@ -7,7 +7,7 @@
 use crate::errors::WireError;
 use crate::paths::{native, SEP};
 
-pub const REFUSAL: &str = "Refused: that folder holds the hub's subscription sign-ins (CLIProxyAPI). Sessions cannot read or change it. Settings > Models > Subscriptions shows the accounts.";
+pub const REFUSAL: &str = "Refused: that folder holds the hub's subscription sign-ins (CLIProxyAPI). Sessions cannot read or change it. Settings > AI connections > Subscriptions shows the accounts.";
 
 #[cfg(test)]
 thread_local! {

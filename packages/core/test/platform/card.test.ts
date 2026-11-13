@@ -32,7 +32,7 @@ describe('the platform card', () => {
     expect(card).toContain("the owner's self-hosted agent hub");
     expect(card).toContain('This hub: madx, Conclave 0.4.14, on Linux x64 in an LXC container (CT 100).');
     for (const word of ['Chat is a plain conversation', 'Assistant runs on the hub', 'Code works in a folder', 'Delegate sends a job', 'Task runs a subagent', 'Workflow runs a script']) expect(card).toContain(word);
-    for (const page of ['Settings > Models', 'Refusal fallback', 'Settings > Browser', 'GitHub', 'Inbox', 'Usage', 'Routines', 'Extensions', 'Friends', 'Import']) expect(card).toContain(page);
+    for (const page of ['Settings > AI connections', 'Settings > Advanced: Accounts', 'Refusal fallback', 'Settings > Browser', 'GitHub', 'Inbox', 'Usage', 'Routines', 'Extensions', 'Friends', 'Import']) expect(card).toContain(page);
     expect(card).toContain('You cannot change settings, keys, sign-ins or device pairing');
     expect(card).toContain('"can you do X"');
     expect(card).toContain('call ConclaveHelp first');
@@ -45,7 +45,9 @@ describe('the platform card', () => {
     const code = platformCard(busy({ surface: 'code', agent: 'coder' })).card;
     console.log(`card chars: assistant ${full.length}, code ${code.length}`);
     expect(code).not.toContain('Where things are in the app');
-    expect(code).not.toContain('Settings > Models');
+    expect(code).not.toContain('Settings > AI connections');
+    // the regroup (v0.4.97) has no Models group
+    expect(full).not.toContain('Settings > Models');
     for (const word of ['Code works in a folder', 'Delegate sends a job', 'Workflow runs a script', 'call ConclaveHelp first', 'You cannot change settings']) expect(code).toContain(word);
     expect(code.length).toBeLessThan(full.length - 600);
     const live = platformCard(busy({ surface: 'code', agent: 'coder' })).live;
@@ -120,7 +122,7 @@ describe('the platform card', () => {
   test('a member sees their own devices, not the hub owner\'s settings or accounts', () => {
     const c = platformCard(busy({ member: true, accounts: [], engines: [] }));
     expect(c.card).toContain('The hub, its browser and its accounts are the owner\'s.');
-    expect(c.card).not.toContain('Settings > Models');
+    expect(c.card).not.toContain('Settings > AI connections');
     expect(c.live).not.toContain('Models:');
   });
 

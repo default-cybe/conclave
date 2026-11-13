@@ -13,15 +13,15 @@ import { Button, type ButtonSize } from '@/components/ui/Button';
 import { HOVER_ROW } from '@/features/home/sections';
 import { Group, SettingRow } from '@/features/settings/parts';
 import { LATER, stepHref, type LaterId } from './steps';
-import { laterDone, laterLeft, useProgress, useSetupFacts } from './progress';
+import { finishedOldSetup, laterDone, laterLeft, useProgress, useSetupFacts } from './progress';
 import { errText } from './parts';
 
-/** The items Home shows: none for a member, before setup is done, or once hidden. */
+/** The items Home shows: none for a member, before setup is done, once hidden, or on a hub that finished the old setup. */
 export function useSetupLater() {
   const facts = useSetupFacts();
   const { done } = useProgress();
   const owner = useHub((s) => s.me?.role === 'owner');
-  const hidden = useHub((s) => !!s.config?.setup?.laterHidden);
+  const hidden = useHub((s) => !!s.config?.setup?.laterHidden || finishedOldSetup(s.config));
   const onboarded = useOnboarded();
   return owner && onboarded && !hidden ? laterLeft(facts, done) : [];
 }

@@ -1310,7 +1310,7 @@ export class Engine implements EngineApi {
     const { refusalPlanFor } = await import('../session/member-fallbacks');
     // a member's session walks the member's own list, never the owner's
     const plan = refusalPlanFor(this, s.accountId, this.agentFor(s));
-    if (!plan) throw new EngineError(409, isMember(s.accountId) ? 'Your Refusal fallback has no models you can use. Add them in Settings, Models.' : 'Refusal fallback has no models, and no plan is marked to use when a model refuses. Add them in Settings, Models.');
+    if (!plan) throw new EngineError(409, isMember(s.accountId) ? 'Your Refusal fallback has no models you can use. Add them in Settings > Advanced > Refusal fallback.' : 'Refusal fallback has no models, and no plan is marked to use when a model refuses. Add them in Settings > Advanced > Refusal fallback.');
     const served = servedOf(reply);
     if (!served) throw new EngineError(409, 'Conclave does not know which model refused this reply.');
     const next = new RefusalWalk(this, s, plan, refusalStepOf(reply)).next(served);

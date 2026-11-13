@@ -681,7 +681,7 @@ and never sent back to an app. The environment variables still work:
 ## 4. Subscriptions: sign in to Claude, ChatGPT and more
 
 The hub can use the plans you already pay for instead of API keys. Setup
-step 2 ("Sign in to your AI subscriptions") and **Settings > Models >
+step 3 ("Connect a model") and **Settings > AI connections >
 Subscriptions** show one row each for Claude, ChatGPT, Google, Grok, Kimi
 and Muse. Sign in, and every model those accounts give shows up in the model
 picker, as `cliproxy/<model>`. It is off until you sign in or pick a mode,
@@ -740,7 +740,7 @@ matched.
 
 You can sign in to more than one account of the same plan. They are used
 in your order (below), one at a time. An account with a short name (set in
-Settings > Models > Accounts) also shows its models as
+Settings > Advanced > Accounts) also shows its models as
 `neu/claude-opus-5-5` and so on, under "Second account" in Settings.
 **Remove** signs an account out; **Refresh** asks the provider for a new
 token now.
@@ -772,14 +772,14 @@ is not available), the model picker greys that model out with the reason
 instead of sending every turn to it. **Refresh models** asks the plan
 again; otherwise the mark goes after a day.
 The lists are read again every 10 minutes and on every coding agent turn. To
-read them now, press **Refresh models** in **Settings > Models >
+read them now, press **Refresh models** in **Settings > AI connections >
 Subscriptions** (Models). It also starts each coding agent that is on, once,
 to ask for its list. One that cannot be asked keeps its last list, then the
 built-in one, and the message says which.
 
 ### Accounts and their order
 
-**Settings > Models > Accounts** lists every signed in plan and every API
+**Settings > Advanced > Accounts** lists every signed in plan and every API
 key, per vendor, in the order the hub uses them. The first takes the call;
 the next takes over when it is at a limit, resting after errors, or paused.
 Plans come before API keys unless you move them. So with Account 1, then
@@ -819,9 +819,9 @@ and spend by account.
 **A second Claude account.** Two ways, and a refusal fallback step can be
 kept on either:
 
-- **Another plan.** Sign in again under **Settings > Models >
+- **Another plan.** Sign in again under **Settings > AI connections >
   Subscriptions** (Claude) with the other login. To keep a step on exactly
-  that plan, give it a short name in **Settings > Models > Accounts** (for
+  that plan, give it a short name in **Settings > Advanced > Accounts** (for
   example `neu`). Its models then also show as `neu/claude-opus-5-5`.
   Without a short name CLIProxyAPI picks which plan answers a model both have.
 - **Another API key.** Add a second Anthropic provider and its key:
@@ -832,15 +832,15 @@ kept on either:
 ### Refusal fallback ("safety priority")
 
 When a model refuses, Conclave can ask again elsewhere with the same
-messages. The simple way: in **Settings > Models > Accounts**, turn on **Use
+messages. The simple way: in **Settings > Advanced > Accounts**, turn on **Use
 when a model refuses** for the plans or keys you trust with such requests.
 A refused reply then goes to the same model on each of them (of that
 model's maker), in your account order, skipping the one that refused and
-any that is paused or at a limit. The line at the top of **Settings > Models
+any that is paused or at a limit. The line at the top of **Settings > Advanced
 > Refusal fallback** names them ("Tried first: personal-claude on Claude.").
 
 After those, Conclave can ask the next model on your list.
-**Settings > Models > Refusal fallback** holds the list: add
+**Settings > Advanced > Refusal fallback** holds the list: add
 a model, pick an account for it if that step should stay on one plan or key
 ("Your order" follows Accounts), and drag rows or use the arrows. For
 example: Opus 5.5 on neu, Opus 5.5 on personal, GLM-5.3, then a ChatGPT
@@ -878,7 +878,7 @@ the account that answered. An agent can have its own list
 A marked account is `"refusal": true` on it in `models.accounts`.
 
 **Members have their own lists.** A member of your hub sees Settings >
-Models > Refusal fallback and Usage fallback too, with their own lists:
+Advanced > Refusal fallback and Limit fallback too, with their own lists:
 models only, and only models they can call (their own keys and plans, or a
 hub key you granted them). The hub refuses a model they cannot call when
 they save, and skips one at run time when a grant or plan is gone. Their
@@ -894,7 +894,7 @@ reset, so the next window starts at once. The idea comes from
 [Lamplighter](https://github.com/PosvdM/cpa-plugin-lamplighter), a plugin
 for CLIProxyAPI.
 
-Turn it on per account under **Settings > Models > Accounts**: each signed in
+Turn it on per account under **Settings > Advanced > Accounts**: each signed in
 plan has a **Window starter** switch, off by default. Some providers limit
 automated use of subscription accounts. This sends one tiny request per
 window. Use at your own risk.
@@ -908,7 +908,7 @@ window. Use at your own risk.
   page lists these requests as **Window starter**.
 - **Which account.** The request must reach that account alone. With one
   account per vendor that is automatic. With two or more, give each one a
-  short name in **Settings > Models > Accounts** (for example `neu`);
+  short name in **Settings > Advanced > Accounts** (for example `neu`);
   without one the row says it cannot reach the account alone.
 - **When it stops.** A 429, a failed sign-in, a model the plan refuses, or a
   window that does not start stop it for that account until the next day,
@@ -1879,12 +1879,12 @@ their own computer with their own login, so they need nothing from you.
 ### Their own plans
 
 A person can sign in their own Claude, ChatGPT or other plan: **Settings >
-Models > Subscriptions** on their account, the same page as yours (section 4)
+AI connections > Subscriptions** on their account, the same page as yours (section 4)
 without the program, its version, its path or how the hub reaches it. If their
 CLIProxyAPI stopped with an error, they can retry it there. The first sign-in
 starts a CLIProxyAPI for them alone, run by the hub like yours, on `127.0.0.1`, in
 `~/.conclave/accounts/<id>/cliproxy`. Its keys are in their own `secrets.json`
-there. **Settings > Models > Accounts** shows their plans, their order and
+there. **Settings > Advanced > Accounts** shows their plans, their order and
 their limits. Their `cliproxy/<model>` calls use their own plan when it has
 the model, and your plans only if you let them use CLIProxyAPI (above). A call
 that started on their plan stays on it and never moves to yours. The window

@@ -175,6 +175,21 @@ class PickerTabsTest {
     }
 
     @Test
+    fun aPinnedModelThePlanRefusesStaysInPinned() {
+        val refused = ModelInfo(id = "claude-mythos-5-1", ref = "anthropic/claude-mythos-5-1", provider = "anthropic", name = "Claude Mythos 5.1", unavailable = "Your plan refused it (HTTP 404)")
+        val withRefused = PickerTabs.entries(ModelPicks.groups(listOf(g("anthropic", refused, m("anthropic", "claude-opus-5-5", "Claude Opus 5.5")))))
+        val items = PickerTabs.items(withRefused, "", Tab.ALL, pinned = listOf("anthropic/claude-mythos-5-1"))
+        // still under Pinned, marked unavailable, so its pin can be removed; the fold still counts it
+        assertEquals("Pinned", heads(items).first())
+        assertEquals(listOf("anthropic/claude-mythos-5-1"), refs(items, Section.PIN))
+        val pin = items.filterIsInstance<Item.Model>().first { it.section == Section.PIN }
+        assertEquals("Your plan refused it (HTTP 404)", pin.entry.row.model.unavailable)
+        assertEquals(Item.Fold(PickerTabs.NOT_AVAILABLE, 1, open = false), items.last())
+        // unpinning it frees its place
+        assertEquals(emptyList<String>(), PickerTabs.togglePin(listOf("anthropic/claude-mythos-5-1"), "anthropic/claude-mythos-5-1"))
+    }
+
+    @Test
     fun aSearchSpansEveryTabWithNoPinnedOrRecent() {
         val found = PickerTabs.items(entries, "claude", Tab.LOCAL, pinned = listOf("anthropic/claude-haiku-5"), recent = listOf("anthropic/claude-opus-5-5"))
         assertEquals(listOf("Matches for \"claude\""), heads(found))

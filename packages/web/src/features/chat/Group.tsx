@@ -136,10 +136,10 @@ export function JuryGroup({ unit, session, streaming, enter }: { unit: GroupUnit
               <p className={cn('max-w-[28ch] text-fg', (a.sentence || 'Judging').length <= 48 ? 't-verdict' : 't-page')}>{a.sentence || 'Judging'}</p>
               {a.tally.length > 0 && <Tally tally={a.tally} winner={a.winner} />}
             </div>
-            {a.rest && <StreamedMarkdown text={a.rest} streaming={verdictStreaming} className="mt-3 max-w-[72ch]" />}
+            {a.rest && <StreamedMarkdown text={a.rest} streaming={verdictStreaming} className="mt-3" />}
             {dissent.length > 0 && !verdictStreaming && (
               <Quote
-                className="mt-4 max-w-[72ch] text-[13.5px] leading-[1.55] phone:text-[14.5px]"
+                className="mt-4 text-[13.5px] leading-[1.55] phone:text-[14.5px]"
                 cite={
                   <span className="inline-flex items-center gap-1">
                     {dissent.map((d, i) => (
@@ -409,8 +409,8 @@ export function DebateGroup({ unit, session, streaming, known }: { unit: GroupUn
                 ))}
               </div>
             </div>
-            {rest && <StreamedMarkdown text={rest} streaming={verdictStreaming} className="mt-3 max-w-[72ch]" />}
-            {dissent && <Quote className="mt-4 max-w-[72ch] text-[13.5px]">{dissent}</Quote>}
+            {rest && <StreamedMarkdown text={rest} streaming={verdictStreaming} className="mt-3" />}
+            {dissent && <Quote className="mt-4 text-[13.5px]">{dissent}</Quote>}
           </div>
         </LogRow>
       ) : (

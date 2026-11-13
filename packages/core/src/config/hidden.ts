@@ -19,5 +19,5 @@ export function isHiddenModel(cfg: Pick<ConclaveConfig, 'models'>, ref: string):
 
 /** What a caller says when it meets a hidden model. */
 export function hiddenWords(ref: string): string {
-  return `Model ${ref} is hidden by models.hidden (Settings > Models > Hidden models). Pick another model, or remove it from that list.`;
+  return `Model ${ref} is hidden by models.hidden (Settings > AI connections > Defaults, Hidden models). Pick another model, or remove it from that list.`;
 }

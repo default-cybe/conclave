@@ -47,14 +47,14 @@ export async function generateImageFor(deps: ImageDeps, call: ImageCall): Promis
   const ref = imageModelOf(cfg, call.model);
   const { provider: pid, model } = parseModelRef(ref);
   if (!pid || !model) throw new ImageRefusal(`"${ref}" is not a provider/model reference.`);
-  if (!IMAGE_MODEL.test(model)) throw new ImageRefusal(`${ref} is not an image model. Pick one in Settings > Models > Image model.`);
+  if (!IMAGE_MODEL.test(model)) throw new ImageRefusal(`${ref} is not an image model. Pick one in Settings > AI connections > Defaults, Image model.`);
   const member = isMember(call.accountId);
   if (member && deps.access.source(call.accountId, pid, model) !== 'own') {
-    throw new ImageRefusal(`You have no plan or API key of your own for ${ref}. Images are made only on your own plans or keys, never the hub owner's. Sign in a ChatGPT plan in Settings > Accounts or add your own key for ${pid}.`);
+    throw new ImageRefusal(`You have no plan or API key of your own for ${ref}. Images are made only on your own plans or keys, never the hub owner's. Sign in a ChatGPT plan in Settings > AI connections > Subscriptions or add your own key for ${pid}.`);
   }
   const provider = deps.providersFor(call.accountId).get(pid);
   if (!provider) throw new ImageRefusal(`Provider "${pid}" is not set up. Add it in Settings > Providers.`);
-  if (!provider.generateImage) throw new ImageRefusal(`Provider "${pid}" cannot make images. Pick an OpenAI-compatible image model in Settings > Models > Image model.`);
+  if (!provider.generateImage) throw new ImageRefusal(`Provider "${pid}" cannot make images. Pick an OpenAI-compatible image model in Settings > AI connections > Defaults, Image model.`);
   const started = Date.now();
   const { accountId, sessionId, model: _m, ...req } = call;
   const result = await provider.generateImage({ ...req, model });
