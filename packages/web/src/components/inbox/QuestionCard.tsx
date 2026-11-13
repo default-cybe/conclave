@@ -192,7 +192,7 @@ export function QuestionCard({
             </Button>
           ))}
           {reply === null && (
-            <Button variant="quiet" size="sm" onClick={() => setReply('')}>
+            <Button variant="quiet" size="sm" disabled={busy} onClick={() => setReply('')}>
               Other…
             </Button>
           )}
