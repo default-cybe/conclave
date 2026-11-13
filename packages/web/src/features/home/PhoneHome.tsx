@@ -26,6 +26,7 @@ import { nextEventLine } from './proposalWords';
 import { useLearningsWaiting } from '@/features/settings/reflectLearnings';
 import { learningsWaitWords } from '@/features/settings/reflectWords';
 import { ModesNote } from './modes';
+import { useSetupLater } from '@/features/onboarding/SetupLater';
 
 export function PhoneHome() {
   const now = useNow(60_000);
@@ -39,7 +40,8 @@ export function PhoneHome() {
   const proposals = day?.proposals?.length ?? 0;
   const next = day?.events?.length ? nextEventLine(day.events, now, day.timezone) : undefined;
   const learnings = useLearningsWaiting();
-  const line = homeLine({ waiting, proposals, next, learnings });
+  const later = useSetupLater().length;
+  const line = homeLine({ waiting, proposals, next, learnings, later });
   const search = useSearch();
   const [, navigate] = useLocation();
 
@@ -82,14 +84,16 @@ export function PhoneHome() {
 /**
  * Home's one line: what waits on you ("4 need you, 2 proposals", amber, to
  * the Inbox, or to Today when only proposals wait), else the next event,
- * else the learnings to review (quiet: nothing is blocked on them). The
- * others are one tap away in the Inbox, Today and Settings > Reflect.
+ * else the learnings to review (quiet: nothing is blocked on them), else
+ * what setup left for later. The others are one tap away in the Inbox,
+ * Today and Settings > Reflect and About.
  */
-export function homeLine(p: { waiting: number; proposals: number; next?: string; learnings: number }): { text: string; href: string; warn: boolean } | undefined {
+export function homeLine(p: { waiting: number; proposals: number; next?: string; learnings: number; later?: number }): { text: string; href: string; warn: boolean } | undefined {
   const asks = [p.waiting ? `${p.waiting} ${p.waiting === 1 ? 'needs' : 'need'} you` : '', p.proposals ? `${p.proposals} ${p.proposals === 1 ? 'proposal' : 'proposals'}` : ''].filter(Boolean);
   if (asks.length) return { text: asks.join(', ') + (p.waiting ? '' : ' to approve'), href: p.waiting ? '/approvals' : '/today', warn: true };
   if (p.next) return { text: p.next, href: '/today', warn: false };
   if (p.learnings) return { text: `${p.learnings} ${learningsWaitWords(p.learnings)}`, href: '/settings/reflect', warn: false };
+  if (p.later) return { text: `${p.later} ${p.later === 1 ? 'thing' : 'things'} to set up later`, href: '/settings/about#setup-later', warn: false };
   return undefined;
 }
 

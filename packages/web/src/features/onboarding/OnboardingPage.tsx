@@ -1,9 +1,11 @@
 /**
- * First-run setup (spec 11.11). Routes, rendered outside the shell:
- *   /welcome            the Welcome screen
- *   /setup/<step>       one of the thirteen steps (also /welcome/<step>)
+ * First-run setup (spec 11.11, design review #8). Routes, rendered outside the shell:
+ *   /welcome            the Welcome screen, step 1 of 4
+ *   /setup/<step>       Hub, Connect a model or Make it yours (also /welcome/<step>)
+ *   /setup/<later>      a "Set up later" page (extensions, agents, defaults, import, devices, notifications, routines)
+ *   /setup/<old step>   a step folded into the four opens that step (subscriptions, providers, modes, memory, done)
  *   /setup              resumes where the owner stopped
- *   /setup?again=1      "Run setup again": opens step 2 (Subscriptions) with answers prefilled
+ *   /setup?again=1      "Run setup again": opens Connect a model with answers prefilled
  * Progress is saved to the hub config (ui.onboardingSteps, setup.progress)
  * so a reload or another device resumes at the same step.
  */
@@ -11,38 +13,33 @@ import { useCallback, useEffect, useMemo, useRef, type ComponentType } from 'rea
 import { Redirect, useLocation, useSearch } from 'wouter';
 import { skipOnboarding } from '@/lib/onboarding';
 import { attempt } from '@/store/store';
+import { setStartMode } from '@/features/home/start';
 import { FlowCtx, StepShell, useContinueKeys, type Flow } from './StepLayout';
 import { Welcome } from './Welcome';
-import { STEPS, isStepId, stepIndex, type StepId } from './steps';
+import { STEPS, isLaterId, pageFor, stepDef, stepHref, stepIndex, type PageId, type StepId } from './steps';
 import { recordStep, useProgress } from './progress';
 import { HubStep } from './steps/HubStep';
-import { SubscriptionsStep } from './steps/SubscriptionsStep';
-import { ProvidersStep } from './steps/ProvidersStep';
+import { ModelStep } from './steps/ModelStep';
+import { YoursStep } from './steps/YoursStep';
 import { ExtensionsStep } from './steps/ExtensionsStep';
 import { AgentsStep } from './steps/AgentsStep';
 import { DefaultsStep } from './steps/DefaultsStep';
-import { ModesStep } from './steps/ModesStep';
-import { MemoryStep } from './steps/MemoryStep';
 import { ImportStep } from './steps/ImportStep';
 import { DevicesStep } from './steps/DevicesStep';
 import { NotificationsStep } from './steps/NotificationsStep';
 import { RoutinesStep } from './steps/RoutinesStep';
-import { DoneStep } from './steps/DoneStep';
 
-const VIEWS: Record<StepId, ComponentType> = {
+const VIEWS: Record<Exclude<PageId, 'welcome'>, ComponentType> = {
   hub: HubStep,
-  subscriptions: SubscriptionsStep,
-  providers: ProvidersStep,
+  model: ModelStep,
+  yours: YoursStep,
   extensions: ExtensionsStep,
   agents: AgentsStep,
   defaults: DefaultsStep,
-  modes: ModesStep,
-  memory: MemoryStep,
   import: ImportStep,
   devices: DevicesStep,
   notifications: NotificationsStep,
   routines: RoutinesStep,
-  done: DoneStep,
 };
 
 export default function OnboardingPage() {
@@ -51,59 +48,83 @@ export default function OnboardingPage() {
   const progress = useProgress();
   const seg = loc.split('/').filter(Boolean);
   const raw = seg[1];
-  const step: StepId | undefined = isStepId(raw) ? raw : undefined;
+  const page = pageFor(raw);
 
   const leave = useCallback(async () => {
     await attempt(() => skipOnboarding());
     navigate('/');
   }, [navigate]);
 
-  // /setup without a step: resume, or open step 2 when run again from Settings
-  if (seg[0] === 'setup' && !step) {
+  // /setup without a step: resume, or open Connect a model when run again from Settings
+  if (seg[0] === 'setup' && !raw) {
     const again = new URLSearchParams(search).has('again');
-    return <Redirect to={`/setup/${again ? 'subscriptions' : (progress.step ?? 'hub')}`} replace />;
+    return <Redirect to={stepHref(again ? 'model' : (progress.step ?? 'hub'))} replace />;
   }
-  if (!step) return <Welcome onStart={(at) => navigate(`/setup/${at}`)} onSkip={() => void leave()} />;
-  return <Steps step={step} leave={leave} />;
+  // an old step's address, or /setup/welcome: the page it is now
+  if (page && page !== raw) return <Redirect to={`${stepHref(page)}${search ? `?${search}` : ''}`} replace />;
+  if (!page || page === 'welcome') return <Welcome onStart={(at) => navigate(stepHref(at))} onSkip={() => void leave()} />;
+  return <Steps step={page} leave={leave} completed={progress.completed} />;
 }
 
-function Steps({ step, leave }: { step: StepId; leave: () => Promise<void> }) {
+function Steps({ step, leave, completed }: { step: Exclude<PageId, 'welcome'>; leave: () => Promise<void>; completed: boolean }) {
   const [, navigate] = useLocation();
   const cont = useRef<(() => void) | null>(null);
   const i = stepIndex(step);
 
   const flow = useMemo<Flow>(() => {
-    const go = (id: StepId) => navigate(`/setup/${id}`);
-    const after = STEPS[Math.min(i + 1, STEPS.length - 1)].id;
+    const go = (id: PageId) => navigate(stepHref(id));
+    // a "Set up later" page goes back where it came from: Home once setup is done, else the setup that waits
+    const out = () => navigate(completed ? '/' : '/setup');
+    if (isLaterId(step))
+      return {
+        step,
+        go,
+        next: async () => {
+          void recordStep(step, 'done');
+          out();
+        },
+        skip: async () => out(),
+        back: out,
+        leave,
+        register: (fn) => {
+          cont.current = fn;
+        },
+        runContinue: () => cont.current?.(),
+      };
+    const last = i === STEPS.length - 1;
+    const after = STEPS[Math.min(i + 1, STEPS.length - 1)].id as StepId;
     return {
       step,
       go,
       next: async () => {
         void recordStep(step, 'done', after);
-        if (step !== 'done') go(after);
+        if (!last) return go(after);
+        // four steps, then Chat opens
+        setStartMode('chat');
+        navigate('/');
       },
       skip: async () => {
         void recordStep(step, 'skipped', after);
         go(after);
       },
-      back: () => (i === 0 ? navigate('/welcome') : go(STEPS[i - 1].id)),
+      back: () => go(STEPS[Math.max(i - 1, 0)].id),
       leave,
       register: (fn) => {
         cont.current = fn;
       },
       runContinue: () => cont.current?.(),
     };
-  }, [step, i, navigate, leave]);
+  }, [step, i, navigate, leave, completed]);
 
   const runContinue = useCallback(() => cont.current?.(), []);
   useContinueKeys(runContinue);
 
   useEffect(() => {
-    document.title = `${STEPS[i].name}, Conclave setup`;
+    document.title = `${stepDef(step).name}, Conclave setup`;
     return () => {
       document.title = 'Conclave';
     };
-  }, [i]);
+  }, [step]);
 
   const View = VIEWS[step];
   return (

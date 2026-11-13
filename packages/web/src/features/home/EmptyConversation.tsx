@@ -22,6 +22,7 @@ import { WaitingSection } from './sections';
 import { LearningsBadge } from '@/features/settings/reflectLearnings';
 import { offersIncognito, showsDay, type SessionKind, type StartMode } from './start';
 import { ModesNote } from './modes';
+import { SetupLaterSection } from '@/features/onboarding/SetupLater';
 
 /** The knot over the greeting: as heavy over its 26px heading as the phone's 64px mark over its 28px one. */
 const MARK = 60;
@@ -46,6 +47,7 @@ export function EmptyConversation({ mode }: { mode: Exclude<StartMode, 'canvas'>
         <WaitingSection key={mode} mode={mode} open={1} />
         <LearningsBadge />
         {showsDay(mode) && <TodaySection />}
+        <SetupLaterSection />
       </div>
       <div aria-hidden className="min-h-8 flex-[6]" />
     </div>

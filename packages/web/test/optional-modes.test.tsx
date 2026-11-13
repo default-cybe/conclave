@@ -46,12 +46,12 @@ describe('which modes show', () => {
   });
 });
 
-test('setup has a Modes step, and the Welcome strip a column for every step (13 wrapped Done onto a row of its own)', async () => {
-  const { STEPS } = await import('../src/features/onboarding/steps');
-  expect(STEPS.map((s) => s.id)).toContain('modes');
+test('modes are chosen in setup step 4, Make it yours, and the Welcome strip has a column for every step', async () => {
+  const { STEPS, pageFor } = await import('../src/features/onboarding/steps');
+  expect(STEPS.map((s) => s.id)).toContain('yours');
+  expect(pageFor('modes')).toBe('yours');
   const src = readFileSync(join(import.meta.dir, '../src/features/onboarding/Welcome.tsx'), 'utf8');
-  expect(src).toContain(` grid-cols-${Math.ceil(STEPS.length / 2)} `);
-  expect(src).toContain(`xl:grid-cols-${STEPS.length}"`);
+  expect(src).toContain(` grid-cols-${STEPS.length} `);
 });
 
 const GLOBALS = ['window', 'document', 'navigator', 'HTMLElement', 'Node', 'localStorage', 'IS_REACT_ACT_ENVIRONMENT'];
@@ -134,7 +134,7 @@ describe('Meetings off', () => {
     const { OPTIONAL_MODES } = await import('../src/features/home/modes');
     expect(OPTIONAL_MODES).toEqual(['security', 'canvas', 'meetings']);
     expect(NEW_ACCOUNT_MODES.meetings).toBe(false);
-    const src = readFileSync(join(import.meta.dir, '../src/features/onboarding/steps/ModesStep.tsx'), 'utf8');
+    const src = readFileSync(join(import.meta.dir, '../src/features/onboarding/steps/YoursStep.tsx'), 'utf8');
     expect(src).toContain('OPTIONAL_MODES.map(');
     expect(src).toContain("meetings: modeOn(prefs, 'meetings')");
   });
