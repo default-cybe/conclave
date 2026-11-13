@@ -20,6 +20,10 @@ like `## [0.4.16] - 2026-10-24`.
 - Desktop: questions from the agent show each option with its description, like on phones
 - Replies use the full width of the message box
 
+### Added
+
+- Design (`docs/design/MEMBERS-SANDBOX.md`) for members phase 2: per-account private hub sandboxes (`<hub-data>/accounts/<account-id>/sandbox/home`), a bubblewrap profile with an empty root, private `/proc` and seccomp, network egress through an isolated pasta namespace and the existing public-only SOCKS fence, aggregate cgroup and filesystem quota gates, sandboxed stdio MCP servers and command hooks, `SandboxMachine` selection for member hub Code sessions, and the escape-path threat model, rollout phases and native escape test plan.
+
 ### Fixed
 
 - Setup: an owner who connects only an API key no longer finishes with a default model that cannot run. On Continue, a default or small model whose provider does not work is replaced with that key's provider's models (its smart and fast tiers)
