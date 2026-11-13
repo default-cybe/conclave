@@ -54,12 +54,23 @@ export function pagesIn(text: string): Array<{ lang: 'html' | 'svg'; code: strin
   for (const f of text.matchAll(FENCE)) {
     const lang = f[1]?.toLowerCase();
     const code = f[2]!;
-    const kind = lang === 'html' || lang === 'htm' ? 'html' : lang === 'svg' || (lang === 'xml' && /^\s*(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<svg[\s>]/i.test(code)) ? 'svg' : undefined;
+    const kind = lang === 'html' || lang === 'htm' ? 'html' : lang === 'svg' || (lang === 'xml' && startsSvg(code)) ? 'svg' : undefined;
     if (!kind) continue;
     const title = /<title>([^<]{1,80})<\/title>/i.exec(code)?.[1]?.trim();
     out.push({ lang: kind, code, ...(title ? { title } : {}) });
   }
   return out;
+}
+
+/** XML whose first element is <svg>, past an <?xml?> line and comments; a linear scan, no backtracking regex. */
+function startsSvg(code: string): boolean {
+  let s = code.trimStart().replace(/^<\?xml[^>]*>/, '').trimStart();
+  while (s.startsWith('<!--')) {
+    const end = s.indexOf('-->', 4);
+    if (end < 0) return false;
+    s = s.slice(end + 3).trimStart();
+  }
+  return /^<svg[\s>]/i.test(s);
 }
 
 const ext = (mediaType: string) => mediaType.split('/')[1]?.split(/[+;]/)[0]?.replace('jpeg', 'jpg') ?? 'bin';
