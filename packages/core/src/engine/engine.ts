@@ -396,7 +396,8 @@ export class Engine implements EngineApi {
         // a call cut by the restart (one waiting on an approval too) ends as interrupted, as a Stop ends it, so its row stops running
         const msgs = this.repos.messages.list(s.id);
         const answered = new Set(msgs.flatMap((m) => m.content.flatMap((b) => (b.type === 'tool_result' ? [b.toolUseId] : []))));
-        const last = msgs.findLast((m) => m.role === 'assistant');
+        // the turn's own reply: a notice or an aside is stored as an assistant message too
+        const last = msgs.findLast((m) => m.role === 'assistant' && m.kind === 'normal');
         const cut = (last?.content ?? []).filter((b) => b.type === 'tool_use' && !answered.has(b.id)) as ToolUseBlock[];
         if (cut.length) this.repos.messages.insert({ id: newId('msg'), sessionId: s.id, seq: this.repos.messages.nextSeq(s.id), createdAt: Date.now(), role: 'user', kind: 'normal', content: cut.map((u) => ({ type: 'tool_result', toolUseId: u.id, content: INTERRUPTED, isError: true, meta: { interrupted: true } })) });
       }

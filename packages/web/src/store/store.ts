@@ -715,7 +715,7 @@ function settleTools(sessionId: string) {
   if (tools) set({ tools });
 }
 
-/** The live connection dropped since it was last open: the next open refetches what it missed. */
+/** The live connection moved to another address of the hub: the next open refetches what it missed. */
 let lostLive = false;
 
 export function startLive() {
@@ -728,9 +728,7 @@ export function startLive() {
       if (conn !== was) clientLog('info', conn === 'open' ? (was === 'closed' ? 'reconnect' : 'connect') : conn === 'closed' ? 'disconnect' : 'reconnecting', { was });
       // the data was live up to now; from here it is the last known state
       set(was === 'open' && conn !== 'open' ? { conn, syncedAt: Date.now() } : { conn });
-      // a reconnect, also to another address of the hub (a fresh socket replays nothing): refetch what was missed
-      // (was is 'connecting' by then, so it alone never told a reconnect)
-      if (was === 'open' && conn !== 'open') lostLive = true;
+      // a socket at another address of the hub replays nothing (the same address replays or resyncs): refetch what was missed
       if (conn === 'open' && lostLive) {
         lostLive = false;
         void loadAll({ transcripts: true }).then(() => {
@@ -774,6 +772,7 @@ async function loadRemote() {
 }
 
 function moveTo(conn: Connection) {
+  lostLive = true;
   void connectClient(conn).then(() => startLive());
 }
 
@@ -1030,15 +1029,20 @@ export function upsertSharedProject(p: SharedProjectDto, gone = false) {
 }
 /** Approvals decided from a card on screen: the card removes them after showing the result. */
 export const heldApprovals = new Set<string>();
+/** Ids resolved while a syncApprovals fetch is on its way, one set per fetch. */
+const syncing = new Set<Set<string>>();
 
 /** Refetch the open approvals: the hub's list wins, a card it no longer holds goes. */
 export async function syncApprovals(): Promise<void> {
   const before = new Set(Object.keys(get().approvals));
-  const list = await settle(api().approvals(), undefined);
+  const gone = new Set<string>();
+  syncing.add(gone);
+  const list = await settle(api().approvals(), undefined).finally(() => syncing.delete(gone));
   if (!list) return;
-  // one asked while the list was on its way stays
-  const asked = Object.values(get().approvals).filter((a) => !before.has(a.id));
-  set({ approvals: byId([...list, ...asked], (a) => a.id) });
+  const now = get().approvals;
+  // one asked while the list was on its way stays, one answered meanwhile stays gone, and a card showing its decision stays
+  const keep = Object.values(now).filter((a) => !before.has(a.id) || heldApprovals.has(a.id));
+  set({ approvals: byId([...list.filter((a) => !gone.has(a.id) && !heldApprovals.has(a.id)), ...keep], (a) => a.id) });
 }
 
 /**
@@ -1150,7 +1154,7 @@ export function applyEvent(e: EngineEventEnvelope) {
       // the turn ended: no call of it still runs, and an approval the hub dropped meanwhile must not stay as "waiting"
       if (!LIVE_STATUSES.has(e.session.status)) {
         settleTools(e.session.id);
-        if (Object.values(s.approvals).some((a) => a.sessionId === e.session.id)) void syncApprovals();
+        if (Object.values(s.approvals).some((a) => a.sessionId === e.session.id && !heldApprovals.has(a.id))) void syncApprovals();
       }
       break;
     }
@@ -1253,6 +1257,7 @@ export function applyEvent(e: EngineEventEnvelope) {
       set({ approvals: { ...s.approvals, [e.approval.id]: e.approval } });
       break;
     case 'approval.resolved':
+      for (const gone of syncing) gone.add(e.id);
       // A card that made this decision shows "Allowed once, 14:09" for a moment and removes it itself.
       if (!heldApprovals.has(e.id)) removeKey('approvals', e.id);
       break;

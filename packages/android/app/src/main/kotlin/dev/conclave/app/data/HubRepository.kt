@@ -752,7 +752,10 @@ class HubRepository(
         }
         approvals.update { list -> list.filterNot { it.id == id } }
         if (!taken) try {
-            approvals.value = api { it.approvals() }
+            val before = approvals.value.map { it.id }.toSet()
+            val fresh = api { it.approvals() }
+            // one asked while the list was on its way stays; one answered meanwhile stays gone
+            approvals.update { cur -> fresh.filter { f -> f.id !in before || cur.any { it.id == f.id } } + cur.filter { c -> c.id !in before && fresh.none { it.id == c.id } } }
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
