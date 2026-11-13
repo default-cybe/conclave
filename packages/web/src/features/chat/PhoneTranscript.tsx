@@ -60,6 +60,7 @@ import { FanOutCard, useFolded } from './FanOutCard';
 import { TASK_TOOLS, taskToolWords } from './fanOut';
 import { WorkflowRow } from '../workflows/WorkflowCard';
 import { MapsCards } from '../maps/MapsCard';
+import { FileCards } from '../files/FileCard';
 import { WatchCards } from '../watches/WatchCards';
 import { isContextOnly, isToolResultOnly, msgText, resultText } from './util';
 import { canSend, SendToFriendDialog } from '../friends/SendToFriend';
@@ -348,7 +349,8 @@ function PhoneThought({ item }: { item: ThoughtItem }) {
 /** A stretch of work: single calls as rows, a workflow and a subagent as one live row each, the rest as one line (the same groups as desktop). */
 export function PhoneWork({ entries, sessionId, live }: { entries: WorkItem[]; sessionId: string; live: boolean }) {
   const segs = useMemo(() => segment(entries), [entries]);
-  const results = entries.flatMap((e) => (e.type === 'call' ? [e.item.result ?? e.item.run?.result] : []));
+  const calls = entries.flatMap((e) => (e.type === 'call' ? [{ name: e.item.tool.name, result: e.item.result ?? e.item.run?.result }] : []));
+  const results = calls.map((c) => c.result);
   return (
     <div className="-my-0.5">
       {segs.map((g, i) =>
@@ -362,9 +364,10 @@ export function PhoneWork({ entries, sessionId, live }: { entries: WorkItem[]; s
           <PhoneGroup key={g.entries.find((e) => e.type === 'call')?.item.tool.id ?? i} entries={g.entries} sessionId={sessionId} live={live && i === segs.length - 1} />
         ),
       )}
-      {/* places, routes and maps sit under the calls, open or not */}
+      {/* places, routes, maps and shared files sit under the calls, open or not */}
       <MapsCards results={results} className="mt-0.5 mb-1.5" />
       <WatchCards results={results} sessionId={sessionId} className="mt-0.5 mb-1.5" />
+      <FileCards calls={calls} sessionId={sessionId} className="mt-0.5 mb-1.5" />
     </div>
   );
 }
