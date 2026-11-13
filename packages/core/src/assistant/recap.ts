@@ -419,7 +419,7 @@ function basicSuggestions(d: { repeat?: SessionRow[]; unprojected: number; lateN
   if (d.repeat) out.push({ text: 'Turn this repeated request into a routine or a skill.', why: `You opened ${d.repeat.length} sessions the same way, like "${d.repeat[0]!.title}".` });
   if (d.unprojected >= 6) out.push({ text: 'Start a project for the topic you keep coming back to, so the context carries over.', why: `${d.unprojected} chats had no project.` });
   if (d.corrections >= 5) out.push({ text: 'Save the corrections you repeat as notes, so you stop giving them.', why: `You corrected the agent ${d.corrections} times.` });
-  if (d.fallbacks >= 10) out.push({ text: 'Add a second account or change the model order in Settings, Accounts.', why: `${d.fallbacks} turns fell back to another model when a plan hit its limit.` });
+  if (d.fallbacks >= 10) out.push({ text: 'Add a second account or change the model order in Settings > Advanced > Accounts.', why: `${d.fallbacks} turns fell back to another model when a plan hit its limit.` });
   if (d.lateNightShare >= 0.2 && d.messages >= 20) out.push({ text: 'Set quiet hours so nothing pulls you back late.', why: `${Math.round(d.lateNightShare * 100)}% of your messages came between 23:00 and 05:00.` });
   return out.slice(0, 4);
 }

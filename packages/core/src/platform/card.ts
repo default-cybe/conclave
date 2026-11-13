@@ -100,7 +100,7 @@ export function cardText(f: Pick<PlatformFacts, 'hub' | 'tools' | 'member'> & { 
   const settings = f.member
     ? '- Settings: your account and your own provider keys. The hub, its browser and its accounts are the owner\'s.'
     : [
-        '- Settings > Models: Providers, Subscriptions (Claude, ChatGPT, Google plans), Accounts (order, budgets, the Window starter), Refusal fallback, Defaults.',
+        '- Settings > AI connections: Subscriptions (Claude, ChatGPT, Google plans), Providers, Defaults (models, Hidden models, Image model). Settings > Advanced: Accounts (order, budgets, the Window starter), Refusal fallback, Limit fallback.',
         '- Settings > Browser (profiles, saved logins, CloakBrowser, a proxy retried once when a site blocks the hub, in the hub\'s country), GitHub (repo sessions that end in a pull request), Remote access, Notifications, Permissions, People.',
       ].join('\n');
   // a Code session works in a repo: the app's pages and settings cost every request and ConclaveHelp has them

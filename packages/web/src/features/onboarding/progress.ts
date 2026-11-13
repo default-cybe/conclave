@@ -6,9 +6,9 @@
 import { useMemo } from 'react';
 import type { Device } from '@conclave/core/types';
 import { toast, updateConfig, useHub, type HubConfig } from '@/store/store';
-import { HARNESS_LOGINS, PROVIDERS } from '@/lib/providers';
+import { HARNESS_LOGINS, modelUsable, PROVIDERS, providerReady } from '@/lib/providers';
 import { deviceName, desktopNotifyOn, useNotifyDevices } from '@/lib/notify';
-import { isStepId, LATER, pageFor, type LaterId, type PageId, type StepId } from './steps';
+import { FOLDED, isStepId, LATER, pageFor, type LaterId, type PageId, type StepId } from './steps';
 
 export interface SetupProgress {
   step?: StepId;
@@ -40,6 +40,17 @@ export function useProgress(): SetupProgress & { done: PageId[]; completed: bool
   return useMemo(() => ({ ...readProgress(config), done: pages(config?.ui?.onboardingSteps ?? []), completed: !!config?.setup?.completedAt }), [config]);
 }
 
+/**
+ * A hub that finished the thirteen step setup: setup.completedAt is set and its
+ * saved steps still hold ids only that setup wrote (subscriptions, memory, done ...).
+ * Its owner already chose, so Home does not list "Set up later".
+ */
+export function finishedOldSetup(config: HubConfig | undefined): boolean {
+  const skipped = config?.setup?.progress?.skipped;
+  const raw: unknown[] = [...(config?.ui?.onboardingSteps ?? []), ...(Array.isArray(skipped) ? skipped : [])];
+  return !!config?.setup?.completedAt && raw.some((x) => typeof x === 'string' && Object.hasOwn(FOLDED, x));
+}
+
 /** Save that a step was finished or skipped, and where to resume (a "Set up later" page leaves that as it is). Never blocks the flow. */
 export async function recordStep(id: PageId, how: 'done' | 'skipped', resumeAt?: StepId) {
   const config = useHub.getState().config;
@@ -50,7 +61,8 @@ export async function recordStep(id: PageId, how: 'done' | 'skipped', resumeAt?:
     skipped.delete(id);
   } else if (!done.has(id)) skipped.add(id);
   try {
-    await updateConfig({ ui: { onboardingSteps: [...done] }, setup: { progress: { ...(resumeAt ? { step: resumeAt } : {}), skipped: [...skipped], updatedAt: Date.now() } } });
+    // saving rewrites old step ids, so keep a hub that finished the old setup hiding the list
+    await updateConfig({ ui: { onboardingSteps: [...done] }, setup: { ...(finishedOldSetup(config) ? { laterHidden: true } : {}), progress: { ...(resumeAt ? { step: resumeAt } : {}), skipped: [...skipped], updatedAt: Date.now() } } });
   } catch (e) {
     toast({ title: `Could not save setup progress. ${e instanceof Error ? e.message : String(e)}`, level: 'error' });
   }
@@ -81,6 +93,8 @@ export interface SetupFacts {
   /** Harness ids found on any device, and where. */
   harnesses: Array<{ id: string; devices: string[] }>;
   defaultModel?: string;
+  /** The default model's provider can run it (lib/providers.ts modelUsable). The hub always returns a default model, the schema's when none was chosen. */
+  defaultUsable: boolean;
   smallModel?: string;
   defaultAgent?: string;
   memoryOn: boolean;
@@ -148,6 +162,8 @@ export function useSetupFacts(): SetupFacts {
       logins: progress.logins ?? [],
       harnesses,
       defaultModel: config?.defaultModel as string | undefined,
+      // no model list yet (loading, or the request failed): do not show Defaults as missing
+      defaultUsable: !models.length || modelUsable(config?.defaultModel, providerReady(models), models),
       smallModel: config?.smallModel as string | undefined,
       defaultAgent: config?.defaultAgent as string | undefined,
       memoryOn: mem.enabled !== false,
@@ -168,13 +184,13 @@ export function loginPlans(ids: string[]): string[] {
 }
 
 /** True when a "Set up later" item is done: its page was finished, or the hub already shows it set up. */
-export function laterDone(id: LaterId, f: Pick<SetupFacts, 'defaultModel' | 'imported' | 'devices' | 'channels' | 'routines' | 'logins'>, done: readonly PageId[]): boolean {
+export function laterDone(id: LaterId, f: Pick<SetupFacts, 'defaultUsable' | 'imported' | 'devices' | 'channels' | 'routines' | 'logins'>, done: readonly PageId[]): boolean {
   if (done.includes(id)) return true;
   switch (id) {
     case 'agents':
       return f.logins.length > 0;
     case 'defaults':
-      return !!f.defaultModel;
+      return f.defaultUsable;
     case 'import':
       return f.imported > 0;
     case 'devices':

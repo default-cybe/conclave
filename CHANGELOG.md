@@ -13,6 +13,14 @@ like `## [0.4.16] - 2026-10-24`.
 
 - Desktop: questions from the agent show each option with its description, like on phones
 
+### Fixed
+
+- Setup: an owner who connects only an API key no longer finishes with a default model that cannot run. On Continue, a default or small model whose provider does not work is replaced with that key's provider's models (its smart and fast tiers)
+- Home's "Set up later" list shows Defaults again while the default model cannot run. Before, it counted as done on every hub, because the hub always returns a default model
+- Hubs that finished the old thirteen step setup no longer get a "Set up later" list on Home after upgrading: their owner already chose. Settings, About still lists every item
+- Android: a pinned model your plan stops offering stays under Pinned, marked as not available, and keeps its pin so you can unpin it. Before, it vanished from Pinned and still took one of the 50 places
+- Directions that still named the old Settings > Models group (an Android account starter line, the assistant's map of Settings, the Refusal fallback, hidden model, image model and private folder messages, and docs/INSTALL.md) now name Settings > AI connections or Settings > Advanced
+
 ## [0.4.97] - 2026-11-13
 
 ### Changed

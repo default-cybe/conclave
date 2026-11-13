@@ -57,7 +57,7 @@ export interface ConfigInput {
 export function renderConfig(c: ConfigInput): string {
   return [
     '# Written by the Conclave hub each time it starts CLIProxyAPI. Edits here are replaced.',
-    '# Settings > Models > Subscriptions on the hub changes what matters.',
+    '# Settings > AI connections > Subscriptions on the hub changes what matters.',
     'config-version: 8',
     'server:',
     '  host: "127.0.0.1"',

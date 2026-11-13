@@ -298,7 +298,8 @@ private fun ModelRow(
         selected = selected,
         vision = peeked && r.model.vision,
         pinned = pinned,
-        onPin = onPin?.takeIf { why == null && (peeked || pinned) },
+        // a pinned model the plan now refuses keeps its pin, so it can be unpinned
+        onPin = onPin?.takeIf { pinned || (why == null && peeked) },
         enabled = why == null,
         warn = why != null,
         onLongClick = onPeek?.takeIf { why == null },

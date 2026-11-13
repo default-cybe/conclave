@@ -62,7 +62,7 @@ object StarterWords {
         "stopped" -> "Stopped until ${s.until?.let { until(it, now, zone) } ?: "tomorrow"}: ${s.reason ?: "error"}."
         "paused" -> "Paused: weekly limit used up${s.until?.let { " until ${at(it, now, zone)}" } ?: ""}."
         "never" -> "This plan has no 5-hour window, so there is nothing to start."
-        "setup" -> if (s.reason == "Cannot pin a request to it") "Cannot reach this account alone. Give it a short name in Settings > Models > Accounts." else "${s.reason ?: "Cannot run as set"}."
+        "setup" -> if (s.reason == "Cannot pin a request to it") "Cannot reach this account alone. Give it a short name in Settings > Advanced > Accounts." else "${s.reason ?: "Cannot run as set"}."
         "waiting" -> when (s.reason) {
             "No usage read yet" -> "Waiting for the first usage read."
             "Account paused" -> "Waits while the account is paused."

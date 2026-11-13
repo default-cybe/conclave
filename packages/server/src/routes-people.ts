@@ -306,7 +306,7 @@ export function registerPeopleRoutes(app: Hono<HonoEnv>, ctx: ServerContext): vo
     }
     if (body.usageFallback !== undefined || body.refusalFallback !== undefined) {
       // the owner's lists are the hub's (models.limitFallback, models.refusalFallback in /api/config)
-      if (!isMember(acct)) throw badRequest('Your fallback lists are in Settings, Models.');
+      if (!isMember(acct)) throw badRequest('Your fallback lists are in Settings > Advanced (Refusal fallback, Limit fallback).');
       try {
         const { usageFallback: usage, refusalFallback: refusal } = engine.checkMemberFallbacks(acct, body);
         if (usage) settings.usageFallback = usage;

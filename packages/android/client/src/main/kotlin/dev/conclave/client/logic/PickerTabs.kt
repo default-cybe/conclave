@@ -152,10 +152,11 @@ object PickerTabs {
 
     /**
      * What the list shows under the search and the tabs: Pinned (the pins in
-     * this tab, most capable first), Recent (the last three in this tab, pins
-     * left out), then the tab's models by maker (in [entries]' order) and
-     * family, strongest family first, newest first inside. A search lists the
-     * matches of every tab, most capable first, with no Pinned or Recent.
+     * this tab, most capable first, a model not available too), Recent (the
+     * last three in this tab, pins left out), then the tab's models by maker
+     * (in [entries]' order) and family, strongest family first, newest first
+     * inside. A search lists the matches of every tab, most capable first,
+     * with no Pinned or Recent.
      * [recent] holds refs the picker already mapped to their rows.
      */
     fun items(entries: List<Entry>, query: String, tab: Tab, pinned: List<String> = emptyList(), recent: List<String> = emptyList(), unavailable: Boolean = false): List<Item> {
@@ -171,7 +172,8 @@ object PickerTabs {
         val inTab = entries.filter { tab == Tab.ALL || it.tab == tab }.sortedWith(byRank)
         if (inTab.isEmpty()) return emptyList()
         val (off, ranked) = inTab.partition { it.row.model.unavailable != null }
-        val pins = ranked.filter { it.row.ref in pinned }
+        // a pin the plan now refuses stays in Pinned, marked, so it can be unpinned (as on the web)
+        val pins = inTab.filter { it.row.ref in pinned }
         val recents = recent.distinct().mapNotNull { ref -> ranked.firstOrNull { it.row.ref == ref } }.filter { it.row.ref !in pinned }.take(3)
         val out = mutableListOf<Item>()
         if (pins.isNotEmpty()) {
