@@ -158,6 +158,19 @@ export function DefaultsSection() {
         <HiddenModels value={hidden} />
       </Group>
 
+      {/* the model picker's old Settings drawer (design review #7): each switch is one conversation's, so it lives in that composer's Options */}
+      <Group title="Per conversation" id="per-conversation">
+        <SettingRow label="Same model for all work" help="Delegate, Task and workflow agents run on the conversation's model. Turn it on in the composer's Options; it never carries over to the next conversation.">
+          <span className="text-[13px] text-fg-3">In Options</span>
+        </SettingRow>
+        <SettingRow label="Security" help="Turns a conversation into a scoped hunt. In the composer's Options while Security mode is on, and always shown on the Options chip once on.">
+          <span className="text-[13px] text-fg-3">In Options</span>
+        </SettingRow>
+        <SettingRow label="Cyber access" help="Daybreak programs for a ChatGPT plan model that takes them. In the composer's Options, and in /model.">
+          <span className="text-[13px] text-fg-3">In Options</span>
+        </SettingRow>
+      </Group>
+
       <Group title="When a plan runs out">
         <SettingRow
           label="Switch models"

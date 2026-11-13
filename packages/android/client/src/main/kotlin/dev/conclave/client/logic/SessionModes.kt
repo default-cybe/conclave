@@ -44,21 +44,41 @@ object SessionModes {
     /**
      * What the Options chip (design review #6, web ComposerParts.tsx optionsChanges) has changed from the
      * defaults: [memory] first (its words when not "Use and save", so "No memory" is never the part left
-     * out), then the style, Ultra, and an [agent] other than [defaultAgent]. Null [mode]: no style offered.
+     * out), then [security] on, the style, Ultra, an [agent] other than [defaultAgent], [sameModel] and a
+     * [cyber] program (the conversation's switches, design review #7). Null [mode]: no style offered.
      */
-    fun optionsChanges(mode: SessionMode?, ultra: Boolean, ultraOffered: Boolean, agent: String?, defaultAgent: String?, memory: String?): List<String> =
+    fun optionsChanges(
+        mode: SessionMode?,
+        ultra: Boolean,
+        ultraOffered: Boolean,
+        agent: String?,
+        defaultAgent: String?,
+        memory: String?,
+        security: Boolean = false,
+        sameModel: Boolean = false,
+        cyber: String? = null,
+    ): List<String> =
         listOfNotNull(
             memory,
+            SECURITY.takeIf { security },
             mode?.takeIf { it != SessionMode.AGENT }?.let(::label),
             "Ultra".takeIf { mode != null && ultraOffered && ultra },
             agent?.takeIf { it.isNotBlank() && defaultAgent != null && it != defaultAgent },
+            "Same model".takeIf { sameModel },
+            cyber,
         )
 
-    /** The Options chip's words: "Options" at the defaults, else the first change and how many more ("No memory +1"). */
-    fun optionsWords(changes: List<String>): String = when {
-        changes.isEmpty() -> "Options"
-        changes.size == 1 -> changes[0]
-        else -> "${changes[0]} +${changes.size - 1}"
+    private const val SECURITY = "Security"
+
+    /** Changes the chip always spells out, never folded into "+1": the risky ones (design review, "never hidden"). */
+    private val RISKY = setOf("No memory", SECURITY)
+
+    /** The Options chip's words: "Options" at the defaults, else the first change, any risky one, and how many more ("No memory, Security +1"). */
+    fun optionsWords(changes: List<String>): String {
+        if (changes.isEmpty()) return "Options"
+        val said = changes.filterIndexed { i, c -> i == 0 || c in RISKY }
+        val more = changes.size - said.size
+        return said.joinToString(", ") + if (more > 0) " +$more" else ""
     }
 
     val DEFAULT_JURY = JuryConfig(

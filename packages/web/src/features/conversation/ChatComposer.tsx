@@ -205,6 +205,8 @@ export function ChatComposer({
   const [sw, change] = useSwitches(session);
   // Same model for all work: a switch of this chat only, never a default for the next one
   const same = session ? { sameModel: !!session.chat?.sameModel, onSameModel: (on: boolean) => void patchChat(session.id, { chat: { sameModel: on } }) } : {};
+  // the switches that go with the model, in Options (design review #7)
+  const turn = target ? { model: target.model, cyber: target.cyber, onCyber: target.onCyber } : { model: sw.model, cyber: sw.cyber, onCyber: (v: CyberProgram | undefined) => change({ cyber: v }), ...same };
   // a new chat's Incognito (the toggle at the top right) and memory setting; incognito is not kept for the next one
   const [priv, setMemory] = usePrivacy(sw.memory ? 'save' : 'off');
   const setPrivacy = (m: MemoryMode) => {
@@ -523,11 +525,12 @@ export function ChatComposer({
     saveDefaults({ memory: m !== 'off' });
     void patchChat(session.id, { chat: memoryPatch(m) });
   };
-  const chips = target ? target.chips : !session && priv.incognito ? null : <OptionsChip memory={{ value: memoryMode, onChange: pickMemory }} />;
+  // a target that has no chips of its own (an Assistant start) still offers Cyber access where the model takes it
+  const chips = target ? (target.chips || <OptionsChip turn={turn} />) : <OptionsChip memory={!session && priv.incognito ? undefined : { value: memoryMode, onChange: pickMemory }} turn={turn} />;
   const modelEffort = target ? (
-    <ModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} cyber={target.cyber} onCyber={target.onCyber} harnesses={target.harnesses} />
+    <ModelEffort model={target.model} value={target.effort} follow={target.follow} onModel={target.onModel} onEffort={target.onEffort} harnesses={target.harnesses} />
   ) : (
-    <ModelEffort session={session} model={sw.model} value={sw.thinking} onModel={(m) => change({ model: m })} onEffort={(v) => change({ thinking: v })} cyber={sw.cyber} onCyber={(v) => change({ cyber: v })} {...same} />
+    <ModelEffort session={session} model={sw.model} value={sw.thinking} onModel={(m) => change({ model: m })} onEffort={(v) => change({ thinking: v })} sameModel={!!session?.chat?.sameModel} />
   );
   const right = mine ? (
     seatModel

@@ -206,11 +206,11 @@ describe('the session composer', () => {
     expect(v.rowLabels(await v.open(v.plus()))).toEqual(['Attach files and images']);
     await v.close(v.plus());
 
-    // Options: Working style, then the agents, then memory
+    // Options: Working style, then the agents, then memory, then this conversation's switches (design review #7)
     const rows = await v.open(v.chip('options'));
     const menu = document.querySelector('[role=menu][aria-label="Options"]')?.textContent ?? '';
-    for (const heading of ['Working style', 'Agent', 'Memory']) expect(menu).toContain(heading);
-    expect(v.rowLabels(rows)).toEqual(['Agent', 'Chat', 'Plan', 'More styles', 'coder', 'reviewer', 'Use and save', 'Use only', 'Off']);
+    for (const heading of ['Working style', 'Agent', 'Memory', 'This conversation']) expect(menu).toContain(heading);
+    expect(v.rowLabels(rows)).toEqual(['Agent', 'Chat', 'Plan', 'More styles', 'coder', 'reviewer', 'Use and save', 'Use only', 'Off', 'Same model for all work', 'Security']);
     await v.pick(rows, 'reviewer');
     expect(sent.at(-1)).toEqual({ agent: 'reviewer' });
 
@@ -289,7 +289,7 @@ describe('the chat composer', () => {
     const order = [...v.host.querySelectorAll('[data-chip]')].map((el) => el.getAttribute('data-chip'));
     expect(order.indexOf('model')).toBeLessThan(order.indexOf('options'));
     const mem = await v.open(v.chip('options'));
-    expect(v.rowLabels(mem)).toEqual(['Use and save', 'Use only', 'Off']);
+    expect(v.rowLabels(mem)).toEqual(['Use and save', 'Use only', 'Off', 'Same model for all work']);
     await v.pick(mem, 'Off');
     expect(sent.at(-1)).toEqual({ chat: { memory: false, memorySave: true } });
     await v.unmount();
@@ -315,28 +315,73 @@ describe('the model chip', () => {
     }
   });
 
-  test('Same model and Security sit behind one Settings row at the foot, which names what is on', async () => {
+  test('Effort is one compact row; the picker has no Settings drawer at its foot (design review #7)', async () => {
+    const { claudeEffort } = await import('@conclave/core/providers/effort');
     const { ModelEffort } = await import('../src/features/conversation/ComposerParts');
     const before = useHub.getState().models;
-    const opus = { id: 'claude-opus-5-5', ref: 'anthropic/claude-opus-5-5', provider: 'anthropic', name: 'Claude Opus 5.5' };
+    const opus = { id: 'claude-opus-5-5', ref: 'anthropic/claude-opus-5-5', provider: 'anthropic', name: 'Claude Opus 5.5', effort: claudeEffort('claude-opus-5-5') };
     useHub.setState({ models: [{ provider: 'anthropic', name: 'Anthropic', type: 'anthropic', configured: true, enabled: true, models: [opus] }] } as never);
-    const v = await mount(<ModelEffort model={opus.ref} value={undefined} onModel={() => {}} onEffort={() => {}} sameModel onSameModel={() => {}} security={false} onSecurity={() => {}} />);
+    const picked: Array<string | undefined> = [];
+    const v = await mount(<ModelEffort model={opus.ref} value="high" follow={{ value: 'medium', label: 'the coder agent' }} onModel={() => {}} onEffort={(e) => picked.push(e)} sameModel />);
     try {
       await v.act(async () => v.chip('model')!.click());
-      const foot = document.querySelector('[data-part="picker-settings"]')!;
-      const row = foot.querySelector('button[aria-expanded]') as HTMLButtonElement;
-      expect(row.getAttribute('aria-expanded')).toBe('false');
-      expect(row.textContent).toBe('Settings: Same model');
-      // shut: no switch takes room under the list
-      expect(document.body.textContent).not.toContain('Delegate, Task and workflow agents');
-      expect(document.body.textContent).not.toContain('Loads the security agent');
-      await v.act(async () => row.click());
-      expect(document.body.textContent).toContain('Same model for all work');
-      expect(document.body.textContent).toContain('Loads the security agent');
+      const effort = document.querySelector('[data-part="effort"]')!;
+      // the word, the levels and Reset on one line: no line of its own for the label or the default
+      expect(effort.className).toContain('flex');
+      expect(effort.querySelector('[role="radiogroup"]')).not.toBeNull();
+      const reset = [...effort.querySelectorAll('button')].find((b) => b.textContent === 'Reset')!;
+      expect(reset.getAttribute('aria-label')).toBe("Use the coder agent's");
+      await v.act(async () => reset.click());
+      expect(picked).toEqual([undefined]);
+      expect(document.querySelector('[data-part="picker-settings"]')).toBeNull();
+      expect(effort.closest('[role=dialog]')?.textContent ?? '').not.toContain('Same model for all work');
+      // Same model still marks the chip
+      expect(v.chip('model')!.querySelector('[data-same-model]')).not.toBeNull();
     } finally {
       await v.unmount();
       useHub.setState({ models: before } as never);
     }
+  });
+});
+
+describe('Options holds the switches that left the model picker (design review #7)', () => {
+  test('Same model for all work and Security are rows of Options; Security on is never folded into "+1"', async () => {
+    const { OptionsChip } = await import('../src/features/conversation/ComposerParts');
+    const calls: string[] = [];
+    const turn = { model: 'anthropic/claude-opus-5-5', sameModel: true, onSameModel: (on: boolean) => calls.push(`same ${on}`), security: true, onSecurity: (on: boolean) => calls.push(`security ${on}`) };
+    const v = await mount(<OptionsChip memory={{ value: 'off', onChange: () => {} }} turn={turn} />);
+    try {
+      // No memory and Security both named, the rest counted
+      expect(v.chip('options')!.textContent).toBe('No memory, Security +1');
+      const menu = await v.open(v.chip('options'));
+      const labels = v.rowLabels(menu);
+      expect(labels).toContain('Same model for all work');
+      expect(labels).toContain('Security');
+      await v.pick(menu, 'Same model for all work');
+      expect(calls).toEqual(['same false']);
+    } finally {
+      await v.unmount();
+    }
+  });
+
+  test('Cyber access shows only where the model takes a program', async () => {
+    const { OptionsChip, optionsChanges, optionsWords } = await import('../src/features/conversation/ComposerParts');
+    const before = useHub.getState().models;
+    const gpt = { id: 'gpt-6', ref: 'cliproxy/gpt-6', provider: 'cliproxy', name: 'GPT-6', cyber: ['daybreak_blue'] };
+    useHub.setState({ models: [{ provider: 'cliproxy', name: 'CLIProxyAPI', type: 'openai', configured: true, enabled: true, models: [gpt] }] } as never);
+    const picked: unknown[] = [];
+    const v = await mount(<OptionsChip turn={{ model: gpt.ref, onCyber: (c) => picked.push(c) }} />);
+    try {
+      const menu = await v.open(v.chip('options'));
+      expect(v.rowLabels(menu)).toEqual(['Default', 'Daybreak Blue']);
+      await v.pick(menu, 'Daybreak Blue');
+      expect(picked).toEqual(['daybreak_blue']);
+    } finally {
+      await v.unmount();
+      useHub.setState({ models: before } as never);
+    }
+    // a model with no program: nothing to offer, no chip words for it
+    expect(optionsWords(optionsChanges({ turn: { cyber: 'daybreak_blue' } }))).toBe('Options');
   });
 });
 

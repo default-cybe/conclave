@@ -6,12 +6,14 @@
  * (the last three in the tab), then the tab's models under a heading per
  * maker and a small one per family, strongest family first (Mythos, Fable,
  * Opus, Sonnet, Haiku; GPT, mini and nano, o-series, Codex; Gemini Pro,
- * Flash, Flash-Lite; GLM by size), newest first inside, the ones that cannot
- * be picked last in their family with their reason. The tabs show the
- * makers' logos, their names as tooltip and label. Each row: brand mark,
- * name, the maker's logo on All, and a line with tier, context, price or
- * "plan", vision, tools, thinking. A pin at the right (on hover; a long
- * press on phones). The picker opens on the current model's tab.
+ * Flash, Flash-Lite; GLM by size), newest first inside. The ones that cannot
+ * be picked (a plan refused them, no key, an engine that is off) wait in a
+ * "Not available" fold at the end, each with its reason (design review #7).
+ * The tabs show the makers' logos, their names as tooltip and label. Each
+ * row: brand mark, name, the maker's logo on All. Its specs (tier, context,
+ * price or "plan", vision, tools, thinking) show on hover or the keys'
+ * highlight, and on a phone with a long press, which also shows the pin
+ * (design review #7). The picker opens on the current model's tab.
  *
  * Typing searches every tab. Keys: arrows move, Enter picks, Right opens a
  * model's routes and Left closes them, else Left and Right in an empty
@@ -30,7 +32,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useLocation } from 'wouter';
-import { Check, HardDrive, Pin, Shapes, SquareTerminal } from 'lucide-react';
+import { Check, ChevronRight, HardDrive, Pin, Shapes, SquareTerminal } from 'lucide-react';
 import { PINS_MAX, type AccountDto, type ModelEntry, type ModelGroup } from '@conclave/core/client';
 import type { Device, Session } from '@conclave/core/types';
 import { MODEL_VARIANT as VARIANT } from '@conclave/core/providers/model-id';
@@ -413,7 +415,10 @@ function usePicker(includeHarness: boolean): Picker {
 export type Section = 'pin' | 'recent' | 'list';
 
 /** One line of the list: a heading (a maker's with its mark, or a family's), a model, or one route to a model under its row. */
-export type PickerItem = { kind: 'head'; label: string; maker?: string; family?: boolean } | { kind: 'model'; row: Row; section: Section } | { kind: 'route'; row: Row; route: Route; section: Section };
+export type PickerItem = { kind: 'head'; label: string; maker?: string; family?: boolean } | { kind: 'fold'; label: string; count: number; open: boolean } | { kind: 'model'; row: Row; section: Section } | { kind: 'route'; row: Row; route: Route; section: Section };
+
+/** The fold at the end of the list for the models that cannot be picked. */
+export const NOT_AVAILABLE = 'Not available';
 
 /** A row's key in the list. */
 export const rowKey = (r: Row) => `${r.groupKey}:${r.ref}`;
@@ -541,11 +546,13 @@ export function shownTabs(rows: Row[]): Array<(typeof TABS)[number]> {
  * What the list shows under the search and the tabs: Pinned (the account's
  * pins in this tab), Recent (the last three in this tab, pins left out),
  * then the tab's models by maker and family, strongest family first, newest
- * first inside, the ones that cannot be picked last in their family. A search lists the matches of every tab (a model is never hidden
- * behind the tab the picker opened on), ranked the same, with no Pinned or
- * Recent. A model whose routes are open has them under it.
+ * first inside, then the "Not available" fold with the ones that cannot be
+ * picked (`unavailable` opens it). A search lists the matches of every tab (a
+ * model is never hidden behind the tab the picker opened on, nor in the
+ * fold), ranked the same, with no Pinned or Recent. A model whose routes are
+ * open has them under it.
  */
-export function pickerItems(p: Picker, q: string, tab: Tab, pinned: readonly string[] = [], expanded?: string | null): PickerItem[] {
+export function pickerItems(p: Picker, q: string, tab: Tab, pinned: readonly string[] = [], expanded?: string | null, unavailable = false): PickerItem[] {
   const all = allRows(p);
   const inTab = (r: Row) => tab === 'all' || tabOf(r) === tab;
   const needle = q.trim();
@@ -557,14 +564,21 @@ export function pickerItems(p: Picker, q: string, tab: Tab, pinned: readonly str
     .map((r) => all.find((x) => x.ref === r.ref) ?? r)
     .filter((r) => inTab(r) && !pinned.includes(r.ref))
     .slice(0, 3);
+  const off = ranked.filter((r) => r.disabled).sort(familyOrder);
   return [
     ...(pins.length ? [{ kind: 'head', label: 'Pinned' } as const, ...withRoutes(pins, 'pin', expanded)] : []),
     ...(recent.length ? [{ kind: 'head', label: 'Recent' } as const, ...withRoutes(recent, 'recent', expanded)] : []),
-    ...byFamily(p, ranked, expanded),
+    ...byFamily(
+      p,
+      ranked.filter((r) => !r.disabled),
+      expanded,
+    ),
+    ...(off.length ? [{ kind: 'fold', label: NOT_AVAILABLE, count: off.length, open: unavailable } as const, ...(unavailable ? off.map((row): PickerItem => ({ kind: 'model', row, section: 'list' })) : [])] : []),
   ];
 }
 
-const canPick = (it: PickerItem | undefined) => !!it && it.kind !== 'head' && !it.row.disabled;
+/** A line the keys stop on: a model that can be picked, one of its routes, or the "Not available" fold. */
+const canPick = (it: PickerItem | undefined) => !!it && it.kind !== 'head' && (it.kind === 'fold' || !it.row.disabled);
 
 /** Where the highlight starts: the current model, else the first line that can be picked. */
 function startAt(items: PickerItem[], current: string | undefined): number {
@@ -644,7 +658,11 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
 
   // the model whose routes are open under it (lineKey), if any
   const [expanded, setExpanded] = useState<string | null>(null);
-  const items = useMemo(() => pickerItems(picker, q, tab, pinned, multiple ? null : expanded), [picker, q, tab, pinned, expanded, multiple]);
+  // the "Not available" fold; shut on each open
+  const [unavailable, setUnavailable] = useState(false);
+  // phones: the row whose specs and pin a long press showed (lineKey)
+  const [peek, setPeek] = useState<string | null>(null);
+  const items = useMemo(() => pickerItems(picker, q, tab, pinned, multiple ? null : expanded, unavailable), [picker, q, tab, pinned, expanded, multiple, unavailable]);
   const enabled = items.map((it, i) => (canPick(it) ? i : -1)).filter((i) => i >= 0);
   const level = `${tab}:${q.trim() ? 'search' : 'list'}`;
 
@@ -691,6 +709,7 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
 
   const choose = (it: PickerItem | undefined) => {
     if (!it || it.kind === 'head') return;
+    if (it.kind === 'fold') return setUnavailable((o) => !o);
     if (it.kind === 'route') {
       if (it.row.disabled) return;
       // one account or provider, as the owner asked: its own ref is stored
@@ -716,11 +735,15 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') return;
     const it = items[sel];
     const atEnd = q === '' || (e.target as HTMLInputElement).selectionStart === q.length;
-    if (e.key === 'ArrowRight' && atEnd && it?.kind === 'model' && it.row.routes && !multiple && expanded !== lineKey(it.row, it.section)) {
+    if (it?.kind === 'fold' && atEnd && (e.key === 'ArrowRight' || e.key === 'ArrowLeft') && it.open === (e.key === 'ArrowLeft')) {
+      // Right opens the fold and Left shuts it, as with a model's routes
+      e.preventDefault();
+      setUnavailable(e.key === 'ArrowRight');
+    } else if (e.key === 'ArrowRight' && atEnd && it?.kind === 'model' && it.row.routes && !multiple && expanded !== lineKey(it.row, it.section)) {
       // a model with several routes opens them
       e.preventDefault();
       toggleRoutes(it.row, it.section);
-    } else if (e.key === 'ArrowLeft' && expanded && it && it.kind !== 'head' && lineKey(it.row, it.section) === expanded) {
+    } else if (e.key === 'ArrowLeft' && expanded && it && (it.kind === 'model' || it.kind === 'route') && lineKey(it.row, it.section) === expanded) {
       // closes the routes first, back on their model
       e.preventDefault();
       const i = items.findIndex((x) => x.kind === 'model' && lineKey(x.row, x.section) === expanded);
@@ -785,6 +808,23 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
                   {it.label}
                 </div>
               );
+            if (it.kind === 'fold')
+              return (
+                <button
+                  key="fold"
+                  type="button"
+                  tabIndex={-1}
+                  data-fold="unavailable"
+                  aria-expanded={it.open}
+                  {...hover(i, it)}
+                  onClick={() => choose(it)}
+                  className={cn('mt-1 flex w-full items-center gap-1.5 rounded-[var(--r-1)] border-t border-rule px-2 pt-2.5 pb-1.5 text-left text-[12px] text-fg-3 hov:text-fg phone:min-h-11 phone:text-[13px]', on && 'bg-hover text-fg')}
+                >
+                  <ChevronRight className={cn('size-3.5 shrink-0 transition-transform duration-[var(--dur-1)]', it.open && 'rotate-90')} strokeWidth={1.75} aria-hidden />
+                  <span className="flex-1">{it.label}</span>
+                  <span className="num text-fg-4">{it.count}</span>
+                </button>
+              );
             const r = it.row;
             if (it.kind === 'route') {
               const rt = it.route;
@@ -815,6 +855,10 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
             const through = !multiple && checked && value && value !== r.ref && r.routes?.some((x) => !x.first && x.ref === value) ? routeLabel(value) : undefined;
             const routesOpen = expanded === lineKey(r, section);
             const pin = pinned.includes(r.ref);
+            // the specs: on hover or the keys' highlight; on a phone after a long press. Why a model cannot be picked always shows
+            const peeked = phone ? peek === lineKey(r, section) : on;
+            const why = r.model?.unavailable ?? (r.disabled && !r.harness ? 'No key for this provider' : r.disabled && r.harness ? r.where || 'Turned off' : undefined);
+            const line = why ?? (peeked || r.harness ? capabilityLine(r) : '');
             return (
               <div key={lineKey(r, section)}>
                 <div
@@ -823,13 +867,13 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
                   aria-disabled={r.disabled || undefined}
                   {...hover(i, it)}
                   onClick={() => pick(r)}
-                  // phones: a long press pins, so rows carry no pin until one is pinned
+                  // phones: a long press shows the specs and the pin, so rows carry neither until then
                   onContextMenu={(e) => {
                     if (!phone || r.disabled) return;
                     e.preventDefault();
-                    void togglePin(r.ref);
+                    setPeek((k) => (k === lineKey(r, section) ? null : lineKey(r, section)));
                   }}
-                  title={r.model?.via}
+                  title={phone ? r.model?.via : [r.model?.via, capabilityLine(r)].filter(Boolean).join('\n') || undefined}
                   className={cn(ROW, 'group/row', on && !r.disabled && 'bg-hover', r.disabled ? 'text-fg-3' : 'text-fg')}
                 >
                   {multiple && (
@@ -844,9 +888,7 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
                       {(tab === 'all' || q.trim()) && !r.harness && r.groupKey !== 'recent' && <CompanyMark provider={r.groupKey} size={12} label={r.group} className="self-center text-fg-3" />}
                       {(through ?? r.source) && <span className="min-w-0 truncate text-[12px] text-fg-3 phone:text-[13px]">via {through ?? r.source}</span>}
                     </span>
-                    <span className={cn('block truncate text-[12px] phone:line-clamp-2 phone:text-[13px] phone:whitespace-normal', r.model?.unavailable ? 'text-warn' : 'text-fg-3')}>
-                      {r.model?.unavailable ?? (r.disabled && !r.harness ? 'No key for this provider' : capabilityLine(r))}
-                    </span>
+                    {line && <span className={cn('block truncate text-[12px] phone:line-clamp-2 phone:text-[13px] phone:whitespace-normal', r.model?.unavailable ? 'text-warn' : 'text-fg-3')}>{line}</span>}
                   </span>
                   {r.routes && !multiple && !r.disabled && (
                     <button
@@ -885,7 +927,7 @@ export function ModelList({ value, values, onChange, onChangeMany, harnesses = t
                         e.stopPropagation();
                         void togglePin(r.ref);
                       }}
-                      className={cn('grid size-6 shrink-0 place-items-center rounded-[var(--r-1)] hov:bg-hover phone:size-9', pin ? 'text-fg-2' : 'text-fg-4 opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 phone:sr-only')}
+                      className={cn('grid size-6 shrink-0 place-items-center rounded-[var(--r-1)] hov:bg-hover phone:size-9', pin ? 'text-fg-2' : 'text-fg-4 opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100', !pin && !peeked && 'phone:sr-only', !pin && peeked && 'phone:opacity-100')}
                     >
                       <Pin className="size-3.5" strokeWidth={1.75} aria-hidden />
                     </button>

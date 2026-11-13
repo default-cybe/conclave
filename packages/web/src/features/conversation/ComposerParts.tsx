@@ -3,9 +3,10 @@
  * left, the field, the mic and Send; under it one quiet row with the
  * permission mode (and Code's folder and device, one chip) at the left, and
  * at the right the model with its effort as one picker, the Options chip
- * (style, agent, memory; design review #6) and a small ring for the context
- * used (design PR #292). "+" holds files and add-ons only; the rest is
- * behind "/".
+ * (style, agent, memory; design review #6; and the switches that go with
+ * the conversation's model: Same model for all work, Security, Cyber access,
+ * design review #7) and a small ring for the context used (design PR #292).
+ * "+" holds files and add-ons only; the rest is behind "/".
  *
  * Effort offers the levels the hub's model list gives each model
  * (ModelInfo.effort, lib/effort.ts), its default marked; a level the next
@@ -33,7 +34,7 @@ import { useIsMobile } from '@/lib/hooks';
 import { modelName } from '@/lib/models';
 import { effortLabel, effortMenu, shownEffort, useModelEffort, type EffortSetting, type ModelEffort as EffortLevels } from '@/lib/effort';
 import { MenuList, Popover, type MenuItem } from '@/components/ui/Overlay';
-import { Checkbox, Segmented } from '@/components/ui/Field';
+import { Segmented } from '@/components/ui/Field';
 import { LimitRow } from '@/components/ui/Meter';
 import { windowApplies } from '@conclave/core/accounts/windows';
 import type { AccountDto } from '@conclave/core/client';
@@ -93,54 +94,20 @@ interface PickerProps {
    * showing the price and the choices first in a big chat, instead of calling onModel.
    */
   switchOf?: Session;
-  /** The Cyber access program (session.chat.cyber); offered only where the model takes one and onCyber is given. Undefined is Default: nothing sent. */
-  cyber?: CyberProgram;
-  onCyber?: (v: CyberProgram | undefined) => void;
-  /** Same model for all work (session.chat.sameModel); the switch shows only where onSameModel is given (a session that exists). */
+  /** Same model for all work is on: a dot on the chip. Its switch is in Options (design review #7). */
   sameModel?: boolean;
-  onSameModel?: (on: boolean) => void;
-  /** Security mode (session.chat.security); the switch shows only where onSecurity is given. */
-  security?: boolean;
-  onSecurity?: (on: boolean) => void;
 }
 
 export const SECURITY_HELP = 'Loads the security agent and its sec-* roles, and checks every network call against scope.yaml. Off brings back the agent you had.';
 
 export const SAME_MODEL_HELP = 'Delegate, Task and workflow agents, at any depth, run on this conversation\'s model unless you name another. If its plan is out or refuses, the usual fallback order applies.';
 
-/**
- * The picker's foot: one Settings row that opens, in place, the switches that
- * go with the model (Cyber access, Same model for all work, Security). Shut,
- * it names the ones that are on, so the model list keeps its room.
- */
-function PickerSettings({ model, cyber, onCyber, sameModel, onSameModel, security, onSecurity }: Pick<PickerProps, 'model' | 'cyber' | 'onCyber' | 'sameModel' | 'onSameModel' | 'security' | 'onSecurity'>) {
-  const [open, setOpen] = useState(false);
-  const on = [cyber && cyberLabel(cyber), onSameModel && sameModel && 'Same model', onSecurity && security && 'Security'].filter(Boolean).join(', ');
-  return (
-    <div className="shrink-0 border-t border-rule" data-part="picker-settings">
-      <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="flex h-9 w-full items-center gap-2 px-3 text-left text-[12px] text-fg-3 hov:text-fg phone:h-11 phone:text-[13px]">
-        <Settings2 className="size-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
-        <span className="flex-1 truncate">Settings{on ? <span className="text-fg-2">: {on}</span> : null}</span>
-        <ChevronDown className={cn('size-3.5 shrink-0 transition-transform duration-[var(--dur-1)]', open && 'rotate-180')} strokeWidth={1.75} aria-hidden />
-      </button>
-      {open && (
-        <>
-          {onCyber && <CyberAccess model={model} value={cyber} onChange={onCyber} />}
-          {(onSameModel || onSecurity) && (
-            <div className="space-y-2.5 px-3 pt-1 pb-2.5">
-              {onSameModel && <Checkbox checked={!!sameModel} onChange={onSameModel} label="Same model for all work" description={SAME_MODEL_HELP} />}
-              {onSecurity && <Checkbox checked={!!security} onChange={onSecurity} label="Security" description={SECURITY_HELP} />}
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
+/** The Cyber access programs a model takes (ModelInfo.cyber); none where there is no choice. */
+const useCyberChoices = (model: string | undefined) => useHub((s) => (model ? s.models.flatMap((g) => g.models).find((m) => m.ref === model)?.cyber : undefined));
 
 /** Cyber access for a ChatGPT plan model (core providers/access-programs.ts): Default sends nothing, else the program. */
 export function CyberAccess({ model, value, onChange }: { model: string | undefined; value: CyberProgram | undefined; onChange: (v: CyberProgram | undefined) => void }) {
-  const choices = useHub((s) => (model ? s.models.flatMap((g) => g.models).find((m) => m.ref === model)?.cyber : undefined));
+  const choices = useCyberChoices(model);
   if (!choices?.length) return null;
   const opts: Array<CyberProgram | undefined> = [undefined, ...choices];
   return (
@@ -157,33 +124,35 @@ export function CyberAccess({ model, value, onChange }: { model: string | undefi
   );
 }
 
-/** The picker's body: Effort for the model on top (when it has levels), then the model list, then the switches that go with it at the foot. */
-function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = false, onDone, switchOf, cyber, onCyber, sameModel, onSameModel, security, onSecurity }: PickerProps & { onDone: () => void }) {
+/**
+ * The picker's body: Effort for the model on top as one compact row (when it
+ * has levels), then the model list. The switches that used to sit in a
+ * Settings drawer at the foot are in Options (design review #7).
+ */
+function ModelEffortBody({ model, value, follow, onModel, onEffort, harnesses = false, onDone, switchOf }: PickerProps & { onDone: () => void }) {
   const e = useModelEffort(model);
   const mobile = useIsMobile();
   const shown = effortShown(value, e, follow);
   const [stepping, setStepping] = useState(false);
-  // Effort above the search, as before #298 (the owner asked for it back on top)
+  // Effort above the search, as before #298 (the owner asked for it back on top); one row: the word, the levels, Reset
   return (
     <>
       {e && !stepping && (
-        <div data-part="effort" className="shrink-0 space-y-2 border-b border-rule px-3 pt-2 pb-2.5">
-          <div className="flex min-h-[20px] items-center justify-between gap-3 text-[12px] phone:text-[13px]">
-            <span className="text-fg-3">Effort</span>
-            {follow &&
-              (value ? (
-                <button type="button" className="text-fg-3 underline-offset-2 hov:text-fg hov:underline" onClick={() => onEffort(undefined)}>
-                  Use {follow.label}'s
-                </button>
-              ) : (
-                <span className="text-fg-4">As {follow.label} sets</span>
-              ))}
+        <div data-part="effort" className="flex shrink-0 items-center gap-2 border-b border-rule px-2.5 py-1.5 text-[12px] phone:gap-1.5 phone:px-2 phone:text-[13px]">
+          <span className="shrink-0 text-fg-3" title={follow && !value ? `As ${follow.label} sets` : undefined}>
+            Effort
+          </span>
+          <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto">
+            <EffortSegments effort={e} value={shown} onChange={(v) => onEffort(v)} size={mobile ? 'touch' : 'sm'} />
           </div>
-          <EffortSegments effort={e} value={shown} onChange={(v) => onEffort(v)} size={mobile ? 'touch' : 'sm'} />
+          {follow && value && (
+            <button type="button" title={`Use ${follow.label}'s`} aria-label={`Use ${follow.label}'s`} className="shrink-0 rounded-[var(--r-1)] px-1 text-fg-3 hov:text-fg phone:min-h-11 phone:px-2" onClick={() => onEffort(undefined)}>
+              Reset
+            </button>
+          )}
         </div>
       )}
       {switchOf ? <SwitchModelList session={switchOf} harnesses={harnesses} onDone={onDone} onStep={setStepping} /> : <ModelList value={model} harnesses={harnesses} onChange={onModel} onDone={onDone} />}
-      {(onCyber || onSameModel || onSecurity) && !stepping && <PickerSettings model={model} cyber={cyber} onCyber={onCyber} sameModel={sameModel} onSameModel={onSameModel} security={security} onSecurity={onSecurity} />}
     </>
   );
 }
@@ -484,30 +453,68 @@ export interface AgentOption {
 }
 
 /**
- * What Options has changed from the defaults, in words: memory first, so "No
- * memory" is never the part left out, then the style ("Plan"), Ultra and an
- * agent other than the default.
+ * The switches that go with the conversation's model (design review #7: they
+ * left the model picker's foot). Each shows only where its handler is given:
+ * Same model for all work and Security on a conversation that exists, Cyber
+ * access where the model takes a program.
  */
-export function optionsChanges({ style, agent, memory }: { style?: Pick<StyleOption, 'mode' | 'ultra' | 'onUltra'>; agent?: Pick<AgentOption, 'value' | 'agents'>; memory?: MemoryMode }): string[] {
-  const mode = style && style.mode !== 'agent' ? MODES.find((m) => m.value === style.mode)?.label : undefined;
-  const custom = agent?.value && agent.value !== agent.agents[0]?.name ? agent.value : undefined;
-  return [memory && memory !== 'save' ? MEMORY_WORDS[memory] : undefined, mode, style?.onUltra && style.ultra ? 'Ultra' : undefined, custom].filter((w): w is string => !!w);
+export interface TurnOption {
+  model?: string;
+  /** session.chat.cyber; undefined is Default: nothing sent. */
+  cyber?: CyberProgram;
+  onCyber?: (v: CyberProgram | undefined) => void;
+  /** session.chat.sameModel: a switch of this conversation only. */
+  sameModel?: boolean;
+  onSameModel?: (on: boolean) => void;
+  /** session.chat.security. */
+  security?: boolean;
+  onSecurity?: (on: boolean) => void;
 }
 
-/** The chip's words: "Options" at the defaults, else the first change and how many more ("No memory +1"). */
-export const optionsWords = (changes: string[]) => (changes.length ? `${changes[0]}${changes.length > 1 ? ` +${changes.length - 1}` : ''}` : 'Options');
+/** Changes the chip always spells out, never folded into "+1": the risky ones (design review, "never hidden"). */
+const RISKY = new Set(['No memory', 'Security']);
+
+/**
+ * What Options has changed from the defaults, in words: memory first, so "No
+ * memory" is never the part left out, then Security, the style ("Plan"),
+ * Ultra, an agent other than the default, Same model and a Cyber access program.
+ */
+export function optionsChanges({ style, agent, memory, turn }: { style?: Pick<StyleOption, 'mode' | 'ultra' | 'onUltra'>; agent?: Pick<AgentOption, 'value' | 'agents'>; memory?: MemoryMode; turn?: TurnOption }): string[] {
+  const mode = style && style.mode !== 'agent' ? MODES.find((m) => m.value === style.mode)?.label : undefined;
+  const custom = agent?.value && agent.value !== agent.agents[0]?.name ? agent.value : undefined;
+  return [
+    memory && memory !== 'save' ? MEMORY_WORDS[memory] : undefined,
+    turn?.onSecurity && turn.security ? 'Security' : undefined,
+    mode,
+    style?.onUltra && style.ultra ? 'Ultra' : undefined,
+    custom,
+    turn?.onSameModel && turn.sameModel ? 'Same model' : undefined,
+    turn?.onCyber && turn.cyber ? cyberLabel(turn.cyber) : undefined,
+  ].filter((w): w is string => !!w);
+}
+
+/** The chip's words: "Options" at the defaults, else the first change, any risky one, and how many more ("No memory, Security +1"). */
+export function optionsWords(changes: string[]): string {
+  if (!changes.length) return 'Options';
+  const said = changes.filter((c, i) => i === 0 || RISKY.has(c));
+  const more = changes.length - said.length;
+  return `${said.join(', ')}${more ? ` +${more}` : ''}`;
+}
 
 /**
  * "Options" (design review #6): one chip for how a turn runs, in place of the
  * agent, style and memory chips. Its menu: Working style (Agent, Chat, Plan,
  * then a "More styles" fold with Jury, Debate, Loop and Ultra, design review
- * #4), the agent (Code) and memory. The fold starts open while one of those
- * is on; a toggle by hand lasts until the menu closes. Nothing to offer (a
- * new incognito chat): no chip.
+ * #4), the agent (Code), memory, then the conversation's switches (`turn`:
+ * Same model for all work, Security, Cyber access; design review #7). The
+ * fold starts open while one of those is on; a toggle by hand lasts until
+ * the menu closes. Nothing to offer (a new incognito chat on a model with no
+ * Cyber access): no chip.
  */
-export function OptionsChip({ style, agent, memory }: { style?: StyleOption; agent?: AgentOption; memory?: { value: MemoryMode; onChange: (m: MemoryMode) => void } }) {
+export function OptionsChip({ style, agent, memory, turn }: { style?: StyleOption; agent?: AgentOption; memory?: { value: MemoryMode; onChange: (m: MemoryMode) => void }; turn?: TurnOption }) {
   const [fold, setFold] = useState<boolean>();
   const phone = useIsMobile();
+  const cyberChoices = useCyberChoices(turn?.onCyber ? turn.model : undefined);
   const items: MenuItem[] = [];
   if (style) {
     const { mode, onMode, ultra, onUltra } = style;
@@ -532,8 +539,18 @@ export function OptionsChip({ style, agent, memory }: { style?: StyleOption; age
     if (items.length) items.push({ separator: true, label: '' });
     items.push(...memoryItems(memory.value, memory.onChange));
   }
+  if (turn?.onSameModel || turn?.onSecurity) {
+    if (items.length) items.push({ separator: true, label: '' });
+    items.push({ group: true, label: 'This conversation' });
+    if (turn.onSameModel) items.push({ label: 'Same model for all work', detail: SAME_MODEL_HELP, checked: !!turn.sameModel, keep: true, onSelect: () => turn.onSameModel!(!turn.sameModel) });
+    if (turn.onSecurity) items.push({ label: 'Security', detail: SECURITY_HELP, checked: !!turn.security, keep: true, onSelect: () => turn.onSecurity!(!turn.security) });
+  }
+  if (turn?.onCyber && cyberChoices?.length) {
+    if (items.length) items.push({ separator: true, label: '' });
+    items.push({ group: true, label: 'Cyber access' }, ...[undefined, ...cyberChoices].map((o): MenuItem => ({ label: o ? cyberLabel(o) : 'Default', checked: turn.cyber === o, onSelect: () => turn.cyber !== o && turn.onCyber!(o) })));
+  }
   if (!items.length) return null;
-  const changes = optionsChanges({ style, agent, memory: memory?.value });
+  const changes = optionsChanges({ style, agent, memory: memory?.value, turn: turn && { ...turn, onCyber: cyberChoices?.length ? turn.onCyber : undefined } });
   // a phone's row stays one line: at the defaults Options is an icon; a change ("No memory") is always in words
   const words = phone && !changes.length ? <Settings2 className="size-4" strokeWidth={1.75} aria-hidden /> : optionsWords(changes);
   // a change from the defaults reads a step brighter than the quiet row, "No memory" among them

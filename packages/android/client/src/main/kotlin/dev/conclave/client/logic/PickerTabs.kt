@@ -10,8 +10,9 @@ import dev.conclave.client.model.Session
  * tab), then the tab's models under a heading per maker and a small one per
  * family, strongest family first (Mythos, Fable, Opus, Sonnet, Haiku; GPT,
  * mini and nano, o-series, Codex; Gemini Pro, Flash, Flash-Lite; GLM by
- * size), newest first inside. A search lists the matches of every tab, most
- * capable first, with no Pinned or Recent.
+ * size), newest first inside. A model the plan refused (ModelInfo.unavailable)
+ * waits in a "Not available" fold at the end (design review #7). A search
+ * lists the matches of every tab, most capable first, with no Pinned or Recent.
  */
 object PickerTabs {
     /** The hub keeps at most this many pins (core client/people.ts PINS_MAX). */
@@ -48,7 +49,12 @@ object PickerTabs {
     sealed class Item {
         data class Head(val label: String, val maker: String? = null, val family: Boolean = false) : Item()
         data class Model(val entry: Entry, val section: Section) : Item()
+        /** The "Not available" fold: [count] models that cannot be picked, listed under it while [open]. */
+        data class Fold(val label: String, val count: Int, val open: Boolean) : Item()
     }
+
+    /** The fold's name, as on the web. */
+    const val NOT_AVAILABLE = "Not available"
 
     /** A row's tab: coding agents, then local servers (whoever made the model), then its maker, else Other. */
     fun tabOf(makerKey: String, row: ModelPicks.Row): Tab = when {
@@ -152,7 +158,7 @@ object PickerTabs {
      * matches of every tab, most capable first, with no Pinned or Recent.
      * [recent] holds refs the picker already mapped to their rows.
      */
-    fun items(entries: List<Entry>, query: String, tab: Tab, pinned: List<String> = emptyList(), recent: List<String> = emptyList()): List<Item> {
+    fun items(entries: List<Entry>, query: String, tab: Tab, pinned: List<String> = emptyList(), recent: List<String> = emptyList(), unavailable: Boolean = false): List<Item> {
         val q = query.trim().lowercase()
         val byRank = compareBy<Entry, ModelPicks.Row>(capability) { it.row }
         if (q.isNotEmpty()) {
@@ -162,8 +168,9 @@ object PickerTabs {
             if (found.isEmpty()) return emptyList()
             return listOf<Item>(Item.Head("Matches for \"${query.trim()}\"")) + found.map { Item.Model(it, Section.LIST) }
         }
-        val ranked = entries.filter { tab == Tab.ALL || it.tab == tab }.sortedWith(byRank)
-        if (ranked.isEmpty()) return emptyList()
+        val inTab = entries.filter { tab == Tab.ALL || it.tab == tab }.sortedWith(byRank)
+        if (inTab.isEmpty()) return emptyList()
+        val (off, ranked) = inTab.partition { it.row.model.unavailable != null }
         val pins = ranked.filter { it.row.ref in pinned }
         val recents = recent.distinct().mapNotNull { ref -> ranked.firstOrNull { it.row.ref == ref } }.filter { it.row.ref !in pinned }.take(3)
         val out = mutableListOf<Item>()
@@ -194,6 +201,10 @@ object PickerTabs {
             if (f != (fam ?: "") && (f.isNotEmpty() || !fam.isNullOrEmpty())) out += Item.Head(f.ifEmpty { "Other" }, family = true)
             fam = f
             out += Item.Model(e, Section.LIST)
+        }
+        if (off.isNotEmpty()) {
+            out += Item.Fold(NOT_AVAILABLE, off.size, unavailable)
+            if (unavailable) off.sortedWith(byFamily).forEach { out += Item.Model(it, Section.LIST) }
         }
         return out
     }

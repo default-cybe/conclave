@@ -347,13 +347,15 @@ fun ChatScreen(
                             }
                         },
                         // one Options chip beside the model (web chat/Composer.tsx): the style with Ultra, the agent in Code, memory
-                        options = {
+                        options = { turn ->
+                            if (s == null) OptionsChip(turn = turn)
                             if (s != null) {
                                 val customs = Start.customAgents(agents, s.agent).map { it.name to it.description.ifBlank { null } }
                                 OptionsChip(
                                     style = StyleOption(s.mode, onMode = vm::setMode, ultra = s.ultra == true, onUltra = if (s.mode != SessionMode.CHAT) ({ on: Boolean -> vm.setUltra(on) }) else null),
                                     agent = if (coding) AgentOption(s.agent, listOf(Start.CODE_AGENT to "The default. Hands work to its subagents itself") + customs, onChange = vm::setAgent) else null,
                                     memory = if (s.isIncognito) null else MemoryOption(memoryModeOf(s.chat), onChange = vm::setMemory),
+                                    turn = turn,
                                 )
                             }
                         },

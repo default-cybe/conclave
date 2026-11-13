@@ -46,6 +46,8 @@ data class ModelInfo(
     val vendor: String? = null,
     /** Cyber access programs a ChatGPT plan model takes (core providers/access-programs.ts). */
     val cyber: List<String>? = null,
+    /** Why the model cannot be picked ("Your plan refused it (HTTP 404)"); the picker folds it under "Not available". */
+    val unavailable: String? = null,
 ) {
     val fullRef: String get() = ref.ifBlank { if (provider.isBlank()) id else "$provider/$id" }
 }

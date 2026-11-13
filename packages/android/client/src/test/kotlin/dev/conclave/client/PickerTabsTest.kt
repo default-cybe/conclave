@@ -46,6 +46,24 @@ class PickerTabsTest {
     private fun heads(items: List<Item>) = items.filterIsInstance<Item.Head>().map { it.label }
 
     @Test
+    fun aRefusedModelWaitsInTheNotAvailableFold() {
+        val refused = ModelInfo(id = "claude-mythos-5-1", ref = "anthropic/claude-mythos-5-1", provider = "anthropic", name = "Claude Mythos 5.1", unavailable = "Your plan refused it (HTTP 404)")
+        val withRefused = PickerTabs.entries(ModelPicks.groups(listOf(g("anthropic", refused, m("anthropic", "claude-opus-5-5", "Claude Opus 5.5")))))
+        // shut: the fold last, the model not listed
+        val shut = PickerTabs.items(withRefused, "", Tab.ALL)
+        assertEquals(Item.Fold(PickerTabs.NOT_AVAILABLE, 1, open = false), shut.last())
+        assertEquals(listOf("anthropic/claude-opus-5-5"), refs(shut))
+        // open: listed under the fold
+        val open = PickerTabs.items(withRefused, "", Tab.ALL, unavailable = true)
+        assertEquals("anthropic/claude-mythos-5-1", refs(open).last())
+        assertTrue(open[open.size - 2] is Item.Fold)
+        // a search finds it with the fold shut
+        assertTrue("anthropic/claude-mythos-5-1" in refs(PickerTabs.items(withRefused, "mythos", Tab.ALL)))
+        // nothing refused: no fold
+        assertTrue(PickerTabs.items(entries, "", Tab.ALL).none { it is Item.Fold })
+    }
+
+    @Test
     fun eachModelInItsTabLocalByServerAndCodingAgentsApart() {
         val tabOf = entries.associate { it.row.ref to it.tab }
         assertEquals(Tab.ANTHROPIC, tabOf["anthropic/claude-opus-5-5"])
