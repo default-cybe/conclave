@@ -79,6 +79,9 @@ import dev.conclave.app.update.UpdateState
 import dev.conclave.client.ConnectionState
 import dev.conclave.client.HubKeys
 import dev.conclave.client.logic.HubAddresses
+import dev.conclave.client.logic.Start
+import dev.conclave.client.model.MePatch
+import dev.conclave.client.updateMe
 import dev.conclave.client.logic.RemoteWords
 import dev.conclave.client.logic.TextSize
 import kotlinx.coroutines.launch
@@ -296,6 +299,31 @@ fun SettingsScreen(
             // Home greets the owner by this name (hub config ui.name)
             val ownerName by hub.ownerName.collectAsStateWithLifecycle()
             NavRow("Your name", ownerName ?: "Not set", onClick = { editingName = true })
+
+            // ---------------------------------------------------------------- modes
+            // on the account, so every device agrees (PATCH /api/me modes, the web's saveModes)
+            Group("Modes")
+            val me by hub.me.collectAsStateWithLifecycle()
+            Start.OPTIONAL_MODES.forEach { (mode, words) ->
+                ToggleRow(
+                    title = words.first,
+                    help = words.second,
+                    checked = Start.modeOn(me?.preferences, mode),
+                    onChange = { on ->
+                        val before = hub.me.value ?: return@ToggleRow
+                        val modes = Start.modesWith(before.preferences, mode, on)
+                        // at once on screen, then on the hub; a refusal puts the old ones back
+                        hub.me.value = before.copy(preferences = before.preferences.copy(modes = modes))
+                        scope.launch {
+                            runCatching { hub.api { it.updateMe(MePatch(modes = modes)) } }.onFailure {
+                                hub.me.value = before
+                                say("Could not save: ${it.message}")
+                            }
+                        }
+                    },
+                )
+            }
+            Note("Chat, Assistant and Code are always on. Off hides a mode or Meetings on every device; what you made in it still opens.")
 
             // ---------------------------------------------------------------- about
             Group("About")

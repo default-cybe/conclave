@@ -17,6 +17,7 @@ import { StateWord, type StateTone } from '@/components/ui/List';
 import { Page, PageHeader, usePageHeader } from '@/components/ui/Page';
 import { Section } from '@/components/ui/Section';
 import { Markdown } from '@/features/chat/Markdown';
+import { saveModes, useModeOn } from '@/features/home/modes';
 import { bytes, folderName, hhmm } from '@/lib/format';
 import { useIsMobile, useNow } from '@/lib/hooks';
 import { isDesktopApp } from '@/lib/notify';
@@ -46,9 +47,28 @@ export const STATUS_WORD: Record<MeetingStatus, [string, StateTone]> = {
 
 export default function MeetingPage() {
   const { id } = useParams<{ id?: string }>();
+  // Meetings turned off (Settings, Appearance, Modes): a link here says so instead of a page with no way in
+  if (!useModeOn('meetings')) return <MeetingsOff />;
   if (!id) return <MeetingsList />;
   if (id === 'new' || id === 'start') return <MeetingsList form={id} />;
   return <MeetingDetail id={id} />;
+}
+
+/** /meetings while Meetings is off: one line, and a way to turn it on. */
+export function MeetingsOff() {
+  usePageHeader('Meetings', '/');
+  return (
+    <Page width="column">
+      <PageHeader title="Meetings" />
+      <EmptyState wave={false} action={{ label: 'Turn it on', onClick: () => void saveModes({ meetings: true }) }}>
+        Meetings is off. Turn it on here or in{' '}
+        <Link href="/settings/appearance#modes" className="link">
+          Settings, Appearance
+        </Link>
+        .
+      </EmptyState>
+    </Page>
+  );
 }
 
 /** The meeting's view from GET /api/meetings/:id and the hub's events, one render per frame at most. */

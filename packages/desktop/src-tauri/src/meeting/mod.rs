@@ -28,7 +28,8 @@ use std::sync::mpsc::sync_channel;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::menu::MenuItem;
+use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use capture::ChannelShared;
@@ -103,6 +104,10 @@ static NOTCH: AtomicBool = AtomicBool::new(false);
 static HOVER: AtomicBool = AtomicBool::new(false);
 /// Docked to an edge and auto-hidden: the window is the 10 px tab, which shows no level.
 static EDGE_TAB: AtomicBool = AtomicBool::new(false);
+/// Meetings on for the account (the hub page says, meeting_enabled). On until it says otherwise, so an older hub keeps them.
+static ENABLED: AtomicBool = AtomicBool::new(true);
+/// The tray's meeting items, kept so they can come back after Meetings was off.
+static TRAY_ITEMS: Mutex<Vec<MenuItem<Wry>>> = Mutex::new(Vec::new());
 
 fn channel(c: &ChannelShared) -> ChannelState {
     ChannelState { ok: c.ok.load(Ordering::Relaxed), device: c.device.lock().unwrap().clone(), error: c.error.lock().unwrap().clone() }
@@ -821,6 +826,38 @@ fn register_keys(app: &AppHandle) {
     ];
     for (key, f) in keys {
         first_registered(&[key], |k| on_press(app, k, f));
+    }
+}
+
+/// The tray's meeting items, from build_tray.
+pub fn keep_tray_items(items: Vec<MenuItem<Wry>>) {
+    *TRAY_ITEMS.lock().unwrap() = items;
+}
+
+/// Meetings turned on or off for the account: the overlay hotkey and the tray's meeting items come and go.
+/// A meeting that is running keeps its own hotkeys until it stops.
+pub fn set_enabled(app: &AppHandle, on: bool) {
+    if ENABLED.swap(on, Ordering::Relaxed) == on {
+        return;
+    }
+    log::info!("meeting: {}", if on { "on" } else { "off" });
+    if on {
+        first_registered(&[KEY_TOGGLE], |k| on_press(app, k, toggle));
+    } else {
+        let _ = app.global_shortcut().unregister(KEY_TOGGLE);
+    }
+    let Some(menu) = crate::state(app).menu.lock().unwrap().clone() else { return };
+    let items = TRAY_ITEMS.lock().unwrap();
+    if on {
+        // back under Quick ask, where build_tray put them
+        let at = menu.items().ok().and_then(|all| all.iter().position(|k| k.id().as_ref() == "quick")).map_or(0, |i| i + 1);
+        for (n, item) in items.iter().enumerate() {
+            let _ = menu.insert(item, at + n);
+        }
+    } else {
+        for item in items.iter() {
+            let _ = menu.remove(item);
+        }
     }
 }
 

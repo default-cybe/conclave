@@ -48,7 +48,7 @@ import { BrowserLive } from './BrowserLive';
 import { ImportedLine } from '@/features/import/ImportedLine';
 import { LocationBanner } from './LocationBanner';
 import { modeOf } from '@/features/home/start';
-import { ModeOffNote } from '@/features/home/modes';
+import { ModeOffNote, useModeOn } from '@/features/home/modes';
 import { ConversationSheet } from './ConversationSheet';
 import { PhoneTranscript } from './PhoneTranscript';
 import { downloadExport, isChat, lastCodeBlock, turnStartedAt } from './util';
@@ -349,6 +349,7 @@ function SessionMenu({ session }: { session: Session }) {
   const [send, setSend] = useState(false);
   const [title, setTitle] = useState(session.title);
   const [, navigate] = useLocation();
+  const meetingsOn = useModeOn('meetings');
 
   const patch = async (p: Parameters<ReturnType<typeof api>['updateSession']>[1], ok?: string) => {
     const s = await attempt(() => api().updateSession(session.id, p), ok);
@@ -409,7 +410,7 @@ function SessionMenu({ session }: { session: Session }) {
             { label: 'Compact', detail: 'Summarize older messages', onSelect: () => attempt(() => api().compact(session.id)) },
             { label: 'Add a note', detail: 'Shown in every chat', onSelect: later(addNote) },
             // meetings start from the Meetings page now (MEETING-MODE.md 11.1); this fills in the folder
-            ...(canScheduleHere(session) ? [{ label: 'Schedule a meeting here…', onSelect: () => navigate(scheduleHere(session)) }] : []),
+            ...(meetingsOn && canScheduleHere(session) ? [{ label: 'Schedule a meeting here…', onSelect: () => navigate(scheduleHere(session)) }] : []),
             ...(hub.items.length ? [{ separator: true, label: '' }, ...hub.items] : []),
             { separator: true, label: '' },
             { label: 'Export Markdown', onSelect: () => downloadExport(session, 'md') },

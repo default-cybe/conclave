@@ -339,6 +339,11 @@ export class MeetingStore {
     return r ? rowToMeeting(r) : undefined;
   }
 
+  /** The account has at least one meeting, in any state (whether Meetings starts on, meeting/index.ts enabled). */
+  hasAny(accountId: string): boolean {
+    return !!this.db.query('SELECT 1 FROM meetings WHERE account_id = ? LIMIT 1').get(accountId);
+  }
+
   /** Meetings in one of these states, on every account (start-up recovery). */
   withStatus(statuses: MeetingStatus[]): Meeting[] {
     const marks = statuses.map(() => '?').join(',');

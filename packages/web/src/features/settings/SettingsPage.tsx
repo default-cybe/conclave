@@ -309,7 +309,9 @@ function useSections(): SectionDef[] {
   const owner = useIsOwner();
   // Security's roles serve Security mode only: hidden with it (Appearance, Modes)
   const security = useModeOn('security');
-  const shown = security ? SECTIONS : SECTIONS.filter((s) => s.id !== 'security');
+  // Meetings' speech to text serves Meetings only: hidden with it too
+  const meetings = useModeOn('meetings');
+  const shown = SECTIONS.filter((s) => (security || s.id !== 'security') && (meetings || s.id !== 'meetings'));
   if (owner) return shown;
   return shown.filter((s) => !s.owner).map((s) => (s.member ? { ...s, C: s.member.C, desc: s.member.desc, width: undefined } : s));
 }

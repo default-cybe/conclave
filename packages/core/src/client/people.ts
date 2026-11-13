@@ -96,16 +96,28 @@ export const SPLIT_MAX = 4;
 /** The most models pinned at the top of the model picker. */
 export const PINS_MAX = 50;
 
-/** The modes a person may hide (Settings, Modes). Chat, Assistant and Code are always on. */
-export type OptionalMode = 'security' | 'canvas';
-export type ModesPreference = Record<OptionalMode, boolean>;
+/** The modes and features a person may hide (Settings, Modes). Chat, Assistant and Code are always on. */
+export type OptionalMode = 'security' | 'canvas' | 'meetings';
+/**
+ * Saved on the account. meetings came later: missing on an account from
+ * before it, where the hub decides from its data (meetingsDefault), and
+ * GET /api/me always says which.
+ */
+export type ModesPreference = { security: boolean; canvas: boolean; meetings?: boolean };
 
-/** A new account starts with both off; one from before the setting has none saved and keeps both on. */
-export const NEW_ACCOUNT_MODES: ModesPreference = { security: false, canvas: false };
+/** A new account starts with all three off; one from before the setting has none saved and keeps Security and Canvas on. */
+export const NEW_ACCOUNT_MODES: ModesPreference = { security: false, canvas: false, meetings: false };
+
+/**
+ * Meetings for an account with no choice saved: on only when it already has
+ * a meeting, so an upgrade never takes the feature from someone who uses it.
+ */
+export const meetingsDefault = (saved: boolean | undefined, hasMeetings: () => boolean): boolean => saved ?? hasMeetings();
 
 /**
  * A mode is shown unless the person turned it off. It hides the mode only:
- * its sessions still open and the hub still serves its APIs.
+ * its sessions still open and the hub still serves its APIs. The hub always
+ * sends meetings, so missing means a hub from before it, which had them on.
  */
 export const modeOn = (p: Pick<MePreferences, 'modes'> | undefined, mode: OptionalMode): boolean => p?.modes?.[mode] !== false;
 
@@ -119,8 +131,12 @@ export interface MePreferences {
   splitView?: string[];
   /** Models pinned at the top of the model picker, on every device: refs, at most PINS_MAX. */
   pinnedModels?: string[];
-  /** Security and Canvas shown or hidden. Missing: an account from before the setting (both on, Home says they can be turned off). */
-  modes?: ModesPreference;
+  /**
+   * Security, Canvas and Meetings shown or hidden. No security or canvas: an
+   * account from before the setting (both on, Home says they can be turned
+   * off); the hub fills in meetings then.
+   */
+  modes?: Partial<ModesPreference>;
 }
 
 export interface AccountUsage {
