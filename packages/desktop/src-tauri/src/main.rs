@@ -15,6 +15,7 @@
 mod appimage;
 mod applog;
 mod computer;
+mod download;
 mod hub;
 mod local;
 mod panic_log;
@@ -92,6 +93,8 @@ struct AppState {
     parked: Mutex<Option<Url>>,
     /// The files of the last drop on the main or quick ask window, the only ones read_dropped reads.
     dropped: Mutex<Vec<PathBuf>>,
+    /// The files save_download wrote, the only ones reveal_download shows.
+    saved: Mutex<Vec<PathBuf>>,
 }
 
 struct PendingLogin {
@@ -249,6 +252,10 @@ fn grant_hub_ipc(app: &AppHandle, base: &Url) -> Result<(), String> {
             .permission("allow-paste-files")
             // text to the clipboard for a copy button the webview refused (Linux), only while the window has focus
             .permission("allow-copy-text")
+            // a download or Open in app the webview drops (download.rs), only while the window has focus
+            .permission("allow-save-download")
+            .permission("allow-reveal-download")
+            .permission("allow-open-download")
             // Dock bounce / taskbar flash and badge while an approval waits (attention)
             .permission("allow-attention")
             // the hub page may open the meeting overlay, never start capture (MEETING-MODE.md 2.1.1)
@@ -434,6 +441,58 @@ fn copy_text(window: WebviewWindow, text: String) -> Result<(), String> {
         let _ = text;
         Err("The app copies only on Linux.".into())
     }
+}
+
+/// A file the hub page hands over as base64, saved in Downloads under a name
+/// that replaces nothing (download.rs). WebKitGTK drops an <a download> of a
+/// blob: or data: URL, so the page saves through here on every OS. Only for a
+/// focused window: the owner just clicked Download there. Returns the path.
+#[tauri::command]
+async fn save_download(window: WebviewWindow, name: String, data: String) -> Result<String, String> {
+    if !window.is_focused().unwrap_or(false) {
+        return Err("Click Download in the window first.".into());
+    }
+    let app = window.app_handle();
+    let dir = app.path().download_dir().or_else(|_| app.path().home_dir()).map_err(|e| format!("No Downloads folder: {e}"))?;
+    let bytes = download::decode(&data)?;
+    let path = download::write_unique(&dir, &name, &bytes)?;
+    let st = state(app);
+    let mut saved = st.saved.lock().unwrap();
+    saved.push(path.clone());
+    // the last 50 are enough for a toast's Show in folder
+    if saved.len() > 50 {
+        saved.remove(0);
+    }
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// Shows a file save_download wrote in the file manager, selected. Nothing else.
+#[tauri::command]
+fn reveal_download(app: AppHandle, path: String) -> Result<(), String> {
+    let path = PathBuf::from(path);
+    if !state(&app).saved.lock().unwrap().contains(&path) {
+        return Err("The app did not save that file.".into());
+    }
+    app.opener().reveal_item_in_dir(&path).map_err(|e| format!("Could not show {}: {e}", path.display()))
+}
+
+/// A picture, video, PDF or text file from the hub page, opened in its default
+/// app from a folder in the app's cache. Programs, scripts and anything else
+/// are refused (download::openable). Only for a focused window.
+#[tauri::command]
+async fn open_download(window: WebviewWindow, name: String, data: String) -> Result<(), String> {
+    if !window.is_focused().unwrap_or(false) {
+        return Err("Click Open in the window first.".into());
+    }
+    let name = download::safe_name(&name);
+    if !download::openable(&name) {
+        return Err(format!("{name} cannot open in another app. Download it instead."));
+    }
+    let app = window.app_handle();
+    let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("opened");
+    let bytes = download::decode(&data)?;
+    let path = download::write_unique(&dir, &name, &bytes)?;
+    app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|e| format!("Could not open {name}: {e}"))
 }
 
 /// An approval or a question waits on the owner (web lib/attention.ts): `on`
@@ -1849,6 +1908,9 @@ fn main() {
             read_dropped,
             paste_files,
             copy_text,
+            save_download,
+            reveal_download,
+            open_download,
             attention
         ])
         .on_window_event(|window, event| {
@@ -1892,6 +1954,7 @@ fn main() {
                 hidden_since: Mutex::default(),
                 parked: Mutex::default(),
                 dropped: Mutex::default(),
+                saved: Mutex::default(),
             });
 
             let hidden = std::env::args().any(|a| a == HIDDEN_ARG);

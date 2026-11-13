@@ -112,6 +112,19 @@ test('a participant reads the chat shaped: history from the join, one-line tool 
   expect(JSON.stringify(own)).toContain('secret-tool-output');
 });
 
+test("a participant's Files list is shaped as their messages: no tool screenshot, nothing from before the join", async () => {
+  hub.engine.addMessage(chat.id, { role: 'assistant', kind: 'normal', model: 'm', content: [{ type: 'tool_use', id: 'shot1', name: 'mcp__browser__browser_screenshot', input: {} }, { type: 'tool_result', toolUseId: 'shot1', content: [{ type: 'image', mediaType: 'image/png', data: 'QUFB' }] }] });
+  const own = (await (await hub.api(`/api/sessions/${chat.id}/files`)).json()) as Array<{ group: string; messageId: string }>;
+  expect(own.some((f) => f.group === 'screenshot')).toBe(true);
+  const res = await hub.api(`/api/sessions/${chat.id}/files`, { token: aliceToken });
+  expect(res.status).toBe(200);
+  const theirs = (await res.json()) as Array<{ group: string; messageId: string }>;
+  expect(theirs.some((f) => f.group === 'screenshot')).toBe(false);
+  // every file they see is in a message they may read
+  const seen = new Set(((await (await hub.api(`/api/sessions/${chat.id}/messages`, { token: aliceToken })).json()) as Array<{ id: string }>).map((m) => m.id));
+  for (const f of theirs) expect(seen.has(f.messageId)).toBe(true);
+});
+
 test('a message from a participant is theirs, stored with sender and author, and starts their seat turn', async () => {
   const res = await hub.api(`/api/sessions/${chat.id}/messages`, { method: 'POST', token: aliceToken, json: { text: 'hello from alice' } });
   expect(res.status).toBe(200);
@@ -359,4 +372,17 @@ test('history from all to joined drops what their seat summarized; widening it d
   const wide = hub.engine.calls.length;
   expect((await hub.api(`/api/sessions/${six.id}/participants/${alice}`, { method: 'PATCH', json: { history: 'all' } })).status).toBe(200);
   expect(hub.engine.calls.slice(wide).some((c) => c.method === 'narrowChatHistory')).toBe(false);
+});
+
+test('the Files tab list: metadata only, read like the messages route, a stranger reads 404', async () => {
+  const c = await hub.engine.createSession({ kind: 'chat', title: 'Files' }, 'owner');
+  hub.engine.addMessage(c.id, { role: 'user', kind: 'normal', content: [{ type: 'image', mediaType: 'image/png', data: 'QUFB' }] });
+  hub.engine.addMessage(c.id, { role: 'assistant', kind: 'normal', model: 'm', content: [{ type: 'tool_use', id: 'sf', name: 'ShareFile', input: { path: 'r.pdf' } }, { type: 'tool_result', toolUseId: 'sf', content: 'ok', meta: { file: { name: 'r.pdf', mediaType: 'application/pdf', size: 10 } } }] });
+  const res = await hub.api(`/api/sessions/${c.id}/files`);
+  expect(res.status).toBe(200);
+  const list = (await res.json()) as Array<Record<string, unknown>>;
+  expect(list.map((f) => [f.group, f.name])).toEqual([['generated', 'r.pdf'], ['uploaded', 'image-1-1.png']]);
+  // no bytes in it
+  expect(JSON.stringify(list)).not.toContain('QUFB');
+  expect((await hub.api(`/api/sessions/${c.id}/files`, { token: bobToken })).status).toBe(404);
 });

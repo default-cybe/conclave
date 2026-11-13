@@ -31,6 +31,7 @@ import { openImportSheet } from '@/features/import/store';
 import { useIsOwner } from '@/lib/people';
 import { UpdatesGroup } from './updates';
 import { tauriInvoke } from './computer';
+import { saveFile } from '@/lib/saveFile';
 
 // ---------------------------------------------------------------------------
 // Appearance
@@ -238,14 +239,7 @@ export function AuditSection() {
   const sessionIds = [...new Set(all.map((r) => r.sessionId).filter(Boolean))] as string[];
 
   const download = () => {
-    const blob = new Blob([csv(rows, sessionTitle, deviceName)], {
-      type: 'text/csv',
-    });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `conclave-audit-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    void saveFile(`conclave-audit-${new Date().toISOString().slice(0, 10)}.csv`, new Blob([csv(rows, sessionTitle, deviceName)], { type: 'text/csv' }));
   };
 
   const cols: Column<AuditEntry>[] = [

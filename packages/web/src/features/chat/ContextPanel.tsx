@@ -16,6 +16,8 @@
  * The assistant's conversations have no Environment or Changes; a chat has
  * Context, Outputs and Memory used (panel.ts panelCards). Jury and debate
  * sessions get This run, Jurors and Memory learned.
+ *
+ * A second tab, Files (FilesTab.tsx), lists every file of the conversation.
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'wouter';
@@ -33,7 +35,7 @@ import { harnessId, modelName } from '@/lib/models';
 import { repoActions, sessionRepo } from '@/lib/github';
 import { ModelName } from '@/components/logo';
 import { Button, IconButton } from '@/components/ui/Button';
-import { Checkbox, OnOff } from '@/components/ui/Field';
+import { Checkbox, OnOff, Segmented } from '@/components/ui/Field';
 import { Meter } from '@/components/ui/Meter';
 import { ConfirmDialog, Dialog, Menu } from '@/components/ui/Overlay';
 import { KV, Quote, TextAction } from '@/components/ui/Section';
@@ -49,7 +51,7 @@ import { isLive, RUN_TONE, RUN_WORD } from '@/features/workflows/words';
 import { openPreview } from '@/features/conversation/state';
 import { analyzeJury } from './Group';
 import { permissionMeta } from './modes';
-import { revealToolRow } from './ToolRows';
+import { FilesTab, revealInTranscript } from './FilesTab';
 import { agoText, msgText } from './util';
 import { subagentOf, taskCalls, taskKind, tasksWord, useRunningTasks, type RunningTask } from './liveTasks';
 import { PausedWord, TaskTitle } from './RunningTasks';
@@ -64,6 +66,7 @@ export const PANEL_W = 340;
 
 export function ContextPanel({ session, onClose }: { session: Session; onClose?: () => void }) {
   const isGroup = session.mode === 'jury' || session.mode === 'debate';
+  const tab = useUi((s) => s.panelTab);
   return (
     <aside className="flex h-full min-h-0 w-full flex-col bg-bg" aria-label="Session details">
       {onClose && (
@@ -74,7 +77,10 @@ export function ContextPanel({ session, onClose }: { session: Session; onClose?:
           </IconButton>
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pt-3 pb-8 phone:px-4 phone:pt-2">{isGroup ? <GroupCards session={session} /> : <SessionCards session={session} />}</div>
+      <div className="shrink-0 px-3 pt-3 phone:px-4 phone:pt-2">
+        <Segmented label="Panel" size="sm" full value={tab} onChange={(v) => useUi.getState().set({ panelTab: v })} options={[{ value: 'details', label: 'Details' }, { value: 'files', label: 'Files' }]} />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pt-3 pb-8 phone:px-4">{tab === 'files' ? <FilesTab session={session} /> : isGroup ? <GroupCards session={session} /> : <SessionCards session={session} />}</div>
     </aside>
   );
 }
@@ -394,19 +400,6 @@ function PlanCard({ session }: { session: Session }) {
 // ---------------------------------------------------------------------------
 // Outputs
 // ---------------------------------------------------------------------------
-
-/** Open the call's row in the transcript, the way a click on a changed file does; false when it is not on screen. */
-function revealInTranscript(toolUseId: string | undefined): boolean {
-  if (!toolUseId) return false;
-  const row = revealToolRow(toolUseId);
-  if (!row) return false;
-  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  row.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')?.click();
-  row.style.transition = 'background-color 240ms var(--ease)';
-  row.style.backgroundColor = 'var(--bg-hover)';
-  setTimeout(() => (row.style.backgroundColor = ''), 1400);
-  return true;
-}
 
 function OutputsCard({ session }: { session: Session }) {
   const messages = useHub((s) => s.messages[session.id]);

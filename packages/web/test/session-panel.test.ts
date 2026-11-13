@@ -137,3 +137,40 @@ describe('status line', () => {
     expect(statusParts({ model: 'anthropic/claude-opus-5-5', tokens: 0, cost: '$0' })).toHaveLength(1);
   });
 });
+
+describe('Files tab', () => {
+  test('generated, screenshots and uploads, newest first; a GenerateImage picture shared again is one file', async () => {
+    const { filesOf, newestFirst } = await import('@conclave/core/session/files');
+    const list = newestFirst(
+      filesOf([
+        msg('user', [{ type: 'text', text: 'look' }, { type: 'image', mediaType: 'image/png', data: 'AAAA' }, { type: 'document', mediaType: 'application/pdf', data: 'AAAA', title: 'brief.pdf' }], 100),
+        msg('assistant', [use('shot', 'mcp__browser__browser_screenshot', {}), use('rd', 'Read', { file_path: '/tmp/x/plot.png' }), use('gen', 'GenerateImage', { prompt: 'cat' })], 200),
+        msg('user', [result('shot', [{ type: 'image', mediaType: 'image/png', data: 'AAAA' }] as ContentBlock[]), result('rd', [{ type: 'image', mediaType: 'image/png', data: 'AAAA' }] as ContentBlock[]), result('gen', 'ok', { meta: { files: [{ name: 'cat.png', mediaType: 'image/png', size: 9 }] } }), result('bad', [{ type: 'image', mediaType: 'image/png', url: 'file:///etc/x' }] as ContentBlock[])], 210),
+        msg('assistant', [use('sh1', 'ShareFile', { path: 'cat.png' }), use('sh2', 'ShareFile', { path: 'r.pdf' }), { type: 'text', text: '```html\n<title>Status</title><p>ok</p>\n```' }], 300),
+        msg('user', [result('sh1', 'ok', { meta: { file: { name: 'cat.png', mediaType: 'image/png', size: 9 } } }), result('sh2', 'ok', { meta: { file: { name: 'r.pdf', mediaType: 'application/pdf', size: 2048 } } })], 310),
+      ]),
+    );
+    expect(list.map((f) => [f.group, f.name])).toEqual([
+      ['generated', 'r.pdf'],
+      ['generated', 'Status.html'],
+      ['generated', 'cat.png'],
+      ['screenshot', 'plot.png'],
+      ['screenshot', 'browser-browser_screenshot-1.png'],
+      ['uploaded', 'brief.pdf'],
+      // no name of its own: the message's seq and the block
+      ['uploaded', `image-${seq - 4}-2.png`],
+    ]);
+    // where each one's bytes are: a shared file by its call, the rest by message and block
+    expect(list[0]).toMatchObject({ toolUseId: 'sh2', size: 2048 });
+    expect(list[2]).toMatchObject({ toolUseId: 'gen', image: 0 });
+    expect(list[3]).toMatchObject({ index: 1, part: 0, call: 'rd', size: 3 });
+  });
+
+  test("a chat loaded in part takes the hub's list and adds what the hub has not saved yet", async () => {
+    const { mergeFiles } = await import('../src/features/chat/FilesTab');
+    const f = (key: string, at: number) => ({ key, group: 'generated' as const, name: key, mediaType: 'image/png', at, messageId: 'm', index: 0 });
+    const local = [f('new', 30), f('b', 20)];
+    expect(mergeFiles(local, undefined)).toBe(local);
+    expect(mergeFiles(local, [f('b', 20), f('old', 10)]).map((x) => x.key)).toEqual(['new', 'b', 'old']);
+  });
+});

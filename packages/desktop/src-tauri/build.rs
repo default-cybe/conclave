@@ -38,6 +38,10 @@ fn main() {
             "paste_files",
             // text to the clipboard when the webview refused a copy (main.rs copy_text)
             "copy_text",
+            // a download or Open in app the webview drops, saved by the app (src/download.rs)
+            "save_download",
+            "reveal_download",
+            "open_download",
             // Dock bounce / taskbar flash and badge while an approval waits (main.rs attention)
             "attention",
             // meeting mode: open and status for the hub page, the rest only for the overlay window

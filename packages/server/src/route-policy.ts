@@ -118,6 +118,8 @@ export const ROUTE_POLICY: Record<string, Rule> = {
   // a shared chat: the owner or an active participant; the handler shapes the reply (routes.ts, sharedMessageView)
   'GET /api/sessions/:id/messages': SEAT,
   'GET /api/sessions/:id/messages/:msgId/blocks/:index': SEAT,
+  // the Files tab: metadata of the files in what the caller may read of the transcript, as the messages route
+  'GET /api/sessions/:id/files': SEAT,
   'POST /api/sessions/:id/messages': SEAT,
   // the upload lands in the caller's own uploads folder (core attachments/uploads.ts)
   'POST /api/uploads': 'self',

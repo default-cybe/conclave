@@ -56,6 +56,8 @@ interface UiState extends Prefs {
   newChatOpen: boolean;
   /** context panel drawer on phones and tablets (not persisted) */
   drawerOpen: boolean;
+  /** The session panel's tab (ContextPanel.tsx): its cards, or the Files tab. Not persisted. */
+  panelTab: 'details' | 'files';
   /** Phones: the side panel is open (components/PhoneFrame.tsx). */
   panelOpen: boolean;
   /** The notes strip at the top of a conversation (features/chat/NotesStrip.tsx): one line, open, or open with the add box focused. */
@@ -113,6 +115,7 @@ export const useUi = create<UiState>((set) => ({
   shortcutsOpen: false,
   newChatOpen: false,
   drawerOpen: false,
+  panelTab: 'details',
   panelOpen: false,
   notes: 'closed',
   set: (p) => set(p),
