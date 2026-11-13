@@ -40,8 +40,10 @@ import { hostOf, resultText } from './util';
 import { WorkflowRow } from '../workflows/WorkflowCard';
 import { MapsCard } from '../maps/MapsCard';
 import { FileCard, FileCards } from '../files/FileCard';
-import { fileCardOf } from '../files/words';
-import { ToolImages, toolImageItems } from './ToolImages';
+import { fileCardOf, sharedThumb } from '../files/words';
+import { pictureRow, pictureRows, ToolImages } from './ToolImages';
+import { useUi } from '@/store/ui';
+import type { MediaItem } from '@/components/ui/ImageViewer';
 import { isMapsTool, mapsCardOf, mapsDoneWords, mapsRowTarget } from '../maps/words';
 import { WatchCard } from '../watches/WatchCards';
 import { WATCH_TOOLS, watchCardOf, watchDoneWords } from '../watches/words';
@@ -374,22 +376,30 @@ export const ToolGroup = memo(function ToolGroup({
   thought?: (t: ThoughtItem) => ReactNode;
 }) {
   const segs = useMemo(() => segment(entries), [entries]);
+  const tools = useUi((s) => s.toolImages);
+  // one picture row per group or lone call, each picture once in the stretch (ToolImages.tsx pictureRows)
+  const rows = useMemo(() => pictureRows(segs.map((p) => (p.kind === 'one' ? [p.item] : p.kind === 'group' ? p.entries.flatMap((e) => (e.type === 'call' ? [e.item] : [])) : []).map(asCall)), sessionId, tools), [segs, sessionId, tools]);
   return (
     <div className="my-2 border-y border-rule [&>*+*]:border-t [&>*+*]:border-rule">
       {segs.map((p, i) =>
         p.kind === 'fanout' ? (
           <FanOutCard key={`f:${p.items[0].tool.id}`} items={p.items} sessionId={sessionId} />
         ) : p.kind === 'one' ? (
-          <ToolRow key={p.item.tool.id} item={p.item} sessionId={sessionId} depth={depth} />
+          <ToolRow key={p.item.tool.id} item={p.item} sessionId={sessionId} depth={depth} pictures={rows[i]} />
         ) : p.kind === 'thought' ? (
           <ThoughtRow key={p.item.key} item={p.item} thought={thought} />
         ) : (
-          <CallGroup key={`g:${firstCall(p.entries)?.tool.id ?? i}`} entries={p.entries} sessionId={sessionId} depth={depth} live={live && i === segs.length - 1} thought={thought} />
+          <CallGroup key={`g:${firstCall(p.entries)?.tool.id ?? i}`} entries={p.entries} sessionId={sessionId} depth={depth} live={live && i === segs.length - 1} thought={thought} pictures={rows[i]} />
         ),
       )}
     </div>
   );
 });
+
+/** A call as the picture row reads it: its result, or the one its run got. */
+function asCall(c: ToolItem) {
+  return { tool: c.tool, result: c.result ?? c.run?.result };
+}
 
 function firstCall(entries: readonly WorkItem[]): ToolItem | undefined {
   for (const e of entries) if (e.type === 'call') return e.item;
@@ -407,9 +417,10 @@ function ThoughtRow({ item, thought }: { item: ThoughtItem; thought?: (t: Though
  * right, a chevron. Closed until you open it, while the turn works too (as on
  * Android); then the row says the step it is at now in signal ("Running bun
  * test", "Thinking", groupNow). Open, the thoughts and calls in order.
- * Closed, any call that waits on you stays in view under it.
+ * Closed, any call that waits on you stays in view under it. Its pictures
+ * are one row under it, open or closed; its rows draw none.
  */
-function CallGroup({ entries, sessionId, depth, live, thought }: { entries: WorkItem[]; sessionId: string; depth: number; live: boolean; thought?: (t: ThoughtItem) => ReactNode }) {
+function CallGroup({ entries, sessionId, depth, live, thought, pictures }: { entries: WorkItem[]; sessionId: string; depth: number; live: boolean; thought?: (t: ThoughtItem) => ReactNode; pictures: MediaItem[] }) {
   const calls = useMemo(() => entries.flatMap((e) => (e.type === 'call' ? [e.item] : [])), [entries]);
   const ids = useMemo(() => calls.map((c) => c.tool.id), [calls]);
   const waitingKey = useWaitingKey(ids);
@@ -470,8 +481,6 @@ function CallGroup({ entries, sessionId, depth, live, thought }: { entries: Work
 
   const row = (e: WorkItem) => (e.type === 'call' ? <ToolRow key={e.item.tool.id} item={e.item} sessionId={sessionId} depth={depth} /> : <ThoughtRow key={e.item.key} item={e.item} thought={thought} />);
   const held = open ? [] : calls.filter((_, i) => pinned(statuses[i]));
-  // closed, the group's pictures stay in view under its row (Appearance > Show pictures from tools)
-  const images = useMemo(() => (open ? [] : toolImageItems(calls.map((c) => ({ tool: c.tool, result: c.result ?? c.run?.result })))), [open, calls]);
 
   return (
     <div ref={root} data-tool-group="">
@@ -498,10 +507,13 @@ function CallGroup({ entries, sessionId, depth, live, thought }: { entries: Work
           {entries.map(row)}
         </div>
       ) : (
+        held.length > 0 && <div className={GROUP_BODY}>{held.map((c) => row({ type: 'call', name: c.tool.name, item: c }))}</div>
+      )}
+      {/* the group's pictures and shared pictures, once, open or closed (Appearance > Show pictures from tools) */}
+      <ToolImages items={pictures} className="mb-2.5 ml-[76px] phone:ml-0" />
+      {!open && (
         <>
-          {held.length > 0 && <div className={GROUP_BODY}>{held.map((c) => row({ type: 'call', name: c.tool.name, item: c }))}</div>}
-          <ToolImages items={images} className="mb-2.5 ml-[76px] phone:ml-0" />
-          {/* closed, the files the calls shared stay in view too; open, each ShareFile row draws its own (maps and watch calls never group) */}
+          {/* closed, the other files the calls shared stay in view too; open, each ShareFile row draws its own (maps and watch calls never group) */}
           <FileCards calls={calls.map((c) => ({ name: c.tool.name, result: c.result ?? c.run?.result }))} sessionId={sessionId} className="mb-2.5 ml-[76px] phone:ml-0" />
           {/* a marker per call, so the session's file list and links find a call in a closed group (revealToolRow) */}
           {calls.map((c) => {
@@ -529,7 +541,8 @@ function PathText({ path, title }: { path: string; title: string }) {
 // One call
 // ---------------------------------------------------------------------------
 
-export function ToolRow({ item, sessionId, depth = 0 }: { item: ToolItem; sessionId: string; depth?: number }) {
+/** `pictures`: the row of pictures under it (ToolGroup); none in a group, whose row is under the group. */
+export function ToolRow({ item, sessionId, depth = 0, pictures }: { item: ToolItem; sessionId: string; depth?: number; pictures?: MediaItem[] }) {
   // a Workflow and a Task call are each one row that follows the work; a row's tool never changes, so the hooks below keep their order
   const kind = workName(item.tool.name, item.tool.input);
   if (kind === 'Workflow') return <WorkflowRow tool={item.tool} result={item.result ?? item.run?.result} sessionId={sessionId} startedAt={item.run?.startedAt} />;
@@ -538,7 +551,8 @@ export function ToolRow({ item, sessionId, depth = 0 }: { item: ToolItem; sessio
   const { res, status, ms } = useToolState(item);
   const info = TASK_TOOLS.has(tool.name) ? { ...toolInfo(tool), ...taskToolWords(tool.name, tool.input, res ? resultText(res) : undefined) } : toolInfo(tool);
   const files = useMemo(() => (info.kind === 'edit' ? editFiles(tool, res) : []), [info.kind, tool, res]);
-  const images = useMemo(() => toolImageItems([{ tool, result: res }]), [tool, res]);
+  // open, a lone call's pictures show in its fold, the tool's too when they are off outside it
+  const images = useMemo(() => (pictures ? pictureRow([{ tool, result: res }], sessionId, true) : []), [pictures, tool, res, sessionId]);
   const output = res ? resultText(res) : (item.run?.progress ?? '');
   const lines = lineCount(output);
 
@@ -614,11 +628,11 @@ export function ToolRow({ item, sessionId, depth = 0 }: { item: ToolItem; sessio
       )}
 
       {/* open, the pictures sit in the fold above the output instead */}
-      {!expanded && <ToolImages items={images} className="mb-2.5 ml-[76px] phone:ml-0" />}
+      {!expanded && pictures && <ToolImages items={pictures} className="mb-2.5 ml-[76px] phone:ml-0" />}
 
       {expanded && (
         <div className="pb-2.5 anim-fade">
-          <ToolImages items={images} always className="mb-2" />
+          <ToolImages items={images} className="mb-2" />
           {info.kind === 'edit' && files.length > 0 ? (
             <div className="space-y-2">
               {files.map((f, i) => (
@@ -654,7 +668,7 @@ export function ToolRow({ item, sessionId, depth = 0 }: { item: ToolItem; sessio
       )}
 
       {mapsCard && <MapsCard card={mapsCard} className="mb-2.5 ml-[76px]" />}
-      {fileCard && <FileCard card={fileCard} sessionId={sessionId} className="mb-2.5 ml-[76px] phone:ml-0" />}
+      {fileCard && !sharedThumb(fileCard) && <FileCard card={fileCard} sessionId={sessionId} className="mb-2.5 ml-[76px] phone:ml-0" />}
       {watchCard && <WatchCard card={watchCard} sessionId={sessionId} className="mb-2.5 ml-[76px] phone:ml-0" />}
     </div>
   );

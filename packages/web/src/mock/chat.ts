@@ -35,6 +35,8 @@ import reportPdf from './images/homelab-report.pdf';
 // inline, as a message stores an attachment or a tool's picture: base64 bytes
 import foxInline from './images/fox-snow-3.png?inline';
 import shotInline from './images/shot-dashboard.png?inline';
+import shotLogin from './images/shot-login.png';
+import shotDashboard from './images/shot-dashboard.png';
 import { receiptsFor } from './uploads';
 
 const MIN = 60_000;
@@ -79,12 +81,19 @@ export function render(bars: Bar[], frames = 12): Uint8Array[] {
 `;
 
 /** The media chat's shared files (ShareFile cards), served by GET /api/sessions/:id/files/:toolUseId. */
-const MEDIA: Record<string, { url?: string; text?: string; name: string; mediaType: string; size: number }> = {
-  tu_m_png: { url: fox2, name: 'report-cover.png', mediaType: 'image/png', size: 11_413 },
+const MEDIA: Record<string, { url?: string; text?: string; name: string; mediaType: string; size: number; title?: string }> = {
+  tu_m_png: { url: fox2, name: 'report-cover.png', mediaType: 'image/png', size: 11_413, title: 'Cover for the October report' },
   tu_m_gif: { url: chartGif, name: 'uptime-chart.gif', mediaType: 'image/gif', size: 12_183 },
   tu_m_vid: { url: chartVideo, name: 'uptime-chart.webm', mediaType: 'video/webm', size: 34_503 },
   tu_m_pdf: { url: reportPdf, name: 'homelab-report.pdf', mediaType: 'application/pdf', size: 27_132 },
   tu_m_ts: { text: RENDER_TS, name: 'render.ts', mediaType: 'text/plain', size: RENDER_TS.length },
+};
+
+/** The Code session s_shots' shared files (data.ts shotsTranscript), served the same way. */
+const SHOTS: Record<string, { url?: string; text?: string; mediaType: string }> = {
+  sh_share1: { url: shotLogin, mediaType: 'image/png' },
+  sh_share2: { url: shotDashboard, mediaType: 'image/png' },
+  sh_share3: { text: 'POST /auth/login 401 client_id=dash-old\nPOST /auth/login 200 client_id=dash\n', mediaType: 'text/plain' },
 };
 
 type Seed = Omit<Session, 'stats' | 'mode' | 'permissionMode' | 'cwd' | 'device' | 'status' | 'tags' | 'pinned' | 'archived' | 'agent' | 'kind'> & { agent?: string };
@@ -309,7 +318,7 @@ function seeds(now: number): Array<{ session: Session; turns: Turn[] }> {
         { role: 'assistant', at: at(30 * MIN - 500), model: SONNET, content: [{ type: 'tool_use', id: 'tu_m_shot', name: 'mcp__browser__browser_screenshot', input: { url: 'http://grafana.lan/d/uptime' } }] },
         { role: 'user', at: at(30 * MIN - 800), content: [{ type: 'tool_result', toolUseId: 'tu_m_shot', content: [{ type: 'text', text: 'Screenshot of grafana.lan/d/uptime' }, { type: 'image', mediaType: 'image/png', data: shotInline.replace(/^data:[^,]*,/, '') }] }] },
         { role: 'assistant', at: at(30 * MIN - 1_000), model: SONNET, content: Object.entries(MEDIA).map(([id, f]) => ({ type: 'tool_use', id, name: 'ShareFile', input: { path: `/outputs/c_media/${f.name}` } }) as ContentBlock) },
-        { role: 'user', at: at(30 * MIN - 20_000), content: Object.entries(MEDIA).map(([id, f]) => ({ type: 'tool_result', toolUseId: id, content: `Shared ${f.name}`, meta: { file: { name: f.name, mediaType: f.mediaType, size: f.size } } }) as ContentBlock) },
+        { role: 'user', at: at(30 * MIN - 20_000), content: Object.entries(MEDIA).map(([id, f]) => ({ type: 'tool_result', toolUseId: id, content: `Shared ${f.name}`, meta: { file: { name: f.name, mediaType: f.mediaType, size: f.size, ...(f.title ? { title: f.title } : {}) } } }) as ContentBlock) },
         { role: 'assistant', at: at(29 * MIN), model: SONNET, content: [t('Here is the report, the chart as a GIF and a video, and `render.ts`, which draws it. Tap any card to view it full screen.')] },
       ],
     },
@@ -477,7 +486,7 @@ export function registerChat(ctx: MockCtx) {
 
   // a generated picture of the seeded fox chat, as GET /api/sessions/:id/files/:toolUseId?image=N serves it
   ctx.on('GET', '/api/sessions/:id/files/:toolUseId', async ({ params, query }) => {
-    const m = MEDIA[params[1]];
+    const m = MEDIA[params[1]] ?? SHOTS[params[1]];
     if (m) return new Response(m.text ?? (await (await fetch(m.url!)).blob()), { headers: { 'content-type': m.mediaType } });
     const f = params[1] === 'tu_fox' ? FOX[Number(query.get('image'))] : undefined;
     if (!f) return new Response(JSON.stringify({ error: `unknown session ${params[0]}` }), { status: 404, headers: { 'content-type': 'application/json' } });

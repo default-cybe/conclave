@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { Message } from '@conclave/core/types';
-import { fileCardOf, fileFacts, IMAGE_PREVIEW_MAX, opensInTab, previewOf, shareCards, sizeWords, SVG_PREVIEW_MAX } from '../src/features/files/words';
+import { captionOf, fileCardOf, fileFacts, IMAGE_PREVIEW_MAX, opensInTab, previewOf, shareCards, sharedThumb, sizeWords, SVG_PREVIEW_MAX } from '../src/features/files/words';
 import { sessionOutputs } from '../src/features/chat/panel';
 
 const file = { path: '/home/kai/out/report.pdf', device: 'local', name: 'report.pdf', mediaType: 'application/pdf', size: 14_540 };
@@ -42,6 +42,25 @@ describe('fileCardOf', () => {
     expect(opensInTab('application/pdf')).toBe(true);
     expect(opensInTab('image/svg+xml')).toBe(false);
     expect(opensInTab('text/html')).toBe(false);
+  });
+});
+
+describe('a shared picture is a thumbnail, with a caption only when it says more (Android FileCards.caption)', () => {
+  test('the caption: a title that only repeats the file name, with or without its extension, or is blank, is none', () => {
+    expect(captionOf({ name: 'shot.png', title: 'Your real session, left monitor' })).toBe('Your real session, left monitor');
+    expect(captionOf({ name: 'shot.png', title: 'shot.png' })).toBeUndefined();
+    expect(captionOf({ name: 'Shot.PNG', title: ' shot ' })).toBeUndefined();
+    expect(captionOf({ name: '/out/shot.png', title: 'shot' })).toBeUndefined();
+    expect(captionOf({ name: 'shot.png', title: '  ' })).toBeUndefined();
+    expect(captionOf({ name: 'shot.png' })).toBeUndefined();
+  });
+
+  test('pictures and videos join the picture row; PDF, code, a ZIP and a too-big picture stay cards', () => {
+    expect(sharedThumb({ mediaType: 'image/jpeg', size: 129_331 })).toBe(true);
+    expect(sharedThumb({ mediaType: 'image/gif', size: 1_000 })).toBe(true);
+    expect(sharedThumb({ mediaType: 'video/webm', size: 34_503 })).toBe(true);
+    for (const mediaType of ['application/pdf', 'text/plain', 'application/json', 'application/zip', 'text/html']) expect(sharedThumb({ mediaType, size: 100 })).toBe(false);
+    expect(sharedThumb({ mediaType: 'image/png', size: IMAGE_PREVIEW_MAX + 1 })).toBe(false);
   });
 });
 

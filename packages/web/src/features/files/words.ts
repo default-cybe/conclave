@@ -114,6 +114,24 @@ export function previewOf(c: Pick<FileCardData, 'mediaType' | 'size'>): 'image' 
   return undefined;
 }
 
+/**
+ * A shared file that shows as a thumbnail in its work's picture row
+ * (chat/ToolImages.tsx pictureRows), not as a card: a picture small enough to
+ * preview, or a video. PDF, text, code, an archive and a too-big picture stay
+ * a compact card (the phone's Media.thumbnail).
+ */
+export function sharedThumb(c: Pick<FileCardData, 'mediaType' | 'size'>): boolean {
+  return !!previewOf(c) || c.mediaType.startsWith('video/');
+}
+
+/** The card's title when it says more than the file name ("Real bar, right half at 1:1"); undefined when it only repeats it (the phone's FileCards.caption). */
+export function captionOf(c: Pick<FileCardData, 'name' | 'title'>): string | undefined {
+  const t = c.title?.trim();
+  if (!t) return undefined;
+  const name = base(c.name).toLowerCase();
+  return t.toLowerCase() === name || t.toLowerCase() === name.replace(/\.[^.]*$/, '') ? undefined : t;
+}
+
 /** Types Open shows in a new tab: the browser's own image or PDF viewer. Never SVG or HTML (they could run as the app's page). */
 export function opensInTab(mediaType: string): boolean {
   return ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'].includes(mediaType);

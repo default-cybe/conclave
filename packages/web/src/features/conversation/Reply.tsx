@@ -36,7 +36,8 @@ import { ReplyIcons } from './ReplyIcons';
 import { ChatCode, ChatMarkdown } from './ChatMarkdown';
 import { MapsCards, MapsLine } from '@/features/maps/MapsCard';
 import { FileCards, FileLine, ImageGrid } from '@/features/files/FileCard';
-import { ToolImages, toolImageItems } from '@/features/chat/ToolImages';
+import { pictureRow, pictureRows, ToolImages } from '@/features/chat/ToolImages';
+import { useUi } from '@/store/ui';
 import { generatedCards, generatedNames } from '@/features/files/words';
 import { WatchCards, WatchLine } from '@/features/watches/WatchCards';
 import { mapsWorkingWords } from '@/features/maps/words';
@@ -423,6 +424,26 @@ export interface ReplyProps {
 
 export const Reply = memo(function Reply({ reply, session, isLast, live, phase, startedAt, streaming, tools, results, failed, resuming, onYou, after, extraAction }: ReplyProps) {
   const pieces = useMemo(() => piecesOf(reply.messages), [reply.messages]);
+  const toolPictures = useUi((s) => s.toolImages);
+  // the reply's pictures (ToolImages.tsx pictureRows), each once: one row under each run of tool lines,
+  // in a phone's open fold one under each line, and one under the phone's closed fold
+  const pictures = useMemo(() => {
+    const call = (p: Extract<Piece, { kind: 'tool' }>) => ({ key: p.key, tool: p.tool, result: results[p.tool.id] ?? tools[p.tool.id]?.result });
+    const runs: Array<Array<ReturnType<typeof call>>> = [];
+    pieces.forEach((p, i) => {
+      if (p.kind !== 'tool') return;
+      if (pieces[i - 1]?.kind !== 'tool') runs.push([]);
+      runs[runs.length - 1].push(call(p));
+    });
+    const calls = runs.flat();
+    const rows = pictureRows(runs, session.id, toolPictures);
+    const each = pictureRows(calls.map((c) => [c]), session.id, true);
+    return {
+      lines: new Map(runs.map((r, i) => [r[r.length - 1].key, rows[i]])),
+      open: new Map(calls.map((c, i) => [c.key, each[i]])),
+      folded: pictureRow(calls, session.id, toolPictures),
+    };
+  }, [pieces, results, tools, session.id, toolPictures]);
   const text = useMemo(() => replyText(reply), [reply]);
   // a reply stopped before it wrote anything has nothing to cite
   const sources = useMemo(() => (live || !text.trim() ? [] : replySources(text, replyResults(reply.messages, results))), [live, text, reply.messages, results]);
@@ -486,12 +507,12 @@ export const Reply = memo(function Reply({ reply, session, isLast, live, phase, 
                 <div key={p.key}>
                   <ToolFold
                     label={toolLine(toolPieces.map((t) => t.tool))}
-                    closed={<ToolImages items={toolImageItems(toolPieces.map((t) => ({ tool: t.tool, result: results[t.tool.id] ?? tools[t.tool.id]?.result })))} className="mb-2" />}
+                    closed={<ToolImages items={pictures.folded} className="mb-2" />}
                   >
                     {toolPieces.map((t) => (
                       <Fragment key={t.key}>
                         <ToolLine tool={t.tool} result={results[t.tool.id]} run={tools[t.tool.id]} live={live} messages={reply.messages} results={results} folded />
-                        <ToolImages items={toolImageItems([{ tool: t.tool, result: results[t.tool.id] ?? tools[t.tool.id]?.result }])} always className="mt-1 mb-1.5" />
+                        <ToolImages items={pictures.open.get(t.key) ?? []} className="mt-1 mb-1.5" />
                       </Fragment>
                     ))}
                   </ToolFold>
@@ -504,7 +525,7 @@ export const Reply = memo(function Reply({ reply, session, isLast, live, phase, 
             return (
               <Fragment key={p.key}>
                 <ToolLine tool={p.tool} result={results[p.tool.id]} run={tools[p.tool.id]} live={live} messages={reply.messages} results={results} />
-                <ToolImages items={toolImageItems([{ tool: p.tool, result: results[p.tool.id] ?? tools[p.tool.id]?.result }])} className="mt-1 mb-1.5" />
+                <ToolImages items={pictures.lines.get(p.key) ?? []} className="mt-1 mb-1.5" />
               </Fragment>
             );
           case 'image':

@@ -35,6 +35,8 @@ export interface MediaItem {
   name: string;
   mediaType: string;
   size?: number;
+  /** A shared file's title when it says more than its name: under its thumbnail, and first in the viewer's subtitle. */
+  caption?: string;
   /** A URL to show it from (data:, blob: or the hub's). */
   src?: string;
   /** Or the bytes, fetched when the viewer needs them (a file card's). */
@@ -259,7 +261,7 @@ export function MediaViewer({ items: list, start, onClose }: { items: MediaItem[
     return () => document.removeEventListener('keydown', onKey);
   }, []);
 
-  const facts = [kindWord(item.mediaType), item.size !== undefined ? sizeWords(item.size) : '', n > 1 ? `${at + 1} of ${n}` : ''].filter(Boolean).join(', ');
+  const facts = [item.caption ?? '', kindWord(item.mediaType), item.size !== undefined ? sizeWords(item.size) : '', n > 1 ? `${at + 1} of ${n}` : ''].filter(Boolean).join(', ');
   const act = (f: () => Promise<void>) => () => void f().catch((e: unknown) => toast({ title: message(e), level: 'error' }));
   const desktopApp = isDesktopApp();
   // quiet extras behind More: the main bar keeps Download, Copy and Close

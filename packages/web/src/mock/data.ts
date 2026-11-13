@@ -22,8 +22,9 @@ import type { AgentDef, InstalledPlugin } from '@conclave/core/extensions/types'
 import type { ModelInfo } from '@conclave/core/providers/types';
 import { EFFORTS, modelEffort, type Effort } from '@conclave/core/providers/effort';
 import { longSession, longTurns } from './long';
-import shotLogin from './images/shot-login.png';
-import shotDashboard from './images/shot-dashboard.png';
+// inline: a tool picture's url must be data:, blob: or http(s) to draw (chat/ToolImages.tsx)
+import shotLogin from './images/shot-login.png?inline';
+import shotDashboard from './images/shot-dashboard.png?inline';
 
 export const NOW = Date.now();
 const MIN = 60_000;
@@ -792,8 +793,33 @@ function shotsTranscript(): Message[] {
     msg(S, 'user', [{ type: 'tool_result', toolUseId: 'sh_nav', content: 'Opened http://dash.lan/login' }, { type: 'tool_result', toolUseId: 'sh_fill', content: 'Filled #password' }, { type: 'tool_result', toolUseId: 'sh_shot1', content: [pic(shotLogin)] }], {}, t0 + 14_000),
     msg(S, 'assistant', [text('The form rejects the password. The proxy sends the login to Authentik with the wrong client id; fixing `AUTH_CLIENT_ID` in `.env` and trying again:'), { type: 'tool_use', id: 'sh_edit', name: 'Edit', input: { file_path: '.env', old_string: 'AUTH_CLIENT_ID=dash-old', new_string: 'AUTH_CLIENT_ID=dash' } }, { type: 'tool_use', id: 'sh_shot2', name: 'browser_screenshot', input: {} }], by, t0 + 30_000),
     msg(S, 'user', [{ type: 'tool_result', toolUseId: 'sh_edit', content: 'Edited .env' }, { type: 'tool_result', toolUseId: 'sh_shot2', content: [pic(shotDashboard)] }], {}, t0 + 52_000),
-    msg(S, 'assistant', [{ type: 'tool_use', id: 'sh_read', name: 'Read', input: { file_path: 'docs/login-before.png' } }], by, t0 + 55_000),
-    msg(S, 'user', [{ type: 'tool_result', toolUseId: 'sh_read', content: [pic(shotLogin)] }], {}, t0 + 56_000),
+    // the Read and the first ShareFile are one file: one thumbnail, with the shared card's caption (chat.ts SHOTS serves the shares)
+    msg(
+      S,
+      'assistant',
+      [
+        { type: 'tool_use', id: 'sh_read', name: 'Read', input: { file_path: 'docs/login-before.png' } },
+        { type: 'tool_use', id: 'sh_shot3', name: 'browser_screenshot', input: {} },
+        { type: 'tool_use', id: 'sh_share1', name: 'ShareFile', input: { path: '/home/kai/code/homelab-dash/docs/login-before.png' } },
+        { type: 'tool_use', id: 'sh_share2', name: 'ShareFile', input: { path: '/home/kai/code/homelab-dash/docs/dashboard-after.png' } },
+        { type: 'tool_use', id: 'sh_share3', name: 'ShareFile', input: { path: '/home/kai/code/homelab-dash/docs/login-trace.txt' } },
+      ],
+      by,
+      t0 + 55_000,
+    ),
+    msg(
+      S,
+      'user',
+      [
+        { type: 'tool_result', toolUseId: 'sh_read', content: [pic(shotLogin)] },
+        { type: 'tool_result', toolUseId: 'sh_shot3', content: [pic(shotDashboard)] },
+        { type: 'tool_result', toolUseId: 'sh_share1', content: 'Shared login-before.png', meta: { file: { name: 'login-before.png', mediaType: 'image/png', size: 48_212, title: 'Login error before the fix' } } },
+        { type: 'tool_result', toolUseId: 'sh_share2', content: 'Shared dashboard-after.png', meta: { file: { name: 'dashboard-after.png', mediaType: 'image/png', size: 129_331, title: 'Your real session, left monitor: the dashboard after sign-in' } } },
+        { type: 'tool_result', toolUseId: 'sh_share3', content: 'Shared login-trace.txt', meta: { file: { name: 'login-trace.txt', mediaType: 'text/plain', size: 1_204 } } },
+      ],
+      {},
+      t0 + 56_000,
+    ),
     msg(S, 'assistant', [text('Signed in as kai now. The dashboard shows all six tiles; `docs/login-before.png` is the old error for the issue.')], { ...by, stopReason: 'end_turn' }, t0 + 60_000),
   ];
 }
