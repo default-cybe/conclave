@@ -122,16 +122,18 @@ object Drawer {
     /** Every other assistant session once a home thread exists. */
     const val HISTORY = "history"
 
-    /** A page row under Search: Meetings, and Routines in Assistant mode (web nav.ts sidePages). */
-    enum class Page { MEETINGS, ROUTINES }
+    /** A page row under Search: Meetings, and Today, Tasks and Routines in Assistant mode (web nav.ts sidePages). */
+    enum class Page { MEETINGS, TODAY, TASKS, ROUTINES }
 
     /**
      * The page rows under New and Search, in order (web nav.ts sidePages):
-     * Meetings while it is on, then the mode's own, Routines in Assistant.
+     * Meetings while it is on, then the mode's own, Today, Tasks and
+     * Routines in Assistant (the web's Goals has no screen here yet).
      * Workflows, Memory and Extensions stay in Settings, the web's More.
      */
     fun pages(mode: StartMode, meetings: Boolean): List<Page> =
-        listOfNotNull(Page.MEETINGS.takeIf { meetings }, Page.ROUTINES.takeIf { mode == StartMode.ASSISTANT })
+        listOfNotNull(Page.MEETINGS.takeIf { meetings }) +
+            if (mode == StartMode.ASSISTANT) listOf(Page.TODAY, Page.TASKS, Page.ROUTINES) else emptyList()
 
     /** The account's one Assistant thread, from GET /api/assistant/home: meta.home is true. */
     fun isHome(s: Session): Boolean = (s.meta?.get("home") as? JsonPrimitive)?.booleanOrNull == true

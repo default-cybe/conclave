@@ -41,6 +41,8 @@ import androidx.compose.material.icons.outlined.Event
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.TaskAlt
+import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -111,7 +113,7 @@ import kotlinx.coroutines.launch
  * every mode, folding), and at the foot the account row (avatar, name,
  * the hub's state) that opens Settings. Every other page is in Settings,
  * except Meetings under Search while it is on (docs/design/MEETING-MODE.md
- * 11.1) and Routines in Assistant mode (Drawer.pages); the Inbox count is
+ * 11.1) and Today, Tasks and Routines in Assistant mode (Drawer.pages); the Inbox count is
  * in the top bar. [currentId] marks the open
  * conversation, [inSettings] the account row. Closed ([open] false), the
  * panel lets go of its search, and so of the keyboard.
@@ -131,6 +133,10 @@ fun SidePanel(
     onMeetings: () -> Unit = {},
     inRoutines: Boolean = false,
     onRoutines: () -> Unit = {},
+    inToday: Boolean = false,
+    onToday: () -> Unit = {},
+    inTasks: Boolean = false,
+    onTasks: () -> Unit = {},
     inCanvas: Boolean = false,
     onCanvas: () -> Unit = {},
 ) {
@@ -191,12 +197,24 @@ fun SidePanel(
                     Icon(Icons.Outlined.Search, contentDescription = null, tint = c.fg2, modifier = Modifier.size(20.dp))
                 })
             }
-            // Meetings while it is on (web Settings, Appearance, Modes); Routines in Assistant only, Settings has it in every mode
+            // Meetings while it is on (web Settings, Appearance, Modes); Today, Tasks and Routines in Assistant only (Settings has Tasks and Routines in every mode)
             Drawer.pages(mode, Start.modeOn(me?.preferences, "meetings") || inMeetings).forEach { p ->
                 when (p) {
                     Drawer.Page.MEETINGS -> MeetingsRow(open, selected = inMeetings, onClick = {
                         endSearch()
                         onMeetings()
+                    })
+                    Drawer.Page.TODAY -> PanelRow("Today", selected = inToday, strong = true, onClick = {
+                        endSearch()
+                        onToday()
+                    }, leading = {
+                        Icon(Icons.Outlined.WbSunny, contentDescription = null, tint = c.fg2, modifier = Modifier.size(20.dp))
+                    })
+                    Drawer.Page.TASKS -> PanelRow("Tasks", selected = inTasks, strong = true, onClick = {
+                        endSearch()
+                        onTasks()
+                    }, leading = {
+                        Icon(Icons.Outlined.TaskAlt, contentDescription = null, tint = c.fg2, modifier = Modifier.size(20.dp))
                     })
                     Drawer.Page.ROUTINES -> PanelRow("Routines", selected = inRoutines, strong = true, onClick = {
                         endSearch()

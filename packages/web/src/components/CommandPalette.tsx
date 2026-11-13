@@ -261,6 +261,8 @@ function Palette() {
     // the sidebar's switch: the modes this person sees (Security and Canvas only when on)
     for (const m of startModes) list.push({ id: `mode:${m.value}`, group: 'Actions', label: `${m.label} mode`, text: `${m.label} mode switch start ${m.detail}`, run: () => openNew(m.value, navigate) });
     action('split', 'Sessions side by side', go('/sessions/split'));
+    // Today has no G key: an Assistant row now, so Search reaches it from every mode
+    action('today', 'Open Today, the day plan', go('/today'));
     action('shortcuts', 'Keyboard shortcuts', () => openShortcuts(), <Kbd>?</Kbd>);
     // extensions
     if (owner) {

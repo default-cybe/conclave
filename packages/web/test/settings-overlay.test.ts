@@ -10,7 +10,7 @@ import { isSettingsPath, settingsMove, startTrail, type Move, type SettingsTrail
 import { groupSections, searchSections, settingsRedirect, SETTINGS_GROUPS } from '../src/features/settings/nav';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { MORE_PAGES, NAV, OWNER_PAGES, PHONE_MORE, PHONE_PAGES, sidePages } from '../src/components/nav';
+import { MODE_PAGES, MORE_ADVANCED, MORE_PAGES, NAV, OWNER_PAGES, PHONE_ADVANCED, PHONE_MORE, PHONE_PAGES, sidePages } from '../src/components/nav';
 import { meetingsDefault, NEW_ACCOUNT_MODES } from '@conclave/core/client';
 
 const walk = (start: SettingsTrail, moves: Move[]) => moves.reduce(settingsMove, start);
@@ -107,25 +107,38 @@ describe("the index's groups and search", () => {
 });
 
 describe('the sidebar rows per mode', () => {
-  test('Inbox always, Meetings only when on, Routines only in Assistant', () => {
+  test('Inbox always, Meetings only when on, Today, Tasks, Goals and Routines only in Assistant', () => {
     expect(sidePages('chat', false)).toEqual(['/approvals']);
     expect(sidePages('code', true)).toEqual(['/approvals', '/meetings']);
-    expect(sidePages('assistant', false)).toEqual(['/approvals', '/routines']);
-    expect(sidePages('assistant', true)).toEqual(['/approvals', '/meetings', '/routines']);
+    expect(sidePages('assistant', false)).toEqual(['/approvals', '/today', '/tasks', '/goals', '/routines']);
+    expect(sidePages('assistant', true)).toEqual(['/approvals', '/meetings', '/today', '/tasks', '/goals', '/routines']);
     for (const m of ['chat', 'assistant', 'code', 'security', 'canvas'] as const) for (const p of ['/workflows', '/memory', '/extensions']) expect(sidePages(m, true)).not.toContain(p);
+    for (const m of ['chat', 'code', 'security', 'canvas'] as const) for (const p of ['/today', '/tasks', '/goals', '/routines']) expect(sidePages(m, true)).not.toContain(p);
   });
-  test('Routines keeps its G R key and Search entry in every mode', () => {
+  test('every mode row has an icon row in the sidebar, and the phone drawer draws the same rows', () => {
+    const side = readFileSync(join(import.meta.dir, '../src/components/Sidebar.tsx'), 'utf8');
+    for (const to of MODE_PAGES.assistant ?? []) expect(side).toContain(`'${to}': { to: '${to}'`);
+    const phone = readFileSync(join(import.meta.dir, '../src/components/PhoneFrame.tsx'), 'utf8');
+    expect(phone).toContain('(MODE_PAGES[mode] ?? []).map(');
+  });
+  test('Routines, Tasks and Goals keep their G keys and Search entries in every mode; Today is in Search', () => {
     expect(NAV.find((n) => n.to === '/routines')?.key).toBe('r');
+    expect(NAV.find((n) => n.to === '/tasks')?.key).toBe('t');
+    expect(NAV.find((n) => n.to === '/goals')?.key).toBe('o');
+    const palette = readFileSync(join(import.meta.dir, '../src/components/CommandPalette.tsx'), 'utf8');
+    expect(palette).toContain("go('/today')");
+    expect(palette).toContain("go('/sessions/split')");
   });
 });
 
 describe("a phone's drawer", () => {
-  test('its More row opens the page list, which reaches Workflows, Memory, Extensions and Usage', () => {
+  test('its More row opens the page list, which reaches Workflows, Memory, Extensions and Usage; the Assistant rows are not in it', () => {
     const src = readFileSync(join(import.meta.dir, '../src/components/PhoneFrame.tsx'), 'utf8');
     expect(src).toContain('label="More" to={PHONE_MORE}');
     expect(PHONE_MORE).toBe('/settings/more');
     const to = PHONE_PAGES.map((p) => p.to);
-    for (const p of ['/workflows', '/memory', '/extensions', '/usage', '/routines']) expect(to).toContain(p);
+    for (const p of ['/workflows', '/memory', '/extensions', '/usage']) expect(to).toContain(p);
+    for (const p of ['/today', '/tasks', '/goals', '/routines']) expect(to).not.toContain(p);
   });
 });
 
@@ -140,14 +153,22 @@ describe('the Meetings default', () => {
 });
 
 describe('the pages', () => {
-  test("a phone's Settings reaches every page: the Inbox on its index, the rest in More", () => {
+  test("a phone's Settings reaches every page the drawer has no row for: the Inbox on its index, the rest in More, Agents and Map under Advanced", () => {
     const labels = PHONE_PAGES.map((p) => p.label);
     expect(labels[0]).toBe('Inbox');
-    for (const l of ['All conversations', 'Workflows', 'Routines', 'Memory', 'Extensions', 'Tasks', 'Goals', 'Agents', 'Usage', 'Devices', 'Map']) expect(labels).toContain(l);
+    for (const l of ['All conversations', 'Workflows', 'Memory', 'Extensions', 'Usage', 'Devices']) expect(labels).toContain(l);
+    expect(PHONE_ADVANCED.map((p) => p.label)).toEqual(['Agents', 'Map']);
+    const src = readFileSync(join(import.meta.dir, '../src/features/settings/SettingsPage.tsx'), 'utf8');
+    expect(src).toContain("{ label: 'Advanced', rows: PHONE_ADVANCED }");
   });
-  test("the sidebar's More menu has the pages without a row, and a member does not get the owner's", () => {
-    const labels = MORE_PAGES.map((p) => p.label);
-    expect(labels).toEqual(['Workflows', 'Memory', 'Extensions', 'Tasks', 'Goals', 'Agents', 'Usage', 'Devices', 'Map', 'Today', 'Friends', 'Remote access']);
-    expect(MORE_PAGES.filter((p) => !OWNER_PAGES.has(p.to)).map((p) => p.label)).not.toContain('Friends');
+  test("the sidebar's More menu has the pages without a row, then Agents, Map and Side by side under Advanced", () => {
+    expect(MORE_PAGES.map((p) => p.label)).toEqual(['Workflows', 'Memory', 'Extensions', 'Usage', 'Devices']);
+    expect(MORE_ADVANCED.map((p) => p.label)).toEqual(['Agents', 'Map', 'Side by side']);
+    expect(MORE_ADVANCED.find((p) => p.label === 'Side by side')?.to).toBe('/sessions/split');
+    expect(MORE_PAGES.filter((p) => !OWNER_PAGES.has(p.to)).map((p) => p.label)).not.toContain('Extensions');
+  });
+  test('no page is lost: every page with a G key is a sidebar row, in More, or in its Advanced fold', () => {
+    const reach = new Set([...MORE_PAGES, ...MORE_ADVANCED].map((p) => p.to).concat(sidePages('assistant', true)));
+    for (const n of NAV.filter((x) => !['/', '/chat', '/sessions'].includes(x.to))) expect(reach.has(n.to)).toBe(true);
   });
 });
