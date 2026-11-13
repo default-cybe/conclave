@@ -11,6 +11,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Added
 
+- Desktop app: the Dock icon bounces (macOS) and the taskbar flashes (Windows/Linux) when an approval or question waits for you
 - A Files tab in the session panel lists every file of a chat or session, newest first: Generated (shared files, generated pictures, pages in replies), Screenshots (pictures from tools) and Uploaded (your attachments). Pictures and videos are a thumbnail grid that loads as you scroll, other files compact rows; a tap opens the viewer and Left and Right move through the list. A big chat loaded only in part asks the hub for its list (`GET /api/sessions/:id/files`, metadata only).
 
 ### Changed

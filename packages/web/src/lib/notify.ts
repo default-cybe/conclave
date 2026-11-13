@@ -231,7 +231,7 @@ function meetingLive(): boolean {
 if (typeof window !== 'undefined' && isDesktopApp()) meetingLive();
 
 /** The desktop app's quick ask window (?quick=1) runs the app too; the main window shows the notices. */
-const QUICK_WINDOW = typeof location !== 'undefined' && new URLSearchParams(location.search).has('quick');
+export const QUICK_WINDOW = typeof location !== 'undefined' && new URLSearchParams(location.search).has('quick');
 
 /** Run `fn` once per notice id across this app's windows. */
 function onceAcrossWindows(id: string, fn: () => void) {

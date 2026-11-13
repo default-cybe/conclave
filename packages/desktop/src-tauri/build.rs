@@ -42,6 +42,8 @@ fn main() {
             "save_download",
             "reveal_download",
             "open_download",
+            // Dock bounce / taskbar flash and badge while an approval waits (main.rs attention)
+            "attention",
             // meeting mode: open and status for the hub page, the rest only for the overlay window
             "meeting_open",
             "meeting_status",
