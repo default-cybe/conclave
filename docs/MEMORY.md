@@ -68,7 +68,7 @@ same heavy word overlap the dedupe uses) and has every word of the fact that
 matters, with the note's title, the fact is not saved. "madx runs Debian 12"
 is in a note titled madx with the line "runs Debian 12 with Docker"; "pve
 runs Debian 12" is not. Each one is counted as already in your notes: on the
-import in Memory, Import and export, Recent imports ("4 already in your
+import in Settings, Import & export, Recent imports ("4 already in your
 notes"), in the daily digest's summary, and in the hub log for extraction
 after a chat. Profile items and preferences are saved anyway, since they ride
 in every system prompt and a note only comes back when a turn asks for it,
@@ -441,7 +441,7 @@ POST /api/memory/import
 
 Old Claude Code, Codex and Gemini CLI chats on any paired machine, and
 claude.ai or ChatGPT exports, can come into Conclave as archived sessions,
-teach memory, or both. Memory, Import and export, Past chats does it in the
+teach memory, or both. Settings, Import & export, Past chats does it in the
 app; Sessions has the same sheet under List options; onboarding has it as
 step 6. Plan and API: `docs/design/ROUND-IMPORT-PATHS-WORKFLOWS.md`
 section 1.

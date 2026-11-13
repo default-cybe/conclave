@@ -151,6 +151,54 @@ describe('the media viewer', () => {
     }
   });
 
+  test('a file card opens on a tap: the whole card of a PDF, the picture of a PNG; one small Download icon each', async () => {
+    const { act } = await import('react');
+    const { createRoot } = await import('react-dom/client');
+    const apiMod = await import('../src/lib/api');
+    const { FileCard } = await import('../src/features/files/FileCard');
+    const { spyOn } = await import('bun:test');
+    const spy = spyOn(apiMod, 'api').mockReturnValue({ sessionFile: async (_s: string, id: string) => new Blob([id === 'pdf1' ? '%PDF-1.4' : 'png'], { type: 'application/octet-stream' }) } as never);
+    const objectUrl = URL.createObjectURL;
+    URL.createObjectURL = () => 'blob:fake';
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const dialog = () => document.body.querySelector('[role="dialog"]');
+    const click = (el: Element) => act(async () => void el.dispatchEvent(new win.Event('click', { bubbles: true, cancelable: true })));
+    try {
+      await act(async () =>
+        root.render(
+          <div role="log">
+            <FileCard sessionId="s1" card={{ toolUseId: 'pdf1', name: 'report.pdf', mediaType: 'application/pdf', size: 2048 }} />
+            <FileCard sessionId="s1" card={{ toolUseId: 'png1', name: 'chart.png', mediaType: 'image/png', size: 3 }} />
+            <FileCard sessionId="s1" card={{ toolUseId: 'zip1', name: 'site.zip', mediaType: 'application/zip', size: 9 }} />
+          </div>,
+        ),
+      );
+      await act(async () => void (await Bun.sleep(20)));
+      // no big Open, View or Download buttons: the card or picture is the button, plus one icon labelled with the name
+      const labels = [...host.querySelectorAll('button')].map((b) => b.getAttribute('aria-label'));
+      expect(labels).toEqual(['Open report.pdf', 'Download report.pdf', 'Open chart.png', 'Download chart.png', 'Download site.zip']);
+      expect([...host.querySelectorAll('button')].some((b) => /^(View|Download)$/.test(b.textContent ?? ''))).toBe(false);
+      await click(host.querySelector('button[aria-label="Open report.pdf"]')!);
+      expect(dialog()!.getAttribute('aria-label')).toBe('report.pdf');
+      expect(dialog()!.getAttribute('data-media-viewer')).toBe('pdf');
+      // the viewer's bar: Download, More, Close; no Open in new tab on the main bar
+      const bar = [...dialog()!.querySelectorAll('button, a')].map((b) => b.getAttribute('title')).filter(Boolean);
+      expect(bar).toContain('Download');
+      expect(bar).not.toContain('Open in new tab');
+      await click(dialog()!.querySelector('[data-close]')!);
+      await click(host.querySelector('button[aria-label="Open chart.png"]')!);
+      expect(dialog()!.getAttribute('data-media-viewer')).toBe('image');
+      await click(dialog()!.querySelector('[data-close]')!);
+    } finally {
+      spy.mockRestore();
+      URL.createObjectURL = objectUrl;
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
   test('what a file opens as', async () => {
     const { mediaKind } = await import('../src/components/ui/ImageViewer');
     expect(mediaKind('image/gif')).toBe('image');

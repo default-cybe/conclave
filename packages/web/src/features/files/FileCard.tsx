@@ -7,16 +7,21 @@
  * a card. An SVG only ever draws as an <img> (the browser runs no script and
  * loads nothing in one), from a data: URL so even "open image in new tab" is an
  * opaque origin, never the app's; it has no Open. HTML never renders here.
- * The picture and View open the media viewer (components/ui/ImageViewer.tsx):
- * pictures, video, audio, PDF and text or code files; HTML shows as code there.
+ * A tap opens it, as on Android: the picture itself, or the whole card of a
+ * PDF, video, text or code file, opens the media viewer
+ * (components/ui/ImageViewer.tsx); HTML shows as code there. A card the viewer
+ * cannot show downloads on a tap. One small download icon sits in the corner
+ * (on a picture: on hover, always on touch); in the desktop app it saves
+ * through the app (lib/saveFile.ts).
  */
-import { useEffect, useState } from 'react';
-import { Download, FileText, Maximize2 } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Download, File, FileArchive, FileCode, FileImage, FileText, FileVideo, Music } from 'lucide-react';
 import type { ToolResultBlock, ToolUseBlock } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/text';
-import { Button, buttonClass, IconButton } from '@/components/ui/Button';
 import { useIsMobile } from '@/lib/hooks';
+import { saveFile } from '@/lib/saveFile';
+import { toast } from '@/store/store';
 import { MediaButton, mediaKind, type MediaItem } from '@/components/ui/ImageViewer';
 import { fileCardOf, fileFacts, generatedCards, generatedNames, previewOf, shareCards, SVG_PREVIEW_MAX, type FileCardData } from './words';
 
@@ -25,7 +30,7 @@ const BOX = 'rounded-[var(--r-2)] border border-rule-2 bg-raise';
 /** One object URL per shared file for the page's life, so scrolling back does not ask the hub again. */
 const blobs = new Map<string, Promise<{ url: string; blob: Blob }>>();
 
-function fileBlob(sessionId: string, card: FileCardData): Promise<{ url: string; blob: Blob }> {
+export function fileBlob(sessionId: string, card: FileCardData): Promise<{ url: string; blob: Blob }> {
   const key = `${sessionId}/${card.toolUseId}/${card.image ?? ''}`;
   let p = blobs.get(key);
   if (!p) {
@@ -53,7 +58,7 @@ function dataUrl(blob: Blob): Promise<string> {
 }
 
 /** The card as the media viewer's item: the bytes come when it opens; an SVG as a data: URL, as inline. */
-function mediaItem(sessionId: string, card: FileCardData, src?: string): MediaItem {
+export function mediaItem(sessionId: string, card: FileCardData, src?: string): MediaItem {
   const svg = card.mediaType === 'image/svg+xml';
   return {
     key: `${sessionId}/${card.toolUseId}/${card.image ?? ''}`,
@@ -88,54 +93,103 @@ function usePreview(sessionId: string, card: FileCardData): { src?: string; svg?
   return state;
 }
 
+/** An icon for the kind of file: picture, video, sound, archive, code, text or a plain file. */
+export function FileIcon({ mediaType, name, className }: { mediaType: string; name: string; className?: string }) {
+  const kind = mediaKind(mediaType, name);
+  const Icon = kind === 'image' ? FileImage : kind === 'video' ? FileVideo : kind === 'audio' ? Music : /zip|tar|gzip|7z|rar/.test(mediaType) ? FileArchive : kind === 'text' && !/^text\/(plain|markdown|csv)/.test(mediaType) ? FileCode : kind === 'pdf' || kind === 'text' ? FileText : File;
+  return <Icon className={cn('size-5 shrink-0 text-fg-3', className)} strokeWidth={1.75} aria-hidden />;
+}
+
+/**
+ * The one small download icon of a card. `over`: it sits on a picture, shown
+ * on hover or focus and always on touch, light on a dark disc so it reads on
+ * any picture.
+ */
+export function DownloadIcon({ name, onClick, over, small, className }: { name: string; onClick: () => void; over?: boolean; small?: boolean; className?: string }) {
+  return (
+    <button
+      type="button"
+      aria-label={`Download ${name}`}
+      title="Download"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className={cn(
+        'inline-flex shrink-0 items-center justify-center transition-[opacity,color,background-color] duration-[var(--dur-1)] focus-visible:opacity-100 [&_svg]:size-4 [&_svg]:stroke-[1.75]',
+        over
+          ? cn('absolute rounded-full bg-black/55 text-white/90 opacity-0 group-hover/card:opacity-100 hov:bg-black/75 hov:text-white coarse:opacity-100', small ? 'top-1 right-1 size-6 [&_svg]:!size-3.5' : 'top-2 right-2 size-8 phone:size-9')
+          : 'size-8 rounded-[var(--r-1)] text-fg-3 hov:bg-hover hov:text-fg phone:size-10',
+        className,
+      )}
+    >
+      <Download aria-hidden />
+    </button>
+  );
+}
+
+/** Saves a card's file: the browser's download, or the desktop app's (lib/saveFile.ts). */
+export function downloadCard(sessionId: string, card: FileCardData): Promise<void> {
+  return fileBlob(sessionId, card)
+    .then(({ blob }) => saveFile(card.name, blob))
+    .catch((e: unknown) => void toast({ title: `Could not download ${card.name}. ${e instanceof Error ? e.message : String(e)}`, level: 'error' }));
+}
+
+const ROW = 'flex min-w-0 flex-1 items-center gap-3 px-3.5 py-3 text-left phone:px-4';
+
 export function FileCard({ card, sessionId, className }: { card: FileCardData; sessionId: string; className?: string }) {
   const kind = previewOf(card);
   const { src, svg, error } = usePreview(sessionId, card);
   const alt = card.title ?? card.name;
-  const [failed, setFailed] = useState<string>();
   const item = mediaItem(sessionId, card, kind === 'svg' ? svg : src);
   const viewable = mediaKind(card.mediaType, card.name) !== 'other';
-  // phones: icon-only actions, so the name keeps the row's width
   const mobile = useIsMobile();
-  const download = () =>
-    fileBlob(sessionId, card)
-      .then(({ url }) => {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = card.name;
-        a.click();
-      })
-      .catch((e: unknown) => setFailed(e instanceof Error ? e.message : String(e)));
-  return (
-    <div className={cn(BOX, 'max-w-[560px] overflow-hidden', className)} data-file-card={card.mediaType}>
-      {((kind === 'image' && src) || (kind === 'svg' && svg)) && (
-        <MediaButton item={item} label={`Open ${alt} full size`} className="block w-full p-0">
-          <img src={kind === 'svg' ? svg : src} alt={alt} className="block max-h-96 w-full bg-sunk object-contain" draggable={false} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+  const download = () => void downloadCard(sessionId, card);
+  const words = (
+    <span className="min-w-0 flex-1">
+      <span className="t-row block truncate text-fg">{alt}</span>
+      <span className="block truncate text-[12.5px] text-fg-3 phone:text-[13.5px]">
+        {card.title ? `${card.name}, ` : ''}
+        {fileFacts(card)}
+      </span>
+      {error && kind && <span className="block truncate text-[12.5px] text-fault">Could not load the preview. {error}</span>}
+    </span>
+  );
+  const picture = (kind === 'image' && src) || (kind === 'svg' && svg);
+  if (picture)
+    return (
+      <div className={cn(BOX, 'group/card relative max-w-[420px] overflow-hidden', className)} data-file-card={card.mediaType}>
+        <MediaButton item={item} label={`Open ${alt}`} className="block w-full p-0 text-left">
+          <img src={picture} alt={alt} className="block max-h-96 w-full bg-sunk object-contain" draggable={false} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+          <span className="flex items-baseline gap-2 px-3 py-2 text-[12.5px] phone:text-[13.5px]">
+            <span className="min-w-0 truncate text-fg-2">{alt}</span>
+            <span className="ml-auto shrink-0 text-fg-3">{fileFacts(card)}</span>
+          </span>
         </MediaButton>
-      )}
-      <div className="flex items-center gap-3 px-3.5 py-3 phone:px-4">
-        <FileText className="size-5 shrink-0 text-fg-3" aria-hidden />
-        <div className="min-w-0 flex-1">
-          <div className="t-row truncate text-fg">{card.title ?? card.name}</div>
-          <div className="truncate text-[12.5px] text-fg-3 phone:text-[13.5px]">{card.title ? `${card.name}, ` : ''}{fileFacts(card)}</div>
-        </div>
-        {viewable && (
-          <MediaButton item={item} label={`View ${card.name}`} className={mobile ? 'inline-flex size-11 shrink-0 items-center justify-center rounded-[var(--r-1)] text-fg-3 hov:bg-hover hov:text-fg' : buttonClass('quiet', 'sm', 'cursor-pointer')}>
-            <Maximize2 className={mobile ? 'size-[18px]' : 'size-4'} aria-hidden />
-            {!mobile && 'View'}
-          </MediaButton>
-        )}
-        {mobile ? (
-          <IconButton label={`Download ${card.name}`} size="touch" tooltip={false} onClick={() => void download()}>
-            <Download />
-          </IconButton>
-        ) : (
-          <Button size="sm" variant="outline" icon={<Download className="size-4" />} onClick={() => void download()}>
-            Download
-          </Button>
-        )}
+        <DownloadIcon name={card.name} onClick={download} over />
       </div>
-      {(failed ?? error) && <p className="px-3.5 pb-2.5 text-[12.5px] text-fault">Could not load the file. {failed ?? error}</p>}
+    );
+  // a picture still loading or too big shows as a row too: the row opens it
+  const row: ReactNode = (
+    <>
+      <FileIcon mediaType={card.mediaType} name={card.name} />
+      {words}
+    </>
+  );
+  return (
+    <div className={cn(BOX, 'group/card flex max-w-[480px] items-center overflow-hidden pr-1.5 transition-colors duration-[var(--dur-1)] hov:bg-hover', className)} data-file-card={card.mediaType}>
+      {viewable ? (
+        <MediaButton item={item} label={`Open ${card.name}`} className={cn(ROW, 'cursor-pointer')}>
+          {row}
+        </MediaButton>
+      ) : (
+        // no preview for it: the whole card is the download, the icon only says so
+        <button type="button" aria-label={`Download ${card.name}`} onClick={download} className={ROW}>
+          {row}
+          <Download aria-hidden strokeWidth={1.75} className="mr-1 size-4 shrink-0 text-fg-3 group-hover/card:text-fg" />
+        </button>
+      )}
+      {viewable && <DownloadIcon name={card.name} onClick={download} className={mobile ? undefined : 'opacity-70 group-hover/card:opacity-100'} />}
     </div>
   );
 }
@@ -146,9 +200,12 @@ function GridCell({ card, sessionId, one }: { card: FileCardData; sessionId: str
   if (error) return <div className={cn(box, 'flex aspect-square items-center justify-center p-3 text-center text-[12.5px] text-fault')}>Could not load {card.name}</div>;
   if (!src) return <div className={cn(box, 'aspect-square animate-pulse')} aria-label={`Loading ${card.name}`} />;
   return (
-    <MediaButton item={mediaItem(sessionId, card, src)} label={`Open ${(card.title ?? 'generated image').toLowerCase()} full size`} className="block rounded-[var(--r-2)] p-0">
-      <img src={src} alt={card.title ?? 'Generated image'} className={box} loading="lazy" decoding="async" draggable={false} />
-    </MediaButton>
+    <div className="group/card relative">
+      <MediaButton item={mediaItem(sessionId, card, src)} label={`Open ${(card.title ?? 'generated image').toLowerCase()} full size`} className="block w-full rounded-[var(--r-2)] p-0">
+        <img src={src} alt={card.title ?? 'Generated image'} className={box} loading="lazy" decoding="async" draggable={false} />
+      </MediaButton>
+      <DownloadIcon name={card.name} onClick={() => void downloadCard(sessionId, card)} over />
+    </div>
   );
 }
 

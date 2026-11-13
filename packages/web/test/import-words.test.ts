@@ -1,5 +1,5 @@
 /**
- * The line under each import in Memory, Import and export, Recent imports
+ * The line under each import in Settings, Import & export, Recent imports
  * (features/import/words.ts): learned facts the owner's own notes already
  * state are counted there, and an older hub that does not send the count
  * shows the line as before.

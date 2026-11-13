@@ -94,6 +94,16 @@ describe("the index's groups and search", () => {
     expect(searchSections(sections, 'KEYS hub').map((x) => x.id)).toEqual(['providers']);
     expect(searchSections(sections, 'nothing like this')).toEqual([]);
   });
+
+  test('Import & export sits in Settings after Reflect, and search finds it', () => {
+    const ids = SETTINGS_GROUPS[0].ids;
+    expect(ids.indexOf('data')).toBe(ids.indexOf('reflect') + 1);
+    const all = [...sections, { id: 'reflect', label: 'Reflect', desc: 'Your own report.' }, { id: 'data', label: 'Import & export', desc: 'Bring in chats. Export your memory.' }, { id: 'subscriptions', label: 'Subscriptions', desc: 'Plans you pay for.' }];
+    expect(groupSections(all)[0].items.map((x) => x.id)).toEqual(['account', 'reflect', 'data', 'newthing']);
+    expect(searchSections(all, 'export').map((x) => x.id)).toEqual(['data']);
+    expect(searchSections(all, 'claude').map((x) => x.id)).toContain('data');
+    expect(searchSections(all, 'conversations.json').map((x) => x.id)).toEqual(['data']);
+  });
 });
 
 describe('the sidebar rows per mode', () => {

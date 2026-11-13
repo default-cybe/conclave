@@ -32,6 +32,9 @@ import fox3 from './images/fox-snow-3.png';
 import chartGif from './images/chart-growth.gif';
 import chartVideo from './images/chart-growth.webm';
 import reportPdf from './images/homelab-report.pdf';
+// inline, as a message stores an attachment or a tool's picture: base64 bytes
+import foxInline from './images/fox-snow-3.png?inline';
+import shotInline from './images/shot-dashboard.png?inline';
 import { receiptsFor } from './uploads';
 
 const MIN = 60_000;
@@ -77,6 +80,7 @@ export function render(bars: Bar[], frames = 12): Uint8Array[] {
 
 /** The media chat's shared files (ShareFile cards), served by GET /api/sessions/:id/files/:toolUseId. */
 const MEDIA: Record<string, { url?: string; text?: string; name: string; mediaType: string; size: number }> = {
+  tu_m_png: { url: fox2, name: 'report-cover.png', mediaType: 'image/png', size: 11_413 },
   tu_m_gif: { url: chartGif, name: 'uptime-chart.gif', mediaType: 'image/gif', size: 12_183 },
   tu_m_vid: { url: chartVideo, name: 'uptime-chart.webm', mediaType: 'video/webm', size: 34_503 },
   tu_m_pdf: { url: reportPdf, name: 'homelab-report.pdf', mediaType: 'application/pdf', size: 27_132 },
@@ -301,7 +305,9 @@ function seeds(now: number): Array<{ session: Session; turns: Turn[] }> {
       // ShareFile cards of every kind the media viewer shows: a GIF, a video, a PDF and a code file
       session: chatSession({ id: 'c_media', title: 'Monthly homelab report', model: SONNET, createdAt: at(30 * MIN), updatedAt: at(29 * MIN), chat: DEFAULTS }, 4),
       turns: [
-        { role: 'user', at: at(30 * MIN), content: [t('make the monthly homelab report: a PDF, the uptime chart as a GIF and a short video, and the script that draws it')] },
+        { role: 'user', at: at(30 * MIN), content: [t('make the monthly homelab report: a PDF, the uptime chart as a GIF and a short video, and the script that draws it. use this for the cover'), { type: 'image', mediaType: 'image/png', data: foxInline.replace(/^data:[^,]*,/, '') }] },
+        { role: 'assistant', at: at(30 * MIN - 500), model: SONNET, content: [{ type: 'tool_use', id: 'tu_m_shot', name: 'mcp__browser__browser_screenshot', input: { url: 'http://grafana.lan/d/uptime' } }] },
+        { role: 'user', at: at(30 * MIN - 800), content: [{ type: 'tool_result', toolUseId: 'tu_m_shot', content: [{ type: 'text', text: 'Screenshot of grafana.lan/d/uptime' }, { type: 'image', mediaType: 'image/png', data: shotInline.replace(/^data:[^,]*,/, '') }] }] },
         { role: 'assistant', at: at(30 * MIN - 1_000), model: SONNET, content: Object.entries(MEDIA).map(([id, f]) => ({ type: 'tool_use', id, name: 'ShareFile', input: { path: `/outputs/c_media/${f.name}` } }) as ContentBlock) },
         { role: 'user', at: at(30 * MIN - 20_000), content: Object.entries(MEDIA).map(([id, f]) => ({ type: 'tool_result', toolUseId: id, content: `Shared ${f.name}`, meta: { file: { name: f.name, mediaType: f.mediaType, size: f.size } } }) as ContentBlock) },
         { role: 'assistant', at: at(29 * MIN), model: SONNET, content: [t('Here is the report, the chart as a GIF and a video, and `render.ts`, which draws it. Tap any card to view it full screen.')] },

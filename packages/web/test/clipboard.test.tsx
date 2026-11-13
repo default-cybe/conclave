@@ -167,3 +167,71 @@ describe('useCopy', () => {
     await unmount();
   });
 });
+
+describe('saveFile (Download in the desktop app)', () => {
+  test('the desktop app saves through save_download, never an <a download>, and the toast offers Show in folder', async () => {
+    const { saveFile, homePath } = await import('../src/lib/saveFile');
+    const calls: Array<[string, Record<string, unknown> | undefined]> = [];
+    setDesktop({
+      invoke: (async (cmd: string, args?: Record<string, unknown>) => {
+        calls.push([cmd, args]);
+        return cmd === 'save_download' ? '/home/kai/Downloads/chart (1).png' : undefined;
+      }) as never,
+      listen: async () => () => undefined,
+    });
+    // a page with no createElement: an anchor would throw
+    g.document = {};
+    useHub.setState({ toasts: [] });
+    await saveFile('chart.png', new Blob(['hi']));
+    expect(calls).toEqual([['save_download', { name: 'chart.png', data: 'aGk=' }]]);
+    const t = useHub.getState().toasts[0]!;
+    expect(t.title).toBe('Saved to ~/Downloads/chart (1).png');
+    t.action!.run();
+    expect(calls[1]).toEqual(['reveal_download', { path: '/home/kai/Downloads/chart (1).png' }]);
+    expect(homePath('C:\\Users\\kai\\Downloads\\a.png')).toBe('~\\Downloads\\a.png');
+  });
+
+  test('a refusal from the app is a toast, not a silent nothing', async () => {
+    const { saveFile } = await import('../src/lib/saveFile');
+    fakeApp(false);
+    useHub.setState({ toasts: [] });
+    await saveFile('a.txt', new Blob(['x']));
+    expect(useHub.getState().toasts.map((t) => t.level)).toEqual(['error']);
+  });
+
+  test('over 100 MB the app is never handed the bytes: a toast offers the web browser instead', async () => {
+    const { saveFile, openInApp, APP_SAVE_MAX } = await import('../src/lib/saveFile');
+    expect(APP_SAVE_MAX).toBe(100 * 1024 * 1024);
+    const calls: unknown[] = [];
+    setDesktop({
+      invoke: (async (cmd: string) => {
+        calls.push([cmd]);
+        return '/home/kai/Downloads/ok.bin';
+      }) as never,
+      listen: async () => () => undefined,
+    });
+    useHub.setState({ toasts: [] });
+    // a Blob that only says it is big, so the test holds no 100 MB
+    const big = { size: APP_SAVE_MAX + 1, arrayBuffer: () => Promise.reject(new Error('read')) } as unknown as Blob;
+    await saveFile('movie.mp4', big);
+    expect(await openInApp('movie.mp4', big)).toBe(true);
+    expect(calls).toEqual([]);
+    const ts = useHub.getState().toasts;
+    expect(ts.map((t) => [t.level, t.action?.label])).toEqual([
+      ['error', 'Open in browser'],
+      ['error', 'Open in browser'],
+    ]);
+    expect(ts[0]!.title).toContain('too big to save from the app');
+    // exactly the cap still goes to the app
+    await saveFile('ok.bin', { size: APP_SAVE_MAX, arrayBuffer: async () => new ArrayBuffer(2) } as unknown as Blob);
+    expect(calls.map((c) => (c as [string])[0])).toEqual(['save_download']);
+  });
+
+  test('in a browser it stays a plain anchor download', async () => {
+    const { saveFile } = await import('../src/lib/saveFile');
+    const clicked: string[] = [];
+    g.document = { body: { appendChild() {} }, createElement: () => ({ click() { clicked.push(`${this.download} ${this.href}`); }, remove() {} }) } as never;
+    await saveFile('a.png', 'data:image/png;base64,AA');
+    expect(clicked).toEqual(['a.png data:image/png;base64,AA']);
+  });
+});

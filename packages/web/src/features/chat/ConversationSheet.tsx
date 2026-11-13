@@ -12,6 +12,7 @@ import { useLocation } from 'wouter';
 import type { Session } from '@conclave/core/types';
 import { api } from '@/lib/api';
 import { attempt, removeKey, useHub } from '@/store/store';
+import { useUi } from '@/store/ui';
 import { cn } from '@/lib/text';
 import { compact, folderName, hhmm, shortDate, usd } from '@/lib/format';
 import { worthLine } from '@/features/usage/value';
@@ -109,7 +110,8 @@ export function ConversationSheet({ session, open, onClose, onPeople, peopleLabe
           <SendToFriendAction session={session} onOpen={later(() => setSend(true))} />
           <Action onClick={archive}>{session.archived ? 'Unarchive' : 'Archive'}</Action>
           {chat ? <Action onClick={later(() => openContinue(session.id))}>Move to Code</Action> : <Action onClick={toChat}>Move to Chat</Action>}
-          {!chat && <Action onClick={later(() => setDetails(true))}>Details</Action>}
+          {!chat && <Action onClick={later(() => (useUi.getState().set({ panelTab: 'details' }), setDetails(true)))}>Details</Action>}
+          <Action onClick={later(() => (useUi.getState().set({ panelTab: 'files' }), setDetails(true)))}>Files</Action>
           {meetingsOn && canScheduleHere(session) && <Action onClick={() => (onClose(), navigate(scheduleHere(session)))}>Schedule a meeting here…</Action>}
           <Action tone="fault" onClick={later(() => setDel(true))}>
             Delete
@@ -119,11 +121,9 @@ export function ConversationSheet({ session, open, onClose, onPeople, peopleLabe
       <RenameDialog session={session} open={renaming} onClose={() => setRenaming(false)} />
       {arch.dialog}
       <SendToFriendDialog session={session} open={send} onClose={() => setSend(false)} />
-      {!chat && (
-        <Sheet open={details} onClose={() => setDetails(false)} title="Details">
-          <ContextPanel session={session} />
-        </Sheet>
-      )}
+      <Sheet open={details} onClose={() => setDetails(false)} title={chat ? 'Files' : 'Details'}>
+        <ContextPanel session={session} />
+      </Sheet>
       <ConfirmDialog
         open={del}
         onClose={() => setDel(false)}

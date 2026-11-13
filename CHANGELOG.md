@@ -9,8 +9,15 @@ like `## [0.4.16] - 2026-10-24`.
 
 ## [Unreleased]
 
+### Added
+
+- Desktop app: the Dock icon bounces (macOS) and the taskbar flashes (Windows/Linux) when an approval or question waits for you
+- A Files tab in the session panel lists every file of a chat or session, newest first: Generated (shared files, generated pictures, pages in replies), Screenshots (pictures from tools) and Uploaded (your attachments). Pictures and videos are a thumbnail grid that loads as you scroll, other files compact rows; a tap opens the viewer and Left and Right move through the list. A big chat loaded only in part asks the hub for its list (`GET /api/sessions/:id/files`, metadata only).
+
 ### Changed
 
+- File cards open on a tap, as on Android: the picture itself, or the whole card of a PDF, video or code file, opens the viewer, and one small download icon replaces the Open, View and Download buttons. The viewer is black and quiet: name, Download, Copy for pictures, a More menu (Open in new tab or Open in app, Jump to message) and Close.
+- Import & export moved to Settings (Memory links to it)
 - Meetings is an optional feature next to Security and Canvas, in setup and in Settings, Appearance, Modes (web, desktop and Android). It starts off on a new hub and for new people; an account that already has meetings keeps it on. Off hides its sidebar row, its Settings section, the desktop tray items and the Ctrl+Alt+M overlay key, and the hub skips its background work. A link to /meetings says it is off, with a way to turn it on
 - The sidebar shows Routines in Assistant mode only; Search (Ctrl K), G R and its link still reach it in every mode. The Android side panel does the same
 - Workflows, Memory and Extensions moved into the sidebar's More menu, in that order; their G W, G M and G E keys still work. The phone drawer gained a More row that lists every page
@@ -18,6 +25,7 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Fixed
 
+- Open and Download did nothing in the Linux desktop app: WebKitGTK drops an `<a download>` of a blob: or data: URL and the app refuses window.open of anything but web links. In the desktop app, on every OS, downloads now go through the app, which saves to Downloads under a name that replaces nothing and shows "Saved to ~/Downloads/..." with Show in folder; Open in app hands pictures, video, PDF and text to their default app. A file over 100 MB is not saved through the app; a toast offers to open the chat in the web browser instead.
 - An approval that expired or was cancelled (for example while a chat waited out a usage limit) no longer stays on screen as 'Waiting' with 'approval is not pending' when pressed
 - Files the agent shares show under the collapsed work row in Code sessions, instead of only inside it
 

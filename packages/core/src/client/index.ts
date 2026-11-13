@@ -1910,6 +1910,8 @@ export class ConclaveClient {
   /** trim: blocks over 100 KB come light and listed in meta.trimmed (session/trim.ts); messageBlock reads one in full. */
   messages = (id: string, page: MessagePage & { trim?: boolean } = {}) => this.request<Message[]>('GET', `/api/sessions/${id}/messages`, undefined, { ...page });
   messageBlock = (id: string, msgId: string, index: number) => this.request<ContentBlock>('GET', `/api/sessions/${id}/messages/${encodeURIComponent(msgId)}/blocks/${index}`);
+  /** Every file of the transcript as metadata, newest first (session/files.ts), for a chat loaded only in part. */
+  sessionFiles = (id: string) => this.request<import('../session/files').SessionFile[]>('GET', `/api/sessions/${id}/files`);
   send = (id: string, input: SendInput) => this.request<SendResult>('POST', `/api/sessions/${id}/messages`, input);
   /** Messages waiting while the session is busy, in the order they will run (session.queue keeps it current). */
   queue = (id: string) => this.request<QueuedMessage[]>('GET', `/api/sessions/${id}/queue`);

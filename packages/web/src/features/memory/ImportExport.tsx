@@ -25,6 +25,7 @@ import { reloadMemories } from './store';
 import { NoteText } from './Notes';
 import { PastChats } from '@/features/import/PastChats';
 import { Batches, NotLearnedLine } from '@/features/import/Batches';
+import { saveFile } from '@/lib/saveFile';
 
 type FileRow = MemoryFileImportResult['files'][number];
 type Run<T> = { state: 'idle' } | { state: 'running'; since: number; dry: boolean } | { state: 'done'; result: T; dry: boolean } | { state: 'failed'; error: string };
@@ -51,6 +52,7 @@ function cliWords(d: Device): string {
   return have.length ? have.join(', ') : 'none of the coding CLIs';
 }
 
+/** Settings, Import & export. The Settings column is too narrow for a side column, so the notes go under the body. */
 export function ImportExportTab() {
   const wide = useIsWide();
   const body = (
@@ -62,9 +64,9 @@ export function ImportExportTab() {
   );
   if (!wide) return <div className="max-w-[780px]">{body}</div>;
   return (
-    <div className="grid grid-cols-[minmax(0,780px)_minmax(0,1fr)]">
-      <div className="min-w-0 pr-10">{body}</div>
-      <aside className="min-w-0 border-l border-rule pl-10" aria-label="Files Conclave reads">
+    <div className="max-w-[780px]">
+      {body}
+      <aside className="mt-10 border-t border-rule pt-8" aria-label="Files Conclave reads">
         <div className="max-w-[460px] space-y-7">
           <Aside title="Files it reads">
             <KV k="Claude Code" keyWidth={96} mono>
@@ -392,14 +394,7 @@ async function downloadMarkdown(includeImported: boolean) {
   }
   // the mock router sends the file as a JSON string
   const text = (res.headers.get('content-type') ?? '').includes('json') ? ((await res.json()) as string) : await res.text();
-  const href = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' }));
-  const a = document.createElement('a');
-  a.href = href;
-  a.download = 'conclave-memory.md';
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(href), 2000);
+  await saveFile('conclave-memory.md', new Blob([text], { type: 'text/markdown;charset=utf-8' }));
 }
 
 function ExportSection() {

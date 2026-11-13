@@ -30,7 +30,7 @@ export type NotifyOn = {
 export const NOTIFY_DEFAULTS: NotifyOn = { sessionDone: true, approvalNeeded: true, limitReset: true, routineDone: true, errors: true, friendMessage: true, fileConflict: true, stuck: true, updates: true };
 
 export const NOTIFY_EVENTS: Array<{ key: keyof NotifyOn; label: string; help: string }> = [
-  { key: 'approvalNeeded', label: 'Approvals and questions', help: 'A session is waiting on you. Answer from the notification or the Inbox.' },
+  { key: 'approvalNeeded', label: 'Approvals and questions', help: 'A session is waiting on you. Answer from the notification or the Inbox. In the desktop app the Dock icon bounces or the taskbar button flashes too.' },
   { key: 'errors', label: 'Failures', help: 'A session or a routine failed.' },
   { key: 'stuck', label: 'Stuck sessions', help: 'A running session made no progress for 5 minutes, or one tool failed the same way 3 times. Stop it or keep waiting from the Inbox.' },
   { key: 'fileConflict', label: 'File conflicts', help: 'Two chats edited the same file within 10 minutes. Both are linked from the Inbox.' },
