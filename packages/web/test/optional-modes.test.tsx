@@ -153,7 +153,7 @@ describe("Home's note", () => {
     return <ModesNote />;
   };
   test('an account from before the setting sees it once', async () => {
-    expect((await render(note)).text).toContain('Security and Canvas can now be turned off in Settings, Appearance');
+    expect((await render(note)).text).toContain('Security, Canvas and Meetings can be turned off in Settings, Appearance, if you do not use them.');
   });
   test('a new account, or one that saved its choice, does not', async () => {
     expect((await render(note, { security: false, canvas: false })).text).toBe('');
