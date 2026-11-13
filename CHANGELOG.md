@@ -11,11 +11,17 @@ like `## [0.4.16] - 2026-10-24`.
 
 ### Changed
 
+- The composer's "Mode" chip is now called "Style" ("Agent style"), on the web and on Android. Its menu shows Agent, Chat and Plan; Jury, Debate, Loop and Ultra sit under "More styles", which opens by itself while one of them is on. The New session dialog, the phone Options sheet and Ctrl K say Style too; searching "mode" still finds it
+
+## [0.4.96] - 2026-11-13
+
+### Changed
+
 - Meetings is an optional feature next to Security and Canvas, in setup and in Settings, Appearance, Modes (web, desktop and Android). It starts off on a new hub and for new people; an account that already has meetings keeps it on. Off hides its sidebar row, its Settings section, the desktop tray items and the Ctrl+Alt+M overlay key, and the hub skips its background work. A link to /meetings says it is off, with a way to turn it on
 - The sidebar shows Routines in Assistant mode only; Search (Ctrl K), G R and its link still reach it in every mode. The Android side panel does the same
 - Workflows, Memory and Extensions moved into the sidebar's More menu, in that order; their G W, G M and G E keys still work. The phone drawer gained a More row that lists every page
 - Android Settings has a Modes list (Security, Canvas, Meetings), saved on the account like the web's
-- The composer's "Mode" chip is now called "Style" ("Agent style"), on the web and on Android. Its menu shows Agent, Chat and Plan; Jury, Debate, Loop and Ultra sit under "More styles", which opens by itself while one of them is on. The New session dialog, the phone Options sheet and Ctrl K say Style too; searching "mode" still finds it
+- In Chat the Details column on the right starts closed, so a chat gets the full width. Its toggle (and Ctrl Shift \) opens it, and the choice is kept for chats on this device apart from sessions, which still open with Details shown
 
 ### Fixed
 

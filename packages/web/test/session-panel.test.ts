@@ -23,6 +23,31 @@ describe('which cards', () => {
   });
 });
 
+describe('open by default', () => {
+  test('sessions keep the Details column open; a chat has its own choice, closed until opened', async () => {
+    const { toggleContext, useUi } = await import('../src/store/ui');
+    const g = globalThis as { window?: unknown };
+    const had = 'window' in g;
+    const was = g.window;
+    const before = useUi.getState();
+    g.window = { matchMedia: () => ({ matches: true }) };
+    try {
+      expect(before.contextOpen).toBe(true);
+      expect(before.chatContextOpen).toBe(false);
+      useUi.getState().set({ onChat: true });
+      toggleContext();
+      expect(useUi.getState()).toMatchObject({ chatContextOpen: true, contextOpen: true });
+      useUi.getState().set({ onChat: false });
+      toggleContext();
+      expect(useUi.getState()).toMatchObject({ chatContextOpen: true, contextOpen: false });
+    } finally {
+      useUi.getState().set({ onChat: false, contextOpen: before.contextOpen, chatContextOpen: before.chatContextOpen });
+      if (had) g.window = was;
+      else delete g.window;
+    }
+  });
+});
+
 describe('Outputs', () => {
   test('one row per file written (the last write wins), failed writes left out, pictures and pages too, newest first', () => {
     const list = sessionOutputs([
