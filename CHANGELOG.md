@@ -7,7 +7,7 @@ from the section of its version (`scripts/releases/notes.ts`); a release
 without one fails. At tag time, rename `[Unreleased]` to the version and date,
 like `## [0.4.16] - 2026-10-24`.
 
-## [Unreleased]
+## [0.4.95] - 2026-11-13
 
 ### Added
 
@@ -17,9 +17,6 @@ like `## [0.4.16] - 2026-10-24`.
 ### Changed
 
 - File cards open on a tap, as on Android: the picture itself, or the whole card of a PDF, video or code file, opens the viewer, and one small download icon replaces the Open, View and Download buttons. The viewer is black and quiet: name, Download, Copy for pictures, a More menu (Open in new tab or Open in app, Jump to message) and Close.
-
-### Changed
-
 - Import & export moved to Settings (Memory links to it)
 
 ### Fixed
