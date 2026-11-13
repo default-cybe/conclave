@@ -52,6 +52,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
@@ -418,24 +419,49 @@ fun AgentChip(value: String?, agents: List<Pair<String, String?>>, onChange: (St
     }
 }
 
-/** "Agent mode": the six modes, and Ultra under a rule where the session takes it ([onUltra]). */
+/**
+ * "Agent style" (design review #4): Agent, Chat and Plan, then a "More styles"
+ * fold with Jury, Debate, Loop and Ultra where the session takes it ([onUltra]).
+ * The fold starts open while one of those is on; a toggle by hand lasts until
+ * the sheet closes.
+ */
 @Composable
 fun ModeChip(mode: SessionMode, onMode: (SessionMode) -> Unit, ultra: Boolean = false, onUltra: ((Boolean) -> Unit)? = null, enabled: Boolean = true) {
     val c = Conclave.colors
     var open by remember { mutableStateOf(false) }
+    var fold by remember { mutableStateOf<Boolean?>(null) }
+    val more = fold ?: SessionModes.moreOpen(mode, ultra, onUltra != null)
     val words = SessionModes.chipWords(mode, ultra, onUltra != null)
-    QuietChip(words, onClickLabel = "Mode, $words", onClick = { open = true }, enabled = enabled)
+    val close = {
+        open = false
+        fold = null
+    }
+    QuietChip(words, onClickLabel = "Style, $words", onClick = { open = true }, enabled = enabled)
     if (open) {
-        OptionsSheet("Mode", onDismiss = { open = false }) {
-            SessionMode.entries.forEach { m ->
-                ChoiceRow(SessionModes.label(m), selected = m == mode, detail = SessionModes.detail(m), onClick = {
-                    open = false
-                    if (m != mode) onMode(m)
-                })
+        val row: @Composable (SessionMode) -> Unit = { m ->
+            ChoiceRow(SessionModes.label(m), selected = m == mode, detail = SessionModes.detail(m), onClick = {
+                close()
+                if (m != mode) onMode(m)
+            })
+        }
+        OptionsSheet("Style", onDismiss = close) {
+            Text(SessionModes.HEADING, style = ConclaveType.meta, color = c.fg3, modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 4.dp))
+            SessionModes.EVERYDAY.forEach { row(it) }
+            HorizontalDivider(thickness = 1.dp, color = c.rule, modifier = Modifier.padding(top = 6.dp))
+            Row(
+                Modifier.fillMaxWidth().clickable(onClickLabel = if (more) "Hide more styles" else "Show more styles") { fold = !more }.heightIn(min = 48.dp).padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(SessionModes.MORE, style = ConclaveType.body, color = c.fg2, modifier = Modifier.weight(1f))
+                Icon(Icons.Outlined.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(18.dp).rotate(if (more) 180f else 0f), tint = c.fg3)
             }
-            if (onUltra != null) {
-                HorizontalDivider(thickness = 1.dp, color = c.rule, modifier = Modifier.padding(top = 6.dp))
-                SwitchRow("Ultra", ULTRA_LINE, ultra, onUltra)
+            if (more) {
+                SessionModes.MORE_STYLES.forEach { row(it) }
+                // Ultra off keeps the fold open under the row just used
+                if (onUltra != null) SwitchRow("Ultra", ULTRA_LINE, ultra) { on ->
+                    fold = true
+                    onUltra(on)
+                }
             }
         }
     }

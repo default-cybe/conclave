@@ -15,6 +15,7 @@ like `## [0.4.16] - 2026-10-24`.
 - The sidebar shows Routines in Assistant mode only; Search (Ctrl K), G R and its link still reach it in every mode. The Android side panel does the same
 - Workflows, Memory and Extensions moved into the sidebar's More menu, in that order; their G W, G M and G E keys still work. The phone drawer gained a More row that lists every page
 - Android Settings has a Modes list (Security, Canvas, Meetings), saved on the account like the web's
+- The composer's "Mode" chip is now called "Style" ("Agent style"), on the web and on Android. Its menu shows Agent, Chat and Plan; Jury, Debate, Loop and Ultra sit under "More styles", which opens by itself while one of them is on. The New session dialog, the phone Options sheet and Ctrl K say Style too; searching "mode" still finds it
 
 ### Fixed
 

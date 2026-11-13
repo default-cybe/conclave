@@ -6,8 +6,21 @@ import dev.conclave.client.model.LoopConfig
 import dev.conclave.client.model.ModeConfig
 import dev.conclave.client.model.SessionMode
 
-/** The composer's mode chip, as on the web (features/chat/modes.ts MODES, chat/pickers.tsx modePatch). */
+/** The composer's Style chip (the session mode), as on the web (features/chat/modes.ts MODES, chat/pickers.tsx modePatch). */
 object SessionModes {
+    /** The sheet's heading, and the fold that holds Jury, Debate, Loop and Ultra (design review #4). */
+    const val HEADING = "Working style"
+    const val MORE = "More styles"
+
+    /** Agent, Chat and Plan: always in the sheet. */
+    val EVERYDAY = listOf(SessionMode.AGENT, SessionMode.CHAT, SessionMode.PLAN)
+
+    /** Jury, Debate and Loop: under More styles. */
+    val MORE_STYLES = SessionMode.entries.filter { it !in EVERYDAY }
+
+    /** The fold starts open while an expert style or Ultra is on. */
+    fun moreOpen(m: SessionMode, ultra: Boolean, ultraOffered: Boolean): Boolean = m in MORE_STYLES || (ultraOffered && ultra)
+
     /** A mode in words. */
     fun label(m: SessionMode): String = when (m) {
         SessionMode.AGENT -> "Agent"
@@ -28,9 +41,9 @@ object SessionModes {
         SessionMode.LOOP -> "Repeats until a check passes"
     }
 
-    /** The chip's words: "Agent mode", ", Ultra" after it when Ultra is on where the session takes it. */
+    /** The chip's words: "Agent style", ", Ultra" after it when Ultra is on where the session takes it. */
     fun chipWords(m: SessionMode, ultra: Boolean, ultraOffered: Boolean): String =
-        "${label(m)} mode" + if (ultraOffered && ultra) ", Ultra" else ""
+        "${label(m)} style" + if (ultraOffered && ultra) ", Ultra" else ""
 
     val DEFAULT_JURY = JuryConfig(
         jurors = listOf("anthropic/claude-sonnet-5-5", "openai/gpt-5.5", "zai/glm-5", "google/gemini-3-pro"),

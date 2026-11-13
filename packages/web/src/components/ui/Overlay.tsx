@@ -241,6 +241,8 @@ export interface MenuItem {
   group?: boolean;
   /** Keep the menu open after selecting. */
   keep?: boolean;
+  /** A row that folds the rows after it open or shut (aria-expanded). */
+  expanded?: boolean;
 }
 
 /** Menu rows with arrow key navigation. Rows 30px (44 on phones), 8px padding. */
@@ -286,6 +288,7 @@ export function MenuList({ items, onDone, className, autoFocus = true, label }: 
             type="button"
             role={check ? 'menuitemcheckbox' : 'menuitem'}
             aria-checked={check ? it.checked : undefined}
+            aria-expanded={it.expanded}
             aria-disabled={it.disabled || undefined}
             tabIndex={-1}
             onClick={() => {
