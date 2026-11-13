@@ -9,12 +9,12 @@ import { groupSections, searchSections } from '../src/features/settings/nav';
 import { moveItem } from '../src/features/settings/usage-fallback';
 
 describe('Usage fallback in Settings', () => {
-  test('it sits under Models after Refusal fallback, and "usage limit" finds it', () => {
+  test('it sits under Advanced after Refusal fallback as Limit fallback, and "usage limit" still finds it', () => {
     const sections = [
       { id: 'refusal', label: 'Refusal fallback', desc: 'When a model refuses, the same messages go to the next model on your list.' },
-      { id: 'usage', label: 'Usage fallback', desc: 'When a model is at its limit on every account, the next model here takes over, on its own account order.' },
+      { id: 'usage', label: 'Limit fallback', desc: 'When a model is at its limit on every account, the next model here takes over, on its own account order.' },
     ];
-    expect(groupSections(sections).find((g) => g.label === 'Models')!.items.map((s) => s.id)).toEqual(['refusal', 'usage']);
+    expect(groupSections(sections).find((g) => g.label === 'Advanced')!.items.map((s) => s.id)).toEqual(['refusal', 'usage']);
     expect(searchSections(sections, 'usage limit').map((s) => s.id)).toEqual(['usage']);
   });
 

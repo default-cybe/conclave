@@ -18,14 +18,14 @@ const acct = (id: string, extra: Partial<AccountDto> = {}): AccountDto => ({ id,
 const notice = (meta: Record<string, unknown>): Message => ({ id: 'n1', sessionId: 's1', seq: 3, role: 'assistant', kind: 'notice', content: [{ type: 'text', text: 'The model refused to continue.' }], createdAt: 1, meta });
 
 describe('Refusal fallback in Settings', () => {
-  test('it sits under Models, and "safety priority" finds it', () => {
-    expect(SETTINGS_GROUPS.find((g) => g.label === 'Models')!.ids).toEqual(['providers', 'subscriptions', 'accounts', 'refusal', 'usage', 'security', 'defaults']);
+  test('it sits under Advanced, and "safety priority" finds it', () => {
+    expect(SETTINGS_GROUPS.find((g) => g.label === 'Advanced')!.ids).toEqual(['accounts', 'refusal', 'usage', 'security', 'gateway', 'secrets', 'logs']);
     const sections = [
       { id: 'accounts', label: 'Accounts', desc: 'Which plan or key takes each call.' },
       { id: 'refusal', label: 'Refusal fallback', desc: 'When a model refuses, the same messages go to the next model on your list. Your words are never changed.' },
     ];
     expect(searchSections(sections, 'safety priority').map((s) => s.id)).toEqual(['refusal']);
-    expect(groupSections(sections).find((g) => g.label === 'Models')!.items.map((s) => s.id)).toEqual(['accounts', 'refusal']);
+    expect(groupSections(sections).find((g) => g.label === 'Advanced')!.items.map((s) => s.id)).toEqual(['accounts', 'refusal']);
   });
 
   test('a step picks accounts of the model maker; a plan without a prefix next to another plan is not pinned', () => {

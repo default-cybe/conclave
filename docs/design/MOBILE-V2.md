@@ -130,8 +130,9 @@ keeps its own side panel (section 2 as it was) until it follows.
 ## 7. Settings and More
 
 - Plain grouped list, iOS settings style: group label, rows with a chevron.
-  First the Inbox and More, then Settings, Models, Customize and Platform,
-  the groups a computer's Settings uses.
+  First the Inbox and More, then You, AI connections, Assistant, Tools and
+  apps, Hub and people, Data and a folded Advanced (one "Show advanced
+  settings" row until tapped), the groups a computer's Settings uses.
 - More (`/settings/more`) is the list of pages; they keep their content and
   their headers follow section 1 (a back arrow, back to Settings when
   nothing in the app came before).

@@ -1,8 +1,10 @@
 /**
  * Settings (spec 11.10, docs/design/SPEC.md 5.3). On a computer it opens over
  * the app, like the Claude app's: a large panel with its own index at the
- * left (a search box, then the sections under quiet group names: Settings,
- * Models, Customize, Platform) and the section at the right with a close x.
+ * left (a search box, then the sections under quiet group names: You, AI
+ * connections, Assistant, Tools and apps, Hub and people, Data, and a folded
+ * Advanced; features/settings/nav.ts) and the section at the right with a
+ * close x.
  * The address stays /settings/<section>, so deep links and the back button
  * work, and the page under it stays as it was (lib/settingsRoute.ts). The
  * index changes the section in place of the address, so Back or Esc closes
@@ -22,7 +24,7 @@ import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNod
 import { createPortal } from 'react-dom';
 import { Link, Route, Switch, useLocation, useParams } from 'wouter';
 import { navigate as browserNavigate } from 'wouter/use-browser-location';
-import { ChevronRight, Search, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, Search, X } from 'lucide-react';
 import { cn } from '@/lib/text';
 import { useIsMobile, useMedia } from '@/lib/hooks';
 import { openShortcuts } from '@/store/ui';
@@ -131,7 +133,7 @@ const ALL_SECTIONS: SectionDef[] = [
   },
   {
     id: 'usage',
-    label: 'Usage fallback',
+    label: 'Limit fallback',
     desc: 'When a model is at its limit on every account, the next model here takes over, on its own account order.',
     C: UsageFallbackSection,
     width: 900,
@@ -386,6 +388,10 @@ function SettingsModal({ section, item }: { section?: string; item?: string }) {
   const [q, setQ] = useState('');
   const found = useMemo(() => searchSections(sections, q), [sections, q]);
   const groups = useMemo(() => groupSections(found), [found]);
+  // unset: folded unless the open section is in it; a click sets it either way
+  const [advanced, setAdvanced] = useState<boolean>();
+  // a search or an open section in it shows a folded group's rows
+  const open = (g: { folded?: boolean; items: SectionDef[] }) => !g.folded || !!q || (advanced ?? g.items.some((x) => x.id === current?.id));
   useFocusTrap(ref, true, { initial: search });
   useHashScroll(section);
 
@@ -459,8 +465,21 @@ function SettingsModal({ section, item }: { section?: string; item?: string }) {
             {groups.length === 0 && <p className="m-0 px-2.5 py-2 text-[12.5px] text-fg-3">No setting matches "{q}".</p>}
             {groups.map((g) => (
               <div key={g.label} role="group" aria-label={g.label} className="mt-3 first:mt-1">
-                <div className="flex h-7 items-center px-2.5 text-[12px] font-medium text-fg-3">{g.label}</div>
-                {g.items.map((x) => {
+                {/* while a search runs every match shows, so the fold has nothing to toggle */}
+                {g.folded && !q ? (
+                  <button
+                    type="button"
+                    aria-expanded={open(g)}
+                    onClick={() => setAdvanced(!open(g))}
+                    className="flex h-7 w-full items-center gap-1 rounded-[8px] px-2.5 text-left text-[12px] font-medium text-fg-3 transition-colors duration-[var(--dur-1)] hov:text-fg-2"
+                  >
+                    {g.label}
+                    <ChevronDown className={cn('size-3 shrink-0 transition-transform duration-[var(--dur-1)]', !open(g) && '-rotate-90')} strokeWidth={2} aria-hidden />
+                  </button>
+                ) : (
+                  <div className="flex h-7 items-center px-2.5 text-[12px] font-medium text-fg-3">{g.label}</div>
+                )}
+                {open(g) && g.items.map((x) => {
                   const on = x.id === current?.id;
                   return (
                     <a
@@ -551,6 +570,7 @@ function PhoneGroups({ groups }: { groups: Array<{ label: string; rows: PhoneRow
 /** The index: the Inbox and More (the pages) first, then the sections in their groups. */
 function PhoneIndex({ sections }: { sections: SectionDef[] }) {
   const inbox = useInboxCount();
+  const [advanced, setAdvanced] = useState(false);
   const groups: Array<{ label: string; rows: PhoneRow[] }> = [
     {
       label: '',
@@ -559,7 +579,13 @@ function PhoneIndex({ sections }: { sections: SectionDef[] }) {
         { label: 'More', to: '/settings/more', value: <span className="text-fg-3">Workflows, Memory, Usage</span> },
       ],
     },
-    ...groupSections(sections).map((g) => ({ label: g.label, rows: g.items.map((x) => ({ label: x.label, to: `/settings/${x.id}` })) })),
+    ...groupSections(sections).map((g) => ({
+      label: g.label,
+      rows:
+        g.folded && !advanced
+          ? [{ label: 'Show advanced settings', run: () => setAdvanced(true), value: <span className="num text-fg-3">{g.items.length}</span> }]
+          : g.items.map((x) => ({ label: x.label, to: `/settings/${x.id}` })),
+    })),
   ];
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">

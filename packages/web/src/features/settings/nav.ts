@@ -5,19 +5,35 @@
  * test/settings-overlay.test.ts checks it.
  */
 
-/** The index's groups, in order, by section id. A section not named here goes under the first group. */
-export const SETTINGS_GROUPS: Array<{ label: string; ids: string[] }> = [
-  { label: 'Settings', ids: ['account', 'people', 'appearance', 'notifications', 'assistant', 'reflect', 'data'] },
-  { label: 'Models', ids: ['providers', 'subscriptions', 'accounts', 'refusal', 'usage', 'security', 'defaults'] },
-  { label: 'Customize', ids: ['permissions', 'apps', 'github', 'maps', 'websearch', 'meetings', 'calmail', 'browser', 'gateway', 'secrets'] },
-  { label: 'Platform', ids: ['remote', 'friends', 'computer', 'audit', 'logs', 'about'] },
+/**
+ * The index's groups, in order, by section id. A section not named here goes
+ * under the first group. A folded group shows only its name until opened, or
+ * while a search runs or one of its sections is open.
+ */
+export const SETTINGS_GROUPS: Array<{ label: string; ids: string[]; folded?: boolean }> = [
+  { label: 'You', ids: ['account', 'appearance', 'notifications'] },
+  { label: 'AI connections', ids: ['subscriptions', 'providers', 'defaults', 'permissions'] },
+  { label: 'Assistant', ids: ['assistant', 'reflect', 'calmail', 'meetings', 'maps'] },
+  { label: 'Tools and apps', ids: ['websearch', 'github', 'browser', 'apps'] },
+  { label: 'Hub and people', ids: ['people', 'friends', 'remote', 'computer', 'about'] },
+  { label: 'Data', ids: ['data', 'audit'] },
+  { label: 'Advanced', ids: ['accounts', 'refusal', 'usage', 'security', 'gateway', 'secrets', 'logs'], folded: true },
 ];
 
+/** The group names before the regroup: docs and old habits still use them, so search finds their sections. */
+const OLD_GROUPS: Record<string, string[]> = {
+  settings: ['account', 'people', 'appearance', 'notifications', 'assistant', 'reflect', 'data'],
+  models: ['providers', 'subscriptions', 'accounts', 'refusal', 'usage', 'security', 'defaults'],
+  customize: ['permissions', 'apps', 'github', 'maps', 'websearch', 'meetings', 'calmail', 'browser', 'gateway', 'secrets'],
+  platform: ['remote', 'friends', 'computer', 'audit', 'logs', 'about'],
+};
+
 /** The sections in their groups, the empty groups left out. */
-export function groupSections<T extends { id: string }>(sections: T[]): Array<{ label: string; items: T[] }> {
+export function groupSections<T extends { id: string }>(sections: T[]): Array<{ label: string; folded?: boolean; items: T[] }> {
   const named = new Set(SETTINGS_GROUPS.flatMap((g) => g.ids));
   return SETTINGS_GROUPS.map((g, i) => ({
     label: g.label,
+    folded: g.folded,
     items: [...g.ids.map((id) => sections.find((s) => s.id === id)).filter((s): s is T => !!s), ...(i === 0 ? sections.filter((s) => !named.has(s.id)) : [])],
   })).filter((g) => g.items.length);
 }
@@ -61,7 +77,8 @@ export function searchSections<T extends { id: string; label: string; desc: stri
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return sections;
   return sections.filter((s) => {
-    const text = `${s.label} ${s.desc} ${KEYWORDS[s.id] ?? ''}`.toLowerCase();
+    const groups = [SETTINGS_GROUPS.find((g) => g.ids.includes(s.id))?.label, ...Object.keys(OLD_GROUPS).filter((g) => OLD_GROUPS[g].includes(s.id))].join(' ');
+    const text = `${s.label} ${s.desc} ${KEYWORDS[s.id] ?? ''} ${groups}`.toLowerCase();
     return words.every((w) => text.includes(w));
   });
 }

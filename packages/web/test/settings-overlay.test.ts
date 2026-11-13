@@ -79,11 +79,41 @@ describe("the index's groups and search", () => {
   ];
 
   test('quiet groups in order, empty ones left out, a new section under the first', () => {
-    expect(SETTINGS_GROUPS.map((g) => g.label)).toEqual(['Settings', 'Models', 'Customize', 'Platform']);
+    expect(SETTINGS_GROUPS.map((g) => g.label)).toEqual(['You', 'AI connections', 'Assistant', 'Tools and apps', 'Hub and people', 'Data', 'Advanced']);
     const g = groupSections(sections);
-    expect(g.map((x) => x.label)).toEqual(['Settings', 'Models', 'Platform']);
+    expect(g.map((x) => x.label)).toEqual(['You', 'AI connections', 'Hub and people']);
     expect(g[0].items.map((x) => x.id)).toEqual(['account', 'newthing']);
     expect(g[2].items.map((x) => x.id)).toEqual(['remote', 'about']);
+  });
+
+  test("the report's tree: all 30 section ids once each, every one a real section, and only Advanced folded", () => {
+    const ids = SETTINGS_GROUPS.flatMap((g) => g.ids);
+    expect(ids.length).toBe(30);
+    expect(new Set(ids).size).toBe(30);
+    const src = readFileSync(join(import.meta.dir, '../src/features/settings/SettingsPage.tsx'), 'utf8');
+    for (const id of ids) expect(src).toContain(`id: '${id}',`);
+    expect(SETTINGS_GROUPS.filter((g) => g.folded).map((g) => g.label)).toEqual(['Advanced']);
+    expect(SETTINGS_GROUPS.find((g) => g.label === 'Advanced')!.ids).toEqual(['accounts', 'refusal', 'usage', 'security', 'gateway', 'secrets', 'logs']);
+    expect(groupSections([{ id: 'logs' }]).map((g) => [g.label, g.folded])).toEqual([['Advanced', true]]);
+    // usage keeps its id and address; its name says what it does
+    expect(src).toContain("label: 'Limit fallback'");
+  });
+
+  test('the old group names and the new ones still find their sections', () => {
+    const all = [...sections, { id: 'refusal', label: 'Refusal fallback', desc: '' }, { id: 'gateway', label: 'Gateway keys', desc: '' }, { id: 'logs', label: 'Logs', desc: '' }];
+    expect(searchSections(all, 'models').map((x) => x.id)).toEqual(['providers', 'refusal']);
+    expect(searchSections(all, 'customize').map((x) => x.id)).toEqual(['gateway']);
+    expect(searchSections(all, 'platform').map((x) => x.id)).toEqual(['remote', 'about', 'logs']);
+    expect(searchSections(all, 'advanced').map((x) => x.id)).toEqual(['refusal', 'gateway', 'logs']);
+  });
+
+  test('the computer index folds Advanced until clicked, a search runs or one of its sections is open; the phone index shows it on a tap', () => {
+    const src = readFileSync(join(import.meta.dir, '../src/features/settings/SettingsPage.tsx'), 'utf8');
+    expect(src).toContain('!g.folded || !!q || (advanced ?? g.items.some((x) => x.id === current?.id))');
+    expect(src).toContain('aria-expanded={open(g)}');
+    // a search shows every match, so the header is plain text then, not a toggle that does nothing
+    expect(src).toContain('{g.folded && !q ? (');
+    expect(src).toContain("g.folded && !advanced\n          ? [{ label: 'Show advanced settings'");
   });
 
   test('search matches names, lines and the words people use', () => {
@@ -95,11 +125,10 @@ describe("the index's groups and search", () => {
     expect(searchSections(sections, 'nothing like this')).toEqual([]);
   });
 
-  test('Import & export sits in Settings after Reflect, and search finds it', () => {
-    const ids = SETTINGS_GROUPS[0].ids;
-    expect(ids.indexOf('data')).toBe(ids.indexOf('reflect') + 1);
+  test('Import & export opens the Data group, and search finds it', () => {
+    expect(SETTINGS_GROUPS.find((g) => g.label === 'Data')!.ids).toEqual(['data', 'audit']);
     const all = [...sections, { id: 'reflect', label: 'Reflect', desc: 'Your own report.' }, { id: 'data', label: 'Import & export', desc: 'Bring in chats. Export your memory.' }, { id: 'subscriptions', label: 'Subscriptions', desc: 'Plans you pay for.' }];
-    expect(groupSections(all)[0].items.map((x) => x.id)).toEqual(['account', 'reflect', 'data', 'newthing']);
+    expect(groupSections(all).find((g) => g.label === 'Data')!.items.map((x) => x.id)).toEqual(['data']);
     expect(searchSections(all, 'export').map((x) => x.id)).toEqual(['data']);
     expect(searchSections(all, 'claude').map((x) => x.id)).toContain('data');
     expect(searchSections(all, 'conversations.json').map((x) => x.id)).toEqual(['data']);
