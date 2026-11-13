@@ -12,6 +12,7 @@ like `## [0.4.16] - 2026-10-24`.
 ### Changed
 
 - Desktop: questions from the agent show each option with its description, like on phones
+- Replies use the full width of the message box
 
 ## [0.4.97] - 2026-11-13
 

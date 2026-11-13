@@ -109,7 +109,7 @@ function ThoughtFold({ block, keyId, live, late }: { block: Extract<ContentBlock
   const label = ms !== undefined ? `Thought for ${seconds(ms)}` : `Thought, ${words} ${words === 1 ? 'word' : 'words'}`;
   return (
     <Fold live={live} label={label} className={cn('cv-thought py-0.5', late && 'cv-thought-late')}>
-      <InkReveal active={live} className="max-w-[72ch] whitespace-pre-wrap">
+      <InkReveal active={live} className="whitespace-pre-wrap">
         {text.trim()}
       </InkReveal>
     </Fold>
@@ -208,7 +208,7 @@ function ToolLine({ tool, result, run, live, messages, results, folded }: { tool
       if (failed)
         return (
           <Expand label="Search failed" tone="fault">
-            <p className="max-w-[72ch] tx-13 leading-[1.5] text-fg-2">{resultText(res)}</p>
+            <p className="tx-13 leading-[1.5] text-fg-2">{resultText(res)}</p>
           </Expand>
         );
       const list = (Array.isArray(res.meta?.results) ? res.meta.results : []) as Array<{ title: string; url: string }>;
@@ -236,7 +236,7 @@ function ToolLine({ tool, result, run, live, messages, results, folded }: { tool
       if (failed)
         return (
           <Expand label={`Could not read ${h}`} tone="fault">
-            <p className="max-w-[72ch] tx-13 leading-[1.5] text-fg-2">{res ? resultText(res) : ''}</p>
+            <p className="tx-13 leading-[1.5] text-fg-2">{res ? resultText(res) : ''}</p>
           </Expand>
         );
       return (
@@ -258,7 +258,7 @@ function ToolLine({ tool, result, run, live, messages, results, folded }: { tool
         <Expand label={`Checked memory, ${notes.length} ${notes.length === 1 ? 'note' : 'notes'}`}>
           <ul className="space-y-1.5 border-l border-rule-2 pl-3">
             {notes.map((n) => (
-              <li key={n.id} className="max-w-[72ch] tx-13 leading-[1.5] text-fg-2 phone:tx-14">
+              <li key={n.id} className="tx-13 leading-[1.5] text-fg-2 phone:tx-14">
                 {n.text}
               </li>
             ))}
@@ -275,7 +275,7 @@ function ToolLine({ tool, result, run, live, messages, results, folded }: { tool
         <div className="py-0.5">
           <Line>{undone ? 'Saved to memory, then removed' : 'Saved to memory'}</Line>
           <div className="mt-0.5 mb-1 border-l border-rule-2 pl-3">
-            <p className={cn('max-w-[72ch] tx-14 leading-[1.55] phone:tx-15', undone ? 'text-fg-3 line-through' : 'text-fg-2')}>{fact}</p>
+            <p className={cn('tx-14 leading-[1.55] phone:tx-15', undone ? 'text-fg-3 line-through' : 'text-fg-2')}>{fact}</p>
             {id && !undone && (
               <div className="mt-1 -ml-1.5 flex items-center">
                 <Act onClick={async () => (await forgetNote(id)) && setUndone(true)}>Undo</Act>
@@ -295,7 +295,7 @@ function ToolLine({ tool, result, run, live, messages, results, folded }: { tool
       return (
         <div className="py-0.5">
           <Line>Retired a note</Line>
-          {old && <p className="mt-0.5 mb-1 max-w-[72ch] border-l border-rule-2 pl-3 tx-14 leading-[1.55] text-fg-3 line-through phone:tx-15">{old}</p>}
+          {old && <p className="mt-0.5 mb-1 border-l border-rule-2 pl-3 tx-14 leading-[1.55] text-fg-3 line-through phone:tx-15">{old}</p>}
         </div>
       );
     }
@@ -315,7 +315,7 @@ function ToolLine({ tool, result, run, live, messages, results, folded }: { tool
     }
     case 'GenerateImage': {
       if (running) return <Line>Making an image</Line>;
-      if (failed) return <Expand label="Could not make the image" tone="fault"><p className="max-w-[72ch] tx-13 leading-[1.5] text-fg-2">{res ? resultText(res) : ''}</p></Expand>;
+      if (failed) return <Expand label="Could not make the image" tone="fault"><p className="tx-13 leading-[1.5] text-fg-2">{res ? resultText(res) : ''}</p></Expand>;
       // the result carries the saved files, so the grid draws as soon as the call ends
       const cards = generatedCards([{ name: tool.name, result: res }]);
       const n = cards.length;
